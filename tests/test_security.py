@@ -3,8 +3,9 @@ import hashlib
 import time
 from slack_security import verify_slack_signature
 
-def test_verify_slack_signature_mock_fallback():
+def test_verify_slack_signature_mock_fallback(monkeypatch):
     # If SLACK_SIGNING_SECRET is default/empty, verify returns True
+    monkeypatch.setattr("slack_security.SLACK_SIGNING_SECRET", "")
     res = verify_slack_signature(b'{}', {})
     assert res is True
 
