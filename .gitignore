@@ -5,6 +5,7 @@
 *.key
 *.pdf
 /static
+/static_backup
 
 # Python
 __pycache__/
