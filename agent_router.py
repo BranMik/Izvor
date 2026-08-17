@@ -1,19 +1,20 @@
-import re
 import json
 import logging
-from typing import Tuple, Dict, Any, List
+import re
+
 import litellm
 
 from config import AGENTS_CONFIG, DEFAULT_AGENT_KEY
-from slack_client import post_agent_response, fetch_thread_history
 from mcp_tools import MCP_TOOLS_SCHEMAS, execute_mcp_tool
+from slack_client import fetch_thread_history, post_agent_response
 
 logger = logging.getLogger(__name__)
 
 # Turn off verbose LiteLLM logging unless debugging
 litellm.suppress_debug_info = True
 
-def parse_agent_and_prompt(text: str) -> Tuple[str, str]:
+
+def parse_agent_and_prompt(text: str) -> tuple[str, str]:
     """
     Parses Slack message text for pseudo-agent tags or @mentions.
     Supported patterns:
@@ -31,33 +32,53 @@ def parse_agent_and_prompt(text: str) -> Tuple[str, str]:
     tag_match = re.search(r"\[([a-zA-Z0-9_]+)\]", cleaned_text)
     if tag_match:
         tag = tag_match.group(1)
-        for key in AGENTS_CONFIG.keys():
+        for key in AGENTS_CONFIG:
             if tag.lower() == key.lower():
-                prompt = re.sub(r"\[" + re.escape(tag) + r"\]", "", cleaned_text).strip()
+                prompt = re.sub(
+                    r"\[" + re.escape(tag) + r"\]", "", cleaned_text
+                ).strip()
                 return key, prompt
 
     # Search for direct @Name or name mentions in text
     for key, cfg in AGENTS_CONFIG.items():
         # Check against dictionary key (e.g. Gemini_Visionary or Mistral_TechLead)
         if re.search(r"@?" + re.escape(key), cleaned_text, re.IGNORECASE):
-            prompt = re.sub(r"@?" + re.escape(key), "", cleaned_text, flags=re.IGNORECASE).strip()
+            prompt = re.sub(
+                r"@?" + re.escape(key), "", cleaned_text, flags=re.IGNORECASE
+            ).strip()
             return key, prompt
 
         # Check against configured Slack persona username (e.g. "CaiLogics Visionary")
         persona_name = cfg.get("username", "")
-        if persona_name and re.search(r"@?" + re.escape(persona_name), cleaned_text, re.IGNORECASE):
-            prompt = re.sub(r"@?" + re.escape(persona_name), "", cleaned_text, flags=re.IGNORECASE).strip()
+        if persona_name and re.search(
+            r"@?" + re.escape(persona_name), cleaned_text, re.IGNORECASE
+        ):
+            prompt = re.sub(
+                r"@?" + re.escape(persona_name), "", cleaned_text, flags=re.IGNORECASE
+            ).strip()
             return key, prompt
 
     # Default fallback agent if no tag or name matched
     return DEFAULT_AGENT_KEY, cleaned_text
 
+
+def markdown_to_slack(text: str) -> str:
+    # Bold: **tekst** -> *tekst*
+    text = re.sub(r"\*\*(.*?)\*\*", r"*\1*", text)
+    # Headings: ### Naslov -> *Naslov*
+    text = re.sub(r"^#{1,6}\s*(.+)$", r"*\1*", text, flags=re.MULTILINE)
+    # Links: [label](url) -> <url|label>
+    text = re.sub(r"\[(.*?)\]\((.*?)\)", r"<\2|\1>", text)
+    return text
+
+
 async def process_and_respond(
     channel_id: str,
     thread_ts: str,
     raw_text: str,
-    bot_user_id: str = None
-) -> Dict[str, Any]:
+    bot_user_id: str | None = None,
+    icon_url: str | None = None,
+) -> dict[str, any]:
     """
     Main background handler: parses prompt, builds conversation history,
     calls LiteLLM with agent parameters & MCP tools, and posts response back to Slack thread.
@@ -65,20 +86,22 @@ async def process_and_respond(
     agent_key, prompt = parse_agent_and_prompt(raw_text)
     agent_cfg = AGENTS_CONFIG.get(agent_key, AGENTS_CONFIG[DEFAULT_AGENT_KEY])
 
-    logger.info(f"Routing request to Agent: {agent_key} ({agent_cfg['model']}, temp={agent_cfg['temperature']})")
+    logger.info(
+        f"Routing request to Agent: {agent_key} ({agent_cfg['model']}, temp={agent_cfg['temperature']})"
+    )
 
     # 1. Fetch thread history context
     history = await fetch_thread_history(channel_id, thread_ts, bot_user_id=bot_user_id)
 
     # 2. Build message sequence for LiteLLM
-    messages: List[Dict[str, Any]] = [
+    messages: list[dict[str, any]] = [
         {"role": "system", "content": agent_cfg["system_prompt"]}
     ]
 
     if history:
         messages.extend(history)
         # Avoid duplicating current prompt if it's already the last item in thread history
-        if not (history and history[-1]["role"] == "user" and prompt in history[-1]["content"]):
+        if not (history[-1]["role"] == "user" and prompt in history[-1]["content"]):
             messages.append({"role": "user", "content": prompt})
     else:
         messages.append({"role": "user", "content": prompt})
@@ -90,7 +113,7 @@ async def process_and_respond(
             messages=messages,
             temperature=agent_cfg["temperature"],
             tools=MCP_TOOLS_SCHEMAS,
-            tool_choice="auto"
+            tool_choice="auto",
         )
 
         response_message = response.choices[0].message
@@ -103,21 +126,27 @@ async def process_and_respond(
 
             for tool_call in tool_calls:
                 fn_name = tool_call.function.name
-                fn_args = json.loads(tool_call.function.arguments) if isinstance(tool_call.function.arguments, str) else tool_call.function.arguments
+                fn_args = (
+                    json.loads(tool_call.function.arguments)
+                    if isinstance(tool_call.function.arguments, str)
+                    else tool_call.function.arguments
+                )
                 tool_result = execute_mcp_tool(fn_name, fn_args)
 
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": tool_call.id,
-                    "name": fn_name,
-                    "content": tool_result
-                })
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tool_call.id,
+                        "name": fn_name,
+                        "content": tool_result,
+                    }
+                )
 
             # Follow-up completion after tool results
             follow_up = await litellm.acompletion(
                 model=agent_cfg["model"],
                 messages=messages,
-                temperature=agent_cfg["temperature"]
+                temperature=agent_cfg["temperature"],
             )
             final_text = follow_up.choices[0].message.content
         else:
@@ -125,6 +154,10 @@ async def process_and_respond(
 
         if not final_text:
             final_text = "(No text response generated)"
+        else:
+            final_text = markdown_to_slack(final_text)
+
+        logger.info(f"Agent {agent_key} Response: ...{final_text[-50:]}")
 
         # 5. Post response back to Slack thread with dynamic persona
         slack_res = await post_agent_response(
@@ -132,18 +165,18 @@ async def process_and_respond(
             thread_ts=thread_ts,
             text=final_text,
             username=agent_cfg["username"],
-            icon_emoji=agent_cfg["icon_emoji"]
+            icon_url=agent_cfg.get("icon_url"),
         )
         return slack_res
 
     except Exception as e:
-        logger.error(f"Error during agent completion or post: {e}", exc_info=True)
-        error_msg = f"⚠️ *Error processing request with {agent_cfg['username']}*: {str(e)}"
+        logger.exception(f"Error during agent completion or post: {e}")  # noqa: TRY401
+        error_msg = f"⚠️ *Error processing request with {agent_cfg['username']}*: {e!s}"
         await post_agent_response(
             channel_id=channel_id,
             thread_ts=thread_ts,
             text=error_msg,
             username=agent_cfg["username"],
-            icon_emoji=agent_cfg["icon_emoji"]
+            icon_url=agent_cfg.get("icon_url"),
         )
         return {"ok": False, "error": str(e)}

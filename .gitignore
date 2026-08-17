@@ -3,6 +3,8 @@
 .env.local
 *.pem
 *.key
+*.pdf
+/static
 
 # Python
 __pycache__/

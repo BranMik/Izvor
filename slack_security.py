@@ -1,10 +1,12 @@
-import hmac
 import hashlib
-import time
+import hmac
 import logging
+import time
+
 from config import SLACK_SIGNING_SECRET
 
 logger = logging.getLogger(__name__)
+
 
 def verify_slack_signature(body_bytes: bytes, headers: dict) -> bool:
     """
@@ -13,10 +15,14 @@ def verify_slack_signature(body_bytes: bytes, headers: dict) -> bool:
     """
     # If signing secret is not configured (e.g. initial dev test), log warning
     if not SLACK_SIGNING_SECRET or SLACK_SIGNING_SECRET == "your-slack-signing-secret":
-        logger.warning("SLACK_SIGNING_SECRET is not configured. Skipping signature verification for local testing.")
+        logger.warning(
+            "SLACK_SIGNING_SECRET is not configured. Skipping signature verification for local testing."
+        )
         return True
 
-    timestamp = headers.get("x-slack-request-timestamp", headers.get("X-Slack-Request-Timestamp"))
+    timestamp = headers.get(
+        "x-slack-request-timestamp", headers.get("X-Slack-Request-Timestamp")
+    )
     slack_signature = headers.get("x-slack-signature", headers.get("X-Slack-Signature"))
 
     if not timestamp or not slack_signature:
