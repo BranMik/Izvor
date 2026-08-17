@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
@@ -25,44 +26,44 @@ AGENTS_CONFIG = {
         "model": "gemini/gemini-3.5-flash",
         "temperature": 0.9,
         "username": "CaiLogics Visionary",
-        "icon_emoji": ":art:",
+        "icon_url": "https://avatars.example.com/static/avatar_22.png",
         "system_prompt": (
             "You are CaiLogics Visionary, a creative AI agent specialized in generating creative ideas, "
             "imaginative concepts, visual frameworks, and bold architectural possibilities. "
             "Your tone is inspiring, innovative, and forward-thinking."
-        )
+        ),
     },
     "Gemini_Architect": {
         "model": "gemini/gemini-3.5-flash",
         "temperature": 0.1,
         "username": "CaiLogics Architect",
-        "icon_emoji": ":triangular_ruler:",
+        "icon_url": "https://avatars.example.com/static/avatar_33.png",
         "system_prompt": (
             "You are CaiLogics Architect, an analytical AI agent specialized in system structure, "
             "component design, database modeling, direct instructions, and clean structural synthesis. "
             "Your tone is structured, precise, clear, and methodical."
-        )
+        ),
     },
     "Mistral_Innovator": {
         "model": "mistral/mistral-medium-latest",
         "temperature": 0.8,
         "username": "CaiLogics Innovator",
-        "icon_emoji": ":bulb:",
+        "icon_url": "https://avatars.example.com/static/avatar_26.png",
         "system_prompt": (
             "You are CaiLogics Innovator, a software engineering agent specialized in alternative code solutions, "
             "creative algorithms, novel optimization techniques, and modern programming paradigms. "
             "Your tone is pragmatic yet inventive."
-        )
+        ),
     },
     "Mistral_TechLead": {
         "model": "mistral/mistral-medium-latest",
         "temperature": 0.0,
         "username": "CaiLogics TechLead",
-        "icon_emoji": ":shield:",
+        "icon_url": "https://avatars.example.com/static/avatar_21.png",
         "system_prompt": (
             "You are CaiLogics TechLead, a strict and deterministic software lead specialized in code review, "
             "logic verification, edge-case safety, reliability, and exact technical directives. "
             "Your tone is authoritative, rigorous, clear, and uncompromising on quality."
-        )
-    }
+        ),
+    },
 }

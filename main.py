@@ -1,22 +1,29 @@
 import logging
-from fastapi import FastAPI, Request, HTTPException, BackgroundTasks, Response
+from pathlib import Path
+
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from slack_security import verify_slack_signature
+from fastapi.staticfiles import StaticFiles
+
 from agent_router import process_and_respond
 from config import AGENTS_CONFIG
+from slack_security import verify_slack_signature
 
 # Configure logging format
 logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+    level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 )
 logger = logging.getLogger("CaiLogicsBackend")
 
 app = FastAPI(
     title="CaiLogics Multi-Agent Slack Hub",
     description="Multi-agent orchestration platform integrating Slack Events API, LiteLLM, and MCP tools.",
-    version="1.0.0"
+    version="1.0.0",
 )
+
+# Definira točnu putanju do mape projekta gdje se nalazi main.py
+BASE_DIR = Path(__file__).resolve().parent
+app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 
 app.add_middleware(
     CORSMiddleware,
@@ -26,6 +33,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 @app.get("/")
 @app.get("/health")
 async def health_check():
@@ -33,8 +41,9 @@ async def health_check():
     return {
         "status": "healthy",
         "service": "CaiLogics Multi-Agent Hub",
-        "agents": list(AGENTS_CONFIG.keys())
+        "agents": list(AGENTS_CONFIG.keys()),
     }
+
 
 @app.post("/slack/events")
 async def slack_events(request: Request, background_tasks: BackgroundTasks):
@@ -66,7 +75,9 @@ async def slack_events(request: Request, background_tasks: BackgroundTasks):
     # 4. Handle Event Callbacks (message.channels, app_mention)
     if data.get("type") == "event_callback":
         event = data.get("event", {})
-        bot_user_id = data.get("authed_users", [None])[0] if data.get("authed_users") else None
+        bot_user_id = (
+            data.get("authed_users", [None])[0] if data.get("authed_users") else None
+        )
 
         # Filter out bot messages to avoid infinite self-loops
         if event.get("bot_id") or event.get("subtype") == "bot_message":
@@ -81,14 +92,16 @@ async def slack_events(request: Request, background_tasks: BackgroundTasks):
             raw_text = event.get("text", "")
 
             if channel_id and thread_ts and raw_text:
-                logger.info(f"Received Slack event '{event_type}' in channel {channel_id}, thread {thread_ts}")
+                logger.info(
+                    f"Received Slack event '{event_type}' in channel {channel_id}, thread {thread_ts}"
+                )
                 # Process agent response in background task to return HTTP 200 within 3s limit
                 background_tasks.add_task(
                     process_and_respond,
                     channel_id=channel_id,
                     thread_ts=thread_ts,
                     raw_text=raw_text,
-                    bot_user_id=bot_user_id
+                    bot_user_id=bot_user_id,
                 )
 
     # Always return HTTP 200 OK immediately to Slack
