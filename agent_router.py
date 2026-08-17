@@ -22,8 +22,8 @@ def parse_agent_and_prompt(text: str) -> tuple[str, str]:
     - @Gemini_Visionary prompt...
     - @CaiLogics Hub [Mistral_TechLead] prompt...
     - @CaiLogics Visionary prompt...
-    - Plain text -> defaults to Gemini_Architect
-
+    - Plain text -> defaults to Gemini_Visionary
+    Note: If no agent is specified, the default flow is to start with Gemini_Visionary, go through all others, and end with Gemini_Architect. Each agent will nominate the next agent to speak.
     Returns (agent_key, cleaned_prompt)
     """
     cleaned_text = re.sub(r"<@[A-Z0-9]+>", "", text).strip()
