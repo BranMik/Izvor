@@ -7,6 +7,7 @@ import time
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from starlette.requests import ClientDisconnect
 
 from agent_router import process_and_respond
 from config import AGENTS_CONFIG
@@ -70,26 +71,33 @@ async def slack_events(request: Request, background_tasks: BackgroundTasks):
     Handles URL verification challenges, security signature checks, deduplication,
     retries handling, and triggers agent completion.
     """
-    body_bytes = await request.body()
     headers = request.headers
 
-    # 1. Verify Slack HMAC Signature
-    if not verify_slack_signature(body_bytes, headers):
-        logger.warning("Rejected unauthorized request to /slack/events")
-        raise HTTPException(status_code=401, detail="Invalid Slack signature")
-
-    # 2. Immediately acknowledge and ignore Slack retries
+    # 1. Immediately acknowledge and ignore Slack retries before reading body
+    # This prevents reading the body of a client connection that Slack has already aborted.
     retry_num = headers.get("x-slack-retry-num") or headers.get("X-Slack-Retry-Num")
     if retry_num:
         logger.info(f"Ignoring Slack retry request (X-Slack-Retry-Num: {retry_num})")
         return Response(status_code=200)
 
-    # 3. Parse JSON payload
+    # 2. Read request body bytes safely
+    try:
+        body_bytes = await request.body()
+    except ClientDisconnect:
+        logger.info("Slack client disconnected before body could be read.")
+        return Response(status_code=200)
+
+    # 3. Verify Slack HMAC Signature
+    if not verify_slack_signature(body_bytes, headers):
+        logger.warning("Rejected unauthorized request to /slack/events")
+        raise HTTPException(status_code=401, detail="Invalid Slack signature")
+
+    # 4. Parse JSON payload
     try:
         data = await request.json()
     except Exception as e:
-        logger.error(f"Failed to parse JSON body: {e}")
-        raise HTTPException(status_code=400, detail="Invalid JSON payload")
+        logger.error(f"Failed to parse Slack event JSON: {e}")
+        raise HTTPException(status_code=400, detail="Invalid JSON payload") from e
 
     # 4. Handle Slack URL Verification Challenge
     if data.get("type") == "url_verification":
@@ -99,9 +107,12 @@ async def slack_events(request: Request, background_tasks: BackgroundTasks):
     # 5. Handle Event Callbacks (message.channels, app_mention)
     if data.get("type") == "event_callback":
         event = data.get("event", {})
-        bot_user_id = (
-            data.get("authed_users", [None])[0] if data.get("authed_users") else None
-        )
+        # Slack Events API uses 'authorizations' in modern apps, fallback to 'authed_users'
+        authorizations = data.get("authorizations")
+        if authorizations and isinstance(authorizations, list) and len(authorizations) > 0:
+            bot_user_id = authorizations[0].get("user_id")
+        else:
+            bot_user_id = data.get("authed_users", [None])[0] if data.get("authed_users") else None
 
         event_type = event.get("type")
         if event_type in ["message", "app_mention"]:

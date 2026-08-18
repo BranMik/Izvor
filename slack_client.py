@@ -25,12 +25,15 @@ async def post_agent_response(
         return {"ok": True, "mock": True}
 
     try:
+        # Append a cache-buster query parameter to force Slack to update its CDN cache for new icons
+        final_icon_url = f"{icon_url}?v=2" if icon_url else None
+
         response = await slack_async_client.chat_postMessage(
             channel=channel_id,
             thread_ts=thread_ts,
             text=text,
             username=username,
-            icon_url=icon_url,
+            icon_url=final_icon_url,
         )
         return response.data
     except SlackApiError as e:

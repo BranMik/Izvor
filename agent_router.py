@@ -20,10 +20,16 @@ REMAINING_AGENTS_MAP = {}
 
 def get_initial_agents() -> list[str]:
     """Returns the list of all optional agents that should speak in the discussion flow."""
-    return [key for key in AGENTS_CONFIG if key not in ("Gemini_Architect", "Gemini_Visionary")]
+    return [
+        key
+        for key in AGENTS_CONFIG
+        if key not in ("Gemini_Architect", "Gemini_Visionary")
+    ]
 
 
-def parse_agent_and_prompt(text: str, channel_id: str, thread_ts: str) -> tuple[str, str]:
+def parse_agent_and_prompt(
+    text: str, channel_id: str, thread_ts: str
+) -> tuple[str, str]:
     """
     Parses Slack message text for pseudo-agent tags or @mentions.
     Supported patterns:
@@ -38,11 +44,15 @@ def parse_agent_and_prompt(text: str, channel_id: str, thread_ts: str) -> tuple[
     global REMAINING_AGENTS_MAP
     thread_key = (channel_id, thread_ts)
     if thread_key not in REMAINING_AGENTS_MAP:
-        logger.info(f"[ROUTER] INITIALIZING new remaining agents list for thread_key: {thread_key}")
+        logger.info(
+            f"[ROUTER] INITIALIZING new remaining agents list for thread_key: {thread_key}"
+        )
         REMAINING_AGENTS_MAP[thread_key] = get_initial_agents()
 
     remaining = REMAINING_AGENTS_MAP[thread_key]
-    logger.info(f"[ROUTER] Current remaining agents for thread_key {thread_key}: {remaining}")
+    logger.info(
+        f"[ROUTER] Current remaining agents for thread_key {thread_key}: {remaining}"
+    )
     cleaned_text = re.sub(r"<@[A-Z0-9]+>", "", text).strip()
 
     # Search for explicit bracketed tags like [Gemini_Visionary] or [Mistral_TechLead]
@@ -109,13 +119,18 @@ async def process_and_respond(
     calls LiteLLM with agent parameters & MCP tools, and posts response back to Slack thread.
     """
     import time
+
     start_time = time.time()
-    logger.info(f"\n[{start_time}] >>> START process_and_respond for thread_ts: {thread_ts} <<<")
+    logger.info(
+        f"\n[{start_time}] >>> START process_and_respond for thread_ts: {thread_ts} <<<"
+    )
 
     agent_key, prompt = parse_agent_and_prompt(raw_text, channel_id, thread_ts)
     agent_cfg = AGENTS_CONFIG.get(agent_key, AGENTS_CONFIG[DEFAULT_AGENT_KEY])
 
-    logger.info(f"[ROUTER] Parsed Agent: {agent_key} ({agent_cfg['model']}) | Extracted Prompt length: {len(prompt)}")
+    logger.info(
+        f"[ROUTER] Parsed Agent: {agent_key} ({agent_cfg['model']}) | Extracted Prompt length: {len(prompt)}"
+    )
 
     # 1. Fetch thread history context
     history = await fetch_thread_history(channel_id, thread_ts, bot_user_id=bot_user_id)
@@ -151,7 +166,9 @@ async def process_and_respond(
             tool_choice="auto",
         )
         llm_duration = time.time() - llm_start
-        logger.info(f"[LLM] Received response for {agent_key} in {llm_duration:.2f} seconds.")
+        logger.info(
+            f"[LLM] Received response for {agent_key} in {llm_duration:.2f} seconds."
+        )
 
         response_message = response.choices[0].message
 
@@ -198,10 +215,19 @@ async def process_and_respond(
 
         # Log the specific generated tag for the next agent
         generated_tags = re.findall(r"\[([a-zA-Z0-9_]+)\]", final_text)
-        logger.info(f"[ROUTER] Agent {agent_key} generated tag(s): {generated_tags}. Full text length: {len(final_text)}")
+        logger.info(
+            f"[ROUTER] Agent {agent_key} generated tag(s): {generated_tags}. Full text length: {len(final_text)}"
+        )
+
+        # Prevent Slack WebSocket client saturation by adding a 3-second pacing delay.
+        # This keeps the real-time stream active and makes the conversation pace feel natural.
+        import asyncio
+        await asyncio.sleep(3.0)
 
         # 5. Post response back to Slack thread with dynamic persona
-        logger.info(f"[SLACK] Posting response to channel {channel_id}, thread_ts {thread_ts} as {agent_cfg['username']}")
+        logger.info(
+            f"[SLACK] Posting response to channel {channel_id}, thread_ts {thread_ts} as {agent_cfg['username']}"
+        )
         slack_res = await post_agent_response(
             channel_id=channel_id,
             thread_ts=thread_ts,
@@ -214,10 +240,14 @@ async def process_and_respond(
 
         # Reset remaining agents for this thread when Architect finishes
         if agent_key == "Gemini_Architect" and thread_key in REMAINING_AGENTS_MAP:
-            logger.info(f"[ROUTER] Gemini_Architect finished! Deleting REMAINING_AGENTS_MAP for thread {thread_key}")
+            logger.info(
+                f"[ROUTER] Gemini_Architect finished! Deleting REMAINING_AGENTS_MAP for thread {thread_key}"
+            )
             del REMAINING_AGENTS_MAP[thread_key]
 
-        logger.info(f"[{time.time()}] <<< END process_and_respond for thread_ts: {thread_ts} (Total: {time.time() - start_time:.2f}s) <<<\n")
+        logger.info(
+            f"[{time.time()}] <<< END process_and_respond for thread_ts: {thread_ts} (Total: {time.time() - start_time:.2f}s) <<<\n"
+        )
         return slack_res
 
     except Exception as e:

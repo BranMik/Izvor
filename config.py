@@ -48,8 +48,8 @@ AGENTS_CONFIG = {
             2. Include 2-3 distinct innovative concepts, each with a catchy title.
             3. For each concept, provide a brief description of the innovation and its potential impact.
             4. At the very end of your response, nominate the next agent from the available list below who you think should speak next based on what needs addressing.
-            5. Use this exact syntax when refering to the next agent: '[AGENT_KEY]' (EXAMPLE: '[Mistral_Innovator]')
-            6. If there are no agents left to nominate, then nominate Gemini_Architect.
+            5. Use this exact syntax when refering to the next agent: '<@U0BQAFKLD2S> [AGENT_KEY]' (EXAMPLE: '<@U0BQAFKLD2S> [Mistral_Innovator]')
+            6. If there are no agents left to nominate, then nominate Gemini_Architect. 
 
             AVAILABLE AGENTS WHO HAVE NOT SPOKEN YET:
 
@@ -79,7 +79,8 @@ AGENTS_CONFIG = {
             OUTPUT & LENGTH CONSTRAINTS:
             1. Your response should be structured, clear, and authoritative.
             2. Include key architectural principles, component interactions, and technical trade-offs.
-            3. Your response should take into account all the conclusions and valid points made in the previous turns of the discussion, and be an end summary of the discussion..
+            3. Include one sentence comment and your opinion about each agent's response.
+            4. Your response should take into account all the conclusions and be an end summary of the discussion.
             """
         ),
     },
@@ -111,7 +112,7 @@ AGENTS_CONFIG = {
                 - 1 concluding sentence with a concrete recommendation.
             3. If you can fit it into the word limit , you can add whatever you feel appropriate, I leave it to your discretion.
             4. At the very end of your response, nominate the next agent from the available list below who you think should speak next based on what needs addressing.
-            5. Use this exact syntax when refering to the next agent: '[AGENT_KEY]' (EXAMPLE: '[Mistral_Innovator]')
+            5. Use this exact syntax when refering to the next agent: '<@U0BQAFKLD2S> [AGENT_KEY]' (EXAMPLE: '<@U0BQAFKLD2S> [Mistral_Innovator]')
             6. If there are no agents left to nominate, then nominate Gemini_Architect.
 
             AVAILABLE AGENTS WHO HAVE NOT SPOKEN YET:
@@ -147,7 +148,7 @@ AGENTS_CONFIG = {
                 - 1 concluding sentence with a concrete recommendation.
             3. If you can fit it into the word limit , you can add whatever you feel appropriate, I leave it to your discretion.
             4. At the very end of your response, nominate the next agent from the available list below who you think should speak next based on what needs addressing.
-            5. Use this exact syntax when refering to the next agent: '[AGENT_KEY]' (EXAMPLE: '[Mistral_Innovator]')
+            5. Use this exact syntax when refering to the next agent: '<@U0BQAFKLD2S> [AGENT_KEY]' (EXAMPLE: '<@U0BQAFKLD2S> [Mistral_Innovator]')
             6. If there are no agents left to nominate, then nominate Gemini_Architect.
 
             AVAILABLE AGENTS WHO HAVE NOT SPOKEN YET:
@@ -183,7 +184,7 @@ AGENTS_CONFIG = {
                 - 1 concluding sentence with a concrete recommendation.
             3. If you can fit it into the word limit , you can add whatever you feel appropriate, I leave it to your discretion.
             4. At the very end of your response, nominate the next agent from the available list below who you think should speak next based on what needs addressing.
-            5. Use this exact syntax when refering to the next agent: '[AGENT_KEY]' (EXAMPLE: '[Mistral_Innovator]')
+            5. Use this exact syntax when refering to the next agent: '<@U0BQAFKLD2S> [AGENT_KEY]' (EXAMPLE: '<@U0BQAFKLD2S> [Mistral_Innovator]')
             6. If there are no agents left to nominate, then nominate Gemini_Architect.
 
             AVAILABLE AGENTS WHO HAVE NOT SPOKEN YET:
@@ -219,7 +220,7 @@ AGENTS_CONFIG = {
                 - 1 concluding sentence with a concrete recommendation.
             3. If you can fit it into the word limit , you can add whatever you feel appropriate, I leave it to your discretion.
             4. At the very end of your response, nominate the next agent from the available list below who you think should speak next based on what needs addressing.
-            5. Use this exact syntax when refering to the next agent: '[AGENT_KEY]' (EXAMPLE: '[Mistral_Innovator]')
+            5. Use this exact syntax when refering to the next agent: '<@U0BQAFKLD2S> [AGENT_KEY]' (EXAMPLE: '<@U0BQAFKLD2S> [Mistral_Innovator]')
             6. If there are no agents left to nominate, then nominate Gemini_Architect.
 
             AVAILABLE AGENTS WHO HAVE NOT SPOKEN YET:
@@ -255,7 +256,7 @@ AGENTS_CONFIG = {
                 - 1 concluding sentence with a concrete recommendation.
             3. If you can fit it into the word limit , you can add whatever you feel appropriate, I leave it to your discretion.
             4. At the very end of your response, nominate the next agent from the available list below who you think should speak next based on what needs addressing.
-            5. Use this exact syntax when refering to the next agent: '[AGENT_KEY]' (EXAMPLE: '[Mistral_Innovator]')
+            5. Use this exact syntax when refering to the next agent: ' <@U0BQAFKLD2S> [AGENT_KEY]' (EXAMPLE: '<@U0BQAFKLD2S> [Mistral_Innovator]')
             6. If there are no agents left to nominate, then nominate Gemini_Architect.
 
             AVAILABLE AGENTS WHO HAVE NOT SPOKEN YET:
@@ -291,7 +292,7 @@ AGENTS_CONFIG = {
                 - 1 concluding sentence with a concrete recommendation.
             3. If you can fit it into the word limit , you can add whatever you feel appropriate, I leave it to your discretion.
             4. At the very end of your response, nominate the next agent from the available list below who you think should speak next based on what needs addressing.
-            5. Use this exact syntax when refering to the next agent: '[AGENT_KEY]' (EXAMPLE: '[Mistral_Innovator]')
+            5. Use this exact syntax when refering to the next agent: '<@U0BQAFKLD2S> [AGENT_KEY]' (EXAMPLE: '<@U0BQAFKLD2S> [Mistral_Innovator]')
             6. If there are no agents left to nominate, then nominate Gemini_Architect.
 
             AVAILABLE AGENTS WHO HAVE NOT SPOKEN YET:
@@ -328,7 +329,7 @@ AGENTS_CONFIG = {
                 - 1 concluding sentence with a concrete recommendation.
             3. If you can fit it into the word limit , you can add whatever you feel appropriate, I leave it to your discretion.
             4. At the very end of your response, nominate the next agent from the available list below who you think should speak next based on what needs addressing.
-            5. Use this exact syntax when refering to the next agent: '[AGENT_KEY]' (EXAMPLE: '[Mistral_Innovator]')
+            5. Use this exact syntax when refering to the next agent: '<@U0BQAFKLD2S> [AGENT_KEY]' (EXAMPLE: '<@U0BQAFKLD2S> [Mistral_Innovator]')
             6. If there are no agents left to nominate, then nominate Gemini_Architect.
 
             AVAILABLE AGENTS WHO HAVE NOT SPOKEN YET:
@@ -365,7 +366,7 @@ AGENTS_CONFIG = {
                 - 1 concluding sentence with a concrete recommendation.
             3. If you can fit it into the word limit , you can add whatever you feel appropriate, I leave it to your discretion.
             4. At the very end of your response, nominate the next agent from the available list below who you think should speak next based on what needs addressing.
-            5. Use this exact syntax when refering to the next agent: '[AGENT_KEY]' (EXAMPLE: '[Mistral_Innovator]')
+            5. Use this exact syntax when refering to the next agent: '<@U0BQAFKLD2S> [AGENT_KEY]' (EXAMPLE: '<@U0BQAFKLD2S> [Mistral_Innovator]')
             6. If there are no agents left to nominate, then nominate Gemini_Architect.
 
             AVAILABLE AGENTS WHO HAVE NOT SPOKEN YET:
@@ -402,7 +403,7 @@ AGENTS_CONFIG = {
                 - 1 concluding sentence with a concrete recommendation.
             3. If you can fit it into the word limit , you can add whatever you feel appropriate, I leave it to your discretion.
             4. At the very end of your response, nominate the next agent from the available list below who you think should speak next based on what needs addressing.
-            5. Use this exact syntax when refering to the next agent: '[AGENT_KEY]' (EXAMPLE: '[Mistral_Innovator]')
+            5. Use this exact syntax when refering to the next agent: '<@U0BQAFKLD2S> [AGENT_KEY]' (EXAMPLE: '<@U0BQAFKLD2S> [Mistral_Innovator]')
             6. If there are no agents left to nominate, then nominate Gemini_Architect.
 
             AVAILABLE AGENTS WHO HAVE NOT SPOKEN YET:
@@ -439,7 +440,7 @@ AGENTS_CONFIG = {
                 - 1 concluding sentence with a concrete recommendation.
             3. If you can fit it into the word limit , you can add whatever you feel appropriate, I leave it to your discretion.
             4. At the very end of your response, nominate the next agent from the available list below who you think should speak next based on what needs addressing.
-            5. Use this exact syntax when refering to the next agent: '[AGENT_KEY]' (EXAMPLE: '[Mistral_Innovator]')
+            5. Use this exact syntax when refering to the next agent: '<@U0BQAFKLD2S> [AGENT_KEY]' (EXAMPLE: '<@U0BQAFKLD2S> [Mistral_Innovator]')
             6. If there are no agents left to nominate, then nominate Gemini_Architect.
 
             AVAILABLE AGENTS WHO HAVE NOT SPOKEN YET:
@@ -476,7 +477,7 @@ AGENTS_CONFIG = {
                 - 1 concluding sentence with a concrete recommendation.
             3. If you can fit it into the word limit , you can add whatever you feel appropriate, I leave it to your discretion.
             4. At the very end of your response, nominate the next agent from the available list below who you think should speak next based on what needs addressing.
-            5. Use this exact syntax when refering to the next agent: '[AGENT_KEY]' (EXAMPLE: '[Mistral_Innovator]')
+            5. Use this exact syntax when refering to the next agent: '<@U0BQAFKLD2S> [AGENT_KEY]' (EXAMPLE: '<@U0BQAFKLD2S> [Mistral_Innovator]')
             6. If there are no agents left to nominate, then nominate Gemini_Architect.
 
             AVAILABLE AGENTS WHO HAVE NOT SPOKEN YET:
@@ -513,7 +514,7 @@ AGENTS_CONFIG = {
                 - 1 concluding sentence with a concrete recommendation.
             3. If you can fit it into the word limit , you can add whatever you feel appropriate, I leave it to your discretion.
             4. At the very end of your response, nominate the next agent from the available list below who you think should speak next based on what needs addressing.
-            5. Use this exact syntax when refering to the next agent: '[AGENT_KEY]' (EXAMPLE: '[Mistral_Innovator]')
+            5. Use this exact syntax when refering to the next agent: '<@U0BQAFKLD2S> [AGENT_KEY]' (EXAMPLE: '<@U0BQAFKLD2S> [Mistral_Innovator]')
             6. If there are no agents left to nominate, then nominate Gemini_Architect.
 
             AVAILABLE AGENTS WHO HAVE NOT SPOKEN YET:
@@ -550,7 +551,7 @@ AGENTS_CONFIG = {
                 - 1 concluding sentence with a concrete recommendation.
             3. If you can fit it into the word limit , you can add whatever you feel appropriate, I leave it to your discretion.
             4. At the very end of your response, nominate the next agent from the available list below who you think should speak next based on what needs addressing.
-            5. Use this exact syntax when refering to the next agent: '[AGENT_KEY]' (EXAMPLE: '[Mistral_Innovator]')
+            5. Use this exact syntax when refering to the next agent: '<@U0BQAFKLD2S> [AGENT_KEY]' (EXAMPLE: '<@U0BQAFKLD2S> [Mistral_Innovator]')
             6. If there are no agents left to nominate, then nominate Gemini_Architect.
 
             AVAILABLE AGENTS WHO HAVE NOT SPOKEN YET:
