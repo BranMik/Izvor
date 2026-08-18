@@ -3,6 +3,7 @@ import logging
 import re
 
 import litellm
+from starlette.concurrency import run_in_threadpool
 
 from config import AGENTS_CONFIG, DEFAULT_AGENT_KEY
 from mcp_tools import MCP_TOOLS_SCHEMAS, execute_mcp_tool
@@ -13,8 +14,16 @@ logger = logging.getLogger(__name__)
 # Turn off verbose LiteLLM logging unless debugging
 litellm.suppress_debug_info = True
 
+# Track agents who haven't spoken yet per thread (mapped by (channel_id, thread_ts))
+REMAINING_AGENTS_MAP = {}
 
-def parse_agent_and_prompt(text: str) -> tuple[str, str]:
+
+def get_initial_agents() -> list[str]:
+    """Returns the list of all optional agents that should speak in the discussion flow."""
+    return [key for key in AGENTS_CONFIG if key not in ("Gemini_Architect", "Gemini_Visionary")]
+
+
+def parse_agent_and_prompt(text: str, channel_id: str, thread_ts: str) -> tuple[str, str]:
     """
     Parses Slack message text for pseudo-agent tags or @mentions.
     Supported patterns:
@@ -26,6 +35,14 @@ def parse_agent_and_prompt(text: str) -> tuple[str, str]:
     Note: If no agent is specified, the default flow is to start with Gemini_Visionary, go through all others, and end with Gemini_Architect. Each agent will nominate the next agent to speak.
     Returns (agent_key, cleaned_prompt)
     """
+    global REMAINING_AGENTS_MAP
+    thread_key = (channel_id, thread_ts)
+    if thread_key not in REMAINING_AGENTS_MAP:
+        logger.info(f"[ROUTER] INITIALIZING new remaining agents list for thread_key: {thread_key}")
+        REMAINING_AGENTS_MAP[thread_key] = get_initial_agents()
+
+    remaining = REMAINING_AGENTS_MAP[thread_key]
+    logger.info(f"[ROUTER] Current remaining agents for thread_key {thread_key}: {remaining}")
     cleaned_text = re.sub(r"<@[A-Z0-9]+>", "", text).strip()
 
     # Search for explicit bracketed tags like [Gemini_Visionary] or [Mistral_TechLead]
@@ -37,6 +54,8 @@ def parse_agent_and_prompt(text: str) -> tuple[str, str]:
                 prompt = re.sub(
                     r"\[" + re.escape(tag) + r"\]", "", cleaned_text
                 ).strip()
+                if key in remaining:
+                    remaining.remove(key)
                 return key, prompt
 
     # Search for direct @Name or name mentions in text
@@ -46,6 +65,8 @@ def parse_agent_and_prompt(text: str) -> tuple[str, str]:
             prompt = re.sub(
                 r"@?" + re.escape(key), "", cleaned_text, flags=re.IGNORECASE
             ).strip()
+            if key in remaining:
+                remaining.remove(key)
             return key, prompt
 
         # Check against configured Slack persona username (e.g. "CaiLogics Visionary")
@@ -56,9 +77,13 @@ def parse_agent_and_prompt(text: str) -> tuple[str, str]:
             prompt = re.sub(
                 r"@?" + re.escape(persona_name), "", cleaned_text, flags=re.IGNORECASE
             ).strip()
+            if key in remaining:
+                remaining.remove(key)
             return key, prompt
 
     # Default fallback agent if no tag or name matched
+    if DEFAULT_AGENT_KEY in remaining:
+        remaining.remove(DEFAULT_AGENT_KEY)
     return DEFAULT_AGENT_KEY, cleaned_text
 
 
@@ -83,20 +108,27 @@ async def process_and_respond(
     Main background handler: parses prompt, builds conversation history,
     calls LiteLLM with agent parameters & MCP tools, and posts response back to Slack thread.
     """
-    agent_key, prompt = parse_agent_and_prompt(raw_text)
+    import time
+    start_time = time.time()
+    logger.info(f"\n[{start_time}] >>> START process_and_respond for thread_ts: {thread_ts} <<<")
+
+    agent_key, prompt = parse_agent_and_prompt(raw_text, channel_id, thread_ts)
     agent_cfg = AGENTS_CONFIG.get(agent_key, AGENTS_CONFIG[DEFAULT_AGENT_KEY])
 
-    logger.info(
-        f"Routing request to Agent: {agent_key} ({agent_cfg['model']}, temp={agent_cfg['temperature']})"
-    )
+    logger.info(f"[ROUTER] Parsed Agent: {agent_key} ({agent_cfg['model']}) | Extracted Prompt length: {len(prompt)}")
 
     # 1. Fetch thread history context
     history = await fetch_thread_history(channel_id, thread_ts, bot_user_id=bot_user_id)
+    logger.info(f"[ROUTER] Fetched {len(history)} messages from thread history.")
 
     # 2. Build message sequence for LiteLLM
-    messages: list[dict[str, any]] = [
-        {"role": "system", "content": agent_cfg["system_prompt"]}
-    ]
+    system_prompt = agent_cfg["system_prompt"]
+    thread_key = (channel_id, thread_ts)
+    remaining = REMAINING_AGENTS_MAP.get(thread_key, get_initial_agents())
+    if remaining:
+        system_prompt = f"{system_prompt}\n{', '.join(remaining)}"
+
+    messages: list[dict[str, any]] = [{"role": "system", "content": system_prompt}]
 
     if history:
         messages.extend(history)
@@ -107,14 +139,19 @@ async def process_and_respond(
         messages.append({"role": "user", "content": prompt})
 
     try:
-        # 3. Call LiteLLM model with MCP tools
-        response = await litellm.acompletion(
+        # 3. Call LiteLLM model with MCP tools in a threadpool to prevent freezing the event loop
+        logger.info(f"[LLM] Dispatching litellm.completion for {agent_key}...")
+        llm_start = time.time()
+        response = await run_in_threadpool(
+            litellm.completion,
             model=agent_cfg["model"],
             messages=messages,
-            temperature=agent_cfg["temperature"],
+            # temperature=agent_cfg["temperature"],
             tools=MCP_TOOLS_SCHEMAS,
             tool_choice="auto",
         )
+        llm_duration = time.time() - llm_start
+        logger.info(f"[LLM] Received response for {agent_key} in {llm_duration:.2f} seconds.")
 
         response_message = response.choices[0].message
 
@@ -142,11 +179,12 @@ async def process_and_respond(
                     }
                 )
 
-            # Follow-up completion after tool results
-            follow_up = await litellm.acompletion(
+            # Follow-up completion after tool results in a threadpool
+            follow_up = await run_in_threadpool(
+                litellm.completion,
                 model=agent_cfg["model"],
                 messages=messages,
-                temperature=agent_cfg["temperature"],
+                # temperature=agent_cfg["temperature"],
             )
             final_text = follow_up.choices[0].message.content
         else:
@@ -154,12 +192,16 @@ async def process_and_respond(
 
         if not final_text:
             final_text = "(No text response generated)"
+            logger.warning(f"[ROUTER] final_text was empty for {agent_key}!")
         else:
             final_text = markdown_to_slack(final_text)
 
-        logger.info(f"Agent {agent_key} Response: ...{final_text[-50:]}")
+        # Log the specific generated tag for the next agent
+        generated_tags = re.findall(r"\[([a-zA-Z0-9_]+)\]", final_text)
+        logger.info(f"[ROUTER] Agent {agent_key} generated tag(s): {generated_tags}. Full text length: {len(final_text)}")
 
         # 5. Post response back to Slack thread with dynamic persona
+        logger.info(f"[SLACK] Posting response to channel {channel_id}, thread_ts {thread_ts} as {agent_cfg['username']}")
         slack_res = await post_agent_response(
             channel_id=channel_id,
             thread_ts=thread_ts,
@@ -167,16 +209,24 @@ async def process_and_respond(
             username=agent_cfg["username"],
             icon_url=agent_cfg.get("icon_url"),
         )
+        posted_ts = slack_res.get("ts")
+        logger.info(f"[SLACK] Successfully posted message! Received ts: {posted_ts}")
+
+        # Reset remaining agents for this thread when Architect finishes
+        if agent_key == "Gemini_Architect" and thread_key in REMAINING_AGENTS_MAP:
+            logger.info(f"[ROUTER] Gemini_Architect finished! Deleting REMAINING_AGENTS_MAP for thread {thread_key}")
+            del REMAINING_AGENTS_MAP[thread_key]
+
+        logger.info(f"[{time.time()}] <<< END process_and_respond for thread_ts: {thread_ts} (Total: {time.time() - start_time:.2f}s) <<<\n")
         return slack_res
 
     except Exception as e:
-        logger.exception(f"Error during agent completion or post: {e}")  # noqa: TRY401
+        logger.exception(f"[ERROR] Exception during agent completion or post: {e}")
         error_msg = f"⚠️ *Error processing request with {agent_cfg['username']}*: {e!s}"
         await post_agent_response(
             channel_id=channel_id,
             thread_ts=thread_ts,
             text=error_msg,
-            username=agent_cfg["username"],
-            icon_url=agent_cfg.get("icon_url"),
+            username="System Error",
         )
         return {"ok": False, "error": str(e)}
