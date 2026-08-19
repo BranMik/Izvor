@@ -14,6 +14,8 @@ if os.getenv("MISTRAL_API_KEY"):
     os.environ["MISTRAL_API_KEY"] = os.getenv("MISTRAL_API_KEY")
 if os.getenv("GROQ_API_KEY"):
     os.environ["GROQ_API_KEY"] = os.getenv("GROQ_API_KEY")
+if os.getenv("TOGETHERAI_API_KEY"):
+    os.environ["TOGETHERAI_API_KEY"] = os.getenv("TOGETHERAI_API_KEY")
 
 SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN", "")
 SLACK_SIGNING_SECRET = os.getenv("SLACK_SIGNING_SECRET", "")
@@ -167,8 +169,8 @@ AGENTS_CONFIG = {
             """
         ),
     },
-    "Groq_Sceptic": {
-        "model": "groq/openai/gpt-oss-120b",
+    "OpenAi_Sceptic": {
+        "model": "together_ai/openai/gpt-oss-120b",
         # "temperature": 0.9,
         "username": "CaiLogics Sceptic",
         "icon_url": "https://agents-slack.cailogics.com/static/avatar_31.png",
@@ -284,8 +286,8 @@ AGENTS_CONFIG = {
             """
         ),
     },
-    "Mistral_ScopeOptimizer": {
-        "model": "mistral/mistral-medium-latest",
+    "MiniMaxAI_ScopeOptimizer": {
+        "model": "together_ai/MiniMaxAI/MiniMax-M3",
         # "temperature": 0.0,
         "username": "CaiLogics Scope Optimizer",
         "icon_url": "https://agents-slack.cailogics.com/static/avatar_26.png",
@@ -323,8 +325,8 @@ AGENTS_CONFIG = {
             """
         ),
     },
-    "Mistral_ROIStrategist": {
-        "model": "mistral/mistral-medium-latest",
+    "PrismML_ROIStrategist": {
+        "model": "together_ai/Prism-ML/Ternary-Bonsai-27B",
         # "temperature": 0.8,
         "username": "CaiLogics ROI Strategist",
         "icon_url": "https://agents-slack.cailogics.com/static/avatar_29.png",
@@ -363,8 +365,8 @@ AGENTS_CONFIG = {
             """
         ),
     },
-    "Mistral_UserAdvocate": {
-        "model": "mistral/mistral-medium-latest",
+    "PrismML_UserAdvocate": {
+        "model": "together_ai/Prism-ML/Ternary-Bonsai-27B",
         # "temperature": 0.0,
         "username": "CaiLogics User Advocate",
         "icon_url": "https://agents-slack.cailogics.com/static/avatar_30.png",
@@ -403,8 +405,8 @@ AGENTS_CONFIG = {
             """
         ),
     },
-    "Mistral_SecurityArchitect": {
-        "model": "mistral/mistral-medium-latest",
+    "DeepSeek_SecurityArchitect": {
+        "model": "together_ai/deepseek-ai/DeepSeek-V4-Flash-0731",
         # "temperature": 0.9,
         "username": "CaiLogics Security Architect",
         "icon_url": "https://agents-slack.cailogics.com/static/avatar_20.png",
@@ -483,8 +485,8 @@ AGENTS_CONFIG = {
             """
         ),
     },
-    "Mistral_OperationalReliabilityLead": {
-        "model": "mistral/mistral-medium-latest",
+    "OpenAI_OperationalReliabilityLead": {
+        "model": "together_ai/openai/gpt-oss-120b",
         # "temperature": 0.0,
         "username": "CaiLogics Operational Reliability Lead",
         "icon_url": "https://agents-slack.cailogics.com/static/avatar_24.png",
@@ -563,8 +565,8 @@ AGENTS_CONFIG = {
             """
         ),
     },
-    "Groq_MarketAndCompetitionResearchExpert": {
-        "model": "groq/compound",
+    "DeepSeek_MarketAndCompetitionResearchExpert": {
+        "model": "together_ai/deepseek-ai/DeepSeek-V4-Flash-0731",
         # "temperature": 0.0,
         "username": "CaiLogics Market & Competition Research Expert",
         "icon_url": "https://agents-slack.cailogics.com/static/avatar_6.png",

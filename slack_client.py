@@ -13,7 +13,11 @@ slack_async_client = AsyncWebClient(token=SLACK_BOT_TOKEN)
 
 
 async def post_agent_response(
-    channel_id: str, thread_ts: str, text: str, username: str, icon_url: str
+    channel_id: str,
+    thread_ts: str,
+    text: str,
+    username: str,
+    icon_url: str = None,
 ) -> dict[str, Any]:
     """
     Posts a message to Slack thread using dynamic persona fields (chat:write.customize).
