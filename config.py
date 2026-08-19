@@ -564,7 +564,7 @@ AGENTS_CONFIG = {
         ),
     },
     "Groq_MarketAndCompetitionResearchExpert": {
-        "model": "groq/qwen/qwen3.6-27b",
+        "model": "groq/compound",
         # "temperature": 0.0,
         "username": "CaiLogics Market & Competition Research Expert",
         "icon_url": "https://avatars.example.com/static/avatar_6.png",
@@ -584,6 +584,7 @@ AGENTS_CONFIG = {
             3. Compare proposed implementations against established benchmarks and competitor moats (e.g., pricing models, distribution strategies, UX standards).
             4. Direct the team toward whitespace opportunities where the product can realistically win rather than fighting head-to-head in saturated battlegrounds.
             5. Try to find flaws or blind spots in previous ideas and suggestions from your unique expert perspective.
+            6. If necessary conduct an advanced web search to gather latest information about the market and competitors.
 
             OUTPUT & LENGTH CONSTRAINTS:
             1. Hard Limit: Your entire response must strictly NOT exceed 300 words.
