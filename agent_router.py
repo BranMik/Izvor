@@ -13,9 +13,13 @@ logger = logging.getLogger(__name__)
 
 # Turn off verbose LiteLLM logging unless debugging
 litellm.suppress_debug_info = True
+litellm.drop_params = True
 
 # Track agents who haven't spoken yet per thread (mapped by (channel_id, thread_ts))
 REMAINING_AGENTS_MAP = {}
+
+# Track threads that are running a custom tagged agent sequence
+CUSTOM_FLOW_THREADS = set()
 
 
 def get_initial_agents() -> list[str]:
@@ -25,6 +29,46 @@ def get_initial_agents() -> list[str]:
         for key in AGENTS_CONFIG
         if key not in ("Gemini_Architect", "Gemini_Visionary")
     ]
+
+
+def extract_tagged_agents(text: str) -> list[str]:
+    """
+    Extracts all valid agent keys mentioned/tagged in the text,
+    ordered by their appearance in the text.
+    """
+    matches = []
+    # Clean text to remove bot mentions
+    cleaned = re.sub(r"<@[A-Z0-9]+>", "", text)
+
+    # 1. Bracketed tags
+    for match in re.finditer(r"\[([a-zA-Z0-9_]+)\]", cleaned):
+        tag = match.group(1).lower()
+        for key in AGENTS_CONFIG:
+            if tag == key.lower():
+                matches.append((match.start(), key))
+                break
+
+    # 2. Key or username mentions
+    for key, cfg in AGENTS_CONFIG.items():
+        for match in re.finditer(r"@?" + re.escape(key), cleaned, re.IGNORECASE):
+            matches.append((match.start(), key))
+        username = cfg.get("username", "")
+        if username:
+            for match in re.finditer(
+                r"@?" + re.escape(username), cleaned, re.IGNORECASE
+            ):
+                matches.append((match.start(), key))
+
+    # Sort matches by position in text to preserve order
+    matches.sort(key=lambda x: x[0])
+
+    # Deduplicate while preserving order
+    unique_keys = []
+    for pos, key in matches:
+        if key not in unique_keys:
+            unique_keys.append(key)
+
+    return unique_keys
 
 
 def parse_agent_and_prompt(
@@ -130,6 +174,21 @@ async def process_and_respond(
     agent_key, prompt, was_explicit_target = parse_agent_and_prompt(
         raw_text, channel_id, thread_ts
     )
+
+    thread_key = (channel_id, thread_ts)
+
+    # Adjust remaining agents list if user input explicitly tagged several agents
+    if not is_bot_trigger:
+        tagged = extract_tagged_agents(raw_text)
+        if tagged:
+            agent_key = tagged[0]
+            remaining_tagged = [a for a in tagged if a != agent_key]
+            REMAINING_AGENTS_MAP[thread_key] = remaining_tagged
+            CUSTOM_FLOW_THREADS.add(thread_key)
+            was_explicit_target = True
+        else:
+            CUSTOM_FLOW_THREADS.discard(thread_key)
+
     agent_cfg = AGENTS_CONFIG.get(agent_key, AGENTS_CONFIG[DEFAULT_AGENT_KEY])
 
     logger.info(
@@ -143,20 +202,27 @@ async def process_and_respond(
     # 2. Build message sequence for LiteLLM
     system_prompt = agent_cfg["system_prompt"]
 
-    # If explicitly targeted by a human user, bypass discussion loop and halt nominations
-    if was_explicit_target and not is_bot_trigger:
+    remaining = REMAINING_AGENTS_MAP.get(thread_key, get_initial_agents())
+    is_custom_flow = thread_key in CUSTOM_FLOW_THREADS
+
+    # Determine if we should force termination (no more nominations)
+    force_termination = False
+    if was_explicit_target and not is_bot_trigger and not remaining:
+        force_termination = True
+    elif is_custom_flow and not remaining:
+        force_termination = True
+
+    if force_termination:
         logger.info(
-            f"[ROUTER] Agent {agent_key} targeted explicitly by human user. Forcing termination."
+            f"[ROUTER] Agent {agent_key} forcing termination (no remaining agents in sequence)."
         )
         system_prompt += (
-            "\n\nCRITICAL CONSTRAINT: You have been directly tagged/mentioned by a human user in a single-turn query. "
+            "\n\nCRITICAL CONSTRAINT: You are the last agent requested to speak in this turn. "
             "Do NOT nominate any other agent to speak next. Do NOT include any bracketed agent key (like [Mistral_Innovator] "
-            "or [Gemini_Architect]) at the end of your response. Simply answer the question and finish your response."
+            "or [Gemini_Architect]) at the end of your response. Simply answer the question/summarize and finish your response."
         )
     else:
         # Standard nomination loop
-        thread_key = (channel_id, thread_ts)
-        remaining = REMAINING_AGENTS_MAP.get(thread_key, get_initial_agents())
         if remaining:
             system_prompt = f"{system_prompt}\n{', '.join(remaining)}"
 
@@ -244,13 +310,16 @@ async def process_and_respond(
             final_text = response_message.content
 
         if not final_text:
-            next_tag = (
-                REMAINING_AGENTS_MAP[thread_key][0]
-                if thread_key in REMAINING_AGENTS_MAP
-                and len(REMAINING_AGENTS_MAP[thread_key]) > 0
-                else "Gemini_Architect"
-            )
-            final_text = f"(No text response generated) [{next_tag}] next"
+            if force_termination:
+                final_text = "(No text response generated)"
+            else:
+                next_tag = (
+                    REMAINING_AGENTS_MAP[thread_key][0]
+                    if thread_key in REMAINING_AGENTS_MAP
+                    and len(REMAINING_AGENTS_MAP[thread_key]) > 0
+                    else "Gemini_Architect"
+                )
+                final_text = f"(No text response generated) [{next_tag}] next"
             logger.warning(f"[ROUTER] final_text was empty for {agent_key}!")
         else:
             final_text = markdown_to_slack(final_text)
@@ -286,8 +355,15 @@ async def process_and_respond(
         posted_ts = slack_res.get("ts")
         logger.info(f"[SLACK] Successfully posted message! Received ts: {posted_ts}")
 
-        # Reset remaining agents for this thread when Architect finishes
-        if agent_key == "Gemini_Architect" and thread_key in REMAINING_AGENTS_MAP:
+        # Reset remaining agents/custom flows for this thread when finishing
+        if force_termination and thread_key in CUSTOM_FLOW_THREADS:
+            logger.info(
+                f"[ROUTER] Custom sequence flow finished! Deleting state for thread {thread_key}"
+            )
+            CUSTOM_FLOW_THREADS.discard(thread_key)
+            if thread_key in REMAINING_AGENTS_MAP:
+                del REMAINING_AGENTS_MAP[thread_key]
+        elif agent_key == "Gemini_Architect" and thread_key in REMAINING_AGENTS_MAP:
             logger.info(
                 f"[ROUTER] Gemini_Architect finished! Deleting REMAINING_AGENTS_MAP for thread {thread_key}"
             )
