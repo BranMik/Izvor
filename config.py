@@ -48,7 +48,7 @@ AGENTS_CONFIG = {
             2. Include 2-3 distinct innovative concepts, each with a catchy title.
             3. For each concept, provide a brief description of the innovation and its potential impact.
             4. At the very end of your response, nominate the next agent from the available list below who you think should speak next based on what needs addressing.
-            5. Use this exact syntax when refering to the next agent: '<@U0BQAFKLD2S> [AGENT_KEY]' (EXAMPLE: '<@U0BQAFKLD2S> [Mistral_Innovator]')
+            5. Use this exact syntax when refering to the next agent: '[AGENT_KEY]' (EXAMPLE: '[Mistral_Innovator]')
             6. If there are no agents left to nominate, then nominate Gemini_Architect. 
 
             AVAILABLE AGENTS WHO HAVE NOT SPOKEN YET:
@@ -106,14 +106,15 @@ AGENTS_CONFIG = {
 
             OUTPUT & LENGTH CONSTRAINTS:
             1. Hard Limit: Your entire response must strictly NOT exceed 300 words.
-            2. Your answer must contain at least these 3 things: 
+            2. Exception to Hard Limit: Only if the user ask you to do a more comprehensive analysis you can go up or whatever word count user specificaly mentioned , or 1000 words maximum if user didn't explicitly mentioned limit.
+            3. Your answer must contain at least these 3 things: 
                 - 1 sentence stating your core verdict/concern.
                 - 2-3 concise bullet points explaining key risks or requirements.
                 - 1 concluding sentence with a concrete recommendation.
-            3. If you can fit it into the word limit , you can add whatever you feel appropriate, I leave it to your discretion.
-            4. At the very end of your response, nominate the next agent from the available list below who you think should speak next based on what needs addressing.
-            5. Use this exact syntax when refering to the next agent: '<@U0BQAFKLD2S> [AGENT_KEY]' (EXAMPLE: '<@U0BQAFKLD2S> [Mistral_Innovator]')
-            6. If there are no agents left to nominate, then nominate Gemini_Architect.
+            4. If you can fit it into the word limit , you can add whatever you feel appropriate, I leave it to your discretion.
+            5. At the very end of your response, nominate the next agent from the available list below who you think should speak next based on what needs addressing.
+            6. Use this exact syntax when refering to the next agent: '[AGENT_KEY]' (EXAMPLE: '[Mistral_Innovator]')
+            7. If there are no agents left to nominate, then nominate Gemini_Architect.
 
             AVAILABLE AGENTS WHO HAVE NOT SPOKEN YET:
 
@@ -142,14 +143,15 @@ AGENTS_CONFIG = {
 
             OUTPUT & LENGTH CONSTRAINTS:
             1. Hard Limit: Your entire response must strictly NOT exceed 300 words.
-            2. Your answer must contain at least these 3 things: 
+            2. Exception to Hard Limit: Only if the user ask you to do a more comprehensive analysis you can go up or whatever word count user specificaly mentioned , or 1000 words maximum if user didn't explicitly mentioned limit.
+            3. Your answer must contain at least these 3 things: 
                 - 1 sentence stating your core verdict/concern.
                 - 2-3 concise bullet points explaining key risks or requirements.
                 - 1 concluding sentence with a concrete recommendation.
-            3. If you can fit it into the word limit , you can add whatever you feel appropriate, I leave it to your discretion.
-            4. At the very end of your response, nominate the next agent from the available list below who you think should speak next based on what needs addressing.
-            5. Use this exact syntax when refering to the next agent: '<@U0BQAFKLD2S> [AGENT_KEY]' (EXAMPLE: '<@U0BQAFKLD2S> [Mistral_Innovator]')
-            6. If there are no agents left to nominate, then nominate Gemini_Architect.
+            4. If you can fit it into the word limit , you can add whatever you feel appropriate, I leave it to your discretion.
+            5. At the very end of your response, nominate the next agent from the available list below who you think should speak next based on what needs addressing.
+            6. Use this exact syntax when refering to the next agent: '[AGENT_KEY]' (EXAMPLE: '[Mistral_Innovator]')
+            7. If there are no agents left to nominate, then nominate Gemini_Architect.
 
             AVAILABLE AGENTS WHO HAVE NOT SPOKEN YET:
 
@@ -178,14 +180,15 @@ AGENTS_CONFIG = {
             
             OUTPUT & LENGTH CONSTRAINTS:
             1. Hard Limit: Your entire response must strictly NOT exceed 300 words.
-            2. Your answer must contain at least these 3 things: 
+            2. Exception to Hard Limit: Only if the user ask you to do a more comprehensive analysis you can go up or whatever word count user specificaly mentioned , or 1000 words maximum if user didn't explicitly mentioned limit.
+            3. Your answer must contain at least these 3 things: 
                 - 1 sentence stating your core verdict/concern.
                 - 2-3 concise bullet points explaining key risks or requirements.
                 - 1 concluding sentence with a concrete recommendation.
-            3. If you can fit it into the word limit , you can add whatever you feel appropriate, I leave it to your discretion.
-            4. At the very end of your response, nominate the next agent from the available list below who you think should speak next based on what needs addressing.
-            5. Use this exact syntax when refering to the next agent: '<@U0BQAFKLD2S> [AGENT_KEY]' (EXAMPLE: '<@U0BQAFKLD2S> [Mistral_Innovator]')
-            6. If there are no agents left to nominate, then nominate Gemini_Architect.
+            4. If you can fit it into the word limit , you can add whatever you feel appropriate, I leave it to your discretion.
+            5. At the very end of your response, nominate the next agent from the available list below who you think should speak next based on what needs addressing.
+            6. Use this exact syntax when refering to the next agent: '[AGENT_KEY]' (EXAMPLE: '[Mistral_Innovator]')
+            7. If there are no agents left to nominate, then nominate Gemini_Architect.
 
             AVAILABLE AGENTS WHO HAVE NOT SPOKEN YET:
 
@@ -214,14 +217,15 @@ AGENTS_CONFIG = {
 
             OUTPUT & LENGTH CONSTRAINTS:
             1. Hard Limit: Your entire response must strictly NOT exceed 300 words.
-            2. Your answer must contain at least these 3 things: 
+            2. Exception to Hard Limit: Only if the user ask you to do a more comprehensive analysis you can go up or whatever word count user specificaly mentioned , or 1000 words maximum if user didn't explicitly mentioned limit.
+            3. Your answer must contain at least these 3 things: 
                 - 1 sentence stating your core verdict/concern.
                 - 2-3 concise bullet points explaining key risks or requirements.
                 - 1 concluding sentence with a concrete recommendation.
-            3. If you can fit it into the word limit , you can add whatever you feel appropriate, I leave it to your discretion.
-            4. At the very end of your response, nominate the next agent from the available list below who you think should speak next based on what needs addressing.
-            5. Use this exact syntax when refering to the next agent: '<@U0BQAFKLD2S> [AGENT_KEY]' (EXAMPLE: '<@U0BQAFKLD2S> [Mistral_Innovator]')
-            6. If there are no agents left to nominate, then nominate Gemini_Architect.
+            4. If you can fit it into the word limit , you can add whatever you feel appropriate, I leave it to your discretion.
+            5. At the very end of your response, nominate the next agent from the available list below who you think should speak next based on what needs addressing.
+            6. Use this exact syntax when refering to the next agent: '[AGENT_KEY]' (EXAMPLE: '[Mistral_Innovator]')
+            7. If there are no agents left to nominate, then nominate Gemini_Architect.
 
             AVAILABLE AGENTS WHO HAVE NOT SPOKEN YET:
             
@@ -250,14 +254,15 @@ AGENTS_CONFIG = {
             
             OUTPUT & LENGTH CONSTRAINTS:
             1. Hard Limit: Your entire response must strictly NOT exceed 300 words.
-            2. Your answer must contain at least these 3 things: 
+            2. Exception to Hard Limit: Only if the user ask you to do a more comprehensive analysis you can go up or whatever word count user specificaly mentioned , or 1000 words maximum if user didn't explicitly mentioned limit.
+            3. Your answer must contain at least these 3 things: 
                 - 1 sentence stating your core verdict/concern.
                 - 2-3 concise bullet points explaining key risks or requirements.
                 - 1 concluding sentence with a concrete recommendation.
-            3. If you can fit it into the word limit , you can add whatever you feel appropriate, I leave it to your discretion.
-            4. At the very end of your response, nominate the next agent from the available list below who you think should speak next based on what needs addressing.
-            5. Use this exact syntax when refering to the next agent: ' <@U0BQAFKLD2S> [AGENT_KEY]' (EXAMPLE: '<@U0BQAFKLD2S> [Mistral_Innovator]')
-            6. If there are no agents left to nominate, then nominate Gemini_Architect.
+            4. If you can fit it into the word limit , you can add whatever you feel appropriate, I leave it to your discretion.
+            5. At the very end of your response, nominate the next agent from the available list below who you think should speak next based on what needs addressing.
+            6. Use this exact syntax when refering to the next agent: '[AGENT_KEY]' (EXAMPLE: '[Mistral_Innovator]')
+            7. If there are no agents left to nominate, then nominate Gemini_Architect.
 
             AVAILABLE AGENTS WHO HAVE NOT SPOKEN YET:
 
@@ -286,14 +291,15 @@ AGENTS_CONFIG = {
             
             OUTPUT & LENGTH CONSTRAINTS:
             1. Hard Limit: Your entire response must strictly NOT exceed 300 words.
-            2. Your answer must contain at least these 3 things: 
+            2. Exception to Hard Limit: Only if the user ask you to do a more comprehensive analysis you can go up or whatever word count user specificaly mentioned , or 1000 words maximum if user didn't explicitly mentioned limit.
+            3. Your answer must contain at least these 3 things: 
                 - 1 sentence stating your core verdict/concern.
                 - 2-3 concise bullet points explaining key risks or requirements.
                 - 1 concluding sentence with a concrete recommendation.
-            3. If you can fit it into the word limit , you can add whatever you feel appropriate, I leave it to your discretion.
-            4. At the very end of your response, nominate the next agent from the available list below who you think should speak next based on what needs addressing.
-            5. Use this exact syntax when refering to the next agent: '<@U0BQAFKLD2S> [AGENT_KEY]' (EXAMPLE: '<@U0BQAFKLD2S> [Mistral_Innovator]')
-            6. If there are no agents left to nominate, then nominate Gemini_Architect.
+            4. If you can fit it into the word limit , you can add whatever you feel appropriate, I leave it to your discretion.
+            5. At the very end of your response, nominate the next agent from the available list below who you think should speak next based on what needs addressing.
+            6. Use this exact syntax when refering to the next agent: '[AGENT_KEY]' (EXAMPLE: '[Mistral_Innovator]')
+            7. If there are no agents left to nominate, then nominate Gemini_Architect.
 
             AVAILABLE AGENTS WHO HAVE NOT SPOKEN YET:
 
@@ -323,14 +329,15 @@ AGENTS_CONFIG = {
 
             OUTPUT & LENGTH CONSTRAINTS:
             1. Hard Limit: Your entire response must strictly NOT exceed 300 words.
-            2. Your answer must contain at least these 3 things: 
+            2. Exception to Hard Limit: Only if the user ask you to do a more comprehensive analysis you can go up or whatever word count user specificaly mentioned , or 1000 words maximum if user didn't explicitly mentioned limit.
+            3. Your answer must contain at least these 3 things: 
                 - 1 sentence stating your core verdict/concern.
                 - 2-3 concise bullet points explaining key risks or requirements.
                 - 1 concluding sentence with a concrete recommendation.
-            3. If you can fit it into the word limit , you can add whatever you feel appropriate, I leave it to your discretion.
-            4. At the very end of your response, nominate the next agent from the available list below who you think should speak next based on what needs addressing.
-            5. Use this exact syntax when refering to the next agent: '<@U0BQAFKLD2S> [AGENT_KEY]' (EXAMPLE: '<@U0BQAFKLD2S> [Mistral_Innovator]')
-            6. If there are no agents left to nominate, then nominate Gemini_Architect.
+            4. If you can fit it into the word limit , you can add whatever you feel appropriate, I leave it to your discretion.
+            5. At the very end of your response, nominate the next agent from the available list below who you think should speak next based on what needs addressing.
+            6. Use this exact syntax when refering to the next agent: '[AGENT_KEY]' (EXAMPLE: '[Mistral_Innovator]')
+            7. If there are no agents left to nominate, then nominate Gemini_Architect.
 
             AVAILABLE AGENTS WHO HAVE NOT SPOKEN YET:
 
@@ -360,14 +367,15 @@ AGENTS_CONFIG = {
 
             OUTPUT & LENGTH CONSTRAINTS:
             1. Hard Limit: Your entire response must strictly NOT exceed 300 words.
-            2. Your answer must contain at least these 3 things: 
+            2. Exception to Hard Limit: Only if the user ask you to do a more comprehensive analysis you can go up or whatever word count user specificaly mentioned , or 1000 words maximum if user didn't explicitly mentioned limit.
+            3. Your answer must contain at least these 3 things: 
                 - 1 sentence stating your core verdict/concern.
                 - 2-3 concise bullet points explaining key risks or requirements.
                 - 1 concluding sentence with a concrete recommendation.
-            3. If you can fit it into the word limit , you can add whatever you feel appropriate, I leave it to your discretion.
-            4. At the very end of your response, nominate the next agent from the available list below who you think should speak next based on what needs addressing.
-            5. Use this exact syntax when refering to the next agent: '<@U0BQAFKLD2S> [AGENT_KEY]' (EXAMPLE: '<@U0BQAFKLD2S> [Mistral_Innovator]')
-            6. If there are no agents left to nominate, then nominate Gemini_Architect.
+            4. If you can fit it into the word limit , you can add whatever you feel appropriate, I leave it to your discretion.
+            5. At the very end of your response, nominate the next agent from the available list below who you think should speak next based on what needs addressing.
+            6. Use this exact syntax when refering to the next agent: '[AGENT_KEY]' (EXAMPLE: '[Mistral_Innovator]')
+            7. If there are no agents left to nominate, then nominate Gemini_Architect.
 
             AVAILABLE AGENTS WHO HAVE NOT SPOKEN YET:
 
@@ -397,14 +405,15 @@ AGENTS_CONFIG = {
 
             OUTPUT & LENGTH CONSTRAINTS:
             1. Hard Limit: Your entire response must strictly NOT exceed 300 words.
-            2. Your answer must contain at least these 3 things: 
+            2. Exception to Hard Limit: Only if the user ask you to do a more comprehensive analysis you can go up or whatever word count user specificaly mentioned , or 1000 words maximum if user didn't explicitly mentioned limit.
+            3. Your answer must contain at least these 3 things: 
                 - 1 sentence stating your core verdict/concern.
                 - 2-3 concise bullet points explaining key risks or requirements.
                 - 1 concluding sentence with a concrete recommendation.
-            3. If you can fit it into the word limit , you can add whatever you feel appropriate, I leave it to your discretion.
-            4. At the very end of your response, nominate the next agent from the available list below who you think should speak next based on what needs addressing.
-            5. Use this exact syntax when refering to the next agent: '<@U0BQAFKLD2S> [AGENT_KEY]' (EXAMPLE: '<@U0BQAFKLD2S> [Mistral_Innovator]')
-            6. If there are no agents left to nominate, then nominate Gemini_Architect.
+            4. If you can fit it into the word limit , you can add whatever you feel appropriate, I leave it to your discretion.
+            5. At the very end of your response, nominate the next agent from the available list below who you think should speak next based on what needs addressing.
+            6. Use this exact syntax when refering to the next agent: '[AGENT_KEY]' (EXAMPLE: '[Mistral_Innovator]')
+            7. If there are no agents left to nominate, then nominate Gemini_Architect.
 
             AVAILABLE AGENTS WHO HAVE NOT SPOKEN YET:
 
@@ -434,14 +443,15 @@ AGENTS_CONFIG = {
 
             OUTPUT & LENGTH CONSTRAINTS:
             1. Hard Limit: Your entire response must strictly NOT exceed 300 words.
-            2. Your answer must contain at least these 3 things: 
+            2. Exception to Hard Limit: Only if the user ask you to do a more comprehensive analysis you can go up or whatever word count user specificaly mentioned , or 1000 words maximum if user didn't explicitly mentioned limit.
+            3. Your answer must contain at least these 3 things: 
                 - 1 sentence stating your core verdict/concern.
                 - 2-3 concise bullet points explaining key risks or requirements.
                 - 1 concluding sentence with a concrete recommendation.
-            3. If you can fit it into the word limit , you can add whatever you feel appropriate, I leave it to your discretion.
-            4. At the very end of your response, nominate the next agent from the available list below who you think should speak next based on what needs addressing.
-            5. Use this exact syntax when refering to the next agent: '<@U0BQAFKLD2S> [AGENT_KEY]' (EXAMPLE: '<@U0BQAFKLD2S> [Mistral_Innovator]')
-            6. If there are no agents left to nominate, then nominate Gemini_Architect.
+            4. If you can fit it into the word limit , you can add whatever you feel appropriate, I leave it to your discretion.
+            5. At the very end of your response, nominate the next agent from the available list below who you think should speak next based on what needs addressing.
+            6. Use this exact syntax when refering to the next agent: '[AGENT_KEY]' (EXAMPLE: '[Mistral_Innovator]')
+            7. If there are no agents left to nominate, then nominate Gemini_Architect.
 
             AVAILABLE AGENTS WHO HAVE NOT SPOKEN YET:
 
@@ -471,14 +481,15 @@ AGENTS_CONFIG = {
 
             OUTPUT & LENGTH CONSTRAINTS:
             1. Hard Limit: Your entire response must strictly NOT exceed 300 words.
-            2. Your answer must contain at least these 3 things: 
+            2. Exception to Hard Limit: Only if the user ask you to do a more comprehensive analysis you can go up or whatever word count user specificaly mentioned , or 1000 words maximum if user didn't explicitly mentioned limit.
+            3. Your answer must contain at least these 3 things: 
                 - 1 sentence stating your core verdict/concern.
                 - 2-3 concise bullet points explaining key risks or requirements.
                 - 1 concluding sentence with a concrete recommendation.
-            3. If you can fit it into the word limit , you can add whatever you feel appropriate, I leave it to your discretion.
-            4. At the very end of your response, nominate the next agent from the available list below who you think should speak next based on what needs addressing.
-            5. Use this exact syntax when refering to the next agent: '<@U0BQAFKLD2S> [AGENT_KEY]' (EXAMPLE: '<@U0BQAFKLD2S> [Mistral_Innovator]')
-            6. If there are no agents left to nominate, then nominate Gemini_Architect.
+            4. If you can fit it into the word limit , you can add whatever you feel appropriate, I leave it to your discretion.
+            5. At the very end of your response, nominate the next agent from the available list below who you think should speak next based on what needs addressing.
+            6. Use this exact syntax when refering to the next agent: '[AGENT_KEY]' (EXAMPLE: '[Mistral_Innovator]')
+            7. If there are no agents left to nominate, then nominate Gemini_Architect.
 
             AVAILABLE AGENTS WHO HAVE NOT SPOKEN YET:
 
@@ -508,14 +519,15 @@ AGENTS_CONFIG = {
 
             OUTPUT & LENGTH CONSTRAINTS:
             1. Hard Limit: Your entire response must strictly NOT exceed 300 words.
-            2. Your answer must contain at least these 3 things: 
+            2. Exception to Hard Limit: Only if the user ask you to do a more comprehensive analysis you can go up or whatever word count user specificaly mentioned , or 1000 words maximum if user didn't explicitly mentioned limit.
+            3. Your answer must contain at least these 3 things: 
                 - 1 sentence stating your core verdict/concern.
                 - 2-3 concise bullet points explaining key risks or requirements.
                 - 1 concluding sentence with a concrete recommendation.
-            3. If you can fit it into the word limit , you can add whatever you feel appropriate, I leave it to your discretion.
-            4. At the very end of your response, nominate the next agent from the available list below who you think should speak next based on what needs addressing.
-            5. Use this exact syntax when refering to the next agent: '<@U0BQAFKLD2S> [AGENT_KEY]' (EXAMPLE: '<@U0BQAFKLD2S> [Mistral_Innovator]')
-            6. If there are no agents left to nominate, then nominate Gemini_Architect.
+            4. If you can fit it into the word limit , you can add whatever you feel appropriate, I leave it to your discretion.
+            5. At the very end of your response, nominate the next agent from the available list below who you think should speak next based on what needs addressing.
+            6. Use this exact syntax when refering to the next agent: '[AGENT_KEY]' (EXAMPLE: '[Mistral_Innovator]')
+            7. If there are no agents left to nominate, then nominate Gemini_Architect.
 
             AVAILABLE AGENTS WHO HAVE NOT SPOKEN YET:
 
@@ -545,14 +557,15 @@ AGENTS_CONFIG = {
 
             OUTPUT & LENGTH CONSTRAINTS:
             1. Hard Limit: Your entire response must strictly NOT exceed 300 words.
-            2. Your answer must contain at least these 3 things: 
+            2. Exception to Hard Limit: Only if the user ask you to do a more comprehensive analysis you can go up or whatever word count user specificaly mentioned , or 1000 words maximum if user didn't explicitly mentioned limit.
+            3. Your answer must contain at least these 3 things: 
                 - 1 sentence stating your core verdict/concern.
                 - 2-3 concise bullet points explaining key risks or requirements.
                 - 1 concluding sentence with a concrete recommendation.
-            3. If you can fit it into the word limit , you can add whatever you feel appropriate, I leave it to your discretion.
-            4. At the very end of your response, nominate the next agent from the available list below who you think should speak next based on what needs addressing.
-            5. Use this exact syntax when refering to the next agent: '<@U0BQAFKLD2S> [AGENT_KEY]' (EXAMPLE: '<@U0BQAFKLD2S> [Mistral_Innovator]')
-            6. If there are no agents left to nominate, then nominate Gemini_Architect.
+            4. If you can fit it into the word limit , you can add whatever you feel appropriate, I leave it to your discretion.
+            5. At the very end of your response, nominate the next agent from the available list below who you think should speak next based on what needs addressing.
+            6. Use this exact syntax when refering to the next agent: '[AGENT_KEY]' (EXAMPLE: '[Mistral_Innovator]')
+            7. If there are no agents left to nominate, then nominate Gemini_Architect.
 
             AVAILABLE AGENTS WHO HAVE NOT SPOKEN YET:
             
