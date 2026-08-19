@@ -29,7 +29,7 @@ def get_initial_agents() -> list[str]:
 
 def parse_agent_and_prompt(
     text: str, channel_id: str, thread_ts: str
-) -> tuple[str, str]:
+) -> tuple[str, str, bool]:
     """
     Parses Slack message text for pseudo-agent tags or @mentions.
     Supported patterns:
@@ -39,7 +39,7 @@ def parse_agent_and_prompt(
     - @CaiLogics Visionary prompt...
     - Plain text -> defaults to Gemini_Visionary
     Note: If no agent is specified, the default flow is to start with Gemini_Visionary, go through all others, and end with Gemini_Architect. Each agent will nominate the next agent to speak.
-    Returns (agent_key, cleaned_prompt)
+    Returns (agent_key, cleaned_prompt, was_explicit_target)
     """
     global REMAINING_AGENTS_MAP
     thread_key = (channel_id, thread_ts)
@@ -66,7 +66,7 @@ def parse_agent_and_prompt(
                 ).strip()
                 if key in remaining:
                     remaining.remove(key)
-                return key, prompt
+                return key, prompt, True
 
     # Search for direct @Name or name mentions in text
     for key, cfg in AGENTS_CONFIG.items():
@@ -77,7 +77,7 @@ def parse_agent_and_prompt(
             ).strip()
             if key in remaining:
                 remaining.remove(key)
-            return key, prompt
+            return key, prompt, True
 
         # Check against configured Slack persona username (e.g. "CaiLogics Visionary")
         persona_name = cfg.get("username", "")
@@ -89,12 +89,12 @@ def parse_agent_and_prompt(
             ).strip()
             if key in remaining:
                 remaining.remove(key)
-            return key, prompt
+            return key, prompt, True
 
     # Default fallback agent if no tag or name matched
     if DEFAULT_AGENT_KEY in remaining:
         remaining.remove(DEFAULT_AGENT_KEY)
-    return DEFAULT_AGENT_KEY, cleaned_text
+    return DEFAULT_AGENT_KEY, cleaned_text, False
 
 
 def markdown_to_slack(text: str) -> str:
@@ -113,6 +113,7 @@ async def process_and_respond(
     raw_text: str,
     bot_user_id: str | None = None,
     icon_url: str | None = None,
+    is_bot_trigger: bool = False,
 ) -> dict[str, any]:
     """
     Main background handler: parses prompt, builds conversation history,
@@ -125,11 +126,13 @@ async def process_and_respond(
         f"\n[{start_time}] >>> START process_and_respond for thread_ts: {thread_ts} <<<"
     )
 
-    agent_key, prompt = parse_agent_and_prompt(raw_text, channel_id, thread_ts)
+    agent_key, prompt, was_explicit_target = parse_agent_and_prompt(
+        raw_text, channel_id, thread_ts
+    )
     agent_cfg = AGENTS_CONFIG.get(agent_key, AGENTS_CONFIG[DEFAULT_AGENT_KEY])
 
     logger.info(
-        f"[ROUTER] Parsed Agent: {agent_key} ({agent_cfg['model']}) | Extracted Prompt length: {len(prompt)}"
+        f"[ROUTER] Parsed Agent: {agent_key} ({agent_cfg['model']}) | Explicit target: {was_explicit_target} | Bot trigger: {is_bot_trigger}"
     )
 
     # 1. Fetch thread history context
@@ -138,10 +141,21 @@ async def process_and_respond(
 
     # 2. Build message sequence for LiteLLM
     system_prompt = agent_cfg["system_prompt"]
-    thread_key = (channel_id, thread_ts)
-    remaining = REMAINING_AGENTS_MAP.get(thread_key, get_initial_agents())
-    if remaining:
-        system_prompt = f"{system_prompt}\n{', '.join(remaining)}"
+    
+    # If explicitly targeted by a human user, bypass discussion loop and halt nominations
+    if was_explicit_target and not is_bot_trigger:
+        logger.info(f"[ROUTER] Agent {agent_key} targeted explicitly by human user. Forcing termination.")
+        system_prompt += (
+            "\n\nCRITICAL CONSTRAINT: You have been directly tagged/mentioned by a human user in a single-turn query. "
+            "Do NOT nominate any other agent to speak next. Do NOT include any bracketed agent key (like [Mistral_Innovator] "
+            "or [Gemini_Architect]) at the end of your response. Simply answer the question and finish your response."
+        )
+    else:
+        # Standard nomination loop
+        thread_key = (channel_id, thread_ts)
+        remaining = REMAINING_AGENTS_MAP.get(thread_key, get_initial_agents())
+        if remaining:
+            system_prompt = f"{system_prompt}\n{', '.join(remaining)}"
 
     messages: list[dict[str, any]] = [{"role": "system", "content": system_prompt}]
 

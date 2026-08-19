@@ -206,6 +206,7 @@ async def slack_events(request: Request, background_tasks: BackgroundTasks):
                         thread_ts=thread_ts,
                         raw_text=raw_text,
                         bot_user_id=bot_user_id,
+                        is_bot_trigger=is_bot,
                     )
                 else:
                     logger.info(f"[WEBHOOK] Ignoring event - should_process evaluated to False (is_bot: {is_bot})")
