@@ -141,10 +141,12 @@ async def process_and_respond(
 
     # 2. Build message sequence for LiteLLM
     system_prompt = agent_cfg["system_prompt"]
-    
+
     # If explicitly targeted by a human user, bypass discussion loop and halt nominations
     if was_explicit_target and not is_bot_trigger:
-        logger.info(f"[ROUTER] Agent {agent_key} targeted explicitly by human user. Forcing termination.")
+        logger.info(
+            f"[ROUTER] Agent {agent_key} targeted explicitly by human user. Forcing termination."
+        )
         system_prompt += (
             "\n\nCRITICAL CONSTRAINT: You have been directly tagged/mentioned by a human user in a single-turn query. "
             "Do NOT nominate any other agent to speak next. Do NOT include any bracketed agent key (like [Mistral_Innovator] "
@@ -168,6 +170,23 @@ async def process_and_respond(
         messages.append({"role": "user", "content": prompt})
 
     try:
+        total_prompt_tokens = 0
+        total_completion_tokens = 0
+
+        def add_usage(resp):
+            nonlocal total_prompt_tokens, total_completion_tokens
+            if not resp:
+                return
+            usage = getattr(resp, "usage", None)
+            if not usage:
+                return
+            if isinstance(usage, dict):
+                total_prompt_tokens += usage.get("prompt_tokens", 0) or 0
+                total_completion_tokens += usage.get("completion_tokens", 0) or 0
+            else:
+                total_prompt_tokens += getattr(usage, "prompt_tokens", 0) or 0
+                total_completion_tokens += getattr(usage, "completion_tokens", 0) or 0
+
         # 3. Call LiteLLM model with MCP tools in a threadpool to prevent freezing the event loop
         logger.info(f"[LLM] Dispatching litellm.completion for {agent_key}...")
         llm_start = time.time()
@@ -179,6 +198,7 @@ async def process_and_respond(
             tools=MCP_TOOLS_SCHEMAS,
             tool_choice="auto",
         )
+        add_usage(response)
         llm_duration = time.time() - llm_start
         logger.info(
             f"[LLM] Received response for {agent_key} in {llm_duration:.2f} seconds."
@@ -217,15 +237,27 @@ async def process_and_respond(
                 messages=messages,
                 # temperature=agent_cfg["temperature"],
             )
+            add_usage(follow_up)
             final_text = follow_up.choices[0].message.content
         else:
             final_text = response_message.content
 
         if not final_text:
-            final_text = "(No text response generated)"
+            next_tag = (
+                REMAINING_AGENTS_MAP[thread_key][0]
+                if thread_key in REMAINING_AGENTS_MAP
+                and len(REMAINING_AGENTS_MAP[thread_key]) > 0
+                else ""
+            )
+            final_text = f"(No text response generated) [{next_tag}] next"
             logger.warning(f"[ROUTER] final_text was empty for {agent_key}!")
         else:
             final_text = markdown_to_slack(final_text)
+
+        # Append token usage to the end of the message text
+        final_text = (
+            f"{final_text.strip()}\n\n[{total_prompt_tokens}/{total_completion_tokens}]"
+        )
 
         # Log the specific generated tag for the next agent
         generated_tags = re.findall(r"\[([a-zA-Z0-9_]+)\]", final_text)
@@ -236,6 +268,7 @@ async def process_and_respond(
         # Prevent Slack WebSocket client saturation by adding a 3-second pacing delay.
         # This keeps the real-time stream active and makes the conversation pace feel natural.
         import asyncio
+
         await asyncio.sleep(3.0)
 
         # 5. Post response back to Slack thread with dynamic persona
