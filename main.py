@@ -40,6 +40,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 async def keep_loop_alive():
     """
     Heartbeat task to prevent Windows ProactorEventLoop from freezing
@@ -47,6 +48,7 @@ async def keep_loop_alive():
     """
     while True:
         await asyncio.sleep(0.5)
+
 
 @app.on_event("startup")
 async def startup_event():
@@ -109,10 +111,18 @@ async def slack_events(request: Request, background_tasks: BackgroundTasks):
         event = data.get("event", {})
         # Slack Events API uses 'authorizations' in modern apps, fallback to 'authed_users'
         authorizations = data.get("authorizations")
-        if authorizations and isinstance(authorizations, list) and len(authorizations) > 0:
+        if (
+            authorizations
+            and isinstance(authorizations, list)
+            and len(authorizations) > 0
+        ):
             bot_user_id = authorizations[0].get("user_id")
         else:
-            bot_user_id = data.get("authed_users", [None])[0] if data.get("authed_users") else None
+            bot_user_id = (
+                data.get("authed_users", [None])[0]
+                if data.get("authed_users")
+                else None
+            )
 
         event_type = event.get("type")
         if event_type in ["message", "app_mention"]:
@@ -120,8 +130,10 @@ async def slack_events(request: Request, background_tasks: BackgroundTasks):
             ts = event.get("ts")
             thread_ts = event.get("thread_ts") or ts
             raw_text = event.get("text", "")
-            
-            logger.info(f"[WEBHOOK] Received {event_type} - channel: {channel_id}, ts: {ts}, thread_ts: {thread_ts}")
+
+            logger.info(
+                f"[WEBHOOK] Received {event_type} - channel: {channel_id}, ts: {ts}, thread_ts: {thread_ts}"
+            )
 
             if channel_id and ts and raw_text:
                 # Deduplication cache cleanup (prevent memory leaks)
@@ -209,7 +221,9 @@ async def slack_events(request: Request, background_tasks: BackgroundTasks):
                         is_bot_trigger=is_bot,
                     )
                 else:
-                    logger.info(f"[WEBHOOK] Ignoring event - should_process evaluated to False (is_bot: {is_bot})")
+                    logger.info(
+                        f"[WEBHOOK] Ignoring event - should_process evaluated to False (is_bot: {is_bot})"
+                    )
 
     logger.info("[WEBHOOK] Returning 200 OK immediately to Slack")
     # Return HTTP 200 OK after completion
