@@ -20,6 +20,15 @@ def test_parse_mistral_techlead_tag():
     assert was_explicit is True
 
 
+def test_parse_multiple_tags_first_invalid():
+    agent_key, prompt, was_explicit = parse_agent_and_prompt(
+        "[InvalidTag] [Mistral_TechLead] Check this database query", "C12345", "123456789.0001"
+    )
+    assert agent_key == "Mistral_TechLead"
+    assert prompt == "[InvalidTag]  Check this database query"
+    assert was_explicit is True
+
+
 def test_parse_at_mention_persona():
     agent_key, prompt, was_explicit = parse_agent_and_prompt(
         "<@U12345> @CaiLogics Innovator generate an alternative algorithm",

@@ -52,7 +52,7 @@ async def fetch_thread_history(
 
     try:
         response = await slack_async_client.conversations_replies(
-            channel=channel_id, ts=thread_ts, limit=50
+            channel=channel_id, ts=thread_ts, limit=100
         )
         messages = response.get("messages", [])
         formatted_history: list[dict[str, str]] = []

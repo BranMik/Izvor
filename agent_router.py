@@ -56,17 +56,18 @@ def parse_agent_and_prompt(
     cleaned_text = re.sub(r"<@[A-Z0-9]+>", "", text).strip()
 
     # Search for explicit bracketed tags like [Gemini_Visionary] or [Mistral_TechLead]
-    tag_match = re.search(r"\[([a-zA-Z0-9_]+)\]", cleaned_text)
-    if tag_match:
-        tag = tag_match.group(1)
+    for match in re.finditer(r"\[([a-zA-Z0-9_]+)\]", cleaned_text):
+        tag = match.group(1)
+        matched_key = None
         for key in AGENTS_CONFIG:
             if tag.lower() == key.lower():
-                prompt = re.sub(
-                    r"\[" + re.escape(tag) + r"\]", "", cleaned_text
-                ).strip()
-                if key in remaining:
-                    remaining.remove(key)
-                return key, prompt, True
+                matched_key = key
+                break
+        if matched_key:
+            prompt = re.sub(r"\[" + re.escape(tag) + r"\]", "", cleaned_text).strip()
+            if matched_key in remaining:
+                remaining.remove(matched_key)
+            return matched_key, prompt, True
 
     # Search for direct @Name or name mentions in text
     for key, cfg in AGENTS_CONFIG.items():
@@ -247,7 +248,7 @@ async def process_and_respond(
                 REMAINING_AGENTS_MAP[thread_key][0]
                 if thread_key in REMAINING_AGENTS_MAP
                 and len(REMAINING_AGENTS_MAP[thread_key]) > 0
-                else ""
+                else "Gemini_Architect"
             )
             final_text = f"(No text response generated) [{next_tag}] next"
             logger.warning(f"[ROUTER] final_text was empty for {agent_key}!")

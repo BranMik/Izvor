@@ -164,11 +164,11 @@ async def slack_events(request: Request, background_tasks: BackgroundTasks):
 
                 # 5c. Extract nominations and tags
                 has_tag = False
-                tag_match = re.search(r"\[([a-zA-Z0-9_]+)\]", raw_text)
-                if tag_match:
-                    tag = tag_match.group(1)
+                for match in re.finditer(r"\[([a-zA-Z0-9_]+)\]", raw_text):
+                    tag = match.group(1)
                     if any(tag.lower() == k.lower() for k in AGENTS_CONFIG):
                         has_tag = True
+                        break
 
                 has_name_mention = False
                 for key in AGENTS_CONFIG:
