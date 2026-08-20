@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import re
@@ -439,8 +440,6 @@ async def process_and_respond(
 
         # Prevent Slack WebSocket client saturation by adding a 3-second pacing delay.
         # This keeps the real-time stream active and makes the conversation pace feel natural.
-        import asyncio
-
         await asyncio.sleep(3.0)
 
         # 5. Post response back to Slack thread with dynamic persona

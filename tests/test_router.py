@@ -10,9 +10,11 @@ from agent_router import (
 )
 
 
+import agent_router
+
 @pytest.fixture(autouse=True)
 def patch_asyncio_sleep(monkeypatch):
-    monkeypatch.setattr("asyncio.sleep", AsyncMock(return_value=None))
+    monkeypatch.setattr(agent_router.asyncio, "sleep", AsyncMock(return_value=None))
 
 
 def test_parse_explicit_bracket_tags():
