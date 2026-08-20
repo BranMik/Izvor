@@ -27,7 +27,7 @@ def get_initial_agents() -> list[str]:
     return [
         key
         for key in AGENTS_CONFIG
-        if key not in ("OpenAiTerra_Architect", "Gemini_Visionary")
+        if key not in ("OpAiTerra_Architect", "Gemini_Visionary")
     ]
 
 
@@ -82,7 +82,7 @@ def parse_agent_and_prompt(
     - @CaiLogics Hub [Mistral_TechLead] prompt...
     - @CaiLogics Visionary prompt...
     - Plain text -> defaults to Gemini_Visionary
-    Note: If no agent is specified, the default flow is to start with Gemini_Visionary, go through all others, and end with OpenAiTerra_Architect. Each agent will nominate the next agent to speak.
+    Note: If no agent is specified, the default flow is to start with Gemini_Visionary, go through all others, and end with OpAiTerra_Architect. Each agent will nominate the next agent to speak.
     Returns (agent_key, cleaned_prompt, was_explicit_target)
     """
     global REMAINING_AGENTS_MAP
@@ -100,18 +100,36 @@ def parse_agent_and_prompt(
     cleaned_text = re.sub(r"<@[A-Z0-9]+>", "", text).strip()
 
     # Search for explicit bracketed tags like [Gemini_Visionary] or [Mistral_TechLead]
+    tag_matches = []
     for match in re.finditer(r"\[([a-zA-Z0-9_]+)\]", cleaned_text):
         tag = match.group(1)
-        matched_key = None
         for key in AGENTS_CONFIG:
             if tag.lower() == key.lower():
-                matched_key = key
+                tag_matches.append((match, key, tag))
                 break
-        if matched_key:
-            prompt = re.sub(r"\[" + re.escape(tag) + r"\]", "", cleaned_text).strip()
-            if matched_key in remaining:
-                remaining.remove(matched_key)
-            return matched_key, prompt, True
+
+    if tag_matches:
+        # Prioritize matching an agent that is currently in remaining
+        matched_item = None
+        for match, key, tag in tag_matches:
+            if key in remaining:
+                matched_item = (match, key, tag)
+                break
+
+        # If none matched remaining (e.g. OpAiTerra_Architect or an agent already spoken):
+        if not matched_item:
+            for match, key, tag in tag_matches:
+                if key == "OpAiTerra_Architect" and not remaining:
+                    matched_item = (match, key, tag)
+                    break
+            if not matched_item:
+                matched_item = tag_matches[0]
+
+        match, matched_key, tag = matched_item
+        prompt = re.sub(r"\[" + re.escape(tag) + r"\]", "", cleaned_text).strip()
+        if matched_key in remaining:
+            remaining.remove(matched_key)
+        return matched_key, prompt, True
 
     # Search for direct @Name or name mentions in text
     for key, cfg in AGENTS_CONFIG.items():
@@ -140,6 +158,85 @@ def parse_agent_and_prompt(
     if DEFAULT_AGENT_KEY in remaining:
         remaining.remove(DEFAULT_AGENT_KEY)
     return DEFAULT_AGENT_KEY, cleaned_text, False
+
+
+def enforce_valid_nomination(
+    text: str,
+    current_agent_key: str,
+    remaining: list[str],
+    force_termination: bool,
+) -> str:
+    """
+    Ensures that the agent's response nominates a valid agent:
+    1. If force_termination or current agent is OpAiTerra_Architect, no nomination is required.
+    2. If remaining agents exist:
+       - Preserves the agent's nomination if it chose an agent that is still in `remaining`.
+       - If the agent prematurely nominated OpAiTerra_Architect or an agent that already spoke,
+         programmatically replaces the nomination tag with the first remaining agent (remaining[0]).
+       - If no nomination tag is present, appends [remaining[0]].
+    3. If remaining list is empty and current agent is not OpAiTerra_Architect:
+       - Ensures [OpAiTerra_Architect] is nominated for the final summary.
+    """
+    if force_termination or current_agent_key == "OpAiTerra_Architect":
+        # Strip any bracketed agent tags so Slack webhook won't trigger unexpected bot loops
+        for key in AGENTS_CONFIG:
+            text = re.sub(r"\[" + re.escape(key) + r"\]", key, text, flags=re.IGNORECASE)
+        return text
+
+    # Find all bracketed agent tags matching known AGENTS_CONFIG keys
+    agent_tag_matches = []
+    for match in re.finditer(r"\[([a-zA-Z0-9_]+)\]", text):
+        tag_name = match.group(1)
+        for key in AGENTS_CONFIG:
+            if tag_name.lower() == key.lower():
+                agent_tag_matches.append((match, key))
+                break
+
+    if remaining:
+        # Check if any detected tag is actually in remaining
+        valid_nomination = None
+        for match, key in agent_tag_matches:
+            if key in remaining:
+                valid_nomination = key
+                break
+
+        if valid_nomination:
+            logger.info(
+                f"[ROUTER] Agent {current_agent_key} chose valid remaining agent [{valid_nomination}]."
+            )
+            return text
+
+        fallback_agent = remaining[0]
+        if agent_tag_matches:
+            last_match, last_key = agent_tag_matches[-1]
+            logger.warning(
+                f"[ROUTER] Agent {current_agent_key} nominated '{last_key}', but {len(remaining)} agent(s) have not spoken yet: {remaining}. "
+                f"Programmatically correcting nomination tag to [{fallback_agent}]."
+            )
+            start, end = last_match.span()
+            return text[:start] + f"[{fallback_agent}]" + text[end:]
+        else:
+            logger.warning(
+                f"[ROUTER] Agent {current_agent_key} omitted nomination tag while {len(remaining)} agent(s) remain: {remaining}. "
+                f"Programmatically appending [{fallback_agent}]."
+            )
+            return f"{text.strip()}\n\n[{fallback_agent}]"
+    else:
+        # remaining list is empty -> next must be OpAiTerra_Architect
+        if agent_tag_matches:
+            last_match, last_key = agent_tag_matches[-1]
+            if last_key == "OpAiTerra_Architect":
+                return text
+            logger.info(
+                f"[ROUTER] All intermediate agents have spoken. Correcting tag '[{last_key}]' to [OpAiTerra_Architect]."
+            )
+            start, end = last_match.span()
+            return text[:start] + "[OpAiTerra_Architect]" + text[end:]
+        else:
+            logger.info(
+                f"[ROUTER] All intermediate agents have spoken. Appending [OpAiTerra_Architect] for final summary."
+            )
+            return f"{text.strip()}\n\n[OpAiTerra_Architect]"
 
 
 def markdown_to_slack(text: str) -> str:
@@ -219,12 +316,15 @@ async def process_and_respond(
         system_prompt += (
             "\n\nCRITICAL CONSTRAINT: You are the last agent requested to speak in this turn. "
             "Do NOT nominate any other agent to speak next. Do NOT include any bracketed agent key (like [Mistral_Innovator] "
-            "or [OpenAiTerra_Architect]) at the end of your response. Simply answer the question/summarize and finish your response."
+            "or [OpAiTerra_Architect]) at the end of your response. Simply answer the question/summarize and finish your response."
         )
     else:
         # Standard nomination loop
         if remaining:
             system_prompt = f"{system_prompt}\n{', '.join(remaining)}"
+    logger.info(
+        f"[ROUTER] Final system prompt with available agents added {system_prompt} ."
+    )
 
     messages: list[dict[str, any]] = [{"role": "system", "content": system_prompt}]
 
@@ -314,15 +414,17 @@ async def process_and_respond(
                 final_text = "(No text response generated)"
             else:
                 next_tag = (
-                    REMAINING_AGENTS_MAP[thread_key][0]
-                    if thread_key in REMAINING_AGENTS_MAP
-                    and len(REMAINING_AGENTS_MAP[thread_key]) > 0
-                    else "OpenAiTerra_Architect"
+                    remaining[0]
+                    if remaining
+                    else "OpAiTerra_Architect"
                 )
                 final_text = f"(No text response generated) [{next_tag}] next"
             logger.warning(f"[ROUTER] final_text was empty for {agent_key}!")
         else:
             final_text = markdown_to_slack(final_text)
+            final_text = enforce_valid_nomination(
+                final_text, agent_key, remaining, force_termination
+            )
 
         # Append token usage to the end of the message text
         final_text = (
@@ -364,10 +466,10 @@ async def process_and_respond(
             if thread_key in REMAINING_AGENTS_MAP:
                 del REMAINING_AGENTS_MAP[thread_key]
         elif (
-            agent_key == "OpenAiTerra_Architect" and thread_key in REMAINING_AGENTS_MAP
+            agent_key == "OpAiTerra_Architect" and thread_key in REMAINING_AGENTS_MAP
         ):
             logger.info(
-                f"[ROUTER] OpenAiTerra_Architect finished! Deleting REMAINING_AGENTS_MAP for thread {thread_key}"
+                f"[ROUTER] OpAiTerra_Architect finished! Deleting REMAINING_AGENTS_MAP for thread {thread_key}"
             )
             del REMAINING_AGENTS_MAP[thread_key]
 

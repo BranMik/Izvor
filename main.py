@@ -75,12 +75,10 @@ async def slack_events(request: Request, background_tasks: BackgroundTasks):
     """
     headers = request.headers
 
-    # 1. Immediately acknowledge and ignore Slack retries before reading body
-    # This prevents reading the body of a client connection that Slack has already aborted.
+    # 1. Log Slack retries if present (deduplication cache handles duplicate events)
     retry_num = headers.get("x-slack-retry-num") or headers.get("X-Slack-Retry-Num")
     if retry_num:
-        logger.info(f"Ignoring Slack retry request (X-Slack-Retry-Num: {retry_num})")
-        return Response(status_code=200)
+        logger.info(f"[WEBHOOK] Received Slack retry request (X-Slack-Retry-Num: {retry_num})")
 
     # 2. Read request body bytes safely
     try:
