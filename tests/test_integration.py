@@ -14,8 +14,11 @@ async def mock_fetch_thread_history(*args, **kwargs):
     return []
 
 
+from unittest.mock import AsyncMock
+
 @pytest.fixture(autouse=True)
 def patch_slack_calls(monkeypatch):
+    monkeypatch.setattr("main.process_and_respond", AsyncMock(return_value={"ok": True}))
     monkeypatch.setattr("agent_router.post_agent_response", mock_post_agent_response)
     monkeypatch.setattr("agent_router.fetch_thread_history", mock_fetch_thread_history)
     monkeypatch.setattr("main.verify_slack_signature", lambda body, headers: True)
@@ -72,7 +75,7 @@ def test_bot_message_filtering():
             "subtype": "bot_message",
             "channel": "C_TEST_BOT",
             "ts": "123456789.0003",
-            "text": "I nominate [Mistral_Innovator] to speak next.",
+            "text": "I nominate [AnthrOpus_Innovator] to speak next.",
         },
     }
     response2 = client.post("/slack/events", json=payload_with_nom)
@@ -105,7 +108,7 @@ def test_user_message_filtering():
             "type": "message",
             "channel": "C_TEST_USER",
             "ts": "123456789.0005",
-            "text": "[Mistral_TechLead] Please analyze this schema.",
+            "text": "[MistLar_TechLead] Please analyze this schema.",
         },
     }
     response2 = client.post("/slack/events", json=payload_tag)
@@ -127,7 +130,7 @@ def test_user_message_filtering():
     assert ("C_TEST_USER", "123456789.0006") in PROCESSED_EVENTS
 
 
-def test_slack_retry_header_ignored():
+def test_slack_retry_handling():
     PROCESSED_EVENTS.clear()
 
     payload = {
@@ -140,9 +143,15 @@ def test_slack_retry_header_ignored():
         },
     }
 
-    # Request with retry header should return 200 OK immediately and NOT be added to PROCESSED_EVENTS
-    response = client.post(
+    # First attempt with retry header (e.g. attempt 0 was lost in network) -> should be processed!
+    response1 = client.post(
         "/slack/events", json=payload, headers={"X-Slack-Retry-Num": "1"}
     )
-    assert response.status_code == 200
-    assert ("C_TEST_RETRY", "123456789.0007") not in PROCESSED_EVENTS
+    assert response1.status_code == 200
+    assert ("C_TEST_RETRY", "123456789.0007") in PROCESSED_EVENTS
+
+    # Second duplicate retry with same ts -> should be deduplicated
+    response2 = client.post(
+        "/slack/events", json=payload, headers={"X-Slack-Retry-Num": "2"}
+    )
+    assert response2.status_code == 200
