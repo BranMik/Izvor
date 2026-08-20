@@ -6,6 +6,8 @@ import re
 import litellm
 from starlette.concurrency import run_in_threadpool
 
+from pathlib import Path
+
 from config import AGENTS_CONFIG, DEFAULT_AGENT_KEY
 from mcp_tools import MCP_TOOLS_SCHEMAS, execute_mcp_tool
 from slack_client import fetch_thread_history, post_agent_response
@@ -16,19 +18,219 @@ logger = logging.getLogger(__name__)
 litellm.suppress_debug_info = True
 litellm.drop_params = True
 
+# Path to persistent settings file
+SETTINGS_FILE = Path(__file__).parent / "agent_settings.json"
+
 # Track agents who haven't spoken yet per thread (mapped by (channel_id, thread_ts))
 REMAINING_AGENTS_MAP = {}
 
 # Track threads that are running a custom tagged agent sequence
 CUSTOM_FLOW_THREADS = set()
 
+# Track threads where a stop has been requested
+STOP_REQUESTED_THREADS = set()
+
+
+def is_stop_command(raw_text: str, is_mention_or_dm: bool = False) -> bool:
+    """
+    Detects if the message is a stop command directed at the bot.
+    Supports:
+    - @CaiLogics Hub stop, @CaiLogics Test stop, @CaiLogics stop
+    - <@BOT_ID> stop
+    - @Agent_Key stop or @Persona stop
+    - 'stop' in mentions or direct messages
+    - Variations like 'stop discussion', 'stop flow', 'halt', 'cancel', 'stani', 'zaustavi', 'prekini'
+    """
+    if not raw_text:
+        return False
+
+    # Check for literal '@app_mention stop'
+    if re.search(r"@app_mention\s+stop\b", raw_text, re.IGNORECASE):
+        return True
+
+    # Clean Slack user / bot mentions like <@U123456>
+    cleaned = re.sub(r"<@[A-Z0-9]+>", "", raw_text).strip()
+
+    # Clean hub / bot names like @CaiLogics Hub, @CaiLogics Test, @CaiLogics
+    cleaned = re.sub(
+        r"@?CaiLogics\s+(Hub|Test|Multi-Agent|AgenticPanel|Panel)\b",
+        "",
+        cleaned,
+        flags=re.IGNORECASE,
+    ).strip()
+    cleaned = re.sub(r"@?CaiLogics\b", "", cleaned, flags=re.IGNORECASE).strip()
+    cleaned = re.sub(r"@app_mention\b", "", cleaned, flags=re.IGNORECASE).strip()
+
+    # Clean individual agent keys / personas
+    for key, cfg in AGENTS_CONFIG.items():
+        cleaned = re.sub(r"@?" + re.escape(key), "", cleaned, flags=re.IGNORECASE).strip()
+        persona = cfg.get("username", "")
+        if persona:
+            cleaned = re.sub(r"@?" + re.escape(persona), "", cleaned, flags=re.IGNORECASE).strip()
+        # Also remove bracketed agent tags like [Gemini_Visionary] stop
+        cleaned = re.sub(r"\[" + re.escape(key) + r"\]", "", cleaned, flags=re.IGNORECASE).strip()
+
+    # Normalize punctuation & whitespace
+    normalized = re.sub(r"[^\w\s]", "", cleaned).strip().lower()
+
+    stop_phrases = {
+        "stop",
+        "stop discussion",
+        "stop panel",
+        "stop flow",
+        "stop please",
+        "please stop",
+        "halt",
+        "cancel",
+        "terminate",
+        "stani",
+        "zaustavi",
+        "prekini",
+    }
+    if normalized in stop_phrases:
+        return True
+
+    words = normalized.split()
+    if words and words[0] in ("stop", "stani", "zaustavi", "prekini", "halt", "cancel") and len(words) <= 3:
+        return True
+
+    return False
+
+
+def request_thread_stop(channel_id: str, thread_ts: str) -> None:
+    """Marks the thread for stopping and clears remaining queued agents."""
+    thread_key = (channel_id, thread_ts)
+    STOP_REQUESTED_THREADS.add(thread_key)
+    if thread_key in REMAINING_AGENTS_MAP:
+        del REMAINING_AGENTS_MAP[thread_key]
+    CUSTOM_FLOW_THREADS.discard(thread_key)
+    logger.info(
+        f"[ROUTER] Stop requested for thread {thread_key}. REMAINING_AGENTS_MAP cleared."
+    )
+
+
+def is_thread_stopped(channel_id: str, thread_ts: str) -> bool:
+    """Checks if a stop has been requested for this thread."""
+    return (channel_id, thread_ts) in STOP_REQUESTED_THREADS
+
+
+def clear_thread_stop(channel_id: str, thread_ts: str) -> None:
+    """Clears the stop flag for this thread."""
+    STOP_REQUESTED_THREADS.discard((channel_id, thread_ts))
+
+
+# Mandatory locked agents that cannot be turned off
+LOCKED_AGENTS = {"Gemini_Visionary", "OpAiTerra_Architect", "AnthrOpus_Sceptic"}
+
+# Global in-memory set of enabled debate agents (default: all agents in AGENTS_CONFIG)
+ENABLED_DEBATE_AGENTS: set[str] = set(AGENTS_CONFIG.keys())
+
+
+def save_enabled_agents() -> None:
+    """Saves the current enabled debate agents to a persistent JSON configuration file."""
+    try:
+        data = {"enabled_agents": sorted(list(ENABLED_DEBATE_AGENTS))}
+        with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+        logger.info(
+            f"[ROUTER] Saved {len(ENABLED_DEBATE_AGENTS)} enabled agents to {SETTINGS_FILE.name}"
+        )
+    except Exception as e:
+        logger.error(f"[ROUTER] Error saving agent settings: {e}")
+
+
+def load_enabled_agents() -> set[str]:
+    """
+    Loads enabled debate agents from persistent JSON file if available.
+    Ensures locked agents are always included and unknown keys are filtered.
+    Falls back to default (all agents ON) if no settings file exists.
+    """
+    ENABLED_DEBATE_AGENTS.clear()
+    if SETTINGS_FILE.exists():
+        try:
+            with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            loaded = set(data.get("enabled_agents", []))
+            # Validate keys against AGENTS_CONFIG
+            valid_keys = {k for k in loaded if k in AGENTS_CONFIG}
+            # Ensure locked agents are always present
+            valid_keys.update(LOCKED_AGENTS)
+            ENABLED_DEBATE_AGENTS.update(valid_keys)
+            logger.info(
+                f"[ROUTER] Loaded {len(ENABLED_DEBATE_AGENTS)} enabled agents from {SETTINGS_FILE.name}"
+            )
+            return set(ENABLED_DEBATE_AGENTS)
+        except Exception as e:
+            logger.error(f"[ROUTER] Error loading agent settings file: {e}")
+
+    # Fallback default: all agents enabled
+    ENABLED_DEBATE_AGENTS.update(AGENTS_CONFIG.keys())
+    save_enabled_agents()
+    return set(ENABLED_DEBATE_AGENTS)
+
+
+def reset_enabled_agents(save: bool = True) -> None:
+    """Resets all agents to enabled state."""
+    ENABLED_DEBATE_AGENTS.clear()
+    ENABLED_DEBATE_AGENTS.update(AGENTS_CONFIG.keys())
+    if save:
+        save_enabled_agents()
+    logger.info(
+        f"[ROUTER] Reset all {len(ENABLED_DEBATE_AGENTS)} agents to ENABLED."
+    )
+
+
+def get_enabled_agents() -> set[str]:
+    """Returns a copy of currently enabled agents."""
+    return set(ENABLED_DEBATE_AGENTS)
+
+
+def set_agent_enabled(agent_key: str, enabled: bool) -> bool:
+    """
+    Enables or disables an agent for automatic debate.
+    Locked agents (Visionary, Architect, Sceptic) cannot be disabled.
+    Persists changes to agent_settings.json.
+    Returns True if state was successfully updated, False otherwise.
+    """
+    if agent_key in LOCKED_AGENTS and not enabled:
+        logger.warning(
+            f"[ROUTER] Cannot disable locked agent '{agent_key}'. Ignoring request."
+        )
+        return False
+
+    if agent_key not in AGENTS_CONFIG:
+        logger.warning(f"[ROUTER] Unknown agent key '{agent_key}'.")
+        return False
+
+    if enabled:
+        ENABLED_DEBATE_AGENTS.add(agent_key)
+    else:
+        ENABLED_DEBATE_AGENTS.discard(agent_key)
+    save_enabled_agents()
+    logger.info(
+        f"[ROUTER] Set agent '{agent_key}' enabled={enabled}. Total enabled: {len(ENABLED_DEBATE_AGENTS)}"
+    )
+    return True
+
+
+def toggle_agent(agent_key: str) -> bool:
+    """Toggles an agent's enabled state. Returns the new enabled state."""
+    current_state = agent_key in ENABLED_DEBATE_AGENTS
+    new_state = not current_state
+    set_agent_enabled(agent_key, new_state)
+    return agent_key in ENABLED_DEBATE_AGENTS
+
 
 def get_initial_agents() -> list[str]:
-    """Returns the list of all optional agents that should speak in the discussion flow."""
+    """
+    Returns the list of enabled optional agents that should speak in the discussion flow.
+    Locked agents like AnthrOpus_Sceptic are always included.
+    """
     return [
         key
         for key in AGENTS_CONFIG
-        if key not in ("OpAiTerra_Architect", "Gemini_Visionary")
+        if key in ENABLED_DEBATE_AGENTS
+        and key not in ("OpAiTerra_Architect", "Gemini_Visionary")
     ]
 
 
@@ -277,6 +479,7 @@ async def process_and_respond(
 
     # Adjust remaining agents list if user input explicitly tagged several agents
     if not is_bot_trigger:
+        clear_thread_stop(channel_id, thread_ts)
         tagged = extract_tagged_agents(raw_text)
         if tagged:
             agent_key = tagged[0]
@@ -309,10 +512,12 @@ async def process_and_respond(
         force_termination = True
     elif is_custom_flow and not remaining:
         force_termination = True
+    elif is_thread_stopped(channel_id, thread_ts):
+        force_termination = True
 
     if force_termination:
         logger.info(
-            f"[ROUTER] Agent {agent_key} forcing termination (no remaining agents in sequence)."
+            f"[ROUTER] Agent {agent_key} forcing termination (no remaining agents in sequence or stop requested)."
         )
         system_prompt += (
             "\n\nCRITICAL CONSTRAINT: You are the last agent requested to speak in this turn. "
@@ -410,6 +615,13 @@ async def process_and_respond(
         else:
             final_text = response_message.content
 
+        # Re-check stop flag in case a stop was requested while LLM was processing
+        if is_thread_stopped(channel_id, thread_ts):
+            force_termination = True
+            logger.info(
+                f"[ROUTER] Thread {thread_key} received stop request during execution. Forcing termination."
+            )
+
         if not final_text:
             if force_termination:
                 final_text = "(No text response generated)"
@@ -424,7 +636,7 @@ async def process_and_respond(
         else:
             final_text = markdown_to_slack(final_text)
             final_text = enforce_valid_nomination(
-                final_text, agent_key, remaining, force_termination
+                final_text, agent_key, [] if force_termination else remaining, force_termination
             )
 
         # Append token usage to the end of the message text
@@ -457,10 +669,11 @@ async def process_and_respond(
         logger.info(f"[SLACK] Successfully posted message! Received ts: {posted_ts}")
 
         # Reset remaining agents/custom flows for this thread when finishing
-        if force_termination and thread_key in CUSTOM_FLOW_THREADS:
+        if force_termination:
             logger.info(
-                f"[ROUTER] Custom sequence flow finished! Deleting state for thread {thread_key}"
+                f"[ROUTER] Thread {thread_key} reached termination (forced or natural). Cleaning up state."
             )
+            clear_thread_stop(channel_id, thread_ts)
             CUSTOM_FLOW_THREADS.discard(thread_key)
             if thread_key in REMAINING_AGENTS_MAP:
                 del REMAINING_AGENTS_MAP[thread_key]

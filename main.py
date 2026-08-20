@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 from pathlib import Path
 import re
@@ -9,8 +10,18 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from starlette.requests import ClientDisconnect
 
-from agent_router import process_and_respond
+from agent_router import (
+    LOCKED_AGENTS,
+    is_stop_command,
+    load_enabled_agents,
+    process_and_respond,
+    request_thread_stop,
+    reset_enabled_agents,
+    set_agent_enabled,
+    toggle_agent,
+)
 from config import AGENTS_CONFIG
+from slack_client import publish_app_home
 from slack_security import verify_slack_signature
 
 # Global in-memory cache for request deduplication
@@ -52,6 +63,8 @@ async def keep_loop_alive():
 
 @app.on_event("startup")
 async def startup_event():
+    enabled = load_enabled_agents()
+    logger.info(f"[STARTUP] Loaded {len(enabled)} enabled debate agents from persistent storage.")
     asyncio.create_task(keep_loop_alive())
 
 
@@ -123,6 +136,17 @@ async def slack_events(request: Request, background_tasks: BackgroundTasks):
             )
 
         event_type = event.get("type")
+        # 5a. Handle App Home Opened
+        if event_type == "app_home_opened":
+            user_id = event.get("user")
+            tab = event.get("tab")
+            if tab == "home" and user_id:
+                logger.info(
+                    f"[WEBHOOK] Received app_home_opened event for user {user_id}. Publishing App Home view."
+                )
+                background_tasks.add_task(publish_app_home, user_id=user_id)
+            return Response(status_code=200)
+
         if event_type in ["message", "app_mention"]:
             channel_id = event.get("channel")
             ts = event.get("ts")
@@ -195,6 +219,15 @@ async def slack_events(request: Request, background_tasks: BackgroundTasks):
                             f"Skipping non-nomination bot message in channel {channel_id}"
                         )
                 else:
+                    # Check if the user message is a stop command directed at the bot
+                    if is_stop_command(raw_text, is_mention_or_dm=is_mention_or_dm):
+                        logger.info(
+                            f"[WEBHOOK] Stop command received from user in channel {channel_id}, thread {thread_ts}. Stopping thread discussion."
+                        )
+                        PROCESSED_EVENTS[event_key] = now
+                        request_thread_stop(channel_id, thread_ts)
+                        return Response(status_code=200)
+
                     # User messages must either have a tag, name mention, or be an app_mention/DM
                     if has_tag or has_name_mention or is_mention_or_dm:
                         should_process = True
@@ -226,3 +259,65 @@ async def slack_events(request: Request, background_tasks: BackgroundTasks):
     logger.info("[WEBHOOK] Returning 200 OK immediately to Slack")
     # Return HTTP 200 OK after completion
     return Response(status_code=200)
+
+
+@app.post("/slack/actions")
+@app.post("/slack/interactivity")
+async def slack_interactivity(request: Request, background_tasks: BackgroundTasks):
+    """
+    Handles Slack Block Kit interactivity (radio button toggles, buttons, etc.) from the App Home page.
+    """
+    headers = request.headers
+    try:
+        body_bytes = await request.body()
+    except ClientDisconnect:
+        logger.info("Slack client disconnected before interactivity body could be read.")
+        return Response(status_code=200)
+
+    if not verify_slack_signature(body_bytes, headers):
+        logger.warning("Rejected unauthorized request to /slack/actions")
+        raise HTTPException(status_code=401, detail="Invalid Slack signature")
+
+    payload = None
+    try:
+        form_data = await request.form()
+        if "payload" in form_data:
+            payload = json.loads(form_data["payload"])
+    except Exception:
+        pass
+
+    if not payload:
+        try:
+            payload = json.loads(body_bytes.decode("utf-8"))
+        except Exception as e:
+            logger.error(f"Failed to parse interactivity payload: {e}")
+            raise HTTPException(status_code=400, detail="Invalid payload") from e
+
+    payload_type = payload.get("type")
+    if payload_type == "block_actions":
+        user_id = payload.get("user", {}).get("id")
+        actions = payload.get("actions", [])
+        for action in actions:
+            action_id = action.get("action_id", "")
+            if action_id.startswith("toggle_agent_radio:"):
+                selected_option = action.get("selected_option", {})
+                val = selected_option.get("value", "")
+                if ":" in val:
+                    agent_key, state = val.split(":", 1)
+                    set_agent_enabled(agent_key, state == "on")
+            elif action_id.startswith("toggle_agent:"):
+                agent_key = action.get("value")
+                if agent_key:
+                    toggle_agent(agent_key)
+            elif action_id == "bulk_enable_all":
+                reset_enabled_agents()
+            elif action_id == "bulk_disable_optional":
+                for key in AGENTS_CONFIG:
+                    if key not in LOCKED_AGENTS:
+                        set_agent_enabled(key, False)
+
+        if user_id:
+            background_tasks.add_task(publish_app_home, user_id=user_id)
+
+    return Response(status_code=200)
+
