@@ -27,7 +27,7 @@ def get_initial_agents() -> list[str]:
     return [
         key
         for key in AGENTS_CONFIG
-        if key not in ("Gemini_Architect", "Gemini_Visionary")
+        if key not in ("OpenAiTerra_Architect", "Gemini_Visionary")
     ]
 
 
@@ -82,7 +82,7 @@ def parse_agent_and_prompt(
     - @CaiLogics Hub [Mistral_TechLead] prompt...
     - @CaiLogics Visionary prompt...
     - Plain text -> defaults to Gemini_Visionary
-    Note: If no agent is specified, the default flow is to start with Gemini_Visionary, go through all others, and end with Gemini_Architect. Each agent will nominate the next agent to speak.
+    Note: If no agent is specified, the default flow is to start with Gemini_Visionary, go through all others, and end with OpenAiTerra_Architect. Each agent will nominate the next agent to speak.
     Returns (agent_key, cleaned_prompt, was_explicit_target)
     """
     global REMAINING_AGENTS_MAP
@@ -219,7 +219,7 @@ async def process_and_respond(
         system_prompt += (
             "\n\nCRITICAL CONSTRAINT: You are the last agent requested to speak in this turn. "
             "Do NOT nominate any other agent to speak next. Do NOT include any bracketed agent key (like [Mistral_Innovator] "
-            "or [Gemini_Architect]) at the end of your response. Simply answer the question/summarize and finish your response."
+            "or [OpenAiTerra_Architect]) at the end of your response. Simply answer the question/summarize and finish your response."
         )
     else:
         # Standard nomination loop
@@ -317,7 +317,7 @@ async def process_and_respond(
                     REMAINING_AGENTS_MAP[thread_key][0]
                     if thread_key in REMAINING_AGENTS_MAP
                     and len(REMAINING_AGENTS_MAP[thread_key]) > 0
-                    else "Gemini_Architect"
+                    else "OpenAiTerra_Architect"
                 )
                 final_text = f"(No text response generated) [{next_tag}] next"
             logger.warning(f"[ROUTER] final_text was empty for {agent_key}!")
@@ -363,9 +363,11 @@ async def process_and_respond(
             CUSTOM_FLOW_THREADS.discard(thread_key)
             if thread_key in REMAINING_AGENTS_MAP:
                 del REMAINING_AGENTS_MAP[thread_key]
-        elif agent_key == "Gemini_Architect" and thread_key in REMAINING_AGENTS_MAP:
+        elif (
+            agent_key == "OpenAiTerra_Architect" and thread_key in REMAINING_AGENTS_MAP
+        ):
             logger.info(
-                f"[ROUTER] Gemini_Architect finished! Deleting REMAINING_AGENTS_MAP for thread {thread_key}"
+                f"[ROUTER] OpenAiTerra_Architect finished! Deleting REMAINING_AGENTS_MAP for thread {thread_key}"
             )
             del REMAINING_AGENTS_MAP[thread_key]
 
