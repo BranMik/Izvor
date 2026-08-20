@@ -1,7 +1,13 @@
 import pytest
 from fastapi.testclient import TestClient
 from main import app, PROCESSED_EVENTS
-from agent_router import REMAINING_AGENTS_MAP
+from agent_router import (
+    ENABLED_DEBATE_AGENTS,
+    LOCKED_AGENTS,
+    REMAINING_AGENTS_MAP,
+    STOP_REQUESTED_THREADS,
+    reset_enabled_agents,
+)
 
 client = TestClient(app)
 
@@ -18,6 +24,7 @@ from unittest.mock import AsyncMock
 
 @pytest.fixture(autouse=True)
 def patch_slack_calls(monkeypatch):
+    reset_enabled_agents()
     monkeypatch.setattr("main.process_and_respond", AsyncMock(return_value={"ok": True}))
     monkeypatch.setattr("agent_router.post_agent_response", mock_post_agent_response)
     monkeypatch.setattr("agent_router.fetch_thread_history", mock_fetch_thread_history)
@@ -155,3 +162,146 @@ def test_slack_retry_handling():
         "/slack/events", json=payload, headers={"X-Slack-Retry-Num": "2"}
     )
     assert response2.status_code == 200
+
+
+def test_stop_command_integration(monkeypatch):
+    PROCESSED_EVENTS.clear()
+    STOP_REQUESTED_THREADS.clear()
+    REMAINING_AGENTS_MAP.clear()
+
+    # Pre-populate remaining agents for thread to verify they are cleared on stop
+    thread_key = ("C_TEST_STOP", "123456789.0008")
+    REMAINING_AGENTS_MAP[thread_key] = ["MistLar_TechLead", "AnthrOpus_Innovator"]
+
+    mock_process = AsyncMock(return_value={"ok": True})
+    monkeypatch.setattr("main.process_and_respond", mock_process)
+
+    # 1. User sends stop via app_mention
+    payload_stop_mention = {
+        "type": "event_callback",
+        "event": {
+            "type": "app_mention",
+            "channel": "C_TEST_STOP",
+            "ts": "123456789.0008",
+            "thread_ts": "123456789.0008",
+            "text": "<@U12345> stop",
+        },
+    }
+
+    response = client.post("/slack/events", json=payload_stop_mention)
+    assert response.status_code == 200
+    assert thread_key in PROCESSED_EVENTS
+    assert thread_key in STOP_REQUESTED_THREADS
+    assert thread_key not in REMAINING_AGENTS_MAP
+    # Verify process_and_respond was NOT called for stop command
+    mock_process.assert_not_called()
+
+    # 2. User sends stop via persona name mention in regular message
+    STOP_REQUESTED_THREADS.clear()
+    thread_key_2 = ("C_TEST_STOP", "123456789.0009")
+    REMAINING_AGENTS_MAP[thread_key_2] = ["OpAiTerra_ROIStrategist"]
+
+    payload_stop_persona = {
+        "type": "event_callback",
+        "event": {
+            "type": "message",
+            "channel": "C_TEST_STOP",
+            "ts": "123456789.0009",
+            "thread_ts": "123456789.0009",
+            "text": "@CaiLogics Test stop discussion",
+        },
+    }
+
+    response2 = client.post("/slack/events", json=payload_stop_persona)
+    assert response2.status_code == 200
+    assert thread_key_2 in PROCESSED_EVENTS
+    assert thread_key_2 in STOP_REQUESTED_THREADS
+    assert thread_key_2 not in REMAINING_AGENTS_MAP
+    mock_process.assert_not_called()
+
+
+def test_app_home_opened_event(monkeypatch):
+    mock_publish = AsyncMock(return_value={"ok": True})
+    monkeypatch.setattr("main.publish_app_home", mock_publish)
+
+    payload = {
+        "type": "event_callback",
+        "event": {
+            "type": "app_home_opened",
+            "user": "U_TEST_USER_1",
+            "tab": "home",
+        },
+    }
+
+    response = client.post("/slack/events", json=payload)
+    assert response.status_code == 200
+    mock_publish.assert_called_once_with(user_id="U_TEST_USER_1")
+
+
+def test_slack_interactivity_radio_toggle_action(monkeypatch):
+    reset_enabled_agents()
+    mock_publish = AsyncMock(return_value={"ok": True})
+    monkeypatch.setattr("main.publish_app_home", mock_publish)
+
+    # 1. Turn OFF MistLar_TechLead via radio button
+    payload_off = {
+        "type": "block_actions",
+        "user": {"id": "U_TEST_USER_2"},
+        "actions": [
+            {
+                "action_id": "toggle_agent_radio:MistLar_TechLead",
+                "selected_option": {
+                    "value": "MistLar_TechLead:off",
+                    "text": {"type": "plain_text", "text": "🔴 OFF"},
+                },
+            }
+        ],
+    }
+
+    response = client.post("/slack/actions", json=payload_off)
+    assert response.status_code == 200
+    assert "MistLar_TechLead" not in ENABLED_DEBATE_AGENTS
+    mock_publish.assert_called_with(user_id="U_TEST_USER_2")
+
+    # 2. Turn ON MistLar_TechLead via radio button
+    payload_on = {
+        "type": "block_actions",
+        "user": {"id": "U_TEST_USER_2"},
+        "actions": [
+            {
+                "action_id": "toggle_agent_radio:MistLar_TechLead",
+                "selected_option": {
+                    "value": "MistLar_TechLead:on",
+                    "text": {"type": "plain_text", "text": "🟢 ON"},
+                },
+            }
+        ],
+    }
+
+    response_on = client.post("/slack/interactivity", json=payload_on)
+    assert response_on.status_code == 200
+    assert "MistLar_TechLead" in ENABLED_DEBATE_AGENTS
+
+    # 3. Bulk disable optional (only locked agents remain ON)
+    payload_bulk_off = {
+        "type": "block_actions",
+        "user": {"id": "U_TEST_USER_2"},
+        "actions": [{"action_id": "bulk_disable_optional"}],
+    }
+
+    response_bulk_off = client.post("/slack/actions", json=payload_bulk_off)
+    assert response_bulk_off.status_code == 200
+    assert ENABLED_DEBATE_AGENTS == LOCKED_AGENTS
+
+    # 4. Bulk enable all
+    payload_bulk_on = {
+        "type": "block_actions",
+        "user": {"id": "U_TEST_USER_2"},
+        "actions": [{"action_id": "bulk_enable_all"}],
+    }
+
+    response_bulk_on = client.post("/slack/actions", json=payload_bulk_on)
+    assert response_bulk_on.status_code == 200
+    assert len(ENABLED_DEBATE_AGENTS) == 16
+
+

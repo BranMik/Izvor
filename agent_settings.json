@@ -1,0 +1,20 @@
+{
+  "enabled_agents": [
+    "AnthrOpus_Innovator",
+    "AnthrOpus_Sceptic",
+    "Gemini_DataAndAnalyticsStrategist",
+    "Gemini_ScalabilityEngineer",
+    "Gemini_Visionary",
+    "MistLar_SecurityArchitect",
+    "MistLar_TechLead",
+    "MistMed_CompliancePrivacyAndGovernanceOfficer",
+    "MistMed_DeploymentReleaseStrategist",
+    "MistMed_MonitoringAndAlertingSpecialist",
+    "MistMed_OperationalReliabilityLead",
+    "MistMed_ScopeOptimizer",
+    "OpAiTerra_Architect",
+    "OpAiTerra_MarketAndCompetitionResearchExpert",
+    "OpAiTerra_ROIStrategist",
+    "OpAiTerra_UserAdvocate"
+  ]
+}

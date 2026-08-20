@@ -4,12 +4,216 @@ from typing import Any
 from slack_sdk.errors import SlackApiError
 from slack_sdk.web.async_client import AsyncWebClient
 
-from config import SLACK_BOT_TOKEN
+from config import AGENTS_CONFIG, SLACK_BOT_TOKEN
 
 logger = logging.getLogger(__name__)
 
 # Initialize async web client
 slack_async_client = AsyncWebClient(token=SLACK_BOT_TOKEN)
+
+
+def build_app_home_view(enabled_agents: set[str] | None = None) -> dict[str, Any]:
+    """
+    Generates the Block Kit Home Tab view for the Slack Application Home page.
+    Displays all panel agents with radio buttons (ON/OFF) and indicates locked agents.
+    """
+    from agent_router import LOCKED_AGENTS, get_enabled_agents
+
+    if enabled_agents is None:
+        enabled_agents = get_enabled_agents()
+
+    total_agents = len(AGENTS_CONFIG)
+    active_count = len(enabled_agents)
+
+    blocks: list[dict[str, Any]] = [
+        {
+            "type": "header",
+            "text": {
+                "type": "plain_text",
+                "text": "🤖 CaiLogics Multi-Agent Panel Control Hub",
+                "emoji": True,
+            },
+        },
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": (
+                    "*Dobrodošli u CaiLogics kontrolni panel!*\n"
+                    "Ovdje možete uključiti ili isključiti agente koji sudjeluju u automatskoj debati kada korisnik ne taga niti jednog agenta.\n\n"
+                    "💡 *Napomena:* Isključeni agenti i dalje se mogu direktno pozvati tagiranjem (npr. `[MistLar_TechLead]` ili `@MistLar TechLead`)."
+                ),
+            },
+        },
+        {
+            "type": "section",
+            "fields": [
+                {
+                    "type": "mrkdwn",
+                    "text": f"*📊 Status panela:*\n🟢 *{active_count}* / *{total_agents}* agenata aktivno",
+                },
+                {
+                    "type": "mrkdwn",
+                    "text": "*🔒 Obavezni agenti:*\nVisionary, Architect, Sceptic",
+                },
+            ],
+        },
+        {
+            "type": "actions",
+            "elements": [
+                {
+                    "type": "button",
+                    "text": {
+                        "type": "plain_text",
+                        "text": "✅ Uključi sve agente",
+                        "emoji": True,
+                    },
+                    "action_id": "bulk_enable_all",
+                    "style": "primary",
+                },
+                {
+                    "type": "button",
+                    "text": {
+                        "type": "plain_text",
+                        "text": "🔒 Samo obavezni agenti",
+                        "emoji": True,
+                    },
+                    "action_id": "bulk_disable_optional",
+                },
+            ],
+        },
+        {"type": "divider"},
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": "*🔒 Obavezni agenti (uvijek uključeni u automatsku debatu):*",
+            },
+        },
+    ]
+
+    # 1. Add locked agents first
+    for key in ("Gemini_Visionary", "AnthrOpus_Sceptic", "OpAiTerra_Architect"):
+        cfg = AGENTS_CONFIG.get(key, {})
+        username = cfg.get("username", key)
+        model = cfg.get("model", "")
+        role_desc = {
+            "Gemini_Visionary": "🎯 Početni agent & Moderator rasprave",
+            "AnthrOpus_Sceptic": "🔍 Kritička analiza & Preispitivanje pretpostavki",
+            "OpAiTerra_Architect": "🏛️ Glavni arhitekt & Završni konsenzus",
+        }.get(key, "Obavezni član panela")
+
+        blocks.append(
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"*{username}*  •  `{model}`\n_{role_desc}_",
+                },
+                "accessory": {
+                    "type": "button",
+                    "text": {
+                        "type": "plain_text",
+                        "text": "🔒 Locked ON",
+                        "emoji": True,
+                    },
+                    "action_id": f"locked_agent_{key}",
+                    "value": "locked",
+                },
+            }
+        )
+
+    blocks.append({"type": "divider"})
+    blocks.append(
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": "*⚙️ Konfigurabilni agenti za automatsku debatu:*",
+            },
+        }
+    )
+
+    # 2. Add toggleable agents with radio buttons (ON/OFF)
+    for key, cfg in AGENTS_CONFIG.items():
+        if key in LOCKED_AGENTS:
+            continue
+
+        username = cfg.get("username", key)
+        model = cfg.get("model", "")
+        is_on = key in enabled_agents
+
+        blocks.append(
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"*{username}*\n`{model}`",
+                },
+                "accessory": {
+                    "type": "radio_buttons",
+                    "action_id": f"toggle_agent_radio:{key}",
+                    "options": [
+                        {
+                            "text": {"type": "plain_text", "text": "🟢 ON", "emoji": True},
+                            "value": f"{key}:on",
+                        },
+                        {
+                            "text": {"type": "plain_text", "text": "🔴 OFF", "emoji": True},
+                            "value": f"{key}:off",
+                        },
+                    ],
+                    "initial_option": {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "🟢 ON" if is_on else "🔴 OFF",
+                            "emoji": True,
+                        },
+                        "value": f"{key}:on" if is_on else f"{key}:off",
+                    },
+                },
+            }
+        )
+
+    blocks.append({"type": "divider"})
+    blocks.append(
+        {
+            "type": "context",
+            "elements": [
+                {
+                    "type": "mrkdwn",
+                    "text": "⚡ _CaiLogics Multi-Agent Platform • Promjene stupaju na snagu odmah za nove rasprave._",
+                }
+            ],
+        }
+    )
+
+    return {"type": "home", "blocks": blocks}
+
+
+async def publish_app_home(
+    user_id: str, enabled_agents: set[str] | None = None
+) -> dict[str, Any]:
+    """
+    Publishes the multi-agent control panel view to the user's Slack App Home tab.
+    """
+    if not SLACK_BOT_TOKEN or SLACK_BOT_TOKEN == "xoxb-your-bot-user-oauth-token":
+        logger.info(f"[MOCK APP HOME] Would publish App Home view to user {user_id}")
+        return {"ok": True, "mock": True}
+
+    try:
+        view = build_app_home_view(enabled_agents)
+        response = await slack_async_client.views_publish(
+            user_id=user_id,
+            view=view,
+        )
+        logger.info(f"[SLACK] Published App Home view for user {user_id}")
+        return response.data
+    except SlackApiError as e:
+        logger.error(
+            f"Error publishing App Home view to user {user_id}: {e.response['error']}"
+        )
+        return {"ok": False, "error": str(e)}
 
 
 async def post_agent_response(
