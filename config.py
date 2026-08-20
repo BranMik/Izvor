@@ -34,7 +34,7 @@ DEFAULT_AGENT_KEY = "Gemini_Visionary"
 # Configuration matrix for LiteLLM routing and Slack personas
 AGENTS_CONFIG = {
     "Gemini_Visionary": {
-        "model": "gemini/gemini-2.5-flash",
+        "model": "gemini/gemini-3.7-flash",
         "username": "Gemini Visionary",
         "icon_url": "https://avatars.example.com/static/avatar_25.png",
         "system_prompt": build_agent_prompt("Gemini_Visionary"),
@@ -64,7 +64,7 @@ AGENTS_CONFIG = {
         "system_prompt": build_agent_prompt("AnthrOpus_Sceptic"),
     },
     "Gemini_DataAndAnalyticsStrategist": {
-        "model": "gemini/gemini-2.5-flash-lite",
+        "model": "gemini/gemini-3.7-flash",
         "username": "Gemini Data And Analytics Strategist",
         "icon_url": "https://avatars.example.com/static/avatar_27.png",
         "system_prompt": build_agent_prompt("Gemini_DataAndAnalyticsStrategist"),
@@ -100,7 +100,7 @@ AGENTS_CONFIG = {
         "system_prompt": build_agent_prompt("MistLar_SecurityArchitect"),
     },
     "Gemini_ScalabilityEngineer": {
-        "model": "gemini/gemini-2.5-flash-lite",
+        "model": "gemini/gemini-3.7-flash",
         "username": "Gemini Scalability Engineer",
         "icon_url": "https://avatars.example.com/static/avatar_28.png",
         "system_prompt": build_agent_prompt("Gemini_ScalabilityEngineer"),

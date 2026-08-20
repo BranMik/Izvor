@@ -95,9 +95,12 @@ def web_search(query: str, max_results: int = 5) -> str:
     except Exception as e:
         logger.warning(f"[WEB_SEARCH] DuckDuckGo HTML endpoint failed: {e}. Attempting fallback...")
 
-    # Strategy 2: duckduckgo_search library fallback
+    # Strategy 2: ddgs library fallback
     try:
-        from duckduckgo_search import DDGS
+        try:
+            from ddgs import DDGS
+        except ImportError:
+            from duckduckgo_search import DDGS
 
         ddgs_results = []
         with DDGS() as ddgs:
