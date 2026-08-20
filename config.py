@@ -16,10 +16,15 @@ if os.getenv("GROQ_API_KEY"):
     os.environ["GROQ_API_KEY"] = os.getenv("GROQ_API_KEY")
 if os.getenv("TOGETHERAI_API_KEY"):
     os.environ["TOGETHERAI_API_KEY"] = os.getenv("TOGETHERAI_API_KEY")
+if os.getenv("OPENAI_API_KEY"):
+    os.environ["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY")
+if os.getenv("ANTHROPIC_API_KEY"):
+    os.environ["ANTHROPIC_API_KEY"] = os.getenv("ANTHROPIC_API_KEY")
 
 SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN", "")
 SLACK_SIGNING_SECRET = os.getenv("SLACK_SIGNING_SECRET", "")
 MCP_WORKSPACE_DIR = Path(os.getenv("MCP_WORKSPACE_DIR", ".")).resolve()
+
 
 # Default fallback agent if no tag is specified in user request
 DEFAULT_AGENT_KEY = "Gemini_Visionary"
@@ -29,7 +34,7 @@ AGENTS_CONFIG = {
     "Gemini_Visionary": {
         "model": "gemini/gemini-3.7-flash",
         # "temperature": 0.9,
-        "username": "CaiLogics Visionary",
+        "username": "Gemini Visionary",
         "icon_url": "https://agents-slack.cailogics.com/static/avatar_25.png",
         "system_prompt": (
             """
@@ -52,19 +57,16 @@ AGENTS_CONFIG = {
             2. Your response should be inspiring and thought-provoking.
             3. Include 2-3 distinct innovative concepts, each with a catchy title.
             4. For each concept, provide a brief description of the innovation and its potential impact.
-            5. At the very end of your response, nominate the next agent from the available list below who you think should speak next based on what needs addressing.
-            6. Use this exact syntax when refering to the next agent: '[AGENT_KEY]' (EXAMPLE: '[Mistral_Innovator]')
-            6. If there are no agents left to nominate, then nominate Gemini_Architect. 
-
-            AVAILABLE AGENTS WHO HAVE NOT SPOKEN YET:
+            5. At the very end of your response, you have to nominate AnthropicOpus_Sceptic as the next agent to speak. Use syntax [AnthropicOpus_Sceptic] to refer the next agent.
+            6. Exception to nomination rule: If the user explicitly tagged only you then do not nominate any other agent, if user tagged some other agents as well then nominate one of those. 
 
             """
         ),
     },
-    "Gemini_Architect": {
-        "model": "gemini/gemini-3.7-flash",
+    "OpenAiTerra_Architect": {
+        "model": "openai/gpt-5.6-terra",
         # "temperature": 0.1,
-        "username": "CaiLogics Architect",
+        "username": "OpenAiTerra Architect",
         "icon_url": "https://agents-slack.cailogics.com/static/avatar_33.png",
         "system_prompt": (
             """
@@ -91,10 +93,10 @@ AGENTS_CONFIG = {
             """
         ),
     },
-    "Mistral_Innovator": {
-        "model": "mistral/mistral-medium-latest",
+    "AnthropicOpus_Innovator": {
+        "model": "anthropic/claude-opus-5",
         # "temperature": 0.8,
-        "username": "CaiLogics Innovator",
+        "username": "AnthropicOpus Innovator",
         "icon_url": "https://agents-slack.cailogics.com/static/avatar_22.png",
         "system_prompt": (
             """
@@ -123,17 +125,17 @@ AGENTS_CONFIG = {
             5. If you can fit it into the word limit , you can add whatever you feel appropriate, I leave it to your discretion.
             6. At the very end of your response, nominate the next agent from the available list below who you think should speak next based on what needs addressing.
             7. Use this exact syntax when refering to the next agent: '[AGENT_KEY]' (EXAMPLE: '[Mistral_Innovator]')
-            8. If there are no agents left to nominate, then nominate Gemini_Architect.
+            8. If there are no agents left to nominate, then nominate OpenAiTerra_Architect.
 
             AVAILABLE AGENTS WHO HAVE NOT SPOKEN YET:
 
             """
         ),
     },
-    "Mistral_TechLead": {
+    "MistralLarge_TechLead": {
         "model": "mistral/mistral-large-2512",
         # "temperature": 0.0,
-        "username": "CaiLogics TechLead",
+        "username": "MistralLarge TechLead",
         "icon_url": "https://agents-slack.cailogics.com/static/avatar_21.png",
         "system_prompt": (
             """
@@ -162,17 +164,17 @@ AGENTS_CONFIG = {
             5. If you can fit it into the word limit , you can add whatever you feel appropriate, I leave it to your discretion.
             6. At the very end of your response, nominate the next agent from the available list below who you think should speak next based on what needs addressing.
             7. Use this exact syntax when refering to the next agent: '[AGENT_KEY]' (EXAMPLE: '[Mistral_Innovator]')
-            8. If there are no agents left to nominate, then nominate Gemini_Architect.
+            8. If there are no agents left to nominate, then nominate OpenAiTerra_Architect.
 
             AVAILABLE AGENTS WHO HAVE NOT SPOKEN YET:
 
             """
         ),
     },
-    "OpenAi_Sceptic": {
-        "model": "together_ai/openai/gpt-oss-120b",
+    "AnthropicOpus_Sceptic": {
+        "model": "anthropic/claude-opus-5",
         # "temperature": 0.9,
-        "username": "CaiLogics Sceptic",
+        "username": "AnthropicOpus Sceptic",
         "icon_url": "https://agents-slack.cailogics.com/static/avatar_31.png",
         "system_prompt": (
             """
@@ -201,17 +203,17 @@ AGENTS_CONFIG = {
             5. If you can fit it into the word limit , you can add whatever you feel appropriate, I leave it to your discretion.
             6. At the very end of your response, nominate the next agent from the available list below who you think should speak next based on what needs addressing.
             7. Use this exact syntax when refering to the next agent: '[AGENT_KEY]' (EXAMPLE: '[Mistral_Innovator]')
-            8. If there are no agents left to nominate, then nominate Gemini_Architect.
+            8. If there are no agents left to nominate, then nominate OpenAiTerra_Architect.
 
             AVAILABLE AGENTS WHO HAVE NOT SPOKEN YET:
 
             """
         ),
     },
-    "Mistral_DataAndAnalyticsStrategist": {
-        "model": "mistral/mistral-medium-latest",
+    "Gemini_DataAndAnalyticsStrategist": {
+        "model": "gemini/gemini-3.7-flash",
         # "temperature": 0.1,
-        "username": "CaiLogics Data And Analytics Strategist",
+        "username": "Gemini Data And Analytics Strategist",
         "icon_url": "https://agents-slack.cailogics.com/static/avatar_27.png",
         "system_prompt": (
             """
@@ -240,17 +242,17 @@ AGENTS_CONFIG = {
             5. If you can fit it into the word limit , you can add whatever you feel appropriate, I leave it to your discretion.
             6. At the very end of your response, nominate the next agent from the available list below who you think should speak next based on what needs addressing.
             7. Use this exact syntax when refering to the next agent: '[AGENT_KEY]' (EXAMPLE: '[Mistral_Innovator]')
-            8. If there are no agents left to nominate, then nominate Gemini_Architect.
+            8. If there are no agents left to nominate, then nominate OpenAiTerra_Architect.
 
             AVAILABLE AGENTS WHO HAVE NOT SPOKEN YET:
             
             """
         ),
     },
-    "Mistral_CompliancePrivacyAndGovernanceOfficer": {
+    "MistralMedium_CompliancePrivacyAndGovernanceOfficer": {
         "model": "mistral/mistral-medium-latest",
         # "temperature": 0.8,
-        "username": "CaiLogics Compliance, Privacy And Governance Officer",
+        "username": "MistralMedium Compliance, Privacy And Governance Officer",
         "icon_url": "https://agents-slack.cailogics.com/static/avatar_32.png",
         "system_prompt": (
             """
@@ -279,17 +281,17 @@ AGENTS_CONFIG = {
             5. If you can fit it into the word limit , you can add whatever you feel appropriate, I leave it to your discretion.
             6. At the very end of your response, nominate the next agent from the available list below who you think should speak next based on what needs addressing.
             7. Use this exact syntax when refering to the next agent: '[AGENT_KEY]' (EXAMPLE: '[Mistral_Innovator]')
-            8. If there are no agents left to nominate, then nominate Gemini_Architect.
+            8. If there are no agents left to nominate, then nominate OpenAiTerra_Architect.
 
             AVAILABLE AGENTS WHO HAVE NOT SPOKEN YET:
 
             """
         ),
     },
-    "MiniMaxAI_ScopeOptimizer": {
-        "model": "together_ai/MiniMaxAI/MiniMax-M3",
+    "MistralMedium_ScopeOptimizer": {
+        "model": "mistral/mistral-medium-latest",
         # "temperature": 0.0,
-        "username": "CaiLogics Scope Optimizer",
+        "username": "MistralMedium Scope Optimizer",
         "icon_url": "https://agents-slack.cailogics.com/static/avatar_26.png",
         "system_prompt": (
             """
@@ -318,17 +320,17 @@ AGENTS_CONFIG = {
             5. If you can fit it into the word limit , you can add whatever you feel appropriate, I leave it to your discretion.
             6. At the very end of your response, nominate the next agent from the available list below who you think should speak next based on what needs addressing.
             7. Use this exact syntax when refering to the next agent: '[AGENT_KEY]' (EXAMPLE: '[Mistral_Innovator]')
-            8. If there are no agents left to nominate, then nominate Gemini_Architect.
+            8. If there are no agents left to nominate, then nominate OpenAiTerra_Architect.
 
             AVAILABLE AGENTS WHO HAVE NOT SPOKEN YET:
 
             """
         ),
     },
-    "PrismML_ROIStrategist": {
-        "model": "together_ai/Prism-ML/Ternary-Bonsai-27B",
+    "OpenAiTerra_ROIStrategist": {
+        "model": "openai/gpt-5.6-terra",
         # "temperature": 0.8,
-        "username": "CaiLogics ROI Strategist",
+        "username": "OpenAiTerra ROI Strategist",
         "icon_url": "https://agents-slack.cailogics.com/static/avatar_29.png",
         "system_prompt": (
             """
@@ -358,17 +360,17 @@ AGENTS_CONFIG = {
             5. If you can fit it into the word limit , you can add whatever you feel appropriate, I leave it to your discretion.
             6. At the very end of your response, nominate the next agent from the available list below who you think should speak next based on what needs addressing.
             7. Use this exact syntax when refering to the next agent: '[AGENT_KEY]' (EXAMPLE: '[Mistral_Innovator]')
-            8. If there are no agents left to nominate, then nominate Gemini_Architect.
+            8. If there are no agents left to nominate, then nominate OpenAiTerra_Architect.
 
             AVAILABLE AGENTS WHO HAVE NOT SPOKEN YET:
 
             """
         ),
     },
-    "PrismML_UserAdvocate": {
-        "model": "together_ai/Prism-ML/Ternary-Bonsai-27B",
+    "OpenAiTerra_UserAdvocate": {
+        "model": "openai/gpt-5.6-terra",
         # "temperature": 0.0,
-        "username": "CaiLogics User Advocate",
+        "username": "OpenAiTerra User Advocate",
         "icon_url": "https://agents-slack.cailogics.com/static/avatar_30.png",
         "system_prompt": (
             """
@@ -398,17 +400,17 @@ AGENTS_CONFIG = {
             5. If you can fit it into the word limit , you can add whatever you feel appropriate, I leave it to your discretion.
             6. At the very end of your response, nominate the next agent from the available list below who you think should speak next based on what needs addressing.
             7. Use this exact syntax when refering to the next agent: '[AGENT_KEY]' (EXAMPLE: '[Mistral_Innovator]')
-            8. If there are no agents left to nominate, then nominate Gemini_Architect.
+            8. If there are no agents left to nominate, then nominate OpenAiTerra_Architect.
 
             AVAILABLE AGENTS WHO HAVE NOT SPOKEN YET:
 
             """
         ),
     },
-    "DeepSeek_SecurityArchitect": {
-        "model": "together_ai/deepseek-ai/DeepSeek-V4-Flash-0731",
+    "MistralLarge_SecurityArchitect": {
+        "model": "mistral/mistral-large-2512",
         # "temperature": 0.9,
-        "username": "CaiLogics Security Architect",
+        "username": "MistralLarge Security Architect",
         "icon_url": "https://agents-slack.cailogics.com/static/avatar_20.png",
         "system_prompt": (
             """
@@ -438,17 +440,17 @@ AGENTS_CONFIG = {
             5. If you can fit it into the word limit , you can add whatever you feel appropriate, I leave it to your discretion.
             6. At the very end of your response, nominate the next agent from the available list below who you think should speak next based on what needs addressing.
             7. Use this exact syntax when refering to the next agent: '[AGENT_KEY]' (EXAMPLE: '[Mistral_Innovator]')
-            8. If there are no agents left to nominate, then nominate Gemini_Architect.
+            8. If there are no agents left to nominate, then nominate OpenAiTerra_Architect.
 
             AVAILABLE AGENTS WHO HAVE NOT SPOKEN YET:
 
             """
         ),
     },
-    "Mistral_ScalabilityEngineer": {
-        "model": "mistral/mistral-medium-latest",
+    "Gemini_ScalabilityEngineer": {
+        "model": "gemini/gemini-3.7-flash",
         # "temperature": 0.0,
-        "username": "CaiLogics Scalability Engineer",
+        "username": "Gemini Scalability Engineer",
         "icon_url": "https://agents-slack.cailogics.com/static/avatar_28.png",
         "system_prompt": (
             """
@@ -478,17 +480,17 @@ AGENTS_CONFIG = {
             5. If you can fit it into the word limit , you can add whatever you feel appropriate, I leave it to your discretion.
             6. At the very end of your response, nominate the next agent from the available list below who you think should speak next based on what needs addressing.
             7. Use this exact syntax when refering to the next agent: '[AGENT_KEY]' (EXAMPLE: '[Mistral_Innovator]')
-            8. If there are no agents left to nominate, then nominate Gemini_Architect.
+            8. If there are no agents left to nominate, then nominate OpenAiTerra_Architect.
 
             AVAILABLE AGENTS WHO HAVE NOT SPOKEN YET:
 
             """
         ),
     },
-    "OpenAI_OperationalReliabilityLead": {
-        "model": "together_ai/openai/gpt-oss-120b",
+    "MistralMedium_OperationalReliabilityLead": {
+        "model": "mistral/mistral-medium-latest",
         # "temperature": 0.0,
-        "username": "CaiLogics Operational Reliability Lead",
+        "username": "MistralMedium Operational Reliability Lead",
         "icon_url": "https://agents-slack.cailogics.com/static/avatar_24.png",
         "system_prompt": (
             """
@@ -518,17 +520,17 @@ AGENTS_CONFIG = {
             5. If you can fit it into the word limit , you can add whatever you feel appropriate, I leave it to your discretion.
             6. At the very end of your response, nominate the next agent from the available list below who you think should speak next based on what needs addressing.
             7. Use this exact syntax when refering to the next agent: '[AGENT_KEY]' (EXAMPLE: '[Mistral_Innovator]')
-            8. If there are no agents left to nominate, then nominate Gemini_Architect.
+            8. If there are no agents left to nominate, then nominate OpenAiTerra_Architect.
 
             AVAILABLE AGENTS WHO HAVE NOT SPOKEN YET:
 
             """
         ),
     },
-    "Mistral_DeploymentReleaseStrategist": {
+    "MistralMedium_DeploymentReleaseStrategist": {
         "model": "mistral/mistral-medium-latest",
         # "temperature": 0.0,
-        "username": "CaiLogics Deployment & Release Strategist",
+        "username": "MistralMedium Deployment & Release Strategist",
         "icon_url": "https://agents-slack.cailogics.com/static/avatar_26.png",
         "system_prompt": (
             """
@@ -558,17 +560,17 @@ AGENTS_CONFIG = {
             5. If you can fit it into the word limit , you can add whatever you feel appropriate, I leave it to your discretion.
             6. At the very end of your response, nominate the next agent from the available list below who you think should speak next based on what needs addressing.
             7. Use this exact syntax when refering to the next agent: '[AGENT_KEY]' (EXAMPLE: '[Mistral_Innovator]')
-            8. If there are no agents left to nominate, then nominate Gemini_Architect.
+            8. If there are no agents left to nominate, then nominate OpenAiTerra_Architect.
 
             AVAILABLE AGENTS WHO HAVE NOT SPOKEN YET:
 
             """
         ),
     },
-    "DeepSeek_MarketAndCompetitionResearchExpert": {
-        "model": "together_ai/deepseek-ai/DeepSeek-V4-Flash-0731",
+    "OpenAiTerra_MarketAndCompetitionResearchExpert": {
+        "model": "openai/gpt-5.6-terra",
         # "temperature": 0.0,
-        "username": "CaiLogics Market & Competition Research Expert",
+        "username": "OpenAiTerra Market & Competition Research Expert",
         "icon_url": "https://agents-slack.cailogics.com/static/avatar_6.png",
         "system_prompt": (
             """
@@ -599,17 +601,17 @@ AGENTS_CONFIG = {
             5. If you can fit it into the word limit , you can add whatever you feel appropriate, I leave it to your discretion.
             6. At the very end of your response, nominate the next agent from the available list below who you think should speak next based on what needs addressing.
             7. Use this exact syntax when refering to the next agent: '[AGENT_KEY]' (EXAMPLE: '[Mistral_Innovator]')
-            8. If there are no agents left to nominate, then nominate Gemini_Architect.
+            8. If there are no agents left to nominate, then nominate OpenAiTerra_Architect.
 
             AVAILABLE AGENTS WHO HAVE NOT SPOKEN YET:
             
             """
         ),
     },
-    "Mistral_MonitoringAndAlertingSpecialist": {
+    "MistralMedium_MonitoringAndAlertingSpecialist": {
         "model": "mistral/mistral-medium-latest",
         # "temperature": 0.0,
-        "username": "CaiLogics Monitoring & Alerting Specialist",
+        "username": "MistralMedium Monitoring & Alerting Specialist",
         "icon_url": "https://agents-slack.cailogics.com/static/avatar_23.png",
         "system_prompt": (
             """
@@ -639,7 +641,7 @@ AGENTS_CONFIG = {
             5. If you can fit it into the word limit , you can add whatever you feel appropriate, I leave it to your discretion.
             6. At the very end of your response, nominate the next agent from the available list below who you think should speak next based on what needs addressing.
             7. Use this exact syntax when refering to the next agent: '[AGENT_KEY]' (EXAMPLE: '[Mistral_Innovator]')
-            8. If there are no agents left to nominate, then nominate Gemini_Architect.
+            8. If there are no agents left to nominate, then nominate OpenAiTerra_Architect.
 
             AVAILABLE AGENTS WHO HAVE NOT SPOKEN YET:
             
