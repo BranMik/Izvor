@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from config import MCP_WORKSPACE_DIR
+from web_tools import fetch_web_page, web_scrape, web_search
 
 logger = logging.getLogger(__name__)
 
@@ -139,6 +140,50 @@ MCP_TOOLS_SCHEMAS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "web_search",
+            "description": "Search the live web for recent information, market trends, competitor products, news, and benchmarks. Returns a list of results with title, URL, and snippet.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "The search query string to look up on the web.",
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Maximum number of search results to return (1 to 10). Defaults to 5.",
+                        "default": 5,
+                    },
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "fetch_web_page",
+            "description": "Fetch and extract clean readable text content from a web page URL (e.g. competitor website, pricing page, documentation). Strips HTML tags, navigation, scripts, and styling.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "description": "The URL of the webpage to scrape and read.",
+                    },
+                    "max_chars": {
+                        "type": "integer",
+                        "description": "Maximum number of characters of text content to extract. Defaults to 4000.",
+                        "default": 4000,
+                    },
+                },
+                "required": ["url"],
+            },
+        },
+    },
 ]
 
 
@@ -157,5 +202,13 @@ def execute_mcp_tool(tool_name: str, arguments: dict[str, Any]) -> str:
         rel_path = arguments.get("rel_path", "")
         content = arguments.get("content", "")
         return write_file(rel_path, content)
+    elif tool_name == "web_search":
+        query = arguments.get("query", "")
+        max_results = arguments.get("max_results", 5)
+        return web_search(query=query, max_results=max_results)
+    elif tool_name in ("fetch_web_page", "web_scrape"):
+        url = arguments.get("url", "")
+        max_chars = arguments.get("max_chars", 4000)
+        return fetch_web_page(url=url, max_chars=max_chars)
     else:
         return json.dumps({"error": f"Unknown tool: {tool_name}"})
