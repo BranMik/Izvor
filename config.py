@@ -31,6 +31,17 @@ MCP_WORKSPACE_DIR = Path(os.getenv("MCP_WORKSPACE_DIR", ".")).resolve()
 # Default fallback agent if no tag is specified in user request
 DEFAULT_AGENT_KEY = "Gemini_Visionary"
 
+# Thread Notes / Scribe Agent configuration (Live in-thread updatable summary)
+THREAD_NOTES_MODEL = os.getenv(
+    "THREAD_NOTES_MODEL",
+    os.getenv("CANVAS_AGENT_MODEL", "mistral/mistral-small-latest"),
+)
+THREAD_NOTES_PROMPT = build_agent_prompt("Thread_Notes_Agent")
+
+# Backwards compatibility aliases
+CANVAS_AGENT_MODEL = THREAD_NOTES_MODEL
+CANVAS_AGENT_PROMPT = THREAD_NOTES_PROMPT
+
 # Configuration matrix for LiteLLM routing and Slack personas
 AGENTS_CONFIG = {
     "Gemini_Visionary": {
@@ -52,7 +63,7 @@ AGENTS_CONFIG = {
         "system_prompt": build_agent_prompt("AnthrOpus_Innovator"),
     },
     "MistLar_TechLead": {
-        "model": "mistral/mistral-large-2512",
+        "model": "mistral/mistral-large-latest",
         "username": "MistLar TechLead",
         "icon_url": "https://agents-slack.cailogics.com/static/avatar_21.png",
         "system_prompt": build_agent_prompt("MistLar_TechLead"),
@@ -70,13 +81,15 @@ AGENTS_CONFIG = {
         "system_prompt": build_agent_prompt("Gemini_DataAndAnalyticsStrategist"),
     },
     "MistMed_CompliancePrivacyAndGovernanceOfficer": {
-        "model": "mistral/mistral-medium-latest",
+        "model": "mistral/mistral-large-latest",
         "username": "MistMed Compliance, Privacy And Governance Officer",
         "icon_url": "https://agents-slack.cailogics.com/static/avatar_32.png",
-        "system_prompt": build_agent_prompt("MistMed_CompliancePrivacyAndGovernanceOfficer"),
+        "system_prompt": build_agent_prompt(
+            "MistMed_CompliancePrivacyAndGovernanceOfficer"
+        ),
     },
     "MistMed_ScopeOptimizer": {
-        "model": "mistral/mistral-medium-latest",
+        "model": "mistral/mistral-large-latest",
         "username": "MistMed Scope Optimizer",
         "icon_url": "https://agents-slack.cailogics.com/static/avatar_26.png",
         "system_prompt": build_agent_prompt("MistMed_ScopeOptimizer"),
@@ -94,7 +107,7 @@ AGENTS_CONFIG = {
         "system_prompt": build_agent_prompt("OpAiTerra_UserAdvocate"),
     },
     "MistLar_SecurityArchitect": {
-        "model": "mistral/mistral-large-2512",
+        "model": "mistral/mistral-large-latest",
         "username": "MistLar Security Architect",
         "icon_url": "https://agents-slack.cailogics.com/static/avatar_20.png",
         "system_prompt": build_agent_prompt("MistLar_SecurityArchitect"),
@@ -106,13 +119,13 @@ AGENTS_CONFIG = {
         "system_prompt": build_agent_prompt("Gemini_ScalabilityEngineer"),
     },
     "MistMed_OperationalReliabilityLead": {
-        "model": "mistral/mistral-medium-latest",
+        "model": "mistral/mistral-large-latest",
         "username": "MistMed Operational Reliability Lead",
         "icon_url": "https://agents-slack.cailogics.com/static/avatar_24.png",
         "system_prompt": build_agent_prompt("MistMed_OperationalReliabilityLead"),
     },
     "MistMed_DeploymentReleaseStrategist": {
-        "model": "mistral/mistral-medium-latest",
+        "model": "gemini/gemini-3.7-flash",
         "username": "MistMed Deployment & Release Strategist",
         "icon_url": "https://agents-slack.cailogics.com/static/avatar_26.png",
         "system_prompt": build_agent_prompt("MistMed_DeploymentReleaseStrategist"),
@@ -121,10 +134,12 @@ AGENTS_CONFIG = {
         "model": "openai/gpt-5.6-terra",
         "username": "OpAiTerra Market & Competition Research Expert",
         "icon_url": "https://agents-slack.cailogics.com/static/avatar_6.png",
-        "system_prompt": build_agent_prompt("OpAiTerra_MarketAndCompetitionResearchExpert"),
+        "system_prompt": build_agent_prompt(
+            "OpAiTerra_MarketAndCompetitionResearchExpert"
+        ),
     },
     "MistMed_MonitoringAndAlertingSpecialist": {
-        "model": "mistral/mistral-medium-latest",
+        "model": "mistral/mistral-large-latest",
         "username": "MistMed Monitoring & Alerting Specialist",
         "icon_url": "https://agents-slack.cailogics.com/static/avatar_23.png",
         "system_prompt": build_agent_prompt("MistMed_MonitoringAndAlertingSpecialist"),

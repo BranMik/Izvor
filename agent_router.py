@@ -11,6 +11,7 @@ from pathlib import Path
 from config import AGENTS_CONFIG, DEFAULT_AGENT_KEY
 from mcp_tools import MCP_TOOLS_SCHEMAS, execute_mcp_tool
 from slack_client import fetch_thread_history, post_agent_response
+from thread_notes_agent import trigger_thread_notes_update
 
 logger = logging.getLogger(__name__)
 
@@ -107,6 +108,14 @@ def request_thread_stop(channel_id: str, thread_ts: str) -> None:
     logger.info(
         f"[ROUTER] Stop requested for thread {thread_key}. REMAINING_AGENTS_MAP cleared."
     )
+    try:
+        trigger_thread_notes_update(
+            channel_id=channel_id,
+            thread_ts=thread_ts,
+            is_completed=True,
+        )
+    except Exception as e:
+        logger.debug(f"[ROUTER] Could not finalize thread note on stop: {e}")
 
 
 def is_thread_stopped(channel_id: str, thread_ts: str) -> bool:
@@ -667,6 +676,21 @@ async def process_and_respond(
         )
         posted_ts = slack_res.get("ts")
         logger.info(f"[SLACK] Successfully posted message! Received ts: {posted_ts}")
+
+        # Determine if this turn completes the thread discussion
+        is_completed = bool(
+            force_termination
+            or (agent_key == "OpAiTerra_Architect" and not remaining)
+            or (is_thread_stopped(channel_id, thread_ts))
+        )
+
+        # Trigger parallel, non-blocking live thread notes update after posting reply
+        trigger_thread_notes_update(
+            channel_id=channel_id,
+            thread_ts=thread_ts,
+            is_completed=is_completed,
+            bot_user_id=bot_user_id,
+        )
 
         # Reset remaining agents/custom flows for this thread when finishing
         if force_termination:
