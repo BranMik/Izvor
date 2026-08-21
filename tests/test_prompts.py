@@ -28,7 +28,7 @@ def test_intermediate_agents_contain_shared_skills():
     for key in intermediate_keys:
         prompt = AGENTS_CONFIG[key]["system_prompt"]
         # Output format skill checks
-        assert "Hard Limit: Your entire response must strictly NOT exceed 300 words." in prompt
+        assert "Hard Limit: Your entire response must strictly NOT exceed 200 words." in prompt
         assert "Aim to answer in the same language as user prompt is made." in prompt
         assert "1 sentence stating your core verdict/concern." in prompt
         # Nomination skill checks

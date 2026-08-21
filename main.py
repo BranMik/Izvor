@@ -211,8 +211,22 @@ async def slack_events(request: Request, background_tasks: BackgroundTasks):
                 should_process = False
 
                 if is_bot:
+                    # Ignore Live Discussion Scribe note messages completely
+                    event_username = event.get("username") or ""
+                    if (
+                        "Live Discussion Scribe" in event_username
+                        or "Discussion Scribe" in event_username
+                        or "Live Discussion Notes" in raw_text
+                        or "Final Discussion Notes" in raw_text
+                        or "Bilješke rasprave" in raw_text
+                        or "Strateška sinteza" in raw_text
+                        or "Strategic Synthesis" in raw_text
+                    ):
+                        logger.info(
+                            f"Skipping Live Discussion Scribe note message in channel {channel_id}"
+                        )
                     # Only process bot messages if they contain a valid nomination tag
-                    if has_tag:
+                    elif has_tag:
                         should_process = True
                     else:
                         logger.info(

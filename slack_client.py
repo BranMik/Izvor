@@ -1,4 +1,5 @@
 import logging
+import time
 from typing import Any
 
 from slack_sdk.errors import SlackApiError
@@ -268,9 +269,28 @@ async def fetch_thread_history(
 
         for msg in messages:
             msg_text = msg.get("text", "")
-            username = msg.get("username")
+            username = msg.get("username", "")
             subtype = msg.get("subtype")
             user_id = msg.get("user")
+
+            # Ignore scribe note messages from thread conversation history
+            if (
+                username
+                and (
+                    "Live Discussion Scribe" in username
+                    or "Discussion Scribe" in username
+                    or "Scribe" in username
+                )
+                or "📋 *Bilješke rasprave" in msg_text
+                or "📋 *Strateška sinteza" in msg_text
+                or "📋 *Discussion Notes" in msg_text
+                or "📋 *Strategic Synthesis" in msg_text
+                or "📋 *Live Discussion Notes" in msg_text
+                or "📋 *Final Discussion Notes" in msg_text
+                or ":memo:" in msg_text
+                or ":clipboard:" in msg_text
+            ):
+                continue
 
             # Determine role
             if subtype == "bot_message" or username or user_id == bot_user_id:
@@ -293,3 +313,115 @@ async def fetch_thread_history(
     except SlackApiError as e:
         logger.error(f"Error fetching thread history: {e.response['error']}")
         return []
+
+
+def _sanitize_and_truncate_slack_text(text: str, max_chars: int = 3800) -> str:
+    """Ensures Slack message text never exceeds Slack API limits (4000 characters)."""
+    if len(text) <= max_chars:
+        return text
+    truncated = text[:max_chars]
+    # Break cleanly at last newline if possible
+    last_nl = truncated.rfind("\n")
+    if last_nl > max_chars - 300:
+        truncated = truncated[:last_nl]
+    return f"{truncated.strip()}\n\n_...[truncated to fit Slack limits]_"
+
+
+async def post_thread_note(
+    channel_id: str,
+    thread_ts: str,
+    text: str,
+    pin: bool = True,
+    username: str = "Live Discussion Scribe",
+    icon_emoji: str = ":memo:",
+) -> dict[str, Any]:
+    """
+    Posts a live updatable summary/notes message inside the given Slack thread.
+    Optionally pins the note message for quick discovery.
+    """
+    text = _sanitize_and_truncate_slack_text(text)
+
+    if not SLACK_BOT_TOKEN or SLACK_BOT_TOKEN == "xoxb-your-bot-user-oauth-token":
+        mock_ts = f"mock_note_{int(time.time() * 1000)}.000"
+        logger.info(
+            f"[MOCK NOTE] Posted mock thread note in channel {channel_id}, thread {thread_ts}: {mock_ts}"
+        )
+        return {"ok": True, "ts": mock_ts, "mock": True}
+
+    try:
+        response = await slack_async_client.chat_postMessage(
+            channel=channel_id,
+            thread_ts=thread_ts,
+            text=text,
+            username=username,
+            icon_emoji=icon_emoji,
+        )
+        msg_ts = response.get("ts")
+        logger.info(
+            f"[SLACK NOTE] Posted live note message {msg_ts} in thread {thread_ts} of channel {channel_id} ({username})"
+        )
+
+        if pin and msg_ts:
+            try:
+                await slack_async_client.pins_add(channel=channel_id, timestamp=msg_ts)
+                logger.info(f"[SLACK NOTE] Pinned note message {msg_ts} to channel {channel_id}")
+            except SlackApiError as pin_err:
+                err = pin_err.response.get("error", "")
+                if err != "already_pinned":
+                    logger.debug(f"[SLACK NOTE] Note message pinning skipped/failed: {err}")
+            except Exception as pin_ex:
+                logger.debug(f"[SLACK NOTE] Note message pinning skipped: {pin_ex}")
+
+        return {"ok": True, "ts": msg_ts}
+    except SlackApiError as e:
+        logger.error(f"[SLACK NOTE] Error posting thread note: {e.response.get('error', e)}")
+        return {"ok": False, "error": str(e)}
+    except Exception as e:
+        logger.error(f"[SLACK NOTE] Unexpected error posting thread note: {e}")
+        return {"ok": False, "error": str(e)}
+
+
+async def update_thread_note(
+    channel_id: str,
+    message_ts: str,
+    text: str,
+) -> dict[str, Any]:
+    """
+    Updates an existing live summary/notes message in-place via Slack chat.update.
+    """
+    text = _sanitize_and_truncate_slack_text(text)
+
+    if (
+        not SLACK_BOT_TOKEN
+        or SLACK_BOT_TOKEN == "xoxb-your-bot-user-oauth-token"
+        or (message_ts and str(message_ts).startswith("mock_"))
+    ):
+        logger.info(
+            f"[MOCK NOTE] Updated mock note {message_ts} ({len(text)} chars)"
+        )
+        return {"ok": True, "ts": message_ts, "mock": True}
+
+    try:
+        await slack_async_client.chat_update(
+            channel=channel_id,
+            ts=message_ts,
+            text=text,
+        )
+        logger.info(f"[SLACK NOTE] Successfully updated live note message {message_ts}")
+        return {"ok": True, "ts": message_ts}
+    except SlackApiError as e:
+        logger.error(f"[SLACK NOTE] Error updating note {message_ts}: {e.response.get('error', e)}")
+        return {"ok": False, "error": str(e)}
+    except Exception as e:
+        logger.error(f"[SLACK NOTE] Unexpected error updating note {message_ts}: {e}")
+        return {"ok": False, "error": str(e)}
+
+
+# Backwards compatibility wrappers
+async def create_canvas(title: str, content_markdown: str, channel_id: str | None = None) -> dict[str, Any]:
+    return {"ok": True, "canvas_id": f"compat_{int(time.time())}"}
+
+
+async def update_canvas(canvas_id: str, content_markdown: str) -> dict[str, Any]:
+    return {"ok": True, "canvas_id": canvas_id}
+
