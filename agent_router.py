@@ -34,19 +34,18 @@ STOP_REQUESTED_THREADS = set()
 
 def is_stop_command(raw_text: str, is_mention_or_dm: bool = False) -> bool:
     """
-    Detects if the message is a stop command directed at the bot.
+    Detects if the message is an explicit /stop command directed at the bot.
     Supports:
-    - @CaiLogics Hub stop, @CaiLogics Test stop, @CaiLogics stop
-    - <@BOT_ID> stop
-    - @Agent_Key stop or @Persona stop
-    - 'stop' in mentions or direct messages
-    - Variations like 'stop discussion', 'stop flow', 'halt', 'cancel', 'stani', 'zaustavi', 'prekini'
+    - /stop
+    - @CaiLogics Hub /stop, @CaiLogics /stop, <@BOT_ID> /stop
+    - @Agent_Key /stop or [Agent_Key] /stop
+    - Variations like '/stop discussion', '/stop flow', '/stop please', '/stani', '/zaustavi', '/prekini'
     """
     if not raw_text:
         return False
 
-    # Check for literal '@app_mention stop'
-    if re.search(r"@app_mention\s+stop\b", raw_text, re.IGNORECASE):
+    # Check for literal '@app_mention /stop'
+    if re.search(r"@app_mention\s+/stop\b", raw_text, re.IGNORECASE):
         return True
 
     # Clean Slack user / bot mentions like <@U123456>
@@ -68,31 +67,31 @@ def is_stop_command(raw_text: str, is_mention_or_dm: bool = False) -> bool:
         persona = cfg.get("username", "")
         if persona:
             cleaned = re.sub(r"@?" + re.escape(persona), "", cleaned, flags=re.IGNORECASE).strip()
-        # Also remove bracketed agent tags like [Gemini_Visionary] stop
+        # Also remove bracketed agent tags like [Gemini_Visionary] /stop
         cleaned = re.sub(r"\[" + re.escape(key) + r"\]", "", cleaned, flags=re.IGNORECASE).strip()
 
-    # Normalize punctuation & whitespace
-    normalized = re.sub(r"[^\w\s]", "", cleaned).strip().lower()
+    # Normalize punctuation & whitespace, preserving '/'
+    normalized = re.sub(r"[^\w\s/]", "", cleaned).strip().lower()
 
     stop_phrases = {
-        "stop",
-        "stop discussion",
-        "stop panel",
-        "stop flow",
-        "stop please",
-        "please stop",
-        "halt",
-        "cancel",
-        "terminate",
-        "stani",
-        "zaustavi",
-        "prekini",
+        "/stop",
+        "/stop discussion",
+        "/stop panel",
+        "/stop flow",
+        "/stop please",
+        "please /stop",
+        "/halt",
+        "/cancel",
+        "/terminate",
+        "/stani",
+        "/zaustavi",
+        "/prekini",
     }
     if normalized in stop_phrases:
         return True
 
     words = normalized.split()
-    if words and words[0] in ("stop", "stani", "zaustavi", "prekini", "halt", "cancel") and len(words) <= 3:
+    if words and words[0] in ("/stop", "/stani", "/zaustavi", "/prekini", "/halt", "/cancel", "/terminate") and len(words) <= 3:
         return True
 
     return False
