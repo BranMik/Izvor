@@ -5,12 +5,16 @@ from typing import Any
 from slack_sdk.errors import SlackApiError
 from slack_sdk.web.async_client import AsyncWebClient
 
-from config import AGENTS_CONFIG, SLACK_BOT_TOKEN
+from config import AGENTS_CONFIG, SLACK_BOT_TOKEN, USAGE_CHANNEL_ID, USAGE_CHANNEL_NAME
 
 logger = logging.getLogger(__name__)
 
 # Initialize async web client
 slack_async_client = AsyncWebClient(token=SLACK_BOT_TOKEN)
+
+# In-memory caches for channel metadata
+CHANNEL_NAME_CACHE: dict[str, str] = {}
+_RESOLVED_USAGE_CHANNEL_ID: str | None = None
 
 
 def build_app_home_view(enabled_agents: set[str] | None = None) -> dict[str, Any]:
@@ -417,11 +421,198 @@ async def update_thread_note(
         return {"ok": False, "error": str(e)}
 
 
-# Backwards compatibility wrappers
-async def create_canvas(title: str, content_markdown: str, channel_id: str | None = None) -> dict[str, Any]:
-    return {"ok": True, "canvas_id": f"compat_{int(time.time())}"}
+async def get_channel_name(channel_id: str) -> str:
+    """
+    Fetches the human-readable channel name (e.g. '#general') with in-memory caching.
+    """
+    if not channel_id:
+        return "#unknown"
+    if channel_id in CHANNEL_NAME_CACHE:
+        return CHANNEL_NAME_CACHE[channel_id]
+
+    if not SLACK_BOT_TOKEN or SLACK_BOT_TOKEN == "xoxb-your-bot-user-oauth-token":
+        name = f"#{channel_id}"
+        CHANNEL_NAME_CACHE[channel_id] = name
+        return name
+
+    try:
+        res = await slack_async_client.conversations_info(channel=channel_id)
+        ch_info = res.get("channel", {})
+        name = ch_info.get("name")
+        if name:
+            formatted = f"#{name}"
+            CHANNEL_NAME_CACHE[channel_id] = formatted
+            return formatted
+    except Exception as e:
+        logger.debug(f"[SLACK] Could not fetch channel name for {channel_id}: {e}")
+
+    fallback = f"#{channel_id}"
+    CHANNEL_NAME_CACHE[channel_id] = fallback
+    return fallback
 
 
-async def update_canvas(canvas_id: str, content_markdown: str) -> dict[str, Any]:
-    return {"ok": True, "canvas_id": canvas_id}
+async def get_or_create_usage_channel() -> str | None:
+    """
+    Resolves the ID of the 'cailogics-usage' channel.
+    1. Checks USAGE_CHANNEL_ID env/config if specified.
+    2. Checks in-memory cached channel ID.
+    3. Searches workspace channels for 'cailogics-usage' (or USAGE_CHANNEL_NAME).
+    4. If not found, automatically creates the channel and joins it.
+    """
+    global _RESOLVED_USAGE_CHANNEL_ID
+    if USAGE_CHANNEL_ID:
+        return USAGE_CHANNEL_ID
+
+    if _RESOLVED_USAGE_CHANNEL_ID:
+        return _RESOLVED_USAGE_CHANNEL_ID
+
+    target_name = USAGE_CHANNEL_NAME.lstrip("#").strip().lower()
+
+    if not SLACK_BOT_TOKEN or SLACK_BOT_TOKEN == "xoxb-your-bot-user-oauth-token":
+        _RESOLVED_USAGE_CHANNEL_ID = f"mock_{target_name}_channel"
+        return _RESOLVED_USAGE_CHANNEL_ID
+
+    try:
+        # Search public and private channels
+        cursor = None
+        while True:
+            res = await slack_async_client.conversations_list(
+                types="public_channel,private_channel",
+                limit=200,
+                cursor=cursor,
+            )
+            channels = res.get("channels", [])
+            for ch in channels:
+                if ch.get("name", "").lower() == target_name:
+                    ch_id = ch.get("id")
+                    _RESOLVED_USAGE_CHANNEL_ID = ch_id
+                    logger.info(
+                        f"[SLACK] Found existing usage channel '{target_name}' with ID: {ch_id}"
+                    )
+                    # Attempt to join channel if bot is not already a member
+                    if not ch.get("is_member", True) and ch_id:
+                        try:
+                            await slack_async_client.conversations_join(channel=ch_id)
+                            logger.info(f"[SLACK] Joined existing usage channel '{target_name}' ({ch_id})")
+                        except Exception as join_ex:
+                            logger.debug(f"[SLACK] Non-critical join attempt for {target_name}: {join_ex}")
+                    return ch_id
+
+            cursor = res.get("response_metadata", {}).get("next_cursor")
+            if not cursor:
+                break
+
+        # Channel was not found in workspace -> automatically create it
+        logger.info(
+            f"[SLACK] Usage channel '{target_name}' not found. Creating channel..."
+        )
+        create_res = await slack_async_client.conversations_create(
+            name=target_name,
+            is_private=False,
+        )
+        created_ch = create_res.get("channel", {})
+        ch_id = created_ch.get("id")
+        if ch_id:
+            _RESOLVED_USAGE_CHANNEL_ID = ch_id
+            logger.info(
+                f"[SLACK] Successfully created usage channel '{target_name}' with ID: {ch_id}"
+            )
+            return ch_id
+
+    except SlackApiError as e:
+        err = e.response.get("error", "")
+        if err == "name_taken":
+            logger.info(
+                f"[SLACK] Channel '{target_name}' name_taken, attempting retrieval via list..."
+            )
+            try:
+                res = await slack_async_client.conversations_list(
+                    types="public_channel,private_channel", limit=200
+                )
+                for ch in res.get("channels", []):
+                    if ch.get("name", "").lower() == target_name:
+                        _RESOLVED_USAGE_CHANNEL_ID = ch.get("id")
+                        return _RESOLVED_USAGE_CHANNEL_ID
+            except Exception:
+                pass
+        logger.error(f"[SLACK] Error resolving/creating usage channel '{target_name}': {e}")
+    except Exception as e:
+        logger.error(f"[SLACK] Unexpected error resolving/creating usage channel: {e}")
+
+    return None
+
+
+async def post_usage_message(
+    channel_id: str,
+    text: str,
+    username: str = "CaiLogics Usage Analyst",
+    icon_emoji: str = ":bar_chart:",
+) -> dict[str, Any]:
+    """
+    Posts a new usage tracking report message in the specified usage channel.
+    """
+    text = _sanitize_and_truncate_slack_text(text)
+
+    if not SLACK_BOT_TOKEN or SLACK_BOT_TOKEN == "xoxb-your-bot-user-oauth-token":
+        mock_ts = f"mock_usage_{int(time.time() * 1000)}.000"
+        logger.info(
+            f"[MOCK USAGE] Posted mock usage message in channel {channel_id}: {mock_ts}"
+        )
+        return {"ok": True, "ts": mock_ts, "mock": True}
+
+    try:
+        response = await slack_async_client.chat_postMessage(
+            channel=channel_id,
+            text=text,
+            username=username,
+            icon_emoji=icon_emoji,
+        )
+        msg_ts = response.get("ts")
+        logger.info(
+            f"[SLACK USAGE] Posted usage message {msg_ts} in channel {channel_id}"
+        )
+        return {"ok": True, "ts": msg_ts}
+    except SlackApiError as e:
+        logger.error(f"[SLACK USAGE] Error posting usage message: {e.response.get('error', e)}")
+        return {"ok": False, "error": str(e)}
+    except Exception as e:
+        logger.error(f"[SLACK USAGE] Unexpected error posting usage message: {e}")
+        return {"ok": False, "error": str(e)}
+
+
+async def update_usage_message(
+    channel_id: str,
+    message_ts: str,
+    text: str,
+) -> dict[str, Any]:
+    """
+    Updates an existing usage tracking report message in-place via chat.update.
+    """
+    text = _sanitize_and_truncate_slack_text(text)
+
+    if (
+        not SLACK_BOT_TOKEN
+        or SLACK_BOT_TOKEN == "xoxb-your-bot-user-oauth-token"
+        or (message_ts and str(message_ts).startswith("mock_"))
+    ):
+        logger.info(
+            f"[MOCK USAGE] Updated mock usage message {message_ts} ({len(text)} chars)"
+        )
+        return {"ok": True, "ts": message_ts, "mock": True}
+
+    try:
+        await slack_async_client.chat_update(
+            channel=channel_id,
+            ts=message_ts,
+            text=text,
+        )
+        logger.info(f"[SLACK USAGE] Successfully updated usage message {message_ts}")
+        return {"ok": True, "ts": message_ts}
+    except SlackApiError as e:
+        logger.error(f"[SLACK USAGE] Error updating usage message {message_ts}: {e.response.get('error', e)}")
+        return {"ok": False, "error": str(e)}
+    except Exception as e:
+        logger.error(f"[SLACK USAGE] Unexpected error updating usage message {message_ts}: {e}")
+        return {"ok": False, "error": str(e)}
+
 

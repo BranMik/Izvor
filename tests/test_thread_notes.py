@@ -3,10 +3,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-import thread_notes_agent
+import agents.thread_notes_agent as thread_notes_agent
 from config import THREAD_NOTES_MODEL
 from slack_client import post_thread_note, update_thread_note
-from thread_notes_agent import (
+from agents.thread_notes_agent import (
     THREAD_NOTE_MSG_MAP,
     clear_thread_note,
     generate_thread_notes,
@@ -56,7 +56,7 @@ async def test_generate_thread_notes_calls_mistral_model():
         {"role": "assistant", "content": "[OpAiTerra_Architect]: Use PostgreSQL with connection pooling."},
     ]
 
-    with patch("thread_notes_agent.litellm.completion", return_value=mock_resp) as mock_litellm:
+    with patch("agents.thread_notes_agent.litellm.completion", return_value=mock_resp) as mock_litellm:
         content, token_stats = await generate_thread_notes(history, is_completed=False)
 
         assert mock_litellm.called
@@ -81,9 +81,9 @@ async def test_update_notes_for_thread_creates_new_note_on_first_reply(caplog):
         {"role": "assistant", "content": "[Gemini_Visionary]: Here is the vision for our product."},
     ]
 
-    with patch("thread_notes_agent.fetch_thread_history", new_callable=AsyncMock) as mock_fetch, \
-         patch("thread_notes_agent.generate_thread_notes", new_callable=AsyncMock) as mock_gen, \
-         patch("thread_notes_agent.post_thread_note", new_callable=AsyncMock) as mock_post:
+    with patch("agents.thread_notes_agent.fetch_thread_history", new_callable=AsyncMock) as mock_fetch, \
+         patch("agents.thread_notes_agent.generate_thread_notes", new_callable=AsyncMock) as mock_gen, \
+         patch("agents.thread_notes_agent.post_thread_note", new_callable=AsyncMock) as mock_post:
 
         mock_fetch.return_value = history
         mock_gen.return_value = (
@@ -119,10 +119,10 @@ async def test_update_notes_for_thread_updates_existing_note_on_subsequent_repli
         {"role": "assistant", "content": "[AnthrOpus_Sceptic]: Security and privacy must be evaluated."},
     ]
 
-    with patch("thread_notes_agent.fetch_thread_history", new_callable=AsyncMock) as mock_fetch, \
-         patch("thread_notes_agent.generate_thread_notes", new_callable=AsyncMock) as mock_gen, \
-         patch("thread_notes_agent.update_thread_note", new_callable=AsyncMock) as mock_update, \
-         patch("thread_notes_agent.post_thread_note", new_callable=AsyncMock) as mock_post:
+    with patch("agents.thread_notes_agent.fetch_thread_history", new_callable=AsyncMock) as mock_fetch, \
+         patch("agents.thread_notes_agent.generate_thread_notes", new_callable=AsyncMock) as mock_gen, \
+         patch("agents.thread_notes_agent.update_thread_note", new_callable=AsyncMock) as mock_update, \
+         patch("agents.thread_notes_agent.post_thread_note", new_callable=AsyncMock) as mock_post:
 
         mock_fetch.return_value = history
         mock_gen.return_value = (
@@ -144,7 +144,7 @@ async def test_update_notes_for_thread_updates_existing_note_on_subsequent_repli
 
 @pytest.mark.anyio
 async def test_trigger_thread_notes_update_spawns_and_coalesces_task():
-    with patch("thread_notes_agent.update_notes_for_thread", new_callable=AsyncMock) as mock_update:
+    with patch("agents.thread_notes_agent.update_notes_for_thread", new_callable=AsyncMock) as mock_update:
         mock_update.return_value = {"ok": True}
 
         task = trigger_thread_notes_update(channel_id="C222", thread_ts="1700000000.002")
