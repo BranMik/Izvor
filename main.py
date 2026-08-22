@@ -63,9 +63,12 @@ async def keep_loop_alive():
 
 @app.on_event("startup")
 async def startup_event():
+    from pricing_service import warm_up_pricing_cache
+
     enabled = load_enabled_agents()
     logger.info(f"[STARTUP] Loaded {len(enabled)} enabled debate agents from persistent storage.")
     asyncio.create_task(keep_loop_alive())
+    asyncio.create_task(warm_up_pricing_cache())
 
 
 @app.get("/")

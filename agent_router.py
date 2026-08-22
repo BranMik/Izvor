@@ -11,7 +11,11 @@ from pathlib import Path
 from config import AGENTS_CONFIG, DEFAULT_AGENT_KEY
 from mcp_tools import MCP_TOOLS_SCHEMAS, execute_mcp_tool
 from slack_client import fetch_thread_history, post_agent_response
-from thread_notes_agent import trigger_thread_notes_update
+from agents import (
+    record_thread_tokens,
+    trigger_thread_notes_update,
+    trigger_usage_update,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -113,8 +117,13 @@ def request_thread_stop(channel_id: str, thread_ts: str) -> None:
             thread_ts=thread_ts,
             is_completed=True,
         )
+        trigger_usage_update(
+            channel_id=channel_id,
+            thread_ts=thread_ts,
+            is_completed=True,
+        )
     except Exception as e:
-        logger.debug(f"[ROUTER] Could not finalize thread note on stop: {e}")
+        logger.debug(f"[ROUTER] Could not finalize thread note or usage on stop: {e}")
 
 
 def is_thread_stopped(channel_id: str, thread_ts: str) -> bool:
@@ -683,12 +692,28 @@ async def process_and_respond(
             or (is_thread_stopped(channel_id, thread_ts))
         )
 
+        # Record token consumption for this agent's model
+        record_thread_tokens(
+            channel_id=channel_id,
+            thread_ts=thread_ts,
+            model_name=agent_cfg["model"],
+            prompt_tokens=total_prompt_tokens,
+            completion_tokens=total_completion_tokens,
+        )
+
         # Trigger parallel, non-blocking live thread notes update after posting reply
         trigger_thread_notes_update(
             channel_id=channel_id,
             thread_ts=thread_ts,
             is_completed=is_completed,
             bot_user_id=bot_user_id,
+        )
+
+        # Trigger parallel, non-blocking live usage report update in #cailogics-usage
+        trigger_usage_update(
+            channel_id=channel_id,
+            thread_ts=thread_ts,
+            is_completed=is_completed,
         )
 
         # Reset remaining agents/custom flows for this thread when finishing

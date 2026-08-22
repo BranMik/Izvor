@@ -8,6 +8,7 @@ from starlette.concurrency import run_in_threadpool
 
 from config import THREAD_NOTES_MODEL, THREAD_NOTES_PROMPT
 from slack_client import fetch_thread_history, post_thread_note, update_thread_note
+from .usage_agent import record_thread_tokens, trigger_usage_update
 
 logger = logging.getLogger(__name__)
 
@@ -247,6 +248,23 @@ async def update_notes_for_thread(
                 f"Duration: {duration:.2f}s"
             )
 
+            # Record Scribe agent tokens into thread usage tracker and trigger usage update
+            try:
+                record_thread_tokens(
+                    channel_id=channel_id,
+                    thread_ts=thread_ts,
+                    model_name=THREAD_NOTES_MODEL,
+                    prompt_tokens=token_stats["prompt_tokens"],
+                    completion_tokens=token_stats["completion_tokens"],
+                )
+                trigger_usage_update(
+                    channel_id=channel_id,
+                    thread_ts=thread_ts,
+                    is_completed=is_completed,
+                )
+            except Exception as usage_err:
+                logger.debug(f"[THREAD NOTES] Non-critical usage sync error: {usage_err}")
+
             return {
                 "ok": True,
                 "note_ts": note_ts,
@@ -339,13 +357,3 @@ def trigger_thread_notes_update(
             f"[THREAD NOTES] Failed to dispatch background notes update task: {e}"
         )
         return None
-
-
-# Backwards compatibility aliases for canvas_agent imports
-trigger_canvas_update = trigger_thread_notes_update
-update_canvas_for_thread = update_notes_for_thread
-generate_canvas_notes = generate_thread_notes
-clear_thread_canvas = clear_thread_note
-get_thread_canvas = get_thread_note
-set_thread_canvas = set_thread_note
-THREAD_CANVAS_MAP = THREAD_NOTE_MSG_MAP

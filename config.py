@@ -32,15 +32,14 @@ MCP_WORKSPACE_DIR = Path(os.getenv("MCP_WORKSPACE_DIR", ".")).resolve()
 DEFAULT_AGENT_KEY = "Gemini_Visionary"
 
 # Thread Notes / Scribe Agent configuration (Live in-thread updatable summary)
-THREAD_NOTES_MODEL = os.getenv(
-    "THREAD_NOTES_MODEL",
-    os.getenv("CANVAS_AGENT_MODEL", "mistral/mistral-small-latest"),
-)
+THREAD_NOTES_MODEL = os.getenv("THREAD_NOTES_MODEL", "mistral/mistral-small-latest")
 THREAD_NOTES_PROMPT = build_agent_prompt("Thread_Notes_Agent")
 
-# Backwards compatibility aliases
-CANVAS_AGENT_MODEL = THREAD_NOTES_MODEL
-CANVAS_AGENT_PROMPT = THREAD_NOTES_PROMPT
+# Usage / Cost Calculator Agent configuration
+USAGE_CHANNEL_NAME = os.getenv("USAGE_CHANNEL_NAME", "cailogics-usage")
+USAGE_CHANNEL_ID = os.getenv("USAGE_CHANNEL_ID", "")
+USAGE_AGENT_MODEL = os.getenv("USAGE_AGENT_MODEL", "gemini/gemini-3.7-flash")
+USAGE_AGENT_PROMPT = build_agent_prompt("Usage_Agent")
 
 # Configuration matrix for LiteLLM routing and Slack personas
 AGENTS_CONFIG = {

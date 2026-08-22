@@ -1,0 +1,47 @@
+{
+  "gemini/gemini-3.7-flash": {
+    "input_price_per_1m": 0.15,
+    "output_price_per_1m": 1.88,
+    "currency": "USD",
+    "source": "Web Search (gemini-3.7-flash API pricing cost per 1M input output tokens)",
+    "source_url": "https://ai.google.dev/pricing",
+    "updated_at": 1787434639.754337,
+    "updated_at_str": "2026-08-22 21:37:19 UTC"
+  },
+  "anthropic/claude-opus-5": {
+    "input_price_per_1m": 2.0,
+    "output_price_per_1m": 10.0,
+    "currency": "USD",
+    "source": "Web Search (claude-opus-5 API pricing cost per 1M input output tokens)",
+    "source_url": "https://www.anthropic.com/pricing",
+    "updated_at": 1787434641.0646381,
+    "updated_at_str": "2026-08-22 21:37:21 UTC"
+  },
+  "openai/gpt-5.6-terra": {
+    "input_price_per_1m": 2.0,
+    "output_price_per_1m": 12.0,
+    "currency": "USD",
+    "source": "Web Search (gpt-5.6-terra API pricing cost per 1M input output tokens)",
+    "source_url": "https://openai.com/pricing",
+    "updated_at": 1787434646.5761812,
+    "updated_at_str": "2026-08-22 21:37:26 UTC"
+  },
+  "mistral/mistral-large-latest": {
+    "input_price_per_1m": 1.5,
+    "output_price_per_1m": 7.5,
+    "currency": "USD",
+    "source": "Web Search (mistral-large-latest API pricing cost per 1M input output tokens)",
+    "source_url": "https://mistral.ai/technology/#pricing",
+    "updated_at": 1787434650.7489104,
+    "updated_at_str": "2026-08-22 21:37:30 UTC"
+  },
+  "mistral/mistral-small-latest": {
+    "input_price_per_1m": 1.5,
+    "output_price_per_1m": 7.5,
+    "currency": "USD",
+    "source": "Web Search (mistral-small-latest API pricing cost per 1M input output tokens)",
+    "source_url": "https://mistral.ai/technology/#pricing",
+    "updated_at": 1787434653.047422,
+    "updated_at_str": "2026-08-22 21:37:33 UTC"
+  }
+}

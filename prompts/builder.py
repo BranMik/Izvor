@@ -22,8 +22,13 @@ def build_agent_prompt(agent_key: str) -> str:
     persona_file = PERSONAS_DIR / f"{agent_key}.md"
     persona_content = _read_prompt_file(persona_file)
 
-    # Gemini_Visionary, OpAiTerra_Architect, and Thread_Notes_Agent have self-contained specialized prompts
-    if agent_key in ("Gemini_Visionary", "OpAiTerra_Architect", "Thread_Notes_Agent", "Canvas_Doc_Agent"):
+    # Gemini_Visionary, OpAiTerra_Architect, Thread_Notes_Agent, and Usage_Agent have self-contained specialized prompts
+    if agent_key in (
+        "Gemini_Visionary",
+        "OpAiTerra_Architect",
+        "Thread_Notes_Agent",
+        "Usage_Agent",
+    ):
         return f"\n{persona_content}\n\n"
 
     # All intermediate agents share output constraints and nomination rules
