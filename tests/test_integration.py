@@ -393,4 +393,33 @@ def test_user_mention_syntax_variations_webhook_interruption(monkeypatch):
     assert mock_process.call_count == 2
 
 
+def test_webhook_with_history_limit_dispatches_properly(monkeypatch):
+    PROCESSED_EVENTS.clear()
+    thread_key = ("C_TEST_HIST_WEBHOOK", "123456789.4001")
+
+    mock_process = AsyncMock(return_value={"ok": True})
+    monkeypatch.setattr("main.process_and_respond", mock_process)
+
+    payload = {
+        "type": "event_callback",
+        "event": {
+            "type": "app_mention",
+            "channel": "C_TEST_HIST_WEBHOOK",
+            "ts": "123456789.4002",
+            "thread_ts": "123456789.4001",
+            "text": "<@U12345> Analyze the previous discussion /history 3",
+        },
+    }
+
+    response = client.post("/slack/events", json=payload)
+    assert response.status_code == 200
+    assert mock_process.call_count == 1
+    call_kwargs = mock_process.call_args.kwargs
+    assert call_kwargs["channel_id"] == "C_TEST_HIST_WEBHOOK"
+    assert call_kwargs["thread_ts"] == "123456789.4001"
+    assert call_kwargs["raw_text"] == "<@U12345> Analyze the previous discussion /history 3"
+    assert call_kwargs["is_bot_trigger"] is False
+
+
+
 

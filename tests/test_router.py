@@ -28,6 +28,12 @@ from agent_router import (
     ACTIVE_THREAD_TASKS,
     THREAD_GENERATIONS,
     SETTINGS_FILE,
+    extract_history_limit,
+    get_thread_history_limit,
+    set_thread_history_limit,
+    clear_thread_history_limit,
+    THREAD_HISTORY_LIMITS,
+    build_llm_messages,
 )
 from slack_client import build_app_home_view
 
@@ -904,6 +910,405 @@ async def test_interruption_during_pacing_delay_aborts_superseded_turn(monkeypat
     # Turn 1 should be cancelled/superseded and not post
     assert res.get("cancelled") is True
     assert len(posted_messages) == 0
+
+
+def test_extract_history_limit_formats():
+    # 1. Standard format /history 5
+    limit, cleaned = extract_history_limit("<@U12345> Tell me a joke /history 5")
+    assert limit == 5
+    assert cleaned == "<@U12345> Tell me a joke"
+
+    # 2. Bracketed format /history [3]
+    limit, cleaned = extract_history_limit("@CaiLogics [MistLar_TechLead] Explain rust /history [3]")
+    assert limit == 3
+    assert cleaned == "@CaiLogics [MistLar_TechLead] Explain rust"
+
+    # 3. Explicit int format /history [2:int]
+    limit, cleaned = extract_history_limit("@app_mention /history [2:int] summarize")
+    assert limit == 2
+    assert cleaned == "@app_mention summarize"
+
+    # 4. Colon format /history: 10 and /history:4
+    limit, cleaned = extract_history_limit("@CaiLogics /history: 10 test prompt")
+    assert limit == 10
+    assert cleaned == "@CaiLogics test prompt"
+
+    limit, cleaned = extract_history_limit("@CaiLogics /history:4 test prompt")
+    assert limit == 4
+    assert cleaned == "@CaiLogics test prompt"
+
+    # 5. Equals format /history=7
+    limit, cleaned = extract_history_limit("@CaiLogics /history=7 test prompt")
+    assert limit == 7
+    assert cleaned == "@CaiLogics test prompt"
+
+    # 6. Zero history /history 0
+    limit, cleaned = extract_history_limit("Prompt with /history 0")
+    assert limit == 0
+    assert cleaned == "Prompt with"
+
+    # 7. No history command
+    limit, cleaned = extract_history_limit("Plain prompt without history")
+    assert limit is None
+    assert cleaned == "Plain prompt without history"
+
+    # 8. Command in middle of text
+    limit, cleaned = extract_history_limit("@CaiLogics What is /history 3 quantum computing?")
+    assert limit == 3
+    assert cleaned == "@CaiLogics What is quantum computing?"
+
+
+def test_parse_agent_and_prompt_cleans_history_command():
+    agent_key, prompt, was_explicit = parse_agent_and_prompt(
+        "<@U12345> [Gemini_Visionary] What is AI? /history 4",
+        "C_HIST_PARSE",
+        "12345.0001",
+    )
+    assert agent_key == "Gemini_Visionary"
+    assert prompt == "What is AI?"
+    assert was_explicit is True
+
+    agent_key2, prompt2, was_explicit2 = parse_agent_and_prompt(
+        "<@U12345> /history [2] What is AI?",
+        "C_HIST_PARSE",
+        "12345.0002",
+    )
+    assert agent_key2 == "Gemini_Visionary"
+    assert prompt2 == "What is AI?"
+    assert was_explicit2 is False
+
+
+@pytest.mark.anyio
+async def test_process_and_respond_history_limit_initial_prompt(monkeypatch):
+    """
+    Scenario: Thread has 5 prior messages. User submits prompt with /history 2.
+    Expected:
+    - LiteLLM receives only the last 2 prior messages + current user prompt.
+    - Active limit is stored in THREAD_HISTORY_LIMITS.
+    """
+    thread_key = ("C_HIST_TEST", "12345.2001")
+    THREAD_HISTORY_LIMITS.pop(thread_key, None)
+    REMAINING_AGENTS_MAP.pop(thread_key, None)
+
+    mock_history = [
+        {"role": "user", "content": "Message 1"},
+        {"role": "assistant", "content": "Reply 1"},
+        {"role": "user", "content": "Message 2"},
+        {"role": "assistant", "content": "Reply 2"},
+        {"role": "user", "content": "Message 3"},
+        {"role": "user", "content": "<@U12345> What now? /history 2"},
+    ]
+
+    monkeypatch.setattr(
+        "agent_router.fetch_thread_history", AsyncMock(return_value=mock_history)
+    )
+
+    captured_messages = []
+
+    mock_choice = MagicMock()
+    mock_choice.message.content = "Visionary response. [MistLar_TechLead]"
+    mock_choice.message.tool_calls = None
+    mock_resp = MagicMock(choices=[mock_choice], usage=None)
+
+    async def mock_run(func, *args, **kwargs):
+        if "messages" in kwargs:
+            captured_messages.extend(kwargs["messages"])
+        return mock_resp
+
+    monkeypatch.setattr("agent_router.run_in_threadpool", mock_run)
+    monkeypatch.setattr(
+        "agent_router.post_agent_response",
+        AsyncMock(return_value={"ok": True, "ts": "12345.2002"}),
+    )
+
+    await process_and_respond(
+        channel_id="C_HIST_TEST",
+        thread_ts="12345.2001",
+        raw_text="<@U12345> What now? /history 2",
+        is_bot_trigger=False,
+    )
+
+    # Verify captured_messages:
+    # 0: system prompt
+    # 1: context prefix (ensures conversational sequence starts with user)
+    # 2: Reply 2 (4th message in history)
+    # 3: Message 3 (5th message in history)
+    # 4: What now? (current user prompt)
+    assert len(captured_messages) == 5
+    assert captured_messages[0]["role"] == "system"
+    assert captured_messages[1]["role"] == "user"
+    assert captured_messages[2] == {"role": "assistant", "content": "Reply 2"}
+    assert captured_messages[3] == {"role": "user", "content": "Message 3"}
+    assert captured_messages[4] == {"role": "user", "content": "What now?"}
+
+    # Verify THREAD_HISTORY_LIMITS is preserved for subsequent bot turns
+    limit_info = get_thread_history_limit("C_HIST_TEST", "12345.2001")
+    assert limit_info is not None
+    assert limit_info["limit"] == 2
+    assert limit_info["prior_cutoff_index"] == 5
+
+
+@pytest.mark.anyio
+async def test_process_and_respond_history_limit_subsequent_bot_rounds(monkeypatch):
+    """
+    Scenario: Following the previous prompt (/history 2), a bot trigger occurs (e.g. Mistral_TechLead).
+    Expected:
+    - Scribe/Slack history has 5 prior messages + user prompt + Agent 1 reply.
+    - LiteLLM receives last 2 prior messages + user prompt + Agent 1 reply + closing user turn.
+    """
+    thread_key = ("C_HIST_TEST_2", "12345.3001")
+    # Simulate active history limit from turn 1
+    set_thread_history_limit("C_HIST_TEST_2", "12345.3001", limit=2, prior_cutoff_index=5)
+
+    mock_history = [
+        {"role": "user", "content": "Message 1"},
+        {"role": "assistant", "content": "Reply 1"},
+        {"role": "user", "content": "Message 2"},
+        {"role": "assistant", "content": "Reply 2"},
+        {"role": "user", "content": "Message 3"},
+        # Discussion started here:
+        {"role": "user", "content": "What now?"},
+        {"role": "assistant", "content": "[CaiLogics Visionary]: Visionary response. [MistLar_TechLead]"},
+    ]
+
+    monkeypatch.setattr(
+        "agent_router.fetch_thread_history", AsyncMock(return_value=mock_history)
+    )
+
+    captured_messages = []
+
+    mock_choice = MagicMock()
+    mock_choice.message.content = "TechLead response. [AnthrOpus_Sceptic]"
+    mock_choice.message.tool_calls = None
+    mock_resp = MagicMock(choices=[mock_choice], usage=None)
+
+    async def mock_run(func, *args, **kwargs):
+        if "messages" in kwargs:
+            captured_messages.extend(kwargs["messages"])
+        return mock_resp
+
+    monkeypatch.setattr("agent_router.run_in_threadpool", mock_run)
+    monkeypatch.setattr(
+        "agent_router.post_agent_response",
+        AsyncMock(return_value={"ok": True, "ts": "12345.3003"}),
+    )
+
+    await process_and_respond(
+        channel_id="C_HIST_TEST_2",
+        thread_ts="12345.3001",
+        raw_text="Visionary response. [MistLar_TechLead]",
+        is_bot_trigger=True,
+    )
+
+    # Verify captured_messages:
+    # 0: system prompt
+    # 1: context prefix (ensures start is user)
+    # 2: Reply 2 (prior)
+    # 3: Message 3 (prior)
+    # 4: What now? (discussion prompt)
+    # 5: Visionary response... (discussion reply 1)
+    # 6: user turn prompting TechLead (ensures conversation ends with user)
+    assert len(captured_messages) == 7
+    assert captured_messages[0]["role"] == "system"
+    assert captured_messages[1]["role"] == "user"
+    assert captured_messages[2] == {"role": "assistant", "content": "Reply 2"}
+    assert captured_messages[3] == {"role": "user", "content": "Message 3"}
+    assert captured_messages[4] == {"role": "user", "content": "What now?"}
+    assert captured_messages[5]["role"] == "assistant"
+    assert "[CaiLogics Visionary]" in captured_messages[5]["content"]
+    assert captured_messages[6]["role"] == "user"
+    assert "MistLar TechLead" in captured_messages[6]["content"]
+
+
+@pytest.mark.anyio
+async def test_process_and_respond_subsequent_prompt_resets_full_history(monkeypatch):
+    """
+    Scenario: In a thread that previously had /history 2, a new user prompt is submitted WITHOUT /history.
+    Expected:
+    - THREAD_HISTORY_LIMITS is cleared.
+    - LiteLLM receives ALL prior messages (complete thread history) + new prompt.
+    """
+    thread_key = ("C_HIST_TEST_RESET", "12345.4001")
+    # Simulate pre-existing limit
+    set_thread_history_limit("C_HIST_TEST_RESET", "12345.4001", limit=2, prior_cutoff_index=3)
+
+    mock_history = [
+        {"role": "user", "content": "Message 1"},
+        {"role": "assistant", "content": "Reply 1"},
+        {"role": "user", "content": "Message 2"},
+        {"role": "assistant", "content": "Reply 2"},
+        {"role": "user", "content": "<@U12345> Tell me more"},
+    ]
+
+    monkeypatch.setattr(
+        "agent_router.fetch_thread_history", AsyncMock(return_value=mock_history)
+    )
+
+    captured_messages = []
+
+    mock_choice = MagicMock()
+    mock_choice.message.content = "Full history response. [MistLar_TechLead]"
+    mock_choice.message.tool_calls = None
+    mock_resp = MagicMock(choices=[mock_choice], usage=None)
+
+    async def mock_run(func, *args, **kwargs):
+        if "messages" in kwargs:
+            captured_messages.extend(kwargs["messages"])
+        return mock_resp
+
+    monkeypatch.setattr("agent_router.run_in_threadpool", mock_run)
+    monkeypatch.setattr(
+        "agent_router.post_agent_response",
+        AsyncMock(return_value={"ok": True, "ts": "12345.4002"}),
+    )
+
+    await process_and_respond(
+        channel_id="C_HIST_TEST_RESET",
+        thread_ts="12345.4001",
+        raw_text="<@U12345> Tell me more",
+        is_bot_trigger=False,
+    )
+
+    # Limit should be cleared
+    assert get_thread_history_limit("C_HIST_TEST_RESET", "12345.4001") is None
+
+    # Verify all 4 prior messages + new prompt are in context:
+    assert len(captured_messages) == 6
+    assert captured_messages[0]["role"] == "system"
+    assert captured_messages[1] == {"role": "user", "content": "Message 1"}
+    assert captured_messages[2] == {"role": "assistant", "content": "Reply 1"}
+    assert captured_messages[3] == {"role": "user", "content": "Message 2"}
+    assert captured_messages[4] == {"role": "assistant", "content": "Reply 2"}
+    assert captured_messages[5] == {"role": "user", "content": "Tell me more"}
+
+
+@pytest.mark.anyio
+async def test_process_and_respond_history_zero(monkeypatch):
+    """
+    Scenario: User specifies /history 0.
+    Expected:
+    - LiteLLM receives ONLY system prompt + current user prompt.
+    """
+    thread_key = ("C_HIST_ZERO", "12345.5001")
+    THREAD_HISTORY_LIMITS.pop(thread_key, None)
+
+    mock_history = [
+        {"role": "user", "content": "Message 1"},
+        {"role": "assistant", "content": "Reply 1"},
+        {"role": "user", "content": "<@U12345> Fresh start /history 0"},
+    ]
+
+    monkeypatch.setattr(
+        "agent_router.fetch_thread_history", AsyncMock(return_value=mock_history)
+    )
+
+    captured_messages = []
+
+    mock_choice = MagicMock()
+    mock_choice.message.content = "Fresh response. [MistLar_TechLead]"
+    mock_choice.message.tool_calls = None
+    mock_resp = MagicMock(choices=[mock_choice], usage=None)
+
+    async def mock_run(func, *args, **kwargs):
+        if "messages" in kwargs:
+            captured_messages.extend(kwargs["messages"])
+        return mock_resp
+
+    monkeypatch.setattr("agent_router.run_in_threadpool", mock_run)
+    monkeypatch.setattr(
+        "agent_router.post_agent_response",
+        AsyncMock(return_value={"ok": True, "ts": "12345.5002"}),
+    )
+
+    await process_and_respond(
+        channel_id="C_HIST_ZERO",
+        thread_ts="12345.5001",
+        raw_text="<@U12345> Fresh start /history 0",
+        is_bot_trigger=False,
+    )
+
+    # Only system prompt + user prompt (0 prior messages)
+    assert len(captured_messages) == 2
+    assert captured_messages[0]["role"] == "system"
+    assert captured_messages[1] == {"role": "user", "content": "Fresh start"}
+
+
+def test_build_llm_messages_user_trigger():
+    """Test standard user trigger message construction."""
+    sys_prompt = "You are a helpful assistant."
+    history = [
+        {"role": "user", "content": "Hello"},
+        {"role": "assistant", "content": "Hi there!"},
+    ]
+    agent_cfg = {"username": "Test Bot"}
+    messages = build_llm_messages(
+        system_prompt=sys_prompt,
+        effective_history=history,
+        prompt="Tell me more",
+        is_bot_trigger=False,
+        agent_key="Test_Bot",
+        agent_cfg=agent_cfg,
+    )
+    assert len(messages) == 4
+    assert messages[0] == {"role": "system", "content": sys_prompt}
+    assert messages[1] == {"role": "user", "content": "Hello"}
+    assert messages[2] == {"role": "assistant", "content": "Hi there!"}
+    assert messages[3] == {"role": "user", "content": "Tell me more"}
+
+
+def test_build_llm_messages_bot_trigger_strictly_ends_with_user_turn():
+    """Test bot trigger appends user turn so Anthropic/Mistral/Gemini won't reject with 400 Bad Request."""
+    sys_prompt = "You are Devil's Advocate."
+    history = [
+        {"role": "user", "content": "Initial question"},
+        {"role": "assistant", "content": "[Innovator]: Propose X [AnthrOpus_Sceptic]"},
+    ]
+    agent_cfg = {"username": "The Devil's Advocate"}
+    messages = build_llm_messages(
+        system_prompt=sys_prompt,
+        effective_history=history,
+        prompt="Propose X",
+        is_bot_trigger=True,
+        agent_key="AnthrOpus_Sceptic",
+        agent_cfg=agent_cfg,
+    )
+    assert len(messages) == 4
+    assert messages[0] == {"role": "system", "content": sys_prompt}
+    assert messages[1] == {"role": "user", "content": "Initial question"}
+    assert messages[2] == {"role": "assistant", "content": "[Innovator]: Propose X [AnthrOpus_Sceptic]"}
+    assert messages[3]["role"] == "user"
+    assert "The Devil's Advocate" in messages[3]["content"]
+
+
+def test_build_llm_messages_leading_assistant_gets_user_prefix():
+    """Test that trimmed history starting with assistant message gets a user prefix so API accepts it."""
+    sys_prompt = "You are Tech Lead."
+    history = [
+        {"role": "assistant", "content": "Assistant turn 1"},
+        {"role": "assistant", "content": "Assistant turn 2"},
+    ]
+    agent_cfg = {"username": "Tech Lead"}
+    messages = build_llm_messages(
+        system_prompt=sys_prompt,
+        effective_history=history,
+        prompt="Test",
+        is_bot_trigger=True,
+        agent_key="MistLar_TechLead",
+        agent_cfg=agent_cfg,
+    )
+    # index 0: system
+    # index 1: user prefix
+    # index 2: assistant 1
+    # index 3: assistant 2
+    # index 4: user closing directive
+    assert len(messages) == 5
+    assert messages[0]["role"] == "system"
+    assert messages[1]["role"] == "user"
+    assert messages[2] == {"role": "assistant", "content": "Assistant turn 1"}
+    assert messages[3] == {"role": "assistant", "content": "Assistant turn 2"}
+    assert messages[4]["role"] == "user"
+
+
 
 
 
