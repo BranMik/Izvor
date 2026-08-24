@@ -1,14 +1,17 @@
 import json
 import time
-from unittest.mock import MagicMock, patch
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 import pricing_service
 from pricing_service import (
     CACHE_TTL_SECONDS,
+    PRICING_TOOL_SCHEMAS,
     _extract_pricing_from_search_text,
     fetch_pricing_from_web,
+    fetch_pricing_with_agent,
     get_baseline_for_model,
     get_model_pricing,
     refresh_model_pricing,
@@ -42,6 +45,12 @@ def test_get_baseline_for_model():
     assert "source_url" in unknown_base
 
 
+def test_pricing_tool_schemas():
+    tool_names = [tool["function"]["name"] for tool in PRICING_TOOL_SCHEMAS]
+    assert "web_search" in tool_names
+    assert "fetch_web_page" in tool_names
+
+
 def test_extract_pricing_from_search_text():
     snippet_1 = "Google Gemini 3.7 Flash pricing: $0.15 per 1M input tokens and $0.60 per 1M output tokens."
     in_p, out_p = _extract_pricing_from_search_text(snippet_1, "gemini-3.7-flash")
@@ -55,21 +64,106 @@ def test_extract_pricing_from_search_text():
 
 
 @pytest.mark.anyio
-async def test_fetch_pricing_from_web_success():
+async def test_fetch_pricing_with_agent_success():
+    # 1. First LiteLLM response triggers tool_call for web_search
+    mock_tool_call = SimpleNamespace(
+        id="call_web_search_1",
+        function=SimpleNamespace(
+            name="web_search",
+            arguments=json.dumps({"query": "gemini-3.7-flash API pricing per 1M tokens", "max_results": 3}),
+        ),
+    )
+    first_response = SimpleNamespace(
+        choices=[
+            SimpleNamespace(
+                message=SimpleNamespace(
+                    role="assistant",
+                    content=None,
+                    tool_calls=[mock_tool_call],
+                )
+            )
+        ]
+    )
+
+    # 2. Second LiteLLM response returns structured JSON with accurate model pricing
+    agent_json_output = json.dumps(
+        {
+            "model_name": "gemini/gemini-3.7-flash",
+            "input_price_per_1m": 0.15,
+            "output_price_per_1m": 0.60,
+            "currency": "USD",
+            "source": "Google AI Pricing Docs",
+            "source_url": "https://ai.google.dev/pricing",
+        }
+    )
+    second_response = SimpleNamespace(
+        choices=[
+            SimpleNamespace(
+                message=SimpleNamespace(
+                    role="assistant",
+                    content=f"```json\n{agent_json_output}\n```",
+                    tool_calls=None,
+                )
+            )
+        ]
+    )
+
+    mock_search_json = json.dumps(
+        {
+            "results": [
+                {
+                    "title": "Gemini 3.7 Flash Pricing",
+                    "snippet": "Gemini 3.7 Flash: $0.15/1M input, $0.60/1M output.",
+                    "url": "https://ai.google.dev/pricing",
+                }
+            ]
+        }
+    )
+
+    with patch("litellm.completion", side_effect=[first_response, second_response]) as mock_completion, \
+         patch("pricing_service.web_search", return_value=mock_search_json) as mock_search:
+
+        res = await fetch_pricing_with_agent("gemini/gemini-3.7-flash")
+
+        assert res["input_price_per_1m"] == 0.15
+        assert res["output_price_per_1m"] == 0.60
+        assert res["currency"] == "USD"
+        assert res["source"] == "Google AI Pricing Docs"
+        assert res["source_url"] == "https://ai.google.dev/pricing"
+        assert "updated_at" in res
+
+        # Verify litellm called with mistral/mistral-small-latest
+        assert mock_completion.call_count == 2
+        first_call_kwargs = mock_completion.call_args_list[0].kwargs
+        assert first_call_kwargs["model"] == "mistral/mistral-small-latest"
+        assert first_call_kwargs["tools"] == PRICING_TOOL_SCHEMAS
+
+        # Verify web_search was called with query requested by agent
+        mock_search.assert_called_once_with(
+            query="gemini-3.7-flash API pricing per 1M tokens",
+            max_results=3,
+        )
+
+
+@pytest.mark.anyio
+async def test_fetch_pricing_from_web_agent_fallback():
+    # If agent raises an exception, fetch_pricing_from_web falls back to direct search
     mock_search_json = json.dumps(
         {
             "query": "gemini-3.7-flash API pricing cost per 1M input output tokens",
             "results": [
                 {
                     "title": "Gemini Developer Pricing",
-                    "snippet": "Gemini 3.7 Flash is priced at $0.15 per 1M input tokens and $0.60 per 1M output tokens for prompts under 128k.",
+                    "snippet": "Gemini 3.7 Flash is priced at $0.15 per 1M input tokens and $0.60 per 1M output tokens.",
                     "url": "https://ai.google.dev/pricing",
                 }
             ],
         }
     )
 
-    with patch("pricing_service.web_search", return_value=mock_search_json):
+    with patch("pricing_service.fetch_pricing_with_agent", side_effect=Exception("LiteLLM connection error")), \
+         patch("pricing_service.web_search", return_value=mock_search_json):
+
         res = await fetch_pricing_from_web("gemini/gemini-3.7-flash")
         assert res["input_price_per_1m"] == 0.15
         assert res["output_price_per_1m"] == 0.60
@@ -123,3 +217,4 @@ async def test_7_day_cache_ttl(monkeypatch):
         refreshed = await refresh_model_pricing(model, force=False)
         assert refreshed["source"] == "Refreshed Web Search"
         mock_fetch.assert_called_once()
+

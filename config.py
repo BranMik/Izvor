@@ -41,6 +41,10 @@ USAGE_CHANNEL_ID = os.getenv("USAGE_CHANNEL_ID", "")
 USAGE_AGENT_MODEL = os.getenv("USAGE_AGENT_MODEL", "gemini/gemini-3.7-flash")
 USAGE_AGENT_PROMPT = build_agent_prompt("Usage_Agent")
 
+# Model Pricing Research Agent configuration (Web search & verification)
+PRICING_AGENT_MODEL = os.getenv("PRICING_AGENT_MODEL", "mistral/mistral-small-latest")
+PRICING_AGENT_PROMPT = build_agent_prompt("Pricing_Agent")
+
 # Configuration matrix for LiteLLM routing and Slack personas
 AGENTS_CONFIG = {
     "Gemini_Visionary": {

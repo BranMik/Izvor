@@ -41,3 +41,5 @@ ENV/
 # OS
 Thumbs.db
 .DS_Store
+thread_usage_data.json
+model_pricing_cache.json
