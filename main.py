@@ -12,6 +12,8 @@ from starlette.requests import ClientDisconnect
 
 from agent_router import (
     LOCKED_AGENTS,
+    interrupt_thread_discussion,
+    is_discussion_active,
     is_stop_command,
     load_enabled_agents,
     process_and_respond,
@@ -208,8 +210,18 @@ async def slack_events(request: Request, background_tasks: BackgroundTasks):
                         break
 
                 # 5d. Determine processing authorization
-                is_mention_or_dm = (event_type == "app_mention") or (
-                    channel_id and channel_id.startswith("D")
+                is_app_name_mention = False
+                if bot_user_id and f"<@{bot_user_id}>" in raw_text:
+                    is_app_name_mention = True
+                elif re.search(r"@?CaiLogics\b", raw_text, re.IGNORECASE):
+                    is_app_name_mention = True
+                elif re.search(r"@app_mention\b", raw_text, re.IGNORECASE):
+                    is_app_name_mention = True
+
+                is_mention_or_dm = (
+                    (event_type == "app_mention")
+                    or (channel_id and channel_id.startswith("D"))
+                    or is_app_name_mention
                 )
                 should_process = False
 
@@ -248,6 +260,11 @@ async def slack_events(request: Request, background_tasks: BackgroundTasks):
                     # User messages must either have a tag, name mention, or be an app_mention/DM
                     if has_tag or has_name_mention or is_mention_or_dm:
                         should_process = True
+                        if is_discussion_active(channel_id, thread_ts):
+                            logger.info(
+                                f"[WEBHOOK] Ongoing discussion in thread {thread_ts} detected. Interrupting discussion for new query: {raw_text[:50]}"
+                            )
+                            interrupt_thread_discussion(channel_id, thread_ts)
                     else:
                         logger.info(
                             f"Skipping plain user message in channel {channel_id} without mention/tag"

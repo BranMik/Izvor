@@ -6,6 +6,9 @@ from agent_router import (
     LOCKED_AGENTS,
     REMAINING_AGENTS_MAP,
     STOP_REQUESTED_THREADS,
+    THREAD_GENERATIONS,
+    is_discussion_active,
+    interrupt_thread_discussion,
     reset_enabled_agents,
 )
 
@@ -303,5 +306,91 @@ def test_slack_interactivity_radio_toggle_action(monkeypatch):
     response_bulk_on = client.post("/slack/actions", json=payload_bulk_on)
     assert response_bulk_on.status_code == 200
     assert len(ENABLED_DEBATE_AGENTS) == 16
+
+
+def test_user_new_query_interrupts_ongoing_discussion_webhook(monkeypatch):
+    PROCESSED_EVENTS.clear()
+    thread_key = ("C_TEST_INTERRUPT_WEBHOOK", "123456789.2001")
+    
+    # 1. Simulate an ongoing discussion with remaining agents
+    REMAINING_AGENTS_MAP[thread_key] = ["MistLar_TechLead", "AnthrOpus_Innovator"]
+    initial_gen = THREAD_GENERATIONS.get(thread_key, 0)
+    assert is_discussion_active("C_TEST_INTERRUPT_WEBHOOK", "123456789.2001") is True
+
+    mock_process = AsyncMock(return_value={"ok": True})
+    monkeypatch.setattr("main.process_and_respond", mock_process)
+
+    # 2. User sends new query in the same thread with @app_name
+    payload = {
+        "type": "event_callback",
+        "event": {
+            "type": "app_mention",
+            "channel": "C_TEST_INTERRUPT_WEBHOOK",
+            "ts": "123456789.2002",
+            "thread_ts": "123456789.2001",
+            "text": "<@U12345> New topic prompt",
+        },
+    }
+
+    response = client.post("/slack/events", json=payload)
+    assert response.status_code == 200
+    assert ("C_TEST_INTERRUPT_WEBHOOK", "123456789.2002") in PROCESSED_EVENTS
+
+    # 3. Verify previous discussion state was cleared and generation was bumped
+    assert thread_key not in REMAINING_AGENTS_MAP
+    assert THREAD_GENERATIONS[thread_key] == initial_gen + 1
+
+    # 4. Verify process_and_respond was dispatched for the new query
+    mock_process.assert_called_once()
+    call_kwargs = mock_process.call_args.kwargs
+    assert call_kwargs["channel_id"] == "C_TEST_INTERRUPT_WEBHOOK"
+    assert call_kwargs["thread_ts"] == "123456789.2001"
+    assert call_kwargs["raw_text"] == "<@U12345> New topic prompt"
+    assert call_kwargs["is_bot_trigger"] is False
+
+
+def test_user_mention_syntax_variations_webhook_interruption(monkeypatch):
+    PROCESSED_EVENTS.clear()
+    thread_key = ("C_TEST_INTERRUPT_SYNTAX", "123456789.3001")
+    
+    # 1. Message with @CaiLogics Hub
+    REMAINING_AGENTS_MAP[thread_key] = ["OpAiTerra_Architect"]
+    mock_process = AsyncMock(return_value={"ok": True})
+    monkeypatch.setattr("main.process_and_respond", mock_process)
+
+    payload_hub = {
+        "type": "event_callback",
+        "event": {
+            "type": "message",
+            "channel": "C_TEST_INTERRUPT_SYNTAX",
+            "ts": "123456789.3002",
+            "thread_ts": "123456789.3001",
+            "text": "@CaiLogics Hub Analyze this other query",
+        },
+    }
+
+    response1 = client.post("/slack/events", json=payload_hub)
+    assert response1.status_code == 200
+    assert thread_key not in REMAINING_AGENTS_MAP
+    assert mock_process.call_count == 1
+
+    # 2. Message with agent bracket tag [Gemini_Visionary]
+    REMAINING_AGENTS_MAP[thread_key] = ["OpAiTerra_Architect"]
+    payload_tag = {
+        "type": "event_callback",
+        "event": {
+            "type": "message",
+            "channel": "C_TEST_INTERRUPT_SYNTAX",
+            "ts": "123456789.3003",
+            "thread_ts": "123456789.3001",
+            "text": "[Gemini_Visionary] Start fresh with this",
+        },
+    }
+
+    response2 = client.post("/slack/events", json=payload_tag)
+    assert response2.status_code == 200
+    assert thread_key not in REMAINING_AGENTS_MAP
+    assert mock_process.call_count == 2
+
 
 

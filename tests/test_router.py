@@ -23,6 +23,10 @@ from agent_router import (
     is_thread_stopped,
     clear_thread_stop,
     classify_agent_error,
+    is_discussion_active,
+    interrupt_thread_discussion,
+    ACTIVE_THREAD_TASKS,
+    THREAD_GENERATIONS,
     SETTINGS_FILE,
 )
 from slack_client import build_app_home_view
@@ -721,6 +725,186 @@ async def test_process_and_respond_rate_limits_and_retry_flow(monkeypatch):
     assert "MistLar_TechLead" not in RATE_LIMIT_RETRY_QUEUE.get(thread_key, [])
     # Should nominate OpAiTerra_Architect for the final summary
     assert "[OpAiTerra_Architect]" in posted[2]["text"]
+
+
+def test_is_discussion_active_behavior():
+    thread_key = ("C_ACTIVE_TEST", "12345.1001")
+    REMAINING_AGENTS_MAP.pop(thread_key, None)
+    RATE_LIMIT_RETRY_QUEUE.pop(thread_key, None)
+    ACTIVE_THREAD_TASKS.pop(thread_key, None)
+
+    # 1. Fresh / idle thread is not active
+    assert is_discussion_active("C_ACTIVE_TEST", "12345.1001") is False
+
+    # 2. Active when remaining agents exist
+    REMAINING_AGENTS_MAP[thread_key] = ["MistLar_TechLead"]
+    assert is_discussion_active("C_ACTIVE_TEST", "12345.1001") is True
+
+    # 3. Active when retry queue has entries
+    REMAINING_AGENTS_MAP.pop(thread_key, None)
+    RATE_LIMIT_RETRY_QUEUE[thread_key] = ["AnthrOpus_Innovator"]
+    assert is_discussion_active("C_ACTIVE_TEST", "12345.1001") is True
+
+    # Clean up
+    RATE_LIMIT_RETRY_QUEUE.pop(thread_key, None)
+    assert is_discussion_active("C_ACTIVE_TEST", "12345.1001") is False
+
+
+@pytest.mark.anyio
+async def test_interrupt_thread_discussion_clears_state_and_cancels_task():
+    import asyncio
+    thread_key = ("C_INTERRUPT_TEST", "12345.1002")
+
+    REMAINING_AGENTS_MAP[thread_key] = ["MistLar_TechLead", "AnthrOpus_Innovator"]
+    RATE_LIMIT_RETRY_QUEUE[thread_key] = ["Gemini_Visionary"]
+    RATE_LIMIT_ALREADY_RETRIED[thread_key] = {"MistLar_TechLead"}
+    CUSTOM_FLOW_THREADS.add(thread_key)
+    STOP_REQUESTED_THREADS.add(thread_key)
+
+    # Create dummy running background task
+    async def dummy_coro():
+        await asyncio.sleep(100)
+
+    task = asyncio.create_task(dummy_coro())
+    ACTIVE_THREAD_TASKS[thread_key] = task
+
+    initial_gen = THREAD_GENERATIONS.get(thread_key, 0)
+
+    # Trigger interrupt
+    interrupt_thread_discussion("C_INTERRUPT_TEST", "12345.1002")
+
+    # Verify task cancelled, generation incremented, state maps wiped
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+    assert task.cancelled() is True
+    assert THREAD_GENERATIONS[thread_key] == initial_gen + 1
+    assert thread_key not in REMAINING_AGENTS_MAP
+    assert thread_key not in RATE_LIMIT_RETRY_QUEUE
+    assert thread_key not in RATE_LIMIT_ALREADY_RETRIED
+    assert thread_key not in CUSTOM_FLOW_THREADS
+    assert thread_key not in STOP_REQUESTED_THREADS
+    assert is_discussion_active("C_INTERRUPT_TEST", "12345.1002") is False
+
+
+@pytest.mark.anyio
+async def test_interruption_during_llm_execution_aborts_superseded_turn(monkeypatch):
+    """
+    Scenario: Agent 1 of Turn 1 is in the middle of litellm call.
+    User submits a new prompt in that thread.
+    interrupt_thread_discussion is called.
+    Expected:
+    - Turn 1 LLM response is discarded and Turn 1 DOES NOT post to Slack.
+    - Turn 2 (new query) processes and posts to Slack.
+    """
+    thread_key = ("C_INTERRUPT_LLM", "12345.1003")
+    REMAINING_AGENTS_MAP.pop(thread_key, None)
+    ACTIVE_THREAD_TASKS.pop(thread_key, None)
+
+    posted_messages = []
+    async def mock_post_agent_response(channel_id, thread_ts, text, username, icon_url=None):
+        posted_messages.append({"text": text, "username": username})
+        return {"ok": True, "ts": "12345.1003"}
+
+    monkeypatch.setattr("agent_router.post_agent_response", mock_post_agent_response)
+    monkeypatch.setattr("agent_router.fetch_thread_history", AsyncMock(return_value=[]))
+
+    mock_choice_1 = MagicMock()
+    mock_choice_1.message.content = "Turn 1 answer to old query. [MistLar_TechLead]"
+    mock_choice_1.message.tool_calls = None
+    mock_resp_1 = MagicMock(choices=[mock_choice_1], usage=None)
+
+    async def mock_run_turn_1(func, *args, **kwargs):
+        # Simulate user interruption arriving while Turn 1 is waiting on LLM
+        interrupt_thread_discussion("C_INTERRUPT_LLM", "12345.1003")
+        return mock_resp_1
+
+    monkeypatch.setattr("agent_router.run_in_threadpool", mock_run_turn_1)
+
+    # Run Turn 1
+    res1 = await process_and_respond(
+        channel_id="C_INTERRUPT_LLM",
+        thread_ts="12345.1003",
+        raw_text="<@U12345> Old query topic 1",
+        is_bot_trigger=False,
+    )
+
+    # Turn 1 should be superseded and post NO message to Slack
+    assert res1.get("cancelled") is True
+    assert len(posted_messages) == 0
+
+    # Now run Turn 2 (the new user query)
+    mock_choice_2 = MagicMock()
+    mock_choice_2.message.content = "Turn 2 answer to new query. [MistLar_TechLead]"
+    mock_choice_2.message.tool_calls = None
+    mock_resp_2 = MagicMock(choices=[mock_choice_2], usage=None)
+
+    async def mock_run_turn_2(func, *args, **kwargs):
+        return mock_resp_2
+
+    monkeypatch.setattr("agent_router.run_in_threadpool", mock_run_turn_2)
+
+    res2 = await process_and_respond(
+        channel_id="C_INTERRUPT_LLM",
+        thread_ts="12345.1003",
+        raw_text="<@U12345> New query topic 2",
+        is_bot_trigger=False,
+    )
+
+    # Turn 2 successfully posts
+    assert len(posted_messages) == 1
+    assert "Turn 2 answer to new query." in posted_messages[0]["text"]
+    assert "[MistLar_TechLead]" in posted_messages[0]["text"]
+
+
+@pytest.mark.anyio
+async def test_interruption_during_pacing_delay_aborts_superseded_turn(monkeypatch):
+    """
+    Scenario: Agent 1 completes LLM and is during the 3-second pacing delay.
+    User submits a new prompt in that thread.
+    Expected:
+    - Turn 1 does not post to Slack.
+    """
+    thread_key = ("C_INTERRUPT_SLEEP", "12345.1004")
+    REMAINING_AGENTS_MAP.pop(thread_key, None)
+    ACTIVE_THREAD_TASKS.pop(thread_key, None)
+
+    posted_messages = []
+    async def mock_post_agent_response(channel_id, thread_ts, text, username, icon_url=None):
+        posted_messages.append({"text": text, "username": username})
+        return {"ok": True, "ts": "12345.1004"}
+
+    monkeypatch.setattr("agent_router.post_agent_response", mock_post_agent_response)
+    monkeypatch.setattr("agent_router.fetch_thread_history", AsyncMock(return_value=[]))
+
+    mock_choice = MagicMock()
+    mock_choice.message.content = "Turn 1 answer before sleep. [MistLar_TechLead]"
+    mock_choice.message.tool_calls = None
+    mock_resp = MagicMock(choices=[mock_choice], usage=None)
+
+    async def mock_run(func, *args, **kwargs):
+        return mock_resp
+
+    monkeypatch.setattr("agent_router.run_in_threadpool", mock_run)
+
+    # Interrupt injected during asyncio.sleep in router
+    async def mock_sleep_with_interrupt(duration):
+        interrupt_thread_discussion("C_INTERRUPT_SLEEP", "12345.1004")
+
+    monkeypatch.setattr("agent_router.asyncio.sleep", mock_sleep_with_interrupt)
+
+    res = await process_and_respond(
+        channel_id="C_INTERRUPT_SLEEP",
+        thread_ts="12345.1004",
+        raw_text="<@U12345> Query that gets interrupted during delay",
+        is_bot_trigger=False,
+    )
+
+    # Turn 1 should be cancelled/superseded and not post
+    assert res.get("cancelled") is True
+    assert len(posted_messages) == 0
+
 
 
 
