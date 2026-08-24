@@ -298,7 +298,7 @@ async def test_scenario_3_no_agent_tagged_default_flow(monkeypatch):
     REMAINING_AGENTS_MAP[thread_key] = [
         "OpAiTerra_UserAdvocate",
         "MistLar_SecurityArchitect",
-        "MistMed_MonitoringAndAlertingSpecialist",
+        "MistLar_MonitoringAndAlertingSpecialist",
     ]
 
     mock_choice_2 = MagicMock()
@@ -313,7 +313,7 @@ async def test_scenario_3_no_agent_tagged_default_flow(monkeypatch):
     await process_and_respond(
         channel_id="C123",
         thread_ts="12345.0003",
-        raw_text="[MistMed_MonitoringAndAlertingSpecialist] next",
+        raw_text="[MistLar_MonitoringAndAlertingSpecialist] next",
         is_bot_trigger=True,
     )
 
