@@ -616,3 +616,142 @@ async def update_usage_message(
         return {"ok": False, "error": str(e)}
 
 
+async def fetch_thread_files(
+    channel_id: str, thread_ts: str
+) -> list[dict[str, Any]]:
+    """
+    Fetches all file attachment metadata uploaded in a Slack thread.
+    Returns a list of file dicts with keys: id, name, title, mimetype, filetype, size, url_private_download, url_private.
+    """
+    if not SLACK_BOT_TOKEN or SLACK_BOT_TOKEN == "xoxb-your-bot-user-oauth-token":
+        return []
+
+    try:
+        response = await slack_async_client.conversations_replies(
+            channel=channel_id, ts=thread_ts, limit=100
+        )
+        messages = response.get("messages", [])
+        thread_files: list[dict[str, Any]] = []
+        for msg in messages:
+            files = msg.get("files", [])
+            for f in files:
+                thread_files.append(
+                    {
+                        "id": f.get("id"),
+                        "name": f.get("name", "unknown_file"),
+                        "title": f.get("title", ""),
+                        "mimetype": f.get("mimetype", ""),
+                        "filetype": f.get("filetype", ""),
+                        "size": f.get("size", 0),
+                        "url_private_download": f.get("url_private_download")
+                        or f.get("url_private", ""),
+                        "url_private": f.get("url_private", ""),
+                        "user": f.get("user") or msg.get("user"),
+                        "ts": msg.get("ts"),
+                    }
+                )
+        logger.info(
+            f"[SLACK FILES] Found {len(thread_files)} files in thread {thread_ts}"
+        )
+        return thread_files
+    except SlackApiError as e:
+        logger.error(f"[SLACK FILES] Error fetching thread files: {e.response.get('error', e)}")
+        return []
+    except Exception as e:
+        logger.error(f"[SLACK FILES] Unexpected error fetching thread files: {e}")
+        return []
+
+
+async def download_slack_file(
+    file_info: dict[str, Any], max_chars: int = 50000
+) -> dict[str, Any]:
+    """
+    Downloads a private Slack file attachment using SLACK_BOT_TOKEN and extracts its text content.
+    Returns dict: {"ok": bool, "file_name": str, "content": str, "truncated": bool, "size": int, "error": str | None}
+    """
+    import httpx
+    from config import MCP_WORKSPACE_DIR
+
+    file_name = file_info.get("name", "unknown_file")
+    url = file_info.get("url_private_download") or file_info.get("url_private")
+    file_size = file_info.get("size", 0)
+
+    if not url:
+        return {
+            "ok": False,
+            "file_name": file_name,
+            "content": "",
+            "truncated": False,
+            "size": file_size,
+            "error": "No download URL available for this file.",
+        }
+
+    if not SLACK_BOT_TOKEN or SLACK_BOT_TOKEN == "xoxb-your-bot-user-oauth-token":
+        # Mock mode if no valid token
+        return {
+            "ok": True,
+            "file_name": file_name,
+            "content": f"[Mock file content for {file_name}]",
+            "truncated": False,
+            "size": file_size,
+            "error": None,
+        }
+
+    headers = {"Authorization": f"Bearer {SLACK_BOT_TOKEN}"}
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(url, headers=headers, follow_redirects=True)
+            if resp.status_code != 200:
+                return {
+                    "ok": False,
+                    "file_name": file_name,
+                    "content": "",
+                    "truncated": False,
+                    "size": file_size,
+                    "error": f"Slack file download failed with HTTP status {resp.status_code}",
+                }
+            raw_bytes = resp.content
+
+            # Attempt text decoding (UTF-8 with replace fallback)
+            text_content = raw_bytes.decode("utf-8", errors="replace")
+            truncated = False
+            if len(text_content) > max_chars:
+                text_content = (
+                    text_content[:max_chars]
+                    + f"\n\n... [TRUNCATED: File exceeds {max_chars} characters] ..."
+                )
+                truncated = True
+
+            # Optionally save local copy in workspace downloads directory for MCP file tools
+            try:
+                downloads_dir = MCP_WORKSPACE_DIR / "downloads"
+                downloads_dir.mkdir(parents=True, exist_ok=True)
+                file_path = downloads_dir / file_name
+                file_path.write_bytes(raw_bytes)
+                logger.info(f"[SLACK FILE] Cached Slack file to workspace: {file_path}")
+            except Exception as save_err:
+                logger.warning(
+                    f"[SLACK FILE] Could not save local copy to workspace: {save_err}"
+                )
+
+            return {
+                "ok": True,
+                "file_name": file_name,
+                "content": text_content,
+                "truncated": truncated,
+                "size": len(raw_bytes),
+                "error": None,
+            }
+    except Exception as e:
+        logger.error(f"[SLACK FILE] Error downloading Slack file {file_name}: {e}")
+        return {
+            "ok": False,
+            "file_name": file_name,
+            "content": "",
+            "truncated": False,
+            "size": file_size,
+            "error": str(e),
+        }
+
+
+

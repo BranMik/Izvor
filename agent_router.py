@@ -2,19 +2,24 @@ import asyncio
 import json
 import logging
 import re
+from pathlib import Path
+from typing import Any
 
 import litellm
 from starlette.concurrency import run_in_threadpool
 
-from pathlib import Path
-
-from config import AGENTS_CONFIG, DEFAULT_AGENT_KEY
-from mcp_tools import MCP_TOOLS_SCHEMAS, execute_mcp_tool
-from slack_client import fetch_thread_history, post_agent_response
 from agents import (
     record_thread_tokens,
     trigger_thread_notes_update,
     trigger_usage_update,
+)
+from config import AGENTS_CONFIG, DEFAULT_AGENT_KEY
+from mcp_tools import MCP_TOOLS_SCHEMAS, execute_mcp_tool
+from slack_client import (
+    download_slack_file,
+    fetch_thread_files,
+    fetch_thread_history,
+    post_agent_response,
 )
 
 logger = logging.getLogger(__name__)
@@ -106,6 +111,126 @@ def clear_thread_history_limit(channel_id: str, thread_ts: str) -> None:
     THREAD_HISTORY_LIMITS.pop((channel_id, thread_ts), None)
 
 
+# Track on-demand file context per thread discussion
+# Map: (channel_id, thread_ts) -> dict (e.g. {"file_name": str, "content": str, "size": int, "truncated": bool, "authorized_agents": set[str] | None})
+THREAD_ACTIVE_FILE_CONTEXT: dict[tuple[str, str], dict[str, Any]] = {}
+
+FILE_COMMAND_PATTERN = re.compile(
+    r"/(?:read[-_]?file|file|attachment)(?:\s*[:=]\s*(\S+)|\s+\[([^\]]+)\]|\s+\(([^)]+)\)|\s+([\w\-.]+\.[a-zA-Z0-9]+))?",
+    re.IGNORECASE,
+)
+
+FILE_NL_PATTERNS = [
+    # Croatian triggers
+    re.compile(
+        r"\b(?:pro[čc]itaj|pogledaj|analiziraj|provjeri|u[čc]itaj|pregledaj|obradi|otvori)\b.*?\b(?:fajl|datotek[a-z]*|privit[a-z]*|attachment[a-z]*|prilo[zž]en[a-z]*|kod\s+u\s+privitku|dokument[a-z]*)",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:u\s+privitku|u\s+fajlu|u\s+datoteci|iz\s+fajla|iz\s+datoteke|iz\s+privitka|prilo[zž]en[a-z]*\s+(?:fajl|datotek|privit|kod|dokument)|uploadao\s+sam\s+fajl|poslao\s+sam\s+fajl|uploadan[a-z]*\s+fajl)\b",
+        re.IGNORECASE,
+    ),
+    # English triggers
+    re.compile(
+        r"\b(?:read|check|analyze|analyse|inspect|review|examine|look\s+at|open)\b.*?\b(?:file|attachment|document|uploaded\s+file|code\s+in\s+attachment)",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:attached\s+file|in\s+the\s+attachment|from\s+the\s+file|uploaded\s+file|in\s+the\s+uploaded\s+file)\b",
+        re.IGNORECASE,
+    ),
+]
+
+
+def extract_file_instruction(
+    text: str, available_files: list[dict[str, Any]] | None = None
+) -> tuple[bool, str | None, str]:
+    """
+    Detects if the user prompt requests reading an attached Slack file via command or natural language.
+    Returns: (is_requested: bool, target_filename: str | None, cleaned_text: str)
+    """
+    if not text:
+        return False, None, ""
+
+    is_requested = False
+    target_filename = None
+    cleaned_text = text
+
+    # 1. Check for slash command (e.g. /read-file, /file sample.py, /read_file: data.csv)
+    cmd_match = FILE_COMMAND_PATTERN.search(text)
+    if cmd_match:
+        is_requested = True
+        # Extract matched target if any of the filename groups matched
+        target = next((g for g in cmd_match.groups() if g is not None), None)
+        if target:
+            target_filename = target.strip("[]():,; \t")
+        cleaned_text = FILE_COMMAND_PATTERN.sub("", text).strip()
+        cleaned_text = re.sub(r"[ \t]+", " ", cleaned_text).strip()
+        return is_requested, target_filename, cleaned_text
+
+    # 2. Check for natural language triggers
+    for pattern in FILE_NL_PATTERNS:
+        if pattern.search(text):
+            is_requested = True
+            break
+
+    # 3. If available_files is provided, check if any uploaded file's name is explicitly mentioned in the text
+    if available_files:
+        for f in available_files:
+            fname = f.get("name")
+            if fname and re.search(
+                r"\b" + re.escape(fname) + r"\b", text, re.IGNORECASE
+            ):
+                is_requested = True
+                target_filename = fname
+                break
+
+    return is_requested, target_filename, cleaned_text
+
+
+def resolve_target_file(
+    available_files: list[dict[str, Any]], target_filename: str | None = None
+) -> dict[str, Any] | None:
+    """
+    Selects the matching file from available thread files.
+    If target_filename is specified, matches exact name or substring (case-insensitive).
+    Otherwise returns the latest uploaded file in the thread.
+    """
+    if not available_files:
+        return None
+    if target_filename:
+        # Exact match (case-insensitive)
+        for f in reversed(available_files):
+            if f.get("name", "").lower() == target_filename.lower():
+                return f
+        # Partial match
+        for f in reversed(available_files):
+            if target_filename.lower() in f.get("name", "").lower():
+                return f
+    # Default to latest uploaded file
+    return available_files[-1]
+
+
+def get_thread_file_context(channel_id: str, thread_ts: str) -> dict[str, Any] | None:
+    """Returns the active file context for this thread discussion, or None."""
+    return THREAD_ACTIVE_FILE_CONTEXT.get((channel_id, thread_ts))
+
+
+def set_thread_file_context(
+    channel_id: str, thread_ts: str, file_context: dict[str, Any]
+) -> None:
+    """Sets the active file context for this thread discussion."""
+    THREAD_ACTIVE_FILE_CONTEXT[(channel_id, thread_ts)] = file_context
+    logger.info(
+        f"[ROUTER] Set active file context for thread {(channel_id, thread_ts)}: file='{file_context.get('file_name')}', authorized_agents={file_context.get('authorized_agents')}"
+    )
+
+
+def clear_thread_file_context(channel_id: str, thread_ts: str) -> None:
+    """Clears any active file context for this thread."""
+    THREAD_ACTIVE_FILE_CONTEXT.pop((channel_id, thread_ts), None)
+
+
 def is_discussion_active(channel_id: str, thread_ts: str) -> bool:
     """
     Checks if there is an active (ongoing, not completed) discussion in this thread.
@@ -120,9 +245,7 @@ def is_discussion_active(channel_id: str, thread_ts: str) -> bool:
         return True
     if REMAINING_AGENTS_MAP.get(thread_key):
         return True
-    if RATE_LIMIT_RETRY_QUEUE.get(thread_key):
-        return True
-    return False
+    return bool(RATE_LIMIT_RETRY_QUEUE.get(thread_key))
 
 
 def interrupt_thread_discussion(channel_id: str, thread_ts: str) -> None:
@@ -140,14 +263,17 @@ def interrupt_thread_discussion(channel_id: str, thread_ts: str) -> None:
     )
 
     task = ACTIVE_THREAD_TASKS.pop(thread_key, None)
-    if task and not task.done():
-        logger.info(f"[ROUTER] Cancelling active background task for thread {thread_key}")
+    if task and not task.done() and task is not asyncio.current_task():
+        logger.info(
+            f"[ROUTER] Cancelling active background task for thread {thread_key}"
+        )
         task.cancel()
 
     REMAINING_AGENTS_MAP.pop(thread_key, None)
     RATE_LIMIT_RETRY_QUEUE.pop(thread_key, None)
     RATE_LIMIT_ALREADY_RETRIED.pop(thread_key, None)
     THREAD_HISTORY_LIMITS.pop(thread_key, None)
+    THREAD_ACTIVE_FILE_CONTEXT.pop(thread_key, None)
     CUSTOM_FLOW_THREADS.discard(thread_key)
     STOP_REQUESTED_THREADS.discard(thread_key)
 
@@ -240,12 +366,18 @@ def is_stop_command(raw_text: str, is_mention_or_dm: bool = False) -> bool:
 
     # Clean individual agent keys / personas
     for key, cfg in AGENTS_CONFIG.items():
-        cleaned = re.sub(r"@?" + re.escape(key), "", cleaned, flags=re.IGNORECASE).strip()
+        cleaned = re.sub(
+            r"@?" + re.escape(key), "", cleaned, flags=re.IGNORECASE
+        ).strip()
         persona = cfg.get("username", "")
         if persona:
-            cleaned = re.sub(r"@?" + re.escape(persona), "", cleaned, flags=re.IGNORECASE).strip()
+            cleaned = re.sub(
+                r"@?" + re.escape(persona), "", cleaned, flags=re.IGNORECASE
+            ).strip()
         # Also remove bracketed agent tags like [Gemini_Visionary] /stop
-        cleaned = re.sub(r"\[" + re.escape(key) + r"\]", "", cleaned, flags=re.IGNORECASE).strip()
+        cleaned = re.sub(
+            r"\[" + re.escape(key) + r"\]", "", cleaned, flags=re.IGNORECASE
+        ).strip()
 
     # Normalize punctuation & whitespace, preserving '/'
     normalized = re.sub(r"[^\w\s/]", "", cleaned).strip().lower()
@@ -268,18 +400,27 @@ def is_stop_command(raw_text: str, is_mention_or_dm: bool = False) -> bool:
         return True
 
     words = normalized.split()
-    if words and words[0] in ("/stop", "/stani", "/zaustavi", "/prekini", "/halt", "/cancel", "/terminate") and len(words) <= 3:
-        return True
-
-    return False
+    return bool(
+        words
+        and words[0]
+        in (
+            "/stop",
+            "/stani",
+            "/zaustavi",
+            "/prekini",
+            "/halt",
+            "/cancel",
+            "/terminate",
+        )
+        and len(words) <= 3
+    )
 
 
 def request_thread_stop(channel_id: str, thread_ts: str) -> None:
     """Marks the thread for stopping and clears remaining queued agents."""
     thread_key = (channel_id, thread_ts)
     STOP_REQUESTED_THREADS.add(thread_key)
-    if thread_key in REMAINING_AGENTS_MAP:
-        del REMAINING_AGENTS_MAP[thread_key]
+    REMAINING_AGENTS_MAP.pop(thread_key, None)
     RATE_LIMIT_RETRY_QUEUE.pop(thread_key, None)
     RATE_LIMIT_ALREADY_RETRIED.pop(thread_key, None)
     THREAD_HISTORY_LIMITS.pop(thread_key, None)
@@ -368,9 +509,7 @@ def reset_enabled_agents(save: bool = True) -> None:
     ENABLED_DEBATE_AGENTS.update(AGENTS_CONFIG.keys())
     if save:
         save_enabled_agents()
-    logger.info(
-        f"[ROUTER] Reset all {len(ENABLED_DEBATE_AGENTS)} agents to ENABLED."
-    )
+    logger.info(f"[ROUTER] Reset all {len(ENABLED_DEBATE_AGENTS)} agents to ENABLED.")
 
 
 def get_enabled_agents() -> set[str]:
@@ -481,7 +620,7 @@ def parse_agent_and_prompt(
     Note: If no agent is specified, the default flow is to start with Gemini_Visionary, go through all others, and end with OpAiTerra_Architect. Each agent will nominate the next agent to speak.
     Returns (agent_key, cleaned_prompt, was_explicit_target)
     """
-    global REMAINING_AGENTS_MAP
+
     thread_key = (channel_id, thread_ts)
     if thread_key not in REMAINING_AGENTS_MAP:
         logger.info(
@@ -579,7 +718,9 @@ def enforce_valid_nomination(
     if force_termination or current_agent_key == "OpAiTerra_Architect":
         # Strip any bracketed agent tags so Slack webhook won't trigger unexpected bot loops
         for key in AGENTS_CONFIG:
-            text = re.sub(r"\[" + re.escape(key) + r"\]", key, text, flags=re.IGNORECASE)
+            text = re.sub(
+                r"\[" + re.escape(key) + r"\]", key, text, flags=re.IGNORECASE
+            )
         return text
 
     # Find all bracketed agent tags matching known AGENTS_CONFIG keys
@@ -683,6 +824,7 @@ def build_llm_messages(
     is_bot_trigger: bool,
     agent_key: str,
     agent_cfg: dict[str, Any],
+    file_context: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """
     Constructs a normalized, provider-safe message sequence for LiteLLM.
@@ -691,28 +833,48 @@ def build_llm_messages(
     2. The conversational sequence starts with a 'user' turn (handles trimmed history).
     3. The conversational sequence strictly ends with a 'user' turn (never 'assistant'),
        which is strictly required by Anthropic (Claude), Mistral, and Google Gemini APIs.
+    4. Injects on-demand attached file content if present and if the current agent is authorized.
     """
     conversation: list[dict[str, Any]] = []
+
+    # Check authorization for attached file
+    file_block = ""
+    if file_context:
+        authorized_agents = file_context.get("authorized_agents")
+        if authorized_agents is None or agent_key in authorized_agents:
+            file_name = file_context.get("file_name", "unknown")
+            content = file_context.get("content", "")
+            size = file_context.get("size", 0)
+            file_block = (
+                f"\n\n--- [ATTACHED SLACK FILE: {file_name} ({size} bytes)] ---\n"
+                f"{content}\n"
+                f"--- [END OF ATTACHED FILE] ---"
+            )
 
     if not is_bot_trigger:
         if effective_history:
             conversation.extend(effective_history)
-        conversation.append({"role": "user", "content": prompt})
+        user_prompt = f"{prompt}{file_block}" if file_block else prompt
+        conversation.append({"role": "user", "content": user_prompt})
     else:
         if effective_history:
             conversation.extend(effective_history)
             persona_name = agent_cfg.get("username", agent_key)
+            instruction = (
+                f"You have been called to speak as {persona_name}. "
+                "Please evaluate the discussion above and provide your response in accordance with your role and instructions."
+            )
+            if file_block:
+                instruction += f"\n\n{file_block}"
             conversation.append(
                 {
                     "role": "user",
-                    "content": (
-                        f"You have been called to speak as {persona_name}. "
-                        "Please evaluate the discussion above and provide your response in accordance with your role and instructions."
-                    ),
+                    "content": instruction,
                 }
             )
         else:
-            conversation.append({"role": "user", "content": prompt})
+            user_prompt = f"{prompt}{file_block}" if file_block else prompt
+            conversation.append({"role": "user", "content": user_prompt})
 
     # Ensure the first conversational message has role 'user' (for strict APIs like Anthropic/Gemini)
     if conversation and conversation[0]["role"] != "user":
@@ -727,13 +889,16 @@ def build_llm_messages(
     # Ensure the last conversational message has role 'user'
     if conversation and conversation[-1]["role"] != "user":
         persona_name = agent_cfg.get("username", agent_key)
+        instruction = (
+            f"You have been called to speak as {persona_name}. "
+            "Please evaluate the discussion above and provide your response in accordance with your role and instructions."
+        )
+        if file_block:
+            instruction += f"\n\n{file_block}"
         conversation.append(
             {
                 "role": "user",
-                "content": (
-                    f"You have been called to speak as {persona_name}. "
-                    "Please evaluate the discussion above and provide your response in accordance with your role and instructions."
-                ),
+                "content": instruction,
             }
         )
 
@@ -777,13 +942,19 @@ async def process_and_respond(
         return False
 
     history_limit, raw_text_cleaned = extract_history_limit(raw_text)
-    agent_key, prompt, was_explicit_target = parse_agent_and_prompt(
-        raw_text_cleaned, channel_id, thread_ts
-    )
 
-    # Adjust remaining agents list if user input explicitly tagged several agents
+    # Adjust remaining agents list and file instructions if user input
     if not is_bot_trigger:
         clear_thread_stop(channel_id, thread_ts)
+        thread_files = await fetch_thread_files(channel_id, thread_ts)
+        is_file_req, target_filename, raw_text_cleaned = extract_file_instruction(
+            raw_text_cleaned, available_files=thread_files
+        )
+
+        agent_key, prompt, was_explicit_target = parse_agent_and_prompt(
+            raw_text_cleaned, channel_id, thread_ts
+        )
+
         tagged = extract_tagged_agents(raw_text_cleaned)
         if tagged:
             agent_key = tagged[0]
@@ -793,6 +964,71 @@ async def process_and_respond(
             was_explicit_target = True
         else:
             CUSTOM_FLOW_THREADS.discard(thread_key)
+
+        if is_file_req:
+            # Determine authorized agents:
+            # If user explicitly tagged agents, only those tagged agents are authorized
+            # If no agent was tagged, authorized_agents is None (all agents authorized)
+            if tagged:
+                authorized_agents = set(tagged)
+            elif was_explicit_target:
+                authorized_agents = {agent_key}
+            else:
+                authorized_agents = None
+
+            chosen_file = resolve_target_file(thread_files, target_filename)
+            if chosen_file:
+                logger.info(
+                    f"[ROUTER] User requested file reading for thread {thread_key}. Downloading file: {chosen_file.get('name')}"
+                )
+                dl_res = await download_slack_file(chosen_file)
+                if dl_res.get("ok"):
+                    set_thread_file_context(
+                        channel_id,
+                        thread_ts,
+                        {
+                            "file_name": dl_res.get(
+                                "file_name", chosen_file.get("name")
+                            ),
+                            "content": dl_res.get("content", ""),
+                            "size": dl_res.get("size", 0),
+                            "truncated": dl_res.get("truncated", False),
+                            "authorized_agents": authorized_agents,
+                        },
+                    )
+                else:
+                    set_thread_file_context(
+                        channel_id,
+                        thread_ts,
+                        {
+                            "file_name": chosen_file.get("name", "unknown"),
+                            "content": f"[Error reading file: {dl_res.get('error')}]",
+                            "size": chosen_file.get("size", 0),
+                            "truncated": False,
+                            "authorized_agents": authorized_agents,
+                        },
+                    )
+            else:
+                logger.warning(
+                    f"[ROUTER] User requested file reading but no files were found in thread {thread_key}"
+                )
+                set_thread_file_context(
+                    channel_id,
+                    thread_ts,
+                    {
+                        "file_name": target_filename or "unknown",
+                        "content": "[No attached file found in this Slack thread to read.]",
+                        "size": 0,
+                        "truncated": False,
+                        "authorized_agents": authorized_agents,
+                    },
+                )
+        else:
+            clear_thread_file_context(channel_id, thread_ts)
+    else:
+        agent_key, prompt, was_explicit_target = parse_agent_and_prompt(
+            raw_text_cleaned, channel_id, thread_ts
+        )
 
     agent_cfg = AGENTS_CONFIG.get(agent_key, AGENTS_CONFIG[DEFAULT_AGENT_KEY])
 
@@ -887,6 +1123,7 @@ async def process_and_respond(
         f"[ROUTER] Final system prompt with available agents added {system_prompt} ."
     )
 
+    file_context = get_thread_file_context(channel_id, thread_ts)
     messages = build_llm_messages(
         system_prompt=system_prompt,
         effective_history=effective_history,
@@ -894,11 +1131,14 @@ async def process_and_respond(
         is_bot_trigger=is_bot_trigger,
         agent_key=agent_key,
         agent_cfg=agent_cfg,
+        file_context=file_context,
     )
 
     try:
         if is_superseded():
-            logger.info(f"[ROUTER] Thread {thread_key} turn was superseded before LLM call. Aborting.")
+            logger.info(
+                f"[ROUTER] Thread {thread_key} turn was superseded before LLM call. Aborting."
+            )
             return {"ok": False, "cancelled": True, "reason": "superseded"}
 
         total_prompt_tokens = 0
@@ -936,7 +1176,9 @@ async def process_and_respond(
         )
 
         if is_superseded():
-            logger.info(f"[ROUTER] Thread {thread_key} turn was superseded after LLM call. Aborting.")
+            logger.info(
+                f"[ROUTER] Thread {thread_key} turn was superseded after LLM call. Aborting."
+            )
             return {"ok": False, "cancelled": True, "reason": "superseded"}
 
         response_message = response.choices[0].message
@@ -966,7 +1208,9 @@ async def process_and_respond(
                 )
 
             if is_superseded():
-                logger.info(f"[ROUTER] Thread {thread_key} turn was superseded during tool execution. Aborting.")
+                logger.info(
+                    f"[ROUTER] Thread {thread_key} turn was superseded during tool execution. Aborting."
+                )
                 return {"ok": False, "cancelled": True, "reason": "superseded"}
 
             # Follow-up completion after tool results in a threadpool
@@ -982,7 +1226,9 @@ async def process_and_respond(
             final_text = response_message.content
 
         if is_superseded():
-            logger.info(f"[ROUTER] Thread {thread_key} turn was superseded before pacing delay. Aborting.")
+            logger.info(
+                f"[ROUTER] Thread {thread_key} turn was superseded before pacing delay. Aborting."
+            )
             return {"ok": False, "cancelled": True, "reason": "superseded"}
 
         # Re-check stop flag in case a stop was requested while LLM was processing
@@ -1021,7 +1267,9 @@ async def process_and_respond(
             for r_agent in list(retries):
                 if f"[{r_agent}]" in final_text:
                     retries.remove(r_agent)
-                    RATE_LIMIT_ALREADY_RETRIED.setdefault(thread_key, set()).add(r_agent)
+                    RATE_LIMIT_ALREADY_RETRIED.setdefault(thread_key, set()).add(
+                        r_agent
+                    )
                     break
 
         # Append token usage to the end of the message text
@@ -1040,7 +1288,9 @@ async def process_and_respond(
         await asyncio.sleep(3.0)
 
         if is_superseded():
-            logger.info(f"[ROUTER] Thread {thread_key} turn was superseded after pacing delay. Aborting post.")
+            logger.info(
+                f"[ROUTER] Thread {thread_key} turn was superseded after pacing delay. Aborting post."
+            )
             return {"ok": False, "cancelled": True, "reason": "superseded"}
 
         # 5. Post response back to Slack thread with dynamic persona
@@ -1061,7 +1311,11 @@ async def process_and_respond(
         has_pending_retries = bool(RATE_LIMIT_RETRY_QUEUE.get(thread_key))
         is_completed = bool(
             force_termination
-            or (agent_key == "OpAiTerra_Architect" and not remaining and not has_pending_retries)
+            or (
+                agent_key == "OpAiTerra_Architect"
+                and not remaining
+                and not has_pending_retries
+            )
             or (is_thread_stopped(channel_id, thread_ts))
         )
 
@@ -1096,6 +1350,7 @@ async def process_and_respond(
             )
             clear_thread_stop(channel_id, thread_ts)
             clear_thread_history_limit(channel_id, thread_ts)
+            clear_thread_file_context(channel_id, thread_ts)
             CUSTOM_FLOW_THREADS.discard(thread_key)
             REMAINING_AGENTS_MAP.pop(thread_key, None)
             RATE_LIMIT_RETRY_QUEUE.pop(thread_key, None)
@@ -1109,6 +1364,7 @@ async def process_and_respond(
                 f"[ROUTER] OpAiTerra_Architect finished! Deleting state maps for thread {thread_key}"
             )
             clear_thread_history_limit(channel_id, thread_ts)
+            clear_thread_file_context(channel_id, thread_ts)
             REMAINING_AGENTS_MAP.pop(thread_key, None)
             RATE_LIMIT_RETRY_QUEUE.pop(thread_key, None)
             RATE_LIMIT_ALREADY_RETRIED.pop(thread_key, None)
@@ -1142,9 +1398,13 @@ async def process_and_respond(
         elif err_category == "model_not_found":
             error_sentence = "MODEL NOT FOUND"
         elif err_category == "rate_limit":
-            already_retried = agent_key in RATE_LIMIT_ALREADY_RETRIED.get(thread_key, set())
+            already_retried = agent_key in RATE_LIMIT_ALREADY_RETRIED.get(
+                thread_key, set()
+            )
             if not already_retried and not stop_requested:
-                error_sentence = "RATE LIMITS CROSSED, will retry at the end of discussion"
+                error_sentence = (
+                    "RATE LIMITS CROSSED, will retry at the end of discussion"
+                )
                 RATE_LIMIT_RETRY_QUEUE.setdefault(thread_key, []).append(agent_key)
             else:
                 error_sentence = "RATE LIMITS CROSSED"
@@ -1161,9 +1421,13 @@ async def process_and_respond(
                 retries = RATE_LIMIT_RETRY_QUEUE.get(thread_key, [])
                 if retries:
                     next_agent = retries.pop(0)
-                    RATE_LIMIT_ALREADY_RETRIED.setdefault(thread_key, set()).add(next_agent)
+                    RATE_LIMIT_ALREADY_RETRIED.setdefault(thread_key, set()).add(
+                        next_agent
+                    )
                     next_nomination = f"[{next_agent}]"
-                elif agent_key != "OpAiTerra_Architect" and not (was_explicit_target and not is_bot_trigger):
+                elif agent_key != "OpAiTerra_Architect" and not (
+                    was_explicit_target and not is_bot_trigger
+                ):
                     next_nomination = "[OpAiTerra_Architect]"
 
         if next_nomination:
@@ -1186,7 +1450,11 @@ async def process_and_respond(
         has_pending_retries = bool(RATE_LIMIT_RETRY_QUEUE.get(thread_key))
         is_completed = bool(
             force_termination
-            or (agent_key == "OpAiTerra_Architect" and not remaining and not has_pending_retries)
+            or (
+                agent_key == "OpAiTerra_Architect"
+                and not remaining
+                and not has_pending_retries
+            )
             or not next_nomination
             or is_thread_stopped(channel_id, thread_ts)
         )
@@ -1216,13 +1484,18 @@ async def process_and_respond(
         if is_completed:
             clear_thread_stop(channel_id, thread_ts)
             clear_thread_history_limit(channel_id, thread_ts)
+            clear_thread_file_context(channel_id, thread_ts)
             CUSTOM_FLOW_THREADS.discard(thread_key)
             REMAINING_AGENTS_MAP.pop(thread_key, None)
             RATE_LIMIT_RETRY_QUEUE.pop(thread_key, None)
             RATE_LIMIT_ALREADY_RETRIED.pop(thread_key, None)
 
-        return {"ok": False, "error": str(e), "classified_error": err_category, "slack_res": slack_res}
+        return {
+            "ok": False,
+            "error": str(e),
+            "classified_error": err_category,
+            "slack_res": slack_res,
+        }
     finally:
         if current_task and ACTIVE_THREAD_TASKS.get(thread_key) == current_task:
             ACTIVE_THREAD_TASKS.pop(thread_key, None)
-
