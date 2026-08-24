@@ -6,9 +6,11 @@ import re
 import time
 from typing import Any
 
+import litellm
 from starlette.concurrency import run_in_threadpool
 
-from web_tools import web_search
+from config import PRICING_AGENT_MODEL, PRICING_AGENT_PROMPT
+from web_tools import fetch_web_page, web_search
 
 logger = logging.getLogger(__name__)
 
@@ -16,6 +18,54 @@ PRICING_CACHE_FILE = Path(__file__).parent / "model_pricing_cache.json"
 
 # Cache TTL: 7 days in seconds
 CACHE_TTL_SECONDS = 7 * 24 * 3600
+
+# LiteLLM tool schemas for the pricing research agent
+PRICING_TOOL_SCHEMAS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "web_search",
+            "description": "Search the live web for official documentation, AI model pricing, cost benchmarks, and provider rate tables. Returns a list of results with title, URL, and snippet.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "The search query string to look up on the web.",
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Maximum number of search results to return (1 to 10). Defaults to 5.",
+                        "default": 5,
+                    },
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "fetch_web_page",
+            "description": "Fetch and extract clean readable text content from a web page URL (e.g. provider pricing documentation, AI benchmarks).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "description": "The URL of the webpage to scrape and read.",
+                    },
+                    "max_chars": {
+                        "type": "integer",
+                        "description": "Maximum number of characters of text content to extract. Defaults to 4000.",
+                        "default": 4000,
+                    },
+                },
+                "required": ["url"],
+            },
+        },
+    },
+]
 
 # Industry baseline fallback pricing (USD per 1,000,000 tokens)
 # Source: Official provider documentation
@@ -184,17 +234,180 @@ def get_baseline_for_model(model_name: str) -> dict[str, Any]:
     return dict(DEFAULT_FALLBACK_PRICING)
 
 
-async def fetch_pricing_from_web(model_name: str) -> dict[str, Any]:
+async def fetch_pricing_with_agent(model_name: str) -> dict[str, Any]:
     """
-    Uses web_search tool to fetch the latest pricing for a specific model.
-    Falls back gracefully to baseline values if web search yields no clean data.
+    Invokes the Model Pricing Research Agent (powered by mistral-small-latest) equipped with
+    the web_search tool to find, verify, and return accurate token pricing rates for a given model.
     """
-    norm_name = _normalize_model_name(model_name)
     clean_model_display = model_name.split("/")[-1] if "/" in model_name else model_name
-    query = f"{clean_model_display} API pricing cost per 1M input output tokens"
-    logger.info(f"[PRICING] Searching web for model pricing: '{query}'...")
+    logger.info(
+        f"[PRICING AGENT] Launching pricing research agent ({PRICING_AGENT_MODEL}) with web_search tool for '{model_name}'..."
+    )
 
     baseline = get_baseline_for_model(model_name)
+    user_prompt = (
+        f"Determine the current official API pricing for the model '{model_name}' (also known as '{clean_model_display}'). "
+        f"Use the web_search tool to find the exact cost per 1M input tokens and cost per 1M output tokens in USD ($). "
+        f"As baseline guidance, standard rates for this family are approximately ${baseline['input_price_per_1m']:.2f}/1M input "
+        f"and ${baseline['output_price_per_1m']:.2f}/1M output. "
+        f"Search the web to verify the latest pricing and return ONLY the JSON object with fields: "
+        f"model_name, input_price_per_1m, output_price_per_1m, currency ('USD'), source, source_url."
+    )
+
+    messages: list[dict[str, Any]] = [
+        {"role": "system", "content": PRICING_AGENT_PROMPT},
+        {"role": "user", "content": user_prompt},
+    ]
+
+    response = await run_in_threadpool(
+        litellm.completion,
+        model=PRICING_AGENT_MODEL,
+        messages=messages,
+        tools=PRICING_TOOL_SCHEMAS,
+        tool_choice="auto",
+    )
+
+    response_message = response.choices[0].message
+    tool_calls = getattr(response_message, "tool_calls", None)
+
+    # Tool calling loop (up to 3 iterations for multi-step search/fetch)
+    iterations = 0
+    max_iterations = 3
+    while tool_calls and iterations < max_iterations:
+        iterations += 1
+        logger.info(
+            f"[PRICING AGENT] Iteration {iterations}: Agent requested {len(tool_calls)} tool call(s)."
+        )
+
+        if hasattr(response_message, "model_dump"):
+            messages.append(response_message.model_dump())
+        elif isinstance(response_message, dict):
+            messages.append(response_message)
+        else:
+            messages.append(
+                {
+                    "role": "assistant",
+                    "content": response_message.content or "",
+                    "tool_calls": [
+                        {
+                            "id": tc.id,
+                            "type": "function",
+                            "function": {
+                                "name": tc.function.name,
+                                "arguments": tc.function.arguments,
+                            },
+                        }
+                        for tc in tool_calls
+                    ],
+                }
+            )
+
+        for tc in tool_calls:
+            fn_name = tc.function.name
+            fn_args = tc.function.arguments
+            if isinstance(fn_args, str):
+                try:
+                    fn_args = json.loads(fn_args)
+                except Exception:
+                    fn_args = {}
+            if not isinstance(fn_args, dict):
+                fn_args = {}
+
+            logger.info(f"[PRICING AGENT] Executing tool '{fn_name}' with args: {fn_args}")
+
+            if fn_name == "web_search":
+                q = fn_args.get("query", f"{clean_model_display} API pricing per 1M tokens")
+                max_res = fn_args.get("max_results", 5)
+                tool_result = await run_in_threadpool(web_search, query=q, max_results=max_res)
+            elif fn_name in ("fetch_web_page", "web_scrape"):
+                url = fn_args.get("url", "")
+                max_ch = fn_args.get("max_chars", 4000)
+                tool_result = await run_in_threadpool(fetch_web_page, url=url, max_chars=max_ch)
+            else:
+                tool_result = json.dumps({"error": f"Unknown tool: {fn_name}"})
+
+            messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": tc.id,
+                    "name": fn_name,
+                    "content": tool_result,
+                }
+            )
+
+        follow_up = await run_in_threadpool(
+            litellm.completion,
+            model=PRICING_AGENT_MODEL,
+            messages=messages,
+            tools=PRICING_TOOL_SCHEMAS,
+            tool_choice="auto",
+        )
+        response_message = follow_up.choices[0].message
+        tool_calls = getattr(response_message, "tool_calls", None)
+
+    raw_content = response_message.content or ""
+    logger.debug(f"[PRICING AGENT] Raw response content: {raw_content}")
+
+    # Parse JSON from model response
+    cleaned = raw_content.strip()
+    if "```json" in cleaned:
+        cleaned = cleaned.split("```json", 1)[1].split("```", 1)[0].strip()
+    elif "```" in cleaned:
+        cleaned = cleaned.split("```", 1)[1].split("```", 1)[0].strip()
+
+    json_match = re.search(r"\{[\s\S]*\}", cleaned)
+    if not json_match:
+        raise ValueError(f"Agent did not return valid JSON: {raw_content[:200]}")
+
+    parsed = json.loads(json_match.group(0))
+    in_price = float(parsed.get("input_price_per_1m", 0.0))
+    out_price = float(parsed.get("output_price_per_1m", 0.0))
+    source_name = parsed.get("source") or f"Mistral Web Search Agent ({PRICING_AGENT_MODEL})"
+    source_url = parsed.get("source_url") or baseline.get("source_url", "")
+
+    # Sanity check rates (0.001 USD to 500 USD per 1M tokens)
+    if not (0.001 <= in_price <= 500.0 and 0.001 <= out_price <= 500.0):
+        raise ValueError(
+            f"Extracted prices out of acceptable range: input={in_price}, output={out_price}"
+        )
+
+    logger.info(
+        f"[PRICING AGENT] Successfully resolved pricing for '{model_name}' via agent: "
+        f"Input=${in_price}/1M, Output=${out_price}/1M (Source: {source_name}, URL: {source_url})"
+    )
+
+    return {
+        "input_price_per_1m": in_price,
+        "output_price_per_1m": out_price,
+        "currency": "USD",
+        "source": source_name,
+        "source_url": source_url,
+        "updated_at": time.time(),
+        "updated_at_str": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()),
+    }
+
+
+async def fetch_pricing_from_web(model_name: str) -> dict[str, Any]:
+    """
+    Fetches the latest pricing for a model by invoking the mistral-small-latest
+    pricing research agent with web_search tool. Falls back gracefully to direct
+    web search extraction or baseline values if the agent call encounters an error.
+    """
+    baseline = get_baseline_for_model(model_name)
+    clean_model_display = model_name.split("/")[-1] if "/" in model_name else model_name
+
+    # 1. Primary path: mistral-small-latest agent equipped with web_search tool
+    try:
+        agent_result = await fetch_pricing_with_agent(model_name)
+        if agent_result and agent_result.get("input_price_per_1m") is not None:
+            return agent_result
+    except Exception as e:
+        logger.warning(
+            f"[PRICING] Agent pricing lookup failed for '{model_name}': {e}. Attempting direct web search fallback..."
+        )
+
+    # 2. Secondary fallback: Direct web search with regex snippet extraction
+    query = f"{clean_model_display} API pricing cost per 1M input output tokens"
     input_price = baseline["input_price_per_1m"]
     output_price = baseline["output_price_per_1m"]
     source = baseline.get("source", "Baseline")
@@ -215,7 +428,9 @@ async def fetch_pricing_from_web(model_name: str) -> dict[str, Any]:
                 top_url = item_url
             combined_text += f"{title}\n{snippet}\n"
 
-        extracted_in, extracted_out = _extract_pricing_from_search_text(combined_text, clean_model_display)
+        extracted_in, extracted_out = _extract_pricing_from_search_text(
+            combined_text, clean_model_display
+        )
         if extracted_in is not None:
             input_price = extracted_in
             source = f"Web Search ({query})"
@@ -228,11 +443,13 @@ async def fetch_pricing_from_web(model_name: str) -> dict[str, Any]:
                 source_url = top_url
 
         logger.info(
-            f"[PRICING] Resolved pricing for '{model_name}': Input=${input_price}/1M, Output=${output_price}/1M (Source: {source}, URL: {source_url})"
+            f"[PRICING] Direct web search resolved pricing for '{model_name}': "
+            f"Input=${input_price}/1M, Output=${output_price}/1M (Source: {source}, URL: {source_url})"
         )
-
     except Exception as e:
-        logger.warning(f"[PRICING] Error fetching pricing from web for '{model_name}': {e}. Using baseline.")
+        logger.warning(
+            f"[PRICING] Direct web search fallback failed for '{model_name}': {e}. Using baseline."
+        )
 
     return {
         "input_price_per_1m": float(input_price),

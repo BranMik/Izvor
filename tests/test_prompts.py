@@ -34,3 +34,12 @@ def test_intermediate_agents_contain_shared_skills():
         # Nomination skill checks
         assert "nominate the next agent from the available list below" in prompt
         assert "AVAILABLE AGENTS WHO HAVE NOT SPOKEN YET:" in prompt
+
+
+def test_pricing_agent_prompt_structure():
+    prompt = build_agent_prompt("Pricing_Agent")
+    assert "Model Pricing Specialist" in prompt
+    assert "web_search" in prompt
+    assert "input_price_per_1m" in prompt
+    assert "output_price_per_1m" in prompt
+

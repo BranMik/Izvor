@@ -7,13 +7,13 @@
     "usage_msg_ts": null,
     "models": {
       "gemini/gemini-3.7-flash": {
-        "prompt_tokens": 900,
-        "completion_tokens": 300,
-        "total_tokens": 1200
+        "prompt_tokens": 1200,
+        "completion_tokens": 400,
+        "total_tokens": 1600
       }
     },
     "is_completed": false,
-    "last_updated": 1787437976.1928933
+    "last_updated": 1787568569.684411
   },
   "C123:12345.0001": {
     "channel_id": "C123",
@@ -29,7 +29,7 @@
       }
     },
     "is_completed": false,
-    "last_updated": 1787437976.2046988
+    "last_updated": 1787568569.6993473
   },
   "C123:12345.0002": {
     "channel_id": "C123",
@@ -50,7 +50,7 @@
       }
     },
     "is_completed": false,
-    "last_updated": 1787437976.2195528
+    "last_updated": 1787568569.716796
   },
   "C123:12345.0003": {
     "channel_id": "C123",
@@ -76,7 +76,7 @@
       }
     },
     "is_completed": false,
-    "last_updated": 1787437976.2415097
+    "last_updated": 1787568569.7380688
   },
   "C123:12345.0004": {
     "channel_id": "C123",
@@ -92,7 +92,7 @@
       }
     },
     "is_completed": false,
-    "last_updated": 1787437976.2555525
+    "last_updated": 1787568569.7511935
   },
   "C111:1700000000.001": {
     "channel_id": "C111",
@@ -102,13 +102,13 @@
     "usage_msg_ts": null,
     "models": {
       "mistral/mistral-small-latest": {
-        "prompt_tokens": 1800,
-        "completion_tokens": 840,
-        "total_tokens": 2640
+        "prompt_tokens": 2400,
+        "completion_tokens": 1120,
+        "total_tokens": 3520
       }
     },
     "is_completed": false,
-    "last_updated": 1787437976.3391538
+    "last_updated": 1787568569.8730726
   },
   "C_ROUTER_TEST:1700000000.999": {
     "channel_id": "C_ROUTER_TEST",
@@ -118,13 +118,13 @@
     "usage_msg_ts": null,
     "models": {
       "gemini/gemini-3.7-flash": {
-        "prompt_tokens": 60,
-        "completion_tokens": 60,
-        "total_tokens": 120
+        "prompt_tokens": 80,
+        "completion_tokens": 80,
+        "total_tokens": 160
       }
     },
     "is_completed": false,
-    "last_updated": 1787437976.3716774
+    "last_updated": 1787568569.914267
   },
   "C_ROUTER_TEST_2:1700000000.888": {
     "channel_id": "C_ROUTER_TEST_2",
@@ -134,13 +134,13 @@
     "usage_msg_ts": null,
     "models": {
       "gemini/gemini-3.7-flash": {
-        "prompt_tokens": 60,
-        "completion_tokens": 60,
-        "total_tokens": 120
+        "prompt_tokens": 80,
+        "completion_tokens": 80,
+        "total_tokens": 160
       }
     },
     "is_completed": false,
-    "last_updated": 1787437976.374
+    "last_updated": 1787568569.917311
   },
   "C0BQGUCKVPE:1787434947.019669": {
     "channel_id": "C0BQGUCKVPE",
@@ -213,5 +213,41 @@
     },
     "is_completed": true,
     "last_updated": 1787436458.3697085
+  },
+  "C0BQGUCKVPE:1787488753.938919": {
+    "channel_id": "C0BQGUCKVPE",
+    "channel_name": "#cailogics-debate",
+    "thread_ts": "1787488753.938919",
+    "created_at_str": "2026-08-23 14:39:13",
+    "usage_msg_ts": "1787488774.917259",
+    "models": {
+      "anthropic/claude-opus-5": {
+        "prompt_tokens": 15310,
+        "completion_tokens": 1888,
+        "total_tokens": 17198
+      },
+      "mistral/mistral-small-latest": {
+        "prompt_tokens": 53965,
+        "completion_tokens": 13410,
+        "total_tokens": 67375
+      },
+      "gemini/gemini-3.7-flash": {
+        "prompt_tokens": 14506,
+        "completion_tokens": 4268,
+        "total_tokens": 18774
+      },
+      "mistral/mistral-large-latest": {
+        "prompt_tokens": 23449,
+        "completion_tokens": 1731,
+        "total_tokens": 25180
+      },
+      "openai/gpt-5.6-terra": {
+        "prompt_tokens": 15592,
+        "completion_tokens": 1815,
+        "total_tokens": 17407
+      }
+    },
+    "is_completed": true,
+    "last_updated": 1787489004.0089972
   }
 }
