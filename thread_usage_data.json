@@ -43,13 +43,13 @@
     "usage_msg_ts": null,
     "models": {
       "gemini/gemini-3.7-flash": {
-        "prompt_tokens": 1950,
-        "completion_tokens": 650,
-        "total_tokens": 2600
+        "prompt_tokens": 2550,
+        "completion_tokens": 850,
+        "total_tokens": 3400
       }
     },
     "is_completed": false,
-    "last_updated": 1787592689.7587776
+    "last_updated": 1787600168.0958278
   },
   "C123:12345.0001": {
     "channel_id": "C123",
@@ -65,7 +65,7 @@
       }
     },
     "is_completed": false,
-    "last_updated": 1787592689.8430521
+    "last_updated": 1787600170.4878516
   },
   "C123:12345.0002": {
     "channel_id": "C123",
@@ -86,7 +86,7 @@
       }
     },
     "is_completed": false,
-    "last_updated": 1787592689.8553014
+    "last_updated": 1787600170.5024114
   },
   "C123:12345.0003": {
     "channel_id": "C123",
@@ -117,7 +117,7 @@
       }
     },
     "is_completed": false,
-    "last_updated": 1787592689.87355
+    "last_updated": 1787600170.525665
   },
   "C123:12345.0004": {
     "channel_id": "C123",
@@ -133,7 +133,7 @@
       }
     },
     "is_completed": false,
-    "last_updated": 1787592689.8286748
+    "last_updated": 1787600170.1305299
   },
   "C111:1700000000.001": {
     "channel_id": "C111",
@@ -143,13 +143,13 @@
     "usage_msg_ts": null,
     "models": {
       "mistral/mistral-small-latest": {
-        "prompt_tokens": 3600,
-        "completion_tokens": 1680,
-        "total_tokens": 5280
+        "prompt_tokens": 4500,
+        "completion_tokens": 2100,
+        "total_tokens": 6600
       }
     },
     "is_completed": false,
-    "last_updated": 1787592690.071903
+    "last_updated": 1787600084.955233
   },
   "C_ROUTER_TEST:1700000000.999": {
     "channel_id": "C_ROUTER_TEST",
@@ -159,13 +159,13 @@
     "usage_msg_ts": null,
     "models": {
       "gemini/gemini-3.7-flash": {
-        "prompt_tokens": 120,
-        "completion_tokens": 120,
-        "total_tokens": 240
+        "prompt_tokens": 150,
+        "completion_tokens": 150,
+        "total_tokens": 300
       }
     },
     "is_completed": false,
-    "last_updated": 1787592690.0962
+    "last_updated": 1787600085.5448442
   },
   "C_ROUTER_TEST_2:1700000000.888": {
     "channel_id": "C_ROUTER_TEST_2",
@@ -175,13 +175,13 @@
     "usage_msg_ts": null,
     "models": {
       "gemini/gemini-3.7-flash": {
-        "prompt_tokens": 120,
-        "completion_tokens": 120,
-        "total_tokens": 240
+        "prompt_tokens": 150,
+        "completion_tokens": 150,
+        "total_tokens": 300
       }
     },
     "is_completed": false,
-    "last_updated": 1787592690.0987873
+    "last_updated": 1787600085.8871176
   },
   "C_INTERRUPT_LLM:12345.1003": {
     "channel_id": "C_INTERRUPT_LLM",
@@ -197,7 +197,7 @@
       }
     },
     "is_completed": false,
-    "last_updated": 1787592689.898985
+    "last_updated": 1787600171.307359
   },
   "C0BQGUCKVPE:1787589888.559759": {
     "channel_id": "C0BQGUCKVPE",
@@ -244,7 +244,7 @@
       }
     },
     "is_completed": false,
-    "last_updated": 1787592689.919431
+    "last_updated": 1787600172.0171187
   },
   "C_HIST_TEST_2:12345.3001": {
     "channel_id": "C_HIST_TEST_2",
@@ -260,7 +260,7 @@
       }
     },
     "is_completed": false,
-    "last_updated": 1787592689.9320734
+    "last_updated": 1787600172.0413675
   },
   "C_HIST_TEST_RESET:12345.4001": {
     "channel_id": "C_HIST_TEST_RESET",
@@ -276,7 +276,7 @@
       }
     },
     "is_completed": false,
-    "last_updated": 1787592689.9470475
+    "last_updated": 1787600172.3808842
   },
   "C_HIST_ZERO:12345.5001": {
     "channel_id": "C_HIST_ZERO",
@@ -292,7 +292,7 @@
       }
     },
     "is_completed": false,
-    "last_updated": 1787592689.9614146
+    "last_updated": 1787600172.7360294
   },
   "C0BQGUCKVPE:1787591302.045619": {
     "channel_id": "C0BQGUCKVPE",
@@ -360,5 +360,26 @@
     },
     "is_completed": true,
     "last_updated": 1787594079.197649
+  },
+  "C_FILE_TEST:1700000000.1234": {
+    "channel_id": "C_FILE_TEST",
+    "channel_name": "#C_FILE_TEST",
+    "thread_ts": "1700000000.1234",
+    "created_at_str": "2023-11-14 23:13:20",
+    "usage_msg_ts": null,
+    "models": {
+      "gemini/gemini-3.7-flash": {
+        "prompt_tokens": 180,
+        "completion_tokens": 120,
+        "total_tokens": 300
+      },
+      "openai/gpt-5.6-terra": {
+        "prompt_tokens": 90,
+        "completion_tokens": 60,
+        "total_tokens": 150
+      }
+    },
+    "is_completed": true,
+    "last_updated": 1787600084.900432
   }
 }
