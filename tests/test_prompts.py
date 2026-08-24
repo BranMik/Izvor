@@ -2,8 +2,8 @@ from config import AGENTS_CONFIG
 from prompts.builder import build_agent_prompt
 
 
-def test_all_16_agents_configured():
-    assert len(AGENTS_CONFIG) == 16
+def test_all_17_agents_configured():
+    assert len(AGENTS_CONFIG) == 17
 
 
 def test_visionary_prompt_structure():
@@ -19,11 +19,20 @@ def test_architect_prompt_structure():
     assert "end summary of the discussion" in prompt
 
 
+def test_qa_lead_prompt_structure():
+    assert "MistLar_QALead" in AGENTS_CONFIG
+    prompt = AGENTS_CONFIG["MistLar_QALead"]["system_prompt"]
+    assert "Quality Assurance & Test Strategy Lead" in prompt
+    assert "testability" in prompt.lower()
+    assert "test pyramid" in prompt.lower()
+    assert "Hard Limit: Your entire response must strictly NOT exceed 200 words." in prompt
+
+
 def test_intermediate_agents_contain_shared_skills():
     intermediate_keys = [
         k for k in AGENTS_CONFIG if k not in ("Gemini_Visionary", "OpAiTerra_Architect")
     ]
-    assert len(intermediate_keys) == 14
+    assert len(intermediate_keys) == 15
 
     for key in intermediate_keys:
         prompt = AGENTS_CONFIG[key]["system_prompt"]
@@ -42,4 +51,5 @@ def test_pricing_agent_prompt_structure():
     assert "web_search" in prompt
     assert "input_price_per_1m" in prompt
     assert "output_price_per_1m" in prompt
+
 
