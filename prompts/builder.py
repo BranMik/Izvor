@@ -13,6 +13,19 @@ def _read_prompt_file(path: Path) -> str:
     return path.read_text(encoding="utf-8").strip()
 
 
+# Agents restricted to a concise 100 words hard limit
+SHORT_OUTPUT_AGENTS = {
+    "Gemini_DataAndAnalyticsStrategist",
+    "Gemini_ScalabilityEngineer",
+    "MistLar_CompliancePrivacyAndGovernanceOfficer",
+    "MistLar_DeploymentReleaseStrategist",
+    "MistLar_MonitoringAndAlertingSpecialist",
+    "MistLar_OperationalReliabilityLead",
+    "MistLar_QALead",
+    "MistLar_ScopeOptimizer",
+}
+
+
 def build_agent_prompt(agent_key: str) -> str:
     """
     Builds the complete system prompt for a given agent by combining
@@ -32,8 +45,12 @@ def build_agent_prompt(agent_key: str) -> str:
     ):
         return f"\n{persona_content}\n\n"
 
-    # All intermediate agents share output constraints and nomination rules
-    output_constraints = _read_prompt_file(SHARED_DIR / "output_constraints.md")
+    # Intermediate agents share output constraints (100 words or 200 words) and nomination rules
+    if agent_key in SHORT_OUTPUT_AGENTS:
+        output_constraints = _read_prompt_file(SHARED_DIR / "output_constraints_100w.md")
+    else:
+        output_constraints = _read_prompt_file(SHARED_DIR / "output_constraints.md")
+
     nomination_rules = _read_prompt_file(SHARED_DIR / "nomination_rules.md")
 
     return (
@@ -41,3 +58,4 @@ def build_agent_prompt(agent_key: str) -> str:
         f"{output_constraints}\n"
         f"{nomination_rules}\n\n"
     )
+

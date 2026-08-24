@@ -83,19 +83,19 @@ AGENTS_CONFIG = {
         "icon_url": "https://avatars.example.com/static/avatar_27.png",
         "system_prompt": build_agent_prompt("Gemini_DataAndAnalyticsStrategist"),
     },
-    "MistMed_CompliancePrivacyAndGovernanceOfficer": {
+    "MistLar_CompliancePrivacyAndGovernanceOfficer": {
         "model": "mistral/mistral-large-latest",
-        "username": "MistMed Compliance, Privacy And Governance Officer",
+        "username": "MistLar Compliance, Privacy And Governance Officer",
         "icon_url": "https://avatars.example.com/static/avatar_32.png",
         "system_prompt": build_agent_prompt(
-            "MistMed_CompliancePrivacyAndGovernanceOfficer"
+            "MistLar_CompliancePrivacyAndGovernanceOfficer"
         ),
     },
-    "MistMed_ScopeOptimizer": {
+    "MistLar_ScopeOptimizer": {
         "model": "mistral/mistral-large-latest",
-        "username": "MistMed Scope Optimizer",
+        "username": "MistLar Scope Optimizer",
         "icon_url": "https://avatars.example.com/static/avatar_26.png",
-        "system_prompt": build_agent_prompt("MistMed_ScopeOptimizer"),
+        "system_prompt": build_agent_prompt("MistLar_ScopeOptimizer"),
     },
     "OpAiTerra_ROIStrategist": {
         "model": "openai/gpt-5.6-terra",
@@ -121,17 +121,17 @@ AGENTS_CONFIG = {
         "icon_url": "https://avatars.example.com/static/avatar_28.png",
         "system_prompt": build_agent_prompt("Gemini_ScalabilityEngineer"),
     },
-    "MistMed_OperationalReliabilityLead": {
+    "MistLar_OperationalReliabilityLead": {
         "model": "mistral/mistral-large-latest",
-        "username": "MistMed Operational Reliability Lead",
+        "username": "MistLar Operational Reliability Lead",
         "icon_url": "https://avatars.example.com/static/avatar_24.png",
-        "system_prompt": build_agent_prompt("MistMed_OperationalReliabilityLead"),
+        "system_prompt": build_agent_prompt("MistLar_OperationalReliabilityLead"),
     },
-    "MistMed_DeploymentReleaseStrategist": {
+    "MistLar_DeploymentReleaseStrategist": {
         "model": "gemini/gemini-3.7-flash",
-        "username": "MistMed Deployment & Release Strategist",
+        "username": "MistLar Deployment & Release Strategist",
         "icon_url": "https://avatars.example.com/static/avatar_26.png",
-        "system_prompt": build_agent_prompt("MistMed_DeploymentReleaseStrategist"),
+        "system_prompt": build_agent_prompt("MistLar_DeploymentReleaseStrategist"),
     },
     "OpAiTerra_MarketAndCompetitionResearchExpert": {
         "model": "openai/gpt-5.6-terra",
@@ -141,11 +141,11 @@ AGENTS_CONFIG = {
             "OpAiTerra_MarketAndCompetitionResearchExpert"
         ),
     },
-    "MistMed_MonitoringAndAlertingSpecialist": {
+    "MistLar_MonitoringAndAlertingSpecialist": {
         "model": "mistral/mistral-large-latest",
-        "username": "MistMed Monitoring & Alerting Specialist",
+        "username": "MistLar Monitoring & Alerting Specialist",
         "icon_url": "https://avatars.example.com/static/avatar_23.png",
-        "system_prompt": build_agent_prompt("MistMed_MonitoringAndAlertingSpecialist"),
+        "system_prompt": build_agent_prompt("MistLar_MonitoringAndAlertingSpecialist"),
     },
     "MistLar_QALead": {
         "model": "mistral/mistral-large-latest",
