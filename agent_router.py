@@ -37,11 +37,64 @@ RATE_LIMIT_RETRY_QUEUE: dict[tuple[str, str], list[str]] = {}
 # Map: (channel_id, thread_ts) -> set[str] (agent keys)
 RATE_LIMIT_ALREADY_RETRIED: dict[tuple[str, str], set[str]] = {}
 
+# Track running asyncio Task for each active thread discussion
+# Map: (channel_id, thread_ts) -> asyncio.Task
+ACTIVE_THREAD_TASKS: dict[tuple[str, str], asyncio.Task] = {}
+
+# Track discussion generation counter per thread to invalidate superseded tasks
+# Map: (channel_id, thread_ts) -> int
+THREAD_GENERATIONS: dict[tuple[str, str], int] = {}
+
 # Track threads that are running a custom tagged agent sequence
 CUSTOM_FLOW_THREADS = set()
 
 # Track threads where a stop has been requested
 STOP_REQUESTED_THREADS = set()
+
+
+def is_discussion_active(channel_id: str, thread_ts: str) -> bool:
+    """
+    Checks if there is an active (ongoing, not completed) discussion in this thread.
+    A discussion is active if:
+    - An asyncio.Task is currently executing for this thread and not done, OR
+    - Intermediate agents are remaining in REMAINING_AGENTS_MAP for this thread, OR
+    - Pending rate-limit retries exist in RATE_LIMIT_RETRY_QUEUE.
+    """
+    thread_key = (channel_id, thread_ts)
+    task = ACTIVE_THREAD_TASKS.get(thread_key)
+    if task and not task.done():
+        return True
+    if REMAINING_AGENTS_MAP.get(thread_key):
+        return True
+    if RATE_LIMIT_RETRY_QUEUE.get(thread_key):
+        return True
+    return False
+
+
+def interrupt_thread_discussion(channel_id: str, thread_ts: str) -> None:
+    """
+    Interrupts and cancels the current ongoing discussion in the specified thread:
+    1. Increments the thread generation counter so in-flight tasks become superseded and abort.
+    2. Cancels any active asyncio.Task currently processing for this thread.
+    3. Clears remaining agents, custom flows, and retry queues.
+    4. Clears any stop requested flag for this thread so the new query can run cleanly.
+    """
+    thread_key = (channel_id, thread_ts)
+    THREAD_GENERATIONS[thread_key] = THREAD_GENERATIONS.get(thread_key, 0) + 1
+    logger.info(
+        f"[ROUTER] Interrupting discussion for thread {thread_key}. New generation: {THREAD_GENERATIONS[thread_key]}"
+    )
+
+    task = ACTIVE_THREAD_TASKS.pop(thread_key, None)
+    if task and not task.done():
+        logger.info(f"[ROUTER] Cancelling active background task for thread {thread_key}")
+        task.cancel()
+
+    REMAINING_AGENTS_MAP.pop(thread_key, None)
+    RATE_LIMIT_RETRY_QUEUE.pop(thread_key, None)
+    RATE_LIMIT_ALREADY_RETRIED.pop(thread_key, None)
+    CUSTOM_FLOW_THREADS.discard(thread_key)
+    STOP_REQUESTED_THREADS.discard(thread_key)
 
 
 def classify_agent_error(e: Exception) -> str:
@@ -586,11 +639,26 @@ async def process_and_respond(
         f"\n[{start_time}] >>> START process_and_respond for thread_ts: {thread_ts} <<<"
     )
 
+    thread_key = (channel_id, thread_ts)
+
+    if not is_bot_trigger:
+        THREAD_GENERATIONS[thread_key] = THREAD_GENERATIONS.get(thread_key, 0) + 1
+
+    my_generation = THREAD_GENERATIONS.get(thread_key, 0)
+    current_task = asyncio.current_task()
+    if current_task:
+        ACTIVE_THREAD_TASKS[thread_key] = current_task
+
+    def is_superseded() -> bool:
+        if THREAD_GENERATIONS.get(thread_key, 0) != my_generation:
+            return True
+        if current_task and current_task.cancelled():
+            return True
+        return False
+
     agent_key, prompt, was_explicit_target = parse_agent_and_prompt(
         raw_text, channel_id, thread_ts
     )
-
-    thread_key = (channel_id, thread_ts)
 
     # Adjust remaining agents list if user input explicitly tagged several agents
     if not is_bot_trigger:
@@ -608,12 +676,20 @@ async def process_and_respond(
     agent_cfg = AGENTS_CONFIG.get(agent_key, AGENTS_CONFIG[DEFAULT_AGENT_KEY])
 
     logger.info(
-        f"[ROUTER] Parsed Agent: {agent_key} ({agent_cfg['model']}) | Explicit target: {was_explicit_target} | Bot trigger: {is_bot_trigger}"
+        f"[ROUTER] Parsed Agent: {agent_key} ({agent_cfg['model']}) | Explicit target: {was_explicit_target} | Bot trigger: {is_bot_trigger} | Gen: {my_generation}"
     )
+
+    if is_superseded():
+        logger.info(f"[ROUTER] Thread {thread_key} turn was superseded. Aborting.")
+        return {"ok": False, "cancelled": True, "reason": "superseded"}
 
     # 1. Fetch thread history context
     history = await fetch_thread_history(channel_id, thread_ts, bot_user_id=bot_user_id)
     logger.info(f"[ROUTER] Fetched {len(history)} messages from thread history.")
+
+    if is_superseded():
+        logger.info(f"[ROUTER] Thread {thread_key} turn was superseded. Aborting.")
+        return {"ok": False, "cancelled": True, "reason": "superseded"}
 
     # 2. Build message sequence for LiteLLM
     system_prompt = agent_cfg["system_prompt"]
@@ -658,6 +734,10 @@ async def process_and_respond(
         messages.append({"role": "user", "content": prompt})
 
     try:
+        if is_superseded():
+            logger.info(f"[ROUTER] Thread {thread_key} turn was superseded before LLM call. Aborting.")
+            return {"ok": False, "cancelled": True, "reason": "superseded"}
+
         total_prompt_tokens = 0
         total_completion_tokens = 0
 
@@ -692,6 +772,10 @@ async def process_and_respond(
             f"[LLM] Received response for {agent_key} in {llm_duration:.2f} seconds."
         )
 
+        if is_superseded():
+            logger.info(f"[ROUTER] Thread {thread_key} turn was superseded after LLM call. Aborting.")
+            return {"ok": False, "cancelled": True, "reason": "superseded"}
+
         response_message = response.choices[0].message
 
         # 4. Handle Tool Calls if model requested MCP tool execution
@@ -718,6 +802,10 @@ async def process_and_respond(
                     }
                 )
 
+            if is_superseded():
+                logger.info(f"[ROUTER] Thread {thread_key} turn was superseded during tool execution. Aborting.")
+                return {"ok": False, "cancelled": True, "reason": "superseded"}
+
             # Follow-up completion after tool results in a threadpool
             follow_up = await run_in_threadpool(
                 litellm.completion,
@@ -729,6 +817,10 @@ async def process_and_respond(
             final_text = follow_up.choices[0].message.content
         else:
             final_text = response_message.content
+
+        if is_superseded():
+            logger.info(f"[ROUTER] Thread {thread_key} turn was superseded before pacing delay. Aborting.")
+            return {"ok": False, "cancelled": True, "reason": "superseded"}
 
         # Re-check stop flag in case a stop was requested while LLM was processing
         if is_thread_stopped(channel_id, thread_ts):
@@ -783,6 +875,10 @@ async def process_and_respond(
         # Prevent Slack WebSocket client saturation by adding a 3-second pacing delay.
         # This keeps the real-time stream active and makes the conversation pace feel natural.
         await asyncio.sleep(3.0)
+
+        if is_superseded():
+            logger.info(f"[ROUTER] Thread {thread_key} turn was superseded after pacing delay. Aborting post.")
+            return {"ok": False, "cancelled": True, "reason": "superseded"}
 
         # 5. Post response back to Slack thread with dynamic persona
         logger.info(
@@ -857,7 +953,18 @@ async def process_and_respond(
         )
         return slack_res
 
+    except asyncio.CancelledError:
+        logger.info(
+            f"[ROUTER] Task cancelled for thread {thread_key} (agent {agent_key}, gen {my_generation}). Aborting cleanly."
+        )
+        return {"ok": False, "cancelled": True, "reason": "cancelled"}
     except Exception as e:
+        if is_superseded():
+            logger.info(
+                f"[ROUTER] Exception occurred on superseded turn for thread {thread_key}. Aborting without posting."
+            )
+            return {"ok": False, "cancelled": True, "reason": "superseded"}
+
         logger.exception(f"[ERROR] Exception during agent completion or post: {e}")
         err_category = classify_agent_error(e)
         logger.info(f"[ROUTER] Classified error for {agent_key} as: '{err_category}'")
@@ -893,7 +1000,6 @@ async def process_and_respond(
                     next_nomination = f"[{next_agent}]"
                 elif agent_key != "OpAiTerra_Architect" and not (was_explicit_target and not is_bot_trigger):
                     next_nomination = "[OpAiTerra_Architect]"
-
 
         if next_nomination:
             error_post_text = f"{error_sentence}\n\n{next_nomination}"
@@ -950,4 +1056,7 @@ async def process_and_respond(
             RATE_LIMIT_ALREADY_RETRIED.pop(thread_key, None)
 
         return {"ok": False, "error": str(e), "classified_error": err_category, "slack_res": slack_res}
+    finally:
+        if current_task and ACTIVE_THREAD_TASKS.get(thread_key) == current_task:
+            ACTIVE_THREAD_TASKS.pop(thread_key, None)
 
