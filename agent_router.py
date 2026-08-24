@@ -51,6 +51,60 @@ CUSTOM_FLOW_THREADS = set()
 # Track threads where a stop has been requested
 STOP_REQUESTED_THREADS = set()
 
+# Track conversation history limit and baseline index per thread
+# Map: (channel_id, thread_ts) -> dict[str, int] (e.g. {"limit": 5, "prior_cutoff_index": 12})
+THREAD_HISTORY_LIMITS: dict[tuple[str, str], dict[str, int]] = {}
+
+HISTORY_COMMAND_PATTERN = re.compile(
+    r"/history\s*[:=]?\s*\[?(\d+)(?::(?:int|integer))?\]?",
+    re.IGNORECASE,
+)
+
+
+def extract_history_limit(text: str) -> tuple[int | None, str]:
+    """
+    Extracts the /history [x:int] command parameter if present in text and returns (history_limit, cleaned_text).
+    Supports:
+    - /history 5
+    - /history: 5 or /history:5
+    - /history=5
+    - /history [5] or /history [5:int] or /history 5:int
+    - /history (5)
+    If no /history command is found, returns (None, text).
+    """
+    if not text:
+        return None, ""
+    match = HISTORY_COMMAND_PATTERN.search(text)
+    if match:
+        limit = int(match.group(1))
+        cleaned = HISTORY_COMMAND_PATTERN.sub("", text).strip()
+        cleaned = re.sub(r"[ \t]+", " ", cleaned).strip()
+        return limit, cleaned
+    return None, text
+
+
+def get_thread_history_limit(channel_id: str, thread_ts: str) -> dict[str, int] | None:
+    """Returns the active history limit dict for this thread, or None."""
+    return THREAD_HISTORY_LIMITS.get((channel_id, thread_ts))
+
+
+def set_thread_history_limit(
+    channel_id: str, thread_ts: str, limit: int, prior_cutoff_index: int
+) -> None:
+    """Sets the history limit and prior cutoff index for this thread."""
+    THREAD_HISTORY_LIMITS[(channel_id, thread_ts)] = {
+        "limit": limit,
+        "prior_cutoff_index": prior_cutoff_index,
+    }
+    logger.info(
+        f"[ROUTER] Set history limit for thread {(channel_id, thread_ts)}: limit={limit}, prior_cutoff_index={prior_cutoff_index}"
+    )
+
+
+def clear_thread_history_limit(channel_id: str, thread_ts: str) -> None:
+    """Clears any active history limit for this thread."""
+    THREAD_HISTORY_LIMITS.pop((channel_id, thread_ts), None)
+
 
 def is_discussion_active(channel_id: str, thread_ts: str) -> bool:
     """
@@ -76,7 +130,7 @@ def interrupt_thread_discussion(channel_id: str, thread_ts: str) -> None:
     Interrupts and cancels the current ongoing discussion in the specified thread:
     1. Increments the thread generation counter so in-flight tasks become superseded and abort.
     2. Cancels any active asyncio.Task currently processing for this thread.
-    3. Clears remaining agents, custom flows, and retry queues.
+    3. Clears remaining agents, custom flows, retry queues, and history limits.
     4. Clears any stop requested flag for this thread so the new query can run cleanly.
     """
     thread_key = (channel_id, thread_ts)
@@ -93,6 +147,7 @@ def interrupt_thread_discussion(channel_id: str, thread_ts: str) -> None:
     REMAINING_AGENTS_MAP.pop(thread_key, None)
     RATE_LIMIT_RETRY_QUEUE.pop(thread_key, None)
     RATE_LIMIT_ALREADY_RETRIED.pop(thread_key, None)
+    THREAD_HISTORY_LIMITS.pop(thread_key, None)
     CUSTOM_FLOW_THREADS.discard(thread_key)
     STOP_REQUESTED_THREADS.discard(thread_key)
 
@@ -227,9 +282,10 @@ def request_thread_stop(channel_id: str, thread_ts: str) -> None:
         del REMAINING_AGENTS_MAP[thread_key]
     RATE_LIMIT_RETRY_QUEUE.pop(thread_key, None)
     RATE_LIMIT_ALREADY_RETRIED.pop(thread_key, None)
+    THREAD_HISTORY_LIMITS.pop(thread_key, None)
     CUSTOM_FLOW_THREADS.discard(thread_key)
     logger.info(
-        f"[ROUTER] Stop requested for thread {thread_key}. REMAINING_AGENTS_MAP and retry queues cleared."
+        f"[ROUTER] Stop requested for thread {thread_key}. REMAINING_AGENTS_MAP, retry queues, and history limits cleared."
     )
     try:
         trigger_thread_notes_update(
@@ -437,7 +493,8 @@ def parse_agent_and_prompt(
     logger.info(
         f"[ROUTER] Current remaining agents for thread_key {thread_key}: {remaining}"
     )
-    cleaned_text = re.sub(r"<@[A-Z0-9]+>", "", text).strip()
+    _, cleaned_text = extract_history_limit(text)
+    cleaned_text = re.sub(r"<@[A-Z0-9]+>", "", cleaned_text).strip()
 
     # Search for explicit bracketed tags like [Gemini_Visionary] or [Mistral_TechLead]
     tag_matches = []
@@ -609,7 +666,6 @@ def enforce_valid_nomination(
                 return f"{text.strip()}\n\n[OpAiTerra_Architect]"
 
 
-
 def markdown_to_slack(text: str) -> str:
     # Bold: **tekst** -> *tekst*
     text = re.sub(r"\*\*(.*?)\*\*", r"*\1*", text)
@@ -618,6 +674,70 @@ def markdown_to_slack(text: str) -> str:
     # Links: [label](url) -> <url|label>
     text = re.sub(r"\[(.*?)\]\((.*?)\)", r"<\2|\1>", text)
     return text
+
+
+def build_llm_messages(
+    system_prompt: str,
+    effective_history: list[dict[str, Any]],
+    prompt: str,
+    is_bot_trigger: bool,
+    agent_key: str,
+    agent_cfg: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """
+    Constructs a normalized, provider-safe message sequence for LiteLLM.
+    Guarantees:
+    1. System prompt is at index 0.
+    2. The conversational sequence starts with a 'user' turn (handles trimmed history).
+    3. The conversational sequence strictly ends with a 'user' turn (never 'assistant'),
+       which is strictly required by Anthropic (Claude), Mistral, and Google Gemini APIs.
+    """
+    conversation: list[dict[str, Any]] = []
+
+    if not is_bot_trigger:
+        if effective_history:
+            conversation.extend(effective_history)
+        conversation.append({"role": "user", "content": prompt})
+    else:
+        if effective_history:
+            conversation.extend(effective_history)
+            persona_name = agent_cfg.get("username", agent_key)
+            conversation.append(
+                {
+                    "role": "user",
+                    "content": (
+                        f"You have been called to speak as {persona_name}. "
+                        "Please evaluate the discussion above and provide your response in accordance with your role and instructions."
+                    ),
+                }
+            )
+        else:
+            conversation.append({"role": "user", "content": prompt})
+
+    # Ensure the first conversational message has role 'user' (for strict APIs like Anthropic/Gemini)
+    if conversation and conversation[0]["role"] != "user":
+        conversation.insert(
+            0,
+            {
+                "role": "user",
+                "content": "Context from previous discussion in thread:",
+            },
+        )
+
+    # Ensure the last conversational message has role 'user'
+    if conversation and conversation[-1]["role"] != "user":
+        persona_name = agent_cfg.get("username", agent_key)
+        conversation.append(
+            {
+                "role": "user",
+                "content": (
+                    f"You have been called to speak as {persona_name}. "
+                    "Please evaluate the discussion above and provide your response in accordance with your role and instructions."
+                ),
+            }
+        )
+
+    return [{"role": "system", "content": system_prompt}] + conversation
 
 
 async def process_and_respond(
@@ -656,14 +776,15 @@ async def process_and_respond(
             return True
         return False
 
+    history_limit, raw_text_cleaned = extract_history_limit(raw_text)
     agent_key, prompt, was_explicit_target = parse_agent_and_prompt(
-        raw_text, channel_id, thread_ts
+        raw_text_cleaned, channel_id, thread_ts
     )
 
     # Adjust remaining agents list if user input explicitly tagged several agents
     if not is_bot_trigger:
         clear_thread_stop(channel_id, thread_ts)
-        tagged = extract_tagged_agents(raw_text)
+        tagged = extract_tagged_agents(raw_text_cleaned)
         if tagged:
             agent_key = tagged[0]
             remaining_tagged = [a for a in tagged if a != agent_key]
@@ -676,7 +797,7 @@ async def process_and_respond(
     agent_cfg = AGENTS_CONFIG.get(agent_key, AGENTS_CONFIG[DEFAULT_AGENT_KEY])
 
     logger.info(
-        f"[ROUTER] Parsed Agent: {agent_key} ({agent_cfg['model']}) | Explicit target: {was_explicit_target} | Bot trigger: {is_bot_trigger} | Gen: {my_generation}"
+        f"[ROUTER] Parsed Agent: {agent_key} ({agent_cfg['model']}) | Explicit target: {was_explicit_target} | Bot trigger: {is_bot_trigger} | Gen: {my_generation} | History limit: {history_limit}"
     )
 
     if is_superseded():
@@ -690,6 +811,49 @@ async def process_and_respond(
     if is_superseded():
         logger.info(f"[ROUTER] Thread {thread_key} turn was superseded. Aborting.")
         return {"ok": False, "cancelled": True, "reason": "superseded"}
+
+    # Determine effective conversation history based on active /history limit
+    if not is_bot_trigger:
+        # User trigger: identify prior messages before this prompt in thread history
+        # If Slack already included the user prompt at history[-1], prior messages are history[:-1]
+        if history and history[-1]["role"] == "user":
+            prior_messages = history[:-1]
+        else:
+            prior_messages = history
+
+        if history_limit is not None:
+            set_thread_history_limit(
+                channel_id=channel_id,
+                thread_ts=thread_ts,
+                limit=history_limit,
+                prior_cutoff_index=len(prior_messages),
+            )
+            effective_prior = (
+                prior_messages[-history_limit:] if history_limit > 0 else []
+            )
+            logger.info(
+                f"[ROUTER] Applying /history {history_limit}: kept {len(effective_prior)} of {len(prior_messages)} prior messages for user prompt."
+            )
+        else:
+            clear_thread_history_limit(channel_id, thread_ts)
+            effective_prior = prior_messages
+
+        effective_history = effective_prior
+    else:
+        # Bot trigger (subsequent automated debate rounds):
+        hist_limit_info = get_thread_history_limit(channel_id, thread_ts)
+        if hist_limit_info is not None:
+            limit = hist_limit_info["limit"]
+            cutoff = hist_limit_info["prior_cutoff_index"]
+            prior_part = history[:cutoff]
+            discussion_part = history[cutoff:]
+            effective_prior = prior_part[-limit:] if limit > 0 else []
+            effective_history = effective_prior + discussion_part
+            logger.info(
+                f"[ROUTER] Applying active history limit ({limit}): kept {len(effective_prior)}/{len(prior_part)} prior messages + {len(discussion_part)} discussion messages."
+            )
+        else:
+            effective_history = history
 
     # 2. Build message sequence for LiteLLM
     system_prompt = agent_cfg["system_prompt"]
@@ -723,15 +887,14 @@ async def process_and_respond(
         f"[ROUTER] Final system prompt with available agents added {system_prompt} ."
     )
 
-    messages: list[dict[str, any]] = [{"role": "system", "content": system_prompt}]
-
-    if history:
-        messages.extend(history)
-        # Avoid duplicating current prompt if it's already the last item in thread history
-        if not (history[-1]["role"] == "user" and prompt in history[-1]["content"]):
-            messages.append({"role": "user", "content": prompt})
-    else:
-        messages.append({"role": "user", "content": prompt})
+    messages = build_llm_messages(
+        system_prompt=system_prompt,
+        effective_history=effective_history,
+        prompt=prompt,
+        is_bot_trigger=is_bot_trigger,
+        agent_key=agent_key,
+        agent_cfg=agent_cfg,
+    )
 
     try:
         if is_superseded():
@@ -932,6 +1095,7 @@ async def process_and_respond(
                 f"[ROUTER] Thread {thread_key} reached termination (forced or natural). Cleaning up state."
             )
             clear_thread_stop(channel_id, thread_ts)
+            clear_thread_history_limit(channel_id, thread_ts)
             CUSTOM_FLOW_THREADS.discard(thread_key)
             REMAINING_AGENTS_MAP.pop(thread_key, None)
             RATE_LIMIT_RETRY_QUEUE.pop(thread_key, None)
@@ -944,6 +1108,7 @@ async def process_and_respond(
             logger.info(
                 f"[ROUTER] OpAiTerra_Architect finished! Deleting state maps for thread {thread_key}"
             )
+            clear_thread_history_limit(channel_id, thread_ts)
             REMAINING_AGENTS_MAP.pop(thread_key, None)
             RATE_LIMIT_RETRY_QUEUE.pop(thread_key, None)
             RATE_LIMIT_ALREADY_RETRIED.pop(thread_key, None)
@@ -1050,6 +1215,7 @@ async def process_and_respond(
 
         if is_completed:
             clear_thread_stop(channel_id, thread_ts)
+            clear_thread_history_limit(channel_id, thread_ts)
             CUSTOM_FLOW_THREADS.discard(thread_key)
             REMAINING_AGENTS_MAP.pop(thread_key, None)
             RATE_LIMIT_RETRY_QUEUE.pop(thread_key, None)
