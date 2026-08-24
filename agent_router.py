@@ -29,11 +29,76 @@ SETTINGS_FILE = Path(__file__).parent / "agent_settings.json"
 # Track agents who haven't spoken yet per thread (mapped by (channel_id, thread_ts))
 REMAINING_AGENTS_MAP = {}
 
+# Track agents deferred due to rate limits waiting for retry at the end of discussion
+# Map: (channel_id, thread_ts) -> list[str] (agent keys)
+RATE_LIMIT_RETRY_QUEUE: dict[tuple[str, str], list[str]] = {}
+
+# Track agents that have already been retried once for this thread to prevent infinite retry loops
+# Map: (channel_id, thread_ts) -> set[str] (agent keys)
+RATE_LIMIT_ALREADY_RETRIED: dict[tuple[str, str], set[str]] = {}
+
 # Track threads that are running a custom tagged agent sequence
 CUSTOM_FLOW_THREADS = set()
 
 # Track threads where a stop has been requested
 STOP_REQUESTED_THREADS = set()
+
+
+def classify_agent_error(e: Exception) -> str:
+    """
+    Classifies an agent execution exception into one of:
+    - 'api_key_not_found': Missing or invalid API key / authentication error.
+    - 'model_not_found': Model does not exist or unknown model identifier.
+    - 'rate_limit': 429 Too Many Requests, quota exceeded, or rate limit crossed.
+    - 'general_error': Any other unexpected runtime exception.
+    """
+    error_str = str(e).lower()
+    error_type = type(e).__name__.lower()
+
+    # 1. Rate Limit Checks
+    if (
+        "ratelimit" in error_type
+        or "rate_limit" in error_str
+        or "ratelimit" in error_str
+        or "rate limit" in error_str
+        or "429" in error_str
+        or "too many requests" in error_str
+        or "resourceexhausted" in error_str
+        or "resource_exhausted" in error_str
+        or "quota" in error_str
+        or "tpm" in error_str
+        or "rpm" in error_str
+    ):
+        return "rate_limit"
+
+    # 2. API Key Not Found / Authentication Checks
+    if (
+        "auth" in error_type
+        or "api_key" in error_str
+        or "apikey" in error_str
+        or "api key" in error_str
+        or "authentication" in error_str
+        or "unauthorized" in error_str
+        or "401" in error_str
+        or "forbidden" in error_str
+        or "403" in error_str
+    ):
+        return "api_key_not_found"
+
+    # 3. Model Not Found Checks
+    if (
+        "notfound" in error_type
+        or "model_not_found" in error_str
+        or "model not found" in error_str
+        or "does not exist" in error_str
+        or "is not found" in error_str
+        or "invalid model" in error_str
+        or "unknown model" in error_str
+        or "404" in error_str
+    ):
+        return "model_not_found"
+
+    return "general_error"
 
 
 def is_stop_command(raw_text: str, is_mention_or_dm: bool = False) -> bool:
@@ -107,9 +172,11 @@ def request_thread_stop(channel_id: str, thread_ts: str) -> None:
     STOP_REQUESTED_THREADS.add(thread_key)
     if thread_key in REMAINING_AGENTS_MAP:
         del REMAINING_AGENTS_MAP[thread_key]
+    RATE_LIMIT_RETRY_QUEUE.pop(thread_key, None)
+    RATE_LIMIT_ALREADY_RETRIED.pop(thread_key, None)
     CUSTOM_FLOW_THREADS.discard(thread_key)
     logger.info(
-        f"[ROUTER] Stop requested for thread {thread_key}. REMAINING_AGENTS_MAP cleared."
+        f"[ROUTER] Stop requested for thread {thread_key}. REMAINING_AGENTS_MAP and retry queues cleared."
     )
     try:
         trigger_thread_notes_update(
@@ -385,6 +452,7 @@ def enforce_valid_nomination(
     current_agent_key: str,
     remaining: list[str],
     force_termination: bool,
+    pending_retries: list[str] | None = None,
 ) -> str:
     """
     Ensures that the agent's response nominates a valid agent:
@@ -394,8 +462,9 @@ def enforce_valid_nomination(
        - If the agent prematurely nominated OpAiTerra_Architect or an agent that already spoke,
          programmatically replaces the nomination tag with the first remaining agent (remaining[0]).
        - If no nomination tag is present, appends [remaining[0]].
-    3. If remaining list is empty and current agent is not OpAiTerra_Architect:
-       - Ensures [OpAiTerra_Architect] is nominated for the final summary.
+    3. If remaining list is empty:
+       - If pending rate-limit retries exist, nominates the pending retried agent.
+       - If no pending retries and current agent is not OpAiTerra_Architect, nominates [OpAiTerra_Architect].
     """
     if force_termination or current_agent_key == "OpAiTerra_Architect":
         # Strip any bracketed agent tags so Slack webhook won't trigger unexpected bot loops
@@ -442,21 +511,50 @@ def enforce_valid_nomination(
             )
             return f"{text.strip()}\n\n[{fallback_agent}]"
     else:
-        # remaining list is empty -> next must be OpAiTerra_Architect
-        if agent_tag_matches:
-            last_match, last_key = agent_tag_matches[-1]
-            if last_key == "OpAiTerra_Architect":
+        # remaining list is empty -> check pending_retries
+        retries_list = pending_retries or []
+        if retries_list:
+            valid_retry = None
+            for match, key in agent_tag_matches:
+                if key in retries_list:
+                    valid_retry = key
+                    break
+            if valid_retry:
+                logger.info(
+                    f"[ROUTER] Agent {current_agent_key} nominated valid rate-limit retry agent [{valid_retry}]."
+                )
                 return text
-            logger.info(
-                f"[ROUTER] All intermediate agents have spoken. Correcting tag '[{last_key}]' to [OpAiTerra_Architect]."
-            )
-            start, end = last_match.span()
-            return text[:start] + "[OpAiTerra_Architect]" + text[end:]
+
+            fallback_retry = retries_list[0]
+            if agent_tag_matches:
+                last_match, last_key = agent_tag_matches[-1]
+                logger.info(
+                    f"[ROUTER] Correcting nomination to pending rate-limit retry agent [{fallback_retry}]."
+                )
+                start, end = last_match.span()
+                return text[:start] + f"[{fallback_retry}]" + text[end:]
+            else:
+                logger.info(
+                    f"[ROUTER] Appending pending rate-limit retry agent [{fallback_retry}]."
+                )
+                return f"{text.strip()}\n\n[{fallback_retry}]"
         else:
-            logger.info(
-                f"[ROUTER] All intermediate agents have spoken. Appending [OpAiTerra_Architect] for final summary."
-            )
-            return f"{text.strip()}\n\n[OpAiTerra_Architect]"
+            # remaining list and retries are empty -> next must be OpAiTerra_Architect
+            if agent_tag_matches:
+                last_match, last_key = agent_tag_matches[-1]
+                if last_key == "OpAiTerra_Architect":
+                    return text
+                logger.info(
+                    f"[ROUTER] All intermediate & retried agents have spoken. Correcting tag '[{last_key}]' to [OpAiTerra_Architect]."
+                )
+                start, end = last_match.span()
+                return text[:start] + "[OpAiTerra_Architect]" + text[end:]
+            else:
+                logger.info(
+                    f"[ROUTER] All intermediate & retried agents have spoken. Appending [OpAiTerra_Architect] for final summary."
+                )
+                return f"{text.strip()}\n\n[OpAiTerra_Architect]"
+
 
 
 def markdown_to_slack(text: str) -> str:
@@ -639,22 +737,37 @@ async def process_and_respond(
                 f"[ROUTER] Thread {thread_key} received stop request during execution. Forcing termination."
             )
 
+        retries = RATE_LIMIT_RETRY_QUEUE.get(thread_key, [])
         if not final_text:
             if force_termination:
                 final_text = "(No text response generated)"
             else:
-                next_tag = (
-                    remaining[0]
-                    if remaining
-                    else "OpAiTerra_Architect"
-                )
+                if remaining:
+                    next_tag = remaining[0]
+                elif retries:
+                    next_tag = retries[0]
+                else:
+                    next_tag = "OpAiTerra_Architect"
                 final_text = f"(No text response generated) [{next_tag}] next"
             logger.warning(f"[ROUTER] final_text was empty for {agent_key}!")
         else:
             final_text = markdown_to_slack(final_text)
             final_text = enforce_valid_nomination(
-                final_text, agent_key, [] if force_termination else remaining, force_termination
+                final_text,
+                agent_key,
+                [] if force_termination else remaining,
+                force_termination,
+                pending_retries=retries,
             )
+
+        # If a pending retry agent was nominated, consume it from RATE_LIMIT_RETRY_QUEUE and track
+        retries = RATE_LIMIT_RETRY_QUEUE.get(thread_key, [])
+        if not remaining and retries:
+            for r_agent in list(retries):
+                if f"[{r_agent}]" in final_text:
+                    retries.remove(r_agent)
+                    RATE_LIMIT_ALREADY_RETRIED.setdefault(thread_key, set()).add(r_agent)
+                    break
 
         # Append token usage to the end of the message text
         final_text = (
@@ -686,9 +799,10 @@ async def process_and_respond(
         logger.info(f"[SLACK] Successfully posted message! Received ts: {posted_ts}")
 
         # Determine if this turn completes the thread discussion
+        has_pending_retries = bool(RATE_LIMIT_RETRY_QUEUE.get(thread_key))
         is_completed = bool(
             force_termination
-            or (agent_key == "OpAiTerra_Architect" and not remaining)
+            or (agent_key == "OpAiTerra_Architect" and not remaining and not has_pending_retries)
             or (is_thread_stopped(channel_id, thread_ts))
         )
 
@@ -723,15 +837,20 @@ async def process_and_respond(
             )
             clear_thread_stop(channel_id, thread_ts)
             CUSTOM_FLOW_THREADS.discard(thread_key)
-            if thread_key in REMAINING_AGENTS_MAP:
-                del REMAINING_AGENTS_MAP[thread_key]
+            REMAINING_AGENTS_MAP.pop(thread_key, None)
+            RATE_LIMIT_RETRY_QUEUE.pop(thread_key, None)
+            RATE_LIMIT_ALREADY_RETRIED.pop(thread_key, None)
         elif (
-            agent_key == "OpAiTerra_Architect" and thread_key in REMAINING_AGENTS_MAP
+            agent_key == "OpAiTerra_Architect"
+            and not remaining
+            and not has_pending_retries
         ):
             logger.info(
-                f"[ROUTER] OpAiTerra_Architect finished! Deleting REMAINING_AGENTS_MAP for thread {thread_key}"
+                f"[ROUTER] OpAiTerra_Architect finished! Deleting state maps for thread {thread_key}"
             )
-            del REMAINING_AGENTS_MAP[thread_key]
+            REMAINING_AGENTS_MAP.pop(thread_key, None)
+            RATE_LIMIT_RETRY_QUEUE.pop(thread_key, None)
+            RATE_LIMIT_ALREADY_RETRIED.pop(thread_key, None)
 
         logger.info(
             f"[{time.time()}] <<< END process_and_respond for thread_ts: {thread_ts} (Total: {time.time() - start_time:.2f}s) <<<\n"
@@ -740,11 +859,95 @@ async def process_and_respond(
 
     except Exception as e:
         logger.exception(f"[ERROR] Exception during agent completion or post: {e}")
-        error_msg = f"⚠️ *Error processing request with {agent_cfg['username']}*: {e!s}"
-        await post_agent_response(
+        err_category = classify_agent_error(e)
+        logger.info(f"[ROUTER] Classified error for {agent_key} as: '{err_category}'")
+
+        stop_requested = is_thread_stopped(channel_id, thread_ts)
+
+        # Build single sentence problem statement and manage rate-limit retry queue
+        if err_category == "api_key_not_found":
+            error_sentence = "API KEY NOT FOUND"
+        elif err_category == "model_not_found":
+            error_sentence = "MODEL NOT FOUND"
+        elif err_category == "rate_limit":
+            already_retried = agent_key in RATE_LIMIT_ALREADY_RETRIED.get(thread_key, set())
+            if not already_retried and not stop_requested:
+                error_sentence = "RATE LIMITS CROSSED, will retry at the end of discussion"
+                RATE_LIMIT_RETRY_QUEUE.setdefault(thread_key, []).append(agent_key)
+            else:
+                error_sentence = "RATE LIMITS CROSSED"
+        else:
+            error_sentence = f"Error processing request: {e!s}"
+
+        # Determine next nomination to ensure thread continuity
+        next_nomination = None
+        if not stop_requested:
+            if remaining:
+                next_agent = remaining[0]
+                next_nomination = f"[{next_agent}]"
+            else:
+                retries = RATE_LIMIT_RETRY_QUEUE.get(thread_key, [])
+                if retries:
+                    next_agent = retries.pop(0)
+                    RATE_LIMIT_ALREADY_RETRIED.setdefault(thread_key, set()).add(next_agent)
+                    next_nomination = f"[{next_agent}]"
+                elif agent_key != "OpAiTerra_Architect" and not (was_explicit_target and not is_bot_trigger):
+                    next_nomination = "[OpAiTerra_Architect]"
+
+
+        if next_nomination:
+            error_post_text = f"{error_sentence}\n\n{next_nomination}"
+        else:
+            error_post_text = error_sentence
+
+        # Post response back to Slack thread with the responsible agent's persona
+        logger.info(
+            f"[SLACK] Posting gracious error message to channel {channel_id}, thread_ts {thread_ts} as {agent_cfg['username']}"
+        )
+        slack_res = await post_agent_response(
             channel_id=channel_id,
             thread_ts=thread_ts,
-            text=error_msg,
-            username="System Error",
+            text=error_post_text,
+            username=agent_cfg["username"],
+            icon_url=agent_cfg.get("icon_url"),
         )
-        return {"ok": False, "error": str(e)}
+
+        has_pending_retries = bool(RATE_LIMIT_RETRY_QUEUE.get(thread_key))
+        is_completed = bool(
+            force_termination
+            or (agent_key == "OpAiTerra_Architect" and not remaining and not has_pending_retries)
+            or not next_nomination
+            or is_thread_stopped(channel_id, thread_ts)
+        )
+
+        # Record 0 tokens for failed turn
+        record_thread_tokens(
+            channel_id=channel_id,
+            thread_ts=thread_ts,
+            model_name=agent_cfg["model"],
+            prompt_tokens=0,
+            completion_tokens=0,
+        )
+
+        trigger_thread_notes_update(
+            channel_id=channel_id,
+            thread_ts=thread_ts,
+            is_completed=is_completed,
+            bot_user_id=bot_user_id,
+        )
+
+        trigger_usage_update(
+            channel_id=channel_id,
+            thread_ts=thread_ts,
+            is_completed=is_completed,
+        )
+
+        if is_completed:
+            clear_thread_stop(channel_id, thread_ts)
+            CUSTOM_FLOW_THREADS.discard(thread_key)
+            REMAINING_AGENTS_MAP.pop(thread_key, None)
+            RATE_LIMIT_RETRY_QUEUE.pop(thread_key, None)
+            RATE_LIMIT_ALREADY_RETRIED.pop(thread_key, None)
+
+        return {"ok": False, "error": str(e), "classified_error": err_category, "slack_res": slack_res}
+

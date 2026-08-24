@@ -6,6 +6,8 @@ from agent_router import (
     enforce_valid_nomination,
     get_initial_agents,
     REMAINING_AGENTS_MAP,
+    RATE_LIMIT_RETRY_QUEUE,
+    RATE_LIMIT_ALREADY_RETRIED,
     CUSTOM_FLOW_THREADS,
     STOP_REQUESTED_THREADS,
     LOCKED_AGENTS,
@@ -20,6 +22,7 @@ from agent_router import (
     request_thread_stop,
     is_thread_stopped,
     clear_thread_stop,
+    classify_agent_error,
     SETTINGS_FILE,
 )
 from slack_client import build_app_home_view
@@ -548,6 +551,177 @@ def test_settings_persistence(tmp_path, monkeypatch):
     assert "AnthrOpus_Sceptic" in loaded
     assert "OpAiTerra_Architect" in loaded
     assert len(loaded) == 14
+
+
+def test_classify_agent_error():
+    # Rate limit errors
+    assert classify_agent_error(Exception("Rate limit reached for requests per minute (RPM)")) == "rate_limit"
+    assert classify_agent_error(Exception("429 Too Many Requests")) == "rate_limit"
+    assert classify_agent_error(Exception("ResourceExhausted quota exceeded")) == "rate_limit"
+
+    # API key errors
+    assert classify_agent_error(Exception("Authentication error: api_key not found")) == "api_key_not_found"
+    assert classify_agent_error(Exception("No API key provided. Please set GEMINI_API_KEY")) == "api_key_not_found"
+    assert classify_agent_error(Exception("Unauthorized: 401 Invalid Token")) == "api_key_not_found"
+
+    # Model not found errors
+    assert classify_agent_error(Exception("Model 'mistral/mistral-nonexistent' not found (404)")) == "model_not_found"
+    assert classify_agent_error(Exception("The model `xyz` does not exist")) == "model_not_found"
+
+    # General error
+    assert classify_agent_error(Exception("Connection reset by peer")) == "general_error"
+
+
+@pytest.mark.anyio
+async def test_process_and_respond_api_key_not_found(monkeypatch):
+    REMAINING_AGENTS_MAP.clear()
+    RATE_LIMIT_RETRY_QUEUE.clear()
+    RATE_LIMIT_ALREADY_RETRIED.clear()
+
+    async def mock_run_in_threadpool(func, *args, **kwargs):
+        raise Exception("AuthenticationError: Missing API key for Gemini")
+
+    posted = []
+    async def mock_post_agent_response(channel_id, thread_ts, text, username, icon_url=None):
+        posted.append({"text": text, "username": username, "icon_url": icon_url})
+        return {"ok": True, "ts": "12345.0001"}
+
+    monkeypatch.setattr("agent_router.run_in_threadpool", mock_run_in_threadpool)
+    monkeypatch.setattr("agent_router.post_agent_response", mock_post_agent_response)
+    monkeypatch.setattr("agent_router.fetch_thread_history", AsyncMock(return_value=[]))
+
+    res = await process_and_respond(
+        channel_id="C123",
+        thread_ts="12345.0001",
+        raw_text="Hello, help me design a backend architecture",
+    )
+
+    assert len(posted) == 1
+    # Verify posted as responsible agent persona
+    assert posted[0]["username"] == "Gemini Visionary"
+    # Verify single sentence statement
+    assert "API KEY NOT FOUND" in posted[0]["text"]
+    # Verify next nomination exists so discussion flows
+    assert "[" in posted[0]["text"]
+
+
+@pytest.mark.anyio
+async def test_process_and_respond_model_not_found(monkeypatch):
+    REMAINING_AGENTS_MAP.clear()
+    RATE_LIMIT_RETRY_QUEUE.clear()
+    RATE_LIMIT_ALREADY_RETRIED.clear()
+
+    thread_key = ("C123", "12345.0002")
+    REMAINING_AGENTS_MAP[thread_key] = ["AnthrOpus_Innovator"]
+
+    async def mock_run_in_threadpool(func, *args, **kwargs):
+        raise Exception("NotFoundError: Model gemini/gemini-3.7-flash does not exist")
+
+    posted = []
+    async def mock_post_agent_response(channel_id, thread_ts, text, username, icon_url=None):
+        posted.append({"text": text, "username": username, "icon_url": icon_url})
+        return {"ok": True, "ts": "12345.0002"}
+
+    monkeypatch.setattr("agent_router.run_in_threadpool", mock_run_in_threadpool)
+    monkeypatch.setattr("agent_router.post_agent_response", mock_post_agent_response)
+    monkeypatch.setattr("agent_router.fetch_thread_history", AsyncMock(return_value=[]))
+
+    res = await process_and_respond(
+        channel_id="C123",
+        thread_ts="12345.0002",
+        raw_text="[MistLar_TechLead] Analyze this code",
+        is_bot_trigger=True,
+    )
+
+    assert len(posted) == 1
+    assert posted[0]["username"] == "MistLar TechLead"
+    assert "MODEL NOT FOUND" in posted[0]["text"]
+    assert "[AnthrOpus_Innovator]" in posted[0]["text"]
+
+
+@pytest.mark.anyio
+async def test_process_and_respond_rate_limits_and_retry_flow(monkeypatch):
+    REMAINING_AGENTS_MAP.clear()
+    RATE_LIMIT_RETRY_QUEUE.clear()
+    RATE_LIMIT_ALREADY_RETRIED.clear()
+
+    thread_key = ("C123", "12345.0003")
+
+    # Set up specific short flow: MistLar_TechLead -> AnthrOpus_Innovator -> (retry MistLar_TechLead) -> OpAiTerra_Architect
+    REMAINING_AGENTS_MAP[thread_key] = ["AnthrOpus_Innovator"]
+
+    posted = []
+    async def mock_post_agent_response(channel_id, thread_ts, text, username, icon_url=None):
+        posted.append({"text": text, "username": username, "icon_url": icon_url})
+        return {"ok": True, "ts": "12345.0003"}
+
+    # 1. First run of MistLar_TechLead encounters 429 RateLimitError
+    async def mock_fail_rate_limit(func, *args, **kwargs):
+        raise Exception("RateLimitError: 429 Too Many Requests, quota exceeded")
+
+    monkeypatch.setattr("agent_router.run_in_threadpool", mock_fail_rate_limit)
+    monkeypatch.setattr("agent_router.post_agent_response", mock_post_agent_response)
+    monkeypatch.setattr("agent_router.fetch_thread_history", AsyncMock(return_value=[]))
+
+    await process_and_respond(
+        channel_id="C123",
+        thread_ts="12345.0003",
+        raw_text="[MistLar_TechLead] Database architecture review",
+        is_bot_trigger=True,
+    )
+
+    assert len(posted) == 1
+    assert posted[0]["username"] == "MistLar TechLead"
+    assert "RATE LIMITS CROSSED, will retry at the end of discussion" in posted[0]["text"]
+    assert "[AnthrOpus_Innovator]" in posted[0]["text"]
+    assert thread_key in RATE_LIMIT_RETRY_QUEUE
+    assert "MistLar_TechLead" in RATE_LIMIT_RETRY_QUEUE[thread_key]
+
+    # 2. AnthrOpus_Innovator runs normally, remaining is empty -> nominates retry for MistLar_TechLead!
+    mock_choice = MagicMock()
+    mock_choice.message.content = "My innovator perspective."
+    mock_choice.message.tool_calls = None
+    mock_resp = MagicMock(choices=[mock_choice], usage=None)
+
+    async def mock_success_innovator(func, *args, **kwargs):
+        return mock_resp
+
+    monkeypatch.setattr("agent_router.run_in_threadpool", mock_success_innovator)
+
+    await process_and_respond(
+        channel_id="C123",
+        thread_ts="12345.0003",
+        raw_text="[AnthrOpus_Innovator] Your turn",
+        is_bot_trigger=True,
+    )
+
+    assert len(posted) == 2
+    assert posted[1]["username"] == "AnthrOpus Innovator"
+    assert "[MistLar_TechLead]" in posted[1]["text"]
+    # Verify MistLar_TechLead is now marked as already retried once
+    assert "MistLar_TechLead" in RATE_LIMIT_ALREADY_RETRIED[thread_key]
+
+    # 3. MistLar_TechLead retries at the end of discussion, fails again with RateLimit:
+    # Must post 'RATE LIMITS CROSSED' and NOT be retried again.
+    monkeypatch.setattr("agent_router.run_in_threadpool", mock_fail_rate_limit)
+
+    await process_and_respond(
+        channel_id="C123",
+        thread_ts="12345.0003",
+        raw_text="[MistLar_TechLead] Retry turn",
+        is_bot_trigger=True,
+    )
+
+    assert len(posted) == 3
+    assert posted[2]["username"] == "MistLar TechLead"
+    # Should say RATE LIMITS CROSSED without 'will retry'
+    assert "RATE LIMITS CROSSED" in posted[2]["text"]
+    assert "will retry" not in posted[2]["text"]
+    # Should NOT be added back to RATE_LIMIT_RETRY_QUEUE
+    assert "MistLar_TechLead" not in RATE_LIMIT_RETRY_QUEUE.get(thread_key, [])
+    # Should nominate OpAiTerra_Architect for the final summary
+    assert "[OpAiTerra_Architect]" in posted[2]["text"]
+
 
 
 

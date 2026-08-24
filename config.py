@@ -38,7 +38,7 @@ THREAD_NOTES_PROMPT = build_agent_prompt("Thread_Notes_Agent")
 # Usage / Cost Calculator Agent configuration
 USAGE_CHANNEL_NAME = os.getenv("USAGE_CHANNEL_NAME", "cailogics-usage")
 USAGE_CHANNEL_ID = os.getenv("USAGE_CHANNEL_ID", "")
-USAGE_AGENT_MODEL = os.getenv("USAGE_AGENT_MODEL", "gemini/gemini-3.7-flash")
+USAGE_AGENT_MODEL = os.getenv("USAGE_AGENT_MODEL", "mistral/mistral-small-latest")
 USAGE_AGENT_PROMPT = build_agent_prompt("Usage_Agent")
 
 # Model Pricing Research Agent configuration (Web search & verification)
