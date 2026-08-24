@@ -147,4 +147,11 @@ AGENTS_CONFIG = {
         "icon_url": "https://avatars.example.com/static/avatar_23.png",
         "system_prompt": build_agent_prompt("MistMed_MonitoringAndAlertingSpecialist"),
     },
+    "MistLar_QALead": {
+        "model": "mistral/mistral-large-latest",
+        "username": "MistLar QA Lead",
+        "icon_url": "https://avatars.example.com/static/avatar_1.png",
+        "system_prompt": build_agent_prompt("MistLar_QALead"),
+    },
 }
+

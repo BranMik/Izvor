@@ -305,7 +305,7 @@ def test_slack_interactivity_radio_toggle_action(monkeypatch):
 
     response_bulk_on = client.post("/slack/actions", json=payload_bulk_on)
     assert response_bulk_on.status_code == 200
-    assert len(ENABLED_DEBATE_AGENTS) == 16
+    assert len(ENABLED_DEBATE_AGENTS) == 17
 
 
 def test_user_new_query_interrupts_ongoing_discussion_webhook(monkeypatch):

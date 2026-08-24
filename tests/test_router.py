@@ -256,7 +256,7 @@ async def test_scenario_2_multiple_agents_custom_flow(monkeypatch):
 async def test_scenario_3_no_agent_tagged_default_flow(monkeypatch):
     """
     Scenario: User tags NO agent (plain message / app_mention).
-    Expected: Default flow starts with Gemini_Visionary, initializes all 14 panel agents,
+    Expected: Default flow starts with Gemini_Visionary, initializes all 15 panel agents,
     programmatically prevents premature Architect nomination, and finishes with OpAiTerra_Architect.
     """
     REMAINING_AGENTS_MAP.clear()
@@ -291,7 +291,7 @@ async def test_scenario_3_no_agent_tagged_default_flow(monkeypatch):
 
     # Default starts with Gemini_Visionary and initializes all panel agents
     assert thread_key not in CUSTOM_FLOW_THREADS
-    assert len(REMAINING_AGENTS_MAP[thread_key]) == 14
+    assert len(REMAINING_AGENTS_MAP[thread_key]) == 15
     assert "[AnthrOpus_Sceptic]" in posted_messages[0]
 
     # Step 2: Intermediate agent (Monitoring Specialist) tries to prematurely nominate Architect
@@ -560,7 +560,7 @@ def test_settings_persistence(tmp_path, monkeypatch):
     assert "Gemini_Visionary" in loaded
     assert "AnthrOpus_Sceptic" in loaded
     assert "OpAiTerra_Architect" in loaded
-    assert len(loaded) == 14
+    assert len(loaded) == 15
 
 
 def test_classify_agent_error():
