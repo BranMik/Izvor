@@ -18,6 +18,6 @@
     "OpAiTerra_ROIStrategist",
     "OpAiTerra_UserAdvocate"
   ],
-  "circuit_breaker_enabled": true,
-  "circuit_breaker_threshold_usd": 0.5
+  "circuit_breaker_enabled": false,
+  "circuit_breaker_threshold_usd": 0.0
 }

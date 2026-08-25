@@ -70,8 +70,19 @@ async def generate_thread_notes(
     Calls LiteLLM using mistral-small-latest to generate structured strategic synthesis
     live notes of the conversation history. Returns (slack_mrkdwn_content, token_usage_dict).
     """
+    if is_anthropic_model(THREAD_NOTES_MODEL):
+        system_content: Any = [
+            {
+                "type": "text",
+                "text": THREAD_NOTES_PROMPT,
+                "cache_control": {"type": "ephemeral"},
+            }
+        ]
+    else:
+        system_content = THREAD_NOTES_PROMPT
+
     messages: list[dict[str, Any]] = [
-        {"role": "system", "content": THREAD_NOTES_PROMPT},
+        {"role": "system", "content": system_content},
     ]
 
     # Count agent replies in history
@@ -123,8 +134,6 @@ async def generate_thread_notes(
         "messages": messages,
         "max_tokens": max_tokens,
     }
-    if is_anthropic_model(THREAD_NOTES_MODEL):
-        completion_kwargs["cache_control"] = {"type": "ephemeral"}
 
     response = await run_in_threadpool(
         litellm.completion,

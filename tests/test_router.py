@@ -156,7 +156,7 @@ async def test_scenario_1_single_agent_tagged(monkeypatch):
 
     async def mock_run_in_threadpool(func, *args, **kwargs):
         captured_messages = kwargs.get("messages") or args[2]
-        mock_run_in_threadpool.captured_sys_prompt = captured_messages[0]["content"]
+        mock_run_in_threadpool.captured_user_prompt = captured_messages[-1]["content"]
         return mock_response
 
     posted_messages = []
@@ -178,8 +178,8 @@ async def test_scenario_1_single_agent_tagged(monkeypatch):
     )
 
     # Verify:
-    # 1. System prompt forced termination
-    assert "CRITICAL CONSTRAINT" in mock_run_in_threadpool.captured_sys_prompt
+    # 1. User prompt forced termination
+    assert "CRITICAL CONSTRAINT" in mock_run_in_threadpool.captured_user_prompt
     # 2. State cleaned up
     assert thread_key not in CUSTOM_FLOW_THREADS
     assert thread_key not in REMAINING_AGENTS_MAP
@@ -239,7 +239,7 @@ async def test_scenario_2_multiple_agents_custom_flow(monkeypatch):
 
     async def mock_run_2(func, *args, **kwargs):
         captured_messages = kwargs.get("messages") or args[2]
-        mock_run_2.captured_sys_prompt = captured_messages[0]["content"]
+        mock_run_2.captured_user_prompt = captured_messages[-1]["content"]
         return mock_response_2
     monkeypatch.setattr("agent_router.run_in_threadpool", mock_run_2)
 
@@ -251,7 +251,7 @@ async def test_scenario_2_multiple_agents_custom_flow(monkeypatch):
     )
 
     # Last custom agent cleanly terminates
-    assert "CRITICAL CONSTRAINT" in mock_run_2.captured_sys_prompt
+    assert "CRITICAL CONSTRAINT" in mock_run_2.captured_user_prompt
     assert thread_key not in CUSTOM_FLOW_THREADS
     assert thread_key not in REMAINING_AGENTS_MAP
     assert "[OpAiTerra_Architect]" not in posted_messages[1]
@@ -1058,7 +1058,8 @@ async def test_process_and_respond_history_limit_initial_prompt(monkeypatch):
     assert captured_messages[1]["role"] == "user"
     assert captured_messages[2] == {"role": "assistant", "content": "Reply 2"}
     assert captured_messages[3] == {"role": "user", "content": "Message 3"}
-    assert captured_messages[4] == {"role": "user", "content": "What now?"}
+    assert captured_messages[4]["role"] == "user"
+    assert "What now?" in captured_messages[4]["content"]
 
     # Verify THREAD_HISTORY_LIMITS is preserved for subsequent bot turns
     limit_info = get_thread_history_limit("C_HIST_TEST", "12345.2001")
@@ -1198,7 +1199,8 @@ async def test_process_and_respond_subsequent_prompt_resets_full_history(monkeyp
     assert captured_messages[2] == {"role": "assistant", "content": "Reply 1"}
     assert captured_messages[3] == {"role": "user", "content": "Message 2"}
     assert captured_messages[4] == {"role": "assistant", "content": "Reply 2"}
-    assert captured_messages[5] == {"role": "user", "content": "Tell me more"}
+    assert captured_messages[5]["role"] == "user"
+    assert "Tell me more" in captured_messages[5]["content"]
 
 
 @pytest.mark.anyio
@@ -1249,7 +1251,8 @@ async def test_process_and_respond_history_zero(monkeypatch):
     # Only system prompt + user prompt (0 prior messages)
     assert len(captured_messages) == 2
     assert captured_messages[0]["role"] == "system"
-    assert captured_messages[1] == {"role": "user", "content": "Fresh start"}
+    assert captured_messages[1]["role"] == "user"
+    assert "Fresh start" in captured_messages[1]["content"]
 
 
 def test_build_llm_messages_user_trigger():
