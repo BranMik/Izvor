@@ -4,6 +4,7 @@ import logging
 from pathlib import Path
 import re
 import time
+import urllib.parse
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -12,7 +13,10 @@ from starlette.requests import ClientDisconnect
 
 from agent_router import (
     LOCKED_AGENTS,
+    get_circuit_breaker_config,
+    get_circuit_breaker_threshold,
     interrupt_thread_discussion,
+    is_circuit_breaker_enabled,
     is_discussion_active,
     is_stop_command,
     load_enabled_agents,
@@ -20,6 +24,8 @@ from agent_router import (
     request_thread_stop,
     reset_enabled_agents,
     set_agent_enabled,
+    set_circuit_breaker_enabled,
+    set_circuit_breaker_threshold,
     toggle_agent,
 )
 from config import AGENTS_CONFIG
@@ -313,16 +319,30 @@ async def slack_interactivity(request: Request, background_tasks: BackgroundTask
         raise HTTPException(status_code=401, detail="Invalid Slack signature")
 
     payload = None
-    try:
-        form_data = await request.form()
-        if "payload" in form_data:
-            payload = json.loads(form_data["payload"])
-    except Exception:
-        pass
+    body_str = body_bytes.decode("utf-8", errors="replace")
 
+    # 1. Parse URL-encoded Slack payload parameter (Standard Slack interactivity webhook format)
+    if "payload=" in body_str:
+        try:
+            parsed_form = urllib.parse.parse_qs(body_str)
+            if "payload" in parsed_form and parsed_form["payload"]:
+                payload = json.loads(parsed_form["payload"][0])
+        except Exception as e:
+            logger.debug(f"[INTERACTIVITY] parse_qs extraction error: {e}")
+
+    # 2. Try parsing request.form()
     if not payload:
         try:
-            payload = json.loads(body_bytes.decode("utf-8"))
+            form_data = await request.form()
+            if "payload" in form_data:
+                payload = json.loads(form_data["payload"])
+        except Exception:
+            pass
+
+    # 3. Direct JSON payload fallback (used in unit tests / direct API callers)
+    if not payload:
+        try:
+            payload = json.loads(body_str)
         except Exception as e:
             logger.error(f"Failed to parse interactivity payload: {e}")
             raise HTTPException(status_code=400, detail="Invalid payload") from e
@@ -331,9 +351,52 @@ async def slack_interactivity(request: Request, background_tasks: BackgroundTask
     if payload_type == "block_actions":
         user_id = payload.get("user", {}).get("id")
         actions = payload.get("actions", [])
+        view_state = payload.get("view", {}).get("state", {}).get("values", {})
+
         for action in actions:
             action_id = action.get("action_id", "")
-            if action_id.startswith("toggle_agent_radio:"):
+            if action_id == "toggle_circuit_breaker_radio":
+                selected_option = action.get("selected_option", {})
+                val = selected_option.get("value", "")
+                set_circuit_breaker_enabled(val == "cb:on")
+            elif action_id == "set_circuit_breaker_threshold_input":
+                val_str = action.get("value", "")
+                try:
+                    val_clean = str(val_str).strip().replace("$", "").replace(",", ".")
+                    val_float = float(val_clean)
+                    if val_float >= 0:
+                        set_circuit_breaker_threshold(val_float)
+                except (ValueError, TypeError):
+                    logger.warning(
+                        f"[INTERACTIVITY] Could not parse threshold from input: '{val_str}'"
+                    )
+            elif action_id == "save_circuit_breaker_threshold_button":
+                block_vals = view_state.get("circuit_breaker_threshold_block", {})
+                val_obj = block_vals.get("set_circuit_breaker_threshold_input", {})
+                val_str = val_obj.get("value", "")
+                if not val_str and isinstance(block_vals, dict):
+                    # Fallback check across block keys
+                    for v in block_vals.values():
+                        if isinstance(v, dict) and "value" in v:
+                            val_str = v.get("value", "")
+                            break
+                try:
+                    val_clean = str(val_str).strip().replace("$", "").replace(",", ".")
+                    val_float = float(val_clean)
+                    if val_float >= 0:
+                        set_circuit_breaker_threshold(val_float)
+                except (ValueError, TypeError):
+                    logger.warning(
+                        f"[INTERACTIVITY] Could not parse threshold from button save: '{val_str}'"
+                    )
+            elif action_id.startswith("set_circuit_breaker_preset:"):
+                val_str = action_id.split(":", 1)[1]
+                try:
+                    val_float = float(val_str)
+                    set_circuit_breaker_threshold(val_float)
+                except (ValueError, TypeError):
+                    pass
+            elif action_id.startswith("toggle_agent_radio:"):
                 selected_option = action.get("selected_option", {})
                 val = selected_option.get("value", "")
                 if ":" in val:

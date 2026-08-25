@@ -17,5 +17,7 @@
     "OpAiTerra_MarketAndCompetitionResearchExpert",
     "OpAiTerra_ROIStrategist",
     "OpAiTerra_UserAdvocate"
-  ]
+  ],
+  "circuit_breaker_enabled": true,
+  "circuit_breaker_threshold_usd": 0.5
 }

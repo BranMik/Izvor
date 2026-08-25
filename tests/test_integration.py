@@ -10,6 +10,10 @@ from agent_router import (
     is_discussion_active,
     interrupt_thread_discussion,
     reset_enabled_agents,
+    is_circuit_breaker_enabled,
+    get_circuit_breaker_threshold,
+    set_circuit_breaker_enabled,
+    set_circuit_breaker_threshold,
 )
 
 client = TestClient(app)
@@ -419,6 +423,120 @@ def test_webhook_with_history_limit_dispatches_properly(monkeypatch):
     assert call_kwargs["thread_ts"] == "123456789.4001"
     assert call_kwargs["raw_text"] == "<@U12345> Analyze the previous discussion /history 3"
     assert call_kwargs["is_bot_trigger"] is False
+
+
+def test_slack_interactivity_circuit_breaker_toggle():
+    set_circuit_breaker_enabled(False)
+    assert is_circuit_breaker_enabled() is False
+
+    payload_on = {
+        "type": "block_actions",
+        "user": {"id": "U_CB_TEST"},
+        "actions": [
+            {
+                "action_id": "toggle_circuit_breaker_radio",
+                "selected_option": {"value": "cb:on"},
+            }
+        ],
+    }
+    response_on = client.post("/slack/actions", json=payload_on)
+    assert response_on.status_code == 200
+    assert is_circuit_breaker_enabled() is True
+
+    payload_off = {
+        "type": "block_actions",
+        "user": {"id": "U_CB_TEST"},
+        "actions": [
+            {
+                "action_id": "toggle_circuit_breaker_radio",
+                "selected_option": {"value": "cb:off"},
+            }
+        ],
+    }
+    response_off = client.post("/slack/actions", json=payload_off)
+    assert response_off.status_code == 200
+    assert is_circuit_breaker_enabled() is False
+
+
+def test_slack_interactivity_circuit_breaker_threshold_input():
+    set_circuit_breaker_threshold(1.00)
+
+    payload_input = {
+        "type": "block_actions",
+        "user": {"id": "U_CB_TEST"},
+        "actions": [
+            {
+                "action_id": "set_circuit_breaker_threshold_input",
+                "value": "2.50",
+            }
+        ],
+    }
+    response = client.post("/slack/actions", json=payload_input)
+    assert response.status_code == 200
+    assert get_circuit_breaker_threshold() == 2.50
+
+
+def test_slack_interactivity_circuit_breaker_preset_button():
+    set_circuit_breaker_threshold(1.00)
+
+    payload_preset = {
+        "type": "block_actions",
+        "user": {"id": "U_CB_TEST"},
+        "actions": [{"action_id": "set_circuit_breaker_preset:5.00"}],
+    }
+    response = client.post("/slack/actions", json=payload_preset)
+    assert response.status_code == 200
+    assert get_circuit_breaker_threshold() == 5.00
+
+
+def test_slack_interactivity_circuit_breaker_save_button():
+    set_circuit_breaker_threshold(1.00)
+
+    payload_save = {
+        "type": "block_actions",
+        "user": {"id": "U_CB_TEST"},
+        "actions": [{"action_id": "save_circuit_breaker_threshold_button"}],
+        "view": {
+            "state": {
+                "values": {
+                    "circuit_breaker_threshold_block": {
+                        "set_circuit_breaker_threshold_input": {
+                            "value": "0.75"
+                        }
+                    }
+                }
+            }
+        },
+    }
+    response = client.post("/slack/actions", json=payload_save)
+    assert response.status_code == 200
+    assert get_circuit_breaker_threshold() == 0.75
+
+
+def test_slack_interactivity_url_encoded_payload():
+    import json
+    import urllib.parse
+
+    set_circuit_breaker_enabled(False)
+    set_circuit_breaker_threshold(1.00)
+
+    raw_payload = {
+        "type": "block_actions",
+        "user": {"id": "U_CB_URL_ENCODED"},
+        "actions": [
+            {
+                "action_id": "toggle_circuit_breaker_radio",
+                "selected_option": {"value": "cb:on"},
+            }
+        ],
+    }
+    encoded_body = urllib.parse.urlencode({"payload": json.dumps(raw_payload)})
+    headers = {"Content-Type": "application/x-www-form-urlencoded"}
+
+    response = client.post("/slack/actions", content=encoded_body, headers=headers)
+    assert response.status_code == 200
+    assert is_circuit_breaker_enabled() is True
+
 
 
 

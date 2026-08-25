@@ -9,6 +9,7 @@ import litellm
 from starlette.concurrency import run_in_threadpool
 
 from agents import (
+    calculate_thread_costs,
     record_thread_tokens,
     trigger_thread_notes_update,
     trigger_usage_update,
@@ -459,15 +460,69 @@ LOCKED_AGENTS = {"Gemini_Visionary", "OpAiTerra_Architect", "AnthrOpus_Sceptic"}
 # Global in-memory set of enabled debate agents (default: all agents in AGENTS_CONFIG)
 ENABLED_DEBATE_AGENTS: set[str] = set(AGENTS_CONFIG.keys())
 
+# Circuit-Breaker configuration for thread expense limits
+CIRCUIT_BREAKER_ENABLED: bool = False
+CIRCUIT_BREAKER_THRESHOLD_USD: float = 1.0
+
+
+def is_circuit_breaker_enabled() -> bool:
+    """Returns True if the thread expense circuit-breaker is enabled."""
+    return CIRCUIT_BREAKER_ENABLED
+
+
+def set_circuit_breaker_enabled(enabled: bool, save: bool = True) -> None:
+    """Enables or disables the thread expense circuit-breaker and persists settings."""
+    global CIRCUIT_BREAKER_ENABLED
+    CIRCUIT_BREAKER_ENABLED = bool(enabled)
+    if save:
+        save_enabled_agents()
+    logger.info(
+        f"[ROUTER] Circuit-breaker enabled set to {CIRCUIT_BREAKER_ENABLED}."
+    )
+
+
+def get_circuit_breaker_threshold() -> float:
+    """Returns the current monetary threshold in USD for the circuit-breaker."""
+    return float(CIRCUIT_BREAKER_THRESHOLD_USD)
+
+
+def set_circuit_breaker_threshold(threshold: float, save: bool = True) -> None:
+    """Sets the monetary threshold in USD for the circuit-breaker and persists settings."""
+    global CIRCUIT_BREAKER_THRESHOLD_USD
+    try:
+        val = float(threshold)
+        if val < 0.0:
+            val = 0.0
+        CIRCUIT_BREAKER_THRESHOLD_USD = val
+        if save:
+            save_enabled_agents()
+        logger.info(
+            f"[ROUTER] Circuit-breaker threshold set to ${CIRCUIT_BREAKER_THRESHOLD_USD:.2f} USD."
+        )
+    except (ValueError, TypeError) as e:
+        logger.error(f"[ROUTER] Invalid circuit-breaker threshold '{threshold}': {e}")
+
+
+def get_circuit_breaker_config() -> dict[str, Any]:
+    """Returns the current circuit-breaker configuration dictionary."""
+    return {
+        "enabled": CIRCUIT_BREAKER_ENABLED,
+        "threshold_usd": CIRCUIT_BREAKER_THRESHOLD_USD,
+    }
+
 
 def save_enabled_agents() -> None:
-    """Saves the current enabled debate agents to a persistent JSON configuration file."""
+    """Saves the current enabled debate agents and circuit-breaker settings to a persistent JSON configuration file."""
     try:
-        data = {"enabled_agents": sorted(list(ENABLED_DEBATE_AGENTS))}
+        data = {
+            "enabled_agents": sorted(list(ENABLED_DEBATE_AGENTS)),
+            "circuit_breaker_enabled": CIRCUIT_BREAKER_ENABLED,
+            "circuit_breaker_threshold_usd": CIRCUIT_BREAKER_THRESHOLD_USD,
+        }
         with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
         logger.info(
-            f"[ROUTER] Saved {len(ENABLED_DEBATE_AGENTS)} enabled agents to {SETTINGS_FILE.name}"
+            f"[ROUTER] Saved settings ({len(ENABLED_DEBATE_AGENTS)} enabled agents, circuit_breaker={CIRCUIT_BREAKER_ENABLED}, threshold=${CIRCUIT_BREAKER_THRESHOLD_USD:.2f}) to {SETTINGS_FILE.name}"
         )
     except Exception as e:
         logger.error(f"[ROUTER] Error saving agent settings: {e}")
@@ -475,10 +530,11 @@ def save_enabled_agents() -> None:
 
 def load_enabled_agents() -> set[str]:
     """
-    Loads enabled debate agents from persistent JSON file if available.
+    Loads enabled debate agents and circuit-breaker settings from persistent JSON file if available.
     Ensures locked agents are always included and unknown keys are filtered.
-    Falls back to default (all agents ON) if no settings file exists.
+    Falls back to default (all agents ON, circuit_breaker OFF) if no settings file exists.
     """
+    global CIRCUIT_BREAKER_ENABLED, CIRCUIT_BREAKER_THRESHOLD_USD
     ENABLED_DEBATE_AGENTS.clear()
     if SETTINGS_FILE.exists():
         try:
@@ -490,8 +546,14 @@ def load_enabled_agents() -> set[str]:
             # Ensure locked agents are always present
             valid_keys.update(LOCKED_AGENTS)
             ENABLED_DEBATE_AGENTS.update(valid_keys)
+
+            CIRCUIT_BREAKER_ENABLED = bool(data.get("circuit_breaker_enabled", False))
+            CIRCUIT_BREAKER_THRESHOLD_USD = float(
+                data.get("circuit_breaker_threshold_usd", 1.0)
+            )
+
             logger.info(
-                f"[ROUTER] Loaded {len(ENABLED_DEBATE_AGENTS)} enabled agents from {SETTINGS_FILE.name}"
+                f"[ROUTER] Loaded settings from {SETTINGS_FILE.name}: {len(ENABLED_DEBATE_AGENTS)} agents, circuit_breaker={CIRCUIT_BREAKER_ENABLED}, threshold=${CIRCUIT_BREAKER_THRESHOLD_USD:.2f}"
             )
             return set(ENABLED_DEBATE_AGENTS)
         except Exception as e:
@@ -499,6 +561,8 @@ def load_enabled_agents() -> set[str]:
 
     # Fallback default: all agents enabled
     ENABLED_DEBATE_AGENTS.update(AGENTS_CONFIG.keys())
+    CIRCUIT_BREAKER_ENABLED = False
+    CIRCUIT_BREAKER_THRESHOLD_USD = 1.0
     save_enabled_agents()
     return set(ENABLED_DEBATE_AGENTS)
 
@@ -1039,6 +1103,47 @@ async def process_and_respond(
     if is_superseded():
         logger.info(f"[ROUTER] Thread {thread_key} turn was superseded. Aborting.")
         return {"ok": False, "cancelled": True, "reason": "superseded"}
+
+    # Circuit-breaker verification: Check if cumulative thread cost reached or exceeded threshold
+    if is_circuit_breaker_enabled():
+        cost_info = calculate_thread_costs(channel_id, thread_ts)
+        current_cost = cost_info.get("grand_total_cost_usd", 0.0)
+        threshold = get_circuit_breaker_threshold()
+        if current_cost >= threshold:
+            logger.warning(
+                f"[CIRCUIT BREAKER] Thread {thread_key} cost (${current_cost:.5f}) reached or exceeded threshold (${threshold:.5f}). Interrupting response."
+            )
+            circuit_breaker_msg = "EXPENSE LIMIT REACHED FOR THE THREAD. ENDING CALLS"
+            slack_res = await post_agent_response(
+                channel_id=channel_id,
+                thread_ts=thread_ts,
+                text=circuit_breaker_msg,
+                username=agent_cfg["username"],
+                icon_url=agent_cfg.get("icon_url"),
+            )
+            trigger_thread_notes_update(
+                channel_id=channel_id,
+                thread_ts=thread_ts,
+                is_completed=True,
+                bot_user_id=bot_user_id,
+            )
+            trigger_usage_update(
+                channel_id=channel_id,
+                thread_ts=thread_ts,
+                is_completed=True,
+            )
+            clear_thread_stop(channel_id, thread_ts)
+            clear_thread_history_limit(channel_id, thread_ts)
+            clear_thread_file_context(channel_id, thread_ts)
+            CUSTOM_FLOW_THREADS.discard(thread_key)
+            REMAINING_AGENTS_MAP.pop(thread_key, None)
+            RATE_LIMIT_RETRY_QUEUE.pop(thread_key, None)
+            RATE_LIMIT_ALREADY_RETRIED.pop(thread_key, None)
+            return {
+                "ok": True,
+                "circuit_breaker_triggered": True,
+                "slack_res": slack_res,
+            }
 
     # 1. Fetch thread history context
     history = await fetch_thread_history(channel_id, thread_ts, bot_user_id=bot_user_id)
