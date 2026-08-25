@@ -155,3 +155,11 @@ AGENTS_CONFIG = {
     },
 }
 
+
+def is_anthropic_model(model: str | None) -> bool:
+    """Checks whether the given model name targets Anthropic (Claude)."""
+    if not model or not isinstance(model, str):
+        return False
+    m = model.lower().strip()
+    return m.startswith("anthropic/") or "claude" in m
+

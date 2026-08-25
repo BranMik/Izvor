@@ -9,7 +9,7 @@ from typing import Any
 import litellm
 from starlette.concurrency import run_in_threadpool
 
-from config import PRICING_AGENT_MODEL, PRICING_AGENT_PROMPT
+from config import PRICING_AGENT_MODEL, PRICING_AGENT_PROMPT, is_anthropic_model
 from web_tools import fetch_web_page, web_search
 
 logger = logging.getLogger(__name__)
@@ -259,12 +259,18 @@ async def fetch_pricing_with_agent(model_name: str) -> dict[str, Any]:
         {"role": "user", "content": user_prompt},
     ]
 
+    completion_kwargs: dict[str, Any] = {
+        "model": PRICING_AGENT_MODEL,
+        "messages": messages,
+        "tools": PRICING_TOOL_SCHEMAS,
+        "tool_choice": "auto",
+    }
+    if is_anthropic_model(PRICING_AGENT_MODEL):
+        completion_kwargs["cache_control"] = {"type": "ephemeral"}
+
     response = await run_in_threadpool(
         litellm.completion,
-        model=PRICING_AGENT_MODEL,
-        messages=messages,
-        tools=PRICING_TOOL_SCHEMAS,
-        tool_choice="auto",
+        **completion_kwargs,
     )
 
     response_message = response.choices[0].message
@@ -335,12 +341,18 @@ async def fetch_pricing_with_agent(model_name: str) -> dict[str, Any]:
                 }
             )
 
+        follow_up_kwargs: dict[str, Any] = {
+            "model": PRICING_AGENT_MODEL,
+            "messages": messages,
+            "tools": PRICING_TOOL_SCHEMAS,
+            "tool_choice": "auto",
+        }
+        if is_anthropic_model(PRICING_AGENT_MODEL):
+            follow_up_kwargs["cache_control"] = {"type": "ephemeral"}
+
         follow_up = await run_in_threadpool(
             litellm.completion,
-            model=PRICING_AGENT_MODEL,
-            messages=messages,
-            tools=PRICING_TOOL_SCHEMAS,
-            tool_choice="auto",
+            **follow_up_kwargs,
         )
         response_message = follow_up.choices[0].message
         tool_calls = getattr(response_message, "tool_calls", None)
