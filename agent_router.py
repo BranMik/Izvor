@@ -889,15 +889,20 @@ def build_llm_messages(
     agent_key: str,
     agent_cfg: dict[str, Any],
     file_context: dict[str, Any] | None = None,
+    remaining_agents: list[str] | None = None,
+    force_termination: bool = False,
 ) -> list[dict[str, Any]]:
     """
     Constructs a normalized, provider-safe message sequence for LiteLLM.
     Guarantees:
-    1. System prompt is at index 0.
-    2. The conversational sequence starts with a 'user' turn (handles trimmed history).
-    3. The conversational sequence strictly ends with a 'user' turn (never 'assistant'),
+    1. System prompt is at index 0 (100% static for robust Anthropic prompt caching).
+    2. Dynamic orchestration context (available agents list / termination constraints)
+       is appended directly to the final user prompt (benefiting from LLM recency attention).
+    3. The conversational sequence starts with a 'user' turn (handles trimmed history).
+    4. The conversational sequence strictly ends with a 'user' turn (never 'assistant'),
        which is strictly required by Anthropic (Claude), Mistral, and Google Gemini APIs.
-    4. Injects on-demand attached file content if present and if the current agent is authorized.
+    5. Injects on-demand attached file content if present and if the current agent is authorized.
+    6. Formats system message content block with cache_control for Anthropic models.
     """
     conversation: list[dict[str, Any]] = []
 
@@ -915,10 +920,24 @@ def build_llm_messages(
                 f"--- [END OF ATTACHED FILE] ---"
             )
 
+    # Dynamic orchestration directive
+    orchestration_block = ""
+    if force_termination:
+        orchestration_block = (
+            "\n\nCRITICAL CONSTRAINT: You are the last agent requested to speak in this turn. "
+            "Do NOT nominate any other agent to speak next. Do NOT include any bracketed agent key (like [Mistral_Innovator] "
+            "or [OpAiTerra_Architect]) at the end of your response. Simply answer the question/summarize and finish your response."
+        )
+    elif remaining_agents:
+        orchestration_block = (
+            f"\n\nAVAILABLE AGENTS WHO HAVE NOT SPOKEN YET (nominate the next agent at the very end in [AGENT_KEY] format):\n"
+            f"{', '.join(remaining_agents)}"
+        )
+
     if not is_bot_trigger:
         if effective_history:
             conversation.extend(effective_history)
-        user_prompt = f"{prompt}{file_block}" if file_block else prompt
+        user_prompt = f"{prompt}{file_block}{orchestration_block}"
         conversation.append({"role": "user", "content": user_prompt})
     else:
         if effective_history:
@@ -928,8 +947,7 @@ def build_llm_messages(
                 f"You have been called to speak as {persona_name}. "
                 "Please evaluate the discussion above and provide your response in accordance with your role and instructions."
             )
-            if file_block:
-                instruction += f"\n\n{file_block}"
+            instruction = f"{instruction}{file_block}{orchestration_block}"
             conversation.append(
                 {
                     "role": "user",
@@ -937,7 +955,7 @@ def build_llm_messages(
                 }
             )
         else:
-            user_prompt = f"{prompt}{file_block}" if file_block else prompt
+            user_prompt = f"{prompt}{file_block}{orchestration_block}"
             conversation.append({"role": "user", "content": user_prompt})
 
     # Ensure the first conversational message has role 'user' (for strict APIs like Anthropic/Gemini)
@@ -957,8 +975,7 @@ def build_llm_messages(
             f"You have been called to speak as {persona_name}. "
             "Please evaluate the discussion above and provide your response in accordance with your role and instructions."
         )
-        if file_block:
-            instruction += f"\n\n{file_block}"
+        instruction = f"{instruction}{file_block}{orchestration_block}"
         conversation.append(
             {
                 "role": "user",
@@ -966,7 +983,60 @@ def build_llm_messages(
             }
         )
 
-    return [{"role": "system", "content": system_prompt}] + conversation
+    model_name = agent_cfg.get("model")
+    if is_anthropic_model(model_name):
+        system_item: dict[str, Any] = {
+            "role": "system",
+            "content": [
+                {
+                    "type": "text",
+                    "text": system_prompt,
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ],
+        }
+
+        # 1 breakpoint used for system prompt. Up to 3 remaining (Anthropic max 4 total).
+        has_file_cache = bool(file_block)
+        if has_file_cache and conversation:
+            # Structure last user turn into a cached file block + dynamic instruction block
+            active_turn = conversation[-1]
+            instruction_text = (
+                f"{prompt}{orchestration_block}"
+                if not is_bot_trigger
+                else f"You have been called to speak as {agent_cfg.get('username', agent_key)}. Please evaluate the discussion above and provide your response in accordance with your role and instructions.{orchestration_block}"
+            )
+            active_turn["content"] = [
+                {
+                    "type": "text",
+                    "text": file_block.strip(),
+                    "cache_control": {"type": "ephemeral"},
+                },
+                {
+                    "type": "text",
+                    "text": instruction_text,
+                },
+            ]
+
+        # Remaining cache slots for early thread history (2 if file is cached, 3 otherwise)
+        history_slots = 2 if has_file_cache else 3
+        num_history = max(0, len(conversation) - 1)
+        for i in range(min(num_history, history_slots)):
+            msg_content = conversation[i].get("content")
+            if isinstance(msg_content, str):
+                conversation[i]["content"] = [
+                    {
+                        "type": "text",
+                        "text": msg_content,
+                        "cache_control": {"type": "ephemeral"},
+                    }
+                ]
+            elif isinstance(msg_content, list) and msg_content:
+                msg_content[-1]["cache_control"] = {"type": "ephemeral"}
+    else:
+        system_item = {"role": "system", "content": system_prompt}
+
+    return [system_item] + conversation
 
 
 async def process_and_respond(
@@ -1215,18 +1285,10 @@ async def process_and_respond(
         logger.info(
             f"[ROUTER] Agent {agent_key} forcing termination (no remaining agents in sequence or stop requested)."
         )
-        system_prompt += (
-            "\n\nCRITICAL CONSTRAINT: You are the last agent requested to speak in this turn. "
-            "Do NOT nominate any other agent to speak next. Do NOT include any bracketed agent key (like [Mistral_Innovator] "
-            "or [OpAiTerra_Architect]) at the end of your response. Simply answer the question/summarize and finish your response."
-        )
     else:
-        # Standard nomination loop
-        if remaining:
-            system_prompt = f"{system_prompt}\n{', '.join(remaining)}"
-    logger.info(
-        f"[ROUTER] Final system prompt with available agents added {system_prompt} ."
-    )
+        logger.info(
+            f"[ROUTER] Agent {agent_key} remaining available agents: {remaining}"
+        )
 
     file_context = get_thread_file_context(channel_id, thread_ts)
     messages = build_llm_messages(
@@ -1237,6 +1299,8 @@ async def process_and_respond(
         agent_key=agent_key,
         agent_cfg=agent_cfg,
         file_context=file_context,
+        remaining_agents=remaining,
+        force_termination=force_termination,
     )
 
     try:
@@ -1273,9 +1337,6 @@ async def process_and_respond(
             "tools": MCP_TOOLS_SCHEMAS,
             "tool_choice": "auto",
         }
-        if is_anthropic_model(agent_cfg.get("model")):
-            completion_kwargs["cache_control"] = {"type": "ephemeral"}
-
         response = await run_in_threadpool(
             litellm.completion,
             **completion_kwargs,
@@ -1330,9 +1391,6 @@ async def process_and_respond(
                 "messages": messages,
                 # "temperature": agent_cfg["temperature"],
             }
-            if is_anthropic_model(agent_cfg.get("model")):
-                follow_up_kwargs["cache_control"] = {"type": "ephemeral"}
-
             follow_up = await run_in_threadpool(
                 litellm.completion,
                 **follow_up_kwargs,

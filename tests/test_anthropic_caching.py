@@ -57,7 +57,9 @@ async def test_anthropic_agent_passes_cache_control():
         assert mock_completion.call_count == 1
         kwargs = mock_completion.call_args.kwargs
         assert kwargs["model"] == "anthropic/claude-opus-5"
-        assert kwargs.get("cache_control") == {"type": "ephemeral"}
+        assert "cache_control" not in kwargs
+        assert kwargs["messages"][0]["role"] == "system"
+        assert kwargs["messages"][0]["content"][0]["cache_control"] == {"type": "ephemeral"}
 
 
 @pytest.mark.anyio
@@ -89,11 +91,12 @@ async def test_non_anthropic_agent_omits_cache_control():
         kwargs = mock_completion.call_args.kwargs
         assert kwargs["model"] == "gemini/gemini-3.7-flash"
         assert "cache_control" not in kwargs
+        assert isinstance(kwargs["messages"][0]["content"], str)
 
 
 @pytest.mark.anyio
 async def test_anthropic_tool_call_follow_up_passes_cache_control():
-    """Verify that follow-up completion after MCP tool call also passes cache_control for Anthropic models."""
+    """Verify that follow-up completion after MCP tool call maintains cache_control in messages for Anthropic models."""
     tool_call_mock = MagicMock()
     tool_call_mock.id = "call_abc123"
     tool_call_mock.function.name = "read_file"
@@ -133,12 +136,14 @@ async def test_anthropic_tool_call_follow_up_passes_cache_control():
         # First call (with tools)
         first_call_kwargs = mock_completion.call_args_list[0].kwargs
         assert first_call_kwargs["model"] == "anthropic/claude-opus-5"
-        assert first_call_kwargs.get("cache_control") == {"type": "ephemeral"}
+        assert "cache_control" not in first_call_kwargs
+        assert first_call_kwargs["messages"][0]["content"][0]["cache_control"] == {"type": "ephemeral"}
 
         # Follow-up call (after tool execution)
         second_call_kwargs = mock_completion.call_args_list[1].kwargs
         assert second_call_kwargs["model"] == "anthropic/claude-opus-5"
-        assert second_call_kwargs.get("cache_control") == {"type": "ephemeral"}
+        assert "cache_control" not in second_call_kwargs
+        assert second_call_kwargs["messages"][0]["content"][0]["cache_control"] == {"type": "ephemeral"}
 
 
 @pytest.mark.anyio
@@ -163,7 +168,8 @@ async def test_thread_notes_agent_caching_support(monkeypatch):
         assert mock_completion.call_count == 1
         kwargs = mock_completion.call_args.kwargs
         assert kwargs["model"] == "anthropic/claude-opus-5"
-        assert kwargs.get("cache_control") == {"type": "ephemeral"}
+        assert "cache_control" not in kwargs
+        assert kwargs["messages"][0]["content"][0]["cache_control"] == {"type": "ephemeral"}
 
 
 @pytest.mark.anyio
@@ -184,4 +190,108 @@ async def test_pricing_agent_caching_support(monkeypatch):
         assert mock_completion.call_count == 1
         kwargs = mock_completion.call_args.kwargs
         assert kwargs["model"] == "anthropic/claude-opus-5"
-        assert kwargs.get("cache_control") == {"type": "ephemeral"}
+        assert "cache_control" not in kwargs
+        assert kwargs["messages"][0]["content"][0]["cache_control"] == {"type": "ephemeral"}
+
+
+def _count_cache_control_breakpoints(messages: list[dict]) -> int:
+    """Helper to count total cache_control breakpoints across all messages."""
+    count = 0
+    for msg in messages:
+        content = msg.get("content")
+        if isinstance(content, list):
+            for block in content:
+                if isinstance(block, dict) and "cache_control" in block:
+                    count += 1
+    return count
+
+
+def test_build_llm_messages_anthropic_caching_with_file():
+    """Verify Anthropic model message building caches both system prompt and uploaded file block."""
+    file_context = {
+        "file_name": "data_dump.sql",
+        "content": "CREATE TABLE users (id INT);",
+        "size": 31,
+        "authorized_agents": None,
+    }
+    messages = agent_router.build_llm_messages(
+        system_prompt="You are Innovator.",
+        effective_history=[],
+        prompt="Review database schema",
+        is_bot_trigger=False,
+        agent_key="AnthrOpus_Innovator",
+        agent_cfg={"model": "anthropic/claude-opus-5", "username": "AnthrOpus Innovator"},
+        file_context=file_context,
+    )
+    # Breakpoint 1: System prompt
+    assert messages[0]["role"] == "system"
+    assert messages[0]["content"][0]["cache_control"] == {"type": "ephemeral"}
+    # Breakpoint 2: Attached file block in user turn
+    assert messages[1]["role"] == "user"
+    assert isinstance(messages[1]["content"], list)
+    assert messages[1]["content"][0]["cache_control"] == {"type": "ephemeral"}
+    assert "data_dump.sql" in messages[1]["content"][0]["text"]
+    assert "Review database schema" in messages[1]["content"][1]["text"]
+    assert _count_cache_control_breakpoints(messages) == 2
+
+
+def test_build_llm_messages_anthropic_caching_with_long_history_and_file():
+    """Verify Anthropic model message building caps total cache breakpoints at exactly 4 with history and file."""
+    history = [
+        {"role": "user", "content": "Question 1"},
+        {"role": "assistant", "content": "Answer 1"},
+        {"role": "user", "content": "Question 2"},
+        {"role": "assistant", "content": "Answer 2"},
+        {"role": "user", "content": "Question 3"},
+    ]
+    file_context = {
+        "file_name": "architecture.md",
+        "content": "# Arch Doc",
+        "size": 10,
+        "authorized_agents": None,
+    }
+    messages = agent_router.build_llm_messages(
+        system_prompt="You are Sceptic.",
+        effective_history=history,
+        prompt="Check this",
+        is_bot_trigger=True,
+        agent_key="AnthrOpus_Sceptic",
+        agent_cfg={"model": "anthropic/claude-opus-5", "username": "AnthrOpus Sceptic"},
+        file_context=file_context,
+    )
+    # Breakpoints:
+    # 1. System prompt
+    # 2. History[0]
+    # 3. History[1]
+    # 4. File block in final active turn
+    assert _count_cache_control_breakpoints(messages) == 4
+    assert messages[0]["content"][0]["cache_control"] == {"type": "ephemeral"}
+    assert messages[1]["content"][0]["cache_control"] == {"type": "ephemeral"}
+    assert messages[2]["content"][0]["cache_control"] == {"type": "ephemeral"}
+    assert messages[-1]["content"][0]["cache_control"] == {"type": "ephemeral"}
+    assert "architecture.md" in messages[-1]["content"][0]["text"]
+
+
+def test_build_llm_messages_anthropic_caching_without_file_uses_3_history_slots():
+    """Verify Anthropic model message building uses 3 history cache slots when no file is present."""
+    history = [
+        {"role": "user", "content": "Turn 1"},
+        {"role": "assistant", "content": "Turn 2"},
+        {"role": "user", "content": "Turn 3"},
+        {"role": "assistant", "content": "Turn 4"},
+    ]
+    messages = agent_router.build_llm_messages(
+        system_prompt="You are Sceptic.",
+        effective_history=history,
+        prompt="Turn 5",
+        is_bot_trigger=True,
+        agent_key="AnthrOpus_Sceptic",
+        agent_cfg={"model": "anthropic/claude-opus-5", "username": "AnthrOpus Sceptic"},
+        file_context=None,
+    )
+    # 1 on system + 3 on early history = 4 total breakpoints
+    assert _count_cache_control_breakpoints(messages) == 4
+    assert messages[0]["content"][0]["cache_control"] == {"type": "ephemeral"}
+    assert messages[1]["content"][0]["cache_control"] == {"type": "ephemeral"}
+    assert messages[2]["content"][0]["cache_control"] == {"type": "ephemeral"}
+    assert messages[3]["content"][0]["cache_control"] == {"type": "ephemeral"}

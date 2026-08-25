@@ -254,8 +254,19 @@ async def fetch_pricing_with_agent(model_name: str) -> dict[str, Any]:
         f"model_name, input_price_per_1m, output_price_per_1m, currency ('USD'), source, source_url."
     )
 
+    if is_anthropic_model(PRICING_AGENT_MODEL):
+        system_content: Any = [
+            {
+                "type": "text",
+                "text": PRICING_AGENT_PROMPT,
+                "cache_control": {"type": "ephemeral"},
+            }
+        ]
+    else:
+        system_content = PRICING_AGENT_PROMPT
+
     messages: list[dict[str, Any]] = [
-        {"role": "system", "content": PRICING_AGENT_PROMPT},
+        {"role": "system", "content": system_content},
         {"role": "user", "content": user_prompt},
     ]
 
@@ -265,8 +276,6 @@ async def fetch_pricing_with_agent(model_name: str) -> dict[str, Any]:
         "tools": PRICING_TOOL_SCHEMAS,
         "tool_choice": "auto",
     }
-    if is_anthropic_model(PRICING_AGENT_MODEL):
-        completion_kwargs["cache_control"] = {"type": "ephemeral"}
 
     response = await run_in_threadpool(
         litellm.completion,
@@ -347,8 +356,6 @@ async def fetch_pricing_with_agent(model_name: str) -> dict[str, Any]:
             "tools": PRICING_TOOL_SCHEMAS,
             "tool_choice": "auto",
         }
-        if is_anthropic_model(PRICING_AGENT_MODEL):
-            follow_up_kwargs["cache_control"] = {"type": "ephemeral"}
 
         follow_up = await run_in_threadpool(
             litellm.completion,
