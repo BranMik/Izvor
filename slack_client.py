@@ -17,15 +17,33 @@ CHANNEL_NAME_CACHE: dict[str, str] = {}
 _RESOLVED_USAGE_CHANNEL_ID: str | None = None
 
 
-def build_app_home_view(enabled_agents: set[str] | None = None) -> dict[str, Any]:
+def build_app_home_view(
+    enabled_agents: set[str] | None = None,
+    circuit_breaker_config: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """
     Generates the Block Kit Home Tab view for the Slack Application Home page.
-    Displays all panel agents with radio buttons (ON/OFF) and indicates locked agents.
+    Displays panel agents, locked agents, and thread cost circuit-breaker settings.
     """
-    from agent_router import LOCKED_AGENTS, get_enabled_agents
+    from agent_router import (
+        LOCKED_AGENTS,
+        get_circuit_breaker_config,
+        get_enabled_agents,
+    )
 
     if enabled_agents is None:
         enabled_agents = get_enabled_agents()
+
+    if circuit_breaker_config is None:
+        circuit_breaker_config = get_circuit_breaker_config()
+
+    cb_enabled = bool(circuit_breaker_config.get("enabled", False))
+    cb_threshold = float(circuit_breaker_config.get("threshold_usd", 1.0))
+    cb_status_str = (
+        f"🟢 *Uključeno (ON)* — Limit: *${cb_threshold:.2f} USD*"
+        if cb_enabled
+        else "🔴 *Isključeno (OFF)*"
+    )
 
     total_agents = len(AGENTS_CONFIG)
     active_count = len(enabled_agents)
@@ -45,7 +63,7 @@ def build_app_home_view(enabled_agents: set[str] | None = None) -> dict[str, Any
                 "type": "mrkdwn",
                 "text": (
                     "*Dobrodošli u CaiLogics kontrolni panel!*\n"
-                    "Ovdje možete uključiti ili isključiti agente koji sudjeluju u automatskoj debati kada korisnik ne taga niti jednog agenta.\n\n"
+                    "Ovdje možete upravljati agentima za automatsku debatu i sigurnosnim limitima potrošnje (circuit-breaker).\n\n"
                     "💡 *Napomena:* Isključeni agenti i dalje se mogu direktno pozvati tagiranjem (npr. `[MistLar_TechLead]` ili `@MistLar TechLead`)."
                 ),
             },
@@ -59,9 +77,120 @@ def build_app_home_view(enabled_agents: set[str] | None = None) -> dict[str, Any
                 },
                 {
                     "type": "mrkdwn",
-                    "text": "*🔒 Obavezni agenti:*\nVisionary, Architect, Sceptic",
+                    "text": f"*⚡ Circuit-Breaker:*\n{cb_status_str}",
                 },
             ],
+        },
+        {"type": "divider"},
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": (
+                    "*⚡ Sigurnosni Circuit-Breaker (Ograničenje troškova po threadu)*\n"
+                    "Automatski prekida daljnje pozive agenata u threadu ako zbroj troškova pređe definirani limit. "
+                    "U slučaju prekida, agent ispisuje poruku `EXPENSE LIMIT REACHED FOR THE THREAD. ENDING CALLS`."
+                ),
+            },
+        },
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": f"*Uključi/Isključi Circuit-Breaker:*\n_{cb_status_str}_",
+            },
+            "accessory": {
+                "type": "radio_buttons",
+                "action_id": "toggle_circuit_breaker_radio",
+                "options": [
+                    {
+                        "text": {"type": "plain_text", "text": "🟢 ON", "emoji": True},
+                        "value": "cb:on",
+                    },
+                    {
+                        "text": {"type": "plain_text", "text": "🔴 OFF", "emoji": True},
+                        "value": "cb:off",
+                    },
+                ],
+                "initial_option": {
+                    "text": {
+                        "type": "plain_text",
+                        "text": "🟢 ON" if cb_enabled else "🔴 OFF",
+                        "emoji": True,
+                    },
+                    "value": "cb:on" if cb_enabled else "cb:off",
+                },
+            },
+        },
+        {
+            "type": "input",
+            "block_id": "circuit_breaker_threshold_block",
+            "dispatch_action": True,
+            "element": {
+                "type": "plain_text_input",
+                "action_id": "set_circuit_breaker_threshold_input",
+                "initial_value": f"{cb_threshold:.2f}",
+                "placeholder": {
+                    "type": "plain_text",
+                    "text": "Unesite iznos u USD (npr. 0.50, 1.00, 2.50)",
+                },
+                "dispatch_action_config": {
+                    "trigger_actions_on": ["on_enter_pressed"],
+                },
+            },
+            "label": {
+                "type": "plain_text",
+                "text": "💵 Maksimalni limit po threadu ($ USD):",
+                "emoji": True,
+            },
+        },
+        {
+            "type": "actions",
+            "elements": [
+                {
+                    "type": "button",
+                    "text": {
+                        "type": "plain_text",
+                        "text": "💾 Spremi limit",
+                        "emoji": True,
+                    },
+                    "action_id": "save_circuit_breaker_threshold_button",
+                    "style": "primary",
+                },
+                {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "$0.25"},
+                    "action_id": "set_circuit_breaker_preset:0.25",
+                },
+                {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "$0.50"},
+                    "action_id": "set_circuit_breaker_preset:0.50",
+                },
+                {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "$1.00"},
+                    "action_id": "set_circuit_breaker_preset:1.00",
+                },
+                {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "$2.00"},
+                    "action_id": "set_circuit_breaker_preset:2.00",
+                },
+                {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "$5.00"},
+                    "action_id": "set_circuit_breaker_preset:5.00",
+                },
+            ],
+        },
+        {"type": "divider"},
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": "*👥 Konfiguracija agenata za automatsku raspravu:*",
+            },
         },
         {
             "type": "actions",
@@ -197,7 +326,9 @@ def build_app_home_view(enabled_agents: set[str] | None = None) -> dict[str, Any
 
 
 async def publish_app_home(
-    user_id: str, enabled_agents: set[str] | None = None
+    user_id: str,
+    enabled_agents: set[str] | None = None,
+    circuit_breaker_config: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
     Publishes the multi-agent control panel view to the user's Slack App Home tab.
@@ -207,7 +338,10 @@ async def publish_app_home(
         return {"ok": True, "mock": True}
 
     try:
-        view = build_app_home_view(enabled_agents)
+        view = build_app_home_view(
+            enabled_agents=enabled_agents,
+            circuit_breaker_config=circuit_breaker_config,
+        )
         response = await slack_async_client.views_publish(
             user_id=user_id,
             view=view,

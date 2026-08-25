@@ -34,6 +34,11 @@ from agent_router import (
     clear_thread_history_limit,
     THREAD_HISTORY_LIMITS,
     build_llm_messages,
+    is_circuit_breaker_enabled,
+    set_circuit_breaker_enabled,
+    get_circuit_breaker_threshold,
+    set_circuit_breaker_threshold,
+    get_circuit_breaker_config,
 )
 from slack_client import build_app_home_view
 
@@ -511,6 +516,8 @@ def test_disabled_agent_can_still_be_explicitly_tagged():
 
 def test_build_app_home_view():
     reset_enabled_agents()
+    set_circuit_breaker_enabled(True)
+    set_circuit_breaker_threshold(2.50)
     view = build_app_home_view()
     assert view["type"] == "home"
     blocks = view["blocks"]
@@ -527,6 +534,8 @@ def test_build_app_home_view():
         elif "elements" in b:
             for el in b["elements"]:
                 action_ids.append(el.get("action_id", ""))
+        elif "element" in b and isinstance(b["element"], dict):
+            action_ids.append(b["element"].get("action_id", ""))
 
     assert "bulk_enable_all" in action_ids
     assert "bulk_disable_optional" in action_ids
@@ -534,20 +543,28 @@ def test_build_app_home_view():
     assert "locked_agent_AnthrOpus_Sceptic" in action_ids
     assert "locked_agent_OpAiTerra_Architect" in action_ids
     assert "toggle_agent_radio:MistLar_TechLead" in action_ids
+    assert "toggle_circuit_breaker_radio" in action_ids
+    assert "set_circuit_breaker_threshold_input" in action_ids
+    assert "save_circuit_breaker_threshold_button" in action_ids
+    assert "set_circuit_breaker_preset:0.50" in action_ids
 
 
 def test_settings_persistence(tmp_path, monkeypatch):
     test_settings_path = tmp_path / "test_agent_settings.json"
     monkeypatch.setattr("agent_router.SETTINGS_FILE", test_settings_path)
 
-    # 1. Reset and disable specific agents
+    # 1. Reset and disable specific agents & set circuit-breaker config
     reset_enabled_agents()
     set_agent_enabled("MistLar_TechLead", False)
     set_agent_enabled("AnthrOpus_Innovator", False)
+    set_circuit_breaker_enabled(True)
+    set_circuit_breaker_threshold(3.50)
 
     assert test_settings_path.exists()
     assert "MistLar_TechLead" not in ENABLED_DEBATE_AGENTS
     assert "AnthrOpus_Innovator" not in ENABLED_DEBATE_AGENTS
+    assert is_circuit_breaker_enabled() is True
+    assert get_circuit_breaker_threshold() == 3.50
 
     # 2. Simulate server restart by clearing memory and calling load_enabled_agents()
     ENABLED_DEBATE_AGENTS.clear()
@@ -561,6 +578,8 @@ def test_settings_persistence(tmp_path, monkeypatch):
     assert "AnthrOpus_Sceptic" in loaded
     assert "OpAiTerra_Architect" in loaded
     assert len(loaded) == 15
+    assert is_circuit_breaker_enabled() is True
+    assert get_circuit_breaker_threshold() == 3.50
 
 
 def test_classify_agent_error():
@@ -1307,6 +1326,213 @@ def test_build_llm_messages_leading_assistant_gets_user_prefix():
     assert messages[2] == {"role": "assistant", "content": "Assistant turn 1"}
     assert messages[3] == {"role": "assistant", "content": "Assistant turn 2"}
     assert messages[4]["role"] == "user"
+
+
+def test_circuit_breaker_configuration_methods():
+    reset_enabled_agents()
+    set_circuit_breaker_enabled(True)
+    assert is_circuit_breaker_enabled() is True
+
+    set_circuit_breaker_threshold(2.75)
+    assert get_circuit_breaker_threshold() == 2.75
+
+    cfg = get_circuit_breaker_config()
+    assert cfg["enabled"] is True
+    assert cfg["threshold_usd"] == 2.75
+
+    set_circuit_breaker_enabled(False)
+    assert is_circuit_breaker_enabled() is False
+
+    # Negative threshold should clamp to 0.0
+    set_circuit_breaker_threshold(-1.0)
+    assert get_circuit_breaker_threshold() == 0.0
+
+
+@pytest.mark.anyio
+async def test_circuit_breaker_triggers_when_threshold_exceeded(monkeypatch):
+    REMAINING_AGENTS_MAP.clear()
+    channel_id = "C_CB_TRIGGER"
+    thread_ts = "123456789.9001"
+    thread_key = (channel_id, thread_ts)
+    REMAINING_AGENTS_MAP[thread_key] = ["MistLar_TechLead", "OpAiTerra_Architect"]
+
+    set_circuit_breaker_enabled(True)
+    set_circuit_breaker_threshold(0.50)
+
+    # Mock calculate_thread_costs to return $0.75 (> $0.50)
+    monkeypatch.setattr(
+        "agent_router.calculate_thread_costs",
+        lambda ch, ts: {"grand_total_cost_usd": 0.75},
+    )
+
+    posted_messages = []
+
+    async def mock_post_agent_response(
+        channel_id, thread_ts, text, username, icon_url=None
+    ):
+        posted_messages.append({"text": text, "username": username})
+        return {"ok": True, "ts": "12345.9999"}
+
+    llm_called = False
+
+    async def mock_run_in_threadpool(func, *args, **kwargs):
+        nonlocal llm_called
+        llm_called = True
+        raise Exception("LLM should not be called when circuit-breaker is triggered")
+
+    notes_updated = False
+
+    def mock_trigger_notes(channel_id, thread_ts, is_completed=False, **kwargs):
+        nonlocal notes_updated
+        if is_completed:
+            notes_updated = True
+
+    usage_updated = False
+
+    def mock_trigger_usage(channel_id, thread_ts, is_completed=False, **kwargs):
+        nonlocal usage_updated
+        if is_completed:
+            usage_updated = True
+
+    monkeypatch.setattr(
+        "agent_router.post_agent_response", mock_post_agent_response
+    )
+    monkeypatch.setattr("agent_router.run_in_threadpool", mock_run_in_threadpool)
+    monkeypatch.setattr(
+        "agent_router.trigger_thread_notes_update", mock_trigger_notes
+    )
+    monkeypatch.setattr("agent_router.trigger_usage_update", mock_trigger_usage)
+
+    res = await process_and_respond(
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        raw_text="Hello agents, continue analysis",
+        is_bot_trigger=False,
+    )
+
+    assert res.get("circuit_breaker_triggered") is True
+    assert llm_called is False
+    assert len(posted_messages) == 1
+    assert (
+        posted_messages[0]["text"]
+        == "EXPENSE LIMIT REACHED FOR THE THREAD. ENDING CALLS"
+    )
+    assert notes_updated is True
+    assert usage_updated is True
+    assert thread_key not in REMAINING_AGENTS_MAP
+
+
+@pytest.mark.anyio
+async def test_circuit_breaker_allows_normal_response_when_below_threshold(
+    monkeypatch,
+):
+    REMAINING_AGENTS_MAP.clear()
+    channel_id = "C_CB_BELOW"
+    thread_ts = "123456789.9002"
+
+    set_circuit_breaker_enabled(True)
+    set_circuit_breaker_threshold(1.00)
+
+    # Cost is $0.20 (< $1.00)
+    monkeypatch.setattr(
+        "agent_router.calculate_thread_costs",
+        lambda ch, ts: {"grand_total_cost_usd": 0.20},
+    )
+
+    mock_choice = MagicMock()
+    mock_choice.message.content = "Normal agent response [OpAiTerra_Architect]"
+    mock_choice.message.tool_calls = None
+
+    mock_response = MagicMock()
+    mock_response.choices = [mock_choice]
+    mock_response.usage = MagicMock(prompt_tokens=10, completion_tokens=10)
+
+    async def mock_run_in_threadpool(func, *args, **kwargs):
+        return mock_response
+
+    posted_messages = []
+
+    async def mock_post_agent_response(
+        channel_id, thread_ts, text, username, icon_url=None
+    ):
+        posted_messages.append({"text": text, "username": username})
+        return {"ok": True, "ts": "12345.9999"}
+
+    monkeypatch.setattr(
+        "agent_router.post_agent_response", mock_post_agent_response
+    )
+    monkeypatch.setattr("agent_router.run_in_threadpool", mock_run_in_threadpool)
+    monkeypatch.setattr(
+        "agent_router.fetch_thread_history", AsyncMock(return_value=[])
+    )
+
+    res = await process_and_respond(
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        raw_text="[Gemini_Visionary] Normal query",
+        is_bot_trigger=False,
+    )
+
+    assert res.get("ok") is True
+    assert res.get("circuit_breaker_triggered") is not True
+    assert len(posted_messages) == 1
+    assert "Normal agent response" in posted_messages[0]["text"]
+
+
+@pytest.mark.anyio
+async def test_circuit_breaker_allows_normal_response_when_disabled(monkeypatch):
+    REMAINING_AGENTS_MAP.clear()
+    channel_id = "C_CB_DISABLED"
+    thread_ts = "123456789.9003"
+
+    set_circuit_breaker_enabled(False)
+    set_circuit_breaker_threshold(0.10)
+
+    # Cost is $5.00 (> $0.10), but circuit breaker is disabled
+    monkeypatch.setattr(
+        "agent_router.calculate_thread_costs",
+        lambda ch, ts: {"grand_total_cost_usd": 5.00},
+    )
+
+    mock_choice = MagicMock()
+    mock_choice.message.content = "Normal response despite high cost"
+    mock_choice.message.tool_calls = None
+
+    mock_response = MagicMock()
+    mock_response.choices = [mock_choice]
+    mock_response.usage = MagicMock(prompt_tokens=10, completion_tokens=10)
+
+    async def mock_run_in_threadpool(func, *args, **kwargs):
+        return mock_response
+
+    posted_messages = []
+
+    async def mock_post_agent_response(
+        channel_id, thread_ts, text, username, icon_url=None
+    ):
+        posted_messages.append({"text": text, "username": username})
+        return {"ok": True, "ts": "12345.9999"}
+
+    monkeypatch.setattr(
+        "agent_router.post_agent_response", mock_post_agent_response
+    )
+    monkeypatch.setattr("agent_router.run_in_threadpool", mock_run_in_threadpool)
+    monkeypatch.setattr(
+        "agent_router.fetch_thread_history", AsyncMock(return_value=[])
+    )
+
+    res = await process_and_respond(
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        raw_text="[Gemini_Visionary] Normal query",
+        is_bot_trigger=False,
+    )
+
+    assert res.get("ok") is True
+    assert res.get("circuit_breaker_triggered") is not True
+    assert len(posted_messages) == 1
+    assert "Normal response despite high cost" in posted_messages[0]["text"]
+
 
 
 
