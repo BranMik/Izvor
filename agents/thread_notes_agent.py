@@ -6,7 +6,7 @@ from typing import Any
 import litellm
 from starlette.concurrency import run_in_threadpool
 
-from config import THREAD_NOTES_MODEL, THREAD_NOTES_PROMPT
+from config import THREAD_NOTES_MODEL, THREAD_NOTES_PROMPT, is_anthropic_model
 from slack_client import fetch_thread_history, post_thread_note, update_thread_note
 from .usage_agent import record_thread_tokens, trigger_usage_update
 
@@ -118,11 +118,17 @@ async def generate_thread_notes(
             }
         )
 
+    completion_kwargs: dict[str, Any] = {
+        "model": THREAD_NOTES_MODEL,
+        "messages": messages,
+        "max_tokens": max_tokens,
+    }
+    if is_anthropic_model(THREAD_NOTES_MODEL):
+        completion_kwargs["cache_control"] = {"type": "ephemeral"}
+
     response = await run_in_threadpool(
         litellm.completion,
-        model=THREAD_NOTES_MODEL,
-        messages=messages,
-        max_tokens=max_tokens,
+        **completion_kwargs,
     )
 
     raw_content = response.choices[0].message.content or ""

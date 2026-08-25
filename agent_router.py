@@ -13,7 +13,7 @@ from agents import (
     trigger_thread_notes_update,
     trigger_usage_update,
 )
-from config import AGENTS_CONFIG, DEFAULT_AGENT_KEY
+from config import AGENTS_CONFIG, DEFAULT_AGENT_KEY, is_anthropic_model
 from mcp_tools import MCP_TOOLS_SCHEMAS, execute_mcp_tool
 from slack_client import (
     download_slack_file,
@@ -1161,13 +1161,19 @@ async def process_and_respond(
         # 3. Call LiteLLM model with MCP tools in a threadpool to prevent freezing the event loop
         logger.info(f"[LLM] Dispatching litellm.completion for {agent_key}...")
         llm_start = time.time()
+        completion_kwargs: dict[str, Any] = {
+            "model": agent_cfg["model"],
+            "messages": messages,
+            # "temperature": agent_cfg["temperature"],
+            "tools": MCP_TOOLS_SCHEMAS,
+            "tool_choice": "auto",
+        }
+        if is_anthropic_model(agent_cfg.get("model")):
+            completion_kwargs["cache_control"] = {"type": "ephemeral"}
+
         response = await run_in_threadpool(
             litellm.completion,
-            model=agent_cfg["model"],
-            messages=messages,
-            # temperature=agent_cfg["temperature"],
-            tools=MCP_TOOLS_SCHEMAS,
-            tool_choice="auto",
+            **completion_kwargs,
         )
         add_usage(response)
         llm_duration = time.time() - llm_start
@@ -1214,11 +1220,17 @@ async def process_and_respond(
                 return {"ok": False, "cancelled": True, "reason": "superseded"}
 
             # Follow-up completion after tool results in a threadpool
+            follow_up_kwargs: dict[str, Any] = {
+                "model": agent_cfg["model"],
+                "messages": messages,
+                # "temperature": agent_cfg["temperature"],
+            }
+            if is_anthropic_model(agent_cfg.get("model")):
+                follow_up_kwargs["cache_control"] = {"type": "ephemeral"}
+
             follow_up = await run_in_threadpool(
                 litellm.completion,
-                model=agent_cfg["model"],
-                messages=messages,
-                # temperature=agent_cfg["temperature"],
+                **follow_up_kwargs,
             )
             add_usage(follow_up)
             final_text = follow_up.choices[0].message.content
