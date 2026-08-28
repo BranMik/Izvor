@@ -91,11 +91,11 @@ AGENTS_CONFIG = {
             "MistLar_CompliancePrivacyAndGovernanceOfficer"
         ),
     },
-    "MistLar_ScopeOptimizer": {
-        "model": "mistral/mistral-large-latest",
-        "username": "MistLar Scope Optimizer",
+    "Gemini_ScopeOptimizer": {
+        "model": "gemini/gemini-3.7-flash",
+        "username": "Gemini Scope Optimizer",
         "icon_url": "https://agents-slack.cailogics.com/static/avatar_26.png",
-        "system_prompt": build_agent_prompt("MistLar_ScopeOptimizer"),
+        "system_prompt": build_agent_prompt("Gemini_ScopeOptimizer"),
     },
     "OpAiTerra_ROIStrategist": {
         "model": "openai/gpt-5.6-terra",
@@ -154,4 +154,3 @@ AGENTS_CONFIG = {
         "system_prompt": build_agent_prompt("MistLar_QALead"),
     },
 }
-
