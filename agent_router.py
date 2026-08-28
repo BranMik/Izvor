@@ -17,15 +17,6 @@ from agents import (
 )
 from config import AGENTS_CONFIG, DEFAULT_AGENT_KEY
 from prompts import build_agent_prompt
-from llm_utils import (
-    extract_anthropic_cache_usage,
-    extract_cached_tokens,
-    is_anthropic_model,
-    is_openai_model,
-    log_anthropic_cache_usage,
-    log_llm_cache_usage,
-    log_openai_cached_tokens,
-)
 from mcp_tools import MCP_TOOLS_SCHEMAS, execute_mcp_tool
 from slack_client import (
     download_slack_file,
@@ -968,7 +959,6 @@ def build_llm_messages(
     4. The conversational sequence strictly ends with a 'user' turn (never 'assistant'),
        which is strictly required by Anthropic (Claude), Mistral, and Google Gemini APIs.
     5. Injects on-demand attached file content if present and if the current agent is authorized.
-    6. Formats system message content block with cache_control for Anthropic models.
     """
     conversation: list[dict[str, Any]] = []
 
@@ -1049,59 +1039,7 @@ def build_llm_messages(
             }
         )
 
-    model_name = agent_cfg.get("model")
-    if is_anthropic_model(model_name):
-        system_item: dict[str, Any] = {
-            "role": "system",
-            "content": [
-                {
-                    "type": "text",
-                    "text": system_prompt,
-                    "cache_control": {"type": "ephemeral"},
-                }
-            ],
-        }
-
-        # 1 breakpoint used for system prompt. Up to 3 remaining (Anthropic max 4 total).
-        has_file_cache = bool(file_block)
-        if has_file_cache and conversation:
-            # Structure last user turn into a cached file block + dynamic instruction block
-            active_turn = conversation[-1]
-            instruction_text = (
-                f"{prompt}{orchestration_block}"
-                if not is_bot_trigger
-                else f"You have been called to speak as {agent_cfg.get('username', agent_key)}. Please evaluate the discussion above and provide your response in accordance with your role and instructions.{orchestration_block}"
-            )
-            active_turn["content"] = [
-                {
-                    "type": "text",
-                    "text": file_block.strip(),
-                    "cache_control": {"type": "ephemeral"},
-                },
-                {
-                    "type": "text",
-                    "text": instruction_text,
-                },
-            ]
-
-        # Remaining cache slots for early thread history (2 if file is cached, 3 otherwise)
-        history_slots = 2 if has_file_cache else 3
-        num_history = max(0, len(conversation) - 1)
-        for i in range(min(num_history, history_slots)):
-            msg_content = conversation[i].get("content")
-            if isinstance(msg_content, str):
-                conversation[i]["content"] = [
-                    {
-                        "type": "text",
-                        "text": msg_content,
-                        "cache_control": {"type": "ephemeral"},
-                    }
-                ]
-            elif isinstance(msg_content, list) and msg_content:
-                msg_content[-1]["cache_control"] = {"type": "ephemeral"}
-    else:
-        system_item = {"role": "system", "content": system_prompt}
-
+    system_item = {"role": "system", "content": system_prompt}
     return [system_item] + conversation
 
 
@@ -1427,20 +1365,11 @@ async def process_and_respond(
 
         total_prompt_tokens = 0
         total_completion_tokens = 0
-        total_cached_tokens = 0
 
         def add_usage(resp, context: str = ""):
-            nonlocal total_prompt_tokens, total_completion_tokens, total_cached_tokens
+            nonlocal total_prompt_tokens, total_completion_tokens
             if not resp:
                 return
-            log_llm_cache_usage(
-                agent_cfg.get("model"), resp, context or agent_key, logger
-            )
-            model = agent_cfg.get("model")
-            if is_openai_model(model):
-                total_cached_tokens += extract_cached_tokens(resp)
-            elif is_anthropic_model(model):
-                total_cached_tokens += extract_anthropic_cache_usage(resp).get("cache_read", 0)
 
             usage = getattr(resp, "usage", None)
             if not usage:
@@ -1643,7 +1572,6 @@ async def process_and_respond(
             model_name=agent_cfg["model"],
             prompt_tokens=total_prompt_tokens,
             completion_tokens=total_completion_tokens,
-            cached_tokens=total_cached_tokens,
         )
 
         # Trigger parallel, non-blocking live thread notes update after posting reply
