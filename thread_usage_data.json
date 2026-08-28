@@ -43,13 +43,14 @@
     "usage_msg_ts": null,
     "models": {
       "gemini/gemini-3.7-flash": {
-        "prompt_tokens": 4650,
-        "completion_tokens": 1550,
-        "total_tokens": 6200
+        "prompt_tokens": 5100,
+        "completion_tokens": 1700,
+        "total_tokens": 6800,
+        "cached_tokens": 0
       }
     },
     "is_completed": false,
-    "last_updated": 1787699224.9662833
+    "last_updated": 1787938345.9270265
   },
   "C123:12345.0001": {
     "channel_id": "C123",
@@ -61,11 +62,12 @@
       "gemini/gemini-3.7-flash": {
         "prompt_tokens": 0,
         "completion_tokens": 0,
-        "total_tokens": 0
+        "total_tokens": 0,
+        "cached_tokens": 0
       }
     },
     "is_completed": false,
-    "last_updated": 1787699226.5946224
+    "last_updated": 1787938348.065449
   },
   "C123:12345.0002": {
     "channel_id": "C123",
@@ -77,16 +79,18 @@
       "anthropic/claude-opus-5": {
         "prompt_tokens": 0,
         "completion_tokens": 0,
-        "total_tokens": 0
+        "total_tokens": 0,
+        "cached_tokens": 0
       },
       "mistral/mistral-large-latest": {
         "prompt_tokens": 0,
         "completion_tokens": 0,
-        "total_tokens": 0
+        "total_tokens": 0,
+        "cached_tokens": 0
       }
     },
     "is_completed": false,
-    "last_updated": 1787699226.6064146
+    "last_updated": 1787938348.089685
   },
   "C123:12345.0003": {
     "channel_id": "C123",
@@ -98,26 +102,30 @@
       "gemini/gemini-3.7-flash": {
         "prompt_tokens": 0,
         "completion_tokens": 0,
-        "total_tokens": 0
+        "total_tokens": 0,
+        "cached_tokens": 0
       },
       "mistral/mistral-large-latest": {
         "prompt_tokens": 0,
         "completion_tokens": 0,
-        "total_tokens": 0
+        "total_tokens": 0,
+        "cached_tokens": 0
       },
       "openai/gpt-5.6-terra": {
         "prompt_tokens": 0,
         "completion_tokens": 0,
-        "total_tokens": 0
+        "total_tokens": 0,
+        "cached_tokens": 0
       },
       "anthropic/claude-opus-5": {
         "prompt_tokens": 0,
         "completion_tokens": 0,
-        "total_tokens": 0
+        "total_tokens": 0,
+        "cached_tokens": 0
       }
     },
     "is_completed": false,
-    "last_updated": 1787699226.6287937
+    "last_updated": 1787938348.157751
   },
   "C123:12345.0004": {
     "channel_id": "C123",
@@ -129,11 +137,12 @@
       "gemini/gemini-3.7-flash": {
         "prompt_tokens": 0,
         "completion_tokens": 0,
-        "total_tokens": 0
+        "total_tokens": 0,
+        "cached_tokens": 0
       }
     },
     "is_completed": false,
-    "last_updated": 1787699226.2823637
+    "last_updated": 1787938347.6538758
   },
   "C111:1700000000.001": {
     "channel_id": "C111",
@@ -143,13 +152,14 @@
     "usage_msg_ts": null,
     "models": {
       "mistral/mistral-small-latest": {
-        "prompt_tokens": 8700,
-        "completion_tokens": 4060,
-        "total_tokens": 12760
+        "prompt_tokens": 9600,
+        "completion_tokens": 4480,
+        "total_tokens": 14080,
+        "cached_tokens": 0
       }
     },
     "is_completed": false,
-    "last_updated": 1787699231.2026856
+    "last_updated": 1787938353.6137903
   },
   "C_ROUTER_TEST:1700000000.999": {
     "channel_id": "C_ROUTER_TEST",
@@ -159,13 +169,14 @@
     "usage_msg_ts": null,
     "models": {
       "gemini/gemini-3.7-flash": {
-        "prompt_tokens": 290,
-        "completion_tokens": 290,
-        "total_tokens": 580
+        "prompt_tokens": 320,
+        "completion_tokens": 320,
+        "total_tokens": 640,
+        "cached_tokens": 0
       }
     },
     "is_completed": false,
-    "last_updated": 1787699231.5347338
+    "last_updated": 1787938354.0509384
   },
   "C_ROUTER_TEST_2:1700000000.888": {
     "channel_id": "C_ROUTER_TEST_2",
@@ -175,13 +186,14 @@
     "usage_msg_ts": null,
     "models": {
       "gemini/gemini-3.7-flash": {
-        "prompt_tokens": 290,
-        "completion_tokens": 290,
-        "total_tokens": 580
+        "prompt_tokens": 320,
+        "completion_tokens": 320,
+        "total_tokens": 640,
+        "cached_tokens": 0
       }
     },
     "is_completed": false,
-    "last_updated": 1787699231.841974
+    "last_updated": 1787938354.4138007
   },
   "C_INTERRUPT_LLM:12345.1003": {
     "channel_id": "C_INTERRUPT_LLM",
@@ -193,11 +205,12 @@
       "gemini/gemini-3.7-flash": {
         "prompt_tokens": 0,
         "completion_tokens": 0,
-        "total_tokens": 0
+        "total_tokens": 0,
+        "cached_tokens": 0
       }
     },
     "is_completed": false,
-    "last_updated": 1787699227.252585
+    "last_updated": 1787938348.9315298
   },
   "C0BQGUCKVPE:1787589888.559759": {
     "channel_id": "C0BQGUCKVPE",
@@ -240,11 +253,12 @@
       "gemini/gemini-3.7-flash": {
         "prompt_tokens": 0,
         "completion_tokens": 0,
-        "total_tokens": 0
+        "total_tokens": 0,
+        "cached_tokens": 0
       }
     },
     "is_completed": false,
-    "last_updated": 1787699227.85553
+    "last_updated": 1787938349.6550925
   },
   "C_HIST_TEST_2:12345.3001": {
     "channel_id": "C_HIST_TEST_2",
@@ -256,11 +270,12 @@
       "mistral/mistral-large-latest": {
         "prompt_tokens": 0,
         "completion_tokens": 0,
-        "total_tokens": 0
+        "total_tokens": 0,
+        "cached_tokens": 0
       }
     },
     "is_completed": false,
-    "last_updated": 1787699227.8743937
+    "last_updated": 1787938349.6741068
   },
   "C_HIST_TEST_RESET:12345.4001": {
     "channel_id": "C_HIST_TEST_RESET",
@@ -272,11 +287,12 @@
       "gemini/gemini-3.7-flash": {
         "prompt_tokens": 0,
         "completion_tokens": 0,
-        "total_tokens": 0
+        "total_tokens": 0,
+        "cached_tokens": 0
       }
     },
     "is_completed": false,
-    "last_updated": 1787699228.18343
+    "last_updated": 1787938350.0165446
   },
   "C_HIST_ZERO:12345.5001": {
     "channel_id": "C_HIST_ZERO",
@@ -288,11 +304,12 @@
       "gemini/gemini-3.7-flash": {
         "prompt_tokens": 0,
         "completion_tokens": 0,
-        "total_tokens": 0
+        "total_tokens": 0,
+        "cached_tokens": 0
       }
     },
     "is_completed": false,
-    "last_updated": 1787699228.5014057
+    "last_updated": 1787938350.4677193
   },
   "C0BQGUCKVPE:1787591302.045619": {
     "channel_id": "C0BQGUCKVPE",
@@ -369,18 +386,20 @@
     "usage_msg_ts": null,
     "models": {
       "gemini/gemini-3.7-flash": {
-        "prompt_tokens": 600,
-        "completion_tokens": 400,
-        "total_tokens": 1000
+        "prompt_tokens": 690,
+        "completion_tokens": 460,
+        "total_tokens": 1150,
+        "cached_tokens": 0
       },
       "openai/gpt-5.6-terra": {
-        "prompt_tokens": 300,
-        "completion_tokens": 200,
-        "total_tokens": 500
+        "prompt_tokens": 345,
+        "completion_tokens": 230,
+        "total_tokens": 575,
+        "cached_tokens": 0
       }
     },
     "is_completed": true,
-    "last_updated": 1787699231.1769183
+    "last_updated": 1787938353.5613785
   },
   "C0BQGUCKVPE:1787601023.982929": {
     "channel_id": "C0BQGUCKVPE",
@@ -462,13 +481,14 @@
     "usage_msg_ts": null,
     "models": {
       "gemini/gemini-3.7-flash": {
-        "prompt_tokens": 70,
-        "completion_tokens": 70,
-        "total_tokens": 140
+        "prompt_tokens": 100,
+        "completion_tokens": 100,
+        "total_tokens": 200,
+        "cached_tokens": 0
       }
     },
     "is_completed": false,
-    "last_updated": 1787699229.1112664
+    "last_updated": 1787938351.1938252
   },
   "C_CB_DISABLED:123456789.9003": {
     "channel_id": "C_CB_DISABLED",
@@ -478,13 +498,14 @@
     "usage_msg_ts": null,
     "models": {
       "gemini/gemini-3.7-flash": {
-        "prompt_tokens": 70,
-        "completion_tokens": 70,
-        "total_tokens": 140
+        "prompt_tokens": 100,
+        "completion_tokens": 100,
+        "total_tokens": 200,
+        "cached_tokens": 0
       }
     },
     "is_completed": false,
-    "last_updated": 1787699229.4239092
+    "last_updated": 1787938351.4874122
   },
   "C0BQGUCKVPE:1787694435.859499": {
     "channel_id": "C0BQGUCKVPE",
@@ -614,5 +635,63 @@
     },
     "is_completed": true,
     "last_updated": 1787699787.9503345
+  },
+  "C0BQGUCKVPE:1787935998.823719": {
+    "channel_id": "C0BQGUCKVPE",
+    "channel_name": "#cailogics-debate",
+    "thread_ts": "1787935998.823719",
+    "created_at_str": "2026-08-28 18:53:18",
+    "usage_msg_ts": "1787936008.237709",
+    "models": {
+      "gemini/gemini-3.7-flash": {
+        "prompt_tokens": 10033,
+        "completion_tokens": 4870,
+        "cached_tokens": 0,
+        "total_tokens": 14903
+      },
+      "mistral/mistral-small-latest": {
+        "prompt_tokens": 42108,
+        "completion_tokens": 11094,
+        "cached_tokens": 0,
+        "total_tokens": 53202
+      },
+      "anthropic/claude-opus-5": {
+        "prompt_tokens": 5124,
+        "completion_tokens": 1054,
+        "cached_tokens": 0,
+        "total_tokens": 6178
+      },
+      "mistral/mistral-large-latest": {
+        "prompt_tokens": 3761,
+        "completion_tokens": 345,
+        "cached_tokens": 0,
+        "total_tokens": 4106
+      },
+      "openai/gpt-5.6-terra": {
+        "prompt_tokens": 11525,
+        "completion_tokens": 1798,
+        "cached_tokens": 0,
+        "total_tokens": 13323
+      }
+    },
+    "is_completed": true,
+    "last_updated": 1787936211.9951305
+  },
+  "C123:12345.9999": {
+    "channel_id": "C123",
+    "channel_name": "#C123",
+    "thread_ts": "12345.9999",
+    "created_at_str": "1970-01-01 04:25:45",
+    "usage_msg_ts": null,
+    "models": {
+      "mistral/mistral-large-latest": {
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "cached_tokens": 0,
+        "total_tokens": 0
+      }
+    },
+    "is_completed": false,
+    "last_updated": 1787938348.116823
   }
 }

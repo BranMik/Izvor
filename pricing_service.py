@@ -9,7 +9,13 @@ from typing import Any
 import litellm
 from starlette.concurrency import run_in_threadpool
 
-from config import PRICING_AGENT_MODEL, PRICING_AGENT_PROMPT, is_anthropic_model
+from config import PRICING_AGENT_MODEL, PRICING_AGENT_PROMPT
+from llm_utils import (
+    is_anthropic_model,
+    is_openai_model,
+    log_llm_cache_usage,
+    log_openai_cached_tokens,
+)
 from web_tools import fetch_web_page, web_search
 
 logger = logging.getLogger(__name__)
@@ -281,6 +287,9 @@ async def fetch_pricing_with_agent(model_name: str) -> dict[str, Any]:
         litellm.completion,
         **completion_kwargs,
     )
+    log_llm_cache_usage(
+        PRICING_AGENT_MODEL, response, "Pricing_Agent", logger
+    )
 
     response_message = response.choices[0].message
     tool_calls = getattr(response_message, "tool_calls", None)
@@ -360,6 +369,9 @@ async def fetch_pricing_with_agent(model_name: str) -> dict[str, Any]:
         follow_up = await run_in_threadpool(
             litellm.completion,
             **follow_up_kwargs,
+        )
+        log_llm_cache_usage(
+            PRICING_AGENT_MODEL, follow_up, "Pricing_Agent follow-up", logger
         )
         response_message = follow_up.choices[0].message
         tool_calls = getattr(response_message, "tool_calls", None)

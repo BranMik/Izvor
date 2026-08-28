@@ -669,6 +669,51 @@ async def test_process_and_respond_model_not_found(monkeypatch):
 
 
 @pytest.mark.anyio
+async def test_process_and_respond_retries_and_clean_error_message(monkeypatch):
+    REMAINING_AGENTS_MAP.clear()
+    RATE_LIMIT_RETRY_QUEUE.clear()
+    RATE_LIMIT_ALREADY_RETRIED.clear()
+
+    thread_key = ("C123", "12345.9999")
+    REMAINING_AGENTS_MAP[thread_key] = ["AnthrOpus_Innovator"]
+
+    call_count = 0
+
+    async def mock_fail_service_unavailable(func, *args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        raise Exception("503 Service Unavailable: Mistral server overload")
+
+    posted = []
+
+    async def mock_post_agent_response(channel_id, thread_ts, text, username, icon_url=None):
+        posted.append({"text": text, "username": username, "icon_url": icon_url})
+        return {"ok": True, "ts": "12345.9999"}
+
+    monkeypatch.setattr("agent_router.run_in_threadpool", mock_fail_service_unavailable)
+    monkeypatch.setattr("agent_router.post_agent_response", mock_post_agent_response)
+    monkeypatch.setattr("agent_router.fetch_thread_history", AsyncMock(return_value=[]))
+
+    res = await process_and_respond(
+        channel_id="C123",
+        thread_ts="12345.9999",
+        raw_text="[MistLar_TechLead] Analyze this code",
+        is_bot_trigger=True,
+    )
+
+    # Must have retried 3 times
+    assert call_count == 3
+    assert len(posted) == 1
+    assert posted[0]["username"] == "MistLar TechLead"
+    # Clean error message without raw traceback
+    assert "Error processing request - check the logs" in posted[0]["text"]
+    assert "503" not in posted[0]["text"]
+    assert "Mistral server overload" not in posted[0]["text"]
+    # Continues thread to next agent
+    assert "[AnthrOpus_Innovator]" in posted[0]["text"]
+
+
+@pytest.mark.anyio
 async def test_process_and_respond_rate_limits_and_retry_flow(monkeypatch):
     REMAINING_AGENTS_MAP.clear()
     RATE_LIMIT_RETRY_QUEUE.clear()

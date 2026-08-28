@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import re
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -14,7 +15,16 @@ from agents import (
     trigger_thread_notes_update,
     trigger_usage_update,
 )
-from config import AGENTS_CONFIG, DEFAULT_AGENT_KEY, is_anthropic_model
+from config import AGENTS_CONFIG, DEFAULT_AGENT_KEY
+from llm_utils import (
+    extract_anthropic_cache_usage,
+    extract_cached_tokens,
+    is_anthropic_model,
+    is_openai_model,
+    log_anthropic_cache_usage,
+    log_llm_cache_usage,
+    log_openai_cached_tokens,
+)
 from mcp_tools import MCP_TOOLS_SCHEMAS, execute_mcp_tool
 from slack_client import (
     download_slack_file,
@@ -28,6 +38,11 @@ logger = logging.getLogger(__name__)
 # Turn off verbose LiteLLM logging unless debugging
 litellm.suppress_debug_info = True
 litellm.drop_params = True
+
+# Pacing and retry configuration
+LLM_MAX_RETRIES = 3
+LLM_RETRY_BACKOFF_BASE = 0.01 if "pytest" in sys.modules else 1.5
+SLACK_POST_PAUSE_SECONDS = 0.01 if "pytest" in sys.modules else 2.0
 
 # Path to persistent settings file
 SETTINGS_FILE = Path(__file__).parent / "agent_settings.json"
@@ -1039,6 +1054,43 @@ def build_llm_messages(
     return [system_item] + conversation
 
 
+async def _execute_llm_with_retry(
+    func: Any,
+    kwargs: dict[str, Any],
+    agent_key: str,
+    thread_key: tuple[str, str],
+    is_superseded_fn=None,
+    max_attempts: int = LLM_MAX_RETRIES,
+) -> Any:
+    """
+    Executes an LLM call in a threadpool with automatic retries and exponential backoff.
+    Attempts up to `max_attempts` times before raising the last exception.
+    """
+    last_error: Exception | None = None
+    for attempt in range(1, max_attempts + 1):
+        if is_superseded_fn and is_superseded_fn():
+            logger.info(
+                f"[ROUTER] Thread {thread_key} turn was superseded before LLM attempt {attempt}. Aborting."
+            )
+            return None
+
+        try:
+            if attempt > 1:
+                logger.info(
+                    f"[LLM] Retrying LLM completion for {agent_key} (attempt {attempt}/{max_attempts})..."
+                )
+            return await run_in_threadpool(func, **kwargs)
+        except Exception as exc:
+            last_error = exc
+            logger.warning(
+                f"[LLM] Attempt {attempt}/{max_attempts} failed for {agent_key}: {exc}"
+            )
+            if attempt < max_attempts:
+                await asyncio.sleep(LLM_RETRY_BACKOFF_BASE * attempt)
+            else:
+                raise last_error
+
+
 async def process_and_respond(
     channel_id: str,
     thread_ts: str,
@@ -1191,6 +1243,7 @@ async def process_and_respond(
                 username=agent_cfg["username"],
                 icon_url=agent_cfg.get("icon_url"),
             )
+            await asyncio.sleep(SLACK_POST_PAUSE_SECONDS)
             trigger_thread_notes_update(
                 channel_id=channel_id,
                 thread_ts=thread_ts,
@@ -1312,11 +1365,21 @@ async def process_and_respond(
 
         total_prompt_tokens = 0
         total_completion_tokens = 0
+        total_cached_tokens = 0
 
-        def add_usage(resp):
-            nonlocal total_prompt_tokens, total_completion_tokens
+        def add_usage(resp, context: str = ""):
+            nonlocal total_prompt_tokens, total_completion_tokens, total_cached_tokens
             if not resp:
                 return
+            log_llm_cache_usage(
+                agent_cfg.get("model"), resp, context or agent_key, logger
+            )
+            model = agent_cfg.get("model")
+            if is_openai_model(model):
+                total_cached_tokens += extract_cached_tokens(resp)
+            elif is_anthropic_model(model):
+                total_cached_tokens += extract_anthropic_cache_usage(resp).get("cache_read", 0)
+
             usage = getattr(resp, "usage", None)
             if not usage:
                 return
@@ -1327,7 +1390,7 @@ async def process_and_respond(
                 total_prompt_tokens += getattr(usage, "prompt_tokens", 0) or 0
                 total_completion_tokens += getattr(usage, "completion_tokens", 0) or 0
 
-        # 3. Call LiteLLM model with MCP tools in a threadpool to prevent freezing the event loop
+        # 3. Call LiteLLM model with MCP tools in a threadpool with automatic retries
         logger.info(f"[LLM] Dispatching litellm.completion for {agent_key}...")
         llm_start = time.time()
         completion_kwargs: dict[str, Any] = {
@@ -1336,11 +1399,18 @@ async def process_and_respond(
             # "temperature": agent_cfg["temperature"],
             "tools": MCP_TOOLS_SCHEMAS,
             "tool_choice": "auto",
+            "num_retries": 2,
         }
-        response = await run_in_threadpool(
+        response = await _execute_llm_with_retry(
             litellm.completion,
-            **completion_kwargs,
+            completion_kwargs,
+            agent_key=agent_key,
+            thread_key=thread_key,
+            is_superseded_fn=is_superseded,
         )
+        if response is None and is_superseded():
+            return {"ok": False, "cancelled": True, "reason": "superseded"}
+
         add_usage(response)
         llm_duration = time.time() - llm_start
         logger.info(
@@ -1385,17 +1455,24 @@ async def process_and_respond(
                 )
                 return {"ok": False, "cancelled": True, "reason": "superseded"}
 
-            # Follow-up completion after tool results in a threadpool
+            # Follow-up completion after tool results in a threadpool with automatic retries
             follow_up_kwargs: dict[str, Any] = {
                 "model": agent_cfg["model"],
                 "messages": messages,
+                "num_retries": 2,
                 # "temperature": agent_cfg["temperature"],
             }
-            follow_up = await run_in_threadpool(
+            follow_up = await _execute_llm_with_retry(
                 litellm.completion,
-                **follow_up_kwargs,
+                follow_up_kwargs,
+                agent_key=f"{agent_key} follow-up",
+                thread_key=thread_key,
+                is_superseded_fn=is_superseded,
             )
-            add_usage(follow_up)
+            if follow_up is None and is_superseded():
+                return {"ok": False, "cancelled": True, "reason": "superseded"}
+
+            add_usage(follow_up, f"{agent_key} follow-up")
             final_text = follow_up.choices[0].message.content
         else:
             final_text = response_message.content
@@ -1482,6 +1559,9 @@ async def process_and_respond(
         posted_ts = slack_res.get("ts")
         logger.info(f"[SLACK] Successfully posted message! Received ts: {posted_ts}")
 
+        # Short pause after Slack post to maintain pacing and avoid rate limits
+        await asyncio.sleep(SLACK_POST_PAUSE_SECONDS)
+
         # Determine if this turn completes the thread discussion
         has_pending_retries = bool(RATE_LIMIT_RETRY_QUEUE.get(thread_key))
         is_completed = bool(
@@ -1501,6 +1581,7 @@ async def process_and_respond(
             model_name=agent_cfg["model"],
             prompt_tokens=total_prompt_tokens,
             completion_tokens=total_completion_tokens,
+            cached_tokens=total_cached_tokens,
         )
 
         # Trigger parallel, non-blocking live thread notes update after posting reply
@@ -1584,7 +1665,7 @@ async def process_and_respond(
             else:
                 error_sentence = "RATE LIMITS CROSSED"
         else:
-            error_sentence = f"Error processing request: {e!s}"
+            error_sentence = "Error processing request - check the logs"
 
         # Determine next nomination to ensure thread continuity
         next_nomination = None
@@ -1621,6 +1702,9 @@ async def process_and_respond(
             username=agent_cfg["username"],
             icon_url=agent_cfg.get("icon_url"),
         )
+
+        # Short pause after posting error message to prevent rapid cascading message spam
+        await asyncio.sleep(SLACK_POST_PAUSE_SECONDS)
 
         has_pending_retries = bool(RATE_LIMIT_RETRY_QUEUE.get(thread_key))
         is_completed = bool(

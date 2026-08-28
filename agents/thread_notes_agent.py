@@ -6,7 +6,15 @@ from typing import Any
 import litellm
 from starlette.concurrency import run_in_threadpool
 
-from config import THREAD_NOTES_MODEL, THREAD_NOTES_PROMPT, is_anthropic_model
+from config import THREAD_NOTES_MODEL, THREAD_NOTES_PROMPT
+from llm_utils import (
+    extract_anthropic_cache_usage,
+    extract_cached_tokens,
+    is_anthropic_model,
+    is_openai_model,
+    log_llm_cache_usage,
+    log_openai_cached_tokens,
+)
 from slack_client import fetch_thread_history, post_thread_note, update_thread_note
 from .usage_agent import record_thread_tokens, trigger_usage_update
 
@@ -139,6 +147,9 @@ async def generate_thread_notes(
         litellm.completion,
         **completion_kwargs,
     )
+    log_llm_cache_usage(
+        THREAD_NOTES_MODEL, response, "Thread_Notes_Agent", logger
+    )
 
     raw_content = response.choices[0].message.content or ""
 
@@ -171,9 +182,16 @@ async def generate_thread_notes(
                 prompt_tokens + completion_tokens
             )
 
+    cached_tokens = 0
+    if is_openai_model(THREAD_NOTES_MODEL):
+        cached_tokens = extract_cached_tokens(response)
+    elif is_anthropic_model(THREAD_NOTES_MODEL):
+        cached_tokens = extract_anthropic_cache_usage(response).get("cache_read", 0)
+
     token_stats = {
         "prompt_tokens": prompt_tokens,
         "completion_tokens": completion_tokens,
+        "cached_tokens": cached_tokens,
         "total_tokens": total_tokens,
     }
 
@@ -271,6 +289,7 @@ async def update_notes_for_thread(
                     model_name=THREAD_NOTES_MODEL,
                     prompt_tokens=token_stats["prompt_tokens"],
                     completion_tokens=token_stats["completion_tokens"],
+                    cached_tokens=token_stats.get("cached_tokens", 0),
                 )
                 trigger_usage_update(
                     channel_id=channel_id,

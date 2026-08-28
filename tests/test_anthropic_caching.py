@@ -1,8 +1,14 @@
 import asyncio
+import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
-from config import AGENTS_CONFIG, is_anthropic_model
+from config import AGENTS_CONFIG
+from llm_utils import (
+    extract_anthropic_cache_usage,
+    is_anthropic_model,
+    log_anthropic_cache_usage,
+)
 import agent_router
 from agents.thread_notes_agent import generate_thread_notes
 import pricing_service
@@ -295,3 +301,127 @@ def test_build_llm_messages_anthropic_caching_without_file_uses_3_history_slots(
     assert messages[1]["content"][0]["cache_control"] == {"type": "ephemeral"}
     assert messages[2]["content"][0]["cache_control"] == {"type": "ephemeral"}
     assert messages[3]["content"][0]["cache_control"] == {"type": "ephemeral"}
+
+
+def test_extract_anthropic_cache_usage():
+    """Verify extract_anthropic_cache_usage handles various response/usage formats."""
+    # 1. Direct attributes on usage
+    mock_resp = MagicMock()
+    mock_resp.usage.cache_read_input_tokens = 500
+    mock_resp.usage.cache_creation_input_tokens = 1200
+    assert extract_anthropic_cache_usage(mock_resp) == {
+        "cache_read": 500,
+        "cache_creation": 1200,
+    }
+
+    # 2. In prompt_tokens_details
+    mock_resp2 = MagicMock()
+    mock_resp2.usage = MagicMock(spec=["prompt_tokens_details"])
+    mock_resp2.usage.prompt_tokens_details.cached_tokens = 300
+    mock_resp2.usage.prompt_tokens_details.cache_creation_tokens = 800
+    assert extract_anthropic_cache_usage(mock_resp2) == {
+        "cache_read": 300,
+        "cache_creation": 800,
+    }
+
+    # 3. Dict usage
+    dict_usage = {
+        "usage": {
+            "cache_read_input_tokens": 150,
+            "cache_creation_input_tokens": 250,
+        }
+    }
+    assert extract_anthropic_cache_usage(dict_usage) == {
+        "cache_read": 150,
+        "cache_creation": 250,
+    }
+
+    # 4. Empty/default mock
+    assert extract_anthropic_cache_usage(MagicMock()) == {
+        "cache_read": 0,
+        "cache_creation": 0,
+    }
+    assert extract_anthropic_cache_usage(None) == {
+        "cache_read": 0,
+        "cache_creation": 0,
+    }
+
+
+@pytest.mark.anyio
+async def test_anthropic_agent_logs_cache_usage(caplog):
+    """Verify that calling an Anthropic agent logs cache_read and cache_creation."""
+    mock_resp = MagicMock()
+    mock_resp.choices = [
+        MagicMock(message=MagicMock(content="Hello from Innovator!", tool_calls=None))
+    ]
+    mock_resp.usage = MagicMock(prompt_tokens=1000, completion_tokens=100)
+    mock_resp.usage.cache_read_input_tokens = 450
+    mock_resp.usage.cache_creation_input_tokens = 550
+
+    with caplog.at_level(logging.INFO), \
+         patch("litellm.completion", return_value=mock_resp) as mock_completion, \
+         patch("agent_router.post_agent_response", return_value={"ok": True, "ts": "123.456"}), \
+         patch("agent_router.fetch_thread_history", return_value=[]), \
+         patch("agent_router.fetch_thread_files", return_value=[]), \
+         patch("agent_router.record_thread_tokens"), \
+         patch("agent_router.trigger_thread_notes_update"), \
+         patch("agent_router.trigger_usage_update"):
+
+        res = await agent_router.process_and_respond(
+            channel_id="C123",
+            thread_ts="1234567890.123456",
+            raw_text="[AnthrOpus_Innovator] Plan innovation",
+            is_bot_trigger=False,
+        )
+
+        assert res["ok"] is True
+        assert mock_completion.call_count == 1
+        assert "[ANTHROPIC] cache_read: 450 | cache_creation: 550" in caplog.text
+        assert "anthropic/claude-opus-5" in caplog.text
+
+
+@pytest.mark.anyio
+async def test_anthropic_tool_call_follow_up_logs_cache_usage(caplog):
+    """Verify follow-up completion after tool call logs Anthropic cache usage."""
+    tool_call_mock = MagicMock()
+    tool_call_mock.id = "call_anthro123"
+    tool_call_mock.function.name = "read_file"
+    tool_call_mock.function.arguments = '{"path": "sample.py"}'
+
+    first_resp = MagicMock()
+    first_resp.choices = [
+        MagicMock(message=MagicMock(content=None, tool_calls=[tool_call_mock], model_dump=lambda: {"role": "assistant", "content": None}))
+    ]
+    first_resp.usage = MagicMock(prompt_tokens=800, completion_tokens=20)
+    first_resp.usage.cache_read_input_tokens = 0
+    first_resp.usage.cache_creation_input_tokens = 800
+
+    second_resp = MagicMock()
+    second_resp.choices = [
+        MagicMock(message=MagicMock(content="Review complete.", tool_calls=None))
+    ]
+    second_resp.usage = MagicMock(prompt_tokens=900, completion_tokens=50)
+    second_resp.usage.cache_read_input_tokens = 800
+    second_resp.usage.cache_creation_input_tokens = 100
+
+    with caplog.at_level(logging.INFO), \
+         patch("litellm.completion", side_effect=[first_resp, second_resp]) as mock_completion, \
+         patch("agent_router.execute_mcp_tool", return_value="def foo(): pass"), \
+         patch("agent_router.post_agent_response", return_value={"ok": True, "ts": "123.456"}), \
+         patch("agent_router.fetch_thread_history", return_value=[]), \
+         patch("agent_router.fetch_thread_files", return_value=[]), \
+         patch("agent_router.record_thread_tokens"), \
+         patch("agent_router.trigger_thread_notes_update"), \
+         patch("agent_router.trigger_usage_update"):
+
+        res = await agent_router.process_and_respond(
+            channel_id="C123",
+            thread_ts="1234567890.123456",
+            raw_text="[AnthrOpus_Sceptic] Review the code",
+            is_bot_trigger=False,
+        )
+
+        assert res["ok"] is True
+        assert mock_completion.call_count == 2
+        assert "[ANTHROPIC] cache_read: 0 | cache_creation: 800" in caplog.text
+        assert "[ANTHROPIC] cache_read: 800 | cache_creation: 100" in caplog.text
