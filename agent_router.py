@@ -689,31 +689,20 @@ def get_initial_agents() -> list[str]:
 
 def extract_tagged_agents(text: str) -> list[str]:
     """
-    Extracts all valid agent keys mentioned/tagged in the text,
+    Extracts all valid agent keys tagged in [Agent_Key] format in the text,
     ordered by their appearance in the text.
     """
     matches = []
     # Clean text to remove bot mentions
     cleaned = re.sub(r"<@[A-Z0-9]+>", "", text)
 
-    # 1. Bracketed tags
+    # Bracketed tags [Agent_Key]
     for match in re.finditer(r"\[([a-zA-Z0-9_]+)\]", cleaned):
         tag = match.group(1).lower()
         for key in AGENTS_CONFIG:
             if tag == key.lower():
                 matches.append((match.start(), key))
                 break
-
-    # 2. Key or username mentions
-    for key, cfg in AGENTS_CONFIG.items():
-        for match in re.finditer(r"@?" + re.escape(key), cleaned, re.IGNORECASE):
-            matches.append((match.start(), key))
-        username = cfg.get("username", "")
-        if username:
-            for match in re.finditer(
-                r"@?" + re.escape(username), cleaned, re.IGNORECASE
-            ):
-                matches.append((match.start(), key))
 
     # Sort matches by position in text to preserve order
     matches.sort(key=lambda x: x[0])
@@ -731,14 +720,13 @@ def parse_agent_and_prompt(
     text: str, channel_id: str, thread_ts: str
 ) -> tuple[str, str, bool]:
     """
-    Parses Slack message text for pseudo-agent tags or @mentions.
+    Parses Slack message text for bracketed agent tags: [Agent_Key].
     Supported patterns:
     - [Gemini_Visionary] prompt...
-    - @Gemini_Visionary prompt...
     - @CaiLogics Hub [Mistral_TechLead] prompt...
-    - @CaiLogics Visionary prompt...
-    - Plain text -> defaults to Gemini_Visionary
-    Note: If no agent is specified, the default flow is to start with Gemini_Visionary, go through all others, and end with OpAiTerra_Architect. Each agent will nominate the next agent to speak.
+    - Plain text / App mention -> defaults to Gemini_Visionary (full panel flow)
+    Note: If no bracketed agent tag is specified, the default flow starts with Gemini_Visionary,
+    goes through enabled panel agents, and finishes with OpAiTerra_Architect.
     Returns (agent_key, cleaned_prompt, was_explicit_target)
     """
 
@@ -788,30 +776,7 @@ def parse_agent_and_prompt(
             remaining.remove(matched_key)
         return matched_key, prompt, True
 
-    # Search for direct @Name or name mentions in text
-    for key, cfg in AGENTS_CONFIG.items():
-        # Check against dictionary key (e.g. Gemini_Visionary or Mistral_TechLead)
-        if re.search(r"@?" + re.escape(key), cleaned_text, re.IGNORECASE):
-            prompt = re.sub(
-                r"@?" + re.escape(key), "", cleaned_text, flags=re.IGNORECASE
-            ).strip()
-            if key in remaining:
-                remaining.remove(key)
-            return key, prompt, True
-
-        # Check against configured Slack persona username (e.g. "CaiLogics Visionary")
-        persona_name = cfg.get("username", "")
-        if persona_name and re.search(
-            r"@?" + re.escape(persona_name), cleaned_text, re.IGNORECASE
-        ):
-            prompt = re.sub(
-                r"@?" + re.escape(persona_name), "", cleaned_text, flags=re.IGNORECASE
-            ).strip()
-            if key in remaining:
-                remaining.remove(key)
-            return key, prompt, True
-
-    # Default fallback agent if no tag or name matched
+    # Default fallback agent if no bracketed tag matched
     if DEFAULT_AGENT_KEY in remaining:
         remaining.remove(DEFAULT_AGENT_KEY)
     return DEFAULT_AGENT_KEY, cleaned_text, False

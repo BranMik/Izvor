@@ -79,14 +79,25 @@ def test_parse_multiple_tags_first_invalid():
 
 
 def test_parse_at_mention_persona():
+    # Non-bracketed name mention is no longer an explicit agent tag; falls back to default agent
     agent_key, prompt, was_explicit = parse_agent_and_prompt(
         "<@U12345> @Gemini Visionary generate a concept",
         "C12345",
         "123456789.0001",
     )
     assert agent_key == "Gemini_Visionary"
-    assert prompt == "generate a concept"
-    assert was_explicit is True
+    assert prompt == "@Gemini Visionary generate a concept"
+    assert was_explicit is False
+
+    # Bracketed tag is the only recognized explicit agent tag
+    agent_key_tagged, prompt_tagged, was_explicit_tagged = parse_agent_and_prompt(
+        "<@U12345> [Gemini_Visionary] generate a concept",
+        "C12345",
+        "123456789.0002",
+    )
+    assert agent_key_tagged == "Gemini_Visionary"
+    assert prompt_tagged == "generate a concept"
+    assert was_explicit_tagged is True
 
 
 def test_parse_fallback_default_agent():
@@ -504,14 +515,14 @@ def test_disabled_agent_can_still_be_explicitly_tagged():
     assert prompt == "Direct question to disabled agent"
     assert was_explicit is True
 
-    # User explicitly mentions persona name
+    # User mentions persona name without brackets -> does NOT tag disabled agent, falls back to default agent
     agent_key_2, prompt_2, was_explicit_2 = parse_agent_and_prompt(
         "<@U123> @MistLar TechLead Direct question to disabled agent",
         "C_TEST",
         "123.002",
     )
-    assert agent_key_2 == "MistLar_TechLead"
-    assert was_explicit_2 is True
+    assert agent_key_2 == "Gemini_Visionary"
+    assert was_explicit_2 is False
 
 
 def test_build_app_home_view():

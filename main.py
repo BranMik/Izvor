@@ -195,24 +195,12 @@ async def slack_events(request: Request, background_tasks: BackgroundTasks):
                     or (bot_user_id is not None and event.get("user") == bot_user_id)
                 )
 
-                # 5c. Extract nominations and tags
+                # 5c. Extract nominations and tags ([Agent_Key])
                 has_tag = False
                 for match in re.finditer(r"\[([a-zA-Z0-9_]+)\]", raw_text):
                     tag = match.group(1)
                     if any(tag.lower() == k.lower() for k in AGENTS_CONFIG):
                         has_tag = True
-                        break
-
-                has_name_mention = False
-                for key in AGENTS_CONFIG:
-                    if re.search(r"@?" + re.escape(key), raw_text, re.IGNORECASE):
-                        has_name_mention = True
-                        break
-                    persona_name = AGENTS_CONFIG[key].get("username", "")
-                    if persona_name and re.search(
-                        r"@?" + re.escape(persona_name), raw_text, re.IGNORECASE
-                    ):
-                        has_name_mention = True
                         break
 
                 # 5d. Determine processing authorization
@@ -263,8 +251,8 @@ async def slack_events(request: Request, background_tasks: BackgroundTasks):
                         request_thread_stop(channel_id, thread_ts)
                         return Response(status_code=200)
 
-                    # User messages must either have a tag, name mention, or be an app_mention/DM
-                    if has_tag or has_name_mention or is_mention_or_dm:
+                    # User messages must either have a bracketed tag or be an app_mention/DM
+                    if has_tag or is_mention_or_dm:
                         should_process = True
                         if is_discussion_active(channel_id, thread_ts):
                             logger.info(
