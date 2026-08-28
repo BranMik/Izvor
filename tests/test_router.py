@@ -383,7 +383,7 @@ async def test_scenario_3_no_agent_tagged_default_flow(monkeypatch):
 
 
 def test_is_stop_command():
-    # Valid stop commands (/stop syntax)
+    # Valid stop commands (/stop syntax anywhere with whitespace or start/end boundaries)
     assert is_stop_command("<@U12345> /stop") is True
     assert is_stop_command("<@U12345> /STOP!") is True
     assert is_stop_command("<@U12345> /Stop.") is True
@@ -391,18 +391,23 @@ def test_is_stop_command():
     assert is_stop_command("@CaiLogics Test /stop") is True
     assert is_stop_command("@CaiLogics /stop") is True
     assert is_stop_command("@app_mention /stop") is True
-    assert is_stop_command("<@U12345> @Gemini Visionary /stop") is True
     assert is_stop_command("[Gemini_Visionary] /stop") is True
+    assert is_stop_command("/stop", is_mention_or_dm=True) is True
+    assert is_stop_command("anything /stop bla") is True
+    assert is_stop_command("/stop bla bla") is True
+    assert is_stop_command("bla bla /stop") is True
     assert is_stop_command("<@U12345> /stop discussion") is True
     assert is_stop_command("<@U12345> /stop flow") is True
     assert is_stop_command("<@U12345> /stop please") is True
     assert is_stop_command("<@U12345> please /stop") is True
-    assert is_stop_command("<@U12345> /stani") is True
-    assert is_stop_command("<@U12345> /zaustavi") is True
-    assert is_stop_command("<@U12345> /prekini") is True
-    assert is_stop_command("/stop", is_mention_or_dm=True) is True
+    assert is_stop_command("<@U12345> @Gemini Visionary /stop") is True
 
     # Negative cases (should NOT be treated as stop commands)
+    assert is_stop_command("<@U12345> /stani") is False
+    assert is_stop_command("<@U12345> /zaustavi") is False
+    assert is_stop_command("<@U12345> /prekini") is False
+    assert is_stop_command("http://example.com/stop") is False
+    assert is_stop_command("/stopwatch") is False
     assert is_stop_command("<@U12345> How do I stop a docker container?") is False
     assert is_stop_command("<@U12345> Where is the nearest bus stop?") is False
     assert is_stop_command("<@U12345> Can you stop by our office tomorrow?") is False
