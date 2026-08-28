@@ -128,7 +128,7 @@ AGENTS_CONFIG = {
         "system_prompt": build_agent_prompt("MistLar_OperationalReliabilityLead"),
     },
     "MistLar_DeploymentReleaseStrategist": {
-        "model": "gemini/gemini-3.7-flash",
+        "model": "mistral/mistral-large-latest",
         "username": "MistLar Deployment & Release Strategist",
         "icon_url": "https://agents-slack.cailogics.com/static/avatar_26.png",
         "system_prompt": build_agent_prompt("MistLar_DeploymentReleaseStrategist"),
@@ -154,12 +154,4 @@ AGENTS_CONFIG = {
         "system_prompt": build_agent_prompt("MistLar_QALead"),
     },
 }
-
-
-def is_anthropic_model(model: str | None) -> bool:
-    """Checks whether the given model name targets Anthropic (Claude)."""
-    if not model or not isinstance(model, str):
-        return False
-    m = model.lower().strip()
-    return m.startswith("anthropic/") or "claude" in m
 
