@@ -10,12 +10,6 @@ import litellm
 from starlette.concurrency import run_in_threadpool
 
 from config import PRICING_AGENT_MODEL, PRICING_AGENT_PROMPT
-from llm_utils import (
-    is_anthropic_model,
-    is_openai_model,
-    log_llm_cache_usage,
-    log_openai_cached_tokens,
-)
 from web_tools import fetch_web_page, web_search
 
 logger = logging.getLogger(__name__)
@@ -260,19 +254,8 @@ async def fetch_pricing_with_agent(model_name: str) -> dict[str, Any]:
         f"model_name, input_price_per_1m, output_price_per_1m, currency ('USD'), source, source_url."
     )
 
-    if is_anthropic_model(PRICING_AGENT_MODEL):
-        system_content: Any = [
-            {
-                "type": "text",
-                "text": PRICING_AGENT_PROMPT,
-                "cache_control": {"type": "ephemeral"},
-            }
-        ]
-    else:
-        system_content = PRICING_AGENT_PROMPT
-
     messages: list[dict[str, Any]] = [
-        {"role": "system", "content": system_content},
+        {"role": "system", "content": PRICING_AGENT_PROMPT},
         {"role": "user", "content": user_prompt},
     ]
 
@@ -286,9 +269,6 @@ async def fetch_pricing_with_agent(model_name: str) -> dict[str, Any]:
     response = await run_in_threadpool(
         litellm.completion,
         **completion_kwargs,
-    )
-    log_llm_cache_usage(
-        PRICING_AGENT_MODEL, response, "Pricing_Agent", logger
     )
 
     response_message = response.choices[0].message
@@ -369,9 +349,6 @@ async def fetch_pricing_with_agent(model_name: str) -> dict[str, Any]:
         follow_up = await run_in_threadpool(
             litellm.completion,
             **follow_up_kwargs,
-        )
-        log_llm_cache_usage(
-            PRICING_AGENT_MODEL, follow_up, "Pricing_Agent follow-up", logger
         )
         response_message = follow_up.choices[0].message
         tool_calls = getattr(response_message, "tool_calls", None)

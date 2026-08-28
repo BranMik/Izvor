@@ -168,38 +168,37 @@ async def test_update_usage_for_thread_creates_and_updates_in_slack():
 
 
 @pytest.mark.anyio
-async def test_record_and_format_cached_tokens_in_usage_message():
+async def test_no_cache_info_in_usage_message():
     channel_id = "C_CACHE_TEST"
     thread_ts = "1700000000.777777"
 
-    # Record tokens with cached_tokens for OpenAI model
+    # Record tokens for model
     record_thread_tokens(
         channel_id=channel_id,
         thread_ts=thread_ts,
         model_name="openai/gpt-5.6-terra",
         prompt_tokens=2048,
         completion_tokens=500,
-        cached_tokens=1024,
         channel_name="#cache-test",
     )
 
     costs = calculate_thread_costs(channel_id, thread_ts)
     model_stats = costs["models"]["openai/gpt-5.6-terra"]
 
-    # Verify cached_tokens tracked
-    assert model_stats["cached_tokens"] == 1024
-    assert costs["grand_cached_tokens"] == 1024
+    # Verify cached_tokens is NOT tracked in model stats or grand totals
+    assert "cached_tokens" not in model_stats
+    assert "grand_cached_tokens" not in costs
 
-    # Verify cached_tokens is NOT calculated in money spent
-    # Cost should strictly equal in_cost + out_cost from prompt & completion
+    # Verify cost calculation
     in_rate = model_stats["input_price_per_1m"]
     out_rate = model_stats["output_price_per_1m"]
     expected_cost = (2048 / 1_000_000.0) * in_rate + (500 / 1_000_000.0) * out_rate
     assert model_stats["total_cost_usd"] == pytest.approx(expected_cost)
     assert costs["grand_total_cost_usd"] == pytest.approx(expected_cost)
 
-    # Verify format_usage_slack_message contains cached tokens under the model
+    # Verify format_usage_slack_message contains NO cache info
     msg = await format_usage_slack_message(channel_id, thread_ts, is_completed=False)
     assert "• *`openai/gpt-5.6-terra`*" in msg
-    assert "Predmemorirani (Cached):* `1,024` tok.  _(nije uračunato u trošak)_" in msg
-    assert "Ukupno predmemoriranih tokena: *1,024*" in msg
+    assert "Predmemorirani" not in msg
+    assert "Cached" not in msg
+    assert "predmemoriranih" not in msg

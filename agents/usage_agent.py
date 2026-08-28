@@ -92,7 +92,7 @@ def record_thread_tokens(
     cached_tokens: int = 0,
 ) -> dict[str, Any]:
     """
-    Accumulates input, output, and cached tokens for a specific model within a thread.
+    Accumulates input and output tokens for a specific model within a thread.
     Thread-safe and persists to thread_usage_data.json.
     """
     thread_key = (channel_id, thread_ts)
@@ -118,14 +118,13 @@ def record_thread_tokens(
         models_map[model_name] = {
             "prompt_tokens": 0,
             "completion_tokens": 0,
-            "cached_tokens": 0,
             "total_tokens": 0,
         }
 
     m_stats = models_map[model_name]
+    m_stats.pop("cached_tokens", None)
     m_stats["prompt_tokens"] += int(prompt_tokens)
     m_stats["completion_tokens"] += int(completion_tokens)
-    m_stats["cached_tokens"] = m_stats.get("cached_tokens", 0) + int(cached_tokens)
     m_stats["total_tokens"] = m_stats["prompt_tokens"] + m_stats["completion_tokens"]
 
     entry["last_updated"] = time.time()
@@ -133,8 +132,8 @@ def record_thread_tokens(
 
     logger.info(
         f"[USAGE AGENT] Recorded tokens for thread {thread_ts} | Model: {model_name} | "
-        f"New Prompt={prompt_tokens}, Completion={completion_tokens}, Cached={cached_tokens} | "
-        f"Model Cumulative: Prompt={m_stats['prompt_tokens']}, Completion={m_stats['completion_tokens']}, Cached={m_stats['cached_tokens']}, Total={m_stats['total_tokens']}"
+        f"New Prompt={prompt_tokens}, Completion={completion_tokens} | "
+        f"Model Cumulative: Prompt={m_stats['prompt_tokens']}, Completion={m_stats['completion_tokens']}, Total={m_stats['total_tokens']}"
     )
     return entry
 
@@ -150,14 +149,12 @@ def calculate_thread_costs(channel_id: str, thread_ts: str) -> dict[str, Any]:
     models_breakdown = {}
     grand_prompt_tokens = 0
     grand_completion_tokens = 0
-    grand_cached_tokens = 0
     grand_total_tokens = 0
     grand_total_cost_usd = 0.0
 
     for model_name, stats in models_data.items():
         p_tokens = stats.get("prompt_tokens", 0)
         c_tokens = stats.get("completion_tokens", 0)
-        cached_tok = stats.get("cached_tokens", 0)
         t_tokens = stats.get("total_tokens", p_tokens + c_tokens)
 
         pricing = get_model_pricing(model_name)
@@ -171,7 +168,6 @@ def calculate_thread_costs(channel_id: str, thread_ts: str) -> dict[str, Any]:
         models_breakdown[model_name] = {
             "prompt_tokens": p_tokens,
             "completion_tokens": c_tokens,
-            "cached_tokens": cached_tok,
             "total_tokens": t_tokens,
             "input_price_per_1m": in_rate_1m,
             "output_price_per_1m": out_rate_1m,
@@ -184,7 +180,6 @@ def calculate_thread_costs(channel_id: str, thread_ts: str) -> dict[str, Any]:
 
         grand_prompt_tokens += p_tokens
         grand_completion_tokens += c_tokens
-        grand_cached_tokens += cached_tok
         grand_total_tokens += t_tokens
         grand_total_cost_usd += model_total_cost
 
@@ -197,7 +192,6 @@ def calculate_thread_costs(channel_id: str, thread_ts: str) -> dict[str, Any]:
         "models": models_breakdown,
         "grand_prompt_tokens": grand_prompt_tokens,
         "grand_completion_tokens": grand_completion_tokens,
-        "grand_cached_tokens": grand_cached_tokens,
         "grand_total_tokens": grand_total_tokens,
         "grand_total_cost_usd": grand_total_cost_usd,
     }
@@ -249,7 +243,6 @@ async def format_usage_slack_message(
             clean_name = model_name
             p_tok = m_info["prompt_tokens"]
             c_tok = m_info["completion_tokens"]
-            cached_tok = m_info.get("cached_tokens", 0)
             tot_tok = m_info["total_tokens"]
             in_cost = m_info["input_cost_usd"]
             out_cost = m_info["output_cost_usd"]
@@ -265,9 +258,6 @@ async def format_usage_slack_message(
                 f"   ├ 📤 *Izlazni (Output):* `{c_tok:,}` tok.  |  *${out_cost:.5f}*  _(${out_rate:.2f}/1M)_"
             )
             lines.append(
-                f"   ├ 💾 *Predmemorirani (Cached):* `{cached_tok:,}` tok.  _(nije uračunato u trošak)_"
-            )
-            lines.append(
                 f"   └ 🔹 *Ukupno model:* `{tot_tok:,}` tokena  |  *${m_cost:.5f} USD*"
             )
 
@@ -275,7 +265,6 @@ async def format_usage_slack_message(
     lines.append("*📈 UKUPNA POTROŠNJA THREADA:*")
     lines.append(f"📥 Ukupno ulaznih tokena: *{cost_data['grand_prompt_tokens']:,}*")
     lines.append(f"📤 Ukupno izlaznih tokena: *{cost_data['grand_completion_tokens']:,}*")
-    lines.append(f"💾 Ukupno predmemoriranih tokena: *{cost_data['grand_cached_tokens']:,}* _(nije u trošku)_")
     lines.append(f"🔢 Ukupno tokena: *{cost_data['grand_total_tokens']:,}*")
     lines.append(f"💰 *UKUPAN TROŠAK:* *${cost_data['grand_total_cost_usd']:.5f} USD*")
 
