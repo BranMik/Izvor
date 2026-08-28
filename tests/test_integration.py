@@ -215,7 +215,7 @@ def test_stop_command_integration(monkeypatch):
             "channel": "C_TEST_STOP",
             "ts": "123456789.0009",
             "thread_ts": "123456789.0009",
-            "text": "@CaiLogics Test /stop discussion",
+            "text": "@CaiLogics Test /stop",
         },
     }
 

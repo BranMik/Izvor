@@ -398,80 +398,11 @@ def is_stop_command(raw_text: str, is_mention_or_dm: bool = False) -> bool:
     Detects if the message is an explicit /stop command directed at the bot.
     Supports:
     - /stop
-    - @CaiLogics Hub /stop, @CaiLogics /stop, <@BOT_ID> /stop
-    - @Agent_Key /stop or [Agent_Key] /stop
-    - Variations like '/stop discussion', '/stop flow', '/stop please', '/stani', '/zaustavi', '/prekini'
     """
     if not raw_text:
         return False
 
-    # Check for literal '@app_mention /stop'
-    if re.search(r"@app_mention\s+/stop\b", raw_text, re.IGNORECASE):
-        return True
-
-    # Clean Slack user / bot mentions like <@U123456>
-    cleaned = re.sub(r"<@[A-Z0-9]+>", "", raw_text).strip()
-
-    # Clean hub / bot names like @CaiLogics Hub, @CaiLogics Test, @CaiLogics
-    cleaned = re.sub(
-        r"@?CaiLogics\s+(Hub|Test|Multi-Agent|AgenticPanel|Panel)\b",
-        "",
-        cleaned,
-        flags=re.IGNORECASE,
-    ).strip()
-    cleaned = re.sub(r"@?CaiLogics\b", "", cleaned, flags=re.IGNORECASE).strip()
-    cleaned = re.sub(r"@app_mention\b", "", cleaned, flags=re.IGNORECASE).strip()
-
-    # Clean individual agent keys / personas
-    for key, cfg in AGENTS_CONFIG.items():
-        cleaned = re.sub(
-            r"@?" + re.escape(key), "", cleaned, flags=re.IGNORECASE
-        ).strip()
-        persona = cfg.get("username", "")
-        if persona:
-            cleaned = re.sub(
-                r"@?" + re.escape(persona), "", cleaned, flags=re.IGNORECASE
-            ).strip()
-        # Also remove bracketed agent tags like [Gemini_Visionary] /stop
-        cleaned = re.sub(
-            r"\[" + re.escape(key) + r"\]", "", cleaned, flags=re.IGNORECASE
-        ).strip()
-
-    # Normalize punctuation & whitespace, preserving '/'
-    normalized = re.sub(r"[^\w\s/]", "", cleaned).strip().lower()
-
-    stop_phrases = {
-        "/stop",
-        "/stop discussion",
-        "/stop panel",
-        "/stop flow",
-        "/stop please",
-        "please /stop",
-        "/halt",
-        "/cancel",
-        "/terminate",
-        "/stani",
-        "/zaustavi",
-        "/prekini",
-    }
-    if normalized in stop_phrases:
-        return True
-
-    words = normalized.split()
-    return bool(
-        words
-        and words[0]
-        in (
-            "/stop",
-            "/stani",
-            "/zaustavi",
-            "/prekini",
-            "/halt",
-            "/cancel",
-            "/terminate",
-        )
-        and len(words) <= 3
-    )
+    return bool(re.search(r"(?:^|\s)/stop(?=[\s!.,;?]|$)", raw_text, re.IGNORECASE))
 
 
 def request_thread_stop(channel_id: str, thread_ts: str) -> None:
@@ -533,9 +464,7 @@ def set_circuit_breaker_enabled(enabled: bool, save: bool = True) -> None:
     CIRCUIT_BREAKER_ENABLED = bool(enabled)
     if save:
         save_enabled_agents()
-    logger.info(
-        f"[ROUTER] Circuit-breaker enabled set to {CIRCUIT_BREAKER_ENABLED}."
-    )
+    logger.info(f"[ROUTER] Circuit-breaker enabled set to {CIRCUIT_BREAKER_ENABLED}.")
 
 
 def get_circuit_breaker_threshold() -> float:
