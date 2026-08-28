@@ -58,3 +58,31 @@ def test_pricing_agent_prompt_structure():
     assert "output_price_per_1m" in prompt
 
 
+def test_build_agent_prompt_with_max_words():
+    # Intermediate agent: verify standard output constraints are skipped, only max_words is added
+    prompt = build_agent_prompt("MistLar_TechLead", max_words=50)
+    assert "Hard Limit: Your entire response must strictly NOT exceed 50 words." in prompt
+    # Verify standard output_constraints sections are NOT in the prompt
+    assert "1 sentence stating your core verdict/concern." not in prompt
+    assert "2-3 concise bullet points" not in prompt
+    assert "1 concluding sentence with a concrete recommendation." not in prompt
+    # Verify nomination rules are still present
+    assert "nominate the next agent" in prompt
+
+    # Short output agent: verify standard 100w output constraints are skipped
+    prompt_short = build_agent_prompt("MistLar_QALead", max_words=30)
+    assert "Hard Limit: Your entire response must strictly NOT exceed 30 words." in prompt_short
+    assert "Hard Limit: Your entire response must strictly NOT exceed 100 words." not in prompt_short
+    assert "1 sentence stating your core verdict/concern." not in prompt_short
+
+    # OpAiTerra_Architect: verify override
+    prompt_arch = build_agent_prompt("OpAiTerra_Architect", max_words=120)
+    assert "strictly NOT exceed 120 words" in prompt_arch
+    assert "strictly NOT exceed 700 words" not in prompt_arch
+
+    # Gemini_Visionary: verify override
+    prompt_vis = build_agent_prompt("Gemini_Visionary", max_words=45)
+    assert "strictly NOT exceed 45 words" in prompt_vis
+
+
+

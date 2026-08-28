@@ -16,6 +16,7 @@ from agents import (
     trigger_usage_update,
 )
 from config import AGENTS_CONFIG, DEFAULT_AGENT_KEY
+from prompts import build_agent_prompt
 from llm_utils import (
     extract_anthropic_cache_usage,
     extract_cached_tokens,
@@ -125,6 +126,56 @@ def set_thread_history_limit(
 def clear_thread_history_limit(channel_id: str, thread_ts: str) -> None:
     """Clears any active history limit for this thread."""
     THREAD_HISTORY_LIMITS.pop((channel_id, thread_ts), None)
+
+
+MAX_WORDS_COMMAND_PATTERN = re.compile(
+    r"/(?:max_words|max-words|maxwords)\s*[:=]?\s*\[?(\d+)(?::(?:int|integer))?\]?",
+    re.IGNORECASE,
+)
+
+# Track conversation max words limit per thread
+# Map: (channel_id, thread_ts) -> int
+THREAD_MAX_WORDS_LIMITS: dict[tuple[str, str], int] = {}
+
+
+def extract_max_words_limit(text: str) -> tuple[int | None, str]:
+    """
+    Extracts the /max_words [x:int] command parameter if present in text and returns (max_words_limit, cleaned_text).
+    Supports:
+    - /max_words 50
+    - /max_words: 50 or /max_words:50
+    - /max_words=50
+    - /max_words [50] or /max_words [50:int] or /max_words 50:int
+    - /max_words (50)
+    If no /max_words command is found, returns (None, text).
+    """
+    if not text:
+        return None, ""
+    match = MAX_WORDS_COMMAND_PATTERN.search(text)
+    if match:
+        limit = max(1, int(match.group(1)))
+        cleaned = MAX_WORDS_COMMAND_PATTERN.sub("", text).strip()
+        cleaned = re.sub(r"[ \t]+", " ", cleaned).strip()
+        return limit, cleaned
+    return None, text
+
+
+def get_thread_max_words(channel_id: str, thread_ts: str) -> int | None:
+    """Returns the active max_words limit for this thread, or None."""
+    return THREAD_MAX_WORDS_LIMITS.get((channel_id, thread_ts))
+
+
+def set_thread_max_words(channel_id: str, thread_ts: str, max_words: int) -> None:
+    """Sets the max_words limit for this thread."""
+    THREAD_MAX_WORDS_LIMITS[(channel_id, thread_ts)] = max_words
+    logger.info(
+        f"[ROUTER] Set max_words limit for thread {(channel_id, thread_ts)}: max_words={max_words}"
+    )
+
+
+def clear_thread_max_words(channel_id: str, thread_ts: str) -> None:
+    """Clears any active max_words limit for this thread."""
+    THREAD_MAX_WORDS_LIMITS.pop((channel_id, thread_ts), None)
 
 
 # Track on-demand file context per thread discussion
@@ -1128,10 +1179,13 @@ async def process_and_respond(
         return False
 
     history_limit, raw_text_cleaned = extract_history_limit(raw_text)
+    max_words_limit, raw_text_cleaned = extract_max_words_limit(raw_text_cleaned)
 
     # Adjust remaining agents list and file instructions if user input
     if not is_bot_trigger:
         clear_thread_stop(channel_id, thread_ts)
+        if max_words_limit is not None:
+            set_thread_max_words(channel_id, thread_ts, max_words_limit)
         thread_files = await fetch_thread_files(channel_id, thread_ts)
         is_file_req, target_filename, raw_text_cleaned = extract_file_instruction(
             raw_text_cleaned, available_files=thread_files
@@ -1257,6 +1311,7 @@ async def process_and_respond(
             )
             clear_thread_stop(channel_id, thread_ts)
             clear_thread_history_limit(channel_id, thread_ts)
+            clear_thread_max_words(channel_id, thread_ts)
             clear_thread_file_context(channel_id, thread_ts)
             CUSTOM_FLOW_THREADS.discard(thread_key)
             REMAINING_AGENTS_MAP.pop(thread_key, None)
@@ -1320,7 +1375,14 @@ async def process_and_respond(
             effective_history = history
 
     # 2. Build message sequence for LiteLLM
-    system_prompt = agent_cfg["system_prompt"]
+    active_max_words = get_thread_max_words(channel_id, thread_ts)
+    if active_max_words is not None:
+        logger.info(
+            f"[ROUTER] Applying /max_words limit ({active_max_words}) for agent {agent_key} (skipping standard output_constraints)."
+        )
+        system_prompt = build_agent_prompt(agent_key, max_words=active_max_words)
+    else:
+        system_prompt = agent_cfg["system_prompt"]
 
     remaining = REMAINING_AGENTS_MAP.get(thread_key, get_initial_agents())
     is_custom_flow = thread_key in CUSTOM_FLOW_THREADS
@@ -1606,6 +1668,7 @@ async def process_and_respond(
             )
             clear_thread_stop(channel_id, thread_ts)
             clear_thread_history_limit(channel_id, thread_ts)
+            clear_thread_max_words(channel_id, thread_ts)
             clear_thread_file_context(channel_id, thread_ts)
             CUSTOM_FLOW_THREADS.discard(thread_key)
             REMAINING_AGENTS_MAP.pop(thread_key, None)
@@ -1620,6 +1683,7 @@ async def process_and_respond(
                 f"[ROUTER] OpAiTerra_Architect finished! Deleting state maps for thread {thread_key}"
             )
             clear_thread_history_limit(channel_id, thread_ts)
+            clear_thread_max_words(channel_id, thread_ts)
             clear_thread_file_context(channel_id, thread_ts)
             REMAINING_AGENTS_MAP.pop(thread_key, None)
             RATE_LIMIT_RETRY_QUEUE.pop(thread_key, None)
@@ -1743,6 +1807,7 @@ async def process_and_respond(
         if is_completed:
             clear_thread_stop(channel_id, thread_ts)
             clear_thread_history_limit(channel_id, thread_ts)
+            clear_thread_max_words(channel_id, thread_ts)
             clear_thread_file_context(channel_id, thread_ts)
             CUSTOM_FLOW_THREADS.discard(thread_key)
             REMAINING_AGENTS_MAP.pop(thread_key, None)

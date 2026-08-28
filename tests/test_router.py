@@ -1582,6 +1582,110 @@ async def test_circuit_breaker_allows_normal_response_when_disabled(monkeypatch)
     assert "Normal response despite high cost" in posted_messages[0]["text"]
 
 
+def test_extract_max_words_limit():
+    from agent_router import extract_max_words_limit
+
+    # Standard syntax
+    limit, text = extract_max_words_limit("/max_words 50 hello world")
+    assert limit == 50
+    assert text == "hello world"
+
+    # Bracketed typed syntax /max_words [x:int]
+    limit, text = extract_max_words_limit("/max_words [75:int] evaluate this")
+    assert limit == 75
+    assert text == "evaluate this"
+
+    # Colon and equals syntax
+    limit, text = extract_max_words_limit("/max_words: 30 test")
+    assert limit == 30
+    assert text == "test"
+
+    limit, text = extract_max_words_limit("/max_words=100 test")
+    assert limit == 100
+    assert text == "test"
+
+    # Hyphen and single-word variations
+    limit, text = extract_max_words_limit("/max-words 25 test")
+    assert limit == 25
+
+    limit, text = extract_max_words_limit("/maxwords 15 test")
+    assert limit == 15
+
+    # No command present
+    limit, text = extract_max_words_limit("Just a regular prompt")
+    assert limit is None
+    assert text == "Just a regular prompt"
+
+
+@pytest.mark.anyio
+async def test_process_and_respond_with_max_words(monkeypatch):
+    from agent_router import (
+        REMAINING_AGENTS_MAP,
+        RATE_LIMIT_RETRY_QUEUE,
+        RATE_LIMIT_ALREADY_RETRIED,
+        THREAD_MAX_WORDS_LIMITS,
+        get_thread_max_words,
+    )
+    REMAINING_AGENTS_MAP.clear()
+    RATE_LIMIT_RETRY_QUEUE.clear()
+    RATE_LIMIT_ALREADY_RETRIED.clear()
+    THREAD_MAX_WORDS_LIMITS.clear()
+
+    channel_id = "C_MAX_WORDS"
+    thread_ts = "99999.0001"
+    thread_key = (channel_id, thread_ts)
+    REMAINING_AGENTS_MAP[thread_key] = ["OpAiTerra_Architect"]
+
+    captured_messages = []
+
+    mock_response = MagicMock()
+    mock_choice = MagicMock()
+    mock_choice.message = MagicMock(content="Concise response under limit [OpAiTerra_Architect]", tool_calls=None)
+    mock_response.choices = [mock_choice]
+    mock_response.usage = MagicMock(prompt_tokens=15, completion_tokens=10)
+
+    async def mock_run_in_threadpool(func, *args, **kwargs):
+        captured_messages.append(kwargs.get("messages", []))
+        return mock_response
+
+    posted_messages = []
+
+    async def mock_post_agent_response(
+        channel_id, thread_ts, text, username, icon_url=None
+    ):
+        posted_messages.append({"text": text, "username": username})
+        return {"ok": True, "ts": thread_ts}
+
+    monkeypatch.setattr("agent_router.post_agent_response", mock_post_agent_response)
+    monkeypatch.setattr("agent_router.run_in_threadpool", mock_run_in_threadpool)
+    monkeypatch.setattr("agent_router.fetch_thread_history", AsyncMock(return_value=[]))
+
+    res = await process_and_respond(
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        raw_text="[MistLar_TechLead] [OpAiTerra_Architect] /max_words [40:int] Explain Kubernetes ingress architecture",
+        is_bot_trigger=False,
+    )
+
+    assert res.get("ok") is True
+    # Thread level setting persisted for remaining agents in flow
+    assert get_thread_max_words(channel_id, thread_ts) == 40
+
+    # System prompt in LLM call has 40 words limit and skips standard output constraints
+    assert len(captured_messages) == 1
+    system_msg = captured_messages[0][0]["content"]
+    assert "Hard Limit: Your entire response must strictly NOT exceed 40 words." in system_msg
+    # Skipped standard output_constraints
+    assert "1 sentence stating your core verdict/concern." not in system_msg
+    assert "2-3 concise bullet points" not in system_msg
+
+    # User message had the /max_words command stripped cleanly
+    user_msg = captured_messages[0][-1]["content"]
+    assert "/max_words" not in user_msg
+    assert "Explain Kubernetes ingress architecture" in user_msg
+
+
+
 
 
 
