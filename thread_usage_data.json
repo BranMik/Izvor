@@ -43,13 +43,13 @@
     "usage_msg_ts": null,
     "models": {
       "gemini/gemini-3.7-flash": {
-        "prompt_tokens": 6300,
-        "completion_tokens": 2100,
-        "total_tokens": 8400
+        "prompt_tokens": 6450,
+        "completion_tokens": 2150,
+        "total_tokens": 8600
       }
     },
     "is_completed": false,
-    "last_updated": 1788211730.866199
+    "last_updated": 1788213596.1888855
   },
   "C123:12345.0001": {
     "channel_id": "C123",
@@ -65,7 +65,7 @@
       }
     },
     "is_completed": false,
-    "last_updated": 1788211733.3349953
+    "last_updated": 1788213598.3523686
   },
   "C123:12345.0002": {
     "channel_id": "C123",
@@ -86,7 +86,7 @@
       }
     },
     "is_completed": false,
-    "last_updated": 1788211733.3481734
+    "last_updated": 1788213598.368437
   },
   "C123:12345.0003": {
     "channel_id": "C123",
@@ -117,7 +117,7 @@
       }
     },
     "is_completed": false,
-    "last_updated": 1788211733.387256
+    "last_updated": 1788213598.4100826
   },
   "C123:12345.0004": {
     "channel_id": "C123",
@@ -133,7 +133,7 @@
       }
     },
     "is_completed": false,
-    "last_updated": 1788211732.5709941
+    "last_updated": 1788213597.919676
   },
   "C111:1700000000.001": {
     "channel_id": "C111",
@@ -143,13 +143,13 @@
     "usage_msg_ts": null,
     "models": {
       "mistral/mistral-small-latest": {
-        "prompt_tokens": 11700,
-        "completion_tokens": 5460,
-        "total_tokens": 17160
+        "prompt_tokens": 12000,
+        "completion_tokens": 5600,
+        "total_tokens": 17600
       }
     },
     "is_completed": false,
-    "last_updated": 1788211771.2093067
+    "last_updated": 1788213606.5808597
   },
   "C_ROUTER_TEST:1700000000.999": {
     "channel_id": "C_ROUTER_TEST",
@@ -159,13 +159,13 @@
     "usage_msg_ts": null,
     "models": {
       "gemini/gemini-3.7-flash": {
-        "prompt_tokens": 390,
-        "completion_tokens": 390,
-        "total_tokens": 780
+        "prompt_tokens": 400,
+        "completion_tokens": 400,
+        "total_tokens": 800
       }
     },
     "is_completed": false,
-    "last_updated": 1788211771.616967
+    "last_updated": 1788213607.1053023
   },
   "C_ROUTER_TEST_2:1700000000.888": {
     "channel_id": "C_ROUTER_TEST_2",
@@ -175,13 +175,13 @@
     "usage_msg_ts": null,
     "models": {
       "gemini/gemini-3.7-flash": {
-        "prompt_tokens": 390,
-        "completion_tokens": 390,
-        "total_tokens": 780
+        "prompt_tokens": 400,
+        "completion_tokens": 400,
+        "total_tokens": 800
       }
     },
     "is_completed": false,
-    "last_updated": 1788211771.992789
+    "last_updated": 1788213607.4957294
   },
   "C_INTERRUPT_LLM:12345.1003": {
     "channel_id": "C_INTERRUPT_LLM",
@@ -197,7 +197,7 @@
       }
     },
     "is_completed": false,
-    "last_updated": 1788211734.1463244
+    "last_updated": 1788213599.1949878
   },
   "C0BQGUCKVPE:1787589888.559759": {
     "channel_id": "C0BQGUCKVPE",
@@ -244,7 +244,7 @@
       }
     },
     "is_completed": false,
-    "last_updated": 1788211734.816839
+    "last_updated": 1788213600.1205056
   },
   "C_HIST_TEST_2:12345.3001": {
     "channel_id": "C_HIST_TEST_2",
@@ -260,7 +260,7 @@
       }
     },
     "is_completed": false,
-    "last_updated": 1788211734.8318198
+    "last_updated": 1788213600.1331027
   },
   "C_HIST_TEST_RESET:12345.4001": {
     "channel_id": "C_HIST_TEST_RESET",
@@ -276,7 +276,7 @@
       }
     },
     "is_completed": false,
-    "last_updated": 1788211735.2110507
+    "last_updated": 1788213600.6512454
   },
   "C_HIST_ZERO:12345.5001": {
     "channel_id": "C_HIST_ZERO",
@@ -292,7 +292,7 @@
       }
     },
     "is_completed": false,
-    "last_updated": 1788211765.932506
+    "last_updated": 1788213601.1054873
   },
   "C0BQGUCKVPE:1787591302.045619": {
     "channel_id": "C0BQGUCKVPE",
@@ -369,18 +369,18 @@
     "usage_msg_ts": null,
     "models": {
       "gemini/gemini-3.7-flash": {
-        "prompt_tokens": 900,
-        "completion_tokens": 600,
-        "total_tokens": 1500
+        "prompt_tokens": 930,
+        "completion_tokens": 620,
+        "total_tokens": 1550
       },
       "openai/gpt-5.6-terra": {
-        "prompt_tokens": 450,
-        "completion_tokens": 300,
-        "total_tokens": 750
+        "prompt_tokens": 465,
+        "completion_tokens": 310,
+        "total_tokens": 775
       }
     },
     "is_completed": true,
-    "last_updated": 1788211771.1793623
+    "last_updated": 1788213606.539307
   },
   "C0BQGUCKVPE:1787601023.982929": {
     "channel_id": "C0BQGUCKVPE",
@@ -462,13 +462,13 @@
     "usage_msg_ts": null,
     "models": {
       "gemini/gemini-3.7-flash": {
-        "prompt_tokens": 180,
-        "completion_tokens": 180,
-        "total_tokens": 360
+        "prompt_tokens": 190,
+        "completion_tokens": 190,
+        "total_tokens": 380
       }
     },
     "is_completed": false,
-    "last_updated": 1788211767.2292306
+    "last_updated": 1788213602.166653
   },
   "C_CB_DISABLED:123456789.9003": {
     "channel_id": "C_CB_DISABLED",
@@ -478,13 +478,13 @@
     "usage_msg_ts": null,
     "models": {
       "gemini/gemini-3.7-flash": {
-        "prompt_tokens": 180,
-        "completion_tokens": 180,
-        "total_tokens": 360
+        "prompt_tokens": 190,
+        "completion_tokens": 190,
+        "total_tokens": 380
       }
     },
     "is_completed": false,
-    "last_updated": 1788211767.6459646
+    "last_updated": 1788213602.6428177
   },
   "C0BQGUCKVPE:1787694435.859499": {
     "channel_id": "C0BQGUCKVPE",
@@ -665,7 +665,7 @@
       }
     },
     "is_completed": false,
-    "last_updated": 1788211733.362112
+    "last_updated": 1788213598.3826075
   },
   "C_MAX_WORDS:99999.0001": {
     "channel_id": "C_MAX_WORDS",
@@ -727,13 +727,13 @@
     "usage_msg_ts": null,
     "models": {
       "anthropic/claude-opus-5": {
-        "prompt_tokens": 2500,
-        "completion_tokens": 1250,
-        "total_tokens": 3750
+        "prompt_tokens": 3000,
+        "completion_tokens": 1500,
+        "total_tokens": 4500
       }
     },
     "is_completed": false,
-    "last_updated": 1788211730.1679819
+    "last_updated": 1788213595.7245965
   },
   "C0BQGUCKVPE:1787948766.835869": {
     "channel_id": "C0BQGUCKVPE",

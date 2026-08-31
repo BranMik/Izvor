@@ -73,17 +73,25 @@ HISTORY_COMMAND_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+HISTORY_NL_PATTERNS = [
+    re.compile(
+        r"\b(?:uzmi\s+u\s+obzir\s+|pogledaj\s+|samo\s+|take\s+into\s+account\s+|only\s+)?(?:zadnj[a-z]*|posljednj[a-z]*|prethodn[a-z]*|last|past|previous)\s+(\d+)\s*(?:poruk[a-z]*|messages?)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:povijest|history)\s*(?:od)?\s*[:=]?\s*(\d+)\s*(?:poruk[a-z]*|messages?)\b",
+        re.IGNORECASE,
+    ),
+]
+
 
 def extract_history_limit(text: str) -> tuple[int | None, str]:
     """
-    Extracts the /history [x:int] command parameter if present in text and returns (history_limit, cleaned_text).
+    Extracts the /history [x:int] command parameter or natural language limit if present in text and returns (history_limit, cleaned_text).
     Supports:
-    - /history 5
-    - /history: 5 or /history:5
-    - /history=5
-    - /history [5] or /history [5:int] or /history 5:int
-    - /history (5)
-    If no /history command is found, returns (None, text).
+    - /history 5, /history: 5, /history=5, /history [5:int]
+    - Natural language: "uzmi u obzir zadnjih 5 poruka", "last 3 messages", "povijest od 4 poruke"
+    If no history instruction is found, returns (None, text).
     """
     if not text:
         return None, ""
@@ -93,6 +101,13 @@ def extract_history_limit(text: str) -> tuple[int | None, str]:
         cleaned = HISTORY_COMMAND_PATTERN.sub("", text).strip()
         cleaned = re.sub(r"[ \t]+", " ", cleaned).strip()
         return limit, cleaned
+    for pattern in HISTORY_NL_PATTERNS:
+        match = pattern.search(text)
+        if match:
+            limit = int(match.group(1))
+            cleaned = pattern.sub("", text).strip()
+            cleaned = re.sub(r"[ \t]+", " ", cleaned).strip()
+            return limit, cleaned
     return None, text
 
 
@@ -124,6 +139,21 @@ MAX_WORDS_COMMAND_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+MAX_WORDS_NL_PATTERNS = [
+    re.compile(
+        r"\b(?:u\s+|in\s+)?(?:maksimalno|maximalno|najvi[sš]e|najvi[sš]e\s+do|max\.?|maximum|at\s+most|no\s+more\s+than|up\s+to)\s+(?:od\s+)?(\d+)\s*(?:rije[cč]i|words)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:maksimaln[a-z]*\s+duljin[a-z]*|maksimaln[a-z]*\s+du[zž]in[a-z]*|maximaln[a-z]*\s+duljin[a-z]*|maximaln[a-z]*\s+du[zž]in[a-z]*|maximum\s+length|word\s+limit|limit\s+od|limit\s+to)\s*[:=]?\s*(\d+)\s*(?:rije[cč]i|words)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:odgovori|pi[sš]i|odgovor)\s+(?:u\s+|in\s+)?(?:do|ispod|under)\s+(\d+)\s*(?:rije[cč]i|words)\b",
+        re.IGNORECASE,
+    ),
+]
+
 # Track conversation max words limit per thread
 # Map: (channel_id, thread_ts) -> int
 THREAD_MAX_WORDS_LIMITS: dict[tuple[str, str], int] = {}
@@ -131,14 +161,11 @@ THREAD_MAX_WORDS_LIMITS: dict[tuple[str, str], int] = {}
 
 def extract_max_words_limit(text: str) -> tuple[int | None, str]:
     """
-    Extracts the /max_words [x:int] command parameter if present in text and returns (max_words_limit, cleaned_text).
+    Extracts the /max_words [x:int] command parameter or natural language limit if present in text and returns (max_words_limit, cleaned_text).
     Supports:
-    - /max_words 50
-    - /max_words: 50 or /max_words:50
-    - /max_words=50
-    - /max_words [50] or /max_words [50:int] or /max_words 50:int
-    - /max_words (50)
-    If no /max_words command is found, returns (None, text).
+    - /max_words 50, /max_words: 50, /max_words=50, /max_words [50:int]
+    - Natural language: "odgovori u maksimalno 100 riječi", "najviše 50 riječi", "in max 120 words", "up to 80 words"
+    If no max_words instruction is found, returns (None, text).
     """
     if not text:
         return None, ""
@@ -148,6 +175,13 @@ def extract_max_words_limit(text: str) -> tuple[int | None, str]:
         cleaned = MAX_WORDS_COMMAND_PATTERN.sub("", text).strip()
         cleaned = re.sub(r"[ \t]+", " ", cleaned).strip()
         return limit, cleaned
+    for pattern in MAX_WORDS_NL_PATTERNS:
+        match = pattern.search(text)
+        if match:
+            limit = max(1, int(match.group(1)))
+            cleaned = pattern.sub("", text).strip()
+            cleaned = re.sub(r"[ \t]+", " ", cleaned).strip()
+            return limit, cleaned
     return None, text
 
 
@@ -174,6 +208,17 @@ MIN_WORDS_COMMAND_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+MIN_WORDS_NL_PATTERNS = [
+    re.compile(
+        r"\b(?:u\s+|in\s+)?(?:minimalno|najmanje|barem|bar|min\.?|minimum|at\s+least|no\s+less\s+than)\s+(?:od\s+)?(\d+)\s*(?:rije[cč]i|words)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:minimaln[a-z]*\s+duljin[a-z]*|minimaln[a-z]*\s+du[zž]in[a-z]*|minimum\s+length|donj[a-z]*\s+granic[a-z]*)\s*[:=]?\s*(\d+)\s*(?:rije[cč]i|words)\b",
+        re.IGNORECASE,
+    ),
+]
+
 # Track conversation min words limit per thread
 # Map: (channel_id, thread_ts) -> int
 THREAD_MIN_WORDS_LIMITS: dict[tuple[str, str], int] = {}
@@ -181,14 +226,11 @@ THREAD_MIN_WORDS_LIMITS: dict[tuple[str, str], int] = {}
 
 def extract_min_words_limit(text: str) -> tuple[int | None, str]:
     """
-    Extracts the /min_words [x:int] command parameter if present in text and returns (min_words_limit, cleaned_text).
+    Extracts the /min_words [x:int] command parameter or natural language limit if present in text and returns (min_words_limit, cleaned_text).
     Supports:
-    - /min_words 50
-    - /min_words: 50 or /min_words:50
-    - /min_words=50
-    - /min_words [50] or /min_words [50:int] or /min_words 50:int
-    - /min_words (50)
-    If no /min_words command is found, returns (None, text).
+    - /min_words 50, /min_words: 50, /min_words=50, /min_words [50:int]
+    - Natural language: "odgovori u minimalno 100 riječi", "najmanje 80 riječi", "barem 150 riječi", "at least 100 words"
+    If no min_words instruction is found, returns (None, text).
     """
     if not text:
         return None, ""
@@ -198,6 +240,13 @@ def extract_min_words_limit(text: str) -> tuple[int | None, str]:
         cleaned = MIN_WORDS_COMMAND_PATTERN.sub("", text).strip()
         cleaned = re.sub(r"[ \t]+", " ", cleaned).strip()
         return limit, cleaned
+    for pattern in MIN_WORDS_NL_PATTERNS:
+        match = pattern.search(text)
+        if match:
+            limit = max(1, int(match.group(1)))
+            cleaned = pattern.sub("", text).strip()
+            cleaned = re.sub(r"[ \t]+", " ", cleaned).strip()
+            return limit, cleaned
     return None, text
 
 
