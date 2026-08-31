@@ -45,6 +45,9 @@ USAGE_AGENT_PROMPT = build_agent_prompt("Usage_Agent")
 PRICING_AGENT_MODEL = os.getenv("PRICING_AGENT_MODEL", "mistral/mistral-small-latest")
 PRICING_AGENT_PROMPT = build_agent_prompt("Pricing_Agent")
 
+# Intent & Constraint Extractor configuration (LLM-side parameter parsing)
+INTENT_EXTRACTOR_MODEL = os.getenv("INTENT_EXTRACTOR_MODEL", "mistral/mistral-small-latest")
+
 # Configuration matrix for LiteLLM routing and Slack personas
 AGENTS_CONFIG = {
     "Gemini_Visionary": {

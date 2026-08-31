@@ -30,6 +30,17 @@ def test_nl_history_extraction():
     assert limit == 4
     assert text == ""
 
+    # Additional English history patterns
+    limit, text = extract_history_limit("consider the previous 5 messages in this discussion")
+    assert limit == 5
+    assert text == "in this discussion"
+
+    limit, text = extract_history_limit("limit history to 6 messages")
+    assert limit == 6
+
+    limit, text = extract_history_limit("context limit: 4 messages")
+    assert limit == 4
+
     # Slash command takes precedence if both present
     limit, text = extract_history_limit("/history 2 uzmi u obzir zadnjih 5 poruka")
     assert limit == 2
@@ -52,6 +63,20 @@ def test_nl_max_words_extraction():
     assert limit == 80
     assert text == "summarize"
 
+    # Additional English max_words patterns
+    limit, text = extract_max_words_limit("reply in under 50 words please")
+    assert limit == 50
+    assert text == "please"
+
+    limit, text = extract_max_words_limit("word limit: 90 words")
+    assert limit == 90
+
+    limit, text = extract_max_words_limit("keep it below 40 words")
+    assert limit == 40
+
+    limit, text = extract_max_words_limit("no more than 75 words")
+    assert limit == 75
+
 
 def test_nl_min_words_extraction():
     limit, text = extract_min_words_limit("odgovori u minimalno 120 riječi o bazi")
@@ -66,6 +91,20 @@ def test_nl_min_words_extraction():
     assert limit == 100
     assert text == "detailed analysis"
 
+    # Additional English min_words patterns
+    limit, text = extract_min_words_limit("write at least 200 words about the topic")
+    assert limit == 200
+    assert text == "write about the topic"
+
+    limit, text = extract_min_words_limit("minimum length: 150 words")
+    assert limit == 150
+
+    limit, text = extract_min_words_limit("reply with more than 80 words")
+    assert limit == 80
+
+    limit, text = extract_min_words_limit("no fewer than 110 words")
+    assert limit == 110
+
 
 def test_nl_file_instruction_extraction():
     # Natural language triggers
@@ -77,6 +116,16 @@ def test_nl_file_instruction_extraction():
     assert is_req is True
 
     is_req, target, text = extract_file_instruction("please read the uploaded file and analyze")
+    assert is_req is True
+
+    # Additional English file triggers
+    is_req, target, text = extract_file_instruction("summarize the attached file")
+    assert is_req is True
+
+    is_req, target, text = extract_file_instruction("I attached the code for you to inspect")
+    assert is_req is True
+
+    is_req, target, text = extract_file_instruction("refer to the attachment for more details")
     assert is_req is True
 
     # Slash command with clean group extraction

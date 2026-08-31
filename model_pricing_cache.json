@@ -3,19 +3,19 @@
     "input_price_per_1m": 2.0,
     "output_price_per_1m": 12.0,
     "currency": "USD",
-    "source": "OpenRouter - GPT-5.6 Terra API Pricing",
-    "source_url": "https://openrouter.ai/openai/gpt-5.6-terra",
-    "updated_at": 1787587325.752063,
-    "updated_at_str": "2026-08-24 16:02:05 UTC"
+    "source": "OpenAI API Pricing (aipricing.guru)",
+    "source_url": "https://www.aipricing.guru/openai-pricing/",
+    "updated_at": 1788215666.0562809,
+    "updated_at_str": "2026-08-31 22:34:26 UTC"
   },
   "mistral/mistral-small-latest": {
-    "input_price_per_1m": 0.15,
-    "output_price_per_1m": 0.6,
+    "input_price_per_1m": 1.5,
+    "output_price_per_1m": 7.5,
     "currency": "USD",
-    "source": "Mistral Docs Pricing",
-    "source_url": "https://docs.mistral.ai/inference/pricing",
-    "updated_at": 1787587331.6803753,
-    "updated_at_str": "2026-08-24 16:02:11 UTC"
+    "source": "Web Search (mistral-small-latest API pricing cost per 1M input output tokens)",
+    "source_url": "https://benchlm.ai/mistral/api-pricing",
+    "updated_at": 1788215678.4223232,
+    "updated_at_str": "2026-08-31 22:34:38 UTC"
   },
   "gemini/gemini-3.7-flash": {
     "input_price_per_1m": 0.75,
@@ -23,25 +23,25 @@
     "currency": "USD",
     "source": "Google AI for Developers - Gemini Developer API pricing",
     "source_url": "https://ai.google.dev/gemini-api/docs/pricing",
-    "updated_at": 1787587339.1522064,
-    "updated_at_str": "2026-08-24 16:02:19 UTC"
+    "updated_at": 1788215641.6885538,
+    "updated_at_str": "2026-08-31 22:34:01 UTC"
   },
   "anthropic/claude-opus-5": {
     "input_price_per_1m": 5.0,
     "output_price_per_1m": 25.0,
     "currency": "USD",
-    "source": "Anthropic Claude API Pricing 2026",
-    "source_url": "https://www.eesel.ai/blog/claude-opus-5-pricing",
-    "updated_at": 1787587350.0056398,
-    "updated_at_str": "2026-08-24 16:02:30 UTC"
+    "source": "Anthropic Pricing",
+    "source_url": "https://www.anthropic.com/claude/opus",
+    "updated_at": 1788215659.4357793,
+    "updated_at_str": "2026-08-31 22:34:19 UTC"
   },
   "mistral/mistral-large-latest": {
-    "input_price_per_1m": 0.5,
-    "output_price_per_1m": 1.5,
+    "input_price_per_1m": 1.5,
+    "output_price_per_1m": 7.5,
     "currency": "USD",
     "source": "Web Search (mistral-large-latest API pricing cost per 1M input output tokens)",
-    "source_url": "https://www.helicone.ai/llm-cost/provider/mistral/model/mistral-large-latest",
-    "updated_at": 1787587361.868564,
-    "updated_at_str": "2026-08-24 16:02:41 UTC"
+    "source_url": "https://benchlm.ai/mistral/api-pricing",
+    "updated_at": 1788215651.47168,
+    "updated_at_str": "2026-08-31 22:34:11 UTC"
   }
 }

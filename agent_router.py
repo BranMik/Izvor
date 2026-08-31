@@ -120,6 +120,12 @@ from message_builder import (
     markdown_to_slack,
 )
 
+# Re-exports from intent_extractor
+from intent_extractor import (
+    extract_user_intent,
+    should_skip_intent_extractor,
+)
+
 logger = logging.getLogger(__name__)
 
 # Turn off verbose LiteLLM logging unless debugging
@@ -171,14 +177,46 @@ async def process_and_respond(
     # Adjust remaining agents list and file instructions if user input
     if not is_bot_trigger:
         clear_thread_stop(channel_id, thread_ts)
-        if max_words_limit is not None:
-            set_thread_max_words(channel_id, thread_ts, max_words_limit)
-        if min_words_limit is not None:
-            set_thread_min_words(channel_id, thread_ts, min_words_limit)
         thread_files = await fetch_thread_files(channel_id, thread_ts)
         is_file_req, target_filename, raw_text_cleaned = extract_file_instruction(
             raw_text_cleaned, available_files=thread_files
         )
+
+        # Check skip rules for LLM intent extraction
+        has_slash_file = bool(
+            re.search(r"/(?:read[-_]?file|file|attachment)", raw_text, re.IGNORECASE)
+        )
+        has_slash_max_words = bool(
+            re.search(r"/(?:max_words|max-words|maxwords)", raw_text, re.IGNORECASE)
+        )
+        has_slash_history = bool(
+            re.search(r"/history", raw_text, re.IGNORECASE)
+        )
+        has_thread_files = bool(thread_files)
+
+        if not should_skip_intent_extractor(
+            raw_text=raw_text,
+            is_file_cmd=has_slash_file,
+            has_slash_max_words=has_slash_max_words,
+            has_slash_history=has_slash_history,
+            has_thread_files=has_thread_files,
+        ):
+            intent = await extract_user_intent(
+                raw_text_cleaned, available_files=thread_files
+            )
+            if max_words_limit is None and intent.get("max_words") is not None:
+                max_words_limit = intent["max_words"]
+            if history_limit is None and intent.get("history") is not None:
+                history_limit = intent["history"]
+            if not is_file_req and intent.get("file_use"):
+                is_file_req = True
+                if not target_filename and intent.get("target_file"):
+                    target_filename = intent["target_file"]
+
+        if max_words_limit is not None:
+            set_thread_max_words(channel_id, thread_ts, max_words_limit)
+        if min_words_limit is not None:
+            set_thread_min_words(channel_id, thread_ts, min_words_limit)
 
         agent_key, prompt, was_explicit_target = parse_agent_and_prompt(
             raw_text_cleaned, channel_id, thread_ts
