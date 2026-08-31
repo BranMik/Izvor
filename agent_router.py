@@ -169,6 +169,56 @@ def clear_thread_max_words(channel_id: str, thread_ts: str) -> None:
     THREAD_MAX_WORDS_LIMITS.pop((channel_id, thread_ts), None)
 
 
+MIN_WORDS_COMMAND_PATTERN = re.compile(
+    r"/(?:min_words|min-words|minwords)\s*[:=]?\s*\[?(\d+)(?::(?:int|integer))?\]?",
+    re.IGNORECASE,
+)
+
+# Track conversation min words limit per thread
+# Map: (channel_id, thread_ts) -> int
+THREAD_MIN_WORDS_LIMITS: dict[tuple[str, str], int] = {}
+
+
+def extract_min_words_limit(text: str) -> tuple[int | None, str]:
+    """
+    Extracts the /min_words [x:int] command parameter if present in text and returns (min_words_limit, cleaned_text).
+    Supports:
+    - /min_words 50
+    - /min_words: 50 or /min_words:50
+    - /min_words=50
+    - /min_words [50] or /min_words [50:int] or /min_words 50:int
+    - /min_words (50)
+    If no /min_words command is found, returns (None, text).
+    """
+    if not text:
+        return None, ""
+    match = MIN_WORDS_COMMAND_PATTERN.search(text)
+    if match:
+        limit = max(1, int(match.group(1)))
+        cleaned = MIN_WORDS_COMMAND_PATTERN.sub("", text).strip()
+        cleaned = re.sub(r"[ \t]+", " ", cleaned).strip()
+        return limit, cleaned
+    return None, text
+
+
+def get_thread_min_words(channel_id: str, thread_ts: str) -> int | None:
+    """Returns the active min_words limit for this thread, or None."""
+    return THREAD_MIN_WORDS_LIMITS.get((channel_id, thread_ts))
+
+
+def set_thread_min_words(channel_id: str, thread_ts: str, min_words: int) -> None:
+    """Sets the min_words limit for this thread."""
+    THREAD_MIN_WORDS_LIMITS[(channel_id, thread_ts)] = min_words
+    logger.info(
+        f"[ROUTER] Set min_words limit for thread {(channel_id, thread_ts)}: min_words={min_words}"
+    )
+
+
+def clear_thread_min_words(channel_id: str, thread_ts: str) -> None:
+    """Clears any active min_words limit for this thread."""
+    THREAD_MIN_WORDS_LIMITS.pop((channel_id, thread_ts), None)
+
+
 # Track on-demand file context per thread discussion
 # Map: (channel_id, thread_ts) -> dict (e.g. {"file_name": str, "content": str, "size": int, "truncated": bool, "authorized_agents": set[str] | None})
 THREAD_ACTIVE_FILE_CONTEXT: dict[tuple[str, str], dict[str, Any]] = {}
@@ -1012,12 +1062,15 @@ async def process_and_respond(
 
     history_limit, raw_text_cleaned = extract_history_limit(raw_text)
     max_words_limit, raw_text_cleaned = extract_max_words_limit(raw_text_cleaned)
+    min_words_limit, raw_text_cleaned = extract_min_words_limit(raw_text_cleaned)
 
     # Adjust remaining agents list and file instructions if user input
     if not is_bot_trigger:
         clear_thread_stop(channel_id, thread_ts)
         if max_words_limit is not None:
             set_thread_max_words(channel_id, thread_ts, max_words_limit)
+        if min_words_limit is not None:
+            set_thread_min_words(channel_id, thread_ts, min_words_limit)
         thread_files = await fetch_thread_files(channel_id, thread_ts)
         is_file_req, target_filename, raw_text_cleaned = extract_file_instruction(
             raw_text_cleaned, available_files=thread_files
@@ -1144,6 +1197,7 @@ async def process_and_respond(
             clear_thread_stop(channel_id, thread_ts)
             clear_thread_history_limit(channel_id, thread_ts)
             clear_thread_max_words(channel_id, thread_ts)
+            clear_thread_min_words(channel_id, thread_ts)
             clear_thread_file_context(channel_id, thread_ts)
             CUSTOM_FLOW_THREADS.discard(thread_key)
             REMAINING_AGENTS_MAP.pop(thread_key, None)
@@ -1208,11 +1262,14 @@ async def process_and_respond(
 
     # 2. Build message sequence for LiteLLM
     active_max_words = get_thread_max_words(channel_id, thread_ts)
-    if active_max_words is not None:
+    active_min_words = get_thread_min_words(channel_id, thread_ts)
+    if active_max_words is not None or active_min_words is not None:
         logger.info(
-            f"[ROUTER] Applying /max_words limit ({active_max_words}) for agent {agent_key} (skipping standard output_constraints)."
+            f"[ROUTER] Applying word limits (min_words={active_min_words}, max_words={active_max_words}) for agent {agent_key} (skipping standard output_constraints)."
         )
-        system_prompt = build_agent_prompt(agent_key, max_words=active_max_words)
+        system_prompt = build_agent_prompt(
+            agent_key, max_words=active_max_words, min_words=active_min_words
+        )
     else:
         system_prompt = agent_cfg["system_prompt"]
 
@@ -1491,6 +1548,7 @@ async def process_and_respond(
             clear_thread_stop(channel_id, thread_ts)
             clear_thread_history_limit(channel_id, thread_ts)
             clear_thread_max_words(channel_id, thread_ts)
+            clear_thread_min_words(channel_id, thread_ts)
             clear_thread_file_context(channel_id, thread_ts)
             CUSTOM_FLOW_THREADS.discard(thread_key)
             REMAINING_AGENTS_MAP.pop(thread_key, None)
@@ -1506,6 +1564,7 @@ async def process_and_respond(
             )
             clear_thread_history_limit(channel_id, thread_ts)
             clear_thread_max_words(channel_id, thread_ts)
+            clear_thread_min_words(channel_id, thread_ts)
             clear_thread_file_context(channel_id, thread_ts)
             REMAINING_AGENTS_MAP.pop(thread_key, None)
             RATE_LIMIT_RETRY_QUEUE.pop(thread_key, None)
@@ -1630,6 +1689,7 @@ async def process_and_respond(
             clear_thread_stop(channel_id, thread_ts)
             clear_thread_history_limit(channel_id, thread_ts)
             clear_thread_max_words(channel_id, thread_ts)
+            clear_thread_min_words(channel_id, thread_ts)
             clear_thread_file_context(channel_id, thread_ts)
             CUSTOM_FLOW_THREADS.discard(thread_key)
             REMAINING_AGENTS_MAP.pop(thread_key, None)

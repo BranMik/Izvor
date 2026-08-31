@@ -85,4 +85,40 @@ def test_build_agent_prompt_with_max_words():
     assert "strictly NOT exceed 45 words" in prompt_vis
 
 
+def test_build_agent_prompt_with_min_words():
+    # Intermediate agent: verify standard output constraints are skipped, only min_words is added
+    prompt = build_agent_prompt("MistLar_TechLead", min_words=60)
+    assert "Minimum Length: Your entire response must have a minimum length of 60 words." in prompt
+    assert "1 sentence stating your core verdict/concern." not in prompt
+    assert "2-3 concise bullet points" not in prompt
+    assert "nominate the next agent" in prompt
+
+    # Short output agent: verify standard 100w output constraints are skipped
+    prompt_short = build_agent_prompt("MistLar_QALead", min_words=40)
+    assert "Minimum Length: Your entire response must have a minimum length of 40 words." in prompt_short
+    assert "Hard Limit: Your entire response must strictly NOT exceed 100 words." not in prompt_short
+
+    # OpAiTerra_Architect: verify min_words addition
+    prompt_arch = build_agent_prompt("OpAiTerra_Architect", min_words=150)
+    assert "Minimum Length: Your entire response must have a minimum length of 150 words." in prompt_arch
+    assert "strictly NOT exceed 700 words" in prompt_arch
+
+    # Gemini_Visionary: verify min_words addition
+    prompt_vis = build_agent_prompt("Gemini_Visionary", min_words=50)
+    assert "Minimum Length: Your entire response must have a minimum length of 50 words." in prompt_vis
+
+
+def test_build_agent_prompt_with_min_and_max_words():
+    # Both limits present
+    prompt = build_agent_prompt("MistLar_TechLead", min_words=50, max_words=150)
+    assert "Minimum Length: Your entire response must have a minimum length of 50 words." in prompt
+    assert "Hard Limit: Your entire response must strictly NOT exceed 150 words." in prompt
+    assert "1 sentence stating your core verdict/concern." not in prompt
+
+    prompt_arch = build_agent_prompt("OpAiTerra_Architect", min_words=80, max_words=300)
+    assert "Minimum Length: Your entire response must have a minimum length of 80 words." in prompt_arch
+    assert "strictly NOT exceed 300 words" in prompt_arch
+
+
+
 
