@@ -18,6 +18,22 @@ from agents import (
 from config import AGENTS_CONFIG, DEFAULT_AGENT_KEY
 from prompts import build_agent_prompt
 from mcp_tools import MCP_TOOLS_SCHEMAS, execute_mcp_tool
+from nl_patterns import (
+    FILE_COMMAND_PATTERN,
+    FILE_NL_PATTERNS,
+    HISTORY_COMMAND_PATTERN,
+    HISTORY_NL_PATTERNS,
+    MAX_WORDS_COMMAND_PATTERN,
+    MAX_WORDS_NL_PATTERNS,
+    MIN_WORDS_COMMAND_PATTERN,
+    MIN_WORDS_NL_PATTERNS,
+    STOP_COMMAND_PATTERN,
+    extract_file_instruction,
+    extract_history_limit,
+    extract_max_words_limit,
+    extract_min_words_limit,
+    is_stop_command,
+)
 from slack_client import (
     download_slack_file,
     fetch_thread_files,
@@ -68,49 +84,6 @@ STOP_REQUESTED_THREADS = set()
 # Map: (channel_id, thread_ts) -> dict[str, int] (e.g. {"limit": 5, "prior_cutoff_index": 12})
 THREAD_HISTORY_LIMITS: dict[tuple[str, str], dict[str, int]] = {}
 
-HISTORY_COMMAND_PATTERN = re.compile(
-    r"/history\s*[:=]?\s*\[?(\d+)(?::(?:int|integer))?\]?",
-    re.IGNORECASE,
-)
-
-HISTORY_NL_PATTERNS = [
-    re.compile(
-        r"\b(?:uzmi\s+u\s+obzir\s+|pogledaj\s+|samo\s+|take\s+into\s+account\s+|only\s+)?(?:zadnj[a-z]*|posljednj[a-z]*|prethodn[a-z]*|last|past|previous)\s+(\d+)\s*(?:poruk[a-z]*|messages?)\b",
-        re.IGNORECASE,
-    ),
-    re.compile(
-        r"\b(?:povijest|history)\s*(?:od)?\s*[:=]?\s*(\d+)\s*(?:poruk[a-z]*|messages?)\b",
-        re.IGNORECASE,
-    ),
-]
-
-
-def extract_history_limit(text: str) -> tuple[int | None, str]:
-    """
-    Extracts the /history [x:int] command parameter or natural language limit if present in text and returns (history_limit, cleaned_text).
-    Supports:
-    - /history 5, /history: 5, /history=5, /history [5:int]
-    - Natural language: "uzmi u obzir zadnjih 5 poruka", "last 3 messages", "povijest od 4 poruke"
-    If no history instruction is found, returns (None, text).
-    """
-    if not text:
-        return None, ""
-    match = HISTORY_COMMAND_PATTERN.search(text)
-    if match:
-        limit = int(match.group(1))
-        cleaned = HISTORY_COMMAND_PATTERN.sub("", text).strip()
-        cleaned = re.sub(r"[ \t]+", " ", cleaned).strip()
-        return limit, cleaned
-    for pattern in HISTORY_NL_PATTERNS:
-        match = pattern.search(text)
-        if match:
-            limit = int(match.group(1))
-            cleaned = pattern.sub("", text).strip()
-            cleaned = re.sub(r"[ \t]+", " ", cleaned).strip()
-            return limit, cleaned
-    return None, text
-
-
 def get_thread_history_limit(channel_id: str, thread_ts: str) -> dict[str, int] | None:
     """Returns the active history limit dict for this thread, or None."""
     return THREAD_HISTORY_LIMITS.get((channel_id, thread_ts))
@@ -134,55 +107,9 @@ def clear_thread_history_limit(channel_id: str, thread_ts: str) -> None:
     THREAD_HISTORY_LIMITS.pop((channel_id, thread_ts), None)
 
 
-MAX_WORDS_COMMAND_PATTERN = re.compile(
-    r"/(?:max_words|max-words|maxwords)\s*[:=]?\s*\[?(\d+)(?::(?:int|integer))?\]?",
-    re.IGNORECASE,
-)
-
-MAX_WORDS_NL_PATTERNS = [
-    re.compile(
-        r"\b(?:u\s+|in\s+)?(?:maksimalno|maximalno|najvi[sš]e|najvi[sš]e\s+do|max\.?|maximum|at\s+most|no\s+more\s+than|up\s+to)\s+(?:od\s+)?(\d+)\s*(?:rije[cč]i|words)\b",
-        re.IGNORECASE,
-    ),
-    re.compile(
-        r"\b(?:maksimaln[a-z]*\s+duljin[a-z]*|maksimaln[a-z]*\s+du[zž]in[a-z]*|maximaln[a-z]*\s+duljin[a-z]*|maximaln[a-z]*\s+du[zž]in[a-z]*|maximum\s+length|word\s+limit|limit\s+od|limit\s+to)\s*[:=]?\s*(\d+)\s*(?:rije[cč]i|words)\b",
-        re.IGNORECASE,
-    ),
-    re.compile(
-        r"\b(?:odgovori|pi[sš]i|odgovor)\s+(?:u\s+|in\s+)?(?:do|ispod|under)\s+(\d+)\s*(?:rije[cč]i|words)\b",
-        re.IGNORECASE,
-    ),
-]
-
 # Track conversation max words limit per thread
 # Map: (channel_id, thread_ts) -> int
 THREAD_MAX_WORDS_LIMITS: dict[tuple[str, str], int] = {}
-
-
-def extract_max_words_limit(text: str) -> tuple[int | None, str]:
-    """
-    Extracts the /max_words [x:int] command parameter or natural language limit if present in text and returns (max_words_limit, cleaned_text).
-    Supports:
-    - /max_words 50, /max_words: 50, /max_words=50, /max_words [50:int]
-    - Natural language: "odgovori u maksimalno 100 riječi", "najviše 50 riječi", "in max 120 words", "up to 80 words"
-    If no max_words instruction is found, returns (None, text).
-    """
-    if not text:
-        return None, ""
-    match = MAX_WORDS_COMMAND_PATTERN.search(text)
-    if match:
-        limit = max(1, int(match.group(1)))
-        cleaned = MAX_WORDS_COMMAND_PATTERN.sub("", text).strip()
-        cleaned = re.sub(r"[ \t]+", " ", cleaned).strip()
-        return limit, cleaned
-    for pattern in MAX_WORDS_NL_PATTERNS:
-        match = pattern.search(text)
-        if match:
-            limit = max(1, int(match.group(1)))
-            cleaned = pattern.sub("", text).strip()
-            cleaned = re.sub(r"[ \t]+", " ", cleaned).strip()
-            return limit, cleaned
-    return None, text
 
 
 def get_thread_max_words(channel_id: str, thread_ts: str) -> int | None:
@@ -203,51 +130,9 @@ def clear_thread_max_words(channel_id: str, thread_ts: str) -> None:
     THREAD_MAX_WORDS_LIMITS.pop((channel_id, thread_ts), None)
 
 
-MIN_WORDS_COMMAND_PATTERN = re.compile(
-    r"/(?:min_words|min-words|minwords)\s*[:=]?\s*\[?(\d+)(?::(?:int|integer))?\]?",
-    re.IGNORECASE,
-)
-
-MIN_WORDS_NL_PATTERNS = [
-    re.compile(
-        r"\b(?:u\s+|in\s+)?(?:minimalno|najmanje|barem|bar|min\.?|minimum|at\s+least|no\s+less\s+than)\s+(?:od\s+)?(\d+)\s*(?:rije[cč]i|words)\b",
-        re.IGNORECASE,
-    ),
-    re.compile(
-        r"\b(?:minimaln[a-z]*\s+duljin[a-z]*|minimaln[a-z]*\s+du[zž]in[a-z]*|minimum\s+length|donj[a-z]*\s+granic[a-z]*)\s*[:=]?\s*(\d+)\s*(?:rije[cč]i|words)\b",
-        re.IGNORECASE,
-    ),
-]
-
 # Track conversation min words limit per thread
 # Map: (channel_id, thread_ts) -> int
 THREAD_MIN_WORDS_LIMITS: dict[tuple[str, str], int] = {}
-
-
-def extract_min_words_limit(text: str) -> tuple[int | None, str]:
-    """
-    Extracts the /min_words [x:int] command parameter or natural language limit if present in text and returns (min_words_limit, cleaned_text).
-    Supports:
-    - /min_words 50, /min_words: 50, /min_words=50, /min_words [50:int]
-    - Natural language: "odgovori u minimalno 100 riječi", "najmanje 80 riječi", "barem 150 riječi", "at least 100 words"
-    If no min_words instruction is found, returns (None, text).
-    """
-    if not text:
-        return None, ""
-    match = MIN_WORDS_COMMAND_PATTERN.search(text)
-    if match:
-        limit = max(1, int(match.group(1)))
-        cleaned = MIN_WORDS_COMMAND_PATTERN.sub("", text).strip()
-        cleaned = re.sub(r"[ \t]+", " ", cleaned).strip()
-        return limit, cleaned
-    for pattern in MIN_WORDS_NL_PATTERNS:
-        match = pattern.search(text)
-        if match:
-            limit = max(1, int(match.group(1)))
-            cleaned = pattern.sub("", text).strip()
-            cleaned = re.sub(r"[ \t]+", " ", cleaned).strip()
-            return limit, cleaned
-    return None, text
 
 
 def get_thread_min_words(channel_id: str, thread_ts: str) -> int | None:
@@ -271,78 +156,6 @@ def clear_thread_min_words(channel_id: str, thread_ts: str) -> None:
 # Track on-demand file context per thread discussion
 # Map: (channel_id, thread_ts) -> dict (e.g. {"file_name": str, "content": str, "size": int, "truncated": bool, "authorized_agents": set[str] | None})
 THREAD_ACTIVE_FILE_CONTEXT: dict[tuple[str, str], dict[str, Any]] = {}
-
-FILE_COMMAND_PATTERN = re.compile(
-    r"/(?:read[-_]?file|file|attachment)(?:\s*[:=]\s*(\S+)|\s+\[([^\]]+)\]|\s+\(([^)]+)\)|\s+([\w\-.]+\.[a-zA-Z0-9]+))?",
-    re.IGNORECASE,
-)
-
-FILE_NL_PATTERNS = [
-    # Croatian triggers
-    re.compile(
-        r"\b(?:pro[čc]itaj|pogledaj|analiziraj|provjeri|u[čc]itaj|pregledaj|obradi|otvori)\b.*?\b(?:fajl|datotek[a-z]*|privit[a-z]*|attachment[a-z]*|prilo[zž]en[a-z]*|kod\s+u\s+privitku|dokument[a-z]*)",
-        re.IGNORECASE,
-    ),
-    re.compile(
-        r"\b(?:u\s+privitku|u\s+fajlu|u\s+datoteci|iz\s+fajla|iz\s+datoteke|iz\s+privitka|prilo[zž]en[a-z]*\s+(?:fajl|datotek|privit|kod|dokument)|uploadao\s+sam\s+fajl|poslao\s+sam\s+fajl|uploadan[a-z]*\s+fajl)\b",
-        re.IGNORECASE,
-    ),
-    # English triggers
-    re.compile(
-        r"\b(?:read|check|analyze|analyse|inspect|review|examine|look\s+at|open)\b.*?\b(?:file|attachment|document|uploaded\s+file|code\s+in\s+attachment)",
-        re.IGNORECASE,
-    ),
-    re.compile(
-        r"\b(?:attached\s+file|in\s+the\s+attachment|from\s+the\s+file|uploaded\s+file|in\s+the\s+uploaded\s+file)\b",
-        re.IGNORECASE,
-    ),
-]
-
-
-def extract_file_instruction(
-    text: str, available_files: list[dict[str, Any]] | None = None
-) -> tuple[bool, str | None, str]:
-    """
-    Detects if the user prompt requests reading an attached Slack file via command or natural language.
-    Returns: (is_requested: bool, target_filename: str | None, cleaned_text: str)
-    """
-    if not text:
-        return False, None, ""
-
-    is_requested = False
-    target_filename = None
-    cleaned_text = text
-
-    # 1. Check for slash command (e.g. /read-file, /file sample.py, /read_file: data.csv)
-    cmd_match = FILE_COMMAND_PATTERN.search(text)
-    if cmd_match:
-        is_requested = True
-        # Extract matched target if any of the filename groups matched
-        target = next((g for g in cmd_match.groups() if g is not None), None)
-        if target:
-            target_filename = target.strip("[]():,; \t")
-        cleaned_text = FILE_COMMAND_PATTERN.sub("", text).strip()
-        cleaned_text = re.sub(r"[ \t]+", " ", cleaned_text).strip()
-        return is_requested, target_filename, cleaned_text
-
-    # 2. Check for natural language triggers
-    for pattern in FILE_NL_PATTERNS:
-        if pattern.search(text):
-            is_requested = True
-            break
-
-    # 3. If available_files is provided, check if any uploaded file's name is explicitly mentioned in the text
-    if available_files:
-        for f in available_files:
-            fname = f.get("name")
-            if fname and re.search(
-                r"\b" + re.escape(fname) + r"\b", text, re.IGNORECASE
-            ):
-                is_requested = True
-                target_filename = fname
-                break
-
-    return is_requested, target_filename, cleaned_text
 
 
 def resolve_target_file(
@@ -492,16 +305,7 @@ def classify_agent_error(e: Exception) -> str:
     return "general_error"
 
 
-def is_stop_command(raw_text: str, is_mention_or_dm: bool = False) -> bool:
-    """
-    Detects if the message is an explicit /stop command directed at the bot.
-    Supports:
-    - /stop
-    """
-    if not raw_text:
-        return False
 
-    return bool(re.search(r"(?:^|\s)/stop(?=[\s!.,;?]|$)", raw_text, re.IGNORECASE))
 
 
 def request_thread_stop(channel_id: str, thread_ts: str) -> None:
