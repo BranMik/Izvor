@@ -27,15 +27,34 @@ SHORT_OUTPUT_AGENTS = {
 }
 
 
-def build_agent_prompt(agent_key: str, max_words: int | None = None) -> str:
+def _format_word_constraints(
+    max_words: int | None = None, min_words: int | None = None
+) -> str:
+    constraints = []
+    if min_words is not None:
+        constraints.append(
+            f"Minimum Length: Your entire response must have a minimum length of {min_words} words."
+        )
+    if max_words is not None:
+        constraints.append(
+            f"Hard Limit: Your entire response must strictly NOT exceed {max_words} words."
+        )
+    return "\n".join(constraints)
+
+
+def build_agent_prompt(
+    agent_key: str,
+    max_words: int | None = None,
+    min_words: int | None = None,
+) -> str:
     """
     Builds the complete system prompt for a given agent by combining
     its persona definition with shared skills (output constraints & nomination rules)
     where appropriate.
 
-    If max_words is specified:
+    If max_words or min_words is specified:
     - Completely skips adding output_constraints.md / output_constraints_100w.md text.
-    - Adds only the simple constraint for max_words.
+    - Adds only the simple constraint for max_words and/or min_words.
     """
     persona_file = PERSONAS_DIR / f"{agent_key}.md"
     persona_content = _read_prompt_file(persona_file)
@@ -48,30 +67,39 @@ def build_agent_prompt(agent_key: str, max_words: int | None = None) -> str:
     ):
         return f"\n{persona_content}\n\n"
 
+    word_constraints = _format_word_constraints(
+        max_words=max_words, min_words=min_words
+    )
+
     if agent_key == "Gemini_Visionary":
-        if max_words is not None:
+        if word_constraints:
             return (
                 f"\n{persona_content}\n\n"
                 f"OUTPUT & LENGTH CONSTRAINTS:\n\n"
-                f"Hard Limit: Your entire response must strictly NOT exceed {max_words} words.\n\n"
+                f"{word_constraints}\n\n"
             )
         return f"\n{persona_content}\n\n"
 
     if agent_key == "OpAiTerra_Architect":
+        content = persona_content
         if max_words is not None:
             content = re.sub(
                 r"strictly NOT exceed \d+ words",
                 f"strictly NOT exceed {max_words} words",
-                persona_content,
+                content,
             )
-            return f"\n{content}\n\n"
-        return f"\n{persona_content}\n\n"
+        if min_words is not None:
+            content = (
+                f"{content}\n"
+                f"7. Minimum Length: Your entire response must have a minimum length of {min_words} words."
+            )
+        return f"\n{content}\n\n"
 
     # Intermediate agents share output constraints (100 words or 200 words) and nomination rules
-    if max_words is not None:
+    if word_constraints:
         output_constraints = (
             f"OUTPUT & LENGTH CONSTRAINTS:\n\n"
-            f"Hard Limit: Your entire response must strictly NOT exceed {max_words} words."
+            f"{word_constraints}"
         )
     elif agent_key in SHORT_OUTPUT_AGENTS:
         output_constraints = _read_prompt_file(SHARED_DIR / "output_constraints_100w.md")
