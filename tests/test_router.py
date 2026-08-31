@@ -1037,6 +1037,19 @@ def test_extract_history_limit_formats():
     assert limit == 3
     assert cleaned == "@CaiLogics What is quantum computing?"
 
+    # 9. Natural language variations (Croatian and English)
+    limit, cleaned = extract_history_limit("uzmi u obzir zadnjih 5 poruka i nastavi")
+    assert limit == 5
+    assert cleaned == "i nastavi"
+
+    limit, cleaned = extract_history_limit("last 3 messages analyze the issue")
+    assert limit == 3
+    assert cleaned == "analyze the issue"
+
+    limit, cleaned = extract_history_limit("povijest od 4 poruke i odgovori")
+    assert limit == 4
+    assert cleaned == "i odgovori"
+
 
 def test_parse_agent_and_prompt_cleans_history_command():
     agent_key, prompt, was_explicit = parse_agent_and_prompt(
@@ -1627,6 +1640,26 @@ def test_extract_max_words_limit():
     limit, text = extract_max_words_limit("/maxwords 15 test")
     assert limit == 15
 
+    # Natural language variations (Croatian and English)
+    limit, text = extract_max_words_limit("odgovori u maksimalno 100 riječi na pitanje o k8s")
+    assert limit == 100
+    assert text == "odgovori na pitanje o k8s"
+
+    limit, text = extract_max_words_limit("odgovori u maximalno 80 rijeci")
+    assert limit == 80
+
+    limit, text = extract_max_words_limit("objasni temu u najviše 50 riječi")
+    assert limit == 50
+    assert text == "objasni temu"
+
+    limit, text = extract_max_words_limit("in max 120 words please")
+    assert limit == 120
+    assert text == "please"
+
+    limit, text = extract_max_words_limit("up to 60 words summarize")
+    assert limit == 60
+    assert text == "summarize"
+
     # No command present
     limit, text = extract_max_words_limit("Just a regular prompt")
     assert limit is None
@@ -1661,6 +1694,23 @@ def test_extract_min_words_limit():
 
     limit, text = extract_min_words_limit("/minwords 15 test")
     assert limit == 15
+
+    # Natural language variations (Croatian and English)
+    limit, text = extract_min_words_limit("odgovori u minimalno 120 riječi na pitanje")
+    assert limit == 120
+    assert text == "odgovori na pitanje"
+
+    limit, text = extract_min_words_limit("barem 150 riječi opiši arhitekturu")
+    assert limit == 150
+    assert text == "opiši arhitekturu"
+
+    limit, text = extract_min_words_limit("at least 100 words detailed analysis")
+    assert limit == 100
+    assert text == "detailed analysis"
+
+    limit, text = extract_min_words_limit("najmanje 90 rijeci molim")
+    assert limit == 90
+    assert text == "molim"
 
     # No command present
     limit, text = extract_min_words_limit("Just a regular prompt")
@@ -1873,6 +1923,73 @@ async def test_process_and_respond_with_min_and_max_words(monkeypatch):
     assert "/min_words" not in user_msg
     assert "/max_words" not in user_msg
     assert "Analyze database scaling" in user_msg
+
+
+@pytest.mark.anyio
+async def test_process_and_respond_with_natural_language_limits(monkeypatch):
+    from agent_router import (
+        REMAINING_AGENTS_MAP,
+        RATE_LIMIT_RETRY_QUEUE,
+        RATE_LIMIT_ALREADY_RETRIED,
+        THREAD_MAX_WORDS_LIMITS,
+        THREAD_MIN_WORDS_LIMITS,
+        get_thread_max_words,
+        get_thread_min_words,
+    )
+    REMAINING_AGENTS_MAP.clear()
+    RATE_LIMIT_RETRY_QUEUE.clear()
+    RATE_LIMIT_ALREADY_RETRIED.clear()
+    THREAD_MAX_WORDS_LIMITS.clear()
+    THREAD_MIN_WORDS_LIMITS.clear()
+
+    channel_id = "C_NL_LIMITS"
+    thread_ts = "66666.0001"
+    thread_key = (channel_id, thread_ts)
+    REMAINING_AGENTS_MAP[thread_key] = ["OpAiTerra_Architect"]
+
+    captured_messages = []
+
+    mock_response = MagicMock()
+    mock_choice = MagicMock()
+    mock_choice.message = MagicMock(content="Response under 60 words [OpAiTerra_Architect]", tool_calls=None)
+    mock_response.choices = [mock_choice]
+    mock_response.usage = MagicMock(prompt_tokens=15, completion_tokens=30)
+
+    async def mock_run_in_threadpool(func, *args, **kwargs):
+        captured_messages.append(kwargs.get("messages", []))
+        return mock_response
+
+    posted_messages = []
+
+    async def mock_post_agent_response(
+        channel_id, thread_ts, text, username, icon_url=None
+    ):
+        posted_messages.append({"text": text, "username": username})
+        return {"ok": True, "ts": thread_ts}
+
+    monkeypatch.setattr("agent_router.post_agent_response", mock_post_agent_response)
+    monkeypatch.setattr("agent_router.run_in_threadpool", mock_run_in_threadpool)
+    monkeypatch.setattr("agent_router.fetch_thread_history", AsyncMock(return_value=[]))
+    monkeypatch.setattr("agent_router.record_thread_tokens", MagicMock())
+
+    res = await process_and_respond(
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        raw_text="[MistLar_TechLead] [OpAiTerra_Architect] odgovori u maksimalno 60 riječi o mikroservisima",
+        is_bot_trigger=False,
+    )
+
+    assert res.get("ok") is True
+    assert get_thread_max_words(channel_id, thread_ts) == 60
+
+    assert len(captured_messages) == 1
+    system_msg = captured_messages[0][0]["content"]
+    assert "Hard Limit: Your entire response must strictly NOT exceed 60 words." in system_msg
+
+    user_msg = captured_messages[0][-1]["content"]
+    assert "maksimalno 60 riječi" not in user_msg
+    assert "mikroservisima" in user_msg
+
 
 
 
