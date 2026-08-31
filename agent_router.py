@@ -3,7 +3,7 @@ import json
 import logging
 import re
 import sys
-from pathlib import Path
+import time
 from typing import Any
 
 import litellm
@@ -16,7 +16,6 @@ from agents import (
     trigger_usage_update,
 )
 from config import AGENTS_CONFIG, DEFAULT_AGENT_KEY
-from prompts import build_agent_prompt
 from mcp_tools import MCP_TOOLS_SCHEMAS, execute_mcp_tool
 from nl_patterns import (
     FILE_COMMAND_PATTERN,
@@ -34,11 +33,91 @@ from nl_patterns import (
     extract_min_words_limit,
     is_stop_command,
 )
+from prompts import build_agent_prompt
 from slack_client import (
     download_slack_file,
     fetch_thread_files,
     fetch_thread_history,
     post_agent_response,
+)
+
+# Re-exports from agent_settings
+from agent_settings import (
+    CIRCUIT_BREAKER_ENABLED,
+    CIRCUIT_BREAKER_THRESHOLD_USD,
+    ENABLED_DEBATE_AGENTS,
+    LOCKED_AGENTS,
+    SETTINGS_FILE,
+    get_circuit_breaker_config,
+    get_circuit_breaker_threshold,
+    get_enabled_agents,
+    is_circuit_breaker_enabled,
+    load_enabled_agents,
+    reset_enabled_agents,
+    save_enabled_agents,
+    set_agent_enabled,
+    set_circuit_breaker_enabled,
+    set_circuit_breaker_threshold,
+    toggle_agent,
+)
+
+# Re-exports from thread_state
+from thread_state import (
+    ACTIVE_THREAD_TASKS,
+    CUSTOM_FLOW_THREADS,
+    RATE_LIMIT_ALREADY_RETRIED,
+    RATE_LIMIT_RETRY_QUEUE,
+    REMAINING_AGENTS_MAP,
+    STOP_REQUESTED_THREADS,
+    THREAD_ACTIVE_FILE_CONTEXT,
+    THREAD_GENERATIONS,
+    THREAD_HISTORY_LIMITS,
+    THREAD_MAX_WORDS_LIMITS,
+    THREAD_MIN_WORDS_LIMITS,
+    clear_thread_file_context,
+    clear_thread_history_limit,
+    clear_thread_max_words,
+    clear_thread_min_words,
+    clear_thread_state,
+    clear_thread_stop,
+    get_thread_file_context,
+    get_thread_history_limit,
+    get_thread_max_words,
+    get_thread_min_words,
+    interrupt_thread_discussion,
+    is_discussion_active,
+    is_thread_stopped,
+    request_thread_stop,
+    set_thread_file_context,
+    set_thread_history_limit,
+    set_thread_max_words,
+    set_thread_min_words,
+)
+
+# Re-exports from debate_orchestrator
+from debate_orchestrator import (
+    enforce_valid_nomination,
+    extract_tagged_agents,
+    get_initial_agents,
+    parse_agent_and_prompt,
+    resolve_target_file,
+)
+
+# Re-exports from llm_utils
+from llm_utils import (
+    LLM_MAX_RETRIES,
+    LLM_RETRY_BACKOFF_BASE,
+    _execute_llm_with_retry,
+    classify_agent_error,
+    execute_llm_with_retry,
+    is_anthropic_model,
+    is_openai_model,
+)
+
+# Re-exports from message_builder
+from message_builder import (
+    build_llm_messages,
+    markdown_to_slack,
 )
 
 logger = logging.getLogger(__name__)
@@ -47,834 +126,8 @@ logger = logging.getLogger(__name__)
 litellm.suppress_debug_info = True
 litellm.drop_params = True
 
-# Pacing and retry configuration
-LLM_MAX_RETRIES = 3
-LLM_RETRY_BACKOFF_BASE = 0.01 if "pytest" in sys.modules else 1.5
+# Pacing configuration
 SLACK_POST_PAUSE_SECONDS = 0.01 if "pytest" in sys.modules else 2.0
-
-# Path to persistent settings file
-SETTINGS_FILE = Path(__file__).parent / "agent_settings.json"
-
-# Track agents who haven't spoken yet per thread (mapped by (channel_id, thread_ts))
-REMAINING_AGENTS_MAP = {}
-
-# Track agents deferred due to rate limits waiting for retry at the end of discussion
-# Map: (channel_id, thread_ts) -> list[str] (agent keys)
-RATE_LIMIT_RETRY_QUEUE: dict[tuple[str, str], list[str]] = {}
-
-# Track agents that have already been retried once for this thread to prevent infinite retry loops
-# Map: (channel_id, thread_ts) -> set[str] (agent keys)
-RATE_LIMIT_ALREADY_RETRIED: dict[tuple[str, str], set[str]] = {}
-
-# Track running asyncio Task for each active thread discussion
-# Map: (channel_id, thread_ts) -> asyncio.Task
-ACTIVE_THREAD_TASKS: dict[tuple[str, str], asyncio.Task] = {}
-
-# Track discussion generation counter per thread to invalidate superseded tasks
-# Map: (channel_id, thread_ts) -> int
-THREAD_GENERATIONS: dict[tuple[str, str], int] = {}
-
-# Track threads that are running a custom tagged agent sequence
-CUSTOM_FLOW_THREADS = set()
-
-# Track threads where a stop has been requested
-STOP_REQUESTED_THREADS = set()
-
-# Track conversation history limit and baseline index per thread
-# Map: (channel_id, thread_ts) -> dict[str, int] (e.g. {"limit": 5, "prior_cutoff_index": 12})
-THREAD_HISTORY_LIMITS: dict[tuple[str, str], dict[str, int]] = {}
-
-def get_thread_history_limit(channel_id: str, thread_ts: str) -> dict[str, int] | None:
-    """Returns the active history limit dict for this thread, or None."""
-    return THREAD_HISTORY_LIMITS.get((channel_id, thread_ts))
-
-
-def set_thread_history_limit(
-    channel_id: str, thread_ts: str, limit: int, prior_cutoff_index: int
-) -> None:
-    """Sets the history limit and prior cutoff index for this thread."""
-    THREAD_HISTORY_LIMITS[(channel_id, thread_ts)] = {
-        "limit": limit,
-        "prior_cutoff_index": prior_cutoff_index,
-    }
-    logger.info(
-        f"[ROUTER] Set history limit for thread {(channel_id, thread_ts)}: limit={limit}, prior_cutoff_index={prior_cutoff_index}"
-    )
-
-
-def clear_thread_history_limit(channel_id: str, thread_ts: str) -> None:
-    """Clears any active history limit for this thread."""
-    THREAD_HISTORY_LIMITS.pop((channel_id, thread_ts), None)
-
-
-# Track conversation max words limit per thread
-# Map: (channel_id, thread_ts) -> int
-THREAD_MAX_WORDS_LIMITS: dict[tuple[str, str], int] = {}
-
-
-def get_thread_max_words(channel_id: str, thread_ts: str) -> int | None:
-    """Returns the active max_words limit for this thread, or None."""
-    return THREAD_MAX_WORDS_LIMITS.get((channel_id, thread_ts))
-
-
-def set_thread_max_words(channel_id: str, thread_ts: str, max_words: int) -> None:
-    """Sets the max_words limit for this thread."""
-    THREAD_MAX_WORDS_LIMITS[(channel_id, thread_ts)] = max_words
-    logger.info(
-        f"[ROUTER] Set max_words limit for thread {(channel_id, thread_ts)}: max_words={max_words}"
-    )
-
-
-def clear_thread_max_words(channel_id: str, thread_ts: str) -> None:
-    """Clears any active max_words limit for this thread."""
-    THREAD_MAX_WORDS_LIMITS.pop((channel_id, thread_ts), None)
-
-
-# Track conversation min words limit per thread
-# Map: (channel_id, thread_ts) -> int
-THREAD_MIN_WORDS_LIMITS: dict[tuple[str, str], int] = {}
-
-
-def get_thread_min_words(channel_id: str, thread_ts: str) -> int | None:
-    """Returns the active min_words limit for this thread, or None."""
-    return THREAD_MIN_WORDS_LIMITS.get((channel_id, thread_ts))
-
-
-def set_thread_min_words(channel_id: str, thread_ts: str, min_words: int) -> None:
-    """Sets the min_words limit for this thread."""
-    THREAD_MIN_WORDS_LIMITS[(channel_id, thread_ts)] = min_words
-    logger.info(
-        f"[ROUTER] Set min_words limit for thread {(channel_id, thread_ts)}: min_words={min_words}"
-    )
-
-
-def clear_thread_min_words(channel_id: str, thread_ts: str) -> None:
-    """Clears any active min_words limit for this thread."""
-    THREAD_MIN_WORDS_LIMITS.pop((channel_id, thread_ts), None)
-
-
-# Track on-demand file context per thread discussion
-# Map: (channel_id, thread_ts) -> dict (e.g. {"file_name": str, "content": str, "size": int, "truncated": bool, "authorized_agents": set[str] | None})
-THREAD_ACTIVE_FILE_CONTEXT: dict[tuple[str, str], dict[str, Any]] = {}
-
-
-def resolve_target_file(
-    available_files: list[dict[str, Any]], target_filename: str | None = None
-) -> dict[str, Any] | None:
-    """
-    Selects the matching file from available thread files.
-    If target_filename is specified, matches exact name or substring (case-insensitive).
-    Otherwise returns the latest uploaded file in the thread.
-    """
-    if not available_files:
-        return None
-    if target_filename:
-        # Exact match (case-insensitive)
-        for f in reversed(available_files):
-            if f.get("name", "").lower() == target_filename.lower():
-                return f
-        # Partial match
-        for f in reversed(available_files):
-            if target_filename.lower() in f.get("name", "").lower():
-                return f
-    # Default to latest uploaded file
-    return available_files[-1]
-
-
-def get_thread_file_context(channel_id: str, thread_ts: str) -> dict[str, Any] | None:
-    """Returns the active file context for this thread discussion, or None."""
-    return THREAD_ACTIVE_FILE_CONTEXT.get((channel_id, thread_ts))
-
-
-def set_thread_file_context(
-    channel_id: str, thread_ts: str, file_context: dict[str, Any]
-) -> None:
-    """Sets the active file context for this thread discussion."""
-    THREAD_ACTIVE_FILE_CONTEXT[(channel_id, thread_ts)] = file_context
-    logger.info(
-        f"[ROUTER] Set active file context for thread {(channel_id, thread_ts)}: file='{file_context.get('file_name')}', authorized_agents={file_context.get('authorized_agents')}"
-    )
-
-
-def clear_thread_file_context(channel_id: str, thread_ts: str) -> None:
-    """Clears any active file context for this thread."""
-    THREAD_ACTIVE_FILE_CONTEXT.pop((channel_id, thread_ts), None)
-
-
-def is_discussion_active(channel_id: str, thread_ts: str) -> bool:
-    """
-    Checks if there is an active (ongoing, not completed) discussion in this thread.
-    A discussion is active if:
-    - An asyncio.Task is currently executing for this thread and not done, OR
-    - Intermediate agents are remaining in REMAINING_AGENTS_MAP for this thread, OR
-    - Pending rate-limit retries exist in RATE_LIMIT_RETRY_QUEUE.
-    """
-    thread_key = (channel_id, thread_ts)
-    task = ACTIVE_THREAD_TASKS.get(thread_key)
-    if task and not task.done():
-        return True
-    if REMAINING_AGENTS_MAP.get(thread_key):
-        return True
-    return bool(RATE_LIMIT_RETRY_QUEUE.get(thread_key))
-
-
-def interrupt_thread_discussion(channel_id: str, thread_ts: str) -> None:
-    """
-    Interrupts and cancels the current ongoing discussion in the specified thread:
-    1. Increments the thread generation counter so in-flight tasks become superseded and abort.
-    2. Cancels any active asyncio.Task currently processing for this thread.
-    3. Clears remaining agents, custom flows, retry queues, and history limits.
-    4. Clears any stop requested flag for this thread so the new query can run cleanly.
-    """
-    thread_key = (channel_id, thread_ts)
-    THREAD_GENERATIONS[thread_key] = THREAD_GENERATIONS.get(thread_key, 0) + 1
-    logger.info(
-        f"[ROUTER] Interrupting discussion for thread {thread_key}. New generation: {THREAD_GENERATIONS[thread_key]}"
-    )
-
-    task = ACTIVE_THREAD_TASKS.pop(thread_key, None)
-    if task and not task.done() and task is not asyncio.current_task():
-        logger.info(
-            f"[ROUTER] Cancelling active background task for thread {thread_key}"
-        )
-        task.cancel()
-
-    REMAINING_AGENTS_MAP.pop(thread_key, None)
-    RATE_LIMIT_RETRY_QUEUE.pop(thread_key, None)
-    RATE_LIMIT_ALREADY_RETRIED.pop(thread_key, None)
-    THREAD_HISTORY_LIMITS.pop(thread_key, None)
-    THREAD_ACTIVE_FILE_CONTEXT.pop(thread_key, None)
-    CUSTOM_FLOW_THREADS.discard(thread_key)
-    STOP_REQUESTED_THREADS.discard(thread_key)
-
-
-def classify_agent_error(e: Exception) -> str:
-    """
-    Classifies an agent execution exception into one of:
-    - 'api_key_not_found': Missing or invalid API key / authentication error.
-    - 'model_not_found': Model does not exist or unknown model identifier.
-    - 'rate_limit': 429 Too Many Requests, quota exceeded, or rate limit crossed.
-    - 'general_error': Any other unexpected runtime exception.
-    """
-    error_str = str(e).lower()
-    error_type = type(e).__name__.lower()
-
-    # 1. Rate Limit Checks
-    if (
-        "ratelimit" in error_type
-        or "rate_limit" in error_str
-        or "ratelimit" in error_str
-        or "rate limit" in error_str
-        or "429" in error_str
-        or "too many requests" in error_str
-        or "resourceexhausted" in error_str
-        or "resource_exhausted" in error_str
-        or "quota" in error_str
-        or "tpm" in error_str
-        or "rpm" in error_str
-    ):
-        return "rate_limit"
-
-    # 2. API Key Not Found / Authentication Checks
-    if (
-        "auth" in error_type
-        or "api_key" in error_str
-        or "apikey" in error_str
-        or "api key" in error_str
-        or "authentication" in error_str
-        or "unauthorized" in error_str
-        or "401" in error_str
-        or "forbidden" in error_str
-        or "403" in error_str
-    ):
-        return "api_key_not_found"
-
-    # 3. Model Not Found Checks
-    if (
-        "notfound" in error_type
-        or "model_not_found" in error_str
-        or "model not found" in error_str
-        or "does not exist" in error_str
-        or "is not found" in error_str
-        or "invalid model" in error_str
-        or "unknown model" in error_str
-        or "404" in error_str
-    ):
-        return "model_not_found"
-
-    return "general_error"
-
-
-
-
-
-def request_thread_stop(channel_id: str, thread_ts: str) -> None:
-    """Marks the thread for stopping and clears remaining queued agents."""
-    thread_key = (channel_id, thread_ts)
-    STOP_REQUESTED_THREADS.add(thread_key)
-    REMAINING_AGENTS_MAP.pop(thread_key, None)
-    RATE_LIMIT_RETRY_QUEUE.pop(thread_key, None)
-    RATE_LIMIT_ALREADY_RETRIED.pop(thread_key, None)
-    THREAD_HISTORY_LIMITS.pop(thread_key, None)
-    CUSTOM_FLOW_THREADS.discard(thread_key)
-    logger.info(
-        f"[ROUTER] Stop requested for thread {thread_key}. REMAINING_AGENTS_MAP, retry queues, and history limits cleared."
-    )
-    try:
-        trigger_thread_notes_update(
-            channel_id=channel_id,
-            thread_ts=thread_ts,
-            is_completed=True,
-        )
-        trigger_usage_update(
-            channel_id=channel_id,
-            thread_ts=thread_ts,
-            is_completed=True,
-        )
-    except Exception as e:
-        logger.debug(f"[ROUTER] Could not finalize thread note or usage on stop: {e}")
-
-
-def is_thread_stopped(channel_id: str, thread_ts: str) -> bool:
-    """Checks if a stop has been requested for this thread."""
-    return (channel_id, thread_ts) in STOP_REQUESTED_THREADS
-
-
-def clear_thread_stop(channel_id: str, thread_ts: str) -> None:
-    """Clears the stop flag for this thread."""
-    STOP_REQUESTED_THREADS.discard((channel_id, thread_ts))
-
-
-# Mandatory locked agents that cannot be turned off
-LOCKED_AGENTS = {"Gemini_Visionary", "OpAiTerra_Architect", "AnthrOpus_Sceptic"}
-
-# Global in-memory set of enabled debate agents (default: all agents in AGENTS_CONFIG)
-ENABLED_DEBATE_AGENTS: set[str] = set(AGENTS_CONFIG.keys())
-
-# Circuit-Breaker configuration for thread expense limits
-CIRCUIT_BREAKER_ENABLED: bool = False
-CIRCUIT_BREAKER_THRESHOLD_USD: float = 1.0
-
-
-def is_circuit_breaker_enabled() -> bool:
-    """Returns True if the thread expense circuit-breaker is enabled."""
-    return CIRCUIT_BREAKER_ENABLED
-
-
-def set_circuit_breaker_enabled(enabled: bool, save: bool = True) -> None:
-    """Enables or disables the thread expense circuit-breaker and persists settings."""
-    global CIRCUIT_BREAKER_ENABLED
-    CIRCUIT_BREAKER_ENABLED = bool(enabled)
-    if save:
-        save_enabled_agents()
-    logger.info(f"[ROUTER] Circuit-breaker enabled set to {CIRCUIT_BREAKER_ENABLED}.")
-
-
-def get_circuit_breaker_threshold() -> float:
-    """Returns the current monetary threshold in USD for the circuit-breaker."""
-    return float(CIRCUIT_BREAKER_THRESHOLD_USD)
-
-
-def set_circuit_breaker_threshold(threshold: float, save: bool = True) -> None:
-    """Sets the monetary threshold in USD for the circuit-breaker and persists settings."""
-    global CIRCUIT_BREAKER_THRESHOLD_USD
-    try:
-        val = float(threshold)
-        if val < 0.0:
-            val = 0.0
-        CIRCUIT_BREAKER_THRESHOLD_USD = val
-        if save:
-            save_enabled_agents()
-        logger.info(
-            f"[ROUTER] Circuit-breaker threshold set to ${CIRCUIT_BREAKER_THRESHOLD_USD:.2f} USD."
-        )
-    except (ValueError, TypeError) as e:
-        logger.error(f"[ROUTER] Invalid circuit-breaker threshold '{threshold}': {e}")
-
-
-def get_circuit_breaker_config() -> dict[str, Any]:
-    """Returns the current circuit-breaker configuration dictionary."""
-    return {
-        "enabled": CIRCUIT_BREAKER_ENABLED,
-        "threshold_usd": CIRCUIT_BREAKER_THRESHOLD_USD,
-    }
-
-
-def save_enabled_agents() -> None:
-    """Saves the current enabled debate agents and circuit-breaker settings to a persistent JSON configuration file."""
-    try:
-        data = {
-            "enabled_agents": sorted(list(ENABLED_DEBATE_AGENTS)),
-            "circuit_breaker_enabled": CIRCUIT_BREAKER_ENABLED,
-            "circuit_breaker_threshold_usd": CIRCUIT_BREAKER_THRESHOLD_USD,
-        }
-        with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2)
-        logger.info(
-            f"[ROUTER] Saved settings ({len(ENABLED_DEBATE_AGENTS)} enabled agents, circuit_breaker={CIRCUIT_BREAKER_ENABLED}, threshold=${CIRCUIT_BREAKER_THRESHOLD_USD:.2f}) to {SETTINGS_FILE.name}"
-        )
-    except Exception as e:
-        logger.error(f"[ROUTER] Error saving agent settings: {e}")
-
-
-def load_enabled_agents() -> set[str]:
-    """
-    Loads enabled debate agents and circuit-breaker settings from persistent JSON file if available.
-    Ensures locked agents are always included and unknown keys are filtered.
-    Falls back to default (all agents ON, circuit_breaker OFF) if no settings file exists.
-    """
-    global CIRCUIT_BREAKER_ENABLED, CIRCUIT_BREAKER_THRESHOLD_USD
-    ENABLED_DEBATE_AGENTS.clear()
-    if SETTINGS_FILE.exists():
-        try:
-            with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            loaded = set(data.get("enabled_agents", []))
-            # Validate keys against AGENTS_CONFIG
-            valid_keys = {k for k in loaded if k in AGENTS_CONFIG}
-            # Ensure locked agents are always present
-            valid_keys.update(LOCKED_AGENTS)
-            ENABLED_DEBATE_AGENTS.update(valid_keys)
-
-            CIRCUIT_BREAKER_ENABLED = bool(data.get("circuit_breaker_enabled", False))
-            CIRCUIT_BREAKER_THRESHOLD_USD = float(
-                data.get("circuit_breaker_threshold_usd", 1.0)
-            )
-
-            logger.info(
-                f"[ROUTER] Loaded settings from {SETTINGS_FILE.name}: {len(ENABLED_DEBATE_AGENTS)} agents, circuit_breaker={CIRCUIT_BREAKER_ENABLED}, threshold=${CIRCUIT_BREAKER_THRESHOLD_USD:.2f}"
-            )
-            return set(ENABLED_DEBATE_AGENTS)
-        except Exception as e:
-            logger.error(f"[ROUTER] Error loading agent settings file: {e}")
-
-    # Fallback default: all agents enabled
-    ENABLED_DEBATE_AGENTS.update(AGENTS_CONFIG.keys())
-    CIRCUIT_BREAKER_ENABLED = False
-    CIRCUIT_BREAKER_THRESHOLD_USD = 1.0
-    save_enabled_agents()
-    return set(ENABLED_DEBATE_AGENTS)
-
-
-def reset_enabled_agents(save: bool = True) -> None:
-    """Resets all agents to enabled state."""
-    ENABLED_DEBATE_AGENTS.clear()
-    ENABLED_DEBATE_AGENTS.update(AGENTS_CONFIG.keys())
-    if save:
-        save_enabled_agents()
-    logger.info(f"[ROUTER] Reset all {len(ENABLED_DEBATE_AGENTS)} agents to ENABLED.")
-
-
-def get_enabled_agents() -> set[str]:
-    """Returns a copy of currently enabled agents."""
-    return set(ENABLED_DEBATE_AGENTS)
-
-
-def set_agent_enabled(agent_key: str, enabled: bool) -> bool:
-    """
-    Enables or disables an agent for automatic debate.
-    Locked agents (Visionary, Architect, Sceptic) cannot be disabled.
-    Persists changes to agent_settings.json.
-    Returns True if state was successfully updated, False otherwise.
-    """
-    if agent_key in LOCKED_AGENTS and not enabled:
-        logger.warning(
-            f"[ROUTER] Cannot disable locked agent '{agent_key}'. Ignoring request."
-        )
-        return False
-
-    if agent_key not in AGENTS_CONFIG:
-        logger.warning(f"[ROUTER] Unknown agent key '{agent_key}'.")
-        return False
-
-    if enabled:
-        ENABLED_DEBATE_AGENTS.add(agent_key)
-    else:
-        ENABLED_DEBATE_AGENTS.discard(agent_key)
-    save_enabled_agents()
-    logger.info(
-        f"[ROUTER] Set agent '{agent_key}' enabled={enabled}. Total enabled: {len(ENABLED_DEBATE_AGENTS)}"
-    )
-    return True
-
-
-def toggle_agent(agent_key: str) -> bool:
-    """Toggles an agent's enabled state. Returns the new enabled state."""
-    current_state = agent_key in ENABLED_DEBATE_AGENTS
-    new_state = not current_state
-    set_agent_enabled(agent_key, new_state)
-    return agent_key in ENABLED_DEBATE_AGENTS
-
-
-def get_initial_agents() -> list[str]:
-    """
-    Returns the list of enabled optional agents that should speak in the discussion flow.
-    Locked agents like AnthrOpus_Sceptic are always included.
-    """
-    return [
-        key
-        for key in AGENTS_CONFIG
-        if key in ENABLED_DEBATE_AGENTS
-        and key not in ("OpAiTerra_Architect", "Gemini_Visionary")
-    ]
-
-
-def extract_tagged_agents(text: str) -> list[str]:
-    """
-    Extracts all valid agent keys tagged in [Agent_Key] format in the text,
-    ordered by their appearance in the text.
-    """
-    matches = []
-    # Clean text to remove bot mentions
-    cleaned = re.sub(r"<@[A-Z0-9]+>", "", text)
-
-    # Bracketed tags [Agent_Key]
-    for match in re.finditer(r"\[([a-zA-Z0-9_]+)\]", cleaned):
-        tag = match.group(1).lower()
-        for key in AGENTS_CONFIG:
-            if tag == key.lower():
-                matches.append((match.start(), key))
-                break
-
-    # Sort matches by position in text to preserve order
-    matches.sort(key=lambda x: x[0])
-
-    # Deduplicate while preserving order
-    unique_keys = []
-    for pos, key in matches:
-        if key not in unique_keys:
-            unique_keys.append(key)
-
-    return unique_keys
-
-
-def parse_agent_and_prompt(
-    text: str, channel_id: str, thread_ts: str
-) -> tuple[str, str, bool]:
-    """
-    Parses Slack message text for bracketed agent tags: [Agent_Key].
-    Supported patterns:
-    - [Gemini_Visionary] prompt...
-    - @CaiLogics Hub [Mistral_TechLead] prompt...
-    - Plain text / App mention -> defaults to Gemini_Visionary (full panel flow)
-    Note: If no bracketed agent tag is specified, the default flow starts with Gemini_Visionary,
-    goes through enabled panel agents, and finishes with OpAiTerra_Architect.
-    Returns (agent_key, cleaned_prompt, was_explicit_target)
-    """
-
-    thread_key = (channel_id, thread_ts)
-    if thread_key not in REMAINING_AGENTS_MAP:
-        logger.info(
-            f"[ROUTER] INITIALIZING new remaining agents list for thread_key: {thread_key}"
-        )
-        REMAINING_AGENTS_MAP[thread_key] = get_initial_agents()
-
-    remaining = REMAINING_AGENTS_MAP[thread_key]
-    logger.info(
-        f"[ROUTER] Current remaining agents for thread_key {thread_key}: {remaining}"
-    )
-    _, cleaned_text = extract_history_limit(text)
-    cleaned_text = re.sub(r"<@[A-Z0-9]+>", "", cleaned_text).strip()
-
-    # Search for explicit bracketed tags like [Gemini_Visionary] or [Mistral_TechLead]
-    tag_matches = []
-    for match in re.finditer(r"\[([a-zA-Z0-9_]+)\]", cleaned_text):
-        tag = match.group(1)
-        for key in AGENTS_CONFIG:
-            if tag.lower() == key.lower():
-                tag_matches.append((match, key, tag))
-                break
-
-    if tag_matches:
-        # Prioritize matching an agent that is currently in remaining
-        matched_item = None
-        for match, key, tag in tag_matches:
-            if key in remaining:
-                matched_item = (match, key, tag)
-                break
-
-        # If none matched remaining (e.g. OpAiTerra_Architect or an agent already spoken):
-        if not matched_item:
-            for match, key, tag in tag_matches:
-                if key == "OpAiTerra_Architect" and not remaining:
-                    matched_item = (match, key, tag)
-                    break
-            if not matched_item:
-                matched_item = tag_matches[0]
-
-        match, matched_key, tag = matched_item
-        prompt = re.sub(r"\[" + re.escape(tag) + r"\]", "", cleaned_text).strip()
-        if matched_key in remaining:
-            remaining.remove(matched_key)
-        return matched_key, prompt, True
-
-    # Default fallback agent if no bracketed tag matched
-    if DEFAULT_AGENT_KEY in remaining:
-        remaining.remove(DEFAULT_AGENT_KEY)
-    return DEFAULT_AGENT_KEY, cleaned_text, False
-
-
-def enforce_valid_nomination(
-    text: str,
-    current_agent_key: str,
-    remaining: list[str],
-    force_termination: bool,
-    pending_retries: list[str] | None = None,
-) -> str:
-    """
-    Ensures that the agent's response nominates a valid agent:
-    1. If force_termination or current agent is OpAiTerra_Architect, no nomination is required.
-    2. If remaining agents exist:
-       - Preserves the agent's nomination if it chose an agent that is still in `remaining`.
-       - If the agent prematurely nominated OpAiTerra_Architect or an agent that already spoke,
-         programmatically replaces the nomination tag with the first remaining agent (remaining[0]).
-       - If no nomination tag is present, appends [remaining[0]].
-    3. If remaining list is empty:
-       - If pending rate-limit retries exist, nominates the pending retried agent.
-       - If no pending retries and current agent is not OpAiTerra_Architect, nominates [OpAiTerra_Architect].
-    """
-    if force_termination or current_agent_key == "OpAiTerra_Architect":
-        # Strip any bracketed agent tags so Slack webhook won't trigger unexpected bot loops
-        for key in AGENTS_CONFIG:
-            text = re.sub(
-                r"\[" + re.escape(key) + r"\]", key, text, flags=re.IGNORECASE
-            )
-        return text
-
-    # Find all bracketed agent tags matching known AGENTS_CONFIG keys
-    agent_tag_matches = []
-    for match in re.finditer(r"\[([a-zA-Z0-9_]+)\]", text):
-        tag_name = match.group(1)
-        for key in AGENTS_CONFIG:
-            if tag_name.lower() == key.lower():
-                agent_tag_matches.append((match, key))
-                break
-
-    if remaining:
-        # Check if any detected tag is actually in remaining
-        valid_nomination = None
-        for match, key in agent_tag_matches:
-            if key in remaining:
-                valid_nomination = key
-                break
-
-        if valid_nomination:
-            logger.info(
-                f"[ROUTER] Agent {current_agent_key} chose valid remaining agent [{valid_nomination}]."
-            )
-            return text
-
-        fallback_agent = remaining[0]
-        if agent_tag_matches:
-            last_match, last_key = agent_tag_matches[-1]
-            logger.warning(
-                f"[ROUTER] Agent {current_agent_key} nominated '{last_key}', but {len(remaining)} agent(s) have not spoken yet: {remaining}. "
-                f"Programmatically correcting nomination tag to [{fallback_agent}]."
-            )
-            start, end = last_match.span()
-            return text[:start] + f"[{fallback_agent}]" + text[end:]
-        else:
-            logger.warning(
-                f"[ROUTER] Agent {current_agent_key} omitted nomination tag while {len(remaining)} agent(s) remain: {remaining}. "
-                f"Programmatically appending [{fallback_agent}]."
-            )
-            return f"{text.strip()}\n\n[{fallback_agent}]"
-    else:
-        # remaining list is empty -> check pending_retries
-        retries_list = pending_retries or []
-        if retries_list:
-            valid_retry = None
-            for match, key in agent_tag_matches:
-                if key in retries_list:
-                    valid_retry = key
-                    break
-            if valid_retry:
-                logger.info(
-                    f"[ROUTER] Agent {current_agent_key} nominated valid rate-limit retry agent [{valid_retry}]."
-                )
-                return text
-
-            fallback_retry = retries_list[0]
-            if agent_tag_matches:
-                last_match, last_key = agent_tag_matches[-1]
-                logger.info(
-                    f"[ROUTER] Correcting nomination to pending rate-limit retry agent [{fallback_retry}]."
-                )
-                start, end = last_match.span()
-                return text[:start] + f"[{fallback_retry}]" + text[end:]
-            else:
-                logger.info(
-                    f"[ROUTER] Appending pending rate-limit retry agent [{fallback_retry}]."
-                )
-                return f"{text.strip()}\n\n[{fallback_retry}]"
-        else:
-            # remaining list and retries are empty -> next must be OpAiTerra_Architect
-            if agent_tag_matches:
-                last_match, last_key = agent_tag_matches[-1]
-                if last_key == "OpAiTerra_Architect":
-                    return text
-                logger.info(
-                    f"[ROUTER] All intermediate & retried agents have spoken. Correcting tag '[{last_key}]' to [OpAiTerra_Architect]."
-                )
-                start, end = last_match.span()
-                return text[:start] + "[OpAiTerra_Architect]" + text[end:]
-            else:
-                logger.info(
-                    f"[ROUTER] All intermediate & retried agents have spoken. Appending [OpAiTerra_Architect] for final summary."
-                )
-                return f"{text.strip()}\n\n[OpAiTerra_Architect]"
-
-
-def markdown_to_slack(text: str) -> str:
-    # Bold: **tekst** -> *tekst*
-    text = re.sub(r"\*\*(.*?)\*\*", r"*\1*", text)
-    # Headings: ### Naslov -> *Naslov*
-    text = re.sub(r"^#{1,6}\s*(.+)$", r"*\1*", text, flags=re.MULTILINE)
-    # Links: [label](url) -> <url|label>
-    text = re.sub(r"\[(.*?)\]\((.*?)\)", r"<\2|\1>", text)
-    return text
-
-
-def build_llm_messages(
-    system_prompt: str,
-    effective_history: list[dict[str, Any]],
-    prompt: str,
-    is_bot_trigger: bool,
-    agent_key: str,
-    agent_cfg: dict[str, Any],
-    file_context: dict[str, Any] | None = None,
-    remaining_agents: list[str] | None = None,
-    force_termination: bool = False,
-) -> list[dict[str, Any]]:
-    """
-    Constructs a normalized, provider-safe message sequence for LiteLLM.
-    Guarantees:
-    1. System prompt is at index 0 (100% static for robust Anthropic prompt caching).
-    2. Dynamic orchestration context (available agents list / termination constraints)
-       is appended directly to the final user prompt (benefiting from LLM recency attention).
-    3. The conversational sequence starts with a 'user' turn (handles trimmed history).
-    4. The conversational sequence strictly ends with a 'user' turn (never 'assistant'),
-       which is strictly required by Anthropic (Claude), Mistral, and Google Gemini APIs.
-    5. Injects on-demand attached file content if present and if the current agent is authorized.
-    """
-    conversation: list[dict[str, Any]] = []
-
-    # Check authorization for attached file
-    file_block = ""
-    if file_context:
-        authorized_agents = file_context.get("authorized_agents")
-        if authorized_agents is None or agent_key in authorized_agents:
-            file_name = file_context.get("file_name", "unknown")
-            content = file_context.get("content", "")
-            size = file_context.get("size", 0)
-            file_block = (
-                f"\n\n--- [ATTACHED SLACK FILE: {file_name} ({size} bytes)] ---\n"
-                f"{content}\n"
-                f"--- [END OF ATTACHED FILE] ---"
-            )
-
-    # Dynamic orchestration directive
-    orchestration_block = ""
-    if force_termination:
-        orchestration_block = (
-            "\n\nCRITICAL CONSTRAINT: You are the last agent requested to speak in this turn. "
-            "Do NOT nominate any other agent to speak next. Do NOT include any bracketed agent key (like [Mistral_Innovator] "
-            "or [OpAiTerra_Architect]) at the end of your response. Simply answer the question/summarize and finish your response."
-        )
-    elif remaining_agents:
-        orchestration_block = (
-            f"\n\nAVAILABLE AGENTS WHO HAVE NOT SPOKEN YET (nominate the next agent at the very end in [AGENT_KEY] format):\n"
-            f"{', '.join(remaining_agents)}"
-        )
-
-    if not is_bot_trigger:
-        if effective_history:
-            conversation.extend(effective_history)
-        user_prompt = f"{prompt}{file_block}{orchestration_block}"
-        conversation.append({"role": "user", "content": user_prompt})
-    else:
-        if effective_history:
-            conversation.extend(effective_history)
-            persona_name = agent_cfg.get("username", agent_key)
-            instruction = (
-                f"You have been called to speak as {persona_name}. "
-                "Please evaluate the discussion above and provide your response in accordance with your role and instructions."
-            )
-            instruction = f"{instruction}{file_block}{orchestration_block}"
-            conversation.append(
-                {
-                    "role": "user",
-                    "content": instruction,
-                }
-            )
-        else:
-            user_prompt = f"{prompt}{file_block}{orchestration_block}"
-            conversation.append({"role": "user", "content": user_prompt})
-
-    # Ensure the first conversational message has role 'user' (for strict APIs like Anthropic/Gemini)
-    if conversation and conversation[0]["role"] != "user":
-        conversation.insert(
-            0,
-            {
-                "role": "user",
-                "content": "Context from previous discussion in thread:",
-            },
-        )
-
-    # Ensure the last conversational message has role 'user'
-    if conversation and conversation[-1]["role"] != "user":
-        persona_name = agent_cfg.get("username", agent_key)
-        instruction = (
-            f"You have been called to speak as {persona_name}. "
-            "Please evaluate the discussion above and provide your response in accordance with your role and instructions."
-        )
-        instruction = f"{instruction}{file_block}{orchestration_block}"
-        conversation.append(
-            {
-                "role": "user",
-                "content": instruction,
-            }
-        )
-
-    system_item = {"role": "system", "content": system_prompt}
-    return [system_item] + conversation
-
-
-async def _execute_llm_with_retry(
-    func: Any,
-    kwargs: dict[str, Any],
-    agent_key: str,
-    thread_key: tuple[str, str],
-    is_superseded_fn=None,
-    max_attempts: int = LLM_MAX_RETRIES,
-) -> Any:
-    """
-    Executes an LLM call in a threadpool with automatic retries and exponential backoff.
-    Attempts up to `max_attempts` times before raising the last exception.
-    """
-    last_error: Exception | None = None
-    for attempt in range(1, max_attempts + 1):
-        if is_superseded_fn and is_superseded_fn():
-            logger.info(
-                f"[ROUTER] Thread {thread_key} turn was superseded before LLM attempt {attempt}. Aborting."
-            )
-            return None
-
-        try:
-            if attempt > 1:
-                logger.info(
-                    f"[LLM] Retrying LLM completion for {agent_key} (attempt {attempt}/{max_attempts})..."
-                )
-            return await run_in_threadpool(func, **kwargs)
-        except Exception as exc:
-            last_error = exc
-            logger.warning(
-                f"[LLM] Attempt {attempt}/{max_attempts} failed for {agent_key}: {exc}"
-            )
-            if attempt < max_attempts:
-                await asyncio.sleep(LLM_RETRY_BACKOFF_BASE * attempt)
-            else:
-                raise last_error
 
 
 async def process_and_respond(
@@ -884,13 +137,11 @@ async def process_and_respond(
     bot_user_id: str | None = None,
     icon_url: str | None = None,
     is_bot_trigger: bool = False,
-) -> dict[str, any]:
+) -> dict[str, Any]:
     """
     Main background handler: parses prompt, builds conversation history,
     calls LiteLLM with agent parameters & MCP tools, and posts response back to Slack thread.
     """
-    import time
-
     start_time = time.time()
     logger.info(
         f"\n[{start_time}] >>> START process_and_respond for thread_ts: {thread_ts} <<<"
@@ -1047,15 +298,7 @@ async def process_and_respond(
                 thread_ts=thread_ts,
                 is_completed=True,
             )
-            clear_thread_stop(channel_id, thread_ts)
-            clear_thread_history_limit(channel_id, thread_ts)
-            clear_thread_max_words(channel_id, thread_ts)
-            clear_thread_min_words(channel_id, thread_ts)
-            clear_thread_file_context(channel_id, thread_ts)
-            CUSTOM_FLOW_THREADS.discard(thread_key)
-            REMAINING_AGENTS_MAP.pop(thread_key, None)
-            RATE_LIMIT_RETRY_QUEUE.pop(thread_key, None)
-            RATE_LIMIT_ALREADY_RETRIED.pop(thread_key, None)
+            clear_thread_state(channel_id, thread_ts)
             return {
                 "ok": True,
                 "circuit_breaker_triggered": True,
@@ -1073,7 +316,6 @@ async def process_and_respond(
     # Determine effective conversation history based on active /history limit
     if not is_bot_trigger:
         # User trigger: identify prior messages before this prompt in thread history
-        # If Slack already included the user prompt at history[-1], prior messages are history[:-1]
         if history and history[-1]["role"] == "user":
             prior_messages = history[:-1]
         else:
@@ -1191,17 +433,17 @@ async def process_and_respond(
         completion_kwargs: dict[str, Any] = {
             "model": agent_cfg["model"],
             "messages": messages,
-            # "temperature": agent_cfg["temperature"],
             "tools": MCP_TOOLS_SCHEMAS,
             "tool_choice": "auto",
             "num_retries": 2,
         }
-        response = await _execute_llm_with_retry(
+        response = await execute_llm_with_retry(
             litellm.completion,
             completion_kwargs,
             agent_key=agent_key,
             thread_key=thread_key,
             is_superseded_fn=is_superseded,
+            run_in_threadpool_fn=run_in_threadpool,
         )
         if response is None and is_superseded():
             return {"ok": False, "cancelled": True, "reason": "superseded"}
@@ -1255,14 +497,14 @@ async def process_and_respond(
                 "model": agent_cfg["model"],
                 "messages": messages,
                 "num_retries": 2,
-                # "temperature": agent_cfg["temperature"],
             }
-            follow_up = await _execute_llm_with_retry(
+            follow_up = await execute_llm_with_retry(
                 litellm.completion,
                 follow_up_kwargs,
                 agent_key=f"{agent_key} follow-up",
                 thread_key=thread_key,
                 is_superseded_fn=is_superseded,
+                run_in_threadpool_fn=run_in_threadpool,
             )
             if follow_up is None and is_superseded():
                 return {"ok": False, "cancelled": True, "reason": "superseded"}
@@ -1331,7 +573,6 @@ async def process_and_respond(
         )
 
         # Prevent Slack WebSocket client saturation by adding a 3-second pacing delay.
-        # This keeps the real-time stream active and makes the conversation pace feel natural.
         await asyncio.sleep(3.0)
 
         if is_superseded():
@@ -1398,15 +639,7 @@ async def process_and_respond(
             logger.info(
                 f"[ROUTER] Thread {thread_key} reached termination (forced or natural). Cleaning up state."
             )
-            clear_thread_stop(channel_id, thread_ts)
-            clear_thread_history_limit(channel_id, thread_ts)
-            clear_thread_max_words(channel_id, thread_ts)
-            clear_thread_min_words(channel_id, thread_ts)
-            clear_thread_file_context(channel_id, thread_ts)
-            CUSTOM_FLOW_THREADS.discard(thread_key)
-            REMAINING_AGENTS_MAP.pop(thread_key, None)
-            RATE_LIMIT_RETRY_QUEUE.pop(thread_key, None)
-            RATE_LIMIT_ALREADY_RETRIED.pop(thread_key, None)
+            clear_thread_state(channel_id, thread_ts)
         elif (
             agent_key == "OpAiTerra_Architect"
             and not remaining
@@ -1539,15 +772,7 @@ async def process_and_respond(
         )
 
         if is_completed:
-            clear_thread_stop(channel_id, thread_ts)
-            clear_thread_history_limit(channel_id, thread_ts)
-            clear_thread_max_words(channel_id, thread_ts)
-            clear_thread_min_words(channel_id, thread_ts)
-            clear_thread_file_context(channel_id, thread_ts)
-            CUSTOM_FLOW_THREADS.discard(thread_key)
-            REMAINING_AGENTS_MAP.pop(thread_key, None)
-            RATE_LIMIT_RETRY_QUEUE.pop(thread_key, None)
-            RATE_LIMIT_ALREADY_RETRIED.pop(thread_key, None)
+            clear_thread_state(channel_id, thread_ts)
 
         return {
             "ok": False,
