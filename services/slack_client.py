@@ -11,6 +11,7 @@ from core.config import (
     SLACK_BOT_TOKEN,
     USAGE_CHANNEL_ID,
     USAGE_CHANNEL_NAME,
+    resolve_avatar_url,
 )
 
 logger = logging.getLogger(__name__)
@@ -29,12 +30,15 @@ def build_app_home_view(
 ) -> dict[str, Any]:
     """
     Generates the Block Kit Home Tab view for the Slack Application Home page.
-    Displays panel agents, locked agents, and thread cost circuit-breaker settings.
+    Displays panel agents, locked agents, thread cost circuit-breaker settings,
+    and emergency backup warning if active settings file is unreadable.
     """
     from orchestration.agent_router import (
         LOCKED_AGENTS,
+        get_backup_error_reason,
         get_circuit_breaker_config,
         get_enabled_agents,
+        is_running_from_backup,
     )
 
     if enabled_agents is None:
@@ -54,7 +58,38 @@ def build_app_home_view(
     total_agents = len(AGENTS_CONFIG)
     active_count = len(enabled_agents)
 
-    blocks: list[dict[str, Any]] = [
+    blocks: list[dict[str, Any]] = []
+
+    # Emergency Backup Alert Banner if running from backup
+    if is_running_from_backup():
+        err_reason = get_backup_error_reason() or "Datoteka postavki nije dostupna."
+        blocks.extend([
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": (
+                        "⚠️ *UPOZORENJE: Sustav radi u EMERGENCY BACKUP načinu!*\n"
+                        f"Glavna datoteka postavki (`agent_settings.json`) je oštećena ili nedostupna ({err_reason}).\n"
+                        "Postavke su trenutno privremeno učitane iz sigurnosne kopije. "
+                        "Kliknite gumb za vraćanje postavki iz backupa u aktivnu konfiguraciju:"
+                    ),
+                },
+                "accessory": {
+                    "type": "button",
+                    "text": {
+                        "type": "plain_text",
+                        "text": "🔄 Vrati iz backupa",
+                        "emoji": True,
+                    },
+                    "action_id": "restore_from_backup",
+                    "style": "danger",
+                },
+            },
+            {"type": "divider"},
+        ])
+
+    blocks.extend([
         {
             "type": "header",
             "text": {
@@ -230,7 +265,7 @@ def build_app_home_view(
                 "text": "*🔒 Obavezni agenti (uvijek uključeni u automatsku debatu):*",
             },
         },
-    ]
+    ])
 
     # 1. Add locked agents first
     for key in ("Gemini_Visionary", "AnthrOpus_Sceptic", "OpAiTerra_Architect"):
@@ -378,7 +413,8 @@ async def post_agent_response(
         return {"ok": True, "mock": True}
 
     try:
-        final_icon_url = f"{icon_url}?v=2" if icon_url else None
+        resolved_icon = resolve_avatar_url(icon_url)
+        final_icon_url = f"{resolved_icon}?v=2" if resolved_icon else None
 
         response = await slack_async_client.chat_postMessage(
             channel=channel_id,
