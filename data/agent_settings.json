@@ -24,87 +24,87 @@
     "Gemini_Visionary": {
       "model": "gemini/gemini-3.7-flash",
       "username": "Gemini Visionary",
-      "icon_url": "static/avatar_25.png"
+      "icon_url": "static/v2/avatar_48.png"
     },
     "OpAiTerra_Architect": {
       "model": "openai/gpt-5.6-terra",
       "username": "OpAiTerra Architect",
-      "icon_url": "static/avatar_33.png"
+      "icon_url": "static/v2/avatar_02.png"
     },
     "AnthrOpus_Innovator": {
       "model": "anthropic/claude-opus-5",
       "username": "AnthrOpus Innovator",
-      "icon_url": "static/avatar_22.png"
+      "icon_url": "static/v2/avatar_46.png"
     },
     "MistLar_TechLead": {
       "model": "mistral/mistral-large-latest",
       "username": "MistLar TechLead",
-      "icon_url": "static/avatar_21.png"
+      "icon_url": "static/v2/avatar_05.png"
     },
     "AnthrOpus_Sceptic": {
       "model": "anthropic/claude-opus-5",
       "username": "AnthrOpus Sceptic",
-      "icon_url": "static/avatar_31.png"
+      "icon_url": "static/v2/avatar_15.png"
     },
     "Gemini_DataAndAnalyticsStrategist": {
       "model": "gemini/gemini-3.7-flash",
       "username": "Gemini Data And Analytics Strategist",
-      "icon_url": "static/avatar_27.png"
+      "icon_url": "static/v2/avatar_18.png"
     },
     "MistLar_CompliancePrivacyAndGovernanceOfficer": {
       "model": "mistral/mistral-large-latest",
       "username": "MistLar Compliance, Privacy And Governance Officer",
-      "icon_url": "static/avatar_32.png"
+      "icon_url": "static/v2/avatar_33.png"
     },
     "Gemini_ScopeOptimizer": {
       "model": "gemini/gemini-3.7-flash",
       "username": "Gemini Scope Optimizer",
-      "icon_url": "static/avatar_26.png"
+      "icon_url": "static/v2/avatar_21.png"
     },
     "OpAiTerra_ROIStrategist": {
       "model": "openai/gpt-5.6-terra",
       "username": "OpAiTerra ROI Strategist",
-      "icon_url": "static/avatar_29.png"
+      "icon_url": "static/v2/avatar_09.png"
     },
     "OpAiTerra_UserAdvocate": {
       "model": "openai/gpt-5.6-terra",
       "username": "OpAiTerra User Advocate",
-      "icon_url": "static/avatar_30.png"
+      "icon_url": "static/v2/avatar_32.png"
     },
     "MistLar_SecurityArchitect": {
       "model": "mistral/mistral-large-latest",
       "username": "MistLar Security Architect",
-      "icon_url": "static/avatar_20.png"
+      "icon_url": "static/v2/avatar_03.png"
     },
     "Gemini_ScalabilityEngineer": {
       "model": "gemini/gemini-3.7-flash",
       "username": "Gemini Scalability Engineer",
-      "icon_url": "static/avatar_28.png"
+      "icon_url": "static/v2/avatar_16.png"
     },
     "MistLar_OperationalReliabilityLead": {
       "model": "mistral/mistral-large-latest",
       "username": "MistLar Operational Reliability Lead",
-      "icon_url": "static/avatar_24.png"
+      "icon_url": "static/v2/avatar_26.png"
     },
     "MistLar_DeploymentReleaseStrategist": {
       "model": "mistral/mistral-large-latest",
       "username": "MistLar Deployment & Release Strategist",
-      "icon_url": "static/avatar_26.png"
+      "icon_url": "static/v2/avatar_17.png"
     },
     "OpAiTerra_MarketAndCompetitionResearchExpert": {
       "model": "openai/gpt-5.6-terra",
       "username": "OpAiTerra Market & Competition Research Expert",
-      "icon_url": "static/avatar_6.png"
+      "icon_url": "static/v2/avatar_20.png"
     },
     "MistLar_MonitoringAndAlertingSpecialist": {
       "model": "mistral/mistral-large-latest",
       "username": "MistLar Monitoring & Alerting Specialist",
-      "icon_url": "static/avatar_23.png"
+      "icon_url": "static/v2/avatar_01.png"
     },
     "MistLar_QALead": {
       "model": "mistral/mistral-large-latest",
       "username": "MistLar QA Lead",
-      "icon_url": "static/avatar_1.png"
+      "icon_url": "static/v2/avatar_18.png"
     }
   },
   "system_agents": {
