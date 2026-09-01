@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import random
 import re
 import sys
 import time
@@ -23,6 +24,7 @@ from core.llm_utils import (
     classify_agent_error,
     execute_llm_with_retry,
     is_anthropic_model,
+    is_high_demand_503_error,
     is_openai_model,
 )
 from nlp.intent_extractor import (
@@ -85,6 +87,7 @@ from .agent_settings import (
 from .thread_state import (
     ACTIVE_THREAD_TASKS,
     CUSTOM_FLOW_THREADS,
+    HIGH_DEMAND_ERRORED_AGENTS,
     RATE_LIMIT_ALREADY_RETRIED,
     RATE_LIMIT_RETRY_QUEUE,
     REMAINING_AGENTS_MAP,
@@ -94,19 +97,23 @@ from .thread_state import (
     THREAD_HISTORY_LIMITS,
     THREAD_MAX_WORDS_LIMITS,
     THREAD_MIN_WORDS_LIMITS,
+    clear_503_errored_agents,
     clear_thread_file_context,
     clear_thread_history_limit,
     clear_thread_max_words,
     clear_thread_min_words,
     clear_thread_state,
     clear_thread_stop,
+    get_503_errored_agents,
     get_thread_file_context,
     get_thread_history_limit,
     get_thread_max_words,
     get_thread_min_words,
+    has_agent_503_errored,
     interrupt_thread_discussion,
     is_discussion_active,
     is_thread_stopped,
+    mark_agent_503_errored,
     request_thread_stop,
     set_thread_file_context,
     set_thread_history_limit,
@@ -457,7 +464,12 @@ async def process_and_respond(
                 total_completion_tokens += getattr(usage, "completion_tokens", 0) or 0
 
         # 3. Call LiteLLM model with MCP tools in a threadpool with automatic retries
-        logger.info(f"[LLM] Dispatching litellm.completion for {agent_key}...")
+        already_503_errored = has_agent_503_errored(channel_id, thread_ts, agent_key)
+        allow_503_immediate = already_503_errored
+
+        logger.info(
+            f"[LLM] Dispatching litellm.completion for {agent_key} (already_503_errored={already_503_errored})..."
+        )
         llm_start = time.time()
         completion_kwargs: dict[str, Any] = {
             "model": agent_cfg["model"],
@@ -473,6 +485,7 @@ async def process_and_respond(
             thread_key=thread_key,
             is_superseded_fn=is_superseded,
             run_in_threadpool_fn=run_in_threadpool,
+            allow_503_immediate_retry=allow_503_immediate,
         )
         if response is None and is_superseded():
             return {"ok": False, "cancelled": True, "reason": "superseded"}
@@ -532,6 +545,7 @@ async def process_and_respond(
                 thread_key=thread_key,
                 is_superseded_fn=is_superseded,
                 run_in_threadpool_fn=run_in_threadpool,
+                allow_503_immediate_retry=allow_503_immediate,
             )
             if follow_up is None and is_superseded():
                 return {"ok": False, "cancelled": True, "reason": "superseded"}
@@ -693,7 +707,9 @@ async def process_and_respond(
         logger.info(f"[ROUTER] Classified error for {agent_key} as: '{err_category}'")
 
         stop_requested = is_thread_stopped(channel_id, thread_ts)
+        already_503 = has_agent_503_errored(channel_id, thread_ts, agent_key)
 
+        is_first_503_skip = False
         if err_category == "api_key_not_found":
             error_sentence = "API KEY NOT FOUND"
         elif err_category == "model_not_found":
@@ -709,12 +725,40 @@ async def process_and_respond(
                 RATE_LIMIT_RETRY_QUEUE.setdefault(thread_key, []).append(agent_key)
             else:
                 error_sentence = "RATE LIMITS CROSSED"
+        elif err_category == "service_unavailable":
+            if not already_503 and not stop_requested and not force_termination:
+                mark_agent_503_errored(channel_id, thread_ts, agent_key)
+                if agent_key not in remaining:
+                    remaining.append(agent_key)
+                REMAINING_AGENTS_MAP[thread_key] = remaining
+                other_candidates = [a for a in remaining if a != agent_key]
+                if other_candidates:
+                    is_first_503_skip = True
+                    error_sentence = (
+                        "HIGH DEMAND / SERVICE OVERLOADED (503) - Skipping for now, will retry later"
+                    )
+                else:
+                    error_sentence = "HIGH DEMAND / SERVICE OVERLOADED (503)"
+            else:
+                error_sentence = "HIGH DEMAND / SERVICE OVERLOADED (503)"
         else:
             error_sentence = "Error processing request - check the logs"
 
         next_nomination = None
         if not stop_requested:
-            if remaining:
+            if is_first_503_skip:
+                other_candidates = [a for a in remaining if a != agent_key]
+                if other_candidates:
+                    next_agent = random.choice(other_candidates)
+                    next_nomination = f"[{next_agent}]"
+                elif remaining:
+                    next_agent = remaining[0]
+                    next_nomination = f"[{next_agent}]"
+                elif agent_key != "OpAiTerra_Architect" and not (
+                    was_explicit_target and not is_bot_trigger
+                ):
+                    next_nomination = "[OpAiTerra_Architect]"
+            elif remaining:
                 next_agent = remaining[0]
                 next_nomination = f"[{next_agent}]"
             else:

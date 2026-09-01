@@ -39,6 +39,9 @@ from orchestration.agent_router import (
     get_circuit_breaker_threshold,
     set_circuit_breaker_threshold,
     get_circuit_breaker_config,
+    HIGH_DEMAND_ERRORED_AGENTS,
+    is_high_demand_503_error,
+    execute_llm_with_retry,
 )
 from services.slack_client import build_app_home_view
 
@@ -610,6 +613,15 @@ def test_classify_agent_error():
     assert classify_agent_error(Exception("429 Too Many Requests")) == "rate_limit"
     assert classify_agent_error(Exception("ResourceExhausted quota exceeded")) == "rate_limit"
 
+    # Service unavailable / 503 / High demand spike errors
+    assert classify_agent_error(Exception("503 Service Unavailable")) == "service_unavailable"
+    assert classify_agent_error(Exception("529 Overloaded")) == "service_unavailable"
+    assert classify_agent_error(Exception("The model is overloaded due to high demand")) == "service_unavailable"
+    assert classify_agent_error(Exception("ServiceUnavailableError: upstream connect error or disconnect")) == "service_unavailable"
+    assert classify_agent_error(Exception("Server temporarily overloaded (high demand spike)")) == "service_unavailable"
+    assert is_high_demand_503_error(Exception("503 Service Unavailable")) is True
+    assert is_high_demand_503_error(Exception("429 Too Many Requests")) is False
+
     # API key errors
     assert classify_agent_error(Exception("Authentication error: api_key not found")) == "api_key_not_found"
     assert classify_agent_error(Exception("No API key provided. Please set GEMINI_API_KEY")) == "api_key_not_found"
@@ -701,10 +713,10 @@ async def test_process_and_respond_retries_and_clean_error_message(monkeypatch):
 
     call_count = 0
 
-    async def mock_fail_service_unavailable(func, *args, **kwargs):
+    async def mock_fail_general_error(func, *args, **kwargs):
         nonlocal call_count
         call_count += 1
-        raise Exception("503 Service Unavailable: Mistral server overload")
+        raise Exception("Internal Server Error: Unexpected JSON decoding crash")
 
     posted = []
 
@@ -712,7 +724,7 @@ async def test_process_and_respond_retries_and_clean_error_message(monkeypatch):
         posted.append({"text": text, "username": username, "icon_url": icon_url})
         return {"ok": True, "ts": "12345.9999"}
 
-    monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_fail_service_unavailable)
+    monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_fail_general_error)
     monkeypatch.setattr("orchestration.agent_router.post_agent_response", mock_post_agent_response)
     monkeypatch.setattr("orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[]))
 
@@ -729,10 +741,10 @@ async def test_process_and_respond_retries_and_clean_error_message(monkeypatch):
     assert posted[0]["username"] == "MistLar TechLead"
     # Clean error message without raw traceback
     assert "Error processing request - check the logs" in posted[0]["text"]
-    assert "503" not in posted[0]["text"]
-    assert "Mistral server overload" not in posted[0]["text"]
+    assert "Unexpected JSON decoding crash" not in posted[0]["text"]
     # Continues thread to next agent
     assert "[AnthrOpus_Innovator]" in posted[0]["text"]
+
 
 
 @pytest.mark.anyio
@@ -817,6 +829,157 @@ async def test_process_and_respond_rate_limits_and_retry_flow(monkeypatch):
     assert "MistLar_TechLead" not in RATE_LIMIT_RETRY_QUEUE.get(thread_key, [])
     # Should nominate OpAiTerra_Architect for the final summary
     assert "[OpAiTerra_Architect]" in posted[2]["text"]
+
+
+@pytest.mark.anyio
+async def test_process_and_respond_503_high_demand_first_skip_and_random_handoff(monkeypatch):
+    REMAINING_AGENTS_MAP.clear()
+    RATE_LIMIT_RETRY_QUEUE.clear()
+    RATE_LIMIT_ALREADY_RETRIED.clear()
+    HIGH_DEMAND_ERRORED_AGENTS.clear()
+
+    thread_key = ("C_503", "12345.5031")
+    # Remaining agents list before MistLar_TechLead speaks: AnthrOpus_Innovator, DeepSeek_Challenger
+    REMAINING_AGENTS_MAP[thread_key] = ["AnthrOpus_Innovator", "DeepSeek_Challenger"]
+
+    posted = []
+    async def mock_post_agent_response(channel_id, thread_ts, text, username, icon_url=None):
+        posted.append({"text": text, "username": username, "icon_url": icon_url})
+        return {"ok": True, "ts": "12345.5031"}
+
+    # Simulate 503 High Demand error
+    async def mock_fail_503(func, *args, **kwargs):
+        raise Exception("ServiceUnavailableError: 503 The server is currently overloaded with high demand")
+
+    monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_fail_503)
+    monkeypatch.setattr("orchestration.agent_router.post_agent_response", mock_post_agent_response)
+    monkeypatch.setattr("orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[]))
+
+    res = await process_and_respond(
+        channel_id="C_503",
+        thread_ts="12345.5031",
+        raw_text="[MistLar_TechLead] Analyze backend structure",
+        is_bot_trigger=True,
+    )
+
+    assert len(posted) == 1
+    assert posted[0]["username"] == "MistLar TechLead"
+    assert "HIGH DEMAND / SERVICE OVERLOADED (503) - Skipping for now, will retry later" in posted[0]["text"]
+    # Verify MistLar_TechLead is recorded as 503-errored for this thread
+    assert thread_key in HIGH_DEMAND_ERRORED_AGENTS
+    assert "MistLar_TechLead" in HIGH_DEMAND_ERRORED_AGENTS[thread_key]
+
+    # Verify MistLar_TechLead is kept in REMAINING_AGENTS_MAP
+    assert "MistLar_TechLead" in REMAINING_AGENTS_MAP[thread_key]
+    assert "AnthrOpus_Innovator" in REMAINING_AGENTS_MAP[thread_key]
+    assert "DeepSeek_Challenger" in REMAINING_AGENTS_MAP[thread_key]
+
+    # Verify next nomination is one of the other candidates
+    nominated_tag = None
+    if "[AnthrOpus_Innovator]" in posted[0]["text"]:
+        nominated_tag = "AnthrOpus_Innovator"
+    elif "[DeepSeek_Challenger]" in posted[0]["text"]:
+        nominated_tag = "DeepSeek_Challenger"
+    assert nominated_tag in ["AnthrOpus_Innovator", "DeepSeek_Challenger"]
+
+
+@pytest.mark.anyio
+async def test_process_and_respond_503_high_demand_second_query_retries_and_terminates(monkeypatch):
+    REMAINING_AGENTS_MAP.clear()
+    RATE_LIMIT_RETRY_QUEUE.clear()
+    RATE_LIMIT_ALREADY_RETRIED.clear()
+    HIGH_DEMAND_ERRORED_AGENTS.clear()
+
+    thread_key = ("C_503", "12345.5032")
+    # MistLar_TechLead already encountered 503 once
+    HIGH_DEMAND_ERRORED_AGENTS[thread_key] = {"MistLar_TechLead"}
+    REMAINING_AGENTS_MAP[thread_key] = []  # No other agents left
+
+    posted = []
+    async def mock_post_agent_response(channel_id, thread_ts, text, username, icon_url=None):
+        posted.append({"text": text, "username": username, "icon_url": icon_url})
+        return {"ok": True, "ts": "12345.5032"}
+
+    attempts_count = 0
+    async def mock_fail_503_retry(func, *args, **kwargs):
+        nonlocal attempts_count
+        attempts_count += 1
+        raise Exception("503 Server Temporarily Unavailable (high demand spike)")
+
+    monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_fail_503_retry)
+    monkeypatch.setattr("orchestration.agent_router.post_agent_response", mock_post_agent_response)
+    monkeypatch.setattr("orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[]))
+
+    res = await process_and_respond(
+        channel_id="C_503",
+        thread_ts="12345.5032",
+        raw_text="[MistLar_TechLead] Second attempt query",
+        is_bot_trigger=True,
+    )
+
+    assert len(posted) == 1
+    assert posted[0]["username"] == "MistLar TechLead"
+    # Should say HIGH DEMAND / SERVICE OVERLOADED (503) without 'will retry later'
+    assert "HIGH DEMAND / SERVICE OVERLOADED (503)" in posted[0]["text"]
+    assert "will retry later" not in posted[0]["text"]
+    # Retried 3 times standardly because allow_503_immediate_retry=True on second query
+    assert attempts_count == 3
+    # Should NOT be added back to remaining
+    assert "MistLar_TechLead" not in REMAINING_AGENTS_MAP.get(thread_key, [])
+    # Nominated final architect summary
+    assert "[OpAiTerra_Architect]" in posted[0]["text"]
+
+
+@pytest.mark.anyio
+async def test_execute_llm_with_retry_503_selective_bypass():
+    call_count = 0
+
+    def mock_503_llm():
+        nonlocal call_count
+        call_count += 1
+        raise Exception("503 Service Unavailable: overloaded")
+
+    # 1. When allow_503_immediate_retry=False (first encounter): raises immediately after 1 attempt
+    call_count = 0
+    with pytest.raises(Exception, match="503 Service Unavailable"):
+        await execute_llm_with_retry(
+            mock_503_llm,
+            {},
+            agent_key="TestAgent",
+            thread_key=("C", "T"),
+            allow_503_immediate_retry=False,
+        )
+    assert call_count == 1
+
+    # 2. When allow_503_immediate_retry=True (second encounter): retries 3 times
+    call_count = 0
+    with pytest.raises(Exception, match="503 Service Unavailable"):
+        await execute_llm_with_retry(
+            mock_503_llm,
+            {},
+            agent_key="TestAgent",
+            thread_key=("C", "T"),
+            allow_503_immediate_retry=True,
+        )
+    assert call_count == 3
+
+    # 3. For non-503 errors with allow_503_immediate_retry=False: STILL retries 3 times as standard!
+    call_count = 0
+    def mock_network_error():
+        nonlocal call_count
+        call_count += 1
+        raise ConnectionResetError("Connection reset by peer")
+
+    with pytest.raises(ConnectionResetError):
+        await execute_llm_with_retry(
+            mock_network_error,
+            {},
+            agent_key="TestAgent",
+            thread_key=("C", "T"),
+            allow_503_immediate_retry=False,
+        )
+    assert call_count == 3
+
 
 
 def test_is_discussion_active_behavior():

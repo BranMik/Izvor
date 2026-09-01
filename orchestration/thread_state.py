@@ -15,6 +15,7 @@ class ThreadStateManager:
         self.remaining_agents_map: dict[tuple[str, str], list[str]] = {}
         self.rate_limit_retry_queue: dict[tuple[str, str], list[str]] = {}
         self.rate_limit_already_retried: dict[tuple[str, str], set[str]] = {}
+        self.high_demand_errored_agents: dict[tuple[str, str], set[str]] = {}
         self.active_thread_tasks: dict[tuple[str, str], asyncio.Task] = {}
         self.thread_generations: dict[tuple[str, str], int] = {}
         self.custom_flow_threads: set[tuple[str, str]] = set()
@@ -104,6 +105,35 @@ class ThreadStateManager:
         """Clears active file context for this thread."""
         self.thread_active_file_context.pop((channel_id, thread_ts), None)
 
+    def get_503_errored_agents(
+        self, channel_id: str, thread_ts: str
+    ) -> set[str]:
+        """Returns set of agent keys that encountered 503/high-demand error in this thread."""
+        return self.high_demand_errored_agents.get((channel_id, thread_ts), set())
+
+    def has_agent_503_errored(
+        self, channel_id: str, thread_ts: str, agent_key: str
+    ) -> bool:
+        """Checks if a specific agent has already errored with 503/high-demand in this thread."""
+        return agent_key in self.high_demand_errored_agents.get(
+            (channel_id, thread_ts), set()
+        )
+
+    def mark_agent_503_errored(
+        self, channel_id: str, thread_ts: str, agent_key: str
+    ) -> None:
+        """Marks that an agent has errored with 503/high-demand in this thread."""
+        thread_key = (channel_id, thread_ts)
+        self.high_demand_errored_agents.setdefault(thread_key, set()).add(agent_key)
+        logger.info(
+            f"[THREAD STATE] Marked agent '{agent_key}' as 503-errored for thread {thread_key}. "
+            f"All 503 errored agents in thread: {self.high_demand_errored_agents[thread_key]}"
+        )
+
+    def clear_503_errored_agents(self, channel_id: str, thread_ts: str) -> None:
+        """Clears 503 errored agents tracking for this thread."""
+        self.high_demand_errored_agents.pop((channel_id, thread_ts), None)
+
     def is_discussion_active(self, channel_id: str, thread_ts: str) -> bool:
         """Checks if there is an active discussion ongoing in this thread."""
         thread_key = (channel_id, thread_ts)
@@ -134,6 +164,7 @@ class ThreadStateManager:
         self.remaining_agents_map.pop(thread_key, None)
         self.rate_limit_retry_queue.pop(thread_key, None)
         self.rate_limit_already_retried.pop(thread_key, None)
+        self.high_demand_errored_agents.pop(thread_key, None)
         self.thread_history_limits.pop(thread_key, None)
         self.thread_active_file_context.pop(thread_key, None)
         self.custom_flow_threads.discard(thread_key)
@@ -146,6 +177,7 @@ class ThreadStateManager:
         self.remaining_agents_map.pop(thread_key, None)
         self.rate_limit_retry_queue.pop(thread_key, None)
         self.rate_limit_already_retried.pop(thread_key, None)
+        self.high_demand_errored_agents.pop(thread_key, None)
         self.thread_history_limits.pop(thread_key, None)
         self.custom_flow_threads.discard(thread_key)
         logger.info(
@@ -187,6 +219,7 @@ class ThreadStateManager:
         self.remaining_agents_map.pop(thread_key, None)
         self.rate_limit_retry_queue.pop(thread_key, None)
         self.rate_limit_already_retried.pop(thread_key, None)
+        self.high_demand_errored_agents.pop(thread_key, None)
 
 
 # Default singleton instance
@@ -196,6 +229,7 @@ thread_state_manager = ThreadStateManager()
 REMAINING_AGENTS_MAP = thread_state_manager.remaining_agents_map
 RATE_LIMIT_RETRY_QUEUE = thread_state_manager.rate_limit_retry_queue
 RATE_LIMIT_ALREADY_RETRIED = thread_state_manager.rate_limit_already_retried
+HIGH_DEMAND_ERRORED_AGENTS = thread_state_manager.high_demand_errored_agents
 ACTIVE_THREAD_TASKS = thread_state_manager.active_thread_tasks
 THREAD_GENERATIONS = thread_state_manager.thread_generations
 CUSTOM_FLOW_THREADS = thread_state_manager.custom_flow_threads
@@ -207,6 +241,28 @@ THREAD_ACTIVE_FILE_CONTEXT = thread_state_manager.thread_active_file_context
 
 
 # Backward-compatible function aliases
+def get_503_errored_agents(
+    channel_id: str, thread_ts: str
+) -> set[str]:
+    return thread_state_manager.get_503_errored_agents(channel_id, thread_ts)
+
+
+def has_agent_503_errored(
+    channel_id: str, thread_ts: str, agent_key: str
+) -> bool:
+    return thread_state_manager.has_agent_503_errored(channel_id, thread_ts, agent_key)
+
+
+def mark_agent_503_errored(
+    channel_id: str, thread_ts: str, agent_key: str
+) -> None:
+    thread_state_manager.mark_agent_503_errored(channel_id, thread_ts, agent_key)
+
+
+def clear_503_errored_agents(channel_id: str, thread_ts: str) -> None:
+    thread_state_manager.clear_503_errored_agents(channel_id, thread_ts)
+
+
 def get_thread_history_limit(
     channel_id: str, thread_ts: str
 ) -> dict[str, int] | None:
@@ -287,3 +343,4 @@ def clear_thread_stop(channel_id: str, thread_ts: str) -> None:
 
 def clear_thread_state(channel_id: str, thread_ts: str) -> None:
     thread_state_manager.clear_state(channel_id, thread_ts)
+

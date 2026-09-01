@@ -39,15 +39,16 @@ def is_openai_model(model: str | None) -> bool:
 def classify_agent_error(e: Exception) -> str:
     """
     Classifies an agent execution exception into one of:
+    - 'rate_limit': 429 Too Many Requests, quota exceeded, or rate limit crossed.
+    - 'service_unavailable': 503 / 529 / overloaded / server temporarily unavailable / high demand spike.
     - 'api_key_not_found': Missing or invalid API key / authentication error.
     - 'model_not_found': Model does not exist or unknown model identifier.
-    - 'rate_limit': 429 Too Many Requests, quota exceeded, or rate limit crossed.
     - 'general_error': Any other unexpected runtime exception.
     """
     error_str = str(e).lower()
     error_type = type(e).__name__.lower()
 
-    # 1. Rate Limit Checks
+    # 1. Rate Limit Checks (429 / Quotas)
     if (
         "ratelimit" in error_type
         or "rate_limit" in error_str
@@ -63,7 +64,31 @@ def classify_agent_error(e: Exception) -> str:
     ):
         return "rate_limit"
 
-    # 2. API Key Not Found / Authentication Checks
+    # 2. Service Unavailable / High Demand / 503 Overloaded Checks
+    if (
+        "serviceunavailable" in error_type
+        or "internalservererror" in error_type
+        or "serveroverloaded" in error_type
+        or "overloadederror" in error_type
+        or "capacityerror" in error_type
+        or "service_unavailable" in error_str
+        or "service unavailable" in error_str
+        or "serviceunavailable" in error_str
+        or "503" in error_str
+        or "529" in error_str
+        or "high demand" in error_str
+        or "high_demand" in error_str
+        or "overloaded" in error_str
+        or "capacity exceeded" in error_str
+        or "temporarily unavailable" in error_str
+        or "temporarily overloaded" in error_str
+        or "model is overloaded" in error_str
+        or "server is overloaded" in error_str
+        or "upstream connect error" in error_str
+    ):
+        return "service_unavailable"
+
+    # 3. API Key Not Found / Authentication Checks
     if (
         "auth" in error_type
         or "api_key" in error_str
@@ -77,7 +102,7 @@ def classify_agent_error(e: Exception) -> str:
     ):
         return "api_key_not_found"
 
-    # 3. Model Not Found Checks
+    # 4. Model Not Found Checks
     if (
         "notfound" in error_type
         or "model_not_found" in error_str
@@ -93,6 +118,11 @@ def classify_agent_error(e: Exception) -> str:
     return "general_error"
 
 
+def is_high_demand_503_error(e: Exception) -> bool:
+    """Checks whether an exception corresponds to a 503 / high demand / overloaded service error."""
+    return classify_agent_error(e) == "service_unavailable"
+
+
 async def execute_llm_with_retry(
     func: Any,
     kwargs: dict[str, Any],
@@ -101,10 +131,13 @@ async def execute_llm_with_retry(
     is_superseded_fn=None,
     max_attempts: int = LLM_MAX_RETRIES,
     run_in_threadpool_fn=None,
+    allow_503_immediate_retry: bool = True,
 ) -> Any:
     """
     Executes an LLM call in a threadpool with automatic retries and exponential backoff.
     Attempts up to `max_attempts` times before raising the last exception.
+    If `allow_503_immediate_retry` is False and a 503/high-demand error occurs on attempt 1,
+    the exception is raised immediately to allow postponement and multi-agent rotation.
     """
     runner = run_in_threadpool_fn or run_in_threadpool
     last_error: Exception | None = None
@@ -126,6 +159,12 @@ async def execute_llm_with_retry(
             logger.warning(
                 f"[LLM] Attempt {attempt}/{max_attempts} failed for {agent_key}: {exc}"
             )
+            if not allow_503_immediate_retry and is_high_demand_503_error(exc):
+                logger.info(
+                    f"[LLM] 503 / High demand spike detected on first encounter for {agent_key}. Skipping immediate retry."
+                )
+                raise exc
+
             if attempt < max_attempts:
                 await asyncio.sleep(LLM_RETRY_BACKOFF_BASE * attempt)
             else:
@@ -134,3 +173,4 @@ async def execute_llm_with_retry(
 
 # Backwards compatibility alias
 _execute_llm_with_retry = execute_llm_with_retry
+

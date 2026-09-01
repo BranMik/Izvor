@@ -18,6 +18,7 @@ from .llm_utils import (
     classify_agent_error,
     execute_llm_with_retry,
     is_anthropic_model,
+    is_high_demand_503_error,
     is_openai_model,
 )
 from .models import (
@@ -47,6 +48,7 @@ __all__ = [
     "classify_agent_error",
     "execute_llm_with_retry",
     "is_anthropic_model",
+    "is_high_demand_503_error",
     "is_openai_model",
     "CircuitBreakerConfig",
     "ExtractedIntent",
@@ -55,3 +57,4 @@ __all__ = [
     "ModelPricing",
     "verify_slack_signature",
 ]
+
