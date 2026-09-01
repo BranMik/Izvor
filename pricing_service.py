@@ -3,6 +3,7 @@ import json
 import logging
 from pathlib import Path
 import re
+import sys
 import time
 from typing import Any
 
@@ -10,6 +11,7 @@ import litellm
 from starlette.concurrency import run_in_threadpool
 
 from config import PRICING_AGENT_MODEL, PRICING_AGENT_PROMPT
+from models import ModelPricing
 from web_tools import fetch_web_page, web_search
 
 logger = logging.getLogger(__name__)
@@ -68,7 +70,6 @@ PRICING_TOOL_SCHEMAS = [
 ]
 
 # Industry baseline fallback pricing (USD per 1,000,000 tokens)
-# Source: Official provider documentation
 BASELINE_MODEL_PRICING: dict[str, dict[str, Any]] = {
     "gemini/gemini-3.7-flash": {
         "input_price_per_1m": 0.15,
@@ -117,33 +118,14 @@ DEFAULT_FALLBACK_PRICING: dict[str, Any] = {
 }
 
 
-def load_pricing_cache() -> dict[str, dict[str, Any]]:
-    """Loads cached pricing data from JSON file."""
-    if not PRICING_CACHE_FILE.exists():
-        return {}
-    try:
-        data = json.loads(PRICING_CACHE_FILE.read_text(encoding="utf-8"))
-        return data if isinstance(data, dict) else {}
-    except Exception as e:
-        logger.warning(f"[PRICING] Failed to read {PRICING_CACHE_FILE.name}: {e}")
-        return {}
-
-
-def save_pricing_cache(data: dict[str, dict[str, Any]]) -> None:
-    """Saves pricing data dictionary to JSON cache file."""
-    try:
-        PRICING_CACHE_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
-        logger.info(f"[PRICING] Successfully saved pricing cache to {PRICING_CACHE_FILE.name}")
-    except Exception as e:
-        logger.error(f"[PRICING] Error saving pricing cache: {e}")
-
-
 def _normalize_model_name(model_name: str) -> str:
-    """Normalizes model string (e.g. 'gemini/gemini-3.7-flash' -> 'gemini/gemini-3.7-flash')."""
+    """Normalizes model string (e.g. 'gemini/gemini-3.7-flash')."""
     return model_name.strip().lower()
 
 
-def _extract_pricing_from_search_text(text: str, model_name: str) -> tuple[float | None, float | None]:
+def _extract_pricing_from_search_text(
+    text: str, model_name: str
+) -> tuple[float | None, float | None]:
     """
     Attempts to extract input and output token pricing per 1M tokens from web search snippets.
     Supports both 'keyword before price' and 'price before keyword' conventions, as well as '$X / $Y per 1M'.
@@ -226,315 +208,300 @@ def _extract_pricing_from_search_text(text: str, model_name: str) -> tuple[float
 
 
 def get_baseline_for_model(model_name: str) -> dict[str, Any]:
-    """Finds best matching baseline pricing for a given model."""
+    """Returns baseline fallback pricing for a given model identifier."""
     norm = _normalize_model_name(model_name)
-    for k, v in BASELINE_MODEL_PRICING.items():
-        if _normalize_model_name(k) in norm or norm in _normalize_model_name(k):
-            return dict(v)
+    if norm in BASELINE_MODEL_PRICING:
+        return dict(BASELINE_MODEL_PRICING[norm])
+    for key, p in BASELINE_MODEL_PRICING.items():
+        if key in norm or norm in key:
+            return dict(p)
     return dict(DEFAULT_FALLBACK_PRICING)
 
 
-async def fetch_pricing_with_agent(model_name: str) -> dict[str, Any]:
-    """
-    Invokes the Model Pricing Research Agent (powered by mistral-small-latest) equipped with
-    the web_search tool to find, verify, and return accurate token pricing rates for a given model.
-    """
-    clean_model_display = model_name.split("/")[-1] if "/" in model_name else model_name
-    logger.info(
-        f"[PRICING AGENT] Launching pricing research agent ({PRICING_AGENT_MODEL}) with web_search tool for '{model_name}'..."
-    )
+class PricingService:
+    """Encapsulates pricing cache, live web research agent, and cost calculation per model."""
 
-    baseline = get_baseline_for_model(model_name)
-    user_prompt = (
-        f"Determine the current official API pricing for the model '{model_name}' (also known as '{clean_model_display}'). "
-        f"Use the web_search tool to find the exact cost per 1M input tokens and cost per 1M output tokens in USD ($). "
-        f"As baseline guidance, standard rates for this family are approximately ${baseline['input_price_per_1m']:.2f}/1M input "
-        f"and ${baseline['output_price_per_1m']:.2f}/1M output. "
-        f"Search the web to verify the latest pricing and return ONLY the JSON object with fields: "
-        f"model_name, input_price_per_1m, output_price_per_1m, currency ('USD'), source, source_url."
-    )
+    def __init__(self, cache_file: Path | None = None):
+        self.default_cache_file = cache_file or PRICING_CACHE_FILE
+        self.baseline_pricing = dict(BASELINE_MODEL_PRICING)
+        self.default_fallback = dict(DEFAULT_FALLBACK_PRICING)
 
-    messages: list[dict[str, Any]] = [
-        {"role": "system", "content": PRICING_AGENT_PROMPT},
-        {"role": "user", "content": user_prompt},
-    ]
+    @property
+    def active_cache_file(self) -> Path:
+        if self.default_cache_file != PRICING_CACHE_FILE:
+            return self.default_cache_file
+        ps_mod = sys.modules.get("pricing_service")
+        if ps_mod and hasattr(ps_mod, "PRICING_CACHE_FILE"):
+            return Path(getattr(ps_mod, "PRICING_CACHE_FILE"))
+        return self.default_cache_file
 
-    completion_kwargs: dict[str, Any] = {
-        "model": PRICING_AGENT_MODEL,
-        "messages": messages,
-        "tools": PRICING_TOOL_SCHEMAS,
-        "tool_choice": "auto",
-    }
+    def load_cache(self) -> dict[str, dict[str, Any]]:
+        """Loads cached pricing data from JSON file."""
+        target = self.active_cache_file
+        if not target.exists():
+            return {}
+        try:
+            data = json.loads(target.read_text(encoding="utf-8"))
+            return data if isinstance(data, dict) else {}
+        except Exception as e:
+            logger.warning(f"[PRICING] Failed to read {target.name}: {e}")
+            return {}
 
-    response = await run_in_threadpool(
-        litellm.completion,
-        **completion_kwargs,
-    )
+    def save_cache(self, data: dict[str, dict[str, Any]]) -> None:
+        """Saves pricing data dictionary to JSON cache file."""
+        target = self.active_cache_file
+        try:
+            target.write_text(
+                json.dumps(data, indent=2), encoding="utf-8"
+            )
+            logger.info(
+                f"[PRICING] Successfully saved pricing cache to {target.name}"
+            )
+        except Exception as e:
+            logger.error(f"[PRICING] Error saving pricing cache: {e}")
 
-    response_message = response.choices[0].message
-    tool_calls = getattr(response_message, "tool_calls", None)
+    def get_pricing(self, model_name: str) -> dict[str, Any]:
+        """
+        Synchronous getter for model pricing from cache or baseline.
+        Does not block for web search.
+        """
+        cache = self.load_cache()
+        norm = _normalize_model_name(model_name)
+        baseline = get_baseline_for_model(model_name)
+        if norm in cache:
+            res = dict(cache[norm])
+            if not res.get("source_url"):
+                res["source_url"] = baseline.get(
+                    "source_url", "https://artificialanalysis.ai/models"
+                )
+            return res
+        res = dict(baseline)
+        res["updated_at"] = 0
+        return res
 
-    # Tool calling loop (up to 3 iterations for multi-step search/fetch)
-    iterations = 0
-    max_iterations = 3
-    while tool_calls and iterations < max_iterations:
-        iterations += 1
-        logger.info(
-            f"[PRICING AGENT] Iteration {iterations}: Agent requested {len(tool_calls)} tool call(s)."
-        )
+    async def fetch_pricing_with_agent(self, model_name: str) -> dict[str, Any]:
+        """Researches pricing for a given model using LiteLLM agent with tool calls."""
+        logger.info(f"[PRICING] Researching current live pricing for '{model_name}' via agent...")
+        baseline = get_baseline_for_model(model_name)
+        norm = _normalize_model_name(model_name)
 
-        if hasattr(response_message, "model_dump"):
-            messages.append(response_message.model_dump())
-        elif isinstance(response_message, dict):
-            messages.append(response_message)
-        else:
-            messages.append(
-                {
-                    "role": "assistant",
-                    "content": response_message.content or "",
-                    "tool_calls": [
-                        {
-                            "id": tc.id,
-                            "type": "function",
-                            "function": {
-                                "name": tc.function.name,
-                                "arguments": tc.function.arguments,
-                            },
-                        }
-                        for tc in tool_calls
-                    ],
-                }
+        messages = [
+            {"role": "system", "content": PRICING_AGENT_PROMPT},
+            {
+                "role": "user",
+                "content": f"Find official per-token API pricing in USD for model: {model_name}",
+            },
+        ]
+
+        def _run_completion():
+            return litellm.completion(
+                model=PRICING_AGENT_MODEL,
+                messages=messages,
+                tools=PRICING_TOOL_SCHEMAS,
+                tool_choice="auto",
             )
 
-        for tc in tool_calls:
-            fn_name = tc.function.name
-            fn_args = tc.function.arguments
-            if isinstance(fn_args, str):
-                try:
-                    fn_args = json.loads(fn_args)
-                except Exception:
-                    fn_args = {}
-            if not isinstance(fn_args, dict):
-                fn_args = {}
+        resp = await run_in_threadpool(_run_completion)
+        resp_msg = resp.choices[0].message
+        tool_calls = getattr(resp_msg, "tool_calls", None)
 
-            logger.info(f"[PRICING AGENT] Executing tool '{fn_name}' with args: {fn_args}")
-
-            if fn_name == "web_search":
-                q = fn_args.get("query", f"{clean_model_display} API pricing per 1M tokens")
-                max_res = fn_args.get("max_results", 5)
-                tool_result = await run_in_threadpool(web_search, query=q, max_results=max_res)
-            elif fn_name in ("fetch_web_page", "web_scrape"):
-                url = fn_args.get("url", "")
-                max_ch = fn_args.get("max_chars", 4000)
-                tool_result = await run_in_threadpool(fetch_web_page, url=url, max_chars=max_ch)
+        if tool_calls:
+            if hasattr(resp_msg, "model_dump"):
+                messages.append(resp_msg.model_dump())
             else:
-                tool_result = json.dumps({"error": f"Unknown tool: {fn_name}"})
+                messages.append(
+                    {
+                        "role": getattr(resp_msg, "role", "assistant"),
+                        "content": getattr(resp_msg, "content", None),
+                        "tool_calls": getattr(resp_msg, "tool_calls", None),
+                    }
+                )
 
-            messages.append(
-                {
-                    "role": "tool",
-                    "tool_call_id": tc.id,
-                    "name": fn_name,
-                    "content": tool_result,
-                }
-            )
+            for tc in tool_calls:
+                fn_name = tc.function.name
+                fn_args = (
+                    json.loads(tc.function.arguments)
+                    if isinstance(tc.function.arguments, str)
+                    else tc.function.arguments
+                )
+                if fn_name == "web_search":
+                    call_res = web_search(**fn_args)
+                    res_str = await call_res if asyncio.iscoroutine(call_res) else call_res
+                elif fn_name == "fetch_web_page":
+                    call_res = fetch_web_page(**fn_args)
+                    res_str = await call_res if asyncio.iscoroutine(call_res) else call_res
+                else:
+                    res_str = f"Error: unknown tool '{fn_name}'"
 
-        follow_up_kwargs: dict[str, Any] = {
-            "model": PRICING_AGENT_MODEL,
-            "messages": messages,
-            "tools": PRICING_TOOL_SCHEMAS,
-            "tool_choice": "auto",
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tc.id,
+                        "name": fn_name,
+                        "content": res_str,
+                    }
+                )
+
+            def _run_followup():
+                return litellm.completion(
+                    model=PRICING_AGENT_MODEL,
+                    messages=messages,
+                    response_format={"type": "json_object"},
+                )
+
+            final_resp = await run_in_threadpool(_run_followup)
+            final_text = final_resp.choices[0].message.content
+            cleaned = re.sub(r"^```json\s*", "", final_text.strip(), flags=re.IGNORECASE)
+            cleaned = re.sub(r"\s*```$", "", cleaned.strip())
+            data = json.loads(cleaned)
+
+            in_price = float(data.get("input_price_per_1m", baseline["input_price_per_1m"]))
+            out_price = float(data.get("output_price_per_1m", baseline["output_price_per_1m"]))
+            source_url = data.get("source_url") or baseline.get("source_url", "https://artificialanalysis.ai/models")
+
+            return {
+                "input_price_per_1m": in_price,
+                "output_price_per_1m": out_price,
+                "currency": "USD",
+                "source": data.get("source", baseline["source"]),
+                "source_url": source_url,
+                "updated_at": time.time(),
+                "updated_at_str": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()),
+            }
+
+        # If no tool calls, return baseline
+        return {
+            **baseline,
+            "updated_at": time.time(),
+            "updated_at_str": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()),
         }
 
-        follow_up = await run_in_threadpool(
-            litellm.completion,
-            **follow_up_kwargs,
-        )
-        response_message = follow_up.choices[0].message
-        tool_calls = getattr(response_message, "tool_calls", None)
+    async def fetch_pricing_from_web(self, model_name: str) -> dict[str, Any]:
+        """Researches pricing for a given model via agent with fallback to direct search."""
+        baseline = get_baseline_for_model(model_name)
+        try:
+            # Delegate to module-level fetch_pricing_with_agent to intercept test mocks
+            call_res = fetch_pricing_with_agent(model_name)
+            return await call_res if asyncio.iscoroutine(call_res) else call_res
+        except Exception as e:
+            logger.warning(f"[PRICING] Agent research failed for '{model_name}': {e}. Trying direct search.")
 
-    raw_content = response_message.content or ""
-    logger.debug(f"[PRICING AGENT] Raw response content: {raw_content}")
+        # Fallback to direct web search extraction
+        try:
+            clean_query = re.sub(r"^[a-zA-Z0-9_-]+/", "", model_name)
+            search_fn = getattr(sys.modules.get("pricing_service"), "web_search", web_search)
+            call_res = search_fn(query=f"{clean_query} api pricing tokens million official", max_results=5)
+            search_raw = await call_res if asyncio.iscoroutine(call_res) else call_res
+            in_val, out_val = _extract_pricing_from_search_text(search_raw, model_name)
+            input_price = in_val if in_val is not None else baseline["input_price_per_1m"]
+            output_price = out_val if out_val is not None else baseline["output_price_per_1m"]
+            source = "Web Search Fallback" if (in_val or out_val) else baseline["source"]
+            source_url = baseline.get("source_url", "https://artificialanalysis.ai/models")
 
-    # Parse JSON from model response
-    cleaned = raw_content.strip()
-    if "```json" in cleaned:
-        cleaned = cleaned.split("```json", 1)[1].split("```", 1)[0].strip()
-    elif "```" in cleaned:
-        cleaned = cleaned.split("```", 1)[1].split("```", 1)[0].strip()
+            url_match = re.search(r"https?://[^\s)\]\"'>]+", search_raw)
+            if url_match:
+                source_url = url_match.group(0)
 
-    json_match = re.search(r"\{[\s\S]*\}", cleaned)
-    if not json_match:
-        raise ValueError(f"Agent did not return valid JSON: {raw_content[:200]}")
+            return {
+                "input_price_per_1m": float(input_price),
+                "output_price_per_1m": float(output_price),
+                "currency": "USD",
+                "source": source,
+                "source_url": source_url,
+                "updated_at": time.time(),
+                "updated_at_str": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()),
+            }
+        except Exception as e:
+            logger.warning(f"[PRICING] Direct search failed for '{model_name}': {e}. Using baseline.")
 
-    parsed = json.loads(json_match.group(0))
-    in_price = float(parsed.get("input_price_per_1m", 0.0))
-    out_price = float(parsed.get("output_price_per_1m", 0.0))
-    source_name = parsed.get("source") or f"Mistral Web Search Agent ({PRICING_AGENT_MODEL})"
-    source_url = parsed.get("source_url") or baseline.get("source_url", "")
+        return {
+            **baseline,
+            "updated_at": time.time(),
+            "updated_at_str": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()),
+        }
 
-    # Sanity check rates (0.001 USD to 500 USD per 1M tokens)
-    if not (0.001 <= in_price <= 500.0 and 0.001 <= out_price <= 500.0):
-        raise ValueError(
-            f"Extracted prices out of acceptable range: input={in_price}, output={out_price}"
-        )
+    async def refresh_pricing(self, model_name: str, force: bool = False) -> dict[str, Any]:
+        """
+        Returns pricing dictionary for a given model with 7-day TTL check.
+        Performs web search only if stale or missing.
+        """
+        cache = self.load_cache()
+        norm = _normalize_model_name(model_name)
+        now = time.time()
 
-    logger.info(
-        f"[PRICING AGENT] Successfully resolved pricing for '{model_name}' via agent: "
-        f"Input=${in_price}/1M, Output=${out_price}/1M (Source: {source_name}, URL: {source_url})"
-    )
+        cached_entry = cache.get(norm)
+        if cached_entry and not force:
+            updated_at = cached_entry.get("updated_at", 0)
+            age = now - updated_at
+            if age < CACHE_TTL_SECONDS:
+                logger.debug(
+                    f"[PRICING] Using cached pricing for '{norm}' (age: {age / 86400:.1f} days / 7-day TTL)"
+                )
+                if not cached_entry.get("source_url"):
+                    baseline = get_baseline_for_model(model_name)
+                    cached_entry["source_url"] = baseline.get(
+                        "source_url", "https://artificialanalysis.ai/models"
+                    )
+                return cached_entry
 
-    return {
-        "input_price_per_1m": in_price,
-        "output_price_per_1m": out_price,
-        "currency": "USD",
-        "source": source_name,
-        "source_url": source_url,
-        "updated_at": time.time(),
-        "updated_at_str": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()),
-    }
+        call_res = fetch_pricing_from_web(model_name)
+        fresh_pricing = await call_res if asyncio.iscoroutine(call_res) else call_res
 
+        cache[norm] = fresh_pricing
+        self.save_cache(cache)
+        return fresh_pricing
 
-async def fetch_pricing_from_web(model_name: str) -> dict[str, Any]:
-    """
-    Fetches the latest pricing for a model by invoking the mistral-small-latest
-    pricing research agent with web_search tool. Falls back gracefully to direct
-    web search extraction or baseline values if the agent call encounters an error.
-    """
-    baseline = get_baseline_for_model(model_name)
-    clean_model_display = model_name.split("/")[-1] if "/" in model_name else model_name
+    async def warm_up_cache(self, models: list[str] | None = None) -> None:
+        """Warms up pricing cache at server startup for all known models."""
+        if models is None:
+            from config import AGENTS_CONFIG, THREAD_NOTES_MODEL
 
-    # 1. Primary path: mistral-small-latest agent equipped with web_search tool
-    try:
-        agent_result = await fetch_pricing_with_agent(model_name)
-        if agent_result and agent_result.get("input_price_per_1m") is not None:
-            return agent_result
-    except Exception as e:
-        logger.warning(
-            f"[PRICING] Agent pricing lookup failed for '{model_name}': {e}. Attempting direct web search fallback..."
-        )
-
-    # 2. Secondary fallback: Direct web search with regex snippet extraction
-    query = f"{clean_model_display} API pricing cost per 1M input output tokens"
-    input_price = baseline["input_price_per_1m"]
-    output_price = baseline["output_price_per_1m"]
-    source = baseline.get("source", "Baseline")
-    source_url = baseline.get("source_url", "https://artificialanalysis.ai/models")
-
-    try:
-        search_res_json = await run_in_threadpool(web_search, query=query, max_results=5)
-        parsed_search = json.loads(search_res_json)
-        results = parsed_search.get("results", [])
-
-        combined_text = ""
-        top_url = None
-        for item in results:
-            title = item.get("title", "")
-            snippet = item.get("snippet", "")
-            item_url = item.get("url", "")
-            if item_url and not top_url:
-                top_url = item_url
-            combined_text += f"{title}\n{snippet}\n"
-
-        extracted_in, extracted_out = _extract_pricing_from_search_text(
-            combined_text, clean_model_display
-        )
-        if extracted_in is not None:
-            input_price = extracted_in
-            source = f"Web Search ({query})"
-            if top_url:
-                source_url = top_url
-        if extracted_out is not None:
-            output_price = extracted_out
-            source = f"Web Search ({query})"
-            if top_url:
-                source_url = top_url
+            models_to_check = {cfg["model"] for cfg in AGENTS_CONFIG.values()}
+            if THREAD_NOTES_MODEL:
+                models_to_check.add(THREAD_NOTES_MODEL)
+        else:
+            models_to_check = set(models)
 
         logger.info(
-            f"[PRICING] Direct web search resolved pricing for '{model_name}': "
-            f"Input=${input_price}/1M, Output=${output_price}/1M (Source: {source}, URL: {source_url})"
+            f"[PRICING] Warming up pricing cache for {len(models_to_check)} models..."
         )
-    except Exception as e:
-        logger.warning(
-            f"[PRICING] Direct web search fallback failed for '{model_name}': {e}. Using baseline."
-        )
-
-    return {
-        "input_price_per_1m": float(input_price),
-        "output_price_per_1m": float(output_price),
-        "currency": "USD",
-        "source": source,
-        "source_url": source_url,
-        "updated_at": time.time(),
-        "updated_at_str": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()),
-    }
+        for m in models_to_check:
+            try:
+                await self.refresh_pricing(m, force=False)
+            except Exception as e:
+                logger.warning(f"[PRICING] Warm-up failed for model '{m}': {e}")
 
 
-async def refresh_model_pricing(model_name: str, force: bool = False) -> dict[str, Any]:
-    """
-    Returns the pricing dictionary for a given model.
-    Checks the 7-day cache TTL and performs a web search only if stale or missing.
-    """
-    cache = load_pricing_cache()
-    norm = _normalize_model_name(model_name)
-    now = time.time()
+# Default singleton instance
+pricing_service = PricingService()
 
-    cached_entry = cache.get(norm)
-    if cached_entry and not force:
-        updated_at = cached_entry.get("updated_at", 0)
-        age = now - updated_at
-        if age < CACHE_TTL_SECONDS:
-            logger.debug(
-                f"[PRICING] Using cached pricing for '{norm}' (age: {age / 86400:.1f} days / 7-day TTL)"
-            )
-            # Ensure source_url exists on returned cache entry
-            if not cached_entry.get("source_url"):
-                baseline = get_baseline_for_model(model_name)
-                cached_entry["source_url"] = baseline.get("source_url", "https://artificialanalysis.ai/models")
-            return cached_entry
 
-    # Cache is missing or older than 7 days -> fetch fresh via web search
-    fresh_pricing = await fetch_pricing_from_web(model_name)
-    cache[norm] = fresh_pricing
-    save_pricing_cache(cache)
-    return fresh_pricing
+# Backward-compatible function aliases
+def load_pricing_cache() -> dict[str, dict[str, Any]]:
+    return pricing_service.load_cache()
+
+
+def save_pricing_cache(data: dict[str, dict[str, Any]]) -> None:
+    pricing_service.save_cache(data)
 
 
 def get_model_pricing(model_name: str) -> dict[str, Any]:
-    """
-    Synchronous getter for model pricing from cache or baseline.
-    Does not block for web search.
-    """
-    cache = load_pricing_cache()
-    norm = _normalize_model_name(model_name)
-    baseline = get_baseline_for_model(model_name)
-    if norm in cache:
-        res = dict(cache[norm])
-        if not res.get("source_url"):
-            res["source_url"] = baseline.get("source_url", "https://artificialanalysis.ai/models")
-        return res
-    # Check baseline if not in cache
-    res = dict(baseline)
-    res["updated_at"] = 0
-    return res
+    return pricing_service.get_pricing(model_name)
+
+
+async def fetch_pricing_from_web(model_name: str) -> dict[str, Any]:
+    return await pricing_service.fetch_pricing_from_web(model_name)
+
+
+async def fetch_pricing_with_agent(model_name: str) -> dict[str, Any]:
+    return await pricing_service.fetch_pricing_with_agent(model_name)
+
+
+async def refresh_model_pricing(
+    model_name: str, force: bool = False
+) -> dict[str, Any]:
+    return await pricing_service.refresh_pricing(model_name, force=force)
 
 
 async def warm_up_pricing_cache(models: list[str] | None = None) -> None:
-    """
-    Warms up pricing cache at server startup for all known models.
-    Refreshes only models that are missing from cache or older than 7 days.
-    """
-    if models is None:
-        from config import AGENTS_CONFIG, THREAD_NOTES_MODEL
-        models_to_check = {cfg["model"] for cfg in AGENTS_CONFIG.values()}
-        if THREAD_NOTES_MODEL:
-            models_to_check.add(THREAD_NOTES_MODEL)
-    else:
-        models_to_check = set(models)
-
-    logger.info(f"[PRICING] Warming up pricing cache for {len(models_to_check)} models (7-day refresh check)...")
-    for m in models_to_check:
-        try:
-            await refresh_model_pricing(m, force=False)
-        except Exception as e:
-            logger.warning(f"[PRICING] Warm-up failed for model '{m}': {e}")
+    await pricing_service.warm_up_cache(models=models)
