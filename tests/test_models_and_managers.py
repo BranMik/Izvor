@@ -121,6 +121,12 @@ def test_thread_state_manager():
     mgr.set_file_context(channel_id, thread_ts, fc)
     assert mgr.get_file_context(channel_id, thread_ts)["file_name"] == "schema.sql"
 
+    # 503 tracking
+    assert mgr.has_agent_503_errored(channel_id, thread_ts, "Gemini_Visionary") is False
+    mgr.mark_agent_503_errored(channel_id, thread_ts, "Gemini_Visionary")
+    assert mgr.has_agent_503_errored(channel_id, thread_ts, "Gemini_Visionary") is True
+    assert mgr.get_503_errored_agents(channel_id, thread_ts) == {"Gemini_Visionary"}
+
     # Stop and clear
     mgr.request_stop(channel_id, thread_ts)
     assert mgr.is_stopped(channel_id, thread_ts) is True
@@ -130,6 +136,8 @@ def test_thread_state_manager():
     assert mgr.get_max_words(channel_id, thread_ts) is None
     assert mgr.get_file_context(channel_id, thread_ts) is None
     assert mgr.is_stopped(channel_id, thread_ts) is False
+    assert mgr.has_agent_503_errored(channel_id, thread_ts, "Gemini_Visionary") is False
+    assert mgr.get_503_errored_agents(channel_id, thread_ts) == set()
 
 
 def test_debate_orchestrator():
