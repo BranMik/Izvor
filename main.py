@@ -155,7 +155,10 @@ async def slack_events(request: Request, background_tasks: BackgroundTasks):
                 logger.info(
                     f"[WEBHOOK] Received app_home_opened event for user {user_id}. Publishing App Home view."
                 )
-                background_tasks.add_task(publish_app_home, user_id=user_id)
+                try:
+                    await publish_app_home(user_id=user_id)
+                except Exception as e:
+                    logger.error(f"[WEBHOOK] Error publishing app home on open: {e}")
             return Response(status_code=200)
 
         if event_type in ["message", "app_mention"]:
@@ -337,7 +340,14 @@ async def slack_interactivity(request: Request, background_tasks: BackgroundTask
 
     payload_type = payload.get("type")
     if payload_type == "block_actions":
-        user_id = payload.get("user", {}).get("id")
+        user_id = None
+        if isinstance(payload.get("user"), dict):
+            user_id = payload.get("user", {}).get("id")
+        elif isinstance(payload.get("user"), str):
+            user_id = payload.get("user")
+        if not user_id and isinstance(payload.get("view"), dict):
+            user_id = payload.get("view", {}).get("user", {}).get("id")
+
         actions = payload.get("actions", [])
         view_state = payload.get("view", {}).get("state", {}).get("values", {})
 
@@ -359,15 +369,26 @@ async def slack_interactivity(request: Request, background_tasks: BackgroundTask
                         f"[INTERACTIVITY] Could not parse threshold from input: '{val_str}'"
                     )
             elif action_id == "save_circuit_breaker_threshold_button":
-                block_vals = view_state.get("circuit_breaker_threshold_block", {})
-                val_obj = block_vals.get("set_circuit_breaker_threshold_input", {})
-                val_str = val_obj.get("value", "")
-                if not val_str and isinstance(block_vals, dict):
-                    # Fallback check across block keys
-                    for v in block_vals.values():
-                        if isinstance(v, dict) and "value" in v:
-                            val_str = v.get("value", "")
-                            break
+                val_str = ""
+                # First search dynamically for the action_id inside any block in view_state
+                if isinstance(view_state, dict):
+                    for block_id, block_val in view_state.items():
+                        if isinstance(block_val, dict) and "set_circuit_breaker_threshold_input" in block_val:
+                            val_str = block_val["set_circuit_breaker_threshold_input"].get("value", "")
+                            if val_str:
+                                break
+                    # Fallback to direct key if not found
+                    if not val_str:
+                        block_vals = view_state.get("circuit_breaker_threshold_block", {})
+                        if isinstance(block_vals, dict):
+                            val_obj = block_vals.get("set_circuit_breaker_threshold_input", {})
+                            if isinstance(val_obj, dict):
+                                val_str = val_obj.get("value", "")
+                            elif not val_str:
+                                for v in block_vals.values():
+                                    if isinstance(v, dict) and "value" in v:
+                                        val_str = v.get("value", "")
+                                        break
                 try:
                     val_clean = str(val_str).strip().replace("$", "").replace(",", ".")
                     val_float = float(val_clean)
@@ -407,7 +428,10 @@ async def slack_interactivity(request: Request, background_tasks: BackgroundTask
                 )
 
         if user_id:
-            background_tasks.add_task(publish_app_home, user_id=user_id)
+            try:
+                await publish_app_home(user_id=user_id)
+            except Exception as e:
+                logger.error(f"[INTERACTIVITY] Failed to publish App Home for {user_id}: {e}")
 
     return Response(status_code=200)
 

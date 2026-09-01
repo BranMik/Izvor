@@ -564,6 +564,12 @@ def test_build_app_home_view():
     assert "save_circuit_breaker_threshold_button" in action_ids
     assert "set_circuit_breaker_preset:0.50" in action_ids
 
+    # Dynamic block IDs present
+    block_ids = [b.get("block_id") for b in blocks if "block_id" in b]
+    assert "cb_threshold_block_2.50" in block_ids
+    assert "cb_toggle_section_on" in block_ids
+    assert "agent_toggle_block_MistLar_TechLead_on" in block_ids
+
 
 def test_settings_persistence(tmp_path, monkeypatch):
     test_settings_path = tmp_path / "test_agent_settings.json"
