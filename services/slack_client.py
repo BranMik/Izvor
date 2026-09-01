@@ -5,7 +5,13 @@ from typing import Any
 from slack_sdk.errors import SlackApiError
 from slack_sdk.web.async_client import AsyncWebClient
 
-from config import AGENTS_CONFIG, SLACK_BOT_TOKEN, USAGE_CHANNEL_ID, USAGE_CHANNEL_NAME
+from core.config import (
+    AGENTS_CONFIG,
+    MCP_WORKSPACE_DIR,
+    SLACK_BOT_TOKEN,
+    USAGE_CHANNEL_ID,
+    USAGE_CHANNEL_NAME,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +31,7 @@ def build_app_home_view(
     Generates the Block Kit Home Tab view for the Slack Application Home page.
     Displays panel agents, locked agents, and thread cost circuit-breaker settings.
     """
-    from agent_router import (
+    from orchestration.agent_router import (
         LOCKED_AGENTS,
         get_circuit_breaker_config,
         get_enabled_agents,
@@ -372,7 +378,6 @@ async def post_agent_response(
         return {"ok": True, "mock": True}
 
     try:
-        # Append a cache-buster query parameter to force Slack to update its CDN cache for new icons
         final_icon_url = f"{icon_url}?v=2" if icon_url else None
 
         response = await slack_async_client.chat_postMessage(
@@ -458,7 +463,6 @@ def _sanitize_and_truncate_slack_text(text: str, max_chars: int = 3800) -> str:
     if len(text) <= max_chars:
         return text
     truncated = text[:max_chars]
-    # Break cleanly at last newline if possible
     last_nl = truncated.rfind("\n")
     if last_nl > max_chars - 300:
         truncated = truncated[:last_nl]
@@ -607,7 +611,6 @@ async def get_or_create_usage_channel() -> str | None:
         return _RESOLVED_USAGE_CHANNEL_ID
 
     try:
-        # Search public and private channels
         cursor = None
         while True:
             res = await slack_async_client.conversations_list(
@@ -623,7 +626,6 @@ async def get_or_create_usage_channel() -> str | None:
                     logger.info(
                         f"[SLACK] Found existing usage channel '{target_name}' with ID: {ch_id}"
                     )
-                    # Attempt to join channel if bot is not already a member
                     if not ch.get("is_member", True) and ch_id:
                         try:
                             await slack_async_client.conversations_join(channel=ch_id)
@@ -636,7 +638,6 @@ async def get_or_create_usage_channel() -> str | None:
             if not cursor:
                 break
 
-        # Channel was not found in workspace -> automatically create it
         logger.info(
             f"[SLACK] Usage channel '{target_name}' not found. Creating channel..."
         )
@@ -804,7 +805,6 @@ async def download_slack_file(
     Returns dict: {"ok": bool, "file_name": str, "content": str, "truncated": bool, "size": int, "error": str | None}
     """
     import httpx
-    from config import MCP_WORKSPACE_DIR
 
     file_name = file_info.get("name", "unknown_file")
     url = file_info.get("url_private_download") or file_info.get("url_private")
@@ -821,7 +821,6 @@ async def download_slack_file(
         }
 
     if not SLACK_BOT_TOKEN or SLACK_BOT_TOKEN == "xoxb-your-bot-user-oauth-token":
-        # Mock mode if no valid token
         return {
             "ok": True,
             "file_name": file_name,
@@ -846,7 +845,6 @@ async def download_slack_file(
                 }
             raw_bytes = resp.content
 
-            # Attempt text decoding (UTF-8 with replace fallback)
             text_content = raw_bytes.decode("utf-8", errors="replace")
             truncated = False
             if len(text_content) > max_chars:
@@ -856,7 +854,6 @@ async def download_slack_file(
                 )
                 truncated = True
 
-            # Optionally save local copy in workspace downloads directory for MCP file tools
             try:
                 downloads_dir = MCP_WORKSPACE_DIR / "downloads"
                 downloads_dir.mkdir(parents=True, exist_ok=True)
@@ -888,4 +885,99 @@ async def download_slack_file(
         }
 
 
+def extract_thread_files_metadata(files_list: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        {
+            "id": f.get("id"),
+            "name": f.get("name"),
+            "size": f.get("size"),
+            "filetype": f.get("filetype"),
+        }
+        for f in files_list
+    ]
 
+
+async def get_bot_user_id() -> str | None:
+    if not SLACK_BOT_TOKEN or SLACK_BOT_TOKEN == "xoxb-your-bot-user-oauth-token":
+        return "U_MOCK_BOT"
+    try:
+        auth_info = await slack_async_client.auth_test()
+        return auth_info.get("user_id")
+    except Exception as e:
+        logger.error(f"Error fetching bot user ID: {e}")
+        return None
+
+
+async def open_dm_channel(user_id: str) -> str | None:
+    if not SLACK_BOT_TOKEN or SLACK_BOT_TOKEN == "xoxb-your-bot-user-oauth-token":
+        return f"D_MOCK_{user_id}"
+    try:
+        res = await slack_async_client.conversations_open(users=user_id)
+        ch = res.get("channel", {})
+        return ch.get("id")
+    except Exception as e:
+        logger.error(f"Error opening DM channel with {user_id}: {e}")
+        return None
+
+
+async def post_ephemeral_to_slack(
+    channel_id: str,
+    user_id: str,
+    text: str,
+    thread_ts: str | None = None,
+) -> dict[str, Any]:
+    if not SLACK_BOT_TOKEN or SLACK_BOT_TOKEN == "xoxb-your-bot-user-oauth-token":
+        return {"ok": True, "mock": True}
+    try:
+        kwargs = {
+            "channel": channel_id,
+            "user": user_id,
+            "text": text,
+        }
+        if thread_ts:
+            kwargs["thread_ts"] = thread_ts
+        res = await slack_async_client.chat_postEphemeral(**kwargs)
+        return res.data
+    except Exception as e:
+        logger.error(f"Error posting ephemeral message: {e}")
+        return {"ok": False, "error": str(e)}
+
+
+async def post_message_to_slack(
+    channel_id: str,
+    text: str,
+    thread_ts: str | None = None,
+    username: str | None = None,
+    icon_url: str | None = None,
+    icon_emoji: str | None = None,
+) -> dict[str, Any]:
+    if not SLACK_BOT_TOKEN or SLACK_BOT_TOKEN == "xoxb-your-bot-user-oauth-token":
+        return {"ok": True, "mock": True}
+    try:
+        kwargs = {"channel": channel_id, "text": text}
+        if thread_ts:
+            kwargs["thread_ts"] = thread_ts
+        if username:
+            kwargs["username"] = username
+        if icon_url:
+            kwargs["icon_url"] = icon_url
+        if icon_emoji:
+            kwargs["icon_emoji"] = icon_emoji
+        res = await slack_async_client.chat_postMessage(**kwargs)
+        return res.data
+    except Exception as e:
+        logger.error(f"Error posting message to Slack: {e}")
+        return {"ok": False, "error": str(e)}
+
+
+async def update_slack_message(
+    channel_id: str,
+    ts: str,
+    text: str,
+) -> dict[str, Any]:
+    return await update_thread_note(channel_id=channel_id, message_ts=ts, text=text)
+
+
+async def read_slack_file_text(file_info: dict[str, Any], max_chars: int = 50000) -> str:
+    res = await download_slack_file(file_info, max_chars=max_chars)
+    return res.get("content", "")

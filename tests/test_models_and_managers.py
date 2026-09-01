@@ -4,19 +4,19 @@ import tempfile
 from unittest.mock import MagicMock, patch
 import pytest
 
-from agent_settings import AgentSettingsManager
+from orchestration.agent_settings import AgentSettingsManager
 from agents.usage_agent import ThreadUsageTracker
-from debate_orchestrator import DebateOrchestrator
-from intent_extractor import IntentExtractor
-from models import (
+from orchestration.debate_orchestrator import DebateOrchestrator
+from nlp.intent_extractor import IntentExtractor
+from core.models import (
     CircuitBreakerConfig,
     ExtractedIntent,
     FileContext,
     HistoryLimitConfig,
     ModelPricing,
 )
-from pricing_service import PricingService
-from thread_state import ThreadStateManager
+from services.pricing_service import PricingService
+from orchestration.thread_state import ThreadStateManager
 
 
 def test_models_serialization():
@@ -185,7 +185,7 @@ async def test_intent_extractor_class():
         )
     ]
 
-    with patch("intent_extractor.litellm.completion", return_value=mock_resp):
+    with patch("nlp.intent_extractor.litellm.completion", return_value=mock_resp):
         intent = await extractor.extract_intent("keep it to 75 words using last 2 messages")
         assert isinstance(intent, ExtractedIntent)
         assert intent.max_words == 75

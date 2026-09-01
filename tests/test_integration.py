@@ -1,7 +1,7 @@
 import pytest
 from fastapi.testclient import TestClient
 from main import app, PROCESSED_EVENTS
-from agent_router import (
+from orchestration.agent_router import (
     ENABLED_DEBATE_AGENTS,
     LOCKED_AGENTS,
     REMAINING_AGENTS_MAP,
@@ -33,8 +33,8 @@ from unittest.mock import AsyncMock
 def patch_slack_calls(monkeypatch):
     reset_enabled_agents()
     monkeypatch.setattr("main.process_and_respond", AsyncMock(return_value={"ok": True}))
-    monkeypatch.setattr("agent_router.post_agent_response", mock_post_agent_response)
-    monkeypatch.setattr("agent_router.fetch_thread_history", mock_fetch_thread_history)
+    monkeypatch.setattr("orchestration.agent_router.post_agent_response", mock_post_agent_response)
+    monkeypatch.setattr("orchestration.agent_router.fetch_thread_history", mock_fetch_thread_history)
     monkeypatch.setattr("main.verify_slack_signature", lambda body, headers: True)
 
 

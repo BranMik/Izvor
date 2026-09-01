@@ -11,7 +11,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from starlette.requests import ClientDisconnect
 
-from agent_router import (
+from core.config import AGENTS_CONFIG
+from orchestration.agent_router import (
     LOCKED_AGENTS,
     get_circuit_breaker_config,
     get_circuit_breaker_threshold,
@@ -28,9 +29,9 @@ from agent_router import (
     set_circuit_breaker_threshold,
     toggle_agent,
 )
-from config import AGENTS_CONFIG
-from slack_client import publish_app_home
-from slack_security import verify_slack_signature
+from services.pricing_service import warm_up_pricing_cache
+from services.slack_client import publish_app_home
+from core.slack_security import verify_slack_signature
 
 # Global in-memory cache for request deduplication
 PROCESSED_EVENTS = {}  # key: (channel_id, ts), value: timestamp
@@ -71,8 +72,6 @@ async def keep_loop_alive():
 
 @app.on_event("startup")
 async def startup_event():
-    from pricing_service import warm_up_pricing_cache
-
     enabled = load_enabled_agents()
     logger.info(f"[STARTUP] Loaded {len(enabled)} enabled debate agents from persistent storage.")
     asyncio.create_task(keep_loop_alive())

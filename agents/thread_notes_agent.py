@@ -6,8 +6,12 @@ from typing import Any
 import litellm
 from starlette.concurrency import run_in_threadpool
 
-from config import THREAD_NOTES_MODEL, THREAD_NOTES_PROMPT
-from slack_client import fetch_thread_history, post_thread_note, update_thread_note
+from core.config import THREAD_NOTES_MODEL, THREAD_NOTES_PROMPT
+from services.slack_client import (
+    fetch_thread_history,
+    post_thread_note,
+    update_thread_note,
+)
 from .usage_agent import record_thread_tokens, trigger_usage_update
 
 logger = logging.getLogger(__name__)

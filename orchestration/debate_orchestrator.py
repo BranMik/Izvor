@@ -2,10 +2,10 @@ import logging
 import re
 from typing import Any
 
-from agent_settings import ENABLED_DEBATE_AGENTS, settings_manager
-from config import AGENTS_CONFIG, DEFAULT_AGENT_KEY
-from nl_patterns import extract_history_limit
-from thread_state import REMAINING_AGENTS_MAP, thread_state_manager
+from core.config import AGENTS_CONFIG, DEFAULT_AGENT_KEY
+from nlp.nl_patterns import extract_history_limit
+from .agent_settings import ENABLED_DEBATE_AGENTS, settings_manager
+from .thread_state import REMAINING_AGENTS_MAP, thread_state_manager
 
 logger = logging.getLogger(__name__)
 

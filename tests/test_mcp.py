@@ -1,6 +1,6 @@
 import json
 import pytest
-from mcp_tools import list_directory, read_file, write_file, execute_mcp_tool
+from services.mcp_tools import list_directory, read_file, write_file, execute_mcp_tool
 
 def test_mcp_write_and_read():
     rel_path = "tests/scratch_test.txt"

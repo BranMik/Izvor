@@ -6,9 +6,9 @@ from typing import Any
 import litellm
 from starlette.concurrency import run_in_threadpool
 
-from config import INTENT_EXTRACTOR_MODEL
-from models import ExtractedIntent
-from nl_patterns import is_stop_command
+from core.config import INTENT_EXTRACTOR_MODEL
+from core.models import ExtractedIntent
+from .nl_patterns import is_stop_command
 
 logger = logging.getLogger(__name__)
 

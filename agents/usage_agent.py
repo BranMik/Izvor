@@ -6,8 +6,8 @@ from pathlib import Path
 import time
 from typing import Any
 
-from pricing_service import get_model_pricing, refresh_model_pricing
-from slack_client import (
+from services.pricing_service import get_model_pricing, refresh_model_pricing
+from services.slack_client import (
     get_channel_name,
     get_or_create_usage_channel,
     post_usage_message,
@@ -16,8 +16,10 @@ from slack_client import (
 
 logger = logging.getLogger(__name__)
 
-# Persistence storage file for thread token/cost metrics (stored in workspace root)
-USAGE_STORE_FILE = Path(__file__).resolve().parent.parent / "thread_usage_data.json"
+# Persistence storage file for thread token/cost metrics (stored in data/ or root)
+_data_usage = Path(__file__).resolve().parent.parent / "data" / "thread_usage_data.json"
+_root_usage = Path(__file__).resolve().parent.parent / "thread_usage_data.json"
+USAGE_STORE_FILE = _data_usage if _data_usage.parent.exists() else _root_usage
 
 
 def parse_thread_creation_time(thread_ts: str) -> str:

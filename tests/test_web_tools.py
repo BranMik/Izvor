@@ -2,8 +2,8 @@ import json
 from unittest.mock import MagicMock, patch
 import pytest
 
-from mcp_tools import MCP_TOOLS_SCHEMAS, execute_mcp_tool
-from web_tools import fetch_web_page, web_scrape, web_search
+from services.mcp_tools import MCP_TOOLS_SCHEMAS, execute_mcp_tool
+from services.web_tools import fetch_web_page, web_scrape, web_search
 
 
 def test_mcp_schemas_include_web_tools():
@@ -117,17 +117,17 @@ def test_fetch_web_page_http_error():
 
 
 def test_execute_mcp_web_tools():
-    with patch("mcp_tools.web_search", return_value=json.dumps({"query": "test", "results": []})) as mock_search:
+    with patch("services.mcp_tools.web_search", return_value=json.dumps({"query": "test", "results": []})) as mock_search:
         res = execute_mcp_tool("web_search", {"query": "test", "max_results": 3})
         mock_search.assert_called_once_with(query="test", max_results=3)
         assert "results" in res
 
-    with patch("mcp_tools.fetch_web_page", return_value=json.dumps({"url": "https://example.com", "content": "mocked"})) as mock_fetch:
+    with patch("services.mcp_tools.fetch_web_page", return_value=json.dumps({"url": "https://example.com", "content": "mocked"})) as mock_fetch:
         res = execute_mcp_tool("fetch_web_page", {"url": "https://example.com", "max_chars": 1000})
         mock_fetch.assert_called_once_with(url="https://example.com", max_chars=1000)
         assert "mocked" in res
 
-    with patch("mcp_tools.fetch_web_page", return_value=json.dumps({"url": "https://example.com", "content": "scraped"})) as mock_scrape:
+    with patch("services.mcp_tools.fetch_web_page", return_value=json.dumps({"url": "https://example.com", "content": "scraped"})) as mock_scrape:
         res = execute_mcp_tool("web_scrape", {"url": "https://example.com"})
         mock_scrape.assert_called_once_with(url="https://example.com", max_chars=4000)
         assert "scraped" in res

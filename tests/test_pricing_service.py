@@ -5,8 +5,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-import pricing_service
-from pricing_service import (
+import services.pricing_service as pricing_module
+from services.pricing_service import (
     CACHE_TTL_SECONDS,
     PRICING_TOOL_SCHEMAS,
     _extract_pricing_from_search_text,
@@ -22,7 +22,7 @@ from pricing_service import (
 @pytest.fixture(autouse=True)
 def clean_pricing_cache(monkeypatch, tmp_path):
     temp_cache = tmp_path / "test_model_pricing_cache.json"
-    monkeypatch.setattr(pricing_service, "PRICING_CACHE_FILE", temp_cache)
+    monkeypatch.setattr(pricing_module, "PRICING_CACHE_FILE", temp_cache)
     yield
     if temp_cache.exists():
         temp_cache.unlink()
@@ -121,7 +121,7 @@ async def test_fetch_pricing_with_agent_success():
     )
 
     with patch("litellm.completion", side_effect=[first_response, second_response]) as mock_completion, \
-         patch("pricing_service.web_search", return_value=mock_search_json) as mock_search:
+         patch("services.pricing_service.web_search", return_value=mock_search_json) as mock_search:
 
         res = await fetch_pricing_with_agent("gemini/gemini-3.7-flash")
 
@@ -161,8 +161,8 @@ async def test_fetch_pricing_from_web_agent_fallback():
         }
     )
 
-    with patch("pricing_service.fetch_pricing_with_agent", side_effect=Exception("LiteLLM connection error")), \
-         patch("pricing_service.web_search", return_value=mock_search_json):
+    with patch("services.pricing_service.fetch_pricing_with_agent", side_effect=Exception("LiteLLM connection error")), \
+         patch("services.pricing_service.web_search", return_value=mock_search_json):
 
         res = await fetch_pricing_from_web("gemini/gemini-3.7-flash")
         assert res["input_price_per_1m"] == 0.15
@@ -189,7 +189,7 @@ async def test_7_day_cache_ttl(monkeypatch):
     }
     save_pricing_cache(cached_data)
 
-    with patch("pricing_service.fetch_pricing_from_web") as mock_fetch:
+    with patch("services.pricing_service.fetch_pricing_from_web") as mock_fetch:
         pricing = await refresh_model_pricing(model, force=False)
         assert pricing["source"] == "Initial Test Cache"
         mock_fetch.assert_not_called()
@@ -213,7 +213,7 @@ async def test_7_day_cache_ttl(monkeypatch):
         "source": "Refreshed Web Search",
         "updated_at": now,
     }
-    with patch("pricing_service.fetch_pricing_from_web", return_value=mock_fresh) as mock_fetch:
+    with patch("services.pricing_service.fetch_pricing_from_web", return_value=mock_fresh) as mock_fetch:
         refreshed = await refresh_model_pricing(model, force=False)
         assert refreshed["source"] == "Refreshed Web Search"
         mock_fetch.assert_called_once()

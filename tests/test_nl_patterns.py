@@ -1,5 +1,5 @@
 import pytest
-from nl_patterns import (
+from nlp.nl_patterns import (
     HISTORY_COMMAND_PATTERN,
     HISTORY_NL_PATTERNS,
     MAX_WORDS_COMMAND_PATTERN,

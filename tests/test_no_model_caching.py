@@ -2,15 +2,15 @@ import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
-from config import AGENTS_CONFIG
-import agent_router
+from core.config import AGENTS_CONFIG
+import orchestration.agent_router as agent_router
 from agents.thread_notes_agent import generate_thread_notes
 from agents.usage_agent import (
     calculate_thread_costs,
     format_usage_slack_message,
     record_thread_tokens,
 )
-import pricing_service
+import services.pricing_service as pricing_service
 
 
 @pytest.fixture(autouse=True)
@@ -44,15 +44,15 @@ async def test_anthropic_agent_omits_cache_control(caplog):
 
     with caplog.at_level(logging.INFO), \
          patch("litellm.completion", return_value=mock_resp) as mock_completion, \
-         patch("agent_router.post_agent_response", return_value={"ok": True, "ts": "123.456"}), \
-         patch("agent_router.fetch_thread_history", return_value=[
+         patch("orchestration.agent_router.post_agent_response", return_value={"ok": True, "ts": "123.456"}), \
+         patch("orchestration.agent_router.fetch_thread_history", return_value=[
              {"role": "user", "content": "Prior message 1"},
              {"role": "assistant", "content": "Prior reply 1"},
          ]), \
-         patch("agent_router.fetch_thread_files", return_value=[]), \
-         patch("agent_router.record_thread_tokens"), \
-         patch("agent_router.trigger_thread_notes_update"), \
-         patch("agent_router.trigger_usage_update"):
+         patch("orchestration.agent_router.fetch_thread_files", return_value=[]), \
+         patch("orchestration.agent_router.record_thread_tokens"), \
+         patch("orchestration.agent_router.trigger_thread_notes_update"), \
+         patch("orchestration.agent_router.trigger_usage_update"):
 
         res = await agent_router.process_and_respond(
             channel_id="C123",
@@ -90,12 +90,12 @@ async def test_openai_agent_emits_no_cache_logs(caplog):
 
     with caplog.at_level(logging.INFO), \
          patch("litellm.completion", return_value=mock_resp) as mock_completion, \
-         patch("agent_router.post_agent_response", return_value={"ok": True, "ts": "123.456"}), \
-         patch("agent_router.fetch_thread_history", return_value=[]), \
-         patch("agent_router.fetch_thread_files", return_value=[]), \
-         patch("agent_router.record_thread_tokens"), \
-         patch("agent_router.trigger_thread_notes_update"), \
-         patch("agent_router.trigger_usage_update"):
+         patch("orchestration.agent_router.post_agent_response", return_value={"ok": True, "ts": "123.456"}), \
+         patch("orchestration.agent_router.fetch_thread_history", return_value=[]), \
+         patch("orchestration.agent_router.fetch_thread_files", return_value=[]), \
+         patch("orchestration.agent_router.record_thread_tokens"), \
+         patch("orchestration.agent_router.trigger_thread_notes_update"), \
+         patch("orchestration.agent_router.trigger_usage_update"):
 
         res = await agent_router.process_and_respond(
             channel_id="C123",

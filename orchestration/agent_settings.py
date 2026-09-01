@@ -1,16 +1,18 @@
 import json
 import logging
-import sys
 from pathlib import Path
+import sys
 from typing import Any
 
-from config import AGENTS_CONFIG
-from models import CircuitBreakerConfig
+from core.config import AGENTS_CONFIG
+from core.models import CircuitBreakerConfig
 
 logger = logging.getLogger(__name__)
 
-# Path to default persistent settings file
-SETTINGS_FILE = Path(__file__).parent / "agent_settings.json"
+# Path to default persistent settings file in data/ or root
+_data_settings = Path(__file__).parent.parent / "data" / "agent_settings.json"
+_root_settings = Path(__file__).parent.parent / "agent_settings.json"
+SETTINGS_FILE = _data_settings if _data_settings.parent.exists() else _root_settings
 
 # Mandatory locked agents that cannot be turned off
 LOCKED_AGENTS = {"Gemini_Visionary", "OpAiTerra_Architect", "AnthrOpus_Sceptic"}
@@ -32,10 +34,12 @@ class AgentSettingsManager:
 
     @property
     def active_settings_file(self) -> Path:
-        router_mod = sys.modules.get("agent_router")
+        if self.default_settings_file != SETTINGS_FILE:
+            return self.default_settings_file
+        router_mod = sys.modules.get("agent_router") or sys.modules.get("orchestration.agent_router")
         if router_mod and hasattr(router_mod, "SETTINGS_FILE"):
             return Path(getattr(router_mod, "SETTINGS_FILE"))
-        agent_settings_mod = sys.modules.get("agent_settings")
+        agent_settings_mod = sys.modules.get("agent_settings") or sys.modules.get("orchestration.agent_settings")
         if agent_settings_mod and hasattr(agent_settings_mod, "SETTINGS_FILE"):
             return Path(getattr(agent_settings_mod, "SETTINGS_FILE"))
         return self.default_settings_file
@@ -83,6 +87,7 @@ class AgentSettingsManager:
         """Saves current enabled debate agents and circuit-breaker settings to a persistent JSON file."""
         target_file = self.active_settings_file
         try:
+            target_file.parent.mkdir(parents=True, exist_ok=True)
             data = {
                 "enabled_agents": sorted(list(self.enabled_agents)),
                 "circuit_breaker_enabled": self.circuit_breaker_enabled,

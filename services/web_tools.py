@@ -56,7 +56,6 @@ def web_search(query: str, max_results: int = 5) -> str:
                     continue
 
                 raw_href = title_elem.get("href", "")
-                # DuckDuckGo redirect link parsing: //duckduckgo.com/l/?uddg=http%3A%2F%2F...
                 target_url = raw_href
                 if "uddg=" in raw_href:
                     parsed = urllib.parse.urlparse(raw_href)
