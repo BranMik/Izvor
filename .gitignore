@@ -41,6 +41,10 @@ ENV/
 # OS
 Thumbs.db
 .DS_Store
+
+# Runtime cache and usage storage
+data/thread_usage_data.json
+data/model_pricing_cache.json
 thread_usage_data.json
 model_pricing_cache.json
-thread_usage_data.json
+

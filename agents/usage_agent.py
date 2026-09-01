@@ -16,10 +16,8 @@ from services.slack_client import (
 
 logger = logging.getLogger(__name__)
 
-# Persistence storage file for thread token/cost metrics (stored in data/ or root)
-_data_usage = Path(__file__).resolve().parent.parent / "data" / "thread_usage_data.json"
-_root_usage = Path(__file__).resolve().parent.parent / "thread_usage_data.json"
-USAGE_STORE_FILE = _data_usage if _data_usage.parent.exists() else _root_usage
+# Persistence storage file for thread token/cost metrics
+USAGE_STORE_FILE = Path(__file__).resolve().parent.parent / "data" / "thread_usage_data.json"
 
 
 def parse_thread_creation_time(thread_ts: str) -> str:
@@ -71,6 +69,7 @@ class ThreadUsageTracker:
     def save(self) -> None:
         """Saves thread usage data dictionary to JSON store file."""
         try:
+            self.store_file.parent.mkdir(parents=True, exist_ok=True)
             serializable = {
                 f"{k[0]}:{k[1]}": v for k, v in self.thread_usage_data.items()
             }
