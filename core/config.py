@@ -5,8 +5,10 @@ from dotenv import load_dotenv
 
 from prompts import build_agent_prompt
 
-# Load environment variables from .env file
-env_path = Path(__file__).parent / ".env"
+# Load environment variables from .env file (looked up in project root or current dir)
+env_path = Path(__file__).parent.parent / ".env"
+if not env_path.exists():
+    env_path = Path(__file__).parent / ".env"
 load_dotenv(dotenv_path=env_path)
 
 # Set environment variables for LiteLLM if loaded from .env

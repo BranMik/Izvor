@@ -1,4 +1,4 @@
-from config import AGENTS_CONFIG
+from core.config import AGENTS_CONFIG
 from prompts.builder import SHORT_OUTPUT_AGENTS, build_agent_prompt
 
 

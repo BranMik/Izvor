@@ -4,8 +4,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 import agents.thread_notes_agent as thread_notes_agent
-from config import THREAD_NOTES_MODEL
-from slack_client import post_thread_note, update_thread_note
+from core.config import THREAD_NOTES_MODEL
+from services.slack_client import post_thread_note, update_thread_note
 from agents.thread_notes_agent import (
     THREAD_NOTE_MSG_MAP,
     clear_thread_note,
@@ -19,7 +19,7 @@ from agents.thread_notes_agent import (
 
 @pytest.fixture(autouse=True)
 def clean_notes_state(monkeypatch):
-    import agent_router
+    import orchestration.agent_router as agent_router
     monkeypatch.setattr(agent_router.asyncio, "sleep", AsyncMock(return_value=None))
     THREAD_NOTE_MSG_MAP.clear()
     thread_notes_agent.THREAD_LOCKS.clear()
@@ -160,7 +160,7 @@ async def test_trigger_thread_notes_update_spawns_and_coalesces_task():
 
 @pytest.mark.anyio
 async def test_slack_client_post_and_update_thread_note_mock_mode(monkeypatch):
-    import slack_client
+    import services.slack_client as slack_client
     monkeypatch.setattr(slack_client, "SLACK_BOT_TOKEN", "xoxb-your-bot-user-oauth-token")
 
     res_post = await post_thread_note(
@@ -183,7 +183,7 @@ async def test_slack_client_post_and_update_thread_note_mock_mode(monkeypatch):
 
 @pytest.mark.anyio
 async def test_slack_client_note_api_calls(monkeypatch):
-    import slack_client
+    import services.slack_client as slack_client
     monkeypatch.setattr(slack_client, "SLACK_BOT_TOKEN", "xoxb-valid-test-token")
 
     mock_post = AsyncMock(return_value={"ok": True, "ts": "1700000000.888"})
@@ -228,12 +228,12 @@ async def test_slack_client_note_api_calls(monkeypatch):
 
 @pytest.mark.anyio
 async def test_router_invokes_trigger_thread_notes_update(monkeypatch):
-    import agent_router
+    import orchestration.agent_router as agent_router
 
     mock_trigger = MagicMock()
-    monkeypatch.setattr("agent_router.trigger_thread_notes_update", mock_trigger)
+    monkeypatch.setattr("orchestration.agent_router.trigger_thread_notes_update", mock_trigger)
     monkeypatch.setattr(
-        "agent_router.run_in_threadpool",
+        "orchestration.agent_router.run_in_threadpool",
         AsyncMock(
             return_value=MagicMock(
                 choices=[MagicMock(message=MagicMock(content="Hello world [AnthrOpus_Sceptic]", tool_calls=None))],
@@ -242,10 +242,10 @@ async def test_router_invokes_trigger_thread_notes_update(monkeypatch):
         ),
     )
     monkeypatch.setattr(
-        "agent_router.post_agent_response",
+        "orchestration.agent_router.post_agent_response",
         AsyncMock(return_value={"ok": True, "ts": "1700000000.999"}),
     )
-    monkeypatch.setattr("agent_router.fetch_thread_history", AsyncMock(return_value=[]))
+    monkeypatch.setattr("orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[]))
 
     # 1. Multi-agent debate trigger (is_completed=False)
     await agent_router.process_and_respond(

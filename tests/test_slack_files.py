@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
 
-from agent_router import (
+from orchestration.agent_router import (
     extract_file_instruction,
     resolve_target_file,
     get_thread_file_context,
@@ -11,7 +11,7 @@ from agent_router import (
     THREAD_ACTIVE_FILE_CONTEXT,
     process_and_respond,
 )
-from slack_client import fetch_thread_files, download_slack_file
+from services.slack_client import fetch_thread_files, download_slack_file
 
 
 def test_extract_file_instruction_slash_commands():
@@ -182,7 +182,7 @@ async def test_download_slack_file_mock_mode():
         "url_private_download": "https://files.slack.com/files-pri/T1/sample.py",
         "size": 100,
     }
-    with patch("slack_client.SLACK_BOT_TOKEN", ""):
+    with patch("services.slack_client.SLACK_BOT_TOKEN", ""):
         res = await download_slack_file(file_info)
         assert res["ok"] is True
         assert res["file_name"] == "sample.py"
@@ -201,7 +201,7 @@ async def test_download_slack_file_http_mock():
     mock_resp.status_code = 200
     mock_resp.content = b"def add(a, b):\n    return a + b\n"
 
-    with patch("slack_client.SLACK_BOT_TOKEN", "xoxb-real-mock-token"):
+    with patch("services.slack_client.SLACK_BOT_TOKEN", "xoxb-real-mock-token"):
         with patch("httpx.AsyncClient.get", new_callable=AsyncMock) as mock_get:
             mock_get.return_value = mock_resp
             res = await download_slack_file(file_info)
@@ -233,11 +233,11 @@ async def test_file_context_lifecycle_in_process_and_respond():
     ]
     mock_litellm_resp.usage = {"prompt_tokens": 15, "completion_tokens": 10}
 
-    with patch("agent_router.fetch_thread_files", new_callable=AsyncMock, return_value=mock_files):
-        with patch("agent_router.fetch_thread_history", new_callable=AsyncMock, return_value=[]):
-            with patch("agent_router.post_agent_response", new_callable=AsyncMock, return_value={"ok": True, "ts": "1700000000.2222"}):
+    with patch("orchestration.agent_router.fetch_thread_files", new_callable=AsyncMock, return_value=mock_files):
+        with patch("orchestration.agent_router.fetch_thread_history", new_callable=AsyncMock, return_value=[]):
+            with patch("orchestration.agent_router.post_agent_response", new_callable=AsyncMock, return_value={"ok": True, "ts": "1700000000.2222"}):
                 with patch("litellm.completion", return_value=mock_litellm_resp):
-                    with patch("agent_router.asyncio.sleep", new_callable=AsyncMock):
+                    with patch("orchestration.agent_router.asyncio.sleep", new_callable=AsyncMock):
                         # 1. User prompts with specific tag [Gemini_Visionary] and requests file reading
                         res = await process_and_respond(
                             channel_id=channel_id,

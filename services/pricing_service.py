@@ -10,13 +10,16 @@ from typing import Any
 import litellm
 from starlette.concurrency import run_in_threadpool
 
-from config import PRICING_AGENT_MODEL, PRICING_AGENT_PROMPT
-from models import ModelPricing
-from web_tools import fetch_web_page, web_search
+from core.config import PRICING_AGENT_MODEL, PRICING_AGENT_PROMPT
+from core.models import ModelPricing
+from .web_tools import fetch_web_page, web_search
 
 logger = logging.getLogger(__name__)
 
-PRICING_CACHE_FILE = Path(__file__).parent / "model_pricing_cache.json"
+# Primary location in data/, fallback to root if data/ does not exist
+_data_cache = Path(__file__).parent.parent / "data" / "model_pricing_cache.json"
+_root_cache = Path(__file__).parent.parent / "model_pricing_cache.json"
+PRICING_CACHE_FILE = _data_cache if _data_cache.parent.exists() else _root_cache
 
 # Cache TTL: 7 days in seconds
 CACHE_TTL_SECONDS = 7 * 24 * 3600
@@ -230,7 +233,7 @@ class PricingService:
     def active_cache_file(self) -> Path:
         if self.default_cache_file != PRICING_CACHE_FILE:
             return self.default_cache_file
-        ps_mod = sys.modules.get("pricing_service")
+        ps_mod = sys.modules.get("pricing_service") or sys.modules.get("services.pricing_service")
         if ps_mod and hasattr(ps_mod, "PRICING_CACHE_FILE"):
             return Path(getattr(ps_mod, "PRICING_CACHE_FILE"))
         return self.default_cache_file
@@ -251,6 +254,7 @@ class PricingService:
         """Saves pricing data dictionary to JSON cache file."""
         target = self.active_cache_file
         try:
+            target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(
                 json.dumps(data, indent=2), encoding="utf-8"
             )
@@ -325,10 +329,12 @@ class PricingService:
                     else tc.function.arguments
                 )
                 if fn_name == "web_search":
-                    call_res = web_search(**fn_args)
+                    search_fn = getattr(sys.modules.get("pricing_service") or sys.modules.get("services.pricing_service"), "web_search", web_search)
+                    call_res = search_fn(**fn_args)
                     res_str = await call_res if asyncio.iscoroutine(call_res) else call_res
                 elif fn_name == "fetch_web_page":
-                    call_res = fetch_web_page(**fn_args)
+                    fetch_page_fn = getattr(sys.modules.get("pricing_service") or sys.modules.get("services.pricing_service"), "fetch_web_page", fetch_web_page)
+                    call_res = fetch_page_fn(**fn_args)
                     res_str = await call_res if asyncio.iscoroutine(call_res) else call_res
                 else:
                     res_str = f"Error: unknown tool '{fn_name}'"
@@ -389,7 +395,7 @@ class PricingService:
         # Fallback to direct web search extraction
         try:
             clean_query = re.sub(r"^[a-zA-Z0-9_-]+/", "", model_name)
-            search_fn = getattr(sys.modules.get("pricing_service"), "web_search", web_search)
+            search_fn = getattr(sys.modules.get("pricing_service") or sys.modules.get("services.pricing_service"), "web_search", web_search)
             call_res = search_fn(query=f"{clean_query} api pricing tokens million official", max_results=5)
             search_raw = await call_res if asyncio.iscoroutine(call_res) else call_res
             in_val, out_val = _extract_pricing_from_search_text(search_raw, model_name)
@@ -454,7 +460,7 @@ class PricingService:
     async def warm_up_cache(self, models: list[str] | None = None) -> None:
         """Warms up pricing cache at server startup for all known models."""
         if models is None:
-            from config import AGENTS_CONFIG, THREAD_NOTES_MODEL
+            from core.config import AGENTS_CONFIG, THREAD_NOTES_MODEL
 
             models_to_check = {cfg["model"] for cfg in AGENTS_CONFIG.values()}
             if THREAD_NOTES_MODEL:

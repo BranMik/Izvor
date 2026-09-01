@@ -3,7 +3,7 @@ import hmac
 import logging
 import time
 
-from config import SLACK_SIGNING_SECRET
+from core.config import SLACK_SIGNING_SECRET
 
 logger = logging.getLogger(__name__)
 

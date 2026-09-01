@@ -15,9 +15,25 @@ from agents import (
     trigger_thread_notes_update,
     trigger_usage_update,
 )
-from config import AGENTS_CONFIG, DEFAULT_AGENT_KEY
-from mcp_tools import MCP_TOOLS_SCHEMAS, execute_mcp_tool
-from nl_patterns import (
+from core.config import AGENTS_CONFIG, DEFAULT_AGENT_KEY
+from core.llm_utils import (
+    LLM_MAX_RETRIES,
+    LLM_RETRY_BACKOFF_BASE,
+    _execute_llm_with_retry,
+    classify_agent_error,
+    execute_llm_with_retry,
+    is_anthropic_model,
+    is_openai_model,
+)
+from nlp.intent_extractor import (
+    extract_user_intent,
+    should_skip_intent_extractor,
+)
+from nlp.message_builder import (
+    build_llm_messages,
+    markdown_to_slack,
+)
+from nlp.nl_patterns import (
     FILE_COMMAND_PATTERN,
     FILE_NL_PATTERNS,
     HISTORY_COMMAND_PATTERN,
@@ -34,7 +50,8 @@ from nl_patterns import (
     is_stop_command,
 )
 from prompts import build_agent_prompt
-from slack_client import (
+from services.mcp_tools import MCP_TOOLS_SCHEMAS, execute_mcp_tool
+from services.slack_client import (
     download_slack_file,
     fetch_thread_files,
     fetch_thread_history,
@@ -42,7 +59,7 @@ from slack_client import (
 )
 
 # Re-exports from agent_settings
-from agent_settings import (
+from .agent_settings import (
     CIRCUIT_BREAKER_ENABLED,
     CIRCUIT_BREAKER_THRESHOLD_USD,
     ENABLED_DEBATE_AGENTS,
@@ -62,7 +79,7 @@ from agent_settings import (
 )
 
 # Re-exports from thread_state
-from thread_state import (
+from .thread_state import (
     ACTIVE_THREAD_TASKS,
     CUSTOM_FLOW_THREADS,
     RATE_LIMIT_ALREADY_RETRIED,
@@ -95,35 +112,12 @@ from thread_state import (
 )
 
 # Re-exports from debate_orchestrator
-from debate_orchestrator import (
+from .debate_orchestrator import (
     enforce_valid_nomination,
     extract_tagged_agents,
     get_initial_agents,
     parse_agent_and_prompt,
     resolve_target_file,
-)
-
-# Re-exports from llm_utils
-from llm_utils import (
-    LLM_MAX_RETRIES,
-    LLM_RETRY_BACKOFF_BASE,
-    _execute_llm_with_retry,
-    classify_agent_error,
-    execute_llm_with_retry,
-    is_anthropic_model,
-    is_openai_model,
-)
-
-# Re-exports from message_builder
-from message_builder import (
-    build_llm_messages,
-    markdown_to_slack,
-)
-
-# Re-exports from intent_extractor
-from intent_extractor import (
-    extract_user_intent,
-    should_skip_intent_extractor,
 )
 
 logger = logging.getLogger(__name__)
@@ -233,9 +227,6 @@ async def process_and_respond(
             CUSTOM_FLOW_THREADS.discard(thread_key)
 
         if is_file_req:
-            # Determine authorized agents:
-            # If user explicitly tagged agents, only those tagged agents are authorized
-            # If no agent was tagged, authorized_agents is None (all agents authorized)
             if tagged:
                 authorized_agents = set(tagged)
             elif was_explicit_target:
@@ -353,7 +344,6 @@ async def process_and_respond(
 
     # Determine effective conversation history based on active /history limit
     if not is_bot_trigger:
-        # User trigger: identify prior messages before this prompt in thread history
         if history and history[-1]["role"] == "user":
             prior_messages = history[:-1]
         else:
@@ -378,7 +368,6 @@ async def process_and_respond(
 
         effective_history = effective_prior
     else:
-        # Bot trigger (subsequent automated debate rounds):
         hist_limit_info = get_thread_history_limit(channel_id, thread_ts)
         if hist_limit_info is not None:
             limit = hist_limit_info["limit"]
@@ -409,7 +398,6 @@ async def process_and_respond(
     remaining = REMAINING_AGENTS_MAP.get(thread_key, get_initial_agents())
     is_custom_flow = thread_key in CUSTOM_FLOW_THREADS
 
-    # Determine if we should force termination (no more nominations)
     force_termination = False
     if was_explicit_target and not is_bot_trigger and not remaining:
         force_termination = True
@@ -503,7 +491,6 @@ async def process_and_respond(
         # 4. Handle Tool Calls if model requested MCP tool execution
         tool_calls = getattr(response_message, "tool_calls", None)
         if tool_calls:
-            # Append model's assistant message with tool calls
             messages.append(response_message.model_dump())
 
             for tool_call in tool_calls:
@@ -530,7 +517,6 @@ async def process_and_respond(
                 )
                 return {"ok": False, "cancelled": True, "reason": "superseded"}
 
-            # Follow-up completion after tool results in a threadpool with automatic retries
             follow_up_kwargs: dict[str, Any] = {
                 "model": agent_cfg["model"],
                 "messages": messages,
@@ -558,7 +544,6 @@ async def process_and_respond(
             )
             return {"ok": False, "cancelled": True, "reason": "superseded"}
 
-        # Re-check stop flag in case a stop was requested while LLM was processing
         if is_thread_stopped(channel_id, thread_ts):
             force_termination = True
             logger.info(
@@ -588,7 +573,6 @@ async def process_and_respond(
                 pending_retries=retries,
             )
 
-        # If a pending retry agent was nominated, consume it from RATE_LIMIT_RETRY_QUEUE and track
         retries = RATE_LIMIT_RETRY_QUEUE.get(thread_key, [])
         if not remaining and retries:
             for r_agent in list(retries):
@@ -599,18 +583,15 @@ async def process_and_respond(
                     )
                     break
 
-        # Append token usage to the end of the message text
         final_text = (
             f"{final_text.strip()}\n\n[{total_prompt_tokens}/{total_completion_tokens}]"
         )
 
-        # Log the specific generated tag for the next agent
         generated_tags = re.findall(r"\[([a-zA-Z0-9_]+)\]", final_text)
         logger.info(
             f"[ROUTER] Agent {agent_key} generated tag(s): {generated_tags}. Full text length: {len(final_text)}"
         )
 
-        # Prevent Slack WebSocket client saturation by adding a 3-second pacing delay.
         await asyncio.sleep(3.0)
 
         if is_superseded():
@@ -619,7 +600,6 @@ async def process_and_respond(
             )
             return {"ok": False, "cancelled": True, "reason": "superseded"}
 
-        # 5. Post response back to Slack thread with dynamic persona
         logger.info(
             f"[SLACK] Posting response to channel {channel_id}, thread_ts {thread_ts} as {agent_cfg['username']}"
         )
@@ -633,10 +613,8 @@ async def process_and_respond(
         posted_ts = slack_res.get("ts")
         logger.info(f"[SLACK] Successfully posted message! Received ts: {posted_ts}")
 
-        # Short pause after Slack post to maintain pacing and avoid rate limits
         await asyncio.sleep(SLACK_POST_PAUSE_SECONDS)
 
-        # Determine if this turn completes the thread discussion
         has_pending_retries = bool(RATE_LIMIT_RETRY_QUEUE.get(thread_key))
         is_completed = bool(
             force_termination
@@ -648,7 +626,6 @@ async def process_and_respond(
             or (is_thread_stopped(channel_id, thread_ts))
         )
 
-        # Record token consumption for this agent's model
         record_thread_tokens(
             channel_id=channel_id,
             thread_ts=thread_ts,
@@ -657,7 +634,6 @@ async def process_and_respond(
             completion_tokens=total_completion_tokens,
         )
 
-        # Trigger parallel, non-blocking live thread notes update after posting reply
         trigger_thread_notes_update(
             channel_id=channel_id,
             thread_ts=thread_ts,
@@ -665,14 +641,12 @@ async def process_and_respond(
             bot_user_id=bot_user_id,
         )
 
-        # Trigger parallel, non-blocking live usage report update in #cailogics-usage
         trigger_usage_update(
             channel_id=channel_id,
             thread_ts=thread_ts,
             is_completed=is_completed,
         )
 
-        # Reset remaining agents/custom flows for this thread when finishing
         if force_termination:
             logger.info(
                 f"[ROUTER] Thread {thread_key} reached termination (forced or natural). Cleaning up state."
@@ -717,7 +691,6 @@ async def process_and_respond(
 
         stop_requested = is_thread_stopped(channel_id, thread_ts)
 
-        # Build single sentence problem statement and manage rate-limit retry queue
         if err_category == "api_key_not_found":
             error_sentence = "API KEY NOT FOUND"
         elif err_category == "model_not_found":
@@ -736,7 +709,6 @@ async def process_and_respond(
         else:
             error_sentence = "Error processing request - check the logs"
 
-        # Determine next nomination to ensure thread continuity
         next_nomination = None
         if not stop_requested:
             if remaining:
@@ -760,7 +732,6 @@ async def process_and_respond(
         else:
             error_post_text = error_sentence
 
-        # Post response back to Slack thread with the responsible agent's persona
         logger.info(
             f"[SLACK] Posting gracious error message to channel {channel_id}, thread_ts {thread_ts} as {agent_cfg['username']}"
         )
@@ -772,7 +743,6 @@ async def process_and_respond(
             icon_url=agent_cfg.get("icon_url"),
         )
 
-        # Short pause after posting error message to prevent rapid cascading message spam
         await asyncio.sleep(SLACK_POST_PAUSE_SECONDS)
 
         has_pending_retries = bool(RATE_LIMIT_RETRY_QUEUE.get(thread_key))
@@ -787,7 +757,6 @@ async def process_and_respond(
             or is_thread_stopped(channel_id, thread_ts)
         )
 
-        # Record 0 tokens for failed turn
         record_thread_tokens(
             channel_id=channel_id,
             thread_ts=thread_ts,

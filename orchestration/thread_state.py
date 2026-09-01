@@ -3,7 +3,7 @@ import logging
 from typing import Any
 
 from agents import trigger_thread_notes_update, trigger_usage_update
-from models import FileContext, HistoryLimitConfig
+from core.models import FileContext, HistoryLimitConfig
 
 logger = logging.getLogger(__name__)
 

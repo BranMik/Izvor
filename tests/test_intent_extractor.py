@@ -2,7 +2,7 @@ import json
 from unittest.mock import MagicMock, patch
 import pytest
 
-from intent_extractor import extract_user_intent, should_skip_intent_extractor
+from nlp.intent_extractor import extract_user_intent, should_skip_intent_extractor
 
 
 def test_should_skip_intent_extractor_rules():
@@ -119,7 +119,7 @@ async def test_extract_user_intent_success():
         )
     ]
 
-    with patch("intent_extractor.litellm.completion", return_value=mock_response):
+    with patch("nlp.intent_extractor.litellm.completion", return_value=mock_response):
         intent = await extract_user_intent(
             "Please analyze schema.sql based on last 4 messages in under 60 words",
             available_files=[{"name": "schema.sql", "id": "F123"}],
@@ -144,7 +144,7 @@ async def test_extract_user_intent_empty_text():
 
 @pytest.mark.anyio
 async def test_extract_user_intent_failure_fallback():
-    with patch("intent_extractor.litellm.completion", side_effect=Exception("API Down")):
+    with patch("nlp.intent_extractor.litellm.completion", side_effect=Exception("API Down")):
         intent = await extract_user_intent("some message")
         assert intent == {
             "max_words": None,
