@@ -24,6 +24,7 @@ from orchestration.agent_router import (
     process_and_respond,
     request_thread_stop,
     reset_enabled_agents,
+    restore_from_backup,
     set_agent_enabled,
     set_circuit_breaker_enabled,
     set_circuit_breaker_threshold,
@@ -399,6 +400,11 @@ async def slack_interactivity(request: Request, background_tasks: BackgroundTask
                 for key in AGENTS_CONFIG:
                     if key not in LOCKED_AGENTS:
                         set_agent_enabled(key, False)
+            elif action_id == "restore_from_backup":
+                success = restore_from_backup()
+                logger.info(
+                    f"[INTERACTIVITY] restore_from_backup invoked by user {user_id}: success={success}"
+                )
 
         if user_id:
             background_tasks.add_task(publish_app_home, user_id=user_id)

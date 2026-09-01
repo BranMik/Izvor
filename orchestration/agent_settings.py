@@ -1,34 +1,70 @@
 import json
 import logging
+import os
 from pathlib import Path
 import sys
+import time
 from typing import Any
 
-from core.config import AGENTS_CONFIG
+from core.config import (
+    AGENTS_CONFIG,
+    SYSTEM_AGENTS_CONFIG,
+)
 from core.models import CircuitBreakerConfig
+from prompts import build_agent_prompt
 
 logger = logging.getLogger(__name__)
 
-# Path to persistent settings file
+# Paths to settings and emergency backup files
 SETTINGS_FILE = Path(__file__).parent.parent / "data" / "agent_settings.json"
+BACKUP_FILE = Path(__file__).parent.parent / "data" / "backups" / "agent_settings_backup.json"
+PERSONAS_DIR = Path(__file__).parent.parent / "prompts" / "personas"
 
 # Mandatory locked agents that cannot be turned off
 LOCKED_AGENTS = {"Gemini_Visionary", "OpAiTerra_Architect", "AnthrOpus_Sceptic"}
 
+# 7-day interval in seconds (604,800 seconds)
+BACKUP_INTERVAL_SECONDS = 7 * 86400
+
 
 class AgentSettingsManager:
-    """Manages persistent debate agent configurations and thread circuit breaker limits."""
+    """
+    Manages persistent agent configurations, system agent models, and thread circuit breaker limits.
+    Serves as the Single Source of Truth (SSOT) loaded from data/agent_settings.json.
+    Includes atomic file writes, 7-day emergency backups, non-destructive failover, and manual restore.
+    """
 
     def __init__(
         self,
         settings_file: Path | None = None,
+        backup_file: Path | None = None,
         locked_agents: set[str] | None = None,
+        backup_interval_seconds: float = BACKUP_INTERVAL_SECONDS,
+        auto_load: bool = True,
     ):
         self.default_settings_file = settings_file or SETTINGS_FILE
+        self.default_backup_file = backup_file or BACKUP_FILE
         self.locked_agents = set(locked_agents or LOCKED_AGENTS)
-        self.enabled_agents: set[str] = set(AGENTS_CONFIG.keys())
+        self.backup_interval_seconds = backup_interval_seconds
+
+        if settings_file is not None or backup_file is not None:
+            # Isolated dictionaries for custom instances (e.g. tests)
+            self.agents_config = {}
+            self.system_agents_config = {}
+        else:
+            # Global default instance bound to core.config
+            self.agents_config = AGENTS_CONFIG
+            self.system_agents_config = SYSTEM_AGENTS_CONFIG
+        self.enabled_agents: set[str] = set()
         self.circuit_breaker_enabled: bool = False
         self.circuit_breaker_threshold_usd: float = 1.0
+
+        # Emergency backup status
+        self.is_running_from_backup: bool = False
+        self.backup_error_reason: str | None = None
+
+        if auto_load:
+            self.load()
 
     @property
     def active_settings_file(self) -> Path:
@@ -42,25 +78,309 @@ class AgentSettingsManager:
             return Path(getattr(agent_settings_mod, "SETTINGS_FILE"))
         return self.default_settings_file
 
+    @property
+    def active_backup_file(self) -> Path:
+        if self.default_backup_file != BACKUP_FILE:
+            return self.default_backup_file
+        router_mod = sys.modules.get("agent_router") or sys.modules.get("orchestration.agent_router")
+        if router_mod and hasattr(router_mod, "BACKUP_FILE"):
+            return Path(getattr(router_mod, "BACKUP_FILE"))
+        agent_settings_mod = sys.modules.get("agent_settings") or sys.modules.get("orchestration.agent_settings")
+        if agent_settings_mod and hasattr(agent_settings_mod, "BACKUP_FILE"):
+            return Path(getattr(agent_settings_mod, "BACKUP_FILE"))
+        return self.default_backup_file
+
+    def _atomic_write_json(self, target_path: Path, data: dict[str, Any]) -> None:
+        """Writes JSON payload atomically to a temporary file before renaming."""
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_filename = f"{target_path.name}.tmp_{os.getpid()}_{int(time.time() * 1000)}"
+        tmp_path = target_path.parent / tmp_filename
+        try:
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+            os.replace(tmp_path, target_path)
+        except Exception:
+            if tmp_path.exists():
+                try:
+                    tmp_path.unlink()
+                except Exception:
+                    pass
+            raise
+
+    def _validate_agent_entry(self, key: str, config: dict[str, Any]) -> bool:
+        """Validates that an agent has required parameters and a matching persona file."""
+        if not isinstance(config, dict):
+            logger.warning(f"[SETTINGS VALIDATION] Agent '{key}' configuration is not a dictionary. Skipping.")
+            return False
+
+        model = config.get("model")
+        username = config.get("username")
+        icon_url = config.get("icon_url")
+
+        if not model or not isinstance(model, str) or not model.strip():
+            logger.warning(f"[SETTINGS VALIDATION] Agent '{key}' is missing valid 'model'. Skipping.")
+            return False
+
+        if not username or not isinstance(username, str) or not username.strip():
+            logger.warning(f"[SETTINGS VALIDATION] Agent '{key}' is missing valid 'username'. Skipping.")
+            return False
+
+        if not icon_url or not isinstance(icon_url, str) or not icon_url.strip():
+            logger.warning(f"[SETTINGS VALIDATION] Agent '{key}' is missing valid 'icon_url'. Skipping.")
+            return False
+
+        # Validate persona prompt markdown file
+        persona_file = PERSONAS_DIR / f"{key}.md"
+        if not persona_file.exists():
+            logger.warning(
+                f"[SETTINGS VALIDATION] Persona prompt file '{persona_file.name}' not found for agent '{key}'. Skipping."
+            )
+            return False
+
+        return True
+
+    def _parse_and_validate_payload(self, data: dict[str, Any], source_name: str) -> bool:
+        """Parses and validates a full agent settings payload from JSON."""
+        if not isinstance(data, dict):
+            logger.error(f"[SETTINGS] Payload from {source_name} is not a valid JSON object.")
+            return False
+
+        raw_agents = data.get("agents", {})
+        if not isinstance(raw_agents, dict):
+            logger.error(f"[SETTINGS] 'agents' key in {source_name} is not a dictionary.")
+            return False
+
+        valid_agents: dict[str, dict[str, Any]] = {}
+        for key, cfg in raw_agents.items():
+            if self._validate_agent_entry(key, cfg):
+                valid_agents[key] = {
+                    "model": cfg["model"].strip(),
+                    "username": cfg["username"].strip(),
+                    "icon_url": cfg["icon_url"].strip(),
+                    "system_prompt": build_agent_prompt(key),
+                }
+
+        if not valid_agents:
+            logger.error(f"[SETTINGS] Zero valid agents found in {source_name}. Validation failed.")
+            return False
+
+        # Update agents_config in-place so all imported references stay synced
+        self.agents_config.clear()
+        self.agents_config.update(valid_agents)
+
+        # Parse system agents
+        self.system_agents_config.clear()
+        raw_system_agents = data.get("system_agents", {})
+        if isinstance(raw_system_agents, dict):
+            for sys_k, sys_v in raw_system_agents.items():
+                if isinstance(sys_v, dict) and sys_v.get("model"):
+                    self.system_agents_config[sys_k] = {"model": str(sys_v["model"]).strip()}
+
+        # Parse circuit breaker settings
+        self.circuit_breaker_enabled = bool(data.get("circuit_breaker_enabled", False))
+        try:
+            self.circuit_breaker_threshold_usd = float(data.get("circuit_breaker_threshold_usd", 1.0))
+        except (ValueError, TypeError):
+            self.circuit_breaker_threshold_usd = 1.0
+
+        # Parse enabled agents
+        raw_enabled = data.get("enabled_agents", [])
+        if isinstance(raw_enabled, list):
+            valid_enabled = {k for k in raw_enabled if k in self.agents_config}
+        else:
+            valid_enabled = set()
+
+        # Always include locked agents if they are valid
+        valid_enabled.update(self.locked_agents.intersection(self.agents_config.keys()))
+
+        # If enabled list is empty, default to all valid agents
+        if not valid_enabled:
+            valid_enabled.update(self.agents_config.keys())
+
+        self.enabled_agents.clear()
+        self.enabled_agents.update(valid_enabled)
+
+        logger.info(
+            f"[SETTINGS] Successfully validated payload from {source_name}: "
+            f"{len(self.agents_config)} agents registered, {len(self.enabled_agents)} enabled, "
+            f"{len(self.system_agents_config)} system agents."
+        )
+        return True
+
+    def check_and_update_backup(self) -> bool:
+        """
+        Updates the emergency backup copy in data/backups/agent_settings_backup.json if:
+        1. Backup does not exist, or
+        2. Backup is older than backup_interval_seconds (7 days).
+        Never overwrites backup while running in emergency backup mode.
+        """
+        if self.is_running_from_backup:
+            return False
+
+        target_file = self.active_settings_file
+        backup_file = self.active_backup_file
+
+        if not target_file.exists():
+            return False
+
+        needs_backup = False
+        if not backup_file.exists():
+            needs_backup = True
+        else:
+            try:
+                mtime = backup_file.stat().st_mtime
+                if (time.time() - mtime) >= self.backup_interval_seconds:
+                    needs_backup = True
+            except Exception as e:
+                logger.debug(f"[SETTINGS] Error checking backup mtime: {e}")
+                needs_backup = True
+
+        if needs_backup:
+            try:
+                with open(target_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                self._atomic_write_json(backup_file, data)
+                logger.info(f"[SETTINGS] Updated 7-day emergency backup: {backup_file.name}")
+                return True
+            except Exception as e:
+                logger.error(f"[SETTINGS] Failed to update emergency backup: {e}")
+                return False
+
+        return False
+
+    def load(self) -> set[str]:
+        """
+        Loads agent settings and system models from active settings JSON.
+        If active settings file is corrupted, unreadable, or missing:
+        - Loads from emergency backup into memory without modifying the broken active file.
+        - Sets is_running_from_backup = True.
+        """
+        target_file = self.active_settings_file
+        err_reason: str | None = None
+
+        if target_file.exists():
+            try:
+                with open(target_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                if self._parse_and_validate_payload(data, target_file.name):
+                    self.is_running_from_backup = False
+                    self.backup_error_reason = None
+                    self.check_and_update_backup()
+                    return set(self.enabled_agents)
+                else:
+                    err_reason = f"Schema validation failed in {target_file.name}"
+            except Exception as e:
+                err_reason = f"Unreadable/corrupted JSON in {target_file.name}: {e}"
+        else:
+            err_reason = f"Active settings file '{target_file.name}' not found."
+
+        # Failover to emergency backup
+        backup_file = self.active_backup_file
+        logger.warning(
+            f"[SETTINGS] Primary settings failed ({err_reason}). Attempting failover to emergency backup: {backup_file.name}"
+        )
+
+        if backup_file.exists():
+            try:
+                with open(backup_file, "r", encoding="utf-8") as f:
+                    backup_data = json.load(f)
+                if self._parse_and_validate_payload(backup_data, backup_file.name):
+                    self.is_running_from_backup = True
+                    self.backup_error_reason = err_reason
+                    logger.warning(
+                        f"[SETTINGS] System is running in EMERGENCY BACKUP MODE using {backup_file.name}. "
+                        f"Original file '{target_file.name}' was left untouched."
+                    )
+                    return set(self.enabled_agents)
+            except Exception as backup_err:
+                logger.critical(f"[SETTINGS] Failed reading emergency backup: {backup_err}")
+
+        # If both fail, raise RuntimeError
+        msg = f"Failed to load agent settings from active file ({err_reason}) and emergency backup."
+        logger.critical(f"[SETTINGS] {msg}")
+        raise RuntimeError(msg)
+
+    def restore_from_backup(self) -> bool:
+        """
+        Restores the active settings file by copying the emergency backup over it.
+        Resets emergency backup mode upon successful load.
+        """
+        backup_file = self.active_backup_file
+        target_file = self.active_settings_file
+
+        if not backup_file.exists():
+            logger.error(f"[SETTINGS] Cannot restore: emergency backup file '{backup_file}' does not exist.")
+            return False
+
+        try:
+            with open(backup_file, "r", encoding="utf-8") as f:
+                backup_data = json.load(f)
+
+            if not self._parse_and_validate_payload(backup_data, backup_file.name):
+                logger.error("[SETTINGS] Emergency backup data failed validation. Restore aborted.")
+                return False
+
+            self._atomic_write_json(target_file, backup_data)
+            self.is_running_from_backup = False
+            self.backup_error_reason = None
+            self.load()
+            logger.info(f"[SETTINGS] Successfully restored active settings file from {backup_file.name}.")
+            return True
+        except Exception as e:
+            logger.error(f"[SETTINGS] Error executing restore from backup: {e}")
+            return False
+
+    def save(self) -> None:
+        """
+        Saves current enabled debate agents, agent configurations, and circuit breaker settings to active JSON.
+        Resets emergency backup mode once active file is successfully saved.
+        """
+        target_file = self.active_settings_file
+        try:
+            data = {
+                "circuit_breaker_enabled": self.circuit_breaker_enabled,
+                "circuit_breaker_threshold_usd": self.circuit_breaker_threshold_usd,
+                "enabled_agents": sorted(list(self.enabled_agents)),
+                "agents": {
+                    k: {
+                        "model": v.get("model", ""),
+                        "username": v.get("username", k),
+                        "icon_url": v.get("icon_url", ""),
+                    }
+                    for k, v in self.agents_config.items()
+                },
+                "system_agents": {
+                    k: {
+                        "model": v.get("model", "")
+                    }
+                    for k, v in self.system_agents_config.items()
+                },
+            }
+            self._atomic_write_json(target_file, data)
+            self.is_running_from_backup = False
+            self.backup_error_reason = None
+            logger.info(
+                f"[SETTINGS] Saved settings ({len(self.enabled_agents)} enabled agents, "
+                f"circuit_breaker={self.circuit_breaker_enabled}, "
+                f"threshold=${self.circuit_breaker_threshold_usd:.2f}) to {target_file.name}"
+            )
+            self.check_and_update_backup()
+        except Exception as e:
+            logger.error(f"[SETTINGS] Error saving agent settings: {e}")
+
     def is_circuit_breaker_enabled(self) -> bool:
-        """Returns True if the thread expense circuit-breaker is enabled."""
         return self.circuit_breaker_enabled
 
     def set_circuit_breaker_enabled(self, enabled: bool, save: bool = True) -> None:
-        """Enables or disables the thread expense circuit-breaker and persists settings."""
         self.circuit_breaker_enabled = bool(enabled)
         if save:
             self.save()
-        logger.info(
-            f"[SETTINGS] Circuit-breaker enabled set to {self.circuit_breaker_enabled}."
-        )
+        logger.info(f"[SETTINGS] Circuit-breaker enabled set to {self.circuit_breaker_enabled}.")
 
     def get_circuit_breaker_threshold(self) -> float:
-        """Returns the current monetary threshold in USD for the circuit-breaker."""
         return float(self.circuit_breaker_threshold_usd)
 
     def set_circuit_breaker_threshold(self, threshold: float, save: bool = True) -> None:
-        """Sets the monetary threshold in USD for the circuit-breaker and persists settings."""
         try:
             val = float(threshold)
             if val < 0.0:
@@ -68,98 +388,33 @@ class AgentSettingsManager:
             self.circuit_breaker_threshold_usd = val
             if save:
                 self.save()
-            logger.info(
-                f"[SETTINGS] Circuit-breaker threshold set to ${self.circuit_breaker_threshold_usd:.2f} USD."
-            )
+            logger.info(f"[SETTINGS] Circuit-breaker threshold set to ${self.circuit_breaker_threshold_usd:.2f} USD.")
         except (ValueError, TypeError) as e:
             logger.error(f"[SETTINGS] Invalid circuit-breaker threshold '{threshold}': {e}")
 
     def get_circuit_breaker_config(self) -> dict[str, Any]:
-        """Returns the current circuit-breaker configuration dictionary."""
         return CircuitBreakerConfig(
             enabled=self.circuit_breaker_enabled,
             threshold_usd=self.circuit_breaker_threshold_usd,
         ).to_dict()
 
-    def save(self) -> None:
-        """Saves current enabled debate agents and circuit-breaker settings to a persistent JSON file."""
-        target_file = self.active_settings_file
-        try:
-            target_file.parent.mkdir(parents=True, exist_ok=True)
-            data = {
-                "enabled_agents": sorted(list(self.enabled_agents)),
-                "circuit_breaker_enabled": self.circuit_breaker_enabled,
-                "circuit_breaker_threshold_usd": self.circuit_breaker_threshold_usd,
-            }
-            with open(target_file, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2)
-            logger.info(
-                f"[SETTINGS] Saved settings ({len(self.enabled_agents)} enabled agents, circuit_breaker={self.circuit_breaker_enabled}, threshold=${self.circuit_breaker_threshold_usd:.2f}) to {target_file.name}"
-            )
-        except Exception as e:
-            logger.error(f"[SETTINGS] Error saving agent settings: {e}")
-
-    def load(self) -> set[str]:
-        """
-        Loads enabled debate agents and circuit-breaker settings from persistent JSON file if available.
-        Ensures locked agents are always included and unknown keys are filtered.
-        """
-        target_file = self.active_settings_file
-        self.enabled_agents.clear()
-        if target_file.exists():
-            try:
-                with open(target_file, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                loaded = set(data.get("enabled_agents", []))
-                valid_keys = {k for k in loaded if k in AGENTS_CONFIG}
-                valid_keys.update(self.locked_agents)
-                self.enabled_agents.update(valid_keys)
-
-                self.circuit_breaker_enabled = bool(
-                    data.get("circuit_breaker_enabled", False)
-                )
-                self.circuit_breaker_threshold_usd = float(
-                    data.get("circuit_breaker_threshold_usd", 1.0)
-                )
-
-                logger.info(
-                    f"[SETTINGS] Loaded settings from {target_file.name}: {len(self.enabled_agents)} agents, circuit_breaker={self.circuit_breaker_enabled}, threshold=${self.circuit_breaker_threshold_usd:.2f}"
-                )
-                return set(self.enabled_agents)
-            except Exception as e:
-                logger.error(f"[SETTINGS] Error loading agent settings file: {e}")
-
-        # Fallback default
-        self.enabled_agents.update(AGENTS_CONFIG.keys())
-        self.circuit_breaker_enabled = False
-        self.circuit_breaker_threshold_usd = 1.0
-        self.save()
-        return set(self.enabled_agents)
-
     def reset(self, save: bool = True) -> None:
-        """Resets all agents to enabled state."""
+        """Resets all registered agents to enabled state."""
         self.enabled_agents.clear()
-        self.enabled_agents.update(AGENTS_CONFIG.keys())
+        self.enabled_agents.update(self.agents_config.keys())
         if save:
             self.save()
         logger.info(f"[SETTINGS] Reset all {len(self.enabled_agents)} agents to ENABLED.")
 
     def get_enabled_agents(self) -> set[str]:
-        """Returns a copy of currently enabled agents."""
         return set(self.enabled_agents)
 
     def set_agent_enabled(self, agent_key: str, enabled: bool) -> bool:
-        """
-        Enables or disables an agent for automatic debate.
-        Locked agents cannot be disabled.
-        """
         if agent_key in self.locked_agents and not enabled:
-            logger.warning(
-                f"[SETTINGS] Cannot disable locked agent '{agent_key}'. Ignoring request."
-            )
+            logger.warning(f"[SETTINGS] Cannot disable locked agent '{agent_key}'. Ignoring request.")
             return False
 
-        if agent_key not in AGENTS_CONFIG:
+        if agent_key not in self.agents_config:
             logger.warning(f"[SETTINGS] Unknown agent key '{agent_key}'.")
             return False
 
@@ -168,29 +423,37 @@ class AgentSettingsManager:
         else:
             self.enabled_agents.discard(agent_key)
         self.save()
-        logger.info(
-            f"[SETTINGS] Set agent '{agent_key}' enabled={enabled}. Total enabled: {len(self.enabled_agents)}"
-        )
+        logger.info(f"[SETTINGS] Set agent '{agent_key}' enabled={enabled}. Total enabled: {len(self.enabled_agents)}")
         return True
 
     def toggle_agent(self, agent_key: str) -> bool:
-        """Toggles an agent's enabled state."""
         current_state = agent_key in self.enabled_agents
         new_state = not current_state
         self.set_agent_enabled(agent_key, new_state)
         return agent_key in self.enabled_agents
 
 
-# Default singleton instance
+# Default singleton instance initialized automatically
 settings_manager = AgentSettingsManager()
 
-# Module-level variable mapping for backward compatibility
+# Module-level aliases
 ENABLED_DEBATE_AGENTS = settings_manager.enabled_agents
 CIRCUIT_BREAKER_ENABLED = settings_manager.circuit_breaker_enabled
 CIRCUIT_BREAKER_THRESHOLD_USD = settings_manager.circuit_breaker_threshold_usd
 
 
-# Backward-compatible function aliases
+def is_running_from_backup() -> bool:
+    return settings_manager.is_running_from_backup
+
+
+def get_backup_error_reason() -> str | None:
+    return settings_manager.backup_error_reason
+
+
+def restore_from_backup() -> bool:
+    return settings_manager.restore_from_backup()
+
+
 def is_circuit_breaker_enabled() -> bool:
     return settings_manager.is_circuit_breaker_enabled()
 
