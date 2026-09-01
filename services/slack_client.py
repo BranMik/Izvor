@@ -136,6 +136,7 @@ def build_app_home_view(
         },
         {
             "type": "section",
+            "block_id": f"cb_toggle_section_{'on' if cb_enabled else 'off'}",
             "text": {
                 "type": "mrkdwn",
                 "text": f"*Uključi/Isključi Circuit-Breaker:*\n_{cb_status_str}_",
@@ -165,7 +166,7 @@ def build_app_home_view(
         },
         {
             "type": "input",
-            "block_id": "circuit_breaker_threshold_block",
+            "block_id": f"cb_threshold_block_{cb_threshold:.2f}",
             "dispatch_action": True,
             "element": {
                 "type": "plain_text_input",
@@ -281,6 +282,7 @@ def build_app_home_view(
         blocks.append(
             {
                 "type": "section",
+                "block_id": f"locked_agent_block_{key}",
                 "text": {
                     "type": "mrkdwn",
                     "text": f"*{username}*  •  `{model}`\n_{role_desc}_",
@@ -321,6 +323,7 @@ def build_app_home_view(
         blocks.append(
             {
                 "type": "section",
+                "block_id": f"agent_toggle_block_{key}_{'on' if is_on else 'off'}",
                 "text": {
                     "type": "mrkdwn",
                     "text": f"*{username}*\n`{model}`",
