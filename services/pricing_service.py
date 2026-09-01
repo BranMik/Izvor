@@ -16,10 +16,8 @@ from .web_tools import fetch_web_page, web_search
 
 logger = logging.getLogger(__name__)
 
-# Primary location in data/, fallback to root if data/ does not exist
-_data_cache = Path(__file__).parent.parent / "data" / "model_pricing_cache.json"
-_root_cache = Path(__file__).parent.parent / "model_pricing_cache.json"
-PRICING_CACHE_FILE = _data_cache if _data_cache.parent.exists() else _root_cache
+# Model pricing cache file
+PRICING_CACHE_FILE = Path(__file__).parent.parent / "data" / "model_pricing_cache.json"
 
 # Cache TTL: 7 days in seconds
 CACHE_TTL_SECONDS = 7 * 24 * 3600
