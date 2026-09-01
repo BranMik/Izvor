@@ -3,229 +3,287 @@ import logging
 from typing import Any
 
 from agents import trigger_thread_notes_update, trigger_usage_update
+from models import FileContext, HistoryLimitConfig
 
 logger = logging.getLogger(__name__)
 
-# Track agents who haven't spoken yet per thread (mapped by (channel_id, thread_ts))
-REMAINING_AGENTS_MAP: dict[tuple[str, str], list[str]] = {}
 
-# Track agents deferred due to rate limits waiting for retry at the end of discussion
-# Map: (channel_id, thread_ts) -> list[str] (agent keys)
-RATE_LIMIT_RETRY_QUEUE: dict[tuple[str, str], list[str]] = {}
+class ThreadStateManager:
+    """Manages runtime discussion states, tasks, limits, retries, and context per Slack thread."""
 
-# Track agents that have already been retried once for this thread to prevent infinite retry loops
-# Map: (channel_id, thread_ts) -> set[str] (agent keys)
-RATE_LIMIT_ALREADY_RETRIED: dict[tuple[str, str], set[str]] = {}
+    def __init__(self):
+        self.remaining_agents_map: dict[tuple[str, str], list[str]] = {}
+        self.rate_limit_retry_queue: dict[tuple[str, str], list[str]] = {}
+        self.rate_limit_already_retried: dict[tuple[str, str], set[str]] = {}
+        self.active_thread_tasks: dict[tuple[str, str], asyncio.Task] = {}
+        self.thread_generations: dict[tuple[str, str], int] = {}
+        self.custom_flow_threads: set[tuple[str, str]] = set()
+        self.stop_requested_threads: set[tuple[str, str]] = set()
+        self.thread_history_limits: dict[tuple[str, str], dict[str, int]] = {}
+        self.thread_max_words_limits: dict[tuple[str, str], int] = {}
+        self.thread_min_words_limits: dict[tuple[str, str], int] = {}
+        self.thread_active_file_context: dict[tuple[str, str], dict[str, Any]] = {}
 
-# Track running asyncio Task for each active thread discussion
-# Map: (channel_id, thread_ts) -> asyncio.Task
-ACTIVE_THREAD_TASKS: dict[tuple[str, str], asyncio.Task] = {}
+    def get_history_limit(
+        self, channel_id: str, thread_ts: str
+    ) -> dict[str, int] | None:
+        """Returns active history limit dictionary for this thread."""
+        return self.thread_history_limits.get((channel_id, thread_ts))
 
-# Track discussion generation counter per thread to invalidate superseded tasks
-# Map: (channel_id, thread_ts) -> int
-THREAD_GENERATIONS: dict[tuple[str, str], int] = {}
+    def set_history_limit(
+        self, channel_id: str, thread_ts: str, limit: int, prior_cutoff_index: int
+    ) -> None:
+        """Sets history limit configuration for this thread."""
+        self.thread_history_limits[(channel_id, thread_ts)] = HistoryLimitConfig(
+            limit=limit,
+            prior_cutoff_index=prior_cutoff_index,
+        ).to_dict()
+        logger.info(
+            f"[THREAD STATE] Set history limit for thread {(channel_id, thread_ts)}: limit={limit}, prior_cutoff_index={prior_cutoff_index}"
+        )
 
-# Track threads that are running a custom tagged agent sequence
-CUSTOM_FLOW_THREADS: set[tuple[str, str]] = set()
+    def clear_history_limit(self, channel_id: str, thread_ts: str) -> None:
+        """Clears active history limit for this thread."""
+        self.thread_history_limits.pop((channel_id, thread_ts), None)
 
-# Track threads where a stop has been requested
-STOP_REQUESTED_THREADS: set[tuple[str, str]] = set()
+    def get_max_words(self, channel_id: str, thread_ts: str) -> int | None:
+        """Returns max_words limit for this thread."""
+        return self.thread_max_words_limits.get((channel_id, thread_ts))
 
-# Track conversation history limit and baseline index per thread
-# Map: (channel_id, thread_ts) -> dict[str, int] (e.g. {"limit": 5, "prior_cutoff_index": 12})
-THREAD_HISTORY_LIMITS: dict[tuple[str, str], dict[str, int]] = {}
+    def set_max_words(
+        self, channel_id: str, thread_ts: str, max_words: int
+    ) -> None:
+        """Sets max_words limit for this thread."""
+        self.thread_max_words_limits[(channel_id, thread_ts)] = max_words
+        logger.info(
+            f"[THREAD STATE] Set max_words limit for thread {(channel_id, thread_ts)}: max_words={max_words}"
+        )
+
+    def clear_max_words(self, channel_id: str, thread_ts: str) -> None:
+        """Clears max_words limit for this thread."""
+        self.thread_max_words_limits.pop((channel_id, thread_ts), None)
+
+    def get_min_words(self, channel_id: str, thread_ts: str) -> int | None:
+        """Returns min_words limit for this thread."""
+        return self.thread_min_words_limits.get((channel_id, thread_ts))
+
+    def set_min_words(
+        self, channel_id: str, thread_ts: str, min_words: int
+    ) -> None:
+        """Sets min_words limit for this thread."""
+        self.thread_min_words_limits[(channel_id, thread_ts)] = min_words
+        logger.info(
+            f"[THREAD STATE] Set min_words limit for thread {(channel_id, thread_ts)}: min_words={min_words}"
+        )
+
+    def clear_min_words(self, channel_id: str, thread_ts: str) -> None:
+        """Clears min_words limit for this thread."""
+        self.thread_min_words_limits.pop((channel_id, thread_ts), None)
+
+    def get_file_context(
+        self, channel_id: str, thread_ts: str
+    ) -> dict[str, Any] | None:
+        """Returns active file context dictionary for this thread."""
+        return self.thread_active_file_context.get((channel_id, thread_ts))
+
+    def set_file_context(
+        self, channel_id: str, thread_ts: str, file_context: dict[str, Any] | FileContext
+    ) -> None:
+        """Sets active file context for this thread."""
+        ctx_dict = (
+            file_context.to_dict()
+            if isinstance(file_context, FileContext)
+            else file_context
+        )
+        self.thread_active_file_context[(channel_id, thread_ts)] = ctx_dict
+        logger.info(
+            f"[THREAD STATE] Set active file context for thread {(channel_id, thread_ts)}: file='{ctx_dict.get('file_name')}', authorized_agents={ctx_dict.get('authorized_agents')}"
+        )
+
+    def clear_file_context(self, channel_id: str, thread_ts: str) -> None:
+        """Clears active file context for this thread."""
+        self.thread_active_file_context.pop((channel_id, thread_ts), None)
+
+    def is_discussion_active(self, channel_id: str, thread_ts: str) -> bool:
+        """Checks if there is an active discussion ongoing in this thread."""
+        thread_key = (channel_id, thread_ts)
+        task = self.active_thread_tasks.get(thread_key)
+        if task and not task.done():
+            return True
+        if self.remaining_agents_map.get(thread_key):
+            return True
+        return bool(self.rate_limit_retry_queue.get(thread_key))
+
+    def interrupt_discussion(self, channel_id: str, thread_ts: str) -> None:
+        """Interrupts and cancels the current ongoing discussion for this thread."""
+        thread_key = (channel_id, thread_ts)
+        self.thread_generations[thread_key] = (
+            self.thread_generations.get(thread_key, 0) + 1
+        )
+        logger.info(
+            f"[THREAD STATE] Interrupting discussion for thread {thread_key}. New generation: {self.thread_generations[thread_key]}"
+        )
+
+        task = self.active_thread_tasks.pop(thread_key, None)
+        if task and not task.done() and task is not asyncio.current_task():
+            logger.info(
+                f"[THREAD STATE] Cancelling active background task for thread {thread_key}"
+            )
+            task.cancel()
+
+        self.remaining_agents_map.pop(thread_key, None)
+        self.rate_limit_retry_queue.pop(thread_key, None)
+        self.rate_limit_already_retried.pop(thread_key, None)
+        self.thread_history_limits.pop(thread_key, None)
+        self.thread_active_file_context.pop(thread_key, None)
+        self.custom_flow_threads.discard(thread_key)
+        self.stop_requested_threads.discard(thread_key)
+
+    def request_stop(self, channel_id: str, thread_ts: str) -> None:
+        """Marks thread for stopping, cleans remaining queue, and triggers completion notes."""
+        thread_key = (channel_id, thread_ts)
+        self.stop_requested_threads.add(thread_key)
+        self.remaining_agents_map.pop(thread_key, None)
+        self.rate_limit_retry_queue.pop(thread_key, None)
+        self.rate_limit_already_retried.pop(thread_key, None)
+        self.thread_history_limits.pop(thread_key, None)
+        self.custom_flow_threads.discard(thread_key)
+        logger.info(
+            f"[THREAD STATE] Stop requested for thread {thread_key}. Queues and limits cleared."
+        )
+        try:
+            trigger_thread_notes_update(
+                channel_id=channel_id,
+                thread_ts=thread_ts,
+                is_completed=True,
+            )
+            trigger_usage_update(
+                channel_id=channel_id,
+                thread_ts=thread_ts,
+                is_completed=True,
+            )
+        except Exception as e:
+            logger.debug(
+                f"[THREAD STATE] Could not finalize thread note or usage on stop: {e}"
+            )
+
+    def is_stopped(self, channel_id: str, thread_ts: str) -> bool:
+        """Checks if stop has been requested for this thread."""
+        return (channel_id, thread_ts) in self.stop_requested_threads
+
+    def clear_stop(self, channel_id: str, thread_ts: str) -> None:
+        """Clears stop flag for this thread."""
+        self.stop_requested_threads.discard((channel_id, thread_ts))
+
+    def clear_state(self, channel_id: str, thread_ts: str) -> None:
+        """Cleans up all thread-level discussion state maps and flags."""
+        thread_key = (channel_id, thread_ts)
+        self.clear_stop(channel_id, thread_ts)
+        self.clear_history_limit(channel_id, thread_ts)
+        self.clear_max_words(channel_id, thread_ts)
+        self.clear_min_words(channel_id, thread_ts)
+        self.clear_file_context(channel_id, thread_ts)
+        self.custom_flow_threads.discard(thread_key)
+        self.remaining_agents_map.pop(thread_key, None)
+        self.rate_limit_retry_queue.pop(thread_key, None)
+        self.rate_limit_already_retried.pop(thread_key, None)
 
 
-def get_thread_history_limit(channel_id: str, thread_ts: str) -> dict[str, int] | None:
-    """Returns the active history limit dict for this thread, or None."""
-    return THREAD_HISTORY_LIMITS.get((channel_id, thread_ts))
+# Default singleton instance
+thread_state_manager = ThreadStateManager()
+
+# Module-level variable mapping for backward compatibility
+REMAINING_AGENTS_MAP = thread_state_manager.remaining_agents_map
+RATE_LIMIT_RETRY_QUEUE = thread_state_manager.rate_limit_retry_queue
+RATE_LIMIT_ALREADY_RETRIED = thread_state_manager.rate_limit_already_retried
+ACTIVE_THREAD_TASKS = thread_state_manager.active_thread_tasks
+THREAD_GENERATIONS = thread_state_manager.thread_generations
+CUSTOM_FLOW_THREADS = thread_state_manager.custom_flow_threads
+STOP_REQUESTED_THREADS = thread_state_manager.stop_requested_threads
+THREAD_HISTORY_LIMITS = thread_state_manager.thread_history_limits
+THREAD_MAX_WORDS_LIMITS = thread_state_manager.thread_max_words_limits
+THREAD_MIN_WORDS_LIMITS = thread_state_manager.thread_min_words_limits
+THREAD_ACTIVE_FILE_CONTEXT = thread_state_manager.thread_active_file_context
+
+
+# Backward-compatible function aliases
+def get_thread_history_limit(
+    channel_id: str, thread_ts: str
+) -> dict[str, int] | None:
+    return thread_state_manager.get_history_limit(channel_id, thread_ts)
 
 
 def set_thread_history_limit(
     channel_id: str, thread_ts: str, limit: int, prior_cutoff_index: int
 ) -> None:
-    """Sets the history limit and prior cutoff index for this thread."""
-    THREAD_HISTORY_LIMITS[(channel_id, thread_ts)] = {
-        "limit": limit,
-        "prior_cutoff_index": prior_cutoff_index,
-    }
-    logger.info(
-        f"[THREAD STATE] Set history limit for thread {(channel_id, thread_ts)}: limit={limit}, prior_cutoff_index={prior_cutoff_index}"
+    thread_state_manager.set_history_limit(
+        channel_id, thread_ts, limit, prior_cutoff_index
     )
 
 
 def clear_thread_history_limit(channel_id: str, thread_ts: str) -> None:
-    """Clears any active history limit for this thread."""
-    THREAD_HISTORY_LIMITS.pop((channel_id, thread_ts), None)
-
-
-# Track conversation max words limit per thread
-# Map: (channel_id, thread_ts) -> int
-THREAD_MAX_WORDS_LIMITS: dict[tuple[str, str], int] = {}
+    thread_state_manager.clear_history_limit(channel_id, thread_ts)
 
 
 def get_thread_max_words(channel_id: str, thread_ts: str) -> int | None:
-    """Returns the active max_words limit for this thread, or None."""
-    return THREAD_MAX_WORDS_LIMITS.get((channel_id, thread_ts))
+    return thread_state_manager.get_max_words(channel_id, thread_ts)
 
 
 def set_thread_max_words(channel_id: str, thread_ts: str, max_words: int) -> None:
-    """Sets the max_words limit for this thread."""
-    THREAD_MAX_WORDS_LIMITS[(channel_id, thread_ts)] = max_words
-    logger.info(
-        f"[THREAD STATE] Set max_words limit for thread {(channel_id, thread_ts)}: max_words={max_words}"
-    )
+    thread_state_manager.set_max_words(channel_id, thread_ts, max_words)
 
 
 def clear_thread_max_words(channel_id: str, thread_ts: str) -> None:
-    """Clears any active max_words limit for this thread."""
-    THREAD_MAX_WORDS_LIMITS.pop((channel_id, thread_ts), None)
-
-
-# Track conversation min words limit per thread
-# Map: (channel_id, thread_ts) -> int
-THREAD_MIN_WORDS_LIMITS: dict[tuple[str, str], int] = {}
+    thread_state_manager.clear_max_words(channel_id, thread_ts)
 
 
 def get_thread_min_words(channel_id: str, thread_ts: str) -> int | None:
-    """Returns the active min_words limit for this thread, or None."""
-    return THREAD_MIN_WORDS_LIMITS.get((channel_id, thread_ts))
+    return thread_state_manager.get_min_words(channel_id, thread_ts)
 
 
 def set_thread_min_words(channel_id: str, thread_ts: str, min_words: int) -> None:
-    """Sets the min_words limit for this thread."""
-    THREAD_MIN_WORDS_LIMITS[(channel_id, thread_ts)] = min_words
-    logger.info(
-        f"[THREAD STATE] Set min_words limit for thread {(channel_id, thread_ts)}: min_words={min_words}"
-    )
+    thread_state_manager.set_min_words(channel_id, thread_ts, min_words)
 
 
 def clear_thread_min_words(channel_id: str, thread_ts: str) -> None:
-    """Clears any active min_words limit for this thread."""
-    THREAD_MIN_WORDS_LIMITS.pop((channel_id, thread_ts), None)
+    thread_state_manager.clear_min_words(channel_id, thread_ts)
 
 
-# Track on-demand file context per thread discussion
-# Map: (channel_id, thread_ts) -> dict (e.g. {"file_name": str, "content": str, "size": int, "truncated": bool, "authorized_agents": set[str] | None})
-THREAD_ACTIVE_FILE_CONTEXT: dict[tuple[str, str], dict[str, Any]] = {}
-
-
-def get_thread_file_context(channel_id: str, thread_ts: str) -> dict[str, Any] | None:
-    """Returns the active file context for this thread discussion, or None."""
-    return THREAD_ACTIVE_FILE_CONTEXT.get((channel_id, thread_ts))
+def get_thread_file_context(
+    channel_id: str, thread_ts: str
+) -> dict[str, Any] | None:
+    return thread_state_manager.get_file_context(channel_id, thread_ts)
 
 
 def set_thread_file_context(
-    channel_id: str, thread_ts: str, file_context: dict[str, Any]
+    channel_id: str, thread_ts: str, file_context: dict[str, Any] | FileContext
 ) -> None:
-    """Sets the active file context for this thread discussion."""
-    THREAD_ACTIVE_FILE_CONTEXT[(channel_id, thread_ts)] = file_context
-    logger.info(
-        f"[THREAD STATE] Set active file context for thread {(channel_id, thread_ts)}: file='{file_context.get('file_name')}', authorized_agents={file_context.get('authorized_agents')}"
-    )
+    thread_state_manager.set_file_context(channel_id, thread_ts, file_context)
 
 
 def clear_thread_file_context(channel_id: str, thread_ts: str) -> None:
-    """Clears any active file context for this thread."""
-    THREAD_ACTIVE_FILE_CONTEXT.pop((channel_id, thread_ts), None)
+    thread_state_manager.clear_file_context(channel_id, thread_ts)
 
 
 def is_discussion_active(channel_id: str, thread_ts: str) -> bool:
-    """
-    Checks if there is an active (ongoing, not completed) discussion in this thread.
-    A discussion is active if:
-    - An asyncio.Task is currently executing for this thread and not done, OR
-    - Intermediate agents are remaining in REMAINING_AGENTS_MAP for this thread, OR
-    - Pending rate-limit retries exist in RATE_LIMIT_RETRY_QUEUE.
-    """
-    thread_key = (channel_id, thread_ts)
-    task = ACTIVE_THREAD_TASKS.get(thread_key)
-    if task and not task.done():
-        return True
-    if REMAINING_AGENTS_MAP.get(thread_key):
-        return True
-    return bool(RATE_LIMIT_RETRY_QUEUE.get(thread_key))
+    return thread_state_manager.is_discussion_active(channel_id, thread_ts)
 
 
 def interrupt_thread_discussion(channel_id: str, thread_ts: str) -> None:
-    """
-    Interrupts and cancels the current ongoing discussion in the specified thread:
-    1. Increments the thread generation counter so in-flight tasks become superseded and abort.
-    2. Cancels any active asyncio.Task currently processing for this thread.
-    3. Clears remaining agents, custom flows, retry queues, and history limits.
-    4. Clears any stop requested flag for this thread so the new query can run cleanly.
-    """
-    thread_key = (channel_id, thread_ts)
-    THREAD_GENERATIONS[thread_key] = THREAD_GENERATIONS.get(thread_key, 0) + 1
-    logger.info(
-        f"[THREAD STATE] Interrupting discussion for thread {thread_key}. New generation: {THREAD_GENERATIONS[thread_key]}"
-    )
-
-    task = ACTIVE_THREAD_TASKS.pop(thread_key, None)
-    if task and not task.done() and task is not asyncio.current_task():
-        logger.info(
-            f"[THREAD STATE] Cancelling active background task for thread {thread_key}"
-        )
-        task.cancel()
-
-    REMAINING_AGENTS_MAP.pop(thread_key, None)
-    RATE_LIMIT_RETRY_QUEUE.pop(thread_key, None)
-    RATE_LIMIT_ALREADY_RETRIED.pop(thread_key, None)
-    THREAD_HISTORY_LIMITS.pop(thread_key, None)
-    THREAD_ACTIVE_FILE_CONTEXT.pop(thread_key, None)
-    CUSTOM_FLOW_THREADS.discard(thread_key)
-    STOP_REQUESTED_THREADS.discard(thread_key)
+    thread_state_manager.interrupt_discussion(channel_id, thread_ts)
 
 
 def request_thread_stop(channel_id: str, thread_ts: str) -> None:
-    """Marks the thread for stopping and clears remaining queued agents."""
-    thread_key = (channel_id, thread_ts)
-    STOP_REQUESTED_THREADS.add(thread_key)
-    REMAINING_AGENTS_MAP.pop(thread_key, None)
-    RATE_LIMIT_RETRY_QUEUE.pop(thread_key, None)
-    RATE_LIMIT_ALREADY_RETRIED.pop(thread_key, None)
-    THREAD_HISTORY_LIMITS.pop(thread_key, None)
-    CUSTOM_FLOW_THREADS.discard(thread_key)
-    logger.info(
-        f"[THREAD STATE] Stop requested for thread {thread_key}. REMAINING_AGENTS_MAP, retry queues, and history limits cleared."
-    )
-    try:
-        trigger_thread_notes_update(
-            channel_id=channel_id,
-            thread_ts=thread_ts,
-            is_completed=True,
-        )
-        trigger_usage_update(
-            channel_id=channel_id,
-            thread_ts=thread_ts,
-            is_completed=True,
-        )
-    except Exception as e:
-        logger.debug(f"[THREAD STATE] Could not finalize thread note or usage on stop: {e}")
+    thread_state_manager.request_stop(channel_id, thread_ts)
 
 
 def is_thread_stopped(channel_id: str, thread_ts: str) -> bool:
-    """Checks if a stop has been requested for this thread."""
-    return (channel_id, thread_ts) in STOP_REQUESTED_THREADS
+    return thread_state_manager.is_stopped(channel_id, thread_ts)
 
 
 def clear_thread_stop(channel_id: str, thread_ts: str) -> None:
-    """Clears the stop flag for this thread."""
-    STOP_REQUESTED_THREADS.discard((channel_id, thread_ts))
+    thread_state_manager.clear_stop(channel_id, thread_ts)
 
 
 def clear_thread_state(channel_id: str, thread_ts: str) -> None:
-    """
-    Cleans up all thread-level discussion state maps and flags
-    when a thread completes, is stopped, or hits the circuit breaker.
-    """
-    thread_key = (channel_id, thread_ts)
-    clear_thread_stop(channel_id, thread_ts)
-    clear_thread_history_limit(channel_id, thread_ts)
-    clear_thread_max_words(channel_id, thread_ts)
-    clear_thread_min_words(channel_id, thread_ts)
-    clear_thread_file_context(channel_id, thread_ts)
-    CUSTOM_FLOW_THREADS.discard(thread_key)
-    REMAINING_AGENTS_MAP.pop(thread_key, None)
-    RATE_LIMIT_RETRY_QUEUE.pop(thread_key, None)
-    RATE_LIMIT_ALREADY_RETRIED.pop(thread_key, None)
+    thread_state_manager.clear_state(channel_id, thread_ts)
