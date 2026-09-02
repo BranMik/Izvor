@@ -2427,6 +2427,49 @@ async def test_ambiguous_tag_system_warning_halt(monkeypatch):
     assert "Ambiguous Agent Reference" in system_posts[0]["text"]
     assert "OpAiTerra_Architect" in system_posts[0]["text"]
     assert "MistLar_SecurityArchitect" in system_posts[0]["text"]
+    assert "[" not in system_posts[0]["text"]
+    assert "]" not in system_posts[0]["text"]
+
+
+@pytest.mark.anyio
+async def test_unrecognized_tag_system_warning_halt(monkeypatch):
+    from orchestration.agent_router import REMAINING_AGENTS_MAP
+    REMAINING_AGENTS_MAP.clear()
+
+    channel_id = "C_UNREC_TAG"
+    thread_ts = "99999.0003"
+
+    system_posts = []
+    async def mock_post_system(channel_id, thread_ts, text, username=None, icon_url=None):
+        system_posts.append({"username": username, "text": text})
+        return {"ok": True, "ts": thread_ts}
+
+    llm_called = False
+    async def mock_run_in_threadpool(func, *args, **kwargs):
+        nonlocal llm_called
+        llm_called = True
+        return MagicMock()
+
+    monkeypatch.setattr("orchestration.agent_router.post_system_message", mock_post_system)
+    monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_run_in_threadpool)
+    monkeypatch.setattr("orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[]))
+
+    res = await process_and_respond(
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        raw_text="[SomeUnknownAgent] please review this design",
+        is_bot_trigger=False,
+    )
+
+    assert res.get("halted") is True
+    assert res.get("reason") == "unrecognized_agent"
+    assert llm_called is False
+    assert len(system_posts) == 1
+    assert "Unrecognized Agent Tag" in system_posts[0]["text"]
+    assert "SomeUnknownAgent" in system_posts[0]["text"]
+    assert "[" not in system_posts[0]["text"]
+    assert "]" not in system_posts[0]["text"]
+
 
 
 

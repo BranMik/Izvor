@@ -177,25 +177,37 @@ def test_debate_orchestrator():
     tags = orch.extract_tagged_agents("Hello [AnthrOpus_Innovator] and [MistLar_TechLead]")
     assert tags == ["AnthrOpus_Innovator", "MistLar_TechLead"]
 
-    partial_tags = orch.extract_tagged_agents("Hello [Gemini_Vis] and [TechLead]")
-    assert partial_tags == ["Gemini_Visionary", "MistLar_TechLead"]
+    partial_tags = orch.extract_tagged_agents("Hello [Gemini_Vis] and [TechLead] and [AnthrOpus Inn]")
+    assert partial_tags == ["Gemini_Visionary", "MistLar_TechLead", "AnthrOpus_Innovator"]
 
     # Ambiguous tags should not be extracted as single valid agent tags
     ambig_tags = orch.extract_tagged_agents("Hello [Architect] and [Gemini]")
     assert ambig_tags == []
 
     # Detect ambiguous tags
-    detected_ambig = orch.detect_ambiguous_tags("Hello [Architect] and [Gemini_Vis] and [TODO]")
+    detected_ambig = orch.detect_ambiguous_tags("Hello [Architect] and [Gemini_Vis]")
     assert len(detected_ambig) == 1
     assert detected_ambig[0][0] == "Architect"
     assert "OpAiTerra_Architect" in detected_ambig[0][1]
     assert "MistLar_SecurityArchitect" in detected_ambig[0][1]
 
-    # Parse agent and prompt with partial tag
-    agent, prompt, explicit = orch.parse_agent_and_prompt("Let's discuss [Gemini_Vis] this topic", "C1", "T1")
-    assert agent == "Gemini_Visionary"
-    assert "[Gemini_Vis]" not in prompt
+    # Detect unrecognized tags
+    unrecognized = orch.detect_unrecognized_tags("Hello [NonExistentAgent] and [Gemini_Vis] and [Link](http://a.com)")
+    assert unrecognized == ["NonExistentAgent"]
+
+    # Parse agent and prompt with partial tag containing spaces
+    agent, prompt, explicit = orch.parse_agent_and_prompt("what do you think [AnthrOpus Inn]", "C1", "T1")
+    assert agent == "AnthrOpus_Innovator"
+    assert "[AnthrOpus Inn]" not in prompt
+    assert prompt == "what do you think"
     assert explicit is True
+
+    # Parse agent and prompt with typo bracket [AnthrOpus Inn}
+    agent2, prompt2, explicit2 = orch.parse_agent_and_prompt("what do you think [AnthrOpus Inn}", "C1", "T1")
+    assert agent2 == "AnthrOpus_Innovator"
+    assert "[AnthrOpus Inn}" not in prompt2
+    assert prompt2 == "what do you think"
+    assert explicit2 is True
 
     # Nomination enforcement
     res = orch.enforce_valid_nomination(

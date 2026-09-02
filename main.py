@@ -207,7 +207,7 @@ async def slack_events(request: Request, background_tasks: BackgroundTasks):
 
                 # 5c. Extract nominations and tags ([Agent_Key])
                 has_tag = False
-                for match in re.finditer(r"\[([a-zA-Z0-9_]+)\]", raw_text):
+                for match in re.finditer(r"[\[{]\s*([^\]}\r\n]+?)\s*[\]}]", raw_text):
                     tag = match.group(1)
                     if resolve_agent_candidates(tag):
                         has_tag = True
