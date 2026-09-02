@@ -17,6 +17,14 @@ from core.models import (
 )
 from services.pricing_service import PricingService
 from orchestration.thread_state import ThreadStateManager
+from orchestration.agent_settings import settings_manager
+
+
+@pytest.fixture(autouse=True)
+def setup_models_and_managers_env():
+    settings_manager.reset()
+    yield
+    settings_manager.reset()
 
 
 def test_models_serialization():
@@ -78,11 +86,26 @@ def test_agent_settings_manager():
         # Defaults
         assert "Gemini_Visionary" in mgr.get_enabled_agents()
         assert mgr.is_circuit_breaker_enabled() is False
+        assert mgr.get_orchestration_mode() == "sandwich"
 
-        # Toggle & Protection of locked agents
-        assert mgr.set_agent_enabled("Gemini_Visionary", False) is False  # locked
+        # Toggle all agents freely (no locked agents)
+        assert mgr.set_agent_enabled("Gemini_Visionary", False) is True
+        assert "Gemini_Visionary" not in mgr.get_enabled_agents()
         assert mgr.set_agent_enabled("AnthrOpus_Innovator", False) is True
         assert "AnthrOpus_Innovator" not in mgr.get_enabled_agents()
+
+        # Orchestration mode and chain configuration
+        mgr.set_orchestration_mode("fixed")
+        assert mgr.get_orchestration_mode() == "fixed"
+        mgr.set_fixed_config(["MistLar_TechLead", "AnthrOpus_Innovator"])
+        assert mgr.get_fixed_config() == {"chain": ["MistLar_TechLead", "AnthrOpus_Innovator"]}
+
+        mgr.set_orchestration_mode("sandwich")
+        mgr.set_sandwich_config(["Gemini_Visionary"], ["OpAiTerra_Architect"])
+        assert mgr.get_sandwich_config() == {
+            "start_chain": ["Gemini_Visionary"],
+            "end_chain": ["OpAiTerra_Architect"],
+        }
 
         # Circuit breaker settings
         mgr.set_circuit_breaker_enabled(True)
@@ -96,6 +119,8 @@ def test_agent_settings_manager():
         assert mgr_reloaded.is_circuit_breaker_enabled() is True
         assert mgr_reloaded.get_circuit_breaker_threshold() == 3.75
         assert "AnthrOpus_Innovator" not in mgr_reloaded.get_enabled_agents()
+        assert mgr_reloaded.get_orchestration_mode() == "sandwich"
+        assert mgr_reloaded.get_sandwich_config()["start_chain"] == ["Gemini_Visionary"]
 
 
 def test_thread_state_manager():
@@ -143,15 +168,34 @@ def test_thread_state_manager():
 def test_debate_orchestrator():
     orch = DebateOrchestrator()
 
-    # Initial agents
+    # Initial agents with default settings (all enabled)
     initial = orch.get_initial_agents()
     assert isinstance(initial, list)
-    assert "OpAiTerra_Architect" not in initial
-    assert "Gemini_Visionary" not in initial
+    assert len(initial) == 17
 
-    # Tag extraction
+    # Tag extraction with exact and partial tags
     tags = orch.extract_tagged_agents("Hello [AnthrOpus_Innovator] and [MistLar_TechLead]")
     assert tags == ["AnthrOpus_Innovator", "MistLar_TechLead"]
+
+    partial_tags = orch.extract_tagged_agents("Hello [Gemini_Vis] and [TechLead]")
+    assert partial_tags == ["Gemini_Visionary", "MistLar_TechLead"]
+
+    # Ambiguous tags should not be extracted as single valid agent tags
+    ambig_tags = orch.extract_tagged_agents("Hello [Architect] and [Gemini]")
+    assert ambig_tags == []
+
+    # Detect ambiguous tags
+    detected_ambig = orch.detect_ambiguous_tags("Hello [Architect] and [Gemini_Vis] and [TODO]")
+    assert len(detected_ambig) == 1
+    assert detected_ambig[0][0] == "Architect"
+    assert "OpAiTerra_Architect" in detected_ambig[0][1]
+    assert "MistLar_SecurityArchitect" in detected_ambig[0][1]
+
+    # Parse agent and prompt with partial tag
+    agent, prompt, explicit = orch.parse_agent_and_prompt("Let's discuss [Gemini_Vis] this topic", "C1", "T1")
+    assert agent == "Gemini_Visionary"
+    assert "[Gemini_Vis]" not in prompt
+    assert explicit is True
 
     # Nomination enforcement
     res = orch.enforce_valid_nomination(
@@ -161,6 +205,15 @@ def test_debate_orchestrator():
         force_termination=False,
     )
     assert "[AnthrOpus_Innovator]" in res
+
+    # Nomination enforcement recognizing partial nomination
+    res_partial_nom = orch.enforce_valid_nomination(
+        text="Over to you [Innovator] for your review.",
+        current_agent_key="Gemini_Visionary",
+        remaining=["AnthrOpus_Innovator"],
+        force_termination=False,
+    )
+    assert "[AnthrOpus_Innovator]" in res_partial_nom or "[Innovator]" in res_partial_nom
 
     # Target file resolution
     files = [{"name": "notes.txt"}, {"name": "schema.sql"}]

@@ -71,14 +71,20 @@ def build_agent_prompt(
         max_words=max_words, min_words=min_words
     )
 
+    nomination_rules = _read_prompt_file(SHARED_DIR / "nomination_rules.md")
+
     if agent_key == "Gemini_Visionary":
         if word_constraints:
             return (
                 f"\n{persona_content}\n\n"
                 f"OUTPUT & LENGTH CONSTRAINTS:\n\n"
                 f"{word_constraints}\n\n"
+                f"{nomination_rules}\n\n"
             )
-        return f"\n{persona_content}\n\n"
+        return (
+            f"\n{persona_content}\n\n"
+            f"{nomination_rules}\n\n"
+        )
 
     if agent_key == "OpAiTerra_Architect":
         content = persona_content
@@ -93,7 +99,10 @@ def build_agent_prompt(
                 f"{content}\n"
                 f"7. Minimum Length: Your entire response must have a minimum length of {min_words} words."
             )
-        return f"\n{content}\n\n"
+        return (
+            f"\n{content}\n\n"
+            f"{nomination_rules}\n\n"
+        )
 
     # Intermediate agents share output constraints (100 words or 200 words) and nomination rules
     if word_constraints:
@@ -106,11 +115,8 @@ def build_agent_prompt(
     else:
         output_constraints = _read_prompt_file(SHARED_DIR / "output_constraints.md")
 
-    nomination_rules = _read_prompt_file(SHARED_DIR / "nomination_rules.md")
-
     return (
         f"\n{persona_content}\n\n"
         f"{output_constraints}\n"
         f"{nomination_rules}\n\n"
     )
-

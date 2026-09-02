@@ -42,6 +42,10 @@ from orchestration.agent_router import (
     HIGH_DEMAND_ERRORED_AGENTS,
     is_high_demand_503_error,
     execute_llm_with_retry,
+    set_orchestration_mode,
+    set_sandwich_config,
+    set_fixed_config,
+    get_orchestration_mode,
 )
 from services.slack_client import build_app_home_view
 
@@ -51,6 +55,16 @@ import orchestration.agent_router as agent_router
 @pytest.fixture(autouse=True)
 def setup_test_environment(monkeypatch):
     reset_enabled_agents()
+    set_orchestration_mode("sandwich")
+    set_sandwich_config([], [])
+    set_fixed_config([])
+    REMAINING_AGENTS_MAP.clear()
+    RATE_LIMIT_RETRY_QUEUE.clear()
+    RATE_LIMIT_ALREADY_RETRIED.clear()
+    CUSTOM_FLOW_THREADS.clear()
+    STOP_REQUESTED_THREADS.clear()
+    ACTIVE_THREAD_TASKS.clear()
+    HIGH_DEMAND_ERRORED_AGENTS.clear()
     monkeypatch.setattr(agent_router.asyncio, "sleep", AsyncMock(return_value=None))
 
 
@@ -310,7 +324,7 @@ async def test_scenario_3_no_agent_tagged_default_flow(monkeypatch):
 
     # Default starts with Gemini_Visionary and initializes all panel agents
     assert thread_key not in CUSTOM_FLOW_THREADS
-    assert len(REMAINING_AGENTS_MAP[thread_key]) == 15
+    assert len(REMAINING_AGENTS_MAP[thread_key]) == 16
     assert "[AnthrOpus_Sceptic]" in posted_messages[0]
 
     # Step 2: Intermediate agent (Monitoring Specialist) tries to prematurely nominate Architect
@@ -340,8 +354,8 @@ async def test_scenario_3_no_agent_tagged_default_flow(monkeypatch):
     assert "[OpAiTerra_UserAdvocate]" in posted_messages[1]
     assert "OpAiTerra_UserAdvocate" in REMAINING_AGENTS_MAP[thread_key]
 
-    # Step 3: Final intermediate agent speaks when remaining is empty -> nominates Architect
-    REMAINING_AGENTS_MAP[thread_key] = ["MistLar_SecurityArchitect"]
+    # Step 3: Intermediate agent speaks and nominates next remaining agent
+    REMAINING_AGENTS_MAP[thread_key] = ["MistLar_SecurityArchitect", "OpAiTerra_Architect"]
 
     mock_choice_3 = MagicMock()
     mock_choice_3.message.content = "Security review finished."
@@ -359,8 +373,8 @@ async def test_scenario_3_no_agent_tagged_default_flow(monkeypatch):
         is_bot_trigger=True,
     )
 
-    # Now remaining is empty, so [OpAiTerra_Architect] is nominated for final summary
-    assert REMAINING_AGENTS_MAP[thread_key] == []
+    # Next agent is OpAiTerra_Architect
+    assert REMAINING_AGENTS_MAP[thread_key] == ["OpAiTerra_Architect"]
     assert "[OpAiTerra_Architect]" in posted_messages[2]
 
     # Step 4: OpAiTerra_Architect executes final summary
@@ -479,15 +493,15 @@ async def test_thread_stop_during_llm_execution(monkeypatch):
 
 def test_locked_agents_cannot_be_disabled():
     reset_enabled_agents()
-    # Gemini_Visionary, OpAiTerra_Architect, and AnthrOpus_Sceptic are locked
-    assert set_agent_enabled("Gemini_Visionary", False) is False
-    assert "Gemini_Visionary" in ENABLED_DEBATE_AGENTS
+    # All agents can be freely toggled on and off (no locked agents)
+    assert set_agent_enabled("Gemini_Visionary", False) is True
+    assert "Gemini_Visionary" not in ENABLED_DEBATE_AGENTS
 
-    assert set_agent_enabled("OpAiTerra_Architect", False) is False
-    assert "OpAiTerra_Architect" in ENABLED_DEBATE_AGENTS
+    assert set_agent_enabled("OpAiTerra_Architect", False) is True
+    assert "OpAiTerra_Architect" not in ENABLED_DEBATE_AGENTS
 
-    assert set_agent_enabled("AnthrOpus_Sceptic", False) is False
-    assert "AnthrOpus_Sceptic" in ENABLED_DEBATE_AGENTS
+    assert set_agent_enabled("AnthrOpus_Sceptic", False) is True
+    assert "AnthrOpus_Sceptic" not in ENABLED_DEBATE_AGENTS
 
 
 def test_toggleable_agent_enable_and_disable():
@@ -498,8 +512,6 @@ def test_toggleable_agent_enable_and_disable():
     assert set_agent_enabled("MistLar_TechLead", False) is True
     assert "MistLar_TechLead" not in ENABLED_DEBATE_AGENTS
     assert "MistLar_TechLead" not in get_initial_agents()
-    # Sceptic must always be present
-    assert "AnthrOpus_Sceptic" in get_initial_agents()
 
     # Re-enable via toggle_agent
     assert toggle_agent("MistLar_TechLead") is True
@@ -557,10 +569,11 @@ def test_build_app_home_view():
             action_ids.append(b["element"].get("action_id", ""))
 
     assert "bulk_enable_all" in action_ids
-    assert "bulk_disable_optional" in action_ids
-    assert "locked_agent_Gemini_Visionary" in action_ids
-    assert "locked_agent_AnthrOpus_Sceptic" in action_ids
-    assert "locked_agent_OpAiTerra_Architect" in action_ids
+    assert "bulk_disable_all" in action_ids
+    assert "select_orchestration_mode" in action_ids
+    assert "set_start_chain_input" in action_ids
+    assert "set_end_chain_input" in action_ids
+    assert "save_sandwich_chains_button" in action_ids
     assert "toggle_agent_radio:MistLar_TechLead" in action_ids
     assert "toggle_circuit_breaker_radio" in action_ids
     assert "set_circuit_breaker_threshold_input" in action_ids
@@ -570,7 +583,8 @@ def test_build_app_home_view():
     # Dynamic block IDs present
     block_ids = [b.get("block_id") for b in blocks if "block_id" in b]
     assert "cb_threshold_block_2.50" in block_ids
-    assert "cb_toggle_section_on" in block_ids
+    assert "sandwich_start_chain_block" in block_ids
+    assert "sandwich_end_chain_block" in block_ids
     assert "agent_toggle_block_MistLar_TechLead_on" in block_ids
 
 
@@ -827,8 +841,8 @@ async def test_process_and_respond_rate_limits_and_retry_flow(monkeypatch):
     assert "will retry" not in posted[2]["text"]
     # Should NOT be added back to RATE_LIMIT_RETRY_QUEUE
     assert "MistLar_TechLead" not in RATE_LIMIT_RETRY_QUEUE.get(thread_key, [])
-    # Should nominate OpAiTerra_Architect for the final summary
-    assert "[OpAiTerra_Architect]" in posted[2]["text"]
+    # Clean termination without forced closing nomination tag
+    assert "[OpAiTerra_Architect]" not in posted[2]["text"]
 
 
 @pytest.mark.anyio
@@ -926,8 +940,8 @@ async def test_process_and_respond_503_high_demand_second_query_retries_and_term
     assert attempts_count == 3
     # Should NOT be added back to remaining
     assert "MistLar_TechLead" not in REMAINING_AGENTS_MAP.get(thread_key, [])
-    # Nominated final architect summary
-    assert "[OpAiTerra_Architect]" in posted[0]["text"]
+    # Clean termination without forced closing nomination tag
+    assert "[OpAiTerra_Architect]" not in posted[0]["text"]
 
 
 @pytest.mark.anyio
@@ -2338,6 +2352,82 @@ async def test_process_and_respond_with_nl_exclude(monkeypatch):
 
     assert res.get("ok") is True
     assert "MistLar_TechLead" not in REMAINING_AGENTS_MAP[thread_key]
+
+
+@pytest.mark.anyio
+async def test_partial_tag_routing(monkeypatch):
+    from orchestration.agent_router import REMAINING_AGENTS_MAP
+    REMAINING_AGENTS_MAP.clear()
+
+    channel_id = "C_PARTIAL_TAG"
+    thread_ts = "99999.0001"
+
+    mock_response = MagicMock()
+    mock_choice = MagicMock()
+    mock_choice.message = MagicMock(content="Visionary speaking [TechLead]", tool_calls=None)
+    mock_response.choices = [mock_choice]
+    mock_response.usage = MagicMock(prompt_tokens=20, completion_tokens=40)
+
+    posted_messages = []
+    async def mock_post_agent(channel_id, thread_ts, text, username, icon_url=None):
+        posted_messages.append({"username": username, "text": text})
+        return {"ok": True, "ts": thread_ts}
+
+    monkeypatch.setattr("orchestration.agent_router.post_agent_response", mock_post_agent)
+    monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", AsyncMock(return_value=mock_response))
+    monkeypatch.setattr("orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[]))
+    monkeypatch.setattr("orchestration.agent_router.record_thread_tokens", MagicMock())
+
+    res = await process_and_respond(
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        raw_text="[Gemini_Vis] what are your architectural thoughts?",
+        is_bot_trigger=False,
+    )
+
+    assert res.get("ok") is True
+    assert len(posted_messages) == 1
+    assert "Visionary" in posted_messages[0]["username"]
+
+
+@pytest.mark.anyio
+async def test_ambiguous_tag_system_warning_halt(monkeypatch):
+    from orchestration.agent_router import REMAINING_AGENTS_MAP
+    REMAINING_AGENTS_MAP.clear()
+
+    channel_id = "C_AMBIG_TAG"
+    thread_ts = "99999.0002"
+
+    system_posts = []
+    async def mock_post_system(channel_id, thread_ts, text, username=None, icon_url=None):
+        system_posts.append({"username": username, "text": text})
+        return {"ok": True, "ts": thread_ts}
+
+    llm_called = False
+    async def mock_run_in_threadpool(func, *args, **kwargs):
+        nonlocal llm_called
+        llm_called = True
+        return MagicMock()
+
+    monkeypatch.setattr("orchestration.agent_router.post_system_message", mock_post_system)
+    monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_run_in_threadpool)
+    monkeypatch.setattr("orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[]))
+
+    res = await process_and_respond(
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        raw_text="[Architect] please review this design",
+        is_bot_trigger=False,
+    )
+
+    assert res.get("halted") is True
+    assert res.get("reason") == "ambiguous_agent"
+    assert llm_called is False
+    assert len(system_posts) == 1
+    assert "Ambiguous Agent Reference" in system_posts[0]["text"]
+    assert "OpAiTerra_Architect" in system_posts[0]["text"]
+    assert "MistLar_SecurityArchitect" in system_posts[0]["text"]
+
 
 
 

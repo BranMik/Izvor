@@ -20,8 +20,8 @@ SETTINGS_FILE = Path(__file__).parent.parent / "data" / "agent_settings.json"
 BACKUP_FILE = Path(__file__).parent.parent / "data" / "backups" / "agent_settings_backup.json"
 PERSONAS_DIR = Path(__file__).parent.parent / "prompts" / "personas"
 
-# Mandatory locked agents that cannot be turned off
-LOCKED_AGENTS = {"Gemini_Visionary", "OpAiTerra_Architect", "AnthrOpus_Sceptic"}
+# Mandatory locked agents (empty by default now that lock system is removed)
+LOCKED_AGENTS: set[str] = set()
 
 # 7-day interval in seconds (604,800 seconds)
 BACKUP_INTERVAL_SECONDS = 7 * 86400
@@ -44,7 +44,7 @@ class AgentSettingsManager:
     ):
         self.default_settings_file = settings_file or SETTINGS_FILE
         self.default_backup_file = backup_file or BACKUP_FILE
-        self.locked_agents = set(locked_agents or LOCKED_AGENTS)
+        self.locked_agents = set(locked_agents or set())
         self.backup_interval_seconds = backup_interval_seconds
 
         if settings_file is not None or backup_file is not None:
@@ -58,6 +58,12 @@ class AgentSettingsManager:
         self.enabled_agents: set[str] = set()
         self.circuit_breaker_enabled: bool = False
         self.circuit_breaker_threshold_usd: float = 1.0
+
+        # Orchestration flow mode and chains
+        self.orchestration_mode: str = "sandwich"  # "sandwich" | "fixed"
+        self.sandwich_start_chain: list[str] = []
+        self.sandwich_end_chain: list[str] = []
+        self.fixed_chain: list[str] = []
 
         # Emergency backup status
         self.is_running_from_backup: bool = False
@@ -173,8 +179,16 @@ class AgentSettingsManager:
         raw_system_agents = data.get("system_agents", {})
         if isinstance(raw_system_agents, dict):
             for sys_k, sys_v in raw_system_agents.items():
-                if isinstance(sys_v, dict) and sys_v.get("model"):
-                    self.system_agents_config[sys_k] = {"model": str(sys_v["model"]).strip()}
+                if isinstance(sys_v, dict):
+                    sys_entry = {}
+                    if sys_v.get("model"):
+                        sys_entry["model"] = str(sys_v["model"]).strip()
+                    if sys_v.get("username"):
+                        sys_entry["username"] = str(sys_v["username"]).strip()
+                    if sys_v.get("icon_url"):
+                        sys_entry["icon_url"] = str(sys_v["icon_url"]).strip()
+                    if sys_entry:
+                        self.system_agents_config[sys_k] = sys_entry
 
         # Parse circuit breaker settings
         self.circuit_breaker_enabled = bool(data.get("circuit_breaker_enabled", False))
@@ -183,15 +197,41 @@ class AgentSettingsManager:
         except (ValueError, TypeError):
             self.circuit_breaker_threshold_usd = 1.0
 
+        # Parse orchestration mode
+        raw_mode = str(data.get("orchestration_mode", "sandwich")).strip().lower()
+        self.orchestration_mode = raw_mode if raw_mode in ("sandwich", "fixed") else "sandwich"
+
+        # Parse sandwich config
+        raw_sandwich = data.get("sandwich_config", {})
+        if isinstance(raw_sandwich, dict):
+            raw_start = raw_sandwich.get("start_chain", [])
+            raw_end = raw_sandwich.get("end_chain", [])
+            self.sandwich_start_chain = [
+                k for k in raw_start if isinstance(k, str) and k in self.agents_config
+            ] if isinstance(raw_start, list) else []
+            self.sandwich_end_chain = [
+                k for k in raw_end if isinstance(k, str) and k in self.agents_config
+            ] if isinstance(raw_end, list) else []
+        else:
+            self.sandwich_start_chain = []
+            self.sandwich_end_chain = []
+
+        # Parse fixed config
+        raw_fixed = data.get("fixed_config", {})
+        if isinstance(raw_fixed, dict):
+            raw_chain = raw_fixed.get("chain", [])
+            self.fixed_chain = [
+                k for k in raw_chain if isinstance(k, str) and k in self.agents_config
+            ] if isinstance(raw_chain, list) else []
+        else:
+            self.fixed_chain = []
+
         # Parse enabled agents
         raw_enabled = data.get("enabled_agents", [])
         if isinstance(raw_enabled, list):
             valid_enabled = {k for k in raw_enabled if k in self.agents_config}
         else:
             valid_enabled = set()
-
-        # Always include locked agents if they are valid
-        valid_enabled.update(self.locked_agents.intersection(self.agents_config.keys()))
 
         # If enabled list is empty, default to all valid agents
         if not valid_enabled:
@@ -203,6 +243,7 @@ class AgentSettingsManager:
         logger.info(
             f"[SETTINGS] Successfully validated payload from {source_name}: "
             f"{len(self.agents_config)} agents registered, {len(self.enabled_agents)} enabled, "
+            f"mode='{self.orchestration_mode}', "
             f"{len(self.system_agents_config)} system agents."
         )
         return True
@@ -332,12 +373,21 @@ class AgentSettingsManager:
 
     def save(self) -> None:
         """
-        Saves current enabled debate agents, agent configurations, and circuit breaker settings to active JSON.
+        Saves current enabled debate agents, agent configurations, circuit breaker,
+        and orchestration chain settings to active JSON.
         Resets emergency backup mode once active file is successfully saved.
         """
         target_file = self.active_settings_file
         try:
             data = {
+                "orchestration_mode": self.orchestration_mode,
+                "sandwich_config": {
+                    "start_chain": self.sandwich_start_chain,
+                    "end_chain": self.sandwich_end_chain,
+                },
+                "fixed_config": {
+                    "chain": self.fixed_chain,
+                },
                 "circuit_breaker_enabled": self.circuit_breaker_enabled,
                 "circuit_breaker_threshold_usd": self.circuit_breaker_threshold_usd,
                 "enabled_agents": sorted(list(self.enabled_agents)),
@@ -361,12 +411,58 @@ class AgentSettingsManager:
             self.backup_error_reason = None
             logger.info(
                 f"[SETTINGS] Saved settings ({len(self.enabled_agents)} enabled agents, "
+                f"mode='{self.orchestration_mode}', "
                 f"circuit_breaker={self.circuit_breaker_enabled}, "
                 f"threshold=${self.circuit_breaker_threshold_usd:.2f}) to {target_file.name}"
             )
             self.check_and_update_backup()
         except Exception as e:
             logger.error(f"[SETTINGS] Error saving agent settings: {e}")
+
+    def get_orchestration_mode(self) -> str:
+        return self.orchestration_mode
+
+    def set_orchestration_mode(self, mode: str, save: bool = True) -> None:
+        mode_clean = str(mode).strip().lower()
+        if mode_clean in ("sandwich", "fixed"):
+            self.orchestration_mode = mode_clean
+            if save:
+                self.save()
+            logger.info(f"[SETTINGS] Orchestration mode set to '{self.orchestration_mode}'.")
+
+    def get_sandwich_config(self) -> dict[str, list[str]]:
+        return {
+            "start_chain": list(self.sandwich_start_chain),
+            "end_chain": list(self.sandwich_end_chain),
+        }
+
+    def set_sandwich_config(
+        self, start_chain: list[str], end_chain: list[str], save: bool = True
+    ) -> None:
+        self.sandwich_start_chain = [
+            k for k in start_chain if isinstance(k, str) and k in self.agents_config
+        ]
+        self.sandwich_end_chain = [
+            k for k in end_chain if isinstance(k, str) and k in self.agents_config
+        ]
+        if save:
+            self.save()
+        logger.info(
+            f"[SETTINGS] Updated sandwich config: start_chain={self.sandwich_start_chain}, end_chain={self.sandwich_end_chain}"
+        )
+
+    def get_fixed_config(self) -> dict[str, list[str]]:
+        return {
+            "chain": list(self.fixed_chain),
+        }
+
+    def set_fixed_config(self, chain: list[str], save: bool = True) -> None:
+        self.fixed_chain = [
+            k for k in chain if isinstance(k, str) and k in self.agents_config
+        ]
+        if save:
+            self.save()
+        logger.info(f"[SETTINGS] Updated fixed config: chain={self.fixed_chain}")
 
     def is_circuit_breaker_enabled(self) -> bool:
         return self.circuit_breaker_enabled
@@ -399,21 +495,21 @@ class AgentSettingsManager:
         ).to_dict()
 
     def reset(self, save: bool = True) -> None:
-        """Resets all registered agents to enabled state."""
+        """Resets all registered agents to enabled state and resets orchestration mode to sandwich default."""
         self.enabled_agents.clear()
         self.enabled_agents.update(self.agents_config.keys())
+        self.orchestration_mode = "sandwich"
+        self.sandwich_start_chain = []
+        self.sandwich_end_chain = []
+        self.fixed_chain = []
         if save:
             self.save()
-        logger.info(f"[SETTINGS] Reset all {len(self.enabled_agents)} agents to ENABLED.")
+        logger.info(f"[SETTINGS] Reset all {len(self.enabled_agents)} agents to ENABLED and mode to default sandwich.")
 
     def get_enabled_agents(self) -> set[str]:
         return set(self.enabled_agents)
 
     def set_agent_enabled(self, agent_key: str, enabled: bool) -> bool:
-        if agent_key in self.locked_agents and not enabled:
-            logger.warning(f"[SETTINGS] Cannot disable locked agent '{agent_key}'. Ignoring request.")
-            return False
-
         if agent_key not in self.agents_config:
             logger.warning(f"[SETTINGS] Unknown agent key '{agent_key}'.")
             return False
@@ -440,6 +536,30 @@ settings_manager = AgentSettingsManager()
 ENABLED_DEBATE_AGENTS = settings_manager.enabled_agents
 CIRCUIT_BREAKER_ENABLED = settings_manager.circuit_breaker_enabled
 CIRCUIT_BREAKER_THRESHOLD_USD = settings_manager.circuit_breaker_threshold_usd
+
+
+def get_orchestration_mode() -> str:
+    return settings_manager.get_orchestration_mode()
+
+
+def set_orchestration_mode(mode: str, save: bool = True) -> None:
+    settings_manager.set_orchestration_mode(mode, save=save)
+
+
+def get_sandwich_config() -> dict[str, list[str]]:
+    return settings_manager.get_sandwich_config()
+
+
+def set_sandwich_config(start_chain: list[str], end_chain: list[str], save: bool = True) -> None:
+    settings_manager.set_sandwich_config(start_chain, end_chain, save=save)
+
+
+def get_fixed_config() -> dict[str, list[str]]:
+    return settings_manager.get_fixed_config()
+
+
+def set_fixed_config(chain: list[str], save: bool = True) -> None:
+    settings_manager.set_fixed_config(chain, save=save)
 
 
 def is_running_from_backup() -> bool:
@@ -496,3 +616,4 @@ def set_agent_enabled(agent_key: str, enabled: bool) -> bool:
 
 def toggle_agent(agent_key: str) -> bool:
     return settings_manager.toggle_agent(agent_key)
+

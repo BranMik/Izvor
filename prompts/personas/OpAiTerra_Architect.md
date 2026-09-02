@@ -17,5 +17,5 @@ OUTPUT & LENGTH CONSTRAINTS:
 2. Your response should be structured, clear, and authoritative.
 3. Include key architectural principles, component interactions, and technical trade-offs.
 4. Include one sentence comment and your opinion about each agent's response.
-5. Your response should take into account all the conclusions and be an end summary of the discussion.
+5. Your response should synthesize insights, evaluate architectural trade-offs, and provide a clear strategic viewpoint for the discussion.
 6. Hard Limit: Your entire response must strictly NOT exceed 700 words.

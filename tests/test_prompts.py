@@ -9,14 +9,13 @@ def test_all_17_agents_configured():
 def test_visionary_prompt_structure():
     prompt = AGENTS_CONFIG["Gemini_Visionary"]["system_prompt"]
     assert 'You are "The Visionary"' in prompt
-    assert "AnthrOpus_Sceptic" in prompt
     assert "OUTPUT & LENGTH CONSTRAINTS:" in prompt
 
 
 def test_architect_prompt_structure():
     prompt = AGENTS_CONFIG["OpAiTerra_Architect"]["system_prompt"]
     assert 'You are the "Chief Systems Architect"' in prompt
-    assert "end summary of the discussion" in prompt
+    assert "architectural trade-offs" in prompt
 
 
 def test_qa_lead_prompt_structure():
@@ -47,7 +46,6 @@ def test_intermediate_agents_contain_shared_skills():
         assert "1 sentence stating your core verdict/concern." in prompt
         # Nomination skill checks
         assert "nominate the next agent from the available list provided in the prompt" in prompt
-        assert "OpAiTerra_Architect" in prompt
 
 
 def test_pricing_agent_prompt_structure():
