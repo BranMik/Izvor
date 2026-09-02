@@ -45,9 +45,10 @@ class DebateOrchestrator:
         Locked agents like AnthrOpus_Sceptic are always included.
         """
         enabled = settings_manager.get_enabled_agents()
+        agents = settings_manager.agents_config or AGENTS_CONFIG
         return [
             key
-            for key in AGENTS_CONFIG
+            for key in agents
             if key in enabled
             and key not in ("OpAiTerra_Architect", "Gemini_Visionary")
         ]
@@ -59,10 +60,11 @@ class DebateOrchestrator:
         """
         matches = []
         cleaned = re.sub(r"<@[A-Z0-9]+>", "", text)
+        agents = settings_manager.agents_config or AGENTS_CONFIG
 
         for match in re.finditer(r"\[([a-zA-Z0-9_]+)\]", cleaned):
             tag = match.group(1).lower()
-            for key in AGENTS_CONFIG:
+            for key in agents:
                 if tag == key.lower():
                     matches.append((match.start(), key))
                     break
@@ -99,10 +101,11 @@ class DebateOrchestrator:
         _, cleaned_text = extract_history_limit(text)
         cleaned_text = re.sub(r"<@[A-Z0-9]+>", "", cleaned_text).strip()
 
+        agents = settings_manager.agents_config or AGENTS_CONFIG
         tag_matches = []
         for match in re.finditer(r"\[([a-zA-Z0-9_]+)\]", cleaned_text):
             tag = match.group(1)
-            for key in AGENTS_CONFIG:
+            for key in agents:
                 if tag.lower() == key.lower():
                     tag_matches.append((match, key, tag))
                     break
@@ -141,8 +144,9 @@ class DebateOrchestrator:
         pending_retries: list[str] | None = None,
     ) -> str:
         """Ensures that the agent's response nominates a valid agent according to panel flow rules."""
+        agents = settings_manager.agents_config or AGENTS_CONFIG
         if force_termination or current_agent_key == "OpAiTerra_Architect":
-            for key in AGENTS_CONFIG:
+            for key in agents:
                 text = re.sub(
                     r"\[" + re.escape(key) + r"\]", key, text, flags=re.IGNORECASE
                 )
@@ -151,7 +155,7 @@ class DebateOrchestrator:
         agent_tag_matches = []
         for match in re.finditer(r"\[([a-zA-Z0-9_]+)\]", text):
             tag_name = match.group(1)
-            for key in AGENTS_CONFIG:
+            for key in agents:
                 if tag_name.lower() == key.lower():
                     agent_tag_matches.append((match, key))
                     break

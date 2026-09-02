@@ -281,6 +281,170 @@ def is_stop_command(raw_text: str, is_mention_or_dm: bool = False) -> bool:
     return bool(STOP_COMMAND_PATTERN.search(raw_text))
 
 
+# ==============================================================================
+# 6. Exclude Agent Patterns (/exclude [Agent1] [Agent2]... & NL Phrasing)
+# ==============================================================================
+
+EXCLUDE_COMMAND_PATTERN = re.compile(
+    r"/exclude\s*[:=]?(?:\s*(?:\[[^\]]+\]|[\w\-]+))+(?:[,\s]+(?:\[[^\]]+\]|[\w\-]+))*",
+    re.IGNORECASE,
+)
+
+EXCLUDE_NL_PATTERNS = [
+    # English: "exclude [agent]", "exclude agent X from debate", "leave out X", "skip agent X", "without [agent]"
+    re.compile(
+        r"\b(?:exclude|leave\s+out|skip|omit|without|don't\s+include|do\s+not\s+include|remove)\s+(?:the\s+)?(?:agent\s+)?(\[[^\]]+\]|[a-zA-Z0-9_]+)(?:\s+from\s+(?:the\s+)?(?:debate|discussion|panel|conversation))?",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:debate|discuss)\s+.*?\bwithout\s+(?:the\s+)?(?:agent\s+)?(\[[^\]]+\]|[a-zA-Z0-9_]+)",
+        re.IGNORECASE,
+    ),
+    # Croatian: "isključi agenta X", "bez [agent]", "izostavi X iz rasprave", "nemoj uključiti agenta X", "preskoči X"
+    re.compile(
+        r"\b(?:isklju[čc]i|izostavi|presko[čc]i|makni|izbaci|ukloni|nemoj\s+uklju[čc]ivati|nemoj\s+uklju[čc]iti|bez)\s+(?:agenta\s+|agenticu\s+)?(\[[^\]]+\]|[a-zA-Z0-9_]+)(?:\s+(?:iz|u)\s+rasprav[a-z]*)?",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:raspravite|rasprava)\s+.*?\bbez\s+(?:agenta\s+|agentice\s+)?(\[[^\]]+\]|[a-zA-Z0-9_]+)",
+        re.IGNORECASE,
+    ),
+]
+
+
+def resolve_agent_name(name_str: str) -> str | None:
+    """
+    Resolves an agent name, tag, username, or alias string to its canonical AGENTS_CONFIG key.
+    Handles bracketed tokens (e.g. '[MistLar_TechLead]'), usernames ('MistLar TechLead'),
+    underscores, hyphens, casing, and unique role suffixes ('TechLead', 'Innovator', 'Sceptic').
+    """
+    if not name_str:
+        return None
+
+    agents = {}
+    try:
+        from orchestration.agent_settings import settings_manager
+        agents = settings_manager.agents_config
+    except Exception:
+        pass
+
+    if not agents:
+        try:
+            from core.config import AGENTS_CONFIG
+            agents = AGENTS_CONFIG
+        except Exception:
+            pass
+
+    cleaned = name_str.strip().strip("[]():,; \t").strip()
+    if not cleaned:
+        return None
+
+    # 1. Exact key match (case-insensitive)
+    for key in agents:
+        if cleaned.lower() == key.lower():
+            return key
+
+    # 2. Normalized key / username match (stripping whitespace, underscores, hyphens)
+    def normalize(s: str) -> str:
+        return re.sub(r"[\s_\-]+", "", s).lower()
+
+    norm_cleaned = normalize(cleaned)
+    if not norm_cleaned:
+        return None
+
+    for key, cfg in agents.items():
+        if norm_cleaned == normalize(key):
+            return key
+        username = cfg.get("username", "")
+        if username and norm_cleaned == normalize(username):
+            return key
+
+    # 3. Substring/role match against key or username if unique
+    matches = []
+    for key, cfg in agents.items():
+        if norm_cleaned in normalize(key):
+            matches.append(key)
+        elif cfg.get("username") and norm_cleaned in normalize(cfg["username"]):
+            matches.append(key)
+
+    unique_matches = list(dict.fromkeys(matches))
+    if len(unique_matches) == 1:
+        return unique_matches[0]
+
+    return None
+
+
+def extract_excluded_agents(text: str) -> tuple[list[str], str]:
+    """
+    Extracts excluded agent keys from text (via slash command /exclude [Agent1] [Agent2]...
+    or natural language phrasing in English and Croatian).
+    Returns (excluded_agent_keys: list[str], cleaned_text: str).
+    """
+    if not text:
+        return [], ""
+
+    excluded: list[str] = []
+    cleaned_text = text
+
+    # 1. Extract from slash commands: /exclude [Agent1] [Agent2] ...
+    token_pattern = re.compile(
+        r"(\s*(?:,|and|&)?\s*)(\[[^\]]+\]|[a-zA-Z0-9_]+)", re.IGNORECASE
+    )
+
+    while True:
+        match = re.search(r"/exclude\s*[:=]?", cleaned_text, re.IGNORECASE)
+        if not match:
+            break
+
+        start_idx = match.start()
+        curr_idx = match.end()
+        matched_tokens_span_end = curr_idx
+        remainder = cleaned_text[curr_idx:]
+
+        offset = 0
+        while True:
+            t_match = token_pattern.match(remainder[offset:])
+            if not t_match:
+                break
+            _, token = t_match.groups()
+            resolved = resolve_agent_name(token)
+            if resolved:
+                if resolved not in excluded:
+                    excluded.append(resolved)
+                offset += len(t_match.group(0))
+                matched_tokens_span_end = curr_idx + offset
+            elif token.startswith("[") and token.endswith("]"):
+                # Bracketed token after /exclude is consumed as part of command
+                offset += len(t_match.group(0))
+                matched_tokens_span_end = curr_idx + offset
+            else:
+                # Non-agent word token -> user prompt starts here
+                break
+
+        cmd_full_span = cleaned_text[start_idx:matched_tokens_span_end]
+        cleaned_text = cleaned_text[:start_idx] + " " + cleaned_text[matched_tokens_span_end:]
+
+    # 2. Extract from natural language patterns
+    for pattern in EXCLUDE_NL_PATTERNS:
+        while True:
+            match = pattern.search(cleaned_text)
+            if not match:
+                break
+            agent_token = match.group(1) if match.groups() else ""
+            resolved = resolve_agent_name(agent_token)
+            if resolved:
+                if resolved not in excluded:
+                    excluded.append(resolved)
+                matched_phrase = match.group(0)
+                cleaned_text = cleaned_text.replace(matched_phrase, " ", 1)
+            else:
+                # If cannot resolve agent, break to prevent infinite loop on this pattern
+                break
+
+    cleaned_text = re.sub(r"[ \t]+", " ", cleaned_text).strip()
+    return excluded, cleaned_text
+
+
 __all__ = [
     "HISTORY_COMMAND_PATTERN",
     "HISTORY_NL_PATTERNS",
@@ -296,4 +460,8 @@ __all__ = [
     "extract_file_instruction",
     "STOP_COMMAND_PATTERN",
     "is_stop_command",
+    "EXCLUDE_COMMAND_PATTERN",
+    "EXCLUDE_NL_PATTERNS",
+    "resolve_agent_name",
+    "extract_excluded_agents",
 ]

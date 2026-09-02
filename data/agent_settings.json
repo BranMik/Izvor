@@ -34,7 +34,7 @@
     "AnthrOpus_Innovator": {
       "model": "anthropic/claude-opus-5",
       "username": "AnthrOpus Innovator",
-      "icon_url": "static/v2/avatar_46.png"
+      "icon_url": "static/v2/avatar_25.png"
     },
     "MistLar_TechLead": {
       "model": "mistral/mistral-large-latest",
@@ -79,7 +79,7 @@
     "Gemini_ScalabilityEngineer": {
       "model": "gemini/gemini-3.7-flash",
       "username": "Gemini Scalability Engineer",
-      "icon_url": "static/v2/avatar_16.png"
+      "icon_url": "static/v2/avatar_14.png"
     },
     "MistLar_OperationalReliabilityLead": {
       "model": "mistral/mistral-large-latest",
@@ -89,7 +89,7 @@
     "MistLar_DeploymentReleaseStrategist": {
       "model": "mistral/mistral-large-latest",
       "username": "MistLar Deployment & Release Strategist",
-      "icon_url": "static/v2/avatar_17.png"
+      "icon_url": "static/v2/avatar_13.png"
     },
     "OpAiTerra_MarketAndCompetitionResearchExpert": {
       "model": "openai/gpt-5.6-terra",
