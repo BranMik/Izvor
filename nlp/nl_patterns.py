@@ -337,7 +337,7 @@ def resolve_agent_candidates(name_str: str) -> list[str]:
         except Exception:
             pass
 
-    cleaned = name_str.strip().strip("[]():,; \t").strip()
+    cleaned = name_str.strip().strip("[](){}:,; \t*~_").strip()
     if not cleaned:
         return []
 

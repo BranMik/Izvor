@@ -590,10 +590,13 @@ async def post_system_message(
     final_username = username or default_username
     final_icon = icon_url or default_icon
 
+    # Strip square brackets from system messages to avoid triggering Slack agent nomination / bracket parsers
+    sanitized_text = text.replace("[", "").replace("]", "")
+
     return await post_agent_response(
         channel_id=channel_id,
         thread_ts=thread_ts,
-        text=text,
+        text=sanitized_text,
         username=final_username,
         icon_url=final_icon,
     )

@@ -137,6 +137,7 @@ from .thread_state import (
 # Re-exports from debate_orchestrator
 from .debate_orchestrator import (
     detect_ambiguous_tags,
+    detect_unrecognized_tags,
     enforce_valid_nomination,
     extract_tagged_agents,
     get_initial_agents,
@@ -247,13 +248,14 @@ async def process_and_respond(
             )
             lines = ["⚠️ *Ambiguous Agent Reference*:"]
             for tag_str, candidates in ambiguous_tags:
-                lines.append(f"Tag `[{tag_str}]` matches multiple candidates:")
+                clean_tag = tag_str.strip("[](){}:,; \t*~_")
+                lines.append(f"Tag '{clean_tag}' matches multiple candidates:")
                 for cand in candidates:
                     cfg = (settings_manager.agents_config or AGENTS_CONFIG).get(cand, {})
                     cand_username = cfg.get("username", cand)
-                    lines.append(f"• `{cand}` ({cand_username})")
+                    lines.append(f"• {cand} ({cand_username})")
             first_suggestion = ambiguous_tags[0][1][0]
-            lines.append(f"\nPlease specify the exact agent tag (e.g. `[{first_suggestion}]`) to proceed.")
+            lines.append(f"\nPlease specify the exact agent name (e.g. '{first_suggestion}') to proceed.")
             warning_msg = "\n".join(lines)
 
             await post_system_message(
@@ -266,6 +268,30 @@ async def process_and_respond(
                 "halted": True,
                 "reason": "ambiguous_agent",
                 "ambiguous_tags": ambiguous_tags,
+            }
+
+        unrecognized_tags = detect_unrecognized_tags(raw_text_cleaned)
+        if unrecognized_tags:
+            logger.warning(
+                f"[ROUTER] Unrecognized agent tag(s) detected in user prompt for thread {thread_key}: {unrecognized_tags}. Halting turn."
+            )
+            lines = ["⚠️ *Unrecognized Agent Tag*:"]
+            for tag_str in unrecognized_tags:
+                clean_tag = tag_str.strip("[](){}:,; \t*~_")
+                lines.append(f"Tag '{clean_tag}' could not be matched to any active agent.")
+            lines.append("\nPlease check the agent name or tag a valid agent (e.g. 'Gemini_Visionary', 'MistLar_TechLead', 'AnthrOpus_Innovator') to proceed.")
+            warning_msg = "\n".join(lines)
+
+            await post_system_message(
+                channel_id=channel_id,
+                thread_ts=thread_ts,
+                text=warning_msg,
+            )
+            return {
+                "ok": False,
+                "halted": True,
+                "reason": "unrecognized_agent",
+                "unrecognized_tags": unrecognized_tags,
             }
 
         agent_key, prompt, was_explicit_target = parse_agent_and_prompt(
@@ -687,7 +713,7 @@ async def process_and_respond(
             f"{final_text.strip()}\n\n[{total_prompt_tokens}/{total_completion_tokens}]"
         )
 
-        generated_tags = re.findall(r"\[([a-zA-Z0-9_]+)\]", final_text)
+        generated_tags = re.findall(r"[\[{]\s*([^\]}\r\n]+?)\s*[\]}]", final_text)
         logger.info(
             f"[ROUTER] Agent {agent_key} generated tag(s): {generated_tags}. Full text length: {len(final_text)}"
         )

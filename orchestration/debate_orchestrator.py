@@ -10,6 +10,9 @@ from .thread_state import REMAINING_AGENTS_MAP, thread_state_manager
 logger = logging.getLogger(__name__)
 
 
+TAG_REGEX = re.compile(r"[\[{]\s*([^\]}\r\n]+?)\s*[\]}]")
+
+
 class DebateOrchestrator:
     """Orchestrates panel speaker turn-taking, bracketed agent tag parsing, and nomination handoffs."""
 
@@ -79,13 +82,33 @@ class DebateOrchestrator:
         Returns a list of tuples: [(raw_tag_str, [matching_candidate_keys])]
         """
         cleaned = re.sub(r"<@[A-Z0-9]+>", "", text)
+        cleaned = re.sub(r"\[([^\]]+)\]\([^\)]+\)", "", cleaned)
         ambiguous = []
-        for match in re.finditer(r"\[([a-zA-Z0-9_]+)\]", cleaned):
-            tag_str = match.group(1)
+        for match in TAG_REGEX.finditer(cleaned):
+            tag_str = match.group(1).strip()
+            if not tag_str or re.fullmatch(r"\d+(?:[/\-:]\d+)?", tag_str):
+                continue
             candidates = resolve_agent_candidates(tag_str)
             if len(candidates) > 1:
                 ambiguous.append((tag_str, candidates))
         return ambiguous
+
+    def detect_unrecognized_tags(self, text: str) -> list[str]:
+        """
+        Scans message text for bracketed tokens [tag] that do NOT match any active agent.
+        Returns a list of unmatched raw tag strings: [unmatched_tag_str1, ...]
+        """
+        cleaned = re.sub(r"<@[A-Z0-9]+>", "", text)
+        cleaned = re.sub(r"\[([^\]]+)\]\([^\)]+\)", "", cleaned)
+        unrecognized = []
+        for match in TAG_REGEX.finditer(cleaned):
+            tag_str = match.group(1).strip()
+            if not tag_str or re.fullmatch(r"\d+(?:[/\-:]\d+)?", tag_str):
+                continue
+            candidates = resolve_agent_candidates(tag_str)
+            if len(candidates) == 0:
+                unrecognized.append(tag_str)
+        return unrecognized
 
     def extract_tagged_agents(self, text: str) -> list[str]:
         """
@@ -95,7 +118,7 @@ class DebateOrchestrator:
         matches = []
         cleaned = re.sub(r"<@[A-Z0-9]+>", "", text)
 
-        for match in re.finditer(r"\[([a-zA-Z0-9_]+)\]", cleaned):
+        for match in TAG_REGEX.finditer(cleaned):
             resolved_key = resolve_agent_name(match.group(1))
             if resolved_key:
                 matches.append((match.start(), resolved_key))
@@ -133,7 +156,7 @@ class DebateOrchestrator:
         cleaned_text = re.sub(r"<@[A-Z0-9]+>", "", cleaned_text).strip()
 
         tag_matches = []
-        for match in re.finditer(r"\[([a-zA-Z0-9_]+)\]", cleaned_text):
+        for match in TAG_REGEX.finditer(cleaned_text):
             raw_tag = match.group(1)
             resolved_key = resolve_agent_name(raw_tag)
             if resolved_key:
@@ -150,7 +173,8 @@ class DebateOrchestrator:
                 matched_item = tag_matches[0]
 
             match, matched_key, raw_tag = matched_item
-            prompt = re.sub(r"\[" + re.escape(raw_tag) + r"\]", "", cleaned_text).strip()
+            prompt = re.sub(re.escape(match.group(0)), "", cleaned_text).strip()
+            prompt = re.sub(r"^\*+|\*+$", "", prompt).strip()
             if matched_key in remaining:
                 remaining.remove(matched_key)
             return matched_key, prompt, True
@@ -196,7 +220,7 @@ class DebateOrchestrator:
             return text.strip()
 
         agent_tag_matches = []
-        for match in re.finditer(r"\[([a-zA-Z0-9_]+)\]", text):
+        for match in TAG_REGEX.finditer(text):
             raw_tag = match.group(1)
             resolved_key = resolve_agent_name(raw_tag)
             if resolved_key:
@@ -292,6 +316,10 @@ def get_initial_agents() -> list[str]:
 
 def detect_ambiguous_tags(text: str) -> list[tuple[str, list[str]]]:
     return debate_orchestrator.detect_ambiguous_tags(text)
+
+
+def detect_unrecognized_tags(text: str) -> list[str]:
+    return debate_orchestrator.detect_unrecognized_tags(text)
 
 
 def extract_tagged_agents(text: str) -> list[str]:

@@ -157,6 +157,10 @@ def test_resolve_agent_name():
     assert resolve_agent_name("[Gemini_Vis]") == "Gemini_Visionary"
     assert resolve_agent_name("Gemini_Vis") == "Gemini_Visionary"
     assert resolve_agent_name("[OpAiTerra_Arch]") == "OpAiTerra_Architect"
+    assert resolve_agent_name("[AnthrOpus Inn]") == "AnthrOpus_Innovator"
+    assert resolve_agent_name("[AnthrOpus Inn}") == "AnthrOpus_Innovator"
+    assert resolve_agent_name("*[OpAiTerra_Mark]*") == "OpAiTerra_MarketAndCompetitionResearchExpert"
+    assert resolve_agent_name("[OpAiTerra_Mark]") == "OpAiTerra_MarketAndCompetitionResearchExpert"
     assert resolve_agent_name("NonExistentAgent") is None
     assert resolve_agent_name("") is None
 
