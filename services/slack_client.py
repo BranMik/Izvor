@@ -38,6 +38,9 @@ def build_app_home_view(
         get_backup_error_reason,
         get_circuit_breaker_config,
         get_enabled_agents,
+        get_fixed_config,
+        get_orchestration_mode,
+        get_sandwich_config,
         is_running_from_backup,
     )
 
@@ -54,6 +57,14 @@ def build_app_home_view(
         if cb_enabled
         else "🔴 *Isključeno (OFF)*"
     )
+
+    orch_mode = get_orchestration_mode()
+    sandwich_cfg = get_sandwich_config()
+    fixed_cfg = get_fixed_config()
+
+    start_chain_str = ", ".join(sandwich_cfg.get("start_chain", []))
+    end_chain_str = ", ".join(sandwich_cfg.get("end_chain", []))
+    fixed_chain_str = ", ".join(fixed_cfg.get("chain", []))
 
     total_agents = len(AGENTS_CONFIG)
     active_count = len(enabled_agents)
@@ -128,18 +139,10 @@ def build_app_home_view(
             "text": {
                 "type": "mrkdwn",
                 "text": (
-                    "*⚡ Sigurnosni Circuit-Breaker (Ograničenje troškova po threadu)*\n"
-                    "Automatski prekida daljnje pozive agenata u threadu ako zbroj troškova pređe definirani limit. "
-                    "U slučaju prekida, agent ispisuje poruku `EXPENSE LIMIT REACHED FOR THE THREAD. ENDING CALLS`."
+                    f"*🛡️ Thread Circuit Breaker (Sigurnosni limit troškova):*\n"
+                    f"Status: {cb_status_str}\n"
+                    f"Aktivni agenti u panelu: *{active_count}/{total_agents}*"
                 ),
-            },
-        },
-        {
-            "type": "section",
-            "block_id": f"cb_toggle_section_{'on' if cb_enabled else 'off'}",
-            "text": {
-                "type": "mrkdwn",
-                "text": f"*Uključi/Isključi Circuit-Breaker:*\n_{cb_status_str}_",
             },
             "accessory": {
                 "type": "radio_buttons",
@@ -231,7 +234,182 @@ def build_app_home_view(
             "type": "section",
             "text": {
                 "type": "mrkdwn",
-                "text": "*👥 Konfiguracija agenata za automatsku raspravu:*",
+                "text": (
+                    f"*🔀 Način orkestracije rasprave (Orchestration Mode):*\n"
+                    f"Trenutni način: *{'🥪 Sandwich Chain (Start ➔ Sredina ➔ End)' if orch_mode == 'sandwich' else '🎯 Fixed Sequence (Strogi lanac)'}*"
+                ),
+            },
+            "accessory": {
+                "type": "radio_buttons",
+                "action_id": "select_orchestration_mode",
+                "options": [
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "🥪 Sandwich Flow",
+                            "emoji": True,
+                        },
+                        "value": "mode:sandwich",
+                    },
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "🎯 Fixed Sequence",
+                            "emoji": True,
+                        },
+                        "value": "mode:fixed",
+                    },
+                ],
+                "initial_option": {
+                    "text": {
+                        "type": "plain_text",
+                        "text": "🥪 Sandwich Flow" if orch_mode == "sandwich" else "🎯 Fixed Sequence",
+                        "emoji": True,
+                    },
+                    "value": f"mode:{orch_mode}",
+                },
+            },
+        },
+    ])
+
+    # Mode-specific chain configuration UI
+    if orch_mode == "sandwich":
+        blocks.extend([
+            {
+                "type": "context",
+                "elements": [
+                    {
+                        "type": "mrkdwn",
+                        "text": "ℹ️ *Sandwich Flow:* Započinje sa _Start Chain_, nastavlja s preostalim uključenim agentima u _sredini (proizvoljno)_, i završava sa _End Chain_. Ako su lanci prazni, redoslijed je 100% proizvoljan.",
+                    }
+                ],
+            },
+            {
+                "type": "input",
+                "block_id": "sandwich_start_chain_block",
+                "dispatch_action": True,
+                "element": {
+                    "type": "plain_text_input",
+                    "action_id": "set_start_chain_input",
+                    "initial_value": start_chain_str,
+                    "placeholder": {
+                        "type": "plain_text",
+                        "text": "npr. Gemini_Visionary, AnthrOpus_Innovator (odvojeno zarezom)",
+                    },
+                },
+                "label": {
+                    "type": "plain_text",
+                    "text": "🚩 Početni lanac (Start Chain):",
+                    "emoji": True,
+                },
+            },
+            {
+                "type": "input",
+                "block_id": "sandwich_end_chain_block",
+                "dispatch_action": True,
+                "element": {
+                    "type": "plain_text_input",
+                    "action_id": "set_end_chain_input",
+                    "initial_value": end_chain_str,
+                    "placeholder": {
+                        "type": "plain_text",
+                        "text": "npr. OpAiTerra_Architect (odvojeno zarezom)",
+                    },
+                },
+                "label": {
+                    "type": "plain_text",
+                    "text": "🏁 Završni lanac (End Chain):",
+                    "emoji": True,
+                },
+            },
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {
+                            "type": "plain_text",
+                            "text": "💾 Spremi Sandwich lance",
+                            "emoji": True,
+                        },
+                        "action_id": "save_sandwich_chains_button",
+                        "style": "primary",
+                    },
+                    {
+                        "type": "button",
+                        "text": {
+                            "type": "plain_text",
+                            "text": "🗑️ Očisti lance (Proizvoljno)",
+                            "emoji": True,
+                        },
+                        "action_id": "clear_sandwich_chains_button",
+                    },
+                ],
+            },
+        ])
+    else:
+        blocks.extend([
+            {
+                "type": "context",
+                "elements": [
+                    {
+                        "type": "mrkdwn",
+                        "text": "ℹ️ *Fixed Sequence Flow:* Samo navedeni agenti sudjeluju u raspravi po točnom redoslijedu. Ako je lanac prazan, svi uključeni agenti sudjeluju proizvoljnim redoslijedom.",
+                    }
+                ],
+            },
+            {
+                "type": "input",
+                "block_id": "fixed_chain_block",
+                "dispatch_action": True,
+                "element": {
+                    "type": "plain_text_input",
+                    "action_id": "set_fixed_chain_input",
+                    "initial_value": fixed_chain_str,
+                    "placeholder": {
+                        "type": "plain_text",
+                        "text": "npr. MistLar_TechLead, AnthrOpus_Innovator, OpAiTerra_Architect",
+                    },
+                },
+                "label": {
+                    "type": "plain_text",
+                    "text": "🎯 Fiksni redoslijed agenata (Fixed Chain Sequence):",
+                    "emoji": True,
+                },
+            },
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {
+                            "type": "plain_text",
+                            "text": "💾 Spremi Fiksni lanac",
+                            "emoji": True,
+                        },
+                        "action_id": "save_fixed_chain_button",
+                        "style": "primary",
+                    },
+                    {
+                        "type": "button",
+                        "text": {
+                            "type": "plain_text",
+                            "text": "🗑️ Očisti lanac (Proizvoljno)",
+                            "emoji": True,
+                        },
+                        "action_id": "clear_fixed_chain_button",
+                    },
+                ],
+            },
+        ])
+
+    blocks.extend([
+        {"type": "divider"},
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": "*👥 Konfiguracija agenata u panelu (Uključeno/Isključeno):*",
             },
         },
         {
@@ -251,71 +429,18 @@ def build_app_home_view(
                     "type": "button",
                     "text": {
                         "type": "plain_text",
-                        "text": "🔒 Samo obavezni agenti",
+                        "text": "❌ Isključi sve agente",
                         "emoji": True,
                     },
-                    "action_id": "bulk_disable_optional",
+                    "action_id": "bulk_disable_all",
                 },
             ],
         },
         {"type": "divider"},
-        {
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": "*🔒 Obavezni agenti (uvijek uključeni u automatsku debatu):*",
-            },
-        },
     ])
 
-    # 1. Add locked agents first
-    for key in ("Gemini_Visionary", "AnthrOpus_Sceptic", "OpAiTerra_Architect"):
-        cfg = AGENTS_CONFIG.get(key, {})
-        username = cfg.get("username", key)
-        model = cfg.get("model", "")
-        role_desc = {
-            "Gemini_Visionary": "🎯 Početni agent & Moderator rasprave",
-            "AnthrOpus_Sceptic": "🔍 Kritička analiza & Preispitivanje pretpostavki",
-            "OpAiTerra_Architect": "🏛️ Glavni arhitekt & Završni konsenzus",
-        }.get(key, "Obavezni član panela")
-
-        blocks.append(
-            {
-                "type": "section",
-                "block_id": f"locked_agent_block_{key}",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": f"*{username}*  •  `{model}`\n_{role_desc}_",
-                },
-                "accessory": {
-                    "type": "button",
-                    "text": {
-                        "type": "plain_text",
-                        "text": "🔒 Locked ON",
-                        "emoji": True,
-                    },
-                    "action_id": f"locked_agent_{key}",
-                    "value": "locked",
-                },
-            }
-        )
-
-    blocks.append({"type": "divider"})
-    blocks.append(
-        {
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": "*⚙️ Konfigurabilni agenti za automatsku debatu:*",
-            },
-        }
-    )
-
-    # 2. Add toggleable agents with radio buttons (ON/OFF)
+    # Render all agents as fully toggleable items
     for key, cfg in AGENTS_CONFIG.items():
-        if key in LOCKED_AGENTS:
-            continue
-
         username = cfg.get("username", key)
         model = cfg.get("model", "")
         is_on = key in enabled_agents
@@ -360,7 +485,7 @@ def build_app_home_view(
             "elements": [
                 {
                     "type": "mrkdwn",
-                    "text": "⚡ _CaiLogics Multi-Agent Platform • Promjene stupaju na snagu odmah za nove rasprave._",
+                    "text": "⚡ _CaiLogics Multi-Agent Platform • Postavke stupaju na snagu odmah za sve nove rasprave._",
                 }
             ],
         }
@@ -430,6 +555,48 @@ async def post_agent_response(
     except SlackApiError as e:
         logger.error(f"Error posting message to Slack: {e.response['error']}")
         raise
+
+
+async def post_system_message(
+    channel_id: str,
+    thread_ts: str,
+    text: str,
+    username: str = None,
+    icon_url: str = None,
+) -> dict[str, Any]:
+    """
+    Posts a system warning/notice message to a Slack thread using the System Agent persona.
+    """
+    default_username = "Panel System"
+    default_icon = "static/v2/avatar_47.png"
+
+    try:
+        from core.config import SYSTEM_AGENT_USERNAME, SYSTEM_AGENT_AVATAR
+        default_username = SYSTEM_AGENT_USERNAME
+        default_icon = SYSTEM_AGENT_AVATAR
+    except Exception:
+        pass
+
+    try:
+        from orchestration.agent_settings import settings_manager
+        sys_cfg = settings_manager.system_agents_config.get("system_agent", {})
+        if sys_cfg.get("username"):
+            default_username = sys_cfg["username"]
+        if sys_cfg.get("icon_url"):
+            default_icon = sys_cfg["icon_url"]
+    except Exception:
+        pass
+
+    final_username = username or default_username
+    final_icon = icon_url or default_icon
+
+    return await post_agent_response(
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        text=text,
+        username=final_username,
+        icon_url=final_icon,
+    )
 
 
 async def fetch_thread_history(

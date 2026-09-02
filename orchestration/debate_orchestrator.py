@@ -3,7 +3,7 @@ import re
 from typing import Any
 
 from core.config import AGENTS_CONFIG, DEFAULT_AGENT_KEY
-from nlp.nl_patterns import extract_history_limit
+from nlp.nl_patterns import extract_history_limit, resolve_agent_candidates, resolve_agent_name
 from .agent_settings import ENABLED_DEBATE_AGENTS, settings_manager
 from .thread_state import REMAINING_AGENTS_MAP, thread_state_manager
 
@@ -41,33 +41,64 @@ class DebateOrchestrator:
 
     def get_initial_agents(self) -> list[str]:
         """
-        Returns list of enabled optional agents that should speak in the discussion flow.
-        Locked agents like AnthrOpus_Sceptic are always included.
+        Returns list of agents that should participate in the discussion flow based on active orchestration mode.
+        - Fixed mode: returns fixed_config['chain'] if non-empty, else all enabled agents.
+        - Sandwich mode: returns start_chain + middle_pool (enabled minus start/end) + end_chain.
+          If both start and end chains are empty, returns all enabled agents.
         """
-        enabled = settings_manager.get_enabled_agents()
+        mode = settings_manager.get_orchestration_mode()
+        enabled = list(settings_manager.get_enabled_agents())
         agents = settings_manager.agents_config or AGENTS_CONFIG
-        return [
-            key
-            for key in agents
-            if key in enabled
-            and key not in ("OpAiTerra_Architect", "Gemini_Visionary")
+
+        if mode == "fixed":
+            fixed_cfg = settings_manager.get_fixed_config()
+            chain = [k for k in fixed_cfg.get("chain", []) if k in agents]
+            if chain:
+                return list(chain)
+            return [k for k in agents if k in enabled]
+
+        # Sandwich mode
+        sandwich_cfg = settings_manager.get_sandwich_config()
+        start_chain = [k for k in sandwich_cfg.get("start_chain", []) if k in agents]
+        end_chain = [k for k in sandwich_cfg.get("end_chain", []) if k in agents]
+
+        # Middle pool: enabled agents not in start_chain and not in end_chain
+        middle_pool = [
+            k for k in agents
+            if k in enabled and k not in start_chain and k not in end_chain
         ]
+
+        full_flow = start_chain + middle_pool + end_chain
+        if not full_flow:
+            return [k for k in agents if k in enabled]
+        return full_flow
+
+    def detect_ambiguous_tags(self, text: str) -> list[tuple[str, list[str]]]:
+        """
+        Scans message text for bracketed tokens [tag] that match multiple candidate agents.
+        Returns a list of tuples: [(raw_tag_str, [matching_candidate_keys])]
+        """
+        cleaned = re.sub(r"<@[A-Z0-9]+>", "", text)
+        ambiguous = []
+        for match in re.finditer(r"\[([a-zA-Z0-9_]+)\]", cleaned):
+            tag_str = match.group(1)
+            candidates = resolve_agent_candidates(tag_str)
+            if len(candidates) > 1:
+                ambiguous.append((tag_str, candidates))
+        return ambiguous
 
     def extract_tagged_agents(self, text: str) -> list[str]:
         """
-        Extracts all valid agent keys tagged in [Agent_Key] format in the text,
-        ordered by their appearance in the text.
+        Extracts all valid unambiguous agent keys tagged in [Agent_Key] format in the text,
+        ordered by their appearance in the text. Supports partial and role-based tags.
         """
         matches = []
         cleaned = re.sub(r"<@[A-Z0-9]+>", "", text)
-        agents = settings_manager.agents_config or AGENTS_CONFIG
 
         for match in re.finditer(r"\[([a-zA-Z0-9_]+)\]", cleaned):
-            tag = match.group(1).lower()
-            for key in agents:
-                if tag == key.lower():
-                    matches.append((match.start(), key))
-                    break
+            resolved_key = resolve_agent_name(match.group(1))
+            if resolved_key:
+                matches.append((match.start(), resolved_key))
 
         matches.sort(key=lambda x: x[0])
 
@@ -101,38 +132,49 @@ class DebateOrchestrator:
         _, cleaned_text = extract_history_limit(text)
         cleaned_text = re.sub(r"<@[A-Z0-9]+>", "", cleaned_text).strip()
 
-        agents = settings_manager.agents_config or AGENTS_CONFIG
         tag_matches = []
         for match in re.finditer(r"\[([a-zA-Z0-9_]+)\]", cleaned_text):
-            tag = match.group(1)
-            for key in agents:
-                if tag.lower() == key.lower():
-                    tag_matches.append((match, key, tag))
-                    break
+            raw_tag = match.group(1)
+            resolved_key = resolve_agent_name(raw_tag)
+            if resolved_key:
+                tag_matches.append((match, resolved_key, raw_tag))
 
         if tag_matches:
             matched_item = None
-            for match, key, tag in tag_matches:
+            for match, key, raw_tag in tag_matches:
                 if key in remaining:
-                    matched_item = (match, key, tag)
+                    matched_item = (match, key, raw_tag)
                     break
 
             if not matched_item:
-                for match, key, tag in tag_matches:
-                    if key == "OpAiTerra_Architect" and not remaining:
-                        matched_item = (match, key, tag)
-                        break
-                if not matched_item:
-                    matched_item = tag_matches[0]
+                matched_item = tag_matches[0]
 
-            match, matched_key, tag = matched_item
-            prompt = re.sub(r"\[" + re.escape(tag) + r"\]", "", cleaned_text).strip()
+            match, matched_key, raw_tag = matched_item
+            prompt = re.sub(r"\[" + re.escape(raw_tag) + r"\]", "", cleaned_text).strip()
             if matched_key in remaining:
                 remaining.remove(matched_key)
             return matched_key, prompt, True
 
-        if DEFAULT_AGENT_KEY in remaining:
-            remaining.remove(DEFAULT_AGENT_KEY)
+        if remaining:
+            mode = settings_manager.get_orchestration_mode()
+            if mode == "fixed":
+                fixed_cfg = settings_manager.get_fixed_config()
+                if fixed_cfg.get("chain"):
+                    first_agent = remaining.pop(0)
+                    return first_agent, cleaned_text, False
+            elif mode == "sandwich":
+                sandwich_cfg = settings_manager.get_sandwich_config()
+                if sandwich_cfg.get("start_chain"):
+                    first_agent = remaining.pop(0)
+                    return first_agent, cleaned_text, False
+
+            if DEFAULT_AGENT_KEY in remaining:
+                remaining.remove(DEFAULT_AGENT_KEY)
+                return DEFAULT_AGENT_KEY, cleaned_text, False
+
+            first_agent = remaining.pop(0)
+            return first_agent, cleaned_text, False
+
         return DEFAULT_AGENT_KEY, cleaned_text, False
 
     def enforce_valid_nomination(
@@ -142,23 +184,33 @@ class DebateOrchestrator:
         remaining: list[str],
         force_termination: bool,
         pending_retries: list[str] | None = None,
+        designated_next_agent: str | None = None,
     ) -> str:
         """Ensures that the agent's response nominates a valid agent according to panel flow rules."""
         agents = settings_manager.agents_config or AGENTS_CONFIG
-        if force_termination or current_agent_key == "OpAiTerra_Architect":
+        if force_termination:
             for key in agents:
                 text = re.sub(
                     r"\[" + re.escape(key) + r"\]", key, text, flags=re.IGNORECASE
                 )
-            return text
+            return text.strip()
 
         agent_tag_matches = []
         for match in re.finditer(r"\[([a-zA-Z0-9_]+)\]", text):
-            tag_name = match.group(1)
-            for key in agents:
-                if tag_name.lower() == key.lower():
-                    agent_tag_matches.append((match, key))
-                    break
+            raw_tag = match.group(1)
+            resolved_key = resolve_agent_name(raw_tag)
+            if resolved_key:
+                agent_tag_matches.append((match, resolved_key))
+
+        if designated_next_agent:
+            if agent_tag_matches:
+                last_match, last_key = agent_tag_matches[-1]
+                if last_key == designated_next_agent:
+                    return text
+                start, end = last_match.span()
+                return text[:start] + f"[{designated_next_agent}]" + text[end:]
+            else:
+                return f"{text.strip()}\n\n[{designated_next_agent}]"
 
         if remaining:
             valid_nomination = None
@@ -216,20 +268,11 @@ class DebateOrchestrator:
                     )
                     return f"{text.strip()}\n\n[{fallback_retry}]"
             else:
-                if agent_tag_matches:
-                    last_match, last_key = agent_tag_matches[-1]
-                    if last_key == "OpAiTerra_Architect":
-                        return text
-                    logger.info(
-                        f"[ORCHESTRATOR] All agents finished. Correcting tag '[{last_key}]' to [OpAiTerra_Architect]."
+                for key in agents:
+                    text = re.sub(
+                        r"\[" + re.escape(key) + r"\]", key, text, flags=re.IGNORECASE
                     )
-                    start, end = last_match.span()
-                    return text[:start] + "[OpAiTerra_Architect]" + text[end:]
-                else:
-                    logger.info(
-                        f"[ORCHESTRATOR] All agents finished. Appending [OpAiTerra_Architect] for final summary."
-                    )
-                    return f"{text.strip()}\n\n[OpAiTerra_Architect]"
+                return text.strip()
 
 
 # Default singleton instance
@@ -245,6 +288,10 @@ def resolve_target_file(
 
 def get_initial_agents() -> list[str]:
     return debate_orchestrator.get_initial_agents()
+
+
+def detect_ambiguous_tags(text: str) -> list[tuple[str, list[str]]]:
+    return debate_orchestrator.detect_ambiguous_tags(text)
 
 
 def extract_tagged_agents(text: str) -> list[str]:
@@ -263,7 +310,9 @@ def enforce_valid_nomination(
     remaining: list[str],
     force_termination: bool,
     pending_retries: list[str] | None = None,
+    designated_next_agent: str | None = None,
 ) -> str:
     return debate_orchestrator.enforce_valid_nomination(
-        text, current_agent_key, remaining, force_termination, pending_retries
+        text, current_agent_key, remaining, force_termination, pending_retries, designated_next_agent
     )
+

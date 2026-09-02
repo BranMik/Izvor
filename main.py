@@ -12,10 +12,14 @@ from fastapi.staticfiles import StaticFiles
 from starlette.requests import ClientDisconnect
 
 from core.config import AGENTS_CONFIG
+from nlp.nl_patterns import resolve_agent_candidates
 from orchestration.agent_router import (
     LOCKED_AGENTS,
     get_circuit_breaker_config,
     get_circuit_breaker_threshold,
+    get_fixed_config,
+    get_orchestration_mode,
+    get_sandwich_config,
     interrupt_thread_discussion,
     is_circuit_breaker_enabled,
     is_discussion_active,
@@ -28,6 +32,9 @@ from orchestration.agent_router import (
     set_agent_enabled,
     set_circuit_breaker_enabled,
     set_circuit_breaker_threshold,
+    set_fixed_config,
+    set_orchestration_mode,
+    set_sandwich_config,
     toggle_agent,
 )
 from services.pricing_service import warm_up_pricing_cache
@@ -202,7 +209,7 @@ async def slack_events(request: Request, background_tasks: BackgroundTasks):
                 has_tag = False
                 for match in re.finditer(r"\[([a-zA-Z0-9_]+)\]", raw_text):
                     tag = match.group(1)
-                    if any(tag.lower() == k.lower() for k in AGENTS_CONFIG):
+                    if resolve_agent_candidates(tag):
                         has_tag = True
                         break
 
@@ -370,25 +377,19 @@ async def slack_interactivity(request: Request, background_tasks: BackgroundTask
                     )
             elif action_id == "save_circuit_breaker_threshold_button":
                 val_str = ""
-                # First search dynamically for the action_id inside any block in view_state
+                # Search dynamically for the action_id inside any block in view_state
                 if isinstance(view_state, dict):
                     for block_id, block_val in view_state.items():
                         if isinstance(block_val, dict) and "set_circuit_breaker_threshold_input" in block_val:
                             val_str = block_val["set_circuit_breaker_threshold_input"].get("value", "")
                             if val_str:
                                 break
-                    # Fallback to direct key if not found
                     if not val_str:
                         block_vals = view_state.get("circuit_breaker_threshold_block", {})
                         if isinstance(block_vals, dict):
                             val_obj = block_vals.get("set_circuit_breaker_threshold_input", {})
                             if isinstance(val_obj, dict):
                                 val_str = val_obj.get("value", "")
-                            elif not val_str:
-                                for v in block_vals.values():
-                                    if isinstance(v, dict) and "value" in v:
-                                        val_str = v.get("value", "")
-                                        break
                 try:
                     val_clean = str(val_str).strip().replace("$", "").replace(",", ".")
                     val_float = float(val_clean)
@@ -405,6 +406,51 @@ async def slack_interactivity(request: Request, background_tasks: BackgroundTask
                     set_circuit_breaker_threshold(val_float)
                 except (ValueError, TypeError):
                     pass
+            elif action_id == "select_orchestration_mode":
+                selected_option = action.get("selected_option", {})
+                val = selected_option.get("value", "")
+                if val.startswith("mode:"):
+                    mode = val.split(":", 1)[1]
+                    set_orchestration_mode(mode)
+            elif action_id == "save_sandwich_chains_button":
+                start_val = ""
+                end_val = ""
+                if isinstance(view_state, dict):
+                    for block_id, block_val in view_state.items():
+                        if isinstance(block_val, dict):
+                            if "set_start_chain_input" in block_val:
+                                start_val = block_val["set_start_chain_input"].get("value") or ""
+                            if "set_end_chain_input" in block_val:
+                                end_val = block_val["set_end_chain_input"].get("value") or ""
+                start_chain = [k.strip() for k in start_val.split(",") if k.strip()]
+                end_chain = [k.strip() for k in end_val.split(",") if k.strip()]
+                set_sandwich_config(start_chain, end_chain)
+            elif action_id == "clear_sandwich_chains_button":
+                set_sandwich_config([], [])
+            elif action_id == "set_start_chain_input":
+                curr_sandwich = get_sandwich_config()
+                val_str = action.get("value", "")
+                start_chain = [k.strip() for k in val_str.split(",") if k.strip()]
+                set_sandwich_config(start_chain, curr_sandwich.get("end_chain", []))
+            elif action_id == "set_end_chain_input":
+                curr_sandwich = get_sandwich_config()
+                val_str = action.get("value", "")
+                end_chain = [k.strip() for k in val_str.split(",") if k.strip()]
+                set_sandwich_config(curr_sandwich.get("start_chain", []), end_chain)
+            elif action_id == "save_fixed_chain_button":
+                fixed_val = ""
+                if isinstance(view_state, dict):
+                    for block_id, block_val in view_state.items():
+                        if isinstance(block_val, dict) and "set_fixed_chain_input" in block_val:
+                            fixed_val = block_val["set_fixed_chain_input"].get("value") or ""
+                chain = [k.strip() for k in fixed_val.split(",") if k.strip()]
+                set_fixed_config(chain)
+            elif action_id == "clear_fixed_chain_button":
+                set_fixed_config([])
+            elif action_id == "set_fixed_chain_input":
+                val_str = action.get("value", "")
+                chain = [k.strip() for k in val_str.split(",") if k.strip()]
+                set_fixed_config(chain)
             elif action_id.startswith("toggle_agent_radio:"):
                 selected_option = action.get("selected_option", {})
                 val = selected_option.get("value", "")
@@ -417,10 +463,9 @@ async def slack_interactivity(request: Request, background_tasks: BackgroundTask
                     toggle_agent(agent_key)
             elif action_id == "bulk_enable_all":
                 reset_enabled_agents()
-            elif action_id == "bulk_disable_optional":
+            elif action_id in ("bulk_disable_all", "bulk_disable_optional"):
                 for key in AGENTS_CONFIG:
-                    if key not in LOCKED_AGENTS:
-                        set_agent_enabled(key, False)
+                    set_agent_enabled(key, False)
             elif action_id == "restore_from_backup":
                 success = restore_from_backup()
                 logger.info(

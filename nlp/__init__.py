@@ -27,6 +27,7 @@ from .nl_patterns import (
     extract_max_words_limit,
     extract_min_words_limit,
     is_stop_command,
+    resolve_agent_candidates,
     resolve_agent_name,
 )
 
@@ -55,5 +56,6 @@ __all__ = [
     "EXCLUDE_COMMAND_PATTERN",
     "EXCLUDE_NL_PATTERNS",
     "extract_excluded_agents",
+    "resolve_agent_candidates",
     "resolve_agent_name",
 ]

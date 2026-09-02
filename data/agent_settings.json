@@ -1,4 +1,12 @@
 {
+  "orchestration_mode": "sandwich",
+  "sandwich_config": {
+    "start_chain": [],
+    "end_chain": []
+  },
+  "fixed_config": {
+    "chain": []
+  },
   "circuit_breaker_enabled": false,
   "circuit_breaker_threshold_usd": 0.0,
   "enabled_agents": [
@@ -118,6 +126,9 @@
       "model": "mistral/mistral-small-latest"
     },
     "intent_extractor": {
+      "model": "mistral/mistral-small-latest"
+    },
+    "system_agent": {
       "model": "mistral/mistral-small-latest"
     }
   }

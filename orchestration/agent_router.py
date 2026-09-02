@@ -53,6 +53,7 @@ from nlp.nl_patterns import (
     extract_max_words_limit,
     extract_min_words_limit,
     is_stop_command,
+    resolve_agent_candidates,
     resolve_agent_name,
 )
 from prompts import build_agent_prompt
@@ -62,6 +63,7 @@ from services.slack_client import (
     fetch_thread_files,
     fetch_thread_history,
     post_agent_response,
+    post_system_message,
 )
 
 # Re-exports from agent_settings
@@ -75,6 +77,9 @@ from .agent_settings import (
     get_circuit_breaker_config,
     get_circuit_breaker_threshold,
     get_enabled_agents,
+    get_fixed_config,
+    get_orchestration_mode,
+    get_sandwich_config,
     is_circuit_breaker_enabled,
     is_running_from_backup,
     load_enabled_agents,
@@ -84,6 +89,10 @@ from .agent_settings import (
     set_agent_enabled,
     set_circuit_breaker_enabled,
     set_circuit_breaker_threshold,
+    set_fixed_config,
+    set_orchestration_mode,
+    set_sandwich_config,
+    settings_manager,
     toggle_agent,
 )
 
@@ -127,6 +136,7 @@ from .thread_state import (
 
 # Re-exports from debate_orchestrator
 from .debate_orchestrator import (
+    detect_ambiguous_tags,
     enforce_valid_nomination,
     extract_tagged_agents,
     get_initial_agents,
@@ -230,6 +240,34 @@ async def process_and_respond(
         if min_words_limit is not None:
             set_thread_min_words(channel_id, thread_ts, min_words_limit)
 
+        ambiguous_tags = detect_ambiguous_tags(raw_text_cleaned)
+        if ambiguous_tags:
+            logger.warning(
+                f"[ROUTER] Ambiguous agent tag(s) detected in user prompt for thread {thread_key}: {ambiguous_tags}. Halting turn."
+            )
+            lines = ["⚠️ *Ambiguous Agent Reference*:"]
+            for tag_str, candidates in ambiguous_tags:
+                lines.append(f"Tag `[{tag_str}]` matches multiple candidates:")
+                for cand in candidates:
+                    cfg = (settings_manager.agents_config or AGENTS_CONFIG).get(cand, {})
+                    cand_username = cfg.get("username", cand)
+                    lines.append(f"• `{cand}` ({cand_username})")
+            first_suggestion = ambiguous_tags[0][1][0]
+            lines.append(f"\nPlease specify the exact agent tag (e.g. `[{first_suggestion}]`) to proceed.")
+            warning_msg = "\n".join(lines)
+
+            await post_system_message(
+                channel_id=channel_id,
+                thread_ts=thread_ts,
+                text=warning_msg,
+            )
+            return {
+                "ok": False,
+                "halted": True,
+                "reason": "ambiguous_agent",
+                "ambiguous_tags": ambiguous_tags,
+            }
+
         agent_key, prompt, was_explicit_target = parse_agent_and_prompt(
             raw_text_cleaned, channel_id, thread_ts
         )
@@ -250,7 +288,7 @@ async def process_and_respond(
                     a for a in get_initial_agents()
                     if a not in excluded_agents
                 ]
-                agent_key = fallback_remaining.pop(0) if fallback_remaining else "OpAiTerra_Architect"
+                agent_key = fallback_remaining.pop(0) if fallback_remaining else DEFAULT_AGENT_KEY
                 REMAINING_AGENTS_MAP[thread_key] = fallback_remaining
                 CUSTOM_FLOW_THREADS.discard(thread_key)
                 was_explicit_target = False
@@ -265,7 +303,7 @@ async def process_and_respond(
                         agent_key = curr_remaining.pop(0)
                         REMAINING_AGENTS_MAP[thread_key] = curr_remaining
                     else:
-                        agent_key = "OpAiTerra_Architect"
+                        agent_key = DEFAULT_AGENT_KEY
 
         if is_file_req:
             if tagged:
@@ -456,6 +494,18 @@ async def process_and_respond(
             f"[ROUTER] Agent {agent_key} remaining available agents: {remaining}"
         )
 
+    mode = get_orchestration_mode()
+    next_designated_agent = None
+    if not force_termination and remaining:
+        if is_custom_flow or mode == "fixed":
+            next_designated_agent = remaining[0]
+        elif mode == "sandwich":
+            sandwich_cfg = get_sandwich_config()
+            start_chain = sandwich_cfg.get("start_chain", [])
+            end_chain = sandwich_cfg.get("end_chain", [])
+            if remaining[0] in start_chain or remaining[0] in end_chain:
+                next_designated_agent = remaining[0]
+
     file_context = get_thread_file_context(channel_id, thread_ts)
     messages = build_llm_messages(
         system_prompt=system_prompt,
@@ -467,6 +517,7 @@ async def process_and_respond(
         file_context=file_context,
         remaining_agents=remaining,
         force_termination=force_termination,
+        next_designated_agent=next_designated_agent,
     )
 
     try:
@@ -608,7 +659,7 @@ async def process_and_respond(
                 elif retries:
                     next_tag = retries[0]
                 else:
-                    next_tag = "OpAiTerra_Architect"
+                    next_tag = DEFAULT_AGENT_KEY
                 final_text = f"(No text response generated) [{next_tag}] next"
             logger.warning(f"[ROUTER] final_text was empty for {agent_key}!")
         else:
@@ -619,6 +670,7 @@ async def process_and_respond(
                 [] if force_termination else remaining,
                 force_termination,
                 pending_retries=retries,
+                designated_next_agent=next_designated_agent,
             )
 
         retries = RATE_LIMIT_RETRY_QUEUE.get(thread_key, [])
@@ -664,12 +716,14 @@ async def process_and_respond(
         await asyncio.sleep(SLACK_POST_PAUSE_SECONDS)
 
         has_pending_retries = bool(RATE_LIMIT_RETRY_QUEUE.get(thread_key))
+        agents_map = settings_manager.agents_config or AGENTS_CONFIG
+        has_nominated_next = any(tag in agents_map for tag in generated_tags)
         is_completed = bool(
             force_termination
             or (
-                agent_key == "OpAiTerra_Architect"
-                and not remaining
+                not remaining
                 and not has_pending_retries
+                and not has_nominated_next
             )
             or (is_thread_stopped(channel_id, thread_ts))
         )
@@ -695,25 +749,11 @@ async def process_and_respond(
             is_completed=is_completed,
         )
 
-        if force_termination:
+        if is_completed:
             logger.info(
                 f"[ROUTER] Thread {thread_key} reached termination (forced or natural). Cleaning up state."
             )
             clear_thread_state(channel_id, thread_ts)
-        elif (
-            agent_key == "OpAiTerra_Architect"
-            and not remaining
-            and not has_pending_retries
-        ):
-            logger.info(
-                f"[ROUTER] OpAiTerra_Architect finished! Deleting state maps for thread {thread_key}"
-            )
-            clear_thread_history_limit(channel_id, thread_ts)
-            clear_thread_max_words(channel_id, thread_ts)
-            clear_thread_min_words(channel_id, thread_ts)
-            clear_thread_file_context(channel_id, thread_ts)
-            REMAINING_AGENTS_MAP.pop(thread_key, None)
-            RATE_LIMIT_RETRY_QUEUE.pop(thread_key, None)
             RATE_LIMIT_ALREADY_RETRIED.pop(thread_key, None)
 
         logger.info(
@@ -785,10 +825,6 @@ async def process_and_respond(
                 elif remaining:
                     next_agent = remaining[0]
                     next_nomination = f"[{next_agent}]"
-                elif agent_key != "OpAiTerra_Architect" and not (
-                    was_explicit_target and not is_bot_trigger
-                ):
-                    next_nomination = "[OpAiTerra_Architect]"
             elif remaining:
                 next_agent = remaining[0]
                 next_nomination = f"[{next_agent}]"
@@ -800,10 +836,6 @@ async def process_and_respond(
                         next_agent
                     )
                     next_nomination = f"[{next_agent}]"
-                elif agent_key != "OpAiTerra_Architect" and not (
-                    was_explicit_target and not is_bot_trigger
-                ):
-                    next_nomination = "[OpAiTerra_Architect]"
 
         if next_nomination:
             error_post_text = f"{error_sentence}\n\n{next_nomination}"
@@ -826,11 +858,6 @@ async def process_and_respond(
         has_pending_retries = bool(RATE_LIMIT_RETRY_QUEUE.get(thread_key))
         is_completed = bool(
             force_termination
-            or (
-                agent_key == "OpAiTerra_Architect"
-                and not remaining
-                and not has_pending_retries
-            )
             or not next_nomination
             or is_thread_stopped(channel_id, thread_ts)
         )
