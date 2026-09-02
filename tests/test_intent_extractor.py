@@ -104,7 +104,7 @@ def test_should_skip_intent_extractor_rules():
     # Presence of /exclude does NOT affect should_skip rules
     assert (
         should_skip_intent_extractor(
-            "/exclude [MistLar_TechLead] debate this topic in 50 words",
+            "/exclude [TechLead] debate this topic in 50 words",
             is_file_cmd=False,
             has_slash_max_words=False,
             has_slash_history=False,
@@ -114,7 +114,7 @@ def test_should_skip_intent_extractor_rules():
     )
     assert (
         should_skip_intent_extractor(
-            "/exclude [MistLar_TechLead] /max_words 50 /history 2",
+            "/exclude [TechLead] /max_words 50 /history 2",
             is_file_cmd=False,
             has_slash_max_words=True,
             has_slash_history=True,
@@ -136,7 +136,7 @@ async def test_extract_user_intent_success():
                         "history": 4,
                         "file_use": True,
                         "target_file": "schema.sql",
-                        "excluded_agents": ["MistLar_TechLead", "AnthrOpus_Innovator"],
+                        "excluded_agents": ["TechLead", "Innovator"],
                     }
                 )
             )
@@ -145,7 +145,7 @@ async def test_extract_user_intent_success():
 
     with patch("nlp.intent_extractor.litellm.completion", return_value=mock_response):
         intent = await extract_user_intent(
-            "Please analyze schema.sql based on last 4 messages in under 60 words and exclude MistLar_TechLead",
+            "Please analyze schema.sql based on last 4 messages in under 60 words and exclude TechLead",
             available_files=[{"name": "schema.sql", "id": "F123"}],
         )
 
@@ -153,7 +153,7 @@ async def test_extract_user_intent_success():
         assert intent["history"] == 4
         assert intent["file_use"] is True
         assert intent["target_file"] == "schema.sql"
-        assert intent["excluded_agents"] == ["MistLar_TechLead", "AnthrOpus_Innovator"]
+        assert intent["excluded_agents"] == ["TechLead", "Innovator"]
 
 
 @pytest.mark.anyio

@@ -156,13 +156,25 @@ class AgentSettingsManager:
             logger.error(f"[SETTINGS] 'agents' key in {source_name} is not a dictionary.")
             return False
 
+        # Sync SHORT_OUTPUT_AGENTS before building agent prompts (only for primary settings file)
+        if self.active_settings_file == SETTINGS_FILE:
+            from prompts.builder import SHORT_OUTPUT_AGENTS
+            new_short_agents = {
+                k for k, cfg in raw_agents.items()
+                if isinstance(cfg, dict) and cfg.get("is_short_output") is True
+            }
+            SHORT_OUTPUT_AGENTS.clear()
+            SHORT_OUTPUT_AGENTS.update(new_short_agents)
+
         valid_agents: dict[str, dict[str, Any]] = {}
         for key, cfg in raw_agents.items():
             if self._validate_agent_entry(key, cfg):
+                is_short = bool(cfg.get("is_short_output", False))
                 valid_agents[key] = {
                     "model": cfg["model"].strip(),
                     "username": cfg["username"].strip(),
                     "icon_url": cfg["icon_url"].strip(),
+                    "is_short_output": is_short,
                     "system_prompt": build_agent_prompt(key),
                 }
 
@@ -396,6 +408,7 @@ class AgentSettingsManager:
                         "model": v.get("model", ""),
                         "username": v.get("username", k),
                         "icon_url": v.get("icon_url", ""),
+                        "is_short_output": bool(v.get("is_short_output", False)),
                     }
                     for k, v in self.agents_config.items()
                 },

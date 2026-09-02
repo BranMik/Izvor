@@ -53,7 +53,7 @@ async def test_generate_thread_notes_calls_mistral_model():
 
     history = [
         {"role": "user", "content": "How should we design the database?"},
-        {"role": "assistant", "content": "[OpAiTerra_Architect]: Use PostgreSQL with connection pooling."},
+        {"role": "assistant", "content": "[Architect]: Use PostgreSQL with connection pooling."},
     ]
 
     with patch("agents.thread_notes_agent.litellm.completion", return_value=mock_resp) as mock_litellm:
@@ -78,7 +78,7 @@ async def test_update_notes_for_thread_creates_new_note_on_first_reply(caplog):
 
     history = [
         {"role": "user", "content": "Start project kickoff"},
-        {"role": "assistant", "content": "[Gemini_Visionary]: Here is the vision for our product."},
+        {"role": "assistant", "content": "[Visionary]: Here is the vision for our product."},
     ]
 
     with patch("agents.thread_notes_agent.fetch_thread_history", new_callable=AsyncMock) as mock_fetch, \
@@ -115,8 +115,8 @@ async def test_update_notes_for_thread_updates_existing_note_on_subsequent_repli
 
     history = [
         {"role": "user", "content": "Start kickoff"},
-        {"role": "assistant", "content": "[Gemini_Visionary]: Vision defined."},
-        {"role": "assistant", "content": "[AnthrOpus_Sceptic]: Security and privacy must be evaluated."},
+        {"role": "assistant", "content": "[Visionary]: Vision defined."},
+        {"role": "assistant", "content": "[Sceptic]: Security and privacy must be evaluated."},
     ]
 
     with patch("agents.thread_notes_agent.fetch_thread_history", new_callable=AsyncMock) as mock_fetch, \
@@ -236,7 +236,7 @@ async def test_router_invokes_trigger_thread_notes_update(monkeypatch):
         "orchestration.agent_router.run_in_threadpool",
         AsyncMock(
             return_value=MagicMock(
-                choices=[MagicMock(message=MagicMock(content="Hello world [AnthrOpus_Sceptic]", tool_calls=None))],
+                choices=[MagicMock(message=MagicMock(content="Hello world [Sceptic]", tool_calls=None))],
                 usage=MagicMock(prompt_tokens=10, completion_tokens=10, total_tokens=20),
             )
         ),
@@ -267,7 +267,7 @@ async def test_router_invokes_trigger_thread_notes_update(monkeypatch):
     await agent_router.process_and_respond(
         channel_id="C_ROUTER_TEST_2",
         thread_ts="1700000000.888",
-        raw_text="[Gemini_Visionary] only you answer",
+        raw_text="[Visionary] only you answer",
         bot_user_id="U_BOT",
     )
 

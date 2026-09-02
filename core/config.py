@@ -48,8 +48,6 @@ def resolve_avatar_url(icon_url: str | None) -> str | None:
     return f"{BASE_AVATAR_URL}{icon_str.lstrip('/')}"
 
 
-# Default fallback agent if no tag is specified in user request
-DEFAULT_AGENT_KEY = "Gemini_Visionary"
 
 # Default system agent persona for warnings and moderation
 SYSTEM_AGENT_USERNAME = os.getenv("SYSTEM_AGENT_USERNAME", "Panel System")
