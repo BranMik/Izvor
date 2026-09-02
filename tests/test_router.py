@@ -642,6 +642,9 @@ def test_build_app_home_view():
     assert "sandwich_end_chain_block" in block_ids
     assert "agent_toggle_block_TechLead_on" in block_ids
 
+    # Agent ID in square brackets rendered
+    assert any("[TechLead]" in b.get("text", {}).get("text", "") for b in blocks)
+
 
 def test_settings_persistence(tmp_path, monkeypatch):
     test_settings_path = tmp_path / "test_agent_settings.json"

@@ -116,7 +116,7 @@ def build_app_home_view(
                 "text": (
                     "*Dobrodošli u CaiLogics kontrolni panel!*\n"
                     "Ovdje možete upravljati agentima za automatsku debatu i sigurnosnim limitima potrošnje (circuit-breaker).\n\n"
-                    "💡 *Napomena:* Isključeni agenti i dalje se mogu direktno pozvati tagiranjem (npr. `[MistLar_TechLead]` ili `@MistLar TechLead`)."
+                    "💡 *Napomena:* Isključeni agenti i dalje se mogu direktno pozvati tagiranjem (npr. `[TechLead]`)."
                 ),
             },
         },
@@ -294,7 +294,7 @@ def build_app_home_view(
                     "initial_value": start_chain_str,
                     "placeholder": {
                         "type": "plain_text",
-                        "text": "npr. Gemini_Visionary, AnthrOpus_Innovator (odvojeno zarezom)",
+                        "text": "npr. Visionary, Innovator (odvojeno zarezom)",
                     },
                 },
                 "label": {
@@ -313,7 +313,7 @@ def build_app_home_view(
                     "initial_value": end_chain_str,
                     "placeholder": {
                         "type": "plain_text",
-                        "text": "npr. OpAiTerra_Architect (odvojeno zarezom)",
+                        "text": "npr. Architect (odvojeno zarezom)",
                     },
                 },
                 "label": {
@@ -368,7 +368,7 @@ def build_app_home_view(
                     "initial_value": fixed_chain_str,
                     "placeholder": {
                         "type": "plain_text",
-                        "text": "npr. MistLar_TechLead, AnthrOpus_Innovator, OpAiTerra_Architect",
+                        "text": "npr. TechLead, Innovator, Architect (odvojeno zarezom)",
                     },
                 },
                 "label": {
@@ -451,7 +451,7 @@ def build_app_home_view(
                 "block_id": f"agent_toggle_block_{key}_{'on' if is_on else 'off'}",
                 "text": {
                     "type": "mrkdwn",
-                    "text": f"*{username}*\n`{model}`",
+                    "text": f"*{username}* [{key}]\n`{model}`",
                 },
                 "accessory": {
                     "type": "radio_buttons",

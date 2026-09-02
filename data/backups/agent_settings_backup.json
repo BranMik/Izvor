@@ -1,8 +1,17 @@
 {
   "orchestration_mode": "sandwich",
   "sandwich_config": {
-    "start_chain": [],
-    "end_chain": []
+    "start_chain": [
+      "Architect",
+      "Visionary",
+      "ScopeOptimizer",
+      "UserAdvocate",
+      "Sceptic",
+      "Innovator"
+    ],
+    "end_chain": [
+      "Architect"
+    ]
   },
   "fixed_config": {
     "chain": []
@@ -38,7 +47,7 @@
     "Architect": {
       "model": "openai/gpt-5.6-terra",
       "username": "Architect",
-      "icon_url": "static/v2/avatar_02.png",
+      "icon_url": "static/v2/avatar_51.png",
       "is_short_output": false
     },
     "Innovator": {
@@ -50,7 +59,7 @@
     "TechLead": {
       "model": "mistral/mistral-large-latest",
       "username": "TechLead",
-      "icon_url": "static/v2/avatar_05.png",
+      "icon_url": "static/v2/avatar_26.png",
       "is_short_output": false
     },
     "Sceptic": {
@@ -62,13 +71,13 @@
     "DataAndAnalyticsStrategist": {
       "model": "gemini/gemini-3.7-flash",
       "username": "Data And Analytics Strategist",
-      "icon_url": "static/v2/avatar_18.png",
+      "icon_url": "static/v2/avatar_46.png",
       "is_short_output": true
     },
     "CompliancePrivacyAndGovernanceOfficer": {
       "model": "mistral/mistral-large-latest",
       "username": "Compliance, Privacy And Governance Officer",
-      "icon_url": "static/v2/avatar_33.png",
+      "icon_url": "static/v2/avatar_03.png",
       "is_short_output": true
     },
     "ScopeOptimizer": {
@@ -80,7 +89,7 @@
     "ROIStrategist": {
       "model": "openai/gpt-5.6-terra",
       "username": "ROI Strategist",
-      "icon_url": "static/v2/avatar_09.png",
+      "icon_url": "static/v2/avatar_53.png",
       "is_short_output": false
     },
     "UserAdvocate": {
@@ -92,7 +101,7 @@
     "SecurityArchitect": {
       "model": "mistral/mistral-large-latest",
       "username": "Security Architect",
-      "icon_url": "static/v2/avatar_03.png",
+      "icon_url": "static/v2/avatar_33.png",
       "is_short_output": false
     },
     "ScalabilityEngineer": {
@@ -104,13 +113,13 @@
     "OperationalReliabilityLead": {
       "model": "mistral/mistral-large-latest",
       "username": "Operational Reliability Lead",
-      "icon_url": "static/v2/avatar_26.png",
+      "icon_url": "static/v2/avatar_52.png",
       "is_short_output": true
     },
     "DeploymentReleaseStrategist": {
       "model": "mistral/mistral-large-latest",
       "username": "Deployment & Release Strategist",
-      "icon_url": "static/v2/avatar_13.png",
+      "icon_url": "static/v2/avatar_02.png",
       "is_short_output": true
     },
     "MarketAndCompetitionResearchExpert": {
@@ -128,7 +137,7 @@
     "QALead": {
       "model": "mistral/mistral-large-latest",
       "username": "QA Lead",
-      "icon_url": "static/v2/avatar_18.png",
+      "icon_url": "static/v2/avatar_50.png",
       "is_short_output": true
     }
   },
