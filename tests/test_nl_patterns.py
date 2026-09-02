@@ -140,3 +140,96 @@ def test_stop_command_detection():
     assert is_stop_command("Please /stop the discussion") is True
     assert is_stop_command("Don't stop now") is False
     assert is_stop_command("") is False
+
+
+def test_resolve_agent_name():
+    from nlp.nl_patterns import resolve_agent_name
+
+    assert resolve_agent_name("[MistLar_TechLead]") == "MistLar_TechLead"
+    assert resolve_agent_name("MistLar_TechLead") == "MistLar_TechLead"
+    assert resolve_agent_name("mistlar_techlead") == "MistLar_TechLead"
+    assert resolve_agent_name("MistLar TechLead") == "MistLar_TechLead"
+    assert resolve_agent_name("TechLead") == "MistLar_TechLead"
+    assert resolve_agent_name("[AnthrOpus_Innovator]") == "AnthrOpus_Innovator"
+    assert resolve_agent_name("Innovator") == "AnthrOpus_Innovator"
+    assert resolve_agent_name("AnthrOpus Sceptic") == "AnthrOpus_Sceptic"
+    assert resolve_agent_name("Gemini_Visionary") == "Gemini_Visionary"
+    assert resolve_agent_name("NonExistentAgent") is None
+    assert resolve_agent_name("") is None
+
+
+def test_exclude_slash_command_single_and_multi():
+    from nlp.nl_patterns import extract_excluded_agents
+
+    # Single agent slash command
+    exc, text = extract_excluded_agents("/exclude [MistLar_TechLead] Debate this feature")
+    assert exc == ["MistLar_TechLead"]
+    assert text == "Debate this feature"
+
+    # Multi-agent syntax: /exclude [Agent1] [Agent2] [Agent3]
+    exc, text = extract_excluded_agents(
+        "/exclude [MistLar_TechLead] [AnthrOpus_Innovator] [Gemini_ScopeOptimizer] Plan the sprint"
+    )
+    assert exc == [
+        "MistLar_TechLead",
+        "AnthrOpus_Innovator",
+        "Gemini_ScopeOptimizer",
+    ]
+    assert text == "Plan the sprint"
+
+    # Comma-separated syntax
+    exc, text = extract_excluded_agents(
+        "/exclude [MistLar_TechLead], [AnthrOpus_Innovator] Plan the sprint"
+    )
+    assert exc == ["MistLar_TechLead", "AnthrOpus_Innovator"]
+    assert text == "Plan the sprint"
+
+    # Colon syntax
+    exc, text = extract_excluded_agents("/exclude: [MistLar_TechLead] test")
+    assert exc == ["MistLar_TechLead"]
+    assert text == "test"
+
+    # Unbracketed names
+    exc, text = extract_excluded_agents("/exclude MistLar_TechLead AnthrOpus_Innovator test")
+    assert exc == ["MistLar_TechLead", "AnthrOpus_Innovator"]
+    assert text == "test"
+
+    # Multiple separate /exclude commands
+    exc, text = extract_excluded_agents(
+        "/exclude [MistLar_TechLead] Some text /exclude [AnthrOpus_Innovator]"
+    )
+    assert exc == ["MistLar_TechLead", "AnthrOpus_Innovator"]
+    assert text == "Some text"
+
+
+def test_exclude_natural_language():
+    from nlp.nl_patterns import extract_excluded_agents
+
+    # English NL
+    exc, text = extract_excluded_agents("Debate this feature, but exclude MistLar_TechLead from debate")
+    assert exc == ["MistLar_TechLead"]
+    assert "exclude" not in text
+
+    exc, text = extract_excluded_agents("Leave out [AnthrOpus_Innovator] and discuss architecture")
+    assert exc == ["AnthrOpus_Innovator"]
+    assert "Leave out" not in text
+
+    exc, text = extract_excluded_agents("Discuss without [Gemini_ScopeOptimizer]")
+    assert exc == ["Gemini_ScopeOptimizer"]
+
+    # Croatian NL
+    exc, text = extract_excluded_agents("Raspravite o temi bez agenta MistLar_TechLead")
+    assert exc == ["MistLar_TechLead"]
+    assert "bez agenta" not in text
+
+    exc, text = extract_excluded_agents("Isključi [Gemini_ScopeOptimizer] iz rasprave o bazi")
+    assert exc == ["Gemini_ScopeOptimizer"]
+    assert "Isključi" not in text
+
+    exc, text = extract_excluded_agents("Nemoj uključiti agenta MistLar_QALead")
+    assert exc == ["MistLar_QALead"]
+
+    # Regular prompt without exclusions
+    exc, text = extract_excluded_agents("Just a standard user prompt with no directives")
+    assert exc == []
+    assert text == "Just a standard user prompt with no directives"

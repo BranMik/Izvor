@@ -40,6 +40,7 @@ class ExtractedIntent:
     history: int | None = None
     file_use: bool = False
     target_file: str | None = None
+    excluded_agents: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -47,6 +48,7 @@ class ExtractedIntent:
             "history": self.history,
             "file_use": self.file_use,
             "target_file": self.target_file,
+            "excluded_agents": self.excluded_agents,
         }
 
     @classmethod
@@ -56,6 +58,7 @@ class ExtractedIntent:
             history=data.get("history"),
             file_use=bool(data.get("file_use", False)),
             target_file=data.get("target_file"),
+            excluded_agents=list(data.get("excluded_agents") or []),
         )
 
 

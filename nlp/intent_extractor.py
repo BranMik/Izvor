@@ -8,7 +8,7 @@ from starlette.concurrency import run_in_threadpool
 
 from core.config import INTENT_EXTRACTOR_MODEL
 from core.models import ExtractedIntent
-from .nl_patterns import is_stop_command
+from .nl_patterns import is_stop_command, resolve_agent_name
 
 logger = logging.getLogger(__name__)
 
@@ -24,12 +24,16 @@ Analyze the user's message and extract any requested constraints or directives:
 
 4. "target_file": Specific filename if explicitly mentioned in the text (e.g., "schema.sql", "main.py", "data.csv"), otherwise null.
 
+5. "excluded_agents": List of agent names/keys (strings) if the user explicitly requests to exclude, skip, leave out, omit, or remove specific agents from participating in the debate/discussion (e.g., "exclude MistLar_TechLead", "bez agenta AnthrOpus_Innovator", "don't include Gemini_ScopeOptimizer", "leave out MistLar_QALead", "/exclude [Agent1]"). Otherwise empty list [].
+   CRITICAL: Agents that are tagged or addressed to speak (e.g., "[Gemini_Visionary] only you answer", "[AgentName] explain this") MUST NEVER be marked as excluded!
+
 Respond ONLY with a valid JSON object matching this schema:
 {
   "max_words": <int or null>,
   "history": <int or null>,
   "file_use": <bool>,
-  "target_file": <string or null>
+  "target_file": <string or null>,
+  "excluded_agents": [<string>]
 }"""
 
 
@@ -78,7 +82,7 @@ class IntentExtractor:
         timeout_seconds: float = 3.0,
     ) -> ExtractedIntent:
         """
-        Calls extractor model to parse structured constraints (max_words, history, file_use, target_file).
+        Calls extractor model to parse structured constraints (max_words, history, file_use, target_file, excluded_agents).
         Returns an ExtractedIntent dataclass instance.
         """
         default_intent = ExtractedIntent()
@@ -142,8 +146,17 @@ class IntentExtractor:
             else:
                 target_file = None
 
+            raw_excluded = parsed.get("excluded_agents", [])
+            excluded_agents = []
+            if isinstance(raw_excluded, list):
+                for agent_token in raw_excluded:
+                    if isinstance(agent_token, str):
+                        resolved = resolve_agent_name(agent_token)
+                        if resolved and resolved not in excluded_agents:
+                            excluded_agents.append(resolved)
+
             logger.info(
-                f"[INTENT EXTRACTOR] Extracted: max_words={max_words}, history={history}, file_use={file_use}, target_file={target_file}"
+                f"[INTENT EXTRACTOR] Extracted: max_words={max_words}, history={history}, file_use={file_use}, target_file={target_file}, excluded_agents={excluded_agents}"
             )
 
             return ExtractedIntent(
@@ -151,6 +164,7 @@ class IntentExtractor:
                 history=history,
                 file_use=file_use,
                 target_file=target_file,
+                excluded_agents=excluded_agents,
             )
 
         except asyncio.TimeoutError:

@@ -101,6 +101,29 @@ def test_should_skip_intent_extractor_rules():
     )
 
 
+    # Presence of /exclude does NOT affect should_skip rules
+    assert (
+        should_skip_intent_extractor(
+            "/exclude [MistLar_TechLead] debate this topic in 50 words",
+            is_file_cmd=False,
+            has_slash_max_words=False,
+            has_slash_history=False,
+            has_thread_files=False,
+        )
+        is False
+    )
+    assert (
+        should_skip_intent_extractor(
+            "/exclude [MistLar_TechLead] /max_words 50 /history 2",
+            is_file_cmd=False,
+            has_slash_max_words=True,
+            has_slash_history=True,
+            has_thread_files=False,
+        )
+        is True
+    )
+
+
 @pytest.mark.anyio
 async def test_extract_user_intent_success():
     mock_response = MagicMock()
@@ -113,6 +136,7 @@ async def test_extract_user_intent_success():
                         "history": 4,
                         "file_use": True,
                         "target_file": "schema.sql",
+                        "excluded_agents": ["MistLar_TechLead", "AnthrOpus_Innovator"],
                     }
                 )
             )
@@ -121,7 +145,7 @@ async def test_extract_user_intent_success():
 
     with patch("nlp.intent_extractor.litellm.completion", return_value=mock_response):
         intent = await extract_user_intent(
-            "Please analyze schema.sql based on last 4 messages in under 60 words",
+            "Please analyze schema.sql based on last 4 messages in under 60 words and exclude MistLar_TechLead",
             available_files=[{"name": "schema.sql", "id": "F123"}],
         )
 
@@ -129,6 +153,7 @@ async def test_extract_user_intent_success():
         assert intent["history"] == 4
         assert intent["file_use"] is True
         assert intent["target_file"] == "schema.sql"
+        assert intent["excluded_agents"] == ["MistLar_TechLead", "AnthrOpus_Innovator"]
 
 
 @pytest.mark.anyio
@@ -139,6 +164,7 @@ async def test_extract_user_intent_empty_text():
         "history": None,
         "file_use": False,
         "target_file": None,
+        "excluded_agents": [],
     }
 
 
@@ -151,4 +177,5 @@ async def test_extract_user_intent_failure_fallback():
             "history": None,
             "file_use": False,
             "target_file": None,
+            "excluded_agents": [],
         }

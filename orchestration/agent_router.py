@@ -36,6 +36,8 @@ from nlp.message_builder import (
     markdown_to_slack,
 )
 from nlp.nl_patterns import (
+    EXCLUDE_COMMAND_PATTERN,
+    EXCLUDE_NL_PATTERNS,
     FILE_COMMAND_PATTERN,
     FILE_NL_PATTERNS,
     HISTORY_COMMAND_PATTERN,
@@ -45,11 +47,13 @@ from nlp.nl_patterns import (
     MIN_WORDS_COMMAND_PATTERN,
     MIN_WORDS_NL_PATTERNS,
     STOP_COMMAND_PATTERN,
+    extract_excluded_agents,
     extract_file_instruction,
     extract_history_limit,
     extract_max_words_limit,
     extract_min_words_limit,
     is_stop_command,
+    resolve_agent_name,
 )
 from prompts import build_agent_prompt
 from services.mcp_tools import MCP_TOOLS_SCHEMAS, execute_mcp_tool
@@ -177,6 +181,7 @@ async def process_and_respond(
     history_limit, raw_text_cleaned = extract_history_limit(raw_text)
     max_words_limit, raw_text_cleaned = extract_max_words_limit(raw_text_cleaned)
     min_words_limit, raw_text_cleaned = extract_min_words_limit(raw_text_cleaned)
+    excluded_agents, raw_text_cleaned = extract_excluded_agents(raw_text_cleaned)
 
     # Adjust remaining agents list and file instructions if user input
     if not is_bot_trigger:
@@ -216,6 +221,9 @@ async def process_and_respond(
                 is_file_req = True
                 if not target_filename and intent.get("target_file"):
                     target_filename = intent["target_file"]
+            for exc in intent.get("excluded_agents", []):
+                if exc not in excluded_agents:
+                    excluded_agents.append(exc)
 
         if max_words_limit is not None:
             set_thread_max_words(channel_id, thread_ts, max_words_limit)
@@ -228,13 +236,36 @@ async def process_and_respond(
 
         tagged = extract_tagged_agents(raw_text_cleaned)
         if tagged:
-            agent_key = tagged[0]
-            remaining_tagged = [a for a in tagged if a != agent_key]
-            REMAINING_AGENTS_MAP[thread_key] = remaining_tagged
-            CUSTOM_FLOW_THREADS.add(thread_key)
-            was_explicit_target = True
+            if excluded_agents:
+                tagged = [a for a in tagged if a not in excluded_agents]
+            if tagged:
+                agent_key = tagged[0]
+                remaining_tagged = [a for a in tagged if a != agent_key]
+                REMAINING_AGENTS_MAP[thread_key] = remaining_tagged
+                CUSTOM_FLOW_THREADS.add(thread_key)
+                was_explicit_target = True
+            else:
+                # All tagged agents were excluded; fallback to initial enabled agents excluding the excluded ones
+                fallback_remaining = [
+                    a for a in get_initial_agents()
+                    if a not in excluded_agents
+                ]
+                agent_key = fallback_remaining.pop(0) if fallback_remaining else "OpAiTerra_Architect"
+                REMAINING_AGENTS_MAP[thread_key] = fallback_remaining
+                CUSTOM_FLOW_THREADS.discard(thread_key)
+                was_explicit_target = False
         else:
             CUSTOM_FLOW_THREADS.discard(thread_key)
+            if excluded_agents:
+                curr_remaining = REMAINING_AGENTS_MAP.get(thread_key, get_initial_agents())
+                curr_remaining = [a for a in curr_remaining if a not in excluded_agents]
+                REMAINING_AGENTS_MAP[thread_key] = curr_remaining
+                if agent_key in excluded_agents:
+                    if curr_remaining:
+                        agent_key = curr_remaining.pop(0)
+                        REMAINING_AGENTS_MAP[thread_key] = curr_remaining
+                    else:
+                        agent_key = "OpAiTerra_Architect"
 
         if is_file_req:
             if tagged:

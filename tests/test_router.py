@@ -2160,6 +2160,186 @@ async def test_process_and_respond_with_natural_language_limits(monkeypatch):
     assert "mikroservisima" in user_msg
 
 
+@pytest.mark.anyio
+async def test_process_and_respond_with_exclude_command(monkeypatch):
+    from orchestration.agent_router import (
+        REMAINING_AGENTS_MAP,
+        RATE_LIMIT_RETRY_QUEUE,
+        RATE_LIMIT_ALREADY_RETRIED,
+    )
+    REMAINING_AGENTS_MAP.clear()
+    RATE_LIMIT_RETRY_QUEUE.clear()
+    RATE_LIMIT_ALREADY_RETRIED.clear()
+
+    channel_id = "C_EXCLUDE_CMD"
+    thread_ts = "88888.0001"
+    thread_key = (channel_id, thread_ts)
+
+    captured_messages = []
+
+    mock_response = MagicMock()
+    mock_choice = MagicMock()
+    mock_choice.message = MagicMock(content="Reviewing without innovator [Gemini_ScopeOptimizer]", tool_calls=None)
+    mock_response.choices = [mock_choice]
+    mock_response.usage = MagicMock(prompt_tokens=20, completion_tokens=40)
+
+    async def mock_run_in_threadpool(func, *args, **kwargs):
+        captured_messages.append(kwargs.get("messages", []))
+        return mock_response
+
+    posted_messages = []
+
+    async def mock_post_agent_response(
+        channel_id, thread_ts, text, username, icon_url=None
+    ):
+        posted_messages.append({"text": text, "username": username})
+        return {"ok": True, "ts": thread_ts}
+
+    monkeypatch.setattr("orchestration.agent_router.post_agent_response", mock_post_agent_response)
+    monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_run_in_threadpool)
+    monkeypatch.setattr("orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[]))
+    monkeypatch.setattr("orchestration.agent_router.record_thread_tokens", MagicMock())
+
+    res = await process_and_respond(
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        raw_text="[MistLar_TechLead] [AnthrOpus_Innovator] [Gemini_ScopeOptimizer] /exclude [AnthrOpus_Innovator] Evaluate the refactoring",
+        is_bot_trigger=False,
+    )
+
+    assert res.get("ok") is True
+    # AnthrOpus_Innovator should be removed immediately from remaining agents
+    assert "AnthrOpus_Innovator" not in REMAINING_AGENTS_MAP[thread_key]
+    assert REMAINING_AGENTS_MAP[thread_key] == ["Gemini_ScopeOptimizer"]
+
+    # Command should be cleanly stripped from user message passed to model
+    user_msg = captured_messages[0][-1]["content"]
+    assert "/exclude" not in user_msg
+    assert "Evaluate the refactoring" in user_msg
+
+
+@pytest.mark.anyio
+async def test_process_and_respond_with_multi_agent_exclude_command(monkeypatch):
+    from orchestration.agent_router import (
+        REMAINING_AGENTS_MAP,
+        RATE_LIMIT_RETRY_QUEUE,
+        RATE_LIMIT_ALREADY_RETRIED,
+    )
+    REMAINING_AGENTS_MAP.clear()
+    RATE_LIMIT_RETRY_QUEUE.clear()
+    RATE_LIMIT_ALREADY_RETRIED.clear()
+
+    channel_id = "C_MULTI_EXCLUDE"
+    thread_ts = "88888.0002"
+    thread_key = (channel_id, thread_ts)
+
+    mock_response = MagicMock()
+    mock_choice = MagicMock()
+    mock_choice.message = MagicMock(content="Reviewing [Gemini_ScalabilityEngineer]", tool_calls=None)
+    mock_response.choices = [mock_choice]
+    mock_response.usage = MagicMock(prompt_tokens=20, completion_tokens=40)
+
+    async def mock_run_in_threadpool(func, *args, **kwargs):
+        return mock_response
+
+    monkeypatch.setattr("orchestration.agent_router.post_agent_response", AsyncMock(return_value={"ok": True, "ts": thread_ts}))
+    monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_run_in_threadpool)
+    monkeypatch.setattr("orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[]))
+    monkeypatch.setattr("orchestration.agent_router.record_thread_tokens", MagicMock())
+
+    res = await process_and_respond(
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        raw_text="[MistLar_TechLead] [AnthrOpus_Innovator] [Gemini_ScopeOptimizer] [Gemini_ScalabilityEngineer] /exclude [AnthrOpus_Innovator] [Gemini_ScopeOptimizer] Plan sprint",
+        is_bot_trigger=False,
+    )
+
+    assert res.get("ok") is True
+    # Both AnthrOpus_Innovator and Gemini_ScopeOptimizer should be removed from remaining agents
+    assert REMAINING_AGENTS_MAP[thread_key] == ["Gemini_ScalabilityEngineer"]
+
+
+@pytest.mark.anyio
+async def test_process_and_respond_with_default_flow_and_exclude(monkeypatch):
+    from orchestration.agent_router import (
+        REMAINING_AGENTS_MAP,
+        RATE_LIMIT_RETRY_QUEUE,
+        RATE_LIMIT_ALREADY_RETRIED,
+    )
+    REMAINING_AGENTS_MAP.clear()
+    RATE_LIMIT_RETRY_QUEUE.clear()
+    RATE_LIMIT_ALREADY_RETRIED.clear()
+
+    channel_id = "C_DEFAULT_EXCLUDE"
+    thread_ts = "88888.0003"
+    thread_key = (channel_id, thread_ts)
+
+    mock_response = MagicMock()
+    mock_choice = MagicMock()
+    mock_choice.message = MagicMock(content="Debating without techlead and innovator [AnthrOpus_Sceptic]", tool_calls=None)
+    mock_response.choices = [mock_choice]
+    mock_response.usage = MagicMock(prompt_tokens=20, completion_tokens=40)
+
+    async def mock_run_in_threadpool(func, *args, **kwargs):
+        return mock_response
+
+    monkeypatch.setattr("orchestration.agent_router.post_agent_response", AsyncMock(return_value={"ok": True, "ts": thread_ts}))
+    monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_run_in_threadpool)
+    monkeypatch.setattr("orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[]))
+    monkeypatch.setattr("orchestration.agent_router.record_thread_tokens", MagicMock())
+
+    res = await process_and_respond(
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        raw_text="Debate this architecture /exclude [MistLar_TechLead] [AnthrOpus_Innovator]",
+        is_bot_trigger=False,
+    )
+
+    assert res.get("ok") is True
+    assert "MistLar_TechLead" not in REMAINING_AGENTS_MAP[thread_key]
+    assert "AnthrOpus_Innovator" not in REMAINING_AGENTS_MAP[thread_key]
+
+
+@pytest.mark.anyio
+async def test_process_and_respond_with_nl_exclude(monkeypatch):
+    from orchestration.agent_router import (
+        REMAINING_AGENTS_MAP,
+        RATE_LIMIT_RETRY_QUEUE,
+        RATE_LIMIT_ALREADY_RETRIED,
+    )
+    REMAINING_AGENTS_MAP.clear()
+    RATE_LIMIT_RETRY_QUEUE.clear()
+    RATE_LIMIT_ALREADY_RETRIED.clear()
+
+    channel_id = "C_NL_EXCLUDE"
+    thread_ts = "88888.0004"
+    thread_key = (channel_id, thread_ts)
+
+    mock_response = MagicMock()
+    mock_choice = MagicMock()
+    mock_choice.message = MagicMock(content="Debating topic [AnthrOpus_Sceptic]", tool_calls=None)
+    mock_response.choices = [mock_choice]
+    mock_response.usage = MagicMock(prompt_tokens=20, completion_tokens=40)
+
+    async def mock_run_in_threadpool(func, *args, **kwargs):
+        return mock_response
+
+    monkeypatch.setattr("orchestration.agent_router.post_agent_response", AsyncMock(return_value={"ok": True, "ts": thread_ts}))
+    monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_run_in_threadpool)
+    monkeypatch.setattr("orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[]))
+    monkeypatch.setattr("orchestration.agent_router.record_thread_tokens", MagicMock())
+
+    res = await process_and_respond(
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        raw_text="Raspravite o arhitekturi bez agenta MistLar_TechLead",
+        is_bot_trigger=False,
+    )
+
+    assert res.get("ok") is True
+    assert "MistLar_TechLead" not in REMAINING_AGENTS_MAP[thread_key]
+
+
 
 
 

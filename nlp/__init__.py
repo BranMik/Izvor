@@ -10,6 +10,8 @@ from .message_builder import (
     markdown_to_slack,
 )
 from .nl_patterns import (
+    EXCLUDE_COMMAND_PATTERN,
+    EXCLUDE_NL_PATTERNS,
     FILE_COMMAND_PATTERN,
     FILE_NL_PATTERNS,
     HISTORY_COMMAND_PATTERN,
@@ -19,11 +21,13 @@ from .nl_patterns import (
     MIN_WORDS_COMMAND_PATTERN,
     MIN_WORDS_NL_PATTERNS,
     STOP_COMMAND_PATTERN,
+    extract_excluded_agents,
     extract_file_instruction,
     extract_history_limit,
     extract_max_words_limit,
     extract_min_words_limit,
     is_stop_command,
+    resolve_agent_name,
 )
 
 __all__ = [
@@ -48,4 +52,8 @@ __all__ = [
     "extract_max_words_limit",
     "extract_min_words_limit",
     "is_stop_command",
+    "EXCLUDE_COMMAND_PATTERN",
+    "EXCLUDE_NL_PATTERNS",
+    "extract_excluded_agents",
+    "resolve_agent_name",
 ]
