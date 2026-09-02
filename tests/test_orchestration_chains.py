@@ -56,19 +56,19 @@ def setup_test_chains(monkeypatch):
 def test_sandwich_mode_ordering_and_pool():
     set_orchestration_mode("sandwich")
     set_sandwich_config(
-        start_chain=["Gemini_Visionary", "MistLar_TechLead"],
-        end_chain=["OpAiTerra_Architect"],
+        start_chain=["Visionary", "TechLead"],
+        end_chain=["Architect"],
     )
 
     orch = DebateOrchestrator()
     agents_flow = orch.get_initial_agents()
 
     # Start chain is at the beginning
-    assert agents_flow[0] == "Gemini_Visionary"
-    assert agents_flow[1] == "MistLar_TechLead"
+    assert agents_flow[0] == "Visionary"
+    assert agents_flow[1] == "TechLead"
 
     # End chain is at the end
-    assert agents_flow[-1] == "OpAiTerra_Architect"
+    assert agents_flow[-1] == "Architect"
 
     # Total count includes start chain, middle pool, end chain
     assert len(agents_flow) == len(AGENTS_CONFIG)
@@ -87,31 +87,31 @@ def test_sandwich_mode_empty_chains_is_arbitrary_pool():
 
 
 def test_sandwich_mode_reentrance():
-    # OpAiTerra_Architect placed in both start_chain and end_chain
+    # Architect placed in both start_chain and end_chain
     set_orchestration_mode("sandwich")
     set_sandwich_config(
-        start_chain=["OpAiTerra_Architect", "Gemini_Visionary"],
-        end_chain=["OpAiTerra_Architect"],
+        start_chain=["Architect", "Visionary"],
+        end_chain=["Architect"],
     )
 
     orch = DebateOrchestrator()
     agents_flow = orch.get_initial_agents()
 
-    assert agents_flow[0] == "OpAiTerra_Architect"
-    assert agents_flow[1] == "Gemini_Visionary"
-    assert agents_flow[-1] == "OpAiTerra_Architect"
-    assert agents_flow.count("OpAiTerra_Architect") == 2
+    assert agents_flow[0] == "Architect"
+    assert agents_flow[1] == "Visionary"
+    assert agents_flow[-1] == "Architect"
+    assert agents_flow.count("Architect") == 2
 
 
 def test_fixed_mode_strict_sequence():
     set_orchestration_mode("fixed")
-    set_fixed_config(["MistLar_TechLead", "AnthrOpus_Innovator", "OpAiTerra_Architect"])
+    set_fixed_config(["TechLead", "Innovator", "Architect"])
 
     orch = DebateOrchestrator()
     agents_flow = orch.get_initial_agents()
 
     # Exactly 3 agents in exact sequence
-    assert agents_flow == ["MistLar_TechLead", "AnthrOpus_Innovator", "OpAiTerra_Architect"]
+    assert agents_flow == ["TechLead", "Innovator", "Architect"]
 
 
 def test_fixed_mode_empty_chain_falls_back_to_all_enabled():
@@ -125,7 +125,7 @@ def test_fixed_mode_empty_chain_falls_back_to_all_enabled():
 
 
 def test_deterministic_directive_in_message_builder():
-    agent_cfg = AGENTS_CONFIG["Gemini_Visionary"]
+    agent_cfg = AGENTS_CONFIG["Visionary"]
 
     # 1. When next_designated_agent is specified
     msgs = build_llm_messages(
@@ -133,13 +133,13 @@ def test_deterministic_directive_in_message_builder():
         effective_history=[],
         prompt="Discuss feature scope",
         is_bot_trigger=False,
-        agent_key="Gemini_Visionary",
+        agent_key="Visionary",
         agent_cfg=agent_cfg,
-        next_designated_agent="AnthrOpus_Innovator",
+        next_designated_agent="Innovator",
     )
     last_content = msgs[-1]["content"]
-    assert "[AnthrOpus_Innovator]" in last_content
-    assert "nominate [AnthrOpus_Innovator] as the next agent to speak" in last_content
+    assert "[Innovator]" in last_content
+    assert "nominate [Innovator] as the next agent to speak" in last_content
 
     # 2. When force_termination is True
     msgs_term = build_llm_messages(
@@ -147,7 +147,7 @@ def test_deterministic_directive_in_message_builder():
         effective_history=[],
         prompt="Discuss feature scope",
         is_bot_trigger=False,
-        agent_key="OpAiTerra_Architect",
+        agent_key="Architect",
         agent_cfg=agent_cfg,
         force_termination=True,
     )
@@ -157,22 +157,22 @@ def test_deterministic_directive_in_message_builder():
 
 
 def test_enforce_valid_nomination_with_designated_next_agent():
-    # LLM nominated Gemini_Visionary instead of designated next agent
+    # LLM nominated Visionary instead of designated next agent
     corrected = enforce_valid_nomination(
-        text="Here is my technical assessment. [Gemini_Visionary]",
-        current_agent_key="MistLar_TechLead",
-        remaining=["AnthrOpus_Innovator"],
+        text="Here is my technical assessment. [Visionary]",
+        current_agent_key="TechLead",
+        remaining=["Innovator"],
         force_termination=False,
-        designated_next_agent="AnthrOpus_Innovator",
+        designated_next_agent="Innovator",
     )
-    assert "[AnthrOpus_Innovator]" in corrected
-    assert "[Gemini_Visionary]" not in corrected
+    assert "[Innovator]" in corrected
+    assert "[Visionary]" not in corrected
 
 
 @pytest.mark.anyio
 async def test_fixed_mode_end_to_end_discussion(monkeypatch):
     set_orchestration_mode("fixed")
-    set_fixed_config(["MistLar_TechLead", "AnthrOpus_Innovator", "OpAiTerra_Architect"])
+    set_fixed_config(["TechLead", "Innovator", "Architect"])
 
     posted_messages = []
     async def mock_post_agent_response(channel_id, thread_ts, text, username, icon_url=None):
@@ -185,7 +185,7 @@ async def test_fixed_mode_end_to_end_discussion(monkeypatch):
 
     thread_key = ("C_CHAIN", "99999.0001")
 
-    # Turn 1: MistLar_TechLead starts
+    # Turn 1: TechLead starts
     mock_choice_1 = MagicMock()
     mock_choice_1.message.content = "Tech lead evaluation."
     mock_choice_1.message.tool_calls = None
@@ -204,12 +204,12 @@ async def test_fixed_mode_end_to_end_discussion(monkeypatch):
 
     assert res_1.get("ok") is True
     assert len(posted_messages) == 1
-    assert posted_messages[0]["username"] == "MistLar TechLead"
+    assert posted_messages[0]["username"] == "TechLead"
     # Deterministic nomination enforced to next agent in chain
-    assert "[AnthrOpus_Innovator]" in posted_messages[0]["text"]
-    assert REMAINING_AGENTS_MAP[thread_key] == ["AnthrOpus_Innovator", "OpAiTerra_Architect"]
+    assert "[Innovator]" in posted_messages[0]["text"]
+    assert REMAINING_AGENTS_MAP[thread_key] == ["Innovator", "Architect"]
 
-    # Turn 2: AnthrOpus_Innovator
+    # Turn 2: Innovator
     mock_choice_2 = MagicMock()
     mock_choice_2.message.content = "Innovator vision."
     mock_choice_2.message.tool_calls = None
@@ -222,17 +222,17 @@ async def test_fixed_mode_end_to_end_discussion(monkeypatch):
     res_2 = await process_and_respond(
         channel_id="C_CHAIN",
         thread_ts="99999.0001",
-        raw_text="[AnthrOpus_Innovator] Your turn",
+        raw_text="[Innovator] Your turn",
         is_bot_trigger=True,
     )
 
     assert res_2.get("ok") is True
     assert len(posted_messages) == 2
-    assert posted_messages[1]["username"] == "AnthrOpus Innovator"
-    assert "[OpAiTerra_Architect]" in posted_messages[1]["text"]
-    assert REMAINING_AGENTS_MAP[thread_key] == ["OpAiTerra_Architect"]
+    assert posted_messages[1]["username"] == "Innovator"
+    assert "[Architect]" in posted_messages[1]["text"]
+    assert REMAINING_AGENTS_MAP[thread_key] == ["Architect"]
 
-    # Turn 3: OpAiTerra_Architect (final in chain)
+    # Turn 3: Architect (final in chain)
     mock_choice_3 = MagicMock()
     mock_choice_3.message.content = "Architect final verdict."
     mock_choice_3.message.tool_calls = None
@@ -245,13 +245,13 @@ async def test_fixed_mode_end_to_end_discussion(monkeypatch):
     res_3 = await process_and_respond(
         channel_id="C_CHAIN",
         thread_ts="99999.0001",
-        raw_text="[OpAiTerra_Architect] Wrap up",
+        raw_text="[Architect] Wrap up",
         is_bot_trigger=True,
     )
 
     assert res_3.get("ok") is True
     assert len(posted_messages) == 3
-    assert posted_messages[2]["username"] == "OpAiTerra Architect"
+    assert posted_messages[2]["username"] == "Architect"
     # Thread finished -> state cleaned up, tags stripped
     assert thread_key not in REMAINING_AGENTS_MAP
     assert "[" not in posted_messages[2]["text"].split("\n\n[")[0]
@@ -259,7 +259,7 @@ async def test_fixed_mode_end_to_end_discussion(monkeypatch):
 
 def test_app_home_view_displays_orchestration_modes():
     set_orchestration_mode("sandwich")
-    set_sandwich_config(start_chain=["Gemini_Visionary"], end_chain=["OpAiTerra_Architect"])
+    set_sandwich_config(start_chain=["Visionary"], end_chain=["Architect"])
 
     view = build_app_home_view()
     blocks = view["blocks"]
@@ -271,7 +271,7 @@ def test_app_home_view_displays_orchestration_modes():
 
     # Switch to fixed mode and verify fixed view
     set_orchestration_mode("fixed")
-    set_fixed_config(["MistLar_TechLead", "OpAiTerra_Architect"])
+    set_fixed_config(["TechLead", "Architect"])
 
     view_fixed = build_app_home_view()
     blocks_fixed = view_fixed["blocks"]
@@ -281,4 +281,4 @@ def test_app_home_view_displays_orchestration_modes():
 
     fixed_input = next((b for b in blocks_fixed if b.get("block_id") == "fixed_chain_block"), None)
     assert fixed_input is not None
-    assert "MistLar_TechLead, OpAiTerra_Architect" in fixed_input["element"]["initial_value"]
+    assert "TechLead, Architect" in fixed_input["element"]["initial_value"]

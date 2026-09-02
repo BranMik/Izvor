@@ -1,6 +1,5 @@
 from .config import (
     AGENTS_CONFIG,
-    DEFAULT_AGENT_KEY,
     INTENT_EXTRACTOR_MODEL,
     PRICING_AGENT_MODEL,
     PRICING_AGENT_PROMPT,
@@ -32,7 +31,6 @@ from .slack_security import verify_slack_signature
 
 __all__ = [
     "AGENTS_CONFIG",
-    "DEFAULT_AGENT_KEY",
     "INTENT_EXTRACTOR_MODEL",
     "PRICING_AGENT_MODEL",
     "PRICING_AGENT_PROMPT",

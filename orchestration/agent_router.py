@@ -16,7 +16,7 @@ from agents import (
     trigger_thread_notes_update,
     trigger_usage_update,
 )
-from core.config import AGENTS_CONFIG, DEFAULT_AGENT_KEY
+from core.config import AGENTS_CONFIG
 from core.llm_utils import (
     LLM_MAX_RETRIES,
     LLM_RETRY_BACKOFF_BASE,
@@ -279,7 +279,7 @@ async def process_and_respond(
             for tag_str in unrecognized_tags:
                 clean_tag = tag_str.strip("[](){}:,; \t*~_")
                 lines.append(f"Tag '{clean_tag}' could not be matched to any active agent.")
-            lines.append("\nPlease check the agent name or tag a valid agent (e.g. 'Gemini_Visionary', 'MistLar_TechLead', 'AnthrOpus_Innovator') to proceed.")
+            lines.append("\nPlease check the agent name or tag a valid agent (e.g. 'Visionary', 'TechLead', 'Innovator') to proceed.")
             warning_msg = "\n".join(lines)
 
             await post_system_message(
@@ -309,15 +309,23 @@ async def process_and_respond(
                 CUSTOM_FLOW_THREADS.add(thread_key)
                 was_explicit_target = True
             else:
-                # All tagged agents were excluded; fallback to initial enabled agents excluding the excluded ones
-                fallback_remaining = [
-                    a for a in get_initial_agents()
-                    if a not in excluded_agents
-                ]
-                agent_key = fallback_remaining.pop(0) if fallback_remaining else DEFAULT_AGENT_KEY
-                REMAINING_AGENTS_MAP[thread_key] = fallback_remaining
-                CUSTOM_FLOW_THREADS.discard(thread_key)
-                was_explicit_target = False
+                # All tagged agents were excluded; halt with system message
+                logger.warning(
+                    f"[ROUTER] All tagged agents in thread {thread_key} were excluded. Halting turn."
+                )
+                warning_msg = (
+                    "⚠️ *All tagged agents were excluded*: None of the specified agents can respond to this request."
+                )
+                await post_system_message(
+                    channel_id=channel_id,
+                    thread_ts=thread_ts,
+                    text=warning_msg,
+                )
+                return {
+                    "ok": True,
+                    "halted": True,
+                    "reason": "all_tagged_agents_excluded",
+                }
         else:
             CUSTOM_FLOW_THREADS.discard(thread_key)
             if excluded_agents:
@@ -329,7 +337,22 @@ async def process_and_respond(
                         agent_key = curr_remaining.pop(0)
                         REMAINING_AGENTS_MAP[thread_key] = curr_remaining
                     else:
-                        agent_key = DEFAULT_AGENT_KEY
+                        logger.warning(
+                            f"[ROUTER] Agent '{agent_key}' and all remaining agents in thread {thread_key} are excluded. Halting turn."
+                        )
+                        warning_msg = (
+                            f"⚠️ *Agent Excluded*: Agent '{agent_key}' was excluded and no other agents are available to continue."
+                        )
+                        await post_system_message(
+                            channel_id=channel_id,
+                            thread_ts=thread_ts,
+                            text=warning_msg,
+                        )
+                        return {
+                            "ok": True,
+                            "halted": True,
+                            "reason": "all_agents_excluded",
+                        }
 
         if is_file_req:
             if tagged:
@@ -393,7 +416,67 @@ async def process_and_respond(
             raw_text_cleaned, channel_id, thread_ts
         )
 
-    agent_cfg = AGENTS_CONFIG.get(agent_key, AGENTS_CONFIG[DEFAULT_AGENT_KEY])
+    if not agent_key:
+        logger.info(f"[ROUTER] No agent available to speak in thread {thread_key}. Halting turn.")
+        enabled = settings_manager.get_enabled_agents()
+        if not enabled:
+            await post_system_message(
+                channel_id=channel_id,
+                thread_ts=thread_ts,
+                text="⚠️ *No Agents Enabled*: There are currently no enabled agents in the panel to respond.",
+            )
+        return {
+            "ok": True,
+            "halted": True,
+            "reason": "no_agents_available",
+        }
+
+    agents_map = settings_manager.agents_config or AGENTS_CONFIG
+    if agent_key not in agents_map:
+        logger.error(f"[ROUTER] Agent '{agent_key}' not found in configuration.")
+        remaining = REMAINING_AGENTS_MAP.get(thread_key, [])
+        next_candidate = None
+        if remaining:
+            next_candidate = remaining.pop(0)
+        else:
+            mode = settings_manager.get_orchestration_mode()
+            if mode == "sandwich":
+                end_chain = [k for k in settings_manager.get_sandwich_config().get("end_chain", []) if k in agents_map]
+                if end_chain:
+                    next_candidate = end_chain[0]
+            if not next_candidate:
+                available = [k for k in settings_manager.get_enabled_agents() if k in agents_map and k != agent_key]
+                if available:
+                    next_candidate = random.choice(available)
+
+        if next_candidate:
+            warning_msg = (
+                f"⚠️ *Configuration Error*: Agent '{agent_key}' is not configured. "
+                f"Handing off to [{next_candidate}]."
+            )
+            await post_system_message(
+                channel_id=channel_id,
+                thread_ts=thread_ts,
+                text=warning_msg,
+            )
+            agent_key = next_candidate
+            agent_cfg = agents_map[agent_key]
+        else:
+            warning_msg = (
+                f"⚠️ *Configuration Error*: Agent '{agent_key}' is not configured and no other agents are available."
+            )
+            await post_system_message(
+                channel_id=channel_id,
+                thread_ts=thread_ts,
+                text=warning_msg,
+            )
+            return {
+                "ok": False,
+                "halted": True,
+                "reason": "agent_not_configured",
+            }
+    else:
+        agent_cfg = agents_map[agent_key]
 
     logger.info(
         f"[ROUTER] Parsed Agent: {agent_key} ({agent_cfg['model']}) | Explicit target: {was_explicit_target} | Bot trigger: {is_bot_trigger} | Gen: {my_generation} | History limit: {history_limit}"
@@ -682,11 +765,27 @@ async def process_and_respond(
             else:
                 if remaining:
                     next_tag = remaining[0]
+                    final_text = f"(No text response generated) [{next_tag}] next"
                 elif retries:
                     next_tag = retries[0]
+                    final_text = f"(No text response generated) [{next_tag}] next"
                 else:
-                    next_tag = DEFAULT_AGENT_KEY
-                final_text = f"(No text response generated) [{next_tag}] next"
+                    mode = settings_manager.get_orchestration_mode()
+                    end_chain = (
+                        settings_manager.get_sandwich_config().get("end_chain", [])
+                        if mode == "sandwich"
+                        else []
+                    )
+                    agents_map = settings_manager.agents_config or AGENTS_CONFIG
+                    valid_end = [
+                        k for k in end_chain if k in agents_map and k != agent_key
+                    ]
+                    if valid_end:
+                        next_tag = valid_end[0]
+                        final_text = f"(No text response generated) [{next_tag}] next"
+                    else:
+                        final_text = "(No text response generated)"
+                        force_termination = True
             logger.warning(f"[ROUTER] final_text was empty for {agent_key}!")
         else:
             final_text = markdown_to_slack(final_text)
@@ -709,9 +808,13 @@ async def process_and_respond(
                     )
                     break
 
-        final_text = (
-            f"{final_text.strip()}\n\n[{total_prompt_tokens}/{total_completion_tokens}]"
-        )
+        agent_model = agent_cfg.get("model", "")
+        if agent_model:
+            token_footer = f"{{{agent_model} : {total_prompt_tokens}/{total_completion_tokens}}}"
+        else:
+            token_footer = f"[{total_prompt_tokens}/{total_completion_tokens}]"
+
+        final_text = f"{final_text.strip()}\n\n{token_footer}"
 
         generated_tags = re.findall(r"[\[{]\s*([^\]}\r\n]+?)\s*[\]}]", final_text)
         logger.info(

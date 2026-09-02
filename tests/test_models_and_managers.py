@@ -34,14 +34,14 @@ def test_models_serialization():
         content="print('hello')",
         size=14,
         truncated=False,
-        authorized_agents={"Gemini_Visionary"},
+        authorized_agents={"Visionary"},
     )
     d = fc.to_dict()
     assert d["file_name"] == "app.py"
-    assert d["authorized_agents"] == {"Gemini_Visionary"}
+    assert d["authorized_agents"] == {"Visionary"}
     fc_restored = FileContext.from_dict(d)
     assert fc_restored.file_name == "app.py"
-    assert fc_restored.authorized_agents == {"Gemini_Visionary"}
+    assert fc_restored.authorized_agents == {"Visionary"}
 
     # 2. ExtractedIntent
     ei = ExtractedIntent(max_words=50, history=3, file_use=True, target_file="data.csv")
@@ -84,27 +84,27 @@ def test_agent_settings_manager():
         mgr = AgentSettingsManager(settings_file=settings_file)
 
         # Defaults
-        assert "Gemini_Visionary" in mgr.get_enabled_agents()
+        assert "Visionary" in mgr.get_enabled_agents()
         assert mgr.is_circuit_breaker_enabled() is False
         assert mgr.get_orchestration_mode() == "sandwich"
 
         # Toggle all agents freely (no locked agents)
-        assert mgr.set_agent_enabled("Gemini_Visionary", False) is True
-        assert "Gemini_Visionary" not in mgr.get_enabled_agents()
-        assert mgr.set_agent_enabled("AnthrOpus_Innovator", False) is True
-        assert "AnthrOpus_Innovator" not in mgr.get_enabled_agents()
+        assert mgr.set_agent_enabled("Visionary", False) is True
+        assert "Visionary" not in mgr.get_enabled_agents()
+        assert mgr.set_agent_enabled("Innovator", False) is True
+        assert "Innovator" not in mgr.get_enabled_agents()
 
         # Orchestration mode and chain configuration
         mgr.set_orchestration_mode("fixed")
         assert mgr.get_orchestration_mode() == "fixed"
-        mgr.set_fixed_config(["MistLar_TechLead", "AnthrOpus_Innovator"])
-        assert mgr.get_fixed_config() == {"chain": ["MistLar_TechLead", "AnthrOpus_Innovator"]}
+        mgr.set_fixed_config(["TechLead", "Innovator"])
+        assert mgr.get_fixed_config() == {"chain": ["TechLead", "Innovator"]}
 
         mgr.set_orchestration_mode("sandwich")
-        mgr.set_sandwich_config(["Gemini_Visionary"], ["OpAiTerra_Architect"])
+        mgr.set_sandwich_config(["Visionary"], ["Architect"])
         assert mgr.get_sandwich_config() == {
-            "start_chain": ["Gemini_Visionary"],
-            "end_chain": ["OpAiTerra_Architect"],
+            "start_chain": ["Visionary"],
+            "end_chain": ["Architect"],
         }
 
         # Circuit breaker settings
@@ -118,9 +118,9 @@ def test_agent_settings_manager():
         mgr_reloaded.load()
         assert mgr_reloaded.is_circuit_breaker_enabled() is True
         assert mgr_reloaded.get_circuit_breaker_threshold() == 3.75
-        assert "AnthrOpus_Innovator" not in mgr_reloaded.get_enabled_agents()
+        assert "Innovator" not in mgr_reloaded.get_enabled_agents()
         assert mgr_reloaded.get_orchestration_mode() == "sandwich"
-        assert mgr_reloaded.get_sandwich_config()["start_chain"] == ["Gemini_Visionary"]
+        assert mgr_reloaded.get_sandwich_config()["start_chain"] == ["Visionary"]
 
 
 def test_thread_state_manager():
@@ -147,10 +147,10 @@ def test_thread_state_manager():
     assert mgr.get_file_context(channel_id, thread_ts)["file_name"] == "schema.sql"
 
     # 503 tracking
-    assert mgr.has_agent_503_errored(channel_id, thread_ts, "Gemini_Visionary") is False
-    mgr.mark_agent_503_errored(channel_id, thread_ts, "Gemini_Visionary")
-    assert mgr.has_agent_503_errored(channel_id, thread_ts, "Gemini_Visionary") is True
-    assert mgr.get_503_errored_agents(channel_id, thread_ts) == {"Gemini_Visionary"}
+    assert mgr.has_agent_503_errored(channel_id, thread_ts, "Visionary") is False
+    mgr.mark_agent_503_errored(channel_id, thread_ts, "Visionary")
+    assert mgr.has_agent_503_errored(channel_id, thread_ts, "Visionary") is True
+    assert mgr.get_503_errored_agents(channel_id, thread_ts) == {"Visionary"}
 
     # Stop and clear
     mgr.request_stop(channel_id, thread_ts)
@@ -161,7 +161,7 @@ def test_thread_state_manager():
     assert mgr.get_max_words(channel_id, thread_ts) is None
     assert mgr.get_file_context(channel_id, thread_ts) is None
     assert mgr.is_stopped(channel_id, thread_ts) is False
-    assert mgr.has_agent_503_errored(channel_id, thread_ts, "Gemini_Visionary") is False
+    assert mgr.has_agent_503_errored(channel_id, thread_ts, "Visionary") is False
     assert mgr.get_503_errored_agents(channel_id, thread_ts) == set()
 
 
@@ -174,58 +174,58 @@ def test_debate_orchestrator():
     assert len(initial) == 17
 
     # Tag extraction with exact and partial tags
-    tags = orch.extract_tagged_agents("Hello [AnthrOpus_Innovator] and [MistLar_TechLead]")
-    assert tags == ["AnthrOpus_Innovator", "MistLar_TechLead"]
+    tags = orch.extract_tagged_agents("Hello [Innovator] and [TechLead]")
+    assert tags == ["Innovator", "TechLead"]
 
-    partial_tags = orch.extract_tagged_agents("Hello [Gemini_Vis] and [TechLead] and [AnthrOpus Inn]")
-    assert partial_tags == ["Gemini_Visionary", "MistLar_TechLead", "AnthrOpus_Innovator"]
+    partial_tags = orch.extract_tagged_agents("Hello [Vis] and [TechLead] and [Inn]")
+    assert partial_tags == ["Visionary", "TechLead", "Innovator"]
 
     # Ambiguous tags should not be extracted as single valid agent tags
-    ambig_tags = orch.extract_tagged_agents("Hello [Architect] and [Gemini]")
+    ambig_tags = orch.extract_tagged_agents("Hello [Arch] and [Strategist]")
     assert ambig_tags == []
 
     # Detect ambiguous tags
-    detected_ambig = orch.detect_ambiguous_tags("Hello [Architect] and [Gemini_Vis]")
+    detected_ambig = orch.detect_ambiguous_tags("Hello [Arch] and [Vis]")
     assert len(detected_ambig) == 1
-    assert detected_ambig[0][0] == "Architect"
-    assert "OpAiTerra_Architect" in detected_ambig[0][1]
-    assert "MistLar_SecurityArchitect" in detected_ambig[0][1]
+    assert detected_ambig[0][0] == "Arch"
+    assert "Architect" in detected_ambig[0][1]
+    assert "SecurityArchitect" in detected_ambig[0][1]
 
     # Detect unrecognized tags
-    unrecognized = orch.detect_unrecognized_tags("Hello [NonExistentAgent] and [Gemini_Vis] and [Link](http://a.com)")
+    unrecognized = orch.detect_unrecognized_tags("Hello [NonExistentAgent] and [Vis] and [Link](http://a.com)")
     assert unrecognized == ["NonExistentAgent"]
 
     # Parse agent and prompt with partial tag containing spaces
-    agent, prompt, explicit = orch.parse_agent_and_prompt("what do you think [AnthrOpus Inn]", "C1", "T1")
-    assert agent == "AnthrOpus_Innovator"
-    assert "[AnthrOpus Inn]" not in prompt
+    agent, prompt, explicit = orch.parse_agent_and_prompt("what do you think [Inn]", "C1", "T1")
+    assert agent == "Innovator"
+    assert "[Inn]" not in prompt
     assert prompt == "what do you think"
     assert explicit is True
 
-    # Parse agent and prompt with typo bracket [AnthrOpus Inn}
-    agent2, prompt2, explicit2 = orch.parse_agent_and_prompt("what do you think [AnthrOpus Inn}", "C1", "T1")
-    assert agent2 == "AnthrOpus_Innovator"
-    assert "[AnthrOpus Inn}" not in prompt2
+    # Parse agent and prompt with typo bracket [Inn}
+    agent2, prompt2, explicit2 = orch.parse_agent_and_prompt("what do you think [Inn}", "C1", "T1")
+    assert agent2 == "Innovator"
+    assert "[Inn}" not in prompt2
     assert prompt2 == "what do you think"
     assert explicit2 is True
 
     # Nomination enforcement
     res = orch.enforce_valid_nomination(
         text="My thoughts on this architecture.",
-        current_agent_key="Gemini_Visionary",
-        remaining=["AnthrOpus_Innovator"],
+        current_agent_key="Visionary",
+        remaining=["Innovator"],
         force_termination=False,
     )
-    assert "[AnthrOpus_Innovator]" in res
+    assert "[Innovator]" in res
 
     # Nomination enforcement recognizing partial nomination
     res_partial_nom = orch.enforce_valid_nomination(
         text="Over to you [Innovator] for your review.",
-        current_agent_key="Gemini_Visionary",
-        remaining=["AnthrOpus_Innovator"],
+        current_agent_key="Visionary",
+        remaining=["Innovator"],
         force_termination=False,
     )
-    assert "[AnthrOpus_Innovator]" in res_partial_nom or "[Innovator]" in res_partial_nom
+    assert "[Innovator]" in res_partial_nom or "[Innovator]" in res_partial_nom
 
     # Target file resolution
     files = [{"name": "notes.txt"}, {"name": "schema.sql"}]

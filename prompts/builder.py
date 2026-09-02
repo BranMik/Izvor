@@ -1,3 +1,4 @@
+import json
 import re
 from pathlib import Path
 from functools import lru_cache
@@ -14,17 +15,24 @@ def _read_prompt_file(path: Path) -> str:
     return path.read_text(encoding="utf-8").strip()
 
 
-# Agents restricted to a concise 100 words hard limit
-SHORT_OUTPUT_AGENTS = {
-    "Gemini_DataAndAnalyticsStrategist",
-    "Gemini_ScalabilityEngineer",
-    "MistLar_CompliancePrivacyAndGovernanceOfficer",
-    "MistLar_DeploymentReleaseStrategist",
-    "MistLar_MonitoringAndAlertingSpecialist",
-    "MistLar_OperationalReliabilityLead",
-    "MistLar_QALead",
-    "MistLar_ScopeOptimizer",
-}
+def _load_short_output_agents() -> set[str]:
+    """Loads agent keys configured with is_short_output: true from agent_settings.json."""
+    settings_path = PROMPTS_DIR.parent / "data" / "agent_settings.json"
+    if settings_path.exists():
+        try:
+            with open(settings_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return {
+                k for k, v in data.get("agents", {}).items()
+                if isinstance(v, dict) and v.get("is_short_output") is True
+            }
+        except Exception:
+            pass
+    return set()
+
+
+# Agents restricted to a concise 100 words hard limit (loaded from agent_settings.json)
+SHORT_OUTPUT_AGENTS: set[str] = _load_short_output_agents()
 
 
 def _format_word_constraints(
@@ -72,39 +80,9 @@ def build_agent_prompt(
     )
 
     nomination_rules = _read_prompt_file(SHARED_DIR / "nomination_rules.md")
+    fixed_constraints = _read_prompt_file(SHARED_DIR / "fixed_constraints.md")
 
-    if agent_key == "Gemini_Visionary":
-        if word_constraints:
-            return (
-                f"\n{persona_content}\n\n"
-                f"OUTPUT & LENGTH CONSTRAINTS:\n\n"
-                f"{word_constraints}\n\n"
-                f"{nomination_rules}\n\n"
-            )
-        return (
-            f"\n{persona_content}\n\n"
-            f"{nomination_rules}\n\n"
-        )
-
-    if agent_key == "OpAiTerra_Architect":
-        content = persona_content
-        if max_words is not None:
-            content = re.sub(
-                r"strictly NOT exceed \d+ words",
-                f"strictly NOT exceed {max_words} words",
-                content,
-            )
-        if min_words is not None:
-            content = (
-                f"{content}\n"
-                f"7. Minimum Length: Your entire response must have a minimum length of {min_words} words."
-            )
-        return (
-            f"\n{content}\n\n"
-            f"{nomination_rules}\n\n"
-        )
-
-    # Intermediate agents share output constraints (100 words or 200 words) and nomination rules
+    # All debate agents share fixed constraints, output constraints (100w or 200w), and nomination rules
     if word_constraints:
         output_constraints = (
             f"OUTPUT & LENGTH CONSTRAINTS:\n\n"
@@ -117,6 +95,7 @@ def build_agent_prompt(
 
     return (
         f"\n{persona_content}\n\n"
-        f"{output_constraints}\n"
+        f"{fixed_constraints}\n\n"
+        f"{output_constraints}\n\n"
         f"{nomination_rules}\n\n"
     )

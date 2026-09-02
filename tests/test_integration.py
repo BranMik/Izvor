@@ -89,7 +89,7 @@ def test_bot_message_filtering():
             "subtype": "bot_message",
             "channel": "C_TEST_BOT",
             "ts": "123456789.0003",
-            "text": "I nominate [AnthrOpus_Innovator] to speak next.",
+            "text": "I nominate [Innovator] to speak next.",
         },
     }
     response2 = client.post("/slack/events", json=payload_with_nom)
@@ -122,7 +122,7 @@ def test_user_message_filtering():
             "type": "message",
             "channel": "C_TEST_USER",
             "ts": "123456789.0005",
-            "text": "[MistLar_TechLead] Please analyze this schema.",
+            "text": "[TechLead] Please analyze this schema.",
         },
     }
     response2 = client.post("/slack/events", json=payload_tag)
@@ -178,7 +178,7 @@ def test_stop_command_integration(monkeypatch):
 
     # Pre-populate remaining agents for thread to verify they are cleared on stop
     thread_key = ("C_TEST_STOP", "123456789.0008")
-    REMAINING_AGENTS_MAP[thread_key] = ["MistLar_TechLead", "AnthrOpus_Innovator"]
+    REMAINING_AGENTS_MAP[thread_key] = ["TechLead", "Innovator"]
 
     mock_process = AsyncMock(return_value={"ok": True})
     monkeypatch.setattr("main.process_and_respond", mock_process)
@@ -206,7 +206,7 @@ def test_stop_command_integration(monkeypatch):
     # 2. User sends stop via persona name mention in regular message
     STOP_REQUESTED_THREADS.clear()
     thread_key_2 = ("C_TEST_STOP", "123456789.0009")
-    REMAINING_AGENTS_MAP[thread_key_2] = ["OpAiTerra_ROIStrategist"]
+    REMAINING_AGENTS_MAP[thread_key_2] = ["ROIStrategist"]
 
     payload_stop_persona = {
         "type": "event_callback",
@@ -250,15 +250,15 @@ def test_slack_interactivity_radio_toggle_action(monkeypatch):
     mock_publish = AsyncMock(return_value={"ok": True})
     monkeypatch.setattr("main.publish_app_home", mock_publish)
 
-    # 1. Turn OFF MistLar_TechLead via radio button
+    # 1. Turn OFF TechLead via radio button
     payload_off = {
         "type": "block_actions",
         "user": {"id": "U_TEST_USER_2"},
         "actions": [
             {
-                "action_id": "toggle_agent_radio:MistLar_TechLead",
+                "action_id": "toggle_agent_radio:TechLead",
                 "selected_option": {
-                    "value": "MistLar_TechLead:off",
+                    "value": "TechLead:off",
                     "text": {"type": "plain_text", "text": "🔴 OFF"},
                 },
             }
@@ -267,18 +267,18 @@ def test_slack_interactivity_radio_toggle_action(monkeypatch):
 
     response = client.post("/slack/actions", json=payload_off)
     assert response.status_code == 200
-    assert "MistLar_TechLead" not in ENABLED_DEBATE_AGENTS
+    assert "TechLead" not in ENABLED_DEBATE_AGENTS
     mock_publish.assert_called_with(user_id="U_TEST_USER_2")
 
-    # 2. Turn ON MistLar_TechLead via radio button
+    # 2. Turn ON TechLead via radio button
     payload_on = {
         "type": "block_actions",
         "user": {"id": "U_TEST_USER_2"},
         "actions": [
             {
-                "action_id": "toggle_agent_radio:MistLar_TechLead",
+                "action_id": "toggle_agent_radio:TechLead",
                 "selected_option": {
-                    "value": "MistLar_TechLead:on",
+                    "value": "TechLead:on",
                     "text": {"type": "plain_text", "text": "🟢 ON"},
                 },
             }
@@ -287,7 +287,7 @@ def test_slack_interactivity_radio_toggle_action(monkeypatch):
 
     response_on = client.post("/slack/interactivity", json=payload_on)
     assert response_on.status_code == 200
-    assert "MistLar_TechLead" in ENABLED_DEBATE_AGENTS
+    assert "TechLead" in ENABLED_DEBATE_AGENTS
 
     # 3. Bulk disable optional (only locked agents remain ON)
     payload_bulk_off = {
@@ -317,7 +317,7 @@ def test_user_new_query_interrupts_ongoing_discussion_webhook(monkeypatch):
     thread_key = ("C_TEST_INTERRUPT_WEBHOOK", "123456789.2001")
     
     # 1. Simulate an ongoing discussion with remaining agents
-    REMAINING_AGENTS_MAP[thread_key] = ["MistLar_TechLead", "AnthrOpus_Innovator"]
+    REMAINING_AGENTS_MAP[thread_key] = ["TechLead", "Innovator"]
     initial_gen = THREAD_GENERATIONS.get(thread_key, 0)
     assert is_discussion_active("C_TEST_INTERRUPT_WEBHOOK", "123456789.2001") is True
 
@@ -358,7 +358,7 @@ def test_user_mention_syntax_variations_webhook_interruption(monkeypatch):
     thread_key = ("C_TEST_INTERRUPT_SYNTAX", "123456789.3001")
     
     # 1. Message with @CaiLogics Hub
-    REMAINING_AGENTS_MAP[thread_key] = ["OpAiTerra_Architect"]
+    REMAINING_AGENTS_MAP[thread_key] = ["Architect"]
     mock_process = AsyncMock(return_value={"ok": True})
     monkeypatch.setattr("main.process_and_respond", mock_process)
 
@@ -378,8 +378,8 @@ def test_user_mention_syntax_variations_webhook_interruption(monkeypatch):
     assert thread_key not in REMAINING_AGENTS_MAP
     assert mock_process.call_count == 1
 
-    # 2. Message with agent bracket tag [Gemini_Visionary]
-    REMAINING_AGENTS_MAP[thread_key] = ["OpAiTerra_Architect"]
+    # 2. Message with agent bracket tag [Visionary]
+    REMAINING_AGENTS_MAP[thread_key] = ["Architect"]
     payload_tag = {
         "type": "event_callback",
         "event": {
@@ -387,7 +387,7 @@ def test_user_mention_syntax_variations_webhook_interruption(monkeypatch):
             "channel": "C_TEST_INTERRUPT_SYNTAX",
             "ts": "123456789.3003",
             "thread_ts": "123456789.3001",
-            "text": "[Gemini_Visionary] Start fresh with this",
+            "text": "[Visionary] Start fresh with this",
         },
     }
 

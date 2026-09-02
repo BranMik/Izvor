@@ -2,7 +2,7 @@ import logging
 import re
 from typing import Any
 
-from core.config import AGENTS_CONFIG, DEFAULT_AGENT_KEY
+from core.config import AGENTS_CONFIG
 from nlp.nl_patterns import extract_history_limit, resolve_agent_candidates, resolve_agent_name
 from .agent_settings import ENABLED_DEBATE_AGENTS, settings_manager
 from .thread_state import REMAINING_AGENTS_MAP, thread_state_manager
@@ -86,7 +86,11 @@ class DebateOrchestrator:
         ambiguous = []
         for match in TAG_REGEX.finditer(cleaned):
             tag_str = match.group(1).strip()
-            if not tag_str or re.fullmatch(r"\d+(?:[/\-:]\d+)?", tag_str):
+            if (
+                not tag_str
+                or re.fullmatch(r"\d+(?:[/\-:]\d+)?", tag_str)
+                or re.search(r"[:;]\s*\d+\s*/\s*\d+", tag_str)
+            ):
                 continue
             candidates = resolve_agent_candidates(tag_str)
             if len(candidates) > 1:
@@ -103,7 +107,11 @@ class DebateOrchestrator:
         unrecognized = []
         for match in TAG_REGEX.finditer(cleaned):
             tag_str = match.group(1).strip()
-            if not tag_str or re.fullmatch(r"\d+(?:[/\-:]\d+)?", tag_str):
+            if (
+                not tag_str
+                or re.fullmatch(r"\d+(?:[/\-:]\d+)?", tag_str)
+                or re.search(r"[:;]\s*\d+\s*/\s*\d+", tag_str)
+            ):
                 continue
             candidates = resolve_agent_candidates(tag_str)
             if len(candidates) == 0:
@@ -134,7 +142,7 @@ class DebateOrchestrator:
 
     def parse_agent_and_prompt(
         self, text: str, channel_id: str, thread_ts: str
-    ) -> tuple[str, str, bool]:
+    ) -> tuple[str | None, str, bool]:
         """
         Parses Slack message text for bracketed agent tags: [Agent_Key].
         Returns (agent_key, cleaned_prompt, was_explicit_target)
@@ -192,14 +200,22 @@ class DebateOrchestrator:
                     first_agent = remaining.pop(0)
                     return first_agent, cleaned_text, False
 
-            if DEFAULT_AGENT_KEY in remaining:
-                remaining.remove(DEFAULT_AGENT_KEY)
-                return DEFAULT_AGENT_KEY, cleaned_text, False
-
-            first_agent = remaining.pop(0)
+            # If no designated chain, select randomly from remaining pool
+            import random
+            first_agent = random.choice(remaining)
+            remaining.remove(first_agent)
             return first_agent, cleaned_text, False
 
-        return DEFAULT_AGENT_KEY, cleaned_text, False
+        # If remaining is empty, check if sandwich end_chain has agents
+        mode = settings_manager.get_orchestration_mode()
+        if mode == "sandwich":
+            end_chain = settings_manager.get_sandwich_config().get("end_chain", [])
+            agents = settings_manager.agents_config or AGENTS_CONFIG
+            valid_end = [k for k in end_chain if k in agents]
+            if valid_end:
+                return valid_end[0], cleaned_text, False
+
+        return None, cleaned_text, False
 
     def enforce_valid_nomination(
         self,
