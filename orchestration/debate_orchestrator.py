@@ -172,13 +172,13 @@ class DebateOrchestrator:
 
         if tag_matches:
             matched_item = None
-            for match, key, raw_tag in tag_matches:
+            for match, key, raw_tag in reversed(tag_matches):
                 if key in remaining:
                     matched_item = (match, key, raw_tag)
                     break
 
             if not matched_item:
-                matched_item = tag_matches[0]
+                matched_item = tag_matches[-1]
 
             match, matched_key, raw_tag = matched_item
             prompt = re.sub(re.escape(match.group(0)), "", cleaned_text).strip()
@@ -199,21 +199,15 @@ class DebateOrchestrator:
                 if sandwich_cfg.get("start_chain"):
                     first_agent = remaining.pop(0)
                     return first_agent, cleaned_text, False
+                else:
+                    first_agent = remaining.pop(0)
+                    return first_agent, cleaned_text, False
 
             # If no designated chain, select randomly from remaining pool
             import random
             first_agent = random.choice(remaining)
             remaining.remove(first_agent)
             return first_agent, cleaned_text, False
-
-        # If remaining is empty, check if sandwich end_chain has agents
-        mode = settings_manager.get_orchestration_mode()
-        if mode == "sandwich":
-            end_chain = settings_manager.get_sandwich_config().get("end_chain", [])
-            agents = settings_manager.agents_config or AGENTS_CONFIG
-            valid_end = [k for k in end_chain if k in agents]
-            if valid_end:
-                return valid_end[0], cleaned_text, False
 
         return None, cleaned_text, False
 
@@ -254,7 +248,7 @@ class DebateOrchestrator:
 
         if remaining:
             valid_nomination = None
-            for match, key in agent_tag_matches:
+            for match, key in reversed(agent_tag_matches):
                 if key in remaining:
                     valid_nomination = key
                     break
