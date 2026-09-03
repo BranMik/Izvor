@@ -207,6 +207,189 @@ class ThreadStateManager:
         """Clears stop flag for this thread."""
         self.stop_requested_threads.discard((channel_id, thread_ts))
 
+    def get_remaining_agents(
+        self, channel_id: str, thread_ts: str, default: list[str] | None = None
+    ) -> list[str]:
+        """Returns the list of remaining agents scheduled for this thread."""
+        thread_key = (channel_id, thread_ts)
+        if thread_key in self.remaining_agents_map:
+            return list(self.remaining_agents_map[thread_key])
+        if default is not None:
+            return list(default)
+        return []
+
+    def set_remaining_agents(
+        self, channel_id: str, thread_ts: str, agents: list[str]
+    ) -> None:
+        """Sets the remaining agents scheduled for this thread."""
+        self.remaining_agents_map[(channel_id, thread_ts)] = list(agents)
+        logger.info(
+            f"[THREAD STATE] Set remaining agents for {(channel_id, thread_ts)}: {agents}"
+        )
+
+    def pop_remaining_agent(
+        self, channel_id: str, thread_ts: str, agent_key: str | None = None
+    ) -> str | None:
+        """Pops a specific agent or the next agent from remaining agents list."""
+        thread_key = (channel_id, thread_ts)
+        agents = self.remaining_agents_map.get(thread_key, [])
+        if not agents:
+            return None
+        if agent_key is None:
+            return agents.pop(0)
+        if agent_key in agents:
+            agents.remove(agent_key)
+            return agent_key
+        return None
+
+    def has_remaining_agents_key(self, channel_id: str, thread_ts: str) -> bool:
+        """Checks if remaining_agents_map explicitly has an entry for this thread."""
+        return (channel_id, thread_ts) in self.remaining_agents_map
+
+    def clear_remaining_agents(self, channel_id: str, thread_ts: str) -> None:
+        """Clears remaining agents for this thread."""
+        self.remaining_agents_map.pop((channel_id, thread_ts), None)
+
+    def get_retry_queue(self, channel_id: str, thread_ts: str) -> list[str]:
+        """Returns the pending rate-limit retry queue for this thread."""
+        return list(self.rate_limit_retry_queue.get((channel_id, thread_ts), []))
+
+    def add_to_retry_queue(
+        self, channel_id: str, thread_ts: str, agent_key: str
+    ) -> None:
+        """Appends an agent to the rate-limit retry queue for this thread."""
+        thread_key = (channel_id, thread_ts)
+        queue = self.rate_limit_retry_queue.setdefault(thread_key, [])
+        if agent_key not in queue:
+            queue.append(agent_key)
+            logger.info(
+                f"[THREAD STATE] Added {agent_key} to retry queue for {thread_key}. Current queue: {queue}"
+            )
+
+    def pop_retry_agent(
+        self, channel_id: str, thread_ts: str, agent_key: str | None = None
+    ) -> str | None:
+        """Pops a specific agent or the next agent from the retry queue."""
+        thread_key = (channel_id, thread_ts)
+        queue = self.rate_limit_retry_queue.get(thread_key, [])
+        if not queue:
+            return None
+        if agent_key is None:
+            popped = queue.pop(0)
+            if not queue:
+                self.rate_limit_retry_queue.pop(thread_key, None)
+            return popped
+        if agent_key in queue:
+            queue.remove(agent_key)
+            if not queue:
+                self.rate_limit_retry_queue.pop(thread_key, None)
+            return agent_key
+        return None
+
+    def has_pending_retries(self, channel_id: str, thread_ts: str) -> bool:
+        """Checks if there are any agents queued for rate-limit retry."""
+        return bool(self.rate_limit_retry_queue.get((channel_id, thread_ts)))
+
+    def clear_retry_queue(self, channel_id: str, thread_ts: str) -> None:
+        """Clears the retry queue for this thread."""
+        self.rate_limit_retry_queue.pop((channel_id, thread_ts), None)
+
+    def get_already_retried(self, channel_id: str, thread_ts: str) -> set[str]:
+        """Returns the set of agents that have already been retried once in this thread."""
+        return set(self.rate_limit_already_retried.get((channel_id, thread_ts), set()))
+
+    def is_already_retried(
+        self, channel_id: str, thread_ts: str, agent_key: str
+    ) -> bool:
+        """Checks if an agent has already undergone a rate-limit retry."""
+        return agent_key in self.rate_limit_already_retried.get(
+            (channel_id, thread_ts), set()
+        )
+
+    def mark_already_retried(
+        self, channel_id: str, thread_ts: str, agent_key: str
+    ) -> None:
+        """Marks an agent as already retried to prevent infinite retry loops."""
+        thread_key = (channel_id, thread_ts)
+        self.rate_limit_already_retried.setdefault(thread_key, set()).add(agent_key)
+
+    def clear_already_retried(self, channel_id: str, thread_ts: str) -> None:
+        """Clears the already retried set for this thread."""
+        self.rate_limit_already_retried.pop((channel_id, thread_ts), None)
+
+    def get_active_task(
+        self, channel_id: str, thread_ts: str
+    ) -> asyncio.Task | None:
+        """Gets active asyncio Task for this thread."""
+        return self.active_thread_tasks.get((channel_id, thread_ts))
+
+    def set_active_task(
+        self, channel_id: str, thread_ts: str, task: asyncio.Task
+    ) -> None:
+        """Associates an active asyncio Task with this thread."""
+        self.active_thread_tasks[(channel_id, thread_ts)] = task
+
+    def pop_active_task(
+        self, channel_id: str, thread_ts: str
+    ) -> asyncio.Task | None:
+        """Removes and returns active asyncio Task for this thread."""
+        return self.active_thread_tasks.pop((channel_id, thread_ts), None)
+
+    def clear_active_task(
+        self,
+        channel_id: str,
+        thread_ts: str,
+        task: asyncio.Task | None = None,
+    ) -> None:
+        """Clears active task for this thread, optionally only if it matches current task."""
+        thread_key = (channel_id, thread_ts)
+        if task is None or self.active_thread_tasks.get(thread_key) == task:
+            self.active_thread_tasks.pop(thread_key, None)
+
+    def get_generation(self, channel_id: str, thread_ts: str) -> int:
+        """Gets current generation counter for this thread."""
+        return self.thread_generations.get((channel_id, thread_ts), 0)
+
+    def increment_generation(self, channel_id: str, thread_ts: str) -> int:
+        """Increments and returns the generation counter for this thread."""
+        thread_key = (channel_id, thread_ts)
+        new_gen = self.thread_generations.get(thread_key, 0) + 1
+        self.thread_generations[thread_key] = new_gen
+        return new_gen
+
+    def is_custom_flow(self, channel_id: str, thread_ts: str) -> bool:
+        """Checks if this thread is running an ad-hoc custom tagged agent flow."""
+        return (channel_id, thread_ts) in self.custom_flow_threads
+
+    def set_custom_flow(
+        self, channel_id: str, thread_ts: str, is_custom: bool = True
+    ) -> None:
+        """Enables or disables custom flow flag for this thread."""
+        thread_key = (channel_id, thread_ts)
+        if is_custom:
+            self.custom_flow_threads.add(thread_key)
+        else:
+            self.custom_flow_threads.discard(thread_key)
+
+    def clear_custom_flow(self, channel_id: str, thread_ts: str) -> None:
+        """Clears custom flow flag for this thread."""
+        self.custom_flow_threads.discard((channel_id, thread_ts))
+
+    def reset_all(self) -> None:
+        """Resets all thread states across all threads (useful for test isolation)."""
+        self.remaining_agents_map.clear()
+        self.rate_limit_retry_queue.clear()
+        self.rate_limit_already_retried.clear()
+        self.high_demand_errored_agents.clear()
+        self.active_thread_tasks.clear()
+        self.thread_generations.clear()
+        self.custom_flow_threads.clear()
+        self.stop_requested_threads.clear()
+        self.thread_history_limits.clear()
+        self.thread_max_words_limits.clear()
+        self.thread_min_words_limits.clear()
+        self.thread_active_file_context.clear()
+
     def clear_state(self, channel_id: str, thread_ts: str) -> None:
         """Cleans up all thread-level discussion state maps and flags."""
         thread_key = (channel_id, thread_ts)
@@ -215,11 +398,11 @@ class ThreadStateManager:
         self.clear_max_words(channel_id, thread_ts)
         self.clear_min_words(channel_id, thread_ts)
         self.clear_file_context(channel_id, thread_ts)
-        self.custom_flow_threads.discard(thread_key)
-        self.remaining_agents_map.pop(thread_key, None)
-        self.rate_limit_retry_queue.pop(thread_key, None)
-        self.rate_limit_already_retried.pop(thread_key, None)
-        self.high_demand_errored_agents.pop(thread_key, None)
+        self.clear_custom_flow(channel_id, thread_ts)
+        self.clear_remaining_agents(channel_id, thread_ts)
+        self.clear_retry_queue(channel_id, thread_ts)
+        self.clear_already_retried(channel_id, thread_ts)
+        self.clear_503_errored_agents(channel_id, thread_ts)
 
 
 # Default singleton instance
@@ -343,4 +526,125 @@ def clear_thread_stop(channel_id: str, thread_ts: str) -> None:
 
 def clear_thread_state(channel_id: str, thread_ts: str) -> None:
     thread_state_manager.clear_state(channel_id, thread_ts)
+
+
+def get_remaining_agents(
+    channel_id: str, thread_ts: str, default: list[str] | None = None
+) -> list[str]:
+    return thread_state_manager.get_remaining_agents(
+        channel_id, thread_ts, default=default
+    )
+
+
+def set_remaining_agents(
+    channel_id: str, thread_ts: str, agents: list[str]
+) -> None:
+    thread_state_manager.set_remaining_agents(channel_id, thread_ts, agents)
+
+
+def pop_remaining_agent(
+    channel_id: str, thread_ts: str, agent_key: str | None = None
+) -> str | None:
+    return thread_state_manager.pop_remaining_agent(channel_id, thread_ts, agent_key)
+
+
+def clear_remaining_agents(channel_id: str, thread_ts: str) -> None:
+    thread_state_manager.clear_remaining_agents(channel_id, thread_ts)
+
+
+def get_retry_queue(channel_id: str, thread_ts: str) -> list[str]:
+    return thread_state_manager.get_retry_queue(channel_id, thread_ts)
+
+
+def add_to_retry_queue(
+    channel_id: str, thread_ts: str, agent_key: str
+) -> None:
+    thread_state_manager.add_to_retry_queue(channel_id, thread_ts, agent_key)
+
+
+def pop_retry_agent(
+    channel_id: str, thread_ts: str, agent_key: str | None = None
+) -> str | None:
+    return thread_state_manager.pop_retry_agent(channel_id, thread_ts, agent_key)
+
+
+def has_pending_retries(channel_id: str, thread_ts: str) -> bool:
+    return thread_state_manager.has_pending_retries(channel_id, thread_ts)
+
+
+def clear_retry_queue(channel_id: str, thread_ts: str) -> None:
+    thread_state_manager.clear_retry_queue(channel_id, thread_ts)
+
+
+def get_already_retried(channel_id: str, thread_ts: str) -> set[str]:
+    return thread_state_manager.get_already_retried(channel_id, thread_ts)
+
+
+def is_already_retried(
+    channel_id: str, thread_ts: str, agent_key: str
+) -> bool:
+    return thread_state_manager.is_already_retried(channel_id, thread_ts, agent_key)
+
+
+def mark_already_retried(
+    channel_id: str, thread_ts: str, agent_key: str
+) -> None:
+    thread_state_manager.mark_already_retried(channel_id, thread_ts, agent_key)
+
+
+def clear_already_retried(channel_id: str, thread_ts: str) -> None:
+    thread_state_manager.clear_already_retried(channel_id, thread_ts)
+
+
+def get_active_task(
+    channel_id: str, thread_ts: str
+) -> asyncio.Task | None:
+    return thread_state_manager.get_active_task(channel_id, thread_ts)
+
+
+def set_active_task(
+    channel_id: str, thread_ts: str, task: asyncio.Task
+) -> None:
+    thread_state_manager.set_active_task(channel_id, thread_ts, task)
+
+
+def pop_active_task(
+    channel_id: str, thread_ts: str
+) -> asyncio.Task | None:
+    return thread_state_manager.pop_active_task(channel_id, thread_ts)
+
+
+def clear_active_task(
+    channel_id: str,
+    thread_ts: str,
+    task: asyncio.Task | None = None,
+) -> None:
+    thread_state_manager.clear_active_task(channel_id, thread_ts, task)
+
+
+def get_thread_generation(channel_id: str, thread_ts: str) -> int:
+    return thread_state_manager.get_generation(channel_id, thread_ts)
+
+
+def increment_thread_generation(channel_id: str, thread_ts: str) -> int:
+    return thread_state_manager.increment_generation(channel_id, thread_ts)
+
+
+def is_custom_flow(channel_id: str, thread_ts: str) -> bool:
+    return thread_state_manager.is_custom_flow(channel_id, thread_ts)
+
+
+def set_custom_flow(
+    channel_id: str, thread_ts: str, is_custom: bool = True
+) -> None:
+    thread_state_manager.set_custom_flow(channel_id, thread_ts, is_custom)
+
+
+def clear_custom_flow(channel_id: str, thread_ts: str) -> None:
+    thread_state_manager.clear_custom_flow(channel_id, thread_ts)
+
+
+def reset_all_thread_states() -> None:
+    thread_state_manager.reset_all()
+
 

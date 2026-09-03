@@ -95,7 +95,13 @@ from .thread_state import (
     THREAD_HISTORY_LIMITS,
     THREAD_MAX_WORDS_LIMITS,
     THREAD_MIN_WORDS_LIMITS,
+    add_to_retry_queue,
     clear_503_errored_agents,
+    clear_active_task,
+    clear_already_retried,
+    clear_custom_flow,
+    clear_remaining_agents,
+    clear_retry_queue,
     clear_thread_file_context,
     clear_thread_history_limit,
     clear_thread_max_words,
@@ -103,20 +109,38 @@ from .thread_state import (
     clear_thread_state,
     clear_thread_stop,
     get_503_errored_agents,
+    get_active_task,
+    get_already_retried,
+    get_remaining_agents,
+    get_retry_queue,
     get_thread_file_context,
+    get_thread_generation,
     get_thread_history_limit,
     get_thread_max_words,
     get_thread_min_words,
     has_agent_503_errored,
+    has_pending_retries,
+    increment_thread_generation,
     interrupt_thread_discussion,
+    is_custom_flow,
     is_discussion_active,
+    is_already_retried,
     is_thread_stopped,
     mark_agent_503_errored,
+    mark_already_retried,
+    pop_active_task,
+    pop_remaining_agent,
+    pop_retry_agent,
     request_thread_stop,
+    reset_all_thread_states,
+    set_active_task,
+    set_custom_flow,
+    set_remaining_agents,
     set_thread_file_context,
     set_thread_history_limit,
     set_thread_max_words,
     set_thread_min_words,
+    thread_state_manager,
 )
 
 # Re-exports from nomination
@@ -199,7 +223,7 @@ async def orchestrate_discussion(
 
     current_task = asyncio.current_task()
     if current_task:
-        ACTIVE_THREAD_TASKS[thread_key] = current_task
+        thread_state_manager.set_active_task(channel_id, thread_ts, current_task)
 
     try:
         # 1. Fetch initial thread history from Slack once
@@ -303,5 +327,5 @@ async def orchestrate_discussion(
 
         return last_res
     finally:
-        if current_task and ACTIVE_THREAD_TASKS.get(thread_key) == current_task:
-            ACTIVE_THREAD_TASKS.pop(thread_key, None)
+        if current_task and thread_state_manager.get_active_task(channel_id, thread_ts) == current_task:
+            thread_state_manager.clear_active_task(channel_id, thread_ts, current_task)

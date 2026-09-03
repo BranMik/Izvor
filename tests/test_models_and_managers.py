@@ -164,6 +164,74 @@ def test_thread_state_manager():
     assert mgr.has_agent_503_errored(channel_id, thread_ts, "Visionary") is False
     assert mgr.get_503_errored_agents(channel_id, thread_ts) == set()
 
+    # Remaining agents operations
+    assert mgr.get_remaining_agents(channel_id, thread_ts) == []
+    mgr.set_remaining_agents(channel_id, thread_ts, ["Visionary", "Architect", "Critic"])
+    assert mgr.get_remaining_agents(channel_id, thread_ts) == ["Visionary", "Architect", "Critic"]
+    popped = mgr.pop_remaining_agent(channel_id, thread_ts)
+    assert popped == "Visionary"
+    assert mgr.get_remaining_agents(channel_id, thread_ts) == ["Architect", "Critic"]
+    popped_specific = mgr.pop_remaining_agent(channel_id, thread_ts, "Critic")
+    assert popped_specific == "Critic"
+    assert mgr.get_remaining_agents(channel_id, thread_ts) == ["Architect"]
+    mgr.clear_remaining_agents(channel_id, thread_ts)
+    assert mgr.get_remaining_agents(channel_id, thread_ts) == []
+
+    # Retry queue operations
+    assert mgr.has_pending_retries(channel_id, thread_ts) is False
+    mgr.add_to_retry_queue(channel_id, thread_ts, "TechLead")
+    mgr.add_to_retry_queue(channel_id, thread_ts, "Innovator")
+    assert mgr.has_pending_retries(channel_id, thread_ts) is True
+    assert mgr.get_retry_queue(channel_id, thread_ts) == ["TechLead", "Innovator"]
+    popped_retry = mgr.pop_retry_agent(channel_id, thread_ts)
+    assert popped_retry == "TechLead"
+    assert mgr.get_retry_queue(channel_id, thread_ts) == ["Innovator"]
+    popped_retry_spec = mgr.pop_retry_agent(channel_id, thread_ts, "Innovator")
+    assert popped_retry_spec == "Innovator"
+    assert mgr.has_pending_retries(channel_id, thread_ts) is False
+
+    # Already retried operations
+    assert mgr.is_already_retried(channel_id, thread_ts, "TechLead") is False
+    mgr.mark_already_retried(channel_id, thread_ts, "TechLead")
+    assert mgr.is_already_retried(channel_id, thread_ts, "TechLead") is True
+    assert mgr.get_already_retried(channel_id, thread_ts) == {"TechLead"}
+    mgr.clear_already_retried(channel_id, thread_ts)
+    assert mgr.is_already_retried(channel_id, thread_ts, "TechLead") is False
+
+    # Active task operations
+    fake_task = object()
+    mgr.set_active_task(channel_id, thread_ts, fake_task)
+    assert mgr.get_active_task(channel_id, thread_ts) is fake_task
+    other_task = object()
+    mgr.clear_active_task(channel_id, thread_ts, other_task)
+    assert mgr.get_active_task(channel_id, thread_ts) is fake_task
+    mgr.clear_active_task(channel_id, thread_ts, fake_task)
+    assert mgr.get_active_task(channel_id, thread_ts) is None
+
+    # Generations operations
+    assert mgr.get_generation(channel_id, thread_ts) == 0
+    gen1 = mgr.increment_generation(channel_id, thread_ts)
+    assert gen1 == 1
+    assert mgr.get_generation(channel_id, thread_ts) == 1
+    gen2 = mgr.increment_generation(channel_id, thread_ts)
+    assert gen2 == 2
+
+    # Custom flow operations
+    assert mgr.is_custom_flow(channel_id, thread_ts) is False
+    mgr.set_custom_flow(channel_id, thread_ts, True)
+    assert mgr.is_custom_flow(channel_id, thread_ts) is True
+    mgr.clear_custom_flow(channel_id, thread_ts)
+    assert mgr.is_custom_flow(channel_id, thread_ts) is False
+
+    # Reset all
+    mgr.set_remaining_agents(channel_id, thread_ts, ["Visionary"])
+    mgr.add_to_retry_queue(channel_id, thread_ts, "Architect")
+    mgr.increment_generation(channel_id, thread_ts)
+    mgr.reset_all()
+    assert mgr.get_remaining_agents(channel_id, thread_ts) == []
+    assert mgr.get_retry_queue(channel_id, thread_ts) == []
+    assert mgr.get_generation(channel_id, thread_ts) == 0
+
 
 def test_debate_orchestrator():
     orch = DebateOrchestrator()
