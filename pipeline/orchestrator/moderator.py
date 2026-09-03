@@ -4,7 +4,6 @@ import os
 from typing import Any
 
 import litellm
-from starlette.concurrency import run_in_threadpool
 
 from core.domain import SpeakerDecision, Turn
 
@@ -91,8 +90,7 @@ class DiscussionModerator:
         ]
 
         try:
-            resp = await run_in_threadpool(
-                litellm.completion,
+            resp = await litellm.acompletion(
                 model=self.model,
                 messages=messages,
                 response_format={"type": "json_object"},
