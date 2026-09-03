@@ -162,7 +162,7 @@ async def test_process_and_respond_token_appending(monkeypatch):
     )
 
     assert len(posted_messages) == 1
-    assert posted_messages[0].endswith("\n\n{gemini/gemini-3.7-flash : 150/50}")
+    assert posted_messages[0].endswith("\n\n{gemini/gemini-3.8-flash : 150/50}")
 
 
 @pytest.mark.anyio

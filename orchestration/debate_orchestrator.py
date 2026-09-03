@@ -7,6 +7,9 @@ from nlp.nl_patterns import extract_history_limit, resolve_agent_candidates, res
 from .agent_settings import ENABLED_DEBATE_AGENTS, settings_manager
 from .thread_state import REMAINING_AGENTS_MAP, thread_state_manager
 
+from skills.entity_resolver import entity_resolver
+from skills.orchestrator import SandwichOrchestrator
+
 logger = logging.getLogger(__name__)
 
 
@@ -45,100 +48,38 @@ class DebateOrchestrator:
     def get_initial_agents(self) -> list[str]:
         """
         Returns list of agents that should participate in the discussion flow based on active orchestration mode.
-        - Fixed mode: returns fixed_config['chain'] if non-empty, else all enabled agents.
-        - Sandwich mode: returns start_chain + middle_pool (enabled minus start/end) + end_chain.
-          If both start and end chains are empty, returns all enabled agents.
         """
         mode = settings_manager.get_orchestration_mode()
         enabled = list(settings_manager.get_enabled_agents())
         agents = settings_manager.agents_config or AGENTS_CONFIG
-
-        if mode == "fixed":
-            fixed_cfg = settings_manager.get_fixed_config()
-            chain = [k for k in fixed_cfg.get("chain", []) if k in agents]
-            if chain:
-                return list(chain)
-            return [k for k in agents if k in enabled]
-
-        # Sandwich mode
         sandwich_cfg = settings_manager.get_sandwich_config()
-        start_chain = [k for k in sandwich_cfg.get("start_chain", []) if k in agents]
-        end_chain = [k for k in sandwich_cfg.get("end_chain", []) if k in agents]
-
-        # Middle pool: enabled agents not in start_chain and not in end_chain
-        middle_pool = [
-            k for k in agents
-            if k in enabled and k not in start_chain and k not in end_chain
-        ]
-
-        full_flow = start_chain + middle_pool + end_chain
-        if not full_flow:
-            return [k for k in agents if k in enabled]
-        return full_flow
+        fixed_cfg = settings_manager.get_fixed_config()
+        orchestrator = SandwichOrchestrator(
+            mode=mode,
+            start_chain=sandwich_cfg.get("start_chain", []),
+            end_chain=sandwich_cfg.get("end_chain", []),
+            fixed_chain=fixed_cfg.get("chain", []),
+            agents_map=agents,
+        )
+        return orchestrator.build_initial_sequence(enabled)
 
     def detect_ambiguous_tags(self, text: str) -> list[tuple[str, list[str]]]:
         """
         Scans message text for bracketed tokens [tag] that match multiple candidate agents.
-        Returns a list of tuples: [(raw_tag_str, [matching_candidate_keys])]
         """
-        cleaned = re.sub(r"<@[A-Z0-9]+>", "", text)
-        cleaned = re.sub(r"\[([^\]]+)\]\([^\)]+\)", "", cleaned)
-        ambiguous = []
-        for match in TAG_REGEX.finditer(cleaned):
-            tag_str = match.group(1).strip()
-            if (
-                not tag_str
-                or re.fullmatch(r"\d+(?:[/\-:]\d+)?", tag_str)
-                or re.search(r"[:;]\s*\d+\s*/\s*\d+", tag_str)
-            ):
-                continue
-            candidates = resolve_agent_candidates(tag_str)
-            if len(candidates) > 1:
-                ambiguous.append((tag_str, candidates))
-        return ambiguous
+        return entity_resolver.detect_ambiguous_tags(text)
 
     def detect_unrecognized_tags(self, text: str) -> list[str]:
         """
         Scans message text for bracketed tokens [tag] that do NOT match any active agent.
-        Returns a list of unmatched raw tag strings: [unmatched_tag_str1, ...]
         """
-        cleaned = re.sub(r"<@[A-Z0-9]+>", "", text)
-        cleaned = re.sub(r"\[([^\]]+)\]\([^\)]+\)", "", cleaned)
-        unrecognized = []
-        for match in TAG_REGEX.finditer(cleaned):
-            tag_str = match.group(1).strip()
-            if (
-                not tag_str
-                or re.fullmatch(r"\d+(?:[/\-:]\d+)?", tag_str)
-                or re.search(r"[:;]\s*\d+\s*/\s*\d+", tag_str)
-            ):
-                continue
-            candidates = resolve_agent_candidates(tag_str)
-            if len(candidates) == 0:
-                unrecognized.append(tag_str)
-        return unrecognized
+        return entity_resolver.detect_unrecognized_tags(text)
 
     def extract_tagged_agents(self, text: str) -> list[str]:
         """
-        Extracts all valid unambiguous agent keys tagged in [Agent_Key] format in the text,
-        ordered by their appearance in the text. Supports partial and role-based tags.
+        Extracts all valid unambiguous agent keys tagged in [Agent_Key] format in the text.
         """
-        matches = []
-        cleaned = re.sub(r"<@[A-Z0-9]+>", "", text)
-
-        for match in TAG_REGEX.finditer(cleaned):
-            resolved_key = resolve_agent_name(match.group(1))
-            if resolved_key:
-                matches.append((match.start(), resolved_key))
-
-        matches.sort(key=lambda x: x[0])
-
-        unique_keys = []
-        for pos, key in matches:
-            if key not in unique_keys:
-                unique_keys.append(key)
-
-        return unique_keys
+        return entity_resolver.extract_tagged_agents(text)
 
     def parse_agent_and_prompt(
         self, text: str, channel_id: str, thread_ts: str
