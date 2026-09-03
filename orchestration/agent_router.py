@@ -605,15 +605,49 @@ async def process_and_respond(
 
     mode = get_orchestration_mode()
     next_designated_agent = None
+    eligible_remaining_agents = list(remaining)
     if not force_termination and remaining:
         if is_custom_flow or mode == "fixed":
             next_designated_agent = remaining[0]
+            eligible_remaining_agents = [remaining[0]]
         elif mode == "sandwich":
             sandwich_cfg = get_sandwich_config()
-            start_chain = sandwich_cfg.get("start_chain", [])
-            end_chain = sandwich_cfg.get("end_chain", [])
-            if remaining[0] in start_chain or remaining[0] in end_chain:
-                next_designated_agent = remaining[0]
+            start_chain = [k for k in sandwich_cfg.get("start_chain", []) if k in agents_map]
+            end_chain = [k for k in sandwich_cfg.get("end_chain", []) if k in agents_map]
+            enabled = list(settings_manager.get_enabled_agents())
+            middle_pool = [
+                k for k in agents_map
+                if k in enabled and k not in start_chain and k not in end_chain
+            ]
+            middle_pool_set = set(middle_pool)
+            remaining_middle = [k for k in remaining if k in middle_pool_set]
+
+            if remaining_middle:
+                first_middle_idx = next(
+                    i for i, k in enumerate(remaining) if k in middle_pool_set
+                )
+                if first_middle_idx > 0:
+                    # Still in start_chain: strictly sequential
+                    next_designated_agent = remaining[0]
+                    eligible_remaining_agents = [remaining[0]]
+                else:
+                    # In middle_pool: valid nominations strictly within remaining_middle
+                    eligible_remaining_agents = list(remaining_middle)
+                    if len(remaining_middle) == 1:
+                        next_designated_agent = remaining_middle[0]
+                    else:
+                        next_designated_agent = None
+            else:
+                # Middle pool is exhausted (or was initially empty)
+                end_chain_len = len(end_chain)
+                if not middle_pool and len(remaining) > end_chain_len:
+                    # Still in start_chain
+                    next_designated_agent = remaining[0]
+                    eligible_remaining_agents = [remaining[0]]
+                else:
+                    # In end_chain (or transition from middle to end): strictly sequential
+                    next_designated_agent = remaining[0]
+                    eligible_remaining_agents = [remaining[0]]
 
     file_context = get_thread_file_context(channel_id, thread_ts)
     messages = build_llm_messages(
@@ -624,7 +658,7 @@ async def process_and_respond(
         agent_key=agent_key,
         agent_cfg=agent_cfg,
         file_context=file_context,
-        remaining_agents=remaining,
+        remaining_agents=eligible_remaining_agents,
         force_termination=force_termination,
         next_designated_agent=next_designated_agent,
     )
@@ -763,36 +797,25 @@ async def process_and_respond(
             if force_termination:
                 final_text = "(No text response generated)"
             else:
-                if remaining:
-                    next_tag = remaining[0]
+                if next_designated_agent:
+                    next_tag = next_designated_agent
+                    final_text = f"(No text response generated) [{next_tag}] next"
+                elif eligible_remaining_agents:
+                    next_tag = eligible_remaining_agents[0]
                     final_text = f"(No text response generated) [{next_tag}] next"
                 elif retries:
                     next_tag = retries[0]
                     final_text = f"(No text response generated) [{next_tag}] next"
                 else:
-                    mode = settings_manager.get_orchestration_mode()
-                    end_chain = (
-                        settings_manager.get_sandwich_config().get("end_chain", [])
-                        if mode == "sandwich"
-                        else []
-                    )
-                    agents_map = settings_manager.agents_config or AGENTS_CONFIG
-                    valid_end = [
-                        k for k in end_chain if k in agents_map and k != agent_key
-                    ]
-                    if valid_end:
-                        next_tag = valid_end[0]
-                        final_text = f"(No text response generated) [{next_tag}] next"
-                    else:
-                        final_text = "(No text response generated)"
-                        force_termination = True
+                    final_text = "(No text response generated)"
+                    force_termination = True
             logger.warning(f"[ROUTER] final_text was empty for {agent_key}!")
         else:
             final_text = markdown_to_slack(final_text)
             final_text = enforce_valid_nomination(
                 final_text,
                 agent_key,
-                [] if force_termination else remaining,
+                [] if force_termination else eligible_remaining_agents,
                 force_termination,
                 pending_retries=retries,
                 designated_next_agent=next_designated_agent,
@@ -929,7 +952,19 @@ async def process_and_respond(
             if not already_503 and not stop_requested and not force_termination:
                 mark_agent_503_errored(channel_id, thread_ts, agent_key)
                 if agent_key not in remaining:
-                    remaining.append(agent_key)
+                    mode = settings_manager.get_orchestration_mode()
+                    if mode == "sandwich":
+                        sandwich_cfg = settings_manager.get_sandwich_config()
+                        end_chain = sandwich_cfg.get("end_chain", [])
+                        end_chain_indices = [
+                            i for i, k in enumerate(remaining) if k in end_chain
+                        ]
+                        if end_chain_indices and agent_key not in end_chain:
+                            remaining.insert(end_chain_indices[0], agent_key)
+                        else:
+                            remaining.append(agent_key)
+                    else:
+                        remaining.append(agent_key)
                 REMAINING_AGENTS_MAP[thread_key] = remaining
                 other_candidates = [a for a in remaining if a != agent_key]
                 if other_candidates:

@@ -1,8 +1,17 @@
 {
   "orchestration_mode": "sandwich",
   "sandwich_config": {
-    "start_chain": [],
-    "end_chain": []
+    "start_chain": [
+      "Architect",
+      "ScopeOptimizer",
+      "Visionary",
+      "UserAdvocate",
+      "Sceptic",
+      "Innovator"
+    ],
+    "end_chain": [
+      "Architect"
+    ]
   },
   "fixed_config": {
     "chain": []

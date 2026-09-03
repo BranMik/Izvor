@@ -1,5 +1,6 @@
 import logging
 import time
+from pathlib import Path
 from typing import Any
 
 from slack_sdk.errors import SlackApiError
@@ -542,7 +543,18 @@ async def post_agent_response(
 
     try:
         resolved_icon = resolve_avatar_url(icon_url)
-        final_icon_url = f"{resolved_icon}?v=2" if resolved_icon else None
+        if resolved_icon:
+            # Dynamic cache-busting based on file modification timestamp (mtime)
+            mtime_v = None
+            if icon_url:
+                local_path = Path(str(icon_url).lstrip("/"))
+                if local_path.exists():
+                    mtime_v = int(local_path.stat().st_mtime)
+            v_param = f"v={mtime_v}" if mtime_v else "v=3"
+            sep = "&" if "?" in resolved_icon else "?"
+            final_icon_url = f"{resolved_icon}{sep}{v_param}"
+        else:
+            final_icon_url = None
 
         response = await slack_async_client.chat_postMessage(
             channel=channel_id,

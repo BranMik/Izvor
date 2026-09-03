@@ -42,6 +42,8 @@ class AgentSettingsManager:
         backup_interval_seconds: float = BACKUP_INTERVAL_SECONDS,
         auto_load: bool = True,
     ):
+        self._custom_settings_file: bool = settings_file is not None
+        self._custom_backup_file: bool = backup_file is not None
         self.default_settings_file = settings_file or SETTINGS_FILE
         self.default_backup_file = backup_file or BACKUP_FILE
         self.locked_agents = set(locked_agents or set())
@@ -74,7 +76,7 @@ class AgentSettingsManager:
 
     @property
     def active_settings_file(self) -> Path:
-        if self.default_settings_file != SETTINGS_FILE:
+        if self._custom_settings_file:
             return self.default_settings_file
         router_mod = sys.modules.get("agent_router") or sys.modules.get("orchestration.agent_router")
         if router_mod and hasattr(router_mod, "SETTINGS_FILE"):
@@ -86,7 +88,7 @@ class AgentSettingsManager:
 
     @property
     def active_backup_file(self) -> Path:
-        if self.default_backup_file != BACKUP_FILE:
+        if self._custom_backup_file:
             return self.default_backup_file
         router_mod = sys.modules.get("agent_router") or sys.modules.get("orchestration.agent_router")
         if router_mod and hasattr(router_mod, "BACKUP_FILE"):
