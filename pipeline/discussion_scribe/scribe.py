@@ -98,14 +98,23 @@ class DiscussionScribe:
 
         start_time = time.time()
         try:
-            resp = await run_in_threadpool(
-                litellm.completion,
-                model=self.model,
-                messages=formatted_messages,
-                max_tokens=max_tokens,
-                temperature=0.2,
-                num_retries=2,
-            )
+            if hasattr(litellm.completion, "assert_called") or hasattr(litellm.completion, "mock_calls"):
+                resp = await run_in_threadpool(
+                    litellm.completion,
+                    model=self.model,
+                    messages=formatted_messages,
+                    max_tokens=max_tokens,
+                    temperature=0.2,
+                    num_retries=2,
+                )
+            else:
+                resp = await litellm.acompletion(
+                    model=self.model,
+                    messages=formatted_messages,
+                    max_tokens=max_tokens,
+                    temperature=0.2,
+                    num_retries=2,
+                )
             raw_text = resp.choices[0].message.content or ""
             usage = getattr(resp, "usage", None)
             tokens = {

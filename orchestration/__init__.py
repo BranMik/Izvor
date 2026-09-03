@@ -36,16 +36,18 @@ from .agent_settings import (
     AgentSettingsManager,
     settings_manager,
 )
+from .nomination import (
+    enforce_valid_nomination,
+    get_initial_agents,
+    parse_agent_and_prompt,
+    resolve_target_file,
+)
 from .debate_orchestrator import (
     DebateOrchestrator,
     debate_orchestrator,
     detect_ambiguous_tags,
     detect_unrecognized_tags,
-    enforce_valid_nomination,
     extract_tagged_agents,
-    get_initial_agents,
-    parse_agent_and_prompt,
-    resolve_target_file,
 )
 from .thread_state import (
     ACTIVE_THREAD_TASKS,

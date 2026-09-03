@@ -209,13 +209,13 @@ async def test_model_token_footer_ignored_by_tag_detection():
     """
     Verifies that {openai/gpt-5.6-terra : 721/64} is not flagged as unrecognized or ambiguous agent tag.
     """
-    from orchestration.debate_orchestrator import debate_orchestrator
+    from pipeline.entity_resolver import entity_resolver
 
     sample_text = "Here is our response.\n\n{openai/gpt-5.6-terra : 721/64}"
-    unrecognized = debate_orchestrator.detect_unrecognized_tags(sample_text)
+    unrecognized = entity_resolver.detect_unrecognized_tags(sample_text)
     assert unrecognized == []
 
-    ambiguous = debate_orchestrator.detect_ambiguous_tags(sample_text)
+    ambiguous = entity_resolver.detect_ambiguous_tags(sample_text)
     assert ambiguous == []
 
 

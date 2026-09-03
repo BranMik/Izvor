@@ -12,7 +12,7 @@ from core.config import (
     resolve_avatar_url,
     get_system_agent_model,
 )
-from orchestration.agent_settings import AgentSettingsManager
+from orchestration.agent_settings import AgentSettingsManager, settings_manager
 from services.slack_client import build_app_home_view
 
 
@@ -289,3 +289,39 @@ def test_slack_app_home_emergency_alert():
             for b in blocks
         )
         assert has_alert is False
+
+
+def test_dynamic_config_getattr_resolution():
+    import core.config
+
+    # Attribute error on unknown attribute
+    with pytest.raises(AttributeError):
+        _ = core.config.NON_EXISTENT_ATTRIBUTE
+
+    # Test dynamic resolution through settings_manager
+    original_system_agents = dict(settings_manager.system_agents_config)
+    try:
+        # Without override, returns default
+        settings_manager.system_agents_config = {}
+        default_model = core.config.THREAD_NOTES_MODEL
+        assert default_model == "mistral/mistral-small-latest"
+
+        # With dynamic override, __getattr__ dynamically fetches the updated model
+        settings_manager.system_agents_config = {
+            "thread_notes": {"model": "anthropic/claude-3-7-sonnet-dynamic"},
+            "usage_agent": {"model": "openai/gpt-5-turbo-dynamic"},
+        }
+        assert core.config.THREAD_NOTES_MODEL == "anthropic/claude-3-7-sonnet-dynamic"
+        assert core.config.USAGE_AGENT_MODEL == "openai/gpt-5-turbo-dynamic"
+    finally:
+        settings_manager.system_agents_config = original_system_agents
+
+
+def test_configurable_pacing_defaults():
+    import core.config
+
+    assert isinstance(core.config.DEBATE_TURN_PACING_SECONDS, float)
+    assert isinstance(core.config.SLACK_POST_PAUSE_SECONDS, float)
+    assert isinstance(core.config.MAX_DISCUSSION_TURNS, int)
+    assert core.config.MAX_DISCUSSION_TURNS == 20
+

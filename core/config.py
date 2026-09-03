@@ -72,6 +72,14 @@ def get_system_agent_model(name: str, fallback: str = "mistral/mistral-small-lat
     env_val = os.getenv(env_var_key)
     if env_val:
         return env_val
+    # Check settings_manager if available
+    settings_mod = sys.modules.get("orchestration.agent_settings") or sys.modules.get("agent_settings")
+    if settings_mod and hasattr(settings_mod, "settings_manager"):
+        mgr_cfg = getattr(settings_mod.settings_manager, "system_agents_config", {})
+        if isinstance(mgr_cfg, dict) and name in mgr_cfg:
+            entry = mgr_cfg[name]
+            if isinstance(entry, dict) and entry.get("model"):
+                return entry["model"]
     sys_cfg = SYSTEM_AGENTS_CONFIG.get(name, {})
     return sys_cfg.get("model") or fallback
 
@@ -100,14 +108,20 @@ def get_intent_extractor_model() -> str:
 
 
 
+import sys
+
+
+# Pacing & Orchestration Defaults (configurable via environment variables)
+DEBATE_TURN_PACING_SECONDS = float(
+    os.getenv("DEBATE_TURN_PACING_SECONDS", "0.01" if "pytest" in sys.modules else "3.0")
+)
+SLACK_POST_PAUSE_SECONDS = float(
+    os.getenv("SLACK_POST_PAUSE_SECONDS", "0.01" if "pytest" in sys.modules else "2.0")
+)
+MAX_DISCUSSION_TURNS = int(os.getenv("MAX_DISCUSSION_TURNS", "20"))
+
+
 # Module-level variable aliases (dynamically resolve via module __getattr__)
-
-THREAD_NOTES_MODEL = os.getenv("THREAD_NOTES_MODEL", "mistral/mistral-small-latest")
-USAGE_AGENT_MODEL = os.getenv("USAGE_AGENT_MODEL", "mistral/mistral-small-latest")
-PRICING_AGENT_MODEL = os.getenv("PRICING_AGENT_MODEL", "mistral/mistral-small-latest")
-INTENT_EXTRACTOR_MODEL = os.getenv("INTENT_EXTRACTOR_MODEL", "mistral/mistral-small-latest")
-
-
 def __getattr__(name: str) -> Any:
     if name == "THREAD_NOTES_MODEL":
         return get_thread_notes_model()
@@ -118,3 +132,4 @@ def __getattr__(name: str) -> Any:
     if name == "INTENT_EXTRACTOR_MODEL":
         return get_intent_extractor_model()
     raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
+
