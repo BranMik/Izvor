@@ -230,55 +230,38 @@ async def slack_events(request: Request, background_tasks: BackgroundTasks):
                 should_process = False
 
                 if is_bot:
-                    # Ignore Live Discussion Scribe note messages completely
-                    event_username = event.get("username") or ""
-                    if (
-                        "Live Discussion Scribe" in event_username
-                        or "Discussion Scribe" in event_username
-                        or "Live Discussion Notes" in raw_text
-                        or "Final Discussion Notes" in raw_text
-                        or "Bilješke rasprave" in raw_text
-                        or "Strateška sinteza" in raw_text
-                        or "Strategic Synthesis" in raw_text
-                    ):
-                        logger.info(
-                            f"Skipping Live Discussion Scribe note message in channel {channel_id}"
-                        )
-                    # Only process bot messages if they contain a valid nomination tag
-                    elif has_tag:
-                        should_process = True
-                    else:
-                        logger.info(
-                            f"Skipping non-nomination bot message in channel {channel_id}"
-                        )
-                else:
-                    # Check if the user message is a stop command directed at the bot
-                    if is_stop_command(raw_text, is_mention_or_dm=is_mention_or_dm):
-                        logger.info(
-                            f"[WEBHOOK] Stop command received from user in channel {channel_id}, thread {thread_ts}. Stopping thread discussion."
-                        )
-                        PROCESSED_EVENTS[event_key] = now
-                        request_thread_stop(channel_id, thread_ts)
-                        return Response(status_code=200)
+                    logger.info(
+                        f"[WEBHOOK] Skipping bot message in channel {channel_id} (ts: {ts}) - internal backend loop handles agent chaining"
+                    )
+                    return Response(status_code=200)
 
-                    # User messages must either have a bracketed tag or be an app_mention/DM
-                    if has_tag or is_mention_or_dm:
-                        should_process = True
-                        if is_discussion_active(channel_id, thread_ts):
-                            logger.info(
-                                f"[WEBHOOK] Ongoing discussion in thread {thread_ts} detected. Interrupting discussion for new query: {raw_text[:50]}"
-                            )
-                            interrupt_thread_discussion(channel_id, thread_ts)
-                    else:
+                # Check if the user message is a stop command directed at the bot
+                if is_stop_command(raw_text, is_mention_or_dm=is_mention_or_dm):
+                    logger.info(
+                        f"[WEBHOOK] Stop command received from user in channel {channel_id}, thread {thread_ts}. Stopping thread discussion."
+                    )
+                    PROCESSED_EVENTS[event_key] = now
+                    request_thread_stop(channel_id, thread_ts)
+                    return Response(status_code=200)
+
+                # User messages must either have a bracketed tag or be an app_mention/DM
+                if has_tag or is_mention_or_dm:
+                    should_process = True
+                    if is_discussion_active(channel_id, thread_ts):
                         logger.info(
-                            f"Skipping plain user message in channel {channel_id} without mention/tag"
+                            f"[WEBHOOK] Ongoing discussion in thread {thread_ts} detected. Interrupting discussion for new query: {raw_text[:50]}"
                         )
+                        interrupt_thread_discussion(channel_id, thread_ts)
+                else:
+                    logger.info(
+                        f"Skipping plain user message in channel {channel_id} without mention/tag"
+                    )
 
                 if should_process:
                     # Add to processed events list to prevent double execution
                     PROCESSED_EVENTS[event_key] = now
                     logger.info(
-                        f"[WEBHOOK] DISPATCHING BackgroundTask for '{event_type}' - channel: {channel_id}, thread: {thread_ts}, is_bot: {is_bot}"
+                        f"[WEBHOOK] DISPATCHING BackgroundTask for '{event_type}' - channel: {channel_id}, thread: {thread_ts}"
                     )
                     # Use FastAPI BackgroundTasks to run agent processing after returning 200 OK
                     background_tasks.add_task(
@@ -287,11 +270,12 @@ async def slack_events(request: Request, background_tasks: BackgroundTasks):
                         thread_ts=thread_ts,
                         raw_text=raw_text,
                         bot_user_id=bot_user_id,
-                        is_bot_trigger=is_bot,
+                        is_bot_trigger=False,
+                        run_internal_loop=True,
                     )
                 else:
                     logger.info(
-                        f"[WEBHOOK] Ignoring event - should_process evaluated to False (is_bot: {is_bot})"
+                        f"[WEBHOOK] Ignoring event - should_process evaluated to False"
                     )
 
     logger.info("[WEBHOOK] Returning 200 OK immediately to Slack")
