@@ -42,9 +42,9 @@ class ParsedDirectives:
         }
 
 
-class DirectiveParserSkill:
+class DirectiveParser:
     """
-    Two-tier parser skill: fast regex/heuristics + micro-LLM fallback.
+    Two-tier parser: fast regex/heuristics + micro-LLM fallback.
     """
 
     def __init__(self, extractor_client: Any = None):
@@ -122,5 +122,8 @@ class DirectiveParserSkill:
         )
 
 
+# Backward compatibility alias
+DirectiveParserSkill = DirectiveParser
+
 # Global default instance
-directive_parser = DirectiveParserSkill()
+directive_parser = DirectiveParser()

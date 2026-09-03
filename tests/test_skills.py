@@ -2,11 +2,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from core.domain import DiscussionBrief, SessionContext, SpeakerDecision, SpendMetrics, Turn
-from skills.directive_parser import DirectiveParserSkill, ParsedDirectives
-from skills.discussion_scribe import DiscussionScribeSkill
-from skills.entity_resolver import EntityResolverSkill
-from skills.orchestrator import DiscussionModerator, SandwichOrchestrator
-from skills.spend_governance import SpendGovernanceSkill
+from pipeline.directive_parser import DirectiveParserSkill, ParsedDirectives
+from pipeline.discussion_scribe import DiscussionScribeSkill
+from pipeline.entity_resolver import EntityResolverSkill
+from pipeline.orchestrator import DiscussionModerator, SandwichOrchestrator
+from pipeline.spend_governance import SpendGovernanceSkill
 
 
 @pytest.fixture
@@ -195,7 +195,7 @@ def test_spend_governance_ledger_and_circuit_breaker():
     gov = SpendGovernanceSkill(default_threshold_usd=0.05)
     session_id = "test-sess-123"
 
-    with patch("skills.spend_governance.circuit_breaker.get_model_pricing") as mock_pricing:
+    with patch("pipeline.spend_governance.circuit_breaker.get_model_pricing") as mock_pricing:
         mock_pricing.return_value = {
             "input_price_per_1m": 1.0,
             "output_price_per_1m": 2.0,

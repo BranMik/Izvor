@@ -19,7 +19,6 @@ from orchestration.agent_router import (
     set_agent_enabled,
     toggle_agent,
     get_enabled_agents,
-    is_stop_command,
     request_thread_stop,
     is_thread_stopped,
     clear_thread_stop,
@@ -29,12 +28,10 @@ from orchestration.agent_router import (
     ACTIVE_THREAD_TASKS,
     THREAD_GENERATIONS,
     SETTINGS_FILE,
-    extract_history_limit,
     get_thread_history_limit,
     set_thread_history_limit,
     clear_thread_history_limit,
     THREAD_HISTORY_LIMITS,
-    build_llm_messages,
     is_circuit_breaker_enabled,
     set_circuit_breaker_enabled,
     get_circuit_breaker_threshold,
@@ -48,7 +45,10 @@ from orchestration.agent_router import (
     set_fixed_config,
     get_orchestration_mode,
 )
+from nlp.message_builder import build_llm_messages
+from nlp.nl_patterns import extract_history_limit, is_stop_command
 from services.slack_client import build_app_home_view
+
 
 
 import orchestration.agent_router as agent_router
@@ -1853,7 +1853,7 @@ async def test_circuit_breaker_allows_normal_response_when_disabled(monkeypatch)
 
 
 def test_extract_max_words_limit():
-    from orchestration.agent_router import extract_max_words_limit
+    from nlp.nl_patterns import extract_max_words_limit
 
     # Standard syntax
     limit, text = extract_max_words_limit("/max_words 50 hello world")
@@ -1908,7 +1908,7 @@ def test_extract_max_words_limit():
 
 
 def test_extract_min_words_limit():
-    from orchestration.agent_router import extract_min_words_limit
+    from nlp.nl_patterns import extract_min_words_limit
 
     # Standard syntax
     limit, text = extract_min_words_limit("/min_words 50 hello world")

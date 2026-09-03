@@ -28,35 +28,14 @@ from core.llm_utils import (
     is_high_demand_503_error,
     is_openai_model,
 )
-from nlp.intent_extractor import (
-    extract_user_intent,
-    should_skip_intent_extractor,
-)
 from nlp.message_builder import (
     build_llm_messages,
     markdown_to_slack,
 )
-from nlp.nl_patterns import (
-    EXCLUDE_COMMAND_PATTERN,
-    EXCLUDE_NL_PATTERNS,
-    FILE_COMMAND_PATTERN,
-    FILE_NL_PATTERNS,
-    HISTORY_COMMAND_PATTERN,
-    HISTORY_NL_PATTERNS,
-    MAX_WORDS_COMMAND_PATTERN,
-    MAX_WORDS_NL_PATTERNS,
-    MIN_WORDS_COMMAND_PATTERN,
-    MIN_WORDS_NL_PATTERNS,
-    STOP_COMMAND_PATTERN,
-    extract_excluded_agents,
-    extract_file_instruction,
-    extract_history_limit,
-    extract_max_words_limit,
-    extract_min_words_limit,
-    is_stop_command,
-    resolve_agent_candidates,
-    resolve_agent_name,
-)
+from pipeline.directive_parser import directive_parser
+from pipeline.entity_resolver import entity_resolver
+from pipeline.orchestrator import SandwichOrchestrator
+from pipeline.spend_governance import spend_governance
 from prompts import build_agent_prompt
 from services.mcp_tools import MCP_TOOLS_SCHEMAS, execute_mcp_tool
 from services.slack_client import (
@@ -66,9 +45,6 @@ from services.slack_client import (
     post_agent_response,
     post_system_message,
 )
-from skills.directive_parser import directive_parser
-from skills.entity_resolver import entity_resolver
-from skills.orchestrator import SandwichOrchestrator
 
 # Re-exports from agent_settings
 from .agent_settings import (
@@ -140,14 +116,12 @@ from .thread_state import (
 
 # Re-exports from debate_orchestrator
 from .debate_orchestrator import (
-    detect_ambiguous_tags,
-    detect_unrecognized_tags,
     enforce_valid_nomination,
-    extract_tagged_agents,
     get_initial_agents,
     parse_agent_and_prompt,
     resolve_target_file,
 )
+
 
 logger = logging.getLogger(__name__)
 
@@ -289,7 +263,7 @@ async def process_and_respond(
             raw_text_cleaned, channel_id, thread_ts
         )
 
-        tagged = extract_tagged_agents(raw_text_cleaned)
+        tagged = entity_resolver.extract_tagged_agents(raw_text_cleaned)
         if tagged:
             if excluded_agents:
                 tagged = [a for a in tagged if a not in excluded_agents]
@@ -482,7 +456,14 @@ async def process_and_respond(
         cost_info = calculate_thread_costs(channel_id, thread_ts)
         current_cost = cost_info.get("grand_total_cost_usd", 0.0)
         threshold = get_circuit_breaker_threshold()
-        if current_cost >= threshold:
+        session_id = f"{channel_id}:{thread_ts}"
+        tripped, current_cost, threshold = spend_governance.is_budget_exceeded(
+            session_id=session_id,
+            threshold_usd=threshold,
+            enabled=True,
+            current_cost_usd=current_cost,
+        )
+        if tripped:
             logger.warning(
                 f"[CIRCUIT BREAKER] Thread {thread_key} cost (${current_cost:.5f}) reached or exceeded threshold (${threshold:.5f}). Interrupting response."
             )
@@ -508,6 +489,7 @@ async def process_and_respond(
             )
             clear_thread_state(channel_id, thread_ts)
             if isinstance(slack_res, dict):
+
                 slack_res["is_completed"] = True
                 slack_res["final_text"] = circuit_breaker_msg
                 slack_res["username"] = agent_cfg["username"]
@@ -1039,6 +1021,7 @@ async def process_and_respond(
 
         if is_completed:
             clear_thread_state(channel_id, thread_ts)
+
 
         if isinstance(slack_res, dict):
             slack_res["is_completed"] = is_completed

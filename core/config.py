@@ -99,29 +99,9 @@ def get_intent_extractor_model() -> str:
     return get_system_agent_model("intent_extractor", os.getenv("INTENT_EXTRACTOR_MODEL", "mistral/mistral-small-latest"))
 
 
-class _DynamicConfigProxy:
-    """Provides dynamic attribute access for backward-compatible system model constants."""
-
-    @property
-    def THREAD_NOTES_MODEL(self) -> str:
-        return get_thread_notes_model()
-
-    @property
-    def USAGE_AGENT_MODEL(self) -> str:
-        return get_usage_agent_model()
-
-    @property
-    def PRICING_AGENT_MODEL(self) -> str:
-        return get_pricing_agent_model()
-
-    @property
-    def INTENT_EXTRACTOR_MODEL(self) -> str:
-        return get_intent_extractor_model()
-
-
-_proxy = _DynamicConfigProxy()
 
 # Module-level variable aliases (dynamically resolve via module __getattr__)
+
 THREAD_NOTES_MODEL = os.getenv("THREAD_NOTES_MODEL", "mistral/mistral-small-latest")
 USAGE_AGENT_MODEL = os.getenv("USAGE_AGENT_MODEL", "mistral/mistral-small-latest")
 PRICING_AGENT_MODEL = os.getenv("PRICING_AGENT_MODEL", "mistral/mistral-small-latest")

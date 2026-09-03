@@ -56,7 +56,7 @@ async def test_generate_thread_notes_calls_mistral_model():
         {"role": "assistant", "content": "[Architect]: Use PostgreSQL with connection pooling."},
     ]
 
-    with patch("agents.thread_notes_agent.litellm.completion", return_value=mock_resp) as mock_litellm:
+    with patch("pipeline.discussion_scribe.scribe.litellm.completion", return_value=mock_resp) as mock_litellm:
         content, token_stats = await generate_thread_notes(history, is_completed=False)
 
         assert mock_litellm.called

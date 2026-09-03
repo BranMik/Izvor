@@ -6,7 +6,7 @@ from typing import Any
 import litellm
 from starlette.concurrency import run_in_threadpool
 
-from core.config import THREAD_NOTES_MODEL, THREAD_NOTES_PROMPT
+from core.config import THREAD_NOTES_MODEL
 from services.slack_client import (
     fetch_thread_history,
     post_thread_note,
@@ -66,74 +66,21 @@ def clear_thread_note(channel_id: str, thread_ts: str) -> None:
         task.cancel()
 
 
+from pipeline.discussion_scribe import discussion_scribe
+
+
 async def generate_thread_notes(
     history: list[dict[str, str]],
     is_completed: bool = False,
 ) -> tuple[str, dict[str, int]]:
     """
-    Calls LiteLLM using mistral-small-latest to generate structured strategic synthesis
-    live notes of the conversation history. Returns (slack_mrkdwn_content, token_usage_dict).
+    Generates structured strategic synthesis live notes of the conversation history
+    via the DiscussionScribe service. Returns (slack_mrkdwn_content, token_usage_dict).
     """
-    messages: list[dict[str, Any]] = [
-        {"role": "system", "content": THREAD_NOTES_PROMPT},
-    ]
-
-    # Count agent replies in history
-    num_replies = sum(1 for m in history if m.get("role") == "assistant")
-
-    if is_completed:
-        status_directive = (
-            "The discussion has finished. Generate the FINAL concise strategic synthesis notes (strictly under 500 words maximum ceiling). "
-            "Include Core Objective & Problem Statement, Key Perspectives & Insights, Consensus & Strategic Decisions, Risks & Trade-offs, and Action Items/Radne stavke i sljedeći koraci. "
-            "CRITICAL: Match the language of the discussion for ALL titles and content (if Croatian, write in Croatian e.g. 'Radne stavke i sljedeći koraci' for Action Items). "
-            "Use status indicator _(Completed ✅)_ or _(Završeno ✅)_ in header."
-        )
-        max_tokens = 1500
-    elif num_replies <= 1:
-        status_directive = (
-            "This is the initial turn of the discussion. Generate the initial concise strategic synthesis note (strictly under 50 words total). "
-            "State the initial core objective and initial key perspective. "
-            "CRITICAL: Match the language of the discussion for ALL titles and content. "
-            "Use status indicator _(Updating live...)_ or _(Ažurira se uživo...)_ in header."
-        )
-        max_tokens = 350
-    else:
-        status_directive = (
-            "Synthesize the discussion so far into updated concise strategic synthesis notes (strictly under 300-400 words total). "
-            "Include Core Objective, Key Perspectives, Consensus, Risks, and Action Items/Radne stavke. "
-            "CRITICAL: Match the language of the discussion for ALL titles and content (if Croatian, use Croatian titles). "
-            "Use status indicator _(Updating live...)_ or _(Ažurira se uživo...)_ in header."
-        )
-        max_tokens = 1200
-
-    if history:
-        messages.extend(history)
-        messages.append(
-            {
-                "role": "user",
-                "content": status_directive,
-            }
-        )
-    else:
-        messages.append(
-            {
-                "role": "user",
-                "content": "Initialize discussion notes for this thread.",
-            }
-        )
-
-    completion_kwargs: dict[str, Any] = {
-        "model": THREAD_NOTES_MODEL,
-        "messages": messages,
-        "max_tokens": max_tokens,
-    }
-
-    response = await run_in_threadpool(
-        litellm.completion,
-        **completion_kwargs,
+    brief, tokens = await discussion_scribe.generate_brief(
+        history, is_completed=is_completed
     )
-
-    raw_content = response.choices[0].message.content or ""
+    raw_content = brief.raw_markdown or ""
 
     # Clean markdown code-blocks if model wrapped in ```
     cleaned_content = raw_content.strip()
@@ -144,26 +91,9 @@ async def generate_thread_notes(
     if cleaned_content.endswith("```"):
         cleaned_content = cleaned_content[:-3].strip()
 
-    # Extract token usage
-    usage = getattr(response, "usage", None)
-    prompt_tokens = 0
-    completion_tokens = 0
-    total_tokens = 0
-
-    if usage:
-        if isinstance(usage, dict):
-            prompt_tokens = usage.get("prompt_tokens", 0) or 0
-            completion_tokens = usage.get("completion_tokens", 0) or 0
-            total_tokens = usage.get("total_tokens", 0) or (
-                prompt_tokens + completion_tokens
-            )
-        else:
-            prompt_tokens = getattr(usage, "prompt_tokens", 0) or 0
-            completion_tokens = getattr(usage, "completion_tokens", 0) or 0
-            total_tokens = getattr(usage, "total_tokens", 0) or (
-                prompt_tokens + completion_tokens
-            )
-
+    prompt_tokens = tokens.get("prompt_tokens", 0)
+    completion_tokens = tokens.get("completion_tokens", 0)
+    total_tokens = prompt_tokens + completion_tokens
     token_stats = {
         "prompt_tokens": prompt_tokens,
         "completion_tokens": completion_tokens,
@@ -171,6 +101,7 @@ async def generate_thread_notes(
     }
 
     return cleaned_content, token_stats
+
 
 
 async def update_notes_for_thread(
