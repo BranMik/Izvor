@@ -3,12 +3,11 @@ import re
 from typing import Any
 
 from core.config import AGENTS_CONFIG
-from nlp.nl_patterns import extract_history_limit, resolve_agent_candidates, resolve_agent_name
+from nlp.nl_patterns import extract_history_limit
+from pipeline.entity_resolver import entity_resolver
+from pipeline.orchestrator import SandwichOrchestrator
 from .agent_settings import ENABLED_DEBATE_AGENTS, settings_manager
 from .thread_state import REMAINING_AGENTS_MAP, thread_state_manager
-
-from skills.entity_resolver import entity_resolver
-from skills.orchestrator import SandwichOrchestrator
 
 logger = logging.getLogger(__name__)
 
@@ -50,8 +49,10 @@ class DebateOrchestrator:
         Returns list of agents that should participate in the discussion flow based on active orchestration mode.
         """
         mode = settings_manager.get_orchestration_mode()
-        enabled = list(settings_manager.get_enabled_agents())
         agents = settings_manager.agents_config or AGENTS_CONFIG
+        enabled_set = settings_manager.get_enabled_agents()
+        enabled = [k for k in agents if k in enabled_set]
+
         sandwich_cfg = settings_manager.get_sandwich_config()
         fixed_cfg = settings_manager.get_fixed_config()
         orchestrator = SandwichOrchestrator(
@@ -107,7 +108,7 @@ class DebateOrchestrator:
         tag_matches = []
         for match in TAG_REGEX.finditer(cleaned_text):
             raw_tag = match.group(1)
-            resolved_key = resolve_agent_name(raw_tag)
+            resolved_key = entity_resolver.resolve_agent_name(raw_tag)
             if resolved_key:
                 tag_matches.append((match, resolved_key, raw_tag))
 
@@ -173,7 +174,7 @@ class DebateOrchestrator:
         agent_tag_matches = []
         for match in TAG_REGEX.finditer(text):
             raw_tag = match.group(1)
-            resolved_key = resolve_agent_name(raw_tag)
+            resolved_key = entity_resolver.resolve_agent_name(raw_tag)
             if resolved_key:
                 agent_tag_matches.append((match, resolved_key))
 

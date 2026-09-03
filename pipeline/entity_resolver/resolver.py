@@ -8,9 +8,9 @@ logger = logging.getLogger(__name__)
 TAG_REGEX = re.compile(r"\[([a-zA-Z0-9_\- ]+)\]")
 
 
-class EntityResolverSkill:
+class EntityResolver:
     """
-    Skill for resolving, matching, and validating agent identities and tags
+    Service for resolving, matching, and validating agent identities and tags
     across multi-agent conversations.
     """
 
@@ -181,5 +181,8 @@ class EntityResolverSkill:
         return sanitized
 
 
+# Backward compatibility alias
+EntityResolverSkill = EntityResolver
+
 # Global default instance
-entity_resolver = EntityResolverSkill()
+entity_resolver = EntityResolver()

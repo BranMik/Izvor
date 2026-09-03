@@ -27,9 +27,9 @@ Strict Formatting Rules:
 """
 
 
-class DiscussionScribeSkill:
+class DiscussionScribe:
     """
-    Platform-agnostic discussion scribe skill that analyzes conversations
+    Platform-agnostic discussion scribe service that analyzes conversations
     and produces structured synthesis briefs.
     """
 
@@ -122,11 +122,11 @@ class DiscussionScribeSkill:
                 raw_markdown=raw_text.strip(),
                 language=lang,
             )
-            logger.info(f"[SCRIBE SKILL] Generated brief ({len(raw_text)} chars) in {time.time() - start_time:.2f}s")
+            logger.info(f"[SCRIBE] Generated brief ({len(raw_text)} chars) in {time.time() - start_time:.2f}s")
             return brief, tokens
 
         except Exception as e:
-            logger.error(f"[SCRIBE SKILL] Error generating brief: {e}")
+            logger.error(f"[SCRIBE] Error generating brief: {e}")
             fallback_text = f"*(Synthesis unavailable: {e})*"
             return DiscussionBrief(raw_markdown=fallback_text, is_completed=is_completed), {
                 "prompt_tokens": 0,
@@ -134,5 +134,8 @@ class DiscussionScribeSkill:
             }
 
 
+# Backward compatibility alias
+DiscussionScribeSkill = DiscussionScribe
+
 # Global default instance
-discussion_scribe = DiscussionScribeSkill()
+discussion_scribe = DiscussionScribe()

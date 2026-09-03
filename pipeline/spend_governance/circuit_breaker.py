@@ -7,9 +7,9 @@ from services.pricing_service import get_model_pricing
 logger = logging.getLogger(__name__)
 
 
-class SpendGovernanceSkill:
+class SpendGovernance:
     """
-    Skill for real-time token accounting, monetary cost calculation,
+    Service for real-time token accounting, monetary cost calculation,
     and circuit-breaker budget enforcement.
     """
 
@@ -72,6 +72,7 @@ class SpendGovernanceSkill:
         session_id: str,
         threshold_usd: float | None = None,
         enabled: bool = True,
+        current_cost_usd: float | None = None,
     ) -> tuple[bool, float, float]:
         """
         Checks if session cost has reached or exceeded the monetary budget threshold.
@@ -81,14 +82,21 @@ class SpendGovernanceSkill:
             return False, 0.0, 0.0
 
         limit = threshold_usd if threshold_usd is not None else self.default_threshold_usd
-        metrics = self.calculate_spend(session_id)
-        is_tripped = metrics.total_cost_usd >= limit
-        return is_tripped, metrics.total_cost_usd, limit
+        if current_cost_usd is not None:
+            cost = current_cost_usd
+        else:
+            metrics = self.calculate_spend(session_id)
+            cost = metrics.total_cost_usd
+        is_tripped = cost >= limit
+        return is_tripped, cost, limit
 
     def clear_session(self, session_id: str) -> None:
         """Clears memory for a completed session."""
         self._session_tokens.pop(session_id, None)
 
 
+# Backward compatibility alias
+SpendGovernanceSkill = SpendGovernance
+
 # Global default instance
-spend_governance = SpendGovernanceSkill()
+spend_governance = SpendGovernance()

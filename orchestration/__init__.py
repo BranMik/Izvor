@@ -2,11 +2,8 @@ from .agent_router import (
     CIRCUIT_BREAKER_ENABLED,
     CIRCUIT_BREAKER_THRESHOLD_USD,
     ENABLED_DEBATE_AGENTS,
-    EXCLUDE_COMMAND_PATTERN,
-    EXCLUDE_NL_PATTERNS,
     LOCKED_AGENTS,
     SETTINGS_FILE,
-    extract_excluded_agents,
     get_circuit_breaker_config,
     get_circuit_breaker_threshold,
     get_enabled_agents,
@@ -17,8 +14,6 @@ from .agent_router import (
     load_enabled_agents,
     process_and_respond,
     reset_enabled_agents,
-    resolve_agent_candidates,
-    resolve_agent_name,
     save_enabled_agents,
     set_agent_enabled,
     set_circuit_breaker_enabled,
@@ -28,6 +23,15 @@ from .agent_router import (
     set_sandwich_config,
     toggle_agent,
 )
+from nlp.nl_patterns import (
+    EXCLUDE_COMMAND_PATTERN,
+    EXCLUDE_NL_PATTERNS,
+    extract_excluded_agents,
+)
+from pipeline.entity_resolver import entity_resolver
+resolve_agent_candidates = entity_resolver.resolve_candidates
+resolve_agent_name = entity_resolver.resolve_agent_name
+
 from .agent_settings import (
     AgentSettingsManager,
     settings_manager,

@@ -313,75 +313,16 @@ EXCLUDE_NL_PATTERNS = [
 
 
 def resolve_agent_candidates(name_str: str) -> list[str]:
-    """
-    Resolves an agent name, tag, username, or alias string to all matching canonical AGENTS_CONFIG keys.
-    Returns:
-      - [canonical_key] if exactly 1 exact or unambiguous match is found.
-      - [candidate1, candidate2, ...] if multiple partial candidates match.
-      - [] if no matching agents are found.
-    """
-    if not name_str:
-        return []
-
-    agents = {}
-    try:
-        from orchestration.agent_settings import settings_manager
-        agents = settings_manager.agents_config
-    except Exception:
-        pass
-
-    if not agents:
-        try:
-            from core.config import AGENTS_CONFIG
-            agents = AGENTS_CONFIG
-        except Exception:
-            pass
-
-    cleaned = name_str.strip().strip("[](){}:,; \t*~_").strip()
-    if not cleaned:
-        return []
-
-    # 1. Exact key match (case-insensitive)
-    for key in agents:
-        if cleaned.lower() == key.lower():
-            return [key]
-
-    # 2. Normalized key / username match (stripping whitespace, underscores, hyphens)
-    def normalize(s: str) -> str:
-        return re.sub(r"[\s_\-]+", "", s).lower()
-
-    norm_cleaned = normalize(cleaned)
-    if not norm_cleaned:
-        return []
-
-    for key, cfg in agents.items():
-        if norm_cleaned == normalize(key):
-            return [key]
-        username = cfg.get("username", "")
-        if username and norm_cleaned == normalize(username):
-            return [key]
-
-    # 3. Substring/prefix/role match against key or username
-    matches = []
-    for key, cfg in agents.items():
-        if norm_cleaned in normalize(key):
-            matches.append(key)
-        elif cfg.get("username") and norm_cleaned in normalize(cfg["username"]):
-            matches.append(key)
-
-    unique_matches = list(dict.fromkeys(matches))
-    return unique_matches
+    """Resolves an agent name or alias string to all matching canonical AGENTS_CONFIG keys."""
+    from pipeline.entity_resolver import entity_resolver
+    return entity_resolver.resolve_candidates(name_str)
 
 
 def resolve_agent_name(name_str: str) -> str | None:
-    """
-    Resolves an agent name, tag, username, or alias string to its canonical AGENTS_CONFIG key.
-    Returns the key if unambiguous, or None if not found or ambiguous.
-    """
-    candidates = resolve_agent_candidates(name_str)
-    if len(candidates) == 1:
-        return candidates[0]
-    return None
+    """Resolves an agent name or alias string to its canonical key if unambiguous."""
+    from pipeline.entity_resolver import entity_resolver
+    return entity_resolver.resolve_agent_name(name_str)
+
 
 
 def extract_excluded_agents(text: str) -> tuple[list[str], str]:

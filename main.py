@@ -12,7 +12,8 @@ from fastapi.staticfiles import StaticFiles
 from starlette.requests import ClientDisconnect
 
 from core.config import AGENTS_CONFIG
-from nlp.nl_patterns import resolve_agent_candidates
+from nlp.nl_patterns import is_stop_command
+from pipeline.entity_resolver import entity_resolver
 from orchestration.agent_router import (
     LOCKED_AGENTS,
     get_circuit_breaker_config,
@@ -23,7 +24,6 @@ from orchestration.agent_router import (
     interrupt_thread_discussion,
     is_circuit_breaker_enabled,
     is_discussion_active,
-    is_stop_command,
     load_enabled_agents,
     process_and_respond,
     request_thread_stop,
@@ -209,7 +209,7 @@ async def slack_events(request: Request, background_tasks: BackgroundTasks):
                 has_tag = False
                 for match in re.finditer(r"[\[{]\s*([^\]}\r\n]+?)\s*[\]}]", raw_text):
                     tag = match.group(1)
-                    if resolve_agent_candidates(tag):
+                    if entity_resolver.resolve_candidates(tag):
                         has_tag = True
                         break
 
