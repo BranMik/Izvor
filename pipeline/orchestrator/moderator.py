@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import os
@@ -90,13 +91,14 @@ class DiscussionModerator:
         ]
 
         try:
-            resp = await litellm.acompletion(
+            res = litellm.acompletion(
                 model=self.model,
                 messages=messages,
                 response_format={"type": "json_object"},
                 temperature=0.1,
                 num_retries=1,
             )
+            resp = await res if asyncio.iscoroutine(res) else res
             raw_content = resp.choices[0].message.content or "{}"
             parsed = json.loads(raw_content)
 

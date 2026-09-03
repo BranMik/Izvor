@@ -6,7 +6,6 @@ import time
 from typing import Any
 
 import litellm
-from starlette.concurrency import run_in_threadpool
 
 from core.domain import DiscussionBrief, Turn
 
@@ -99,22 +98,23 @@ class DiscussionScribe:
         start_time = time.time()
         try:
             if hasattr(litellm.completion, "assert_called") or hasattr(litellm.completion, "mock_calls"):
-                resp = await run_in_threadpool(
-                    litellm.completion,
+                res = litellm.completion(
                     model=self.model,
                     messages=formatted_messages,
                     max_tokens=max_tokens,
                     temperature=0.2,
                     num_retries=2,
                 )
+                resp = await res if asyncio.iscoroutine(res) else res
             else:
-                resp = await litellm.acompletion(
+                res = litellm.acompletion(
                     model=self.model,
                     messages=formatted_messages,
                     max_tokens=max_tokens,
                     temperature=0.2,
                     num_retries=2,
                 )
+                resp = await res if asyncio.iscoroutine(res) else res
             raw_text = resp.choices[0].message.content or ""
             usage = getattr(resp, "usage", None)
             tokens = {

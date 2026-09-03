@@ -1,4 +1,5 @@
 import asyncio
+import inspect
 import logging
 import sys
 from typing import Any
@@ -123,6 +124,20 @@ def is_high_demand_503_error(e: Exception) -> bool:
     return classify_agent_error(e) == "service_unavailable"
 
 
+async def _invoke_llm(func: Any, kwargs: dict[str, Any], runner: Any = None) -> Any:
+    """Invokes LLM completion natively if coroutine, via runner if provided, or via threadpool if synchronous."""
+    if runner is not None:
+        return await runner(func, **kwargs)
+    if inspect.iscoroutinefunction(func):
+        return await func(**kwargs)
+    if getattr(func, "__name__", "") == "completion" and not hasattr(func, "assert_called"):
+        return await run_in_threadpool(func, **kwargs)
+    res = func(**kwargs)
+    if asyncio.iscoroutine(res):
+        return await res
+    return res
+
+
 async def execute_llm_with_retry(
     func: Any,
     kwargs: dict[str, Any],
@@ -134,12 +149,11 @@ async def execute_llm_with_retry(
     allow_503_immediate_retry: bool = True,
 ) -> Any:
     """
-    Executes an LLM call in a threadpool with automatic retries and exponential backoff.
+    Executes an LLM call natively or via runner with automatic retries and exponential backoff.
     Attempts up to `max_attempts` times before raising the last exception.
     If `allow_503_immediate_retry` is False and a 503/high-demand error occurs on attempt 1,
     the exception is raised immediately to allow postponement and multi-agent rotation.
     """
-    runner = run_in_threadpool_fn or run_in_threadpool
     last_error: Exception | None = None
     for attempt in range(1, max_attempts + 1):
         if is_superseded_fn and is_superseded_fn():
@@ -153,7 +167,7 @@ async def execute_llm_with_retry(
                 logger.info(
                     f"[LLM] Retrying LLM completion for {agent_key} (attempt {attempt}/{max_attempts})..."
                 )
-            return await runner(func, **kwargs)
+            return await _invoke_llm(func, kwargs, runner=run_in_threadpool_fn)
         except Exception as exc:
             last_error = exc
             logger.warning(

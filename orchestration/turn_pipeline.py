@@ -65,12 +65,6 @@ from .nomination import (
     resolve_target_file,
 )
 from .thread_state import (
-    ACTIVE_THREAD_TASKS,
-    CUSTOM_FLOW_THREADS,
-    RATE_LIMIT_ALREADY_RETRIED,
-    RATE_LIMIT_RETRY_QUEUE,
-    REMAINING_AGENTS_MAP,
-    THREAD_GENERATIONS,
     clear_thread_file_context,
     clear_thread_history_limit,
     clear_thread_state,
@@ -86,6 +80,7 @@ from .thread_state import (
     set_thread_history_limit,
     set_thread_max_words,
     set_thread_min_words,
+    thread_state_manager,
 )
 
 logger = logging.getLogger(__name__)
@@ -151,7 +146,7 @@ class TurnContext:
 
     def is_superseded(self) -> bool:
         """Determines if this turn was superseded by a newer query or task cancellation."""
-        if THREAD_GENERATIONS.get(self.thread_key, 0) != self.my_generation:
+        if thread_state_manager.get_generation(self.channel_id, self.thread_ts) != self.my_generation:
             return True
         if self.current_task and self.current_task.cancelled():
             return True
@@ -211,14 +206,12 @@ class TurnPipeline:
         )
 
         if not ctx.is_bot_trigger:
-            THREAD_GENERATIONS[ctx.thread_key] = (
-                THREAD_GENERATIONS.get(ctx.thread_key, 0) + 1
-            )
+            thread_state_manager.increment_generation(ctx.channel_id, ctx.thread_ts)
 
-        ctx.my_generation = THREAD_GENERATIONS.get(ctx.thread_key, 0)
+        ctx.my_generation = thread_state_manager.get_generation(ctx.channel_id, ctx.thread_ts)
         ctx.current_task = asyncio.current_task()
         if ctx.current_task:
-            ACTIVE_THREAD_TASKS[ctx.thread_key] = ctx.current_task
+            thread_state_manager.set_active_task(ctx.channel_id, ctx.thread_ts, ctx.current_task)
 
         try:
             # Stage 1: Validate input, parse directives & resolve candidate agents
@@ -254,10 +247,10 @@ class TurnPipeline:
         finally:
             if (
                 ctx.current_task
-                and ACTIVE_THREAD_TASKS.get(ctx.thread_key) == ctx.current_task
+                and thread_state_manager.get_active_task(ctx.channel_id, ctx.thread_ts) == ctx.current_task
             ):
                 if ctx.in_memory_history is None or ctx.is_completed:
-                    ACTIVE_THREAD_TASKS.pop(ctx.thread_key, None)
+                    thread_state_manager.clear_active_task(ctx.channel_id, ctx.thread_ts, ctx.current_task)
 
     async def stage_validate_and_parse(
         self, ctx: TurnContext
@@ -384,8 +377,12 @@ class TurnPipeline:
                 if tagged:
                     ctx.agent_key = tagged[0]
                     remaining_tagged = [a for a in tagged if a != ctx.agent_key]
-                    REMAINING_AGENTS_MAP[ctx.thread_key] = remaining_tagged
-                    CUSTOM_FLOW_THREADS.add(ctx.thread_key)
+                    thread_state_manager.set_remaining_agents(
+                        ctx.channel_id, ctx.thread_ts, remaining_tagged
+                    )
+                    thread_state_manager.set_custom_flow(
+                        ctx.channel_id, ctx.thread_ts, True
+                    )
                     ctx.was_explicit_target = True
                 else:
                     logger.warning(
@@ -403,19 +400,23 @@ class TurnPipeline:
                         "reason": "all_tagged_agents_excluded",
                     }
             else:
-                CUSTOM_FLOW_THREADS.discard(ctx.thread_key)
+                thread_state_manager.clear_custom_flow(ctx.channel_id, ctx.thread_ts)
                 if ctx.excluded_agents:
-                    curr_remaining = REMAINING_AGENTS_MAP.get(
-                        ctx.thread_key, get_initial_agents()
+                    curr_remaining = thread_state_manager.get_remaining_agents(
+                        ctx.channel_id, ctx.thread_ts, default=get_initial_agents()
                     )
                     curr_remaining = [
                         a for a in curr_remaining if a not in ctx.excluded_agents
                     ]
-                    REMAINING_AGENTS_MAP[ctx.thread_key] = curr_remaining
+                    thread_state_manager.set_remaining_agents(
+                        ctx.channel_id, ctx.thread_ts, curr_remaining
+                    )
                     if ctx.agent_key in ctx.excluded_agents:
                         if curr_remaining:
                             ctx.agent_key = curr_remaining.pop(0)
-                            REMAINING_AGENTS_MAP[ctx.thread_key] = curr_remaining
+                            thread_state_manager.set_remaining_agents(
+                                ctx.channel_id, ctx.thread_ts, curr_remaining
+                            )
                         else:
                             logger.warning(
                                 f"[ROUTER] Agent '{ctx.agent_key}' and all remaining agents in thread {ctx.thread_key} are excluded. Halting turn."
@@ -534,11 +535,10 @@ class TurnPipeline:
             logger.error(
                 f"[ROUTER] Agent '{ctx.agent_key}' not found in configuration."
             )
-            remaining = REMAINING_AGENTS_MAP.get(ctx.thread_key, [])
-            next_candidate = None
-            if remaining:
-                next_candidate = remaining.pop(0)
-            else:
+            next_candidate = thread_state_manager.pop_remaining_agent(
+                ctx.channel_id, ctx.thread_ts
+            )
+            if not next_candidate:
                 mode = settings_manager.get_orchestration_mode()
                 if mode == "sandwich":
                     end_chain = [
@@ -758,10 +758,12 @@ class TurnPipeline:
         else:
             ctx.system_prompt = ctx.agent_cfg["system_prompt"]
 
-        ctx.remaining = REMAINING_AGENTS_MAP.get(
-            ctx.thread_key, get_initial_agents()
+        ctx.remaining = thread_state_manager.get_remaining_agents(
+            ctx.channel_id, ctx.thread_ts, default=get_initial_agents()
         )
-        ctx.is_custom_flow = ctx.thread_key in CUSTOM_FLOW_THREADS
+        ctx.is_custom_flow = thread_state_manager.is_custom_flow(
+            ctx.channel_id, ctx.thread_ts
+        )
 
         ctx.force_termination = False
         if (
@@ -857,15 +859,20 @@ class TurnPipeline:
         exec_retry_fn = self._get_hook(
             "execute_llm_with_retry", execute_llm_with_retry
         )
-        threadpool_fn = self._get_hook("run_in_threadpool", run_in_threadpool)
+        threadpool_fn = self._get_hook("run_in_threadpool", None)
+        custom_runner = (
+            threadpool_fn
+            if (threadpool_fn is not None and threadpool_fn is not run_in_threadpool)
+            else None
+        )
 
         response = await exec_retry_fn(
-            litellm.completion,
+            litellm.acompletion,
             completion_kwargs,
             agent_key=ctx.agent_key,
             thread_key=ctx.thread_key,
             is_superseded_fn=ctx.is_superseded,
-            run_in_threadpool_fn=threadpool_fn,
+            run_in_threadpool_fn=custom_runner,
             allow_503_immediate_retry=allow_503_immediate,
         )
         if response is None and ctx.is_superseded():
@@ -929,12 +936,12 @@ class TurnPipeline:
                     follow_up_kwargs["api_base"] = os.getenv("META_API_BASE")
 
             follow_up = await exec_retry_fn(
-                litellm.completion,
+                litellm.acompletion,
                 follow_up_kwargs,
                 agent_key=f"{ctx.agent_key} follow-up",
                 thread_key=ctx.thread_key,
                 is_superseded_fn=ctx.is_superseded,
-                run_in_threadpool_fn=threadpool_fn,
+                run_in_threadpool_fn=custom_runner,
                 allow_503_immediate_retry=allow_503_immediate,
             )
             if follow_up is None and ctx.is_superseded():
@@ -961,7 +968,9 @@ class TurnPipeline:
                 f"[ROUTER] Thread {ctx.thread_key} received stop request during execution. Forcing termination."
             )
 
-        retries = RATE_LIMIT_RETRY_QUEUE.get(ctx.thread_key, [])
+        retries = thread_state_manager.get_retry_queue(
+            ctx.channel_id, ctx.thread_ts
+        )
         if not ctx.final_text:
             if ctx.force_termination:
                 ctx.final_text = "(No text response generated)"
@@ -998,14 +1007,18 @@ class TurnPipeline:
                 designated_next_agent=ctx.next_designated_agent,
             )
 
-        retries = RATE_LIMIT_RETRY_QUEUE.get(ctx.thread_key, [])
+        retries = thread_state_manager.get_retry_queue(
+            ctx.channel_id, ctx.thread_ts
+        )
         if not ctx.remaining and retries:
             for r_agent in list(retries):
                 if f"[{r_agent}]" in ctx.final_text:
-                    retries.remove(r_agent)
-                    RATE_LIMIT_ALREADY_RETRIED.setdefault(
-                        ctx.thread_key, set()
-                    ).add(r_agent)
+                    thread_state_manager.pop_retry_agent(
+                        ctx.channel_id, ctx.thread_ts, r_agent
+                    )
+                    thread_state_manager.mark_already_retried(
+                        ctx.channel_id, ctx.thread_ts, r_agent
+                    )
                     break
 
         agent_model = ctx.agent_cfg.get("model", "")
@@ -1013,10 +1026,10 @@ class TurnPipeline:
             token_footer = f"{{{agent_model} : {ctx.total_prompt_tokens}/{ctx.total_completion_tokens}}}"
         else:
             token_footer = (
-                f"[{ctx.total_prompt_tokens}/{ctx.total_completion_tokens}]"
+                f"{{{ctx.total_prompt_tokens}/{ctx.total_completion_tokens}}}"
             )
 
-        ctx.final_text = f"{ctx.final_text.strip()}\n\n{token_footer}"
+        ctx.final_text = f"{ctx.final_text}\n\n{token_footer}"
         ctx.generated_tags = re.findall(
             r"[\[{]\s*([^\]}\r\n]+?)\s*[\]}]", ctx.final_text
         )
@@ -1036,7 +1049,7 @@ class TurnPipeline:
             return {"ok": False, "cancelled": True, "reason": "superseded"}
 
         logger.info(
-            f"[SLACK] Posting response to channel {ctx.channel_id}, thread_ts {ctx.thread_ts} as {ctx.agent_cfg['username']}"
+            f"[SLACK] Posting agent response to channel {ctx.channel_id}, thread_ts {ctx.thread_ts} as {ctx.agent_cfg['username']}"
         )
         post_resp_fn = self._get_hook(
             "post_agent_response", post_agent_response
@@ -1046,7 +1059,7 @@ class TurnPipeline:
             thread_ts=ctx.thread_ts,
             text=ctx.final_text,
             username=ctx.agent_cfg["username"],
-            icon_url=ctx.agent_cfg.get("icon_url"),
+            icon_url=ctx.icon_url,
         )
         posted_ts = slack_res.get("ts") if isinstance(slack_res, dict) else None
         logger.info(f"[SLACK] Successfully posted message! Received ts: {posted_ts}")
@@ -1056,7 +1069,9 @@ class TurnPipeline:
         )
         await self._sleep(pause_secs)
 
-        has_pending_retries = bool(RATE_LIMIT_RETRY_QUEUE.get(ctx.thread_key))
+        has_pending_retries = thread_state_manager.has_pending_retries(
+            ctx.channel_id, ctx.thread_ts
+        )
         agents_map = settings_manager.agents_config or AGENTS_CONFIG
         has_nominated_next = any(tag in agents_map for tag in ctx.generated_tags)
         ctx.is_completed = bool(
@@ -1104,7 +1119,6 @@ class TurnPipeline:
                 f"[ROUTER] Thread {ctx.thread_key} reached termination (forced or natural). Cleaning up state."
             )
             clear_thread_state(ctx.channel_id, ctx.thread_ts)
-            RATE_LIMIT_ALREADY_RETRIED.pop(ctx.thread_key, None)
 
         if isinstance(slack_res, dict):
             slack_res["is_completed"] = ctx.is_completed
@@ -1145,16 +1159,16 @@ class TurnPipeline:
         elif err_category == "model_not_found":
             error_sentence = "MODEL NOT FOUND"
         elif err_category == "rate_limit":
-            already_retried = ctx.agent_key in RATE_LIMIT_ALREADY_RETRIED.get(
-                ctx.thread_key, set()
+            already_retried = thread_state_manager.is_already_retried(
+                ctx.channel_id, ctx.thread_ts, ctx.agent_key
             )
             if not already_retried and not stop_requested:
                 error_sentence = (
                     "RATE LIMITS CROSSED, will retry at the end of discussion"
                 )
-                RATE_LIMIT_RETRY_QUEUE.setdefault(
-                    ctx.thread_key, []
-                ).append(ctx.agent_key)
+                thread_state_manager.add_to_retry_queue(
+                    ctx.channel_id, ctx.thread_ts, ctx.agent_key
+                )
             else:
                 error_sentence = "RATE LIMITS CROSSED"
         elif err_category == "service_unavailable":
@@ -1184,7 +1198,9 @@ class TurnPipeline:
                             ctx.remaining.append(ctx.agent_key)
                     else:
                         ctx.remaining.append(ctx.agent_key)
-                REMAINING_AGENTS_MAP[ctx.thread_key] = ctx.remaining
+                thread_state_manager.set_remaining_agents(
+                    ctx.channel_id, ctx.thread_ts, ctx.remaining
+                )
                 other_candidates = [
                     a for a in ctx.remaining if a != ctx.agent_key
                 ]
@@ -1216,12 +1232,13 @@ class TurnPipeline:
                 next_agent = ctx.remaining[0]
                 next_nomination = f"[{next_agent}]"
             else:
-                retries = RATE_LIMIT_RETRY_QUEUE.get(ctx.thread_key, [])
-                if retries:
-                    next_agent = retries.pop(0)
-                    RATE_LIMIT_ALREADY_RETRIED.setdefault(
-                        ctx.thread_key, set()
-                    ).add(next_agent)
+                next_agent = thread_state_manager.pop_retry_agent(
+                    ctx.channel_id, ctx.thread_ts
+                )
+                if next_agent:
+                    thread_state_manager.mark_already_retried(
+                        ctx.channel_id, ctx.thread_ts, next_agent
+                    )
                     next_nomination = f"[{next_agent}]"
 
         if next_nomination:
