@@ -27,6 +27,13 @@ from .models import (
     HistoryLimitConfig,
     ModelPricing,
 )
+from .domain import (
+    DiscussionBrief,
+    SessionContext,
+    SpeakerDecision,
+    SpendMetrics,
+    Turn,
+)
 from .slack_security import verify_slack_signature
 
 __all__ = [
@@ -53,6 +60,11 @@ __all__ = [
     "FileContext",
     "HistoryLimitConfig",
     "ModelPricing",
+    "Turn",
+    "SessionContext",
+    "SpeakerDecision",
+    "DiscussionBrief",
+    "SpendMetrics",
     "verify_slack_signature",
 ]
 

@@ -66,6 +66,9 @@ from services.slack_client import (
     post_agent_response,
     post_system_message,
 )
+from skills.directive_parser import directive_parser
+from skills.entity_resolver import entity_resolver
+from skills.orchestrator import SandwichOrchestrator
 
 # Re-exports from agent_settings
 from .agent_settings import (
@@ -202,59 +205,34 @@ async def process_and_respond(
             return True
         return False
 
-    history_limit, raw_text_cleaned = extract_history_limit(raw_text)
-    max_words_limit, raw_text_cleaned = extract_max_words_limit(raw_text_cleaned)
-    min_words_limit, raw_text_cleaned = extract_min_words_limit(raw_text_cleaned)
-    excluded_agents, raw_text_cleaned = extract_excluded_agents(raw_text_cleaned)
+    directives = await directive_parser.parse(raw_text)
+    history_limit = directives.history_limit
+    max_words_limit = directives.max_words
+    min_words_limit = directives.min_words
+    excluded_agents = directives.excluded_agents
+    is_file_req = directives.is_file_req
+    target_filename = directives.target_filename
+    raw_text_cleaned = directives.cleaned_prompt
 
-    # Adjust remaining agents list and file instructions if user input
     if not is_bot_trigger:
         clear_thread_stop(channel_id, thread_ts)
         thread_files = await fetch_thread_files(channel_id, thread_ts)
-        is_file_req, target_filename, raw_text_cleaned = extract_file_instruction(
-            raw_text_cleaned, available_files=thread_files
-        )
-
-        # Check skip rules for LLM intent extraction
-        has_slash_file = bool(
-            re.search(r"/(?:read[-_]?file|file|attachment)", raw_text, re.IGNORECASE)
-        )
-        has_slash_max_words = bool(
-            re.search(r"/(?:max_words|max-words|maxwords)", raw_text, re.IGNORECASE)
-        )
-        has_slash_history = bool(
-            re.search(r"/history", raw_text, re.IGNORECASE)
-        )
-        has_thread_files = bool(thread_files)
-
-        if not should_skip_intent_extractor(
-            raw_text=raw_text,
-            is_file_cmd=has_slash_file,
-            has_slash_max_words=has_slash_max_words,
-            has_slash_history=has_slash_history,
-            has_thread_files=has_thread_files,
-        ):
-            intent = await extract_user_intent(
-                raw_text_cleaned, available_files=thread_files
-            )
-            if max_words_limit is None and intent.get("max_words") is not None:
-                max_words_limit = intent["max_words"]
-            if history_limit is None and intent.get("history") is not None:
-                history_limit = intent["history"]
-            if not is_file_req and intent.get("file_use"):
-                is_file_req = True
-                if not target_filename and intent.get("target_file"):
-                    target_filename = intent["target_file"]
-            for exc in intent.get("excluded_agents", []):
-                if exc not in excluded_agents:
-                    excluded_agents.append(exc)
+        if thread_files:
+            directives = await directive_parser.parse(raw_text, available_files=thread_files)
+            history_limit = directives.history_limit
+            max_words_limit = directives.max_words
+            min_words_limit = directives.min_words
+            excluded_agents = directives.excluded_agents
+            is_file_req = directives.is_file_req
+            target_filename = directives.target_filename
+            raw_text_cleaned = directives.cleaned_prompt
 
         if max_words_limit is not None:
             set_thread_max_words(channel_id, thread_ts, max_words_limit)
         if min_words_limit is not None:
             set_thread_min_words(channel_id, thread_ts, min_words_limit)
 
-        ambiguous_tags = detect_ambiguous_tags(raw_text_cleaned)
+        ambiguous_tags = entity_resolver.detect_ambiguous_tags(raw_text_cleaned)
         if ambiguous_tags:
             logger.warning(
                 f"[ROUTER] Ambiguous agent tag(s) detected in user prompt for thread {thread_key}: {ambiguous_tags}. Halting turn."
@@ -283,7 +261,7 @@ async def process_and_respond(
                 "ambiguous_tags": ambiguous_tags,
             }
 
-        unrecognized_tags = detect_unrecognized_tags(raw_text_cleaned)
+        unrecognized_tags = entity_resolver.detect_unrecognized_tags(raw_text_cleaned)
         if unrecognized_tags:
             logger.warning(
                 f"[ROUTER] Unrecognized agent tag(s) detected in user prompt for thread {thread_key}: {unrecognized_tags}. Halting turn."
@@ -633,47 +611,16 @@ async def process_and_respond(
     next_designated_agent = None
     eligible_remaining_agents = list(remaining)
     if not force_termination and remaining:
-        if is_custom_flow or mode == "fixed":
-            next_designated_agent = remaining[0]
-            eligible_remaining_agents = [remaining[0]]
-        elif mode == "sandwich":
-            sandwich_cfg = get_sandwich_config()
-            start_chain = [k for k in sandwich_cfg.get("start_chain", []) if k in agents_map]
-            end_chain = [k for k in sandwich_cfg.get("end_chain", []) if k in agents_map]
-            enabled = list(settings_manager.get_enabled_agents())
-            middle_pool = [
-                k for k in agents_map
-                if k in enabled and k not in start_chain and k not in end_chain
-            ]
-            middle_pool_set = set(middle_pool)
-            remaining_middle = [k for k in remaining if k in middle_pool_set]
-
-            if remaining_middle:
-                first_middle_idx = next(
-                    i for i, k in enumerate(remaining) if k in middle_pool_set
-                )
-                if first_middle_idx > 0:
-                    # Still in start_chain: strictly sequential
-                    next_designated_agent = remaining[0]
-                    eligible_remaining_agents = [remaining[0]]
-                else:
-                    # In middle_pool: valid nominations strictly within remaining_middle
-                    eligible_remaining_agents = list(remaining_middle)
-                    if len(remaining_middle) == 1:
-                        next_designated_agent = remaining_middle[0]
-                    else:
-                        next_designated_agent = None
-            else:
-                # Middle pool is exhausted (or was initially empty)
-                end_chain_len = len(end_chain)
-                if not middle_pool and len(remaining) > end_chain_len:
-                    # Still in start_chain
-                    next_designated_agent = remaining[0]
-                    eligible_remaining_agents = [remaining[0]]
-                else:
-                    # In end_chain (or transition from middle to end): strictly sequential
-                    next_designated_agent = remaining[0]
-                    eligible_remaining_agents = [remaining[0]]
+        orchestrator = SandwichOrchestrator(
+            mode=mode,
+            start_chain=get_sandwich_config().get("start_chain", []),
+            end_chain=get_sandwich_config().get("end_chain", []),
+            fixed_chain=settings_manager.get_fixed_config().get("chain", []),
+            agents_map=agents_map,
+        )
+        next_designated_agent, eligible_remaining_agents = orchestrator.get_phase_info(
+            remaining, is_custom_flow=is_custom_flow
+        )
 
     file_context = get_thread_file_context(channel_id, thread_ts)
     messages = build_llm_messages(
