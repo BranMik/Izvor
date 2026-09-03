@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import os
 import random
 import re
 import sys
@@ -728,6 +729,11 @@ async def process_and_respond(
             "tool_choice": "auto",
             "num_retries": 2,
         }
+        if any(keyword in agent_cfg["model"].lower() for keyword in ["muse", "llama", "meta"]):
+            if os.getenv("META_API_KEY"):
+                completion_kwargs["api_key"] = os.getenv("META_API_KEY")
+            if os.getenv("META_API_BASE"):
+                completion_kwargs["api_base"] = os.getenv("META_API_BASE")
         response = await execute_llm_with_retry(
             litellm.completion,
             completion_kwargs,
@@ -788,6 +794,11 @@ async def process_and_respond(
                 "messages": messages,
                 "num_retries": 2,
             }
+            if any(keyword in agent_cfg["model"].lower() for keyword in ["muse", "llama", "meta"]):
+                if os.getenv("META_API_KEY"):
+                    follow_up_kwargs["api_key"] = os.getenv("META_API_KEY")
+                if os.getenv("META_API_BASE"):
+                    follow_up_kwargs["api_base"] = os.getenv("META_API_BASE")
             follow_up = await execute_llm_with_retry(
                 litellm.completion,
                 follow_up_kwargs,
