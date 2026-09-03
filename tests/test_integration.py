@@ -81,7 +81,7 @@ def test_bot_message_filtering():
     # Should NOT be in cache (skipped)
     assert ("C_TEST_BOT", "123456789.0002") not in PROCESSED_EVENTS
 
-    # 2. Bot message with nomination (should be processed)
+    # 2. Bot message with nomination (should also be skipped; internal backend loop handles chaining)
     payload_with_nom = {
         "type": "event_callback",
         "event": {
@@ -94,8 +94,8 @@ def test_bot_message_filtering():
     }
     response2 = client.post("/slack/events", json=payload_with_nom)
     assert response2.status_code == 200
-    # Should be in cache (processed)
-    assert ("C_TEST_BOT", "123456789.0003") in PROCESSED_EVENTS
+    # Should NOT be in cache (skipped by webhook because backend loops internally)
+    assert ("C_TEST_BOT", "123456789.0003") not in PROCESSED_EVENTS
 
 
 def test_user_message_filtering():

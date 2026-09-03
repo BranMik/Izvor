@@ -162,11 +162,23 @@ async def process_and_respond(
     bot_user_id: str | None = None,
     icon_url: str | None = None,
     is_bot_trigger: bool = False,
+    run_internal_loop: bool = False,
+    in_memory_history: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """
     Main background handler: parses prompt, builds conversation history,
     calls LiteLLM with agent parameters & MCP tools, and posts response back to Slack thread.
+    If run_internal_loop is True, executes the entire multi-agent discussion loop internally.
     """
+    if run_internal_loop:
+        return await orchestrate_discussion(
+            channel_id=channel_id,
+            thread_ts=thread_ts,
+            raw_text=raw_text,
+            bot_user_id=bot_user_id,
+            icon_url=icon_url,
+        )
+
     start_time = time.time()
     logger.info(
         f"\n[{start_time}] >>> START process_and_respond for thread_ts: {thread_ts} <<<"
@@ -516,15 +528,28 @@ async def process_and_respond(
                 is_completed=True,
             )
             clear_thread_state(channel_id, thread_ts)
+            if isinstance(slack_res, dict):
+                slack_res["is_completed"] = True
+                slack_res["final_text"] = circuit_breaker_msg
+                slack_res["username"] = agent_cfg["username"]
+                slack_res["agent_key"] = agent_key
             return {
                 "ok": True,
                 "circuit_breaker_triggered": True,
+                "is_completed": True,
                 "slack_res": slack_res,
+                "final_text": circuit_breaker_msg,
+                "username": agent_cfg["username"],
+                "agent_key": agent_key,
             }
 
     # 1. Fetch thread history context
-    history = await fetch_thread_history(channel_id, thread_ts, bot_user_id=bot_user_id)
-    logger.info(f"[ROUTER] Fetched {len(history)} messages from thread history.")
+    if in_memory_history is not None:
+        history = list(in_memory_history)
+        logger.info(f"[ROUTER] Using in-memory history with {len(history)} messages.")
+    else:
+        history = await fetch_thread_history(channel_id, thread_ts, bot_user_id=bot_user_id)
+        logger.info(f"[ROUTER] Fetched {len(history)} messages from thread history.")
 
     if is_superseded():
         logger.info(f"[ROUTER] Thread {thread_key} turn was superseded. Aborting.")
@@ -908,6 +933,13 @@ async def process_and_respond(
             clear_thread_state(channel_id, thread_ts)
             RATE_LIMIT_ALREADY_RETRIED.pop(thread_key, None)
 
+        if isinstance(slack_res, dict):
+            slack_res["is_completed"] = is_completed
+            slack_res["final_text"] = final_text
+            slack_res["username"] = agent_cfg["username"]
+            slack_res["agent_key"] = agent_key
+            slack_res["generated_tags"] = generated_tags
+
         logger.info(
             f"[{time.time()}] <<< END process_and_respond for thread_ts: {thread_ts} (Total: {time.time() - start_time:.2f}s) <<<\n"
         )
@@ -1050,12 +1082,151 @@ async def process_and_respond(
         if is_completed:
             clear_thread_state(channel_id, thread_ts)
 
+        if isinstance(slack_res, dict):
+            slack_res["is_completed"] = is_completed
+            slack_res["final_text"] = error_post_text
+            slack_res["username"] = agent_cfg["username"]
+            slack_res["agent_key"] = agent_key
+
         return {
             "ok": False,
             "error": str(e),
             "classified_error": err_category,
             "slack_res": slack_res,
+            "is_completed": is_completed,
+            "final_text": error_post_text,
+            "username": agent_cfg["username"],
+            "agent_key": agent_key,
         }
+    finally:
+        if current_task and ACTIVE_THREAD_TASKS.get(thread_key) == current_task:
+            if in_memory_history is None or is_completed:
+                ACTIVE_THREAD_TASKS.pop(thread_key, None)
+
+
+async def orchestrate_discussion(
+    channel_id: str,
+    thread_ts: str,
+    raw_text: str,
+    bot_user_id: str | None = None,
+    icon_url: str | None = None,
+    max_turns: int = 20,
+) -> dict[str, Any]:
+    """
+    Internal multi-agent discussion loop:
+    Orchestrates the entire multi-agent discussion chain in-memory without relying on
+    Slack Events API webhook bounce-backs.
+    """
+    thread_key = (channel_id, thread_ts)
+    logger.info(
+        f"\n[ORCHESTRATOR] Starting internal discussion loop for thread {thread_key}"
+    )
+
+    current_task = asyncio.current_task()
+    if current_task:
+        ACTIVE_THREAD_TASKS[thread_key] = current_task
+
+    try:
+        # 1. Fetch initial thread history from Slack once
+        initial_history = await fetch_thread_history(
+            channel_id, thread_ts, bot_user_id=bot_user_id
+        )
+        accumulated_history: list[dict[str, Any]] = list(initial_history)
+
+        # Ensure user prompt is in accumulated_history so subsequent agents see it
+        if not accumulated_history or accumulated_history[-1].get("role") != "user" or accumulated_history[-1].get("content") != raw_text:
+            accumulated_history.append({"role": "user", "content": raw_text})
+
+        # 2. Run first turn with user prompt
+        turn_res = await process_and_respond(
+            channel_id=channel_id,
+            thread_ts=thread_ts,
+            raw_text=raw_text,
+            bot_user_id=bot_user_id,
+            icon_url=icon_url,
+            is_bot_trigger=False,
+            run_internal_loop=False,
+            in_memory_history=accumulated_history,
+        )
+
+        last_res = turn_res
+        if (
+            turn_res.get("halted")
+            or turn_res.get("cancelled")
+            or turn_res.get("is_completed")
+            or (not turn_res.get("ok", True) and not turn_res.get("final_text"))
+        ):
+            logger.info(
+                f"[ORCHESTRATOR] Turn 1 completed or ended discussion for thread {thread_key}."
+            )
+            return turn_res
+
+        # Append first agent's post to in-memory history
+        if "final_text" in turn_res and "username" in turn_res:
+            accumulated_history.append(
+                {
+                    "role": "assistant",
+                    "content": f"[{turn_res['username']}]: {turn_res['final_text']}",
+                }
+            )
+
+        # 3. Subsequent turns
+        for turn in range(2, max_turns + 1):
+            if is_thread_stopped(channel_id, thread_ts):
+                logger.info(
+                    f"[ORCHESTRATOR] Thread {thread_key} stop detected before turn {turn}. Terminating loop."
+                )
+                clear_thread_state(channel_id, thread_ts)
+                break
+
+            if turn_res.get("is_completed"):
+                logger.info(
+                    f"[ORCHESTRATOR] Thread {thread_key} marked completed after turn {turn - 1}. Terminating loop."
+                )
+                break
+
+            current_prompt = turn_res.get("final_text", "")
+            if not current_prompt:
+                logger.warning(
+                    f"[ORCHESTRATOR] No prompt available from previous turn {turn - 1}. Terminating loop."
+                )
+                break
+
+            logger.info(
+                f"[ORCHESTRATOR] Executing internal turn {turn} for thread {thread_key}"
+            )
+            turn_res = await process_and_respond(
+                channel_id=channel_id,
+                thread_ts=thread_ts,
+                raw_text=current_prompt,
+                bot_user_id=bot_user_id,
+                icon_url=icon_url,
+                is_bot_trigger=True,
+                run_internal_loop=False,
+                in_memory_history=accumulated_history,
+            )
+            last_res = turn_res
+
+            if (
+                turn_res.get("halted")
+                or turn_res.get("cancelled")
+                or turn_res.get("is_completed")
+                or (not turn_res.get("ok", True) and not turn_res.get("final_text"))
+            ):
+                logger.info(
+                    f"[ORCHESTRATOR] Turn {turn} completed or ended discussion for thread {thread_key}."
+                )
+                break
+
+            if "final_text" in turn_res and "username" in turn_res:
+                accumulated_history.append(
+                    {
+                        "role": "assistant",
+                        "content": f"[{turn_res['username']}]: {turn_res['final_text']}",
+                    }
+                )
+
+        return last_res
     finally:
         if current_task and ACTIVE_THREAD_TASKS.get(thread_key) == current_task:
             ACTIVE_THREAD_TASKS.pop(thread_key, None)
