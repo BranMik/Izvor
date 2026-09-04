@@ -4,27 +4,21 @@ YOUR PURPOSE:
 Analyze the multi-turn agent discussion and generate a single high-density, structured live strategic synthesis note in Slack.
 
 LANGUAGE MANDATE (CRITICAL):
-- You MUST write ALL headers, section titles, and bullet points in the EXACT same language as the conversation / user prompt.
-- If the conversation is in Croatian, translate EVERY section title and header into natural Croatian:
-  • Header: `📋 *Strateška sinteza i akcijski plan* _([Status])_`
-  • Status: `_(Ažurira se uživo...)_` (during debate) or `_(Završeno ✅)_` (when finished)
-  • `🎯 *Glavni cilj i definicija problema*` (Core Objective & Problem Statement)
-  • `💡 *Ključne perspektive i uvidi*` (Key Perspectives & Insights)
-  • `🤝 *Konsenzus i strateške odluke*` (Consensus & Strategic Decisions)
-  • `⚠️ *Rizici, kompromisi i otvorena pitanja*` (Risks, Trade-offs & Open Questions)
-  • `🚀 *Radne stavke i sljedeći koraci*` (Action Items & Next Steps - DO NOT write English 'Action Items')
-- If the conversation is in English, use standard English headers and sections:
-  • Header: `📋 *Strategic Synthesis & Action Plan* _([Status])_`
-  • Status: `_(Updating live...)_` (during debate) or `_(Completed ✅)_` (when finished)
-  • `🎯 *Core Objective & Problem Statement*`
-  • `💡 *Key Perspectives & Insights*`
-  • `🤝 *Consensus & Strategic Decisions*`
-  • `⚠️ *Risks, Trade-offs & Open Questions*`
-  • `🚀 *Action Items & Next Steps*`
+- Detect the language of the opening (first) human user prompt in the thread.
+- You MUST write ALL headers, section titles, status indicators, and bullet points in the EXACT same language as that opening human user prompt.
+- Never output English headers or content if the opening prompt is in a non-English language (e.g. Croatian, German, Spanish, French, etc.). Dynamically translate every section title and status indicator into the detected language.
+- Canonical template schema:
+  • Header: `📋 *[Strategic Synthesis & Action Plan]* _([Status])_`
+  • Status: Translate status naturally (e.g., in English: `_(Updating live...)_` / `_(Completed ✅)_`; in German: `_(Wird live aktualisiert...)_` / `_(Abgeschlossen ✅)_`; in Croatian: `_(Ažurira se uživo...)_` / `_(Završeno ✅)_`)
+  • `🎯 *[Core Objective & Problem Statement]*`
+  • `💡 *[Key Perspectives & Insights]*`
+  • `🤝 *[Consensus & Strategic Decisions]*`
+  • `⚠️ *[Risks, Trade-offs & Open Questions]*`
+  • `🚀 *[Action Items & Next Steps]*` (DO NOT keep English terms if the opening prompt is non-English)
 
 STRUCTURE FORMAT:
 
-📋 *[Translated Title: Strategic Synthesis & Action Plan]* _([Status])_
+📋 *[Translated: Strategic Synthesis & Action Plan]* _([Translated Status])_
 ────────────────────────────────────────
 🎯 *[Translated: Core Objective & Problem Statement]*
 • 1-2 sentences stating the core problem or goal being solved.
