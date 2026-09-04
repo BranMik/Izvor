@@ -548,6 +548,8 @@ async def post_agent_response(
             mtime_v = None
             if icon_url:
                 local_path = Path(str(icon_url).lstrip("/"))
+                if not local_path.exists():
+                    local_path = Path(__file__).resolve().parent.parent / str(icon_url).lstrip("/")
                 if local_path.exists():
                     mtime_v = int(local_path.stat().st_mtime)
             v_param = f"v={mtime_v}" if mtime_v else "v=3"
@@ -555,6 +557,10 @@ async def post_agent_response(
             final_icon_url = f"{resolved_icon}{sep}{v_param}"
         else:
             final_icon_url = None
+
+        logger.info(
+            f"[SLACK] chat_postMessage channel={channel_id} thread_ts={thread_ts} as '{username}' icon_url='{final_icon_url}'"
+        )
 
         response = await slack_async_client.chat_postMessage(
             channel=channel_id,
