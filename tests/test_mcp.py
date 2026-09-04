@@ -24,3 +24,19 @@ def test_mcp_directory_traversal_prevention():
     res_json = json.loads(read_res)
     assert "error" in res_json
     assert "Access denied" in res_json["error"] or "does not exist" in res_json["error"]
+
+
+def test_mcp_workspace_root_is_project_root():
+    from services.mcp_tools import PROJECT_ROOT, _resolve_safe_path
+    from pathlib import Path
+
+    expected_root = Path(__file__).resolve().parent.parent
+    assert PROJECT_ROOT == expected_root
+    assert _resolve_safe_path(".") == expected_root
+
+    # Can read services/mcp_tools.py from the project root
+    read_res = read_file("services/mcp_tools.py")
+    res_json = json.loads(read_res)
+    assert "content" in res_json
+    assert "def read_file" in res_json["content"]
+

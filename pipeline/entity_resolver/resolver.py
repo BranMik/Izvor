@@ -181,8 +181,5 @@ class EntityResolver:
         return sanitized
 
 
-# Backward compatibility alias
-EntityResolverSkill = EntityResolver
-
 # Global default instance
 entity_resolver = EntityResolver()

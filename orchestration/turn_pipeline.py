@@ -43,6 +43,7 @@ from pipeline.entity_resolver import entity_resolver
 from pipeline.orchestrator import SandwichOrchestrator
 from pipeline.spend_governance import spend_governance
 from services.mcp_tools import MCP_TOOLS_SCHEMAS, execute_mcp_tool
+from skills import skill_registry, LOAD_SKILL_SCHEMA
 from services.slack_client import (
     download_slack_file,
     fetch_thread_files,
@@ -844,13 +845,24 @@ class TurnPipeline:
             f"[LLM] Dispatching litellm.completion for {ctx.agent_key} (already_503_errored={already_503_errored})..."
         )
         llm_start = time.time()
+        # Resolve initial tools via Skills Framework (Progressive Disclosure)
+        agent_skills = ctx.agent_cfg.get("skills")
+        if agent_skills is None:
+            agent_skills = settings_manager.get_agent_skills(ctx.agent_key)
+
         completion_kwargs: dict[str, Any] = {
             "model": ctx.agent_cfg["model"],
             "messages": ctx.messages,
-            "tools": MCP_TOOLS_SCHEMAS,
-            "tool_choice": "auto",
             "num_retries": 2,
         }
+
+        # If agent has no authorized skills (pure debate agent), omit tools entirely
+        # For skilled agents, start strictly with LOAD_SKILL_SCHEMA (progressive disclosure)
+        active_tools: list[dict[str, Any]] = []
+        if agent_skills:
+            active_tools = [LOAD_SKILL_SCHEMA]
+            completion_kwargs["tools"] = active_tools
+            completion_kwargs["tool_choice"] = "auto"
         if any(
             keyword in ctx.agent_cfg["model"].lower()
             for keyword in ["muse", "llama", "meta"]
@@ -898,61 +910,88 @@ class TurnPipeline:
         tool_calls = getattr(response_message, "tool_calls", None)
 
         if tool_calls:
-            ctx.messages.append(response_message.model_dump())
-            exec_mcp_fn = self._get_hook("execute_mcp_tool", execute_mcp_tool)
+            exec_mcp_fn = self._get_hook("execute_mcp_tool", None)
+            max_tool_iterations = 3
+            iteration = 0
 
-            for tool_call in tool_calls:
-                fn_name = tool_call.function.name
-                fn_args = (
-                    json.loads(tool_call.function.arguments)
-                    if isinstance(tool_call.function.arguments, str)
-                    else tool_call.function.arguments
+            while tool_calls and iteration < max_tool_iterations:
+                iteration += 1
+                ctx.messages.append(response_message.model_dump())
+
+                for tool_call in tool_calls:
+                    fn_name = tool_call.function.name
+                    fn_args = (
+                        json.loads(tool_call.function.arguments)
+                        if isinstance(tool_call.function.arguments, str)
+                        else tool_call.function.arguments
+                    )
+                    if fn_name == "load_skill":
+                        tool_result = skill_registry.execute_tool(
+                            fn_name, fn_args, authorized_skills=agent_skills
+                        )
+                        # Dynamically unlock tools declared by this skill only if authorized
+                        skill_name = fn_args.get("skill_name", "").strip()
+                        if agent_skills and skill_name in agent_skills:
+                            skill_def = skill_registry.get(skill_name)
+                            if skill_def:
+                                for s_schema in skill_def.get_tool_schemas():
+                                    if s_schema not in active_tools:
+                                        active_tools.append(s_schema)
+                    elif exec_mcp_fn is not None and exec_mcp_fn is not execute_mcp_tool:
+                        tool_result = exec_mcp_fn(fn_name, fn_args)
+                    else:
+                        tool_result = skill_registry.execute_tool(
+                            fn_name, fn_args, authorized_skills=agent_skills
+                        )
+
+                    ctx.messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "name": fn_name,
+                            "content": tool_result,
+                        }
+                    )
+
+                if ctx.is_superseded():
+                    logger.info(
+                        f"[ROUTER] Thread {ctx.thread_key} turn was superseded during tool execution. Aborting."
+                    )
+                    return {"ok": False, "cancelled": True, "reason": "superseded"}
+
+                follow_up_kwargs: dict[str, Any] = {
+                    "model": ctx.agent_cfg["model"],
+                    "messages": ctx.messages,
+                    "tools": active_tools,
+                    "tool_choice": "auto",
+                    "num_retries": 2,
+                }
+                if any(
+                    keyword in ctx.agent_cfg["model"].lower()
+                    for keyword in ["muse", "llama", "meta"]
+                ):
+                    if os.getenv("META_API_KEY"):
+                        follow_up_kwargs["api_key"] = os.getenv("META_API_KEY")
+                    if os.getenv("META_API_BASE"):
+                        follow_up_kwargs["api_base"] = os.getenv("META_API_BASE")
+
+                follow_up = await exec_retry_fn(
+                    litellm.acompletion,
+                    follow_up_kwargs,
+                    agent_key=f"{ctx.agent_key} follow-up",
+                    thread_key=ctx.thread_key,
+                    is_superseded_fn=ctx.is_superseded,
+                    run_in_threadpool_fn=custom_runner,
+                    allow_503_immediate_retry=allow_503_immediate,
                 )
-                tool_result = exec_mcp_fn(fn_name, fn_args)
+                if follow_up is None and ctx.is_superseded():
+                    return {"ok": False, "cancelled": True, "reason": "superseded"}
 
-                ctx.messages.append(
-                    {
-                        "role": "tool",
-                        "tool_call_id": tool_call.id,
-                        "name": fn_name,
-                        "content": tool_result,
-                    }
-                )
+                ctx.add_usage(follow_up)
+                response_message = follow_up.choices[0].message
+                tool_calls = getattr(response_message, "tool_calls", None)
 
-            if ctx.is_superseded():
-                logger.info(
-                    f"[ROUTER] Thread {ctx.thread_key} turn was superseded during tool execution. Aborting."
-                )
-                return {"ok": False, "cancelled": True, "reason": "superseded"}
-
-            follow_up_kwargs: dict[str, Any] = {
-                "model": ctx.agent_cfg["model"],
-                "messages": ctx.messages,
-                "num_retries": 2,
-            }
-            if any(
-                keyword in ctx.agent_cfg["model"].lower()
-                for keyword in ["muse", "llama", "meta"]
-            ):
-                if os.getenv("META_API_KEY"):
-                    follow_up_kwargs["api_key"] = os.getenv("META_API_KEY")
-                if os.getenv("META_API_BASE"):
-                    follow_up_kwargs["api_base"] = os.getenv("META_API_BASE")
-
-            follow_up = await exec_retry_fn(
-                litellm.acompletion,
-                follow_up_kwargs,
-                agent_key=f"{ctx.agent_key} follow-up",
-                thread_key=ctx.thread_key,
-                is_superseded_fn=ctx.is_superseded,
-                run_in_threadpool_fn=custom_runner,
-                allow_503_immediate_retry=allow_503_immediate,
-            )
-            if follow_up is None and ctx.is_superseded():
-                return {"ok": False, "cancelled": True, "reason": "superseded"}
-
-            ctx.add_usage(follow_up)
-            ctx.final_text = follow_up.choices[0].message.content
+            ctx.final_text = response_message.content
         else:
             ctx.final_text = response_message.content
 

@@ -50,8 +50,8 @@ from nlp.nl_patterns import extract_history_limit, is_stop_command
 from services.slack_client import build_app_home_view
 
 
-
 import orchestration.agent_router as agent_router
+
 
 @pytest.fixture(autouse=True)
 def setup_test_environment(monkeypatch):
@@ -147,13 +147,22 @@ async def test_process_and_respond_token_appending(monkeypatch):
         return mock_response
 
     posted_messages = []
-    async def mock_post_agent_response(channel_id, thread_ts, text, username, icon_url=None):
+
+    async def mock_post_agent_response(
+        channel_id, thread_ts, text, username, icon_url=None
+    ):
         posted_messages.append(text)
         return {"ok": True, "ts": "12345.6789"}
 
-    monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_run_in_threadpool)
-    monkeypatch.setattr("orchestration.agent_router.post_agent_response", mock_post_agent_response)
-    monkeypatch.setattr("orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[]))
+    monkeypatch.setattr(
+        "orchestration.agent_router.run_in_threadpool", mock_run_in_threadpool
+    )
+    monkeypatch.setattr(
+        "orchestration.agent_router.post_agent_response", mock_post_agent_response
+    )
+    monkeypatch.setattr(
+        "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
+    )
 
     await process_and_respond(
         channel_id="C123",
@@ -186,13 +195,22 @@ async def test_process_and_respond_model_token_footer_openai(monkeypatch):
         return mock_response
 
     posted_messages = []
-    async def mock_post_agent_response(channel_id, thread_ts, text, username, icon_url=None):
+
+    async def mock_post_agent_response(
+        channel_id, thread_ts, text, username, icon_url=None
+    ):
         posted_messages.append(text)
         return {"ok": True, "ts": "12345.9999"}
 
-    monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_run_in_threadpool)
-    monkeypatch.setattr("orchestration.agent_router.post_agent_response", mock_post_agent_response)
-    monkeypatch.setattr("orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[]))
+    monkeypatch.setattr(
+        "orchestration.agent_router.run_in_threadpool", mock_run_in_threadpool
+    )
+    monkeypatch.setattr(
+        "orchestration.agent_router.post_agent_response", mock_post_agent_response
+    )
+    monkeypatch.setattr(
+        "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
+    )
 
     await process_and_respond(
         channel_id="C123",
@@ -243,13 +261,22 @@ async def test_scenario_1_single_agent_tagged(monkeypatch):
         return mock_response
 
     posted_messages = []
-    async def mock_post_agent_response(channel_id, thread_ts, text, username, icon_url=None):
+
+    async def mock_post_agent_response(
+        channel_id, thread_ts, text, username, icon_url=None
+    ):
         posted_messages.append(text)
         return {"ok": True, "ts": "12345.0001"}
 
-    monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_run_in_threadpool)
-    monkeypatch.setattr("orchestration.agent_router.post_agent_response", mock_post_agent_response)
-    monkeypatch.setattr("orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[]))
+    monkeypatch.setattr(
+        "orchestration.agent_router.run_in_threadpool", mock_run_in_threadpool
+    )
+    monkeypatch.setattr(
+        "orchestration.agent_router.post_agent_response", mock_post_agent_response
+    )
+    monkeypatch.setattr(
+        "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
+    )
 
     thread_key = ("C123", "12345.0001")
 
@@ -282,12 +309,19 @@ async def test_scenario_2_multiple_agents_custom_flow(monkeypatch):
     CUSTOM_FLOW_THREADS.clear()
 
     posted_messages = []
-    async def mock_post_agent_response(channel_id, thread_ts, text, username, icon_url=None):
+
+    async def mock_post_agent_response(
+        channel_id, thread_ts, text, username, icon_url=None
+    ):
         posted_messages.append(text)
         return {"ok": True, "ts": f"12345.{len(posted_messages)}"}
 
-    monkeypatch.setattr("orchestration.agent_router.post_agent_response", mock_post_agent_response)
-    monkeypatch.setattr("orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[]))
+    monkeypatch.setattr(
+        "orchestration.agent_router.post_agent_response", mock_post_agent_response
+    )
+    monkeypatch.setattr(
+        "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
+    )
 
     thread_key = ("C123", "12345.0002")
 
@@ -300,6 +334,7 @@ async def test_scenario_2_multiple_agents_custom_flow(monkeypatch):
 
     async def mock_run_1(func, *args, **kwargs):
         return mock_response_1
+
     monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_run_1)
 
     await process_and_respond(
@@ -324,6 +359,7 @@ async def test_scenario_2_multiple_agents_custom_flow(monkeypatch):
         captured_messages = kwargs.get("messages") or args[2]
         mock_run_2.captured_user_prompt = captured_messages[-1]["content"]
         return mock_response_2
+
     monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_run_2)
 
     await process_and_respond(
@@ -351,12 +387,19 @@ async def test_scenario_3_no_agent_tagged_default_flow(monkeypatch):
     CUSTOM_FLOW_THREADS.clear()
 
     posted_messages = []
-    async def mock_post_agent_response(channel_id, thread_ts, text, username, icon_url=None):
+
+    async def mock_post_agent_response(
+        channel_id, thread_ts, text, username, icon_url=None
+    ):
         posted_messages.append(text)
         return {"ok": True, "ts": f"12345.{len(posted_messages)}"}
 
-    monkeypatch.setattr("orchestration.agent_router.post_agent_response", mock_post_agent_response)
-    monkeypatch.setattr("orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[]))
+    monkeypatch.setattr(
+        "orchestration.agent_router.post_agent_response", mock_post_agent_response
+    )
+    monkeypatch.setattr(
+        "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
+    )
 
     thread_key = ("C123", "12345.0003")
 
@@ -368,6 +411,7 @@ async def test_scenario_3_no_agent_tagged_default_flow(monkeypatch):
 
     async def mock_run_1(func, *args, **kwargs):
         return mock_response_1
+
     monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_run_1)
 
     await process_and_respond(
@@ -396,6 +440,7 @@ async def test_scenario_3_no_agent_tagged_default_flow(monkeypatch):
 
     async def mock_run_2(func, *args, **kwargs):
         return mock_response_2
+
     monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_run_2)
 
     await process_and_respond(
@@ -419,6 +464,7 @@ async def test_scenario_3_no_agent_tagged_default_flow(monkeypatch):
 
     async def mock_run_3(func, *args, **kwargs):
         return mock_response_3
+
     monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_run_3)
 
     await process_and_respond(
@@ -440,6 +486,7 @@ async def test_scenario_3_no_agent_tagged_default_flow(monkeypatch):
 
     async def mock_run_4(func, *args, **kwargs):
         return mock_response_4
+
     monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_run_4)
 
     await process_and_respond(
@@ -483,7 +530,9 @@ def test_is_stop_command():
     assert is_stop_command("<@U12345> How do I stop a docker container?") is False
     assert is_stop_command("<@U12345> Where is the nearest bus stop?") is False
     assert is_stop_command("<@U12345> Can you stop by our office tomorrow?") is False
-    assert is_stop_command("[Visionary] Design a stop-motion animation pipeline") is False
+    assert (
+        is_stop_command("[Visionary] Design a stop-motion animation pipeline") is False
+    )
     assert is_stop_command("<@U12345> stop") is False
     assert is_stop_command("") is False
 
@@ -503,12 +552,19 @@ async def test_thread_stop_during_llm_execution(monkeypatch):
     STOP_REQUESTED_THREADS.clear()
 
     posted_messages = []
-    async def mock_post_agent_response(channel_id, thread_ts, text, username, icon_url=None):
+
+    async def mock_post_agent_response(
+        channel_id, thread_ts, text, username, icon_url=None
+    ):
         posted_messages.append(text)
         return {"ok": True, "ts": "12345.0004"}
 
-    monkeypatch.setattr("orchestration.agent_router.post_agent_response", mock_post_agent_response)
-    monkeypatch.setattr("orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[]))
+    monkeypatch.setattr(
+        "orchestration.agent_router.post_agent_response", mock_post_agent_response
+    )
+    monkeypatch.setattr(
+        "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
+    )
 
     thread_key = ("C123", "12345.0004")
 
@@ -523,7 +579,9 @@ async def test_thread_stop_during_llm_execution(monkeypatch):
         request_thread_stop("C123", "12345.0004")
         return mock_response
 
-    monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_run_with_stop_injected)
+    monkeypatch.setattr(
+        "orchestration.agent_router.run_in_threadpool", mock_run_with_stop_injected
+    )
 
     await process_and_respond(
         channel_id="C123",
@@ -681,30 +739,75 @@ def test_settings_persistence(tmp_path, monkeypatch):
 
 def test_classify_agent_error():
     # Rate limit errors
-    assert classify_agent_error(Exception("Rate limit reached for requests per minute (RPM)")) == "rate_limit"
+    assert (
+        classify_agent_error(
+            Exception("Rate limit reached for requests per minute (RPM)")
+        )
+        == "rate_limit"
+    )
     assert classify_agent_error(Exception("429 Too Many Requests")) == "rate_limit"
-    assert classify_agent_error(Exception("ResourceExhausted quota exceeded")) == "rate_limit"
+    assert (
+        classify_agent_error(Exception("ResourceExhausted quota exceeded"))
+        == "rate_limit"
+    )
 
     # Service unavailable / 503 / High demand spike errors
-    assert classify_agent_error(Exception("503 Service Unavailable")) == "service_unavailable"
+    assert (
+        classify_agent_error(Exception("503 Service Unavailable"))
+        == "service_unavailable"
+    )
     assert classify_agent_error(Exception("529 Overloaded")) == "service_unavailable"
-    assert classify_agent_error(Exception("The model is overloaded due to high demand")) == "service_unavailable"
-    assert classify_agent_error(Exception("ServiceUnavailableError: upstream connect error or disconnect")) == "service_unavailable"
-    assert classify_agent_error(Exception("Server temporarily overloaded (high demand spike)")) == "service_unavailable"
+    assert (
+        classify_agent_error(Exception("The model is overloaded due to high demand"))
+        == "service_unavailable"
+    )
+    assert (
+        classify_agent_error(
+            Exception("ServiceUnavailableError: upstream connect error or disconnect")
+        )
+        == "service_unavailable"
+    )
+    assert (
+        classify_agent_error(
+            Exception("Server temporarily overloaded (high demand spike)")
+        )
+        == "service_unavailable"
+    )
     assert is_high_demand_503_error(Exception("503 Service Unavailable")) is True
     assert is_high_demand_503_error(Exception("429 Too Many Requests")) is False
 
     # API key errors
-    assert classify_agent_error(Exception("Authentication error: api_key not found")) == "api_key_not_found"
-    assert classify_agent_error(Exception("No API key provided. Please set GEMINI_API_KEY")) == "api_key_not_found"
-    assert classify_agent_error(Exception("Unauthorized: 401 Invalid Token")) == "api_key_not_found"
+    assert (
+        classify_agent_error(Exception("Authentication error: api_key not found"))
+        == "api_key_not_found"
+    )
+    assert (
+        classify_agent_error(
+            Exception("No API key provided. Please set GEMINI_API_KEY")
+        )
+        == "api_key_not_found"
+    )
+    assert (
+        classify_agent_error(Exception("Unauthorized: 401 Invalid Token"))
+        == "api_key_not_found"
+    )
 
     # Model not found errors
-    assert classify_agent_error(Exception("Model 'mistral/mistral-nonexistent' not found (404)")) == "model_not_found"
-    assert classify_agent_error(Exception("The model `xyz` does not exist")) == "model_not_found"
+    assert (
+        classify_agent_error(
+            Exception("Model 'mistral/mistral-nonexistent' not found (404)")
+        )
+        == "model_not_found"
+    )
+    assert (
+        classify_agent_error(Exception("The model `xyz` does not exist"))
+        == "model_not_found"
+    )
 
     # General error
-    assert classify_agent_error(Exception("Connection reset by peer")) == "general_error"
+    assert (
+        classify_agent_error(Exception("Connection reset by peer")) == "general_error"
+    )
 
 
 @pytest.mark.anyio
@@ -717,13 +820,22 @@ async def test_process_and_respond_api_key_not_found(monkeypatch):
         raise Exception("AuthenticationError: Missing API key for Gemini")
 
     posted = []
-    async def mock_post_agent_response(channel_id, thread_ts, text, username, icon_url=None):
+
+    async def mock_post_agent_response(
+        channel_id, thread_ts, text, username, icon_url=None
+    ):
         posted.append({"text": text, "username": username, "icon_url": icon_url})
         return {"ok": True, "ts": "12345.0001"}
 
-    monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_run_in_threadpool)
-    monkeypatch.setattr("orchestration.agent_router.post_agent_response", mock_post_agent_response)
-    monkeypatch.setattr("orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[]))
+    monkeypatch.setattr(
+        "orchestration.agent_router.run_in_threadpool", mock_run_in_threadpool
+    )
+    monkeypatch.setattr(
+        "orchestration.agent_router.post_agent_response", mock_post_agent_response
+    )
+    monkeypatch.setattr(
+        "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
+    )
 
     res = await process_and_respond(
         channel_id="C123",
@@ -753,13 +865,22 @@ async def test_process_and_respond_model_not_found(monkeypatch):
         raise Exception("NotFoundError: Model gemini/gemini-3.7-flash does not exist")
 
     posted = []
-    async def mock_post_agent_response(channel_id, thread_ts, text, username, icon_url=None):
+
+    async def mock_post_agent_response(
+        channel_id, thread_ts, text, username, icon_url=None
+    ):
         posted.append({"text": text, "username": username, "icon_url": icon_url})
         return {"ok": True, "ts": "12345.0002"}
 
-    monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_run_in_threadpool)
-    monkeypatch.setattr("orchestration.agent_router.post_agent_response", mock_post_agent_response)
-    monkeypatch.setattr("orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[]))
+    monkeypatch.setattr(
+        "orchestration.agent_router.run_in_threadpool", mock_run_in_threadpool
+    )
+    monkeypatch.setattr(
+        "orchestration.agent_router.post_agent_response", mock_post_agent_response
+    )
+    monkeypatch.setattr(
+        "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
+    )
 
     res = await process_and_respond(
         channel_id="C123",
@@ -792,13 +913,21 @@ async def test_process_and_respond_retries_and_clean_error_message(monkeypatch):
 
     posted = []
 
-    async def mock_post_agent_response(channel_id, thread_ts, text, username, icon_url=None):
+    async def mock_post_agent_response(
+        channel_id, thread_ts, text, username, icon_url=None
+    ):
         posted.append({"text": text, "username": username, "icon_url": icon_url})
         return {"ok": True, "ts": "12345.9999"}
 
-    monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_fail_general_error)
-    monkeypatch.setattr("orchestration.agent_router.post_agent_response", mock_post_agent_response)
-    monkeypatch.setattr("orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[]))
+    monkeypatch.setattr(
+        "orchestration.agent_router.run_in_threadpool", mock_fail_general_error
+    )
+    monkeypatch.setattr(
+        "orchestration.agent_router.post_agent_response", mock_post_agent_response
+    )
+    monkeypatch.setattr(
+        "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
+    )
 
     res = await process_and_respond(
         channel_id="C123",
@@ -818,7 +947,6 @@ async def test_process_and_respond_retries_and_clean_error_message(monkeypatch):
     assert "[Innovator]" in posted[0]["text"]
 
 
-
 @pytest.mark.anyio
 async def test_process_and_respond_rate_limits_and_retry_flow(monkeypatch):
     REMAINING_AGENTS_MAP.clear()
@@ -831,7 +959,10 @@ async def test_process_and_respond_rate_limits_and_retry_flow(monkeypatch):
     REMAINING_AGENTS_MAP[thread_key] = ["Innovator"]
 
     posted = []
-    async def mock_post_agent_response(channel_id, thread_ts, text, username, icon_url=None):
+
+    async def mock_post_agent_response(
+        channel_id, thread_ts, text, username, icon_url=None
+    ):
         posted.append({"text": text, "username": username, "icon_url": icon_url})
         return {"ok": True, "ts": "12345.0003"}
 
@@ -839,9 +970,15 @@ async def test_process_and_respond_rate_limits_and_retry_flow(monkeypatch):
     async def mock_fail_rate_limit(func, *args, **kwargs):
         raise Exception("RateLimitError: 429 Too Many Requests, quota exceeded")
 
-    monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_fail_rate_limit)
-    monkeypatch.setattr("orchestration.agent_router.post_agent_response", mock_post_agent_response)
-    monkeypatch.setattr("orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[]))
+    monkeypatch.setattr(
+        "orchestration.agent_router.run_in_threadpool", mock_fail_rate_limit
+    )
+    monkeypatch.setattr(
+        "orchestration.agent_router.post_agent_response", mock_post_agent_response
+    )
+    monkeypatch.setattr(
+        "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
+    )
 
     await process_and_respond(
         channel_id="C123",
@@ -852,7 +989,9 @@ async def test_process_and_respond_rate_limits_and_retry_flow(monkeypatch):
 
     assert len(posted) == 1
     assert posted[0]["username"] == "TechLead"
-    assert "RATE LIMITS CROSSED, will retry at the end of discussion" in posted[0]["text"]
+    assert (
+        "RATE LIMITS CROSSED, will retry at the end of discussion" in posted[0]["text"]
+    )
     assert "[Innovator]" in posted[0]["text"]
     assert thread_key in RATE_LIMIT_RETRY_QUEUE
     assert "TechLead" in RATE_LIMIT_RETRY_QUEUE[thread_key]
@@ -866,7 +1005,9 @@ async def test_process_and_respond_rate_limits_and_retry_flow(monkeypatch):
     async def mock_success_innovator(func, *args, **kwargs):
         return mock_resp
 
-    monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_success_innovator)
+    monkeypatch.setattr(
+        "orchestration.agent_router.run_in_threadpool", mock_success_innovator
+    )
 
     await process_and_respond(
         channel_id="C123",
@@ -883,7 +1024,9 @@ async def test_process_and_respond_rate_limits_and_retry_flow(monkeypatch):
 
     # 3. TechLead retries at the end of discussion, fails again with RateLimit:
     # Must post 'RATE LIMITS CROSSED' and NOT be retried again.
-    monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_fail_rate_limit)
+    monkeypatch.setattr(
+        "orchestration.agent_router.run_in_threadpool", mock_fail_rate_limit
+    )
 
     await process_and_respond(
         channel_id="C123",
@@ -904,7 +1047,9 @@ async def test_process_and_respond_rate_limits_and_retry_flow(monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_process_and_respond_503_high_demand_first_skip_and_random_handoff(monkeypatch):
+async def test_process_and_respond_503_high_demand_first_skip_and_random_handoff(
+    monkeypatch,
+):
     REMAINING_AGENTS_MAP.clear()
     RATE_LIMIT_RETRY_QUEUE.clear()
     RATE_LIMIT_ALREADY_RETRIED.clear()
@@ -915,17 +1060,26 @@ async def test_process_and_respond_503_high_demand_first_skip_and_random_handoff
     REMAINING_AGENTS_MAP[thread_key] = ["Innovator", "DeepSeek_Challenger"]
 
     posted = []
-    async def mock_post_agent_response(channel_id, thread_ts, text, username, icon_url=None):
+
+    async def mock_post_agent_response(
+        channel_id, thread_ts, text, username, icon_url=None
+    ):
         posted.append({"text": text, "username": username, "icon_url": icon_url})
         return {"ok": True, "ts": "12345.5031"}
 
     # Simulate 503 High Demand error
     async def mock_fail_503(func, *args, **kwargs):
-        raise Exception("ServiceUnavailableError: 503 The server is currently overloaded with high demand")
+        raise Exception(
+            "ServiceUnavailableError: 503 The server is currently overloaded with high demand"
+        )
 
     monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_fail_503)
-    monkeypatch.setattr("orchestration.agent_router.post_agent_response", mock_post_agent_response)
-    monkeypatch.setattr("orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[]))
+    monkeypatch.setattr(
+        "orchestration.agent_router.post_agent_response", mock_post_agent_response
+    )
+    monkeypatch.setattr(
+        "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
+    )
 
     res = await process_and_respond(
         channel_id="C_503",
@@ -936,7 +1090,10 @@ async def test_process_and_respond_503_high_demand_first_skip_and_random_handoff
 
     assert len(posted) == 1
     assert posted[0]["username"] == "TechLead"
-    assert "HIGH DEMAND / SERVICE OVERLOADED (503) - Skipping for now, will retry later" in posted[0]["text"]
+    assert (
+        "HIGH DEMAND / SERVICE OVERLOADED (503) - Skipping for now, will retry later"
+        in posted[0]["text"]
+    )
     # Verify TechLead is recorded as 503-errored for this thread
     assert thread_key in HIGH_DEMAND_ERRORED_AGENTS
     assert "TechLead" in HIGH_DEMAND_ERRORED_AGENTS[thread_key]
@@ -956,7 +1113,9 @@ async def test_process_and_respond_503_high_demand_first_skip_and_random_handoff
 
 
 @pytest.mark.anyio
-async def test_process_and_respond_503_high_demand_second_query_retries_and_terminates(monkeypatch):
+async def test_process_and_respond_503_high_demand_second_query_retries_and_terminates(
+    monkeypatch,
+):
     REMAINING_AGENTS_MAP.clear()
     RATE_LIMIT_RETRY_QUEUE.clear()
     RATE_LIMIT_ALREADY_RETRIED.clear()
@@ -968,19 +1127,29 @@ async def test_process_and_respond_503_high_demand_second_query_retries_and_term
     REMAINING_AGENTS_MAP[thread_key] = []  # No other agents left
 
     posted = []
-    async def mock_post_agent_response(channel_id, thread_ts, text, username, icon_url=None):
+
+    async def mock_post_agent_response(
+        channel_id, thread_ts, text, username, icon_url=None
+    ):
         posted.append({"text": text, "username": username, "icon_url": icon_url})
         return {"ok": True, "ts": "12345.5032"}
 
     attempts_count = 0
+
     async def mock_fail_503_retry(func, *args, **kwargs):
         nonlocal attempts_count
         attempts_count += 1
         raise Exception("503 Server Temporarily Unavailable (high demand spike)")
 
-    monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_fail_503_retry)
-    monkeypatch.setattr("orchestration.agent_router.post_agent_response", mock_post_agent_response)
-    monkeypatch.setattr("orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[]))
+    monkeypatch.setattr(
+        "orchestration.agent_router.run_in_threadpool", mock_fail_503_retry
+    )
+    monkeypatch.setattr(
+        "orchestration.agent_router.post_agent_response", mock_post_agent_response
+    )
+    monkeypatch.setattr(
+        "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
+    )
 
     res = await process_and_respond(
         channel_id="C_503",
@@ -1037,6 +1206,7 @@ async def test_execute_llm_with_retry_503_selective_bypass():
 
     # 3. For non-503 errors with allow_503_immediate_retry=False: STILL retries 3 times as standard!
     call_count = 0
+
     def mock_network_error():
         nonlocal call_count
         call_count += 1
@@ -1051,7 +1221,6 @@ async def test_execute_llm_with_retry_503_selective_bypass():
             allow_503_immediate_retry=False,
         )
     assert call_count == 3
-
 
 
 def test_is_discussion_active_behavior():
@@ -1080,6 +1249,7 @@ def test_is_discussion_active_behavior():
 @pytest.mark.anyio
 async def test_interrupt_thread_discussion_clears_state_and_cancels_task():
     import asyncio
+
     thread_key = ("C_INTERRUPT_TEST", "12345.1002")
 
     REMAINING_AGENTS_MAP[thread_key] = ["TechLead", "Innovator"]
@@ -1130,12 +1300,19 @@ async def test_interruption_during_llm_execution_aborts_superseded_turn(monkeypa
     ACTIVE_THREAD_TASKS.pop(thread_key, None)
 
     posted_messages = []
-    async def mock_post_agent_response(channel_id, thread_ts, text, username, icon_url=None):
+
+    async def mock_post_agent_response(
+        channel_id, thread_ts, text, username, icon_url=None
+    ):
         posted_messages.append({"text": text, "username": username})
         return {"ok": True, "ts": "12345.1003"}
 
-    monkeypatch.setattr("orchestration.agent_router.post_agent_response", mock_post_agent_response)
-    monkeypatch.setattr("orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[]))
+    monkeypatch.setattr(
+        "orchestration.agent_router.post_agent_response", mock_post_agent_response
+    )
+    monkeypatch.setattr(
+        "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
+    )
 
     mock_choice_1 = MagicMock()
     mock_choice_1.message.content = "Turn 1 answer to old query. [TechLead]"
@@ -1198,12 +1375,19 @@ async def test_interruption_during_pacing_delay_aborts_superseded_turn(monkeypat
     ACTIVE_THREAD_TASKS.pop(thread_key, None)
 
     posted_messages = []
-    async def mock_post_agent_response(channel_id, thread_ts, text, username, icon_url=None):
+
+    async def mock_post_agent_response(
+        channel_id, thread_ts, text, username, icon_url=None
+    ):
         posted_messages.append({"text": text, "username": username})
         return {"ok": True, "ts": "12345.1004"}
 
-    monkeypatch.setattr("orchestration.agent_router.post_agent_response", mock_post_agent_response)
-    monkeypatch.setattr("orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[]))
+    monkeypatch.setattr(
+        "orchestration.agent_router.post_agent_response", mock_post_agent_response
+    )
+    monkeypatch.setattr(
+        "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
+    )
 
     mock_choice = MagicMock()
     mock_choice.message.content = "Turn 1 answer before sleep. [TechLead]"
@@ -1219,7 +1403,9 @@ async def test_interruption_during_pacing_delay_aborts_superseded_turn(monkeypat
     async def mock_sleep_with_interrupt(duration):
         interrupt_thread_discussion("C_INTERRUPT_SLEEP", "12345.1004")
 
-    monkeypatch.setattr("orchestration.agent_router.asyncio.sleep", mock_sleep_with_interrupt)
+    monkeypatch.setattr(
+        "orchestration.agent_router.asyncio.sleep", mock_sleep_with_interrupt
+    )
 
     res = await process_and_respond(
         channel_id="C_INTERRUPT_SLEEP",
@@ -1240,7 +1426,9 @@ def test_extract_history_limit_formats():
     assert cleaned == "<@U12345> Tell me a joke"
 
     # 2. Bracketed format /history [3]
-    limit, cleaned = extract_history_limit("@CaiLogics [TechLead] Explain rust /history [3]")
+    limit, cleaned = extract_history_limit(
+        "@CaiLogics [TechLead] Explain rust /history [3]"
+    )
     assert limit == 3
     assert cleaned == "@CaiLogics [TechLead] Explain rust"
 
@@ -1274,7 +1462,9 @@ def test_extract_history_limit_formats():
     assert cleaned == "Plain prompt without history"
 
     # 8. Command in middle of text
-    limit, cleaned = extract_history_limit("@CaiLogics What is /history 3 quantum computing?")
+    limit, cleaned = extract_history_limit(
+        "@CaiLogics What is /history 3 quantum computing?"
+    )
     assert limit == 3
     assert cleaned == "@CaiLogics What is quantum computing?"
 
@@ -1334,7 +1524,8 @@ async def test_process_and_respond_history_limit_initial_prompt(monkeypatch):
     ]
 
     monkeypatch.setattr(
-        "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=mock_history)
+        "orchestration.agent_router.fetch_thread_history",
+        AsyncMock(return_value=mock_history),
     )
 
     captured_messages = []
@@ -1393,7 +1584,9 @@ async def test_process_and_respond_history_limit_subsequent_bot_rounds(monkeypat
     """
     thread_key = ("C_HIST_TEST_2", "12345.3001")
     # Simulate active history limit from turn 1
-    set_thread_history_limit("C_HIST_TEST_2", "12345.3001", limit=2, prior_cutoff_index=5)
+    set_thread_history_limit(
+        "C_HIST_TEST_2", "12345.3001", limit=2, prior_cutoff_index=5
+    )
 
     mock_history = [
         {"role": "user", "content": "Message 1"},
@@ -1403,11 +1596,15 @@ async def test_process_and_respond_history_limit_subsequent_bot_rounds(monkeypat
         {"role": "user", "content": "Message 3"},
         # Discussion started here:
         {"role": "user", "content": "What now?"},
-        {"role": "assistant", "content": "[CaiLogics Visionary]: Visionary response. [TechLead]"},
+        {
+            "role": "assistant",
+            "content": "[CaiLogics Visionary]: Visionary response. [TechLead]",
+        },
     ]
 
     monkeypatch.setattr(
-        "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=mock_history)
+        "orchestration.agent_router.fetch_thread_history",
+        AsyncMock(return_value=mock_history),
     )
 
     captured_messages = []
@@ -1465,7 +1662,9 @@ async def test_process_and_respond_subsequent_prompt_resets_full_history(monkeyp
     """
     thread_key = ("C_HIST_TEST_RESET", "12345.4001")
     # Simulate pre-existing limit
-    set_thread_history_limit("C_HIST_TEST_RESET", "12345.4001", limit=2, prior_cutoff_index=3)
+    set_thread_history_limit(
+        "C_HIST_TEST_RESET", "12345.4001", limit=2, prior_cutoff_index=3
+    )
 
     mock_history = [
         {"role": "user", "content": "Message 1"},
@@ -1476,7 +1675,8 @@ async def test_process_and_respond_subsequent_prompt_resets_full_history(monkeyp
     ]
 
     monkeypatch.setattr(
-        "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=mock_history)
+        "orchestration.agent_router.fetch_thread_history",
+        AsyncMock(return_value=mock_history),
     )
 
     captured_messages = []
@@ -1535,7 +1735,8 @@ async def test_process_and_respond_history_zero(monkeypatch):
     ]
 
     monkeypatch.setattr(
-        "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=mock_history)
+        "orchestration.agent_router.fetch_thread_history",
+        AsyncMock(return_value=mock_history),
     )
 
     captured_messages = []
@@ -1595,12 +1796,12 @@ def test_build_llm_messages_user_trigger():
 
 def test_build_llm_messages_bot_trigger_strictly_ends_with_user_turn():
     """Test bot trigger appends user turn so Anthropic/Mistral/Gemini won't reject with 400 Bad Request."""
-    sys_prompt = "You are Devil's Advocate."
+    sys_prompt = "You are The Sceptic."
     history = [
         {"role": "user", "content": "Initial question"},
         {"role": "assistant", "content": "[Innovator]: Propose X [Sceptic]"},
     ]
-    agent_cfg = {"username": "The Devil's Advocate"}
+    agent_cfg = {"username": "The Sceptic"}
     messages = build_llm_messages(
         system_prompt=sys_prompt,
         effective_history=history,
@@ -1612,9 +1813,12 @@ def test_build_llm_messages_bot_trigger_strictly_ends_with_user_turn():
     assert len(messages) == 4
     assert messages[0] == {"role": "system", "content": sys_prompt}
     assert messages[1] == {"role": "user", "content": "Initial question"}
-    assert messages[2] == {"role": "assistant", "content": "[Innovator]: Propose X [Sceptic]"}
+    assert messages[2] == {
+        "role": "assistant",
+        "content": "[Innovator]: Propose X [Sceptic]",
+    }
     assert messages[3]["role"] == "user"
-    assert "The Devil's Advocate" in messages[3]["content"]
+    assert "The Sceptic" in messages[3]["content"]
 
 
 def test_build_llm_messages_leading_assistant_gets_user_prefix():
@@ -1715,11 +1919,15 @@ async def test_circuit_breaker_triggers_when_threshold_exceeded(monkeypatch):
     monkeypatch.setattr(
         "orchestration.agent_router.post_agent_response", mock_post_agent_response
     )
-    monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_run_in_threadpool)
+    monkeypatch.setattr(
+        "orchestration.agent_router.run_in_threadpool", mock_run_in_threadpool
+    )
     monkeypatch.setattr(
         "orchestration.agent_router.trigger_thread_notes_update", mock_trigger_notes
     )
-    monkeypatch.setattr("orchestration.agent_router.trigger_usage_update", mock_trigger_usage)
+    monkeypatch.setattr(
+        "orchestration.agent_router.trigger_usage_update", mock_trigger_usage
+    )
 
     res = await process_and_respond(
         channel_id=channel_id,
@@ -1779,7 +1987,9 @@ async def test_circuit_breaker_allows_normal_response_when_below_threshold(
     monkeypatch.setattr(
         "orchestration.agent_router.post_agent_response", mock_post_agent_response
     )
-    monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_run_in_threadpool)
+    monkeypatch.setattr(
+        "orchestration.agent_router.run_in_threadpool", mock_run_in_threadpool
+    )
     monkeypatch.setattr(
         "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
     )
@@ -1834,7 +2044,9 @@ async def test_circuit_breaker_allows_normal_response_when_disabled(monkeypatch)
     monkeypatch.setattr(
         "orchestration.agent_router.post_agent_response", mock_post_agent_response
     )
-    monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_run_in_threadpool)
+    monkeypatch.setattr(
+        "orchestration.agent_router.run_in_threadpool", mock_run_in_threadpool
+    )
     monkeypatch.setattr(
         "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
     )
@@ -1882,7 +2094,9 @@ def test_extract_max_words_limit():
     assert limit == 15
 
     # Natural language variations (Croatian and English)
-    limit, text = extract_max_words_limit("odgovori u maksimalno 100 riječi na pitanje o k8s")
+    limit, text = extract_max_words_limit(
+        "odgovori u maksimalno 100 riječi na pitanje o k8s"
+    )
     assert limit == 100
     assert text == "odgovori na pitanje o k8s"
 
@@ -1968,6 +2182,7 @@ async def test_process_and_respond_with_max_words(monkeypatch):
         THREAD_MAX_WORDS_LIMITS,
         get_thread_max_words,
     )
+
     REMAINING_AGENTS_MAP.clear()
     RATE_LIMIT_RETRY_QUEUE.clear()
     RATE_LIMIT_ALREADY_RETRIED.clear()
@@ -1982,7 +2197,9 @@ async def test_process_and_respond_with_max_words(monkeypatch):
 
     mock_response = MagicMock()
     mock_choice = MagicMock()
-    mock_choice.message = MagicMock(content="Concise response under limit [Architect]", tool_calls=None)
+    mock_choice.message = MagicMock(
+        content="Concise response under limit [Architect]", tool_calls=None
+    )
     mock_response.choices = [mock_choice]
     mock_response.usage = MagicMock(prompt_tokens=15, completion_tokens=10)
 
@@ -1998,9 +2215,15 @@ async def test_process_and_respond_with_max_words(monkeypatch):
         posted_messages.append({"text": text, "username": username})
         return {"ok": True, "ts": thread_ts}
 
-    monkeypatch.setattr("orchestration.agent_router.post_agent_response", mock_post_agent_response)
-    monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_run_in_threadpool)
-    monkeypatch.setattr("orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[]))
+    monkeypatch.setattr(
+        "orchestration.agent_router.post_agent_response", mock_post_agent_response
+    )
+    monkeypatch.setattr(
+        "orchestration.agent_router.run_in_threadpool", mock_run_in_threadpool
+    )
+    monkeypatch.setattr(
+        "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
+    )
     monkeypatch.setattr("orchestration.agent_router.record_thread_tokens", MagicMock())
 
     res = await process_and_respond(
@@ -2017,7 +2240,10 @@ async def test_process_and_respond_with_max_words(monkeypatch):
     # System prompt in LLM call has 40 words limit and skips standard output constraints
     assert len(captured_messages) == 1
     system_msg = captured_messages[0][0]["content"]
-    assert "Hard Limit: Your entire response must strictly NOT exceed 40 words." in system_msg
+    assert (
+        "Hard Limit: Your entire response must strictly NOT exceed 40 words."
+        in system_msg
+    )
     # Skipped standard output_constraints
     assert "1 sentence stating your core verdict/concern." not in system_msg
     assert "2-3 concise bullet points" not in system_msg
@@ -2037,6 +2263,7 @@ async def test_process_and_respond_with_min_words(monkeypatch):
         THREAD_MIN_WORDS_LIMITS,
         get_thread_min_words,
     )
+
     REMAINING_AGENTS_MAP.clear()
     RATE_LIMIT_RETRY_QUEUE.clear()
     RATE_LIMIT_ALREADY_RETRIED.clear()
@@ -2051,7 +2278,10 @@ async def test_process_and_respond_with_min_words(monkeypatch):
 
     mock_response = MagicMock()
     mock_choice = MagicMock()
-    mock_choice.message = MagicMock(content="Detailed thorough response with at least eighty words [Architect]", tool_calls=None)
+    mock_choice.message = MagicMock(
+        content="Detailed thorough response with at least eighty words [Architect]",
+        tool_calls=None,
+    )
     mock_response.choices = [mock_choice]
     mock_response.usage = MagicMock(prompt_tokens=15, completion_tokens=85)
 
@@ -2067,9 +2297,15 @@ async def test_process_and_respond_with_min_words(monkeypatch):
         posted_messages.append({"text": text, "username": username})
         return {"ok": True, "ts": thread_ts}
 
-    monkeypatch.setattr("orchestration.agent_router.post_agent_response", mock_post_agent_response)
-    monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_run_in_threadpool)
-    monkeypatch.setattr("orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[]))
+    monkeypatch.setattr(
+        "orchestration.agent_router.post_agent_response", mock_post_agent_response
+    )
+    monkeypatch.setattr(
+        "orchestration.agent_router.run_in_threadpool", mock_run_in_threadpool
+    )
+    monkeypatch.setattr(
+        "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
+    )
     monkeypatch.setattr("orchestration.agent_router.record_thread_tokens", MagicMock())
 
     res = await process_and_respond(
@@ -2086,7 +2322,10 @@ async def test_process_and_respond_with_min_words(monkeypatch):
     # System prompt in LLM call has min_words instruction and skips standard output constraints
     assert len(captured_messages) == 1
     system_msg = captured_messages[0][0]["content"]
-    assert "Minimum Length: Your entire response must have a minimum length of 80 words." in system_msg
+    assert (
+        "Minimum Length: Your entire response must have a minimum length of 80 words."
+        in system_msg
+    )
     # Skipped standard output_constraints
     assert "1 sentence stating your core verdict/concern." not in system_msg
     assert "2-3 concise bullet points" not in system_msg
@@ -2108,6 +2347,7 @@ async def test_process_and_respond_with_min_and_max_words(monkeypatch):
         get_thread_max_words,
         get_thread_min_words,
     )
+
     REMAINING_AGENTS_MAP.clear()
     RATE_LIMIT_RETRY_QUEUE.clear()
     RATE_LIMIT_ALREADY_RETRIED.clear()
@@ -2123,7 +2363,9 @@ async def test_process_and_respond_with_min_and_max_words(monkeypatch):
 
     mock_response = MagicMock()
     mock_choice = MagicMock()
-    mock_choice.message = MagicMock(content="Response between bounds [Architect]", tool_calls=None)
+    mock_choice.message = MagicMock(
+        content="Response between bounds [Architect]", tool_calls=None
+    )
     mock_response.choices = [mock_choice]
     mock_response.usage = MagicMock(prompt_tokens=15, completion_tokens=60)
 
@@ -2139,9 +2381,15 @@ async def test_process_and_respond_with_min_and_max_words(monkeypatch):
         posted_messages.append({"text": text, "username": username})
         return {"ok": True, "ts": thread_ts}
 
-    monkeypatch.setattr("orchestration.agent_router.post_agent_response", mock_post_agent_response)
-    monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_run_in_threadpool)
-    monkeypatch.setattr("orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[]))
+    monkeypatch.setattr(
+        "orchestration.agent_router.post_agent_response", mock_post_agent_response
+    )
+    monkeypatch.setattr(
+        "orchestration.agent_router.run_in_threadpool", mock_run_in_threadpool
+    )
+    monkeypatch.setattr(
+        "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
+    )
     monkeypatch.setattr("orchestration.agent_router.record_thread_tokens", MagicMock())
 
     res = await process_and_respond(
@@ -2157,8 +2405,14 @@ async def test_process_and_respond_with_min_and_max_words(monkeypatch):
 
     assert len(captured_messages) == 1
     system_msg = captured_messages[0][0]["content"]
-    assert "Minimum Length: Your entire response must have a minimum length of 50 words." in system_msg
-    assert "Hard Limit: Your entire response must strictly NOT exceed 150 words." in system_msg
+    assert (
+        "Minimum Length: Your entire response must have a minimum length of 50 words."
+        in system_msg
+    )
+    assert (
+        "Hard Limit: Your entire response must strictly NOT exceed 150 words."
+        in system_msg
+    )
 
     user_msg = captured_messages[0][-1]["content"]
     assert "/min_words" not in user_msg
@@ -2177,6 +2431,7 @@ async def test_process_and_respond_with_natural_language_limits(monkeypatch):
         get_thread_max_words,
         get_thread_min_words,
     )
+
     REMAINING_AGENTS_MAP.clear()
     RATE_LIMIT_RETRY_QUEUE.clear()
     RATE_LIMIT_ALREADY_RETRIED.clear()
@@ -2192,7 +2447,9 @@ async def test_process_and_respond_with_natural_language_limits(monkeypatch):
 
     mock_response = MagicMock()
     mock_choice = MagicMock()
-    mock_choice.message = MagicMock(content="Response under 60 words [Architect]", tool_calls=None)
+    mock_choice.message = MagicMock(
+        content="Response under 60 words [Architect]", tool_calls=None
+    )
     mock_response.choices = [mock_choice]
     mock_response.usage = MagicMock(prompt_tokens=15, completion_tokens=30)
 
@@ -2208,9 +2465,15 @@ async def test_process_and_respond_with_natural_language_limits(monkeypatch):
         posted_messages.append({"text": text, "username": username})
         return {"ok": True, "ts": thread_ts}
 
-    monkeypatch.setattr("orchestration.agent_router.post_agent_response", mock_post_agent_response)
-    monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_run_in_threadpool)
-    monkeypatch.setattr("orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[]))
+    monkeypatch.setattr(
+        "orchestration.agent_router.post_agent_response", mock_post_agent_response
+    )
+    monkeypatch.setattr(
+        "orchestration.agent_router.run_in_threadpool", mock_run_in_threadpool
+    )
+    monkeypatch.setattr(
+        "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
+    )
     monkeypatch.setattr("orchestration.agent_router.record_thread_tokens", MagicMock())
 
     res = await process_and_respond(
@@ -2225,7 +2488,10 @@ async def test_process_and_respond_with_natural_language_limits(monkeypatch):
 
     assert len(captured_messages) == 1
     system_msg = captured_messages[0][0]["content"]
-    assert "Hard Limit: Your entire response must strictly NOT exceed 60 words." in system_msg
+    assert (
+        "Hard Limit: Your entire response must strictly NOT exceed 60 words."
+        in system_msg
+    )
 
     user_msg = captured_messages[0][-1]["content"]
     assert "maksimalno 60 riječi" not in user_msg
@@ -2239,6 +2505,7 @@ async def test_process_and_respond_with_exclude_command(monkeypatch):
         RATE_LIMIT_RETRY_QUEUE,
         RATE_LIMIT_ALREADY_RETRIED,
     )
+
     REMAINING_AGENTS_MAP.clear()
     RATE_LIMIT_RETRY_QUEUE.clear()
     RATE_LIMIT_ALREADY_RETRIED.clear()
@@ -2251,7 +2518,9 @@ async def test_process_and_respond_with_exclude_command(monkeypatch):
 
     mock_response = MagicMock()
     mock_choice = MagicMock()
-    mock_choice.message = MagicMock(content="Reviewing without innovator [ScopeOptimizer]", tool_calls=None)
+    mock_choice.message = MagicMock(
+        content="Reviewing without innovator [ScopeOptimizer]", tool_calls=None
+    )
     mock_response.choices = [mock_choice]
     mock_response.usage = MagicMock(prompt_tokens=20, completion_tokens=40)
 
@@ -2267,9 +2536,15 @@ async def test_process_and_respond_with_exclude_command(monkeypatch):
         posted_messages.append({"text": text, "username": username})
         return {"ok": True, "ts": thread_ts}
 
-    monkeypatch.setattr("orchestration.agent_router.post_agent_response", mock_post_agent_response)
-    monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_run_in_threadpool)
-    monkeypatch.setattr("orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[]))
+    monkeypatch.setattr(
+        "orchestration.agent_router.post_agent_response", mock_post_agent_response
+    )
+    monkeypatch.setattr(
+        "orchestration.agent_router.run_in_threadpool", mock_run_in_threadpool
+    )
+    monkeypatch.setattr(
+        "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
+    )
     monkeypatch.setattr("orchestration.agent_router.record_thread_tokens", MagicMock())
 
     res = await process_and_respond(
@@ -2297,6 +2572,7 @@ async def test_process_and_respond_with_multi_agent_exclude_command(monkeypatch)
         RATE_LIMIT_RETRY_QUEUE,
         RATE_LIMIT_ALREADY_RETRIED,
     )
+
     REMAINING_AGENTS_MAP.clear()
     RATE_LIMIT_RETRY_QUEUE.clear()
     RATE_LIMIT_ALREADY_RETRIED.clear()
@@ -2307,16 +2583,25 @@ async def test_process_and_respond_with_multi_agent_exclude_command(monkeypatch)
 
     mock_response = MagicMock()
     mock_choice = MagicMock()
-    mock_choice.message = MagicMock(content="Reviewing [ScalabilityEngineer]", tool_calls=None)
+    mock_choice.message = MagicMock(
+        content="Reviewing [ScalabilityEngineer]", tool_calls=None
+    )
     mock_response.choices = [mock_choice]
     mock_response.usage = MagicMock(prompt_tokens=20, completion_tokens=40)
 
     async def mock_run_in_threadpool(func, *args, **kwargs):
         return mock_response
 
-    monkeypatch.setattr("orchestration.agent_router.post_agent_response", AsyncMock(return_value={"ok": True, "ts": thread_ts}))
-    monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_run_in_threadpool)
-    monkeypatch.setattr("orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[]))
+    monkeypatch.setattr(
+        "orchestration.agent_router.post_agent_response",
+        AsyncMock(return_value={"ok": True, "ts": thread_ts}),
+    )
+    monkeypatch.setattr(
+        "orchestration.agent_router.run_in_threadpool", mock_run_in_threadpool
+    )
+    monkeypatch.setattr(
+        "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
+    )
     monkeypatch.setattr("orchestration.agent_router.record_thread_tokens", MagicMock())
 
     res = await process_and_respond(
@@ -2338,6 +2623,7 @@ async def test_process_and_respond_with_default_flow_and_exclude(monkeypatch):
         RATE_LIMIT_RETRY_QUEUE,
         RATE_LIMIT_ALREADY_RETRIED,
     )
+
     REMAINING_AGENTS_MAP.clear()
     RATE_LIMIT_RETRY_QUEUE.clear()
     RATE_LIMIT_ALREADY_RETRIED.clear()
@@ -2348,16 +2634,25 @@ async def test_process_and_respond_with_default_flow_and_exclude(monkeypatch):
 
     mock_response = MagicMock()
     mock_choice = MagicMock()
-    mock_choice.message = MagicMock(content="Debating without techlead and innovator [Sceptic]", tool_calls=None)
+    mock_choice.message = MagicMock(
+        content="Debating without techlead and innovator [Sceptic]", tool_calls=None
+    )
     mock_response.choices = [mock_choice]
     mock_response.usage = MagicMock(prompt_tokens=20, completion_tokens=40)
 
     async def mock_run_in_threadpool(func, *args, **kwargs):
         return mock_response
 
-    monkeypatch.setattr("orchestration.agent_router.post_agent_response", AsyncMock(return_value={"ok": True, "ts": thread_ts}))
-    monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_run_in_threadpool)
-    monkeypatch.setattr("orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[]))
+    monkeypatch.setattr(
+        "orchestration.agent_router.post_agent_response",
+        AsyncMock(return_value={"ok": True, "ts": thread_ts}),
+    )
+    monkeypatch.setattr(
+        "orchestration.agent_router.run_in_threadpool", mock_run_in_threadpool
+    )
+    monkeypatch.setattr(
+        "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
+    )
     monkeypatch.setattr("orchestration.agent_router.record_thread_tokens", MagicMock())
 
     res = await process_and_respond(
@@ -2379,6 +2674,7 @@ async def test_process_and_respond_with_nl_exclude(monkeypatch):
         RATE_LIMIT_RETRY_QUEUE,
         RATE_LIMIT_ALREADY_RETRIED,
     )
+
     REMAINING_AGENTS_MAP.clear()
     RATE_LIMIT_RETRY_QUEUE.clear()
     RATE_LIMIT_ALREADY_RETRIED.clear()
@@ -2396,9 +2692,16 @@ async def test_process_and_respond_with_nl_exclude(monkeypatch):
     async def mock_run_in_threadpool(func, *args, **kwargs):
         return mock_response
 
-    monkeypatch.setattr("orchestration.agent_router.post_agent_response", AsyncMock(return_value={"ok": True, "ts": thread_ts}))
-    monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_run_in_threadpool)
-    monkeypatch.setattr("orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[]))
+    monkeypatch.setattr(
+        "orchestration.agent_router.post_agent_response",
+        AsyncMock(return_value={"ok": True, "ts": thread_ts}),
+    )
+    monkeypatch.setattr(
+        "orchestration.agent_router.run_in_threadpool", mock_run_in_threadpool
+    )
+    monkeypatch.setattr(
+        "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
+    )
     monkeypatch.setattr("orchestration.agent_router.record_thread_tokens", MagicMock())
 
     res = await process_and_respond(
@@ -2415,6 +2718,7 @@ async def test_process_and_respond_with_nl_exclude(monkeypatch):
 @pytest.mark.anyio
 async def test_partial_tag_routing(monkeypatch):
     from orchestration.agent_router import REMAINING_AGENTS_MAP
+
     REMAINING_AGENTS_MAP.clear()
 
     channel_id = "C_PARTIAL_TAG"
@@ -2422,18 +2726,28 @@ async def test_partial_tag_routing(monkeypatch):
 
     mock_response = MagicMock()
     mock_choice = MagicMock()
-    mock_choice.message = MagicMock(content="Visionary speaking [TechLead]", tool_calls=None)
+    mock_choice.message = MagicMock(
+        content="Visionary speaking [TechLead]", tool_calls=None
+    )
     mock_response.choices = [mock_choice]
     mock_response.usage = MagicMock(prompt_tokens=20, completion_tokens=40)
 
     posted_messages = []
+
     async def mock_post_agent(channel_id, thread_ts, text, username, icon_url=None):
         posted_messages.append({"username": username, "text": text})
         return {"ok": True, "ts": thread_ts}
 
-    monkeypatch.setattr("orchestration.agent_router.post_agent_response", mock_post_agent)
-    monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", AsyncMock(return_value=mock_response))
-    monkeypatch.setattr("orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[]))
+    monkeypatch.setattr(
+        "orchestration.agent_router.post_agent_response", mock_post_agent
+    )
+    monkeypatch.setattr(
+        "orchestration.agent_router.run_in_threadpool",
+        AsyncMock(return_value=mock_response),
+    )
+    monkeypatch.setattr(
+        "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
+    )
     monkeypatch.setattr("orchestration.agent_router.record_thread_tokens", MagicMock())
 
     res = await process_and_respond(
@@ -2451,25 +2765,36 @@ async def test_partial_tag_routing(monkeypatch):
 @pytest.mark.anyio
 async def test_ambiguous_tag_system_warning_halt(monkeypatch):
     from orchestration.agent_router import REMAINING_AGENTS_MAP
+
     REMAINING_AGENTS_MAP.clear()
 
     channel_id = "C_AMBIG_TAG"
     thread_ts = "99999.0002"
 
     system_posts = []
-    async def mock_post_system(channel_id, thread_ts, text, username=None, icon_url=None):
+
+    async def mock_post_system(
+        channel_id, thread_ts, text, username=None, icon_url=None
+    ):
         system_posts.append({"username": username, "text": text})
         return {"ok": True, "ts": thread_ts}
 
     llm_called = False
+
     async def mock_run_in_threadpool(func, *args, **kwargs):
         nonlocal llm_called
         llm_called = True
         return MagicMock()
 
-    monkeypatch.setattr("orchestration.agent_router.post_system_message", mock_post_system)
-    monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_run_in_threadpool)
-    monkeypatch.setattr("orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[]))
+    monkeypatch.setattr(
+        "orchestration.agent_router.post_system_message", mock_post_system
+    )
+    monkeypatch.setattr(
+        "orchestration.agent_router.run_in_threadpool", mock_run_in_threadpool
+    )
+    monkeypatch.setattr(
+        "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
+    )
 
     res = await process_and_respond(
         channel_id=channel_id,
@@ -2492,25 +2817,36 @@ async def test_ambiguous_tag_system_warning_halt(monkeypatch):
 @pytest.mark.anyio
 async def test_unrecognized_tag_system_warning_halt(monkeypatch):
     from orchestration.agent_router import REMAINING_AGENTS_MAP
+
     REMAINING_AGENTS_MAP.clear()
 
     channel_id = "C_UNREC_TAG"
     thread_ts = "99999.0003"
 
     system_posts = []
-    async def mock_post_system(channel_id, thread_ts, text, username=None, icon_url=None):
+
+    async def mock_post_system(
+        channel_id, thread_ts, text, username=None, icon_url=None
+    ):
         system_posts.append({"username": username, "text": text})
         return {"ok": True, "ts": thread_ts}
 
     llm_called = False
+
     async def mock_run_in_threadpool(func, *args, **kwargs):
         nonlocal llm_called
         llm_called = True
         return MagicMock()
 
-    monkeypatch.setattr("orchestration.agent_router.post_system_message", mock_post_system)
-    monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_run_in_threadpool)
-    monkeypatch.setattr("orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[]))
+    monkeypatch.setattr(
+        "orchestration.agent_router.post_system_message", mock_post_system
+    )
+    monkeypatch.setattr(
+        "orchestration.agent_router.run_in_threadpool", mock_run_in_threadpool
+    )
+    monkeypatch.setattr(
+        "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
+    )
 
     res = await process_and_respond(
         channel_id=channel_id,
@@ -2527,16 +2863,3 @@ async def test_unrecognized_tag_system_warning_halt(monkeypatch):
     assert "SomeUnknownAgent" in system_posts[0]["text"]
     assert "[" not in system_posts[0]["text"]
     assert "]" not in system_posts[0]["text"]
-
-
-
-
-
-
-
-
-
-
-
-
-

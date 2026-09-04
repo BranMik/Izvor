@@ -95,8 +95,5 @@ class SpendGovernance:
         self._session_tokens.pop(session_id, None)
 
 
-# Backward compatibility alias
-SpendGovernanceSkill = SpendGovernance
-
 # Global default instance
 spend_governance = SpendGovernance()
