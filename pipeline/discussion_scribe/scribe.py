@@ -15,8 +15,8 @@ SCRIBE_DEFAULT_PROMPT = """You are an objective, executive-level discussion scri
 Your responsibility is to analyze the multi-agent discussion transcript and produce structured strategic notes.
 
 Strict Formatting Rules:
-1. Detect and match the language of the opening (first) human user prompt in the discussion transcript (e.g. English, Croatian, German, Spanish, etc.). All headers, section titles, status indicators, and bullet points must be in that exact language.
-2. Structure sections clearly (translate section titles into the detected thread language):
+1. All headers, section titles, status indicators, and bullet points must be written strictly in the designated thread language. Never switch languages.
+2. Structure sections clearly (translate section titles into the thread language):
    - *Core Objective & Problem Statement*
    - *Key Perspectives & Insights*
    - *Consensus & Strategic Decisions*
@@ -40,6 +40,7 @@ class DiscussionScribe:
         self,
         history: list[dict[str, Any]] | list[Turn],
         is_completed: bool = False,
+        thread_language: str = "English",
     ) -> tuple[DiscussionBrief, dict[str, int]]:
         """
         Generates or updates a structured DiscussionBrief from conversation history.
@@ -59,24 +60,24 @@ class DiscussionScribe:
             status_directive = (
                 "The discussion has finished. Generate the FINAL concise strategic synthesis notes (strictly under 500 words maximum ceiling). "
                 "Include Core Objective & Problem Statement, Key Perspectives & Insights, Consensus & Strategic Decisions, Risks & Trade-offs, and Action Items & Next Steps. "
-                "CRITICAL: Match the language of the opening human user prompt for ALL titles and content. "
-                "Use a natural status indicator translated into the discussion language in header, e.g. _(Completed ✅)_, _(Završeno ✅)_, _(Abgeschlossen ✅)_."
+                f"CRITICAL: Write ALL titles and content strictly in {thread_language}. "
+                "Use an appropriate natural status indicator translated into the thread language in the header (e.g. Completed ✅)."
             )
             max_tokens = 1500
         elif assistant_turns <= 1:
             status_directive = (
                 "This is the initial turn of the discussion. Generate the initial concise strategic synthesis note (strictly under 50 words total). "
                 "State the initial core objective and initial key perspective. "
-                "CRITICAL: Match the language of the opening human user prompt for ALL titles and content. "
-                "Use a natural status indicator translated into the discussion language in header, e.g. _(Updating live...)_, _(Ažurira se uživo...)_, _(Wird live aktualisiert...)_."
+                f"CRITICAL: Write ALL titles and content strictly in {thread_language}. "
+                "Use an appropriate natural status indicator translated into the thread language in the header (e.g. Updating live...)."
             )
             max_tokens = 350
         else:
             status_directive = (
                 "The discussion is actively ongoing. Generate the updated, concise strategic synthesis notes (strictly under 300 words maximum ceiling). "
                 "Synthesize current key perspectives, emerging consensus, identified risks, and preliminary action items. "
-                "CRITICAL: Match the language of the opening human user prompt for ALL titles and content. "
-                "Use a natural status indicator translated into the discussion language in header, e.g. _(Updating live...)_, _(Ažurira se uživo...)_, _(Wird live aktualisiert...)_."
+                f"CRITICAL: Write ALL titles and content strictly in {thread_language}. "
+                "Use an appropriate natural status indicator translated into the thread language in the header (e.g. Updating live...)."
             )
             max_tokens = 800
 

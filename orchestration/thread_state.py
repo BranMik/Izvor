@@ -25,6 +25,7 @@ class ThreadStateManager:
         self.thread_history_limits: dict[tuple[str, str], dict[str, int]] = {}
         self.thread_max_words_limits: dict[tuple[str, str], int] = {}
         self.thread_min_words_limits: dict[tuple[str, str], int] = {}
+        self.thread_languages: dict[tuple[str, str], str] = {}
         self.thread_active_file_context: dict[tuple[str, str], dict[str, Any]] = {}
         self.thread_last_activity: dict[tuple[str, str], float] = {}
         self.ttl_seconds: float = float(os.getenv("THREAD_STATE_TTL_SECONDS", "3600.0"))
@@ -102,6 +103,22 @@ class ThreadStateManager:
     def clear_min_words(self, channel_id: str, thread_ts: str) -> None:
         """Clears min_words limit for this thread."""
         self.thread_min_words_limits.pop((channel_id, thread_ts), None)
+
+    def get_language(self, channel_id: str, thread_ts: str) -> str | None:
+        """Returns the locked language for this thread, if any."""
+        return self.thread_languages.get((channel_id, thread_ts))
+
+    def set_language(self, channel_id: str, thread_ts: str, language: str) -> None:
+        """Sets and locks the language for this thread."""
+        self._touch(channel_id, thread_ts)
+        self.thread_languages[(channel_id, thread_ts)] = language
+        logger.info(
+            f"[THREAD STATE] Set locked language for thread {(channel_id, thread_ts)}: {language}"
+        )
+
+    def clear_language(self, channel_id: str, thread_ts: str) -> None:
+        """Clears locked language for this thread."""
+        self.thread_languages.pop((channel_id, thread_ts), None)
 
     def get_file_context(
         self, channel_id: str, thread_ts: str
@@ -422,6 +439,7 @@ class ThreadStateManager:
         self.thread_history_limits.clear()
         self.thread_max_words_limits.clear()
         self.thread_min_words_limits.clear()
+        self.thread_languages.clear()
         self.thread_active_file_context.clear()
         self.thread_last_activity.clear()
 
@@ -432,6 +450,7 @@ class ThreadStateManager:
         self.clear_history_limit(channel_id, thread_ts)
         self.clear_max_words(channel_id, thread_ts)
         self.clear_min_words(channel_id, thread_ts)
+        self.clear_language(channel_id, thread_ts)
         self.clear_file_context(channel_id, thread_ts)
         self.clear_custom_flow(channel_id, thread_ts)
         self.clear_remaining_agents(channel_id, thread_ts)
@@ -496,6 +515,7 @@ STOP_REQUESTED_THREADS = thread_state_manager.stop_requested_threads
 THREAD_HISTORY_LIMITS = thread_state_manager.thread_history_limits
 THREAD_MAX_WORDS_LIMITS = thread_state_manager.thread_max_words_limits
 THREAD_MIN_WORDS_LIMITS = thread_state_manager.thread_min_words_limits
+THREAD_LANGUAGES = thread_state_manager.thread_languages
 THREAD_ACTIVE_FILE_CONTEXT = thread_state_manager.thread_active_file_context
 THREAD_LAST_ACTIVITY = thread_state_manager.thread_last_activity
 
@@ -563,6 +583,18 @@ def set_thread_min_words(channel_id: str, thread_ts: str, min_words: int) -> Non
 
 def clear_thread_min_words(channel_id: str, thread_ts: str) -> None:
     thread_state_manager.clear_min_words(channel_id, thread_ts)
+
+
+def get_thread_language(channel_id: str, thread_ts: str) -> str | None:
+    return thread_state_manager.get_language(channel_id, thread_ts)
+
+
+def set_thread_language(channel_id: str, thread_ts: str, language: str) -> None:
+    thread_state_manager.set_language(channel_id, thread_ts, language)
+
+
+def clear_thread_language(channel_id: str, thread_ts: str) -> None:
+    thread_state_manager.clear_language(channel_id, thread_ts)
 
 
 def get_thread_file_context(

@@ -5,6 +5,7 @@ from .intent_extractor import (
     intent_extractor,
     should_skip_intent_extractor,
 )
+from .language_detector import detect_language, detect_language_llm
 from .message_builder import (
     build_llm_messages,
     markdown_to_slack,
@@ -37,6 +38,8 @@ __all__ = [
     "extract_user_intent",
     "intent_extractor",
     "should_skip_intent_extractor",
+    "detect_language",
+    "detect_language_llm",
     "build_llm_messages",
     "markdown_to_slack",
     "FILE_COMMAND_PATTERN",

@@ -72,13 +72,14 @@ from pipeline.discussion_scribe import discussion_scribe
 async def generate_thread_notes(
     history: list[dict[str, str]],
     is_completed: bool = False,
+    thread_language: str = "English",
 ) -> tuple[str, dict[str, int]]:
     """
     Generates structured strategic synthesis live notes of the conversation history
     via the DiscussionScribe service. Returns (slack_mrkdwn_content, token_usage_dict).
     """
     brief, tokens = await discussion_scribe.generate_brief(
-        history, is_completed=is_completed
+        history, is_completed=is_completed, thread_language=thread_language
     )
     raw_content = brief.raw_markdown or ""
 
@@ -136,9 +137,13 @@ async def update_notes_for_thread(
                 )
                 return {"ok": False, "reason": "No thread history"}
 
+            # Retrieve locked thread language if set
+            from orchestration.thread_state import get_thread_language
+            thread_language = get_thread_language(channel_id, thread_ts) or "English"
+
             # 2. Generate updated structured synthesis notes with mistral-small-latest
             notes_content, token_stats = await generate_thread_notes(
-                history, is_completed=is_completed
+                history, is_completed=is_completed, thread_language=thread_language
             )
 
             # Append timestamp / token footnote

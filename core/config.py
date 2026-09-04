@@ -107,6 +107,10 @@ def get_intent_extractor_model() -> str:
     return get_system_agent_model("intent_extractor", os.getenv("INTENT_EXTRACTOR_MODEL", "mistral/mistral-small-latest"))
 
 
+def get_language_detector_model() -> str:
+    return get_system_agent_model("language_detector", os.getenv("LANGUAGE_DETECTOR_MODEL", "gemini/gemini-3.8-flash"))
+
+
 
 # Pacing & Orchestration Defaults (configurable via environment variables)
 DEBATE_TURN_PACING_SECONDS = float(
@@ -134,5 +138,7 @@ def __getattr__(name: str) -> Any:
         return get_pricing_agent_model()
     if name == "INTENT_EXTRACTOR_MODEL":
         return get_intent_extractor_model()
+    if name == "LANGUAGE_DETECTOR_MODEL":
+        return get_language_detector_model()
     raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
 
