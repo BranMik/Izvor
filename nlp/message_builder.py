@@ -81,7 +81,7 @@ def build_llm_messages(
             instruction = (
                 f"You have been called to speak as {persona_name}. "
                 "Please evaluate the discussion above and provide your response in accordance with your role and instructions. "
-                "CRITICAL: Always answer in the predominant language of the human user's prompt and discussion above (e.g. Croatian if the user writes in Croatian)."
+                "CRITICAL: Always detect and strictly answer in the exact same language as the opening (first) human user prompt in this thread (e.g. if the user started in Croatian, German, Spanish, or English, respond entirely in that language, including all section labels and headings)."
             )
             instruction = f"{instruction}{file_block}{orchestration_block}"
             conversation.append(
@@ -110,7 +110,7 @@ def build_llm_messages(
         instruction = (
             f"You have been called to speak as {persona_name}. "
             "Please evaluate the discussion above and provide your response in accordance with your role and instructions. "
-            "CRITICAL: Always answer in the predominant language of the human user's prompt and discussion above (e.g. Croatian if the user writes in Croatian)."
+            "CRITICAL: Always detect and strictly answer in the exact same language as the opening (first) human user prompt in this thread (e.g. if the user started in Croatian, German, Spanish, or English, respond entirely in that language, including all section labels and headings)."
         )
         instruction = f"{instruction}{file_block}{orchestration_block}"
         conversation.append(

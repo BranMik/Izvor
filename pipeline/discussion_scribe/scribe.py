@@ -15,13 +15,13 @@ SCRIBE_DEFAULT_PROMPT = """You are an objective, executive-level discussion scri
 Your responsibility is to analyze the multi-agent discussion transcript and produce structured strategic notes.
 
 Strict Formatting Rules:
-1. Match the predominant language of the conversation (if Croatian, use Croatian; if English, use English).
-2. Structure sections clearly:
-   - *Core Objective & Problem Statement* (Cilj i problem)
-   - *Key Perspectives & Insights* (Ključne perspektive)
-   - *Consensus & Decisions* (Konsenzus i odluke)
-   - *Risks & Trade-offs* (Rizici i kompromisi)
-   - *Action Items & Next Steps* (Radne stavke i sljedeći koraci)
+1. Detect and match the language of the opening (first) human user prompt in the discussion transcript (e.g. English, Croatian, German, Spanish, etc.). All headers, section titles, status indicators, and bullet points must be in that exact language.
+2. Structure sections clearly (translate section titles into the detected thread language):
+   - *Core Objective & Problem Statement*
+   - *Key Perspectives & Insights*
+   - *Consensus & Strategic Decisions*
+   - *Risks, Trade-offs & Open Questions*
+   - *Action Items & Next Steps*
 3. Keep the content dense, objective, and strictly within the requested word ceiling.
 """
 
@@ -58,25 +58,25 @@ class DiscussionScribe:
         if is_completed:
             status_directive = (
                 "The discussion has finished. Generate the FINAL concise strategic synthesis notes (strictly under 500 words maximum ceiling). "
-                "Include Core Objective & Problem Statement, Key Perspectives & Insights, Consensus & Strategic Decisions, Risks & Trade-offs, and Action Items/Radne stavke i sljedeći koraci. "
-                "CRITICAL: Match the language of the discussion for ALL titles and content. "
-                "Use status indicator _(Completed ✅)_ or _(Završeno ✅)_ in header."
+                "Include Core Objective & Problem Statement, Key Perspectives & Insights, Consensus & Strategic Decisions, Risks & Trade-offs, and Action Items & Next Steps. "
+                "CRITICAL: Match the language of the opening human user prompt for ALL titles and content. "
+                "Use a natural status indicator translated into the discussion language in header, e.g. _(Completed ✅)_, _(Završeno ✅)_, _(Abgeschlossen ✅)_."
             )
             max_tokens = 1500
         elif assistant_turns <= 1:
             status_directive = (
                 "This is the initial turn of the discussion. Generate the initial concise strategic synthesis note (strictly under 50 words total). "
                 "State the initial core objective and initial key perspective. "
-                "CRITICAL: Match the language of the discussion for ALL titles and content. "
-                "Use status indicator _(Updating live...)_ or _(Ažurira se uživo...)_ in header."
+                "CRITICAL: Match the language of the opening human user prompt for ALL titles and content. "
+                "Use a natural status indicator translated into the discussion language in header, e.g. _(Updating live...)_, _(Ažurira se uživo...)_, _(Wird live aktualisiert...)_."
             )
             max_tokens = 350
         else:
             status_directive = (
                 "The discussion is actively ongoing. Generate the updated, concise strategic synthesis notes (strictly under 300 words maximum ceiling). "
                 "Synthesize current key perspectives, emerging consensus, identified risks, and preliminary action items. "
-                "CRITICAL: Match the language of the discussion for ALL titles and content. "
-                "Use status indicator _(Updating live...)_ or _(Ažurira se uživo...)_ in header."
+                "CRITICAL: Match the language of the opening human user prompt for ALL titles and content. "
+                "Use a natural status indicator translated into the discussion language in header, e.g. _(Updating live...)_, _(Ažurira se uživo...)_, _(Wird live aktualisiert...)_."
             )
             max_tokens = 800
 
@@ -130,7 +130,16 @@ class DiscussionScribe:
 
             # Detect language heuristically
             is_hr = bool(re.search(r"\b(je|su|i|u|na|da|za|sa|od|kako|završeno|ažurira)\b", raw_text, re.IGNORECASE))
-            lang = "hr" if is_hr else "en"
+            is_de = bool(re.search(r"\b(der|die|das|und|ist|in|den|von|zu|mit|sich|des|auf|für)\b", raw_text, re.IGNORECASE))
+            is_es = bool(re.search(r"\b(el|la|los|las|un|una|es|por|para|con|en|del)\b", raw_text, re.IGNORECASE))
+            if is_hr:
+                lang = "hr"
+            elif is_de:
+                lang = "de"
+            elif is_es:
+                lang = "es"
+            else:
+                lang = "en"
 
             brief = DiscussionBrief(
                 is_completed=is_completed,
