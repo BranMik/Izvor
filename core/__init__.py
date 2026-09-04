@@ -33,7 +33,6 @@ from .models import (
 from .domain import (
     DiscussionBrief,
     SessionContext,
-    SpeakerDecision,
     SpendMetrics,
     Turn,
 )
@@ -68,7 +67,6 @@ __all__ = [
     "ModelPricing",
     "Turn",
     "SessionContext",
-    "SpeakerDecision",
     "DiscussionBrief",
     "SpendMetrics",
     "verify_slack_signature",
