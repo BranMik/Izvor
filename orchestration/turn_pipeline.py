@@ -588,6 +588,10 @@ class TurnPipeline:
         else:
             ctx.agent_cfg = agents_map[ctx.agent_key]
 
+        # Ensure agent's configured avatar icon is propagated to turn context
+        if not ctx.icon_url and ctx.agent_cfg.get("icon_url"):
+            ctx.icon_url = ctx.agent_cfg.get("icon_url")
+
         logger.info(
             f"[ROUTER] Parsed Agent: {ctx.agent_key} ({ctx.agent_cfg['model']}) | Explicit target: {ctx.was_explicit_target} | Bot trigger: {ctx.is_bot_trigger} | Gen: {ctx.my_generation} | History limit: {ctx.history_limit}"
         )
@@ -1048,8 +1052,9 @@ class TurnPipeline:
             )
             return {"ok": False, "cancelled": True, "reason": "superseded"}
 
+        resolved_turn_icon = ctx.icon_url or ctx.agent_cfg.get("icon_url")
         logger.info(
-            f"[SLACK] Posting agent response to channel {ctx.channel_id}, thread_ts {ctx.thread_ts} as {ctx.agent_cfg['username']}"
+            f"[SLACK] Posting agent response to channel {ctx.channel_id}, thread_ts {ctx.thread_ts} as {ctx.agent_cfg['username']} (icon: {resolved_turn_icon})"
         )
         post_resp_fn = self._get_hook(
             "post_agent_response", post_agent_response
@@ -1059,7 +1064,7 @@ class TurnPipeline:
             thread_ts=ctx.thread_ts,
             text=ctx.final_text,
             username=ctx.agent_cfg["username"],
-            icon_url=ctx.icon_url,
+            icon_url=resolved_turn_icon,
         )
         posted_ts = slack_res.get("ts") if isinstance(slack_res, dict) else None
         logger.info(f"[SLACK] Successfully posted message! Received ts: {posted_ts}")
@@ -1125,6 +1130,7 @@ class TurnPipeline:
             slack_res["final_text"] = ctx.final_text
             slack_res["username"] = ctx.agent_cfg["username"]
             slack_res["agent_key"] = ctx.agent_key
+            slack_res["icon_url"] = resolved_turn_icon
             slack_res["generated_tags"] = ctx.generated_tags
 
         logger.info(

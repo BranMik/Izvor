@@ -325,3 +325,46 @@ def test_configurable_pacing_defaults():
     assert isinstance(core.config.MAX_DISCUSSION_TURNS, int)
     assert core.config.MAX_DISCUSSION_TURNS == 20
 
+
+@pytest.mark.anyio
+async def test_turn_pipeline_propagates_agent_avatar_icon():
+    """Verifies that TurnPipeline populates ctx.icon_url from agent_cfg and passes it to Slack post."""
+    from unittest.mock import AsyncMock, MagicMock
+    from orchestration.turn_pipeline import TurnContext, TurnPipeline
+
+    pipeline = TurnPipeline()
+    ctx = TurnContext(
+        channel_id="C_TEST",
+        thread_ts="12345.6789",
+        raw_text="[Visionary] Hello test",
+        icon_url=None,
+    )
+    ctx.my_generation = 0
+
+    # Stage 1: parse directives & agent
+    res1 = await pipeline.stage_validate_and_parse(ctx)
+    assert res1 is None
+    assert ctx.agent_key == "Visionary"
+
+    # Stage 2: resolve agent cfg and populate icon_url
+    res2 = await pipeline.stage_resolve_agent_and_governance(ctx)
+    assert res2 is None
+    assert ctx.agent_cfg.get("icon_url") == "static/v2/avatar_48.png"
+    assert ctx.icon_url == "static/v2/avatar_48.png"
+
+    # Stage 5: post to Slack and verify icon_url passed
+    mock_post = AsyncMock(return_value={"ok": True, "ts": "12345.9999"})
+    with patch("orchestration.agent_router.post_agent_response", mock_post), \
+         patch("orchestration.agent_router.trigger_thread_notes_update"), \
+         patch("orchestration.agent_router.trigger_usage_update"), \
+         patch("orchestration.agent_router.record_thread_tokens"):
+        ctx.final_text = "Visionary response."
+        res5 = await pipeline.stage_post_and_record(ctx)
+
+        assert mock_post.called
+        call_kwargs = mock_post.call_args.kwargs
+        assert call_kwargs["username"] == "Visionary"
+        assert call_kwargs["icon_url"] == "static/v2/avatar_48.png"
+        assert res5["icon_url"] == "static/v2/avatar_48.png"
+
+

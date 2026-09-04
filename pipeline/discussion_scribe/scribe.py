@@ -81,19 +81,25 @@ class DiscussionScribe:
             max_tokens = 800
 
         # Build transcript text for the prompt
-        formatted_messages: list[dict[str, str]] = [
-            {"role": "system", "content": self.system_prompt},
-            {"role": "system", "content": status_directive},
-        ]
-
+        transcript_lines: list[str] = []
         for item in history:
             if isinstance(item, Turn):
-                formatted_messages.append({"role": item.role, "content": f"[{item.speaker}]: {item.content}"})
+                transcript_lines.append(f"[{item.speaker}]: {item.content}")
             elif isinstance(item, dict):
                 role = item.get("role", "user")
                 speaker = item.get("username") or role
                 content = item.get("content") or item.get("text") or ""
-                formatted_messages.append({"role": role, "content": f"[{speaker}]: {content}"})
+                transcript_lines.append(f"[{speaker}]: {content}")
+
+        transcript_text = "\n\n".join(transcript_lines)
+
+        formatted_messages: list[dict[str, str]] = [
+            {"role": "system", "content": f"{self.system_prompt}\n\n{status_directive}"},
+            {
+                "role": "user",
+                "content": f"Here is the discussion transcript to synthesize:\n\n{transcript_text}\n\nPlease generate the strategic synthesis notes now.",
+            },
+        ]
 
         start_time = time.time()
         try:
