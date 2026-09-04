@@ -9,14 +9,31 @@ from .web_tools import fetch_web_page, web_scrape, web_search
 logger = logging.getLogger(__name__)
 
 
+# Project root directory: one level above the 'services' folder where mcp_tools.py resides
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+# Workspace root directory defaults to PROJECT_ROOT
+WORKSPACE_DIR = (
+    MCP_WORKSPACE_DIR.resolve()
+    if (isinstance(MCP_WORKSPACE_DIR, Path) and MCP_WORKSPACE_DIR.exists())
+    else PROJECT_ROOT
+)
+
+
 def _resolve_safe_path(rel_path: str) -> Path:
     """
-    Ensures the requested file/directory path stays within MCP_WORKSPACE_DIR to prevent directory traversal attacks.
+    Ensures the requested file/directory path stays within the workspace boundary (PROJECT_ROOT by default)
+    to prevent directory traversal attacks.
     """
-    target = (MCP_WORKSPACE_DIR / rel_path).resolve()
-    if not str(target).startswith(str(MCP_WORKSPACE_DIR)):
+    base_dir = (
+        MCP_WORKSPACE_DIR.resolve()
+        if (isinstance(MCP_WORKSPACE_DIR, Path) and MCP_WORKSPACE_DIR.exists())
+        else PROJECT_ROOT
+    )
+    target = (base_dir / rel_path).resolve()
+    if not target.is_relative_to(base_dir):
         raise PermissionError(
-            f"Access denied: Path '{rel_path}' is outside workspace boundary '{MCP_WORKSPACE_DIR}'."
+            f"Access denied: Path '{rel_path}' is outside workspace boundary '{base_dir}'."
         )
     return target
 

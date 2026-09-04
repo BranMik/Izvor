@@ -54,11 +54,12 @@ def build_agent_prompt(
     agent_key: str,
     max_words: int | None = None,
     min_words: int | None = None,
+    skills: list[str] | None = None,
 ) -> str:
     """
     Builds the complete system prompt for a given agent by combining
-    its persona definition with shared skills (output constraints & nomination rules)
-    where appropriate.
+    its persona definition with shared constraints, nomination rules,
+    and equipped skills guidelines where appropriate.
 
     If max_words or min_words is specified:
     - Completely skips adding output_constraints.md / output_constraints_100w.md text.
@@ -93,9 +94,39 @@ def build_agent_prompt(
     else:
         output_constraints = _read_prompt_file(SHARED_DIR / "output_constraints.md")
 
-    return (
+    prompt = (
         f"\n{persona_content}\n\n"
         f"{fixed_constraints}\n\n"
         f"{output_constraints}\n\n"
         f"{nomination_rules}\n\n"
     )
+
+    # Append Skills Catalog for on-demand progressive disclosure (strictly filtered to authorized skills)
+    try:
+        from skills import skill_registry
+
+        effective_skills = skills
+        if effective_skills is None:
+            try:
+                from core.config import AGENTS_CONFIG
+                effective_skills = AGENTS_CONFIG.get(agent_key, {}).get("skills", [])
+            except Exception:
+                effective_skills = []
+
+        # Only inject catalog for skills this agent is authorized to load
+        catalog_prompt = skill_registry.get_skills_catalog_prompt(allowed_skills=effective_skills)
+        if catalog_prompt:
+            prompt += f"\n{catalog_prompt}\n"
+
+        if effective_skills:
+            pinned_guidelines = []
+            for s_name in effective_skills:
+                s_def = skill_registry.get(s_name)
+                if s_def and s_def.instructions:
+                    pinned_guidelines.append(s_def.instructions)
+            if pinned_guidelines:
+                prompt += f"\n### PRE-EQUIPPED SKILL GUIDELINES\n" + "\n\n".join(pinned_guidelines) + "\n\n"
+    except Exception as e:
+        logger.warning(f"[PROMPT BUILDER] Failed to load skills catalog/guidelines for {agent_key}: {e}")
+
+    return prompt

@@ -158,8 +158,5 @@ class DiscussionScribe:
             }
 
 
-# Backward compatibility alias
-DiscussionScribeSkill = DiscussionScribe
-
 # Global default instance
 discussion_scribe = DiscussionScribe()

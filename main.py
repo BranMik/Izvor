@@ -97,6 +97,24 @@ async def health_check():
     }
 
 
+@app.get("/api/skills")
+async def get_registered_skills():
+    """Returns all registered skills, descriptions, and their tool schemas."""
+    from skills import skill_registry
+    skills_data = []
+    for s in skill_registry.list_skills():
+        skills_data.append(
+            {
+                "name": s.name,
+                "display_name": s.display_name,
+                "description": s.description,
+                "tools": [t.get("function", {}).get("name") for t in s.get_tool_schemas()],
+                "schemas": s.get_tool_schemas(),
+            }
+        )
+    return {"skills": skills_data}
+
+
 @app.post("/slack/events")
 async def slack_events(request: Request, background_tasks: BackgroundTasks):
     """

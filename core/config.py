@@ -26,9 +26,22 @@ if os.getenv("OPENAI_API_KEY"):
 if os.getenv("ANTHROPIC_API_KEY"):
     os.environ["ANTHROPIC_API_KEY"] = os.getenv("ANTHROPIC_API_KEY")
 
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
 SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN", "")
 SLACK_SIGNING_SECRET = os.getenv("SLACK_SIGNING_SECRET", "")
-MCP_WORKSPACE_DIR = Path(os.getenv("MCP_WORKSPACE_DIR", ".")).resolve()
+
+# MCP workspace directory: defaults to project root (one directory above 'core' and 'services')
+_raw_workspace = os.getenv("MCP_WORKSPACE_DIR", "").strip()
+if _raw_workspace and _raw_workspace != ".":
+    _workspace_path = Path(_raw_workspace)
+    MCP_WORKSPACE_DIR = (
+        _workspace_path.resolve()
+        if _workspace_path.is_absolute()
+        else (PROJECT_ROOT / _workspace_path).resolve()
+    )
+else:
+    MCP_WORKSPACE_DIR = PROJECT_ROOT
 
 # Base URL for resolving relative avatar icon paths for Slack messages
 BASE_AVATAR_URL = os.getenv("BASE_AVATAR_URL", "https://avatars.example.com/").rstrip("/") + "/"

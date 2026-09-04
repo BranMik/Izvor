@@ -172,12 +172,18 @@ class AgentSettingsManager:
         for key, cfg in raw_agents.items():
             if self._validate_agent_entry(key, cfg):
                 is_short = bool(cfg.get("is_short_output", False))
+                skills = [
+                    s.strip()
+                    for s in cfg.get("skills", [])
+                    if isinstance(s, str) and s.strip()
+                ]
                 valid_agents[key] = {
                     "model": cfg["model"].strip(),
                     "username": cfg["username"].strip(),
                     "icon_url": cfg["icon_url"].strip(),
                     "is_short_output": is_short,
-                    "system_prompt": build_agent_prompt(key),
+                    "skills": skills,
+                    "system_prompt": build_agent_prompt(key, skills=skills),
                 }
 
         if not valid_agents:
@@ -411,6 +417,7 @@ class AgentSettingsManager:
                         "username": v.get("username", k),
                         "icon_url": v.get("icon_url", ""),
                         "is_short_output": bool(v.get("is_short_output", False)),
+                        "skills": list(v.get("skills", [])),
                     }
                     for k, v in self.agents_config.items()
                 },
@@ -543,6 +550,29 @@ class AgentSettingsManager:
         self.set_agent_enabled(agent_key, new_state)
         return agent_key in self.enabled_agents
 
+    def get_agent_skills(self, agent_key: str) -> list[str]:
+        """Returns the list of equipped skills for an agent."""
+        cfg = self.agents_config.get(agent_key)
+        if not cfg:
+            return []
+        return list(cfg.get("skills", []))
+
+    def set_agent_skills(self, agent_key: str, skills: list[str], save: bool = True) -> bool:
+        """Sets the equipped skills for an agent and re-builds its system prompt."""
+        if agent_key not in self.agents_config:
+            logger.warning(f"[SETTINGS] Cannot set skills for unknown agent '{agent_key}'")
+            return False
+
+        sanitized_skills = [
+            s.strip() for s in skills if isinstance(s, str) and s.strip()
+        ]
+        self.agents_config[agent_key]["skills"] = sanitized_skills
+        self.agents_config[agent_key]["system_prompt"] = build_agent_prompt(agent_key, skills=sanitized_skills)
+        if save:
+            self.save()
+        logger.info(f"[SETTINGS] Updated skills for '{agent_key}': {sanitized_skills}")
+        return True
+
 
 # Default singleton instance initialized automatically
 settings_manager = AgentSettingsManager()
@@ -631,4 +661,12 @@ def set_agent_enabled(agent_key: str, enabled: bool) -> bool:
 
 def toggle_agent(agent_key: str) -> bool:
     return settings_manager.toggle_agent(agent_key)
+
+
+def get_agent_skills(agent_key: str) -> list[str]:
+    return settings_manager.get_agent_skills(agent_key)
+
+
+def set_agent_skills(agent_key: str, skills: list[str], save: bool = True) -> bool:
+    return settings_manager.set_agent_skills(agent_key, skills, save=save)
 

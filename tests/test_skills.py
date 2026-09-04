@@ -2,11 +2,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from core.domain import DiscussionBrief, SessionContext, SpeakerDecision, SpendMetrics, Turn
-from pipeline.directive_parser import DirectiveParserSkill, ParsedDirectives
-from pipeline.discussion_scribe import DiscussionScribeSkill
-from pipeline.entity_resolver import EntityResolverSkill
+from pipeline.directive_parser import DirectiveParser, ParsedDirectives
+from pipeline.discussion_scribe import DiscussionScribe
+from pipeline.entity_resolver import EntityResolver
 from pipeline.orchestrator import DiscussionModerator, SandwichOrchestrator
-from pipeline.spend_governance import SpendGovernanceSkill
+from pipeline.spend_governance import SpendGovernance
 
 
 @pytest.fixture
@@ -27,7 +27,7 @@ def mock_agents_config():
 # ==============================================================================
 
 def test_entity_resolver_exact_and_partial(mock_agents_config):
-    resolver = EntityResolverSkill(agents_config=mock_agents_config)
+    resolver = EntityResolver(agents_config=mock_agents_config)
 
     # Exact match
     assert resolver.resolve_agent_name("Visionary") == "Visionary"
@@ -46,7 +46,7 @@ def test_entity_resolver_exact_and_partial(mock_agents_config):
 
 
 def test_entity_resolver_ambiguous_and_unrecognized(mock_agents_config):
-    resolver = EntityResolverSkill(agents_config=mock_agents_config)
+    resolver = EntityResolver(agents_config=mock_agents_config)
 
     text = "Let [Strategist] review the plan, and ignore [UnknownGuy] and [150/50]."
     ambiguous = resolver.detect_ambiguous_tags(text)
@@ -60,7 +60,7 @@ def test_entity_resolver_ambiguous_and_unrecognized(mock_agents_config):
 
 
 def test_entity_resolver_extract_tags(mock_agents_config):
-    resolver = EntityResolverSkill(agents_config=mock_agents_config)
+    resolver = EntityResolver(agents_config=mock_agents_config)
     text = "First [Visionary], then [Tech], and finally [Architect]."
     tagged = resolver.extract_tagged_agents(text)
     assert tagged == ["Visionary", "TechLead", "Architect"]
@@ -72,7 +72,7 @@ def test_entity_resolver_extract_tags(mock_agents_config):
 
 @pytest.mark.anyio
 async def test_directive_parser_slash_commands():
-    parser = DirectiveParserSkill()
+    parser = DirectiveParser()
     raw = "/max_words 40 /history 5 /exclude [TechLead] What is our roadmap?"
     directives = await parser.parse(raw)
 
@@ -85,7 +85,7 @@ async def test_directive_parser_slash_commands():
 
 @pytest.mark.anyio
 async def test_directive_parser_stop_command():
-    parser = DirectiveParserSkill()
+    parser = DirectiveParser()
     directives = await parser.parse("/stop", is_mention_or_dm=True)
     assert directives.is_stop is True
 
@@ -192,7 +192,7 @@ async def test_sandwich_orchestrator_cognitive_moderator(mock_agents_config):
 # ==============================================================================
 
 def test_spend_governance_ledger_and_circuit_breaker():
-    gov = SpendGovernanceSkill(default_threshold_usd=0.05)
+    gov = SpendGovernance(default_threshold_usd=0.05)
     session_id = "test-sess-123"
 
     with patch("pipeline.spend_governance.circuit_breaker.get_model_pricing") as mock_pricing:

@@ -2,15 +2,16 @@
   "orchestration_mode": "sandwich",
   "sandwich_config": {
     "start_chain": [
-      "Architect",
-      "Visionary",
       "ScopeOptimizer",
+      "Visionary",
       "UserAdvocate",
       "Sceptic",
-      "Innovator"
+      "Innovator",
+      "Architect"
     ],
     "end_chain": [
-      "Architect"
+      "Architect",
+      "Sceptic"
     ]
   },
   "fixed_config": {
@@ -39,106 +40,136 @@
   ],
   "agents": {
     "Visionary": {
-      "model": "gemini/gemini-3.7-flash",
+      "model": "gemini/gemini-3.8-flash",
       "username": "Visionary",
       "icon_url": "static/v2/avatar_48.png",
-      "is_short_output": false
+      "is_short_output": false,
+      "skills": []
     },
     "Architect": {
       "model": "openai/gpt-5.6-terra",
       "username": "Architect",
       "icon_url": "static/v2/avatar_51.png",
-      "is_short_output": false
+      "is_short_output": false,
+      "skills": [
+        "codebase_inspection"
+      ]
     },
     "Innovator": {
       "model": "anthropic/claude-opus-5",
       "username": "Innovator",
       "icon_url": "static/v2/avatar_25.png",
-      "is_short_output": false
+      "is_short_output": false,
+      "skills": []
     },
     "TechLead": {
       "model": "mistral/mistral-large-latest",
       "username": "TechLead",
       "icon_url": "static/v2/avatar_26.png",
-      "is_short_output": false
+      "is_short_output": false,
+      "skills": [
+        "codebase_inspection",
+        "workspace_authoring"
+      ]
     },
     "Sceptic": {
       "model": "anthropic/claude-opus-5",
       "username": "Sceptic",
       "icon_url": "static/v2/avatar_15.png",
-      "is_short_output": false
+      "is_short_output": false,
+      "skills": []
     },
     "DataAndAnalyticsStrategist": {
-      "model": "gemini/gemini-3.7-flash",
+      "model": "gemini/gemini-3.8-flash",
       "username": "Data And Analytics Strategist",
       "icon_url": "static/v2/avatar_46.png",
-      "is_short_output": true
+      "is_short_output": true,
+      "skills": []
     },
     "CompliancePrivacyAndGovernanceOfficer": {
       "model": "mistral/mistral-large-latest",
       "username": "Compliance, Privacy And Governance Officer",
       "icon_url": "static/v2/avatar_03.png",
-      "is_short_output": true
+      "is_short_output": true,
+      "skills": []
     },
     "ScopeOptimizer": {
-      "model": "gemini/gemini-3.7-flash",
+      "model": "gemini/gemini-3.8-flash",
       "username": "Scope Optimizer",
       "icon_url": "static/v2/avatar_21.png",
-      "is_short_output": true
+      "is_short_output": true,
+      "skills": []
     },
     "ROIStrategist": {
-      "model": "openai/gpt-5.6-terra",
+      "model": "gemini/gemini-3.8-flash",
       "username": "ROI Strategist",
       "icon_url": "static/v2/avatar_53.png",
-      "is_short_output": false
+      "is_short_output": false,
+      "skills": []
     },
     "UserAdvocate": {
       "model": "openai/gpt-5.6-terra",
       "username": "User Advocate",
       "icon_url": "static/v2/avatar_32.png",
-      "is_short_output": false
+      "is_short_output": false,
+      "skills": []
     },
     "SecurityArchitect": {
       "model": "mistral/mistral-large-latest",
       "username": "Security Architect",
       "icon_url": "static/v2/avatar_33.png",
-      "is_short_output": false
+      "is_short_output": false,
+      "skills": [
+        "codebase_inspection"
+      ]
     },
     "ScalabilityEngineer": {
-      "model": "gemini/gemini-3.7-flash",
+      "model": "gemini/gemini-3.8-flash",
       "username": "Scalability Engineer",
       "icon_url": "static/v2/avatar_14.png",
-      "is_short_output": true
+      "is_short_output": true,
+      "skills": [
+        "codebase_inspection"
+      ]
     },
     "OperationalReliabilityLead": {
       "model": "mistral/mistral-large-latest",
       "username": "Operational Reliability Lead",
       "icon_url": "static/v2/avatar_52.png",
-      "is_short_output": true
+      "is_short_output": true,
+      "skills": []
     },
     "DeploymentReleaseStrategist": {
       "model": "mistral/mistral-large-latest",
       "username": "Deployment & Release Strategist",
       "icon_url": "static/v2/avatar_02.png",
-      "is_short_output": true
+      "is_short_output": true,
+      "skills": []
     },
     "MarketAndCompetitionResearchExpert": {
       "model": "openai/gpt-5.6-terra",
       "username": "Market & Competition Research Expert",
       "icon_url": "static/v2/avatar_20.png",
-      "is_short_output": false
+      "is_short_output": false,
+      "skills": [
+        "web_research"
+      ]
     },
     "MonitoringAndAlertingSpecialist": {
       "model": "mistral/mistral-large-latest",
       "username": "Monitoring & Alerting Specialist",
       "icon_url": "static/v2/avatar_01.png",
-      "is_short_output": true
+      "is_short_output": true,
+      "skills": []
     },
     "QALead": {
       "model": "mistral/mistral-large-latest",
       "username": "QA Lead",
       "icon_url": "static/v2/avatar_50.png",
-      "is_short_output": true
+      "is_short_output": true,
+      "skills": [
+        "codebase_inspection"
+      ]
     }
   },
   "system_agents": {

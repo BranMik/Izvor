@@ -122,8 +122,5 @@ class DirectiveParser:
         )
 
 
-# Backward compatibility alias
-DirectiveParserSkill = DirectiveParser
-
 # Global default instance
 directive_parser = DirectiveParser()
