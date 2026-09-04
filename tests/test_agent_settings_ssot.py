@@ -260,8 +260,8 @@ def test_7_day_backup_refresh():
 
 def test_slack_app_home_emergency_alert():
     # Test alert presence when running in backup mode
-    with patch("orchestration.agent_router.is_running_from_backup", return_value=True), \
-         patch("orchestration.agent_router.get_backup_error_reason", return_value="Test file missing"):
+    with patch("orchestration.agent_settings.is_running_from_backup", return_value=True), \
+         patch("orchestration.agent_settings.get_backup_error_reason", return_value="Test file missing"):
         view = build_app_home_view(enabled_agents={"Visionary"})
         blocks = view.get("blocks", [])
 
@@ -281,7 +281,7 @@ def test_slack_app_home_emergency_alert():
         assert has_restore_btn is True
 
     # Test no alert when normal
-    with patch("orchestration.agent_router.is_running_from_backup", return_value=False):
+    with patch("orchestration.agent_settings.is_running_from_backup", return_value=False):
         view = build_app_home_view(enabled_agents={"Visionary"})
         blocks = view.get("blocks", [])
         has_alert = any(

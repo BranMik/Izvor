@@ -1,5 +1,7 @@
 import asyncio
 import logging
+import os
+import time
 from typing import Any
 
 from agents import trigger_thread_notes_update, trigger_usage_update
@@ -24,6 +26,23 @@ class ThreadStateManager:
         self.thread_max_words_limits: dict[tuple[str, str], int] = {}
         self.thread_min_words_limits: dict[tuple[str, str], int] = {}
         self.thread_active_file_context: dict[tuple[str, str], dict[str, Any]] = {}
+        self.thread_last_activity: dict[tuple[str, str], float] = {}
+        self.ttl_seconds: float = float(os.getenv("THREAD_STATE_TTL_SECONDS", "3600.0"))
+        self.max_tracked_threads: int = int(os.getenv("MAX_TRACKED_THREADS", "500"))
+
+    def _touch(self, channel_id: str, thread_ts: str) -> None:
+        """Updates last-activity timestamp for this thread and checks opportunistic eviction threshold."""
+        self.thread_last_activity[(channel_id, thread_ts)] = time.time()
+        if len(self.thread_last_activity) > self.max_tracked_threads:
+            self.cleanup_expired_threads(self.ttl_seconds)
+
+    def touch(self, channel_id: str, thread_ts: str) -> None:
+        """Public method to update last-activity timestamp for this thread."""
+        self._touch(channel_id, thread_ts)
+
+    def get_last_activity(self, channel_id: str, thread_ts: str) -> float | None:
+        """Returns the last-activity timestamp for this thread, if any."""
+        return self.thread_last_activity.get((channel_id, thread_ts))
 
     def get_history_limit(
         self, channel_id: str, thread_ts: str
@@ -35,6 +54,7 @@ class ThreadStateManager:
         self, channel_id: str, thread_ts: str, limit: int, prior_cutoff_index: int
     ) -> None:
         """Sets history limit configuration for this thread."""
+        self._touch(channel_id, thread_ts)
         self.thread_history_limits[(channel_id, thread_ts)] = HistoryLimitConfig(
             limit=limit,
             prior_cutoff_index=prior_cutoff_index,
@@ -55,6 +75,7 @@ class ThreadStateManager:
         self, channel_id: str, thread_ts: str, max_words: int
     ) -> None:
         """Sets max_words limit for this thread."""
+        self._touch(channel_id, thread_ts)
         self.thread_max_words_limits[(channel_id, thread_ts)] = max_words
         logger.info(
             f"[THREAD STATE] Set max_words limit for thread {(channel_id, thread_ts)}: max_words={max_words}"
@@ -72,6 +93,7 @@ class ThreadStateManager:
         self, channel_id: str, thread_ts: str, min_words: int
     ) -> None:
         """Sets min_words limit for this thread."""
+        self._touch(channel_id, thread_ts)
         self.thread_min_words_limits[(channel_id, thread_ts)] = min_words
         logger.info(
             f"[THREAD STATE] Set min_words limit for thread {(channel_id, thread_ts)}: min_words={min_words}"
@@ -91,6 +113,7 @@ class ThreadStateManager:
         self, channel_id: str, thread_ts: str, file_context: dict[str, Any] | FileContext
     ) -> None:
         """Sets active file context for this thread."""
+        self._touch(channel_id, thread_ts)
         ctx_dict = (
             file_context.to_dict()
             if isinstance(file_context, FileContext)
@@ -123,6 +146,7 @@ class ThreadStateManager:
         self, channel_id: str, thread_ts: str, agent_key: str
     ) -> None:
         """Marks that an agent has errored with 503/high-demand in this thread."""
+        self._touch(channel_id, thread_ts)
         thread_key = (channel_id, thread_ts)
         self.high_demand_errored_agents.setdefault(thread_key, set()).add(agent_key)
         logger.info(
@@ -146,6 +170,7 @@ class ThreadStateManager:
 
     def interrupt_discussion(self, channel_id: str, thread_ts: str) -> None:
         """Interrupts and cancels the current ongoing discussion for this thread."""
+        self._touch(channel_id, thread_ts)
         thread_key = (channel_id, thread_ts)
         self.thread_generations[thread_key] = (
             self.thread_generations.get(thread_key, 0) + 1
@@ -172,6 +197,7 @@ class ThreadStateManager:
 
     def request_stop(self, channel_id: str, thread_ts: str) -> None:
         """Marks thread for stopping, cleans remaining queue, and triggers completion notes."""
+        self._touch(channel_id, thread_ts)
         thread_key = (channel_id, thread_ts)
         self.stop_requested_threads.add(thread_key)
         self.remaining_agents_map.pop(thread_key, None)
@@ -222,6 +248,7 @@ class ThreadStateManager:
         self, channel_id: str, thread_ts: str, agents: list[str]
     ) -> None:
         """Sets the remaining agents scheduled for this thread."""
+        self._touch(channel_id, thread_ts)
         self.remaining_agents_map[(channel_id, thread_ts)] = list(agents)
         logger.info(
             f"[THREAD STATE] Set remaining agents for {(channel_id, thread_ts)}: {agents}"
@@ -231,6 +258,7 @@ class ThreadStateManager:
         self, channel_id: str, thread_ts: str, agent_key: str | None = None
     ) -> str | None:
         """Pops a specific agent or the next agent from remaining agents list."""
+        self._touch(channel_id, thread_ts)
         thread_key = (channel_id, thread_ts)
         agents = self.remaining_agents_map.get(thread_key, [])
         if not agents:
@@ -258,6 +286,7 @@ class ThreadStateManager:
         self, channel_id: str, thread_ts: str, agent_key: str
     ) -> None:
         """Appends an agent to the rate-limit retry queue for this thread."""
+        self._touch(channel_id, thread_ts)
         thread_key = (channel_id, thread_ts)
         queue = self.rate_limit_retry_queue.setdefault(thread_key, [])
         if agent_key not in queue:
@@ -270,6 +299,7 @@ class ThreadStateManager:
         self, channel_id: str, thread_ts: str, agent_key: str | None = None
     ) -> str | None:
         """Pops a specific agent or the next agent from the retry queue."""
+        self._touch(channel_id, thread_ts)
         thread_key = (channel_id, thread_ts)
         queue = self.rate_limit_retry_queue.get(thread_key, [])
         if not queue:
@@ -310,6 +340,7 @@ class ThreadStateManager:
         self, channel_id: str, thread_ts: str, agent_key: str
     ) -> None:
         """Marks an agent as already retried to prevent infinite retry loops."""
+        self._touch(channel_id, thread_ts)
         thread_key = (channel_id, thread_ts)
         self.rate_limit_already_retried.setdefault(thread_key, set()).add(agent_key)
 
@@ -327,6 +358,7 @@ class ThreadStateManager:
         self, channel_id: str, thread_ts: str, task: asyncio.Task
     ) -> None:
         """Associates an active asyncio Task with this thread."""
+        self._touch(channel_id, thread_ts)
         self.active_thread_tasks[(channel_id, thread_ts)] = task
 
     def pop_active_task(
@@ -352,6 +384,7 @@ class ThreadStateManager:
 
     def increment_generation(self, channel_id: str, thread_ts: str) -> int:
         """Increments and returns the generation counter for this thread."""
+        self._touch(channel_id, thread_ts)
         thread_key = (channel_id, thread_ts)
         new_gen = self.thread_generations.get(thread_key, 0) + 1
         self.thread_generations[thread_key] = new_gen
@@ -365,6 +398,7 @@ class ThreadStateManager:
         self, channel_id: str, thread_ts: str, is_custom: bool = True
     ) -> None:
         """Enables or disables custom flow flag for this thread."""
+        self._touch(channel_id, thread_ts)
         thread_key = (channel_id, thread_ts)
         if is_custom:
             self.custom_flow_threads.add(thread_key)
@@ -389,9 +423,10 @@ class ThreadStateManager:
         self.thread_max_words_limits.clear()
         self.thread_min_words_limits.clear()
         self.thread_active_file_context.clear()
+        self.thread_last_activity.clear()
 
-    def clear_state(self, channel_id: str, thread_ts: str) -> None:
-        """Cleans up all thread-level discussion state maps and flags."""
+    def cleanup_thread(self, channel_id: str, thread_ts: str) -> None:
+        """Purges all in-memory discussion state, queues, limits, and generation for a thread."""
         thread_key = (channel_id, thread_ts)
         self.clear_stop(channel_id, thread_ts)
         self.clear_history_limit(channel_id, thread_ts)
@@ -403,6 +438,47 @@ class ThreadStateManager:
         self.clear_retry_queue(channel_id, thread_ts)
         self.clear_already_retried(channel_id, thread_ts)
         self.clear_503_errored_agents(channel_id, thread_ts)
+        self.thread_generations.pop(thread_key, None)
+        task = self.active_thread_tasks.pop(thread_key, None)
+        if task and not task.done() and task is not asyncio.current_task():
+            task.cancel()
+        self.thread_last_activity.pop(thread_key, None)
+
+    def clear_state(self, channel_id: str, thread_ts: str) -> None:
+        """Cleans up all thread-level discussion state maps and flags."""
+        self.cleanup_thread(channel_id, thread_ts)
+
+    def cleanup_expired_threads(self, ttl_seconds: float | None = None) -> int:
+        """Prunes inactive thread states older than ttl_seconds.
+
+        Guarantees that active discussions (running task or non-empty queue) are NOT evicted.
+        Also reaps any completed tasks in active_thread_tasks.
+        """
+        if ttl_seconds is None:
+            ttl_seconds = self.ttl_seconds
+        now = time.time()
+        evicted_count = 0
+
+        # Reap completed tasks from active_thread_tasks
+        done_keys = [k for k, task in list(self.active_thread_tasks.items()) if task.done()]
+        for k in done_keys:
+            self.active_thread_tasks.pop(k, None)
+
+        # Prune inactive threads exceeding TTL
+        candidates = [
+            key for key, last_time in list(self.thread_last_activity.items())
+            if (now - last_time) > ttl_seconds
+        ]
+        for channel_id, thread_ts in candidates:
+            if not self.is_discussion_active(channel_id, thread_ts):
+                self.cleanup_thread(channel_id, thread_ts)
+                evicted_count += 1
+
+        if evicted_count > 0:
+            logger.info(
+                f"[THREAD STATE] Pruned {evicted_count} inactive thread state(s) exceeding TTL ({ttl_seconds}s)"
+            )
+        return evicted_count
 
 
 # Default singleton instance
@@ -421,6 +497,7 @@ THREAD_HISTORY_LIMITS = thread_state_manager.thread_history_limits
 THREAD_MAX_WORDS_LIMITS = thread_state_manager.thread_max_words_limits
 THREAD_MIN_WORDS_LIMITS = thread_state_manager.thread_min_words_limits
 THREAD_ACTIVE_FILE_CONTEXT = thread_state_manager.thread_active_file_context
+THREAD_LAST_ACTIVITY = thread_state_manager.thread_last_activity
 
 
 # Backward-compatible function aliases
@@ -526,6 +603,18 @@ def clear_thread_stop(channel_id: str, thread_ts: str) -> None:
 
 def clear_thread_state(channel_id: str, thread_ts: str) -> None:
     thread_state_manager.clear_state(channel_id, thread_ts)
+
+
+def cleanup_thread(channel_id: str, thread_ts: str) -> None:
+    thread_state_manager.cleanup_thread(channel_id, thread_ts)
+
+
+def cleanup_expired_threads(ttl_seconds: float | None = None) -> int:
+    return thread_state_manager.cleanup_expired_threads(ttl_seconds)
+
+
+def touch_thread(channel_id: str, thread_ts: str) -> None:
+    thread_state_manager.touch(channel_id, thread_ts)
 
 
 def get_remaining_agents(

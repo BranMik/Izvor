@@ -6,7 +6,13 @@ import pytest
 
 from orchestration.agent_settings import AgentSettingsManager
 from agents.usage_agent import ThreadUsageTracker
-from orchestration.debate_orchestrator import DebateOrchestrator
+from pipeline.entity_resolver import entity_resolver
+from orchestration.nomination import (
+    enforce_valid_nomination,
+    get_initial_agents,
+    parse_agent_and_prompt,
+    resolve_target_file,
+)
 from nlp.intent_extractor import IntentExtractor
 from core.models import (
     CircuitBreakerConfig,
@@ -14,6 +20,7 @@ from core.models import (
     FileContext,
     HistoryLimitConfig,
     ModelPricing,
+    OrchestrationMode,
 )
 from services.pricing_service import PricingService
 from orchestration.thread_state import ThreadStateManager
@@ -95,12 +102,15 @@ def test_agent_settings_manager():
         assert "Innovator" not in mgr.get_enabled_agents()
 
         # Orchestration mode and chain configuration
-        mgr.set_orchestration_mode("fixed")
+        mgr.set_orchestration_mode(OrchestrationMode.FIXED)
         assert mgr.get_orchestration_mode() == "fixed"
+        assert mgr.get_orchestration_mode() == OrchestrationMode.FIXED
         mgr.set_fixed_config(["TechLead", "Innovator"])
         assert mgr.get_fixed_config() == {"chain": ["TechLead", "Innovator"]}
 
-        mgr.set_orchestration_mode("sandwich")
+        mgr.set_orchestration_mode(OrchestrationMode.SANDWICH)
+        assert mgr.get_orchestration_mode() == "sandwich"
+        assert mgr.get_orchestration_mode() == OrchestrationMode.SANDWICH
         mgr.set_sandwich_config(["Visionary"], ["Architect"])
         assert mgr.get_sandwich_config() == {
             "start_chain": ["Visionary"],
@@ -233,52 +243,96 @@ def test_thread_state_manager():
     assert mgr.get_generation(channel_id, thread_ts) == 0
 
 
-def test_debate_orchestrator():
-    orch = DebateOrchestrator()
+def test_thread_state_manager_eviction():
+    mgr = ThreadStateManager()
+    channel = "C_TEST_EVICT"
+    ts_inactive = "100.001"
+    ts_active = "100.002"
 
+    # Set state on inactive thread
+    mgr.set_max_words(channel, ts_inactive, 150)
+    mgr.set_history_limit(channel, ts_inactive, 5, 2)
+    assert mgr.get_last_activity(channel, ts_inactive) is not None
+
+    # Set state on active thread
+    mgr.set_remaining_agents(channel, ts_active, ["Visionary"])
+    assert mgr.is_discussion_active(channel, ts_active) is True
+
+    # Simulate time passing by artificially backdating timestamps
+    mgr.thread_last_activity[(channel, ts_inactive)] = 1000.0
+    mgr.thread_last_activity[(channel, ts_active)] = 1000.0
+
+    # Prune with TTL=60s
+    pruned = mgr.cleanup_expired_threads(ttl_seconds=60.0)
+
+    # Inactive thread should be evicted
+    assert pruned == 1
+    assert mgr.get_max_words(channel, ts_inactive) is None
+    assert mgr.get_history_limit(channel, ts_inactive) is None
+    assert (channel, ts_inactive) not in mgr.thread_last_activity
+
+    # Active thread must be preserved
+    assert mgr.get_remaining_agents(channel, ts_active) == ["Visionary"]
+    assert (channel, ts_active) in mgr.thread_last_activity
+
+    # Clean active thread and ensure it can be evicted once inactive
+    mgr.clear_remaining_agents(channel, ts_active)
+    assert mgr.is_discussion_active(channel, ts_active) is False
+    pruned_2 = mgr.cleanup_expired_threads(ttl_seconds=60.0)
+    assert pruned_2 == 1
+    assert (channel, ts_active) not in mgr.thread_last_activity
+
+    # Reset all cleans last activity
+    mgr.set_max_words(channel, "999.001", 50)
+    assert (channel, "999.001") in mgr.thread_last_activity
+    mgr.reset_all()
+    assert (channel, "999.001") not in mgr.thread_last_activity
+
+
+def test_nomination_and_entity_resolver():
     # Initial agents with default settings (all enabled)
-    initial = orch.get_initial_agents()
+    initial = get_initial_agents()
     assert isinstance(initial, list)
     assert len(initial) == 17
 
     # Tag extraction with exact and partial tags
-    tags = orch.extract_tagged_agents("Hello [Innovator] and [TechLead]")
+    tags = entity_resolver.extract_tagged_agents("Hello [Innovator] and [TechLead]")
     assert tags == ["Innovator", "TechLead"]
 
-    partial_tags = orch.extract_tagged_agents("Hello [Vis] and [TechLead] and [Inn]")
+    partial_tags = entity_resolver.extract_tagged_agents("Hello [Vis] and [TechLead] and [Inn]")
     assert partial_tags == ["Visionary", "TechLead", "Innovator"]
 
     # Ambiguous tags should not be extracted as single valid agent tags
-    ambig_tags = orch.extract_tagged_agents("Hello [Arch] and [Strategist]")
+    ambig_tags = entity_resolver.extract_tagged_agents("Hello [Arch] and [Strategist]")
     assert ambig_tags == []
 
     # Detect ambiguous tags
-    detected_ambig = orch.detect_ambiguous_tags("Hello [Arch] and [Vis]")
+    detected_ambig = entity_resolver.detect_ambiguous_tags("Hello [Arch] and [Vis]")
     assert len(detected_ambig) == 1
     assert detected_ambig[0][0] == "Arch"
     assert "Architect" in detected_ambig[0][1]
     assert "SecurityArchitect" in detected_ambig[0][1]
 
     # Detect unrecognized tags
-    unrecognized = orch.detect_unrecognized_tags("Hello [NonExistentAgent] and [Vis] and [Link](http://a.com)")
+    unrecognized = entity_resolver.detect_unrecognized_tags("Hello [NonExistentAgent] and [Vis] and [Link](http://a.com)")
     assert unrecognized == ["NonExistentAgent"]
 
     # Parse agent and prompt with partial tag containing spaces
-    agent, prompt, explicit = orch.parse_agent_and_prompt("what do you think [Inn]", "C1", "T1")
+    agent, prompt, explicit = parse_agent_and_prompt("what do you think [Inn]", "C1", "T1")
     assert agent == "Innovator"
     assert "[Inn]" not in prompt
     assert prompt == "what do you think"
     assert explicit is True
 
     # Parse agent and prompt with typo bracket [Inn}
-    agent2, prompt2, explicit2 = orch.parse_agent_and_prompt("what do you think [Inn}", "C1", "T1")
+    agent2, prompt2, explicit2 = parse_agent_and_prompt("what do you think [Inn}", "C1", "T1")
     assert agent2 == "Innovator"
     assert "[Inn}" not in prompt2
     assert prompt2 == "what do you think"
     assert explicit2 is True
 
     # Nomination enforcement
-    res = orch.enforce_valid_nomination(
+    res = enforce_valid_nomination(
         text="My thoughts on this architecture.",
         current_agent_key="Visionary",
         remaining=["Innovator"],
@@ -287,18 +341,18 @@ def test_debate_orchestrator():
     assert "[Innovator]" in res
 
     # Nomination enforcement recognizing partial nomination
-    res_partial_nom = orch.enforce_valid_nomination(
+    res_partial_nom = enforce_valid_nomination(
         text="Over to you [Innovator] for your review.",
         current_agent_key="Visionary",
         remaining=["Innovator"],
         force_termination=False,
     )
-    assert "[Innovator]" in res_partial_nom or "[Innovator]" in res_partial_nom
+    assert "[Innovator]" in res_partial_nom
 
     # Target file resolution
     files = [{"name": "notes.txt"}, {"name": "schema.sql"}]
-    assert orch.resolve_target_file(files, "schema.sql")["name"] == "schema.sql"
-    assert orch.resolve_target_file(files, None)["name"] == "schema.sql"
+    assert resolve_target_file(files, "schema.sql")["name"] == "schema.sql"
+    assert resolve_target_file(files, None)["name"] == "schema.sql"
 
 
 @pytest.mark.anyio

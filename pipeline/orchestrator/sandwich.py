@@ -1,6 +1,8 @@
 import logging
 from typing import Any
 
+from core.models import OrchestrationMode
+
 logger = logging.getLogger(__name__)
 
 
@@ -13,13 +15,14 @@ class SandwichOrchestrator:
 
     def __init__(
         self,
-        mode: str = "sandwich",
+        mode: OrchestrationMode | str = OrchestrationMode.SANDWICH,
         start_chain: list[str] | None = None,
         end_chain: list[str] | None = None,
         fixed_chain: list[str] | None = None,
         agents_map: dict[str, dict[str, Any]] | None = None,
     ):
-        self.mode = mode.lower()
+        mode_val = mode.value if isinstance(mode, OrchestrationMode) else str(mode)
+        self.mode = mode_val.lower()
         self.start_chain = list(start_chain or [])
         self.end_chain = list(end_chain or [])
         self.fixed_chain = list(fixed_chain or [])
@@ -37,7 +40,7 @@ class SandwichOrchestrator:
         exclusions = set(active_exclusions or [])
         valid_available = [a for a in available_agents if a not in exclusions]
 
-        if self.mode == "fixed":
+        if self.mode == OrchestrationMode.FIXED:
             # If fixed chain is defined, follow it strictly
             if self.fixed_chain:
                 return [a for a in self.fixed_chain if a in valid_available]
@@ -67,7 +70,7 @@ class SandwichOrchestrator:
         if not remaining_pool:
             return None, []
 
-        if is_custom_flow or self.mode == "fixed":
+        if is_custom_flow or self.mode == OrchestrationMode.FIXED:
             return remaining_pool[0], [remaining_pool[0]]
 
         start_set = set(self.start_chain)

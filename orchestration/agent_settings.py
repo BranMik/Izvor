@@ -10,7 +10,7 @@ from core.config import (
     AGENTS_CONFIG,
     SYSTEM_AGENTS_CONFIG,
 )
-from core.models import CircuitBreakerConfig
+from core.models import CircuitBreakerConfig, OrchestrationMode
 from prompts import build_agent_prompt
 
 logger = logging.getLogger(__name__)
@@ -62,7 +62,7 @@ class AgentSettingsManager:
         self.circuit_breaker_threshold_usd: float = 1.0
 
         # Orchestration flow mode and chains
-        self.orchestration_mode: str = "sandwich"  # "sandwich" | "fixed"
+        self.orchestration_mode: str = OrchestrationMode.SANDWICH.value
         self.sandwich_start_chain: list[str] = []
         self.sandwich_end_chain: list[str] = []
         self.fixed_chain: list[str] = []
@@ -218,8 +218,12 @@ class AgentSettingsManager:
             self.circuit_breaker_threshold_usd = 1.0
 
         # Parse orchestration mode
-        raw_mode = str(data.get("orchestration_mode", "sandwich")).strip().lower()
-        self.orchestration_mode = raw_mode if raw_mode in ("sandwich", "fixed") else "sandwich"
+        raw_mode = str(data.get("orchestration_mode", OrchestrationMode.SANDWICH.value)).strip().lower()
+        self.orchestration_mode = (
+            raw_mode
+            if raw_mode in (OrchestrationMode.SANDWICH.value, OrchestrationMode.FIXED.value)
+            else OrchestrationMode.SANDWICH.value
+        )
 
         # Parse sandwich config
         raw_sandwich = data.get("sandwich_config", {})
@@ -444,9 +448,12 @@ class AgentSettingsManager:
     def get_orchestration_mode(self) -> str:
         return self.orchestration_mode
 
-    def set_orchestration_mode(self, mode: str, save: bool = True) -> None:
-        mode_clean = str(mode).strip().lower()
-        if mode_clean in ("sandwich", "fixed"):
+    def set_orchestration_mode(
+        self, mode: str | OrchestrationMode, save: bool = True
+    ) -> None:
+        mode_val = mode.value if isinstance(mode, OrchestrationMode) else str(mode)
+        mode_clean = mode_val.strip().lower()
+        if mode_clean in (OrchestrationMode.SANDWICH.value, OrchestrationMode.FIXED.value):
             self.orchestration_mode = mode_clean
             if save:
                 self.save()
@@ -520,7 +527,7 @@ class AgentSettingsManager:
         """Resets all registered agents to enabled state and resets orchestration mode to sandwich default."""
         self.enabled_agents.clear()
         self.enabled_agents.update(self.agents_config.keys())
-        self.orchestration_mode = "sandwich"
+        self.orchestration_mode = OrchestrationMode.SANDWICH.value
         self.sandwich_start_chain = []
         self.sandwich_end_chain = []
         self.fixed_chain = []
@@ -587,7 +594,7 @@ def get_orchestration_mode() -> str:
     return settings_manager.get_orchestration_mode()
 
 
-def set_orchestration_mode(mode: str, save: bool = True) -> None:
+def set_orchestration_mode(mode: str | OrchestrationMode, save: bool = True) -> None:
     settings_manager.set_orchestration_mode(mode, save=save)
 
 

@@ -1,6 +1,9 @@
+import asyncio
+import ipaddress
 import json
 import logging
 import re
+import socket
 import urllib.parse
 from typing import Any
 
@@ -132,17 +135,201 @@ def web_search(query: str, max_results: int = 5) -> str:
     )
 
 
+# Security constraints for SSRF & outbound HTTP defense
+MAX_URL_LENGTH = 2048
+MAX_QUERY_LENGTH = 1024
+MAX_REDIRECTS = 5
+
+BLOCKED_HOSTNAMES = {
+    "localhost",
+    "127.0.0.1",
+    "0.0.0.0",
+    "::1",
+}
+
+BLOCKED_DOMAIN_SUFFIXES = (
+    ".localhost",
+    ".local",
+    ".internal",
+    ".lan",
+    ".home.arpa",
+)
+
+SUSPICIOUS_MUTATING_ACTIONS = {
+    "edit",
+    "save",
+    "delete",
+    "post",
+    "submit",
+    "create",
+    "write",
+    "destroy",
+    "upload",
+}
+
+MUTATING_PARAM_KEYS = {
+    "action",
+    "act",
+    "do",
+    "cmd",
+    "exec",
+    "operation",
+}
+
+
+def is_ip_blocked(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    """
+    Returns True if the IP address belongs to any restricted range:
+    loopback, private, link-local, multicast, reserved, unspecified, or CGNAT.
+    """
+    if (
+        ip.is_private
+        or ip.is_loopback
+        or ip.is_link_local
+        or ip.is_multicast
+        or ip.is_reserved
+        or ip.is_unspecified
+    ):
+        return True
+
+    if getattr(ip, "ipv4_mapped", None):
+        if is_ip_blocked(ip.ipv4_mapped):
+            return True
+
+    # Carrier Grade NAT (RFC 6598: 100.64.0.0/10)
+    if isinstance(ip, ipaddress.IPv4Address) and ip in ipaddress.ip_network("100.64.0.0/10"):
+        return True
+
+    return False
+
+
+def validate_url_security(url: str) -> tuple[bool, str, str | None]:
+    """
+    Validates a URL against SSRF, dangerous mutating query parameters, and size limits.
+    Returns (is_safe, cleaned_url, failure_reason).
+    """
+    if not url or not isinstance(url, str) or not url.strip():
+        return False, "", "URL cannot be empty."
+
+    try:
+        raw_parsed = urllib.parse.urlsplit(url.strip())
+    except Exception as e:
+        return False, url.strip(), f"Malformed URL: {e}"
+
+    if not raw_parsed.scheme:
+        cleaned_url = f"https://{url.strip()}"
+    else:
+        cleaned_url = url.strip()
+
+    if len(cleaned_url) > MAX_URL_LENGTH:
+        return (
+            False,
+            cleaned_url,
+            f"URL length ({len(cleaned_url)}) exceeds maximum permitted limit of {MAX_URL_LENGTH} characters.",
+        )
+
+    try:
+        parsed = urllib.parse.urlsplit(cleaned_url)
+    except Exception as e:
+        return False, cleaned_url, f"Malformed URL: {e}"
+
+    scheme = (parsed.scheme or "").lower()
+    if scheme not in ("http", "https"):
+        return False, cleaned_url, f"Scheme '{scheme}' is not allowed. Only HTTP and HTTPS are permitted."
+
+    if not parsed.netloc:
+        return False, cleaned_url, "URL is missing a valid host."
+
+    if parsed.username or parsed.password:
+        return False, cleaned_url, "Embedded credentials (userinfo) in URLs are not permitted."
+
+    # Validate query string
+    if parsed.query:
+        if len(parsed.query) > MAX_QUERY_LENGTH:
+            return (
+                False,
+                cleaned_url,
+                f"Query string length ({len(parsed.query)}) exceeds maximum permitted limit of {MAX_QUERY_LENGTH} characters.",
+            )
+
+        query_params = urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
+        for key, values in query_params.items():
+            key_lower = key.lower()
+            if key_lower in MUTATING_PARAM_KEYS:
+                for val in values:
+                    if val.lower().strip() in SUSPICIOUS_MUTATING_ACTIONS:
+                        return (
+                            False,
+                            cleaned_url,
+                            f"Blocked mutating parameter '{key}={val}' in query string.",
+                        )
+            for val in values:
+                if len(val) > 512:
+                    return (
+                        False,
+                        cleaned_url,
+                        f"Query parameter value for '{key}' exceeds maximum permitted limit (512 characters).",
+                    )
+
+    # Validate hostname
+    hostname = parsed.hostname
+    if not hostname:
+        return False, cleaned_url, "URL hostname could not be determined."
+
+    hostname_lower = hostname.lower().strip(".")
+    if hostname_lower in BLOCKED_HOSTNAMES:
+        return False, cleaned_url, f"Access to '{hostname}' is blocked (loopback/unspecified host)."
+
+    for suffix in BLOCKED_DOMAIN_SUFFIXES:
+        if hostname_lower == suffix[1:] or hostname_lower.endswith(suffix):
+            return False, cleaned_url, f"Access to internal domain '{hostname}' is blocked."
+
+    # Check if hostname is an IP literal
+    try:
+        ip = ipaddress.ip_address(hostname_lower)
+        if is_ip_blocked(ip):
+            return False, cleaned_url, f"Direct access to restricted IP address '{ip}' is blocked."
+        return True, cleaned_url, None
+    except ValueError:
+        pass
+
+    # Resolve hostname via DNS and check all resolved IP addresses
+    try:
+        addr_info = socket.getaddrinfo(hostname_lower, None, proto=socket.IPPROTO_TCP)
+        if not addr_info:
+            return False, cleaned_url, f"Could not resolve host '{hostname_lower}'."
+        for entry in addr_info:
+            sockaddr = entry[4]
+            ip_str = sockaddr[0]
+            ip = ipaddress.ip_address(ip_str)
+            if is_ip_blocked(ip):
+                return False, cleaned_url, f"Host '{hostname_lower}' resolved to restricted IP address '{ip}'."
+    except socket.gaierror as e:
+        return False, cleaned_url, f"DNS resolution failed for '{hostname_lower}': {e}"
+    except Exception as e:
+        return False, cleaned_url, f"Error validating host '{hostname_lower}': {e}"
+
+    return True, cleaned_url, None
+
+
 def fetch_web_page(url: str, max_chars: int = 4000) -> str:
     """
     Fetches the content of a web page and extracts clean, readable text/markdown.
     Strips scripts, styles, navigation, headers, footers, and ads.
+    Guarded with SSRF protection, redirect security validation, and query string sanitization.
     """
     if not url or not url.strip():
         return json.dumps({"error": "URL cannot be empty."})
 
-    cleaned_url = url.strip()
-    if not (cleaned_url.startswith("http://") or cleaned_url.startswith("https://")):
-        cleaned_url = f"https://{cleaned_url}"
+    is_safe, cleaned_url, reason = validate_url_security(url)
+    if not is_safe:
+        logger.warning(f"[FETCH_WEB_PAGE] Blocked unsafe URL '{url}': {reason}")
+        return json.dumps(
+            {
+                "error": f"Security violation: {reason}",
+                "url": url.strip(),
+            }
+        )
 
     max_chars = max(500, min(int(max_chars), 15000))
 
@@ -152,14 +339,45 @@ def fetch_web_page(url: str, max_chars: int = 4000) -> str:
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             "Accept-Language": "en-US,en;q=0.5",
         }
-        with httpx.Client(timeout=12.0, follow_redirects=True) as client:
-            response = client.get(cleaned_url, headers=headers)
+        current_url = cleaned_url
+        redirect_count = 0
+        response = None
+
+        with httpx.Client(timeout=12.0, follow_redirects=False) as client:
+            while True:
+                response = client.get(current_url, headers=headers)
+                # Check for redirect (3xx status code with Location header)
+                if (300 <= response.status_code < 400) and response.headers.get("location"):
+                    redirect_count += 1
+                    if redirect_count > MAX_REDIRECTS:
+                        return json.dumps(
+                            {
+                                "error": f"Security violation: Exceeded maximum allowed redirects ({MAX_REDIRECTS}).",
+                                "url": cleaned_url,
+                            }
+                        )
+                    loc = response.headers.get("location", "")
+                    next_url = urllib.parse.urljoin(current_url, loc)
+                    is_safe_redirect, validated_next, redirect_reason = validate_url_security(next_url)
+                    if not is_safe_redirect:
+                        logger.warning(
+                            f"[FETCH_WEB_PAGE] Blocked redirect to unsafe URL '{next_url}': {redirect_reason}"
+                        )
+                        return json.dumps(
+                            {
+                                "error": f"Security violation on redirect: {redirect_reason}",
+                                "url": next_url,
+                            }
+                        )
+                    current_url = validated_next
+                else:
+                    break
 
         if response.status_code != 200:
             return json.dumps(
                 {
                     "error": f"Failed to fetch URL. HTTP status code: {response.status_code}",
-                    "url": cleaned_url,
+                    "url": current_url,
                 }
             )
 
@@ -214,7 +432,7 @@ def fetch_web_page(url: str, max_chars: int = 4000) -> str:
 
         return json.dumps(
             {
-                "url": cleaned_url,
+                "url": current_url,
                 "title": title,
                 "content": cleaned_text if cleaned_text else "(No readable text found on page)",
                 "content_length": len(cleaned_text),
@@ -230,6 +448,11 @@ def fetch_web_page(url: str, max_chars: int = 4000) -> str:
         return json.dumps({"error": f"Error fetching web page: {str(e)}", "url": cleaned_url})
 
 
-def web_scrape(url: str, max_chars: int = 4000) -> str:
-    """Alias for fetch_web_page."""
-    return fetch_web_page(url=url, max_chars=max_chars)
+async def async_web_search(query: str, max_results: int = 5) -> str:
+    """Asynchronous wrapper for web_search that executes in a background thread."""
+    return await asyncio.to_thread(web_search, query=query, max_results=max_results)
+
+
+async def async_fetch_web_page(url: str, max_chars: int = 4000) -> str:
+    """Asynchronous wrapper for fetch_web_page that executes in a background thread."""
+    return await asyncio.to_thread(fetch_web_page, url=url, max_chars=max_chars)

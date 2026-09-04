@@ -1,5 +1,13 @@
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any
+
+
+class OrchestrationMode(str, Enum):
+    """Supported orchestration modes for panel discussions."""
+
+    SANDWICH = "sandwich"
+    FIXED = "fixed"
 
 
 @dataclass

@@ -1,32 +1,30 @@
 import asyncio
+from contextlib import asynccontextmanager
 import json
 import logging
 from pathlib import Path
 import re
+import sys
 import time
 import urllib.parse
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Request, Response
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from starlette.requests import ClientDisconnect
 
 from core.config import AGENTS_CONFIG
 from nlp.nl_patterns import is_stop_command
 from pipeline.entity_resolver import entity_resolver
-from orchestration.agent_router import (
+from orchestration.agent_router import process_and_respond
+from orchestration.agent_settings import (
     LOCKED_AGENTS,
     get_circuit_breaker_config,
     get_circuit_breaker_threshold,
     get_fixed_config,
     get_orchestration_mode,
     get_sandwich_config,
-    interrupt_thread_discussion,
     is_circuit_breaker_enabled,
-    is_discussion_active,
     load_enabled_agents,
-    process_and_respond,
-    request_thread_stop,
     reset_enabled_agents,
     restore_from_backup,
     set_agent_enabled,
@@ -36,6 +34,12 @@ from orchestration.agent_router import (
     set_orchestration_mode,
     set_sandwich_config,
     toggle_agent,
+)
+from orchestration.thread_state import (
+    interrupt_thread_discussion,
+    is_discussion_active,
+    request_thread_stop,
+    thread_state_manager,
 )
 from services.pricing_service import warm_up_pricing_cache
 from services.slack_client import publish_app_home
@@ -50,23 +54,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("CaiLogicsBackend")
 
-app = FastAPI(
-    title="CaiLogics Multi-Agent Slack Hub",
-    description="Multi-agent orchestration platform integrating Slack Events API, LiteLLM, and MCP tools.",
-    version="1.0.0",
-)
-
-# Definira točnu putanju do mape projekta gdje se nalazi main.py
 BASE_DIR = Path(__file__).resolve().parent
-app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 
 async def keep_loop_alive():
@@ -78,12 +66,46 @@ async def keep_loop_alive():
         await asyncio.sleep(0.5)
 
 
-@app.on_event("startup")
-async def startup_event():
+async def periodic_thread_state_cleanup():
+    """
+    Periodically purges inactive expired thread states to prevent unbounded memory growth.
+    """
+    while True:
+        try:
+            await asyncio.sleep(600)  # clean every 10 minutes
+            cleaned = thread_state_manager.cleanup_expired_threads()
+            if cleaned > 0:
+                logger.info(f"[CLEANUP] Pruned {cleaned} inactive thread state(s)")
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.error(f"[CLEANUP] Error during periodic thread state cleanup: {e}", exc_info=True)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     enabled = load_enabled_agents()
     logger.info(f"[STARTUP] Loaded {len(enabled)} enabled debate agents from persistent storage.")
-    asyncio.create_task(keep_loop_alive())
-    asyncio.create_task(warm_up_pricing_cache())
+    loop_task = asyncio.create_task(keep_loop_alive()) if sys.platform == "win32" else None
+    warmup_task = asyncio.create_task(warm_up_pricing_cache())
+    cleanup_task = asyncio.create_task(periodic_thread_state_cleanup())
+    try:
+        yield
+    finally:
+        if loop_task:
+            loop_task.cancel()
+        warmup_task.cancel()
+        cleanup_task.cancel()
+
+
+app = FastAPI(
+    title="CaiLogics Multi-Agent Slack Hub",
+    description="Multi-agent orchestration platform integrating Slack Events API, LiteLLM, and MCP tools.",
+    version="1.0.0",
+    lifespan=lifespan,
+)
+
+app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 
 
 @app.get("/")
@@ -148,12 +170,12 @@ async def slack_events(request: Request, background_tasks: BackgroundTasks):
         logger.error(f"Failed to parse Slack event JSON: {e}")
         raise HTTPException(status_code=400, detail="Invalid JSON payload") from e
 
-    # 4. Handle Slack URL Verification Challenge
+    # 5. Handle Slack URL Verification Challenge
     if data.get("type") == "url_verification":
         logger.info("Handling Slack url_verification challenge")
         return {"challenge": data.get("challenge")}
 
-    # 5. Handle Event Callbacks (message.channels, app_mention)
+    # 6. Handle Event Callbacks (message.channels, app_mention)
     if data.get("type") == "event_callback":
         event = data.get("event", {})
         # Slack Events API uses 'authorizations' in modern apps, fallback to 'authed_users'
@@ -172,7 +194,7 @@ async def slack_events(request: Request, background_tasks: BackgroundTasks):
             )
 
         event_type = event.get("type")
-        # 5a. Handle App Home Opened
+        # 6a. Handle App Home Opened
         if event_type == "app_home_opened":
             user_id = event.get("user")
             tab = event.get("tab")
@@ -208,7 +230,7 @@ async def slack_events(request: Request, background_tasks: BackgroundTasks):
                     if len(PROCESSED_EVENTS) > 1000:
                         PROCESSED_EVENTS.clear()
 
-                # 5a. Deduplicate Slack duplicate events
+                # 6b. Deduplicate Slack duplicate events
                 event_key = (channel_id, ts)
                 if event_key in PROCESSED_EVENTS:
                     logger.info(
@@ -216,14 +238,14 @@ async def slack_events(request: Request, background_tasks: BackgroundTasks):
                     )
                     return Response(status_code=200)
 
-                # 5b. Identify if the message is from a bot
+                # 6c. Identify if the message is from a bot
                 is_bot = (
                     event.get("bot_id")
                     or event.get("subtype") == "bot_message"
                     or (bot_user_id is not None and event.get("user") == bot_user_id)
                 )
 
-                # 5c. Extract nominations and tags ([Agent_Key])
+                # 6d. Extract nominations and tags ([Agent_Key])
                 has_tag = False
                 for match in re.finditer(r"[\[{]\s*([^\]}\r\n]+?)\s*[\]}]", raw_text):
                     tag = match.group(1)
@@ -231,7 +253,7 @@ async def slack_events(request: Request, background_tasks: BackgroundTasks):
                         has_tag = True
                         break
 
-                # 5d. Determine processing authorization
+                # 6e. Determine processing authorization
                 is_app_name_mention = False
                 if bot_user_id and f"<@{bot_user_id}>" in raw_text:
                     is_app_name_mention = True

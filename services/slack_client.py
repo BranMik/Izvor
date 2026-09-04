@@ -14,6 +14,7 @@ from core.config import (
     USAGE_CHANNEL_NAME,
     resolve_avatar_url,
 )
+from core.models import OrchestrationMode
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +35,7 @@ def build_app_home_view(
     Displays panel agents, locked agents, thread cost circuit-breaker settings,
     and emergency backup warning if active settings file is unreadable.
     """
-    from orchestration.agent_router import (
+    from orchestration.agent_settings import (
         LOCKED_AGENTS,
         get_backup_error_reason,
         get_circuit_breaker_config,
@@ -237,7 +238,7 @@ def build_app_home_view(
                 "type": "mrkdwn",
                 "text": (
                     f"*🔀 Način orkestracije rasprave (Orchestration Mode):*\n"
-                    f"Trenutni način: *{'🥪 Sandwich Chain (Start ➔ Sredina ➔ End)' if orch_mode == 'sandwich' else '🎯 Fixed Sequence (Strogi lanac)'}*"
+                    f"Trenutni način: *{'🥪 Sandwich Chain (Start ➔ Sredina ➔ End)' if orch_mode == OrchestrationMode.SANDWICH else '🎯 Fixed Sequence (Strogi lanac)'}*"
                 ),
             },
             "accessory": {
@@ -250,7 +251,7 @@ def build_app_home_view(
                             "text": "🥪 Sandwich Flow",
                             "emoji": True,
                         },
-                        "value": "mode:sandwich",
+                        "value": f"mode:{OrchestrationMode.SANDWICH.value}",
                     },
                     {
                         "text": {
@@ -258,13 +259,13 @@ def build_app_home_view(
                             "text": "🎯 Fixed Sequence",
                             "emoji": True,
                         },
-                        "value": "mode:fixed",
+                        "value": f"mode:{OrchestrationMode.FIXED.value}",
                     },
                 ],
                 "initial_option": {
                     "text": {
                         "type": "plain_text",
-                        "text": "🥪 Sandwich Flow" if orch_mode == "sandwich" else "🎯 Fixed Sequence",
+                        "text": "🥪 Sandwich Flow" if orch_mode == OrchestrationMode.SANDWICH else "🎯 Fixed Sequence",
                         "emoji": True,
                     },
                     "value": f"mode:{orch_mode}",
@@ -274,7 +275,7 @@ def build_app_home_view(
     ])
 
     # Mode-specific chain configuration UI
-    if orch_mode == "sandwich":
+    if orch_mode == OrchestrationMode.SANDWICH:
         blocks.extend([
             {
                 "type": "context",
@@ -659,6 +660,7 @@ async def fetch_thread_history(
                 or "📋 *Final Discussion Notes" in msg_text
                 or ":memo:" in msg_text
                 or ":clipboard:" in msg_text
+                or msg_text.strip().startswith(("_🔍", "_🌐", "_⚡", "_⏳"))
             ):
                 continue
 

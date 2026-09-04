@@ -51,106 +51,32 @@ from services.slack_client import (
     post_system_message,
 )
 
-# Re-exports from agent_settings
-from .agent_settings import (
-    CIRCUIT_BREAKER_ENABLED,
-    CIRCUIT_BREAKER_THRESHOLD_USD,
-    ENABLED_DEBATE_AGENTS,
-    LOCKED_AGENTS,
-    SETTINGS_FILE,
-    get_backup_error_reason,
-    get_circuit_breaker_config,
-    get_circuit_breaker_threshold,
-    get_enabled_agents,
-    get_fixed_config,
-    get_orchestration_mode,
-    get_sandwich_config,
-    is_circuit_breaker_enabled,
-    is_running_from_backup,
-    load_enabled_agents,
-    reset_enabled_agents,
-    restore_from_backup,
-    save_enabled_agents,
-    set_agent_enabled,
-    set_circuit_breaker_enabled,
-    set_circuit_breaker_threshold,
-    set_fixed_config,
-    set_orchestration_mode,
-    set_sandwich_config,
-    settings_manager,
-    toggle_agent,
-)
-
-# Re-exports from thread_state
-from .thread_state import (
-    ACTIVE_THREAD_TASKS,
-    CUSTOM_FLOW_THREADS,
-    HIGH_DEMAND_ERRORED_AGENTS,
-    RATE_LIMIT_ALREADY_RETRIED,
-    RATE_LIMIT_RETRY_QUEUE,
-    REMAINING_AGENTS_MAP,
-    STOP_REQUESTED_THREADS,
-    THREAD_ACTIVE_FILE_CONTEXT,
-    THREAD_GENERATIONS,
-    THREAD_HISTORY_LIMITS,
-    THREAD_MAX_WORDS_LIMITS,
-    THREAD_MIN_WORDS_LIMITS,
-    add_to_retry_queue,
-    clear_503_errored_agents,
-    clear_active_task,
-    clear_already_retried,
-    clear_custom_flow,
-    clear_remaining_agents,
-    clear_retry_queue,
-    clear_thread_file_context,
-    clear_thread_history_limit,
-    clear_thread_max_words,
-    clear_thread_min_words,
-    clear_thread_state,
-    clear_thread_stop,
-    get_503_errored_agents,
-    get_active_task,
-    get_already_retried,
-    get_remaining_agents,
-    get_retry_queue,
-    get_thread_file_context,
-    get_thread_generation,
-    get_thread_history_limit,
-    get_thread_max_words,
-    get_thread_min_words,
-    has_agent_503_errored,
-    has_pending_retries,
-    increment_thread_generation,
-    interrupt_thread_discussion,
-    is_custom_flow,
-    is_discussion_active,
-    is_already_retried,
-    is_thread_stopped,
-    mark_agent_503_errored,
-    mark_already_retried,
-    pop_active_task,
-    pop_remaining_agent,
-    pop_retry_agent,
-    request_thread_stop,
-    reset_all_thread_states,
-    set_active_task,
-    set_custom_flow,
-    set_remaining_agents,
-    set_thread_file_context,
-    set_thread_history_limit,
-    set_thread_max_words,
-    set_thread_min_words,
-    thread_state_manager,
-)
-
-# Re-exports from nomination
-from .nomination import (
-    enforce_valid_nomination,
-    get_initial_agents,
-    parse_agent_and_prompt,
-    resolve_target_file,
-)
+from . import agent_settings as _agent_settings
+from . import nomination as _nomination
+from . import thread_state as _thread_state
+from .thread_state import clear_thread_state, is_thread_stopped, thread_state_manager
 from .turn_pipeline import TurnContext, TurnPipeline
+
+__all__ = [
+    "process_and_respond",
+    "orchestrate_discussion",
+]
+
+
+def __getattr__(name: str) -> Any:
+    """Backward-compatible dynamic export for agent_settings, thread_state, and nomination."""
+    for mod in (_agent_settings, _thread_state, _nomination):
+        if hasattr(mod, name):
+            return getattr(mod, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def __dir__() -> list[str]:
+    attrs = set(globals().keys())
+    for mod in (_agent_settings, _thread_state, _nomination):
+        attrs.update(dir(mod))
+    return sorted(attrs)
+
 
 
 logger = logging.getLogger(__name__)
