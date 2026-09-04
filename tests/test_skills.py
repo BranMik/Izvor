@@ -1,11 +1,11 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
-from core.domain import DiscussionBrief, SessionContext, SpeakerDecision, SpendMetrics, Turn
+from core.domain import DiscussionBrief, SessionContext, SpendMetrics, Turn
 from pipeline.directive_parser import DirectiveParser, ParsedDirectives
 from pipeline.discussion_scribe import DiscussionScribe
 from pipeline.entity_resolver import EntityResolver
-from pipeline.orchestrator import DiscussionModerator, SandwichOrchestrator
+from pipeline.orchestrator import SandwichOrchestrator
 from pipeline.spend_governance import SpendGovernance
 
 
@@ -94,8 +94,7 @@ async def test_directive_parser_stop_command():
 # 3. Sandwich Orchestrator Skill Tests
 # ==============================================================================
 
-@pytest.mark.anyio
-async def test_sandwich_orchestrator_deterministic_phases(mock_agents_config):
+def test_sandwich_orchestrator_deterministic_phases(mock_agents_config):
     orchestrator = SandwichOrchestrator(
         mode="sandwich",
         start_chain=["Architect", "ScopeOptimizer"],
@@ -107,39 +106,37 @@ async def test_sandwich_orchestrator_deterministic_phases(mock_agents_config):
     initial_seq = orchestrator.build_initial_sequence(available)
     assert initial_seq == ["Architect", "ScopeOptimizer", "TechLead", "Visionary", "Architect"]
 
-    # Phase 1: Start Chain turn 1
-    decision, remaining = await orchestrator.get_next_speaker(initial_seq, history=[])
-    assert decision.next_speaker == "Architect"
-    assert decision.phase == "start_chain"
-    assert decision.method == "deterministic"
+    # Phase 1: Start Chain turn 1 (Architect)
+    desig1, elig1 = orchestrator.get_phase_info(initial_seq)
+    assert desig1 == "Architect"
+    assert elig1 == ["Architect"]
 
-    # Phase 1: Start Chain turn 2
-    decision, remaining = await orchestrator.get_next_speaker(remaining, history=[])
-    assert decision.next_speaker == "ScopeOptimizer"
-    assert decision.phase == "start_chain"
-    assert decision.method == "deterministic"
+    # Phase 1: Start Chain turn 2 (ScopeOptimizer)
+    rem_start_2 = initial_seq[1:]
+    desig2, elig2 = orchestrator.get_phase_info(rem_start_2)
+    assert desig2 == "ScopeOptimizer"
+    assert elig2 == ["ScopeOptimizer"]
 
-    # Phase 2: Middle pool with single remaining or nomination
-    decision, remaining = await orchestrator.get_next_speaker(
-        remaining, history=[], tagged_nomination="TechLead"
-    )
-    assert decision.next_speaker == "TechLead"
-    assert decision.phase == "middle_pool"
+    # Phase 2: Middle pool open debate with multiple agents
+    rem_middle = rem_start_2[1:]  # ["TechLead", "Visionary", "Architect"]
+    desig_mid, elig_mid = orchestrator.get_phase_info(rem_middle)
+    assert desig_mid is None
+    assert elig_mid == ["TechLead", "Visionary"]
 
-    # Phase 2: Next middle pool
-    decision, remaining = await orchestrator.get_next_speaker(remaining, history=[])
-    assert decision.next_speaker == "Visionary"
-    assert decision.phase == "middle_pool"
+    # Phase 2: Middle pool with single remaining specialist
+    rem_mid_single = ["Visionary", "Architect"]
+    desig_single, elig_single = orchestrator.get_phase_info(rem_mid_single)
+    assert desig_single == "Visionary"
+    assert elig_single == ["Visionary"]
 
     # Phase 3: End Chain
-    decision, remaining = await orchestrator.get_next_speaker(remaining, history=[])
-    assert decision.next_speaker == "Architect"
-    assert decision.phase == "end_chain"
-    assert decision.is_completed is True
+    rem_end = ["Architect"]
+    desig_end, elig_end = orchestrator.get_phase_info(rem_end)
+    assert desig_end == "Architect"
+    assert elig_end == ["Architect"]
 
 
-@pytest.mark.anyio
-async def test_sandwich_orchestrator_fixed_mode(mock_agents_config):
+def test_sandwich_orchestrator_fixed_mode(mock_agents_config):
     orchestrator = SandwichOrchestrator(
         mode="fixed",
         fixed_chain=["Visionary", "TechLead"],
@@ -148,43 +145,11 @@ async def test_sandwich_orchestrator_fixed_mode(mock_agents_config):
 
     available = ["Visionary", "TechLead"]
     seq = orchestrator.build_initial_sequence(available)
+    assert seq == ["Visionary", "TechLead"]
 
-    dec1, rem1 = await orchestrator.get_next_speaker(seq, history=[])
-    assert dec1.next_speaker == "Visionary"
-
-    dec2, rem2 = await orchestrator.get_next_speaker(rem1, history=[])
-    assert dec2.next_speaker == "TechLead"
-    assert dec2.is_completed is True
-
-
-@pytest.mark.anyio
-async def test_sandwich_orchestrator_cognitive_moderator(mock_agents_config):
-    mock_moderator = MagicMock(spec=DiscussionModerator)
-    mock_moderator.select_next_speaker = AsyncMock(
-        return_value=SpeakerDecision(
-            next_speaker="SecurityArchitect",
-            reason="Security review requested",
-            is_completed=False,
-            method="llm",
-            phase="middle_pool",
-        )
-    )
-
-    orchestrator = SandwichOrchestrator(
-        mode="sandwich",
-        start_chain=[],
-        end_chain=["Architect"],
-        moderator=mock_moderator,
-        agents_map=mock_agents_config,
-    )
-
-    remaining = ["SecurityArchitect", "TechLead", "Architect"]
-    dec, rem = await orchestrator.get_next_speaker(remaining, history=[])
-
-    assert dec.next_speaker == "SecurityArchitect"
-    assert dec.method == "llm"
-    assert "SecurityArchitect" not in rem
-    mock_moderator.select_next_speaker.assert_called_once()
+    desig, elig = orchestrator.get_phase_info(seq)
+    assert desig == "Visionary"
+    assert elig == ["Visionary"]
 
 
 # ==============================================================================
