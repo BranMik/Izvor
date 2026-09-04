@@ -80,7 +80,8 @@ def build_llm_messages(
             persona_name = agent_cfg.get("username", agent_key)
             instruction = (
                 f"You have been called to speak as {persona_name}. "
-                "Please evaluate the discussion above and provide your response in accordance with your role and instructions."
+                "Please evaluate the discussion above and provide your response in accordance with your role and instructions. "
+                "CRITICAL: Always answer in the predominant language of the human user's prompt and discussion above (e.g. Croatian if the user writes in Croatian)."
             )
             instruction = f"{instruction}{file_block}{orchestration_block}"
             conversation.append(
@@ -108,7 +109,8 @@ def build_llm_messages(
         persona_name = agent_cfg.get("username", agent_key)
         instruction = (
             f"You have been called to speak as {persona_name}. "
-            "Please evaluate the discussion above and provide your response in accordance with your role and instructions."
+            "Please evaluate the discussion above and provide your response in accordance with your role and instructions. "
+            "CRITICAL: Always answer in the predominant language of the human user's prompt and discussion above (e.g. Croatian if the user writes in Croatian)."
         )
         instruction = f"{instruction}{file_block}{orchestration_block}"
         conversation.append(

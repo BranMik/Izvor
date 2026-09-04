@@ -5,7 +5,7 @@ Analyze the multi-turn agent discussion and generate a single high-density, stru
 
 LANGUAGE MANDATE (CRITICAL):
 - You MUST write ALL headers, section titles, and bullet points in the EXACT same language as the conversation / user prompt.
-- If the conversation is in Croatian (or Bosnian/Serbian), translate EVERY section title and header into natural Croatian:
+- If the conversation is in Croatian, translate EVERY section title and header into natural Croatian:
   • Header: `📋 *Strateška sinteza i akcijski plan* _([Status])_`
   • Status: `_(Ažurira se uživo...)_` (during debate) or `_(Završeno ✅)_` (when finished)
   • `🎯 *Glavni cilj i definicija problema*` (Core Objective & Problem Statement)
