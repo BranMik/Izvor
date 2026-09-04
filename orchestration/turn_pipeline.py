@@ -80,6 +80,7 @@ class TurnContext:
     effective_history: list[dict[str, Any]] = field(default_factory=list)
     system_prompt: str = ""
     file_context: dict[str, Any] | None = None
+    thread_language: str = "English"
     messages: list[dict[str, Any]] = field(default_factory=list)
 
     # Token accounting & Response

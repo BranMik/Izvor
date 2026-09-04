@@ -176,6 +176,11 @@ class ContextPrepStageMixin:
         ctx.file_context = get_thread_file_context(
             ctx.channel_id, ctx.thread_ts
         )
+        if not getattr(ctx, "thread_language", None):
+            ctx.thread_language = (
+                thread_state_manager.get_language(ctx.channel_id, ctx.thread_ts)
+                or "English"
+            )
         ctx.messages = build_llm_messages(
             system_prompt=ctx.system_prompt,
             effective_history=ctx.effective_history,
@@ -187,5 +192,6 @@ class ContextPrepStageMixin:
             remaining_agents=ctx.eligible_remaining_agents,
             force_termination=ctx.force_termination,
             next_designated_agent=ctx.next_designated_agent,
+            thread_language=ctx.thread_language,
         )
         return None

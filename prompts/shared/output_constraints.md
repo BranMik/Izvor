@@ -1,7 +1,7 @@
 OUTPUT & LENGTH CONSTRAINTS:
 
 1. Hard Limit: Your entire response must strictly NOT exceed 200 words.
-2. Your answer must contain at least these 3 things (translate all section labels/headings into the language of the opening human user prompt, e.g. *Verdict / Key Risks & Requirements / Recommendation* in English, or appropriately in German, Croatian, Spanish, etc.): 
+2. Your answer must contain at least these 3 things (translate all section labels/headings into the designated thread language):
     - 1 sentence stating your core verdict/concern.
     - 2-3 concise bullet points explaining key risks or requirements.
     - 1 concluding sentence with a concrete recommendation.

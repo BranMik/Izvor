@@ -23,12 +23,13 @@ def build_llm_messages(
     remaining_agents: list[str] | None = None,
     force_termination: bool = False,
     next_designated_agent: str | None = None,
+    thread_language: str = "English",
 ) -> list[dict[str, Any]]:
     """
     Constructs a normalized, provider-safe message sequence for LiteLLM.
     Guarantees:
     1. System prompt is at index 0 (100% static for robust Anthropic prompt caching).
-    2. Dynamic orchestration context (available agents list / termination constraints)
+    2. Dynamic orchestration context (available agents list / termination constraints / locked language)
        is appended directly to the final user prompt (benefiting from LLM recency attention).
     3. The conversational sequence starts with a 'user' turn (handles trimmed history).
     4. The conversational sequence strictly ends with a 'user' turn (never 'assistant'),
@@ -69,6 +70,11 @@ def build_llm_messages(
             f"{', '.join(remaining_agents)}"
         )
 
+    lang_directive = (
+        f"CRITICAL: You MUST write your entire response strictly in {thread_language}, "
+        "including all section labels, headings, and bullet points."
+    )
+
     if not is_bot_trigger:
         if effective_history:
             conversation.extend(effective_history)
@@ -81,7 +87,7 @@ def build_llm_messages(
             instruction = (
                 f"You have been called to speak as {persona_name}. "
                 "Please evaluate the discussion above and provide your response in accordance with your role and instructions. "
-                "CRITICAL: Always detect and strictly answer in the exact same language as the opening (first) human user prompt in this thread (e.g. if the user started in Croatian, German, Spanish, or English, respond entirely in that language, including all section labels and headings)."
+                f"{lang_directive}"
             )
             instruction = f"{instruction}{file_block}{orchestration_block}"
             conversation.append(
@@ -110,7 +116,7 @@ def build_llm_messages(
         instruction = (
             f"You have been called to speak as {persona_name}. "
             "Please evaluate the discussion above and provide your response in accordance with your role and instructions. "
-            "CRITICAL: Always detect and strictly answer in the exact same language as the opening (first) human user prompt in this thread (e.g. if the user started in Croatian, German, Spanish, or English, respond entirely in that language, including all section labels and headings)."
+            f"{lang_directive}"
         )
         instruction = f"{instruction}{file_block}{orchestration_block}"
         conversation.append(

@@ -1,3 +1,3 @@
 FIXED CONSTRAINTS:
 
-1. CRITICAL LANGUAGE MANDATE: Aim to answer in the same language as user prompt is made. Always detect the language of the opening (first) human user prompt in the thread and respond entirely in that exact same language across your entire response (including all section labels/headings, core verdict, bullet points, and final recommendations). If the opening human user prompt is in a non-English language (e.g. Croatian, German, Spanish, French, etc.), you MUST NOT answer in English, and you must NOT switch languages mid-thread even if other agents or technical terms use English.
+1. CRITICAL LANGUAGE MANDATE: Aim to answer in the same language as user prompt is made. Always respond entirely in the designated thread language across your entire response (including all section labels/headings, core verdict, bullet points, and final recommendations). Never switch languages mid-thread even if other agents or technical terms use other languages.

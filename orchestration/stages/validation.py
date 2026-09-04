@@ -15,6 +15,7 @@ from services.slack_client import (
     fetch_thread_files,
     post_system_message,
 )
+from nlp import detect_language, detect_language_llm
 from orchestration.agent_settings import settings_manager
 from orchestration.nomination import (
     get_initial_agents,
@@ -24,7 +25,9 @@ from orchestration.nomination import (
 from orchestration.thread_state import (
     clear_thread_file_context,
     clear_thread_stop,
+    get_thread_language,
     set_thread_file_context,
+    set_thread_language,
     set_thread_max_words,
     set_thread_min_words,
     thread_state_manager,
@@ -85,6 +88,18 @@ class ValidationStageMixin:
                 set_thread_min_words(
                     ctx.channel_id, ctx.thread_ts, ctx.min_words_limit
                 )
+
+            # Lock language for this thread on first human prompt or preserve existing
+            current_lang = get_thread_language(ctx.channel_id, ctx.thread_ts)
+            if not current_lang:
+                current_lang = await detect_language_llm(
+                    ctx.raw_text_cleaned or ctx.raw_text
+                )
+                set_thread_language(ctx.channel_id, ctx.thread_ts, current_lang)
+                logger.info(
+                    f"[ROUTER] Locked thread language for {ctx.thread_key}: {current_lang}"
+                )
+            ctx.thread_language = current_lang
 
             ambiguous_tags = entity_resolver.detect_ambiguous_tags(
                 ctx.raw_text_cleaned
@@ -294,6 +309,9 @@ class ValidationStageMixin:
             ctx.agent_key = agent_key
             ctx.prompt = prompt
             ctx.was_explicit_target = was_explicit_target
+            ctx.thread_language = (
+                get_thread_language(ctx.channel_id, ctx.thread_ts) or "English"
+            )
 
         if not ctx.agent_key:
             logger.info(
