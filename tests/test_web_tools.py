@@ -1,9 +1,15 @@
+import ipaddress
 import json
 from unittest.mock import MagicMock, patch
 import pytest
 
 from services.mcp_tools import MCP_TOOLS_SCHEMAS, execute_mcp_tool
-from services.web_tools import fetch_web_page, web_scrape, web_search
+from services.web_tools import (
+    fetch_web_page,
+    is_ip_blocked,
+    validate_url_security,
+    web_search,
+)
 
 
 def test_mcp_schemas_include_web_tools():
@@ -131,3 +137,126 @@ def test_execute_mcp_web_tools():
         res = execute_mcp_tool("web_scrape", {"url": "https://example.com"})
         mock_scrape.assert_called_once_with(url="https://example.com", max_chars=4000)
         assert "scraped" in res
+
+
+def test_fetch_web_page_ssrf_loopback():
+    for blocked_url in [
+        "http://localhost:8000/secret",
+        "http://127.0.0.1:8000",
+        "http://[::1]:8080",
+        "http://0.0.0.0:80",
+        "http://service.localhost",
+    ]:
+        res = fetch_web_page(blocked_url)
+        data = json.loads(res)
+        assert "error" in data
+        assert "Security violation" in data["error"]
+
+
+def test_fetch_web_page_ssrf_cloud_metadata():
+    res = fetch_web_page("http://169.254.169.254/latest/meta-data")
+    data = json.loads(res)
+    assert "error" in data
+    assert "Security violation" in data["error"]
+    assert "restricted IP" in data["error"] or "blocked" in data["error"]
+
+
+def test_fetch_web_page_ssrf_private_network():
+    for private_url in [
+        "http://10.0.0.1/admin",
+        "http://192.168.1.1",
+        "http://172.16.0.5",
+        "http://100.64.0.1",
+    ]:
+        res = fetch_web_page(private_url)
+        data = json.loads(res)
+        assert "error" in data
+        assert "Security violation" in data["error"]
+
+
+def test_fetch_web_page_query_length_limit():
+    huge_query = "https://example.com/search?q=" + ("x" * 1050)
+    res = fetch_web_page(huge_query)
+    data = json.loads(res)
+    assert "error" in data
+    assert "Query string length" in data["error"]
+
+
+def test_fetch_web_page_blocked_mutating_actions():
+    for dangerous_url in [
+        "https://example.com/wiki?title=Test&action=edit",
+        "https://example.com/wiki?title=Test&action=delete",
+        "https://example.com/wiki?title=Test&action=save",
+        "https://example.com/forum?topic=1&do=post",
+        "https://example.com/api?cmd=destroy",
+    ]:
+        res = fetch_web_page(dangerous_url)
+        data = json.loads(res)
+        assert "error" in data
+        assert "Blocked mutating parameter" in data["error"]
+
+
+def test_fetch_web_page_allowed_safe_query_params():
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.headers = {}
+    mock_resp.text = "<html><body><h1>Article Title</h1><p>Safe content paragraph.</p></body></html>"
+
+    with patch("httpx.Client.get", return_value=mock_resp):
+        res = fetch_web_page("https://example.com/wiki?title=Main_Page&action=view&lang=en")
+        data = json.loads(res)
+        assert "title" in data
+        assert "Article Title" in data["title"]
+        assert "Safe content paragraph." in data["content"]
+
+
+def test_fetch_web_page_redirect_to_ssrf_blocked():
+    redirect_resp = MagicMock()
+    redirect_resp.status_code = 302
+    redirect_resp.headers = {"location": "http://127.0.0.1:8000/internal-metrics"}
+
+    with patch("httpx.Client.get", return_value=redirect_resp):
+        res = fetch_web_page("https://example.com/redirect-target")
+        data = json.loads(res)
+        assert "error" in data
+        assert "Security violation on redirect" in data["error"]
+
+
+def test_fetch_web_page_too_many_redirects():
+    redirect_resp = MagicMock()
+    redirect_resp.status_code = 302
+    redirect_resp.headers = {"location": "https://example.com/hop"}
+
+    with patch("httpx.Client.get", return_value=redirect_resp):
+        res = fetch_web_page("https://example.com/hop")
+        data = json.loads(res)
+        assert "error" in data
+        assert "Exceeded maximum allowed redirects" in data["error"]
+
+
+def test_is_ip_blocked_unit():
+    assert is_ip_blocked(ipaddress.ip_address("127.0.0.1")) is True
+    assert is_ip_blocked(ipaddress.ip_address("10.0.0.1")) is True
+    assert is_ip_blocked(ipaddress.ip_address("172.16.0.1")) is True
+    assert is_ip_blocked(ipaddress.ip_address("192.168.1.1")) is True
+    assert is_ip_blocked(ipaddress.ip_address("169.254.169.254")) is True
+    assert is_ip_blocked(ipaddress.ip_address("0.0.0.0")) is True
+    assert is_ip_blocked(ipaddress.ip_address("100.64.0.1")) is True
+    assert is_ip_blocked(ipaddress.ip_address("::1")) is True
+    assert is_ip_blocked(ipaddress.ip_address("fe80::1")) is True
+    assert is_ip_blocked(ipaddress.ip_address("fc00::1")) is True
+    assert is_ip_blocked(ipaddress.ip_address("8.8.8.8")) is False
+    assert is_ip_blocked(ipaddress.ip_address("93.184.215.14")) is False
+
+
+def test_validate_url_security_schemes():
+    ok, _, reason = validate_url_security("ftp://example.com/file.txt")
+    assert ok is False
+    assert "Only HTTP and HTTPS" in reason
+
+    ok, _, reason = validate_url_security("javascript:alert(1)")
+    assert ok is False
+
+    ok, _, reason = validate_url_security("http://user:pass@example.com")
+    assert ok is False
+    assert "userinfo" in reason

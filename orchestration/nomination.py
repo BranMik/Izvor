@@ -13,6 +13,7 @@ import re
 from typing import Any
 
 from core.config import AGENTS_CONFIG
+from core.models import OrchestrationMode
 from nlp.nl_patterns import extract_history_limit
 from pipeline.entity_resolver import entity_resolver
 from pipeline.orchestrator import SandwichOrchestrator
@@ -115,12 +116,12 @@ def parse_agent_and_prompt(
 
     if remaining:
         mode = settings_manager.get_orchestration_mode()
-        if mode == "fixed":
+        if mode == OrchestrationMode.FIXED:
             fixed_cfg = settings_manager.get_fixed_config()
             if fixed_cfg.get("chain"):
                 first_agent = remaining.pop(0)
                 return first_agent, cleaned_text, False
-        elif mode == "sandwich":
+        elif mode == OrchestrationMode.SANDWICH:
             sandwich_cfg = settings_manager.get_sandwich_config()
             if sandwich_cfg.get("start_chain"):
                 first_agent = remaining.pop(0)

@@ -45,7 +45,6 @@ from .slack_client import (
 )
 from .web_tools import (
     fetch_web_page,
-    web_scrape,
     web_search,
 )
 
@@ -90,6 +89,5 @@ __all__ = [
     "update_thread_note",
     "update_usage_message",
     "fetch_web_page",
-    "web_scrape",
     "web_search",
 ]

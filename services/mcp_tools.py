@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from core.config import MCP_WORKSPACE_DIR
-from .web_tools import fetch_web_page, web_scrape, web_search
+from .web_tools import fetch_web_page, web_search
 
 logger = logging.getLogger(__name__)
 

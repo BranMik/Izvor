@@ -1,0 +1,191 @@
+"""
+Stage 3: Context preparation, history slicing, word limit injection, and prompt construction.
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import Any, TYPE_CHECKING
+
+from core.config import AGENTS_CONFIG
+from nlp.message_builder import build_llm_messages
+from prompts import build_agent_prompt
+from pipeline.orchestrator import SandwichOrchestrator
+from services.slack_client import fetch_thread_history
+from orchestration.agent_settings import (
+    get_orchestration_mode,
+    get_sandwich_config,
+    settings_manager,
+)
+from orchestration.nomination import get_initial_agents
+from orchestration.thread_state import (
+    clear_thread_history_limit,
+    get_thread_file_context,
+    get_thread_history_limit,
+    get_thread_max_words,
+    get_thread_min_words,
+    is_thread_stopped,
+    set_thread_history_limit,
+    thread_state_manager,
+)
+
+if TYPE_CHECKING:
+    from orchestration.turn_pipeline import TurnContext
+
+logger = logging.getLogger(__name__)
+
+
+class ContextPrepStageMixin:
+    """Provides stage 3 context preparation and prompt construction for TurnPipeline."""
+
+    def _get_hook(self, name: str, default: Any = None) -> Any:
+        raise NotImplementedError
+
+    async def stage_prepare_context(
+        self, ctx: TurnContext
+    ) -> dict[str, Any] | None:
+        """Stage 3: Fetch thread history, apply history/word limits, and construct LLM prompts."""
+        if ctx.in_memory_history is not None:
+            history = list(ctx.in_memory_history)
+            logger.info(
+                f"[ROUTER] Using in-memory history with {len(history)} messages."
+            )
+        else:
+            fetch_hist_fn = self._get_hook(
+                "fetch_thread_history", fetch_thread_history
+            )
+            history = await fetch_hist_fn(
+                ctx.channel_id, ctx.thread_ts, bot_user_id=ctx.bot_user_id
+            )
+            logger.info(
+                f"[ROUTER] Fetched {len(history)} messages from thread history."
+            )
+
+        if ctx.is_superseded():
+            logger.info(
+                f"[ROUTER] Thread {ctx.thread_key} turn was superseded. Aborting."
+            )
+            return {"ok": False, "cancelled": True, "reason": "superseded"}
+
+        if not ctx.is_bot_trigger:
+            if history and history[-1]["role"] == "user":
+                prior_messages = history[:-1]
+            else:
+                prior_messages = history
+
+            if ctx.history_limit is not None:
+                set_thread_history_limit(
+                    channel_id=ctx.channel_id,
+                    thread_ts=ctx.thread_ts,
+                    limit=ctx.history_limit,
+                    prior_cutoff_index=len(prior_messages),
+                )
+                effective_prior = (
+                    prior_messages[-ctx.history_limit :]
+                    if ctx.history_limit > 0
+                    else []
+                )
+                logger.info(
+                    f"[ROUTER] Applying /history {ctx.history_limit}: kept {len(effective_prior)} of {len(prior_messages)} prior messages for user prompt."
+                )
+            else:
+                clear_thread_history_limit(ctx.channel_id, ctx.thread_ts)
+                effective_prior = prior_messages
+
+            ctx.effective_history = effective_prior
+        else:
+            hist_limit_info = get_thread_history_limit(
+                ctx.channel_id, ctx.thread_ts
+            )
+            if hist_limit_info is not None:
+                limit = hist_limit_info["limit"]
+                cutoff = hist_limit_info["prior_cutoff_index"]
+                prior_part = history[:cutoff]
+                discussion_part = history[cutoff:]
+                effective_prior = prior_part[-limit:] if limit > 0 else []
+                ctx.effective_history = effective_prior + discussion_part
+                logger.info(
+                    f"[ROUTER] Applying active history limit ({limit}): kept {len(effective_prior)}/{len(prior_part)} prior messages + {len(discussion_part)} discussion messages."
+                )
+            else:
+                ctx.effective_history = history
+
+        # System prompt generation
+        active_max_words = get_thread_max_words(ctx.channel_id, ctx.thread_ts)
+        active_min_words = get_thread_min_words(ctx.channel_id, ctx.thread_ts)
+        if active_max_words is not None or active_min_words is not None:
+            logger.info(
+                f"[ROUTER] Applying word limits (min_words={active_min_words}, max_words={active_max_words}) for agent {ctx.agent_key} (skipping standard output_constraints)."
+            )
+            ctx.system_prompt = build_agent_prompt(
+                ctx.agent_key,
+                max_words=active_max_words,
+                min_words=active_min_words,
+            )
+        else:
+            ctx.system_prompt = ctx.agent_cfg["system_prompt"]
+
+        ctx.remaining = thread_state_manager.get_remaining_agents(
+            ctx.channel_id, ctx.thread_ts, default=get_initial_agents()
+        )
+        ctx.is_custom_flow = thread_state_manager.is_custom_flow(
+            ctx.channel_id, ctx.thread_ts
+        )
+
+        ctx.force_termination = False
+        if (
+            ctx.was_explicit_target
+            and not ctx.is_bot_trigger
+            and not ctx.remaining
+        ):
+            ctx.force_termination = True
+        elif ctx.is_custom_flow and not ctx.remaining:
+            ctx.force_termination = True
+        elif is_thread_stopped(ctx.channel_id, ctx.thread_ts):
+            ctx.force_termination = True
+
+        if ctx.force_termination:
+            logger.info(
+                f"[ROUTER] Agent {ctx.agent_key} forcing termination (no remaining agents in sequence or stop requested)."
+            )
+        else:
+            logger.info(
+                f"[ROUTER] Agent {ctx.agent_key} remaining available agents: {ctx.remaining}"
+            )
+
+        mode = get_orchestration_mode()
+        ctx.next_designated_agent = None
+        ctx.eligible_remaining_agents = list(ctx.remaining)
+        if not ctx.force_termination and ctx.remaining:
+            orchestrator = SandwichOrchestrator(
+                mode=mode,
+                start_chain=get_sandwich_config().get("start_chain", []),
+                end_chain=get_sandwich_config().get("end_chain", []),
+                fixed_chain=settings_manager.get_fixed_config().get(
+                    "chain", []
+                ),
+                agents_map=settings_manager.agents_config or AGENTS_CONFIG,
+            )
+            (
+                ctx.next_designated_agent,
+                ctx.eligible_remaining_agents,
+            ) = orchestrator.get_phase_info(
+                ctx.remaining, is_custom_flow=ctx.is_custom_flow
+            )
+
+        ctx.file_context = get_thread_file_context(
+            ctx.channel_id, ctx.thread_ts
+        )
+        ctx.messages = build_llm_messages(
+            system_prompt=ctx.system_prompt,
+            effective_history=ctx.effective_history,
+            prompt=ctx.prompt,
+            is_bot_trigger=ctx.is_bot_trigger,
+            agent_key=ctx.agent_key,
+            agent_cfg=ctx.agent_cfg,
+            file_context=ctx.file_context,
+            remaining_agents=ctx.eligible_remaining_agents,
+            force_termination=ctx.force_termination,
+            next_designated_agent=ctx.next_designated_agent,
+        )
+        return None

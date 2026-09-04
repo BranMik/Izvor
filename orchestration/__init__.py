@@ -32,6 +32,7 @@ from pipeline.entity_resolver import entity_resolver
 resolve_agent_candidates = entity_resolver.resolve_candidates
 resolve_agent_name = entity_resolver.resolve_agent_name
 
+from core.models import OrchestrationMode
 from .agent_settings import (
     AgentSettingsManager,
     settings_manager,
@@ -41,13 +42,6 @@ from .nomination import (
     get_initial_agents,
     parse_agent_and_prompt,
     resolve_target_file,
-)
-from .debate_orchestrator import (
-    DebateOrchestrator,
-    debate_orchestrator,
-    detect_ambiguous_tags,
-    detect_unrecognized_tags,
-    extract_tagged_agents,
 )
 from .thread_state import (
     ACTIVE_THREAD_TASKS,
@@ -60,6 +54,7 @@ from .thread_state import (
     THREAD_ACTIVE_FILE_CONTEXT,
     THREAD_GENERATIONS,
     THREAD_HISTORY_LIMITS,
+    THREAD_LAST_ACTIVITY,
     THREAD_MAX_WORDS_LIMITS,
     THREAD_MIN_WORDS_LIMITS,
     ThreadStateManager,
@@ -76,6 +71,9 @@ from .thread_state import (
     clear_thread_min_words,
     clear_thread_state,
     clear_thread_stop,
+    cleanup_expired_threads,
+    cleanup_thread,
+    touch_thread,
     get_503_errored_agents,
     get_active_task,
     get_already_retried,
@@ -134,14 +132,10 @@ __all__ = [
     "extract_excluded_agents",
     "resolve_agent_candidates",
     "resolve_agent_name",
+    "OrchestrationMode",
     "AgentSettingsManager",
     "settings_manager",
-    "DebateOrchestrator",
-    "debate_orchestrator",
-    "detect_ambiguous_tags",
-    "detect_unrecognized_tags",
     "enforce_valid_nomination",
-    "extract_tagged_agents",
     "get_initial_agents",
     "parse_agent_and_prompt",
     "resolve_target_file",
@@ -155,9 +149,12 @@ __all__ = [
     "THREAD_ACTIVE_FILE_CONTEXT",
     "THREAD_GENERATIONS",
     "THREAD_HISTORY_LIMITS",
+    "THREAD_LAST_ACTIVITY",
     "THREAD_MAX_WORDS_LIMITS",
     "THREAD_MIN_WORDS_LIMITS",
     "ThreadStateManager",
+    "cleanup_expired_threads",
+    "cleanup_thread",
     "clear_503_errored_agents",
     "clear_thread_file_context",
     "clear_thread_history_limit",
@@ -165,6 +162,7 @@ __all__ = [
     "clear_thread_min_words",
     "clear_thread_state",
     "clear_thread_stop",
+    "touch_thread",
     "get_503_errored_agents",
     "get_thread_file_context",
     "get_thread_history_limit",

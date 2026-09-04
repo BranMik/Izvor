@@ -1,0 +1,273 @@
+"""
+Stage 4: LLM execution, 5-second intermediate status updates, and 60-second tool execution loops.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import inspect
+import json
+import logging
+import os
+import time
+from typing import Any, TYPE_CHECKING
+
+import litellm
+from starlette.concurrency import run_in_threadpool
+
+from core.config import (
+    TOOL_CALL_LOOP_TIMEOUT_SECONDS,
+    TOOL_INTERMEDIATE_UPDATE_DELAY_SECONDS,
+)
+from core.llm_utils import execute_llm_with_retry
+from services.mcp_tools import execute_mcp_tool
+from skills import skill_registry, LOAD_SKILL_SCHEMA
+from services.slack_client import post_agent_response
+from orchestration.agent_settings import settings_manager
+from orchestration.thread_state import has_agent_503_errored
+from orchestration.stages.tool_status import _build_tool_status_text
+
+if TYPE_CHECKING:
+    from orchestration.turn_pipeline import TurnContext
+
+logger = logging.getLogger(__name__)
+
+
+class ExecutionStageMixin:
+    """Provides stage 4 LLM execution and tool calling loops for TurnPipeline."""
+
+    def _get_hook(self, name: str, default: Any = None) -> Any:
+        raise NotImplementedError
+
+    async def stage_execute_llm(self, ctx: TurnContext) -> dict[str, Any] | None:
+        """Stage 4: Execute model completion and handle tool calling loop."""
+        if ctx.is_superseded():
+            logger.info(
+                f"[ROUTER] Thread {ctx.thread_key} turn was superseded before LLM call. Aborting."
+            )
+            return {"ok": False, "cancelled": True, "reason": "superseded"}
+
+        already_503_errored = has_agent_503_errored(
+            ctx.channel_id, ctx.thread_ts, ctx.agent_key
+        )
+        allow_503_immediate = already_503_errored
+
+        logger.info(
+            f"[LLM] Dispatching litellm.completion for {ctx.agent_key} (already_503_errored={already_503_errored})..."
+        )
+        llm_start = time.time()
+        # Resolve initial tools via Skills Framework (Progressive Disclosure)
+        agent_skills = ctx.agent_cfg.get("skills")
+        if agent_skills is None:
+            agent_skills = settings_manager.get_agent_skills(ctx.agent_key)
+
+        completion_kwargs: dict[str, Any] = {
+            "model": ctx.agent_cfg["model"],
+            "messages": ctx.messages,
+            "num_retries": 2,
+        }
+
+        # If agent has no authorized skills (pure debate agent), omit tools entirely
+        # For skilled agents, start strictly with LOAD_SKILL_SCHEMA (progressive disclosure)
+        active_tools: list[dict[str, Any]] = []
+        if agent_skills:
+            active_tools = [LOAD_SKILL_SCHEMA]
+            completion_kwargs["tools"] = active_tools
+            completion_kwargs["tool_choice"] = "auto"
+        if any(
+            keyword in ctx.agent_cfg["model"].lower()
+            for keyword in ["muse", "llama", "meta"]
+        ):
+            if os.getenv("META_API_KEY"):
+                completion_kwargs["api_key"] = os.getenv("META_API_KEY")
+            if os.getenv("META_API_BASE"):
+                completion_kwargs["api_base"] = os.getenv("META_API_BASE")
+
+        exec_retry_fn = self._get_hook(
+            "execute_llm_with_retry", execute_llm_with_retry
+        )
+        threadpool_fn = self._get_hook("run_in_threadpool", None)
+        custom_runner = (
+            threadpool_fn
+            if (threadpool_fn is not None and threadpool_fn is not run_in_threadpool)
+            else None
+        )
+
+        response = await exec_retry_fn(
+            litellm.acompletion,
+            completion_kwargs,
+            agent_key=ctx.agent_key,
+            thread_key=ctx.thread_key,
+            is_superseded_fn=ctx.is_superseded,
+            run_in_threadpool_fn=custom_runner,
+            allow_503_immediate_retry=allow_503_immediate,
+        )
+        if response is None and ctx.is_superseded():
+            return {"ok": False, "cancelled": True, "reason": "superseded"}
+
+        ctx.add_usage(response)
+        llm_duration = time.time() - llm_start
+        logger.info(
+            f"[LLM] Received response for {ctx.agent_key} in {llm_duration:.2f} seconds."
+        )
+
+        if ctx.is_superseded():
+            logger.info(
+                f"[ROUTER] Thread {ctx.thread_key} turn was superseded after LLM call. Aborting."
+            )
+            return {"ok": False, "cancelled": True, "reason": "superseded"}
+
+        response_message = response.choices[0].message
+        tool_calls = getattr(response_message, "tool_calls", None)
+
+        if tool_calls:
+            exec_mcp_fn = self._get_hook("execute_mcp_tool", None)
+            max_tool_iterations = 3
+            iteration = 0
+            timeout_secs = self._get_hook(
+                "TOOL_CALL_LOOP_TIMEOUT_SECONDS", TOOL_CALL_LOOP_TIMEOUT_SECONDS
+            )
+            intermediate_delay_secs = self._get_hook(
+                "TOOL_INTERMEDIATE_UPDATE_DELAY_SECONDS",
+                TOOL_INTERMEDIATE_UPDATE_DELAY_SECONDS,
+            )
+
+            # Start delayed intermediate status post task
+            async def _delayed_intermediate_post():
+                try:
+                    await asyncio.sleep(intermediate_delay_secs)
+                    if not ctx.is_superseded() and not ctx.intermediate_msg_ts:
+                        username = ctx.agent_cfg.get("username", ctx.agent_key)
+                        resolved_icon = ctx.icon_url or ctx.agent_cfg.get("icon_url")
+                        status_text = _build_tool_status_text(username, tool_calls)
+                        post_resp_fn = self._get_hook("post_agent_response", post_agent_response)
+                        logger.info(
+                            f"[ROUTER] Tool delay reached ({intermediate_delay_secs}s). Posting intermediate status for {username}."
+                        )
+                        res = await post_resp_fn(
+                            channel_id=ctx.channel_id,
+                            thread_ts=ctx.thread_ts,
+                            text=status_text,
+                            username=username,
+                            icon_url=resolved_icon,
+                        )
+                        if isinstance(res, dict) and res.get("ts"):
+                            ctx.intermediate_msg_ts = res["ts"]
+                except asyncio.CancelledError:
+                    pass
+                except Exception as e:
+                    logger.warning(f"[ROUTER] Failed to post intermediate tool status: {e}")
+
+            delay_task = asyncio.create_task(_delayed_intermediate_post())
+
+            async def _run_tool_calling_loop():
+                nonlocal iteration, response_message, tool_calls
+                while tool_calls and iteration < max_tool_iterations:
+                    iteration += 1
+                    ctx.messages.append(response_message.model_dump())
+
+                    for tool_call in tool_calls:
+                        fn_name = tool_call.function.name
+                        fn_args = (
+                            json.loads(tool_call.function.arguments)
+                            if isinstance(tool_call.function.arguments, str)
+                            else tool_call.function.arguments
+                        )
+                        if fn_name == "load_skill":
+                            tool_result = skill_registry.execute_tool(
+                                fn_name, fn_args, authorized_skills=agent_skills
+                            )
+                            # Dynamically unlock tools declared by this skill only if authorized
+                            skill_name = fn_args.get("skill_name", "").strip()
+                            if agent_skills and skill_name in agent_skills:
+                                skill_def = skill_registry.get(skill_name)
+                                if skill_def:
+                                    for s_schema in skill_def.get_tool_schemas():
+                                        if s_schema not in active_tools:
+                                            active_tools.append(s_schema)
+                        elif exec_mcp_fn is not None and exec_mcp_fn is not execute_mcp_tool:
+                            if inspect.iscoroutinefunction(exec_mcp_fn):
+                                tool_result = await exec_mcp_fn(fn_name, fn_args)
+                            else:
+                                tool_result = await asyncio.to_thread(exec_mcp_fn, fn_name, fn_args)
+                        else:
+                            tool_result = await asyncio.to_thread(
+                                skill_registry.execute_tool,
+                                fn_name,
+                                fn_args,
+                                authorized_skills=agent_skills,
+                            )
+
+                        ctx.messages.append(
+                            {
+                                "role": "tool",
+                                "tool_call_id": tool_call.id,
+                                "name": fn_name,
+                                "content": tool_result,
+                            }
+                        )
+
+                    if ctx.is_superseded():
+                        logger.info(
+                            f"[ROUTER] Thread {ctx.thread_key} turn was superseded during tool execution. Aborting."
+                        )
+                        return {"ok": False, "cancelled": True, "reason": "superseded"}
+
+                    follow_up_kwargs: dict[str, Any] = {
+                        "model": ctx.agent_cfg["model"],
+                        "messages": ctx.messages,
+                        "tools": active_tools,
+                        "tool_choice": "auto",
+                        "num_retries": 2,
+                    }
+                    if any(
+                        keyword in ctx.agent_cfg["model"].lower()
+                        for keyword in ["muse", "llama", "meta"]
+                    ):
+                        if os.getenv("META_API_KEY"):
+                            follow_up_kwargs["api_key"] = os.getenv("META_API_KEY")
+                        if os.getenv("META_API_BASE"):
+                            follow_up_kwargs["api_base"] = os.getenv("META_API_BASE")
+
+                    follow_up = await exec_retry_fn(
+                        litellm.acompletion,
+                        follow_up_kwargs,
+                        agent_key=f"{ctx.agent_key} follow-up",
+                        thread_key=ctx.thread_key,
+                        is_superseded_fn=ctx.is_superseded,
+                        run_in_threadpool_fn=custom_runner,
+                        allow_503_immediate_retry=allow_503_immediate,
+                    )
+                    if follow_up is None and ctx.is_superseded():
+                        return {"ok": False, "cancelled": True, "reason": "superseded"}
+
+                    ctx.add_usage(follow_up)
+                    response_message = follow_up.choices[0].message
+                    tool_calls = getattr(response_message, "tool_calls", None)
+
+                return None
+
+            try:
+                loop_res = await asyncio.wait_for(
+                    _run_tool_calling_loop(), timeout=timeout_secs
+                )
+                if loop_res is not None:
+                    return loop_res
+                ctx.final_text = response_message.content
+            except asyncio.TimeoutError:
+                logger.warning(
+                    f"[ROUTER] Tool calling loop timed out after {timeout_secs}s for {ctx.agent_key}."
+                )
+                if not ctx.final_text:
+                    ctx.final_text = (
+                        response_message.content
+                        if (response_message and response_message.content)
+                        else "⚠️ _Vrijeme za izvođenje alata je isteklo (timeout). Nastavljam raspravu._"
+                    )
+            finally:
+                if not delay_task.done():
+                    delay_task.cancel()
+        else:
+            ctx.final_text = response_message.content
+
+        return None

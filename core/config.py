@@ -1,4 +1,5 @@
 import os
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -11,20 +12,6 @@ env_path = Path(__file__).parent.parent / ".env"
 if not env_path.exists():
     env_path = Path(__file__).parent / ".env"
 load_dotenv(dotenv_path=env_path)
-
-# Set environment variables for LiteLLM if loaded from .env
-if os.getenv("GEMINI_API_KEY"):
-    os.environ["GEMINI_API_KEY"] = os.getenv("GEMINI_API_KEY")
-if os.getenv("MISTRAL_API_KEY"):
-    os.environ["MISTRAL_API_KEY"] = os.getenv("MISTRAL_API_KEY")
-if os.getenv("GROQ_API_KEY"):
-    os.environ["GROQ_API_KEY"] = os.getenv("GROQ_API_KEY")
-if os.getenv("TOGETHERAI_API_KEY"):
-    os.environ["TOGETHERAI_API_KEY"] = os.getenv("TOGETHERAI_API_KEY")
-if os.getenv("OPENAI_API_KEY"):
-    os.environ["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY")
-if os.getenv("ANTHROPIC_API_KEY"):
-    os.environ["ANTHROPIC_API_KEY"] = os.getenv("ANTHROPIC_API_KEY")
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
@@ -121,9 +108,6 @@ def get_intent_extractor_model() -> str:
 
 
 
-import sys
-
-
 # Pacing & Orchestration Defaults (configurable via environment variables)
 DEBATE_TURN_PACING_SECONDS = float(
     os.getenv("DEBATE_TURN_PACING_SECONDS", "0.01" if "pytest" in sys.modules else "3.0")
@@ -132,6 +116,12 @@ SLACK_POST_PAUSE_SECONDS = float(
     os.getenv("SLACK_POST_PAUSE_SECONDS", "0.01" if "pytest" in sys.modules else "2.0")
 )
 MAX_DISCUSSION_TURNS = int(os.getenv("MAX_DISCUSSION_TURNS", "20"))
+TOOL_CALL_LOOP_TIMEOUT_SECONDS = float(
+    os.getenv("TOOL_CALL_LOOP_TIMEOUT_SECONDS", "60.0")
+)
+TOOL_INTERMEDIATE_UPDATE_DELAY_SECONDS = float(
+    os.getenv("TOOL_INTERMEDIATE_UPDATE_DELAY_SECONDS", "5.0")
+)
 
 
 # Module-level variable aliases (dynamically resolve via module __getattr__)

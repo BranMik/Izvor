@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 from core.config import AGENTS_CONFIG
 from nlp.message_builder import build_llm_messages
 from orchestration.agent_settings import AgentSettingsManager, settings_manager
-from orchestration.debate_orchestrator import DebateOrchestrator, enforce_valid_nomination
+from orchestration.nomination import enforce_valid_nomination
 from orchestration.agent_router import (
     process_and_respond,
     REMAINING_AGENTS_MAP,
@@ -60,8 +60,7 @@ def test_sandwich_mode_ordering_and_pool():
         end_chain=["Architect"],
     )
 
-    orch = DebateOrchestrator()
-    agents_flow = orch.get_initial_agents()
+    agents_flow = get_initial_agents()
 
     # Start chain is at the beginning
     assert agents_flow[0] == "Visionary"
@@ -79,8 +78,7 @@ def test_sandwich_mode_empty_chains_is_arbitrary_pool():
     set_orchestration_mode("sandwich")
     set_sandwich_config(start_chain=[], end_chain=[])
 
-    orch = DebateOrchestrator()
-    agents_flow = orch.get_initial_agents()
+    agents_flow = get_initial_agents()
 
     assert len(agents_flow) == len(AGENTS_CONFIG)
     assert set(agents_flow) == set(AGENTS_CONFIG.keys())
@@ -94,8 +92,7 @@ def test_sandwich_mode_reentrance():
         end_chain=["Architect"],
     )
 
-    orch = DebateOrchestrator()
-    agents_flow = orch.get_initial_agents()
+    agents_flow = get_initial_agents()
 
     assert agents_flow[0] == "Architect"
     assert agents_flow[1] == "Visionary"
@@ -107,8 +104,7 @@ def test_fixed_mode_strict_sequence():
     set_orchestration_mode("fixed")
     set_fixed_config(["TechLead", "Innovator", "Architect"])
 
-    orch = DebateOrchestrator()
-    agents_flow = orch.get_initial_agents()
+    agents_flow = get_initial_agents()
 
     # Exactly 3 agents in exact sequence
     assert agents_flow == ["TechLead", "Innovator", "Architect"]
@@ -118,8 +114,7 @@ def test_fixed_mode_empty_chain_falls_back_to_all_enabled():
     set_orchestration_mode("fixed")
     set_fixed_config([])
 
-    orch = DebateOrchestrator()
-    agents_flow = orch.get_initial_agents()
+    agents_flow = get_initial_agents()
 
     assert len(agents_flow) == len(AGENTS_CONFIG)
 

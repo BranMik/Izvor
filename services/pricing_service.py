@@ -1,4 +1,5 @@
 import asyncio
+import inspect
 import json
 import logging
 from pathlib import Path
@@ -10,7 +11,7 @@ from typing import Any
 import litellm
 from starlette.concurrency import run_in_threadpool
 
-from core.config import PRICING_AGENT_MODEL, PRICING_AGENT_PROMPT
+from core.config import get_pricing_agent_model, PRICING_AGENT_PROMPT
 from core.models import ModelPricing
 from .web_tools import fetch_web_page, web_search
 
@@ -297,7 +298,7 @@ class PricingService:
 
         def _run_completion():
             return litellm.completion(
-                model=PRICING_AGENT_MODEL,
+                model=get_pricing_agent_model(),
                 messages=messages,
                 tools=PRICING_TOOL_SCHEMAS,
                 tool_choice="auto",
@@ -328,12 +329,16 @@ class PricingService:
                 )
                 if fn_name == "web_search":
                     search_fn = getattr(sys.modules.get("pricing_service") or sys.modules.get("services.pricing_service"), "web_search", web_search)
-                    call_res = search_fn(**fn_args)
-                    res_str = await call_res if asyncio.iscoroutine(call_res) else call_res
+                    if inspect.iscoroutinefunction(search_fn):
+                        res_str = await search_fn(**fn_args)
+                    else:
+                        res_str = await asyncio.to_thread(search_fn, **fn_args)
                 elif fn_name == "fetch_web_page":
                     fetch_page_fn = getattr(sys.modules.get("pricing_service") or sys.modules.get("services.pricing_service"), "fetch_web_page", fetch_web_page)
-                    call_res = fetch_page_fn(**fn_args)
-                    res_str = await call_res if asyncio.iscoroutine(call_res) else call_res
+                    if inspect.iscoroutinefunction(fetch_page_fn):
+                        res_str = await fetch_page_fn(**fn_args)
+                    else:
+                        res_str = await asyncio.to_thread(fetch_page_fn, **fn_args)
                 else:
                     res_str = f"Error: unknown tool '{fn_name}'"
 
@@ -348,7 +353,7 @@ class PricingService:
 
             def _run_followup():
                 return litellm.completion(
-                    model=PRICING_AGENT_MODEL,
+                    model=get_pricing_agent_model(),
                     messages=messages,
                     response_format={"type": "json_object"},
                 )
@@ -394,8 +399,10 @@ class PricingService:
         try:
             clean_query = re.sub(r"^[a-zA-Z0-9_-]+/", "", model_name)
             search_fn = getattr(sys.modules.get("pricing_service") or sys.modules.get("services.pricing_service"), "web_search", web_search)
-            call_res = search_fn(query=f"{clean_query} api pricing tokens million official", max_results=5)
-            search_raw = await call_res if asyncio.iscoroutine(call_res) else call_res
+            if inspect.iscoroutinefunction(search_fn):
+                search_raw = await search_fn(query=f"{clean_query} api pricing tokens million official", max_results=5)
+            else:
+                search_raw = await asyncio.to_thread(search_fn, query=f"{clean_query} api pricing tokens million official", max_results=5)
             in_val, out_val = _extract_pricing_from_search_text(search_raw, model_name)
             input_price = in_val if in_val is not None else baseline["input_price_per_1m"]
             output_price = out_val if out_val is not None else baseline["output_price_per_1m"]

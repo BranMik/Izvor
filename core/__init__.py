@@ -8,6 +8,8 @@ from .config import (
     SLACK_POST_PAUSE_SECONDS,
     THREAD_NOTES_MODEL,
     THREAD_NOTES_PROMPT,
+    TOOL_CALL_LOOP_TIMEOUT_SECONDS,
+    TOOL_INTERMEDIATE_UPDATE_DELAY_SECONDS,
     USAGE_AGENT_MODEL,
     USAGE_AGENT_PROMPT,
     USAGE_CHANNEL_ID,
@@ -29,6 +31,7 @@ from .models import (
     FileContext,
     HistoryLimitConfig,
     ModelPricing,
+    OrchestrationMode,
 )
 from .domain import (
     DiscussionBrief,
@@ -48,6 +51,8 @@ __all__ = [
     "SLACK_POST_PAUSE_SECONDS",
     "THREAD_NOTES_MODEL",
     "THREAD_NOTES_PROMPT",
+    "TOOL_CALL_LOOP_TIMEOUT_SECONDS",
+    "TOOL_INTERMEDIATE_UPDATE_DELAY_SECONDS",
     "USAGE_AGENT_MODEL",
     "USAGE_AGENT_PROMPT",
     "USAGE_CHANNEL_ID",
@@ -65,6 +70,7 @@ __all__ = [
     "FileContext",
     "HistoryLimitConfig",
     "ModelPricing",
+    "OrchestrationMode",
     "Turn",
     "SessionContext",
     "DiscussionBrief",
