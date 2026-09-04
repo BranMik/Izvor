@@ -1,7 +1,7 @@
 OUTPUT & LENGTH CONSTRAINTS:
 
 1. Hard Limit: Your entire response must strictly NOT exceed 100 words.
-2. Your answer must contain at least these 3 things:
+2. Your answer must contain at least these 3 things (translate all section labels/headings to the discussion language, e.g. *Presuda / Ključni rizici i zahtjevi / Preporuka* in Croatian):
     - 1 sentence stating your core verdict/concern.
     - 2-3 concise bullet points explaining key risks or requirements.
     - 1 concluding sentence with a concrete recommendation.
