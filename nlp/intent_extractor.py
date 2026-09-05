@@ -109,7 +109,6 @@ class IntentExtractor:
                     model=self.model,
                     messages=messages,
                     response_format={"type": "json_object"},
-                    temperature=0.0,
                     num_retries=1,
                 )
 
