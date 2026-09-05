@@ -1,19 +1,19 @@
 from unittest.mock import AsyncMock, MagicMock
 import pytest
 
-from orchestration.agent_router import (
-    process_and_respond,
-    REMAINING_AGENTS_MAP,
-    reset_enabled_agents,
-    is_circuit_breaker_enabled,
-    set_circuit_breaker_enabled,
-    get_circuit_breaker_threshold,
-    set_circuit_breaker_threshold,
+from orchestration.agent_router import process_and_respond
+from orchestration.agent_settings import (
     get_circuit_breaker_config,
+    get_circuit_breaker_threshold,
+    is_circuit_breaker_enabled,
+    reset_enabled_agents,
+    set_circuit_breaker_enabled,
+    set_circuit_breaker_threshold,
+    set_fixed_config,
     set_orchestration_mode,
     set_sandwich_config,
-    set_fixed_config,
 )
+from orchestration.thread_state import REMAINING_AGENTS_MAP
 import orchestration.agent_router as agent_router
 
 

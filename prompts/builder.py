@@ -35,6 +35,59 @@ def _load_short_output_agents() -> set[str]:
 SHORT_OUTPUT_AGENTS: set[str] = _load_short_output_agents()
 
 
+def _load_system_agents() -> set[str]:
+    """Loads agent keys configured as system agents from agent_settings.json metadata."""
+    settings_path = PROMPTS_DIR.parent / "data" / "agent_settings.json"
+    system_keys: set[str] = set()
+    if settings_path.exists():
+        try:
+            with open(settings_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            for sys_k, sys_v in data.get("system_agents", {}).items():
+                if isinstance(sys_v, dict):
+                    system_keys.add(sys_k)
+                    if sys_v.get("agent_key"):
+                        system_keys.add(str(sys_v["agent_key"]))
+                elif isinstance(sys_k, str):
+                    system_keys.add(sys_k)
+            for k, v in data.get("agents", {}).items():
+                if isinstance(v, dict) and v.get("is_system_agent") is True:
+                    system_keys.add(k)
+        except Exception:
+            pass
+    return system_keys
+
+
+# System agents with self-contained prompts (loaded from agent_settings.json metadata)
+SYSTEM_AGENTS: set[str] = _load_system_agents()
+
+
+def is_system_agent(agent_key: str) -> bool:
+    """Checks whether an agent is configured as a system agent via metadata or settings."""
+    if agent_key in SYSTEM_AGENTS:
+        return True
+
+    # Runtime fallback lookup against core.config.SYSTEM_AGENTS_CONFIG
+    try:
+        import sys
+
+        core_cfg = sys.modules.get("core.config")
+        if core_cfg and hasattr(core_cfg, "SYSTEM_AGENTS_CONFIG"):
+            sys_cfg = getattr(core_cfg, "SYSTEM_AGENTS_CONFIG", {})
+            if agent_key in sys_cfg:
+                return True
+            for k, entry in sys_cfg.items():
+                if isinstance(entry, dict):
+                    if entry.get("agent_key") == agent_key:
+                        return True
+                    if k == agent_key and entry.get("is_system_agent") is True:
+                        return True
+    except Exception:
+        pass
+
+    return False
+
+
 def _format_word_constraints(
     max_words: int | None = None, min_words: int | None = None
 ) -> str:
@@ -68,12 +121,8 @@ def build_agent_prompt(
     persona_file = PERSONAS_DIR / f"{agent_key}.md"
     persona_content = _read_prompt_file(persona_file)
 
-    # Support agents with self-contained prompts
-    if agent_key in (
-        "Thread_Notes_Agent",
-        "Usage_Agent",
-        "Pricing_Agent",
-    ):
+    # Support agents with self-contained prompts driven by metadata
+    if is_system_agent(agent_key):
         return f"\n{persona_content}\n\n"
 
     word_constraints = _format_word_constraints(

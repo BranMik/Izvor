@@ -305,7 +305,7 @@ def test_dynamic_config_getattr_resolution():
         settings_manager.system_agents_config = {}
         default_model = core.config.THREAD_NOTES_MODEL
         assert default_model == "mistral/mistral-small-latest"
-        assert core.config.LANGUAGE_DETECTOR_MODEL == "mistral/mistral-small-latest"
+        assert core.config.LANGUAGE_DETECTOR_MODEL == "gemini/gemini-3.8-flash"
         assert core.config.INTENT_EXTRACTOR_MODEL == "mistral/mistral-small-latest"
 
         # With dynamic override, __getattr__ dynamically fetches the updated model

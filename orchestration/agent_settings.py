@@ -200,13 +200,17 @@ class AgentSettingsManager:
         if isinstance(raw_system_agents, dict):
             for sys_k, sys_v in raw_system_agents.items():
                 if isinstance(sys_v, dict):
-                    sys_entry = {}
+                    sys_entry = dict(sys_v)
                     if sys_v.get("model"):
                         sys_entry["model"] = str(sys_v["model"]).strip()
                     if sys_v.get("username"):
                         sys_entry["username"] = str(sys_v["username"]).strip()
                     if sys_v.get("icon_url"):
                         sys_entry["icon_url"] = str(sys_v["icon_url"]).strip()
+                    if sys_v.get("agent_key"):
+                        sys_entry["agent_key"] = str(sys_v["agent_key"]).strip()
+                    if "is_system_agent" in sys_v:
+                        sys_entry["is_system_agent"] = bool(sys_v["is_system_agent"])
                     if sys_entry:
                         self.system_agents_config[sys_k] = sys_entry
 
@@ -426,9 +430,7 @@ class AgentSettingsManager:
                     for k, v in self.agents_config.items()
                 },
                 "system_agents": {
-                    k: {
-                        "model": v.get("model", "")
-                    }
+                    k: dict(v)
                     for k, v in self.system_agents_config.items()
                 },
             }

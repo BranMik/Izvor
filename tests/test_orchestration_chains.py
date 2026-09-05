@@ -7,23 +7,24 @@ from unittest.mock import AsyncMock, MagicMock
 from core.config import AGENTS_CONFIG
 from nlp.message_builder import build_llm_messages
 from orchestration.agent_settings import AgentSettingsManager, settings_manager
-from orchestration.nomination import enforce_valid_nomination
-from orchestration.agent_router import (
-    process_and_respond,
-    REMAINING_AGENTS_MAP,
-    RATE_LIMIT_RETRY_QUEUE,
-    RATE_LIMIT_ALREADY_RETRIED,
-    CUSTOM_FLOW_THREADS,
-    STOP_REQUESTED_THREADS,
-    get_orchestration_mode,
-    set_orchestration_mode,
-    get_sandwich_config,
-    set_sandwich_config,
+from orchestration.nomination import enforce_valid_nomination, get_initial_agents
+from orchestration.agent_router import process_and_respond
+from orchestration.agent_settings import (
     get_fixed_config,
-    set_fixed_config,
-    get_initial_agents,
+    get_orchestration_mode,
+    get_sandwich_config,
     reset_enabled_agents,
     set_agent_enabled,
+    set_fixed_config,
+    set_orchestration_mode,
+    set_sandwich_config,
+)
+from orchestration.thread_state import (
+    CUSTOM_FLOW_THREADS,
+    RATE_LIMIT_ALREADY_RETRIED,
+    RATE_LIMIT_RETRY_QUEUE,
+    REMAINING_AGENTS_MAP,
+    STOP_REQUESTED_THREADS,
 )
 from services.slack_client import build_app_home_view
 import orchestration.agent_router as agent_router

@@ -12,6 +12,7 @@ Coordinates turn processing across modular stages with an explicit TurnContext c
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from dataclasses import dataclass, field
 import logging
 import sys
@@ -23,6 +24,14 @@ from agents import (
     record_thread_tokens,
     trigger_thread_notes_update,
     trigger_usage_update,
+)
+from core.llm_utils import execute_llm_with_retry
+from services.slack_client import (
+    fetch_thread_files,
+    fetch_thread_history,
+    post_agent_response,
+    post_system_message,
+    update_slack_message,
 )
 from orchestration.stages import (
     _build_tool_status_text,
@@ -136,9 +145,38 @@ class TurnPipeline(
       5. Nomination Enforcement, Slack Dispatch & Error Handling
     """
 
-    def __init__(self, router_module=None, hooks: dict[str, Any] | None = None):
+    def __init__(
+        self,
+        router_module: Any = None,
+        hooks: dict[str, Any] | None = None,
+        *,
+        llm_executor: Callable[..., Any] | None = None,
+        slack_poster: Callable[..., Any] | None = None,
+        history_fetcher: Callable[..., Any] | None = None,
+        files_fetcher: Callable[..., Any] | None = None,
+        token_recorder: Callable[..., Any] | None = None,
+        notes_updater: Callable[..., Any] | None = None,
+        usage_updater: Callable[..., Any] | None = None,
+        sleep_fn: Callable[..., Any] | None = None,
+        post_system_message_fn: Callable[..., Any] | None = None,
+        update_message_fn: Callable[..., Any] | None = None,
+        calc_costs_fn: Callable[..., Any] | None = None,
+    ):
         self._router_module = router_module
         self._hooks: dict[str, Any] = hooks or {}
+
+        # Explicit Dependency Injection
+        self.llm_executor = llm_executor
+        self.slack_poster = slack_poster
+        self.history_fetcher = history_fetcher
+        self.files_fetcher = files_fetcher
+        self.token_recorder = token_recorder
+        self.notes_updater = notes_updater
+        self.usage_updater = usage_updater
+        self.sleep_fn = sleep_fn
+        self.post_system_message_fn = post_system_message_fn
+        self.update_message_fn = update_message_fn
+        self.calc_costs_fn = calc_costs_fn
 
     @property
     def router(self):
@@ -147,19 +185,63 @@ class TurnPipeline(
         return sys.modules.get("orchestration.agent_router")
 
     def _get_hook(self, name: str, default: Any = None) -> Any:
-        """Dynamically retrieves a function or constant from hooks, router module, or default."""
-        if name in self._hooks:
+        """Dynamically retrieves a function or constant from injected deps, hooks, router module, or default."""
+        # 1. Injected dependencies take highest priority
+        di_map = {
+            "execute_llm_with_retry": self.llm_executor,
+            "post_agent_response": self.slack_poster,
+            "fetch_thread_history": self.history_fetcher,
+            "fetch_thread_files": self.files_fetcher,
+            "record_thread_tokens": self.token_recorder,
+            "trigger_thread_notes_update": self.notes_updater,
+            "trigger_usage_update": self.usage_updater,
+            "post_system_message": self.post_system_message_fn,
+            "update_slack_message": self.update_message_fn,
+            "update_agent_message": self.update_message_fn,
+            "calculate_thread_costs": self.calc_costs_fn,
+        }
+        if name in di_map and di_map[name] is not None:
+            return di_map[name]
+
+        # 2. Hooks dictionary passed to constructor
+        if name in self._hooks and self._hooks[name] is not None:
             return self._hooks[name]
+
+        # 3. Router module or agent_router monkeypatches
         r = self.router
         if r is not None and hasattr(r, name):
             return getattr(r, name)
+
+        # 4. TurnPipeline module attribute or monkeypatch
         tp = sys.modules.get("orchestration.turn_pipeline")
         if tp is not None and hasattr(tp, name):
             return getattr(tp, name)
-        return default
+
+        # 5. Default fallback if provided
+        if default is not None:
+            return default
+
+        # 6. Default canonical service implementations
+        fallback_map = {
+            "execute_llm_with_retry": execute_llm_with_retry,
+            "post_agent_response": post_agent_response,
+            "fetch_thread_history": fetch_thread_history,
+            "fetch_thread_files": fetch_thread_files,
+            "record_thread_tokens": record_thread_tokens,
+            "trigger_thread_notes_update": trigger_thread_notes_update,
+            "trigger_usage_update": trigger_usage_update,
+            "post_system_message": post_system_message,
+            "update_slack_message": update_slack_message,
+            "update_agent_message": update_slack_message,
+            "calculate_thread_costs": calculate_thread_costs,
+        }
+        return fallback_map.get(name, None)
 
     async def _sleep(self, seconds: float):
-        """Asynchronous sleep respecting any monkeypatch on agent_router.asyncio.sleep."""
+        """Asynchronous sleep respecting injected sleep_fn or router monkeypatch."""
+        if self.sleep_fn is not None:
+            await self.sleep_fn(seconds)
+            return
         r = self.router
         sleep_fn = getattr(getattr(r, "asyncio", asyncio), "sleep", asyncio.sleep)
         await sleep_fn(seconds)

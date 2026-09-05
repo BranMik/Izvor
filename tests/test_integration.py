@@ -1,19 +1,21 @@
 import pytest
 from fastapi.testclient import TestClient
 from main import app, PROCESSED_EVENTS
-from orchestration.agent_router import (
+from orchestration.agent_settings import (
     ENABLED_DEBATE_AGENTS,
     LOCKED_AGENTS,
+    get_circuit_breaker_threshold,
+    is_circuit_breaker_enabled,
+    reset_enabled_agents,
+    set_circuit_breaker_enabled,
+    set_circuit_breaker_threshold,
+)
+from orchestration.thread_state import (
+    interrupt_thread_discussion,
+    is_discussion_active,
     REMAINING_AGENTS_MAP,
     STOP_REQUESTED_THREADS,
     THREAD_GENERATIONS,
-    is_discussion_active,
-    interrupt_thread_discussion,
-    reset_enabled_agents,
-    is_circuit_breaker_enabled,
-    get_circuit_breaker_threshold,
-    set_circuit_breaker_enabled,
-    set_circuit_breaker_threshold,
 )
 
 client = TestClient(app)

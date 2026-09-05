@@ -2,19 +2,23 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from core.config import AGENTS_CONFIG
-from orchestration.agent_router import (
-    process_and_respond,
-    REMAINING_AGENTS_MAP,
-    RATE_LIMIT_RETRY_QUEUE,
-    RATE_LIMIT_ALREADY_RETRIED,
-    HIGH_DEMAND_ERRORED_AGENTS,
+from core.llm_utils import (
     classify_agent_error,
-    is_high_demand_503_error,
     execute_llm_with_retry,
+    is_high_demand_503_error,
+)
+from orchestration.agent_router import process_and_respond
+from orchestration.agent_settings import (
     reset_enabled_agents,
+    set_fixed_config,
     set_orchestration_mode,
     set_sandwich_config,
-    set_fixed_config,
+)
+from orchestration.thread_state import (
+    HIGH_DEMAND_ERRORED_AGENTS,
+    RATE_LIMIT_ALREADY_RETRIED,
+    RATE_LIMIT_RETRY_QUEUE,
+    REMAINING_AGENTS_MAP,
 )
 import orchestration.agent_router as agent_router
 
