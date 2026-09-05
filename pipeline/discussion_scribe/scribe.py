@@ -7,6 +7,7 @@ from typing import Any
 
 import litellm
 
+from core.config import get_thread_notes_model
 from core.domain import DiscussionBrief, Turn
 
 logger = logging.getLogger(__name__)
@@ -33,7 +34,7 @@ class DiscussionScribe:
     """
 
     def __init__(self, model: str | None = None, system_prompt: str | None = None):
-        self.model = model or os.getenv("THREAD_NOTES_MODEL", "mistral/mistral-small-latest")
+        self.model = model or get_thread_notes_model()
         self.system_prompt = system_prompt or SCRIBE_DEFAULT_PROMPT
 
     async def generate_brief(
@@ -109,7 +110,6 @@ class DiscussionScribe:
                     model=self.model,
                     messages=formatted_messages,
                     max_tokens=max_tokens,
-                    temperature=0.2,
                     num_retries=2,
                 )
                 resp = await res if asyncio.iscoroutine(res) else res
@@ -118,7 +118,6 @@ class DiscussionScribe:
                     model=self.model,
                     messages=formatted_messages,
                     max_tokens=max_tokens,
-                    temperature=0.2,
                     num_retries=2,
                 )
                 resp = await res if asyncio.iscoroutine(res) else res

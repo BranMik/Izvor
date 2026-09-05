@@ -301,18 +301,24 @@ def test_dynamic_config_getattr_resolution():
     # Test dynamic resolution through settings_manager
     original_system_agents = dict(settings_manager.system_agents_config)
     try:
-        # Without override, returns default
+        # Without override, returns default from SSOT file
         settings_manager.system_agents_config = {}
         default_model = core.config.THREAD_NOTES_MODEL
         assert default_model == "mistral/mistral-small-latest"
+        assert core.config.LANGUAGE_DETECTOR_MODEL == "mistral/mistral-small-latest"
+        assert core.config.INTENT_EXTRACTOR_MODEL == "mistral/mistral-small-latest"
 
         # With dynamic override, __getattr__ dynamically fetches the updated model
         settings_manager.system_agents_config = {
             "thread_notes": {"model": "anthropic/claude-3-7-sonnet-dynamic"},
             "usage_agent": {"model": "openai/gpt-5-turbo-dynamic"},
+            "language_detector": {"model": "groq/llama-3.3-70b-versatile-dynamic"},
+            "intent_extractor": {"model": "mistral/mistral-large-latest-dynamic"},
         }
         assert core.config.THREAD_NOTES_MODEL == "anthropic/claude-3-7-sonnet-dynamic"
         assert core.config.USAGE_AGENT_MODEL == "openai/gpt-5-turbo-dynamic"
+        assert core.config.LANGUAGE_DETECTOR_MODEL == "groq/llama-3.3-70b-versatile-dynamic"
+        assert core.config.INTENT_EXTRACTOR_MODEL == "mistral/mistral-large-latest-dynamic"
     finally:
         settings_manager.system_agents_config = original_system_agents
 

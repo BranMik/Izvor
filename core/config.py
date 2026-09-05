@@ -62,26 +62,58 @@ AGENTS_CONFIG: dict[str, dict[str, Any]] = {}
 SYSTEM_AGENTS_CONFIG: dict[str, dict[str, Any]] = {}
 
 
-def get_system_agent_model(name: str, fallback: str = "mistral/mistral-small-latest") -> str:
+def _load_system_agents_from_ssot() -> dict[str, dict[str, Any]]:
+    """Loads system_agents mapping directly from data/agent_settings.json SSOT."""
+    settings_file = PROJECT_ROOT / "data" / "agent_settings.json"
+    if not settings_file.exists():
+        return {}
+    try:
+        import json
+
+        with open(settings_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        raw = data.get("system_agents", {})
+        if isinstance(raw, dict):
+            return {k: v for k, v in raw.items() if isinstance(v, dict)}
+    except Exception:
+        pass
+    return {}
+
+
+def get_system_agent_model(name: str, fallback: str = "") -> str:
     """
-    Retrieves the configured LLM model for a system agent.
-    Checks environment variable override first (e.g. THREAD_NOTES_MODEL),
-    then the JSON-configured system_agents config, then fallback.
+    Retrieves the configured LLM model for a system agent from SSOT (data/agent_settings.json).
+    Allows environment variable override (e.g. THREAD_NOTES_MODEL, INTENT_EXTRACTOR_MODEL,
+    LANGUAGE_DETECTOR_MODEL) only if explicitly defined in the environment.
     """
     env_var_key = f"{name.upper()}_MODEL"
     env_val = os.getenv(env_var_key)
-    if env_val:
-        return env_val
-    # Check settings_manager if available
+    if env_val and env_val.strip():
+        return env_val.strip()
+
+    # 1. Check settings_manager if available in loaded modules
     settings_mod = sys.modules.get("orchestration.agent_settings") or sys.modules.get("agent_settings")
     if settings_mod and hasattr(settings_mod, "settings_manager"):
         mgr_cfg = getattr(settings_mod.settings_manager, "system_agents_config", {})
         if isinstance(mgr_cfg, dict) and name in mgr_cfg:
             entry = mgr_cfg[name]
             if isinstance(entry, dict) and entry.get("model"):
-                return entry["model"]
+                return str(entry["model"]).strip()
+
+    # 2. Check in-memory shared SYSTEM_AGENTS_CONFIG
     sys_cfg = SYSTEM_AGENTS_CONFIG.get(name, {})
-    return sys_cfg.get("model") or fallback
+    if isinstance(sys_cfg, dict) and sys_cfg.get("model"):
+        return str(sys_cfg["model"]).strip()
+
+    # 3. Direct load from SSOT file (data/agent_settings.json)
+    ssot_agents = _load_system_agents_from_ssot()
+    if name in ssot_agents:
+        entry = ssot_agents[name]
+        if isinstance(entry, dict) and entry.get("model"):
+            SYSTEM_AGENTS_CONFIG[name] = entry
+            return str(entry["model"]).strip()
+
+    return fallback
 
 
 # System / Utility Agent prompts
@@ -90,25 +122,25 @@ USAGE_AGENT_PROMPT = build_agent_prompt("Usage_Agent")
 PRICING_AGENT_PROMPT = build_agent_prompt("Pricing_Agent")
 
 
-# Module-level getters / properties for backward compatibility
+# Module-level getters / properties (dynamically resolved from SSOT)
 def get_thread_notes_model() -> str:
-    return get_system_agent_model("thread_notes", os.getenv("THREAD_NOTES_MODEL", "mistral/mistral-small-latest"))
+    return get_system_agent_model("thread_notes")
 
 
 def get_usage_agent_model() -> str:
-    return get_system_agent_model("usage_agent", os.getenv("USAGE_AGENT_MODEL", "mistral/mistral-small-latest"))
+    return get_system_agent_model("usage_agent")
 
 
 def get_pricing_agent_model() -> str:
-    return get_system_agent_model("pricing_agent", os.getenv("PRICING_AGENT_MODEL", "mistral/mistral-small-latest"))
+    return get_system_agent_model("pricing_agent")
 
 
 def get_intent_extractor_model() -> str:
-    return get_system_agent_model("intent_extractor", os.getenv("INTENT_EXTRACTOR_MODEL", "mistral/mistral-small-latest"))
+    return get_system_agent_model("intent_extractor")
 
 
 def get_language_detector_model() -> str:
-    return get_system_agent_model("language_detector", os.getenv("LANGUAGE_DETECTOR_MODEL", "gemini/gemini-3.8-flash"))
+    return get_system_agent_model("language_detector")
 
 
 

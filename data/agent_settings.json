@@ -65,7 +65,7 @@
     "TechLead": {
       "model": "mistral/mistral-large-latest",
       "username": "TechLead",
-      "icon_url": "static/v2/avatar_26.png",
+      "icon_url": "static/v2/avatar_14.png",
       "is_short_output": false,
       "skills": [
         "codebase_inspection",
@@ -126,7 +126,7 @@
     "ScalabilityEngineer": {
       "model": "gemini/gemini-3.8-flash",
       "username": "Scalability Engineer",
-      "icon_url": "static/v2/avatar_14.png",
+      "icon_url": "static/v2/avatar_02.png",
       "is_short_output": true,
       "skills": [
         "codebase_inspection"
@@ -142,7 +142,7 @@
     "DeploymentReleaseStrategist": {
       "model": "mistral/mistral-large-latest",
       "username": "Deployment & Release Strategist",
-      "icon_url": "static/v2/avatar_02.png",
+      "icon_url": "static/v2/avatar_50.png",
       "is_short_output": true,
       "skills": []
     },
@@ -165,7 +165,7 @@
     "QALead": {
       "model": "mistral/mistral-large-latest",
       "username": "QA Lead",
-      "icon_url": "static/v2/avatar_50.png",
+      "icon_url": "static/v2/avatar_26.png",
       "is_short_output": true,
       "skills": [
         "codebase_inspection"
@@ -187,6 +187,9 @@
     },
     "system_agent": {
       "model": "mistral/mistral-small-latest"
+    },
+    "language_detector": {
+      "model": "gemini/gemini-3.8-flash"
     }
   }
 }

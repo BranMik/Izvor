@@ -92,9 +92,11 @@ class ValidationStageMixin:
             # Lock language for this thread on first human prompt or preserve existing
             current_lang = get_thread_language(ctx.channel_id, ctx.thread_ts)
             if not current_lang:
-                current_lang = await detect_language_llm(
-                    ctx.raw_text_cleaned or ctx.raw_text
+                text_to_detect = ctx.raw_text_cleaned or ctx.raw_text
+                logger.info(
+                    f"[ROUTER] Inferring language for thread {ctx.thread_key} from text: '{text_to_detect[:80]}'"
                 )
+                current_lang = await detect_language_llm(text_to_detect)
                 set_thread_language(ctx.channel_id, ctx.thread_ts, current_lang)
                 logger.info(
                     f"[ROUTER] Locked thread language for {ctx.thread_key}: {current_lang}"

@@ -187,6 +187,9 @@
     },
     "system_agent": {
       "model": "mistral/mistral-small-latest"
+    },
+    "language_detector": {
+      "model": "mistral/mistral-small-latest"
     }
   }
 }
