@@ -185,6 +185,3 @@ async def execute_llm_with_retry(
                 raise last_error
 
 
-# Backwards compatibility alias
-_execute_llm_with_retry = execute_llm_with_retry
-

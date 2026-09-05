@@ -1,7 +1,5 @@
 import asyncio
 import logging
-import os
-import re
 import time
 from typing import Any
 
@@ -128,23 +126,10 @@ class DiscussionScribe:
                 "completion_tokens": getattr(usage, "completion_tokens", 0) if usage else 0,
             }
 
-            # Detect language heuristically
-            is_hr = bool(re.search(r"\b(je|su|i|u|na|da|za|sa|od|kako|završeno|ažurira)\b", raw_text, re.IGNORECASE))
-            is_de = bool(re.search(r"\b(der|die|das|und|ist|in|den|von|zu|mit|sich|des|auf|für)\b", raw_text, re.IGNORECASE))
-            is_es = bool(re.search(r"\b(el|la|los|las|un|una|es|por|para|con|en|del)\b", raw_text, re.IGNORECASE))
-            if is_hr:
-                lang = "hr"
-            elif is_de:
-                lang = "de"
-            elif is_es:
-                lang = "es"
-            else:
-                lang = "en"
-
             brief = DiscussionBrief(
                 is_completed=is_completed,
                 raw_markdown=raw_text.strip(),
-                language=lang,
+                language=thread_language,
             )
             logger.info(f"[SCRIBE] Generated brief ({len(raw_text)} chars) in {time.time() - start_time:.2f}s")
             return brief, tokens

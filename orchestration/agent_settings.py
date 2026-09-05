@@ -582,6 +582,39 @@ class AgentSettingsManager:
         logger.info(f"[SETTINGS] Updated skills for '{agent_key}': {sanitized_skills}")
         return True
 
+    def set_agent_model(self, agent_key: str, model: str, save: bool = True) -> bool:
+        """Sets the LLM model for a panel agent and persists to settings JSON."""
+        if agent_key not in self.agents_config:
+            logger.warning(f"[SETTINGS] Cannot set model for unknown agent '{agent_key}'")
+            return False
+
+        clean_model = str(model).strip()
+        if not clean_model:
+            logger.warning(f"[SETTINGS] Invalid empty model for agent '{agent_key}'")
+            return False
+
+        self.agents_config[agent_key]["model"] = clean_model
+        if save:
+            self.save()
+        logger.info(f"[SETTINGS] Updated model for '{agent_key}': {clean_model}")
+        return True
+
+    def set_system_agent_model(self, sys_agent_key: str, model: str, save: bool = True) -> bool:
+        """Sets the LLM model for a system agent and persists to settings JSON."""
+        if sys_agent_key not in self.system_agents_config:
+            logger.warning(f"[SETTINGS] Cannot set model for unknown system agent '{sys_agent_key}'")
+            return False
+
+        clean_model = str(model).strip()
+        if not clean_model:
+            return False
+
+        self.system_agents_config[sys_agent_key]["model"] = clean_model
+        if save:
+            self.save()
+        logger.info(f"[SETTINGS] Updated system agent model for '{sys_agent_key}': {clean_model}")
+        return True
+
 
 # Default singleton instance initialized automatically
 settings_manager = AgentSettingsManager()
@@ -678,4 +711,12 @@ def get_agent_skills(agent_key: str) -> list[str]:
 
 def set_agent_skills(agent_key: str, skills: list[str], save: bool = True) -> bool:
     return settings_manager.set_agent_skills(agent_key, skills, save=save)
+
+
+def set_agent_model(agent_key: str, model: str, save: bool = True) -> bool:
+    return settings_manager.set_agent_model(agent_key, model, save=save)
+
+
+def set_system_agent_model(sys_agent_key: str, model: str, save: bool = True) -> bool:
+    return settings_manager.set_system_agent_model(sys_agent_key, model, save=save)
 

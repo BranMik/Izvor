@@ -1,7 +1,9 @@
 import json
-import re
-from pathlib import Path
+import logging
 from functools import lru_cache
+from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 PROMPTS_DIR = Path(__file__).resolve().parent
 PERSONAS_DIR = PROMPTS_DIR / "personas"

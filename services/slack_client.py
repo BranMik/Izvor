@@ -36,7 +36,6 @@ def build_app_home_view(
     and emergency backup warning if active settings file is unreadable.
     """
     from orchestration.agent_settings import (
-        LOCKED_AGENTS,
         get_backup_error_reason,
         get_circuit_breaker_config,
         get_enabled_agents,
@@ -441,7 +440,9 @@ def build_app_home_view(
         {"type": "divider"},
     ])
 
-    # Render all agents as fully toggleable items
+    from core.model_catalog import get_available_models
+
+    # Render all agents as fully toggleable items with dynamic model dropdowns
     for key, cfg in AGENTS_CONFIG.items():
         username = cfg.get("username", key)
         model = cfg.get("model", "")
@@ -480,7 +481,32 @@ def build_app_home_view(
             }
         )
 
-    blocks.append({"type": "divider"})
+        # Dynamic model selection dropdown based on .env API keys
+        option_groups, initial_opt = get_available_models(current_model=model)
+        model_block_id = f"agent_model_block_{key}_{model.replace('/', '_').replace('.', '_')}"
+        model_section = {
+            "type": "section",
+            "block_id": model_block_id,
+            "text": {
+                "type": "mrkdwn",
+                "text": "⚙️ *Model:*",
+            },
+            "accessory": {
+                "type": "static_select",
+                "action_id": f"select_agent_model:{key}",
+                "placeholder": {
+                    "type": "plain_text",
+                    "text": "Odaberi model",
+                    "emoji": True,
+                },
+                "option_groups": option_groups,
+            },
+        }
+        if initial_opt:
+            model_section["accessory"]["initial_option"] = initial_opt
+        blocks.append(model_section)
+        blocks.append({"type": "divider"})
+
     blocks.append(
         {
             "type": "context",

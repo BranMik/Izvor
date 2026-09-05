@@ -3,8 +3,6 @@ import logging
 import time
 from typing import Any
 
-import litellm
-from starlette.concurrency import run_in_threadpool
 
 from core.config import THREAD_NOTES_MODEL
 from services.slack_client import (

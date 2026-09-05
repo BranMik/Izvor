@@ -15,7 +15,7 @@ from services.slack_client import (
     fetch_thread_files,
     post_system_message,
 )
-from nlp import detect_language, detect_language_llm
+from nlp import detect_language_llm
 from orchestration.agent_settings import settings_manager
 from orchestration.nomination import (
     get_initial_agents,

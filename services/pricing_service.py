@@ -12,7 +12,6 @@ import litellm
 from starlette.concurrency import run_in_threadpool
 
 from core.config import get_pricing_agent_model, PRICING_AGENT_PROMPT
-from core.models import ModelPricing
 from .web_tools import fetch_web_page, web_search
 
 logger = logging.getLogger(__name__)
@@ -73,12 +72,26 @@ PRICING_TOOL_SCHEMAS = [
 
 # Industry baseline fallback pricing (USD per 1,000,000 tokens)
 BASELINE_MODEL_PRICING: dict[str, dict[str, Any]] = {
+    "gemini/gemini-3.8-flash": {
+        "input_price_per_1m": 0.75,
+        "output_price_per_1m": 3.75,
+        "currency": "USD",
+        "source": "Google AI Documentation",
+        "source_url": "https://ai.google.dev/pricing",
+    },
     "gemini/gemini-3.7-flash": {
         "input_price_per_1m": 0.15,
         "output_price_per_1m": 0.60,
         "currency": "USD",
         "source": "Google AI Documentation",
         "source_url": "https://ai.google.dev/pricing",
+    },
+    "openai/gpt-5.6-sol": {
+        "input_price_per_1m": 5.00,
+        "output_price_per_1m": 20.00,
+        "currency": "USD",
+        "source": "OpenAI Pricing",
+        "source_url": "https://openai.com/pricing",
     },
     "openai/gpt-5.6-terra": {
         "input_price_per_1m": 2.50,
@@ -87,9 +100,23 @@ BASELINE_MODEL_PRICING: dict[str, dict[str, Any]] = {
         "source": "OpenAI Pricing",
         "source_url": "https://openai.com/pricing",
     },
+    "openai/gpt-5.6-luna": {
+        "input_price_per_1m": 0.50,
+        "output_price_per_1m": 2.00,
+        "currency": "USD",
+        "source": "OpenAI Pricing",
+        "source_url": "https://openai.com/pricing",
+    },
     "anthropic/claude-opus-5": {
         "input_price_per_1m": 15.00,
         "output_price_per_1m": 75.00,
+        "currency": "USD",
+        "source": "Anthropic Pricing",
+        "source_url": "https://www.anthropic.com/pricing",
+    },
+    "anthropic/claude-sonnet-5": {
+        "input_price_per_1m": 3.00,
+        "output_price_per_1m": 15.00,
         "currency": "USD",
         "source": "Anthropic Pricing",
         "source_url": "https://www.anthropic.com/pricing",

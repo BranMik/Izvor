@@ -43,3 +43,15 @@ This document tracks identified architectural improvements and technical debt it
 - System agent identification is now driven dynamically by configuration metadata (`is_system_agent: true` / `agent_key` in `data/agent_settings.json` and `SYSTEM_AGENTS_CONFIG`) via `is_system_agent(agent_key)` in [`prompts/builder.py`](file:///c:/Users/Hp/Documents/agy2-projects/SlackAgenticPanel/prompts/builder.py).
 - Hardcoded tuple checks were removed and covered by automated tests in [`tests/test_prompts.py`](file:///c:/Users/Hp/Documents/agy2-projects/SlackAgenticPanel/tests/test_prompts.py).
 
+---
+
+## 5. Comprehensive Dead Code, Unused Imports & Deprecated Shims Cleanup — [COMPLETED]
+
+### Status: COMPLETED
+- Audited entire codebase and pruned all unused imports across `main.py`, `agents/`, `orchestration/`, `pipeline/`, `prompts/`, `services/`, and `nlp/`.
+- Fixed missing `logger` definition in [`prompts/builder.py`](file:///c:/Users/Hp/Documents/agy2-projects/SlackAgenticPanel/prompts/builder.py).
+- Removed deprecated backward compatibility alias `_execute_llm_with_retry` from [`core/llm_utils.py`](file:///c:/Users/Hp/Documents/agy2-projects/SlackAgenticPanel/core/llm_utils.py) and [`core/__init__.py`](file:///c:/Users/Hp/Documents/agy2-projects/SlackAgenticPanel/core/__init__.py).
+- Removed obsolete regex-based language detection heuristics in [`pipeline/discussion_scribe/scribe.py`](file:///c:/Users/Hp/Documents/agy2-projects/SlackAgenticPanel/pipeline/discussion_scribe/scribe.py).
+- Pruned leftover historical planning documents (`runtime planning/`) and obsolete avatar backups (`static_backup/`).
+- Verified with all 225 unit and integration tests passing.
+
