@@ -37,10 +37,10 @@ PROVIDER_CATALOG: dict[str, dict[str, Any]] = {
     "Anthropic": {
         "env_keys": ["ANTHROPIC_API_KEY"],
         "models": [
-            "anthropic/claude-fable-5.1",
+            "anthropic/claude-fable-5-1",
             "anthropic/claude-opus-5",
             "anthropic/claude-sonnet-5",
-            "anthropic/claude-haiku-4.5",
+            "anthropic/claude-haiku-4-5",
         ],
     },
     "Mistral AI": {
