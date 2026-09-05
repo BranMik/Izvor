@@ -40,7 +40,7 @@
   ],
   "agents": {
     "Visionary": {
-      "model": "gemini/gemini-3.8-flash",
+      "model": "openai/gpt-5.6-sol",
       "username": "Visionary",
       "icon_url": "static/v2/avatar_48.png",
       "is_short_output": false,
@@ -73,7 +73,7 @@
       ]
     },
     "Sceptic": {
-      "model": "anthropic/claude-opus-5",
+      "model": "anthropic/claude-fable-5-1",
       "username": "Sceptic",
       "icon_url": "static/v2/avatar_15.png",
       "is_short_output": false,

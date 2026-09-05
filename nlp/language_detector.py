@@ -54,7 +54,8 @@ SYSTEM_PROMPT: Final[str] = (
     "Identify the primary natural language of the user's message. "
     "Output ONLY the canonical language name in English as a single word (e.g. Croatian, English, German, Spanish, French, Italian). "
     "Do NOT output any punctuation, reasoning, or markdown. "
-    "If the message is programming code, SQL, technical data, shell commands, or ambiguous with no natural language, output English."
+    "If the message is predominantly non-English but contains English technical terms, library/app names, or buzzwords, identify the surrounding natural language (e.g. Croatian), NOT English. "
+    "Only output English if the natural text itself is in English, or if it is purely code/data with no human language."
 )
 
 
@@ -64,6 +65,30 @@ def normalize_language_name(name: str) -> str:
     if clean in LANGUAGE_NAME_MAP:
         return LANGUAGE_NAME_MAP[clean]
     return clean.capitalize()
+
+
+def _extract_language_from_content(content: str | None, default: str = "English") -> str:
+    """Robustly parses language name from model response text or reasoning outputs."""
+    if not content or not content.strip():
+        return default
+    cleaned = content.strip()
+    # Check first word
+    words = cleaned.split("\n")[0].split()
+    if words:
+        first_word = re.sub(r"[^\w]", "", words[0]).lower()
+        if first_word in LANGUAGE_NAME_MAP:
+            return LANGUAGE_NAME_MAP[first_word]
+    # Scan words in content for any known language keyword
+    tokens = re.findall(r"[^\W\d_]+", cleaned.lower(), flags=re.UNICODE)
+    for token in tokens:
+        if token in LANGUAGE_NAME_MAP:
+            return LANGUAGE_NAME_MAP[token]
+    # Normalization fallback
+    if words:
+        norm = normalize_language_name(words[0])
+        if norm and len(norm) > 2:
+            return norm
+    return default
 
 
 def _is_empty_or_pure_code(text: str) -> bool:
@@ -101,20 +126,23 @@ def _sync_llm_classify(text: str, model: str | None = None, default: str = "Engl
     resp = litellm.completion(
         model=selected_model,
         messages=messages,
-        max_tokens=8,
+        max_tokens=100,
         num_retries=1,
     )
     content = resp.choices[0].message.content
-    if content:
-        raw_lang = content.strip().split("\n")[0].split()[0]
-        return normalize_language_name(raw_lang) or default
-    return default
+    if not content:
+        finish_reason = getattr(resp.choices[0], "finish_reason", "unknown")
+        logger.warning(
+            f"[LANGUAGE DETECTOR] Model {selected_model} returned empty content (finish_reason={finish_reason}). Defaulting to {default}."
+        )
+        return default
+    return _extract_language_from_content(content, default=default)
 
 
 async def detect_language_llm(
     text: str,
     model: str | None = None,
-    timeout_seconds: float = 3.0,
+    timeout_seconds: float = 6.0,
     default: str = "English",
 ) -> str:
     """

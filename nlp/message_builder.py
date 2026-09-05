@@ -70,24 +70,28 @@ def build_llm_messages(
             f"{', '.join(remaining_agents)}"
         )
 
-    lang_directive = (
-        f"CRITICAL: You MUST write your entire response strictly in {thread_language}, "
-        "including all section labels, headings, and bullet points."
-    )
+    lang_directive = ""
+    if thread_language:
+        lang_directive = (
+            f"CRITICAL: You MUST write your entire response strictly in {thread_language}, "
+            "including all section labels, headings, and bullet points."
+        )
 
     if not is_bot_trigger:
         if effective_history:
             conversation.extend(effective_history)
-        user_prompt = f"{prompt}{file_block}{orchestration_block}"
+        lang_part = f"\n\n{lang_directive}" if lang_directive else ""
+        user_prompt = f"{prompt}{lang_part}{file_block}{orchestration_block}"
         conversation.append({"role": "user", "content": user_prompt})
     else:
         if effective_history:
             conversation.extend(effective_history)
             persona_name = agent_cfg.get("username", agent_key)
+            lang_part = f" {lang_directive}" if lang_directive else ""
             instruction = (
                 f"You have been called to speak as {persona_name}. "
-                "Please evaluate the discussion above and provide your response in accordance with your role and instructions. "
-                f"{lang_directive}"
+                "Please evaluate the discussion above and provide your response in accordance with your role and instructions."
+                f"{lang_part}"
             )
             instruction = f"{instruction}{file_block}{orchestration_block}"
             conversation.append(
@@ -97,7 +101,8 @@ def build_llm_messages(
                 }
             )
         else:
-            user_prompt = f"{prompt}{file_block}{orchestration_block}"
+            lang_part = f"\n\n{lang_directive}" if lang_directive else ""
+            user_prompt = f"{prompt}{lang_part}{file_block}{orchestration_block}"
             conversation.append({"role": "user", "content": user_prompt})
 
     # Ensure the first conversational message has role 'user' (for strict APIs like Anthropic/Gemini)
