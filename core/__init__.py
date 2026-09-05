@@ -19,7 +19,6 @@ from .config import (
 from .llm_utils import (
     LLM_MAX_RETRIES,
     LLM_RETRY_BACKOFF_BASE,
-    _execute_llm_with_retry,
     classify_agent_error,
     execute_llm_with_retry,
     is_anthropic_model,
@@ -39,6 +38,11 @@ from .domain import (
     SessionContext,
     SpendMetrics,
     Turn,
+)
+from .model_catalog import (
+    PROVIDER_CATALOG,
+    get_active_providers,
+    get_available_models,
 )
 from .slack_security import verify_slack_signature
 
@@ -61,7 +65,6 @@ __all__ = [
     "USAGE_CHANNEL_NAME",
     "LLM_MAX_RETRIES",
     "LLM_RETRY_BACKOFF_BASE",
-    "_execute_llm_with_retry",
     "classify_agent_error",
     "execute_llm_with_retry",
     "is_anthropic_model",
@@ -78,5 +81,8 @@ __all__ = [
     "DiscussionBrief",
     "SpendMetrics",
     "verify_slack_signature",
+    "PROVIDER_CATALOG",
+    "get_active_providers",
+    "get_available_models",
 ]
 

@@ -5,7 +5,6 @@ import logging
 import re
 import socket
 import urllib.parse
-from typing import Any
 
 import httpx
 from bs4 import BeautifulSoup

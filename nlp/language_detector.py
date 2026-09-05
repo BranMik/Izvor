@@ -10,7 +10,7 @@ pure LLM classification.
 import asyncio
 import logging
 import re
-from typing import Any, Final
+from typing import Final
 
 from core.config import get_language_detector_model
 

@@ -17,17 +17,12 @@ from nlp.nl_patterns import is_stop_command
 from pipeline.entity_resolver import entity_resolver
 from orchestration.agent_router import process_and_respond
 from orchestration.agent_settings import (
-    LOCKED_AGENTS,
-    get_circuit_breaker_config,
-    get_circuit_breaker_threshold,
-    get_fixed_config,
-    get_orchestration_mode,
     get_sandwich_config,
-    is_circuit_breaker_enabled,
     load_enabled_agents,
     reset_enabled_agents,
     restore_from_backup,
     set_agent_enabled,
+    set_agent_model,
     set_circuit_breaker_enabled,
     set_circuit_breaker_threshold,
     set_fixed_config,
@@ -475,6 +470,13 @@ async def slack_interactivity(request: Request, background_tasks: BackgroundTask
                 val_str = action.get("value", "")
                 chain = [k.strip() for k in val_str.split(",") if k.strip()]
                 set_fixed_config(chain)
+            elif action_id.startswith("select_agent_model:"):
+                selected_option = action.get("selected_option", {})
+                val = selected_option.get("value", "")
+                agent_key = action_id.split(":", 1)[1]
+                if agent_key and val:
+                    logger.info(f"[INTERACTIVITY] Changing model for agent '{agent_key}' to '{val}'")
+                    set_agent_model(agent_key, val)
             elif action_id.startswith("toggle_agent_radio:"):
                 selected_option = action.get("selected_option", {})
                 val = selected_option.get("value", "")

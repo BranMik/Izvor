@@ -1,5 +1,4 @@
 import logging
-from typing import Any
 
 from core.domain import SpendMetrics
 from services.pricing_service import get_model_pricing

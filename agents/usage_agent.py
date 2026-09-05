@@ -6,7 +6,7 @@ from pathlib import Path
 import time
 from typing import Any
 
-from services.pricing_service import get_model_pricing, refresh_model_pricing
+from services.pricing_service import get_model_pricing
 from services.slack_client import (
     get_channel_name,
     get_or_create_usage_channel,
