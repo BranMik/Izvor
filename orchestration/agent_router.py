@@ -1,11 +1,6 @@
 import asyncio
-import json
 import logging
-import os
-import random
-import re
 import sys
-import time
 from typing import Any
 
 import litellm
@@ -17,43 +12,15 @@ from agents import (
     trigger_thread_notes_update,
     trigger_usage_update,
 )
-from core.config import (
-    AGENTS_CONFIG,
-    DEBATE_TURN_PACING_SECONDS,
-    MAX_DISCUSSION_TURNS,
-    SLACK_POST_PAUSE_SECONDS,
-)
-from core.llm_utils import (
-    LLM_MAX_RETRIES,
-    LLM_RETRY_BACKOFF_BASE,
-    _execute_llm_with_retry,
-    classify_agent_error,
-    execute_llm_with_retry,
-    is_anthropic_model,
-    is_high_demand_503_error,
-    is_openai_model,
-)
-from nlp.message_builder import (
-    build_llm_messages,
-    markdown_to_slack,
-)
-from pipeline.directive_parser import directive_parser
-from pipeline.entity_resolver import entity_resolver
-from pipeline.orchestrator import SandwichOrchestrator
-from pipeline.spend_governance import spend_governance
-from prompts import build_agent_prompt
-from services.mcp_tools import MCP_TOOLS_SCHEMAS, execute_mcp_tool
+from core.config import MAX_DISCUSSION_TURNS
+from core.llm_utils import execute_llm_with_retry
 from services.slack_client import (
-    download_slack_file,
     fetch_thread_files,
     fetch_thread_history,
     post_agent_response,
     post_system_message,
 )
 
-from . import agent_settings as _agent_settings
-from . import nomination as _nomination
-from . import thread_state as _thread_state
 from .thread_state import clear_thread_state, is_thread_stopped, thread_state_manager
 from .turn_pipeline import TurnContext, TurnPipeline
 
@@ -62,31 +29,11 @@ __all__ = [
     "orchestrate_discussion",
 ]
 
-
-def __getattr__(name: str) -> Any:
-    """Backward-compatible dynamic export for agent_settings, thread_state, and nomination."""
-    for mod in (_agent_settings, _thread_state, _nomination):
-        if hasattr(mod, name):
-            return getattr(mod, name)
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-
-
-def __dir__() -> list[str]:
-    attrs = set(globals().keys())
-    for mod in (_agent_settings, _thread_state, _nomination):
-        attrs.update(dir(mod))
-    return sorted(attrs)
-
-
-
 logger = logging.getLogger(__name__)
 
 # Turn off verbose LiteLLM logging unless debugging
 litellm.suppress_debug_info = True
 litellm.drop_params = True
-
-# Pacing configuration (re-exported for backward compatibility and test patching)
-# SLACK_POST_PAUSE_SECONDS and DEBATE_TURN_PACING_SECONDS are imported from core.config
 
 
 async def process_and_respond(
@@ -122,7 +69,17 @@ async def process_and_respond(
         is_bot_trigger=is_bot_trigger,
         in_memory_history=in_memory_history,
     )
-    pipeline = TurnPipeline(sys.modules[__name__])
+    pipeline = TurnPipeline(
+        router_module=sys.modules[__name__],
+        llm_executor=execute_llm_with_retry,
+        slack_poster=post_agent_response,
+        history_fetcher=fetch_thread_history,
+        files_fetcher=fetch_thread_files,
+        token_recorder=record_thread_tokens,
+        notes_updater=trigger_thread_notes_update,
+        usage_updater=trigger_usage_update,
+        calc_costs_fn=calculate_thread_costs,
+    )
     return await pipeline.run(ctx)
 
 

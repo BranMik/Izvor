@@ -3,13 +3,13 @@ from unittest.mock import AsyncMock, patch, MagicMock
 
 from nlp.message_builder import build_llm_messages
 from nlp.nl_patterns import extract_file_instruction
-from orchestration.agent_router import (
-    resolve_target_file,
+from orchestration.agent_router import process_and_respond
+from orchestration.nomination import resolve_target_file
+from orchestration.thread_state import (
+    clear_thread_file_context,
     get_thread_file_context,
     set_thread_file_context,
-    clear_thread_file_context,
     THREAD_ACTIVE_FILE_CONTEXT,
-    process_and_respond,
 )
 
 from services.slack_client import fetch_thread_files, download_slack_file

@@ -22,8 +22,6 @@ from orchestration.thread_state import (
     clear_thread_history_limit,
     get_thread_file_context,
     get_thread_history_limit,
-    get_thread_max_words,
-    get_thread_min_words,
     is_thread_stopped,
     set_thread_history_limit,
     thread_state_manager,
@@ -111,8 +109,8 @@ class ContextPrepStageMixin:
                 ctx.effective_history = history
 
         # System prompt generation
-        active_max_words = get_thread_max_words(ctx.channel_id, ctx.thread_ts)
-        active_min_words = get_thread_min_words(ctx.channel_id, ctx.thread_ts)
+        active_max_words = thread_state_manager.get_max_words(ctx.channel_id, ctx.thread_ts)
+        active_min_words = thread_state_manager.get_min_words(ctx.channel_id, ctx.thread_ts)
         if active_max_words is not None or active_min_words is not None:
             logger.info(
                 f"[ROUTER] Applying word limits (min_words={active_min_words}, max_words={active_max_words}) for agent {ctx.agent_key} (skipping standard output_constraints)."

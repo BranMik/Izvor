@@ -4,95 +4,42 @@ This document tracks identified architectural improvements and technical debt it
 
 ---
 
-## 1. `agent_router.py` Re-Export Façade Decoupling
+## 1. `agent_router.py` Re-Export Façade Decoupling — [COMPLETED]
 
-### Current State
-[`orchestration/agent_router.py`](file:///c:/Users/Hp/Documents/agy2-projects/SlackAgenticPanel/orchestration/agent_router.py) contains ~100 lines (lines 54–153) of re-exports:
-```python
-from .thread_state import (
-    THREAD_STATE,
-    ThreadStateManager,
-    get_generation,
-    set_generation,
-    ...
-)
-from .agent_settings import (
-    AgentSettingsManager,
-    AGENTS_CONFIG,
-    SYSTEM_AGENTS_CONFIG,
-    ...
-)
-```
-The actual router logic (`process_and_respond`, `orchestrate_discussion`) is only ~170 lines, but the file serves as a monolithic umbrella module for [`main.py`](file:///c:/Users/Hp/Documents/agy2-projects/SlackAgenticPanel/main.py) and various legacy tests.
-
-### Target Refactoring
-1. Update [`main.py`](file:///c:/Users/Hp/Documents/agy2-projects/SlackAgenticPanel/main.py) and external call sites to import directly from their true home modules:
-   - `orchestration.thread_state` for thread state management
-   - `orchestration.agent_settings` for agent settings and SSOT persistence
-   - `orchestration.turn_pipeline` for turn execution
-2. Trim [`orchestration/agent_router.py`](file:///c:/Users/Hp/Documents/agy2-projects/SlackAgenticPanel/orchestration/agent_router.py) to purely contain high-level Slack routing and discussion coordination.
-3. Eliminate redundant backward-compatibility shims once all test imports are updated.
+### Status: COMPLETED
+- Migrated all test and application imports off `orchestration.agent_router` to their canonical homes (`orchestration.thread_state`, `orchestration.agent_settings`, `orchestration.nomination`, `core.llm_utils`, `orchestration.turn_pipeline`).
+- Updated `tests/conftest.py` to patch `orchestration.agent_settings.SETTINGS_FILE` instead of the re-exported symbol.
+- Removed dynamic fallback shims (`__getattr__` and `__dir__`) and obsolete re-exports from [`orchestration/agent_router.py`](file:///c:/Users/Hp/Documents/agy2-projects/SlackAgenticPanel/orchestration/agent_router.py).
+- [`orchestration/agent_router.py`](file:///c:/Users/Hp/Documents/agy2-projects/SlackAgenticPanel/orchestration/agent_router.py) is now strictly focused on high-level routing coordination (`process_and_respond`, `orchestrate_discussion`) and explicit pipeline wiring.
+- Verified with all 221 tests passing across the repository.
 
 ---
 
-## 2. `ThreadStateManager` Abstraction Decomposition
+## 2. `ThreadStateManager` Abstraction Decomposition — [COMPLETED]
 
-### Current State
-[`orchestration/thread_state.py`](file:///c:/Users/Hp/Documents/agy2-projects/SlackAgenticPanel/orchestration/thread_state.py) (~651 lines) is a God Object managing 12+ separate in-memory dictionaries:
-- `_generations`
-- `_remaining_agents`
-- `_retry_queue`
-- `_has_503_error`
-- `_thread_files`
-- `_word_limits`
-- `_history_limits`
-- `_active_discussion_tasks`
-- `_custom_orchestration_flows`
-- `_stop_signals`
-- `_lock` (threading lock)
-
-### Target Refactoring
-Decompose into cohesive domain stores under `orchestration/state/`:
-- `DiscussionStateStore`: tracking remaining agents, active tasks, custom orchestration flows, stop signals.
-- `TurnRetryStateStore`: tracking 503 error backoff, retry queues, generations.
-- `ThreadContextStore`: tracking thread files, word limits, history limits.
-Wrap with a facade if needed, or maintain thread-safe concurrency abstractions if the service transitions to multi-worker / async task distribution.
+### Status: COMPLETED
+- Decomposed monolithic thread state management into cohesive domain stores under `orchestration/state/`:
+  - `DiscussionStateStore` ([orchestration/state/discussion_store.py](file:///c:/Users/Hp/Documents/agy2-projects/SlackAgenticPanel/orchestration/state/discussion_store.py)): active thread tasks, remaining agent queues, custom flow tags, and stop flags.
+  - `TurnRetryStateStore` ([orchestration/state/retry_store.py](file:///c:/Users/Hp/Documents/agy2-projects/SlackAgenticPanel/orchestration/state/retry_store.py)): rate-limit retries, 503 high-demand error tracking, and thread generation counters.
+  - `ThreadContextStore` ([orchestration/state/context_store.py](file:///c:/Users/Hp/Documents/agy2-projects/SlackAgenticPanel/orchestration/state/context_store.py)): history limits, word count limits, locked languages, and file context attachments.
+- Refactored `ThreadStateManager` in [`orchestration/thread_state.py`](file:///c:/Users/Hp/Documents/agy2-projects/SlackAgenticPanel/orchestration/thread_state.py) into a clean Facade composing all three domain stores.
+- Preserved 100% backward compatibility for all module-level variables, convenience functions, and property references.
+- Verified with dedicated unit tests in [`tests/test_domain_state_stores.py`](file:///c:/Users/Hp/Documents/agy2-projects/SlackAgenticPanel/tests/test_domain_state_stores.py) and 225/225 passed tests across the entire repository.
 
 ---
 
-## 3. `TurnPipeline` Hook Pattern Replacement with Dependency Injection
+## 3. `TurnPipeline` Hook Pattern Replacement with Dependency Injection — [COMPLETED]
 
-### Current State
-In [`orchestration/turn_pipeline.py`](file:///c:/Users/Hp/Documents/agy2-projects/SlackAgenticPanel/orchestration/turn_pipeline.py), `_get_hook` dynamically inspects `sys.modules["agent_router"]` at runtime:
-```python
-exec_retry_fn = self._get_hook("execute_llm_with_retry", execute_llm_with_retry)
-post_resp_fn = self._get_hook("post_agent_response", post_agent_response)
-```
-This was created to support test monkeypatching without explicit dependency injection.
-
-### Target Refactoring
-Provide explicit dependencies via `TurnPipeline.__init__(...)` with defaults:
-```python
-def __init__(
-    self,
-    llm_executor: Callable = execute_llm_with_retry,
-    slack_poster: Callable = post_agent_response,
-    skill_registry: SkillRegistry | None = None,
-): ...
-```
-This removes invisible module-level coupling and makes unit tests cleaner and isolated.
+### Status: COMPLETED
+- `TurnPipeline.__init__` in [`orchestration/turn_pipeline.py`](file:///c:/Users/Hp/Documents/agy2-projects/SlackAgenticPanel/orchestration/turn_pipeline.py) now accepts explicit dependencies (`llm_executor`, `slack_poster`, `history_fetcher`, `files_fetcher`, `token_recorder`, `notes_updater`, `usage_updater`, `sleep_fn`, etc.) with fallback to canonical defaults.
+- `_get_hook()` prioritizes constructor-injected callables before falling back to monkeypatches or defaults.
+- Verified with dedicated unit tests in [`tests/test_turn_pipeline_di.py`](file:///c:/Users/Hp/Documents/agy2-projects/SlackAgenticPanel/tests/test_turn_pipeline_di.py).
 
 ---
 
-## 4. `prompts/builder.py` Hardcoded System Agent Skip List
+## 4. `prompts/builder.py` Hardcoded System Agent Skip List — [COMPLETED]
 
-### Current State
-In [`prompts/builder.py:71-76`](file:///c:/Users/Hp/Documents/agy2-projects/SlackAgenticPanel/prompts/builder.py#L71-L76):
-```python
-if agent_key in ("Thread_Notes_Agent", "Usage_Agent", "Pricing_Agent"):
-    return f"\n{persona_content}\n\n"
-```
-Adding or renaming system agents requires modifying code logic in `builder.py`.
+### Status: COMPLETED
+- System agent identification is now driven dynamically by configuration metadata (`is_system_agent: true` / `agent_key` in `data/agent_settings.json` and `SYSTEM_AGENTS_CONFIG`) via `is_system_agent(agent_key)` in [`prompts/builder.py`](file:///c:/Users/Hp/Documents/agy2-projects/SlackAgenticPanel/prompts/builder.py).
+- Hardcoded tuple checks were removed and covered by automated tests in [`tests/test_prompts.py`](file:///c:/Users/Hp/Documents/agy2-projects/SlackAgenticPanel/tests/test_prompts.py).
 
-### Target Refactoring
-Drive system agent behavior from configuration metadata (e.g. `"is_system_agent": true` in `agent_settings.json` or `SYSTEM_AGENTS_CONFIG`), eliminating identity checks.

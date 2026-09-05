@@ -4,7 +4,6 @@ from pathlib import Path
 import pytest
 
 import orchestration.agent_settings as agent_settings_mod
-import orchestration.agent_router as agent_router_mod
 from orchestration.agent_settings import (
     SETTINGS_FILE as REAL_SETTINGS_FILE,
     BACKUP_FILE as REAL_BACKUP_FILE,
@@ -27,7 +26,6 @@ def isolate_agent_settings_for_tests(tmp_path, monkeypatch):
         shutil.copy2(REAL_BACKUP_FILE, temp_backup)
 
     monkeypatch.setattr(agent_settings_mod, "SETTINGS_FILE", temp_settings)
-    monkeypatch.setattr(agent_router_mod, "SETTINGS_FILE", temp_settings)
     monkeypatch.setattr(agent_settings_mod, "BACKUP_FILE", temp_backup)
 
     # Save original in-memory state

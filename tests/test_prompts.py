@@ -116,3 +116,21 @@ def test_build_agent_prompt_with_min_and_max_words():
     prompt_arch = build_agent_prompt("Architect", min_words=80, max_words=300)
     assert "Minimum Length: Your entire response must have a minimum length of 80 words." in prompt_arch
     assert "strictly NOT exceed 300 words" in prompt_arch
+
+
+def test_system_agent_detection_and_prompts():
+    from prompts.builder import SYSTEM_AGENTS, is_system_agent
+
+    # Metadata detection
+    assert is_system_agent("Pricing_Agent") is True
+    assert is_system_agent("Usage_Agent") is True
+    assert is_system_agent("Thread_Notes_Agent") is True
+    assert is_system_agent("Architect") is False
+    assert is_system_agent("TechLead") is False
+
+    # Prompts for system agents must be self-contained (no nomination rules or debate output constraints)
+    for sys_agent in ("Pricing_Agent", "Usage_Agent", "Thread_Notes_Agent"):
+        prompt = build_agent_prompt(sys_agent)
+        assert "OUTPUT & LENGTH CONSTRAINTS:" not in prompt
+        assert "nominate the next agent" not in prompt
+

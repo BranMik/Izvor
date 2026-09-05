@@ -2,36 +2,37 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from core.config import AGENTS_CONFIG
-from orchestration.agent_router import (
-    parse_agent_and_prompt,
-    process_and_respond,
-    get_initial_agents,
-    REMAINING_AGENTS_MAP,
-    RATE_LIMIT_RETRY_QUEUE,
-    RATE_LIMIT_ALREADY_RETRIED,
-    CUSTOM_FLOW_THREADS,
-    STOP_REQUESTED_THREADS,
-    ACTIVE_THREAD_TASKS,
-    THREAD_GENERATIONS,
+from orchestration.agent_router import process_and_respond
+from orchestration.agent_settings import (
     ENABLED_DEBATE_AGENTS,
-    reset_enabled_agents,
-    load_enabled_agents,
-    set_agent_enabled,
-    toggle_agent,
-    get_enabled_agents,
-    request_thread_stop,
-    is_discussion_active,
-    interrupt_thread_discussion,
     SETTINGS_FILE,
-    get_thread_history_limit,
-    set_thread_history_limit,
+    get_circuit_breaker_threshold,
+    get_enabled_agents,
+    is_circuit_breaker_enabled,
+    load_enabled_agents,
+    reset_enabled_agents,
+    set_agent_enabled,
     set_circuit_breaker_enabled,
     set_circuit_breaker_threshold,
+    set_fixed_config,
     set_orchestration_mode,
     set_sandwich_config,
-    set_fixed_config,
-    is_circuit_breaker_enabled,
-    get_circuit_breaker_threshold,
+    toggle_agent,
+)
+from orchestration.nomination import get_initial_agents, parse_agent_and_prompt
+from orchestration.thread_state import (
+    ACTIVE_THREAD_TASKS,
+    CUSTOM_FLOW_THREADS,
+    RATE_LIMIT_ALREADY_RETRIED,
+    RATE_LIMIT_RETRY_QUEUE,
+    REMAINING_AGENTS_MAP,
+    STOP_REQUESTED_THREADS,
+    THREAD_GENERATIONS,
+    get_thread_history_limit,
+    interrupt_thread_discussion,
+    is_discussion_active,
+    request_thread_stop,
+    set_thread_history_limit,
 )
 from nlp.nl_patterns import is_stop_command
 from services.slack_client import build_app_home_view
@@ -460,7 +461,7 @@ def test_build_app_home_view():
 
 def test_settings_persistence(tmp_path, monkeypatch):
     test_settings_path = tmp_path / "test_agent_settings.json"
-    monkeypatch.setattr("orchestration.agent_router.SETTINGS_FILE", test_settings_path)
+    monkeypatch.setattr("orchestration.agent_settings.SETTINGS_FILE", test_settings_path)
 
     # 1. Reset and disable specific agents & set circuit-breaker config
     reset_enabled_agents()
