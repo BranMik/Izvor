@@ -393,9 +393,9 @@ def test_pricing_service_class():
         cache_file = Path(tmp_dir) / "test_pricing_cache.json"
         ps = PricingService(cache_file=cache_file)
 
-        pricing = ps.get_pricing("gemini/gemini-3.7-flash")
-        assert pricing["input_price_per_1m"] == 0.15
-        assert pricing["output_price_per_1m"] == 0.60
+        pricing = ps.get_pricing("gemini/gemini-3.8-flash")
+        assert pricing["input_price_per_1m"] == 0.75
+        assert pricing["output_price_per_1m"] == 3.75
 
         # Save cache
         ps.save_cache({"test-model": {"input_price_per_1m": 5.0, "output_price_per_1m": 15.0}})
@@ -415,7 +415,7 @@ def test_thread_usage_tracker_class():
         tracker.record_tokens(
             channel_id=channel_id,
             thread_ts=thread_ts,
-            model_name="gemini/gemini-3.7-flash",
+            model_name="gemini/gemini-3.8-flash",
             prompt_tokens=1000,
             completion_tokens=500,
             channel_name="#general",

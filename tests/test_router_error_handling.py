@@ -161,7 +161,7 @@ async def test_process_and_respond_model_not_found(monkeypatch):
     REMAINING_AGENTS_MAP[thread_key] = ["Innovator"]
 
     async def mock_run_in_threadpool(func, *args, **kwargs):
-        raise Exception("NotFoundError: Model gemini/gemini-3.7-flash does not exist")
+        raise Exception("NotFoundError: Model gemini/gemini-3.8-flash does not exist")
 
     posted = []
 
