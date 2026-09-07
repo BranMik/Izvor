@@ -41,7 +41,7 @@ def test_record_thread_tokens_accumulation():
     record_thread_tokens(
         channel_id=channel_id,
         thread_ts=thread_ts,
-        model_name="gemini/gemini-3.7-flash",
+        model_name="gemini/gemini-3.8-flash",
         prompt_tokens=1000,
         completion_tokens=200,
         channel_name="#general",
@@ -73,9 +73,9 @@ def test_record_thread_tokens_accumulation():
 
     # Model specific verification
     models = costs["models"]
-    assert "gemini/gemini-3.7-flash" in models
-    assert models["gemini/gemini-3.7-flash"]["prompt_tokens"] == 1000
-    assert models["gemini/gemini-3.7-flash"]["completion_tokens"] == 200
+    assert "gemini/gemini-3.8-flash" in models
+    assert models["gemini/gemini-3.8-flash"]["prompt_tokens"] == 1000
+    assert models["gemini/gemini-3.8-flash"]["completion_tokens"] == 200
 
     assert "mistral/mistral-large-latest" in models
     assert models["mistral/mistral-large-latest"]["prompt_tokens"] == 1500
@@ -94,7 +94,7 @@ async def test_format_usage_slack_message_structure():
     record_thread_tokens(
         channel_id=channel_id,
         thread_ts=thread_ts,
-        model_name="gemini/gemini-3.7-flash",
+        model_name="gemini/gemini-3.8-flash",
         prompt_tokens=2000,
         completion_tokens=500,
         channel_name="#dev-discussions",
@@ -109,7 +109,7 @@ async def test_format_usage_slack_message_structure():
     assert "In Progress / Active" in msg
 
     # Must contain model breakdown
-    assert "gemini/gemini-3.7-flash" in msg
+    assert "gemini/gemini-3.8-flash" in msg
     assert "Prompt (Input):" in msg
     assert "Completion (Output):" in msg
     assert "GRAND TOTAL THREAD USAGE:" in msg
@@ -118,6 +118,10 @@ async def test_format_usage_slack_message_structure():
     # Must contain exact URL references section
     assert "PRICING SOURCES & WEB REFERENCES" in msg
     assert "https://" in msg
+
+    # Must contain orientational pricing / token consumption notice
+    assert "METRICS NOTICE" in msg
+    assert "token consumption" in msg
 
 
 @pytest.mark.anyio
@@ -129,7 +133,7 @@ async def test_update_usage_for_thread_creates_and_updates_in_slack():
     record_thread_tokens(
         channel_id=channel_id,
         thread_ts=thread_ts,
-        model_name="gemini/gemini-3.7-flash",
+        model_name="gemini/gemini-3.8-flash",
         prompt_tokens=1000,
         completion_tokens=250,
     )

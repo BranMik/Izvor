@@ -19,6 +19,10 @@ logger = logging.getLogger(__name__)
 # Model pricing cache file
 PRICING_CACHE_FILE = Path(__file__).parent.parent / "data" / "model_pricing_cache.json"
 
+# Baseline model pricing configuration file
+BASELINE_PRICES_FILE = Path(__file__).parent.parent / "data" / "baseline_prices.json"
+BASELINE_CONFIG_FILE = BASELINE_PRICES_FILE  # Backward-compatible alias
+
 # Cache TTL: 7 days in seconds
 CACHE_TTL_SECONDS = 7 * 24 * 3600
 
@@ -70,72 +74,26 @@ PRICING_TOOL_SCHEMAS = [
     },
 ]
 
-# Industry baseline fallback pricing (USD per 1,000,000 tokens)
-BASELINE_MODEL_PRICING: dict[str, dict[str, Any]] = {
-    "gemini/gemini-3.8-flash": {
-        "input_price_per_1m": 0.75,
-        "output_price_per_1m": 3.75,
-        "currency": "USD",
-        "source": "Google AI Documentation",
-        "source_url": "https://ai.google.dev/pricing",
-    },
-    "gemini/gemini-3.7-flash": {
-        "input_price_per_1m": 0.15,
-        "output_price_per_1m": 0.60,
-        "currency": "USD",
-        "source": "Google AI Documentation",
-        "source_url": "https://ai.google.dev/pricing",
-    },
-    "openai/gpt-5.6-sol": {
-        "input_price_per_1m": 5.00,
-        "output_price_per_1m": 20.00,
-        "currency": "USD",
-        "source": "OpenAI Pricing",
-        "source_url": "https://openai.com/pricing",
-    },
-    "openai/gpt-5.6-terra": {
-        "input_price_per_1m": 2.50,
-        "output_price_per_1m": 10.00,
-        "currency": "USD",
-        "source": "OpenAI Pricing",
-        "source_url": "https://openai.com/pricing",
-    },
-    "openai/gpt-5.6-luna": {
-        "input_price_per_1m": 0.50,
-        "output_price_per_1m": 2.00,
-        "currency": "USD",
-        "source": "OpenAI Pricing",
-        "source_url": "https://openai.com/pricing",
-    },
-    "anthropic/claude-opus-5": {
-        "input_price_per_1m": 15.00,
-        "output_price_per_1m": 75.00,
-        "currency": "USD",
-        "source": "Anthropic Pricing",
-        "source_url": "https://www.anthropic.com/pricing",
-    },
-    "anthropic/claude-sonnet-5": {
-        "input_price_per_1m": 3.00,
-        "output_price_per_1m": 15.00,
-        "currency": "USD",
-        "source": "Anthropic Pricing",
-        "source_url": "https://www.anthropic.com/pricing",
-    },
-    "mistral/mistral-large-latest": {
-        "input_price_per_1m": 2.00,
-        "output_price_per_1m": 6.00,
-        "currency": "USD",
-        "source": "Mistral AI Pricing",
-        "source_url": "https://mistral.ai/technology/#pricing",
-    },
-    "mistral/mistral-small-latest": {
-        "input_price_per_1m": 0.20,
-        "output_price_per_1m": 0.60,
-        "currency": "USD",
-        "source": "Mistral AI Pricing",
-        "source_url": "https://mistral.ai/technology/#pricing",
-    },
-}
+
+def load_baseline_pricing(config_path: Path | str | None = None) -> dict[str, dict[str, Any]]:
+    """
+    Loads baseline model pricing dictionary from JSON configuration file.
+    Defaults to data/baseline_prices.json with safe fallback.
+    """
+    target = Path(config_path) if config_path else BASELINE_PRICES_FILE
+    if target.exists():
+        try:
+            data = json.loads(target.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                return data
+            logger.error(f"[PRICING] Expected dict in {target.name}, got {type(data)}")
+        except Exception as e:
+            logger.error(f"[PRICING] Error loading baseline prices from {target}: {e}")
+    return {}
+
+
+# Industry baseline fallback pricing (USD per 1,000,000 tokens) loaded from JSON config
+BASELINE_MODEL_PRICING: dict[str, dict[str, Any]] = load_baseline_pricing()
 
 # Generic fallback for any unknown model
 DEFAULT_FALLBACK_PRICING: dict[str, Any] = {
@@ -148,7 +106,7 @@ DEFAULT_FALLBACK_PRICING: dict[str, Any] = {
 
 
 def _normalize_model_name(model_name: str) -> str:
-    """Normalizes model string (e.g. 'gemini/gemini-3.7-flash')."""
+    """Normalizes model string (e.g. 'gemini/gemini-3.8-flash')."""
     return model_name.strip().lower()
 
 
@@ -251,13 +209,14 @@ class PricingService:
     """Encapsulates pricing cache, live web research agent, and cost calculation per model."""
 
     def __init__(self, cache_file: Path | None = None):
+        self._custom_cache_file: bool = cache_file is not None
         self.default_cache_file = cache_file or PRICING_CACHE_FILE
         self.baseline_pricing = dict(BASELINE_MODEL_PRICING)
         self.default_fallback = dict(DEFAULT_FALLBACK_PRICING)
 
     @property
     def active_cache_file(self) -> Path:
-        if self.default_cache_file != PRICING_CACHE_FILE:
+        if self._custom_cache_file:
             return self.default_cache_file
         ps_mod = sys.modules.get("pricing_service") or sys.modules.get("services.pricing_service")
         if ps_mod and hasattr(ps_mod, "PRICING_CACHE_FILE"):

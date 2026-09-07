@@ -44,7 +44,7 @@ def test_agent_settings_ssot_loading():
             "enabled_agents": ["Visionary", "Architect"],
             "agents": {
                 "Visionary": {
-                    "model": "gemini/gemini-3.7-flash",
+                    "model": "gemini/gemini-3.8-flash",
                     "username": "Visionary",
                     "icon_url": "static/avatar_25.png",
                 },
@@ -72,7 +72,7 @@ def test_agent_settings_ssot_loading():
         assert mgr.is_circuit_breaker_enabled() is True
         assert mgr.get_circuit_breaker_threshold() == 2.50
         assert "Visionary" in mgr.agents_config
-        assert mgr.agents_config["Visionary"]["model"] == "gemini/gemini-3.7-flash"
+        assert mgr.agents_config["Visionary"]["model"] == "gemini/gemini-3.8-flash"
         assert mgr.agents_config["Visionary"]["icon_url"] == "static/avatar_25.png"
         assert mgr.system_agents_config["usage_agent"]["model"] == "groq/llama-3.3-70b-versatile"
 
@@ -88,7 +88,7 @@ def test_agent_validation_skips_invalid():
             "enabled_agents": ["Visionary", "Bad_Agent_No_Model", "Bad_Agent_No_Persona"],
             "agents": {
                 "Visionary": {
-                    "model": "gemini/gemini-3.7-flash",
+                    "model": "gemini/gemini-3.8-flash",
                     "username": "Visionary",
                     "icon_url": "static/avatar_25.png",
                 },
@@ -137,7 +137,7 @@ def test_emergency_backup_failover_non_destructive():
             "enabled_agents": ["Visionary"],
             "agents": {
                 "Visionary": {
-                    "model": "gemini/gemini-3.7-flash",
+                    "model": "gemini/gemini-3.8-flash",
                     "username": "Visionary",
                     "icon_url": "static/avatar_25.png",
                 }
@@ -181,7 +181,7 @@ def test_restore_from_backup():
             "enabled_agents": ["Visionary", "Architect"],
             "agents": {
                 "Visionary": {
-                    "model": "gemini/gemini-3.7-flash",
+                    "model": "gemini/gemini-3.8-flash",
                     "username": "Visionary",
                     "icon_url": "static/avatar_25.png",
                 },
@@ -230,7 +230,7 @@ def test_7_day_backup_refresh():
             "enabled_agents": ["Visionary"],
             "agents": {
                 "Visionary": {
-                    "model": "gemini/gemini-3.7-flash",
+                    "model": "gemini/gemini-3.8-flash",
                     "username": "Visionary",
                     "icon_url": "static/avatar_25.png",
                 }

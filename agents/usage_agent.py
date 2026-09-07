@@ -280,6 +280,13 @@ class ThreadUsageTracker:
                 else:
                     lines.append(f"• *`{model_name}`*: _{s_name}_")
 
+        lines.append("━" * 38)
+        lines.append(
+            "💡 *METRICS NOTICE / NAPOMENA:* Glavna metrika je *potrošnja tokena* (token consumption). "
+            "Prikazane cene su samo orijentacijske i mogu biti pogrešne pa je dobro proveriti na originalnim stranicama provajdera. "
+            "_(Primary metric is token consumption; costs are orientational estimates only.)_"
+        )
+
         curr_time = time.strftime("%H:%M:%S")
         lines.append(f"\n_🕒 Last updated: {curr_time} | Rates refreshed every 7 days_")
 

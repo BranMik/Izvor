@@ -8,6 +8,21 @@ from orchestration.agent_settings import (
     BACKUP_FILE as REAL_BACKUP_FILE,
     settings_manager,
 )
+import services.pricing_service as pricing_service_mod
+from services.pricing_service import PRICING_CACHE_FILE as REAL_PRICING_CACHE_FILE
+
+
+@pytest.fixture(autouse=True)
+def isolate_pricing_cache_for_tests(tmp_path, monkeypatch):
+    """
+    Prevents tests from modifying or overwriting production data/model_pricing_cache.json.
+    Each test gets an isolated copy in tmp_path.
+    """
+    temp_pricing_cache = tmp_path / "model_pricing_cache.json"
+    if REAL_PRICING_CACHE_FILE.exists():
+        shutil.copy2(REAL_PRICING_CACHE_FILE, temp_pricing_cache)
+    monkeypatch.setattr(pricing_service_mod, "PRICING_CACHE_FILE", temp_pricing_cache)
+    yield
 
 
 @pytest.fixture(autouse=True)
