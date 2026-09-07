@@ -43,6 +43,7 @@ from .model_catalog import (
     PROVIDER_CATALOG,
     get_active_providers,
     get_available_models,
+    load_provider_catalog,
 )
 from .slack_security import verify_slack_signature
 
@@ -84,5 +85,6 @@ __all__ = [
     "PROVIDER_CATALOG",
     "get_active_providers",
     "get_available_models",
+    "load_provider_catalog",
 ]
 

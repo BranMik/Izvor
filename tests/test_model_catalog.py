@@ -11,6 +11,7 @@ from core.model_catalog import (
     PROVIDER_CATALOG,
     get_active_providers,
     get_available_models,
+    load_provider_catalog,
 )
 from orchestration.agent_settings import (
     AgentSettingsManager,
@@ -87,11 +88,11 @@ def test_get_available_models_fallback_when_key_missing():
     )
     group_labels = [g["label"]["text"] for g in option_groups]
     assert "Google Gemini" in group_labels
-    assert "Trenutni model (Current)" in group_labels
+    assert "Current Model" in group_labels
 
     assert initial_opt is not None
     assert initial_opt["value"] == "openai/gpt-5.6-sol"
-    fallback_grp = next(g for g in option_groups if g["label"]["text"] == "Trenutni model (Current)")
+    fallback_grp = next(g for g in option_groups if g["label"]["text"] == "Current Model")
     assert fallback_grp["options"][0]["value"] == "openai/gpt-5.6-sol"
 
 
@@ -176,10 +177,63 @@ async def test_slack_interactivity_model_change():
         ],
     }
 
-    with patch("main.verify_slack_signature", return_value=True), \
-         patch("main.publish_app_home", new_callable=AsyncMock) as mock_publish:
-        resp = client.post("/slack/actions", json=payload)
-        assert resp.status_code == 200
-        assert mock_publish.called
-        assert mock_publish.call_args.kwargs["user_id"] == "U123TEST"
-        assert AGENTS_CONFIG["Visionary"]["model"] == "openai/gpt-5.6-sol"
+    orig_model = AGENTS_CONFIG["Visionary"].get("model")
+    try:
+        with patch("main.verify_slack_signature", return_value=True), \
+             patch("main.publish_app_home", new_callable=AsyncMock) as mock_publish:
+            resp = client.post("/slack/actions", json=payload)
+            assert resp.status_code == 200
+            assert mock_publish.called
+            assert mock_publish.call_args.kwargs["user_id"] == "U123TEST"
+            assert AGENTS_CONFIG["Visionary"]["model"] == "openai/gpt-5.6-sol"
+    finally:
+        if orig_model:
+            set_agent_model("Visionary", orig_model)
+
+
+def test_load_provider_catalog_from_json():
+    """Verify load_provider_catalog reads data/provider_catalog.json correctly."""
+    catalog = load_provider_catalog()
+    assert isinstance(catalog, dict)
+    assert "Google Gemini" in catalog
+    assert "OpenAI" in catalog
+    assert "Anthropic" in catalog
+
+    for provider, cfg in catalog.items():
+        assert "env_keys" in cfg
+        assert isinstance(cfg["env_keys"], list)
+        assert "models" in cfg
+        assert isinstance(cfg["models"], list)
+        assert len(cfg["models"]) > 0
+
+
+def test_load_provider_catalog_missing_file(tmp_path):
+    """Verify non-existent catalog file returns empty dict gracefully."""
+    missing = tmp_path / "nonexistent.json"
+    catalog = load_provider_catalog(missing)
+    assert catalog == {}
+
+
+def test_load_provider_catalog_custom_file(tmp_path):
+    """Verify loading from a custom JSON file."""
+    import json
+    custom_file = tmp_path / "custom_catalog.json"
+    custom_data = {
+        "CustomProvider": {
+            "env_keys": ["CUSTOM_KEY"],
+            "models": ["custom/model-1"],
+        }
+    }
+    custom_file.write_text(json.dumps(custom_data), encoding="utf-8")
+    loaded = load_provider_catalog(custom_file)
+    assert loaded == custom_data
+
+    # Test get_available_models with this catalog
+    option_groups, initial = get_available_models(
+        env_dict={"CUSTOM_KEY": "valid-secret"},
+        catalog=loaded,
+    )
+    assert len(option_groups) == 1
+    assert option_groups[0]["label"]["text"] == "CustomProvider"
+    assert option_groups[0]["options"][0]["value"] == "custom/model-1"
+

@@ -262,7 +262,7 @@ class ExecutionStageMixin:
                     ctx.final_text = (
                         response_message.content
                         if (response_message and response_message.content)
-                        else "⚠️ _Vrijeme za izvođenje alata je isteklo (timeout). Nastavljam raspravu._"
+                        else "⚠️ _Tool execution timed out. Continuing discussion._"
                     )
             finally:
                 if not delay_task.done():

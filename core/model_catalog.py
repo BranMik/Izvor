@@ -5,6 +5,7 @@ and dynamic filtering based on API keys defined in the .env file.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from pathlib import Path
@@ -14,106 +15,33 @@ from dotenv import dotenv_values
 
 logger = logging.getLogger(__name__)
 
-# Providers catalog with their corresponding environment variables and available models
-PROVIDER_CATALOG: dict[str, dict[str, Any]] = {
-    "Google Gemini": {
-        "env_keys": ["GEMINI_API_KEY", "GOOGLE_API_KEY"],
-        "models": [
-            "gemini/gemini-3.8-flash",
-            "gemini/gemini-3.8-flash-cyber",
-            "gemini/gemini-3.7-flash",
-            "gemini/gemini-3.5-flash",
-        ],
-    },
-    "OpenAI": {
-        "env_keys": ["OPENAI_API_KEY"],
-        "models": [
-            "openai/gpt-5.6-sol",
-            "openai/gpt-5.6-terra",
-            "openai/gpt-5.6-luna",
-            "openai/gpt-5.6",
-        ],
-    },
-    "Anthropic": {
-        "env_keys": ["ANTHROPIC_API_KEY"],
-        "models": [
-            "anthropic/claude-fable-5-1",
-            "anthropic/claude-opus-5",
-            "anthropic/claude-sonnet-5",
-            "anthropic/claude-haiku-4-5",
-        ],
-    },
-    "Mistral AI": {
-        "env_keys": ["MISTRAL_API_KEY"],
-        "models": [
-            "mistral/mistral-large-latest",
-            "mistral/mistral-small-latest",
-            "mistral/codestral-latest",
-            "mistral/devstral-2",
-            "mistral/ministral-8b-latest",
-        ],
-    },
-    "Meta AI": {
-        "env_keys": ["META_API_KEY"],
-        "models": [
-            "meta/muse-spark",
-            "meta/muse-glimmer",
-            "meta/llama-4-scout",
-            "meta/llama-4-maverick",
-            "meta/llama-3.3-70b",
-        ],
-    },
-    "Groq": {
-        "env_keys": ["GROQ_API_KEY"],
-        "models": [
-            "groq/llama-4-scout",
-            "groq/llama-4-maverick",
-            "groq/llama-3.3-70b-versatile",
-            "groq/llama-3.1-8b-instant",
-        ],
-    },
-    "Together AI": {
-        "env_keys": ["TOGETHERAI_API_KEY", "TOGETHER_API_KEY"],
-        "models": [
-            "together_ai/deepseek-ai/DeepSeek-V4-Pro",
-            "together_ai/deepseek-ai/DeepSeek-V4-Flash",
-            "together_ai/meta-llama/Llama-4-Scout",
-            "together_ai/meta-llama/Llama-3.3-70B-Instruct-Turbo",
-        ],
-    },
-    "DeepSeek": {
-        "env_keys": ["DEEPSEEK_API_KEY"],
-        "models": [
-            "deepseek/deepseek-v4-pro",
-            "deepseek/deepseek-v4-flash",
-            "deepseek/deepseek-chat",
-        ],
-    },
-    "OpenRouter": {
-        "env_keys": ["OPENROUTER_API_KEY"],
-        "models": [
-            "openrouter/auto",
-            "openrouter/openai/gpt-5.6-sol",
-            "openrouter/openai/gpt-5.6-terra",
-            "openrouter/anthropic/claude-opus-5",
-            "openrouter/anthropic/claude-sonnet-5",
-        ],
-    },
-    "Cohere": {
-        "env_keys": ["COHERE_API_KEY"],
-        "models": [
-            "command-r-plus",
-            "command-r",
-        ],
-    },
-    "Perplexity": {
-        "env_keys": ["PERPLEXITY_API_KEY"],
-        "models": [
-            "perplexity/sonar-reasoning",
-            "perplexity/sonar",
-        ],
-    },
-}
+# Path to the provider catalog JSON configuration file in data/
+PROVIDER_CATALOG_FILE = Path(__file__).resolve().parent.parent / "data" / "provider_catalog.json"
+
+
+def load_provider_catalog(catalog_path: Path | str | None = None) -> dict[str, dict[str, Any]]:
+    """
+    Loads provider and model definitions from the configuration JSON file in the data folder.
+    Defaults to data/provider_catalog.json.
+    """
+    target_path = Path(catalog_path) if catalog_path else PROVIDER_CATALOG_FILE
+    if not target_path.exists():
+        logger.warning(f"[MODEL_CATALOG] Provider catalog file not found at: {target_path}")
+        return {}
+    try:
+        with open(target_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            if isinstance(data, dict):
+                return data
+            logger.error(f"[MODEL_CATALOG] Expected dict in {target_path}, got {type(data)}")
+            return {}
+    except Exception as e:
+        logger.error(f"[MODEL_CATALOG] Failed to load provider catalog from {target_path}: {e}")
+        return {}
+
+
+# Providers catalog loaded from configuration JSON file
+PROVIDER_CATALOG: dict[str, dict[str, Any]] = load_provider_catalog()
 
 
 def _get_project_env_path() -> Path:
@@ -138,11 +66,17 @@ def _is_valid_key(value: Any) -> bool:
     return True
 
 
-def get_active_providers(env_dict: dict[str, str | None] | None = None) -> list[str]:
+def get_active_providers(
+    env_dict: dict[str, str | None] | None = None,
+    catalog: dict[str, dict[str, Any]] | None = None,
+) -> list[str]:
     """
     Returns a list of provider names that have active API keys defined in the .env file or environment.
     If env_dict is not provided, reads directly from .env and os.environ.
     """
+    if catalog is None:
+        catalog = load_provider_catalog()
+
     merged_env: dict[str, Any] = {}
     if env_dict is not None:
         merged_env.update(env_dict)
@@ -160,7 +94,7 @@ def get_active_providers(env_dict: dict[str, str | None] | None = None) -> list[
                 merged_env[k] = v
 
     active_providers = []
-    for provider, cfg in PROVIDER_CATALOG.items():
+    for provider, cfg in catalog.items():
         keys = cfg.get("env_keys", [])
         if any(_is_valid_key(merged_env.get(k)) for k in keys):
             active_providers.append(provider)
@@ -171,6 +105,7 @@ def get_active_providers(env_dict: dict[str, str | None] | None = None) -> list[
 def get_available_models(
     current_model: str | None = None,
     env_dict: dict[str, str | None] | None = None,
+    catalog: dict[str, dict[str, Any]] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
     """
     Constructs Block Kit option_groups for a Slack static_select dropdown
@@ -181,12 +116,15 @@ def get_available_models(
         where option_groups is a list of Slack OptionGroup dicts
         and initial_option is a Slack Option dict matching current_model.
     """
-    active_providers = get_active_providers(env_dict=env_dict)
+    if catalog is None:
+        catalog = load_provider_catalog()
+
+    active_providers = get_active_providers(env_dict=env_dict, catalog=catalog)
     option_groups: list[dict[str, Any]] = []
     seen_models: set[str] = set()
 
     for provider in active_providers:
-        cfg = PROVIDER_CATALOG.get(provider, {})
+        cfg = catalog.get(provider, {})
         models = cfg.get("models", [])
         opts = []
         for m in models:
@@ -237,7 +175,7 @@ def get_available_models(
             option_groups.append({
                 "label": {
                     "type": "plain_text",
-                    "text": "Trenutni model (Current)",
+                    "text": "Current Model",
                     "emoji": True,
                 },
                 "options": [fallback_opt],
@@ -249,7 +187,7 @@ def get_available_models(
         placeholder = {
             "text": {
                 "type": "plain_text",
-                "text": "Nema konfiguriranih API ključeva",
+                "text": "No API keys configured",
                 "emoji": True,
             },
             "value": "none",
@@ -257,7 +195,7 @@ def get_available_models(
         option_groups.append({
             "label": {
                 "type": "plain_text",
-                "text": "Upozorenje",
+                "text": "Warning",
                 "emoji": True,
             },
             "options": [placeholder],

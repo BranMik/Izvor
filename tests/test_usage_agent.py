@@ -105,18 +105,18 @@ async def test_format_usage_slack_message_structure():
     # Must contain header items: Channel name, creation time, thread ts, status
     assert "#dev-discussions" in msg
     assert "Thread TS:" in msg
-    assert "Status rasprave:" in msg
-    assert "U tijeku" in msg
+    assert "Discussion Status:" in msg
+    assert "In Progress / Active" in msg
 
     # Must contain model breakdown
     assert "gemini/gemini-3.7-flash" in msg
-    assert "Ulazni (Prompt):" in msg
-    assert "Izlazni (Output):" in msg
-    assert "UKUPNA POTROŠNJA THREADA:" in msg
-    assert "UKUPAN TROŠAK:" in msg
+    assert "Prompt (Input):" in msg
+    assert "Completion (Output):" in msg
+    assert "GRAND TOTAL THREAD USAGE:" in msg
+    assert "TOTAL COST:" in msg
 
     # Must contain exact URL references section
-    assert "IZVORI TARIFA I WEB REFERENCE" in msg
+    assert "PRICING SOURCES & WEB REFERENCES" in msg
     assert "https://" in msg
 
 
@@ -164,7 +164,7 @@ async def test_update_usage_for_thread_creates_and_updates_in_slack():
         mock_update.assert_awaited_once()
         call_kwargs = mock_update.call_args.kwargs
         assert call_kwargs["message_ts"] == "usage_msg_ts_123"
-        assert "Završeno" in call_kwargs["text"]
+        assert "Completed" in call_kwargs["text"]
 
 
 @pytest.mark.anyio

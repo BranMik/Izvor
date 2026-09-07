@@ -54,9 +54,9 @@ def build_app_home_view(
     cb_enabled = bool(circuit_breaker_config.get("enabled", False))
     cb_threshold = float(circuit_breaker_config.get("threshold_usd", 1.0))
     cb_status_str = (
-        f"🟢 *Uključeno (ON)* — Limit: *${cb_threshold:.2f} USD*"
+        f"🟢 *Enabled (ON)* — Limit: *${cb_threshold:.2f} USD*"
         if cb_enabled
-        else "🔴 *Isključeno (OFF)*"
+        else "🔴 *Disabled (OFF)*"
     )
 
     orch_mode = get_orchestration_mode()
@@ -74,24 +74,24 @@ def build_app_home_view(
 
     # Emergency Backup Alert Banner if running from backup
     if is_running_from_backup():
-        err_reason = get_backup_error_reason() or "Datoteka postavki nije dostupna."
+        err_reason = get_backup_error_reason() or "Settings file unavailable."
         blocks.extend([
             {
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
                     "text": (
-                        "⚠️ *UPOZORENJE: Sustav radi u EMERGENCY BACKUP načinu!*\n"
-                        f"Glavna datoteka postavki (`agent_settings.json`) je oštećena ili nedostupna ({err_reason}).\n"
-                        "Postavke su trenutno privremeno učitane iz sigurnosne kopije. "
-                        "Kliknite gumb za vraćanje postavki iz backupa u aktivnu konfiguraciju:"
+                        "⚠️ *WARNING: System running in EMERGENCY BACKUP mode!*\n"
+                        f"The main settings file (`agent_settings.json`) is corrupted or unavailable ({err_reason}).\n"
+                        "Settings have been temporarily restored from backup. "
+                        "Click the button to restore settings from backup into active configuration:"
                     ),
                 },
                 "accessory": {
                     "type": "button",
                     "text": {
                         "type": "plain_text",
-                        "text": "🔄 Vrati iz backupa",
+                        "text": "🔄 Restore from backup",
                         "emoji": True,
                     },
                     "action_id": "restore_from_backup",
@@ -115,9 +115,9 @@ def build_app_home_view(
             "text": {
                 "type": "mrkdwn",
                 "text": (
-                    "*Dobrodošli u CaiLogics kontrolni panel!*\n"
-                    "Ovdje možete upravljati agentima za automatsku debatu i sigurnosnim limitima potrošnje (circuit-breaker).\n\n"
-                    "💡 *Napomena:* Isključeni agenti i dalje se mogu direktno pozvati tagiranjem (npr. `[TechLead]`)."
+                    "*Welcome to CaiLogics Control Hub!*\n"
+                    "Manage debate agents and spend limits (circuit-breaker) here.\n\n"
+                    "💡 *Note:* Disabled agents can still be directly invoked by tagging (e.g. `[TechLead]`)."
                 ),
             },
         },
@@ -126,7 +126,7 @@ def build_app_home_view(
             "fields": [
                 {
                     "type": "mrkdwn",
-                    "text": f"*📊 Status panela:*\n🟢 *{active_count}* / *{total_agents}* agenata aktivno",
+                    "text": f"*📊 Panel Status:*\n🟢 *{active_count}* / *{total_agents}* agents active",
                 },
                 {
                     "type": "mrkdwn",
@@ -140,9 +140,9 @@ def build_app_home_view(
             "text": {
                 "type": "mrkdwn",
                 "text": (
-                    f"*🛡️ Thread Circuit Breaker (Sigurnosni limit troškova):*\n"
+                    f"*🛡️ Thread Circuit Breaker (Cost Safety Limit):*\n"
                     f"Status: {cb_status_str}\n"
-                    f"Aktivni agenti u panelu: *{active_count}/{total_agents}*"
+                    f"Active debate agents: *{active_count}/{total_agents}*"
                 ),
             },
             "accessory": {
@@ -178,7 +178,7 @@ def build_app_home_view(
                 "initial_value": f"{cb_threshold:.2f}",
                 "placeholder": {
                     "type": "plain_text",
-                    "text": "Unesite iznos u USD (npr. 0.50, 1.00, 2.50)",
+                    "text": "Enter amount in USD (e.g. 0.50, 1.00, 2.50)",
                 },
                 "dispatch_action_config": {
                     "trigger_actions_on": ["on_enter_pressed"],
@@ -186,7 +186,7 @@ def build_app_home_view(
             },
             "label": {
                 "type": "plain_text",
-                "text": "💵 Maksimalni limit po threadu ($ USD):",
+                "text": "💵 Maximum limit per thread ($ USD):",
                 "emoji": True,
             },
         },
@@ -197,7 +197,7 @@ def build_app_home_view(
                     "type": "button",
                     "text": {
                         "type": "plain_text",
-                        "text": "💾 Spremi limit",
+                        "text": "💾 Save limit",
                         "emoji": True,
                     },
                     "action_id": "save_circuit_breaker_threshold_button",
@@ -236,8 +236,8 @@ def build_app_home_view(
             "text": {
                 "type": "mrkdwn",
                 "text": (
-                    f"*🔀 Način orkestracije rasprave (Orchestration Mode):*\n"
-                    f"Trenutni način: *{'🥪 Sandwich Chain (Start ➔ Sredina ➔ End)' if orch_mode == OrchestrationMode.SANDWICH else '🎯 Fixed Sequence (Strogi lanac)'}*"
+                    f"*🔀 Discussion Orchestration Mode:*\n"
+                    f"Current mode: *{'🥪 Sandwich Chain (Start ➔ Middle ➔ End)' if orch_mode == OrchestrationMode.SANDWICH else '🎯 Fixed Sequence'}*"
                 ),
             },
             "accessory": {
@@ -281,7 +281,7 @@ def build_app_home_view(
                 "elements": [
                     {
                         "type": "mrkdwn",
-                        "text": "ℹ️ *Sandwich Flow:* Započinje sa _Start Chain_, nastavlja s preostalim uključenim agentima u _sredini (proizvoljno)_, i završava sa _End Chain_. Ako su lanci prazni, redoslijed je 100% proizvoljan.",
+                        "text": "ℹ️ *Sandwich Flow:* Begins with _Start Chain_, continues with remaining active agents in the _middle (flexible)_, and concludes with _End Chain_. If chains are empty, order is 100% flexible.",
                     }
                 ],
             },
@@ -295,12 +295,12 @@ def build_app_home_view(
                     "initial_value": start_chain_str,
                     "placeholder": {
                         "type": "plain_text",
-                        "text": "npr. Visionary, Innovator (odvojeno zarezom)",
+                        "text": "e.g. Visionary, Innovator (comma-separated)",
                     },
                 },
                 "label": {
                     "type": "plain_text",
-                    "text": "🚩 Početni lanac (Start Chain):",
+                    "text": "🚩 Start Chain:",
                     "emoji": True,
                 },
             },
@@ -314,12 +314,12 @@ def build_app_home_view(
                     "initial_value": end_chain_str,
                     "placeholder": {
                         "type": "plain_text",
-                        "text": "npr. Architect (odvojeno zarezom)",
+                        "text": "e.g. Architect (comma-separated)",
                     },
                 },
                 "label": {
                     "type": "plain_text",
-                    "text": "🏁 Završni lanac (End Chain):",
+                    "text": "🏁 End Chain:",
                     "emoji": True,
                 },
             },
@@ -330,7 +330,7 @@ def build_app_home_view(
                         "type": "button",
                         "text": {
                             "type": "plain_text",
-                            "text": "💾 Spremi Sandwich lance",
+                            "text": "💾 Save Sandwich chains",
                             "emoji": True,
                         },
                         "action_id": "save_sandwich_chains_button",
@@ -340,7 +340,7 @@ def build_app_home_view(
                         "type": "button",
                         "text": {
                             "type": "plain_text",
-                            "text": "🗑️ Očisti lance (Proizvoljno)",
+                            "text": "🗑️ Clear chains (Flexible)",
                             "emoji": True,
                         },
                         "action_id": "clear_sandwich_chains_button",
@@ -355,7 +355,7 @@ def build_app_home_view(
                 "elements": [
                     {
                         "type": "mrkdwn",
-                        "text": "ℹ️ *Fixed Sequence Flow:* Samo navedeni agenti sudjeluju u raspravi po točnom redoslijedu. Ako je lanac prazan, svi uključeni agenti sudjeluju proizvoljnim redoslijedom.",
+                        "text": "ℹ️ *Fixed Sequence Flow:* Only listed agents participate in strict sequence. If chain is empty, all active agents participate in flexible order.",
                     }
                 ],
             },
@@ -369,12 +369,12 @@ def build_app_home_view(
                     "initial_value": fixed_chain_str,
                     "placeholder": {
                         "type": "plain_text",
-                        "text": "npr. TechLead, Innovator, Architect (odvojeno zarezom)",
+                        "text": "e.g. TechLead, Innovator, Architect (comma-separated)",
                     },
                 },
                 "label": {
                     "type": "plain_text",
-                    "text": "🎯 Fiksni redoslijed agenata (Fixed Chain Sequence):",
+                    "text": "🎯 Fixed Sequence Order:",
                     "emoji": True,
                 },
             },
@@ -385,7 +385,7 @@ def build_app_home_view(
                         "type": "button",
                         "text": {
                             "type": "plain_text",
-                            "text": "💾 Spremi Fiksni lanac",
+                            "text": "💾 Save Fixed chain",
                             "emoji": True,
                         },
                         "action_id": "save_fixed_chain_button",
@@ -395,7 +395,7 @@ def build_app_home_view(
                         "type": "button",
                         "text": {
                             "type": "plain_text",
-                            "text": "🗑️ Očisti lanac (Proizvoljno)",
+                            "text": "🗑️ Clear chain (Flexible)",
                             "emoji": True,
                         },
                         "action_id": "clear_fixed_chain_button",
@@ -410,7 +410,7 @@ def build_app_home_view(
             "type": "section",
             "text": {
                 "type": "mrkdwn",
-                "text": "*👥 Konfiguracija agenata u panelu (Uključeno/Isključeno):*",
+                "text": "*👥 Agent Panel Configuration (Enabled/Disabled):*",
             },
         },
         {
@@ -420,7 +420,7 @@ def build_app_home_view(
                     "type": "button",
                     "text": {
                         "type": "plain_text",
-                        "text": "✅ Uključi sve agente",
+                        "text": "✅ Enable all agents",
                         "emoji": True,
                     },
                     "action_id": "bulk_enable_all",
@@ -430,7 +430,7 @@ def build_app_home_view(
                     "type": "button",
                     "text": {
                         "type": "plain_text",
-                        "text": "❌ Isključi sve agente",
+                        "text": "❌ Disable all agents",
                         "emoji": True,
                     },
                     "action_id": "bulk_disable_all",
@@ -496,7 +496,7 @@ def build_app_home_view(
                 "action_id": f"select_agent_model:{key}",
                 "placeholder": {
                     "type": "plain_text",
-                    "text": "Odaberi model",
+                    "text": "Select model",
                     "emoji": True,
                 },
                 "option_groups": option_groups,
@@ -513,7 +513,7 @@ def build_app_home_view(
             "elements": [
                 {
                     "type": "mrkdwn",
-                    "text": "⚡ _CaiLogics Multi-Agent Platform • Postavke stupaju na snagu odmah za sve nove rasprave._",
+                    "text": "⚡ _CaiLogics Multi-Agent Platform • Changes take effect immediately for all new discussions._",
                 }
             ],
         }

@@ -17,21 +17,21 @@ def test_build_tool_status_text():
 
     text = _build_tool_status_text("Visionary", [mock_tool])
     assert "Visionary" in text
-    assert "pretražuje web" in text
+    assert "is searching the web" in text
     assert "AI breakthroughs 2026" in text
 
     mock_tool.function.name = "fetch_web_page"
     mock_tool.function.arguments = json.dumps({"url": "https://example.com/data"})
     text_fetch = _build_tool_status_text("TechLead", [mock_tool])
     assert "TechLead" in text_fetch
-    assert "dohvaća web stranicu" in text_fetch
+    assert "is fetching webpage" in text_fetch
     assert "https://example.com/data" in text_fetch
 
     mock_tool.function.name = "load_skill"
     mock_tool.function.arguments = json.dumps({"skill_name": "market_research"})
     text_skill = _build_tool_status_text("Strategist", [mock_tool])
     assert "Strategist" in text_skill
-    assert "učitava vještinu" in text_skill
+    assert "is loading skill" in text_skill
     assert "market_research" in text_skill
 
 
@@ -141,7 +141,7 @@ async def test_delayed_intermediate_status_and_inplace_update():
     assert ctx.final_text == "Here is the final answer about AI 2026."
     assert ctx.intermediate_msg_ts == "11111.0001"
     mock_post_agent.assert_called_once()
-    assert "pretražuje web" in mock_post_agent.call_args[1]["text"]
+    assert "is searching the web" in mock_post_agent.call_args[1]["text"]
 
     # Now run stage_post_and_record to verify in-place update
     with patch("orchestration.turn_pipeline.record_thread_tokens"), \
