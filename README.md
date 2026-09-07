@@ -56,7 +56,7 @@ graph TD
 
 ### 3. Tool Execution & In-Place Slack Progress
 - **Wall-Clock Timeout**: LLM tool calling loops are guarded with a configurable timeout (`TOOL_CALL_LOOP_TIMEOUT_SECONDS`, default: 60s).
-- **Delayed Progress Indicator**: If tool execution exceeds 5 seconds, an intermediate status message is posted under the agent persona (e.g., `_🔍 *Visionary* pretražuje web..._`). Fast tool calls (<5s) complete cleanly without Slack UI flicker.
+- **Delayed Progress Indicator**: If tool execution exceeds 5 seconds, an intermediate status message is posted under the agent persona (e.g., `_🔍 *Visionary* is searching the web..._`). Fast tool calls (<5s) complete cleanly without Slack UI flicker.
 - **In-Place Message Update**: Upon completion, the intermediate placeholder is edited in-place with the final response text, leaving zero clutter in the Slack thread.
 - **Safe MCP Workspace Boundary**: Path resolution restricts filesystem tools to the configured workspace root.
 

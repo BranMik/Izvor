@@ -223,22 +223,22 @@ class ThreadUsageTracker:
         created_at = cost_data["created_at_str"]
         completed_status = is_completed or cost_data["is_completed"]
 
-        status_str = "✅ *Završeno / Completed*" if completed_status else "🟢 *U tijeku / Active*"
+        status_str = "✅ *Completed*" if completed_status else "🟢 *In Progress / Active*"
 
         lines = [
-            "📊 *IZVJEŠTAJ POTROŠNJE THREADA (TOKENI & TROŠKOVI)*",
+            "📊 *THREAD USAGE REPORT (TOKENS & COSTS)*",
             "━" * 38,
-            f"📍 *Kanal:* `{ch_name}`",
-            f"📅 *Kreiran thread:* `{created_at}`",
+            f"📍 *Channel:* `{ch_name}`",
+            f"📅 *Thread Created:* `{created_at}`",
             f"🧵 *Thread TS:* `{thread_ts}`",
-            f"🔄 *Status rasprave:* {status_str}",
+            f"🔄 *Discussion Status:* {status_str}",
             "━" * 38,
-            "*POTROŠNJA PO MODELIMA:*",
+            "*BREAKDOWN BY MODEL:*",
         ]
 
         models = cost_data["models"]
         if not models:
-            lines.append("_(Još nema zabilježenih tokena za ovaj thread)_")
+            lines.append("_(No tokens recorded yet for this thread)_")
         else:
             for model_name, m_info in models.items():
                 clean_name = model_name
@@ -253,25 +253,25 @@ class ThreadUsageTracker:
 
                 lines.append(f"• *`{clean_name}`*")
                 lines.append(
-                    f"   ├ 📥 *Ulazni (Prompt):* `{p_tok:,}` tok.  |  *${in_cost:.5f}*  _(${in_rate:.2f}/1M)_"
+                    f"   ├ 📥 *Prompt (Input):* `{p_tok:,}` tok.  |  *${in_cost:.5f}*  _(${in_rate:.2f}/1M)_"
                 )
                 lines.append(
-                    f"   ├ 📤 *Izlazni (Output):* `{c_tok:,}` tok.  |  *${out_cost:.5f}*  _(${out_rate:.2f}/1M)_"
+                    f"   ├ 📤 *Completion (Output):* `{c_tok:,}` tok.  |  *${out_cost:.5f}*  _(${out_rate:.2f}/1M)_"
                 )
                 lines.append(
-                    f"   └ 🔹 *Ukupno model:* `{tot_tok:,}` tokena  |  *${m_cost:.5f} USD*"
+                    f"   └ 🔹 *Model Total:* `{tot_tok:,}` tokens  |  *${m_cost:.5f} USD*"
                 )
 
         lines.append("━" * 38)
-        lines.append("*📈 UKUPNA POTROŠNJA THREADA:*")
-        lines.append(f"📥 Ukupno ulaznih tokena: *{cost_data['grand_prompt_tokens']:,}*")
-        lines.append(f"📤 Ukupno izlaznih tokena: *{cost_data['grand_completion_tokens']:,}*")
-        lines.append(f"🔢 Ukupno tokena: *{cost_data['grand_total_tokens']:,}*")
-        lines.append(f"💰 *UKUPAN TROŠAK:* *${cost_data['grand_total_cost_usd']:.5f} USD*")
+        lines.append("*📈 GRAND TOTAL THREAD USAGE:*")
+        lines.append(f"📥 Total Input Tokens: *{cost_data['grand_prompt_tokens']:,}*")
+        lines.append(f"📤 Total Output Tokens: *{cost_data['grand_completion_tokens']:,}*")
+        lines.append(f"🔢 Total Tokens: *{cost_data['grand_total_tokens']:,}*")
+        lines.append(f"💰 *TOTAL COST:* *${cost_data['grand_total_cost_usd']:.5f} USD*")
 
         if models:
             lines.append("━" * 38)
-            lines.append("*🌐 IZVORI TARIFA I WEB REFERENCE:*")
+            lines.append("*🌐 PRICING SOURCES & WEB REFERENCES:*")
             for model_name, m_info in models.items():
                 s_name = m_info.get("source", "Official Docs / Web")
                 s_url = m_info.get("source_url", "")
@@ -281,7 +281,7 @@ class ThreadUsageTracker:
                     lines.append(f"• *`{model_name}`*: _{s_name}_")
 
         curr_time = time.strftime("%H:%M:%S")
-        lines.append(f"\n_🕒 Zadnje ažuriranje: {curr_time} | Osvježavanje tarifa svakih 7 dana_")
+        lines.append(f"\n_🕒 Last updated: {curr_time} | Rates refreshed every 7 days_")
 
         return "\n".join(lines)
 

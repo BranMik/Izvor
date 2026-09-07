@@ -11,7 +11,7 @@ from typing import Any
 def _build_tool_status_text(username: str, tool_calls: list[Any]) -> str:
     """Builds a user-friendly progress text for in-flight tool operations."""
     if not tool_calls:
-        return f"_⏳ *{username}* analizira podatke..._"
+        return f"_⏳ *{username}* is analyzing data..._"
     first_tool = tool_calls[0]
     fn_name = (
         getattr(first_tool.function, "name", "")
@@ -36,15 +36,15 @@ def _build_tool_status_text(username: str, tool_calls: list[Any]) -> str:
     if fn_name == "web_search":
         q = fn_args.get("query", "")
         query_str = f': "{q}"' if q else ""
-        return f"_🔍 *{username}* pretražuje web{query_str}..._"
+        return f"_🔍 *{username}* is searching the web{query_str}..._"
     elif fn_name in ("fetch_web_page", "web_scrape"):
         url = fn_args.get("url", "")
         url_str = f": {url}" if url else ""
-        return f"_🌐 *{username}* dohvaća web stranicu{url_str}..._"
+        return f"_🌐 *{username}* is fetching webpage{url_str}..._"
     elif fn_name == "load_skill":
         skill = fn_args.get("skill_name", "")
         skill_str = f": {skill}" if skill else ""
-        return f"_⚡ *{username}* učitava vještinu{skill_str}..._"
+        return f"_⚡ *{username}* is loading skill{skill_str}..._"
     elif fn_name:
-        return f"_⏳ *{username}* izvršava radnju ({fn_name})..._"
-    return f"_⏳ *{username}* analizira podatke..._"
+        return f"_⏳ *{username}* is executing action ({fn_name})..._"
+    return f"_⏳ *{username}* is analyzing data..._"
