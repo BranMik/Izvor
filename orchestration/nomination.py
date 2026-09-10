@@ -17,6 +17,7 @@ from core.models import OrchestrationMode
 from nlp.nl_patterns import extract_history_limit
 from pipeline.entity_resolver import entity_resolver
 from pipeline.orchestrator import SandwichOrchestrator
+
 from .agent_settings import settings_manager
 from .thread_state import thread_state_manager
 

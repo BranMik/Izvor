@@ -1,9 +1,9 @@
 import json
 import logging
 import os
-from pathlib import Path
 import sys
 import time
+from pathlib import Path
 from typing import Any
 
 from core.config import (
@@ -80,10 +80,10 @@ class AgentSettingsManager:
             return self.default_settings_file
         router_mod = sys.modules.get("agent_router") or sys.modules.get("orchestration.agent_router")
         if router_mod and hasattr(router_mod, "SETTINGS_FILE"):
-            return Path(getattr(router_mod, "SETTINGS_FILE"))
+            return Path(router_mod.SETTINGS_FILE)
         agent_settings_mod = sys.modules.get("agent_settings") or sys.modules.get("orchestration.agent_settings")
         if agent_settings_mod and hasattr(agent_settings_mod, "SETTINGS_FILE"):
-            return Path(getattr(agent_settings_mod, "SETTINGS_FILE"))
+            return Path(agent_settings_mod.SETTINGS_FILE)
         return self.default_settings_file
 
     @property
@@ -92,10 +92,10 @@ class AgentSettingsManager:
             return self.default_backup_file
         router_mod = sys.modules.get("agent_router") or sys.modules.get("orchestration.agent_router")
         if router_mod and hasattr(router_mod, "BACKUP_FILE"):
-            return Path(getattr(router_mod, "BACKUP_FILE"))
+            return Path(router_mod.BACKUP_FILE)
         agent_settings_mod = sys.modules.get("agent_settings") or sys.modules.get("orchestration.agent_settings")
         if agent_settings_mod and hasattr(agent_settings_mod, "BACKUP_FILE"):
-            return Path(getattr(agent_settings_mod, "BACKUP_FILE"))
+            return Path(agent_settings_mod.BACKUP_FILE)
         return self.default_backup_file
 
     def _atomic_write_json(self, target_path: Path, data: dict[str, Any]) -> None:
@@ -111,8 +111,8 @@ class AgentSettingsManager:
             if tmp_path.exists():
                 try:
                     tmp_path.unlink()
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"[SETTINGS] Could not remove temp file {tmp_path}: {e}")
             raise
 
     def _validate_agent_entry(self, key: str, config: dict[str, Any]) -> bool:
@@ -418,7 +418,7 @@ class AgentSettingsManager:
                 },
                 "circuit_breaker_enabled": self.circuit_breaker_enabled,
                 "circuit_breaker_threshold_usd": self.circuit_breaker_threshold_usd,
-                "enabled_agents": sorted(list(self.enabled_agents)),
+                "enabled_agents": sorted(self.enabled_agents),
                 "agents": {
                     k: {
                         "model": v.get("model", ""),
@@ -510,8 +510,7 @@ class AgentSettingsManager:
     def set_circuit_breaker_threshold(self, threshold: float, save: bool = True) -> None:
         try:
             val = float(threshold)
-            if val < 0.0:
-                val = 0.0
+            val = max(val, 0.0)
             self.circuit_breaker_threshold_usd = val
             if save:
                 self.save()

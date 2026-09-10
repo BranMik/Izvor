@@ -1,18 +1,15 @@
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
-from unittest.mock import AsyncMock, patch, MagicMock
 
 from nlp.message_builder import build_llm_messages
 from nlp.nl_patterns import extract_file_instruction
 from orchestration.agent_router import process_and_respond
 from orchestration.nomination import resolve_target_file
 from orchestration.thread_state import (
-    clear_thread_file_context,
     get_thread_file_context,
-    set_thread_file_context,
-    THREAD_ACTIVE_FILE_CONTEXT,
 )
-
-from services.slack_client import fetch_thread_files, download_slack_file
+from services.slack_client import download_slack_file
 
 
 def test_extract_file_instruction_slash_commands():
@@ -47,7 +44,7 @@ def test_extract_file_instruction_croatian_nl():
         "Poslao sam fajl na pregled",
     ]
     for prompt in cases:
-        req, target, cleaned = extract_file_instruction(prompt)
+        req, _, _ = extract_file_instruction(prompt)
         assert req is True, f"Failed to detect Croatian trigger in: '{prompt}'"
 
 
@@ -61,7 +58,7 @@ def test_extract_file_instruction_english_nl():
         "The requirements are in the attachment",
     ]
     for prompt in cases:
-        req, target, cleaned = extract_file_instruction(prompt)
+        req, _, _ = extract_file_instruction(prompt)
         assert req is True, f"Failed to detect English trigger in: '{prompt}'"
 
 
@@ -70,7 +67,7 @@ def test_extract_file_instruction_matching_uploaded_filename():
         {"name": "sales_report_2026.csv", "id": "F1"},
         {"name": "architecture_diagram.png", "id": "F2"},
     ]
-    req, target, cleaned = extract_file_instruction(
+    req, target, _ = extract_file_instruction(
         "Možeš li pregledati sales_report_2026.csv?", available_files=available_files
     )
     assert req is True
@@ -85,7 +82,7 @@ def test_extract_file_instruction_negative_cases():
         "/history 5",
     ]
     for prompt in cases:
-        req, target, cleaned = extract_file_instruction(prompt)
+        req, target, _ = extract_file_instruction(prompt)
         assert req is False, f"False positive file trigger detected in: '{prompt}'"
         assert target is None
 
@@ -202,21 +199,22 @@ async def test_download_slack_file_http_mock():
     mock_resp.status_code = 200
     mock_resp.content = b"def add(a, b):\n    return a + b\n"
 
-    with patch("services.slack_client.SLACK_BOT_TOKEN", "xoxb-real-mock-token"):
-        with patch("httpx.AsyncClient.get", new_callable=AsyncMock) as mock_get:
-            mock_get.return_value = mock_resp
-            res = await download_slack_file(file_info)
-            assert res["ok"] is True
-            assert res["file_name"] == "calc.py"
-            assert "def add(a, b):" in res["content"]
-            assert res["truncated"] is False
+    with (
+        patch("services.slack_client.SLACK_BOT_TOKEN", "xoxb-real-mock-token"),
+        patch("httpx.AsyncClient.get", new_callable=AsyncMock) as mock_get,
+    ):
+        mock_get.return_value = mock_resp
+        res = await download_slack_file(file_info)
+        assert res["ok"] is True
+        assert res["file_name"] == "calc.py"
+        assert "def add(a, b):" in res["content"]
+        assert res["truncated"] is False
 
 
 @pytest.mark.anyio
 async def test_file_context_lifecycle_in_process_and_respond():
     channel_id = "C_FILE_TEST"
     thread_ts = "1700000000.1234"
-    thread_key = (channel_id, thread_ts)
 
     # Mock thread files in Slack
     mock_files = [
@@ -234,11 +232,13 @@ async def test_file_context_lifecycle_in_process_and_respond():
     ]
     mock_litellm_resp.usage = {"prompt_tokens": 15, "completion_tokens": 10}
 
-    with patch("orchestration.agent_router.fetch_thread_files", new_callable=AsyncMock, return_value=mock_files):
-        with patch("orchestration.agent_router.fetch_thread_history", new_callable=AsyncMock, return_value=[]):
-            with patch("orchestration.agent_router.post_agent_response", new_callable=AsyncMock, return_value={"ok": True, "ts": "1700000000.2222"}):
-                with patch("litellm.completion", return_value=mock_litellm_resp):
-                    with patch("orchestration.agent_router.asyncio.sleep", new_callable=AsyncMock):
+    with (
+        patch("orchestration.agent_router.fetch_thread_files", new_callable=AsyncMock, return_value=mock_files),
+        patch("orchestration.agent_router.fetch_thread_history", new_callable=AsyncMock, return_value=[]),
+        patch("orchestration.agent_router.post_agent_response", new_callable=AsyncMock, return_value={"ok": True, "ts": "1700000000.2222"}),
+        patch("litellm.completion", return_value=mock_litellm_resp),
+        patch("orchestration.agent_router.asyncio.sleep", new_callable=AsyncMock),
+    ):
                         # 1. User prompts with specific tag [Visionary] and requests file reading
                         res = await process_and_respond(
                             channel_id=channel_id,

@@ -3,13 +3,13 @@ import logging
 import time
 from typing import Any
 
-
 from core.config import THREAD_NOTES_MODEL
 from services.slack_client import (
     fetch_thread_history,
     post_thread_note,
     update_thread_note,
 )
+
 from .usage_agent import record_thread_tokens, trigger_usage_update
 
 logger = logging.getLogger(__name__)
@@ -112,7 +112,6 @@ async def update_notes_for_thread(
     """
     Asynchronously creates or updates the single live in-thread Strategic Synthesis note message for the specified thread.
     """
-    thread_key = (channel_id, thread_ts)
     lock = get_thread_lock(channel_id, thread_ts)
 
     async with lock:
@@ -231,7 +230,7 @@ async def update_notes_for_thread(
             return {"ok": False, "error": str(e)}
         except Exception as e:
             logger.exception(
-                f"[THREAD NOTES] ⚠️ Error updating live notes for thread {thread_ts}: {e}"
+                f"[THREAD NOTES] ⚠️ Error updating live notes for thread {thread_ts}"
             )
             return {"ok": False, "error": str(e)}
 

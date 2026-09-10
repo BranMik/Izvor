@@ -1,3 +1,4 @@
+import logging
 import os
 import sys
 from pathlib import Path
@@ -14,6 +15,7 @@ if not env_path.exists():
 load_dotenv(dotenv_path=env_path)
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+logger = logging.getLogger(__name__)
 
 SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN", "")
 SLACK_SIGNING_SECRET = os.getenv("SLACK_SIGNING_SECRET", "")
@@ -30,6 +32,9 @@ if _raw_workspace and _raw_workspace != ".":
 else:
     MCP_WORKSPACE_DIR = PROJECT_ROOT
 
+# Logging level configuration
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+
 # Base URL for resolving relative avatar icon paths for Slack messages
 BASE_AVATAR_URL = os.getenv("BASE_AVATAR_URL", "https://avatars.example.com/").rstrip("/") + "/"
 
@@ -43,7 +48,7 @@ def resolve_avatar_url(icon_url: str | None) -> str | None:
     if not icon_url:
         return None
     icon_str = str(icon_url).strip()
-    if icon_str.startswith("http://") or icon_str.startswith("https://"):
+    if icon_str.startswith(("http://", "https://")):
         return icon_str
     return f"{BASE_AVATAR_URL}{icon_str.lstrip('/')}"
 
@@ -75,12 +80,12 @@ def _load_system_agents_from_ssot() -> dict[str, dict[str, Any]]:
         raw = data.get("system_agents", {})
         if isinstance(raw, dict):
             return {k: v for k, v in raw.items() if isinstance(v, dict)}
-    except (FileNotFoundError, PermissionError, OSError):
-        pass
-    except (json.JSONDecodeError, UnicodeError):
-        pass
-    except Exception:
-        pass
+    except (FileNotFoundError, PermissionError, OSError) as e:
+        logger.debug(f"[CONFIG] System agent settings file read error: {e}")
+    except (json.JSONDecodeError, UnicodeError) as e:
+        logger.debug(f"[CONFIG] System agent settings JSON parse error: {e}")
+    except Exception as e:
+        logger.debug(f"[CONFIG] Unexpected error loading system agents: {e}")
     return {}
 
 

@@ -3,23 +3,22 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-import agents.thread_notes_agent as thread_notes_agent
-from core.config import THREAD_NOTES_MODEL
-from services.slack_client import post_thread_note, update_thread_note
+from agents import thread_notes_agent
 from agents.thread_notes_agent import (
     THREAD_NOTE_MSG_MAP,
-    clear_thread_note,
     generate_thread_notes,
     get_thread_note,
     set_thread_note,
     trigger_thread_notes_update,
     update_notes_for_thread,
 )
+from core.config import THREAD_NOTES_MODEL
+from services.slack_client import post_thread_note, update_thread_note
 
 
 @pytest.fixture(autouse=True)
 def clean_notes_state(monkeypatch):
-    import orchestration.agent_router as agent_router
+    from orchestration import agent_router
     monkeypatch.setattr(agent_router.asyncio, "sleep", AsyncMock(return_value=None))
     THREAD_NOTE_MSG_MAP.clear()
     thread_notes_agent.THREAD_LOCKS.clear()
@@ -160,7 +159,7 @@ async def test_trigger_thread_notes_update_spawns_and_coalesces_task():
 
 @pytest.mark.anyio
 async def test_slack_client_post_and_update_thread_note_mock_mode(monkeypatch):
-    import services.slack_client as slack_client
+    from services import slack_client
     monkeypatch.setattr(slack_client, "SLACK_BOT_TOKEN", "xoxb-your-bot-user-oauth-token")
 
     res_post = await post_thread_note(
@@ -183,7 +182,7 @@ async def test_slack_client_post_and_update_thread_note_mock_mode(monkeypatch):
 
 @pytest.mark.anyio
 async def test_slack_client_note_api_calls(monkeypatch):
-    import services.slack_client as slack_client
+    from services import slack_client
     monkeypatch.setattr(slack_client, "SLACK_BOT_TOKEN", "xoxb-valid-test-token")
 
     mock_post = AsyncMock(return_value={"ok": True, "ts": "1700000000.888"})
@@ -228,7 +227,7 @@ async def test_slack_client_note_api_calls(monkeypatch):
 
 @pytest.mark.anyio
 async def test_router_invokes_trigger_thread_notes_update(monkeypatch):
-    import orchestration.agent_router as agent_router
+    from orchestration import agent_router
 
     mock_trigger = MagicMock()
     monkeypatch.setattr("orchestration.agent_router.trigger_thread_notes_update", mock_trigger)

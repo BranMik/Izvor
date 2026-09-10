@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import logging
 import random
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from agents import (
     calculate_thread_costs,
@@ -15,14 +15,14 @@ from agents import (
 )
 from core.config import AGENTS_CONFIG, SLACK_POST_PAUSE_SECONDS
 from core.models import OrchestrationMode
-from pipeline.spend_governance import spend_governance
-from services.slack_client import post_agent_response, post_system_message
 from orchestration.agent_settings import (
     get_circuit_breaker_threshold,
     is_circuit_breaker_enabled,
     settings_manager,
 )
 from orchestration.thread_state import clear_thread_state, thread_state_manager
+from pipeline.spend_governance import spend_governance
+from services.slack_client import post_agent_response, post_system_message
 
 if TYPE_CHECKING:
     from orchestration.turn_pipeline import TurnContext

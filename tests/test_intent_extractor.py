@@ -1,5 +1,6 @@
 import json
 from unittest.mock import MagicMock, patch
+
 import pytest
 
 from nlp.intent_extractor import extract_user_intent, should_skip_intent_extractor

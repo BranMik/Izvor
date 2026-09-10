@@ -138,7 +138,6 @@ class DiscussionStateStore:
 
     def clear_thread(self, channel_id: str, thread_ts: str) -> None:
         """Purges discussion state for this thread."""
-        thread_key = (channel_id, thread_ts)
         self.clear_remaining_agents(channel_id, thread_ts)
         self.clear_custom_flow(channel_id, thread_ts)
         self.clear_stop(channel_id, thread_ts)

@@ -1,4 +1,5 @@
 from unittest.mock import AsyncMock, MagicMock
+
 import pytest
 
 from core.config import AGENTS_CONFIG
@@ -7,6 +8,7 @@ from core.llm_utils import (
     execute_llm_with_retry,
     is_high_demand_503_error,
 )
+from orchestration import agent_router
 from orchestration.agent_router import process_and_respond
 from orchestration.agent_settings import (
     reset_enabled_agents,
@@ -20,7 +22,6 @@ from orchestration.thread_state import (
     RATE_LIMIT_RETRY_QUEUE,
     REMAINING_AGENTS_MAP,
 )
-import orchestration.agent_router as agent_router
 
 
 @pytest.fixture(autouse=True)
@@ -136,7 +137,7 @@ async def test_process_and_respond_api_key_not_found(monkeypatch):
         "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
     )
 
-    res = await process_and_respond(
+    await process_and_respond(
         channel_id="C123",
         thread_ts="12345.0001",
         raw_text="Hello, help me design a backend architecture",
@@ -181,7 +182,7 @@ async def test_process_and_respond_model_not_found(monkeypatch):
         "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
     )
 
-    res = await process_and_respond(
+    await process_and_respond(
         channel_id="C123",
         thread_ts="12345.0002",
         raw_text="[TechLead] Analyze this code",
@@ -228,7 +229,7 @@ async def test_process_and_respond_retries_and_clean_error_message(monkeypatch):
         "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
     )
 
-    res = await process_and_respond(
+    await process_and_respond(
         channel_id="C123",
         thread_ts="12345.9999",
         raw_text="[TechLead] Analyze this code",
@@ -380,7 +381,7 @@ async def test_process_and_respond_503_high_demand_first_skip_and_random_handoff
         "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
     )
 
-    res = await process_and_respond(
+    await process_and_respond(
         channel_id="C_503",
         thread_ts="12345.5031",
         raw_text="[TechLead] Analyze backend structure",
@@ -450,7 +451,7 @@ async def test_process_and_respond_503_high_demand_second_query_retries_and_term
         "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
     )
 
-    res = await process_and_respond(
+    await process_and_respond(
         channel_id="C_503",
         thread_ts="12345.5032",
         raw_text="[TechLead] Second attempt query",

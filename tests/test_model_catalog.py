@@ -3,24 +3,23 @@ Unit tests for core.model_catalog and Slack App Home model selection dropdown.
 """
 
 from unittest.mock import AsyncMock, patch
+
 import pytest
 from starlette.testclient import TestClient
 
 from core.config import AGENTS_CONFIG
 from core.model_catalog import (
-    PROVIDER_CATALOG,
     get_active_providers,
     get_available_models,
     load_provider_catalog,
 )
+from main import app
 from orchestration.agent_settings import (
     AgentSettingsManager,
     reset_enabled_agents,
     set_agent_model,
-    settings_manager,
 )
 from services.slack_client import build_app_home_view
-from main import app
 
 
 def test_get_active_providers_filters_placeholders():
@@ -140,7 +139,7 @@ def test_build_app_home_view_renders_model_dropdowns():
                 action_ids.append(el.get("action_id", ""))
 
     # Verify model select dropdown action IDs exist for agents
-    for agent_key in AGENTS_CONFIG.keys():
+    for agent_key in AGENTS_CONFIG:
         assert f"select_agent_model:{agent_key}" in action_ids
 
     # Check that model section has valid option_groups
@@ -199,7 +198,7 @@ def test_load_provider_catalog_from_json():
     assert "OpenAI" in catalog
     assert "Anthropic" in catalog
 
-    for provider, cfg in catalog.items():
+    for cfg in catalog.values():
         assert "env_keys" in cfg
         assert isinstance(cfg["env_keys"], list)
         assert "models" in cfg
@@ -209,15 +208,14 @@ def test_load_provider_catalog_from_json():
 
 def test_load_provider_catalog_missing_file(tmp_path):
     """Verify non-existent catalog file returns empty dict gracefully."""
-    missing = tmp_path / "nonexistent.json"
-    catalog = load_provider_catalog(missing)
-    assert catalog == {}
+    missing = tmp_path / "non_existent_catalog.json"
+    assert load_provider_catalog(missing) == {}
 
 
 def test_load_provider_catalog_custom_file(tmp_path):
-    """Verify loading from a custom JSON file."""
+    """Verify load_provider_catalog accepts a custom Path."""
     import json
-    custom_file = tmp_path / "custom_catalog.json"
+    custom_file = tmp_path / "my_catalog.json"
     custom_data = {
         "CustomProvider": {
             "env_keys": ["CUSTOM_KEY"],
@@ -229,7 +227,7 @@ def test_load_provider_catalog_custom_file(tmp_path):
     assert loaded == custom_data
 
     # Test get_available_models with this catalog
-    option_groups, initial = get_available_models(
+    option_groups, _ = get_available_models(
         env_dict={"CUSTOM_KEY": "valid-secret"},
         catalog=loaded,
     )

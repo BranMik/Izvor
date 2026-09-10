@@ -24,18 +24,18 @@ class EntityResolver:
             from orchestration.agent_settings import settings_manager
             if settings_manager.agents_config:
                 return settings_manager.agents_config
-        except (ImportError, AttributeError):
-            pass
-        except Exception:
-            pass
+        except (ImportError, AttributeError) as e:
+            logger.debug(f"[RESOLVER] settings_manager lookup skipped: {e}")
+        except Exception as e:
+            logger.debug(f"[RESOLVER] settings_manager unexpected lookup error: {e}")
         try:
             from core.config import AGENTS_CONFIG
             if AGENTS_CONFIG:
                 return AGENTS_CONFIG
-        except (ImportError, AttributeError):
-            pass
-        except Exception:
-            pass
+        except (ImportError, AttributeError) as e:
+            logger.debug(f"[RESOLVER] AGENTS_CONFIG lookup skipped: {e}")
+        except Exception as e:
+            logger.debug(f"[RESOLVER] AGENTS_CONFIG unexpected lookup error: {e}")
         return {}
 
     def normalize(self, s: str) -> str:
@@ -78,9 +78,9 @@ class EntityResolver:
         # 3. Substring/prefix/role match against key or username
         matches = []
         for key, cfg in agents.items():
-            if norm_cleaned in self.normalize(key):
-                matches.append(key)
-            elif cfg.get("username") and norm_cleaned in self.normalize(cfg["username"]):
+            if norm_cleaned in self.normalize(key) or (
+                cfg.get("username") and norm_cleaned in self.normalize(cfg["username"])
+            ):
                 matches.append(key)
 
         return list(dict.fromkeys(matches))

@@ -6,13 +6,13 @@ from .spend_governance import SpendGovernance, spend_governance
 
 __all__ = [
     "DirectiveParser",
-    "directive_parser",
-    "ParsedDirectives",
     "DiscussionScribe",
-    "discussion_scribe",
     "EntityResolver",
-    "entity_resolver",
+    "ParsedDirectives",
     "SandwichOrchestrator",
     "SpendGovernance",
+    "directive_parser",
+    "discussion_scribe",
+    "entity_resolver",
     "spend_governance",
 ]

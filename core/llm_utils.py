@@ -27,11 +27,9 @@ def is_openai_model(model: str | None) -> bool:
         return False
     m = model.lower().strip()
     return (
-        m.startswith("openai/")
+        m.startswith(("openai/", "o1", "o3"))
         or "gpt" in m
         or "chatgpt" in m
-        or m.startswith("o1")
-        or m.startswith("o3")
         or "/o1" in m
         or "/o3" in m
     )
@@ -188,7 +186,7 @@ async def execute_llm_with_retry(
                 logger.info(
                     f"[LLM] 503 / High demand spike detected on first encounter for {agent_key}. Skipping immediate retry."
                 )
-                raise exc
+                raise
 
             if attempt < max_attempts:
                 await asyncio.sleep(LLM_RETRY_BACKOFF_BASE * attempt)

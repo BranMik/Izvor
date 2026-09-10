@@ -1,6 +1,8 @@
 from unittest.mock import AsyncMock, MagicMock
+
 import pytest
 
+from orchestration import agent_router
 from orchestration.agent_router import process_and_respond
 from orchestration.agent_settings import (
     get_circuit_breaker_config,
@@ -14,7 +16,6 @@ from orchestration.agent_settings import (
     set_sandwich_config,
 )
 from orchestration.thread_state import REMAINING_AGENTS_MAP
-import orchestration.agent_router as agent_router
 
 
 @pytest.fixture(autouse=True)

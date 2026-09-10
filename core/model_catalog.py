@@ -67,9 +67,7 @@ def _is_valid_key(value: Any) -> bool:
     if not clean:
         return False
     lower = clean.lower()
-    if lower.startswith("your-") or lower.startswith("xoxb-your") or "your-" in lower:
-        return False
-    return True
+    return not (lower.startswith(("your-", "xoxb-your")) or "your-" in lower)
 
 
 def get_active_providers(

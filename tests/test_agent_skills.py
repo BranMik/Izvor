@@ -3,19 +3,14 @@ Comprehensive test suite for the Declarative SKILL.md Framework and LLM Progress
 """
 
 import json
-from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
-import pytest
+from unittest.mock import patch
 
+from orchestration.agent_settings import settings_manager
+from prompts import build_agent_prompt
 from skills import (
     LOAD_SKILL_SCHEMA,
-    SkillDefinition,
-    SkillRegistry,
     skill_registry,
 )
-from prompts import build_agent_prompt
-from orchestration.agent_settings import get_agent_skills, settings_manager
-
 
 # ==============================================================================
 # 1. Declarative SKILL.md Parsing & Discovery Tests

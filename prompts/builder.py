@@ -1,6 +1,6 @@
 import json
 import logging
-from functools import lru_cache
+from functools import cache
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -10,7 +10,7 @@ PERSONAS_DIR = PROMPTS_DIR / "personas"
 SHARED_DIR = PROMPTS_DIR / "shared"
 
 
-@lru_cache(maxsize=None)
+@cache
 def _read_prompt_file(path: Path) -> str:
     if not path.exists():
         raise FileNotFoundError(f"Prompt file not found: {path}")
@@ -28,12 +28,12 @@ def _load_short_output_agents() -> set[str]:
                 k for k, v in data.get("agents", {}).items()
                 if isinstance(v, dict) and v.get("is_short_output") is True
             }
-        except (FileNotFoundError, PermissionError, OSError):
-            pass
-        except (json.JSONDecodeError, UnicodeError):
-            pass
-        except Exception:
-            pass
+        except (FileNotFoundError, PermissionError, OSError) as e:
+            logger.debug(f"[PROMPT BUILDER] Short output settings file read error: {e}")
+        except (json.JSONDecodeError, UnicodeError) as e:
+            logger.debug(f"[PROMPT BUILDER] Short output settings JSON decode error: {e}")
+        except Exception as e:
+            logger.debug(f"[PROMPT BUILDER] Unexpected error loading short output agents: {e}")
     return set()
 
 
@@ -59,12 +59,12 @@ def _load_system_agents() -> set[str]:
             for k, v in data.get("agents", {}).items():
                 if isinstance(v, dict) and v.get("is_system_agent") is True:
                     system_keys.add(k)
-        except (FileNotFoundError, PermissionError, OSError):
-            pass
-        except (json.JSONDecodeError, UnicodeError):
-            pass
-        except Exception:
-            pass
+        except (FileNotFoundError, PermissionError, OSError) as e:
+            logger.debug(f"[PROMPT BUILDER] System agents settings file read error: {e}")
+        except (json.JSONDecodeError, UnicodeError) as e:
+            logger.debug(f"[PROMPT BUILDER] System agents settings JSON decode error: {e}")
+        except Exception as e:
+            logger.debug(f"[PROMPT BUILDER] Unexpected error loading system agents: {e}")
     return system_keys
 
 
@@ -92,10 +92,10 @@ def is_system_agent(agent_key: str) -> bool:
                         return True
                     if k == agent_key and entry.get("is_system_agent") is True:
                         return True
-    except (ImportError, AttributeError, KeyError):
-        pass
-    except Exception:
-        pass
+    except (ImportError, AttributeError, KeyError) as e:
+        logger.debug(f"[PROMPT BUILDER] Runtime system agent lookup skipped: {e}")
+    except Exception as e:
+        logger.debug(f"[PROMPT BUILDER] Unexpected error during system agent check for {agent_key}: {e}")
 
     return False
 
@@ -188,7 +188,7 @@ def build_agent_prompt(
                 if s_def and s_def.instructions:
                     pinned_guidelines.append(s_def.instructions)
             if pinned_guidelines:
-                prompt += f"\n### PRE-EQUIPPED SKILL GUIDELINES\n" + "\n\n".join(pinned_guidelines) + "\n\n"
+                prompt += "\n### PRE-EQUIPPED SKILL GUIDELINES\n" + "\n\n".join(pinned_guidelines) + "\n\n"
     except (ImportError, AttributeError, KeyError) as e:
         logger.warning(f"[PROMPT BUILDER] Attribute or import error loading skills catalog for {agent_key}: {e}")
     except Exception as e:

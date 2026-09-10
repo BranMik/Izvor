@@ -1,24 +1,19 @@
-import json
-from pathlib import Path
-import tempfile
-import pytest
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from core.config import AGENTS_CONFIG
 from nlp.message_builder import build_llm_messages
-from orchestration.agent_settings import AgentSettingsManager, settings_manager
-from orchestration.nomination import enforce_valid_nomination, get_initial_agents
+from orchestration import agent_router
 from orchestration.agent_router import process_and_respond
 from orchestration.agent_settings import (
-    get_fixed_config,
-    get_orchestration_mode,
-    get_sandwich_config,
     reset_enabled_agents,
     set_agent_enabled,
     set_fixed_config,
     set_orchestration_mode,
     set_sandwich_config,
 )
+from orchestration.nomination import enforce_valid_nomination, get_initial_agents
 from orchestration.thread_state import (
     CUSTOM_FLOW_THREADS,
     RATE_LIMIT_ALREADY_RETRIED,
@@ -27,7 +22,6 @@ from orchestration.thread_state import (
     STOP_REQUESTED_THREADS,
 )
 from services.slack_client import build_app_home_view
-import orchestration.agent_router as agent_router
 
 
 @pytest.fixture(autouse=True)

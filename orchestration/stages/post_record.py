@@ -8,7 +8,7 @@ import logging
 import random
 import re
 import time
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from agents import (
     record_thread_tokens,
@@ -23,10 +23,6 @@ from core.config import (
 from core.llm_utils import classify_agent_error
 from core.models import OrchestrationMode
 from nlp.message_builder import markdown_to_slack
-from services.slack_client import (
-    post_agent_response,
-    update_slack_message,
-)
 from orchestration.agent_settings import settings_manager
 from orchestration.nomination import enforce_valid_nomination
 from orchestration.thread_state import (
@@ -35,6 +31,10 @@ from orchestration.thread_state import (
     is_thread_stopped,
     mark_agent_503_errored,
     thread_state_manager,
+)
+from services.slack_client import (
+    post_agent_response,
+    update_slack_message,
 )
 
 if TYPE_CHECKING:
@@ -270,7 +270,7 @@ class PostRecordStageMixin:
             )
             return {"ok": False, "cancelled": True, "reason": "superseded"}
 
-        logger.exception(f"[ERROR] Exception during agent completion or post: {e}")
+        logger.exception("[ERROR] Exception during agent completion or post")
         err_category = classify_agent_error(e)
         logger.info(
             f"[ROUTER] Classified error for {ctx.agent_key} as: '{err_category}'"

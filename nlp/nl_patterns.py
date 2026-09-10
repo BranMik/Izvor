@@ -372,7 +372,6 @@ def extract_excluded_agents(text: str) -> tuple[list[str], str]:
                 # Non-agent word token -> user prompt starts here
                 break
 
-        cmd_full_span = cleaned_text[start_idx:matched_tokens_span_end]
         cleaned_text = cleaned_text[:start_idx] + " " + cleaned_text[matched_tokens_span_end:]
 
     # 2. Extract from natural language patterns
@@ -397,23 +396,23 @@ def extract_excluded_agents(text: str) -> tuple[list[str], str]:
 
 
 __all__ = [
-    "HISTORY_COMMAND_PATTERN",
-    "HISTORY_NL_PATTERNS",
-    "extract_history_limit",
-    "MAX_WORDS_COMMAND_PATTERN",
-    "MAX_WORDS_NL_PATTERNS",
-    "extract_max_words_limit",
-    "MIN_WORDS_COMMAND_PATTERN",
-    "MIN_WORDS_NL_PATTERNS",
-    "extract_min_words_limit",
-    "FILE_COMMAND_PATTERN",
-    "FILE_NL_PATTERNS",
-    "extract_file_instruction",
-    "STOP_COMMAND_PATTERN",
-    "is_stop_command",
     "EXCLUDE_COMMAND_PATTERN",
     "EXCLUDE_NL_PATTERNS",
+    "FILE_COMMAND_PATTERN",
+    "FILE_NL_PATTERNS",
+    "HISTORY_COMMAND_PATTERN",
+    "HISTORY_NL_PATTERNS",
+    "MAX_WORDS_COMMAND_PATTERN",
+    "MAX_WORDS_NL_PATTERNS",
+    "MIN_WORDS_COMMAND_PATTERN",
+    "MIN_WORDS_NL_PATTERNS",
+    "STOP_COMMAND_PATTERN",
+    "extract_excluded_agents",
+    "extract_file_instruction",
+    "extract_history_limit",
+    "extract_max_words_limit",
+    "extract_min_words_limit",
+    "is_stop_command",
     "resolve_agent_candidates",
     "resolve_agent_name",
-    "extract_excluded_agents",
 ]

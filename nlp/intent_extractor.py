@@ -8,6 +8,7 @@ from starlette.concurrency import run_in_threadpool
 
 from core.config import INTENT_EXTRACTOR_MODEL
 from core.models import ExtractedIntent
+
 from .nl_patterns import is_stop_command, resolve_agent_name
 
 logger = logging.getLogger(__name__)
@@ -70,10 +71,7 @@ class IntentExtractor:
         if is_file_cmd and (has_slash_max_words or has_slash_history):
             return True
 
-        if (has_slash_max_words or has_slash_history) and not has_thread_files:
-            return True
-
-        return False
+        return bool((has_slash_max_words or has_slash_history) and not has_thread_files)
 
     async def extract_intent(
         self,

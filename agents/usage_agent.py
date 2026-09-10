@@ -1,9 +1,9 @@
 import asyncio
-from datetime import datetime
 import json
 import logging
-from pathlib import Path
 import time
+from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from services.pricing_service import get_model_pricing
@@ -219,7 +219,7 @@ class ThreadUsageTracker:
         existing_entry = self.thread_usage_data.get(thread_key, {})
         existing_name = existing_entry.get("channel_name")
 
-        if existing_name and not (existing_name.startswith("#C") or existing_name.startswith("#D")):
+        if existing_name and not existing_name.startswith(("#C", "#D")):
             ch_name = existing_name
         else:
             ch_name = await get_channel_name(channel_id)
@@ -373,7 +373,7 @@ class ThreadUsageTracker:
                 logger.error(f"[USAGE AGENT] Data error updating usage for thread {thread_ts}: {e}")
                 return {"ok": False, "error": str(e)}
             except Exception as e:
-                logger.exception(f"[USAGE AGENT] Error updating usage for thread {thread_ts}: {e}")
+                logger.exception(f"[USAGE AGENT] Error updating usage for thread {thread_ts}")
                 return {"ok": False, "error": str(e)}
 
     async def _usage_worker(

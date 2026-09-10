@@ -1,5 +1,5 @@
-import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
 
 from orchestration.agent_router import (
@@ -68,7 +68,7 @@ async def test_internal_loop_multi_agent_custom_flow(monkeypatch):
     monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_llm_run)
 
     # Run internal discussion loop
-    res = await orchestrate_discussion(
+    await orchestrate_discussion(
         channel_id=channel_id,
         thread_ts=thread_ts,
         raw_text="[Innovator] [TechLead] What is the best architecture for our caching layer?",
@@ -133,7 +133,7 @@ async def test_internal_loop_user_stop_interruption(monkeypatch):
 
     monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_llm_run)
 
-    res = await orchestrate_discussion(
+    await orchestrate_discussion(
         channel_id=channel_id,
         thread_ts=thread_ts,
         raw_text="[Innovator] [TechLead] Discuss caching",

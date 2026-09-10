@@ -1,6 +1,6 @@
-from dataclasses import dataclass, field
 import logging
 import re
+from dataclasses import dataclass, field
 from typing import Any
 
 from core.models import ExtractedIntent
@@ -74,7 +74,10 @@ class DirectiveParser:
         )
 
         # 3. Check if micro-LLM intent extraction should run
-        from nlp.intent_extractor import extract_user_intent, should_skip_intent_extractor
+        from nlp.intent_extractor import (
+            extract_user_intent,
+            should_skip_intent_extractor,
+        )
 
         has_slash_file = bool(
             re.search(r"/(?:read[-_]?file|file|attachment)", raw_text, re.IGNORECASE)

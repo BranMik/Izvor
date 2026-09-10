@@ -25,8 +25,10 @@ from .thread_state import clear_thread_state, is_thread_stopped, thread_state_ma
 from .turn_pipeline import TurnContext, TurnPipeline
 
 __all__ = [
-    "process_and_respond",
     "orchestrate_discussion",
+    "post_system_message",
+    "process_and_respond",
+    "run_in_threadpool",
 ]
 
 logger = logging.getLogger(__name__)

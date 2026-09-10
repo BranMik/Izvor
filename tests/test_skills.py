@@ -1,9 +1,8 @@
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
+
 import pytest
 
-from core.domain import DiscussionBrief, SessionContext, SpendMetrics, Turn
-from pipeline.directive_parser import DirectiveParser, ParsedDirectives
-from pipeline.discussion_scribe import DiscussionScribe
+from pipeline.directive_parser import DirectiveParser
 from pipeline.entity_resolver import EntityResolver
 from pipeline.orchestrator import SandwichOrchestrator
 from pipeline.spend_governance import SpendGovernance
@@ -171,11 +170,11 @@ def test_spend_governance_ledger_and_circuit_breaker():
         metrics = gov.calculate_spend(session_id)
         assert metrics.total_cost_usd == pytest.approx(0.02, rel=1e-3)
 
-        tripped, cost, limit = gov.is_budget_exceeded(session_id, threshold_usd=0.05)
+        tripped, cost, _ = gov.is_budget_exceeded(session_id, threshold_usd=0.05)
         assert not tripped
 
         # Add more usage: 30,000 prompt, 20,000 completion = 0.03 + 0.04 = $0.07 (Total = $0.09)
         gov.record_usage(session_id, "mock-model", 30_000, 20_000)
-        tripped, cost, limit = gov.is_budget_exceeded(session_id, threshold_usd=0.05)
+        tripped, cost, _ = gov.is_budget_exceeded(session_id, threshold_usd=0.05)
         assert tripped
         assert cost == pytest.approx(0.09, rel=1e-3)

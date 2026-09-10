@@ -4,11 +4,12 @@ Discovers and parses SKILL.md files (YAML frontmatter + Markdown body)
 and binds low-level MCP execution backends.
 """
 
-from dataclasses import dataclass, field
 import json
 import logging
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
 import yaml
 
 from services.mcp_tools import MCP_TOOLS_SCHEMAS, execute_mcp_tool
@@ -176,8 +177,10 @@ class SkillRegistry:
 
         lines = [
             "### AVAILABLE SKILLS (ON DEMAND VIA `load_skill`)",
-            "You have access to specialized capabilities on demand. If your task requires live data, "
-            "repository inspection, or file authoring, invoke the `load_skill(skill_name)` tool:",
+            (
+                "You have access to specialized capabilities on demand. If your task requires live data, "
+                "repository inspection, or file authoring, invoke the `load_skill(skill_name)` tool:"
+            ),
         ]
         for skill in skills_to_show:
             lines.append(f"- `{skill.name}`: {skill.description}")

@@ -1,5 +1,6 @@
-import pytest
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from nlp.language_detector import (
     detect_language,
@@ -9,7 +10,6 @@ from nlp.language_detector import (
 from nlp.message_builder import build_llm_messages
 from orchestration.thread_state import (
     clear_thread_language,
-    clear_thread_state,
     get_thread_language,
     set_thread_language,
     thread_state_manager,
@@ -116,7 +116,6 @@ def test_thread_state_language_management():
 
 def test_build_llm_messages_with_thread_language():
     system_prompt = "You are an assistant."
-    effective_history = []
     prompt = "Analyze system architecture."
     agent_cfg = {"username": "TechLead"}
 
