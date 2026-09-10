@@ -1,7 +1,6 @@
 import ipaddress
 import json
 from unittest.mock import MagicMock, patch
-import pytest
 
 from services.mcp_tools import MCP_TOOLS_SCHEMAS, execute_mcp_tool
 from services.web_tools import (

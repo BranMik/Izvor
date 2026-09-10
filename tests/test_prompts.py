@@ -1,4 +1,3 @@
-import orchestration.agent_settings  # Ensure AGENTS_CONFIG is populated
 from core.config import AGENTS_CONFIG
 from prompts.builder import SHORT_OUTPUT_AGENTS, build_agent_prompt
 
@@ -119,7 +118,7 @@ def test_build_agent_prompt_with_min_and_max_words():
 
 
 def test_system_agent_detection_and_prompts():
-    from prompts.builder import SYSTEM_AGENTS, is_system_agent
+    from prompts.builder import is_system_agent
 
     # Metadata detection
     assert is_system_agent("Pricing_Agent") is True

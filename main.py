@@ -1,21 +1,21 @@
 import asyncio
-from contextlib import asynccontextmanager
 import json
 import logging
-from pathlib import Path
 import re
 import sys
 import time
 import urllib.parse
+from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Request, Response
 from fastapi.staticfiles import StaticFiles
 from slack_sdk.errors import SlackApiError
 from starlette.requests import ClientDisconnect
 
-from core.config import AGENTS_CONFIG
+from core.config import AGENTS_CONFIG, LOG_LEVEL
+from core.slack_security import verify_slack_signature
 from nlp.nl_patterns import is_stop_command
-from pipeline.entity_resolver import entity_resolver
 from orchestration.agent_router import process_and_respond
 from orchestration.agent_settings import (
     get_sandwich_config,
@@ -37,16 +37,17 @@ from orchestration.thread_state import (
     request_thread_stop,
     thread_state_manager,
 )
+from pipeline.entity_resolver import entity_resolver
 from services.pricing_service import warm_up_pricing_cache
 from services.slack_client import publish_app_home
-from core.slack_security import verify_slack_signature
 
 # Global in-memory cache for request deduplication
 PROCESSED_EVENTS = {}  # key: (channel_id, ts), value: timestamp
 
 # Configure logging format
+numeric_log_level = getattr(logging, LOG_LEVEL, logging.INFO)
 logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+    level=numeric_log_level, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 )
 logger = logging.getLogger("CaiLogicsBackend")
 
@@ -74,8 +75,8 @@ async def periodic_thread_state_cleanup():
                 logger.info(f"[CLEANUP] Pruned {cleaned} inactive thread state(s)")
         except asyncio.CancelledError:
             break
-        except Exception as e:
-            logger.error(f"[CLEANUP] Error during periodic thread state cleanup: {e}", exc_info=True)
+        except Exception:
+            logger.exception("[CLEANUP] Error during periodic thread state cleanup")
 
 
 @asynccontextmanager
@@ -254,14 +255,11 @@ async def slack_events(request: Request, background_tasks: BackgroundTasks):
                         has_tag = True
                         break
 
-                # 6e. Determine processing authorization
-                is_app_name_mention = False
-                if bot_user_id and f"<@{bot_user_id}>" in raw_text:
-                    is_app_name_mention = True
-                elif re.search(r"@?CaiLogics\b", raw_text, re.IGNORECASE):
-                    is_app_name_mention = True
-                elif re.search(r"@app_mention\b", raw_text, re.IGNORECASE):
-                    is_app_name_mention = True
+                is_app_name_mention = bool(
+                    (bot_user_id and f"<@{bot_user_id}>" in raw_text)
+                    or re.search(r"@?CaiLogics\b", raw_text, re.IGNORECASE)
+                    or re.search(r"@app_mention\b", raw_text, re.IGNORECASE)
+                )
 
                 is_mention_or_dm = (
                     (event_type == "app_mention")
@@ -316,7 +314,7 @@ async def slack_events(request: Request, background_tasks: BackgroundTasks):
                     )
                 else:
                     logger.info(
-                        f"[WEBHOOK] Ignoring event - should_process evaluated to False"
+                        "[WEBHOOK] Ignoring event - should_process evaluated to False"
                     )
 
     logger.info("[WEBHOOK] Returning 200 OK immediately to Slack")
@@ -348,7 +346,7 @@ async def slack_interactivity(request: Request, background_tasks: BackgroundTask
     if "payload=" in body_str:
         try:
             parsed_form = urllib.parse.parse_qs(body_str)
-            if "payload" in parsed_form and parsed_form["payload"]:
+            if parsed_form.get("payload"):
                 payload = json.loads(parsed_form["payload"][0])
         except (json.JSONDecodeError, ValueError, KeyError, IndexError) as e:
             logger.debug(f"[INTERACTIVITY] parse_qs extraction error: {e}")
@@ -362,9 +360,9 @@ async def slack_interactivity(request: Request, background_tasks: BackgroundTask
             if "payload" in form_data:
                 payload = json.loads(form_data["payload"])
         except (json.JSONDecodeError, ValueError, KeyError) as e:
-            pass
-        except Exception:
-            pass
+            logger.debug(f"[INTERACTIVITY] form-data extraction failed: {e}")
+        except Exception as e:
+            logger.debug(f"[INTERACTIVITY] form-data unexpected extraction error: {e}")
 
     # 3. Direct JSON payload fallback (used in unit tests / direct API callers)
     if not payload:
@@ -411,7 +409,7 @@ async def slack_interactivity(request: Request, background_tasks: BackgroundTask
                 val_str = ""
                 # Search dynamically for the action_id inside any block in view_state
                 if isinstance(view_state, dict):
-                    for block_id, block_val in view_state.items():
+                    for block_val in view_state.values():
                         if isinstance(block_val, dict) and "set_circuit_breaker_threshold_input" in block_val:
                             val_str = block_val["set_circuit_breaker_threshold_input"].get("value", "")
                             if val_str:
@@ -448,7 +446,7 @@ async def slack_interactivity(request: Request, background_tasks: BackgroundTask
                 start_val = ""
                 end_val = ""
                 if isinstance(view_state, dict):
-                    for block_id, block_val in view_state.items():
+                    for block_val in view_state.values():
                         if isinstance(block_val, dict):
                             if "set_start_chain_input" in block_val:
                                 start_val = block_val["set_start_chain_input"].get("value") or ""
@@ -472,7 +470,7 @@ async def slack_interactivity(request: Request, background_tasks: BackgroundTask
             elif action_id == "save_fixed_chain_button":
                 fixed_val = ""
                 if isinstance(view_state, dict):
-                    for block_id, block_val in view_state.items():
+                    for block_val in view_state.values():
                         if isinstance(block_val, dict) and "set_fixed_chain_input" in block_val:
                             fixed_val = block_val["set_fixed_chain_input"].get("value") or ""
                 chain = [k.strip() for k in fixed_val.split(",") if k.strip()]

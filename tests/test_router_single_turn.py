@@ -1,7 +1,10 @@
 from unittest.mock import AsyncMock, MagicMock
+
 import pytest
 
-from core.config import AGENTS_CONFIG
+from nlp.message_builder import build_llm_messages
+from nlp.nl_patterns import extract_history_limit
+from orchestration import agent_router
 from orchestration.agent_router import process_and_respond
 from orchestration.agent_settings import (
     get_enabled_agents,
@@ -19,9 +22,6 @@ from orchestration.thread_state import (
     THREAD_HISTORY_LIMITS,
     get_thread_history_limit,
 )
-from nlp.message_builder import build_llm_messages
-from nlp.nl_patterns import extract_history_limit
-import orchestration.agent_router as agent_router
 
 
 @pytest.fixture(autouse=True)
@@ -667,9 +667,9 @@ def test_extract_min_words_limit():
 @pytest.mark.anyio
 async def test_process_and_respond_with_max_words(monkeypatch):
     from orchestration.thread_state import (
-        REMAINING_AGENTS_MAP,
-        RATE_LIMIT_RETRY_QUEUE,
         RATE_LIMIT_ALREADY_RETRIED,
+        RATE_LIMIT_RETRY_QUEUE,
+        REMAINING_AGENTS_MAP,
         THREAD_MAX_WORDS_LIMITS,
         get_thread_max_words,
     )
@@ -748,9 +748,9 @@ async def test_process_and_respond_with_max_words(monkeypatch):
 @pytest.mark.anyio
 async def test_process_and_respond_with_min_words(monkeypatch):
     from orchestration.thread_state import (
-        REMAINING_AGENTS_MAP,
-        RATE_LIMIT_RETRY_QUEUE,
         RATE_LIMIT_ALREADY_RETRIED,
+        RATE_LIMIT_RETRY_QUEUE,
+        REMAINING_AGENTS_MAP,
         THREAD_MIN_WORDS_LIMITS,
         get_thread_min_words,
     )
@@ -830,9 +830,9 @@ async def test_process_and_respond_with_min_words(monkeypatch):
 @pytest.mark.anyio
 async def test_process_and_respond_with_min_and_max_words(monkeypatch):
     from orchestration.thread_state import (
-        REMAINING_AGENTS_MAP,
-        RATE_LIMIT_RETRY_QUEUE,
         RATE_LIMIT_ALREADY_RETRIED,
+        RATE_LIMIT_RETRY_QUEUE,
+        REMAINING_AGENTS_MAP,
         THREAD_MAX_WORDS_LIMITS,
         THREAD_MIN_WORDS_LIMITS,
         get_thread_max_words,
@@ -914,13 +914,12 @@ async def test_process_and_respond_with_min_and_max_words(monkeypatch):
 @pytest.mark.anyio
 async def test_process_and_respond_with_natural_language_limits(monkeypatch):
     from orchestration.thread_state import (
-        REMAINING_AGENTS_MAP,
-        RATE_LIMIT_RETRY_QUEUE,
         RATE_LIMIT_ALREADY_RETRIED,
+        RATE_LIMIT_RETRY_QUEUE,
+        REMAINING_AGENTS_MAP,
         THREAD_MAX_WORDS_LIMITS,
         THREAD_MIN_WORDS_LIMITS,
         get_thread_max_words,
-        get_thread_min_words,
     )
 
     REMAINING_AGENTS_MAP.clear()
@@ -992,9 +991,9 @@ async def test_process_and_respond_with_natural_language_limits(monkeypatch):
 @pytest.mark.anyio
 async def test_process_and_respond_with_exclude_command(monkeypatch):
     from orchestration.thread_state import (
-        REMAINING_AGENTS_MAP,
-        RATE_LIMIT_RETRY_QUEUE,
         RATE_LIMIT_ALREADY_RETRIED,
+        RATE_LIMIT_RETRY_QUEUE,
+        REMAINING_AGENTS_MAP,
     )
 
     REMAINING_AGENTS_MAP.clear()
@@ -1059,9 +1058,9 @@ async def test_process_and_respond_with_exclude_command(monkeypatch):
 @pytest.mark.anyio
 async def test_process_and_respond_with_multi_agent_exclude_command(monkeypatch):
     from orchestration.thread_state import (
-        REMAINING_AGENTS_MAP,
-        RATE_LIMIT_RETRY_QUEUE,
         RATE_LIMIT_ALREADY_RETRIED,
+        RATE_LIMIT_RETRY_QUEUE,
+        REMAINING_AGENTS_MAP,
     )
 
     REMAINING_AGENTS_MAP.clear()
@@ -1110,9 +1109,9 @@ async def test_process_and_respond_with_multi_agent_exclude_command(monkeypatch)
 @pytest.mark.anyio
 async def test_process_and_respond_with_default_flow_and_exclude(monkeypatch):
     from orchestration.thread_state import (
-        REMAINING_AGENTS_MAP,
-        RATE_LIMIT_RETRY_QUEUE,
         RATE_LIMIT_ALREADY_RETRIED,
+        RATE_LIMIT_RETRY_QUEUE,
+        REMAINING_AGENTS_MAP,
     )
 
     REMAINING_AGENTS_MAP.clear()
@@ -1161,9 +1160,9 @@ async def test_process_and_respond_with_default_flow_and_exclude(monkeypatch):
 @pytest.mark.anyio
 async def test_process_and_respond_with_nl_exclude(monkeypatch):
     from orchestration.thread_state import (
-        REMAINING_AGENTS_MAP,
-        RATE_LIMIT_RETRY_QUEUE,
         RATE_LIMIT_ALREADY_RETRIED,
+        RATE_LIMIT_RETRY_QUEUE,
+        REMAINING_AGENTS_MAP,
     )
 
     REMAINING_AGENTS_MAP.clear()

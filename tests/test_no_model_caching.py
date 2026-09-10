@@ -1,16 +1,16 @@
 import logging
 from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
 
-from core.config import AGENTS_CONFIG
-import orchestration.agent_router as agent_router
 from agents.thread_notes_agent import generate_thread_notes
 from agents.usage_agent import (
     calculate_thread_costs,
     format_usage_slack_message,
     record_thread_tokens,
 )
-import services.pricing_service as pricing_service
+from orchestration import agent_router
+from services import pricing_service
 
 
 @pytest.fixture(autouse=True)

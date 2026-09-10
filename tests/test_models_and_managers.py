@@ -1,19 +1,11 @@
 import json
-from pathlib import Path
 import tempfile
+from pathlib import Path
 from unittest.mock import MagicMock, patch
+
 import pytest
 
-from orchestration.agent_settings import AgentSettingsManager
 from agents.usage_agent import ThreadUsageTracker
-from pipeline.entity_resolver import entity_resolver
-from orchestration.nomination import (
-    enforce_valid_nomination,
-    get_initial_agents,
-    parse_agent_and_prompt,
-    resolve_target_file,
-)
-from nlp.intent_extractor import IntentExtractor
 from core.models import (
     CircuitBreakerConfig,
     ExtractedIntent,
@@ -22,9 +14,17 @@ from core.models import (
     ModelPricing,
     OrchestrationMode,
 )
-from services.pricing_service import PricingService
+from nlp.intent_extractor import IntentExtractor
+from orchestration.agent_settings import AgentSettingsManager, settings_manager
+from orchestration.nomination import (
+    enforce_valid_nomination,
+    get_initial_agents,
+    parse_agent_and_prompt,
+    resolve_target_file,
+)
 from orchestration.thread_state import ThreadStateManager
-from orchestration.agent_settings import settings_manager
+from pipeline.entity_resolver import entity_resolver
+from services.pricing_service import PricingService
 
 
 @pytest.fixture(autouse=True)

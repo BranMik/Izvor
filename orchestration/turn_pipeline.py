@@ -12,11 +12,11 @@ Coordinates turn processing across modular stages with an explicit TurnContext c
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
-from dataclasses import dataclass, field
 import logging
 import sys
 import time
+from collections.abc import Callable
+from dataclasses import dataclass, field
 from typing import Any
 
 from agents import (
@@ -26,6 +26,15 @@ from agents import (
     trigger_usage_update,
 )
 from core.llm_utils import execute_llm_with_retry
+from orchestration.stages import (
+    ContextPrepStageMixin,
+    ExecutionStageMixin,
+    PostRecordStageMixin,
+    ResolutionStageMixin,
+    ValidationStageMixin,
+    _build_tool_status_text,
+)
+from orchestration.thread_state import thread_state_manager
 from services.slack_client import (
     fetch_thread_files,
     fetch_thread_history,
@@ -33,15 +42,6 @@ from services.slack_client import (
     post_system_message,
     update_slack_message,
 )
-from orchestration.stages import (
-    _build_tool_status_text,
-    ValidationStageMixin,
-    ResolutionStageMixin,
-    ContextPrepStageMixin,
-    ExecutionStageMixin,
-    PostRecordStageMixin,
-)
-from orchestration.thread_state import thread_state_manager
 
 logger = logging.getLogger(__name__)
 
@@ -108,11 +108,10 @@ class TurnContext:
 
     def is_superseded(self) -> bool:
         """Determines if this turn was superseded by a newer query or task cancellation."""
-        if thread_state_manager.get_generation(self.channel_id, self.thread_ts) != self.my_generation:
-            return True
-        if self.current_task and self.current_task.cancelled():
-            return True
-        return False
+        return (
+            thread_state_manager.get_generation(self.channel_id, self.thread_ts) != self.my_generation
+            or bool(self.current_task and self.current_task.cancelled())
+        )
 
     def add_usage(self, resp: Any):
         """Accumulates prompt and completion token counts from an LLM response."""
@@ -295,9 +294,9 @@ class TurnPipeline(
             if (
                 ctx.current_task
                 and thread_state_manager.get_active_task(ctx.channel_id, ctx.thread_ts) == ctx.current_task
+                and (ctx.in_memory_history is None or ctx.is_completed)
             ):
-                if ctx.in_memory_history is None or ctx.is_completed:
-                    thread_state_manager.clear_active_task(ctx.channel_id, ctx.thread_ts, ctx.current_task)
+                thread_state_manager.clear_active_task(ctx.channel_id, ctx.thread_ts, ctx.current_task)
 
 
 __all__ = ["TurnContext", "TurnPipeline", "_build_tool_status_text"]

@@ -5,13 +5,10 @@ Stage 3: Context preparation, history slicing, word limit injection, and prompt 
 from __future__ import annotations
 
 import logging
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from core.config import AGENTS_CONFIG
 from nlp.message_builder import build_llm_messages
-from prompts import build_agent_prompt
-from pipeline.orchestrator import SandwichOrchestrator
-from services.slack_client import fetch_thread_history
 from orchestration.agent_settings import (
     get_orchestration_mode,
     get_sandwich_config,
@@ -26,6 +23,9 @@ from orchestration.thread_state import (
     set_thread_history_limit,
     thread_state_manager,
 )
+from pipeline.orchestrator import SandwichOrchestrator
+from prompts import build_agent_prompt
+from services.slack_client import fetch_thread_history
 
 if TYPE_CHECKING:
     from orchestration.turn_pipeline import TurnContext
@@ -130,17 +130,11 @@ class ContextPrepStageMixin:
             ctx.channel_id, ctx.thread_ts
         )
 
-        ctx.force_termination = False
-        if (
-            ctx.was_explicit_target
-            and not ctx.is_bot_trigger
-            and not ctx.remaining
-        ):
-            ctx.force_termination = True
-        elif ctx.is_custom_flow and not ctx.remaining:
-            ctx.force_termination = True
-        elif is_thread_stopped(ctx.channel_id, ctx.thread_ts):
-            ctx.force_termination = True
+        ctx.force_termination = bool(
+            (ctx.was_explicit_target and not ctx.is_bot_trigger and not ctx.remaining)
+            or (ctx.is_custom_flow and not ctx.remaining)
+            or is_thread_stopped(ctx.channel_id, ctx.thread_ts)
+        )
 
         if ctx.force_termination:
             logger.info(

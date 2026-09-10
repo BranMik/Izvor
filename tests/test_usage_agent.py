@@ -1,15 +1,13 @@
-import asyncio
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
-import agents.usage_agent as usage_agent
+from agents import usage_agent
 from agents.usage_agent import (
     THREAD_USAGE_DATA,
     calculate_thread_costs,
     format_usage_slack_message,
     record_thread_tokens,
-    trigger_usage_update,
     update_usage_for_thread,
 )
 

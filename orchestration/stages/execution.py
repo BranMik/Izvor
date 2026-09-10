@@ -10,7 +10,7 @@ import json
 import logging
 import os
 import time
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import litellm
 from starlette.concurrency import run_in_threadpool
@@ -20,12 +20,12 @@ from core.config import (
     TOOL_INTERMEDIATE_UPDATE_DELAY_SECONDS,
 )
 from core.llm_utils import execute_llm_with_retry
-from services.mcp_tools import execute_mcp_tool
-from skills import skill_registry, LOAD_SKILL_SCHEMA
-from services.slack_client import post_agent_response
 from orchestration.agent_settings import settings_manager
-from orchestration.thread_state import has_agent_503_errored
 from orchestration.stages.tool_status import _build_tool_status_text
+from orchestration.thread_state import has_agent_503_errored
+from services.mcp_tools import execute_mcp_tool
+from services.slack_client import post_agent_response
+from skills import LOAD_SKILL_SCHEMA, skill_registry
 
 if TYPE_CHECKING:
     from orchestration.turn_pipeline import TurnContext

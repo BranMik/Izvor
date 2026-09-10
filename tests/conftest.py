@@ -1,14 +1,19 @@
 import copy
 import shutil
+
 import pytest
 
 import orchestration.agent_settings as agent_settings_mod
+import services.pricing_service as pricing_service_mod
+from orchestration.agent_settings import (
+    BACKUP_FILE as REAL_BACKUP_FILE,
+)
 from orchestration.agent_settings import (
     SETTINGS_FILE as REAL_SETTINGS_FILE,
-    BACKUP_FILE as REAL_BACKUP_FILE,
+)
+from orchestration.agent_settings import (
     settings_manager,
 )
-import services.pricing_service as pricing_service_mod
 from services.pricing_service import PRICING_CACHE_FILE as REAL_PRICING_CACHE_FILE
 
 

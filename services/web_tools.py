@@ -195,15 +195,11 @@ def is_ip_blocked(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
     ):
         return True
 
-    if getattr(ip, "ipv4_mapped", None):
-        if is_ip_blocked(ip.ipv4_mapped):
-            return True
-
-    # Carrier Grade NAT (RFC 6598: 100.64.0.0/10)
-    if isinstance(ip, ipaddress.IPv4Address) and ip in ipaddress.ip_network("100.64.0.0/10"):
+    if getattr(ip, "ipv4_mapped", None) and is_ip_blocked(ip.ipv4_mapped):
         return True
 
-    return False
+    # Carrier Grade NAT (RFC 6598: 100.64.0.0/10)
+    return isinstance(ip, ipaddress.IPv4Address) and ip in ipaddress.ip_network("100.64.0.0/10")
 
 
 def validate_url_security(url: str) -> tuple[bool, str, str | None]:
@@ -313,7 +309,7 @@ def validate_url_security(url: str) -> tuple[bool, str, str | None]:
                 return False, cleaned_url, f"Host '{hostname_lower}' resolved to restricted IP address '{ip}'."
     except socket.gaierror as e:
         return False, cleaned_url, f"DNS resolution failed for '{hostname_lower}': {e}"
-    except (socket.error, OSError) as e:
+    except OSError as e:
         return False, cleaned_url, f"Socket error validating host '{hostname_lower}': {e}"
     except Exception as e:
         return False, cleaned_url, f"Error validating host '{hostname_lower}': {e}"
@@ -460,7 +456,7 @@ def fetch_web_page(url: str, max_chars: int = 4000) -> str:
         return json.dumps({"error": f"Network error fetching web page: {e}", "url": cleaned_url})
     except Exception as e:
         logger.error(f"[FETCH_WEB_PAGE] Error fetching '{cleaned_url}': {e}")
-        return json.dumps({"error": f"Error fetching web page: {str(e)}", "url": cleaned_url})
+        return json.dumps({"error": f"Error fetching web page: {e!s}", "url": cleaned_url})
 
 
 async def async_web_search(query: str, max_results: int = 5) -> str:

@@ -5,16 +5,9 @@ Stage 1: Input validation, directive parsing, tag checking, and candidate resolu
 from __future__ import annotations
 
 import logging
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from core.config import AGENTS_CONFIG
-from pipeline.directive_parser import directive_parser
-from pipeline.entity_resolver import entity_resolver
-from services.slack_client import (
-    download_slack_file,
-    fetch_thread_files,
-    post_system_message,
-)
 from nlp import detect_language_llm
 from orchestration.agent_settings import settings_manager
 from orchestration.nomination import (
@@ -31,6 +24,13 @@ from orchestration.thread_state import (
     set_thread_max_words,
     set_thread_min_words,
     thread_state_manager,
+)
+from pipeline.directive_parser import directive_parser
+from pipeline.entity_resolver import entity_resolver
+from services.slack_client import (
+    download_slack_file,
+    fetch_thread_files,
+    post_system_message,
 )
 
 if TYPE_CHECKING:

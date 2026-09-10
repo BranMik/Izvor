@@ -1,6 +1,7 @@
 import json
-import pytest
-from services.mcp_tools import list_directory, read_file, write_file, execute_mcp_tool
+
+from services.mcp_tools import list_directory, read_file, write_file
+
 
 def test_mcp_write_and_read():
     rel_path = "tests/scratch_test.txt"
@@ -27,8 +28,9 @@ def test_mcp_directory_traversal_prevention():
 
 
 def test_mcp_workspace_root_is_project_root():
-    from services.mcp_tools import PROJECT_ROOT, _resolve_safe_path
     from pathlib import Path
+
+    from services.mcp_tools import PROJECT_ROOT, _resolve_safe_path
 
     expected_root = Path(__file__).resolve().parent.parent
     assert PROJECT_ROOT == expected_root

@@ -1,20 +1,17 @@
 import json
 import time
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
 import services.pricing_service as pricing_module
 from services.pricing_service import (
-    BASELINE_MODEL_PRICING,
-    CACHE_TTL_SECONDS,
     PRICING_TOOL_SCHEMAS,
     _extract_pricing_from_search_text,
     fetch_pricing_from_web,
     fetch_pricing_with_agent,
     get_baseline_for_model,
-    get_model_pricing,
     load_baseline_pricing,
     refresh_model_pricing,
     save_pricing_cache,
@@ -39,7 +36,7 @@ def test_load_baseline_pricing_from_json():
     assert "anthropic/claude-opus-5" in catalog
     assert "mistral/mistral-large-latest" in catalog
 
-    for model_name, cfg in catalog.items():
+    for cfg in catalog.values():
         assert "input_price_per_1m" in cfg
         assert "output_price_per_1m" in cfg
         assert cfg["currency"] == "USD"

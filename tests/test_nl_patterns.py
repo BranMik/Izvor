@@ -1,18 +1,9 @@
-import pytest
+
 from nlp.nl_patterns import (
-    HISTORY_COMMAND_PATTERN,
-    HISTORY_NL_PATTERNS,
-    MAX_WORDS_COMMAND_PATTERN,
-    MAX_WORDS_NL_PATTERNS,
-    MIN_WORDS_COMMAND_PATTERN,
-    MIN_WORDS_NL_PATTERNS,
-    FILE_COMMAND_PATTERN,
-    FILE_NL_PATTERNS,
-    STOP_COMMAND_PATTERN,
+    extract_file_instruction,
     extract_history_limit,
     extract_max_words_limit,
     extract_min_words_limit,
-    extract_file_instruction,
     is_stop_command,
 )
 

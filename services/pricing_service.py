@@ -2,16 +2,17 @@ import asyncio
 import inspect
 import json
 import logging
-from pathlib import Path
 import re
 import sys
 import time
+from pathlib import Path
 from typing import Any
 
 import litellm
 from starlette.concurrency import run_in_threadpool
 
-from core.config import get_pricing_agent_model, PRICING_AGENT_PROMPT
+from core.config import PRICING_AGENT_PROMPT, get_pricing_agent_model
+
 from .web_tools import fetch_web_page, web_search
 
 logger = logging.getLogger(__name__)
@@ -224,7 +225,7 @@ class PricingService:
             return self.default_cache_file
         ps_mod = sys.modules.get("pricing_service") or sys.modules.get("services.pricing_service")
         if ps_mod and hasattr(ps_mod, "PRICING_CACHE_FILE"):
-            return Path(getattr(ps_mod, "PRICING_CACHE_FILE"))
+            return Path(ps_mod.PRICING_CACHE_FILE)
         return self.default_cache_file
 
     def load_cache(self) -> dict[str, dict[str, Any]]:
@@ -286,7 +287,6 @@ class PricingService:
         """Researches pricing for a given model using LiteLLM agent with tool calls."""
         logger.info(f"[PRICING] Researching current live pricing for '{model_name}' via agent...")
         baseline = get_baseline_for_model(model_name)
-        norm = _normalize_model_name(model_name)
 
         messages = [
             {"role": "system", "content": PRICING_AGENT_PROMPT},

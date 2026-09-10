@@ -560,7 +560,7 @@ async def post_agent_response(
     thread_ts: str,
     text: str,
     username: str,
-    icon_url: str = None,
+    icon_url: str | None = None,
 ) -> dict[str, Any]:
     """
     Posts a message to Slack thread using dynamic persona fields (chat:write.customize).
@@ -612,8 +612,8 @@ async def post_system_message(
     channel_id: str,
     thread_ts: str,
     text: str,
-    username: str = None,
-    icon_url: str = None,
+    username: str | None = None,
+    icon_url: str | None = None,
 ) -> dict[str, Any]:
     """
     Posts a system warning/notice message to a Slack thread using the System Agent persona.
@@ -622,13 +622,13 @@ async def post_system_message(
     default_icon = "static/v2/avatar_47.png"
 
     try:
-        from core.config import SYSTEM_AGENT_USERNAME, SYSTEM_AGENT_AVATAR
+        from core.config import SYSTEM_AGENT_AVATAR, SYSTEM_AGENT_USERNAME
         default_username = SYSTEM_AGENT_USERNAME
         default_icon = SYSTEM_AGENT_AVATAR
-    except (ImportError, AttributeError):
-        pass
-    except Exception:
-        pass
+    except (ImportError, AttributeError) as e:
+        logger.debug(f"[SLACK CLIENT] Fallback core.config persona lookup skipped: {e}")
+    except Exception as e:
+        logger.debug(f"[SLACK CLIENT] Unexpected error loading core.config persona: {e}")
 
     try:
         from orchestration.agent_settings import settings_manager
@@ -637,10 +637,10 @@ async def post_system_message(
             default_username = sys_cfg["username"]
         if sys_cfg.get("icon_url"):
             default_icon = sys_cfg["icon_url"]
-    except (ImportError, AttributeError, KeyError):
-        pass
-    except Exception:
-        pass
+    except (ImportError, AttributeError, KeyError) as e:
+        logger.debug(f"[SLACK CLIENT] Fallback settings_manager persona lookup skipped: {e}")
+    except Exception as e:
+        logger.debug(f"[SLACK CLIENT] Unexpected error loading settings_manager persona: {e}")
 
     final_username = username or default_username
     final_icon = icon_url or default_icon
@@ -658,7 +658,7 @@ async def post_system_message(
 
 
 async def fetch_thread_history(
-    channel_id: str, thread_ts: str, bot_user_id: str = None
+    channel_id: str, thread_ts: str, bot_user_id: str | None = None
 ) -> list[dict[str, str]]:
     """
     Fetches past messages in a Slack thread and formats them as LiteLLM conversation history.
@@ -941,10 +941,10 @@ async def get_or_create_usage_channel() -> str | None:
                     if ch.get("name", "").lower() == target_name:
                         _RESOLVED_USAGE_CHANNEL_ID = ch.get("id")
                         return _RESOLVED_USAGE_CHANNEL_ID
-            except SlackApiError:
-                pass
-            except Exception:
-                pass
+            except SlackApiError as err:
+                logger.debug(f"[SLACK] conversations_list API error during channel resolution: {err}")
+            except Exception as err:
+                logger.debug(f"[SLACK] Unexpected error during channel resolution: {err}")
         logger.error(f"[SLACK] Error resolving/creating usage channel '{target_name}': {e}")
     except Exception as e:
         logger.error(f"[SLACK] Unexpected error resolving/creating usage channel: {e}")

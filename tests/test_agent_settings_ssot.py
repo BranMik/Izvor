@@ -1,8 +1,8 @@
 import json
 import os
-from pathlib import Path
 import tempfile
 import time
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -10,7 +10,6 @@ import pytest
 from core.config import (
     BASE_AVATAR_URL,
     resolve_avatar_url,
-    get_system_agent_model,
 )
 from orchestration.agent_settings import AgentSettingsManager, settings_manager
 from services.slack_client import build_app_home_view
@@ -335,7 +334,8 @@ def test_configurable_pacing_defaults():
 @pytest.mark.anyio
 async def test_turn_pipeline_propagates_agent_avatar_icon():
     """Verifies that TurnPipeline populates ctx.icon_url from agent_cfg and passes it to Slack post."""
-    from unittest.mock import AsyncMock, MagicMock
+    from unittest.mock import AsyncMock
+
     from orchestration.turn_pipeline import TurnContext, TurnPipeline
 
     pipeline = TurnPipeline()

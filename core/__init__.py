@@ -16,6 +16,12 @@ from .config import (
     USAGE_CHANNEL_ID,
     USAGE_CHANNEL_NAME,
 )
+from .domain import (
+    DiscussionBrief,
+    SessionContext,
+    SpendMetrics,
+    Turn,
+)
 from .llm_utils import (
     LLM_MAX_RETRIES,
     LLM_RETRY_BACKOFF_BASE,
@@ -25,6 +31,12 @@ from .llm_utils import (
     is_high_demand_503_error,
     is_openai_model,
 )
+from .model_catalog import (
+    PROVIDER_CATALOG,
+    get_active_providers,
+    get_available_models,
+    load_provider_catalog,
+)
 from .models import (
     CircuitBreakerConfig,
     ExtractedIntent,
@@ -33,18 +45,6 @@ from .models import (
     ModelPricing,
     OrchestrationMode,
 )
-from .domain import (
-    DiscussionBrief,
-    SessionContext,
-    SpendMetrics,
-    Turn,
-)
-from .model_catalog import (
-    PROVIDER_CATALOG,
-    get_active_providers,
-    get_available_models,
-    load_provider_catalog,
-)
 from .slack_security import verify_slack_signature
 
 __all__ = [
@@ -52,9 +52,12 @@ __all__ = [
     "DEBATE_TURN_PACING_SECONDS",
     "INTENT_EXTRACTOR_MODEL",
     "LANGUAGE_DETECTOR_MODEL",
+    "LLM_MAX_RETRIES",
+    "LLM_RETRY_BACKOFF_BASE",
     "MAX_DISCUSSION_TURNS",
     "PRICING_AGENT_MODEL",
     "PRICING_AGENT_PROMPT",
+    "PROVIDER_CATALOG",
     "SLACK_POST_PAUSE_SECONDS",
     "THREAD_NOTES_MODEL",
     "THREAD_NOTES_PROMPT",
@@ -64,27 +67,24 @@ __all__ = [
     "USAGE_AGENT_PROMPT",
     "USAGE_CHANNEL_ID",
     "USAGE_CHANNEL_NAME",
-    "LLM_MAX_RETRIES",
-    "LLM_RETRY_BACKOFF_BASE",
-    "classify_agent_error",
-    "execute_llm_with_retry",
-    "is_anthropic_model",
-    "is_high_demand_503_error",
-    "is_openai_model",
     "CircuitBreakerConfig",
+    "DiscussionBrief",
     "ExtractedIntent",
     "FileContext",
     "HistoryLimitConfig",
     "ModelPricing",
     "OrchestrationMode",
-    "Turn",
     "SessionContext",
-    "DiscussionBrief",
     "SpendMetrics",
-    "verify_slack_signature",
-    "PROVIDER_CATALOG",
+    "Turn",
+    "classify_agent_error",
+    "execute_llm_with_retry",
     "get_active_providers",
     "get_available_models",
+    "is_anthropic_model",
+    "is_high_demand_503_error",
+    "is_openai_model",
     "load_provider_catalog",
+    "verify_slack_signature",
 ]
 

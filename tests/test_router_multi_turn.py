@@ -1,11 +1,12 @@
 from unittest.mock import AsyncMock, MagicMock
+
 import pytest
 
-from core.config import AGENTS_CONFIG
+from nlp.nl_patterns import is_stop_command
+from orchestration import agent_router
 from orchestration.agent_router import process_and_respond
 from orchestration.agent_settings import (
     ENABLED_DEBATE_AGENTS,
-    SETTINGS_FILE,
     get_circuit_breaker_threshold,
     get_enabled_agents,
     is_circuit_breaker_enabled,
@@ -34,9 +35,7 @@ from orchestration.thread_state import (
     request_thread_stop,
     set_thread_history_limit,
 )
-from nlp.nl_patterns import is_stop_command
 from services.slack_client import build_app_home_view
-import orchestration.agent_router as agent_router
 
 
 @pytest.fixture(autouse=True)
@@ -404,7 +403,7 @@ def test_disabled_agent_can_still_be_explicitly_tagged():
     assert was_explicit is True
 
     # User mentions persona name without brackets -> does NOT tag disabled agent, falls back to default agent
-    agent_key_2, prompt_2, was_explicit_2 = parse_agent_and_prompt(
+    agent_key_2, _, was_explicit_2 = parse_agent_and_prompt(
         "<@U123> @MistLar TechLead Direct question to disabled agent",
         "C_TEST",
         "123.002",
@@ -618,7 +617,7 @@ async def test_interruption_during_llm_execution_aborts_superseded_turn(monkeypa
 
     monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_run_turn_2)
 
-    res2 = await process_and_respond(
+    await process_and_respond(
         channel_id="C_INTERRUPT_LLM",
         thread_ts="12345.1003",
         raw_text="<@U12345> New query topic 2",
@@ -696,7 +695,6 @@ async def test_process_and_respond_history_limit_subsequent_bot_rounds(monkeypat
     - Scribe/Slack history has 5 prior messages + user prompt + Agent 1 reply.
     - LiteLLM receives last 2 prior messages + user prompt + Agent 1 reply + closing user turn.
     """
-    thread_key = ("C_HIST_TEST_2", "12345.3001")
     # Simulate active history limit from turn 1
     set_thread_history_limit(
         "C_HIST_TEST_2", "12345.3001", limit=2, prior_cutoff_index=5
@@ -774,7 +772,6 @@ async def test_process_and_respond_subsequent_prompt_resets_full_history(monkeyp
     - THREAD_HISTORY_LIMITS is cleared.
     - LiteLLM receives ALL prior messages (complete thread history) + new prompt.
     """
-    thread_key = ("C_HIST_TEST_RESET", "12345.4001")
     # Simulate pre-existing limit
     set_thread_history_limit(
         "C_HIST_TEST_RESET", "12345.4001", limit=2, prior_cutoff_index=3

@@ -1,6 +1,7 @@
 import pytest
 from fastapi.testclient import TestClient
-from main import app, PROCESSED_EVENTS
+
+from main import PROCESSED_EVENTS, app
 from orchestration.agent_settings import (
     ENABLED_DEBATE_AGENTS,
     LOCKED_AGENTS,
@@ -11,11 +12,10 @@ from orchestration.agent_settings import (
     set_circuit_breaker_threshold,
 )
 from orchestration.thread_state import (
-    interrupt_thread_discussion,
-    is_discussion_active,
     REMAINING_AGENTS_MAP,
     STOP_REQUESTED_THREADS,
     THREAD_GENERATIONS,
+    is_discussion_active,
 )
 
 client = TestClient(app)
@@ -30,6 +30,7 @@ async def mock_fetch_thread_history(*args, **kwargs):
 
 
 from unittest.mock import AsyncMock
+
 
 @pytest.fixture(autouse=True)
 def patch_slack_calls(monkeypatch):
@@ -401,7 +402,6 @@ def test_user_mention_syntax_variations_webhook_interruption(monkeypatch):
 
 def test_webhook_with_history_limit_dispatches_properly(monkeypatch):
     PROCESSED_EVENTS.clear()
-    thread_key = ("C_TEST_HIST_WEBHOOK", "123456789.4001")
 
     mock_process = AsyncMock(return_value={"ok": True})
     monkeypatch.setattr("main.process_and_respond", mock_process)
