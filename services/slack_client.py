@@ -550,6 +550,9 @@ async def publish_app_home(
             f"Error publishing App Home view to user {user_id}: {e.response['error']}"
         )
         return {"ok": False, "error": str(e)}
+    except Exception as e:
+        logger.error(f"Error publishing App Home view to user {user_id}: {e}")
+        return {"ok": False, "error": str(e)}
 
 
 async def post_agent_response(
@@ -600,6 +603,9 @@ async def post_agent_response(
     except SlackApiError as e:
         logger.error(f"Error posting message to Slack: {e.response['error']}")
         raise
+    except Exception as e:
+        logger.error(f"Unexpected error posting message to Slack: {e}")
+        raise
 
 
 async def post_system_message(
@@ -619,6 +625,8 @@ async def post_system_message(
         from core.config import SYSTEM_AGENT_USERNAME, SYSTEM_AGENT_AVATAR
         default_username = SYSTEM_AGENT_USERNAME
         default_icon = SYSTEM_AGENT_AVATAR
+    except (ImportError, AttributeError):
+        pass
     except Exception:
         pass
 
@@ -629,6 +637,8 @@ async def post_system_message(
             default_username = sys_cfg["username"]
         if sys_cfg.get("icon_url"):
             default_icon = sys_cfg["icon_url"]
+    except (ImportError, AttributeError, KeyError):
+        pass
     except Exception:
         pass
 
@@ -766,6 +776,8 @@ async def post_thread_note(
                 err = pin_err.response.get("error", "")
                 if err != "already_pinned":
                     logger.debug(f"[SLACK NOTE] Note message pinning skipped/failed: {err}")
+            except (KeyError, TypeError) as pin_ex:
+                logger.debug(f"[SLACK NOTE] Note message pinning skipped: {pin_ex}")
             except Exception as pin_ex:
                 logger.debug(f"[SLACK NOTE] Note message pinning skipped: {pin_ex}")
 
@@ -836,6 +848,10 @@ async def get_channel_name(channel_id: str) -> str:
             formatted = f"#{name}"
             CHANNEL_NAME_CACHE[channel_id] = formatted
             return formatted
+    except SlackApiError as e:
+        logger.debug(f"[SLACK] SlackApiError fetching channel name for {channel_id}: {e}")
+    except (KeyError, TypeError) as e:
+        logger.debug(f"[SLACK] Parsing error fetching channel name for {channel_id}: {e}")
     except Exception as e:
         logger.debug(f"[SLACK] Could not fetch channel name for {channel_id}: {e}")
 
@@ -885,6 +901,8 @@ async def get_or_create_usage_channel() -> str | None:
                         try:
                             await slack_async_client.conversations_join(channel=ch_id)
                             logger.info(f"[SLACK] Joined existing usage channel '{target_name}' ({ch_id})")
+                        except SlackApiError as join_err:
+                            logger.debug(f"[SLACK] Non-critical join attempt for {target_name}: {join_err}")
                         except Exception as join_ex:
                             logger.debug(f"[SLACK] Non-critical join attempt for {target_name}: {join_ex}")
                     return ch_id
@@ -923,6 +941,8 @@ async def get_or_create_usage_channel() -> str | None:
                     if ch.get("name", "").lower() == target_name:
                         _RESOLVED_USAGE_CHANNEL_ID = ch.get("id")
                         return _RESOLVED_USAGE_CHANNEL_ID
+            except SlackApiError:
+                pass
             except Exception:
                 pass
         logger.error(f"[SLACK] Error resolving/creating usage channel '{target_name}': {e}")
@@ -1115,6 +1135,10 @@ async def download_slack_file(
                 file_path = downloads_dir / file_name
                 file_path.write_bytes(raw_bytes)
                 logger.info(f"[SLACK FILE] Cached Slack file to workspace: {file_path}")
+            except (PermissionError, FileNotFoundError, OSError) as save_err:
+                logger.warning(
+                    f"[SLACK FILE] Could not save local copy to workspace: {save_err}"
+                )
             except Exception as save_err:
                 logger.warning(
                     f"[SLACK FILE] Could not save local copy to workspace: {save_err}"
@@ -1128,6 +1152,16 @@ async def download_slack_file(
                 "size": len(raw_bytes),
                 "error": None,
             }
+    except (httpx.TimeoutException, httpx.RequestError) as e:
+        logger.error(f"[SLACK FILE] Network error downloading Slack file {file_name}: {e}")
+        return {
+            "ok": False,
+            "file_name": file_name,
+            "content": "",
+            "truncated": False,
+            "size": file_size,
+            "error": str(e),
+        }
     except Exception as e:
         logger.error(f"[SLACK FILE] Error downloading Slack file {file_name}: {e}")
         return {
@@ -1158,6 +1192,9 @@ async def get_bot_user_id() -> str | None:
     try:
         auth_info = await slack_async_client.auth_test()
         return auth_info.get("user_id")
+    except SlackApiError as e:
+        logger.error(f"Slack API error fetching bot user ID: {e}")
+        return None
     except Exception as e:
         logger.error(f"Error fetching bot user ID: {e}")
         return None
@@ -1170,6 +1207,9 @@ async def open_dm_channel(user_id: str) -> str | None:
         res = await slack_async_client.conversations_open(users=user_id)
         ch = res.get("channel", {})
         return ch.get("id")
+    except SlackApiError as e:
+        logger.error(f"Slack API error opening DM channel with {user_id}: {e}")
+        return None
     except Exception as e:
         logger.error(f"Error opening DM channel with {user_id}: {e}")
         return None
@@ -1193,6 +1233,9 @@ async def post_ephemeral_to_slack(
             kwargs["thread_ts"] = thread_ts
         res = await slack_async_client.chat_postEphemeral(**kwargs)
         return res.data
+    except SlackApiError as e:
+        logger.error(f"Slack API error posting ephemeral message: {e}")
+        return {"ok": False, "error": str(e)}
     except Exception as e:
         logger.error(f"Error posting ephemeral message: {e}")
         return {"ok": False, "error": str(e)}
@@ -1220,6 +1263,9 @@ async def post_message_to_slack(
             kwargs["icon_emoji"] = icon_emoji
         res = await slack_async_client.chat_postMessage(**kwargs)
         return res.data
+    except SlackApiError as e:
+        logger.error(f"Slack API error posting message to Slack: {e}")
+        return {"ok": False, "error": str(e)}
     except Exception as e:
         logger.error(f"Error posting message to Slack: {e}")
         return {"ok": False, "error": str(e)}

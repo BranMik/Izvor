@@ -168,6 +168,17 @@ async def execute_llm_with_retry(
                     f"[LLM] Retrying LLM completion for {agent_key} (attempt {attempt}/{max_attempts})..."
                 )
             return await _invoke_llm(func, kwargs, runner=run_in_threadpool_fn)
+        except asyncio.CancelledError:
+            raise
+        except (TimeoutError, asyncio.TimeoutError) as exc:
+            last_error = exc
+            logger.warning(
+                f"[LLM] Attempt {attempt}/{max_attempts} timed out for {agent_key}: {exc}"
+            )
+            if attempt < max_attempts:
+                await asyncio.sleep(LLM_RETRY_BACKOFF_BASE * attempt)
+            else:
+                raise last_error
         except Exception as exc:
             last_error = exc
             logger.warning(

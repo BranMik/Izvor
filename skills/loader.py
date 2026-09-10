@@ -92,6 +92,10 @@ class SkillRegistry:
                 if skill_def:
                     self._skills[skill_def.name] = skill_def
                     logger.debug(f"[SKILLS] Loaded declarative skill '{skill_def.name}' from {skill_file}")
+            except (FileNotFoundError, PermissionError, OSError) as e:
+                logger.error(f"[SKILLS] File I/O error reading {skill_file}: {e}")
+            except (yaml.YAMLError, ValueError, TypeError, UnicodeError) as e:
+                logger.error(f"[SKILLS] Parse error in {skill_file}: {e}")
             except Exception as e:
                 logger.error(f"[SKILLS] Failed to parse {skill_file}: {e}")
 

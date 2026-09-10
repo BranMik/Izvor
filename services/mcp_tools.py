@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from core.config import MCP_WORKSPACE_DIR
+
 from .web_tools import fetch_web_page, web_search
 
 logger = logging.getLogger(__name__)
@@ -59,6 +60,16 @@ def list_directory(rel_path: str = ".") -> str:
                 }
             )
         return json.dumps({"directory": rel_path, "contents": items}, indent=2)
+    except PermissionError as e:
+        return json.dumps({"error": str(e)})
+    except FileNotFoundError:
+        return json.dumps({"error": f"Directory '{rel_path}' does not exist."})
+    except NotADirectoryError:
+        return json.dumps({"error": f"Path '{rel_path}' is not a directory."})
+    except (ValueError, TypeError) as e:
+        return json.dumps({"error": f"Invalid path '{rel_path}': {e}"})
+    except OSError as e:
+        return json.dumps({"error": f"Operating system error: {e}"})
     except Exception as e:
         return json.dumps({"error": str(e)})
 
@@ -76,6 +87,18 @@ def read_file(rel_path: str) -> str:
 
         content = path.read_text(encoding="utf-8", errors="replace")
         return json.dumps({"file": rel_path, "content": content})
+    except PermissionError as e:
+        return json.dumps({"error": str(e)})
+    except FileNotFoundError:
+        return json.dumps({"error": f"File '{rel_path}' does not exist."})
+    except IsADirectoryError:
+        return json.dumps({"error": f"Path '{rel_path}' is a directory, not a file."})
+    except UnicodeError as e:
+        return json.dumps({"error": f"Encoding error reading file '{rel_path}': {e}"})
+    except (ValueError, TypeError) as e:
+        return json.dumps({"error": f"Invalid argument: {e}"})
+    except OSError as e:
+        return json.dumps({"error": f"Operating system error reading file '{rel_path}': {e}"})
     except Exception as e:
         return json.dumps({"error": str(e)})
 
@@ -95,6 +118,16 @@ def write_file(rel_path: str, content: str) -> str:
                 "bytes_written": len(content.encode("utf-8")),
             }
         )
+    except PermissionError as e:
+        return json.dumps({"error": str(e)})
+    except IsADirectoryError:
+        return json.dumps({"error": f"Path '{rel_path}' is a directory, cannot write file."})
+    except UnicodeError as e:
+        return json.dumps({"error": f"Encoding error writing file '{rel_path}': {e}"})
+    except (ValueError, TypeError) as e:
+        return json.dumps({"error": f"Invalid argument: {e}"})
+    except OSError as e:
+        return json.dumps({"error": f"Operating system error writing file '{rel_path}': {e}"})
     except Exception as e:
         return json.dumps({"error": str(e)})
 

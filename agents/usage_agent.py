@@ -26,6 +26,8 @@ def parse_thread_creation_time(thread_ts: str) -> str:
         ts_float = float(thread_ts)
         dt = datetime.fromtimestamp(ts_float)
         return dt.strftime("%Y-%m-%d %H:%M:%S")
+    except (ValueError, TypeError, OSError):
+        return "Unknown"
     except Exception:
         return "Unknown"
 
@@ -63,6 +65,10 @@ class ThreadUsageTracker:
             logger.info(
                 f"[USAGE AGENT] Loaded usage tracking for {len(self.thread_usage_data)} threads from {self.store_file.name}"
             )
+        except (FileNotFoundError, PermissionError, OSError) as e:
+            logger.error(f"[USAGE AGENT] File error loading thread usage store: {e}")
+        except (json.JSONDecodeError, UnicodeError) as e:
+            logger.error(f"[USAGE AGENT] Parse error loading thread usage store: {e}")
         except Exception as e:
             logger.error(f"[USAGE AGENT] Error loading thread usage store: {e}")
 
@@ -76,6 +82,10 @@ class ThreadUsageTracker:
             self.store_file.write_text(
                 json.dumps(serializable, indent=2), encoding="utf-8"
             )
+        except (PermissionError, FileNotFoundError, OSError) as e:
+            logger.error(f"[USAGE AGENT] File error saving thread usage data: {e}")
+        except (TypeError, ValueError) as e:
+            logger.error(f"[USAGE AGENT] Format error saving thread usage data: {e}")
         except Exception as e:
             logger.error(f"[USAGE AGENT] Error saving thread usage data: {e}")
 
@@ -356,6 +366,12 @@ class ThreadUsageTracker:
             except asyncio.CancelledError:
                 logger.info(f"[USAGE AGENT] Usage update task cancelled for thread {thread_ts}")
                 raise
+            except (TimeoutError, asyncio.TimeoutError) as e:
+                logger.warning(f"[USAGE AGENT] Timeout updating usage for thread {thread_ts}: {e}")
+                return {"ok": False, "error": str(e)}
+            except (KeyError, ValueError, TypeError) as e:
+                logger.error(f"[USAGE AGENT] Data error updating usage for thread {thread_ts}: {e}")
+                return {"ok": False, "error": str(e)}
             except Exception as e:
                 logger.exception(f"[USAGE AGENT] Error updating usage for thread {thread_ts}: {e}")
                 return {"ok": False, "error": str(e)}
@@ -427,6 +443,11 @@ class ThreadUsageTracker:
             self.running_usage_tasks[thread_key] = task
             self.pending_usage_updates[thread_key] = False
             return task
+        except RuntimeError as e:
+            logger.error(
+                f"[USAGE AGENT] Runtime error dispatching background usage update task: {e}"
+            )
+            return None
         except Exception as e:
             logger.error(
                 f"[USAGE AGENT] Failed to dispatch background usage update task: {e}"

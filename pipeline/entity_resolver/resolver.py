@@ -24,12 +24,16 @@ class EntityResolver:
             from orchestration.agent_settings import settings_manager
             if settings_manager.agents_config:
                 return settings_manager.agents_config
+        except (ImportError, AttributeError):
+            pass
         except Exception:
             pass
         try:
             from core.config import AGENTS_CONFIG
             if AGENTS_CONFIG:
                 return AGENTS_CONFIG
+        except (ImportError, AttributeError):
+            pass
         except Exception:
             pass
         return {}

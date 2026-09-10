@@ -28,6 +28,10 @@ def _load_short_output_agents() -> set[str]:
                 k for k, v in data.get("agents", {}).items()
                 if isinstance(v, dict) and v.get("is_short_output") is True
             }
+        except (FileNotFoundError, PermissionError, OSError):
+            pass
+        except (json.JSONDecodeError, UnicodeError):
+            pass
         except Exception:
             pass
     return set()
@@ -55,6 +59,10 @@ def _load_system_agents() -> set[str]:
             for k, v in data.get("agents", {}).items():
                 if isinstance(v, dict) and v.get("is_system_agent") is True:
                     system_keys.add(k)
+        except (FileNotFoundError, PermissionError, OSError):
+            pass
+        except (json.JSONDecodeError, UnicodeError):
+            pass
         except Exception:
             pass
     return system_keys
@@ -84,6 +92,8 @@ def is_system_agent(agent_key: str) -> bool:
                         return True
                     if k == agent_key and entry.get("is_system_agent") is True:
                         return True
+    except (ImportError, AttributeError, KeyError):
+        pass
     except Exception:
         pass
 
@@ -161,6 +171,8 @@ def build_agent_prompt(
             try:
                 from core.config import AGENTS_CONFIG
                 effective_skills = AGENTS_CONFIG.get(agent_key, {}).get("skills", [])
+            except (ImportError, AttributeError, KeyError):
+                effective_skills = []
             except Exception:
                 effective_skills = []
 
@@ -177,6 +189,8 @@ def build_agent_prompt(
                     pinned_guidelines.append(s_def.instructions)
             if pinned_guidelines:
                 prompt += f"\n### PRE-EQUIPPED SKILL GUIDELINES\n" + "\n\n".join(pinned_guidelines) + "\n\n"
+    except (ImportError, AttributeError, KeyError) as e:
+        logger.warning(f"[PROMPT BUILDER] Attribute or import error loading skills catalog for {agent_key}: {e}")
     except Exception as e:
         logger.warning(f"[PROMPT BUILDER] Failed to load skills catalog/guidelines for {agent_key}: {e}")
 

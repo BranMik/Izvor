@@ -93,6 +93,8 @@ def web_search(query: str, max_results: int = 5) -> str:
                     indent=2,
                 )
 
+    except (httpx.TimeoutException, httpx.RequestError, httpx.HTTPStatusError) as e:
+        logger.warning(f"[WEB_SEARCH] DuckDuckGo HTML endpoint failed: {e}. Attempting fallback...")
     except Exception as e:
         logger.warning(f"[WEB_SEARCH] DuckDuckGo HTML endpoint failed: {e}. Attempting fallback...")
 
@@ -123,6 +125,8 @@ def web_search(query: str, max_results: int = 5) -> str:
                 },
                 indent=2,
             )
+    except (ImportError, AttributeError) as e:
+        logger.error(f"[WEB_SEARCH] DDGS import or call failed: {e}")
     except Exception as e:
         logger.error(f"[WEB_SEARCH] DDGS fallback failed: {e}")
 
@@ -212,6 +216,8 @@ def validate_url_security(url: str) -> tuple[bool, str, str | None]:
 
     try:
         raw_parsed = urllib.parse.urlsplit(url.strip())
+    except (ValueError, TypeError) as e:
+        return False, url.strip(), f"Malformed URL: {e}"
     except Exception as e:
         return False, url.strip(), f"Malformed URL: {e}"
 
@@ -229,6 +235,8 @@ def validate_url_security(url: str) -> tuple[bool, str, str | None]:
 
     try:
         parsed = urllib.parse.urlsplit(cleaned_url)
+    except (ValueError, TypeError) as e:
+        return False, cleaned_url, f"Malformed URL: {e}"
     except Exception as e:
         return False, cleaned_url, f"Malformed URL: {e}"
 
@@ -305,6 +313,8 @@ def validate_url_security(url: str) -> tuple[bool, str, str | None]:
                 return False, cleaned_url, f"Host '{hostname_lower}' resolved to restricted IP address '{ip}'."
     except socket.gaierror as e:
         return False, cleaned_url, f"DNS resolution failed for '{hostname_lower}': {e}"
+    except (socket.error, OSError) as e:
+        return False, cleaned_url, f"Socket error validating host '{hostname_lower}': {e}"
     except Exception as e:
         return False, cleaned_url, f"Error validating host '{hostname_lower}': {e}"
 
@@ -442,6 +452,12 @@ def fetch_web_page(url: str, max_chars: int = 4000) -> str:
 
     except httpx.TimeoutException:
         return json.dumps({"error": f"Request to '{cleaned_url}' timed out.", "url": cleaned_url})
+    except httpx.HTTPStatusError as e:
+        logger.error(f"[FETCH_WEB_PAGE] HTTP error fetching '{cleaned_url}': {e}")
+        return json.dumps({"error": f"HTTP error fetching web page: {e}", "url": cleaned_url})
+    except httpx.RequestError as e:
+        logger.error(f"[FETCH_WEB_PAGE] Network error fetching '{cleaned_url}': {e}")
+        return json.dumps({"error": f"Network error fetching web page: {e}", "url": cleaned_url})
     except Exception as e:
         logger.error(f"[FETCH_WEB_PAGE] Error fetching '{cleaned_url}': {e}")
         return json.dumps({"error": f"Error fetching web page: {str(e)}", "url": cleaned_url})

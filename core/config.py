@@ -75,6 +75,10 @@ def _load_system_agents_from_ssot() -> dict[str, dict[str, Any]]:
         raw = data.get("system_agents", {})
         if isinstance(raw, dict):
             return {k: v for k, v in raw.items() if isinstance(v, dict)}
+    except (FileNotFoundError, PermissionError, OSError):
+        pass
+    except (json.JSONDecodeError, UnicodeError):
+        pass
     except Exception:
         pass
     return {}

@@ -10,6 +10,7 @@ import urllib.parse
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Request, Response
 from fastapi.staticfiles import StaticFiles
+from slack_sdk.errors import SlackApiError
 from starlette.requests import ClientDisconnect
 
 from core.config import AGENTS_CONFIG
@@ -161,6 +162,9 @@ async def slack_events(request: Request, background_tasks: BackgroundTasks):
     # 4. Parse JSON payload
     try:
         data = await request.json()
+    except (json.JSONDecodeError, UnicodeError, ValueError) as e:
+        logger.error(f"Failed to parse Slack event JSON: {e}")
+        raise HTTPException(status_code=400, detail="Invalid JSON payload") from e
     except Exception as e:
         logger.error(f"Failed to parse Slack event JSON: {e}")
         raise HTTPException(status_code=400, detail="Invalid JSON payload") from e
@@ -199,6 +203,8 @@ async def slack_events(request: Request, background_tasks: BackgroundTasks):
                 )
                 try:
                     await publish_app_home(user_id=user_id)
+                except SlackApiError as e:
+                    logger.error(f"[WEBHOOK] SlackApiError publishing app home on open: {e}")
                 except Exception as e:
                     logger.error(f"[WEBHOOK] Error publishing app home on open: {e}")
             return Response(status_code=200)
@@ -344,6 +350,8 @@ async def slack_interactivity(request: Request, background_tasks: BackgroundTask
             parsed_form = urllib.parse.parse_qs(body_str)
             if "payload" in parsed_form and parsed_form["payload"]:
                 payload = json.loads(parsed_form["payload"][0])
+        except (json.JSONDecodeError, ValueError, KeyError, IndexError) as e:
+            logger.debug(f"[INTERACTIVITY] parse_qs extraction error: {e}")
         except Exception as e:
             logger.debug(f"[INTERACTIVITY] parse_qs extraction error: {e}")
 
@@ -353,6 +361,8 @@ async def slack_interactivity(request: Request, background_tasks: BackgroundTask
             form_data = await request.form()
             if "payload" in form_data:
                 payload = json.loads(form_data["payload"])
+        except (json.JSONDecodeError, ValueError, KeyError) as e:
+            pass
         except Exception:
             pass
 
@@ -360,6 +370,9 @@ async def slack_interactivity(request: Request, background_tasks: BackgroundTask
     if not payload:
         try:
             payload = json.loads(body_str)
+        except (json.JSONDecodeError, ValueError) as e:
+            logger.error(f"Failed to parse interactivity payload: {e}")
+            raise HTTPException(status_code=400, detail="Invalid payload") from e
         except Exception as e:
             logger.error(f"Failed to parse interactivity payload: {e}")
             raise HTTPException(status_code=400, detail="Invalid payload") from e
@@ -501,6 +514,8 @@ async def slack_interactivity(request: Request, background_tasks: BackgroundTask
         if user_id:
             try:
                 await publish_app_home(user_id=user_id)
+            except SlackApiError as e:
+                logger.error(f"[INTERACTIVITY] SlackApiError publishing App Home for {user_id}: {e}")
             except Exception as e:
                 logger.error(f"[INTERACTIVITY] Failed to publish App Home for {user_id}: {e}")
 
