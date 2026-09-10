@@ -134,6 +134,20 @@ class DiscussionScribe:
             logger.info(f"[SCRIBE] Generated brief ({len(raw_text)} chars) in {time.time() - start_time:.2f}s")
             return brief, tokens
 
+        except (TimeoutError, asyncio.TimeoutError) as e:
+            logger.error(f"[SCRIBE] Timeout generating brief: {e}")
+            fallback_text = "*(Synthesis unavailable: request timed out)*"
+            return DiscussionBrief(raw_markdown=fallback_text, is_completed=is_completed), {
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+            }
+        except (KeyError, IndexError, AttributeError) as e:
+            logger.error(f"[SCRIBE] Response parsing error generating brief: {e}")
+            fallback_text = f"*(Synthesis unavailable: {e})*"
+            return DiscussionBrief(raw_markdown=fallback_text, is_completed=is_completed), {
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+            }
         except Exception as e:
             logger.error(f"[SCRIBE] Error generating brief: {e}")
             fallback_text = f"*(Synthesis unavailable: {e})*"

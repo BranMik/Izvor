@@ -204,6 +204,8 @@ async def update_notes_for_thread(
                     thread_ts=thread_ts,
                     is_completed=is_completed,
                 )
+            except (KeyError, ValueError, TypeError) as usage_err:
+                logger.debug(f"[THREAD NOTES] Non-critical usage data error: {usage_err}")
             except Exception as usage_err:
                 logger.debug(f"[THREAD NOTES] Non-critical usage sync error: {usage_err}")
 
@@ -217,6 +219,16 @@ async def update_notes_for_thread(
         except asyncio.CancelledError:
             logger.info(f"[THREAD NOTES] Sync cancelled for thread {thread_ts}")
             raise
+        except (TimeoutError, asyncio.TimeoutError) as e:
+            logger.warning(
+                f"[THREAD NOTES] Timeout updating live notes for thread {thread_ts}: {e}"
+            )
+            return {"ok": False, "error": str(e)}
+        except (KeyError, ValueError, TypeError) as e:
+            logger.error(
+                f"[THREAD NOTES] Data error updating live notes for thread {thread_ts}: {e}"
+            )
+            return {"ok": False, "error": str(e)}
         except Exception as e:
             logger.exception(
                 f"[THREAD NOTES] ⚠️ Error updating live notes for thread {thread_ts}: {e}"
@@ -294,6 +306,11 @@ def trigger_thread_notes_update(
         _RUNNING_TASKS[thread_key] = task
         _PENDING_UPDATES[thread_key] = False
         return task
+    except RuntimeError as e:
+        logger.error(
+            f"[THREAD NOTES] Runtime error dispatching background notes update task: {e}"
+        )
+        return None
     except Exception as e:
         logger.error(
             f"[THREAD NOTES] Failed to dispatch background notes update task: {e}"

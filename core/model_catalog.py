@@ -35,6 +35,12 @@ def load_provider_catalog(catalog_path: Path | str | None = None) -> dict[str, d
                 return data
             logger.error(f"[MODEL_CATALOG] Expected dict in {target_path}, got {type(data)}")
             return {}
+    except (FileNotFoundError, PermissionError, OSError) as e:
+        logger.error(f"[MODEL_CATALOG] Failed to read provider catalog from {target_path}: {e}")
+        return {}
+    except (json.JSONDecodeError, UnicodeError) as e:
+        logger.error(f"[MODEL_CATALOG] Failed to parse JSON provider catalog from {target_path}: {e}")
+        return {}
     except Exception as e:
         logger.error(f"[MODEL_CATALOG] Failed to load provider catalog from {target_path}: {e}")
         return {}
@@ -86,6 +92,8 @@ def get_active_providers(
             try:
                 raw_values = dotenv_values(env_file)
                 merged_env.update(raw_values)
+            except (FileNotFoundError, PermissionError, OSError) as e:
+                logger.warning(f"[MODEL_CATALOG] File error reading .env file at {env_file}: {e}")
             except Exception as e:
                 logger.warning(f"[MODEL_CATALOG] Failed to read .env file at {env_file}: {e}")
         # Also check current process environment

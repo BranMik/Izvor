@@ -166,10 +166,13 @@ class IntentExtractor:
                 excluded_agents=excluded_agents,
             )
 
-        except asyncio.TimeoutError:
+        except (TimeoutError, asyncio.TimeoutError):
             logger.warning(
                 f"[INTENT EXTRACTOR] Extraction timed out after {timeout_seconds}s. Falling back."
             )
+            return default_intent
+        except (json.JSONDecodeError, ValueError, KeyError, TypeError) as e:
+            logger.warning(f"[INTENT EXTRACTOR] Extraction parsing error ({e}). Falling back.")
             return default_intent
         except Exception as e:
             logger.warning(f"[INTENT EXTRACTOR] Extraction failed ({e}). Falling back.")

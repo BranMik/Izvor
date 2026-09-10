@@ -87,6 +87,10 @@ def load_baseline_pricing(config_path: Path | str | None = None) -> dict[str, di
             if isinstance(data, dict):
                 return data
             logger.error(f"[PRICING] Expected dict in {target.name}, got {type(data)}")
+        except (FileNotFoundError, PermissionError, OSError) as e:
+            logger.error(f"[PRICING] Error loading baseline prices from {target}: {e}")
+        except (json.JSONDecodeError, UnicodeError) as e:
+            logger.error(f"[PRICING] Error loading baseline prices from {target}: {e}")
         except Exception as e:
             logger.error(f"[PRICING] Error loading baseline prices from {target}: {e}")
     return {}
@@ -231,6 +235,12 @@ class PricingService:
         try:
             data = json.loads(target.read_text(encoding="utf-8"))
             return data if isinstance(data, dict) else {}
+        except (FileNotFoundError, PermissionError, OSError) as e:
+            logger.warning(f"[PRICING] Failed to read {target.name}: {e}")
+            return {}
+        except (json.JSONDecodeError, UnicodeError) as e:
+            logger.warning(f"[PRICING] Failed to read {target.name}: {e}")
+            return {}
         except Exception as e:
             logger.warning(f"[PRICING] Failed to read {target.name}: {e}")
             return {}
@@ -246,6 +256,10 @@ class PricingService:
             logger.info(
                 f"[PRICING] Successfully saved pricing cache to {target.name}"
             )
+        except (PermissionError, FileNotFoundError, OSError) as e:
+            logger.error(f"[PRICING] Error saving pricing cache: {e}")
+        except (TypeError, ValueError) as e:
+            logger.error(f"[PRICING] Error saving pricing cache: {e}")
         except Exception as e:
             logger.error(f"[PRICING] Error saving pricing cache: {e}")
 
@@ -378,6 +392,10 @@ class PricingService:
             # Delegate to module-level fetch_pricing_with_agent to intercept test mocks
             call_res = fetch_pricing_with_agent(model_name)
             return await call_res if asyncio.iscoroutine(call_res) else call_res
+        except (TimeoutError, asyncio.TimeoutError) as e:
+            logger.warning(f"[PRICING] Agent research timed out for '{model_name}': {e}. Trying direct search.")
+        except (KeyError, ValueError, TypeError) as e:
+            logger.warning(f"[PRICING] Agent research format error for '{model_name}': {e}. Trying direct search.")
         except Exception as e:
             logger.warning(f"[PRICING] Agent research failed for '{model_name}': {e}. Trying direct search.")
 
@@ -408,6 +426,10 @@ class PricingService:
                 "updated_at": time.time(),
                 "updated_at_str": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()),
             }
+        except (TimeoutError, asyncio.TimeoutError) as e:
+            logger.warning(f"[PRICING] Direct search timed out for '{model_name}': {e}. Using baseline.")
+        except (ValueError, TypeError, KeyError) as e:
+            logger.warning(f"[PRICING] Direct search parsing error for '{model_name}': {e}. Using baseline.")
         except Exception as e:
             logger.warning(f"[PRICING] Direct search failed for '{model_name}': {e}. Using baseline.")
 
@@ -465,6 +487,10 @@ class PricingService:
         for m in models_to_check:
             try:
                 await self.refresh_pricing(m, force=False)
+            except (TimeoutError, asyncio.TimeoutError) as e:
+                logger.warning(f"[PRICING] Warm-up timed out for model '{m}': {e}")
+            except (OSError, ValueError, KeyError) as e:
+                logger.warning(f"[PRICING] Warm-up error for model '{m}': {e}")
             except Exception as e:
                 logger.warning(f"[PRICING] Warm-up failed for model '{m}': {e}")
 
