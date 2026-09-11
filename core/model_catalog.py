@@ -16,13 +16,14 @@ from dotenv import dotenv_values
 logger = logging.getLogger(__name__)
 
 # Path to the provider catalog JSON configuration file in data/
-PROVIDER_CATALOG_FILE = Path(__file__).resolve().parent.parent / "data" / "provider_catalog.json"
+MODEL_PROVIDER_CATALOG_FILE = Path(__file__).resolve().parent.parent / "data" / "model_provider_catalog.json"
+PROVIDER_CATALOG_FILE = MODEL_PROVIDER_CATALOG_FILE
 
 
 def load_provider_catalog(catalog_path: Path | str | None = None) -> dict[str, dict[str, Any]]:
     """
     Loads provider and model definitions from the configuration JSON file in the data folder.
-    Defaults to data/provider_catalog.json.
+    Defaults to data/model_provider_catalog.json.
     """
     target_path = Path(catalog_path) if catalog_path else PROVIDER_CATALOG_FILE
     if not target_path.exists():

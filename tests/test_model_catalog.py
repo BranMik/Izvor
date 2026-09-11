@@ -191,7 +191,7 @@ async def test_slack_interactivity_model_change():
 
 
 def test_load_provider_catalog_from_json():
-    """Verify load_provider_catalog reads data/provider_catalog.json correctly."""
+    """Verify load_provider_catalog reads data/model_provider_catalog.json correctly."""
     catalog = load_provider_catalog()
     assert isinstance(catalog, dict)
     assert "Google Gemini" in catalog
