@@ -157,7 +157,7 @@ Ruff flags `datetime.fromtimestamp(ts_float)` without a `tz` argument because na
 The 11 original `S110` occurrences were resolved cleanly per instructions without disabling linter rules:
 1. **Dynamic Log Level**: Configured `LOG_LEVEL` environment variable defaulting to `INFO` (added to `.env` and `.env.example`, loaded in `core/config.py` and `main.py`).
 2. **`logger.debug(...)` Integration**: Replaced `pass` inside all 11 `try-except` blocks with informative `logger.debug(...)` statements:
-   - `core/config.py:83`
+   - `core/config.py:83`  
    - `main.py:362`
    - `orchestration/agent_settings.py:112`
    - `pipeline/entity_resolver/resolver.py:27` and `34`
