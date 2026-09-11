@@ -126,3 +126,43 @@ class ModelPricing:
             source=data.get("source", "Unknown"),
             source_url=data.get("source_url", ""),
         )
+
+
+@dataclass
+class WorkflowPreset:
+    """Represents a named orchestration workflow preset with custom agent chains."""
+
+    id: str
+    name: str
+    mode: str = OrchestrationMode.SANDWICH.value
+    description: str = ""
+    sandwich_config: dict[str, list[str]] = field(
+        default_factory=lambda: {"start_chain": [], "end_chain": []}
+    )
+    fixed_config: dict[str, list[str]] = field(
+        default_factory=lambda: {"chain": []}
+    )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "mode": self.mode,
+            "description": self.description,
+            "sandwich_config": self.sandwich_config,
+            "fixed_config": self.fixed_config,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "WorkflowPreset":
+        return cls(
+            id=str(data.get("id", "")),
+            name=str(data.get("name", "")),
+            mode=str(data.get("mode", OrchestrationMode.SANDWICH.value)),
+            description=str(data.get("description", "")),
+            sandwich_config=dict(
+                data.get("sandwich_config") or {"start_chain": [], "end_chain": []}
+            ),
+            fixed_config=dict(data.get("fixed_config") or {"chain": []}),
+        )
+

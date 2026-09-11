@@ -18,10 +18,15 @@ from core.slack_security import verify_slack_signature
 from nlp.nl_patterns import is_stop_command
 from orchestration.agent_router import process_and_respond
 from orchestration.agent_settings import (
+    apply_workflow,
+    get_active_workflow_id,
+    get_fixed_config,
+    get_orchestration_mode,
     get_sandwich_config,
     load_enabled_agents,
     reset_enabled_agents,
     restore_from_backup,
+    set_active_workflow_id,
     set_agent_enabled,
     set_agent_model,
     set_circuit_breaker_enabled,
@@ -30,6 +35,11 @@ from orchestration.agent_settings import (
     set_orchestration_mode,
     set_sandwich_config,
     toggle_agent,
+)
+from orchestration.workflow_manager import (
+    delete_workflow,
+    list_workflows,
+    save_workflow,
 )
 from orchestration.thread_state import (
     interrupt_thread_discussion,
@@ -436,6 +446,67 @@ async def slack_interactivity(request: Request, background_tasks: BackgroundTask
                     set_circuit_breaker_threshold(val_float)
                 except (ValueError, TypeError):
                     pass
+            elif action_id == "select_workflow_preset":
+                selected_option = action.get("selected_option", {})
+                val = selected_option.get("value", "")
+                if val.startswith("wf:"):
+                    wf_id = val.split(":", 1)[1]
+                    if wf_id and wf_id != "none":
+                        apply_workflow(wf_id)
+            elif action_id == "load_workflow_preset_button":
+                selected_wf_id = None
+                if isinstance(view_state, dict):
+                    for block_val in view_state.values():
+                        if isinstance(block_val, dict) and "select_workflow_preset" in block_val:
+                            sel_opt = block_val["select_workflow_preset"].get("selected_option") or {}
+                            val = sel_opt.get("value", "")
+                            if val.startswith("wf:"):
+                                selected_wf_id = val.split(":", 1)[1]
+                                break
+                if not selected_wf_id:
+                    selected_wf_id = get_active_workflow_id()
+                if selected_wf_id and selected_wf_id != "none":
+                    apply_workflow(selected_wf_id)
+            elif action_id == "delete_workflow_preset_button":
+                selected_wf_id = None
+                if isinstance(view_state, dict):
+                    for block_val in view_state.values():
+                        if isinstance(block_val, dict) and "select_workflow_preset" in block_val:
+                            sel_opt = block_val["select_workflow_preset"].get("selected_option") or {}
+                            val = sel_opt.get("value", "")
+                            if val.startswith("wf:"):
+                                selected_wf_id = val.split(":", 1)[1]
+                                break
+                if not selected_wf_id:
+                    selected_wf_id = get_active_workflow_id()
+                if selected_wf_id and selected_wf_id != "none":
+                    delete_workflow(selected_wf_id)
+                    if get_active_workflow_id() == selected_wf_id:
+                        set_active_workflow_id(None)
+            elif action_id == "save_workflow_preset_button":
+                preset_name = ""
+                if isinstance(view_state, dict):
+                    for block_val in view_state.values():
+                        if isinstance(block_val, dict) and "save_workflow_preset_name_input" in block_val:
+                            preset_name = block_val["save_workflow_preset_name_input"].get("value") or ""
+                            if preset_name:
+                                break
+                    if not preset_name:
+                        block_vals = view_state.get("save_workflow_preset_block", {})
+                        if isinstance(block_vals, dict):
+                            preset_name = block_vals.get("save_workflow_preset_name_input", {}).get("value") or ""
+                preset_name = str(preset_name).strip()
+                if preset_name:
+                    mode = get_orchestration_mode()
+                    sandwich_cfg = get_sandwich_config()
+                    fixed_cfg = get_fixed_config()
+                    saved = save_workflow(
+                        name=preset_name,
+                        mode=mode,
+                        sandwich_config=sandwich_cfg,
+                        fixed_config=fixed_cfg,
+                    )
+                    set_active_workflow_id(saved.id)
             elif action_id == "select_orchestration_mode":
                 selected_option = action.get("selected_option", {})
                 val = selected_option.get("value", "")

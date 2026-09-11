@@ -66,6 +66,7 @@ class AgentSettingsManager:
         self.sandwich_start_chain: list[str] = []
         self.sandwich_end_chain: list[str] = []
         self.fixed_chain: list[str] = []
+        self.active_workflow_id: str | None = None
 
         # Emergency backup status
         self.is_running_from_backup: bool = False
@@ -220,6 +221,9 @@ class AgentSettingsManager:
             self.circuit_breaker_threshold_usd = float(data.get("circuit_breaker_threshold_usd", 1.0))
         except (ValueError, TypeError):
             self.circuit_breaker_threshold_usd = 1.0
+
+        # Parse active workflow preset id
+        self.active_workflow_id = data.get("active_workflow_id")
 
         # Parse orchestration mode
         raw_mode = str(data.get("orchestration_mode", OrchestrationMode.SANDWICH.value)).strip().lower()
@@ -408,6 +412,7 @@ class AgentSettingsManager:
         target_file = self.active_settings_file
         try:
             data = {
+                "active_workflow_id": self.active_workflow_id,
                 "orchestration_mode": self.orchestration_mode,
                 "sandwich_config": {
                     "start_chain": self.sandwich_start_chain,
@@ -494,6 +499,49 @@ class AgentSettingsManager:
         if save:
             self.save()
         logger.info(f"[SETTINGS] Updated fixed config: chain={self.fixed_chain}")
+
+    def get_active_workflow_id(self) -> str | None:
+        return self.active_workflow_id
+
+    def set_active_workflow_id(self, workflow_id: str | None, save: bool = True) -> None:
+        self.active_workflow_id = workflow_id
+        if save:
+            self.save()
+        logger.info(f"[SETTINGS] Active workflow ID set to: {self.active_workflow_id}")
+
+    def apply_workflow(self, workflow_id: str, save: bool = True) -> bool:
+        """
+        Applies a workflow preset to the active orchestration configuration.
+        Updates orchestration_mode and corresponding chain(s), and updates active_workflow_id.
+        """
+        from orchestration.workflow_manager import get_workflow
+
+        preset = get_workflow(workflow_id)
+        if not preset:
+            logger.warning(f"[SETTINGS] Cannot apply unknown workflow preset '{workflow_id}'")
+            return False
+
+        self.orchestration_mode = preset.mode
+        if preset.mode == OrchestrationMode.SANDWICH.value:
+            raw_start = preset.sandwich_config.get("start_chain", [])
+            raw_end = preset.sandwich_config.get("end_chain", [])
+            self.sandwich_start_chain = [
+                k for k in raw_start if isinstance(k, str) and k in self.agents_config
+            ]
+            self.sandwich_end_chain = [
+                k for k in raw_end if isinstance(k, str) and k in self.agents_config
+            ]
+        elif preset.mode == OrchestrationMode.FIXED.value:
+            raw_chain = preset.fixed_config.get("chain", [])
+            self.fixed_chain = [
+                k for k in raw_chain if isinstance(k, str) and k in self.agents_config
+            ]
+
+        self.active_workflow_id = preset.id
+        if save:
+            self.save()
+        logger.info(f"[SETTINGS] Successfully applied workflow preset '{preset.name}' ({preset.id})")
+        return True
 
     def is_circuit_breaker_enabled(self) -> bool:
         return self.circuit_breaker_enabled
@@ -718,4 +766,16 @@ def set_agent_model(agent_key: str, model: str, save: bool = True) -> bool:
 
 def set_system_agent_model(sys_agent_key: str, model: str, save: bool = True) -> bool:
     return settings_manager.set_system_agent_model(sys_agent_key, model, save=save)
+
+
+def get_active_workflow_id() -> str | None:
+    return settings_manager.get_active_workflow_id()
+
+
+def set_active_workflow_id(workflow_id: str | None, save: bool = True) -> None:
+    settings_manager.set_active_workflow_id(workflow_id, save=save)
+
+
+def apply_workflow(workflow_id: str, save: bool = True) -> bool:
+    return settings_manager.apply_workflow(workflow_id, save=save)
 

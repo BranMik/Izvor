@@ -1,0 +1,23 @@
+{
+  "id": "default_sandwich",
+  "name": "Default Sandwich Review",
+  "mode": "sandwich",
+  "description": "Standard multi-agent panel with kickoff and concluding wrap-up.",
+  "sandwich_config": {
+    "start_chain": [
+      "ScopeOptimizer",
+      "Visionary",
+      "UserAdvocate",
+      "Sceptic",
+      "Innovator",
+      "Architect"
+    ],
+    "end_chain": [
+      "Architect",
+      "Sceptic"
+    ]
+  },
+  "fixed_config": {
+    "chain": []
+  }
+}

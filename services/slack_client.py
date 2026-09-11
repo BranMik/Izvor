@@ -36,6 +36,7 @@ def build_app_home_view(
     and emergency backup warning if active settings file is unreadable.
     """
     from orchestration.agent_settings import (
+        get_active_workflow_id,
         get_backup_error_reason,
         get_circuit_breaker_config,
         get_enabled_agents,
@@ -44,6 +45,7 @@ def build_app_home_view(
         get_sandwich_config,
         is_running_from_backup,
     )
+    from orchestration.workflow_manager import list_workflows
 
     if enabled_agents is None:
         enabled_agents = get_enabled_agents()
@@ -230,6 +232,100 @@ def build_app_home_view(
                 },
             ],
         },
+    ])
+
+    workflows = list_workflows()
+    active_wf_id = get_active_workflow_id()
+
+    wf_options = []
+    for wf in workflows:
+        icon = "🥪" if wf.mode == OrchestrationMode.SANDWICH.value else "🎯"
+        label = f"{icon} {wf.name}"
+        if len(label) > 75:
+            label = label[:72] + "..."
+        wf_options.append({
+            "text": {
+                "type": "plain_text",
+                "text": label,
+                "emoji": True,
+            },
+            "value": f"wf:{wf.id}",
+        })
+
+    initial_wf_option = None
+    if active_wf_id:
+        for opt in wf_options:
+            if opt["value"] == f"wf:{active_wf_id}":
+                initial_wf_option = opt
+                break
+    if not initial_wf_option and wf_options:
+        initial_wf_option = wf_options[0]
+
+    active_wf_name = "Custom / Unsaved"
+    if active_wf_id:
+        for wf in workflows:
+            if wf.id == active_wf_id:
+                active_wf_name = f"{'🥪' if wf.mode == OrchestrationMode.SANDWICH.value else '🎯'} {wf.name}"
+                break
+
+    preset_select_element: dict[str, Any] = {
+        "type": "static_select",
+        "action_id": "select_workflow_preset",
+        "placeholder": {
+            "type": "plain_text",
+            "text": "Choose a preset...",
+            "emoji": True,
+        },
+        "options": wf_options if wf_options else [
+            {
+                "text": {"type": "plain_text", "text": "No saved presets", "emoji": True},
+                "value": "wf:none",
+            }
+        ],
+    }
+    if initial_wf_option:
+        preset_select_element["initial_option"] = initial_wf_option
+
+    blocks.extend([
+        {"type": "divider"},
+        {
+            "type": "section",
+            "block_id": "workflow_preset_select_block",
+            "text": {
+                "type": "mrkdwn",
+                "text": (
+                    f"*📑 Saved Workflow Presets:*\n"
+                    f"Active preset: *{active_wf_name}*\n"
+                    f"_Select a preset to load or delete from `data/workflows/`:_"
+                ),
+            },
+            "accessory": preset_select_element,
+        },
+        {
+            "type": "actions",
+            "elements": [
+                {
+                    "type": "button",
+                    "text": {
+                        "type": "plain_text",
+                        "text": "📂 Load Selected Preset",
+                        "emoji": True,
+                    },
+                    "action_id": "load_workflow_preset_button",
+                    "style": "primary",
+                },
+                {
+                    "type": "button",
+                    "text": {
+                        "type": "plain_text",
+                        "text": "🗑️ Delete Selected Preset",
+                        "emoji": True,
+                    },
+                    "action_id": "delete_workflow_preset_button",
+                    "style": "danger",
+                },
+            ],
+        },
         {"type": "divider"},
         {
             "type": "section",
@@ -405,6 +501,38 @@ def build_app_home_view(
         ])
 
     blocks.extend([
+        {
+            "type": "input",
+            "block_id": "save_workflow_preset_block",
+            "dispatch_action": False,
+            "element": {
+                "type": "plain_text_input",
+                "action_id": "save_workflow_preset_name_input",
+                "placeholder": {
+                    "type": "plain_text",
+                    "text": "e.g. Full Security Audit",
+                },
+            },
+            "label": {
+                "type": "plain_text",
+                "text": "💾 Save Current Configuration as Preset:",
+                "emoji": True,
+            },
+        },
+        {
+            "type": "actions",
+            "elements": [
+                {
+                    "type": "button",
+                    "text": {
+                        "type": "plain_text",
+                        "text": "💾 Save Preset",
+                        "emoji": True,
+                    },
+                    "action_id": "save_workflow_preset_button",
+                },
+            ],
+        },
         {"type": "divider"},
         {
             "type": "section",
