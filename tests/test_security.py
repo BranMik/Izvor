@@ -5,11 +5,16 @@ import time
 from core.slack_security import verify_slack_signature
 
 
-def test_verify_slack_signature_mock_fallback(monkeypatch):
-    # If SLACK_SIGNING_SECRET is default/empty, verify returns True
+def test_verify_slack_signature_unconfigured_secret(monkeypatch):
+    # If SLACK_SIGNING_SECRET is empty, verify returns False
     monkeypatch.setattr("core.slack_security.SLACK_SIGNING_SECRET", "")
     res = verify_slack_signature(b"{}", {})
-    assert res is True
+    assert res is False
+
+    # If SLACK_SIGNING_SECRET is default placeholder, verify returns False
+    monkeypatch.setattr("core.slack_security.SLACK_SIGNING_SECRET", "your-slack-signing-secret")
+    res_default = verify_slack_signature(b"{}", {})
+    assert res_default is False
 
 
 def test_verify_slack_signature_valid(monkeypatch):

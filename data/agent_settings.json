@@ -165,7 +165,7 @@
     "QALead": {
       "model": "mistral/mistral-large-latest",
       "username": "QA Lead",
-      "icon_url": "static/image_14.png",
+      "icon_url": "static/image_02.png",
       "is_short_output": true,
       "skills": [
         "codebase_inspection"

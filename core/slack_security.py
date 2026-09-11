@@ -13,12 +13,12 @@ def verify_slack_signature(body_bytes: bytes, headers: dict) -> bool:
     Verifies that the incoming HTTP request is genuinely sent from Slack
     using HMAC SHA256 signature verification.
     """
-    # If signing secret is not configured (e.g. initial dev test), log warning
+    # If signing secret is not configured or is default placeholder, reject request
     if not SLACK_SIGNING_SECRET or SLACK_SIGNING_SECRET == "your-slack-signing-secret":
-        logger.warning(
-            "SLACK_SIGNING_SECRET is not configured. Skipping signature verification for local testing."
+        logger.error(
+            "SLACK_SIGNING_SECRET is not configured or has default placeholder. Rejecting request."
         )
-        return True
+        return False
 
     timestamp = headers.get(
         "x-slack-request-timestamp", headers.get("X-Slack-Request-Timestamp")
