@@ -20,6 +20,23 @@ WORKSPACE_DIR = (
     else PROJECT_ROOT
 )
 
+# Resources directory sandboxed for non-code document reading & authoring
+RESOURCES_DIR = (WORKSPACE_DIR / "resources").resolve()
+RESOURCES_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _resolve_resource_path(rel_path: str) -> Path:
+    """
+    Ensures the requested document path stays strictly within the 'resources/' directory
+    to prevent sandbox escape.
+    """
+    target = (RESOURCES_DIR / rel_path).resolve()
+    if not target.is_relative_to(RESOURCES_DIR):
+        raise PermissionError(
+            f"Access denied: Path '{rel_path}' is outside resources directory '{RESOURCES_DIR}'."
+        )
+    return target
+
 
 def _resolve_safe_path(rel_path: str) -> Path:
     """
@@ -132,6 +149,97 @@ def write_file(rel_path: str, content: str) -> str:
         return json.dumps({"error": str(e)})
 
 
+def list_documents(rel_path: str = ".") -> str:
+    """
+    Lists the contents of a directory inside the resources/ directory.
+    """
+    try:
+        path = _resolve_resource_path(rel_path)
+        if not path.exists():
+            return json.dumps({"error": f"Resource directory '{rel_path}' does not exist."})
+        if not path.is_dir():
+            return json.dumps({"error": f"Resource path '{rel_path}' is not a directory."})
+
+        contents = []
+        for item in sorted(path.iterdir()):
+            contents.append({
+                "name": item.name,
+                "is_dir": item.is_dir(),
+                "size_bytes": item.stat().st_size if item.is_file() else None,
+            })
+        return json.dumps({"directory": rel_path, "contents": contents})
+    except PermissionError as e:
+        return json.dumps({"error": str(e)})
+    except FileNotFoundError:
+        return json.dumps({"error": f"Resource directory '{rel_path}' does not exist."})
+    except NotADirectoryError:
+        return json.dumps({"error": f"Resource path '{rel_path}' is not a directory."})
+    except (ValueError, TypeError) as e:
+        return json.dumps({"error": f"Invalid argument: {e}"})
+    except OSError as e:
+        return json.dumps({"error": f"Operating system error: {e}"})
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+def read_document(rel_path: str) -> str:
+    """
+    Reads the content of a text document inside the resources/ directory.
+    """
+    try:
+        path = _resolve_resource_path(rel_path)
+        if not path.exists():
+            return json.dumps({"error": f"Document '{rel_path}' does not exist in resources."})
+        if not path.is_file():
+            return json.dumps({"error": f"Resource path '{rel_path}' is not a file."})
+
+        content = path.read_text(encoding="utf-8", errors="replace")
+        return json.dumps({"document": rel_path, "content": content})
+    except PermissionError as e:
+        return json.dumps({"error": str(e)})
+    except FileNotFoundError:
+        return json.dumps({"error": f"Document '{rel_path}' does not exist in resources."})
+    except IsADirectoryError:
+        return json.dumps({"error": f"Resource path '{rel_path}' is a directory, not a file."})
+    except UnicodeError as e:
+        return json.dumps({"error": f"Encoding error reading document '{rel_path}': {e}"})
+    except (ValueError, TypeError) as e:
+        return json.dumps({"error": f"Invalid argument: {e}"})
+    except OSError as e:
+        return json.dumps({"error": f"Operating system error reading document '{rel_path}': {e}"})
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+def write_document(rel_path: str, content: str) -> str:
+    """
+    Writes or overwrites content to a text document inside the resources/ directory.
+    """
+    try:
+        path = _resolve_resource_path(rel_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+        return json.dumps(
+            {
+                "success": True,
+                "document": rel_path,
+                "bytes_written": len(content.encode("utf-8")),
+            }
+        )
+    except PermissionError as e:
+        return json.dumps({"error": str(e)})
+    except IsADirectoryError:
+        return json.dumps({"error": f"Resource path '{rel_path}' is a directory, cannot write document."})
+    except UnicodeError as e:
+        return json.dumps({"error": f"Encoding error writing document '{rel_path}': {e}"})
+    except (ValueError, TypeError) as e:
+        return json.dumps({"error": f"Invalid argument: {e}"})
+    except OSError as e:
+        return json.dumps({"error": f"Operating system error writing document '{rel_path}': {e}"})
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
 # LiteLLM compatible tool schemas (OpenAI / Function calling standard)
 MCP_TOOLS_SCHEMAS = [
     {
@@ -234,6 +342,62 @@ MCP_TOOLS_SCHEMAS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_documents",
+            "description": "List files and documents inside the resources directory.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "rel_path": {
+                        "type": "string",
+                        "description": "Relative path to list within resources. Defaults to '.' for resources root.",
+                        "default": ".",
+                    }
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_document",
+            "description": "Read text content of a document or file inside the resources directory.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "rel_path": {
+                        "type": "string",
+                        "description": "Relative path of the document to read within resources.",
+                    }
+                },
+                "required": ["rel_path"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "write_document",
+            "description": "Write or overwrite text content of a document inside the resources directory.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "rel_path": {
+                        "type": "string",
+                        "description": "Relative path of the document to write within resources.",
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "Text content to write into the document.",
+                    },
+                },
+                "required": ["rel_path", "content"],
+            },
+        },
+    },
 ]
 
 
@@ -252,6 +416,16 @@ def execute_mcp_tool(tool_name: str, arguments: dict[str, Any]) -> str:
         rel_path = arguments.get("rel_path", "")
         content = arguments.get("content", "")
         return write_file(rel_path, content)
+    elif tool_name == "list_documents":
+        rel_path = arguments.get("rel_path", ".")
+        return list_documents(rel_path)
+    elif tool_name == "read_document":
+        rel_path = arguments.get("rel_path", "")
+        return read_document(rel_path)
+    elif tool_name == "write_document":
+        rel_path = arguments.get("rel_path", "")
+        content = arguments.get("content", "")
+        return write_document(rel_path, content)
     elif tool_name == "web_search":
         query = arguments.get("query", "")
         max_results = arguments.get("max_results", 5)
