@@ -19,18 +19,21 @@ Analyze the user's message and extract any requested constraints or directives:
 1. "max_words": Integer maximum word count if the user requested a maximum length ceiling (e.g., "in under 50 words", "u najviše 100 riječi", "max 30 words", "briefly in 40 words", "keep it under 80 words", "up to 60 words", "no more than 75 words"). Otherwise null.
    NOTE: Do NOT extract minimum word requests into max_words (e.g. "at least 100 words" is NOT max_words).
 
-2. "history": Integer number of previous messages/turns to consider if the user requested a history or context window limit (e.g., "last 3 messages", "uzmi u obzir zadnje 2 poruke", "based on past 5 messages", "limit history to 4 messages"). Otherwise null.
+2. "min_words": Integer minimum word count if the user requested a minimum length floor (e.g., "at least 100 words", "minimalno 50 riječi", "barem 80 riječi", "no less than 50 words", "over 100 words"). Otherwise null.
 
-3. "file_use": Boolean true if the user asks to read, analyze, inspect, summarize, parse, review, or reference an attached, uploaded, or mentioned file/document/code. Otherwise false.
+3. "history": Integer number of previous messages/turns to consider if the user requested a history or context window limit (e.g., "last 3 messages", "uzmi u obzir zadnje 2 poruke", "based on past 5 messages", "limit history to 4 messages"). Otherwise null.
 
-4. "target_file": Specific filename if explicitly mentioned in the text (e.g., "schema.sql", "main.py", "data.csv"), otherwise null.
+4. "file_use": Boolean true if the user asks to read, analyze, inspect, summarize, parse, review, or reference an attached, uploaded, or mentioned file/document/code. Otherwise false.
 
-5. "excluded_agents": List of agent names/keys (strings) if the user explicitly requests to exclude, skip, leave out, omit, or remove specific agents from participating in the debate/discussion (e.g., "exclude MistLar_TechLead", "bez agenta AnthrOpus_Innovator", "don't include Gemini_ScopeOptimizer", "leave out MistLar_QALead", "/exclude [Agent1]"). Otherwise empty list [].
+5. "target_file": Specific filename if explicitly mentioned in the text (e.g., "schema.sql", "main.py", "data.csv"), otherwise null.
+
+6. "excluded_agents": List of agent names/keys (strings) if the user explicitly requests to exclude, skip, leave out, omit, or remove specific agents from participating in the debate/discussion (e.g., "exclude MistLar_TechLead", "bez agenta AnthrOpus_Innovator", "don't include Gemini_ScopeOptimizer", "leave out MistLar_QALead", "/exclude [Agent1]"). Otherwise empty list [].
    CRITICAL: Agents that are tagged or addressed to speak (e.g., "[Gemini_Visionary] only you answer", "[AgentName] explain this") MUST NEVER be marked as excluded!
 
 Respond ONLY with a valid JSON object matching this schema:
 {
   "max_words": <int or null>,
+  "min_words": <int or null>,
   "history": <int or null>,
   "file_use": <bool>,
   "target_file": <string or null>,
@@ -128,6 +131,13 @@ class IntentExtractor:
                 else None
             )
 
+            raw_min = parsed.get("min_words")
+            min_words = (
+                int(raw_min)
+                if raw_min is not None and str(raw_min).isdigit() and int(raw_min) > 0
+                else None
+            )
+
             raw_hist = parsed.get("history")
             history = (
                 int(raw_hist)
@@ -153,11 +163,12 @@ class IntentExtractor:
                             excluded_agents.append(resolved)
 
             logger.info(
-                f"[INTENT EXTRACTOR] Extracted: max_words={max_words}, history={history}, file_use={file_use}, target_file={target_file}, excluded_agents={excluded_agents}"
+                f"[INTENT EXTRACTOR] Extracted: max_words={max_words}, min_words={min_words}, history={history}, file_use={file_use}, target_file={target_file}, excluded_agents={excluded_agents}"
             )
 
             return ExtractedIntent(
                 max_words=max_words,
+                min_words=min_words,
                 history=history,
                 file_use=file_use,
                 target_file=target_file,

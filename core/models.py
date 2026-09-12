@@ -45,6 +45,7 @@ class ExtractedIntent:
     """Represents structured user directives extracted by LLM or slash commands."""
 
     max_words: int | None = None
+    min_words: int | None = None
     history: int | None = None
     file_use: bool = False
     target_file: str | None = None
@@ -53,6 +54,7 @@ class ExtractedIntent:
     def to_dict(self) -> dict[str, Any]:
         return {
             "max_words": self.max_words,
+            "min_words": self.min_words,
             "history": self.history,
             "file_use": self.file_use,
             "target_file": self.target_file,
@@ -63,6 +65,7 @@ class ExtractedIntent:
     def from_dict(cls, data: dict[str, Any]) -> "ExtractedIntent":
         return cls(
             max_words=data.get("max_words"),
+            min_words=data.get("min_words"),
             history=data.get("history"),
             file_use=bool(data.get("file_use", False)),
             target_file=data.get("target_file"),
