@@ -24,6 +24,8 @@ def test_skill_md_discovery_and_frontmatter_parsing():
     assert "web_research" in skill_names
     assert "codebase_inspection" in skill_names
     assert "workspace_authoring" in skill_names
+    assert "document_reader" in skill_names
+    assert "document_authoring" in skill_names
 
 
 def test_web_research_skill_definition():
@@ -68,6 +70,36 @@ def test_workspace_authoring_skill_definition():
     schemas = skill.get_tool_schemas()
     assert len(schemas) == 1
     assert schemas[0]["function"]["name"] == "write_file"
+
+
+def test_document_reader_skill_definition():
+    skill = skill_registry.get("document_reader")
+    assert skill is not None
+    assert skill.name == "document_reader"
+    assert skill.display_name == "Document Reader"
+    assert "resources" in skill.description.lower()
+    assert set(skill.tools) == {"list_documents", "read_document"}
+    assert "# Document Reader Skill" in skill.instructions
+
+    schemas = skill.get_tool_schemas()
+    assert len(schemas) == 2
+    schema_names = {s["function"]["name"] for s in schemas}
+    assert schema_names == {"list_documents", "read_document"}
+
+
+def test_document_authoring_skill_definition():
+    skill = skill_registry.get("document_authoring")
+    assert skill is not None
+    assert skill.name == "document_authoring"
+    assert skill.display_name == "Document Authoring"
+    assert "resources" in skill.description.lower()
+    assert skill.tools == ["write_document"]
+    assert "# Document Authoring Skill" in skill.instructions
+
+    schemas = skill.get_tool_schemas()
+    assert len(schemas) == 1
+    assert schemas[0]["function"]["name"] == "write_document"
+
 
 
 # ==============================================================================
