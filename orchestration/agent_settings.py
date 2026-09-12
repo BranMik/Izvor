@@ -71,6 +71,7 @@ class AgentSettingsManager:
         # Emergency backup status
         self.is_running_from_backup: bool = False
         self.backup_error_reason: str | None = None
+        self._last_loaded_mtime: float = 0.0
 
         if auto_load:
             self.load()
@@ -221,6 +222,8 @@ class AgentSettingsManager:
             self.circuit_breaker_threshold_usd = float(data.get("circuit_breaker_threshold_usd", 1.0))
         except (ValueError, TypeError):
             self.circuit_breaker_threshold_usd = 1.0
+        if not self.circuit_breaker_enabled:
+            self.circuit_breaker_threshold_usd = 0.0
 
         # Parse active workflow preset id
         self.active_workflow_id = data.get("active_workflow_id")
@@ -338,6 +341,10 @@ class AgentSettingsManager:
                 if self._parse_and_validate_payload(data, target_file.name):
                     self.is_running_from_backup = False
                     self.backup_error_reason = None
+                    try:
+                        self._last_loaded_mtime = target_file.stat().st_mtime
+                    except Exception:
+                        pass
                     self.check_and_update_backup()
                     return set(self.enabled_agents)
                 else:
@@ -442,6 +449,10 @@ class AgentSettingsManager:
             self._atomic_write_json(target_file, data)
             self.is_running_from_backup = False
             self.backup_error_reason = None
+            try:
+                self._last_loaded_mtime = target_file.stat().st_mtime
+            except Exception:
+                pass
             logger.info(
                 f"[SETTINGS] Saved settings ({len(self.enabled_agents)} enabled agents, "
                 f"mode='{self.orchestration_mode}', "
@@ -451,6 +462,23 @@ class AgentSettingsManager:
             self.check_and_update_backup()
         except Exception as e:
             logger.error(f"[SETTINGS] Error saving agent settings: {e}")
+
+    def sync_if_modified(self) -> bool:
+        """
+        Reloads configuration from active settings file if it was modified on disk
+        since the last load/save.
+        """
+        target_file = self.active_settings_file
+        if target_file.exists():
+            try:
+                mtime = target_file.stat().st_mtime
+                last_mtime = getattr(self, "_last_loaded_mtime", 0.0)
+                if mtime > last_mtime:
+                    self.load()
+                    return True
+            except Exception as e:
+                logger.debug(f"[SETTINGS] Error checking settings file mtime: {e}")
+        return False
 
     def get_orchestration_mode(self) -> str:
         return self.orchestration_mode
@@ -544,15 +572,21 @@ class AgentSettingsManager:
         return True
 
     def is_circuit_breaker_enabled(self) -> bool:
+        self.sync_if_modified()
         return self.circuit_breaker_enabled
 
-    def set_circuit_breaker_enabled(self, enabled: bool, save: bool = True) -> None:
+    def set_circuit_breaker_enabled(
+        self, enabled: bool, save: bool = True, reset_threshold_on_disable: bool = True
+    ) -> None:
         self.circuit_breaker_enabled = bool(enabled)
+        if not self.circuit_breaker_enabled and reset_threshold_on_disable:
+            self.circuit_breaker_threshold_usd = 0.0
         if save:
             self.save()
         logger.info(f"[SETTINGS] Circuit-breaker enabled set to {self.circuit_breaker_enabled}.")
 
     def get_circuit_breaker_threshold(self) -> float:
+        self.sync_if_modified()
         return float(self.circuit_breaker_threshold_usd)
 
     def set_circuit_breaker_threshold(self, threshold: float, save: bool = True) -> None:
@@ -567,6 +601,7 @@ class AgentSettingsManager:
             logger.error(f"[SETTINGS] Invalid circuit-breaker threshold '{threshold}': {e}")
 
     def get_circuit_breaker_config(self) -> dict[str, Any]:
+        self.sync_if_modified()
         return CircuitBreakerConfig(
             enabled=self.circuit_breaker_enabled,
             threshold_usd=self.circuit_breaker_threshold_usd,
@@ -712,8 +747,12 @@ def is_circuit_breaker_enabled() -> bool:
     return settings_manager.is_circuit_breaker_enabled()
 
 
-def set_circuit_breaker_enabled(enabled: bool, save: bool = True) -> None:
-    settings_manager.set_circuit_breaker_enabled(enabled, save=save)
+def set_circuit_breaker_enabled(
+    enabled: bool, save: bool = True, reset_threshold_on_disable: bool = True
+) -> None:
+    settings_manager.set_circuit_breaker_enabled(
+        enabled, save=save, reset_threshold_on_disable=reset_threshold_on_disable
+    )
 
 
 def get_circuit_breaker_threshold() -> float:
@@ -734,6 +773,10 @@ def save_enabled_agents() -> None:
 
 def load_enabled_agents() -> set[str]:
     return settings_manager.load()
+
+
+def sync_settings_if_modified() -> bool:
+    return settings_manager.sync_if_modified()
 
 
 def reset_enabled_agents(save: bool = True) -> None:

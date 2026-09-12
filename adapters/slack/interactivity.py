@@ -10,6 +10,7 @@ from starlette.requests import ClientDisconnect
 import sys
 
 from core.config import AGENTS_CONFIG
+from core.models import OrchestrationMode
 from core.slack_security import verify_slack_signature as _default_verify_slack_signature
 from orchestration.agent_settings import (
     apply_workflow,
@@ -17,6 +18,7 @@ from orchestration.agent_settings import (
     get_fixed_config,
     get_orchestration_mode,
     get_sandwich_config,
+    get_circuit_breaker_threshold,
     reset_enabled_agents,
     restore_from_backup,
     set_active_workflow_id,
@@ -27,6 +29,7 @@ from orchestration.agent_settings import (
     set_fixed_config,
     set_orchestration_mode,
     set_sandwich_config,
+    sync_settings_if_modified,
     toggle_agent,
 )
 from orchestration.workflow_manager import (
@@ -46,10 +49,20 @@ def _verify_signature(body: bytes, headers: Any) -> bool:
 
 
 async def _publish_home(user_id: str) -> Any:
+    sync_settings_if_modified()
     main_mod = sys.modules.get("main")
     if main_mod and hasattr(main_mod, "publish_app_home"):
         return await main_mod.publish_app_home(user_id=user_id)
     return await _default_publish_app_home(user_id=user_id)
+
+
+async def _safe_publish_home(user_id: str) -> None:
+    try:
+        await _publish_home(user_id=user_id)
+    except SlackApiError as e:
+        logger.error(f"[INTERACTIVITY] SlackApiError publishing App Home for {user_id}: {e}")
+    except Exception as e:
+        logger.error(f"[INTERACTIVITY] Failed to publish App Home for {user_id}: {e}")
 
 
 async def handle_slack_interactivity(request: Request, background_tasks: BackgroundTasks) -> Any:
@@ -121,47 +134,77 @@ async def handle_slack_interactivity(request: Request, background_tasks: Backgro
             if action_id == "toggle_circuit_breaker_radio":
                 selected_option = action.get("selected_option", {})
                 val = selected_option.get("value", "")
-                set_circuit_breaker_enabled(val == "cb:on")
+                is_on = (val == "cb:on")
+                set_circuit_breaker_enabled(is_on)
+                if not is_on:
+                    set_circuit_breaker_threshold(0.0)
             elif action_id == "set_circuit_breaker_threshold_input":
                 val_str = action.get("value", "")
                 try:
                     val_clean = str(val_str).strip().replace("$", "").replace(",", ".")
                     val_float = float(val_clean)
-                    if val_float >= 0:
+                    if val_float > 0:
                         set_circuit_breaker_threshold(val_float)
+                        set_circuit_breaker_enabled(True)
+                    else:
+                        set_circuit_breaker_threshold(0.0)
+                        set_circuit_breaker_enabled(False)
                 except (ValueError, TypeError):
                     logger.warning(
                         f"[INTERACTIVITY] Could not parse threshold from input: '{val_str}'"
                     )
             elif action_id == "save_circuit_breaker_threshold_button":
-                val_str = ""
+                val_str = None
                 # Search dynamically for the action_id inside any block in view_state
                 if isinstance(view_state, dict):
                     for block_val in view_state.values():
                         if isinstance(block_val, dict) and "set_circuit_breaker_threshold_input" in block_val:
-                            val_str = block_val["set_circuit_breaker_threshold_input"].get("value", "")
-                            if val_str:
+                            candidate = block_val["set_circuit_breaker_threshold_input"].get("value")
+                            if candidate is not None and str(candidate).strip():
+                                val_str = candidate
                                 break
-                    if not val_str:
+                    if val_str is None:
                         block_vals = view_state.get("circuit_breaker_threshold_block", {})
                         if isinstance(block_vals, dict):
                             val_obj = block_vals.get("set_circuit_breaker_threshold_input", {})
                             if isinstance(val_obj, dict):
-                                val_str = val_obj.get("value", "")
-                try:
-                    val_clean = str(val_str).strip().replace("$", "").replace(",", ".")
-                    val_float = float(val_clean)
-                    if val_float >= 0:
-                        set_circuit_breaker_threshold(val_float)
-                except (ValueError, TypeError):
-                    logger.warning(
-                        f"[INTERACTIVITY] Could not parse threshold from button save: '{val_str}'"
-                    )
+                                candidate = val_obj.get("value")
+                                if candidate is not None and str(candidate).strip():
+                                    val_str = candidate
+
+                val_float = None
+                if val_str is not None and str(val_str).strip():
+                    try:
+                        val_clean = str(val_str).strip().replace("$", "").replace(",", ".")
+                        val_float = float(val_clean)
+                    except (ValueError, TypeError):
+                        logger.warning(
+                            f"[INTERACTIVITY] Could not parse threshold from button save: '{val_str}'"
+                        )
+                if val_float is not None and val_float > 0:
+                    set_circuit_breaker_threshold(val_float)
+                    set_circuit_breaker_enabled(True)
+                elif val_float == 0.0:
+                    set_circuit_breaker_threshold(0.0)
+                    set_circuit_breaker_enabled(False)
+                else:
+                    curr = get_circuit_breaker_threshold()
+                    if curr > 0:
+                        set_circuit_breaker_threshold(curr)
+                        set_circuit_breaker_enabled(True)
+                    else:
+                        set_circuit_breaker_threshold(0.0)
+                        set_circuit_breaker_enabled(False)
             elif action_id.startswith("set_circuit_breaker_preset:"):
                 val_str = action_id.split(":", 1)[1]
                 try:
                     val_float = float(val_str)
-                    set_circuit_breaker_threshold(val_float)
+                    if val_float > 0:
+                        set_circuit_breaker_threshold(val_float)
+                        set_circuit_breaker_enabled(True)
+                    else:
+                        set_circuit_breaker_threshold(0.0)
+                        set_circuit_breaker_enabled(False)
                 except (ValueError, TypeError):
                     pass
             elif action_id == "select_workflow_preset":
@@ -216,6 +259,38 @@ async def handle_slack_interactivity(request: Request, background_tasks: Backgro
                 preset_name = str(preset_name).strip()
                 if preset_name:
                     mode = get_orchestration_mode()
+                    # Sync any edited sequence from view_state before saving preset
+                    if mode == OrchestrationMode.FIXED.value and isinstance(view_state, dict):
+                        for block_val in view_state.values():
+                            if isinstance(block_val, dict) and "set_fixed_chain_input" in block_val:
+                                f_val = block_val["set_fixed_chain_input"].get("value")
+                                if f_val is not None:
+                                    f_chain = [k.strip() for k in f_val.split(",") if k.strip()]
+                                    set_fixed_config(f_chain)
+                                    break
+                    elif mode == OrchestrationMode.SANDWICH.value and isinstance(view_state, dict):
+                        s_val = None
+                        e_val = None
+                        for block_val in view_state.values():
+                            if isinstance(block_val, dict):
+                                if "set_start_chain_input" in block_val:
+                                    s_val = block_val["set_start_chain_input"].get("value")
+                                if "set_end_chain_input" in block_val:
+                                    e_val = block_val["set_end_chain_input"].get("value")
+                        if s_val is not None or e_val is not None:
+                            curr_sandwich = get_sandwich_config()
+                            start_chain = (
+                                [k.strip() for k in s_val.split(",") if k.strip()]
+                                if s_val is not None
+                                else curr_sandwich.get("start_chain", [])
+                            )
+                            end_chain = (
+                                [k.strip() for k in e_val.split(",") if k.strip()]
+                                if e_val is not None
+                                else curr_sandwich.get("end_chain", [])
+                            )
+                            set_sandwich_config(start_chain, end_chain)
+
                     sandwich_cfg = get_sandwich_config()
                     fixed_cfg = get_fixed_config()
                     saved = save_workflow(
@@ -299,11 +374,6 @@ async def handle_slack_interactivity(request: Request, background_tasks: Backgro
                 )
 
         if user_id:
-            try:
-                await _publish_home(user_id=user_id)
-            except SlackApiError as e:
-                logger.error(f"[INTERACTIVITY] SlackApiError publishing App Home for {user_id}: {e}")
-            except Exception as e:
-                logger.error(f"[INTERACTIVITY] Failed to publish App Home for {user_id}: {e}")
+            background_tasks.add_task(_safe_publish_home, user_id=user_id)
 
     return Response(status_code=200)

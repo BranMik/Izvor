@@ -402,6 +402,6 @@ def test_app_home_view_displays_orchestration_modes():
     assert mode_block_fixed is not None
     assert mode_block_fixed["accessory"]["initial_option"]["value"] == "mode:fixed"
 
-    fixed_input = next((b for b in blocks_fixed if b.get("block_id") == "fixed_chain_block"), None)
+    fixed_input = next((b for b in blocks_fixed if b.get("block_id", "").startswith("fixed_chain_block")), None)
     assert fixed_input is not None
     assert "TechLead, Architect" in fixed_input["element"]["initial_value"]

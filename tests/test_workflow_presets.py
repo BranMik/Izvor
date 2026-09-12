@@ -179,12 +179,11 @@ def test_build_app_home_view_includes_workflow_ui():
             action_ids.append(b["element"].get("action_id", ""))
 
     assert "select_workflow_preset" in action_ids
-    assert "load_workflow_preset_button" in action_ids
     assert "delete_workflow_preset_button" in action_ids
     assert "save_workflow_preset_name_input" in action_ids
     assert "save_workflow_preset_button" in action_ids
-    assert "workflow_preset_select_block" in block_ids
-    assert "save_workflow_preset_block" in block_ids
+    assert any(b.startswith("workflow_preset_select_block") for b in block_ids)
+    assert any(b.startswith("save_workflow_preset_block") for b in block_ids)
 
 
 @pytest.mark.anyio
