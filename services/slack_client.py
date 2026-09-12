@@ -1337,9 +1337,30 @@ async def download_slack_file(
                     "size": file_size,
                     "error": f"Slack file download failed with HTTP status {resp.status_code}",
                 }
-            raw_bytes = resp.content
 
-            text_content = raw_bytes.decode("utf-8", errors="replace")
+            raw_bytes = resp.content
+            if file_name.lower().endswith(".pdf"):
+                try:
+                    import io
+                    import pypdf
+
+                    pdf_stream = io.BytesIO(raw_bytes)
+                    reader = pypdf.PdfReader(pdf_stream)
+                    pages_text = []
+                    for idx, page in enumerate(reader.pages):
+                        page_text = (page.extract_text() or "").strip()
+                        if page_text:
+                            pages_text.append(f"--- Page {idx + 1} ---\n{page_text}")
+                        else:
+                            pages_text.append(f"--- Page {idx + 1} ---\n[No extractable text]")
+                    text_content = "\n\n".join(pages_text) if pages_text else "[Empty PDF document]"
+                except Exception as pdf_err:
+                    logger.warning(
+                        f"[SLACK FILE] Could not parse PDF attachment {file_name}: {pdf_err}"
+                    )
+                    text_content = f"[Failed to extract text from PDF: {pdf_err}]"
+            else:
+                text_content = raw_bytes.decode("utf-8", errors="replace")
             truncated = False
             if len(text_content) > max_chars:
                 text_content = (

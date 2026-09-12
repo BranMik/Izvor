@@ -1,5 +1,5 @@
 {
-  "active_workflow_id": "idea_architecture_feasibility_review",
+  "active_workflow_id": "just_for_test",
   "orchestration_mode": "fixed",
   "sandwich_config": {
     "start_chain": [
@@ -17,17 +17,12 @@
   },
   "fixed_config": {
     "chain": [
-      "Visionary",
-      "Sceptic",
       "Innovator",
-      "SecurityArchitect",
-      "ScalabilityEngineer",
-      "OperationalReliabilityLead",
-      "DeploymentReleaseStrategist"
+      "Sceptic"
     ]
   },
   "circuit_breaker_enabled": true,
-  "circuit_breaker_threshold_usd": 2.0,
+  "circuit_breaker_threshold_usd": 1.5,
   "enabled_agents": [
     "Architect",
     "CompliancePrivacyAndGovernanceOfficer",
@@ -117,7 +112,10 @@
       "username": "ROI Strategist",
       "icon_url": "static/image_09.png",
       "is_short_output": false,
-      "skills": []
+      "skills": [
+        "document_authoring",
+        "document_reader"
+      ]
     },
     "UserAdvocate": {
       "model": "openai/gpt-5.6-terra",

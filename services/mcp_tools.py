@@ -184,7 +184,7 @@ def list_documents(rel_path: str = ".") -> str:
 
 def read_document(rel_path: str) -> str:
     """
-    Reads the content of a text document inside the resources/ directory.
+    Reads the content of a text or PDF document inside the resources/ directory.
     """
     try:
         path = _resolve_resource_path(rel_path)
@@ -192,6 +192,31 @@ def read_document(rel_path: str) -> str:
             return json.dumps({"error": f"Document '{rel_path}' does not exist in resources."})
         if not path.is_file():
             return json.dumps({"error": f"Resource path '{rel_path}' is not a file."})
+
+        if path.suffix.lower() == ".pdf":
+            try:
+                import pypdf
+
+                reader = pypdf.PdfReader(str(path))
+                pages_text = []
+                for idx, page in enumerate(reader.pages):
+                    page_text = (page.extract_text() or "").strip()
+                    if page_text:
+                        pages_text.append(f"--- Page {idx + 1} ---\n{page_text}")
+                    else:
+                        pages_text.append(f"--- Page {idx + 1} ---\n[No extractable text]")
+                content = "\n\n".join(pages_text) if pages_text else "[Empty PDF document]"
+                return json.dumps({
+                    "document": rel_path,
+                    "content": content,
+                    "pages": len(reader.pages),
+                })
+            except ImportError:
+                return json.dumps({
+                    "error": "The 'pypdf' package is required to read PDF files. Please install pypdf."
+                })
+            except Exception as e:
+                return json.dumps({"error": f"Failed to parse PDF '{rel_path}': {e}"})
 
         content = path.read_text(encoding="utf-8", errors="replace")
         return json.dumps({"document": rel_path, "content": content})
@@ -364,7 +389,7 @@ MCP_TOOLS_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "read_document",
-            "description": "Read text content of a document or file inside the resources directory.",
+            "description": "Read text or PDF content of a document or file inside the resources directory.",
             "parameters": {
                 "type": "object",
                 "properties": {

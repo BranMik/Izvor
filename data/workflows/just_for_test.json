@@ -1,0 +1,26 @@
+{
+  "id": "just_for_test",
+  "name": "Just for test",
+  "mode": "fixed",
+  "description": "",
+  "sandwich_config": {
+    "start_chain": [
+      "ScopeOptimizer",
+      "Visionary",
+      "UserAdvocate",
+      "Sceptic",
+      "Innovator",
+      "Architect"
+    ],
+    "end_chain": [
+      "Architect",
+      "Sceptic"
+    ]
+  },
+  "fixed_config": {
+    "chain": [
+      "Innovator",
+      "Sceptic"
+    ]
+  }
+}

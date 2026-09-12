@@ -212,6 +212,39 @@ async def test_download_slack_file_http_mock():
 
 
 @pytest.mark.anyio
+async def test_download_slack_file_pdf_mock():
+    import pypdf
+    import io
+
+    # Create a real small PDF
+    writer = pypdf.PdfWriter()
+    writer.add_blank_page(width=100, height=100)
+    buf = io.BytesIO()
+    writer.write(buf)
+    pdf_bytes = buf.getvalue()
+
+    file_info = {
+        "name": "spec.pdf",
+        "url_private_download": "https://files.slack.com/files-pri/T1/spec.pdf",
+        "size": len(pdf_bytes),
+    }
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.content = pdf_bytes
+
+    with (
+        patch("services.slack_client.SLACK_BOT_TOKEN", "xoxb-real-mock-token"),
+        patch("httpx.AsyncClient.get", new_callable=AsyncMock) as mock_get,
+    ):
+        mock_get.return_value = mock_resp
+        res = await download_slack_file(file_info)
+        assert res["ok"] is True
+        assert res["file_name"] == "spec.pdf"
+        assert "--- Page 1 ---" in res["content"]
+        assert res["truncated"] is False
+
+
+@pytest.mark.anyio
 async def test_file_context_lifecycle_in_process_and_respond():
     channel_id = "C_FILE_TEST"
     thread_ts = "1700000000.1234"
