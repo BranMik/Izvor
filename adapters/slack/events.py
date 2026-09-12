@@ -35,10 +35,21 @@ def _verify_signature(body: bytes, headers: Any) -> bool:
 
 
 async def _publish_home(user_id: str) -> Any:
+    from orchestration.agent_settings import sync_settings_if_modified
+    sync_settings_if_modified()
     main_mod = sys.modules.get("main")
     if main_mod and hasattr(main_mod, "publish_app_home"):
         return await main_mod.publish_app_home(user_id=user_id)
     return await _default_publish_app_home(user_id=user_id)
+
+
+async def _safe_publish_home(user_id: str) -> None:
+    try:
+        await _publish_home(user_id=user_id)
+    except SlackApiError as e:
+        logger.error(f"[WEBHOOK] SlackApiError publishing app home on open: {e}")
+    except Exception as e:
+        logger.error(f"[WEBHOOK] Error publishing app home on open: {e}")
 
 
 def _get_process_and_respond() -> Any:
@@ -112,16 +123,11 @@ async def handle_slack_events(request: Request, background_tasks: BackgroundTask
         if event_type == "app_home_opened":
             user_id = event.get("user")
             tab = event.get("tab")
-            if tab == "home" and user_id:
+            if (tab == "home" or tab is None) and user_id:
                 logger.info(
-                    f"[WEBHOOK] Received app_home_opened event for user {user_id}. Publishing App Home view."
+                    f"[WEBHOOK] Received app_home_opened event for user {user_id}. Publishing App Home view in background."
                 )
-                try:
-                    await _publish_home(user_id=user_id)
-                except SlackApiError as e:
-                    logger.error(f"[WEBHOOK] SlackApiError publishing app home on open: {e}")
-                except Exception as e:
-                    logger.error(f"[WEBHOOK] Error publishing app home on open: {e}")
+                background_tasks.add_task(_safe_publish_home, user_id=user_id)
             return Response(status_code=200)
 
         if event_type in ["message", "app_mention"]:

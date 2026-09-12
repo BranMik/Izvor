@@ -1,3 +1,4 @@
+import hashlib
 import logging
 import time
 from pathlib import Path
@@ -44,8 +45,11 @@ def build_app_home_view(
         get_orchestration_mode,
         get_sandwich_config,
         is_running_from_backup,
+        sync_settings_if_modified,
     )
     from orchestration.workflow_manager import list_workflows
+
+    sync_settings_if_modified()
 
     if enabled_agents is None:
         enabled_agents = get_enabled_agents()
@@ -54,7 +58,9 @@ def build_app_home_view(
         circuit_breaker_config = get_circuit_breaker_config()
 
     cb_enabled = bool(circuit_breaker_config.get("enabled", False))
-    cb_threshold = float(circuit_breaker_config.get("threshold_usd", 1.0))
+    cb_threshold = float(circuit_breaker_config.get("threshold_usd", 0.0))
+    if not cb_enabled:
+        cb_threshold = 0.0
     cb_status_str = (
         f"🟢 *Enabled (ON)* — Limit: *${cb_threshold:.2f} USD*"
         if cb_enabled
@@ -69,6 +75,10 @@ def build_app_home_view(
     end_chain_str = ", ".join(sandwich_cfg.get("end_chain", []))
     fixed_chain_str = ", ".join(fixed_cfg.get("chain", []))
 
+    fixed_hash = hashlib.md5(fixed_chain_str.encode("utf-8")).hexdigest()[:8]
+    start_hash = hashlib.md5(start_chain_str.encode("utf-8")).hexdigest()[:8]
+    end_hash = hashlib.md5(end_chain_str.encode("utf-8")).hexdigest()[:8]
+
     total_agents = len(AGENTS_CONFIG)
     active_count = len(enabled_agents)
 
@@ -77,162 +87,181 @@ def build_app_home_view(
     # Emergency Backup Alert Banner if running from backup
     if is_running_from_backup():
         err_reason = get_backup_error_reason() or "Settings file unavailable."
-        blocks.extend([
+        blocks.extend(
+            [
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": (
+                            "⚠️ *WARNING: System running in EMERGENCY BACKUP mode!*\n"
+                            f"The main settings file (`agent_settings.json`) is corrupted or unavailable ({err_reason}).\n"
+                            "Settings have been temporarily restored from backup. "
+                            "Click the button to restore settings from backup into active configuration:"
+                        ),
+                    },
+                    "accessory": {
+                        "type": "button",
+                        "text": {
+                            "type": "plain_text",
+                            "text": "🔄 Restore from backup",
+                            "emoji": True,
+                        },
+                        "action_id": "restore_from_backup",
+                        "style": "danger",
+                    },
+                },
+                {"type": "divider"},
+            ]
+        )
+
+    blocks.extend(
+        [
+            {
+                "type": "header",
+                "text": {
+                    "type": "plain_text",
+                    "text": "🤖 CaiLogics Multi-Agent Panel Control Hub",
+                    "emoji": True,
+                },
+            },
             {
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
                     "text": (
-                        "⚠️ *WARNING: System running in EMERGENCY BACKUP mode!*\n"
-                        f"The main settings file (`agent_settings.json`) is corrupted or unavailable ({err_reason}).\n"
-                        "Settings have been temporarily restored from backup. "
-                        "Click the button to restore settings from backup into active configuration:"
+                        "*Welcome to CaiLogics Control Hub!*\n"
+                        "Manage debate agents and spend limits (circuit-breaker) here.\n\n"
+                        "💡 *Note:* Disabled agents can still be directly invoked by tagging (e.g. `[TechLead]`)."
+                    ),
+                },
+            },
+            {
+                "type": "section",
+                "block_id": f"cb_panel_status_section_{'on' if cb_enabled else 'off'}_{cb_threshold:.2f}",
+                "fields": [
+                    {
+                        "type": "mrkdwn",
+                        "text": f"*📊 Panel Status:*\n🟢 *{active_count}* / *{total_agents}* agents active",
+                    },
+                    {
+                        "type": "mrkdwn",
+                        "text": f"*⚡ Circuit-Breaker:*\n{cb_status_str}",
+                    },
+                ],
+            },
+            {"type": "divider"},
+            {
+                "type": "section",
+                "block_id": f"cb_toggle_section_{'on' if cb_enabled else 'off'}_{cb_threshold:.2f}",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": (
+                        f"*🛡️ Thread Circuit Breaker (Cost Safety Limit):*\n"
+                        f"Status: {cb_status_str}\n"
                     ),
                 },
                 "accessory": {
-                    "type": "button",
-                    "text": {
+                    "type": "radio_buttons",
+                    "action_id": "toggle_circuit_breaker_radio",
+                    "options": [
+                        {
+                            "text": {
+                                "type": "plain_text",
+                                "text": "🟢 ON",
+                                "emoji": True,
+                            },
+                            "value": "cb:on",
+                        },
+                        {
+                            "text": {
+                                "type": "plain_text",
+                                "text": "🔴 OFF",
+                                "emoji": True,
+                            },
+                            "value": "cb:off",
+                        },
+                    ],
+                    "initial_option": {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "🟢 ON" if cb_enabled else "🔴 OFF",
+                            "emoji": True,
+                        },
+                        "value": "cb:on" if cb_enabled else "cb:off",
+                    },
+                },
+            },
+            {
+                "type": "input",
+                "block_id": f"cb_threshold_block_{cb_threshold:.2f}",
+                "dispatch_action": True,
+                "element": {
+                    "type": "plain_text_input",
+                    "action_id": "set_circuit_breaker_threshold_input",
+                    "initial_value": f"{cb_threshold:.2f}",
+                    "placeholder": {
                         "type": "plain_text",
-                        "text": "🔄 Restore from backup",
-                        "emoji": True,
+                        "text": "Enter amount in USD (e.g. 0.05, 0.50, 1.00)",
                     },
-                    "action_id": "restore_from_backup",
-                    "style": "danger",
+                    "dispatch_action_config": {
+                        "trigger_actions_on": ["on_enter_pressed"],
+                    },
+                },
+                "label": {
+                    "type": "plain_text",
+                    "text": "💵 Maximum limit per thread ($ USD):",
+                    "emoji": True,
                 },
             },
-            {"type": "divider"},
-        ])
-
-    blocks.extend([
-        {
-            "type": "header",
-            "text": {
-                "type": "plain_text",
-                "text": "🤖 CaiLogics Multi-Agent Panel Control Hub",
-                "emoji": True,
-            },
-        },
-        {
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": (
-                    "*Welcome to CaiLogics Control Hub!*\n"
-                    "Manage debate agents and spend limits (circuit-breaker) here.\n\n"
-                    "💡 *Note:* Disabled agents can still be directly invoked by tagging (e.g. `[TechLead]`)."
-                ),
-            },
-        },
-        {
-            "type": "section",
-            "fields": [
-                {
-                    "type": "mrkdwn",
-                    "text": f"*📊 Panel Status:*\n🟢 *{active_count}* / *{total_agents}* agents active",
-                },
-                {
-                    "type": "mrkdwn",
-                    "text": f"*⚡ Circuit-Breaker:*\n{cb_status_str}",
-                },
-            ],
-        },
-        {"type": "divider"},
-        {
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": (
-                    f"*🛡️ Thread Circuit Breaker (Cost Safety Limit):*\n"
-                    f"Status: {cb_status_str}\n"
-                    f"Active debate agents: *{active_count}/{total_agents}*"
-                ),
-            },
-            "accessory": {
-                "type": "radio_buttons",
-                "action_id": "toggle_circuit_breaker_radio",
-                "options": [
+            {
+                "type": "actions",
+                "block_id": f"cb_actions_block_{cb_threshold:.2f}_{'on' if cb_enabled else 'off'}",
+                "elements": [
                     {
-                        "text": {"type": "plain_text", "text": "🟢 ON", "emoji": True},
-                        "value": "cb:on",
+                        "type": "button",
+                        "text": {
+                            "type": "plain_text",
+                            "text": "💾 Save limit",
+                            "emoji": True,
+                        },
+                        "action_id": "save_circuit_breaker_threshold_button",
+                        "style": "primary",
                     },
                     {
-                        "text": {"type": "plain_text", "text": "🔴 OFF", "emoji": True},
-                        "value": "cb:off",
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "$0.05"},
+                        "action_id": "set_circuit_breaker_preset:0.05",
+                    },
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "$0.25"},
+                        "action_id": "set_circuit_breaker_preset:0.25",
+                    },
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "$0.50"},
+                        "action_id": "set_circuit_breaker_preset:0.50",
+                    },
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "$1.00"},
+                        "action_id": "set_circuit_breaker_preset:1.00",
+                    },
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "$2.00"},
+                        "action_id": "set_circuit_breaker_preset:2.00",
+                    },
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "$5.00"},
+                        "action_id": "set_circuit_breaker_preset:5.00",
                     },
                 ],
-                "initial_option": {
-                    "text": {
-                        "type": "plain_text",
-                        "text": "🟢 ON" if cb_enabled else "🔴 OFF",
-                        "emoji": True,
-                    },
-                    "value": "cb:on" if cb_enabled else "cb:off",
-                },
             },
-        },
-        {
-            "type": "input",
-            "block_id": f"cb_threshold_block_{cb_threshold:.2f}",
-            "dispatch_action": True,
-            "element": {
-                "type": "plain_text_input",
-                "action_id": "set_circuit_breaker_threshold_input",
-                "initial_value": f"{cb_threshold:.2f}",
-                "placeholder": {
-                    "type": "plain_text",
-                    "text": "Enter amount in USD (e.g. 0.50, 1.00, 2.50)",
-                },
-                "dispatch_action_config": {
-                    "trigger_actions_on": ["on_enter_pressed"],
-                },
-            },
-            "label": {
-                "type": "plain_text",
-                "text": "💵 Maximum limit per thread ($ USD):",
-                "emoji": True,
-            },
-        },
-        {
-            "type": "actions",
-            "elements": [
-                {
-                    "type": "button",
-                    "text": {
-                        "type": "plain_text",
-                        "text": "💾 Save limit",
-                        "emoji": True,
-                    },
-                    "action_id": "save_circuit_breaker_threshold_button",
-                    "style": "primary",
-                },
-                {
-                    "type": "button",
-                    "text": {"type": "plain_text", "text": "$0.25"},
-                    "action_id": "set_circuit_breaker_preset:0.25",
-                },
-                {
-                    "type": "button",
-                    "text": {"type": "plain_text", "text": "$0.50"},
-                    "action_id": "set_circuit_breaker_preset:0.50",
-                },
-                {
-                    "type": "button",
-                    "text": {"type": "plain_text", "text": "$1.00"},
-                    "action_id": "set_circuit_breaker_preset:1.00",
-                },
-                {
-                    "type": "button",
-                    "text": {"type": "plain_text", "text": "$2.00"},
-                    "action_id": "set_circuit_breaker_preset:2.00",
-                },
-                {
-                    "type": "button",
-                    "text": {"type": "plain_text", "text": "$5.00"},
-                    "action_id": "set_circuit_breaker_preset:5.00",
-                },
-            ],
-        },
-    ])
+        ]
+    )
 
     workflows = list_workflows()
     active_wf_id = get_active_workflow_id()
@@ -243,14 +272,16 @@ def build_app_home_view(
         label = f"{icon} {wf.name}"
         if len(label) > 75:
             label = label[:72] + "..."
-        wf_options.append({
-            "text": {
-                "type": "plain_text",
-                "text": label,
-                "emoji": True,
-            },
-            "value": f"wf:{wf.id}",
-        })
+        wf_options.append(
+            {
+                "text": {
+                    "type": "plain_text",
+                    "text": label,
+                    "emoji": True,
+                },
+                "value": f"wf:{wf.id}",
+            }
+        )
 
     initial_wf_option = None
     if active_wf_id:
@@ -276,9 +307,15 @@ def build_app_home_view(
             "text": "Choose a preset...",
             "emoji": True,
         },
-        "options": wf_options if wf_options else [
+        "options": wf_options
+        if wf_options
+        else [
             {
-                "text": {"type": "plain_text", "text": "No saved presets", "emoji": True},
+                "text": {
+                    "type": "plain_text",
+                    "text": "No saved presets",
+                    "emoji": True,
+                },
                 "value": "wf:none",
             }
         ],
@@ -286,287 +323,293 @@ def build_app_home_view(
     if initial_wf_option:
         preset_select_element["initial_option"] = initial_wf_option
 
-    blocks.extend([
-        {"type": "divider"},
-        {
-            "type": "section",
-            "block_id": "workflow_preset_select_block",
-            "text": {
-                "type": "mrkdwn",
-                "text": (
-                    f"*📑 Saved Workflow Presets:*\n"
-                    f"Active preset: *{active_wf_name}*\n"
-                    f"_Select a preset to load or delete from `data/workflows/`:_"
-                ),
-            },
-            "accessory": preset_select_element,
-        },
-        {
-            "type": "actions",
-            "elements": [
-                {
-                    "type": "button",
-                    "text": {
-                        "type": "plain_text",
-                        "text": "📂 Load Selected Preset",
-                        "emoji": True,
-                    },
-                    "action_id": "load_workflow_preset_button",
-                    "style": "primary",
+    blocks.extend(
+        [
+            {"type": "divider"},
+            {
+                "type": "section",
+                "block_id": f"workflow_preset_select_block_{active_wf_id or 'none'}",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": (
+                        f"*📑 Saved Workflow Presets:*\n"
+                        f"Active preset: *{active_wf_name}*\n"
+                        f"_Select a preset to load or delete from `data/workflows/`:_"
+                    ),
                 },
-                {
-                    "type": "button",
-                    "text": {
-                        "type": "plain_text",
-                        "text": "🗑️ Delete Selected Preset",
-                        "emoji": True,
-                    },
-                    "action_id": "delete_workflow_preset_button",
-                    "style": "danger",
-                },
-            ],
-        },
-        {"type": "divider"},
-        {
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": (
-                    f"*🔀 Discussion Orchestration Mode:*\n"
-                    f"Current mode: *{'🥪 Sandwich Chain (Start ➔ Middle ➔ End)' if orch_mode == OrchestrationMode.SANDWICH else '🎯 Fixed Sequence'}*"
-                ),
+                "accessory": preset_select_element,
             },
-            "accessory": {
-                "type": "radio_buttons",
-                "action_id": "select_orchestration_mode",
-                "options": [
+            {
+                "type": "actions",
+                "block_id": f"workflow_preset_actions_block_{active_wf_id or 'none'}",
+                "elements": [
                     {
+                        "type": "button",
                         "text": {
                             "type": "plain_text",
-                            "text": "🥪 Sandwich Flow",
+                            "text": "🗑️ Delete Selected Preset",
                             "emoji": True,
                         },
-                        "value": f"mode:{OrchestrationMode.SANDWICH.value}",
-                    },
-                    {
-                        "text": {
-                            "type": "plain_text",
-                            "text": "🎯 Fixed Sequence",
-                            "emoji": True,
-                        },
-                        "value": f"mode:{OrchestrationMode.FIXED.value}",
+                        "action_id": "delete_workflow_preset_button",
+                        "style": "danger",
                     },
                 ],
-                "initial_option": {
-                    "text": {
-                        "type": "plain_text",
-                        "text": "🥪 Sandwich Flow" if orch_mode == OrchestrationMode.SANDWICH else "🎯 Fixed Sequence",
-                        "emoji": True,
+            },
+            {"type": "divider"},
+            {
+                "type": "section",
+                "block_id": f"orchestration_mode_section_{orch_mode}",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": (
+                        f"*🔀 Discussion Orchestration Mode:*\n"
+                        f"Current mode: *{'🥪 Sandwich Chain (Start ➔ Middle ➔ End)' if orch_mode == OrchestrationMode.SANDWICH else '🎯 Fixed Sequence'}*"
+                    ),
+                },
+                "accessory": {
+                    "type": "radio_buttons",
+                    "action_id": "select_orchestration_mode",
+                    "options": [
+                        {
+                            "text": {
+                                "type": "plain_text",
+                                "text": "🥪 Sandwich Flow",
+                                "emoji": True,
+                            },
+                            "value": f"mode:{OrchestrationMode.SANDWICH.value}",
+                        },
+                        {
+                            "text": {
+                                "type": "plain_text",
+                                "text": "🎯 Fixed Sequence",
+                                "emoji": True,
+                            },
+                            "value": f"mode:{OrchestrationMode.FIXED.value}",
+                        },
+                    ],
+                    "initial_option": {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "🥪 Sandwich Flow"
+                            if orch_mode == OrchestrationMode.SANDWICH
+                            else "🎯 Fixed Sequence",
+                            "emoji": True,
+                        },
+                        "value": f"mode:{orch_mode}",
                     },
-                    "value": f"mode:{orch_mode}",
                 },
             },
-        },
-    ])
+        ]
+    )
 
     # Mode-specific chain configuration UI
     if orch_mode == OrchestrationMode.SANDWICH:
-        blocks.extend([
-            {
-                "type": "context",
-                "elements": [
-                    {
-                        "type": "mrkdwn",
-                        "text": "ℹ️ *Sandwich Flow:* Begins with _Start Chain_, continues with remaining active agents in the _middle (flexible)_, and concludes with _End Chain_. If chains are empty, order is 100% flexible.",
-                    }
-                ],
-            },
-            {
-                "type": "input",
-                "block_id": "sandwich_start_chain_block",
-                "dispatch_action": True,
-                "element": {
-                    "type": "plain_text_input",
-                    "action_id": "set_start_chain_input",
-                    "initial_value": start_chain_str,
-                    "placeholder": {
-                        "type": "plain_text",
-                        "text": "e.g. Visionary, Innovator (comma-separated)",
-                    },
+        blocks.extend(
+            [
+                {
+                    "type": "context",
+                    "elements": [
+                        {
+                            "type": "mrkdwn",
+                            "text": "ℹ️ *Sandwich Flow:* Begins with _Start Chain_, continues with remaining active agents in the _middle (flexible)_, and concludes with _End Chain_. If chains are empty, order is 100% flexible.",
+                        }
+                    ],
                 },
-                "label": {
-                    "type": "plain_text",
-                    "text": "🚩 Start Chain:",
-                    "emoji": True,
-                },
-            },
-            {
-                "type": "input",
-                "block_id": "sandwich_end_chain_block",
-                "dispatch_action": True,
-                "element": {
-                    "type": "plain_text_input",
-                    "action_id": "set_end_chain_input",
-                    "initial_value": end_chain_str,
-                    "placeholder": {
-                        "type": "plain_text",
-                        "text": "e.g. Architect (comma-separated)",
-                    },
-                },
-                "label": {
-                    "type": "plain_text",
-                    "text": "🏁 End Chain:",
-                    "emoji": True,
-                },
-            },
-            {
-                "type": "actions",
-                "elements": [
-                    {
-                        "type": "button",
-                        "text": {
+                {
+                    "type": "input",
+                    "block_id": f"sandwich_start_chain_block_{start_hash}",
+                    "dispatch_action": True,
+                    "element": {
+                        "type": "plain_text_input",
+                        "action_id": "set_start_chain_input",
+                        "initial_value": start_chain_str,
+                        "placeholder": {
                             "type": "plain_text",
-                            "text": "💾 Save Sandwich chains",
-                            "emoji": True,
+                            "text": "e.g. Visionary, Innovator (comma-separated)",
                         },
-                        "action_id": "save_sandwich_chains_button",
-                        "style": "primary",
                     },
-                    {
-                        "type": "button",
-                        "text": {
+                    "label": {
+                        "type": "plain_text",
+                        "text": "🚩 Start Chain:",
+                        "emoji": True,
+                    },
+                },
+                {
+                    "type": "input",
+                    "block_id": f"sandwich_end_chain_block_{end_hash}",
+                    "dispatch_action": True,
+                    "element": {
+                        "type": "plain_text_input",
+                        "action_id": "set_end_chain_input",
+                        "initial_value": end_chain_str,
+                        "placeholder": {
                             "type": "plain_text",
-                            "text": "🗑️ Clear chains (Flexible)",
-                            "emoji": True,
+                            "text": "e.g. Architect (comma-separated)",
                         },
-                        "action_id": "clear_sandwich_chains_button",
                     },
-                ],
-            },
-        ])
+                    "label": {
+                        "type": "plain_text",
+                        "text": "🏁 End Chain:",
+                        "emoji": True,
+                    },
+                },
+                {
+                    "type": "actions",
+                    "block_id": f"sandwich_chain_actions_{start_hash}_{end_hash}",
+                    "elements": [
+                        {
+                            "type": "button",
+                            "text": {
+                                "type": "plain_text",
+                                "text": "💾 Save Sandwich chains",
+                                "emoji": True,
+                            },
+                            "action_id": "save_sandwich_chains_button",
+                            "style": "primary",
+                        },
+                        {
+                            "type": "button",
+                            "text": {
+                                "type": "plain_text",
+                                "text": "🗑️ Clear chains (Flexible)",
+                                "emoji": True,
+                            },
+                            "action_id": "clear_sandwich_chains_button",
+                        },
+                    ],
+                },
+            ]
+        )
     else:
-        blocks.extend([
-            {
-                "type": "context",
-                "elements": [
-                    {
-                        "type": "mrkdwn",
-                        "text": "ℹ️ *Fixed Sequence Flow:* Only listed agents participate in strict sequence. If chain is empty, all active agents participate in flexible order.",
-                    }
-                ],
-            },
+        blocks.extend(
+            [
+                {
+                    "type": "context",
+                    "elements": [
+                        {
+                            "type": "mrkdwn",
+                            "text": "ℹ️ *Fixed Sequence Flow:* Only listed agents participate in strict sequence. If chain is empty, all active agents participate in flexible order.",
+                        }
+                    ],
+                },
+                {
+                    "type": "input",
+                    "block_id": f"fixed_chain_block_{fixed_hash}",
+                    "dispatch_action": True,
+                    "element": {
+                        "type": "plain_text_input",
+                        "action_id": "set_fixed_chain_input",
+                        "initial_value": fixed_chain_str,
+                        "placeholder": {
+                            "type": "plain_text",
+                            "text": "e.g. TechLead, Innovator, Architect (comma-separated)",
+                        },
+                    },
+                    "label": {
+                        "type": "plain_text",
+                        "text": "🎯 Fixed Sequence Order:",
+                        "emoji": True,
+                    },
+                },
+                {
+                    "type": "actions",
+                    "block_id": f"fixed_chain_actions_{fixed_hash}",
+                    "elements": [
+                        {
+                            "type": "button",
+                            "text": {
+                                "type": "plain_text",
+                                "text": "💾 Save Fixed chain",
+                                "emoji": True,
+                            },
+                            "action_id": "save_fixed_chain_button",
+                            "style": "primary",
+                        },
+                        {
+                            "type": "button",
+                            "text": {
+                                "type": "plain_text",
+                                "text": "🗑️ Clear chain (Flexible)",
+                                "emoji": True,
+                            },
+                            "action_id": "clear_fixed_chain_button",
+                        },
+                    ],
+                },
+            ]
+        )
+
+    blocks.extend(
+        [
             {
                 "type": "input",
-                "block_id": "fixed_chain_block",
-                "dispatch_action": True,
+                "block_id": f"save_workflow_preset_block_{active_wf_id or 'none'}",
+                "dispatch_action": False,
                 "element": {
                     "type": "plain_text_input",
-                    "action_id": "set_fixed_chain_input",
-                    "initial_value": fixed_chain_str,
+                    "action_id": "save_workflow_preset_name_input",
                     "placeholder": {
                         "type": "plain_text",
-                        "text": "e.g. TechLead, Innovator, Architect (comma-separated)",
+                        "text": "e.g. Full Security Audit",
                     },
                 },
                 "label": {
                     "type": "plain_text",
-                    "text": "🎯 Fixed Sequence Order:",
+                    "text": "💾 Save Current Configuration as Preset:",
                     "emoji": True,
                 },
             },
             {
                 "type": "actions",
+                "block_id": f"save_workflow_preset_actions_{active_wf_id or 'none'}",
                 "elements": [
                     {
                         "type": "button",
                         "text": {
                             "type": "plain_text",
-                            "text": "💾 Save Fixed chain",
+                            "text": "💾 Save Preset",
                             "emoji": True,
                         },
-                        "action_id": "save_fixed_chain_button",
+                        "action_id": "save_workflow_preset_button",
+                    },
+                ],
+            },
+            {"type": "divider"},
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": "*👥 Agent Panel Configuration (Enabled/Disabled):*",
+                },
+            },
+            {
+                "type": "actions",
+                "block_id": f"bulk_agent_actions_{active_count}_{total_agents}",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {
+                            "type": "plain_text",
+                            "text": "✅ Enable all agents",
+                            "emoji": True,
+                        },
+                        "action_id": "bulk_enable_all",
                         "style": "primary",
                     },
                     {
                         "type": "button",
                         "text": {
                             "type": "plain_text",
-                            "text": "🗑️ Clear chain (Flexible)",
+                            "text": "❌ Disable all agents",
                             "emoji": True,
                         },
-                        "action_id": "clear_fixed_chain_button",
+                        "action_id": "bulk_disable_all",
                     },
                 ],
             },
-        ])
-
-    blocks.extend([
-        {
-            "type": "input",
-            "block_id": "save_workflow_preset_block",
-            "dispatch_action": False,
-            "element": {
-                "type": "plain_text_input",
-                "action_id": "save_workflow_preset_name_input",
-                "placeholder": {
-                    "type": "plain_text",
-                    "text": "e.g. Full Security Audit",
-                },
-            },
-            "label": {
-                "type": "plain_text",
-                "text": "💾 Save Current Configuration as Preset:",
-                "emoji": True,
-            },
-        },
-        {
-            "type": "actions",
-            "elements": [
-                {
-                    "type": "button",
-                    "text": {
-                        "type": "plain_text",
-                        "text": "💾 Save Preset",
-                        "emoji": True,
-                    },
-                    "action_id": "save_workflow_preset_button",
-                },
-            ],
-        },
-        {"type": "divider"},
-        {
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": "*👥 Agent Panel Configuration (Enabled/Disabled):*",
-            },
-        },
-        {
-            "type": "actions",
-            "elements": [
-                {
-                    "type": "button",
-                    "text": {
-                        "type": "plain_text",
-                        "text": "✅ Enable all agents",
-                        "emoji": True,
-                    },
-                    "action_id": "bulk_enable_all",
-                    "style": "primary",
-                },
-                {
-                    "type": "button",
-                    "text": {
-                        "type": "plain_text",
-                        "text": "❌ Disable all agents",
-                        "emoji": True,
-                    },
-                    "action_id": "bulk_disable_all",
-                },
-            ],
-        },
-        {"type": "divider"},
-    ])
+            {"type": "divider"},
+        ]
+    )
 
     from core.model_catalog import get_available_models
 
@@ -589,11 +632,19 @@ def build_app_home_view(
                     "action_id": f"toggle_agent_radio:{key}",
                     "options": [
                         {
-                            "text": {"type": "plain_text", "text": "🟢 ON", "emoji": True},
+                            "text": {
+                                "type": "plain_text",
+                                "text": "🟢 ON",
+                                "emoji": True,
+                            },
                             "value": f"{key}:on",
                         },
                         {
-                            "text": {"type": "plain_text", "text": "🔴 OFF", "emoji": True},
+                            "text": {
+                                "type": "plain_text",
+                                "text": "🔴 OFF",
+                                "emoji": True,
+                            },
                             "value": f"{key}:off",
                         },
                     ],
@@ -611,7 +662,9 @@ def build_app_home_view(
 
         # Dynamic model selection dropdown based on .env API keys
         option_groups, initial_opt = get_available_models(current_model=model)
-        model_block_id = f"agent_model_block_{key}_{model.replace('/', '_').replace('.', '_')}"
+        model_block_id = (
+            f"agent_model_block_{key}_{model.replace('/', '_').replace('.', '_')}"
+        )
         model_section = {
             "type": "section",
             "block_id": model_block_id,
@@ -707,7 +760,9 @@ async def post_agent_response(
             if icon_url:
                 local_path = Path(str(icon_url).lstrip("/"))
                 if not local_path.exists():
-                    local_path = Path(__file__).resolve().parent.parent / str(icon_url).lstrip("/")
+                    local_path = Path(__file__).resolve().parent.parent / str(
+                        icon_url
+                    ).lstrip("/")
                 if local_path.exists():
                     mtime_v = int(local_path.stat().st_mtime)
             v_param = f"v={mtime_v}" if mtime_v else "v=3"
@@ -751,24 +806,32 @@ async def post_system_message(
 
     try:
         from core.config import SYSTEM_AGENT_AVATAR, SYSTEM_AGENT_USERNAME
+
         default_username = SYSTEM_AGENT_USERNAME
         default_icon = SYSTEM_AGENT_AVATAR
     except (ImportError, AttributeError) as e:
         logger.debug(f"[SLACK CLIENT] Fallback core.config persona lookup skipped: {e}")
     except Exception as e:
-        logger.debug(f"[SLACK CLIENT] Unexpected error loading core.config persona: {e}")
+        logger.debug(
+            f"[SLACK CLIENT] Unexpected error loading core.config persona: {e}"
+        )
 
     try:
         from orchestration.agent_settings import settings_manager
+
         sys_cfg = settings_manager.system_agents_config.get("system_agent", {})
         if sys_cfg.get("username"):
             default_username = sys_cfg["username"]
         if sys_cfg.get("icon_url"):
             default_icon = sys_cfg["icon_url"]
     except (ImportError, AttributeError, KeyError) as e:
-        logger.debug(f"[SLACK CLIENT] Fallback settings_manager persona lookup skipped: {e}")
+        logger.debug(
+            f"[SLACK CLIENT] Fallback settings_manager persona lookup skipped: {e}"
+        )
     except Exception as e:
-        logger.debug(f"[SLACK CLIENT] Unexpected error loading settings_manager persona: {e}")
+        logger.debug(
+            f"[SLACK CLIENT] Unexpected error loading settings_manager persona: {e}"
+        )
 
     final_username = username or default_username
     final_icon = icon_url or default_icon
@@ -899,11 +962,15 @@ async def post_thread_note(
         if pin and msg_ts:
             try:
                 await slack_async_client.pins_add(channel=channel_id, timestamp=msg_ts)
-                logger.info(f"[SLACK NOTE] Pinned note message {msg_ts} to channel {channel_id}")
+                logger.info(
+                    f"[SLACK NOTE] Pinned note message {msg_ts} to channel {channel_id}"
+                )
             except SlackApiError as pin_err:
                 err = pin_err.response.get("error", "")
                 if err != "already_pinned":
-                    logger.debug(f"[SLACK NOTE] Note message pinning skipped/failed: {err}")
+                    logger.debug(
+                        f"[SLACK NOTE] Note message pinning skipped/failed: {err}"
+                    )
             except (KeyError, TypeError) as pin_ex:
                 logger.debug(f"[SLACK NOTE] Note message pinning skipped: {pin_ex}")
             except Exception as pin_ex:
@@ -911,7 +978,9 @@ async def post_thread_note(
 
         return {"ok": True, "ts": msg_ts}
     except SlackApiError as e:
-        logger.error(f"[SLACK NOTE] Error posting thread note: {e.response.get('error', e)}")
+        logger.error(
+            f"[SLACK NOTE] Error posting thread note: {e.response.get('error', e)}"
+        )
         return {"ok": False, "error": str(e)}
     except Exception as e:
         logger.error(f"[SLACK NOTE] Unexpected error posting thread note: {e}")
@@ -933,9 +1002,7 @@ async def update_thread_note(
         or SLACK_BOT_TOKEN == "xoxb-your-bot-user-oauth-token"
         or (message_ts and str(message_ts).startswith("mock_"))
     ):
-        logger.info(
-            f"[MOCK NOTE] Updated mock note {message_ts} ({len(text)} chars)"
-        )
+        logger.info(f"[MOCK NOTE] Updated mock note {message_ts} ({len(text)} chars)")
         return {"ok": True, "ts": message_ts, "mock": True}
 
     try:
@@ -947,7 +1014,9 @@ async def update_thread_note(
         logger.info(f"[SLACK NOTE] Successfully updated live note message {message_ts}")
         return {"ok": True, "ts": message_ts}
     except SlackApiError as e:
-        logger.error(f"[SLACK NOTE] Error updating note {message_ts}: {e.response.get('error', e)}")
+        logger.error(
+            f"[SLACK NOTE] Error updating note {message_ts}: {e.response.get('error', e)}"
+        )
         return {"ok": False, "error": str(e)}
     except Exception as e:
         logger.error(f"[SLACK NOTE] Unexpected error updating note {message_ts}: {e}")
@@ -977,9 +1046,13 @@ async def get_channel_name(channel_id: str) -> str:
             CHANNEL_NAME_CACHE[channel_id] = formatted
             return formatted
     except SlackApiError as e:
-        logger.debug(f"[SLACK] SlackApiError fetching channel name for {channel_id}: {e}")
+        logger.debug(
+            f"[SLACK] SlackApiError fetching channel name for {channel_id}: {e}"
+        )
     except (KeyError, TypeError) as e:
-        logger.debug(f"[SLACK] Parsing error fetching channel name for {channel_id}: {e}")
+        logger.debug(
+            f"[SLACK] Parsing error fetching channel name for {channel_id}: {e}"
+        )
     except Exception as e:
         logger.debug(f"[SLACK] Could not fetch channel name for {channel_id}: {e}")
 
@@ -1028,11 +1101,17 @@ async def get_or_create_usage_channel() -> str | None:
                     if not ch.get("is_member", True) and ch_id:
                         try:
                             await slack_async_client.conversations_join(channel=ch_id)
-                            logger.info(f"[SLACK] Joined existing usage channel '{target_name}' ({ch_id})")
+                            logger.info(
+                                f"[SLACK] Joined existing usage channel '{target_name}' ({ch_id})"
+                            )
                         except SlackApiError as join_err:
-                            logger.debug(f"[SLACK] Non-critical join attempt for {target_name}: {join_err}")
+                            logger.debug(
+                                f"[SLACK] Non-critical join attempt for {target_name}: {join_err}"
+                            )
                         except Exception as join_ex:
-                            logger.debug(f"[SLACK] Non-critical join attempt for {target_name}: {join_ex}")
+                            logger.debug(
+                                f"[SLACK] Non-critical join attempt for {target_name}: {join_ex}"
+                            )
                     return ch_id
 
             cursor = res.get("response_metadata", {}).get("next_cursor")
@@ -1070,10 +1149,16 @@ async def get_or_create_usage_channel() -> str | None:
                         _RESOLVED_USAGE_CHANNEL_ID = ch.get("id")
                         return _RESOLVED_USAGE_CHANNEL_ID
             except SlackApiError as err:
-                logger.debug(f"[SLACK] conversations_list API error during channel resolution: {err}")
+                logger.debug(
+                    f"[SLACK] conversations_list API error during channel resolution: {err}"
+                )
             except Exception as err:
-                logger.debug(f"[SLACK] Unexpected error during channel resolution: {err}")
-        logger.error(f"[SLACK] Error resolving/creating usage channel '{target_name}': {e}")
+                logger.debug(
+                    f"[SLACK] Unexpected error during channel resolution: {err}"
+                )
+        logger.error(
+            f"[SLACK] Error resolving/creating usage channel '{target_name}': {e}"
+        )
     except Exception as e:
         logger.error(f"[SLACK] Unexpected error resolving/creating usage channel: {e}")
 
@@ -1111,7 +1196,9 @@ async def post_usage_message(
         )
         return {"ok": True, "ts": msg_ts}
     except SlackApiError as e:
-        logger.error(f"[SLACK USAGE] Error posting usage message: {e.response.get('error', e)}")
+        logger.error(
+            f"[SLACK USAGE] Error posting usage message: {e.response.get('error', e)}"
+        )
         return {"ok": False, "error": str(e)}
     except Exception as e:
         logger.error(f"[SLACK USAGE] Unexpected error posting usage message: {e}")
@@ -1147,16 +1234,18 @@ async def update_usage_message(
         logger.info(f"[SLACK USAGE] Successfully updated usage message {message_ts}")
         return {"ok": True, "ts": message_ts}
     except SlackApiError as e:
-        logger.error(f"[SLACK USAGE] Error updating usage message {message_ts}: {e.response.get('error', e)}")
+        logger.error(
+            f"[SLACK USAGE] Error updating usage message {message_ts}: {e.response.get('error', e)}"
+        )
         return {"ok": False, "error": str(e)}
     except Exception as e:
-        logger.error(f"[SLACK USAGE] Unexpected error updating usage message {message_ts}: {e}")
+        logger.error(
+            f"[SLACK USAGE] Unexpected error updating usage message {message_ts}: {e}"
+        )
         return {"ok": False, "error": str(e)}
 
 
-async def fetch_thread_files(
-    channel_id: str, thread_ts: str
-) -> list[dict[str, Any]]:
+async def fetch_thread_files(channel_id: str, thread_ts: str) -> list[dict[str, Any]]:
     """
     Fetches all file attachment metadata uploaded in a Slack thread.
     Returns a list of file dicts with keys: id, name, title, mimetype, filetype, size, url_private_download, url_private.
@@ -1193,7 +1282,9 @@ async def fetch_thread_files(
         )
         return thread_files
     except SlackApiError as e:
-        logger.error(f"[SLACK FILES] Error fetching thread files: {e.response.get('error', e)}")
+        logger.error(
+            f"[SLACK FILES] Error fetching thread files: {e.response.get('error', e)}"
+        )
         return []
     except Exception as e:
         logger.error(f"[SLACK FILES] Unexpected error fetching thread files: {e}")
@@ -1281,7 +1372,9 @@ async def download_slack_file(
                 "error": None,
             }
     except (httpx.TimeoutException, httpx.RequestError) as e:
-        logger.error(f"[SLACK FILE] Network error downloading Slack file {file_name}: {e}")
+        logger.error(
+            f"[SLACK FILE] Network error downloading Slack file {file_name}: {e}"
+        )
         return {
             "ok": False,
             "file_name": file_name,
@@ -1302,7 +1395,9 @@ async def download_slack_file(
         }
 
 
-def extract_thread_files_metadata(files_list: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def extract_thread_files_metadata(
+    files_list: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
     return [
         {
             "id": f.get("id"),
@@ -1407,6 +1502,8 @@ async def update_slack_message(
     return await update_thread_note(channel_id=channel_id, message_ts=ts, text=text)
 
 
-async def read_slack_file_text(file_info: dict[str, Any], max_chars: int = 50000) -> str:
+async def read_slack_file_text(
+    file_info: dict[str, Any], max_chars: int = 50000
+) -> str:
     res = await download_slack_file(file_info, max_chars=max_chars)
     return res.get("content", "")

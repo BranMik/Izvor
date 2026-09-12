@@ -450,8 +450,8 @@ def test_build_app_home_view():
     # Dynamic block IDs present
     block_ids = [b.get("block_id") for b in blocks if "block_id" in b]
     assert "cb_threshold_block_2.50" in block_ids
-    assert "sandwich_start_chain_block" in block_ids
-    assert "sandwich_end_chain_block" in block_ids
+    assert any(b.startswith("sandwich_start_chain_block") for b in block_ids)
+    assert any(b.startswith("sandwich_end_chain_block") for b in block_ids)
     assert "agent_toggle_block_TechLead_on" in block_ids
 
     # Agent ID in square brackets rendered

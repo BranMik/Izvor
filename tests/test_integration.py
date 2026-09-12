@@ -458,6 +458,7 @@ def test_slack_interactivity_circuit_breaker_toggle():
     response_off = client.post("/slack/actions", json=payload_off)
     assert response_off.status_code == 200
     assert is_circuit_breaker_enabled() is False
+    assert get_circuit_breaker_threshold() == 0.0
 
 
 def test_slack_interactivity_circuit_breaker_threshold_input():
@@ -590,6 +591,49 @@ def test_slack_interactivity_url_encoded_payload():
     response = client.post("/slack/actions", content=encoded_body, headers=headers)
     assert response.status_code == 200
     assert is_circuit_breaker_enabled() is True
+
+
+def test_circuit_breaker_off_resets_amount_in_app_home_view():
+    from services.slack_client import build_app_home_view
+
+    set_circuit_breaker_enabled(True)
+    set_circuit_breaker_threshold(3.50)
+    assert get_circuit_breaker_threshold() == 3.50
+
+    set_circuit_breaker_enabled(False)
+    assert get_circuit_breaker_threshold() == 0.0
+
+    view = build_app_home_view()
+    threshold_blocks = [
+        b for b in view["blocks"]
+        if b.get("element", {}).get("action_id") == "set_circuit_breaker_threshold_input"
+    ]
+    assert len(threshold_blocks) == 1
+    input_block = threshold_blocks[0]
+    assert input_block["block_id"] == "cb_threshold_block_0.00"
+    assert input_block["element"]["initial_value"] == "0.00"
+
+
+def test_slack_interactivity_zero_threshold_turns_off_circuit_breaker():
+    set_circuit_breaker_enabled(True)
+    set_circuit_breaker_threshold(2.00)
+    assert is_circuit_breaker_enabled() is True
+
+    payload_zero = {
+        "type": "block_actions",
+        "user": {"id": "U_CB_TEST"},
+        "actions": [
+            {
+                "action_id": "set_circuit_breaker_threshold_input",
+                "value": "0",
+            }
+        ],
+    }
+    response = client.post("/slack/actions", json=payload_zero)
+    assert response.status_code == 200
+    assert is_circuit_breaker_enabled() is False
+    assert get_circuit_breaker_threshold() == 0.0
+
 
 
 

@@ -1,5 +1,6 @@
 {
-  "orchestration_mode": "sandwich",
+  "active_workflow_id": "idea_architecture_feasibility_review",
+  "orchestration_mode": "fixed",
   "sandwich_config": {
     "start_chain": [
       "ScopeOptimizer",
@@ -15,10 +16,18 @@
     ]
   },
   "fixed_config": {
-    "chain": []
+    "chain": [
+      "Visionary",
+      "Sceptic",
+      "Innovator",
+      "SecurityArchitect",
+      "ScalabilityEngineer",
+      "OperationalReliabilityLead",
+      "DeploymentReleaseStrategist"
+    ]
   },
-  "circuit_breaker_enabled": false,
-  "circuit_breaker_threshold_usd": 0.0,
+  "circuit_breaker_enabled": true,
+  "circuit_breaker_threshold_usd": 2.0,
   "enabled_agents": [
     "Architect",
     "CompliancePrivacyAndGovernanceOfficer",
@@ -40,7 +49,7 @@
   ],
   "agents": {
     "Visionary": {
-      "model": "openai/gpt-5.6-sol",
+      "model": "gemini/gemini-3.8-flash",
       "username": "Visionary",
       "icon_url": "static/image_17.png",
       "is_short_output": false,
@@ -84,7 +93,10 @@
       "username": "Data And Analytics Strategist",
       "icon_url": "static/image_12.png",
       "is_short_output": true,
-      "skills": []
+      "skills": [
+        "document_authoring",
+        "document_reader"
+      ]
     },
     "CompliancePrivacyAndGovernanceOfficer": {
       "model": "mistral/mistral-large-latest",
@@ -147,7 +159,7 @@
       "skills": []
     },
     "MarketAndCompetitionResearchExpert": {
-      "model": "openai/gpt-5.6-terra",
+      "model": "mistral/mistral-large-latest",
       "username": "Market & Competition Research Expert",
       "icon_url": "static/image_08.png",
       "is_short_output": false,
