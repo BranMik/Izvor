@@ -113,4 +113,60 @@ def test_mcp_execute_tool_document_dispatch():
             fpath.unlink()
 
 
+def test_mcp_read_pdf_document():
+    import pypdf
+    from unittest.mock import patch, MagicMock
+    from services.mcp_tools import read_document, RESOURCES_DIR
 
+    pdf_filename = "test_sample.pdf"
+    pdf_path = RESOURCES_DIR / pdf_filename
+
+    # Create a real 2-page PDF
+    writer = pypdf.PdfWriter()
+    writer.add_blank_page(width=200, height=200)
+    writer.add_blank_page(width=200, height=200)
+    with open(pdf_path, "wb") as f:
+        writer.write(f)
+
+    try:
+        # Test real PDF reading with blank pages
+        res = read_document(pdf_filename)
+        data = json.loads(res)
+        assert data.get("document") == pdf_filename
+        assert data.get("pages") == 2
+        assert "--- Page 1 ---" in data.get("content", "")
+        assert "--- Page 2 ---" in data.get("content", "")
+
+        # Test with mocked extracted text
+        mock_page1 = MagicMock()
+        mock_page1.extract_text.return_value = "Quarterly Financial Analysis"
+        mock_page2 = MagicMock()
+        mock_page2.extract_text.return_value = "Summary and Recommendations"
+        mock_reader = MagicMock()
+        mock_reader.pages = [mock_page1, mock_page2]
+
+        with patch("pypdf.PdfReader", return_value=mock_reader):
+            res_mocked = read_document(pdf_filename)
+            data_mocked = json.loads(res_mocked)
+            assert data_mocked.get("pages") == 2
+            assert "Quarterly Financial Analysis" in data_mocked["content"]
+            assert "Summary and Recommendations" in data_mocked["content"]
+    finally:
+        if pdf_path.exists():
+            pdf_path.unlink()
+
+
+def test_mcp_read_pdf_corrupted():
+    from services.mcp_tools import read_document, RESOURCES_DIR
+
+    bad_pdf = RESOURCES_DIR / "corrupt.pdf"
+    bad_pdf.write_bytes(b"not a valid pdf data stream")
+
+    try:
+        res = read_document("corrupt.pdf")
+        data = json.loads(res)
+        assert "error" in data
+        assert "Failed to parse PDF" in data["error"]
+    finally:
+        if bad_pdf.exists():
+            bad_pdf.unlink()

@@ -1,7 +1,7 @@
 ---
 name: document_reader
 display_name: Document Reader
-description: Read and analyze reference documents, reports, guidelines, text files, and notes inside the resources directory to answer questions.
+description: Read and analyze reference documents, reports, guidelines, PDF files, text files, and notes inside the resources directory to answer questions.
 tools:
   - list_documents
   - read_document
@@ -10,11 +10,11 @@ tools:
 # Document Reader Skill
 
 ## Purpose & When to Use
-Use this skill whenever you need to read, inspect, summarize, or extract information from documents, notes, guidelines, or text assets stored in the local `resources/` directory.
+Use this skill whenever you need to read, inspect, summarize, or extract information from documents, notes, guidelines, PDF files, or text assets stored in the local `resources/` directory.
 
 ## Capabilities & Tool Signatures
 - `list_documents(rel_path: str = ".")`: Lists files and documents inside the `resources/` directory.
-- `read_document(rel_path: str)`: Reads the full UTF-8 text content of a document inside `resources/`.
+- `read_document(rel_path: str)`: Reads text or extracts pages from PDF documents inside `resources/`.
 
 ## Operational Guidelines
 1. **Explore available documents**: Use `list_documents` if the exact document name or file extension is unknown.
