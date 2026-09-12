@@ -103,6 +103,8 @@ class DirectiveParser:
             intent_dict = intent.to_dict() if hasattr(intent, "to_dict") else intent
             if max_words is None and intent_dict.get("max_words") is not None:
                 max_words = intent_dict["max_words"]
+            if min_words is None and intent_dict.get("min_words") is not None:
+                min_words = intent_dict["min_words"]
             if history_limit is None and intent_dict.get("history") is not None:
                 history_limit = intent_dict["history"]
             if not is_file_req and intent_dict.get("file_use"):

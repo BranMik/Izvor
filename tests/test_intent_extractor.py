@@ -162,6 +162,7 @@ async def test_extract_user_intent_empty_text():
     intent = await extract_user_intent("")
     assert intent == {
         "max_words": None,
+        "min_words": None,
         "history": None,
         "file_use": False,
         "target_file": None,
@@ -175,8 +176,80 @@ async def test_extract_user_intent_failure_fallback():
         intent = await extract_user_intent("some message")
         assert intent == {
             "max_words": None,
+            "min_words": None,
             "history": None,
             "file_use": False,
             "target_file": None,
             "excluded_agents": [],
         }
+
+
+@pytest.mark.anyio
+async def test_directive_parser_uses_intent_extractor_for_max_words():
+    """
+    Verifies that when NL regexes are disabled, DirectiveParser relies
+    on IntentExtractor (Micro-LLM) to extract max_words seamlessly.
+    """
+    from pipeline.directive_parser import directive_parser
+
+    mock_resp = MagicMock()
+    mock_resp.choices = [
+        MagicMock(
+            message=MagicMock(
+                content=json.dumps(
+                    {
+                        "max_words": 5,
+                        "min_words": None,
+                        "history": None,
+                        "file_use": False,
+                        "target_file": None,
+                        "excluded_agents": [],
+                    }
+                )
+            )
+        )
+    ]
+
+    with patch("nlp.intent_extractor.litellm.completion", return_value=mock_resp):
+        res = await directive_parser.parse("objasni baze podataka u do 5 riječi")
+        assert res.max_words == 5
+        assert "objasni baze podataka" in res.cleaned_prompt
+
+
+@pytest.mark.anyio
+async def test_directive_parser_uses_intent_extractor_for_all_directives():
+    """
+    Verifies that all natural language directives (min_words, history, file_use, excluded_agents)
+    are extracted purely via IntentExtractor without relying on hardcoded NL regexes.
+    """
+    from pipeline.directive_parser import directive_parser
+
+    mock_resp = MagicMock()
+    mock_resp.choices = [
+        MagicMock(
+            message=MagicMock(
+                content=json.dumps(
+                    {
+                        "max_words": 100,
+                        "min_words": 30,
+                        "history": 4,
+                        "file_use": True,
+                        "target_file": "schema.sql",
+                        "excluded_agents": ["TechLead"],
+                    }
+                )
+            )
+        )
+    ]
+
+    with patch("nlp.intent_extractor.litellm.completion", return_value=mock_resp):
+        res = await directive_parser.parse(
+            "pogledaj priloženi schema.sql, uzmi zadnje 4 poruke, bez TechLeada, između 30 i 100 riječi",
+            available_files=[{"name": "schema.sql", "id": "F123"}],
+        )
+        assert res.max_words == 100
+        assert res.min_words == 30
+        assert res.history_limit == 4
+        assert res.is_file_req is True
+        assert res.target_filename == "schema.sql"
+        assert res.excluded_agents == ["TechLead"]

@@ -584,27 +584,28 @@ def test_extract_max_words_limit():
     limit, text = extract_max_words_limit("/maxwords 15 test")
     assert limit == 15
 
-    # Natural language variations (Croatian and English)
-    limit, text = extract_max_words_limit(
-        "odgovori u maksimalno 100 riječi na pitanje o k8s"
-    )
-    assert limit == 100
-    assert text == "odgovori na pitanje o k8s"
-
-    limit, text = extract_max_words_limit("odgovori u maximalno 80 rijeci")
-    assert limit == 80
-
-    limit, text = extract_max_words_limit("objasni temu u najviše 50 riječi")
-    assert limit == 50
-    assert text == "objasni temu"
-
-    limit, text = extract_max_words_limit("in max 120 words please")
-    assert limit == 120
-    assert text == "please"
-
-    limit, text = extract_max_words_limit("up to 60 words summarize")
-    assert limit == 60
-    assert text == "summarize"
+    # TODO: Testing Second Line of Defense only (Micro-LLM IntentExtractor).
+    # Natural language variations commented out since regex matching is disabled.
+    # limit, text = extract_max_words_limit(
+    #     "odgovori u maksimalno 100 riječi na pitanje o k8s"
+    # )
+    # assert limit == 100
+    # assert text == "odgovori na pitanje o k8s"
+    #
+    # limit, text = extract_max_words_limit("odgovori u maximalno 80 rijeci")
+    # assert limit == 80
+    #
+    # limit, text = extract_max_words_limit("objasni temu u najviše 50 riječi")
+    # assert limit == 50
+    # assert text == "objasni temu"
+    #
+    # limit, text = extract_max_words_limit("in max 120 words please")
+    # assert limit == 120
+    # assert text == "please"
+    #
+    # limit, text = extract_max_words_limit("up to 60 words summarize")
+    # assert limit == 60
+    # assert text == "summarize"
 
     # No command present
     limit, text = extract_max_words_limit("Just a regular prompt")
@@ -984,7 +985,8 @@ async def test_process_and_respond_with_natural_language_limits(monkeypatch):
     )
 
     user_msg = captured_messages[0][-1]["content"]
-    assert "maksimalno 60 riječi" not in user_msg
+    # TODO: With pure IntentExtractor, the user prompt is preserved without destructive regex stripping.
+    # assert "maksimalno 60 riječi" not in user_msg
     assert "mikroservisima" in user_msg
 
 
