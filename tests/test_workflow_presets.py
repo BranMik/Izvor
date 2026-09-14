@@ -14,10 +14,12 @@ from orchestration.agent_settings import (
     get_fixed_config,
     get_orchestration_mode,
     get_sandwich_config,
+    get_workflow_config,
     set_active_workflow_id,
     set_fixed_config,
     set_orchestration_mode,
     set_sandwich_config,
+    set_workflow_config,
     settings_manager,
 )
 from orchestration.workflow_manager import (
@@ -132,28 +134,36 @@ def test_agent_settings_workflow_integration(tmp_path: Path):
     wf_dir = tmp_path / "workflows"
     wf_mgr = WorkflowManager(workflows_dir=wf_dir, auto_seed=True)
 
-    mgr = AgentSettingsManager(settings_file=settings_file, auto_load=False)
+    mgr = AgentSettingsManager(settings_file=settings_file, auto_load=False, workflows_dir=wf_dir)
     mgr.agents_config = {"Visionary": {}, "Architect": {}, "TechLead": {}, "Sceptic": {}}
     mgr.save()
 
-    # Apply default_sandwich via patch of workflow_manager
-    with patch("orchestration.workflow_manager.get_workflow", side_effect=wf_mgr.get_workflow):
-        applied = mgr.apply_workflow("default_sandwich")
-        assert applied is True
-        assert mgr.get_active_workflow_id() == "default_sandwich"
-        assert mgr.orchestration_mode == OrchestrationMode.SANDWICH.value
-        assert "Visionary" in mgr.sandwich_start_chain
-        assert "Architect" in mgr.sandwich_end_chain
+    # Verify agent_settings.json does not embed chains
+    with open(settings_file, "r", encoding="utf-8") as f:
+        saved_raw = json.load(f)
+    assert "workflow_config" in saved_raw
+    assert "sandwich_config" not in saved_raw
+    assert "fixed_config" not in saved_raw
 
-        # Switch to quick_tech_triage
-        applied_fixed = mgr.apply_workflow("quick_tech_triage")
-        assert applied_fixed is True
-        assert mgr.get_active_workflow_id() == "quick_tech_triage"
-        assert mgr.orchestration_mode == OrchestrationMode.FIXED.value
-        assert mgr.fixed_chain == ["TechLead", "Architect"]
+    # Apply default_sandwich
+    applied = mgr.apply_workflow("default_sandwich")
+    assert applied is True
+    assert mgr.get_workflow_config() == "default_sandwich"
+    assert mgr.get_active_workflow_id() == "default_sandwich"
+    assert mgr.orchestration_mode == OrchestrationMode.SANDWICH.value
+    assert "Visionary" in mgr.sandwich_start_chain
+    assert "Architect" in mgr.sandwich_end_chain
 
-        # Attempt invalid workflow
-        assert mgr.apply_workflow("unknown_preset") is False
+    # Switch to quick_tech_triage
+    applied_fixed = mgr.apply_workflow("quick_tech_triage")
+    assert applied_fixed is True
+    assert mgr.get_workflow_config() == "quick_tech_triage"
+    assert mgr.get_active_workflow_id() == "quick_tech_triage"
+    assert mgr.orchestration_mode == OrchestrationMode.FIXED.value
+    assert mgr.fixed_chain == ["TechLead", "Architect"]
+
+    # Attempt invalid workflow
+    assert mgr.apply_workflow("unknown_preset") is False
 
 
 def test_build_app_home_view_includes_workflow_ui():
@@ -286,3 +296,84 @@ async def test_main_interactivity_workflow_actions(monkeypatch):
     assert resp.status_code == 200
     assert get_workflow("integration_test_preset") is None
     assert get_active_workflow_id() is None
+
+    # Restore default active workflow for subsequent tests
+    apply_workflow("idea_architecture_feasibility_review")
+
+
+def test_agent_settings_file_structure_and_dynamic_load():
+    """Verify data/agent_settings.json only has workflow_config and dynamically resolves chains."""
+    settings_file = Path(__file__).parent.parent / "data" / "agent_settings.json"
+    assert settings_file.exists()
+
+    with open(settings_file, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    # Must contain workflow_config reference
+    assert "workflow_config" in data
+    assert data["workflow_config"] == "idea_architecture_feasibility_review"
+
+    # Must NOT contain embedded chain definitions
+    assert "sandwich_config" not in data
+    assert "fixed_config" not in data
+
+    # Verify that loading this file populates chains from idea_architecture_feasibility_review.json
+    mgr = AgentSettingsManager(settings_file=settings_file, auto_load=True)
+    assert mgr.get_workflow_config() == "idea_architecture_feasibility_review"
+    assert mgr.get_orchestration_mode() == OrchestrationMode.FIXED.value
+    assert len(mgr.fixed_chain) > 0
+    assert "Visionary" in mgr.fixed_chain
+    assert "DeploymentReleaseStrategist" in mgr.fixed_chain
+
+
+def test_workflow_config_switching_and_fallback(tmp_path: Path):
+    """Verify switching workflow_config and graceful fallback when file is missing."""
+    settings_file = tmp_path / "settings.json"
+    wf_dir = tmp_path / "workflows"
+    mgr = AgentSettingsManager(settings_file=settings_file, auto_load=False, workflows_dir=wf_dir)
+    mgr.agents_config = {"Visionary": {}, "Architect": {}, "TechLead": {}}
+
+    # Seeded default_sandwich has sandwich mode
+    mgr.set_workflow_config("default_sandwich")
+    assert mgr.get_orchestration_mode() == OrchestrationMode.SANDWICH.value
+    assert "Visionary" in mgr.sandwich_start_chain
+
+    # Switch to quick_tech_triage
+    mgr.set_workflow_config("quick_tech_triage")
+    assert mgr.get_orchestration_mode() == OrchestrationMode.FIXED.value
+    assert mgr.fixed_chain == ["TechLead", "Architect"]
+
+    # Point to nonexistent workflow -> should fallback to default_sandwich without crashing
+    mgr.set_workflow_config("nonexistent_workflow_xyz")
+    assert mgr.get_orchestration_mode() == OrchestrationMode.SANDWICH.value
+    assert "Visionary" in mgr.sandwich_start_chain
+
+
+def test_chain_mutation_persists_to_workflow_file(tmp_path: Path):
+    """Verify that updating chains updates the active workflow JSON file directly."""
+    settings_file = tmp_path / "settings.json"
+    wf_dir = tmp_path / "workflows"
+    mgr = AgentSettingsManager(settings_file=settings_file, auto_load=False, workflows_dir=wf_dir)
+    mgr.agents_config = {"Visionary": {}, "Architect": {}, "TechLead": {}}
+
+    # Start with quick_tech_triage
+    mgr.set_workflow_config("quick_tech_triage")
+    wf_file = wf_dir / "quick_tech_triage.json"
+    assert wf_file.exists()
+
+    # Modify fixed chain and persist
+    mgr.set_fixed_config(["Visionary", "TechLead"])
+    mgr.persist_active_workflow()
+    assert mgr.fixed_chain == ["Visionary", "TechLead"]
+
+    # Verify directly inside quick_tech_triage.json
+    with open(wf_file, "r", encoding="utf-8") as f:
+        file_data = json.load(f)
+    assert file_data["fixed_config"]["chain"] == ["Visionary", "TechLead"]
+
+    # Verify agent_settings.json still does not embed the chain
+    with open(settings_file, "r", encoding="utf-8") as f:
+        settings_data = json.load(f)
+    assert "workflow_config" in settings_data
+    assert "fixed_config" not in settings_data
+

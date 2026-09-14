@@ -1,31 +1,5 @@
 {
-  "active_workflow_id": "idea_architecture_feasibility_review",
-  "orchestration_mode": "fixed",
-  "sandwich_config": {
-    "start_chain": [
-      "ScopeOptimizer",
-      "Visionary",
-      "UserAdvocate",
-      "Sceptic",
-      "Innovator",
-      "Architect"
-    ],
-    "end_chain": [
-      "Architect",
-      "Sceptic"
-    ]
-  },
-  "fixed_config": {
-    "chain": [
-      "Visionary",
-      "Sceptic",
-      "Innovator",
-      "SecurityArchitect",
-      "ScalabilityEngineer",
-      "OperationalReliabilityLead",
-      "DeploymentReleaseStrategist"
-    ]
-  },
+  "workflow_config": "idea_architecture_feasibility_review",
   "circuit_breaker_enabled": true,
   "circuit_breaker_threshold_usd": 2.0,
   "enabled_agents": [

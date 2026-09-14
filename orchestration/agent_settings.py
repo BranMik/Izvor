@@ -41,6 +41,7 @@ class AgentSettingsManager:
         locked_agents: set[str] | None = None,
         backup_interval_seconds: float = BACKUP_INTERVAL_SECONDS,
         auto_load: bool = True,
+        workflows_dir: Path | None = None,
     ):
         self._custom_settings_file: bool = settings_file is not None
         self._custom_backup_file: bool = backup_file is not None
@@ -48,6 +49,12 @@ class AgentSettingsManager:
         self.default_backup_file = backup_file or BACKUP_FILE
         self.locked_agents = set(locked_agents or set())
         self.backup_interval_seconds = backup_interval_seconds
+
+        from orchestration.workflow_manager import WorkflowManager, workflow_manager
+        if workflows_dir is not None:
+            self.workflow_manager = WorkflowManager(workflows_dir=workflows_dir, auto_seed=True)
+        else:
+            self.workflow_manager = workflow_manager
 
         if settings_file is not None or backup_file is not None:
             # Isolated dictionaries for custom instances (e.g. tests)
@@ -66,12 +73,14 @@ class AgentSettingsManager:
         self.sandwich_start_chain: list[str] = []
         self.sandwich_end_chain: list[str] = []
         self.fixed_chain: list[str] = []
+        self.workflow_config: str | None = None
         self.active_workflow_id: str | None = None
 
         # Emergency backup status
         self.is_running_from_backup: bool = False
         self.backup_error_reason: str | None = None
         self._last_loaded_mtime: float = 0.0
+        self._last_workflow_mtime: float = 0.0
 
         if auto_load:
             self.load()
@@ -149,6 +158,135 @@ class AgentSettingsManager:
 
         return True
 
+    def _load_workflow_details(self, wf_ref: str | None, fallback_data: dict[str, Any] | None = None) -> None:
+        """
+        Loads orchestration mode and chains from the referenced workflow preset file.
+        If the file is missing or invalid, falls back to default_sandwich, or to fallback_data if provided.
+        """
+        from orchestration.workflow_manager import slugify
+
+        preset = None
+        clean_ref = slugify(wf_ref) if wf_ref else None
+
+        if clean_ref:
+            try:
+                preset = self.workflow_manager.get_workflow(clean_ref)
+            except Exception as e:
+                logger.warning(f"[SETTINGS] Error retrieving workflow '{clean_ref}': {e}")
+            if not preset:
+                logger.warning(
+                    f"[SETTINGS] Referenced workflow '{clean_ref}' not found in {self.workflow_manager.workflows_dir}. "
+                    "Attempting fallback to default preset."
+                )
+                try:
+                    preset = self.workflow_manager.get_workflow("default_sandwich")
+                except Exception as e:
+                    logger.warning(f"[SETTINGS] Error loading default_sandwich fallback: {e}")
+
+        # If still not found, check if fallback_data contains legacy embedded chains (backward compatibility)
+        if not preset and fallback_data and (fallback_data.get("sandwich_config") or fallback_data.get("fixed_config")):
+            logger.info("[SETTINGS] Using legacy embedded workflow configuration from payload.")
+            raw_mode = str(fallback_data.get("orchestration_mode", OrchestrationMode.SANDWICH.value)).strip().lower()
+            self.orchestration_mode = (
+                raw_mode
+                if raw_mode in (OrchestrationMode.SANDWICH.value, OrchestrationMode.FIXED.value)
+                else OrchestrationMode.SANDWICH.value
+            )
+            raw_sandwich = fallback_data.get("sandwich_config", {})
+            if isinstance(raw_sandwich, dict):
+                raw_start = raw_sandwich.get("start_chain", [])
+                raw_end = raw_sandwich.get("end_chain", [])
+                self.sandwich_start_chain = [
+                    k for k in raw_start if isinstance(k, str) and (not self.agents_config or k in self.agents_config)
+                ] if isinstance(raw_start, list) else []
+                self.sandwich_end_chain = [
+                    k for k in raw_end if isinstance(k, str) and (not self.agents_config or k in self.agents_config)
+                ] if isinstance(raw_end, list) else []
+            else:
+                self.sandwich_start_chain = []
+                self.sandwich_end_chain = []
+
+            raw_fixed = fallback_data.get("fixed_config", {})
+            if isinstance(raw_fixed, dict):
+                raw_chain = raw_fixed.get("chain", [])
+                self.fixed_chain = [
+                    k for k in raw_chain if isinstance(k, str) and (not self.agents_config or k in self.agents_config)
+                ] if isinstance(raw_chain, list) else []
+            else:
+                self.fixed_chain = []
+            return
+
+        if preset:
+            self.orchestration_mode = preset.mode
+            raw_start = preset.sandwich_config.get("start_chain", [])
+            raw_end = preset.sandwich_config.get("end_chain", [])
+            self.sandwich_start_chain = [
+                k for k in raw_start if isinstance(k, str) and (not self.agents_config or k in self.agents_config)
+            ] if isinstance(raw_start, list) else []
+            self.sandwich_end_chain = [
+                k for k in raw_end if isinstance(k, str) and (not self.agents_config or k in self.agents_config)
+            ] if isinstance(raw_end, list) else []
+
+            raw_chain = preset.fixed_config.get("chain", [])
+            self.fixed_chain = [
+                k for k in raw_chain if isinstance(k, str) and (not self.agents_config or k in self.agents_config)
+            ] if isinstance(raw_chain, list) else []
+
+            self.active_workflow_id = preset.id
+            self.workflow_config = preset.id
+
+            # Track workflow file mtime
+            wf_file = self.workflow_manager.workflows_dir / f"{preset.id}.json"
+            if wf_file.exists():
+                try:
+                    self._last_workflow_mtime = wf_file.stat().st_mtime
+                except Exception:
+                    pass
+        else:
+            # Complete fallback default when no preset is active
+            self.active_workflow_id = None
+            self.workflow_config = None
+            self.orchestration_mode = OrchestrationMode.SANDWICH.value
+            self.sandwich_start_chain = []
+            self.sandwich_end_chain = []
+            self.fixed_chain = []
+
+    def persist_active_workflow(self) -> None:
+        """Persists current mode and chains to the active workflow JSON file."""
+        from orchestration.workflow_manager import slugify
+
+        wf_id = self.workflow_config or self.active_workflow_id
+        if not wf_id:
+            return
+        clean_id = slugify(wf_id)
+        existing = self.workflow_manager.get_workflow(clean_id)
+        name = existing.name if existing else clean_id.replace("_", " ").title()
+        desc = existing.description if existing else ""
+
+        saved = self.workflow_manager.save_workflow(
+            name=name,
+            mode=self.orchestration_mode,
+            sandwich_config={
+                "start_chain": list(self.sandwich_start_chain),
+                "end_chain": list(self.sandwich_end_chain),
+            },
+            fixed_config={
+                "chain": list(self.fixed_chain),
+            },
+            description=desc,
+            workflow_id=clean_id,
+        )
+        self.workflow_config = saved.id
+        self.active_workflow_id = saved.id
+        wf_file = self.workflow_manager.workflows_dir / f"{saved.id}.json"
+        if wf_file.exists():
+            try:
+                self._last_workflow_mtime = wf_file.stat().st_mtime
+            except Exception:
+                pass
+
+    _persist_active_workflow = persist_active_workflow
+
     def _parse_and_validate_payload(self, data: dict[str, Any], source_name: str) -> bool:
         """Parses and validates a full agent settings payload from JSON."""
         if not isinstance(data, dict):
@@ -225,41 +363,20 @@ class AgentSettingsManager:
         if not self.circuit_breaker_enabled:
             self.circuit_breaker_threshold_usd = 0.0
 
-        # Parse active workflow preset id
-        self.active_workflow_id = data.get("active_workflow_id")
-
-        # Parse orchestration mode
-        raw_mode = str(data.get("orchestration_mode", OrchestrationMode.SANDWICH.value)).strip().lower()
-        self.orchestration_mode = (
-            raw_mode
-            if raw_mode in (OrchestrationMode.SANDWICH.value, OrchestrationMode.FIXED.value)
-            else OrchestrationMode.SANDWICH.value
-        )
-
-        # Parse sandwich config
-        raw_sandwich = data.get("sandwich_config", {})
-        if isinstance(raw_sandwich, dict):
-            raw_start = raw_sandwich.get("start_chain", [])
-            raw_end = raw_sandwich.get("end_chain", [])
-            self.sandwich_start_chain = [
-                k for k in raw_start if isinstance(k, str) and k in self.agents_config
-            ] if isinstance(raw_start, list) else []
-            self.sandwich_end_chain = [
-                k for k in raw_end if isinstance(k, str) and k in self.agents_config
-            ] if isinstance(raw_end, list) else []
+        # Parse active workflow reference ("workflow_config" primary, "active_workflow_id" fallback)
+        raw_wf = data.get("workflow_config") or data.get("active_workflow_id")
+        if isinstance(raw_wf, str):
+            clean_wf = raw_wf.strip()
+            if clean_wf.endswith(".json"):
+                clean_wf = clean_wf[:-5]
+            self.workflow_config = clean_wf
+            self.active_workflow_id = clean_wf
         else:
-            self.sandwich_start_chain = []
-            self.sandwich_end_chain = []
+            self.workflow_config = None
+            self.active_workflow_id = None
 
-        # Parse fixed config
-        raw_fixed = data.get("fixed_config", {})
-        if isinstance(raw_fixed, dict):
-            raw_chain = raw_fixed.get("chain", [])
-            self.fixed_chain = [
-                k for k in raw_chain if isinstance(k, str) and k in self.agents_config
-            ] if isinstance(raw_chain, list) else []
-        else:
-            self.fixed_chain = []
+        # Load details (mode, sandwich chains, fixed chain) from the referenced workflow file
+        self._load_workflow_details(self.workflow_config, fallback_data=data)
 
         # Parse enabled agents
         raw_enabled = data.get("enabled_agents", [])
@@ -278,7 +395,7 @@ class AgentSettingsManager:
         logger.info(
             f"[SETTINGS] Successfully validated payload from {source_name}: "
             f"{len(self.agents_config)} agents registered, {len(self.enabled_agents)} enabled, "
-            f"mode='{self.orchestration_mode}', "
+            f"workflow_config='{self.workflow_config}', mode='{self.orchestration_mode}', "
             f"{len(self.system_agents_config)} system agents."
         )
         return True
@@ -413,21 +530,15 @@ class AgentSettingsManager:
     def save(self) -> None:
         """
         Saves current enabled debate agents, agent configurations, circuit breaker,
-        and orchestration chain settings to active JSON.
+        and workflow reference to active JSON.
+        Does NOT embed workflow details (chains), keeping workflow files as SSOT.
         Resets emergency backup mode once active file is successfully saved.
         """
         target_file = self.active_settings_file
         try:
+            wf_ref = self.workflow_config or self.active_workflow_id
             data = {
-                "active_workflow_id": self.active_workflow_id,
-                "orchestration_mode": self.orchestration_mode,
-                "sandwich_config": {
-                    "start_chain": self.sandwich_start_chain,
-                    "end_chain": self.sandwich_end_chain,
-                },
-                "fixed_config": {
-                    "chain": self.fixed_chain,
-                },
+                "workflow_config": wf_ref,
                 "circuit_breaker_enabled": self.circuit_breaker_enabled,
                 "circuit_breaker_threshold_usd": self.circuit_breaker_threshold_usd,
                 "enabled_agents": sorted(self.enabled_agents),
@@ -455,7 +566,7 @@ class AgentSettingsManager:
                 pass
             logger.info(
                 f"[SETTINGS] Saved settings ({len(self.enabled_agents)} enabled agents, "
-                f"mode='{self.orchestration_mode}', "
+                f"workflow_config='{wf_ref}', "
                 f"circuit_breaker={self.circuit_breaker_enabled}, "
                 f"threshold=${self.circuit_breaker_threshold_usd:.2f}) to {target_file.name}"
             )
@@ -465,8 +576,8 @@ class AgentSettingsManager:
 
     def sync_if_modified(self) -> bool:
         """
-        Reloads configuration from active settings file if it was modified on disk
-        since the last load/save.
+        Reloads configuration from active settings file or active workflow file
+        if either was modified on disk since the last load/save.
         """
         target_file = self.active_settings_file
         if target_file.exists():
@@ -478,6 +589,21 @@ class AgentSettingsManager:
                     return True
             except Exception as e:
                 logger.debug(f"[SETTINGS] Error checking settings file mtime: {e}")
+
+        # Also check if the active workflow file changed on disk
+        wf_id = self.workflow_config or self.active_workflow_id
+        if wf_id:
+            from orchestration.workflow_manager import slugify
+            wf_file = self.workflow_manager.workflows_dir / f"{slugify(wf_id)}.json"
+            if wf_file.exists():
+                try:
+                    wf_mtime = wf_file.stat().st_mtime
+                    last_wf_mtime = getattr(self, "_last_workflow_mtime", 0.0)
+                    if wf_mtime > last_wf_mtime:
+                        self.load()
+                        return True
+                except Exception as e:
+                    logger.debug(f"[SETTINGS] Error checking workflow file mtime: {e}")
         return False
 
     def get_orchestration_mode(self) -> str:
@@ -504,10 +630,10 @@ class AgentSettingsManager:
         self, start_chain: list[str], end_chain: list[str], save: bool = True
     ) -> None:
         self.sandwich_start_chain = [
-            k for k in start_chain if isinstance(k, str) and k in self.agents_config
+            k for k in start_chain if isinstance(k, str) and (not self.agents_config or k in self.agents_config)
         ]
         self.sandwich_end_chain = [
-            k for k in end_chain if isinstance(k, str) and k in self.agents_config
+            k for k in end_chain if isinstance(k, str) and (not self.agents_config or k in self.agents_config)
         ]
         if save:
             self.save()
@@ -522,50 +648,65 @@ class AgentSettingsManager:
 
     def set_fixed_config(self, chain: list[str], save: bool = True) -> None:
         self.fixed_chain = [
-            k for k in chain if isinstance(k, str) and k in self.agents_config
+            k for k in chain if isinstance(k, str) and (not self.agents_config or k in self.agents_config)
         ]
         if save:
             self.save()
         logger.info(f"[SETTINGS] Updated fixed config: chain={self.fixed_chain}")
 
-    def get_active_workflow_id(self) -> str | None:
-        return self.active_workflow_id
+    def get_workflow_config(self) -> str | None:
+        return self.workflow_config or self.active_workflow_id
 
-    def set_active_workflow_id(self, workflow_id: str | None, save: bool = True) -> None:
-        self.active_workflow_id = workflow_id
+    def set_workflow_config(self, workflow_config: str | None, save: bool = True) -> None:
+        if workflow_config and workflow_config.endswith(".json"):
+            workflow_config = workflow_config[:-5]
+        self.workflow_config = workflow_config
+        self.active_workflow_id = workflow_config
+        self._load_workflow_details(workflow_config)
         if save:
             self.save()
-        logger.info(f"[SETTINGS] Active workflow ID set to: {self.active_workflow_id}")
+        logger.info(f"[SETTINGS] Workflow config set to: {self.workflow_config}")
+
+    def get_active_workflow_id(self) -> str | None:
+        return self.get_workflow_config()
+
+    def set_active_workflow_id(self, workflow_id: str | None, save: bool = True) -> None:
+        self.set_workflow_config(workflow_id, save=save)
 
     def apply_workflow(self, workflow_id: str, save: bool = True) -> bool:
         """
         Applies a workflow preset to the active orchestration configuration.
-        Updates orchestration_mode and corresponding chain(s), and updates active_workflow_id.
+        Updates orchestration_mode and corresponding chain(s), and updates workflow_config.
         """
-        from orchestration.workflow_manager import get_workflow
-
-        preset = get_workflow(workflow_id)
+        preset = self.workflow_manager.get_workflow(workflow_id)
         if not preset:
             logger.warning(f"[SETTINGS] Cannot apply unknown workflow preset '{workflow_id}'")
             return False
 
         self.orchestration_mode = preset.mode
-        if preset.mode == OrchestrationMode.SANDWICH.value:
-            raw_start = preset.sandwich_config.get("start_chain", [])
-            raw_end = preset.sandwich_config.get("end_chain", [])
-            self.sandwich_start_chain = [
-                k for k in raw_start if isinstance(k, str) and k in self.agents_config
-            ]
-            self.sandwich_end_chain = [
-                k for k in raw_end if isinstance(k, str) and k in self.agents_config
-            ]
-        elif preset.mode == OrchestrationMode.FIXED.value:
-            raw_chain = preset.fixed_config.get("chain", [])
-            self.fixed_chain = [
-                k for k in raw_chain if isinstance(k, str) and k in self.agents_config
-            ]
+        raw_start = preset.sandwich_config.get("start_chain", [])
+        raw_end = preset.sandwich_config.get("end_chain", [])
+        self.sandwich_start_chain = [
+            k for k in raw_start if isinstance(k, str) and (not self.agents_config or k in self.agents_config)
+        ]
+        self.sandwich_end_chain = [
+            k for k in raw_end if isinstance(k, str) and (not self.agents_config or k in self.agents_config)
+        ]
+        raw_chain = preset.fixed_config.get("chain", [])
+        self.fixed_chain = [
+            k for k in raw_chain if isinstance(k, str) and (not self.agents_config or k in self.agents_config)
+        ]
 
+        self.workflow_config = preset.id
         self.active_workflow_id = preset.id
+
+        wf_file = self.workflow_manager.workflows_dir / f"{preset.id}.json"
+        if wf_file.exists():
+            try:
+                self._last_workflow_mtime = wf_file.stat().st_mtime
+            except Exception:
+                pass
+
         if save:
             self.save()
         logger.info(f"[SETTINGS] Successfully applied workflow preset '{preset.name}' ({preset.id})")
@@ -811,6 +952,14 @@ def set_system_agent_model(sys_agent_key: str, model: str, save: bool = True) ->
     return settings_manager.set_system_agent_model(sys_agent_key, model, save=save)
 
 
+def get_workflow_config() -> str | None:
+    return settings_manager.get_workflow_config()
+
+
+def set_workflow_config(workflow_config: str | None, save: bool = True) -> None:
+    settings_manager.set_workflow_config(workflow_config, save=save)
+
+
 def get_active_workflow_id() -> str | None:
     return settings_manager.get_active_workflow_id()
 
@@ -821,4 +970,8 @@ def set_active_workflow_id(workflow_id: str | None, save: bool = True) -> None:
 
 def apply_workflow(workflow_id: str, save: bool = True) -> bool:
     return settings_manager.apply_workflow(workflow_id, save=save)
+
+
+def persist_active_workflow() -> None:
+    settings_manager.persist_active_workflow()
 
