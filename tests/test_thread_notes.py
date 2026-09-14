@@ -276,3 +276,65 @@ async def test_router_invokes_trigger_thread_notes_update(monkeypatch):
         is_completed=True,
         bot_user_id="U_BOT",
     )
+
+
+@pytest.mark.anyio
+async def test_fetch_thread_history_includes_scribe_notes(monkeypatch):
+    from services import slack_client
+
+    monkeypatch.setattr(slack_client, "SLACK_BOT_TOKEN", "xoxb-valid-test-token")
+
+    fake_messages = [
+        {"user": "U1", "text": "Let's debate the new API", "subtype": None},
+        {
+            "user": "UBOT",
+            "text": "📋 *Live Discussion Notes*\n\nKey takeaways so far...",
+            "username": "Live Discussion Scribe",
+            "subtype": "bot_message",
+        },
+        {"user": "UBOT", "text": "We need microservices", "username": "TechLead", "subtype": "bot_message"},
+        {"user": "UBOT", "text": "_⚡ *TechLead* is loading skill: web_research..._", "username": "TechLead", "subtype": "bot_message"},
+    ]
+
+
+    mock_replies = AsyncMock(return_value={"ok": True, "messages": fake_messages})
+    monkeypatch.setattr(slack_client.slack_async_client, "conversations_replies", mock_replies)
+
+    history = await slack_client.fetch_thread_history("C123", "1700000000.001")
+    contents = [m["content"] for m in history]
+
+    # Status indicator messages should be excluded
+    assert not any("_⚡" in c for c in contents)
+
+    # Scribe note should be standardly included in history
+    assert len(history) == 3
+    assert contents[0] == "Let's debate the new API"
+    assert contents[1] == "[Live Discussion Scribe]: 📋 *Live Discussion Notes*\n\nKey takeaways so far..."
+    assert contents[2] == "[TechLead]: We need microservices"
+
+
+@pytest.mark.anyio
+async def test_scribe_disabled_skips_trigger_and_update(monkeypatch):
+    from orchestration.agent_settings import set_scribe_enabled
+
+    try:
+        set_scribe_enabled(False)
+        # 1. trigger_thread_notes_update returns None when disabled
+        task = trigger_thread_notes_update(
+            channel_id="C_DISABLED_TEST",
+            thread_ts="1700000000.050",
+            is_completed=False,
+        )
+        assert task is None
+
+        # 2. update_notes_for_thread returns ok=False when disabled
+        res = await update_notes_for_thread(
+            channel_id="C_DISABLED_TEST",
+            thread_ts="1700000000.050",
+        )
+        assert res["ok"] is False
+        assert res["reason"] == "Scribe is disabled"
+    finally:
+        set_scribe_enabled(True)
+
+

@@ -114,6 +114,13 @@ async def update_notes_for_thread(
     """
     lock = get_thread_lock(channel_id, thread_ts)
 
+    from orchestration.agent_settings import is_scribe_enabled
+    if not is_scribe_enabled():
+        logger.info(
+            f"[THREAD NOTES] Scribe is disabled in settings. Skipping update for thread {thread_ts} in channel {channel_id}."
+        )
+        return {"ok": False, "reason": "Scribe is disabled"}
+
     async with lock:
         start_time = time.time()
         logger.info(
@@ -281,6 +288,13 @@ def trigger_thread_notes_update(
     Dispatches live thread note creation/update as a non-blocking background task.
     Coalesces rapid successive triggers so only one worker runs with pending follow-up.
     """
+    from orchestration.agent_settings import is_scribe_enabled
+    if not is_scribe_enabled():
+        logger.info(
+            f"[THREAD NOTES] Scribe is disabled in settings. Skipping update for thread {thread_ts}."
+        )
+        return None
+
     thread_key = (channel_id, thread_ts)
     if is_completed:
         _PENDING_COMPLETED[thread_key] = True

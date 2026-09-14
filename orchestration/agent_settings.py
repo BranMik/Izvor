@@ -67,6 +67,7 @@ class AgentSettingsManager:
         self.enabled_agents: set[str] = set()
         self.circuit_breaker_enabled: bool = False
         self.circuit_breaker_threshold_usd: float = 1.0
+        self.scribe_enabled: bool = True
 
         # Orchestration flow mode and chains
         self.orchestration_mode: str = OrchestrationMode.SANDWICH.value
@@ -363,6 +364,9 @@ class AgentSettingsManager:
         if not self.circuit_breaker_enabled:
             self.circuit_breaker_threshold_usd = 0.0
 
+        # Parse scribe enabled setting (default True)
+        self.scribe_enabled = bool(data.get("scribe_enabled", True))
+
         # Parse active workflow reference ("workflow_config" primary, "active_workflow_id" fallback)
         raw_wf = data.get("workflow_config") or data.get("active_workflow_id")
         if isinstance(raw_wf, str):
@@ -541,6 +545,7 @@ class AgentSettingsManager:
                 "workflow_config": wf_ref,
                 "circuit_breaker_enabled": self.circuit_breaker_enabled,
                 "circuit_breaker_threshold_usd": self.circuit_breaker_threshold_usd,
+                "scribe_enabled": self.scribe_enabled,
                 "enabled_agents": sorted(self.enabled_agents),
                 "agents": {
                     k: {
@@ -748,6 +753,16 @@ class AgentSettingsManager:
             threshold_usd=self.circuit_breaker_threshold_usd,
         ).to_dict()
 
+    def is_scribe_enabled(self) -> bool:
+        self.sync_if_modified()
+        return self.scribe_enabled
+
+    def set_scribe_enabled(self, enabled: bool, save: bool = True) -> None:
+        self.scribe_enabled = bool(enabled)
+        if save:
+            self.save()
+        logger.info(f"[SETTINGS] Scribe enabled set to {self.scribe_enabled}.")
+
     def reset(self, save: bool = True) -> None:
         """Resets all registered agents to enabled state and resets orchestration mode to sandwich default."""
         self.enabled_agents.clear()
@@ -906,6 +921,14 @@ def set_circuit_breaker_threshold(threshold: float, save: bool = True) -> None:
 
 def get_circuit_breaker_config() -> dict[str, Any]:
     return settings_manager.get_circuit_breaker_config()
+
+
+def is_scribe_enabled() -> bool:
+    return settings_manager.is_scribe_enabled()
+
+
+def set_scribe_enabled(enabled: bool, save: bool = True) -> None:
+    settings_manager.set_scribe_enabled(enabled, save=save)
 
 
 def save_enabled_agents() -> None:
