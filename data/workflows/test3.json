@@ -1,0 +1,21 @@
+{
+  "id": "test3",
+  "name": "Test3",
+  "mode": "sandwich",
+  "description": "",
+  "sandwich_config": {
+    "start_chain": [
+      "ScopeOptimizer",
+      "Visionary"
+    ],
+    "end_chain": [
+      "TechLead"
+    ]
+  },
+  "fixed_config": {
+    "chain": [
+      "Visionary",
+      "CompliancePrivacyAndGovernanceOfficer"
+    ]
+  }
+}

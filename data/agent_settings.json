@@ -1,24 +1,15 @@
 {
-  "workflow_config": "idea_architecture_feasibility_review",
+  "workflow_config": "test3",
   "circuit_breaker_enabled": true,
   "circuit_breaker_threshold_usd": 1.5,
   "enabled_agents": [
-    "Architect",
     "CompliancePrivacyAndGovernanceOfficer",
-    "DataAndAnalyticsStrategist",
-    "DeploymentReleaseStrategist",
     "Innovator",
-    "MarketAndCompetitionResearchExpert",
-    "MonitoringAndAlertingSpecialist",
-    "OperationalReliabilityLead",
-    "QALead",
     "ROIStrategist",
     "ScalabilityEngineer",
-    "Sceptic",
     "ScopeOptimizer",
     "SecurityArchitect",
     "TechLead",
-    "UserAdvocate",
     "Visionary"
   ],
   "agents": {

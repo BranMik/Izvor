@@ -40,6 +40,7 @@ def test_all_agents_contain_shared_skills():
             assert "Hard Limit: Your entire response must strictly NOT exceed 200 words." in prompt
 
         assert "Aim to answer in the same language as user prompt is made." in prompt
+        assert "IDENTIFYING MESSAGE AUTHORS IN DISCUSSION HISTORY:" in prompt
         assert "1 sentence stating your core verdict/concern." in prompt
         # Nomination skill checks
         assert "nominate the next agent from the available list provided in the prompt" in prompt
