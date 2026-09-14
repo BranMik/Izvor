@@ -25,13 +25,7 @@ from core.models import OrchestrationMode
 from nlp.message_builder import markdown_to_slack
 from orchestration.agent_settings import settings_manager
 from orchestration.nomination import enforce_valid_nomination
-from orchestration.thread_state import (
-    clear_thread_state,
-    has_agent_503_errored,
-    is_thread_stopped,
-    mark_agent_503_errored,
-    thread_state_manager,
-)
+from orchestration.thread_state import thread_state_manager
 from services.slack_client import (
     post_agent_response,
     update_slack_message,
@@ -60,7 +54,7 @@ class PostRecordStageMixin:
             )
             return {"ok": False, "cancelled": True, "reason": "superseded"}
 
-        if is_thread_stopped(ctx.channel_id, ctx.thread_ts):
+        if thread_state_manager.is_stopped(ctx.channel_id, ctx.thread_ts):
             ctx.force_termination = True
             logger.info(
                 f"[ROUTER] Thread {ctx.thread_key} received stop request during execution. Forcing termination."
@@ -208,7 +202,7 @@ class PostRecordStageMixin:
                 and not has_pending_retries
                 and not has_nominated_next
             )
-            or (is_thread_stopped(ctx.channel_id, ctx.thread_ts))
+            or (thread_state_manager.is_stopped(ctx.channel_id, ctx.thread_ts))
         )
 
         record_tokens_fn = self._get_hook(
@@ -245,7 +239,7 @@ class PostRecordStageMixin:
             logger.info(
                 f"[ROUTER] Thread {ctx.thread_key} reached termination (forced or natural). Cleaning up state."
             )
-            clear_thread_state(ctx.channel_id, ctx.thread_ts)
+            thread_state_manager.clear_state(ctx.channel_id, ctx.thread_ts)
 
         if isinstance(slack_res, dict):
             slack_res["is_completed"] = ctx.is_completed
@@ -276,8 +270,8 @@ class PostRecordStageMixin:
             f"[ROUTER] Classified error for {ctx.agent_key} as: '{err_category}'"
         )
 
-        stop_requested = is_thread_stopped(ctx.channel_id, ctx.thread_ts)
-        already_503 = has_agent_503_errored(
+        stop_requested = thread_state_manager.is_stopped(ctx.channel_id, ctx.thread_ts)
+        already_503 = thread_state_manager.has_agent_503_errored(
             ctx.channel_id, ctx.thread_ts, ctx.agent_key
         )
 
@@ -305,7 +299,7 @@ class PostRecordStageMixin:
                 and not stop_requested
                 and not ctx.force_termination
             ):
-                mark_agent_503_errored(
+                thread_state_manager.mark_agent_503_errored(
                     ctx.channel_id, ctx.thread_ts, ctx.agent_key
                 )
                 if ctx.agent_key not in ctx.remaining:
@@ -396,7 +390,7 @@ class PostRecordStageMixin:
         ctx.is_completed = bool(
             ctx.force_termination
             or not next_nomination
-            or is_thread_stopped(ctx.channel_id, ctx.thread_ts)
+            or thread_state_manager.is_stopped(ctx.channel_id, ctx.thread_ts)
         )
 
         record_tokens_fn = self._get_hook(
@@ -430,7 +424,7 @@ class PostRecordStageMixin:
         )
 
         if ctx.is_completed:
-            clear_thread_state(ctx.channel_id, ctx.thread_ts)
+            thread_state_manager.clear_state(ctx.channel_id, ctx.thread_ts)
 
         if isinstance(slack_res, dict):
             slack_res["is_completed"] = ctx.is_completed

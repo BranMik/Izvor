@@ -15,7 +15,7 @@ from orchestration.agent_settings import (
     set_orchestration_mode,
     set_sandwich_config,
 )
-from orchestration.thread_state import REMAINING_AGENTS_MAP
+from orchestration.thread_state import thread_state_manager
 
 
 @pytest.fixture(autouse=True)
@@ -24,7 +24,7 @@ def setup_test_environment(monkeypatch):
     set_orchestration_mode("sandwich")
     set_sandwich_config([], [])
     set_fixed_config([])
-    REMAINING_AGENTS_MAP.clear()
+    thread_state_manager.reset_all()
     monkeypatch.setattr(agent_router.asyncio, "sleep", AsyncMock(return_value=None))
 
 

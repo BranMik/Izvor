@@ -129,9 +129,9 @@ def test_stop_does_not_cancel_thread_skills():
 
         mgr.grant_skills(channel_id, thread_ts, ["web_research"])
 
-        from orchestration.thread_state import clear_thread_stop, request_thread_stop
-        request_thread_stop(channel_id, thread_ts)
+        from orchestration.thread_state import thread_state_manager
+        thread_state_manager.request_stop(channel_id, thread_ts)
 
         # Thread skills still intact!
         assert mgr.get_active_skills(channel_id, thread_ts) == ["web_research"]
-        clear_thread_stop(channel_id, thread_ts)
+        thread_state_manager.clear_stop(channel_id, thread_ts)

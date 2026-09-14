@@ -11,12 +11,6 @@ from orchestration.agent_settings import (
     set_circuit_breaker_enabled,
     set_circuit_breaker_threshold,
 )
-from orchestration.thread_state import (
-    REMAINING_AGENTS_MAP,
-    STOP_REQUESTED_THREADS,
-    THREAD_GENERATIONS,
-    is_discussion_active,
-)
 
 client = TestClient(app)
 

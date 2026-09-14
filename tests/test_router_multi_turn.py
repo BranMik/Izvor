@@ -21,20 +21,7 @@ from orchestration.agent_settings import (
     toggle_agent,
 )
 from orchestration.nomination import get_initial_agents, parse_agent_and_prompt
-from orchestration.thread_state import (
-    ACTIVE_THREAD_TASKS,
-    CUSTOM_FLOW_THREADS,
-    RATE_LIMIT_ALREADY_RETRIED,
-    RATE_LIMIT_RETRY_QUEUE,
-    REMAINING_AGENTS_MAP,
-    STOP_REQUESTED_THREADS,
-    THREAD_GENERATIONS,
-    get_thread_history_limit,
-    interrupt_thread_discussion,
-    is_discussion_active,
-    request_thread_stop,
-    set_thread_history_limit,
-)
+from orchestration.thread_state import thread_state_manager
 from services.slack_client import build_app_home_view
 
 
@@ -44,12 +31,7 @@ def setup_test_environment(monkeypatch):
     set_orchestration_mode("sandwich")
     set_sandwich_config([], [])
     set_fixed_config([])
-    REMAINING_AGENTS_MAP.clear()
-    RATE_LIMIT_RETRY_QUEUE.clear()
-    RATE_LIMIT_ALREADY_RETRIED.clear()
-    CUSTOM_FLOW_THREADS.clear()
-    STOP_REQUESTED_THREADS.clear()
-    ACTIVE_THREAD_TASKS.clear()
+    thread_state_manager.reset_all()
     monkeypatch.setattr(agent_router.asyncio, "sleep", AsyncMock(return_value=None))
 
 
@@ -59,8 +41,7 @@ async def test_scenario_2_multiple_agents_custom_flow(monkeypatch):
     Scenario: User tags multiple specific agents.
     Expected: Only those agents speak in order, intermediate choices are validated, and flow ends after the last one.
     """
-    REMAINING_AGENTS_MAP.clear()
-    CUSTOM_FLOW_THREADS.clear()
+    thread_state_manager.reset_all()
 
     posted_messages = []
 
@@ -99,8 +80,8 @@ async def test_scenario_2_multiple_agents_custom_flow(monkeypatch):
     )
 
     # Innovator's premature Architect nomination should be corrected to TechLead
-    assert thread_key in CUSTOM_FLOW_THREADS
-    assert REMAINING_AGENTS_MAP[thread_key] == ["TechLead"]
+    assert thread_key in thread_state_manager.custom_flow_threads
+    assert thread_state_manager.remaining_agents_map[thread_key] == ["TechLead"]
     assert "[TechLead]" in posted_messages[0]
 
     # Step 2: Next bot trigger for TechLead (the last custom agent)
@@ -125,8 +106,8 @@ async def test_scenario_2_multiple_agents_custom_flow(monkeypatch):
 
     # Last custom agent cleanly terminates
     assert "CRITICAL CONSTRAINT" in mock_run_2.captured_user_prompt
-    assert thread_key not in CUSTOM_FLOW_THREADS
-    assert thread_key not in REMAINING_AGENTS_MAP
+    assert thread_key not in thread_state_manager.custom_flow_threads
+    assert thread_key not in thread_state_manager.remaining_agents_map
     assert "[Architect]" not in posted_messages[1]
 
 
@@ -137,8 +118,7 @@ async def test_scenario_3_no_agent_tagged_default_flow(monkeypatch):
     Expected: Default flow starts with Visionary, initializes all 15 panel agents,
     programmatically prevents premature Architect nomination, and finishes with Architect.
     """
-    REMAINING_AGENTS_MAP.clear()
-    CUSTOM_FLOW_THREADS.clear()
+    thread_state_manager.reset_all()
 
     posted_messages = []
 
@@ -176,12 +156,12 @@ async def test_scenario_3_no_agent_tagged_default_flow(monkeypatch):
     )
 
     # Default starts with Visionary and initializes all panel agents
-    assert thread_key not in CUSTOM_FLOW_THREADS
-    assert len(REMAINING_AGENTS_MAP[thread_key]) == 16
+    assert thread_key not in thread_state_manager.custom_flow_threads
+    assert len(thread_state_manager.remaining_agents_map[thread_key]) == 16
     assert "[Sceptic]" in posted_messages[0]
 
     # Step 2: Intermediate agent (Monitoring Specialist) tries to prematurely nominate Architect
-    REMAINING_AGENTS_MAP[thread_key] = [
+    thread_state_manager.remaining_agents_map[thread_key] = [
         "UserAdvocate",
         "SecurityArchitect",
         "MonitoringAndAlertingSpecialist",
@@ -206,10 +186,10 @@ async def test_scenario_3_no_agent_tagged_default_flow(monkeypatch):
 
     # Premature Architect tag is programmatically replaced with first remaining agent (UserAdvocate)
     assert "[UserAdvocate]" in posted_messages[1]
-    assert "UserAdvocate" in REMAINING_AGENTS_MAP[thread_key]
+    assert "UserAdvocate" in thread_state_manager.remaining_agents_map[thread_key]
 
     # Step 3: Intermediate agent speaks and nominates next remaining agent
-    REMAINING_AGENTS_MAP[thread_key] = ["SecurityArchitect", "Architect"]
+    thread_state_manager.remaining_agents_map[thread_key] = ["SecurityArchitect", "Architect"]
 
     mock_choice_3 = MagicMock()
     mock_choice_3.message.content = "Security review finished."
@@ -229,7 +209,7 @@ async def test_scenario_3_no_agent_tagged_default_flow(monkeypatch):
     )
 
     # Next agent is Architect
-    assert REMAINING_AGENTS_MAP[thread_key] == ["Architect"]
+    assert thread_state_manager.remaining_agents_map[thread_key] == ["Architect"]
     assert "[Architect]" in posted_messages[2]
 
     # Step 4: Architect executes final summary
@@ -251,7 +231,7 @@ async def test_scenario_3_no_agent_tagged_default_flow(monkeypatch):
     )
 
     # Architect finishes, state cleaned up, tags stripped
-    assert thread_key not in REMAINING_AGENTS_MAP
+    assert thread_key not in thread_state_manager.remaining_agents_map
     assert "[Visionary]" not in posted_messages[3]
 
 
@@ -301,9 +281,7 @@ async def test_thread_stop_during_llm_execution(monkeypatch):
     2. Any generated nomination tag is stripped (force_termination).
     3. State is cleaned up and no subsequent agent is tagged.
     """
-    REMAINING_AGENTS_MAP.clear()
-    CUSTOM_FLOW_THREADS.clear()
-    STOP_REQUESTED_THREADS.clear()
+    thread_state_manager.reset_all()
 
     posted_messages = []
 
@@ -330,7 +308,7 @@ async def test_thread_stop_during_llm_execution(monkeypatch):
 
     async def mock_run_with_stop_injected(func, *args, **kwargs):
         # Simulate user posting stop command while LLM call is running in background
-        request_thread_stop("C123", "12345.0004")
+        thread_state_manager.request_stop("C123", "12345.0004")
         return mock_response
 
     monkeypatch.setattr(
@@ -353,9 +331,9 @@ async def test_thread_stop_during_llm_execution(monkeypatch):
     assert "Innovator" in posted_messages[0]
 
     # 3. State cleaned up - no remaining agents, not in stop requested set
-    assert thread_key not in REMAINING_AGENTS_MAP
-    assert thread_key not in STOP_REQUESTED_THREADS
-    assert thread_key not in CUSTOM_FLOW_THREADS
+    assert thread_key not in thread_state_manager.remaining_agents_map
+    assert thread_key not in thread_state_manager.stop_requested_threads
+    assert thread_key not in thread_state_manager.custom_flow_threads
 
 
 def test_locked_agents_cannot_be_disabled():
@@ -493,25 +471,25 @@ def test_settings_persistence(tmp_path, monkeypatch):
 
 def test_is_discussion_active_behavior():
     thread_key = ("C_ACTIVE_TEST", "12345.1001")
-    REMAINING_AGENTS_MAP.pop(thread_key, None)
-    RATE_LIMIT_RETRY_QUEUE.pop(thread_key, None)
-    ACTIVE_THREAD_TASKS.pop(thread_key, None)
+    thread_state_manager.remaining_agents_map.pop(thread_key, None)
+    thread_state_manager.rate_limit_retry_queue.pop(thread_key, None)
+    thread_state_manager.active_thread_tasks.pop(thread_key, None)
 
     # 1. Fresh / idle thread is not active
-    assert is_discussion_active("C_ACTIVE_TEST", "12345.1001") is False
+    assert thread_state_manager.is_discussion_active("C_ACTIVE_TEST", "12345.1001") is False
 
     # 2. Active when remaining agents exist
-    REMAINING_AGENTS_MAP[thread_key] = ["TechLead"]
-    assert is_discussion_active("C_ACTIVE_TEST", "12345.1001") is True
+    thread_state_manager.remaining_agents_map[thread_key] = ["TechLead"]
+    assert thread_state_manager.is_discussion_active("C_ACTIVE_TEST", "12345.1001") is True
 
     # 3. Active when retry queue has entries
-    REMAINING_AGENTS_MAP.pop(thread_key, None)
-    RATE_LIMIT_RETRY_QUEUE[thread_key] = ["Innovator"]
-    assert is_discussion_active("C_ACTIVE_TEST", "12345.1001") is True
+    thread_state_manager.remaining_agents_map.pop(thread_key, None)
+    thread_state_manager.rate_limit_retry_queue[thread_key] = ["Innovator"]
+    assert thread_state_manager.is_discussion_active("C_ACTIVE_TEST", "12345.1001") is True
 
     # Clean up
-    RATE_LIMIT_RETRY_QUEUE.pop(thread_key, None)
-    assert is_discussion_active("C_ACTIVE_TEST", "12345.1001") is False
+    thread_state_manager.rate_limit_retry_queue.pop(thread_key, None)
+    assert thread_state_manager.is_discussion_active("C_ACTIVE_TEST", "12345.1001") is False
 
 
 @pytest.mark.anyio
@@ -520,23 +498,23 @@ async def test_interrupt_thread_discussion_clears_state_and_cancels_task():
 
     thread_key = ("C_INTERRUPT_TEST", "12345.1002")
 
-    REMAINING_AGENTS_MAP[thread_key] = ["TechLead", "Innovator"]
-    RATE_LIMIT_RETRY_QUEUE[thread_key] = ["Visionary"]
-    RATE_LIMIT_ALREADY_RETRIED[thread_key] = {"TechLead"}
-    CUSTOM_FLOW_THREADS.add(thread_key)
-    STOP_REQUESTED_THREADS.add(thread_key)
+    thread_state_manager.remaining_agents_map[thread_key] = ["TechLead", "Innovator"]
+    thread_state_manager.rate_limit_retry_queue[thread_key] = ["Visionary"]
+    thread_state_manager.rate_limit_already_retried[thread_key] = {"TechLead"}
+    thread_state_manager.custom_flow_threads.add(thread_key)
+    thread_state_manager.stop_requested_threads.add(thread_key)
 
     # Create dummy running background task
     async def dummy_coro():
         await asyncio.sleep(100)
 
     task = asyncio.create_task(dummy_coro())
-    ACTIVE_THREAD_TASKS[thread_key] = task
+    thread_state_manager.active_thread_tasks[thread_key] = task
 
-    initial_gen = THREAD_GENERATIONS.get(thread_key, 0)
+    initial_gen = thread_state_manager.thread_generations.get(thread_key, 0)
 
     # Trigger interrupt
-    interrupt_thread_discussion("C_INTERRUPT_TEST", "12345.1002")
+    thread_state_manager.interrupt_discussion("C_INTERRUPT_TEST", "12345.1002")
 
     # Verify task cancelled, generation incremented, state maps wiped
     try:
@@ -544,13 +522,13 @@ async def test_interrupt_thread_discussion_clears_state_and_cancels_task():
     except asyncio.CancelledError:
         pass
     assert task.cancelled() is True
-    assert THREAD_GENERATIONS[thread_key] == initial_gen + 1
-    assert thread_key not in REMAINING_AGENTS_MAP
-    assert thread_key not in RATE_LIMIT_RETRY_QUEUE
-    assert thread_key not in RATE_LIMIT_ALREADY_RETRIED
-    assert thread_key not in CUSTOM_FLOW_THREADS
-    assert thread_key not in STOP_REQUESTED_THREADS
-    assert is_discussion_active("C_INTERRUPT_TEST", "12345.1002") is False
+    assert thread_state_manager.thread_generations[thread_key] == initial_gen + 1
+    assert thread_key not in thread_state_manager.remaining_agents_map
+    assert thread_key not in thread_state_manager.rate_limit_retry_queue
+    assert thread_key not in thread_state_manager.rate_limit_already_retried
+    assert thread_key not in thread_state_manager.custom_flow_threads
+    assert thread_key not in thread_state_manager.stop_requested_threads
+    assert thread_state_manager.is_discussion_active("C_INTERRUPT_TEST", "12345.1002") is False
 
 
 @pytest.mark.anyio
@@ -564,8 +542,8 @@ async def test_interruption_during_llm_execution_aborts_superseded_turn(monkeypa
     - Turn 2 (new query) processes and posts to Slack.
     """
     thread_key = ("C_INTERRUPT_LLM", "12345.1003")
-    REMAINING_AGENTS_MAP.pop(thread_key, None)
-    ACTIVE_THREAD_TASKS.pop(thread_key, None)
+    thread_state_manager.remaining_agents_map.pop(thread_key, None)
+    thread_state_manager.active_thread_tasks.pop(thread_key, None)
 
     posted_messages = []
 
@@ -589,7 +567,7 @@ async def test_interruption_during_llm_execution_aborts_superseded_turn(monkeypa
 
     async def mock_run_turn_1(func, *args, **kwargs):
         # Simulate user interruption arriving while Turn 1 is waiting on LLM
-        interrupt_thread_discussion("C_INTERRUPT_LLM", "12345.1003")
+        thread_state_manager.interrupt_discussion("C_INTERRUPT_LLM", "12345.1003")
         return mock_resp_1
 
     monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_run_turn_1)
@@ -639,8 +617,8 @@ async def test_interruption_during_pacing_delay_aborts_superseded_turn(monkeypat
     - Turn 1 does not post to Slack.
     """
     thread_key = ("C_INTERRUPT_SLEEP", "12345.1004")
-    REMAINING_AGENTS_MAP.pop(thread_key, None)
-    ACTIVE_THREAD_TASKS.pop(thread_key, None)
+    thread_state_manager.remaining_agents_map.pop(thread_key, None)
+    thread_state_manager.active_thread_tasks.pop(thread_key, None)
 
     posted_messages = []
 
@@ -669,7 +647,7 @@ async def test_interruption_during_pacing_delay_aborts_superseded_turn(monkeypat
 
     # Interrupt injected during asyncio.sleep in router
     async def mock_sleep_with_interrupt(duration):
-        interrupt_thread_discussion("C_INTERRUPT_SLEEP", "12345.1004")
+        thread_state_manager.interrupt_discussion("C_INTERRUPT_SLEEP", "12345.1004")
 
     monkeypatch.setattr(
         "orchestration.agent_router.asyncio.sleep", mock_sleep_with_interrupt
@@ -696,7 +674,7 @@ async def test_process_and_respond_history_limit_subsequent_bot_rounds(monkeypat
     - LiteLLM receives last 2 prior messages + user prompt + Agent 1 reply + closing user turn.
     """
     # Simulate active history limit from turn 1
-    set_thread_history_limit(
+    thread_state_manager.set_history_limit(
         "C_HIST_TEST_2", "12345.3001", limit=2, prior_cutoff_index=5
     )
 
@@ -773,7 +751,7 @@ async def test_process_and_respond_subsequent_prompt_resets_full_history(monkeyp
     - LiteLLM receives ALL prior messages (complete thread history) + new prompt.
     """
     # Simulate pre-existing limit
-    set_thread_history_limit(
+    thread_state_manager.set_history_limit(
         "C_HIST_TEST_RESET", "12345.4001", limit=2, prior_cutoff_index=3
     )
 
@@ -816,7 +794,7 @@ async def test_process_and_respond_subsequent_prompt_resets_full_history(monkeyp
     )
 
     # Limit should be cleared
-    assert get_thread_history_limit("C_HIST_TEST_RESET", "12345.4001") is None
+    assert thread_state_manager.get_history_limit("C_HIST_TEST_RESET", "12345.4001") is None
 
     # Verify all 4 prior messages + new prompt are in context:
     assert len(captured_messages) == 6

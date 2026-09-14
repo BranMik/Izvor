@@ -142,8 +142,8 @@ async def update_notes_for_thread(
                 return {"ok": False, "reason": "No thread history"}
 
             # Retrieve locked thread language if set
-            from orchestration.thread_state import get_thread_language
-            thread_language = get_thread_language(channel_id, thread_ts) or "English"
+            from orchestration.thread_state import thread_state_manager
+            thread_language = thread_state_manager.get_language(channel_id, thread_ts) or "English"
 
             # 2. Generate updated structured synthesis notes with mistral-small-latest
             notes_content, token_stats = await generate_thread_notes(
