@@ -30,11 +30,12 @@ _RESOLVED_USAGE_CHANNEL_ID: str | None = None
 def build_app_home_view(
     enabled_agents: set[str] | None = None,
     circuit_breaker_config: dict[str, Any] | None = None,
+    scribe_enabled: bool | None = None,
 ) -> dict[str, Any]:
     """
     Generates the Block Kit Home Tab view for the Slack Application Home page.
     Displays panel agents, locked agents, thread cost circuit-breaker settings,
-    and emergency backup warning if active settings file is unreadable.
+    Live Discussion Scribe toggle, and emergency backup warning if active settings file is unreadable.
     """
     from orchestration.agent_settings import (
         get_active_workflow_id,
@@ -45,6 +46,7 @@ def build_app_home_view(
         get_orchestration_mode,
         get_sandwich_config,
         is_running_from_backup,
+        is_scribe_enabled,
         sync_settings_if_modified,
     )
     from orchestration.workflow_manager import list_workflows
@@ -56,6 +58,13 @@ def build_app_home_view(
 
     if circuit_breaker_config is None:
         circuit_breaker_config = get_circuit_breaker_config()
+
+    if scribe_enabled is None:
+        scribe_on = is_scribe_enabled()
+    else:
+        scribe_on = bool(scribe_enabled)
+
+    scribe_status_str = "🟢 *Enabled (ON)*" if scribe_on else "🔴 *Disabled (OFF)*"
 
     cb_enabled = bool(circuit_breaker_config.get("enabled", False))
     cb_threshold = float(circuit_breaker_config.get("threshold_usd", 0.0))
@@ -121,7 +130,7 @@ def build_app_home_view(
                 "type": "header",
                 "text": {
                     "type": "plain_text",
-                    "text": "🤖 CaiLogics Multi-Agent Panel Control Hub",
+                    "text": "────────🤖 CaiLogics Multi-Agent Panel Control Hub────────",
                     "emoji": True,
                 },
             },
@@ -144,10 +153,6 @@ def build_app_home_view(
                         "type": "mrkdwn",
                         "text": f"*📊 Panel Status:*\n🟢 *{active_count}* / *{total_agents}* agents active",
                     },
-                    {
-                        "type": "mrkdwn",
-                        "text": f"*⚡ Circuit-Breaker:*\n{cb_status_str}",
-                    },
                 ],
             },
             {"type": "divider"},
@@ -157,7 +162,7 @@ def build_app_home_view(
                 "text": {
                     "type": "mrkdwn",
                     "text": (
-                        f"*🛡️ Thread Circuit Breaker (Cost Safety Limit):*\n"
+                        f"\n *────────🛡️ Thread Circuit Breaker (Cost Safety Limit):────────* \n"
                         f"Status: {cb_status_str}\n"
                     ),
                 },
@@ -260,6 +265,49 @@ def build_app_home_view(
                     },
                 ],
             },
+            {"type": "divider"},
+            {
+                "type": "section",
+                "block_id": f"scribe_toggle_section_{'on' if scribe_on else 'off'}",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": (
+                        f"\n *────────📝 Live Discussion Scribe:────────* \n"
+                        f"Status: {scribe_status_str}\n"
+                        f"_Generates and live-updates synthesis notes in discussion threads._"
+                    ),
+                },
+                "accessory": {
+                    "type": "radio_buttons",
+                    "action_id": "toggle_scribe_radio",
+                    "options": [
+                        {
+                            "text": {
+                                "type": "plain_text",
+                                "text": "🟢 ON",
+                                "emoji": True,
+                            },
+                            "value": "scribe:on",
+                        },
+                        {
+                            "text": {
+                                "type": "plain_text",
+                                "text": "🔴 OFF",
+                                "emoji": True,
+                            },
+                            "value": "scribe:off",
+                        },
+                    ],
+                    "initial_option": {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "🟢 ON" if scribe_on else "🔴 OFF",
+                            "emoji": True,
+                        },
+                        "value": "scribe:on" if scribe_on else "scribe:off",
+                    },
+                },
+            },
         ]
     )
 
@@ -332,7 +380,7 @@ def build_app_home_view(
                 "text": {
                     "type": "mrkdwn",
                     "text": (
-                        f"*📑 Saved Workflow Presets:*\n"
+                        f" *────────📑 Saved Workflow Presets:────────* \n"
                         f"Active preset: *{active_wf_name}*\n"
                         f"_Select a preset to load or delete from `data/workflows/`:_"
                     ),
@@ -362,7 +410,7 @@ def build_app_home_view(
                 "text": {
                     "type": "mrkdwn",
                     "text": (
-                        f"*🔀 Discussion Orchestration Mode:*\n"
+                        f"\n *────────🔀 Discussion Orchestration Mode:────────* \n"
                         f"Current mode: *{'🥪 Sandwich Chain (Start ➔ Middle ➔ End)' if orch_mode == OrchestrationMode.SANDWICH else '🎯 Fixed Sequence'}*"
                     ),
                 },
@@ -579,7 +627,7 @@ def build_app_home_view(
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": "*👥 Agent Panel Configuration (Enabled/Disabled):*",
+                    "text": "\n *────────👥 Agent Panel Configuration (Enabled/Disabled):────────* ",
                 },
             },
             {
@@ -707,6 +755,7 @@ async def publish_app_home(
     user_id: str,
     enabled_agents: set[str] | None = None,
     circuit_breaker_config: dict[str, Any] | None = None,
+    scribe_enabled: bool | None = None,
 ) -> dict[str, Any]:
     """
     Publishes the multi-agent control panel view to the user's Slack App Home tab.
@@ -719,6 +768,7 @@ async def publish_app_home(
         view = build_app_home_view(
             enabled_agents=enabled_agents,
             circuit_breaker_config=circuit_breaker_config,
+            scribe_enabled=scribe_enabled,
         )
         response = await slack_async_client.views_publish(
             user_id=user_id,
@@ -871,24 +921,8 @@ async def fetch_thread_history(
             subtype = msg.get("subtype")
             user_id = msg.get("user")
 
-            # Ignore scribe note messages from thread conversation history
-            if (
-                username
-                and (
-                    "Live Discussion Scribe" in username
-                    or "Discussion Scribe" in username
-                    or "Scribe" in username
-                )
-                or "📋 *Bilješke rasprave" in msg_text
-                or "📋 *Strateška sinteza" in msg_text
-                or "📋 *Discussion Notes" in msg_text
-                or "📋 *Strategic Synthesis" in msg_text
-                or "📋 *Live Discussion Notes" in msg_text
-                or "📋 *Final Discussion Notes" in msg_text
-                or ":memo:" in msg_text
-                or ":clipboard:" in msg_text
-                or msg_text.strip().startswith(("_🔍", "_🌐", "_⚡", "_⏳"))
-            ):
+            # Ignore ephemeral status messages from thread conversation history
+            if msg_text.strip().startswith(("_🔍", "_🌐", "_⚡", "_⏳")):
                 continue
 
             # Determine role
@@ -1352,8 +1386,14 @@ async def download_slack_file(
                         if page_text:
                             pages_text.append(f"--- Page {idx + 1} ---\n{page_text}")
                         else:
-                            pages_text.append(f"--- Page {idx + 1} ---\n[No extractable text]")
-                    text_content = "\n\n".join(pages_text) if pages_text else "[Empty PDF document]"
+                            pages_text.append(
+                                f"--- Page {idx + 1} ---\n[No extractable text]"
+                            )
+                    text_content = (
+                        "\n\n".join(pages_text)
+                        if pages_text
+                        else "[Empty PDF document]"
+                    )
                 except Exception as pdf_err:
                     logger.warning(
                         f"[SLACK FILE] Could not parse PDF attachment {file_name}: {pdf_err}"

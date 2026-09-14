@@ -635,6 +635,45 @@ def test_slack_interactivity_zero_threshold_turns_off_circuit_breaker():
     assert get_circuit_breaker_threshold() == 0.0
 
 
+def test_slack_interactivity_scribe_toggle():
+    from orchestration.agent_settings import is_scribe_enabled, set_scribe_enabled
+
+    try:
+        set_scribe_enabled(True)
+        assert is_scribe_enabled() is True
+
+        payload_off = {
+            "type": "block_actions",
+            "user": {"id": "U_SCRIBE_TEST"},
+            "actions": [
+                {
+                    "action_id": "toggle_scribe_radio",
+                    "selected_option": {"value": "scribe:off"},
+                }
+            ],
+        }
+        response_off = client.post("/slack/actions", json=payload_off)
+        assert response_off.status_code == 200
+        assert is_scribe_enabled() is False
+
+        payload_on = {
+            "type": "block_actions",
+            "user": {"id": "U_SCRIBE_TEST"},
+            "actions": [
+                {
+                    "action_id": "toggle_scribe_radio",
+                    "selected_option": {"value": "scribe:on"},
+                }
+            ],
+        }
+        response_on = client.post("/slack/actions", json=payload_on)
+        assert response_on.status_code == 200
+        assert is_scribe_enabled() is True
+    finally:
+        set_scribe_enabled(True)
+
+
+
 
 
 

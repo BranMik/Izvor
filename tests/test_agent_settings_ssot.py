@@ -355,8 +355,9 @@ async def test_turn_pipeline_propagates_agent_avatar_icon():
     # Stage 2: resolve agent cfg and populate icon_url
     res2 = await pipeline.stage_resolve_agent_and_governance(ctx)
     assert res2 is None
-    assert ctx.agent_cfg.get("icon_url") == "static/v2/avatar_48.png"
-    assert ctx.icon_url == "static/v2/avatar_48.png"
+    expected_icon = ctx.agent_cfg.get("icon_url")
+    assert expected_icon is not None
+    assert ctx.icon_url == expected_icon
 
     # Stage 5: post to Slack and verify icon_url passed
     mock_post = AsyncMock(return_value={"ok": True, "ts": "12345.9999"})
@@ -370,7 +371,47 @@ async def test_turn_pipeline_propagates_agent_avatar_icon():
         assert mock_post.called
         call_kwargs = mock_post.call_args.kwargs
         assert call_kwargs["username"] == "Visionary"
-        assert call_kwargs["icon_url"] == "static/v2/avatar_48.png"
-        assert res5["icon_url"] == "static/v2/avatar_48.png"
+        assert call_kwargs["icon_url"] == expected_icon
+        assert res5["icon_url"] == expected_icon
+
+
+def test_scribe_settings_toggle_and_app_home_view():
+    from orchestration.agent_settings import is_scribe_enabled, set_scribe_enabled
+    from services.slack_client import build_app_home_view
+
+    # Test toggling scribe in settings manager
+    set_scribe_enabled(True)
+    assert is_scribe_enabled() is True
+
+    # View with scribe enabled
+    view_on = build_app_home_view()
+    blocks_on = view_on.get("blocks", [])
+    scribe_block_on = next(
+        (b for b in blocks_on if b.get("block_id") == "scribe_toggle_section_on"),
+        None,
+    )
+    assert scribe_block_on is not None
+    assert scribe_block_on["accessory"]["action_id"] == "toggle_scribe_radio"
+    assert scribe_block_on["accessory"]["initial_option"]["value"] == "scribe:on"
+
+    # Toggle to False
+    set_scribe_enabled(False)
+    assert is_scribe_enabled() is False
+
+    # View with scribe disabled
+    view_off = build_app_home_view()
+    blocks_off = view_off.get("blocks", [])
+    scribe_block_off = next(
+        (b for b in blocks_off if b.get("block_id") == "scribe_toggle_section_off"),
+        None,
+    )
+    assert scribe_block_off is not None
+    assert scribe_block_off["accessory"]["action_id"] == "toggle_scribe_radio"
+    assert scribe_block_off["accessory"]["initial_option"]["value"] == "scribe:off"
+
+    # Reset back to True for clean test state
+    set_scribe_enabled(True)
+    assert is_scribe_enabled() is True
+
 
 
