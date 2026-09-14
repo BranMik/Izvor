@@ -11,12 +11,7 @@ from orchestration.agent_settings import (
     set_circuit_breaker_enabled,
     set_circuit_breaker_threshold,
 )
-from orchestration.thread_state import (
-    REMAINING_AGENTS_MAP,
-    STOP_REQUESTED_THREADS,
-    THREAD_GENERATIONS,
-    is_discussion_active,
-)
+from orchestration.thread_state import thread_state_manager
 
 client = TestClient(app)
 
@@ -176,12 +171,11 @@ def test_slack_retry_handling():
 
 def test_stop_command_integration(monkeypatch):
     PROCESSED_EVENTS.clear()
-    STOP_REQUESTED_THREADS.clear()
-    REMAINING_AGENTS_MAP.clear()
+    thread_state_manager.reset_all()
 
     # Pre-populate remaining agents for thread to verify they are cleared on stop
     thread_key = ("C_TEST_STOP", "123456789.0008")
-    REMAINING_AGENTS_MAP[thread_key] = ["TechLead", "Innovator"]
+    thread_state_manager.remaining_agents_map[thread_key] = ["TechLead", "Innovator"]
 
     mock_process = AsyncMock(return_value={"ok": True})
     monkeypatch.setattr("main.process_and_respond", mock_process)
@@ -201,15 +195,15 @@ def test_stop_command_integration(monkeypatch):
     response = client.post("/slack/events", json=payload_stop_mention)
     assert response.status_code == 200
     assert thread_key in PROCESSED_EVENTS
-    assert thread_key in STOP_REQUESTED_THREADS
-    assert thread_key not in REMAINING_AGENTS_MAP
+    assert thread_key in thread_state_manager.stop_requested_threads
+    assert thread_key not in thread_state_manager.remaining_agents_map
     # Verify process_and_respond was NOT called for stop command
     mock_process.assert_not_called()
 
     # 2. User sends stop via persona name mention in regular message
-    STOP_REQUESTED_THREADS.clear()
+    thread_state_manager.stop_requested_threads.clear()
     thread_key_2 = ("C_TEST_STOP", "123456789.0009")
-    REMAINING_AGENTS_MAP[thread_key_2] = ["ROIStrategist"]
+    thread_state_manager.remaining_agents_map[thread_key_2] = ["ROIStrategist"]
 
     payload_stop_persona = {
         "type": "event_callback",
@@ -225,8 +219,8 @@ def test_stop_command_integration(monkeypatch):
     response2 = client.post("/slack/events", json=payload_stop_persona)
     assert response2.status_code == 200
     assert thread_key_2 in PROCESSED_EVENTS
-    assert thread_key_2 in STOP_REQUESTED_THREADS
-    assert thread_key_2 not in REMAINING_AGENTS_MAP
+    assert thread_key_2 in thread_state_manager.stop_requested_threads
+    assert thread_key_2 not in thread_state_manager.remaining_agents_map
     mock_process.assert_not_called()
 
 
@@ -320,9 +314,9 @@ def test_user_new_query_interrupts_ongoing_discussion_webhook(monkeypatch):
     thread_key = ("C_TEST_INTERRUPT_WEBHOOK", "123456789.2001")
     
     # 1. Simulate an ongoing discussion with remaining agents
-    REMAINING_AGENTS_MAP[thread_key] = ["TechLead", "Innovator"]
-    initial_gen = THREAD_GENERATIONS.get(thread_key, 0)
-    assert is_discussion_active("C_TEST_INTERRUPT_WEBHOOK", "123456789.2001") is True
+    thread_state_manager.remaining_agents_map[thread_key] = ["TechLead", "Innovator"]
+    initial_gen = thread_state_manager.thread_generations.get(thread_key, 0)
+    assert thread_state_manager.is_discussion_active("C_TEST_INTERRUPT_WEBHOOK", "123456789.2001") is True
 
     mock_process = AsyncMock(return_value={"ok": True})
     monkeypatch.setattr("main.process_and_respond", mock_process)
@@ -344,8 +338,8 @@ def test_user_new_query_interrupts_ongoing_discussion_webhook(monkeypatch):
     assert ("C_TEST_INTERRUPT_WEBHOOK", "123456789.2002") in PROCESSED_EVENTS
 
     # 3. Verify previous discussion state was cleared and generation was bumped
-    assert thread_key not in REMAINING_AGENTS_MAP
-    assert THREAD_GENERATIONS[thread_key] == initial_gen + 1
+    assert thread_key not in thread_state_manager.remaining_agents_map
+    assert thread_state_manager.thread_generations[thread_key] == initial_gen + 1
 
     # 4. Verify process_and_respond was dispatched for the new query
     mock_process.assert_called_once()
@@ -361,7 +355,7 @@ def test_user_mention_syntax_variations_webhook_interruption(monkeypatch):
     thread_key = ("C_TEST_INTERRUPT_SYNTAX", "123456789.3001")
     
     # 1. Message with @CaiLogics Hub
-    REMAINING_AGENTS_MAP[thread_key] = ["Architect"]
+    thread_state_manager.remaining_agents_map[thread_key] = ["Architect"]
     mock_process = AsyncMock(return_value={"ok": True})
     monkeypatch.setattr("main.process_and_respond", mock_process)
 
@@ -378,11 +372,11 @@ def test_user_mention_syntax_variations_webhook_interruption(monkeypatch):
 
     response1 = client.post("/slack/events", json=payload_hub)
     assert response1.status_code == 200
-    assert thread_key not in REMAINING_AGENTS_MAP
+    assert thread_key not in thread_state_manager.remaining_agents_map
     assert mock_process.call_count == 1
 
     # 2. Message with agent bracket tag [Visionary]
-    REMAINING_AGENTS_MAP[thread_key] = ["Architect"]
+    thread_state_manager.remaining_agents_map[thread_key] = ["Architect"]
     payload_tag = {
         "type": "event_callback",
         "event": {
@@ -396,7 +390,7 @@ def test_user_mention_syntax_variations_webhook_interruption(monkeypatch):
 
     response2 = client.post("/slack/events", json=payload_tag)
     assert response2.status_code == 200
-    assert thread_key not in REMAINING_AGENTS_MAP
+    assert thread_key not in thread_state_manager.remaining_agents_map
     assert mock_process.call_count == 2
 
 

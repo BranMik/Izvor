@@ -15,7 +15,7 @@ from orchestration.agent_settings import (
     set_orchestration_mode,
     set_sandwich_config,
 )
-from orchestration.thread_state import REMAINING_AGENTS_MAP
+from orchestration.thread_state import thread_state_manager
 
 
 @pytest.fixture(autouse=True)
@@ -24,7 +24,7 @@ def setup_test_environment(monkeypatch):
     set_orchestration_mode("sandwich")
     set_sandwich_config([], [])
     set_fixed_config([])
-    REMAINING_AGENTS_MAP.clear()
+    thread_state_manager.reset_all()
     monkeypatch.setattr(agent_router.asyncio, "sleep", AsyncMock(return_value=None))
 
 
@@ -50,11 +50,11 @@ def test_circuit_breaker_configuration_methods():
 
 @pytest.mark.anyio
 async def test_circuit_breaker_triggers_when_threshold_exceeded(monkeypatch):
-    REMAINING_AGENTS_MAP.clear()
+    thread_state_manager.remaining_agents_map.clear()
     channel_id = "C_CB_TRIGGER"
     thread_ts = "123456789.9001"
     thread_key = (channel_id, thread_ts)
-    REMAINING_AGENTS_MAP[thread_key] = ["TechLead", "Architect"]
+    thread_state_manager.remaining_agents_map[thread_key] = ["TechLead", "Architect"]
 
     set_circuit_breaker_enabled(True)
     set_circuit_breaker_threshold(0.50)
@@ -123,14 +123,14 @@ async def test_circuit_breaker_triggers_when_threshold_exceeded(monkeypatch):
     )
     assert notes_updated is True
     assert usage_updated is True
-    assert thread_key not in REMAINING_AGENTS_MAP
+    assert thread_key not in thread_state_manager.remaining_agents_map
 
 
 @pytest.mark.anyio
 async def test_circuit_breaker_allows_normal_response_when_below_threshold(
     monkeypatch,
 ):
-    REMAINING_AGENTS_MAP.clear()
+    thread_state_manager.remaining_agents_map.clear()
     channel_id = "C_CB_BELOW"
     thread_ts = "123456789.9002"
 
@@ -187,7 +187,7 @@ async def test_circuit_breaker_allows_normal_response_when_below_threshold(
 
 @pytest.mark.anyio
 async def test_circuit_breaker_allows_normal_response_when_disabled(monkeypatch):
-    REMAINING_AGENTS_MAP.clear()
+    thread_state_manager.remaining_agents_map.clear()
     channel_id = "C_CB_DISABLED"
     thread_ts = "123456789.9003"
 

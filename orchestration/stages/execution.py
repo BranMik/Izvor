@@ -22,7 +22,7 @@ from core.config import (
 from core.llm_utils import execute_llm_with_retry
 from orchestration.agent_settings import settings_manager
 from orchestration.stages.tool_status import _build_tool_status_text
-from orchestration.thread_state import has_agent_503_errored
+from orchestration.thread_state import thread_state_manager
 from services.mcp_tools import execute_mcp_tool
 from services.slack_client import post_agent_response
 from skills import LOAD_SKILL_SCHEMA, skill_registry
@@ -47,7 +47,7 @@ class ExecutionStageMixin:
             )
             return {"ok": False, "cancelled": True, "reason": "superseded"}
 
-        already_503_errored = has_agent_503_errored(
+        already_503_errored = thread_state_manager.has_agent_503_errored(
             ctx.channel_id, ctx.thread_ts, ctx.agent_key
         )
         allow_503_immediate = already_503_errored
