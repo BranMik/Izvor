@@ -21,25 +21,6 @@ HISTORY_COMMAND_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
-# TODO: Testing Second Line of Defense only (Micro-LLM IntentExtractor).
-# Hardcoded regexes are verbose, difficult to maintain, and language-limited.
-# Temporarily commented out to evaluate pure language-agnostic LLM extraction via IntentExtractor.
-# HISTORY_NL_PATTERNS = [
-#     # Croatian & English last/past/previous count
-#     re.compile(
-#         r"\b(?:uzmi\s+u\s+obzir\s+|pogledaj\s+|samo\s+|take\s+into\s+account\s+|only\s+|consider\s+|include\s+|use\s+|based\s+on\s+|keep\s+|look\s+at\s+)?(?:the\s+)?(?:zadnj[a-z]*|posljednj[a-z]*|prethodn[a-z]*|last|past|previous)\s+(\d+)\s*(?:poruk[a-z]*|messages?|turns?|posts?)\b",
-#         re.IGNORECASE,
-#     ),
-#     # Croatian & English history limit phrases
-#     re.compile(
-#         r"\b(?:povijest|history|context)\s*(?:od|of)?\s*[:=]?\s*(\d+)\s*(?:poruk[a-z]*|messages?|turns?|posts?)\b",
-#         re.IGNORECASE,
-#     ),
-#     re.compile(
-#         r"\b(?:history\s+limit|context\s+limit|limit\s+history\s+to|limit\s+context\s+to|keep\s+only|use\s+only)\s*[:=]?\s*(?:the\s+)?(?:last|past|previous)?\s*(\d+)\s*(?:messages?|turns?|posts?)?\b",
-#         re.IGNORECASE,
-#     ),
-# ]
 HISTORY_NL_PATTERNS: list[re.Pattern[str]] = []
 
 
@@ -60,15 +41,6 @@ def extract_history_limit(text: str) -> tuple[int | None, str]:
         cleaned = re.sub(r"[ \t]+", " ", cleaned).strip()
         return limit, cleaned
 
-    # TODO: Testing Second Line of Defense only (Micro-LLM IntentExtractor).
-    # Natural language regex loop commented out so IntentExtractor handles all NL phrasing dynamically.
-    # for pattern in HISTORY_NL_PATTERNS:
-    #     match = pattern.search(text)
-    #     if match:
-    #         limit = int(match.group(1))
-    #         cleaned = pattern.sub("", text).strip()
-    #         cleaned = re.sub(r"[ \t]+", " ", cleaned).strip()
-    #         return limit, cleaned
     return None, text
 
 
@@ -81,31 +53,6 @@ MAX_WORDS_COMMAND_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
-# TODO: Testing Second Line of Defense only (Micro-LLM IntentExtractor).
-# Hardcoded regexes are verbose, difficult to maintain, and language-limited.
-# Temporarily commented out to evaluate pure language-agnostic LLM extraction via IntentExtractor.
-# MAX_WORDS_NL_PATTERNS = [
-#     # Direct max phrases in HR & EN: "in max 120 words", "u najviše 50 riječi", "up to 80 words", "no more than 100 words"
-#     re.compile(
-#         r"\b(?:u\s+|in\s+)?(?:maksimalno|maximalno|najvi[sš]e|najvi[sš]e\s+do|max\.?|maximum|at\s+most|no\s+more\s+than|up\s+to|maximum\s+of|max\s+of)\s+(?:od\s+)?(\d+)\s*(?:rije[cč]i|words)\b",
-#         re.IGNORECASE,
-#     ),
-#     # Limit declarations: "maksimalna duljina: 100 riječi", "maximum length: 50 words", "word limit: 100 words", "max words: 50"
-#     re.compile(
-#         r"\b(?:maksimaln[a-z]*\s+duljin[a-z]*|maksimaln[a-z]*\s+du[zž]in[a-z]*|maximaln[a-z]*\s+duljin[a-z]*|maximaln[a-z]*\s+du[zž]in[a-z]*|maximum\s+length|maximum\s+words?|max\s+words?|max\s+word\s+count|word\s+limit|upper\s+limit|limit\s+od|limit\s+to)\s*[:=]?\s*(\d+)\s*(?:rije[cč]i|words)?\b",
-#         re.IGNORECASE,
-#     ),
-#     # Verb triggers: "odgovori u do 50 riječi", "reply in under 50 words", "keep it below 100 words", "write within 80 words"
-#     re.compile(
-#         r"\b(?:odgovori|pi[sš]i|odgovor|reply|answer|write|respond|keep\s+it)\s+(?:u\s+|in\s+|with\s+)?(?:do|ispod|under|below|within|less\s+than|fewer\s+than)\s+(\d+)\s*(?:rije[cč]i|words)\b",
-#         re.IGNORECASE,
-#     ),
-#     # Direct "keep/limit to X words"
-#     re.compile(
-#         r"\b(?:keep\s+(?:it\s+)?to|limit\s+(?:response\s+)?to)\s+(?:at\s+most\s+|up\s+to\s+|maximum\s+)?(\d+)\s*words\b",
-#         re.IGNORECASE,
-#     ),
-# ]
 MAX_WORDS_NL_PATTERNS: list[re.Pattern[str]] = []
 
 
@@ -126,15 +73,6 @@ def extract_max_words_limit(text: str) -> tuple[int | None, str]:
         cleaned = re.sub(r"[ \t]+", " ", cleaned).strip()
         return limit, cleaned
 
-    # TODO: Testing Second Line of Defense only (Micro-LLM IntentExtractor).
-    # Natural language regex loop commented out so IntentExtractor handles all NL phrasing dynamically.
-    # for pattern in MAX_WORDS_NL_PATTERNS:
-    #     match = pattern.search(text)
-    #     if match:
-    #         limit = max(1, int(match.group(1)))
-    #         cleaned = pattern.sub("", text).strip()
-    #         cleaned = re.sub(r"[ \t]+", " ", cleaned).strip()
-    #         return limit, cleaned
     return None, text
 
 
@@ -147,26 +85,6 @@ MIN_WORDS_COMMAND_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
-# TODO: Testing Second Line of Defense only (Micro-LLM IntentExtractor).
-# Hardcoded regexes are verbose, difficult to maintain, and language-limited.
-# Temporarily commented out to evaluate pure language-agnostic LLM extraction via IntentExtractor.
-# MIN_WORDS_NL_PATTERNS = [
-#     # Direct min phrases in HR & EN: "in min 100 words", "at least 150 words", "no less than 80 words", "minimum of 100 words"
-#     re.compile(
-#         r"\b(?:u\s+|in\s+)?(?:minimalno|najmanje|barem|bar|min\.?|minimum|at\s+least|no\s+less\s+than|no\s+fewer\s+than|at\s+a\s+minimum\s+of|minimum\s+of)\s+(?:od\s+)?(\d+)\s*(?:rije[cč]i|words)\b",
-#         re.IGNORECASE,
-#     ),
-#     # Limit declarations: "minimalna duljina: 100 riječi", "minimum length: 150 words", "min words: 100", "min word count: 120"
-#     re.compile(
-#         r"\b(?:minimaln[a-z]*\s+duljin[a-z]*|minimaln[a-z]*\s+du[zž]in[a-z]*|minimum\s+length|minimum\s+words?|min\s+words?|min\s+word\s+count|lower\s+limit|donj[a-z]*\s+granic[a-z]*)\s*[:=]?\s*(\d+)\s*(?:rije[cč]i|words)?\b",
-#         re.IGNORECASE,
-#     ),
-#     # Verb triggers: "odgovori u minimalno 100 riječi", "write at least 200 words", "reply with over 150 words"
-#     re.compile(
-#         r"\b(?:odgovori|pi[sš]i|odgovor|reply|answer|write|respond)\s+(?:u\s+|in\s+|with\s+)?(?:minimalno|najmanje|barem|bar|min\.?|minimum|at\s+least|no\s+less\s+than|no\s+fewer\s+than|more\s+than|over|above)\s+(?:od\s+)?(\d+)\s*(?:rije[cč]i|words)\b",
-#         re.IGNORECASE,
-#     ),
-# ]
 MIN_WORDS_NL_PATTERNS: list[re.Pattern[str]] = []
 
 
@@ -187,15 +105,6 @@ def extract_min_words_limit(text: str) -> tuple[int | None, str]:
         cleaned = re.sub(r"[ \t]+", " ", cleaned).strip()
         return limit, cleaned
 
-    # TODO: Testing Second Line of Defense only (Micro-LLM IntentExtractor).
-    # Natural language regex loop commented out so IntentExtractor handles all NL phrasing dynamically.
-    # for pattern in MIN_WORDS_NL_PATTERNS:
-    #     match = pattern.search(text)
-    #     if match:
-    #         limit = max(1, int(match.group(1)))
-    #         cleaned = pattern.sub("", text).strip()
-    #         cleaned = re.sub(r"[ \t]+", " ", cleaned).strip()
-    #         return limit, cleaned
     return None, text
 
 
@@ -208,33 +117,6 @@ FILE_COMMAND_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
-# TODO: Testing Second Line of Defense only (Micro-LLM IntentExtractor).
-# Hardcoded regexes are verbose, difficult to maintain, and language-limited.
-# Temporarily commented out to evaluate pure language-agnostic LLM extraction via IntentExtractor.
-# FILE_NL_PATTERNS = [
-#     # Croatian action triggers
-#     re.compile(
-#         r"\b(?:pro[čc]itaj|pogledaj|analiziraj|provjeri|u[čc]itaj|pregledaj|obradi|otvori)\b.*?\b(?:fajl[a-z]*|datotek[a-z]*|privit[a-z]*|attachment[a-z]*|prilo[zž]en[a-z]*|kod\s+u\s+privitku|dokument[a-z]*)",
-#         re.IGNORECASE,
-#     ),
-#     re.compile(
-#         r"\b(?:u\s+privitku|u\s+fajlu|u\s+datoteci|iz\s+fajla|iz\s+datoteke|iz\s+privitka|(?:u\s+)?prilo[zž]en[a-z]*\s+(?:fajl[a-z]*|datotek[a-z]*|privit[a-z]*|kod[a-z]*|dokument[a-z]*)|uploadao\s+sam\s+fajl|poslao\s+sam\s+fajl|uploadan[a-z]*\s+fajl[a-z]*)\b",
-#         re.IGNORECASE,
-#     ),
-#     # English action triggers
-#     re.compile(
-#         r"\b(?:read|check|analyze|analyse|inspect|review|examine|look\s+at|open|summarize|summarise|evaluate|parse|process|scan|audit|extract\s+from)\b.*?\b(?:file[a-z]*|attachment[a-z]*|document[a-z]*|uploaded\s+file[a-z]*|uploaded\s+code|code\s+in\s+attachment)",
-#         re.IGNORECASE,
-#     ),
-#     re.compile(
-#         r"\b(?:attached\s+file[a-z]*|in\s+the\s+attachment|from\s+the\s+file|uploaded\s+file[a-z]*|in\s+the\s+uploaded\s+file|file\s+attached)\b",
-#         re.IGNORECASE,
-#     ),
-#     re.compile(
-#         r"\b(?:i\s+have\s+attached|i\s+attached|i\s+uploaded|i\s+sent\s+a\s+file|see\s+(?:the\s+)?(?:attachment|attached\s+file|uploaded\s+file)|refer\s+to\s+(?:the\s+)?(?:attachment|attached\s+file|uploaded\s+file)|check\s+out\s+(?:the\s+)?(?:attachment|attached\s+file|uploaded\s+file))\b",
-#         re.IGNORECASE,
-#     ),
-# ]
 FILE_NL_PATTERNS: list[re.Pattern[str]] = []
 
 
@@ -263,13 +145,6 @@ def extract_file_instruction(
         cleaned_text = FILE_COMMAND_PATTERN.sub("", text).strip()
         cleaned_text = re.sub(r"[ \t]+", " ", cleaned_text).strip()
         return is_requested, target_filename, cleaned_text
-
-    # TODO: Testing Second Line of Defense only (Micro-LLM IntentExtractor).
-    # Natural language file regex triggers commented out so IntentExtractor handles file requests dynamically.
-    # for pattern in FILE_NL_PATTERNS:
-    #     if pattern.search(text):
-    #         is_requested = True
-    #         break
 
     # 3. If available_files is provided, check if any uploaded file's name is explicitly mentioned in the text
     if available_files:
@@ -313,43 +188,21 @@ EXCLUDE_COMMAND_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
-# TODO: Testing Second Line of Defense only (Micro-LLM IntentExtractor).
-# Hardcoded regexes are verbose, difficult to maintain, and language-limited.
-# Temporarily commented out to evaluate pure language-agnostic LLM extraction via IntentExtractor.
-# EXCLUDE_NL_PATTERNS = [
-#     # English: "exclude [agent]", "exclude agent X from debate", "leave out X", "skip agent X", "without [agent]"
-#     re.compile(
-#         r"\b(?:exclude|leave\s+out|skip|omit|without|don't\s+include|do\s+not\s+include|remove)\s+(?:the\s+)?(?:agent\s+)?(\[[^\]]+\]|[a-zA-Z0-9_]+)(?:\s+from\s+(?:the\s+)?(?:debate|discussion|panel|conversation))?",
-#         re.IGNORECASE,
-#     ),
-#     re.compile(
-#         r"\b(?:debate|discuss)\s+.*?\bwithout\s+(?:the\s+)?(?:agent\s+)?(\[[^\]]+\]|[a-zA-Z0-9_]+)",
-#         re.IGNORECASE,
-#     ),
-#     # Croatian: "isključi agenta X", "bez [agent]", "izostavi X iz rasprave", "nemoj uključiti agenta X", "preskoči X"
-#     re.compile(
-#         r"\b(?:isklju[čc]i|izostavi|presko[čc]i|makni|izbaci|ukloni|nemoj\s+uklju[čc]ivati|nemoj\s+uklju[čc]iti|bez)\s+(?:agenta\s+|agenticu\s+)?(\[[^\]]+\]|[a-zA-Z0-9_]+)(?:\s+(?:iz|u)\s+rasprav[a-z]*)?",
-#         re.IGNORECASE,
-#     ),
-#     re.compile(
-#         r"\b(?:raspravite|rasprava)\s+.*?\bbez\s+(?:agenta\s+|agentice\s+)?(\[[^\]]+\]|[a-zA-Z0-9_]+)",
-#         re.IGNORECASE,
-#     ),
-# ]
 EXCLUDE_NL_PATTERNS: list[re.Pattern[str]] = []
 
 
 def resolve_agent_candidates(name_str: str) -> list[str]:
     """Resolves an agent name or alias string to all matching canonical AGENTS_CONFIG keys."""
     from pipeline.entity_resolver import entity_resolver
+
     return entity_resolver.resolve_candidates(name_str)
 
 
 def resolve_agent_name(name_str: str) -> str | None:
     """Resolves an agent name or alias string to its canonical key if unambiguous."""
     from pipeline.entity_resolver import entity_resolver
-    return entity_resolver.resolve_agent_name(name_str)
 
+    return entity_resolver.resolve_agent_name(name_str)
 
 
 def extract_excluded_agents(text: str) -> tuple[list[str], str]:
@@ -399,24 +252,9 @@ def extract_excluded_agents(text: str) -> tuple[list[str], str]:
                 # Non-agent word token -> user prompt starts here
                 break
 
-        cleaned_text = cleaned_text[:start_idx] + " " + cleaned_text[matched_tokens_span_end:]
-
-    # TODO: Testing Second Line of Defense only (Micro-LLM IntentExtractor).
-    # Natural language exclusion regexes commented out so IntentExtractor handles all NL phrasing dynamically.
-    # for pattern in EXCLUDE_NL_PATTERNS:
-    #     while True:
-    #         match = pattern.search(cleaned_text)
-    #         if not match:
-    #             break
-    #         agent_token = match.group(1) if match.groups() else ""
-    #         resolved = resolve_agent_name(agent_token)
-    #         if resolved:
-    #             if resolved not in excluded:
-    #                 excluded.append(resolved)
-    #             matched_phrase = match.group(0)
-    #             cleaned_text = cleaned_text.replace(matched_phrase, " ", 1)
-    #         else:
-    #             break
+        cleaned_text = (
+            cleaned_text[:start_idx] + " " + cleaned_text[matched_tokens_span_end:]
+        )
 
     cleaned_text = re.sub(r"[ \t]+", " ", cleaned_text).strip()
     return excluded, cleaned_text

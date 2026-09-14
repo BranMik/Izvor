@@ -19,6 +19,7 @@ from orchestration.agent_settings import (
     get_orchestration_mode,
     get_sandwich_config,
     get_circuit_breaker_threshold,
+    persist_active_workflow,
     reset_enabled_agents,
     restore_from_backup,
     set_active_workflow_id,
@@ -319,8 +320,10 @@ async def handle_slack_interactivity(request: Request, background_tasks: Backgro
                 start_chain = [k.strip() for k in start_val.split(",") if k.strip()]
                 end_chain = [k.strip() for k in end_val.split(",") if k.strip()]
                 set_sandwich_config(start_chain, end_chain)
+                persist_active_workflow()
             elif action_id == "clear_sandwich_chains_button":
                 set_sandwich_config([], [])
+                persist_active_workflow()
             elif action_id == "set_start_chain_input":
                 curr_sandwich = get_sandwich_config()
                 val_str = action.get("value", "")
@@ -339,8 +342,10 @@ async def handle_slack_interactivity(request: Request, background_tasks: Backgro
                             fixed_val = block_val["set_fixed_chain_input"].get("value") or ""
                 chain = [k.strip() for k in fixed_val.split(",") if k.strip()]
                 set_fixed_config(chain)
+                persist_active_workflow()
             elif action_id == "clear_fixed_chain_button":
                 set_fixed_config([])
+                persist_active_workflow()
             elif action_id == "set_fixed_chain_input":
                 val_str = action.get("value", "")
                 chain = [k.strip() for k in val_str.split(",") if k.strip()]
