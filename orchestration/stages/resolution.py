@@ -20,7 +20,7 @@ from orchestration.agent_settings import (
     is_circuit_breaker_enabled,
     settings_manager,
 )
-from orchestration.thread_state import clear_thread_state, thread_state_manager
+from orchestration.thread_state import thread_state_manager
 from pipeline.spend_governance import spend_governance
 from services.slack_client import post_agent_response, post_system_message
 
@@ -175,7 +175,7 @@ class ResolutionStageMixin:
                     is_completed=True,
                 )
 
-                clear_thread_state(ctx.channel_id, ctx.thread_ts)
+                thread_state_manager.clear_state(ctx.channel_id, ctx.thread_ts)
                 if isinstance(slack_res, dict):
                     slack_res["is_completed"] = True
                     slack_res["final_text"] = circuit_breaker_msg

@@ -8,12 +8,7 @@ from nlp.language_detector import (
     normalize_language_name,
 )
 from nlp.message_builder import build_llm_messages
-from orchestration.thread_state import (
-    clear_thread_language,
-    get_thread_language,
-    set_thread_language,
-    thread_state_manager,
-)
+from orchestration.thread_state import thread_state_manager
 
 
 def _make_mock_response(content: str) -> MagicMock:
@@ -98,20 +93,20 @@ def test_thread_state_language_management():
     thread_ts = "1700000000.123456"
 
     # Initially None
-    assert get_thread_language(channel_id, thread_ts) is None
+    assert thread_state_manager.get_language(channel_id, thread_ts) is None
 
     # Set and lock language
-    set_thread_language(channel_id, thread_ts, "Croatian")
-    assert get_thread_language(channel_id, thread_ts) == "Croatian"
+    thread_state_manager.set_language(channel_id, thread_ts, "Croatian")
+    assert thread_state_manager.get_language(channel_id, thread_ts) == "Croatian"
 
     # Clear language
-    clear_thread_language(channel_id, thread_ts)
-    assert get_thread_language(channel_id, thread_ts) is None
+    thread_state_manager.clear_language(channel_id, thread_ts)
+    assert thread_state_manager.get_language(channel_id, thread_ts) is None
 
     # Test cleanup_thread
-    set_thread_language(channel_id, thread_ts, "English")
+    thread_state_manager.set_language(channel_id, thread_ts, "English")
     thread_state_manager.cleanup_thread(channel_id, thread_ts)
-    assert get_thread_language(channel_id, thread_ts) is None
+    assert thread_state_manager.get_language(channel_id, thread_ts) is None
 
 
 def test_build_llm_messages_with_thread_language():

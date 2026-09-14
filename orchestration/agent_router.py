@@ -21,7 +21,7 @@ from services.slack_client import (
     post_system_message,
 )
 
-from .thread_state import clear_thread_state, is_thread_stopped, thread_state_manager
+from orchestration.thread_state import thread_state_manager
 from .turn_pipeline import TurnContext, TurnPipeline
 
 __all__ = [
@@ -156,11 +156,11 @@ async def orchestrate_discussion(
 
         # 3. Subsequent turns
         for turn in range(2, max_turns + 1):
-            if is_thread_stopped(channel_id, thread_ts):
+            if thread_state_manager.is_stopped(channel_id, thread_ts):
                 logger.info(
                     f"[ORCHESTRATOR] Thread {thread_key} stop detected before turn {turn}. Terminating loop."
                 )
-                clear_thread_state(channel_id, thread_ts)
+                thread_state_manager.clear_state(channel_id, thread_ts)
                 break
 
             if turn_res.get("is_completed"):

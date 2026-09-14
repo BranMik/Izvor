@@ -253,10 +253,8 @@ async def test_sandwich_exclusion_and_bot_turn_not_stopped(monkeypatch):
     monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_run)
     monkeypatch.setattr(litellm, "completion", lambda **kwargs: mock_intent_resp)
 
-    from orchestration.thread_state import clear_thread_state
-
     thread_key = ("C_TEST", "77777.0001")
-    clear_thread_state(thread_key[0], thread_key[1])
+    thread_state_manager.clear_state(thread_key[0], thread_key[1])
 
     # Turn 1: User prompt
     res_1 = await process_and_respond(

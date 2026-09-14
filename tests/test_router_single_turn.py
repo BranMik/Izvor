@@ -14,14 +14,7 @@ from orchestration.agent_settings import (
     set_sandwich_config,
 )
 from orchestration.nomination import parse_agent_and_prompt
-from orchestration.thread_state import (
-    CUSTOM_FLOW_THREADS,
-    RATE_LIMIT_ALREADY_RETRIED,
-    RATE_LIMIT_RETRY_QUEUE,
-    REMAINING_AGENTS_MAP,
-    THREAD_HISTORY_LIMITS,
-    get_thread_history_limit,
-)
+from orchestration.thread_state import thread_state_manager
 
 
 @pytest.fixture(autouse=True)
@@ -30,11 +23,7 @@ def setup_test_environment(monkeypatch):
     set_orchestration_mode("sandwich")
     set_sandwich_config([], [])
     set_fixed_config([])
-    REMAINING_AGENTS_MAP.clear()
-    RATE_LIMIT_RETRY_QUEUE.clear()
-    RATE_LIMIT_ALREADY_RETRIED.clear()
-    CUSTOM_FLOW_THREADS.clear()
-    THREAD_HISTORY_LIMITS.clear()
+    thread_state_manager.reset_all()
     monkeypatch.setattr(agent_router.asyncio, "sleep", AsyncMock(return_value=None))
 
 
@@ -212,8 +201,7 @@ async def test_scenario_1_single_agent_tagged(monkeypatch):
     Scenario: User tags ONLY one agent.
     Expected: Single agent speaks, force_termination=True, any generated nomination tag stripped, flow cleanly ends.
     """
-    REMAINING_AGENTS_MAP.clear()
-    CUSTOM_FLOW_THREADS.clear()
+    thread_state_manager.reset_all()
 
     mock_choice = MagicMock()
     # Model attempts to nominate Sceptic even though user only wanted 1 agent
@@ -260,8 +248,8 @@ async def test_scenario_1_single_agent_tagged(monkeypatch):
     # 1. User prompt forced termination
     assert "CRITICAL CONSTRAINT" in mock_run_in_threadpool.captured_user_prompt
     # 2. State cleaned up
-    assert thread_key not in CUSTOM_FLOW_THREADS
-    assert thread_key not in REMAINING_AGENTS_MAP
+    assert thread_key not in thread_state_manager.custom_flow_threads
+    assert thread_key not in thread_state_manager.remaining_agents_map
     # 3. Posted message has stripped bracket tags (so no next bot is triggered)
     assert len(posted_messages) == 1
     assert "[Sceptic]" not in posted_messages[0]
@@ -361,8 +349,8 @@ async def test_process_and_respond_history_limit_initial_prompt(monkeypatch):
     - Active limit is stored in THREAD_HISTORY_LIMITS.
     """
     thread_key = ("C_HIST_TEST", "12345.2001")
-    THREAD_HISTORY_LIMITS.pop(thread_key, None)
-    REMAINING_AGENTS_MAP.pop(thread_key, None)
+    thread_state_manager.context.thread_history_limits.pop(thread_key, None)
+    thread_state_manager.remaining_agents_map.pop(thread_key, None)
 
     mock_history = [
         {"role": "user", "content": "Message 1"},
@@ -418,7 +406,7 @@ async def test_process_and_respond_history_limit_initial_prompt(monkeypatch):
     assert "What now?" in captured_messages[4]["content"]
 
     # Verify THREAD_HISTORY_LIMITS is preserved for subsequent bot turns
-    limit_info = get_thread_history_limit("C_HIST_TEST", "12345.2001")
+    limit_info = thread_state_manager.get_history_limit("C_HIST_TEST", "12345.2001")
     assert limit_info is not None
     assert limit_info["limit"] == 2
     assert limit_info["prior_cutoff_index"] == 5
@@ -432,7 +420,7 @@ async def test_process_and_respond_history_zero(monkeypatch):
     - LiteLLM receives ONLY system prompt + current user prompt.
     """
     thread_key = ("C_HIST_ZERO", "12345.5001")
-    THREAD_HISTORY_LIMITS.pop(thread_key, None)
+    thread_state_manager.context.thread_history_limits.pop(thread_key, None)
 
     mock_history = [
         {"role": "user", "content": "Message 1"},
@@ -670,23 +658,12 @@ def test_extract_min_words_limit():
 
 @pytest.mark.anyio
 async def test_process_and_respond_with_max_words(monkeypatch):
-    from orchestration.thread_state import (
-        RATE_LIMIT_ALREADY_RETRIED,
-        RATE_LIMIT_RETRY_QUEUE,
-        REMAINING_AGENTS_MAP,
-        THREAD_MAX_WORDS_LIMITS,
-        get_thread_max_words,
-    )
-
-    REMAINING_AGENTS_MAP.clear()
-    RATE_LIMIT_RETRY_QUEUE.clear()
-    RATE_LIMIT_ALREADY_RETRIED.clear()
-    THREAD_MAX_WORDS_LIMITS.clear()
+    thread_state_manager.reset_all()
 
     channel_id = "C_MAX_WORDS"
     thread_ts = "99999.0001"
     thread_key = (channel_id, thread_ts)
-    REMAINING_AGENTS_MAP[thread_key] = ["Architect"]
+    thread_state_manager.remaining_agents_map[thread_key] = ["Architect"]
 
     captured_messages = []
 
@@ -730,7 +707,7 @@ async def test_process_and_respond_with_max_words(monkeypatch):
 
     assert res.get("ok") is True
     # Thread level setting persisted for remaining agents in flow
-    assert get_thread_max_words(channel_id, thread_ts) == 40
+    assert thread_state_manager.get_max_words(channel_id, thread_ts) == 40
 
     # System prompt in LLM call has 40 words limit and skips standard output constraints
     assert len(captured_messages) == 1
@@ -751,23 +728,12 @@ async def test_process_and_respond_with_max_words(monkeypatch):
 
 @pytest.mark.anyio
 async def test_process_and_respond_with_min_words(monkeypatch):
-    from orchestration.thread_state import (
-        RATE_LIMIT_ALREADY_RETRIED,
-        RATE_LIMIT_RETRY_QUEUE,
-        REMAINING_AGENTS_MAP,
-        THREAD_MIN_WORDS_LIMITS,
-        get_thread_min_words,
-    )
-
-    REMAINING_AGENTS_MAP.clear()
-    RATE_LIMIT_RETRY_QUEUE.clear()
-    RATE_LIMIT_ALREADY_RETRIED.clear()
-    THREAD_MIN_WORDS_LIMITS.clear()
+    thread_state_manager.reset_all()
 
     channel_id = "C_MIN_WORDS"
     thread_ts = "88888.0001"
     thread_key = (channel_id, thread_ts)
-    REMAINING_AGENTS_MAP[thread_key] = ["Architect"]
+    thread_state_manager.remaining_agents_map[thread_key] = ["Architect"]
 
     captured_messages = []
 
@@ -812,7 +778,7 @@ async def test_process_and_respond_with_min_words(monkeypatch):
 
     assert res.get("ok") is True
     # Thread level setting persisted for remaining agents in flow
-    assert get_thread_min_words(channel_id, thread_ts) == 80
+    assert thread_state_manager.get_min_words(channel_id, thread_ts) == 80
 
     # System prompt in LLM call has min_words instruction and skips standard output constraints
     assert len(captured_messages) == 1
@@ -833,26 +799,12 @@ async def test_process_and_respond_with_min_words(monkeypatch):
 
 @pytest.mark.anyio
 async def test_process_and_respond_with_min_and_max_words(monkeypatch):
-    from orchestration.thread_state import (
-        RATE_LIMIT_ALREADY_RETRIED,
-        RATE_LIMIT_RETRY_QUEUE,
-        REMAINING_AGENTS_MAP,
-        THREAD_MAX_WORDS_LIMITS,
-        THREAD_MIN_WORDS_LIMITS,
-        get_thread_max_words,
-        get_thread_min_words,
-    )
-
-    REMAINING_AGENTS_MAP.clear()
-    RATE_LIMIT_RETRY_QUEUE.clear()
-    RATE_LIMIT_ALREADY_RETRIED.clear()
-    THREAD_MAX_WORDS_LIMITS.clear()
-    THREAD_MIN_WORDS_LIMITS.clear()
+    thread_state_manager.reset_all()
 
     channel_id = "C_MIN_MAX_WORDS"
     thread_ts = "77777.0001"
     thread_key = (channel_id, thread_ts)
-    REMAINING_AGENTS_MAP[thread_key] = ["Architect"]
+    thread_state_manager.remaining_agents_map[thread_key] = ["Architect"]
 
     captured_messages = []
 
@@ -895,8 +847,8 @@ async def test_process_and_respond_with_min_and_max_words(monkeypatch):
     )
 
     assert res.get("ok") is True
-    assert get_thread_min_words(channel_id, thread_ts) == 50
-    assert get_thread_max_words(channel_id, thread_ts) == 150
+    assert thread_state_manager.get_min_words(channel_id, thread_ts) == 50
+    assert thread_state_manager.get_max_words(channel_id, thread_ts) == 150
 
     assert len(captured_messages) == 1
     system_msg = captured_messages[0][0]["content"]
@@ -917,25 +869,12 @@ async def test_process_and_respond_with_min_and_max_words(monkeypatch):
 
 @pytest.mark.anyio
 async def test_process_and_respond_with_natural_language_limits(monkeypatch):
-    from orchestration.thread_state import (
-        RATE_LIMIT_ALREADY_RETRIED,
-        RATE_LIMIT_RETRY_QUEUE,
-        REMAINING_AGENTS_MAP,
-        THREAD_MAX_WORDS_LIMITS,
-        THREAD_MIN_WORDS_LIMITS,
-        get_thread_max_words,
-    )
-
-    REMAINING_AGENTS_MAP.clear()
-    RATE_LIMIT_RETRY_QUEUE.clear()
-    RATE_LIMIT_ALREADY_RETRIED.clear()
-    THREAD_MAX_WORDS_LIMITS.clear()
-    THREAD_MIN_WORDS_LIMITS.clear()
+    thread_state_manager.reset_all()
 
     channel_id = "C_NL_LIMITS"
     thread_ts = "66666.0001"
     thread_key = (channel_id, thread_ts)
-    REMAINING_AGENTS_MAP[thread_key] = ["Architect"]
+    thread_state_manager.remaining_agents_map[thread_key] = ["Architect"]
 
     captured_messages = []
 
@@ -978,7 +917,7 @@ async def test_process_and_respond_with_natural_language_limits(monkeypatch):
     )
 
     assert res.get("ok") is True
-    assert get_thread_max_words(channel_id, thread_ts) == 60
+    assert thread_state_manager.get_max_words(channel_id, thread_ts) == 60
 
     assert len(captured_messages) == 1
     system_msg = captured_messages[0][0]["content"]
@@ -995,15 +934,7 @@ async def test_process_and_respond_with_natural_language_limits(monkeypatch):
 
 @pytest.mark.anyio
 async def test_process_and_respond_with_exclude_command(monkeypatch):
-    from orchestration.thread_state import (
-        RATE_LIMIT_ALREADY_RETRIED,
-        RATE_LIMIT_RETRY_QUEUE,
-        REMAINING_AGENTS_MAP,
-    )
-
-    REMAINING_AGENTS_MAP.clear()
-    RATE_LIMIT_RETRY_QUEUE.clear()
-    RATE_LIMIT_ALREADY_RETRIED.clear()
+    thread_state_manager.reset_all()
 
     channel_id = "C_EXCLUDE_CMD"
     thread_ts = "88888.0001"
@@ -1051,8 +982,8 @@ async def test_process_and_respond_with_exclude_command(monkeypatch):
 
     assert res.get("ok") is True
     # Innovator should be removed immediately from remaining agents
-    assert "Innovator" not in REMAINING_AGENTS_MAP[thread_key]
-    assert REMAINING_AGENTS_MAP[thread_key] == ["ScopeOptimizer"]
+    assert "Innovator" not in thread_state_manager.remaining_agents_map[thread_key]
+    assert thread_state_manager.remaining_agents_map[thread_key] == ["ScopeOptimizer"]
 
     # Command should be cleanly stripped from user message passed to model
     user_msg = captured_messages[0][-1]["content"]
@@ -1062,15 +993,7 @@ async def test_process_and_respond_with_exclude_command(monkeypatch):
 
 @pytest.mark.anyio
 async def test_process_and_respond_with_multi_agent_exclude_command(monkeypatch):
-    from orchestration.thread_state import (
-        RATE_LIMIT_ALREADY_RETRIED,
-        RATE_LIMIT_RETRY_QUEUE,
-        REMAINING_AGENTS_MAP,
-    )
-
-    REMAINING_AGENTS_MAP.clear()
-    RATE_LIMIT_RETRY_QUEUE.clear()
-    RATE_LIMIT_ALREADY_RETRIED.clear()
+    thread_state_manager.reset_all()
 
     channel_id = "C_MULTI_EXCLUDE"
     thread_ts = "88888.0002"
@@ -1108,20 +1031,12 @@ async def test_process_and_respond_with_multi_agent_exclude_command(monkeypatch)
 
     assert res.get("ok") is True
     # Both Innovator and ScopeOptimizer should be removed from remaining agents
-    assert REMAINING_AGENTS_MAP[thread_key] == ["ScalabilityEngineer"]
+    assert thread_state_manager.remaining_agents_map[thread_key] == ["ScalabilityEngineer"]
 
 
 @pytest.mark.anyio
 async def test_process_and_respond_with_default_flow_and_exclude(monkeypatch):
-    from orchestration.thread_state import (
-        RATE_LIMIT_ALREADY_RETRIED,
-        RATE_LIMIT_RETRY_QUEUE,
-        REMAINING_AGENTS_MAP,
-    )
-
-    REMAINING_AGENTS_MAP.clear()
-    RATE_LIMIT_RETRY_QUEUE.clear()
-    RATE_LIMIT_ALREADY_RETRIED.clear()
+    thread_state_manager.reset_all()
 
     channel_id = "C_DEFAULT_EXCLUDE"
     thread_ts = "88888.0003"
@@ -1158,21 +1073,13 @@ async def test_process_and_respond_with_default_flow_and_exclude(monkeypatch):
     )
 
     assert res.get("ok") is True
-    assert "TechLead" not in REMAINING_AGENTS_MAP[thread_key]
-    assert "Innovator" not in REMAINING_AGENTS_MAP[thread_key]
+    assert "TechLead" not in thread_state_manager.remaining_agents_map[thread_key]
+    assert "Innovator" not in thread_state_manager.remaining_agents_map[thread_key]
 
 
 @pytest.mark.anyio
 async def test_process_and_respond_with_nl_exclude(monkeypatch):
-    from orchestration.thread_state import (
-        RATE_LIMIT_ALREADY_RETRIED,
-        RATE_LIMIT_RETRY_QUEUE,
-        REMAINING_AGENTS_MAP,
-    )
-
-    REMAINING_AGENTS_MAP.clear()
-    RATE_LIMIT_RETRY_QUEUE.clear()
-    RATE_LIMIT_ALREADY_RETRIED.clear()
+    thread_state_manager.reset_all()
 
     channel_id = "C_NL_EXCLUDE"
     thread_ts = "88888.0004"
@@ -1207,14 +1114,12 @@ async def test_process_and_respond_with_nl_exclude(monkeypatch):
     )
 
     assert res.get("ok") is True
-    assert "TechLead" not in REMAINING_AGENTS_MAP[thread_key]
+    assert "TechLead" not in thread_state_manager.remaining_agents_map[thread_key]
 
 
 @pytest.mark.anyio
 async def test_partial_tag_routing(monkeypatch):
-    from orchestration.thread_state import REMAINING_AGENTS_MAP
-
-    REMAINING_AGENTS_MAP.clear()
+    thread_state_manager.reset_all()
 
     channel_id = "C_PARTIAL_TAG"
     thread_ts = "99999.0001"
@@ -1259,9 +1164,7 @@ async def test_partial_tag_routing(monkeypatch):
 
 @pytest.mark.anyio
 async def test_ambiguous_tag_system_warning_halt(monkeypatch):
-    from orchestration.thread_state import REMAINING_AGENTS_MAP
-
-    REMAINING_AGENTS_MAP.clear()
+    thread_state_manager.reset_all()
 
     channel_id = "C_AMBIG_TAG"
     thread_ts = "99999.0002"
@@ -1311,9 +1214,7 @@ async def test_ambiguous_tag_system_warning_halt(monkeypatch):
 
 @pytest.mark.anyio
 async def test_unrecognized_tag_system_warning_halt(monkeypatch):
-    from orchestration.thread_state import REMAINING_AGENTS_MAP
-
-    REMAINING_AGENTS_MAP.clear()
+    thread_state_manager.reset_all()
 
     channel_id = "C_UNREC_TAG"
     thread_ts = "99999.0003"
