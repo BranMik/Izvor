@@ -2,6 +2,15 @@
 name: document_reader
 display_name: Document Reader
 description: Read and analyze reference documents, reports, guidelines, PDF files, text files, and notes inside the resources directory to answer questions.
+scope: orchestrator
+triggers:
+  slash:
+    - /read_file
+    - /read-file
+    - /file
+    - /attachment
+    - /document_reader
+  arg_type: string
 tools:
   - list_documents
   - read_document

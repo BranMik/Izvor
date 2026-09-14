@@ -7,37 +7,31 @@ import litellm
 from starlette.concurrency import run_in_threadpool
 
 from core.config import INTENT_EXTRACTOR_MODEL
-from core.models import ExtractedIntent
+from core.models import ActionDirective, ExtractedIntent
 
 from .nl_patterns import is_stop_command, resolve_agent_name
 
 logger = logging.getLogger(__name__)
 
-EXTRACTOR_SYSTEM_PROMPT = """You are a precise, language-agnostic intent and parameter extractor for an AI multi-agent Slack platform.
+EXTRACTOR_SYSTEM_PROMPT = """You are a precise, language-agnostic intent, directive, and parameter extractor for an AI multi-agent Slack platform.
 Analyze the user's message and extract any requested constraints or directives:
 
-1. "max_words": Integer maximum word count if the user requested a maximum length ceiling (e.g., "in under 50 words", "u najviše 100 riječi", "max 30 words", "briefly in 40 words", "keep it under 80 words", "up to 60 words", "no more than 75 words"). Otherwise null.
-   NOTE: Do NOT extract minimum word requests into max_words (e.g. "at least 100 words" is NOT max_words).
-
-2. "min_words": Integer minimum word count if the user requested a minimum length floor (e.g., "at least 100 words", "minimalno 50 riječi", "barem 80 riječi", "no less than 50 words", "over 100 words"). Otherwise null.
-
-3. "history": Integer number of previous messages/turns to consider if the user requested a history or context window limit (e.g., "last 3 messages", "uzmi u obzir zadnje 2 poruke", "based on past 5 messages", "limit history to 4 messages"). Otherwise null.
-
-4. "file_use": Boolean true if the user asks to read, analyze, inspect, summarize, parse, review, or reference an attached, uploaded, or mentioned file/document/code. Otherwise false.
-
-5. "target_file": Specific filename if explicitly mentioned in the text (e.g., "schema.sql", "main.py", "data.csv"), otherwise null.
-
-6. "excluded_agents": List of agent names/keys (strings) if the user explicitly requests to exclude, skip, leave out, omit, or remove specific agents from participating in the debate/discussion (e.g., "exclude MistLar_TechLead", "bez agenta AnthrOpus_Innovator", "don't include Gemini_ScopeOptimizer", "leave out MistLar_QALead", "/exclude [Agent1]"). Otherwise empty list [].
-   CRITICAL: Agents that are tagged or addressed to speak (e.g., "[Gemini_Visionary] only you answer", "[AgentName] explain this") MUST NEVER be marked as excluded!
+1. "max_words": Integer maximum word count if the user requested a maximum length ceiling.
+2. "min_words": Integer minimum word count if the user requested a minimum length floor.
+3. "history": Integer number of previous messages to consider.
+4. "document_reader": If user asks to read, analyze, inspect, or reference an attached file/document.
+5. "exclude_agents": List of agent names if the user explicitly requests to exclude agents.
 
 Respond ONLY with a valid JSON object matching this schema:
 {
-  "max_words": <int or null>,
-  "min_words": <int or null>,
-  "history": <int or null>,
-  "file_use": <bool>,
-  "target_file": <string or null>,
-  "excluded_agents": [<string>]
+  "modifiers": {
+    "max_words": <int or null>,
+    "min_words": <int or null>,
+    "history": <int or null>
+  },
+  "actions": [
+    { "name": "<skill_name>", "params": { ... } }
+  ]
 }"""
 
 
@@ -47,10 +41,23 @@ class IntentExtractor:
     def __init__(
         self,
         model: str = INTENT_EXTRACTOR_MODEL,
-        system_prompt: str = EXTRACTOR_SYSTEM_PROMPT,
+        system_prompt: str | None = None,
     ):
         self.model = model
-        self.system_prompt = system_prompt
+        self._custom_system_prompt = system_prompt
+
+    @property
+    def system_prompt(self) -> str:
+        if self._custom_system_prompt:
+            return self._custom_system_prompt
+        try:
+            from skills import skill_registry
+            prompt = skill_registry.build_extractor_catalog_prompt()
+            if prompt:
+                return prompt
+        except Exception as e:
+            logger.debug(f"[INTENT EXTRACTOR] Error retrieving skill catalog prompt: {e}")
+        return EXTRACTOR_SYSTEM_PROMPT
 
     def should_skip(
         self,
@@ -124,35 +131,54 @@ class IntentExtractor:
 
             parsed = json.loads(content)
 
-            raw_max = parsed.get("max_words")
-            max_words = (
-                int(raw_max)
-                if raw_max is not None and str(raw_max).isdigit() and int(raw_max) > 0
-                else None
-            )
+            actions: list[ActionDirective] = []
+            modifiers: dict[str, Any] = {}
 
-            raw_min = parsed.get("min_words")
-            min_words = (
-                int(raw_min)
-                if raw_min is not None and str(raw_min).isdigit() and int(raw_min) > 0
-                else None
-            )
+            # 1. Modifiers from structured "modifiers" sub-dict
+            raw_mods = parsed.get("modifiers")
+            if isinstance(raw_mods, dict):
+                for k, v in raw_mods.items():
+                    if v is not None:
+                        modifiers[k] = v
 
-            raw_hist = parsed.get("history")
-            history = (
-                int(raw_hist)
-                if raw_hist is not None and str(raw_hist).isdigit() and int(raw_hist) >= 0
-                else None
-            )
+            # Fallback/merge legacy top-level keys
+            raw_max = parsed.get("max_words") or modifiers.get("max_words")
+            if raw_max is not None and str(raw_max).isdigit() and int(raw_max) > 0:
+                modifiers["max_words"] = int(raw_max)
 
-            file_use = bool(parsed.get("file_use", False))
+            raw_min = parsed.get("min_words") or modifiers.get("min_words")
+            if raw_min is not None and str(raw_min).isdigit() and int(raw_min) > 0:
+                modifiers["min_words"] = int(raw_min)
 
+            raw_hist = parsed.get("history") or modifiers.get("history")
+            if raw_hist is not None and str(raw_hist).isdigit() and int(raw_hist) >= 0:
+                modifiers["history"] = int(raw_hist)
+
+            # 2. Actions from structured "actions" list
+            raw_actions = parsed.get("actions")
+            if isinstance(raw_actions, list):
+                for act in raw_actions:
+                    if isinstance(act, dict) and act.get("name"):
+                        act_name = str(act["name"]).strip()
+                        act_params = dict(act.get("params") or {})
+                        actions.append(ActionDirective(name=act_name, params=act_params))
+
+            # Legacy file_use / target_file
+            file_use = bool(parsed.get("file_use", False)) or any(a.name == "document_reader" for a in actions)
             target_file = parsed.get("target_file")
             if isinstance(target_file, str):
                 target_file = target_file.strip() or None
             else:
                 target_file = None
 
+            if file_use and not any(a.name == "document_reader" for a in actions):
+                actions.append(ActionDirective(name="document_reader", params={"target_file": target_file} if target_file else {}))
+            elif target_file and any(a.name == "document_reader" for a in actions):
+                doc_acts = [a for a in actions if a.name == "document_reader"]
+                if doc_acts and not doc_acts[0].params.get("target_file"):
+                    doc_acts[0].params["target_file"] = target_file
+
+            # Legacy excluded_agents
             raw_excluded = parsed.get("excluded_agents", [])
             excluded_agents = []
             if isinstance(raw_excluded, list):
@@ -162,17 +188,16 @@ class IntentExtractor:
                         if resolved and resolved not in excluded_agents:
                             excluded_agents.append(resolved)
 
+            if excluded_agents and not any(a.name == "exclude_agents" for a in actions):
+                actions.append(ActionDirective(name="exclude_agents", params={"agents": excluded_agents}))
+
             logger.info(
-                f"[INTENT EXTRACTOR] Extracted: max_words={max_words}, min_words={min_words}, history={history}, file_use={file_use}, target_file={target_file}, excluded_agents={excluded_agents}"
+                f"[INTENT EXTRACTOR] Extracted: modifiers={modifiers}, actions={[a.name for a in actions]}"
             )
 
             return ExtractedIntent(
-                max_words=max_words,
-                min_words=min_words,
-                history=history,
-                file_use=file_use,
-                target_file=target_file,
-                excluded_agents=excluded_agents,
+                actions=actions,
+                modifiers=modifiers,
             )
 
         except (TimeoutError, asyncio.TimeoutError):

@@ -111,14 +111,15 @@ class ContextPrepStageMixin:
         # System prompt generation
         active_max_words = thread_state_manager.get_max_words(ctx.channel_id, ctx.thread_ts)
         active_min_words = thread_state_manager.get_min_words(ctx.channel_id, ctx.thread_ts)
-        if active_max_words is not None or active_min_words is not None:
+        if active_max_words is not None or active_min_words is not None or ctx.modifiers:
             logger.info(
-                f"[ROUTER] Applying word limits (min_words={active_min_words}, max_words={active_max_words}) for agent {ctx.agent_key} (skipping standard output_constraints)."
+                f"[ROUTER] Applying active prompt modifiers (min_words={active_min_words}, max_words={active_max_words}, modifiers={ctx.modifiers}) for agent {ctx.agent_key}."
             )
             ctx.system_prompt = build_agent_prompt(
                 ctx.agent_key,
                 max_words=active_max_words,
                 min_words=active_min_words,
+                modifiers=ctx.modifiers,
             )
         else:
             ctx.system_prompt = ctx.agent_cfg["system_prompt"]

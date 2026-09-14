@@ -44,9 +44,12 @@ LOAD_SKILL_SCHEMA = {
 }
 
 
+import importlib.util
+from collections.abc import Callable
+
 @dataclass
 class SkillDefinition:
-    """Represents a declarative Agent Skill parsed from a SKILL.md file."""
+    """Represents a declarative Skill parsed from a SKILL.md file."""
 
     name: str
     display_name: str
@@ -54,6 +57,9 @@ class SkillDefinition:
     tools: list[str] = field(default_factory=list)
     instructions: str = ""
     skill_dir: Path | None = None
+    scope: str = "agent"  # "agent" | "prompt_modifier" | "orchestrator"
+    triggers: dict[str, Any] = field(default_factory=dict)
+    action_handler: Callable[..., Any] | None = None
 
     def get_tool_schemas(self) -> list[dict[str, Any]]:
         """Returns the LiteLLM tool schemas for the tools declared by this skill."""
@@ -92,7 +98,7 @@ class SkillRegistry:
                 skill_def = self._parse_skill_file(skill_file)
                 if skill_def:
                     self._skills[skill_def.name] = skill_def
-                    logger.debug(f"[SKILLS] Loaded declarative skill '{skill_def.name}' from {skill_file}")
+                    logger.debug(f"[SKILLS] Loaded declarative skill '{skill_def.name}' ({skill_def.scope}) from {skill_file}")
             except (FileNotFoundError, PermissionError, OSError) as e:
                 logger.error(f"[SKILLS] File I/O error reading {skill_file}: {e}")
             except (yaml.YAMLError, ValueError, TypeError, UnicodeError) as e:
@@ -118,8 +124,28 @@ class SkillRegistry:
         name = str(meta.get("name", file_path.parent.name)).strip()
         display_name = str(meta.get("display_name", name.replace("_", " ").title())).strip()
         description = str(meta.get("description", "")).strip()
+        scope = str(meta.get("scope", "agent")).strip().lower()
+        triggers = meta.get("triggers") or {}
+        if not isinstance(triggers, dict):
+            triggers = {}
+
         raw_tools = meta.get("tools", [])
         tools = [str(t).strip() for t in raw_tools if str(t).strip()]
+
+        # Check for action.py handler
+        action_handler = None
+        action_file = file_path.parent / "action.py"
+        if action_file.exists():
+            try:
+                mod_name = f"skills.{name}.action"
+                spec = importlib.util.spec_from_file_location(mod_name, action_file)
+                if spec and spec.loader:
+                    mod = importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(mod)
+                    if hasattr(mod, "run"):
+                        action_handler = getattr(mod, "run")
+            except Exception as e:
+                logger.error(f"[SKILLS] Error loading action handler from {action_file}: {e}")
 
         return SkillDefinition(
             name=name,
@@ -128,11 +154,105 @@ class SkillRegistry:
             tools=tools,
             instructions=body_markdown,
             skill_dir=file_path.parent,
+            scope=scope,
+            triggers=triggers,
+            action_handler=action_handler,
         )
 
     def get(self, name: str) -> SkillDefinition | None:
         """Retrieve a skill by name."""
         return self._skills.get(name)
+
+    def list_skills(self) -> list[SkillDefinition]:
+        """Returns all registered skills."""
+        return list(self._skills.values())
+
+    def get_agent_skills(self, allowed_skills: list[str] | None = None) -> list[SkillDefinition]:
+        """Returns only skills with scope == 'agent', optionally filtered by allowed_skills."""
+        res = [s for s in self._skills.values() if s.scope == "agent"]
+        if allowed_skills is not None:
+            res = [s for s in res if s.name in allowed_skills]
+        return res
+
+    def get_slash_triggers(self) -> dict[str, tuple[SkillDefinition, dict[str, Any]]]:
+        """Maps each registered slash alias (lowercase) to its (SkillDefinition, trigger_dict)."""
+        mapping: dict[str, tuple[SkillDefinition, dict[str, Any]]] = {}
+        for skill in self._skills.values():
+            slash_list = skill.triggers.get("slash") or []
+            if isinstance(slash_list, str):
+                slash_list = [slash_list]
+            for cmd in slash_list:
+                cleaned = str(cmd).strip().lower()
+                if cleaned:
+                    if not cleaned.startswith("/"):
+                        cleaned = f"/{cleaned}"
+                    mapping[cleaned] = (skill, skill.triggers)
+        return mapping
+
+    def get_auto_detect_skills(self) -> list[SkillDefinition]:
+        """Returns all skills where auto_detect is not False (default True for all skills)."""
+        return [
+            s for s in self._skills.values()
+            if s.triggers.get("auto_detect", True) is not False
+        ]
+
+    def build_extractor_catalog_prompt(self) -> str:
+        """
+        Dynamically generates the system prompt for the IntentExtractor LLM
+        based on all registered auto-detect skills.
+        """
+        skills = self.get_auto_detect_skills()
+        prompt_lines = [
+            "You are a precise, language-agnostic intent, directive, and parameter extractor for an AI multi-agent Slack platform.",
+            "Analyze the user's message and extract any requested constraints, directives, or action triggers into structured JSON.",
+            "",
+            "AVAILABLE SYSTEM SKILLS & DIRECTIVES:",
+        ]
+
+        # 1. Prompt modifiers (e.g. max_words, min_words)
+        modifiers_lines = []
+        actions_lines = []
+
+        for skill in skills:
+            desc = skill.description or skill.instructions[:150]
+            if skill.scope == "prompt_modifier":
+                arg_type = skill.triggers.get("arg_type", "string")
+                modifiers_lines.append(f'- "{skill.name}" ({arg_type}): {desc}')
+            else:
+                arg_type = skill.triggers.get("arg_type", "object")
+                actions_lines.append(f'- "{skill.name}": {desc}')
+
+        if modifiers_lines:
+            prompt_lines.append("MODIFIERS (Output constraints & styling):")
+            prompt_lines.extend(modifiers_lines)
+            prompt_lines.append("")
+
+        if actions_lines:
+            prompt_lines.append("ACTIONS (Operations, tools & pipeline triggers):")
+            prompt_lines.extend(actions_lines)
+            prompt_lines.append("")
+
+        prompt_lines.extend([
+            "SPECIAL RULES:",
+            "- 'max_words': Extract integer ceiling only if user requested a maximum length (e.g. 'in under 50 words', 'max 30 words', 'briefly in 40 words'). Do NOT extract minimum length as max_words.",
+            "- 'min_words': Extract integer floor only if user requested a minimum length (e.g. 'at least 100 words', 'minimalno 50 riječi').",
+            "- 'history': Extract integer message limit if requested (e.g. 'last 3 messages', 'zadnje 2 poruke').",
+            "- 'document_reader': If user asks to read, analyze, inspect, or reference an attached file, include action 'document_reader' with param 'target_file' (or null if generic).",
+            "- 'exclude_agents': If user asks to exclude or leave out specific agents, include action 'exclude_agents' with param 'agents' (list of string agent keys). Agents tagged to speak must NEVER be excluded.",
+            "",
+            "Respond ONLY with a valid JSON object matching this schema:",
+            "{",
+            '  "modifiers": {',
+            '    "max_words": <int or null>,',
+            '    "min_words": <int or null>,',
+            '    "history": <int or null>',
+            "  },",
+            '  "actions": [',
+            '    { "name": "<skill_name>", "params": { ... } }',
+            "  ]",
+            "}",
+        ])
+        return "\n".join(prompt_lines)
 
     def list_skills(self) -> list[SkillDefinition]:
         """Returns all registered skills."""
@@ -167,11 +287,12 @@ class SkillRegistry:
         if not self._skills:
             return ""
 
-        skills_to_show = list(self._skills.values())
+        # Strictly only show agent-scoped skills to LLM agents
+        skills_to_show = [s for s in self._skills.values() if s.scope == "agent"]
         if allowed_skills is not None:
             if not allowed_skills:
                 return ""
-            skills_to_show = [s for s in self._skills.values() if s.name in allowed_skills]
+            skills_to_show = [s for s in skills_to_show if s.name in allowed_skills]
             if not skills_to_show:
                 return ""
 

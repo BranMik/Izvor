@@ -26,6 +26,7 @@ from agents import (
     trigger_usage_update,
 )
 from core.llm_utils import execute_llm_with_retry
+from core.models import ActionDirective, MediaAttachment
 from orchestration.stages import (
     ContextPrepStageMixin,
     ExecutionStageMixin,
@@ -64,7 +65,12 @@ class TurnContext:
     my_generation: int = 0
     current_task: asyncio.Task | None = None
 
-    # Parsed directives & flags
+    # Unified directives & skills
+    actions: list[ActionDirective] = field(default_factory=list)
+    modifiers: dict[str, Any] = field(default_factory=dict)
+    attachments: list[MediaAttachment] = field(default_factory=list)
+
+    # Parsed directives & flags (legacy mirrors)
     raw_text_cleaned: str = ""
     history_limit: int | None = None
     max_words_limit: int | None = None
