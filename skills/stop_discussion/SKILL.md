@@ -6,6 +6,7 @@ scope: orchestrator
 triggers:
   slash:
     - /stop
+  auto_detect: false
   terminal: true
 ---
 

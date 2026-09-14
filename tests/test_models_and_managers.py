@@ -93,7 +93,7 @@ def test_agent_settings_manager():
         # Defaults
         assert "Visionary" in mgr.get_enabled_agents()
         assert mgr.is_circuit_breaker_enabled() is False
-        assert mgr.get_orchestration_mode() == "sandwich"
+        assert mgr.get_orchestration_mode() == "fixed"
 
         # Toggle all agents freely (no locked agents)
         assert mgr.set_agent_enabled("Visionary", False) is True
@@ -129,8 +129,8 @@ def test_agent_settings_manager():
         assert mgr_reloaded.is_circuit_breaker_enabled() is True
         assert mgr_reloaded.get_circuit_breaker_threshold() == 3.75
         assert "Innovator" not in mgr_reloaded.get_enabled_agents()
-        assert mgr_reloaded.get_orchestration_mode() == "sandwich"
-        assert mgr_reloaded.get_sandwich_config()["start_chain"] == ["Visionary"]
+        assert mgr_reloaded.get_orchestration_mode() == "fixed"
+        assert mgr_reloaded.get_workflow_config() == "idea_architecture_feasibility_review"
 
 
 def test_thread_state_manager():

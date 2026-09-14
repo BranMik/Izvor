@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import re
 from typing import Any
 
 import litellm
@@ -62,26 +63,15 @@ class IntentExtractor:
     def should_skip(
         self,
         raw_text: str,
-        is_file_cmd: bool = False,
-        has_slash_max_words: bool = False,
-        has_slash_history: bool = False,
-        has_thread_files: bool = False,
+        **kwargs: Any,
     ) -> bool:
         """
         Evaluates whether the LLM intent extractor should be skipped:
-        1. Always skip if /stop command is present.
-        2. Never skip just because /file command is present alone.
-        3. Do not skip if there is /history or /max_words AND a file is attached to the thread (without /file).
-        4. Skip if /file is called explicitly AND either /max_words or /history (or both) is also called explicitly.
-        5. Skip if either /max_words or /history is called explicitly and no thread files exist.
+        Only /stop command triggers skip as True.
+        All other prompts proceed to intent extraction.
+        Legacy keyword arguments are accepted via kwargs for backward compatibility.
         """
-        if is_stop_command(raw_text):
-            return True
-
-        if is_file_cmd and (has_slash_max_words or has_slash_history):
-            return True
-
-        return bool((has_slash_max_words or has_slash_history) and not has_thread_files)
+        return is_stop_command(raw_text)
 
     async def extract_intent(
         self,
@@ -160,7 +150,19 @@ class IntentExtractor:
                 for act in raw_actions:
                     if isinstance(act, dict) and act.get("name"):
                         act_name = str(act["name"]).strip()
+                        # stop_discussion is strictly a deterministic /stop slash command, never inferred by LLM
+                        if act_name == "stop_discussion":
+                            continue
                         act_params = dict(act.get("params") or {})
+                        if act_name == "exclude_agents":
+                            raw_agents = act_params.get("agents", [])
+                            if isinstance(raw_agents, list):
+                                resolved_agents = []
+                                for ag in raw_agents:
+                                    res = resolve_agent_name(str(ag))
+                                    if res and res not in resolved_agents:
+                                        resolved_agents.append(res)
+                                act_params["agents"] = resolved_agents
                         actions.append(ActionDirective(name=act_name, params=act_params))
 
             # Legacy file_use / target_file
@@ -188,8 +190,17 @@ class IntentExtractor:
                         if resolved and resolved not in excluded_agents:
                             excluded_agents.append(resolved)
 
-            if excluded_agents and not any(a.name == "exclude_agents" for a in actions):
-                actions.append(ActionDirective(name="exclude_agents", params={"agents": excluded_agents}))
+            if excluded_agents:
+                exc_actions = [a for a in actions if a.name == "exclude_agents"]
+                if exc_actions:
+                    existing = exc_actions[0].params.get("agents", [])
+                    merged = list(existing)
+                    for a in excluded_agents:
+                        if a not in merged:
+                            merged.append(a)
+                    exc_actions[0].params["agents"] = merged
+                else:
+                    actions.append(ActionDirective(name="exclude_agents", params={"agents": excluded_agents}))
 
             logger.info(
                 f"[INTENT EXTRACTOR] Extracted: modifiers={modifiers}, actions={[a.name for a in actions]}"
@@ -220,18 +231,9 @@ intent_extractor = IntentExtractor()
 # Backward-compatible function aliases
 def should_skip_intent_extractor(
     raw_text: str,
-    is_file_cmd: bool = False,
-    has_slash_max_words: bool = False,
-    has_slash_history: bool = False,
-    has_thread_files: bool = False,
+    **kwargs: Any,
 ) -> bool:
-    return intent_extractor.should_skip(
-        raw_text=raw_text,
-        is_file_cmd=is_file_cmd,
-        has_slash_max_words=has_slash_max_words,
-        has_slash_history=has_slash_history,
-        has_thread_files=has_thread_files,
-    )
+    return intent_extractor.should_skip(raw_text=raw_text, **kwargs)
 
 
 async def extract_user_intent(

@@ -61,6 +61,22 @@ class ExecutionStageMixin:
         if agent_skills is None:
             agent_skills = settings_manager.get_agent_skills(ctx.agent_key)
 
+        from orchestration.thread_skills_manager import thread_skills_manager
+        from orchestration.app_settings import app_settings_manager
+        from skills import skill_registry
+        global_skills = skill_registry.get_global_skills()
+        active_thread_skills = thread_skills_manager.get_active_skills(ctx.channel_id, ctx.thread_ts)
+        combined_extra = list(dict.fromkeys(global_skills + active_thread_skills))
+        if combined_extra:
+            merged = list(agent_skills or [])
+            for s in combined_extra:
+                if s not in merged:
+                    merged.append(s)
+            agent_skills = merged
+
+        expired_thread_skills = thread_skills_manager.get_expired_skills(ctx.channel_id, ctx.thread_ts)
+        thread_ttl_hours = app_settings_manager.get_thread_skill_expiration_time()
+
         completion_kwargs: dict[str, Any] = {
             "model": ctx.agent_cfg["model"],
             "messages": ctx.messages,
@@ -175,7 +191,11 @@ class ExecutionStageMixin:
                         )
                         if fn_name == "load_skill":
                             tool_result = skill_registry.execute_tool(
-                                fn_name, fn_args, authorized_skills=agent_skills
+                                fn_name,
+                                fn_args,
+                                authorized_skills=agent_skills,
+                                expired_skills=expired_thread_skills,
+                                ttl_hours=thread_ttl_hours,
                             )
                             # Dynamically unlock tools declared by this skill only if authorized
                             skill_name = fn_args.get("skill_name", "").strip()
@@ -196,6 +216,8 @@ class ExecutionStageMixin:
                                 fn_name,
                                 fn_args,
                                 authorized_skills=agent_skills,
+                                expired_skills=expired_thread_skills,
+                                ttl_hours=thread_ttl_hours,
                             )
 
                         ctx.messages.append(

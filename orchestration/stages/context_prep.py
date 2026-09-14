@@ -108,17 +108,31 @@ class ContextPrepStageMixin:
             else:
                 ctx.effective_history = history
 
-        # System prompt generation
+        # System prompt generation & Thread-Global Skills
+        from orchestration.thread_skills_manager import thread_skills_manager
+        from skills import skill_registry
+        global_skills = skill_registry.get_global_skills()
+        active_thread_skills = thread_skills_manager.get_active_skills(ctx.channel_id, ctx.thread_ts)
+        extra_skills = list(dict.fromkeys(global_skills + active_thread_skills))
+        effective_skills = None
+        if extra_skills:
+            base_skills = ctx.agent_cfg.get("skills")
+            if base_skills is None:
+                base_skills = settings_manager.get_agent_skills(ctx.agent_key)
+            effective_skills = list(dict.fromkeys((base_skills or []) + extra_skills))
+            ctx.agent_cfg = dict(ctx.agent_cfg, skills=effective_skills)
+
         active_max_words = thread_state_manager.get_max_words(ctx.channel_id, ctx.thread_ts)
         active_min_words = thread_state_manager.get_min_words(ctx.channel_id, ctx.thread_ts)
-        if active_max_words is not None or active_min_words is not None or ctx.modifiers:
+        if active_max_words is not None or active_min_words is not None or ctx.modifiers or extra_skills:
             logger.info(
-                f"[ROUTER] Applying active prompt modifiers (min_words={active_min_words}, max_words={active_max_words}, modifiers={ctx.modifiers}) for agent {ctx.agent_key}."
+                f"[ROUTER] Applying active prompt modifiers (min_words={active_min_words}, max_words={active_max_words}, modifiers={ctx.modifiers}, extra_skills={extra_skills}) for agent {ctx.agent_key}."
             )
             ctx.system_prompt = build_agent_prompt(
                 ctx.agent_key,
                 max_words=active_max_words,
                 min_words=active_min_words,
+                skills=effective_skills,
                 modifiers=ctx.modifiers,
             )
         else:

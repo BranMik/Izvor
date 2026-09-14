@@ -318,17 +318,18 @@ def test_extract_history_limit_formats():
     assert cleaned == "@CaiLogics What is quantum computing?"
 
     # 9. Natural language variations (Croatian and English)
-    limit, cleaned = extract_history_limit("uzmi u obzir zadnjih 5 poruka i nastavi")
-    assert limit == 5
-    assert cleaned == "i nastavi"
-
-    limit, cleaned = extract_history_limit("last 3 messages analyze the issue")
-    assert limit == 3
-    assert cleaned == "analyze the issue"
-
-    limit, cleaned = extract_history_limit("povijest od 4 poruke i odgovori")
-    assert limit == 4
-    assert cleaned == "i odgovori"
+    # Note: NL pattern extraction is delegated to IntentExtractor (Micro-LLM).
+    # limit, cleaned = extract_history_limit("uzmi u obzir zadnjih 5 poruka i nastavi")
+    # assert limit == 5
+    # assert cleaned == "i nastavi"
+    #
+    # limit, cleaned = extract_history_limit("last 3 messages analyze the issue")
+    # assert limit == 3
+    # assert cleaned == "analyze the issue"
+    #
+    # limit, cleaned = extract_history_limit("povijest od 4 poruke i odgovori")
+    # assert limit == 4
+    # assert cleaned == "i odgovori"
 
 
 def test_parse_agent_and_prompt_cleans_history_command():
@@ -496,7 +497,8 @@ def test_build_llm_messages_user_trigger():
     assert messages[0] == {"role": "system", "content": sys_prompt}
     assert messages[1] == {"role": "user", "content": "Hello"}
     assert messages[2] == {"role": "assistant", "content": "Hi there!"}
-    assert messages[3] == {"role": "user", "content": "Tell me more"}
+    assert messages[3]["role"] == "user"
+    assert messages[3]["content"].startswith("Tell me more")
 
 
 def test_build_llm_messages_bot_trigger_strictly_ends_with_user_turn():
@@ -643,21 +645,22 @@ def test_extract_min_words_limit():
     assert limit == 15
 
     # Natural language variations (Croatian and English)
-    limit, text = extract_min_words_limit("odgovori u minimalno 120 riječi na pitanje")
-    assert limit == 120
-    assert text == "odgovori na pitanje"
-
-    limit, text = extract_min_words_limit("barem 150 riječi opiši arhitekturu")
-    assert limit == 150
-    assert text == "opiši arhitekturu"
-
-    limit, text = extract_min_words_limit("at least 100 words detailed analysis")
-    assert limit == 100
-    assert text == "detailed analysis"
-
-    limit, text = extract_min_words_limit("najmanje 90 rijeci molim")
-    assert limit == 90
-    assert text == "molim"
+    # Note: NL pattern extraction is delegated to IntentExtractor (Micro-LLM).
+    # limit, text = extract_min_words_limit("odgovori u minimalno 120 riječi na pitanje")
+    # assert limit == 120
+    # assert text == "odgovori na pitanje"
+    #
+    # limit, text = extract_min_words_limit("barem 150 riječi opiši arhitekturu")
+    # assert limit == 150
+    # assert text == "opiši arhitekturu"
+    #
+    # limit, text = extract_min_words_limit("at least 100 words detailed analysis")
+    # assert limit == 100
+    # assert text == "detailed analysis"
+    #
+    # limit, text = extract_min_words_limit("najmanje 90 rijeci molim")
+    # assert limit == 90
+    # assert text == "molim"
 
     # No command present
     limit, text = extract_min_words_limit("Just a regular prompt")

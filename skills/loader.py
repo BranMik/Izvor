@@ -60,6 +60,7 @@ class SkillDefinition:
     scope: str = "agent"  # "agent" | "prompt_modifier" | "orchestrator"
     triggers: dict[str, Any] = field(default_factory=dict)
     action_handler: Callable[..., Any] | None = None
+    is_global: bool = False
 
     def get_tool_schemas(self) -> list[dict[str, Any]]:
         """Returns the LiteLLM tool schemas for the tools declared by this skill."""
@@ -132,6 +133,8 @@ class SkillRegistry:
         raw_tools = meta.get("tools", [])
         tools = [str(t).strip() for t in raw_tools if str(t).strip()]
 
+        is_global = bool(meta.get("global", meta.get("all_agents", False)))
+
         # Check for action.py handler
         action_handler = None
         action_file = file_path.parent / "action.py"
@@ -157,6 +160,7 @@ class SkillRegistry:
             scope=scope,
             triggers=triggers,
             action_handler=action_handler,
+            is_global=is_global,
         )
 
     def get(self, name: str) -> SkillDefinition | None:
@@ -167,11 +171,15 @@ class SkillRegistry:
         """Returns all registered skills."""
         return list(self._skills.values())
 
+    def get_global_skills(self) -> list[str]:
+        """Returns a list of names for skills marked global in SKILL.md."""
+        return [s.name for s in self._skills.values() if s.is_global]
+
     def get_agent_skills(self, allowed_skills: list[str] | None = None) -> list[SkillDefinition]:
-        """Returns only skills with scope == 'agent', optionally filtered by allowed_skills."""
+        """Returns skills with scope == 'agent', optionally filtered by allowed_skills and including global skills."""
         res = [s for s in self._skills.values() if s.scope == "agent"]
         if allowed_skills is not None:
-            res = [s for s in res if s.name in allowed_skills]
+            res = [s for s in res if s.name in allowed_skills or s.is_global]
         return res
 
     def get_slash_triggers(self) -> dict[str, tuple[SkillDefinition, dict[str, Any]]]:
@@ -254,10 +262,6 @@ class SkillRegistry:
         ])
         return "\n".join(prompt_lines)
 
-    def list_skills(self) -> list[SkillDefinition]:
-        """Returns all registered skills."""
-        return list(self._skills.values())
-
     def get_tools_for_skills(self, skill_names: list[str] | None) -> list[dict[str, Any]]:
         """Aggregates tool schemas for a list of skill names without duplicates."""
         if not skill_names:
@@ -290,9 +294,7 @@ class SkillRegistry:
         # Strictly only show agent-scoped skills to LLM agents
         skills_to_show = [s for s in self._skills.values() if s.scope == "agent"]
         if allowed_skills is not None:
-            if not allowed_skills:
-                return ""
-            skills_to_show = [s for s in skills_to_show if s.name in allowed_skills]
+            skills_to_show = [s for s in skills_to_show if s.name in allowed_skills or s.is_global]
             if not skills_to_show:
                 return ""
 
@@ -319,6 +321,8 @@ class SkillRegistry:
         tool_name: str,
         arguments: dict[str, Any],
         authorized_skills: list[str] | None = None,
+        expired_skills: list[str] | None = None,
+        ttl_hours: float | None = None,
     ) -> str:
         """
         Dispatches tool execution.
@@ -328,7 +332,18 @@ class SkillRegistry:
         """
         if tool_name == "load_skill":
             skill_name = arguments.get("skill_name", "").strip()
-            if authorized_skills is not None and skill_name not in authorized_skills:
+            target_skill = self.get(skill_name)
+            is_globally_allowed = bool(target_skill and target_skill.is_global)
+
+            if authorized_skills is not None and skill_name not in authorized_skills and not is_globally_allowed:
+                if expired_skills and skill_name in expired_skills:
+                    ttl_str = f"{ttl_hours:.1f} hours" if ttl_hours else "the expiration limit"
+                    return json.dumps({
+                        "error": (
+                            f"Permission denied: Thread global skill '{skill_name}' expired after {ttl_str}. "
+                            f"Run `/grant_for_all {skill_name}` in this thread to grant access again."
+                        )
+                    })
                 allowed_str = ", ".join(f"'{s}'" for s in authorized_skills) or "none"
                 return json.dumps({
                     "error": (
@@ -337,7 +352,7 @@ class SkillRegistry:
                     )
                 })
 
-            skill = self.get(skill_name)
+            skill = target_skill
             if not skill:
                 avail = ", ".join(f"'{s.name}'" for s in self.list_skills())
                 return json.dumps({
@@ -358,6 +373,9 @@ class SkillRegistry:
             for s_name in authorized_skills:
                 s_def = self.get(s_name)
                 if s_def:
+                    permitted_tools.update(s_def.tools)
+            for s_def in self._skills.values():
+                if s_def.is_global:
                     permitted_tools.update(s_def.tools)
             if tool_name not in permitted_tools:
                 allowed_tools_str = ", ".join(f"'{t}'" for t in sorted(permitted_tools)) or "none"

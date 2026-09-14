@@ -118,18 +118,78 @@ class DirectiveParser:
 
             slash_triggers = skill_registry.get_slash_triggers()
             for slash_cmd, (skill_def, trg_cfg) in slash_triggers.items():
-                if slash_cmd in ("/stop", "/history", "/max_words", "/max-words", "/maxwords", "/min_words", "/min-words", "/minwords", "/exclude", "/read_file", "/read-file", "/file", "/attachment"):
-                    continue  # Already handled by fast-path regexes above
+                # If already handled (e.g. by fast-path regexes or previous alias), skip
+                if skill_def.name in modifiers or any(a.name == skill_def.name for a in actions):
+                    continue
 
-                pattern = re.compile(rf"(?:^|\s){re.escape(slash_cmd)}(?:\s+([^\s/]+))?", re.IGNORECASE)
-                match = pattern.search(text_cleaned)
-                if match:
-                    arg_val = match.group(1)
-                    if skill_def.scope == "prompt_modifier":
-                        modifiers[skill_def.name] = arg_val or True
-                    else:
-                        actions.append(ActionDirective(name=skill_def.name, params={"arg": arg_val} if arg_val else {}))
-                    text_cleaned = pattern.sub("", text_cleaned).strip()
+                arg_type = trg_cfg.get("arg_type")
+                if arg_type == "list":
+                    cmd_match = re.search(rf"(?:^|\s){re.escape(slash_cmd)}(?=[\s:=]|$)", text_cleaned, re.IGNORECASE)
+                    if cmd_match:
+                        start_idx = cmd_match.start()
+                        curr_idx = cmd_match.end()
+                        matched_tokens_span_end = curr_idx
+                        remainder = text_cleaned[curr_idx:]
+
+                        token_pattern = re.compile(r"(\s*(?:,|and|&)?\s*)(\[[^\]]+\]|[a-zA-Z0-9_-]+)", re.IGNORECASE)
+                        offset = 0
+                        items_list: list[str] = []
+                        known_skill_names = {s.name.lower() for s in skill_registry.list_skills()}
+
+                        while True:
+                            t_match = token_pattern.match(remainder[offset:])
+                            if not t_match:
+                                break
+                            _, raw_token = t_match.groups()
+                            token_clean = raw_token.strip("[]")
+                            rem_after_token = remainder[offset + len(t_match.group(0)):].strip()
+                            is_bracketed = raw_token.startswith("[") and raw_token.endswith("]")
+                            is_known = token_clean.lower() in known_skill_names or token_clean.lower() == "all"
+                            is_last_token = not rem_after_token
+
+                            if is_known or (offset == 0 and is_last_token):
+                                items_list.append(token_clean)
+                                offset += len(t_match.group(0))
+                                matched_tokens_span_end = curr_idx + offset
+                            else:
+                                break
+
+                        param_name = trg_cfg.get("param_name", "skills" if "skill" in skill_def.name else "items")
+                        actions.append(ActionDirective(name=skill_def.name, params={param_name: items_list}))
+                        text_cleaned = (text_cleaned[:start_idx] + " " + text_cleaned[matched_tokens_span_end:]).strip()
+                        text_cleaned = re.sub(r"[ \t]+", " ", text_cleaned).strip()
+                elif arg_type in ("int", "integer"):
+                    pattern = re.compile(rf"(?:^|\s){re.escape(slash_cmd)}(?:\s*[:=]?\s*(\d+))?", re.IGNORECASE)
+                    match = pattern.search(text_cleaned)
+                    if match:
+                        num_val = int(match.group(1)) if match.group(1) else None
+                        if skill_def.scope == "prompt_modifier":
+                            modifiers[skill_def.name] = num_val
+                        else:
+                            param_name = trg_cfg.get("param_name", "value")
+                            actions.append(ActionDirective(name=skill_def.name, params={param_name: num_val}))
+                        text_cleaned = re.sub(
+                            rf"(?:^|\s){re.escape(slash_cmd)}(?:\s*[:=]?\s*\d+)?",
+                            " ",
+                            text_cleaned,
+                            flags=re.IGNORECASE,
+                        ).strip()
+                else:
+                    pattern = re.compile(rf"(?:^|\s){re.escape(slash_cmd)}(?:\s+([^\s/]+))?", re.IGNORECASE)
+                    match = pattern.search(text_cleaned)
+                    if match:
+                        arg_val = match.group(1)
+                        if skill_def.scope == "prompt_modifier":
+                            modifiers[skill_def.name] = arg_val or True
+                        else:
+                            param_name = trg_cfg.get("param_name", "arg")
+                            actions.append(ActionDirective(name=skill_def.name, params={param_name: arg_val} if arg_val else {}))
+                        text_cleaned = re.sub(
+                            rf"(?:^|\s){re.escape(slash_cmd)}(?:\s+[^\s/]+)?",
+                            " ",
+                            text_cleaned,
+                            flags=re.IGNORECASE,
+                        ).strip()
         except Exception as e:
             logger.debug(f"[DIRECTIVE PARSER] Skill registry slash check error: {e}")
 
@@ -139,24 +199,7 @@ class DirectiveParser:
             should_skip_intent_extractor,
         )
 
-        has_slash_file = bool(
-            re.search(r"/(?:read[-_]?file|file|attachment|document_reader)", raw_text, re.IGNORECASE)
-        )
-        has_slash_max_words = bool(
-            re.search(r"/(?:max_words|max-words|maxwords)", raw_text, re.IGNORECASE)
-        )
-        has_slash_history = bool(
-            re.search(r"/history", raw_text, re.IGNORECASE)
-        )
-        has_thread_files = bool(available_files)
-
-        if not should_skip_intent_extractor(
-            raw_text=raw_text,
-            is_file_cmd=has_slash_file,
-            has_slash_max_words=has_slash_max_words,
-            has_slash_history=has_slash_history,
-            has_thread_files=has_thread_files,
-        ):
+        if not should_skip_intent_extractor(raw_text=raw_text) and text_cleaned.strip():
             intent: ExtractedIntent = await extract_user_intent(
                 text_cleaned, available_files=available_files
             )
@@ -204,7 +247,7 @@ class DirectiveParser:
             for act in llm_actions:
                 act_name = act.get("name") if isinstance(act, dict) else getattr(act, "name", None)
                 act_params = act.get("params", {}) if isinstance(act, dict) else getattr(act, "params", {})
-                if act_name and not any(a.name == act_name for a in actions):
+                if act_name and act_name != "stop_discussion" and not any(a.name == act_name for a in actions):
                     actions.append(ActionDirective(name=act_name, params=act_params))
 
         return ParsedDirectives(

@@ -1,8 +1,5 @@
 {
-  "workflow_config": "test3",
-  "circuit_breaker_enabled": true,
-  "circuit_breaker_threshold_usd": 1.5,
-  "scribe_enabled": true,
+  "workflow_config": "idea_architecture_feasibility_review",
   "enabled_agents": [
     "Architect",
     "CompliancePrivacyAndGovernanceOfficer",
@@ -110,7 +107,8 @@
       "icon_url": "static/image_05.png",
       "is_short_output": false,
       "skills": [
-        "codebase_inspection"
+        "codebase_inspection",
+        "document_reader"
       ]
     },
     "ScalabilityEngineer": {
