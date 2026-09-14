@@ -13,11 +13,7 @@ import sys
 from core.slack_security import verify_slack_signature as _default_verify_slack_signature
 from nlp.nl_patterns import is_stop_command
 from orchestration.agent_router import process_and_respond
-from orchestration.thread_state import (
-    interrupt_thread_discussion,
-    is_discussion_active,
-    request_thread_stop,
-)
+from orchestration.thread_state import thread_state_manager
 from pipeline.entity_resolver import entity_resolver
 from services.slack_client import publish_app_home as _default_publish_app_home
 
@@ -200,17 +196,17 @@ async def handle_slack_events(request: Request, background_tasks: BackgroundTask
                         f"[WEBHOOK] Stop command received from user in channel {channel_id}, thread {thread_ts}. Stopping thread discussion."
                     )
                     PROCESSED_EVENTS[event_key] = now
-                    request_thread_stop(channel_id, thread_ts)
+                    thread_state_manager.request_stop(channel_id, thread_ts)
                     return Response(status_code=200)
 
                 # User messages must either have a bracketed tag or be an app_mention/DM
                 if has_tag or is_mention_or_dm:
                     should_process = True
-                    if is_discussion_active(channel_id, thread_ts):
+                    if thread_state_manager.is_discussion_active(channel_id, thread_ts):
                         logger.info(
                             f"[WEBHOOK] Ongoing discussion in thread {thread_ts} detected. Interrupting discussion for new query: {raw_text[:50]}"
                         )
-                        interrupt_thread_discussion(channel_id, thread_ts)
+                        thread_state_manager.interrupt_discussion(channel_id, thread_ts)
                 else:
                     logger.info(
                         f"Skipping plain user message in channel {channel_id} without mention/tag"

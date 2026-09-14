@@ -20,7 +20,6 @@ from orchestration.agent_settings import (
     is_circuit_breaker_enabled,
     settings_manager,
 )
-from orchestration.thread_state import clear_thread_state, thread_state_manager
 from pipeline.spend_governance import spend_governance
 from services.slack_client import post_agent_response, post_system_message
 

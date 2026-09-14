@@ -7,22 +7,13 @@ from orchestration.agent_router import (
     process_and_respond,
 )
 from orchestration.agent_settings import reset_enabled_agents
-from orchestration.thread_state import (
-    CUSTOM_FLOW_THREADS,
-    REMAINING_AGENTS_MAP,
-    STOP_REQUESTED_THREADS,
-    THREAD_GENERATIONS,
-    request_thread_stop,
-)
+from orchestration.thread_state import thread_state_manager
 
 
 @pytest.fixture(autouse=True)
 def reset_state():
     reset_enabled_agents()
-    REMAINING_AGENTS_MAP.clear()
-    CUSTOM_FLOW_THREADS.clear()
-    STOP_REQUESTED_THREADS.clear()
-    THREAD_GENERATIONS.clear()
+    thread_state_manager.reset_all()
 
 
 @pytest.mark.anyio
@@ -94,8 +85,8 @@ async def test_internal_loop_multi_agent_custom_flow(monkeypatch):
     assert any("Innovator response proposing a new idea" in c for c in assistant_posts_in_turn_2)
 
     # 4. Verify thread state cleanup
-    assert thread_key not in REMAINING_AGENTS_MAP
-    assert thread_key not in CUSTOM_FLOW_THREADS
+    assert thread_key not in thread_state_manager.remaining_agents_map
+    assert thread_key not in thread_state_manager.custom_flow_threads
 
 
 @pytest.mark.anyio
@@ -128,7 +119,7 @@ async def test_internal_loop_user_stop_interruption(monkeypatch):
         mock_choice.message.tool_calls = None
         # Simulate user typing 'stop' right after Turn 1 LLM finishes
         if turn_counter == 1:
-            request_thread_stop(channel_id, thread_ts)
+            thread_state_manager.request_stop(channel_id, thread_ts)
         return MagicMock(choices=[mock_choice], usage=None)
 
     monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_llm_run)

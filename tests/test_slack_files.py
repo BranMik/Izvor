@@ -6,9 +6,7 @@ from nlp.message_builder import build_llm_messages
 from nlp.nl_patterns import extract_file_instruction
 from orchestration.agent_router import process_and_respond
 from orchestration.nomination import resolve_target_file
-from orchestration.thread_state import (
-    get_thread_file_context,
-)
+from orchestration.thread_state import thread_state_manager
 from services.slack_client import download_slack_file
 
 
@@ -264,7 +262,7 @@ async def test_file_context_lifecycle_in_process_and_respond():
                         assert res.get("ok") is True
 
                         # Since Gemini was the only tagged agent in explicit target mode, discussion finished and cleared file context
-                        assert get_thread_file_context(channel_id, thread_ts) is None
+                        assert thread_state_manager.get_file_context(channel_id, thread_ts) is None
 
                         # 2. Test explicit multi-agent flow: [Visionary] and [Architect]
                         res2 = await process_and_respond(
@@ -284,4 +282,4 @@ async def test_file_context_lifecycle_in_process_and_respond():
                         )
                         assert res3.get("ok") is True
                         # After OpAiTerra finishes, file context is cleanly destroyed
-                        assert get_thread_file_context(channel_id, thread_ts) is None
+                        assert thread_state_manager.get_file_context(channel_id, thread_ts) is None

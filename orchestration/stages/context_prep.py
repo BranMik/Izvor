@@ -15,14 +15,7 @@ from orchestration.agent_settings import (
     settings_manager,
 )
 from orchestration.nomination import get_initial_agents
-from orchestration.thread_state import (
-    clear_thread_history_limit,
-    get_thread_file_context,
-    get_thread_history_limit,
-    is_thread_stopped,
-    set_thread_history_limit,
-    thread_state_manager,
-)
+from orchestration.thread_state import thread_state_manager
 from pipeline.orchestrator import SandwichOrchestrator
 from prompts import build_agent_prompt
 from services.slack_client import fetch_thread_history
@@ -72,7 +65,7 @@ class ContextPrepStageMixin:
                 prior_messages = history
 
             if ctx.history_limit is not None:
-                set_thread_history_limit(
+                thread_state_manager.set_history_limit(
                     channel_id=ctx.channel_id,
                     thread_ts=ctx.thread_ts,
                     limit=ctx.history_limit,
@@ -87,12 +80,12 @@ class ContextPrepStageMixin:
                     f"[ROUTER] Applying /history {ctx.history_limit}: kept {len(effective_prior)} of {len(prior_messages)} prior messages for user prompt."
                 )
             else:
-                clear_thread_history_limit(ctx.channel_id, ctx.thread_ts)
+                thread_state_manager.clear_history_limit(ctx.channel_id, ctx.thread_ts)
                 effective_prior = prior_messages
 
             ctx.effective_history = effective_prior
         else:
-            hist_limit_info = get_thread_history_limit(
+            hist_limit_info = thread_state_manager.get_history_limit(
                 ctx.channel_id, ctx.thread_ts
             )
             if hist_limit_info is not None:
@@ -148,7 +141,7 @@ class ContextPrepStageMixin:
         ctx.force_termination = bool(
             (ctx.was_explicit_target and not ctx.is_bot_trigger and not ctx.remaining)
             or (ctx.is_custom_flow and not ctx.remaining)
-            or is_thread_stopped(ctx.channel_id, ctx.thread_ts)
+            or thread_state_manager.is_stopped(ctx.channel_id, ctx.thread_ts)
         )
 
         if ctx.force_termination:
@@ -180,7 +173,7 @@ class ContextPrepStageMixin:
                 ctx.remaining, is_custom_flow=ctx.is_custom_flow
             )
 
-        ctx.file_context = get_thread_file_context(
+        ctx.file_context = thread_state_manager.get_file_context(
             ctx.channel_id, ctx.thread_ts
         )
         if not getattr(ctx, "thread_language", None):

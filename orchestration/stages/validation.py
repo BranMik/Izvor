@@ -15,16 +15,7 @@ from orchestration.nomination import (
     parse_agent_and_prompt,
     resolve_target_file,
 )
-from orchestration.thread_state import (
-    clear_thread_file_context,
-    clear_thread_stop,
-    get_thread_language,
-    set_thread_file_context,
-    set_thread_language,
-    set_thread_max_words,
-    set_thread_min_words,
-    thread_state_manager,
-)
+from orchestration.thread_state import thread_state_manager
 from pipeline.directive_parser import directive_parser
 from pipeline.entity_resolver import entity_resolver
 from services.slack_client import (
@@ -67,11 +58,10 @@ class ValidationStageMixin:
             # Check for stop_discussion or terminal action
             if directives.is_stop or any(a.name == "stop_discussion" for a in ctx.actions):
                 logger.info(f"[ROUTER] Stop action triggered for thread {ctx.thread_key}.")
-                from orchestration.thread_state import request_thread_stop
-                request_thread_stop(ctx.channel_id, ctx.thread_ts)
+                thread_state_manager.request_stop(ctx.channel_id, ctx.thread_ts)
                 return {"ok": True, "halted": True, "action": "stop_discussion"}
 
-            clear_thread_stop(ctx.channel_id, ctx.thread_ts)
+            thread_state_manager.clear_stop(ctx.channel_id, ctx.thread_ts)
             fetch_files_fn = self._get_hook(
                 "fetch_thread_files", fetch_thread_files
             )
@@ -189,23 +179,23 @@ class ValidationStageMixin:
                 logger.error(f"[VALIDATION] Error executing skill action handler: {e}")
 
             if ctx.max_words_limit is not None:
-                set_thread_max_words(
+                thread_state_manager.set_max_words(
                     ctx.channel_id, ctx.thread_ts, ctx.max_words_limit
                 )
             if ctx.min_words_limit is not None:
-                set_thread_min_words(
+                thread_state_manager.set_min_words(
                     ctx.channel_id, ctx.thread_ts, ctx.min_words_limit
                 )
 
             # Lock language for this thread on first human prompt or preserve existing
-            current_lang = get_thread_language(ctx.channel_id, ctx.thread_ts)
+            current_lang = thread_state_manager.get_language(ctx.channel_id, ctx.thread_ts)
             if not current_lang:
                 text_to_detect = ctx.raw_text_cleaned or ctx.raw_text
                 logger.info(
                     f"[ROUTER] Inferring language for thread {ctx.thread_key} from text: '{text_to_detect[:80]}'"
                 )
                 current_lang = await detect_language_llm(text_to_detect)
-                set_thread_language(ctx.channel_id, ctx.thread_ts, current_lang)
+                thread_state_manager.set_language(ctx.channel_id, ctx.thread_ts, current_lang)
                 logger.info(
                     f"[ROUTER] Locked thread language for {ctx.thread_key}: {current_lang}"
                 )
@@ -368,7 +358,7 @@ class ValidationStageMixin:
                     )
                     dl_res = await download_file_fn(chosen_file)
                     if dl_res.get("ok"):
-                        set_thread_file_context(
+                        thread_state_manager.set_file_context(
                             ctx.channel_id,
                             ctx.thread_ts,
                             {
@@ -382,7 +372,7 @@ class ValidationStageMixin:
                             },
                         )
                     else:
-                        set_thread_file_context(
+                        thread_state_manager.set_file_context(
                             ctx.channel_id,
                             ctx.thread_ts,
                             {
@@ -399,7 +389,7 @@ class ValidationStageMixin:
                     logger.warning(
                         f"[ROUTER] User requested file reading but no files were found in thread {ctx.thread_key}"
                     )
-                    set_thread_file_context(
+                    thread_state_manager.set_file_context(
                         ctx.channel_id,
                         ctx.thread_ts,
                         {
@@ -411,7 +401,7 @@ class ValidationStageMixin:
                         },
                     )
             else:
-                clear_thread_file_context(ctx.channel_id, ctx.thread_ts)
+                thread_state_manager.clear_file_context(ctx.channel_id, ctx.thread_ts)
         else:
             ctx.raw_text_cleaned = ctx.raw_text
             agent_key, prompt, was_explicit_target = parse_agent_and_prompt(
@@ -421,7 +411,7 @@ class ValidationStageMixin:
             ctx.prompt = prompt
             ctx.was_explicit_target = was_explicit_target
             ctx.thread_language = (
-                get_thread_language(ctx.channel_id, ctx.thread_ts) or "English"
+                thread_state_manager.get_language(ctx.channel_id, ctx.thread_ts) or "English"
             )
 
         if not ctx.agent_key:

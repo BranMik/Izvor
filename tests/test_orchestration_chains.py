@@ -14,13 +14,7 @@ from orchestration.agent_settings import (
     set_sandwich_config,
 )
 from orchestration.nomination import enforce_valid_nomination, get_initial_agents
-from orchestration.thread_state import (
-    CUSTOM_FLOW_THREADS,
-    RATE_LIMIT_ALREADY_RETRIED,
-    RATE_LIMIT_RETRY_QUEUE,
-    REMAINING_AGENTS_MAP,
-    STOP_REQUESTED_THREADS,
-)
+from orchestration.thread_state import thread_state_manager
 from services.slack_client import build_app_home_view
 
 
@@ -30,22 +24,14 @@ def setup_test_chains(monkeypatch):
     set_orchestration_mode("sandwich")
     set_sandwich_config([], [])
     set_fixed_config([])
-    REMAINING_AGENTS_MAP.clear()
-    RATE_LIMIT_RETRY_QUEUE.clear()
-    RATE_LIMIT_ALREADY_RETRIED.clear()
-    CUSTOM_FLOW_THREADS.clear()
-    STOP_REQUESTED_THREADS.clear()
+    thread_state_manager.reset_all()
     monkeypatch.setattr(agent_router.asyncio, "sleep", AsyncMock(return_value=None))
     yield
     reset_enabled_agents()
     set_orchestration_mode("sandwich")
     set_sandwich_config([], [])
     set_fixed_config([])
-    REMAINING_AGENTS_MAP.clear()
-    RATE_LIMIT_RETRY_QUEUE.clear()
-    RATE_LIMIT_ALREADY_RETRIED.clear()
-    CUSTOM_FLOW_THREADS.clear()
-    STOP_REQUESTED_THREADS.clear()
+    thread_state_manager.reset_all()
 
 
 def test_sandwich_mode_ordering_and_pool():
@@ -197,7 +183,7 @@ async def test_fixed_mode_end_to_end_discussion(monkeypatch):
     assert posted_messages[0]["username"] == "TechLead"
     # Deterministic nomination enforced to next agent in chain
     assert "[Innovator]" in posted_messages[0]["text"]
-    assert REMAINING_AGENTS_MAP[thread_key] == ["Innovator", "Architect"]
+    assert thread_state_manager.remaining_agents_map[thread_key] == ["Innovator", "Architect"]
 
     # Turn 2: Innovator
     mock_choice_2 = MagicMock()
@@ -220,7 +206,7 @@ async def test_fixed_mode_end_to_end_discussion(monkeypatch):
     assert len(posted_messages) == 2
     assert posted_messages[1]["username"] == "Innovator"
     assert "[Architect]" in posted_messages[1]["text"]
-    assert REMAINING_AGENTS_MAP[thread_key] == ["Architect"]
+    assert thread_state_manager.remaining_agents_map[thread_key] == ["Architect"]
 
     # Turn 3: Architect (final in chain)
     mock_choice_3 = MagicMock()
@@ -243,7 +229,7 @@ async def test_fixed_mode_end_to_end_discussion(monkeypatch):
     assert len(posted_messages) == 3
     assert posted_messages[2]["username"] == "Architect"
     # Thread finished -> state cleaned up, tags stripped
-    assert thread_key not in REMAINING_AGENTS_MAP
+    assert thread_key not in thread_state_manager.remaining_agents_map
     assert "[" not in posted_messages[2]["text"].split("\n\n[")[0]
 
 
@@ -302,7 +288,7 @@ async def test_sandwich_mode_end_to_end_discussion(monkeypatch):
     assert len(posted_messages) == 1
     assert posted_messages[0]["username"] == "Architect"
     assert "[Visionary]" in posted_messages[0]["text"]
-    assert REMAINING_AGENTS_MAP[thread_key] == ["Visionary", "TechLead", "Architect"]
+    assert thread_state_manager.remaining_agents_map[thread_key] == ["Visionary", "TechLead", "Architect"]
 
     # Turn 2: Visionary speaks (last of start_chain).
     # Visionary cites [Architect] in text and tries to nominate [Architect],
@@ -328,7 +314,7 @@ async def test_sandwich_mode_end_to_end_discussion(monkeypatch):
     assert posted_messages[1]["username"] == "Visionary"
     # Must have corrected nomination to TechLead (middle pool agent)
     assert "[TechLead]" in posted_messages[1]["text"]
-    assert REMAINING_AGENTS_MAP[thread_key] == ["TechLead", "Architect"]
+    assert thread_state_manager.remaining_agents_map[thread_key] == ["TechLead", "Architect"]
 
     # Turn 3: TechLead speaks (middle pool).
     # TechLead is the last of middle pool, so designated next agent is Architect (end_chain).
@@ -352,7 +338,7 @@ async def test_sandwich_mode_end_to_end_discussion(monkeypatch):
     assert len(posted_messages) == 3
     assert posted_messages[2]["username"] == "TechLead"
     assert "[Architect]" in posted_messages[2]["text"]
-    assert REMAINING_AGENTS_MAP[thread_key] == ["Architect"]
+    assert thread_state_manager.remaining_agents_map[thread_key] == ["Architect"]
 
     # Turn 4: Architect speaks (end_chain).
     # This is the final agent; must force termination and NOT nominate anyone.
@@ -376,7 +362,7 @@ async def test_sandwich_mode_end_to_end_discussion(monkeypatch):
     assert len(posted_messages) == 4
     assert posted_messages[3]["username"] == "Architect"
     # Thread finished -> state cleaned up, tags stripped
-    assert thread_key not in REMAINING_AGENTS_MAP
+    assert thread_key not in thread_state_manager.remaining_agents_map
     assert "[" not in posted_messages[3]["text"].split("\n\n[")[0]
 
 
