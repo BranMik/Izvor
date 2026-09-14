@@ -160,28 +160,28 @@ async def test_extract_user_intent_success():
 @pytest.mark.anyio
 async def test_extract_user_intent_empty_text():
     intent = await extract_user_intent("")
-    assert intent == {
-        "max_words": None,
-        "min_words": None,
-        "history": None,
-        "file_use": False,
-        "target_file": None,
-        "excluded_agents": [],
-    }
+    assert intent["max_words"] is None
+    assert intent["min_words"] is None
+    assert intent["history"] is None
+    assert intent["file_use"] is False
+    assert intent["target_file"] is None
+    assert intent["excluded_agents"] == []
+    assert intent["actions"] == []
+    assert intent["modifiers"] == {}
 
 
 @pytest.mark.anyio
 async def test_extract_user_intent_failure_fallback():
     with patch("nlp.intent_extractor.litellm.completion", side_effect=Exception("API Down")):
         intent = await extract_user_intent("some message")
-        assert intent == {
-            "max_words": None,
-            "min_words": None,
-            "history": None,
-            "file_use": False,
-            "target_file": None,
-            "excluded_agents": [],
-        }
+        assert intent["max_words"] is None
+        assert intent["min_words"] is None
+        assert intent["history"] is None
+        assert intent["file_use"] is False
+        assert intent["target_file"] is None
+        assert intent["excluded_agents"] == []
+        assert intent["actions"] == []
+        assert intent["modifiers"] == {}
 
 
 @pytest.mark.anyio

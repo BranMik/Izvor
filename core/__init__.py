@@ -38,10 +38,13 @@ from .model_catalog import (
     load_provider_catalog,
 )
 from .models import (
+    ActionDirective,
+    AttachmentType,
     CircuitBreakerConfig,
     ExtractedIntent,
     FileContext,
     HistoryLimitConfig,
+    MediaAttachment,
     ModelPricing,
     OrchestrationMode,
 )
@@ -67,11 +70,14 @@ __all__ = [
     "USAGE_AGENT_PROMPT",
     "USAGE_CHANNEL_ID",
     "USAGE_CHANNEL_NAME",
+    "ActionDirective",
+    "AttachmentType",
     "CircuitBreakerConfig",
     "DiscussionBrief",
     "ExtractedIntent",
     "FileContext",
     "HistoryLimitConfig",
+    "MediaAttachment",
     "ModelPricing",
     "OrchestrationMode",
     "SessionContext",

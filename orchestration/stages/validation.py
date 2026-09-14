@@ -50,6 +50,9 @@ class ValidationStageMixin:
     ) -> dict[str, Any] | None:
         """Stage 1: Directives, file inspection, tag validation, and candidate exclusions."""
         directives = await directive_parser.parse(ctx.raw_text)
+        ctx.actions = directives.actions
+        ctx.modifiers = directives.modifiers
+        ctx.attachments = directives.attachments
         ctx.history_limit = directives.history_limit
         ctx.max_words_limit = directives.max_words
         ctx.min_words_limit = directives.min_words
@@ -59,6 +62,13 @@ class ValidationStageMixin:
         ctx.raw_text_cleaned = directives.cleaned_prompt
 
         post_sys_msg = self._get_hook("post_system_message", post_system_message)
+
+        # Check for stop_discussion or terminal action
+        if directives.is_stop or any(a.name == "stop_discussion" for a in ctx.actions):
+            logger.info(f"[ROUTER] Stop action triggered for thread {ctx.thread_key}.")
+            from orchestration.thread_state import request_thread_stop
+            request_thread_stop(ctx.channel_id, ctx.thread_ts)
+            return {"ok": True, "halted": True, "action": "stop_discussion"}
 
         if not ctx.is_bot_trigger:
             clear_thread_stop(ctx.channel_id, ctx.thread_ts)
@@ -72,6 +82,9 @@ class ValidationStageMixin:
                 directives = await directive_parser.parse(
                     ctx.raw_text, available_files=ctx.thread_files
                 )
+                ctx.actions = directives.actions
+                ctx.modifiers = directives.modifiers
+                ctx.attachments = directives.attachments
                 ctx.history_limit = directives.history_limit
                 ctx.max_words_limit = directives.max_words
                 ctx.min_words_limit = directives.min_words
@@ -79,6 +92,18 @@ class ValidationStageMixin:
                 ctx.is_file_req = directives.is_file_req
                 ctx.target_filename = directives.target_filename
                 ctx.raw_text_cleaned = directives.cleaned_prompt
+
+            # Execute any registered orchestrator action handlers
+            try:
+                from skills import skill_registry
+                for act in ctx.actions:
+                    sk = skill_registry.get(act.name)
+                    if sk and sk.action_handler:
+                        act_res = await sk.action_handler(ctx, act.params)
+                        if act_res and isinstance(act_res, dict) and act_res.get("halted"):
+                            return act_res
+            except Exception as e:
+                logger.error(f"[VALIDATION] Error executing skill action handler: {e}")
 
             if ctx.max_words_limit is not None:
                 set_thread_max_words(

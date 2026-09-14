@@ -120,6 +120,7 @@ def build_agent_prompt(
     max_words: int | None = None,
     min_words: int | None = None,
     skills: list[str] | None = None,
+    modifiers: dict[str, Any] | None = None,
 ) -> str:
     """
     Builds the complete system prompt for a given agent by combining
@@ -137,8 +138,16 @@ def build_agent_prompt(
     if is_system_agent(agent_key):
         return f"\n{persona_content}\n\n"
 
+    effective_max = max_words
+    effective_min = min_words
+    if modifiers:
+        if effective_max is None and modifiers.get("max_words") is not None:
+            effective_max = modifiers["max_words"]
+        if effective_min is None and modifiers.get("min_words") is not None:
+            effective_min = modifiers["min_words"]
+
     word_constraints = _format_word_constraints(
-        max_words=max_words, min_words=min_words
+        max_words=effective_max, min_words=effective_min
     )
 
     nomination_rules = _read_prompt_file(SHARED_DIR / "nomination_rules.md")
@@ -155,11 +164,32 @@ def build_agent_prompt(
     else:
         output_constraints = _read_prompt_file(SHARED_DIR / "output_constraints.md")
 
+    # Render any custom prompt modifiers from skills
+    custom_directives = []
+    if modifiers:
+        try:
+            from skills import skill_registry
+
+            for mod_k, mod_v in modifiers.items():
+                if mod_k in ("max_words", "min_words", "history", "file_use", "target_file", "excluded_agents"):
+                    continue
+                sk = skill_registry.get(mod_k)
+                if sk and sk.instructions:
+                    formatted_inst = sk.instructions.replace("{value}", str(mod_v))
+                    custom_directives.append(formatted_inst)
+                elif mod_v:
+                    custom_directives.append(f"### DIRECTIVE: {mod_k.replace('_', ' ').upper()}\n{mod_v}")
+        except Exception as e:
+            logger.debug(f"[PROMPT BUILDER] Error formatting custom modifiers: {e}")
+
+    directives_block = f"\n\n{chr(10).join(custom_directives)}\n" if custom_directives else ""
+
     prompt = (
         f"\n{persona_content}\n\n"
         f"{fixed_constraints}\n\n"
         f"{output_constraints}\n\n"
-        f"{nomination_rules}\n\n"
+        f"{nomination_rules}\n"
+        f"{directives_block}\n"
     )
 
     # Append Skills Catalog for on-demand progressive disclosure (strictly filtered to authorized skills)
