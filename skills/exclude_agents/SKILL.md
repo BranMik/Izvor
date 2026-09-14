@@ -7,6 +7,7 @@ triggers:
   slash:
     - /exclude
   arg_type: list
+  param_name: agents
 ---
 
 ### EXCLUDE AGENTS

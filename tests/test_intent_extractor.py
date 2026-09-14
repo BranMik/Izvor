@@ -7,122 +7,52 @@ from nlp.intent_extractor import extract_user_intent, should_skip_intent_extract
 
 
 def test_should_skip_intent_extractor_rules():
-    # Rule 1: Always skip on /stop
+    # Only /stop command triggers skip
     assert should_skip_intent_extractor("/stop") is True
     assert should_skip_intent_extractor("<@U123> /stop please") is True
+    assert should_skip_intent_extractor("/STOP") is True
 
-    # Rule 2: Never skip on /file alone
-    assert (
-        should_skip_intent_extractor(
-            "/file: schema.sql",
-            is_file_cmd=True,
-            has_slash_max_words=False,
-            has_slash_history=False,
-            has_thread_files=True,
-        )
-        is False
-    )
-
-    # Rule 3: Do not skip if /history or /max_words is used with thread files present (without /file)
-    assert (
-        should_skip_intent_extractor(
-            "/max_words 50 inspect this",
-            is_file_cmd=False,
-            has_slash_max_words=True,
-            has_slash_history=False,
-            has_thread_files=True,
-        )
-        is False
-    )
-    assert (
-        should_skip_intent_extractor(
-            "/history 3 inspect this",
-            is_file_cmd=False,
-            has_slash_max_words=False,
-            has_slash_history=True,
-            has_thread_files=True,
-        )
-        is False
-    )
-
-    # Rule 4: Skip if /file is called explicitly along with /max_words or /history
-    assert (
-        should_skip_intent_extractor(
-            "/file: test.py /max_words 50",
-            is_file_cmd=True,
-            has_slash_max_words=True,
-            has_slash_history=False,
-            has_thread_files=True,
-        )
-        is True
-    )
-    assert (
-        should_skip_intent_extractor(
-            "/file: test.py /history 2",
-            is_file_cmd=True,
-            has_slash_max_words=False,
-            has_slash_history=True,
-            has_thread_files=True,
-        )
-        is True
-    )
-    assert (
-        should_skip_intent_extractor(
-            "/file: test.py /max_words 50 /history 2",
-            is_file_cmd=True,
-            has_slash_max_words=True,
-            has_slash_history=True,
-            has_thread_files=True,
-        )
-        is True
-    )
-
-    # Both max_words and history explicit and no thread files -> skip
-    assert (
-        should_skip_intent_extractor(
-            "/max_words 50 /history 2",
-            is_file_cmd=False,
-            has_slash_max_words=True,
-            has_slash_history=True,
-            has_thread_files=False,
-        )
-        is True
-    )
-
-    # Standard natural language -> do not skip
-    assert (
-        should_skip_intent_extractor(
-            "explain how this works in 50 words",
-            is_file_cmd=False,
-            has_slash_max_words=False,
-            has_slash_history=False,
-            has_thread_files=False,
-        )
-        is False
-    )
+    # All other prompts and command combinations do NOT skip intent extraction
+    assert should_skip_intent_extractor("/file: schema.sql") is False
+    assert should_skip_intent_extractor("/max_words 50 inspect this") is False
+    assert should_skip_intent_extractor("/history 3 inspect this") is False
+    assert should_skip_intent_extractor("/file: test.py /max_words 50") is False
+    assert should_skip_intent_extractor("/file: test.py /history 2") is False
+    assert should_skip_intent_extractor("/file: test.py /max_words 50 /history 2") is False
+    assert should_skip_intent_extractor("/max_words 50 /history 2") is False
+    assert should_skip_intent_extractor("explain how this works in 50 words") is False
+    assert should_skip_intent_extractor("/exclude [TechLead] debate this topic in 50 words") is False
+    assert should_skip_intent_extractor("/exclude [TechLead] /max_words 50 /history 2") is False
+    assert should_skip_intent_extractor("<@U0BR4EH6XMY> Test /max_words 5, exclude Visionary") is False
+    assert should_skip_intent_extractor("<@U0BR4EH6XMY> Test /max_words 50 /history 2, exclude Visionary") is False
+    assert should_skip_intent_extractor("Rasprava /max_words 10, bez Visionary") is False
 
 
-    # Presence of /exclude does NOT affect should_skip rules
-    assert (
-        should_skip_intent_extractor(
-            "/exclude [TechLead] debate this topic in 50 words",
-            is_file_cmd=False,
-            has_slash_max_words=False,
-            has_slash_history=False,
-            has_thread_files=False,
+@pytest.mark.anyio
+async def test_stop_discussion_never_inferred_from_llm():
+    """
+    Verifies that even if an LLM returns action 'stop_discussion' for conversational phrases
+    like 'cut scope' or 'please conclude', it is filtered out and never emitted.
+    """
+    mock_resp = MagicMock()
+    mock_resp.choices = [
+        MagicMock(
+            message=MagicMock(
+                content=json.dumps(
+                    {
+                        "actions": [{"name": "stop_discussion", "params": {}}],
+                    }
+                )
+            )
         )
-        is False
-    )
-    assert (
-        should_skip_intent_extractor(
-            "/exclude [TechLead] /max_words 50 /history 2",
-            is_file_cmd=False,
-            has_slash_max_words=True,
-            has_slash_history=True,
-            has_thread_files=False,
-        )
-        is True
-    )
+    ]
+
+    from nlp.intent_extractor import intent_extractor
+
+    with patch("nlp.intent_extractor.litellm.completion", return_value=mock_resp):
+        intent = await intent_extractor.extract_intent("Cut scope ruthlessly")
+        assert not intent.has_action("stop_discussion")
+        assert "stop_discussion" not in [a.name for a in intent.actions]
 
 
 @pytest.mark.anyio
@@ -253,3 +183,116 @@ async def test_directive_parser_uses_intent_extractor_for_all_directives():
         assert res.is_file_req is True
         assert res.target_filename == "schema.sql"
         assert res.excluded_agents == ["TechLead"]
+
+
+@pytest.mark.anyio
+async def test_sandwich_exclusion_and_bot_turn_not_stopped(monkeypatch):
+    """
+    Verifies that when an agent in Sandwich start_chain (e.g. Visionary) is excluded via
+    natural language alongside /max_words:
+    1. IntentExtractor extracts exclude_agents without being skipped.
+    2. Visionary is removed from remaining agents.
+    3. ScopeOptimizer speaks first; if it tags [Visionary], it is corrected.
+    4. Turn 2 with is_bot_trigger=True does NOT parse user directives or stop discussion.
+    """
+    from unittest.mock import AsyncMock
+    from core.config import AGENTS_CONFIG
+    from orchestration.agent_router import process_and_respond
+    from orchestration.agent_settings import (
+        set_orchestration_mode,
+        set_sandwich_config,
+        set_agent_enabled,
+    )
+    from orchestration.thread_state import thread_state_manager
+
+    set_orchestration_mode("sandwich")
+    set_sandwich_config(
+        start_chain=["ScopeOptimizer", "Visionary"],
+        end_chain=["Architect"],
+    )
+    for a in AGENTS_CONFIG:
+        set_agent_enabled(a, a in ("ScopeOptimizer", "Visionary", "Architect", "TechLead"))
+
+    posted_messages = []
+
+    async def mock_post(channel_id, thread_ts, text, username, icon_url=None):
+        posted_messages.append({"username": username, "text": text})
+        return {"ok": True, "ts": f"77777.{len(posted_messages)}"}
+
+    monkeypatch.setattr("orchestration.agent_router.post_agent_response", mock_post)
+    monkeypatch.setattr("orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[]))
+    monkeypatch.setattr("orchestration.agent_router.record_thread_tokens", MagicMock())
+
+    mock_intent_resp = MagicMock()
+    mock_intent_resp.choices = [
+        MagicMock(
+            message=MagicMock(
+                content=json.dumps(
+                    {
+                        "modifiers": {"max_words": 5},
+                        "actions": [{"name": "exclude_agents", "params": {"agents": ["Visionary"]}}],
+                    }
+                )
+            )
+        )
+    ]
+
+    mock_choice_1 = MagicMock()
+    mock_choice_1.message.content = "Cut scope ruthlessly. [Visionary]"
+    mock_choice_1.message.tool_calls = None
+    mock_llm_1 = MagicMock(choices=[mock_choice_1], usage=None)
+
+    async def mock_run(func, *args, **kwargs):
+        # If litellm called for intent extractor:
+        msgs = kwargs.get("messages") or (args[2] if len(args) > 2 else [])
+        if any("intent" in str(m.get("content", "")).lower() for m in msgs if isinstance(m, dict)):
+            return mock_intent_resp
+        return mock_llm_1
+
+    import litellm
+    monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_run)
+    monkeypatch.setattr(litellm, "completion", lambda **kwargs: mock_intent_resp)
+
+    from orchestration.thread_state import clear_thread_state
+
+    thread_key = ("C_TEST", "77777.0001")
+    clear_thread_state(thread_key[0], thread_key[1])
+
+    # Turn 1: User prompt
+    res_1 = await process_and_respond(
+        channel_id="C_TEST",
+        thread_ts="77777.0001",
+        raw_text="<@U0BR4EH6XMY> Test /max_words 5, exclude Visionary",
+        is_bot_trigger=False,
+    )
+
+    assert res_1.get("ok") is True
+    assert len(posted_messages) == 1
+    assert posted_messages[0]["username"] == "Scope Optimizer"
+    # Visionary was excluded so remaining sequence corrected nomination to next eligible (TechLead / Architect)
+    assert "[Visionary]" not in posted_messages[0]["text"]
+    remaining = thread_state_manager.get_remaining_agents(thread_key[0], thread_key[1])
+    assert "Visionary" not in remaining
+
+    # Turn 2: Next agent triggered by bot response
+    mock_choice_2 = MagicMock()
+    mock_choice_2.message.content = "Next agent response."
+    mock_choice_2.message.tool_calls = None
+    mock_llm_2 = MagicMock(choices=[mock_choice_2], usage=None)
+
+    async def mock_run_2(func, *args, **kwargs):
+        return mock_llm_2
+
+    monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_run_2)
+
+    res_2 = await process_and_respond(
+        channel_id="C_TEST",
+        thread_ts="77777.0001",
+        raw_text=posted_messages[0]["text"],
+        is_bot_trigger=True,
+    )
+
+    assert res_2.get("ok") is True
+    assert res_2.get("halted") is not True
+    assert len(posted_messages) == 2
+

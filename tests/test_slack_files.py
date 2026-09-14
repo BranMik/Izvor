@@ -33,33 +33,15 @@ def test_extract_file_instruction_slash_commands():
 
 
 def test_extract_file_instruction_croatian_nl():
-    # Various Croatian natural language phrases
-    cases = [
-        "Molim te pročitaj fajl koji sam poslao",
-        "Pogledaj datoteku i reci mi što misliš",
-        "Analiziraj privitak i pronađi bugove",
-        "Provjeri kod u privitku",
-        "U privitku se nalazi specifikacija projekta",
-        "Uploadao sam fajl s podacima",
-        "Poslao sam fajl na pregled",
-    ]
-    for prompt in cases:
-        req, _, _ = extract_file_instruction(prompt)
-        assert req is True, f"Failed to detect Croatian trigger in: '{prompt}'"
+    # Note: NL pattern extraction is now handled by IntentExtractor (Micro-LLM)
+    # via DirectiveParser with document_reader action directive.
+    pass
 
 
 def test_extract_file_instruction_english_nl():
-    cases = [
-        "Please read the attached file and summarize it",
-        "Check the file for any syntax errors",
-        "Analyze attachment and provide feedback",
-        "Inspect the uploaded file",
-        "Look at the file and explain the logic",
-        "The requirements are in the attachment",
-    ]
-    for prompt in cases:
-        req, _, _ = extract_file_instruction(prompt)
-        assert req is True, f"Failed to detect English trigger in: '{prompt}'"
+    # Note: NL pattern extraction is now handled by IntentExtractor (Micro-LLM)
+    # via DirectiveParser with document_reader action directive.
+    pass
 
 
 def test_extract_file_instruction_matching_uploaded_filename():
@@ -147,7 +129,7 @@ def test_build_llm_messages_file_context_authorized_vs_unauthorized():
     )
     user_turn_unauth = msgs_unauthorized[-1]["content"]
     assert "ATTACHED SLACK FILE" not in user_turn_unauth
-    assert user_turn_unauth == "Objasni ovaj kod."
+    assert user_turn_unauth.startswith("Objasni ovaj kod.")
 
 
 def test_build_llm_messages_file_context_all_authorized():

@@ -146,3 +146,88 @@ async def test_smart_merge_slash_priority_over_llm():
         # Slash command 30 must win over LLM's 100
         assert directives.max_words == 30
         assert directives.modifiers["max_words"] == 30
+
+
+def test_global_skill_declarative_frontmatter():
+    """Verifies that skills marked global: true are universally accessible to all agents."""
+    import json
+    from skills.loader import SkillDefinition
+
+    mock_global_skill = SkillDefinition(
+        name="universal_tool",
+        display_name="Universal Tool",
+        description="A globally accessible skill for all agents.",
+        tools=["web_search"],
+        instructions="Operational instructions for universal tool.",
+        scope="agent",
+        is_global=True,
+    )
+
+    # Register temporarily in skill_registry
+    skill_registry._skills["universal_tool"] = mock_global_skill
+    try:
+        # 1. Listed in get_global_skills
+        assert "universal_tool" in skill_registry.get_global_skills()
+
+        # 2. Included even when agent has 0 configured skills
+        agent_skills = skill_registry.get_agent_skills(allowed_skills=[])
+        assert any(s.name == "universal_tool" for s in agent_skills)
+
+        # 3. Present in prompt catalog even with empty allowed_skills
+        catalog = skill_registry.get_skills_catalog_prompt(allowed_skills=[])
+        assert "universal_tool" in catalog
+
+        # 4. load_skill succeeds without permission error
+        res = skill_registry.execute_tool(
+            tool_name="load_skill",
+            arguments={"skill_name": "universal_tool"},
+            authorized_skills=[],
+        )
+        loaded = json.loads(res)
+        assert loaded.get("status") == "loaded"
+        assert loaded.get("skill") == "universal_tool"
+
+        # 5. MCP tools permitted for execution
+        with patch("skills.loader.execute_mcp_tool", return_value="mock_search_result"):
+            tool_res = skill_registry.execute_tool(
+                tool_name="web_search",
+                arguments={"query": "test"},
+                authorized_skills=[],
+            )
+            assert tool_res == "mock_search_result"
+    finally:
+        skill_registry._skills.pop("universal_tool", None)
+
+
+@pytest.mark.anyio
+async def test_dynamic_slash_parsing_grant_and_revoke_for_all():
+    """Verifies dynamic slash command extraction for grant_for_all and revoke_for_all without hardcoding."""
+    # Test grant_for_all with multiple skills
+    raw1 = "/grant_for_all web_research codebase_inspection Discuss database schema"
+    d1 = await directive_parser.parse(raw1)
+    grant_acts = [a for a in d1.actions if a.name == "grant_for_all"]
+    assert len(grant_acts) == 1
+    assert grant_acts[0].params.get("skills") == ["web_research", "codebase_inspection"]
+    assert "Discuss database schema" in d1.cleaned_prompt
+    assert "/grant_for_all" not in d1.cleaned_prompt
+
+    # Test hyphenated alias /grant-for-all
+    raw2 = "/grant-for-all web_research"
+    d2 = await directive_parser.parse(raw2)
+    assert any(a.name == "grant_for_all" and a.params.get("skills") == ["web_research"] for a in d2.actions)
+
+    # Test revoke_for_all with specific skill
+    raw3 = "/revoke_for_all web_research Please continue"
+    d3 = await directive_parser.parse(raw3)
+    revoke_acts = [a for a in d3.actions if a.name == "revoke_for_all"]
+    assert len(revoke_acts) == 1
+    assert revoke_acts[0].params.get("skills") == ["web_research"]
+    assert "Please continue" in d3.cleaned_prompt
+
+    # Test revoke_for_all all
+    raw4 = "/revoke-for-all all"
+    d4 = await directive_parser.parse(raw4)
+    revoke_acts4 = [a for a in d4.actions if a.name == "revoke_for_all"]
+    assert len(revoke_acts4) == 1
+    assert revoke_acts4[0].params.get("skills") == ["all"]
+

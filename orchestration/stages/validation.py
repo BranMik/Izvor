@@ -49,28 +49,28 @@ class ValidationStageMixin:
         self, ctx: TurnContext
     ) -> dict[str, Any] | None:
         """Stage 1: Directives, file inspection, tag validation, and candidate exclusions."""
-        directives = await directive_parser.parse(ctx.raw_text)
-        ctx.actions = directives.actions
-        ctx.modifiers = directives.modifiers
-        ctx.attachments = directives.attachments
-        ctx.history_limit = directives.history_limit
-        ctx.max_words_limit = directives.max_words
-        ctx.min_words_limit = directives.min_words
-        ctx.excluded_agents = directives.excluded_agents
-        ctx.is_file_req = directives.is_file_req
-        ctx.target_filename = directives.target_filename
-        ctx.raw_text_cleaned = directives.cleaned_prompt
-
         post_sys_msg = self._get_hook("post_system_message", post_system_message)
 
-        # Check for stop_discussion or terminal action
-        if directives.is_stop or any(a.name == "stop_discussion" for a in ctx.actions):
-            logger.info(f"[ROUTER] Stop action triggered for thread {ctx.thread_key}.")
-            from orchestration.thread_state import request_thread_stop
-            request_thread_stop(ctx.channel_id, ctx.thread_ts)
-            return {"ok": True, "halted": True, "action": "stop_discussion"}
-
         if not ctx.is_bot_trigger:
+            directives = await directive_parser.parse(ctx.raw_text)
+            ctx.actions = directives.actions
+            ctx.modifiers = directives.modifiers
+            ctx.attachments = directives.attachments
+            ctx.history_limit = directives.history_limit
+            ctx.max_words_limit = directives.max_words
+            ctx.min_words_limit = directives.min_words
+            ctx.excluded_agents = directives.excluded_agents
+            ctx.is_file_req = directives.is_file_req
+            ctx.target_filename = directives.target_filename
+            ctx.raw_text_cleaned = directives.cleaned_prompt
+
+            # Check for stop_discussion or terminal action
+            if directives.is_stop or any(a.name == "stop_discussion" for a in ctx.actions):
+                logger.info(f"[ROUTER] Stop action triggered for thread {ctx.thread_key}.")
+                from orchestration.thread_state import request_thread_stop
+                request_thread_stop(ctx.channel_id, ctx.thread_ts)
+                return {"ok": True, "halted": True, "action": "stop_discussion"}
+
             clear_thread_stop(ctx.channel_id, ctx.thread_ts)
             fetch_files_fn = self._get_hook(
                 "fetch_thread_files", fetch_thread_files
@@ -92,6 +92,89 @@ class ValidationStageMixin:
                 ctx.is_file_req = directives.is_file_req
                 ctx.target_filename = directives.target_filename
                 ctx.raw_text_cleaned = directives.cleaned_prompt
+
+            # Process /grant_for_all action
+            grant_act = next((a for a in ctx.actions if a.name == "grant_for_all"), None)
+            if grant_act:
+                from orchestration.app_settings import app_settings_manager
+                from orchestration.thread_skills_manager import thread_skills_manager
+                from skills import skill_registry
+
+                requested_skills = grant_act.params.get("skills", [])
+                if not requested_skills:
+                    msg = "⚠️ *Missing Skills*: Please specify at least one skill to grant for all agents.\n_Example: `/grant_for_all web_research codebase_inspection`_"
+                    await post_sys_msg(channel_id=ctx.channel_id, thread_ts=ctx.thread_ts, text=msg)
+                    if not ctx.raw_text_cleaned:
+                        return {"ok": True, "halted": True, "action": "grant_for_all"}
+                else:
+                    known_agent_skills = {s.name for s in skill_registry.get_agent_skills()}
+                    valid_skills = [s for s in requested_skills if s in known_agent_skills]
+                    invalid_skills = [s for s in requested_skills if s not in known_agent_skills]
+
+                    lines = []
+                    if invalid_skills:
+                        avail = ", ".join(f"`{s}`" for s in sorted(known_agent_skills))
+                        lines.append(f"⚠️ *Unknown or non-agent skill(s)*: {', '.join(f'`{s}`' for s in invalid_skills)}.\n_Available agent skills: {avail}_")
+
+                    if valid_skills:
+                        active_skills, exp_ts = thread_skills_manager.grant_skills(
+                            ctx.channel_id, ctx.thread_ts, valid_skills
+                        )
+                        ttl_hours = app_settings_manager.get_thread_skill_expiration_time()
+                        skills_str = ", ".join(f"`{s}`" for s in valid_skills)
+                        active_str = ", ".join(f"`{s}`" for s in active_skills)
+                        lines.append(
+                            f"🌐 *Thread-Global Skills Granted*\n"
+                            f"Added {skills_str} for all agents in this thread for *{ttl_hours:.1f} hours*.\n"
+                            f"Currently active in thread: {active_str}"
+                        )
+
+                    if lines:
+                        await post_sys_msg(channel_id=ctx.channel_id, thread_ts=ctx.thread_ts, text="\n\n".join(lines))
+
+                    if not ctx.raw_text_cleaned:
+                        return {"ok": True, "halted": True, "action": "grant_for_all"}
+
+            # Process /revoke_for_all action
+            revoke_act = next((a for a in ctx.actions if a.name == "revoke_for_all"), None)
+            if revoke_act:
+                from orchestration.thread_skills_manager import thread_skills_manager
+
+                skills_to_revoke = revoke_act.params.get("skills", [])
+                if not skills_to_revoke:
+                    msg = "⚠️ *Missing Parameters*: Please specify skills to revoke or `all`.\n_Example: `/revoke_for_all web_research` or `/revoke_for_all all`_"
+                    await post_sys_msg(channel_id=ctx.channel_id, thread_ts=ctx.thread_ts, text=msg)
+                    if not ctx.raw_text_cleaned:
+                        return {"ok": True, "halted": True, "action": "revoke_for_all"}
+                else:
+                    remaining = thread_skills_manager.revoke_skills(
+                        ctx.channel_id, ctx.thread_ts, skills_to_revoke
+                    )
+                    if not remaining or any(s.lower() == "all" for s in skills_to_revoke):
+                        msg = "🗑️ *Revoked all thread-global skills* for this thread."
+                    else:
+                        rem_str = ", ".join(f"`{s}`" for s in remaining)
+                        msg = f"🗑️ *Revoked specified thread-global skills*. Remaining active in thread: {rem_str}"
+                    await post_sys_msg(channel_id=ctx.channel_id, thread_ts=ctx.thread_ts, text=msg)
+
+                    if not ctx.raw_text_cleaned:
+                        return {"ok": True, "halted": True, "action": "revoke_for_all"}
+
+            # Check if user prompt attempts to refer to an expired thread skill
+            from orchestration.thread_skills_manager import thread_skills_manager
+            expired_skills = thread_skills_manager.get_expired_skills(ctx.channel_id, ctx.thread_ts)
+            if expired_skills and ctx.raw_text_cleaned:
+                mentioned_expired = [
+                    s for s in expired_skills
+                    if s.lower() in ctx.raw_text_cleaned.lower() or s.replace("_", " ").lower() in ctx.raw_text_cleaned.lower()
+                ]
+                if mentioned_expired:
+                    exp_str = ", ".join(f"`{s}`" for s in mentioned_expired)
+                    exp_msg = (
+                        f"⚠️ *Expired Global Skill*: The thread-global skill {exp_str} has expired.\n"
+                        f"Run `/grant_for_all {mentioned_expired[0]}` in this thread to re-enable access for all agents."
+                    )
+                    await post_sys_msg(channel_id=ctx.channel_id, thread_ts=ctx.thread_ts, text=exp_msg)
 
             # Execute any registered orchestrator action handlers
             try:
@@ -330,6 +413,7 @@ class ValidationStageMixin:
             else:
                 clear_thread_file_context(ctx.channel_id, ctx.thread_ts)
         else:
+            ctx.raw_text_cleaned = ctx.raw_text
             agent_key, prompt, was_explicit_target = parse_agent_and_prompt(
                 ctx.raw_text_cleaned, ctx.channel_id, ctx.thread_ts
             )

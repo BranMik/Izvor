@@ -214,6 +214,15 @@ async def handle_slack_interactivity(request: Request, background_tasks: Backgro
                         set_circuit_breaker_enabled(False)
                 except (ValueError, TypeError):
                     pass
+            elif action_id.startswith("set_thread_skill_expiry_preset:"):
+                val_str = action_id.split(":", 1)[1]
+                try:
+                    from orchestration.app_settings import set_thread_skill_expiration_time
+                    val_float = float(val_str)
+                    if val_float > 0:
+                        set_thread_skill_expiration_time(val_float)
+                except (ValueError, TypeError):
+                    pass
             elif action_id == "select_workflow_preset":
                 selected_option = action.get("selected_option", {})
                 val = selected_option.get("value", "")

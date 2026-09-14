@@ -11,6 +11,7 @@ from core.config import (
     SYSTEM_AGENTS_CONFIG,
 )
 from core.models import CircuitBreakerConfig, OrchestrationMode
+from orchestration.app_settings import AppSettingsManager, app_settings_manager
 from prompts import build_agent_prompt
 
 logger = logging.getLogger(__name__)
@@ -60,14 +61,14 @@ class AgentSettingsManager:
             # Isolated dictionaries for custom instances (e.g. tests)
             self.agents_config = {}
             self.system_agents_config = {}
+            app_set_file = self.default_settings_file.parent / "app_settings.json"
+            self.app_settings = AppSettingsManager(settings_file=app_set_file, auto_load=True)
         else:
             # Global default instance bound to core.config
             self.agents_config = AGENTS_CONFIG
             self.system_agents_config = SYSTEM_AGENTS_CONFIG
+            self.app_settings = app_settings_manager
         self.enabled_agents: set[str] = set()
-        self.circuit_breaker_enabled: bool = False
-        self.circuit_breaker_threshold_usd: float = 1.0
-        self.scribe_enabled: bool = True
 
         # Orchestration flow mode and chains
         self.orchestration_mode: str = OrchestrationMode.SANDWICH.value
@@ -85,6 +86,30 @@ class AgentSettingsManager:
 
         if auto_load:
             self.load()
+
+    @property
+    def circuit_breaker_enabled(self) -> bool:
+        return self.app_settings.is_circuit_breaker_enabled()
+
+    @circuit_breaker_enabled.setter
+    def circuit_breaker_enabled(self, val: bool) -> None:
+        self.app_settings.set_circuit_breaker_enabled(val, save=False)
+
+    @property
+    def circuit_breaker_threshold_usd(self) -> float:
+        return self.app_settings.get_circuit_breaker_threshold()
+
+    @circuit_breaker_threshold_usd.setter
+    def circuit_breaker_threshold_usd(self, val: float) -> None:
+        self.app_settings.set_circuit_breaker_threshold(val, save=False)
+
+    @property
+    def scribe_enabled(self) -> bool:
+        return self.app_settings.is_scribe_enabled()
+
+    @scribe_enabled.setter
+    def scribe_enabled(self, val: bool) -> None:
+        self.app_settings.set_scribe_enabled(val, save=False)
 
     @property
     def active_settings_file(self) -> Path:
@@ -355,17 +380,18 @@ class AgentSettingsManager:
                     if sys_entry:
                         self.system_agents_config[sys_k] = sys_entry
 
-        # Parse circuit breaker settings
-        self.circuit_breaker_enabled = bool(data.get("circuit_breaker_enabled", False))
-        try:
-            self.circuit_breaker_threshold_usd = float(data.get("circuit_breaker_threshold_usd", 1.0))
-        except (ValueError, TypeError):
-            self.circuit_breaker_threshold_usd = 1.0
-        if not self.circuit_breaker_enabled:
-            self.circuit_breaker_threshold_usd = 0.0
+        # Parse circuit breaker settings (backward-compatibility fallback from agent_settings.json)
+        if "circuit_breaker_enabled" in data:
+            self.set_circuit_breaker_enabled(bool(data.get("circuit_breaker_enabled", False)), save=False)
+            if "circuit_breaker_threshold_usd" in data:
+                try:
+                    self.set_circuit_breaker_threshold(float(data.get("circuit_breaker_threshold_usd", 1.0)), save=False)
+                except (ValueError, TypeError):
+                    self.set_circuit_breaker_threshold(1.0, save=False)
 
-        # Parse scribe enabled setting (default True)
-        self.scribe_enabled = bool(data.get("scribe_enabled", True))
+        # Parse scribe enabled setting (backward-compatibility fallback)
+        if "scribe_enabled" in data:
+            self.set_scribe_enabled(bool(data.get("scribe_enabled", True)), save=False)
 
         # Parse active workflow reference ("workflow_config" primary, "active_workflow_id" fallback)
         raw_wf = data.get("workflow_config") or data.get("active_workflow_id")
@@ -543,9 +569,6 @@ class AgentSettingsManager:
             wf_ref = self.workflow_config or self.active_workflow_id
             data = {
                 "workflow_config": wf_ref,
-                "circuit_breaker_enabled": self.circuit_breaker_enabled,
-                "circuit_breaker_threshold_usd": self.circuit_breaker_threshold_usd,
-                "scribe_enabled": self.scribe_enabled,
                 "enabled_agents": sorted(self.enabled_agents),
                 "agents": {
                     k: {
@@ -718,50 +741,29 @@ class AgentSettingsManager:
         return True
 
     def is_circuit_breaker_enabled(self) -> bool:
-        self.sync_if_modified()
-        return self.circuit_breaker_enabled
+        return self.app_settings.is_circuit_breaker_enabled()
 
     def set_circuit_breaker_enabled(
         self, enabled: bool, save: bool = True, reset_threshold_on_disable: bool = True
     ) -> None:
-        self.circuit_breaker_enabled = bool(enabled)
-        if not self.circuit_breaker_enabled and reset_threshold_on_disable:
-            self.circuit_breaker_threshold_usd = 0.0
-        if save:
-            self.save()
-        logger.info(f"[SETTINGS] Circuit-breaker enabled set to {self.circuit_breaker_enabled}.")
+        self.app_settings.set_circuit_breaker_enabled(enabled, save=save)
+        if not enabled and reset_threshold_on_disable:
+            self.app_settings.set_circuit_breaker_threshold(0.0, save=save)
 
     def get_circuit_breaker_threshold(self) -> float:
-        self.sync_if_modified()
-        return float(self.circuit_breaker_threshold_usd)
+        return self.app_settings.get_circuit_breaker_threshold()
 
     def set_circuit_breaker_threshold(self, threshold: float, save: bool = True) -> None:
-        try:
-            val = float(threshold)
-            val = max(val, 0.0)
-            self.circuit_breaker_threshold_usd = val
-            if save:
-                self.save()
-            logger.info(f"[SETTINGS] Circuit-breaker threshold set to ${self.circuit_breaker_threshold_usd:.2f} USD.")
-        except (ValueError, TypeError) as e:
-            logger.error(f"[SETTINGS] Invalid circuit-breaker threshold '{threshold}': {e}")
+        self.app_settings.set_circuit_breaker_threshold(threshold, save=save)
 
     def get_circuit_breaker_config(self) -> dict[str, Any]:
-        self.sync_if_modified()
-        return CircuitBreakerConfig(
-            enabled=self.circuit_breaker_enabled,
-            threshold_usd=self.circuit_breaker_threshold_usd,
-        ).to_dict()
+        return self.app_settings.get_circuit_breaker_config().to_dict()
 
     def is_scribe_enabled(self) -> bool:
-        self.sync_if_modified()
-        return self.scribe_enabled
+        return self.app_settings.is_scribe_enabled()
 
     def set_scribe_enabled(self, enabled: bool, save: bool = True) -> None:
-        self.scribe_enabled = bool(enabled)
-        if save:
-            self.save()
-        logger.info(f"[SETTINGS] Scribe enabled set to {self.scribe_enabled}.")
+        self.app_settings.set_scribe_enabled(enabled, save=save)
 
     def reset(self, save: bool = True) -> None:
         """Resets all registered agents to enabled state and resets orchestration mode to sandwich default."""

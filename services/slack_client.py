@@ -49,9 +49,11 @@ def build_app_home_view(
         is_scribe_enabled,
         sync_settings_if_modified,
     )
+    from orchestration.app_settings import get_thread_skill_expiration_time
     from orchestration.workflow_manager import list_workflows
 
     sync_settings_if_modified()
+    expiry_hours = get_thread_skill_expiration_time()
 
     if enabled_agents is None:
         enabled_agents = get_enabled_agents()
@@ -130,7 +132,7 @@ def build_app_home_view(
                 "type": "header",
                 "text": {
                     "type": "plain_text",
-                    "text": "────────🤖 CaiLogics Multi-Agent Panel Control Hub────────",
+                    "text": "────────🤖 CaiLogics Multi-Agent Panel Control Hub────────\n",
                     "emoji": True,
                 },
             },
@@ -307,6 +309,55 @@ def build_app_home_view(
                         "value": "scribe:on" if scribe_on else "scribe:off",
                     },
                 },
+            },
+            {"type": "divider"},
+            {
+                "type": "section",
+                "block_id": f"thread_skill_expiry_section_{expiry_hours:.1f}",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": (
+                        f"\n *────────⏳ Thread Global Skills Expiration Time:────────* \n"
+                        f"Current TTL: *{expiry_hours:.1f} hours*\n"
+                        f"_Controls how long thread-global skills (`/grant_for_all`) remain active for agents._"
+                    ),
+                },
+            },
+            {
+                "type": "actions",
+                "block_id": f"thread_skill_expiry_actions_{expiry_hours:.1f}",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "1h" + (" (active)" if expiry_hours == 1.0 else "")},
+                        "action_id": "set_thread_skill_expiry_preset:1.0",
+                        **({"style": "primary"} if expiry_hours == 1.0 else {}),
+                    },
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "4h" + (" (active)" if expiry_hours == 4.0 else "")},
+                        "action_id": "set_thread_skill_expiry_preset:4.0",
+                        **({"style": "primary"} if expiry_hours == 4.0 else {}),
+                    },
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "6h" + (" (active)" if expiry_hours == 6.0 else "")},
+                        "action_id": "set_thread_skill_expiry_preset:6.0",
+                        **({"style": "primary"} if expiry_hours == 6.0 else {}),
+                    },
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "12h" + (" (active)" if expiry_hours == 12.0 else "")},
+                        "action_id": "set_thread_skill_expiry_preset:12.0",
+                        **({"style": "primary"} if expiry_hours == 12.0 else {}),
+                    },
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "24h" + (" (active)" if expiry_hours == 24.0 else "")},
+                        "action_id": "set_thread_skill_expiry_preset:24.0",
+                        **({"style": "primary"} if expiry_hours == 24.0 else {}),
+                    },
+                ],
             },
         ]
     )

@@ -1,7 +1,5 @@
 {
   "workflow_config": "idea_architecture_feasibility_review",
-  "circuit_breaker_enabled": true,
-  "circuit_breaker_threshold_usd": 2.0,
   "enabled_agents": [
     "Architect",
     "CompliancePrivacyAndGovernanceOfficer",
