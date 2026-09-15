@@ -212,21 +212,15 @@ class TurnPipeline(
         if name in self._hooks and self._hooks[name] is not None:
             return self._hooks[name]
 
-        # 3. Router module or agent_router monkeypatches
-        r = self.router
-        if r is not None and hasattr(r, name):
-            return getattr(r, name)
+        # 3. Router module attribute or monkeypatch (for test monkeypatch compatibility)
+        if self.router is not None and hasattr(self.router, name):
+            return getattr(self.router, name)
 
-        # 4. TurnPipeline module attribute or monkeypatch
-        tp = sys.modules.get("orchestration.turn_pipeline")
-        if tp is not None and hasattr(tp, name):
-            return getattr(tp, name)
-
-        # 5. Default fallback if provided
+        # 4. Default fallback if provided
         if default is not None:
             return default
 
-        # 6. Default canonical service implementations
+        # 5. Default canonical service implementations
         fallback_map = {
             "execute_llm_with_retry": execute_llm_with_retry,
             "post_agent_response": post_agent_response,

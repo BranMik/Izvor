@@ -1,5 +1,7 @@
+import asyncio
 import hashlib
 import logging
+import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -22,9 +24,58 @@ logger = logging.getLogger(__name__)
 # Initialize async web client
 slack_async_client = AsyncWebClient(token=SLACK_BOT_TOKEN)
 
+
+class SlackRateLimiter:
+    """
+    Asynchronous token bucket rate limiter for outbound Slack API calls.
+    Protects against Slack HTTP 429 Too Many Requests during multi-agent discussions.
+    Completely bypassed in test environments or when running with mock tokens.
+    """
+
+    def __init__(self, rate: float = 10.0, capacity: float = 15.0):
+        self.rate = rate
+        self.capacity = capacity
+        self.tokens = capacity
+        self.last_refill = time.monotonic()
+        self._lock: asyncio.Lock | None = None
+
+    @property
+    def lock(self) -> asyncio.Lock:
+        if self._lock is None:
+            self._lock = asyncio.Lock()
+        return self._lock
+
+    async def acquire(self) -> None:
+        if (
+            "pytest" in sys.modules
+            or not SLACK_BOT_TOKEN
+            or SLACK_BOT_TOKEN == "xoxb-your-bot-user-oauth-token"
+        ):
+            return
+
+        async with self.lock:
+            now = time.monotonic()
+            elapsed = now - self.last_refill
+            self.tokens = min(self.capacity, self.tokens + elapsed * self.rate)
+            self.last_refill = now
+
+            if self.tokens < 1.0:
+                needed = 1.0 - self.tokens
+                delay = needed / self.rate
+                await asyncio.sleep(delay)
+                self.tokens = 0.0
+                self.last_refill = time.monotonic()
+            else:
+                self.tokens -= 1.0
+
+
+# Global singleton rate limiter
+slack_rate_limiter = SlackRateLimiter()
+
 # In-memory caches for channel metadata
 CHANNEL_NAME_CACHE: dict[str, str] = {}
 _RESOLVED_USAGE_CHANNEL_ID: str | None = None
+
 
 
 def build_app_home_view(
@@ -876,6 +927,7 @@ async def post_agent_response(
             f"[SLACK] chat_postMessage channel={channel_id} thread_ts={thread_ts} as '{username}' icon_url='{final_icon_url}'"
         )
 
+        await slack_rate_limiter.acquire()
         response = await slack_async_client.chat_postMessage(
             channel=channel_id,
             thread_ts=thread_ts,
@@ -1032,6 +1084,7 @@ async def post_thread_note(
         return {"ok": True, "ts": mock_ts, "mock": True}
 
     try:
+        await slack_rate_limiter.acquire()
         response = await slack_async_client.chat_postMessage(
             channel=channel_id,
             thread_ts=thread_ts,
@@ -1091,6 +1144,7 @@ async def update_thread_note(
         return {"ok": True, "ts": message_ts, "mock": True}
 
     try:
+        await slack_rate_limiter.acquire()
         await slack_async_client.chat_update(
             channel=channel_id,
             ts=message_ts,
@@ -1566,6 +1620,7 @@ async def post_ephemeral_to_slack(
         }
         if thread_ts:
             kwargs["thread_ts"] = thread_ts
+        await slack_rate_limiter.acquire()
         res = await slack_async_client.chat_postEphemeral(**kwargs)
         return res.data
     except SlackApiError as e:
@@ -1596,6 +1651,7 @@ async def post_message_to_slack(
             kwargs["icon_url"] = icon_url
         if icon_emoji:
             kwargs["icon_emoji"] = icon_emoji
+        await slack_rate_limiter.acquire()
         res = await slack_async_client.chat_postMessage(**kwargs)
         return res.data
     except SlackApiError as e:

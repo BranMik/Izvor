@@ -57,11 +57,32 @@ def clear_thread_note(channel_id: str, thread_ts: str) -> None:
     thread_key = (channel_id, thread_ts)
     THREAD_NOTE_MSG_MAP.pop(thread_key, None)
     THREAD_LOCKS.pop(thread_key, None)
-    _PENDING_UPDATES[thread_key] = False
-    _PENDING_COMPLETED[thread_key] = False
+    _PENDING_UPDATES.pop(thread_key, None)
+    _PENDING_COMPLETED.pop(thread_key, None)
     task = _RUNNING_TASKS.pop(thread_key, None)
     if task and not task.done():
         task.cancel()
+
+
+def reset_thread_notes() -> None:
+    """Clears all in-memory thread notes state and cancels any pending tasks across all threads."""
+    for task in list(_RUNNING_TASKS.values()):
+        if task and not task.done():
+            task.cancel()
+    THREAD_NOTE_MSG_MAP.clear()
+    THREAD_LOCKS.clear()
+    _RUNNING_TASKS.clear()
+    _PENDING_UPDATES.clear()
+    _PENDING_COMPLETED.clear()
+
+
+try:
+    from orchestration.thread_state import thread_state_manager
+
+    thread_state_manager.register_cleanup_hook(clear_thread_note)
+    thread_state_manager.register_reset_hook(reset_thread_notes)
+except Exception as _e:
+    logger.debug(f"[THREAD NOTES] Could not register thread_state hooks: {_e}")
 
 
 from pipeline.discussion_scribe import discussion_scribe

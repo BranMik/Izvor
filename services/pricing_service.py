@@ -12,6 +12,7 @@ import litellm
 from starlette.concurrency import run_in_threadpool
 
 from core.config import PRICING_AGENT_PROMPT, get_pricing_agent_model
+from core.llm_utils import execute_llm_with_retry
 
 from .web_tools import fetch_web_page, web_search
 
@@ -296,15 +297,24 @@ class PricingService:
             },
         ]
 
-        def _run_completion():
-            return litellm.completion(
-                model=get_pricing_agent_model(),
-                messages=messages,
-                tools=PRICING_TOOL_SCHEMAS,
-                tool_choice="auto",
-            )
-
-        resp = await run_in_threadpool(_run_completion)
+        resp = await execute_llm_with_retry(
+            func=litellm.completion,
+            kwargs={
+                "model": get_pricing_agent_model(),
+                "messages": messages,
+                "tools": PRICING_TOOL_SCHEMAS,
+                "tool_choice": "auto",
+            },
+            agent_key="pricing_agent",
+            thread_key=("system", f"pricing_{model_name}"),
+            max_attempts=2,
+        )
+        if not resp or not getattr(resp, "choices", None):
+            return {
+                **baseline,
+                "updated_at": time.time(),
+                "updated_at_str": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()),
+            }
         resp_msg = resp.choices[0].message
         tool_calls = getattr(resp_msg, "tool_calls", None)
 
@@ -351,15 +361,25 @@ class PricingService:
                     }
                 )
 
-            def _run_followup():
-                return litellm.completion(
-                    model=get_pricing_agent_model(),
-                    messages=messages,
-                    response_format={"type": "json_object"},
-                )
-
-            final_resp = await run_in_threadpool(_run_followup)
+            final_resp = await execute_llm_with_retry(
+                func=litellm.completion,
+                kwargs={
+                    "model": get_pricing_agent_model(),
+                    "messages": messages,
+                    "response_format": {"type": "json_object"},
+                },
+                agent_key="pricing_agent",
+                thread_key=("system", f"pricing_{model_name}"),
+                max_attempts=2,
+            )
+            if not final_resp or not getattr(final_resp, "choices", None):
+                return {
+                    **baseline,
+                    "updated_at": time.time(),
+                    "updated_at_str": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()),
+                }
             final_text = final_resp.choices[0].message.content
+
             cleaned = re.sub(r"^```json\s*", "", final_text.strip(), flags=re.IGNORECASE)
             cleaned = re.sub(r"\s*```$", "", cleaned.strip())
             data = json.loads(cleaned)

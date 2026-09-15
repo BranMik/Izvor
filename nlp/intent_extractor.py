@@ -8,6 +8,7 @@ import litellm
 from starlette.concurrency import run_in_threadpool
 
 from core.config import INTENT_EXTRACTOR_MODEL
+from core.llm_utils import execute_llm_with_retry
 from core.models import ActionDirective, ExtractedIntent
 
 from .nl_patterns import is_stop_command, resolve_agent_name
@@ -102,22 +103,29 @@ class IntentExtractor:
         ]
 
         try:
-            def _call_llm():
-                return litellm.completion(
-                    model=self.model,
-                    messages=messages,
-                    response_format={"type": "json_object"},
-                    num_retries=1,
-                )
-
             resp = await asyncio.wait_for(
-                run_in_threadpool(_call_llm),
+                execute_llm_with_retry(
+                    func=litellm.completion,
+                    kwargs={
+                        "model": self.model,
+                        "messages": messages,
+                        "response_format": {"type": "json_object"},
+                        "num_retries": 1,
+                    },
+                    agent_key="intent_extractor",
+                    thread_key=("system", "intent_extractor"),
+                    max_attempts=2,
+                ),
                 timeout=timeout_seconds,
             )
+
+            if not resp or not getattr(resp, "choices", None):
+                return default_intent
 
             content = resp.choices[0].message.content
             if not content:
                 return default_intent
+
 
             parsed = json.loads(content)
 
