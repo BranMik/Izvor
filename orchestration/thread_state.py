@@ -4,7 +4,6 @@ import os
 import time
 from typing import Any
 
-from agents import trigger_thread_notes_update, trigger_usage_update
 from core.models import FileContext
 from orchestration.state import (
     DiscussionStateStore,
@@ -46,6 +45,8 @@ class ThreadStateManager:
         self.thread_last_activity: dict[tuple[str, str], float] = {}
         self.ttl_seconds: float = float(os.getenv("THREAD_STATE_TTL_SECONDS", "3600.0"))
         self.max_tracked_threads: int = int(os.getenv("MAX_TRACKED_THREADS", "500"))
+        self._cleanup_hooks: list[Any] = []
+        self._reset_hooks: list[Any] = []
 
     def _touch(self, channel_id: str, thread_ts: str) -> None:
         self.thread_last_activity[(channel_id, thread_ts)] = time.time()
@@ -237,16 +238,33 @@ class ThreadStateManager:
         self.discussion.clear_custom_flow(channel_id, thread_ts)
         logger.info(f"[THREAD STATE] Stop requested for thread {thread_key}. Queues and limits cleared.")
         try:
+            from agents import trigger_thread_notes_update, trigger_usage_update
+
             trigger_thread_notes_update(channel_id=channel_id, thread_ts=thread_ts, is_completed=True)
             trigger_usage_update(channel_id=channel_id, thread_ts=thread_ts, is_completed=True)
         except Exception as e:
             logger.debug(f"[THREAD STATE] Could not finalize thread note or usage on stop: {e}")
+
+    def register_cleanup_hook(self, hook: Any) -> None:
+        """Registers a callback (channel_id: str, thread_ts: str) -> None for satellite state cleanup."""
+        if hook not in self._cleanup_hooks:
+            self._cleanup_hooks.append(hook)
+
+    def register_reset_hook(self, hook: Any) -> None:
+        """Registers a callback () -> None for global satellite state reset."""
+        if hook not in self._reset_hooks:
+            self._reset_hooks.append(hook)
 
     def cleanup_thread(self, channel_id: str, thread_ts: str) -> None:
         self.discussion.clear_thread(channel_id, thread_ts)
         self.retry.clear_thread(channel_id, thread_ts)
         self.context.clear_thread(channel_id, thread_ts)
         self.thread_last_activity.pop((channel_id, thread_ts), None)
+        for hook in list(self._cleanup_hooks):
+            try:
+                hook(channel_id, thread_ts)
+            except Exception as e:
+                logger.debug(f"[THREAD STATE] Error executing cleanup hook for {(channel_id, thread_ts)}: {e}")
 
     def clear_state(self, channel_id: str, thread_ts: str) -> None:
         self.cleanup_thread(channel_id, thread_ts)
@@ -256,6 +274,11 @@ class ThreadStateManager:
         self.retry.reset()
         self.context.reset()
         self.thread_last_activity.clear()
+        for hook in list(self._reset_hooks):
+            try:
+                hook()
+            except Exception as e:
+                logger.debug(f"[THREAD STATE] Error executing reset hook: {e}")
 
     def cleanup_expired_threads(self, ttl_seconds: float | None = None) -> int:
         if ttl_seconds is None:
@@ -283,10 +306,20 @@ class ThreadStateManager:
 # Default singleton instance
 thread_state_manager = ThreadStateManager()
 
+register_cleanup_hook = thread_state_manager.register_cleanup_hook
+register_reset_hook = thread_state_manager.register_reset_hook
+cleanup_thread = thread_state_manager.cleanup_thread
+reset_all_thread_states = thread_state_manager.reset_all
+
 __all__ = [
     "DiscussionStateStore",
     "ThreadContextStore",
     "ThreadStateManager",
     "TurnRetryStateStore",
+    "cleanup_thread",
+    "register_cleanup_hook",
+    "register_reset_hook",
+    "reset_all_thread_states",
     "thread_state_manager",
 ]
+

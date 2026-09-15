@@ -6,8 +6,6 @@ from typing import Any
 
 from dotenv import load_dotenv
 
-from prompts import build_agent_prompt
-
 # Load environment variables from .env file (looked up in project root or current dir)
 env_path = Path(__file__).parent.parent / ".env"
 if not env_path.exists():
@@ -125,10 +123,29 @@ def get_system_agent_model(name: str, fallback: str = "") -> str:
     return fallback
 
 
-# System / Utility Agent prompts
-THREAD_NOTES_PROMPT = build_agent_prompt("Thread_Notes_Agent")
-USAGE_AGENT_PROMPT = build_agent_prompt("Usage_Agent")
-PRICING_AGENT_PROMPT = build_agent_prompt("Pricing_Agent")
+# System / Utility Agent prompts (lazily built to prevent circular imports with prompts)
+_CACHED_PROMPTS: dict[str, str] = {}
+
+
+def get_thread_notes_prompt() -> str:
+    if "thread_notes" not in _CACHED_PROMPTS:
+        from prompts import build_agent_prompt
+        _CACHED_PROMPTS["thread_notes"] = build_agent_prompt("Thread_Notes_Agent")
+    return _CACHED_PROMPTS["thread_notes"]
+
+
+def get_usage_agent_prompt() -> str:
+    if "usage_agent" not in _CACHED_PROMPTS:
+        from prompts import build_agent_prompt
+        _CACHED_PROMPTS["usage_agent"] = build_agent_prompt("Usage_Agent")
+    return _CACHED_PROMPTS["usage_agent"]
+
+
+def get_pricing_agent_prompt() -> str:
+    if "pricing_agent" not in _CACHED_PROMPTS:
+        from prompts import build_agent_prompt
+        _CACHED_PROMPTS["pricing_agent"] = build_agent_prompt("Pricing_Agent")
+    return _CACHED_PROMPTS["pricing_agent"]
 
 
 # Module-level getters / properties (dynamically resolved from SSOT)
@@ -181,5 +198,12 @@ def __getattr__(name: str) -> Any:
         return get_intent_extractor_model()
     if name == "LANGUAGE_DETECTOR_MODEL":
         return get_language_detector_model()
+    if name == "THREAD_NOTES_PROMPT":
+        return get_thread_notes_prompt()
+    if name == "USAGE_AGENT_PROMPT":
+        return get_usage_agent_prompt()
+    if name == "PRICING_AGENT_PROMPT":
+        return get_pricing_agent_prompt()
     raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
+
 

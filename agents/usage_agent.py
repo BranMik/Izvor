@@ -51,6 +51,26 @@ class ThreadUsageTracker:
             self.usage_locks[thread_key] = asyncio.Lock()
         return self.usage_locks[thread_key]
 
+    def cleanup_thread(self, channel_id: str, thread_ts: str) -> None:
+        """Cleans up in-memory runtime locks and active tasks for an evicted thread."""
+        thread_key = (channel_id, thread_ts)
+        self.usage_locks.pop(thread_key, None)
+        task = self.running_usage_tasks.pop(thread_key, None)
+        if task and not task.done():
+            task.cancel()
+        self.pending_usage_updates.pop(thread_key, None)
+        self.pending_usage_completed.pop(thread_key, None)
+
+    def reset_runtime_state(self) -> None:
+        """Cleans up all in-memory runtime locks and tasks across all threads."""
+        for task in list(self.running_usage_tasks.values()):
+            if task and not task.done():
+                task.cancel()
+        self.usage_locks.clear()
+        self.running_usage_tasks.clear()
+        self.pending_usage_updates.clear()
+        self.pending_usage_completed.clear()
+
     def load(self) -> None:
         """Loads persistent thread usage data from JSON store file."""
         self.thread_usage_data.clear()
@@ -533,3 +553,21 @@ def trigger_usage_update(
     return usage_tracker.trigger_update(
         channel_id, thread_ts, is_completed=is_completed
     )
+
+
+def cleanup_thread_usage(channel_id: str, thread_ts: str) -> None:
+    usage_tracker.cleanup_thread(channel_id, thread_ts)
+
+
+def reset_thread_usage() -> None:
+    usage_tracker.reset_runtime_state()
+
+
+try:
+    from orchestration.thread_state import thread_state_manager
+
+    thread_state_manager.register_cleanup_hook(cleanup_thread_usage)
+    thread_state_manager.register_reset_hook(reset_thread_usage)
+except Exception as _e:
+    logger.debug(f"[USAGE AGENT] Could not register thread_state hooks: {_e}")
+
