@@ -147,6 +147,10 @@ def test_build_llm_messages_with_thread_language():
 def test_normalize_language_name():
     assert normalize_language_name("croatian") == "Croatian"
     assert normalize_language_name("hrvatski") == "Croatian"
+    assert normalize_language_name("bosnian") == "Bosnian"
+    assert normalize_language_name("bosanski") == "Bosnian"
+    assert normalize_language_name("serbian") == "Serbian"
+    assert normalize_language_name("srpski") == "Serbian"
     assert normalize_language_name("ENGLISH") == "English"
     assert normalize_language_name("deutsch") == "German"
     assert normalize_language_name("español") == "Spanish"

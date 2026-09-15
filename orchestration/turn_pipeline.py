@@ -43,6 +43,19 @@ from services.slack_client import (
     post_system_message,
     update_slack_message,
 )
+from orchestration.protocols import (
+    CostCalculator,
+    FilesFetcher,
+    HistoryFetcher,
+    LLMExecutor,
+    NotesUpdater,
+    SlackMessageUpdater,
+    SlackPoster,
+    SleepFunction,
+    SystemMessagePoster,
+    TokenRecorder,
+    UsageUpdater,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -155,17 +168,17 @@ class TurnPipeline(
         router_module: Any = None,
         hooks: dict[str, Any] | None = None,
         *,
-        llm_executor: Callable[..., Any] | None = None,
-        slack_poster: Callable[..., Any] | None = None,
-        history_fetcher: Callable[..., Any] | None = None,
-        files_fetcher: Callable[..., Any] | None = None,
-        token_recorder: Callable[..., Any] | None = None,
-        notes_updater: Callable[..., Any] | None = None,
-        usage_updater: Callable[..., Any] | None = None,
-        sleep_fn: Callable[..., Any] | None = None,
-        post_system_message_fn: Callable[..., Any] | None = None,
-        update_message_fn: Callable[..., Any] | None = None,
-        calc_costs_fn: Callable[..., Any] | None = None,
+        llm_executor: LLMExecutor | None = None,
+        slack_poster: SlackPoster | None = None,
+        history_fetcher: HistoryFetcher | None = None,
+        files_fetcher: FilesFetcher | None = None,
+        token_recorder: TokenRecorder | None = None,
+        notes_updater: NotesUpdater | None = None,
+        usage_updater: UsageUpdater | None = None,
+        sleep_fn: SleepFunction | None = None,
+        post_system_message_fn: SystemMessagePoster | None = None,
+        update_message_fn: SlackMessageUpdater | None = None,
+        calc_costs_fn: CostCalculator | None = None,
     ):
         self._router_module = router_module
         self._hooks: dict[str, Any] = hooks or {}
