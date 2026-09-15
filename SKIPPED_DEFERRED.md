@@ -10,8 +10,7 @@ These decisions prioritize **production reliability, test stability, and minimal
 
 | Recommendation | Original Proposal | Decision | Primary Rationale |
 |---|---|---|---|
-| **#4 Flat Aliases in `thread_state.py`** | Deprecate & remove 68 module-level aliases | ❌ **Skip Permanently** | High churn touching 17 packages; standard Python facade idiom; 0 memory/runtime impact. |
-| **#1 Monolith `slack_client.py`** | Split into 7-file package (`services/slack/`) | ⚠️ **Skip Proposed Split; Use Targeted View Extraction** | Package restructure breaks 30+ test files relying on monkeypatches and re-introduces circular imports. |
+~~| **#1 Monolith `slack_client.py`** | Split into 7-file package (`services/slack/`) | ⚠️ **Skip Proposed Split; Use Targeted View Extraction** | Package restructure breaks 30+ test files relying on monkeypatches and re-introduces circular imports. |~~
 | **#2 Monolith `agent_settings.py`** | Split into 3 independent sub-managers | ❌ **Skip Proposed Split; Retain Unified SSOT** | Distributed managers create race conditions on the single `agent_settings.json` file during atomic writes. |
 | **#10 `TypedDict` Serialization** | Add parallel `TypedDict` shapes for domain models | ❌ **Skip Permanently** | Creates duplicate schema maintenance alongside `@dataclass` with zero runtime validation. |
 | **#7 Strict `typing.Protocol`s** | Enforce `Protocol` contracts on all DI callables | ⏸️ **Defer Indefinitely** | Flags dozens of valid test mocks (`AsyncMock`, `*args, **kwargs`) with zero runtime stability gain. |
@@ -36,6 +35,7 @@ These decisions prioritize **production reliability, test stability, and minimal
 
 ---
 
++++
 ### 2. Skip as Proposed: Shredding `slack_client.py` into a 7-Module Package
 
 * **Original Recommendation (Issue #1):**
@@ -45,8 +45,12 @@ These decisions prioritize **production reliability, test stability, and minimal
 * **Technical Analysis & Counter-Rationale:**
   1. **Catastrophic Test Mock Breakage:** Over 30 test files (such as [`tests/test_integration.py`](file:///c:/Users/Hp/Documents/agy2-projects/SlackAgenticPanel/tests/test_integration.py#L33-L34) and [`tests/test_router_single_turn.py`](file:///c:/Users/Hp/Documents/agy2-projects/SlackAgenticPanel/tests/test_router_single_turn.py)) directly patch Slack client methods using:
      ```python
-     monkeypatch.setattr("services.slack_client.post_agent_response", mock_post_agent_response)
-     monkeypatch.setattr("services.slack_client.fetch_thread_history", mock_fetch_thread_history)
+     monkeypatch.setattr(
+         "services.slack_client.post_agent_response", mock_post_agent_response
+     )
+     monkeypatch.setattr(
+         "services.slack_client.fetch_thread_history", mock_fetch_thread_history
+     )
      ```
      Replacing the `slack_client.py` module with a package folder often breaks `monkeypatch.setattr` when other modules have already imported symbols via `from services.slack_client import ...` prior to test setup.
   2. **Inter-Module Circular Dependencies:** The proposed 6 submodules are heavily interdependent. `files.py` needs tokens and low-level clients from `client.py`; `app_home.py` needs posting logic and channel resolution; `history.py` needs file download hooks. A 7-module split creates a tight cyclic graph inside `services/slack/`.

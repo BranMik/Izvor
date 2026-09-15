@@ -20,10 +20,10 @@ logger = logging.getLogger(__name__)
 LANGUAGE_NAME_MAP: Final[dict[str, str]] = {
     "croatian": "Croatian",
     "hrvatski": "Croatian",
-    "bosnian": "Croatian",
-    "bosanski": "Croatian",
-    "serbian": "Croatian",
-    "srpski": "Croatian",
+    "bosnian": "Bosnian",
+    "bosanski": "Bosnian",
+    "serbian": "Serbian",
+    "srpski": "Serbian",
     "english": "English",
     "engleski": "English",
     "german": "German",
@@ -45,14 +45,12 @@ LANGUAGE_NAME_MAP: Final[dict[str, str]] = {
     "portuguese": "Portuguese",
     "português": "Portuguese",
     "portugalski": "Portuguese",
-    "russian": "Russian",
-    "ruski": "Russian",
 }
 
 SYSTEM_PROMPT: Final[str] = (
     "You are an ultra-fast, accurate language classifier. "
     "Identify the primary natural language of the user's message. "
-    "Output ONLY the canonical language name in English as a single word (e.g. Croatian, English, German, Spanish, French, Italian). "
+    "Output ONLY the canonical language name in English as a single word (e.g. Croatian, Bosnian, Serbian, English, German, Spanish, French, Italian). "
     "Do NOT output any punctuation, reasoning, or markdown. "
     "If the message is predominantly non-English but contains English technical terms, library/app names, or buzzwords, identify the surrounding natural language (e.g. Croatian), NOT English. "
     "Only output English if the natural text itself is in English, or if it is purely code/data with no human language."
@@ -67,7 +65,9 @@ def normalize_language_name(name: str) -> str:
     return clean.capitalize()
 
 
-def _extract_language_from_content(content: str | None, default: str = "English") -> str:
+def _extract_language_from_content(
+    content: str | None, default: str = "English"
+) -> str:
     """Robustly parses language name from model response text or reasoning outputs."""
     if not content or not content.strip():
         return default
@@ -98,7 +98,9 @@ def _is_empty_or_pure_code(text: str) -> bool:
     stripped = re.sub(r"```[\s\S]*?```", "", text)
     stripped = re.sub(r"[{}\[\]();=+\-*/\\<>_~`$#@%^&|0-9]", " ", stripped)
     meaningful_words = [
-        w for w in re.findall(r"\b[^\W\d_]+\b", stripped, flags=re.UNICODE) if len(w) > 1
+        w
+        for w in re.findall(r"\b[^\W\d_]+\b", stripped, flags=re.UNICODE)
+        if len(w) > 1
     ]
     return len(meaningful_words) == 0
 
@@ -109,7 +111,9 @@ def _clean_slack_tags(text: str) -> str:
     return cleaned or text
 
 
-def _sync_llm_classify(text: str, model: str | None = None, default: str = "English") -> str:
+def _sync_llm_classify(
+    text: str, model: str | None = None, default: str = "English"
+) -> str:
     """Synchronous execution of LLM language classification."""
     clean_text = _clean_slack_tags(text)
     if _is_empty_or_pure_code(clean_text):
@@ -181,12 +185,16 @@ async def detect_language_llm(
         return default
 
 
-def detect_language(text: str, default: str = "English", model: str | None = None) -> str:
+def detect_language(
+    text: str, default: str = "English", model: str | None = None
+) -> str:
     """
     Synchronous entry point for language detection via LLM.
     """
     try:
         return _sync_llm_classify(text, model=model, default=default)
     except Exception as e:
-        logger.warning(f"[LANGUAGE DETECTOR] Sync classification failed ({e}). Defaulting to {default}.")
+        logger.warning(
+            f"[LANGUAGE DETECTOR] Sync classification failed ({e}). Defaulting to {default}."
+        )
         return default
