@@ -350,13 +350,42 @@ class ValidationStageMixin:
                     ctx.thread_files, ctx.target_filename
                 )
                 if chosen_file:
-                    logger.info(
-                        f"[ROUTER] User requested file reading for thread {ctx.thread_key}. Downloading file: {chosen_file.get('name')}"
-                    )
-                    download_file_fn = self._get_hook(
-                        "download_slack_file", download_slack_file
-                    )
-                    dl_res = await download_file_fn(chosen_file)
+                    if chosen_file.get("is_resource_file"):
+                        logger.info(
+                            f"[ROUTER] Target file '{chosen_file.get('name')}' resolved from default resources directory."
+                        )
+                        import json
+                        from services.mcp_tools import read_document
+
+                        doc_res_json = read_document(chosen_file.get("rel_path", chosen_file.get("name", "")))
+                        try:
+                            doc_data = json.loads(doc_res_json)
+                        except Exception as e:
+                            doc_data = {"error": f"Failed to parse read_document output: {e}"}
+
+                        if "error" not in doc_data:
+                            dl_res = {
+                                "ok": True,
+                                "file_name": chosen_file.get("name"),
+                                "content": doc_data.get("content", ""),
+                                "size": chosen_file.get("size", 0),
+                                "truncated": False,
+                            }
+                        else:
+                            dl_res = {
+                                "ok": False,
+                                "file_name": chosen_file.get("name"),
+                                "size": chosen_file.get("size", 0),
+                                "error": doc_data.get("error"),
+                            }
+                    else:
+                        logger.info(
+                            f"[ROUTER] User requested file reading for thread {ctx.thread_key}. Downloading file: {chosen_file.get('name')}"
+                        )
+                        download_file_fn = self._get_hook(
+                            "download_slack_file", download_slack_file
+                        )
+                        dl_res = await download_file_fn(chosen_file)
                     if dl_res.get("ok"):
                         thread_state_manager.set_file_context(
                             ctx.channel_id,

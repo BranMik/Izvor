@@ -170,3 +170,82 @@ def test_mcp_read_pdf_corrupted():
     finally:
         if bad_pdf.exists():
             bad_pdf.unlink()
+
+
+def test_mcp_resource_path_normalization_and_prefix_stripping():
+    from services.mcp_tools import _resolve_resource_path, RESOURCES_DIR
+
+    # Naked filename
+    p1 = _resolve_resource_path("doc.txt")
+    assert p1 == (RESOURCES_DIR / "doc.txt").resolve()
+
+    # With resources/ prefix
+    p2 = _resolve_resource_path("resources/doc.txt")
+    assert p2 == (RESOURCES_DIR / "doc.txt").resolve()
+
+    # With resources\ prefix
+    p3 = _resolve_resource_path("resources\\doc.txt")
+    assert p3 == (RESOURCES_DIR / "doc.txt").resolve()
+
+    # Bare "resources"
+    p4 = _resolve_resource_path("resources")
+    assert p4 == RESOURCES_DIR.resolve()
+
+
+def test_mcp_read_document_search_in_resources_subfolder_and_case_insensitive():
+    from services.mcp_tools import read_document, RESOURCES_DIR
+
+    sub_dir = RESOURCES_DIR / "subfolder"
+    sub_dir.mkdir(parents=True, exist_ok=True)
+    nested_file = sub_dir / "Nested_Report.txt"
+    nested_file.write_text("Found nested document content", encoding="utf-8")
+
+    try:
+        # 1. Search with exact name without folder
+        res1 = json.loads(read_document("Nested_Report.txt"))
+        assert "Found nested document content" in res1.get("content", "")
+
+        # 2. Search case-insensitively
+        res2 = json.loads(read_document("nested_report.txt"))
+        assert "Found nested document content" in res2.get("content", "")
+
+        # 3. Read with 'resources/' prefix
+        res3 = json.loads(read_document("resources/subfolder/Nested_Report.txt"))
+        assert "Found nested document content" in res3.get("content", "")
+    finally:
+        if nested_file.exists():
+            nested_file.unlink()
+        if sub_dir.exists():
+            sub_dir.rmdir()
+
+
+def test_mcp_read_file_fallback_to_resources():
+    from services.mcp_tools import read_file, RESOURCES_DIR
+
+    res_only_file = RESOURCES_DIR / "resource_only.txt"
+    res_only_file.write_text("Hello from resources folder fallback", encoding="utf-8")
+
+    try:
+        # read_file should find resource_only.txt via resources/ fallback
+        res = json.loads(read_file("resource_only.txt"))
+        assert "content" in res
+        assert "Hello from resources folder fallback" in res["content"]
+    finally:
+        if res_only_file.exists():
+            res_only_file.unlink()
+
+
+def test_mcp_write_document_normalizes_resources_prefix():
+    from services.mcp_tools import write_document, RESOURCES_DIR
+
+    test_file = RESOURCES_DIR / "normalized_write.txt"
+    try:
+        # Write specifying "resources/normalized_write.txt"
+        res = json.loads(write_document("resources/normalized_write.txt", "Content via resources prefix"))
+        assert res.get("success") is True
+        assert test_file.exists()
+        assert test_file.read_text(encoding="utf-8") == "Content via resources prefix"
+    finally:
+        if test_file.exists():
+            test_file.unlink()
+

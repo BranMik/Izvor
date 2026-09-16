@@ -1,7 +1,7 @@
 {
   "id": "default_sandwich",
   "name": "Default Sandwich Review",
-  "mode": "sandwich",
+  "mode": "fixed",
   "description": "Standard multi-agent panel with kickoff and concluding wrap-up.",
   "sandwich_config": {
     "start_chain": [
@@ -18,6 +18,10 @@
     ]
   },
   "fixed_config": {
-    "chain": []
+    "chain": [
+      "DataAndAnalyticsStrategist",
+      "ScopeOptimizer",
+      "ROIStrategist"
+    ]
   }
 }

@@ -31,22 +31,42 @@ def resolve_target_file(
     target_filename: str | None = None,
 ) -> dict[str, Any] | None:
     """
-    Selects matching file from available thread files.
-    Matches exact name or substring (case-insensitive), or defaults to latest file.
+    Selects matching file from available thread files or falls back to the resources/ directory.
+    Strict precedence: Slack thread attachments in available_files take precedence over files in resources/.
+    Matches exact name or substring (case-insensitive), or defaults to latest file in available_files.
     """
-    if not available_files:
-        return None
+    if available_files:
+        if target_filename:
+            # Exact match in Slack thread attachments
+            for f in reversed(available_files):
+                if f.get("name", "").lower() == target_filename.lower():
+                    return f
+            # Partial match in Slack thread attachments
+            for f in reversed(available_files):
+                if target_filename.lower() in f.get("name", "").lower():
+                    return f
+        else:
+            # Default to latest uploaded file in thread
+            return available_files[-1]
+
+    # Fallback to local default resources/ directory if target filename is requested
     if target_filename:
-        # Exact match
-        for f in reversed(available_files):
-            if f.get("name", "").lower() == target_filename.lower():
-                return f
-        # Partial match
-        for f in reversed(available_files):
-            if target_filename.lower() in f.get("name", "").lower():
-                return f
-    # Default to latest uploaded file
-    return available_files[-1]
+        try:
+            from services.mcp_tools import RESOURCES_DIR, find_resource_file
+
+            matched_path = find_resource_file(target_filename)
+            if matched_path and matched_path.exists() and matched_path.is_file():
+                return {
+                    "id": f"resource_{matched_path.name}",
+                    "name": matched_path.name,
+                    "size": matched_path.stat().st_size,
+                    "is_resource_file": True,
+                    "rel_path": str(matched_path.relative_to(RESOURCES_DIR)).replace("\\", "/"),
+                }
+        except Exception as e:
+            logger.debug(f"[NOMINATION] Error resolving target file from resources: {e}")
+
+    return None
 
 
 def get_initial_agents() -> list[str]:

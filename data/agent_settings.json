@@ -1,5 +1,5 @@
 {
-  "workflow_config": "idea_architecture_feasibility_review",
+  "workflow_config": "test4",
   "enabled_agents": [
     "Architect",
     "CompliancePrivacyAndGovernanceOfficer",
@@ -54,7 +54,7 @@
       ]
     },
     "Sceptic": {
-      "model": "anthropic/claude-fable-5-1",
+      "model": "anthropic/claude-opus-5",
       "username": "Sceptic",
       "icon_url": "static/image_03.png",
       "is_short_output": false,

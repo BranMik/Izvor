@@ -1,8 +1,8 @@
 ---
 name: document_reader
 display_name: Document Reader
-description: Read and analyze reference documents, reports, guidelines, PDF files, text files, and notes inside the resources directory to answer questions.
-scope: orchestrator
+description: Read and analyze reference documents, reports, guidelines, PDF files, text files, and notes inside the default resources directory to answer questions.
+scope: agent
 triggers:
   slash:
     - /read_file
@@ -26,6 +26,7 @@ Use this skill whenever you need to read, inspect, summarize, or extract informa
 - `read_document(rel_path: str)`: Reads text or extracts pages from PDF documents inside `resources/`.
 
 ## Operational Guidelines
-1. **Explore available documents**: Use `list_documents` if the exact document name or file extension is unknown.
-2. **Relative to resources**: Pass paths relative to the `resources/` folder (e.g. `guide.md`, `policies.txt`).
-3. **Accurate citation**: Quote or reference relevant sections of the document faithfully when answering questions.
+1. **Default search location**: The `resources/` directory is the default search location for all documents. Even if the user prompt provides only a file name (e.g. `report.txt` or `guide.pdf`) without specifying the `resources/` folder, always locate and read it from `resources/`.
+2. **Explore available documents**: Use `list_documents` if the exact document name or file extension is unknown.
+3. **Relative to resources**: Pass paths relative to the `resources/` folder (e.g. `guide.md`, `policies.txt`).
+4. **Accurate citation**: Quote or reference relevant sections of the document faithfully when answering questions.

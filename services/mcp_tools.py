@@ -29,13 +29,57 @@ def _resolve_resource_path(rel_path: str) -> Path:
     """
     Ensures the requested document path stays strictly within the 'resources/' directory
     to prevent sandbox escape.
+    Automatically normalizes paths by stripping any leading 'resources/' or 'resources\\' prefix
+    so that both 'report.txt' and 'resources/report.txt' resolve safely into RESOURCES_DIR.
     """
-    target = (RESOURCES_DIR / rel_path).resolve()
+    clean_path = str(rel_path or "").strip().replace("\\", "/")
+    if clean_path.lower().startswith("resources/"):
+        clean_path = clean_path[len("resources/"):].lstrip("/")
+    elif clean_path.lower() == "resources":
+        clean_path = "."
+    elif not clean_path:
+        clean_path = "."
+
+    target = (RESOURCES_DIR / clean_path).resolve()
     if not target.is_relative_to(RESOURCES_DIR):
         raise PermissionError(
             f"Access denied: Path '{rel_path}' is outside resources directory '{RESOURCES_DIR}'."
         )
     return target
+
+
+def find_resource_file(filename_or_rel_path: str) -> Path | None:
+    """
+    Searches for a document within RESOURCES_DIR.
+    1. Direct resolution via _resolve_resource_path
+    2. Case-insensitive exact match in RESOURCES_DIR root
+    3. Case-insensitive recursive match across all subdirectories of RESOURCES_DIR
+    """
+    if not filename_or_rel_path:
+        return None
+    try:
+        direct = _resolve_resource_path(filename_or_rel_path)
+        if direct.exists() and direct.is_file():
+            return direct
+    except Exception:
+        pass
+
+    clean_name = Path(str(filename_or_rel_path).strip().replace("\\", "/")).name.lower()
+    if not clean_name:
+        return None
+
+    try:
+        if RESOURCES_DIR.exists():
+            for item in RESOURCES_DIR.iterdir():
+                if item.is_file() and item.name.lower() == clean_name:
+                    return item
+            for item in RESOURCES_DIR.rglob("*"):
+                if item.is_file() and item.name.lower() == clean_name:
+                    return item
+    except Exception as e:
+        logger.debug(f"[RESOURCES] Error searching for resource file '{filename_or_rel_path}': {e}")
+
+    return None
 
 
 def _resolve_safe_path(rel_path: str) -> Path:
@@ -94,13 +138,19 @@ def list_directory(rel_path: str = ".") -> str:
 def read_file(rel_path: str) -> str:
     """
     Reads the content of a text file inside the workspace.
+    If not found in the root workspace, seamlessly checks the default resources/ directory.
     """
     try:
         path = _resolve_safe_path(rel_path)
-        if not path.exists():
-            return json.dumps({"error": f"File '{rel_path}' does not exist."})
-        if not path.is_file():
-            return json.dumps({"error": f"Path '{rel_path}' is not a file."})
+        if not path.exists() or not path.is_file():
+            # Fallback to resources/ if file is not found in root workspace
+            res_path = find_resource_file(rel_path)
+            if res_path and res_path.exists() and res_path.is_file():
+                path = res_path
+            elif not path.exists():
+                return json.dumps({"error": f"File '{rel_path}' does not exist."})
+            elif not path.is_file():
+                return json.dumps({"error": f"Path '{rel_path}' is not a file."})
 
         content = path.read_text(encoding="utf-8", errors="replace")
         return json.dumps({"file": rel_path, "content": content})
@@ -185,13 +235,18 @@ def list_documents(rel_path: str = ".") -> str:
 def read_document(rel_path: str) -> str:
     """
     Reads the content of a text or PDF document inside the resources/ directory.
+    resources/ is the default working and search directory even if omitted in rel_path.
     """
     try:
         path = _resolve_resource_path(rel_path)
-        if not path.exists():
-            return json.dumps({"error": f"Document '{rel_path}' does not exist in resources."})
-        if not path.is_file():
-            return json.dumps({"error": f"Resource path '{rel_path}' is not a file."})
+        if not path.exists() or not path.is_file():
+            fallback = find_resource_file(rel_path)
+            if fallback and fallback.exists() and fallback.is_file():
+                path = fallback
+            elif not path.exists():
+                return json.dumps({"error": f"Document '{rel_path}' does not exist in resources."})
+            elif not path.is_file():
+                return json.dumps({"error": f"Resource path '{rel_path}' is not a file."})
 
         if path.suffix.lower() == ".pdf":
             try:
@@ -371,7 +426,7 @@ MCP_TOOLS_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "list_documents",
-            "description": "List files and documents inside the resources directory.",
+            "description": "List files and documents inside the default resources directory.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -389,13 +444,13 @@ MCP_TOOLS_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "read_document",
-            "description": "Read text or PDF content of a document or file inside the resources directory.",
+            "description": "Read text or PDF content of a document or file inside the resources directory (the default search location for documents).",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "rel_path": {
                         "type": "string",
-                        "description": "Relative path of the document to read within resources.",
+                        "description": "Relative path or filename of the document to read within resources (the default search location).",
                     }
                 },
                 "required": ["rel_path"],
@@ -406,13 +461,13 @@ MCP_TOOLS_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "write_document",
-            "description": "Write or overwrite text content of a document inside the resources directory.",
+            "description": "Write or overwrite text content of a document inside the default resources directory.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "rel_path": {
                         "type": "string",
-                        "description": "Relative path of the document to write within resources.",
+                        "description": "Relative path or filename of the document to write within resources (the default working folder).",
                     },
                     "content": {
                         "type": "string",

@@ -245,7 +245,7 @@ class SkillRegistry:
             "- 'max_words': Extract integer ceiling only if user requested a maximum length (e.g. 'in under 50 words', 'max 30 words', 'briefly in 40 words'). Do NOT extract minimum length as max_words.",
             "- 'min_words': Extract integer floor only if user requested a minimum length (e.g. 'at least 100 words', 'minimalno 50 riječi').",
             "- 'history': Extract integer message limit if requested (e.g. 'last 3 messages', 'zadnje 2 poruke').",
-            "- 'document_reader': If user asks to read, analyze, inspect, or reference an attached file, include action 'document_reader' with param 'target_file' (or null if generic).",
+            "- 'document_reader': If user asks to read, analyze, inspect, or reference an attached file or document, include action 'document_reader' with param 'target_file' (or null if generic).",
             "- 'exclude_agents': If user asks to exclude or leave out specific agents, include action 'exclude_agents' with param 'agents' (list of string agent keys). Agents tagged to speak must NEVER be excluded.",
             "",
             "Respond ONLY with a valid JSON object matching this schema:",
