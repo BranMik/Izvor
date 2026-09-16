@@ -140,6 +140,8 @@ def test_execute_load_skill_authorization():
     denied_data = json.loads(denied_res)
     assert "error" in denied_data
     assert "Permission denied" in denied_data["error"]
+    assert "CRITICAL INSTRUCTION" in denied_data["error"]
+    assert "Do NOT report that the file or resource was not found." in denied_data["error"]
 
     # Unauthorized case: TechLead has ['codebase_inspection'], tries to load web_research
     tl_denied = skill_registry.execute_tool(
@@ -147,6 +149,8 @@ def test_execute_load_skill_authorization():
     )
     tl_data = json.loads(tl_denied)
     assert "Permission denied" in tl_data["error"]
+    assert "CRITICAL INSTRUCTION" in tl_data["error"]
+    assert "Do NOT report that the file or resource was not found." in tl_data["error"]
 
 
 def test_execute_load_skill_invalid():

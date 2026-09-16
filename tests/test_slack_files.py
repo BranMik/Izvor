@@ -193,6 +193,63 @@ def test_build_llm_messages_file_context_all_authorized():
     assert '{"port": 8080}' in msgs[-1]["content"]
 
 
+def test_build_llm_messages_file_context_missing_skill_notice():
+    file_context = {
+        "file_name": "data.csv",
+        "content": "id,name\n1,Alice",
+        "size": 15,
+        "authorized_agents": None,
+        "required_skill": "document_reader",
+    }
+
+    # Agent with skills configured but lacking document_reader
+    msgs = build_llm_messages(
+        system_prompt="You are TechLead.",
+        effective_history=[],
+        prompt="Analyze data.csv",
+        is_bot_trigger=False,
+        agent_key="TechLead",
+        agent_cfg={"username": "TechLead", "skills": ["codebase_inspection"]},
+        file_context=file_context,
+    )
+    user_turn = msgs[-1]["content"]
+    assert "ATTACHED SLACK FILE" not in user_turn
+    assert "--- [FILE ACCESS RESTRICTED: MISSING SKILL] ---" in user_turn
+    assert "document_reader" in user_turn
+    assert "Do NOT report that the file was not found." in user_turn
+
+    # Agent equipped with document_reader gets full file content
+    msgs_ok = build_llm_messages(
+        system_prompt="You are Data Strategist.",
+        effective_history=[],
+        prompt="Analyze data.csv",
+        is_bot_trigger=False,
+        agent_key="DataAndAnalyticsStrategist",
+        agent_cfg={"username": "Data Strategist", "skills": ["document_reader"]},
+        file_context=file_context,
+    )
+    user_turn_ok = msgs_ok[-1]["content"]
+    assert "--- [ATTACHED SLACK FILE: data.csv (15 bytes)] ---" in user_turn_ok
+    assert "id,name\n1,Alice" in user_turn_ok
+
+
+def test_build_llm_messages_required_skills_missing_notice():
+    # Agent lacking required skill (document_authoring) receives notice
+    msgs = build_llm_messages(
+        system_prompt="You are Visionary.",
+        effective_history=[],
+        prompt="Write a report to resources/report.md",
+        is_bot_trigger=False,
+        agent_key="Visionary",
+        agent_cfg={"username": "Visionary", "skills": []},
+        required_skills=["document_authoring"],
+    )
+    user_turn = msgs[-1]["content"]
+    assert "--- [PERMISSION RESTRICTED: MISSING REQUIRED SKILL(S)] ---" in user_turn
+    assert "document_authoring" in user_turn
+    assert "Do NOT report that the file or resource was not found." in user_turn
+
+
 @pytest.mark.anyio
 async def test_download_slack_file_mock_mode():
     file_info = {

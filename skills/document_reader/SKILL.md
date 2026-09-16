@@ -30,3 +30,4 @@ Use this skill whenever you need to read, inspect, summarize, or extract informa
 2. **Explore available documents**: Use `list_documents` if the exact document name or file extension is unknown.
 3. **Relative to resources**: Pass paths relative to the `resources/` folder (e.g. `guide.md`, `policies.txt`).
 4. **Accurate citation**: Quote or reference relevant sections of the document faithfully when answering questions.
+5. **Permission awareness**: If an agent attempts to access or read documents without having the `document_reader` skill assigned or permitted, they must report that they lack the required skill/permission rather than claiming the file was not found.

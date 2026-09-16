@@ -348,7 +348,10 @@ class SkillRegistry:
                 return json.dumps({
                     "error": (
                         f"Permission denied: Agent is not authorized to load skill '{skill_name}'. "
-                        f"Permitted skills: {allowed_str}"
+                        f"Permitted skills: {allowed_str}. "
+                        f"CRITICAL INSTRUCTION: You do NOT have permission to load or use the skill '{skill_name}'. "
+                        f"You must explicitly state to the user that you do not have permission / the required skill '{skill_name}' to access or process this resource. "
+                        f"Do NOT report that the file or resource was not found."
                     )
                 })
 
@@ -382,7 +385,10 @@ class SkillRegistry:
                 return json.dumps({
                     "error": (
                         f"Permission denied: Agent is not authorized to execute tool '{tool_name}'. "
-                        f"Permitted tools: {allowed_tools_str}"
+                        f"Permitted tools: {allowed_tools_str}. "
+                        f"CRITICAL INSTRUCTION: You do NOT have permission to execute tool '{tool_name}'. "
+                        f"You must explicitly state to the user that you do not have permission to execute this tool. "
+                        f"Do NOT report that the file or resource was not found."
                     )
                 })
 

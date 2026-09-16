@@ -181,6 +181,23 @@ class ContextPrepStageMixin:
                 thread_state_manager.get_language(ctx.channel_id, ctx.thread_ts)
                 or "English"
             )
+
+        # Determine any required or inferred skills for this turn
+        required_skills: list[str] = []
+        if getattr(ctx, "actions", None):
+            known_agent_skills = {s.name for s in skill_registry.get_agent_skills()}
+            for act in ctx.actions:
+                if act.name in known_agent_skills and act.name not in required_skills:
+                    required_skills.append(act.name)
+
+        if getattr(ctx, "is_file_req", False) and "document_reader" not in required_skills:
+            required_skills.append("document_reader")
+
+        if ctx.file_context:
+            req_s = ctx.file_context.get("required_skill", "document_reader")
+            if req_s and req_s not in required_skills:
+                required_skills.append(req_s)
+
         ctx.messages = build_llm_messages(
             system_prompt=ctx.system_prompt,
             effective_history=ctx.effective_history,
@@ -193,5 +210,6 @@ class ContextPrepStageMixin:
             force_termination=ctx.force_termination,
             next_designated_agent=ctx.next_designated_agent,
             thread_language=ctx.thread_language,
+            required_skills=required_skills,
         )
         return None
