@@ -316,6 +316,124 @@ class SkillRegistry:
         ])
         return "\n".join(lines) + "\n"
 
+    def get_skill_agent_mapping(
+        self, channel_id: str | None = None, thread_ts: str | None = None
+    ) -> dict[str, dict[str, Any]]:
+        """
+        Returns a dictionary mapping each registered skill name to its metadata and authorized agents.
+        """
+        from core.config import AGENTS_CONFIG
+        try:
+            from orchestration.agent_settings import settings_manager
+            agents_cfg = settings_manager.agents_config or AGENTS_CONFIG
+        except Exception:
+            agents_cfg = AGENTS_CONFIG
+
+        thread_skills: list[str] = []
+        if channel_id and thread_ts:
+            try:
+                from orchestration.thread_skills_manager import thread_skills_manager
+                thread_skills = thread_skills_manager.get_active_skills(channel_id, thread_ts)
+            except Exception:
+                thread_skills = []
+
+        mapping: dict[str, dict[str, Any]] = {}
+        for skill in self.list_skills():
+            auth_agents: list[str] = []
+            if skill.is_global:
+                auth_agents = ["All Agents (Global)"]
+            elif skill.name in thread_skills:
+                auth_agents = ["All Agents (Thread-Global Active)"]
+            elif skill.scope == "agent":
+                matched = [
+                    agent_key for agent_key, cfg in sorted(agents_cfg.items())
+                    if isinstance(cfg, dict) and skill.name in cfg.get("skills", [])
+                ]
+                auth_agents = matched if matched else ["No agents currently assigned"]
+            elif skill.scope == "orchestrator":
+                auth_agents = ["System / Orchestrator Directive"]
+            elif skill.scope == "prompt_modifier":
+                auth_agents = ["System / Prompt Modifier"]
+            else:
+                auth_agents = ["System"]
+
+            mapping[skill.name] = {
+                "display_name": skill.display_name,
+                "description": skill.description,
+                "scope": skill.scope,
+                "tools": skill.tools,
+                "is_global": skill.is_global,
+                "authorized_agents": auth_agents,
+            }
+        return mapping
+
+    def format_skills_directory_markdown(
+        self, channel_id: str | None = None, thread_ts: str | None = None
+    ) -> str:
+        """
+        Formats the full platform skills directory into clean markdown.
+        Beside each skill is listed all agents who can use it.
+        """
+        mapping = self.get_skill_agent_mapping(channel_id=channel_id, thread_ts=thread_ts)
+        lines = ["*Application Skills & Capabilities Directory*:\n"]
+
+        agent_skills = []
+        directive_skills = []
+        modifier_skills = []
+
+        for name, info in sorted(mapping.items()):
+            agents_str = ", ".join(info["authorized_agents"])
+            desc = info["description"] or "No description provided."
+            entry = f"• `{name}`: {desc}\n   ↳ *Authorized*: {agents_str}"
+            if info["scope"] == "agent":
+                agent_skills.append(entry)
+            elif info["scope"] == "prompt_modifier":
+                modifier_skills.append(entry)
+            else:
+                directive_skills.append(entry)
+
+        if agent_skills:
+            lines.append("*Agent Skills (Tools & Capabilities)*:")
+            lines.extend(agent_skills)
+            lines.append("")
+
+        if directive_skills:
+            lines.append("*Orchestrator Directives & Control Skills*:")
+            lines.extend(directive_skills)
+            lines.append("")
+
+        if modifier_skills:
+            lines.append("*Prompt & Output Modifiers*:")
+            lines.extend(modifier_skills)
+            lines.append("")
+
+        lines.append("_Note: Agents are strictly limited to their assigned permissions and cannot execute unauthorized skills._")
+        return "\n".join(lines)
+
+    def get_skills_directory_prompt(self) -> str:
+        """
+        Generates the comprehensive application skills directory for injection into agent system prompts.
+        Informs all agents of platform skills and which agents can use them, while enforcing boundary awareness.
+        """
+        mapping = self.get_skill_agent_mapping()
+        lines = [
+            "### APPLICATION SKILLS DIRECTORY",
+            "The platform provides the following skills. Beside each skill is the list of agents authorized to use it:",
+        ]
+        for name, info in sorted(mapping.items()):
+            agents_str = ", ".join(info["authorized_agents"])
+            lines.append(f"- `{name}`: {info['description']} (Authorized: {agents_str})")
+
+        lines.extend([
+            "",
+            "PERMISSION BOUNDARIES & USAGE RESTRICTIONS:",
+            "- You can view and reference this directory to accurately answer user questions about platform capabilities and agent assignments.",
+            "- However, you are strictly limited in skills usage. You may ONLY load and execute tools for skills specifically authorized for your role.",
+            "- If a user requests an action requiring a skill you are not authorized to use, state clearly that you do not have permission and direct them to an authorized agent.",
+            "- You must NEVER attempt to circumvent permission boundaries.",
+        ])
+        return "\n".join(lines) + "\n"
+
     def execute_tool(
         self,
         tool_name: str,

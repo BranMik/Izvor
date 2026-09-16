@@ -174,6 +174,12 @@ class DirectiveParser:
                             text_cleaned,
                             flags=re.IGNORECASE,
                         ).strip()
+                elif arg_type in ("none", "flag"):
+                    pattern = re.compile(rf"(?:^|\s){re.escape(slash_cmd)}(?=[\s:=]|$)", re.IGNORECASE)
+                    if pattern.search(text_cleaned):
+                        actions.append(ActionDirective(name=skill_def.name, params={}))
+                        text_cleaned = pattern.sub(" ", text_cleaned).strip()
+                        text_cleaned = re.sub(r"[ \t]+", " ", text_cleaned).strip()
                 else:
                     pattern = re.compile(rf"(?:^|\s){re.escape(slash_cmd)}(?:\s+([^\s/]+))?", re.IGNORECASE)
                     match = pattern.search(text_cleaned)

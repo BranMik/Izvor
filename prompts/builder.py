@@ -193,9 +193,14 @@ def build_agent_prompt(
         f"{directives_block}\n"
     )
 
-    # Append Skills Catalog for on-demand progressive disclosure (strictly filtered to authorized skills)
+    # Append Skills Directory and on-demand progressive disclosure (strictly filtered to authorized skills)
     try:
         from skills import skill_registry
+
+        # Inject comprehensive skills directory so any agent asked can accurately list all skills and authorized agents
+        skills_dir_prompt = skill_registry.get_skills_directory_prompt()
+        if skills_dir_prompt:
+            prompt += f"\n{skills_dir_prompt}\n"
 
         effective_skills = skills
         if effective_skills is None:
