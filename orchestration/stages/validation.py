@@ -398,6 +398,7 @@ class ValidationStageMixin:
                                 "size": dl_res.get("size", 0),
                                 "truncated": dl_res.get("truncated", False),
                                 "authorized_agents": authorized_agents,
+                                "required_skill": "document_reader",
                             },
                         )
                     else:
@@ -412,6 +413,7 @@ class ValidationStageMixin:
                                 "size": chosen_file.get("size", 0),
                                 "truncated": False,
                                 "authorized_agents": authorized_agents,
+                                "required_skill": "document_reader",
                             },
                         )
                 else:
@@ -427,6 +429,7 @@ class ValidationStageMixin:
                             "size": 0,
                             "truncated": False,
                             "authorized_agents": authorized_agents,
+                            "required_skill": "document_reader",
                         },
                     )
             else:

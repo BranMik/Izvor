@@ -19,3 +19,4 @@ Use this skill when tasked with drafting, writing, or updating non-code document
 2. **Clear structure**: Format documents with clear Markdown headings, bullet points, and clean typography.
 3. **Relative to resources**: Always write paths relative to the `resources/` folder (e.g. `summary.md`, `meeting_notes.txt`).
 4. **Completeness**: Provide complete and polished document content without placeholder text unless explicitly requested.
+5. **Permission awareness**: If an agent attempts to author or save documents without having the `document_authoring` skill assigned or permitted, they must report that they lack the required skill/permission rather than claiming the resource was not found.

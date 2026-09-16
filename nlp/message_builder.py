@@ -24,6 +24,7 @@ def build_llm_messages(
     force_termination: bool = False,
     next_designated_agent: str | None = None,
     thread_language: str = "English",
+    required_skills: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     """
     Constructs a normalized, provider-safe message sequence for LiteLLM.
@@ -35,22 +36,66 @@ def build_llm_messages(
     4. The conversational sequence strictly ends with a 'user' turn (never 'assistant'),
        which is strictly required by Anthropic (Claude), Mistral, and Google Gemini APIs.
     5. Injects on-demand attached file content if present and if the current agent is authorized.
+    6. Injects explicit permission notices if an agent lacks authorization or required skills.
     """
     conversation: list[dict[str, Any]] = []
 
-    # Check authorization for attached file
+    # Check authorization and skill requirements for attached file
     file_block = ""
     if file_context:
         authorized_agents = file_context.get("authorized_agents")
-        if authorized_agents is None or agent_key in authorized_agents:
-            file_name = file_context.get("file_name", "unknown")
-            content = file_context.get("content", "")
-            size = file_context.get("size", 0)
+        required_skill = file_context.get("required_skill", "document_reader")
+        file_name = file_context.get("file_name", "unknown")
+        content = file_context.get("content", "")
+        size = file_context.get("size", 0)
+
+        is_agent_authorized = authorized_agents is None or agent_key in authorized_agents
+        agent_skills = agent_cfg.get("skills")
+        has_skill = True
+        if required_skill and agent_skills is not None:
+            has_skill = required_skill in agent_skills
+
+        if not is_agent_authorized:
+            file_block = (
+                f"\n\n--- [FILE ACCESS RESTRICTED: NOT AUTHORIZED] ---\n"
+                f"The file '{file_name}' was provided in this thread, but you ({agent_key}) are not in the authorized agents list to access it.\n"
+                f"You must explicitly inform the user that you do not have permission / authorization to access or read this file. "
+                f"Do NOT report that the file was not found.\n"
+                f"--- [END OF NOTICE] ---"
+            )
+        elif not has_skill:
+            file_block = (
+                f"\n\n--- [FILE ACCESS RESTRICTED: MISSING SKILL] ---\n"
+                f"The file '{file_name}' is available, but you ({agent_key}) do not have the required '{required_skill}' skill assigned to access or read files.\n"
+                f"You must explicitly state to the user that you do not have permission / the required '{required_skill}' skill to access or read this file. "
+                f"Do NOT report that the file was not found.\n"
+                f"--- [END OF NOTICE] ---"
+            )
+        else:
             file_block = (
                 f"\n\n--- [ATTACHED SLACK FILE: {file_name} ({size} bytes)] ---\n"
                 f"{content}\n"
                 f"--- [END OF ATTACHED FILE] ---"
             )
+
+    # Check for any required or inferred skills that this agent lacks
+    skill_notice_block = ""
+    if required_skills:
+        agent_skills = agent_cfg.get("skills")
+        if agent_skills is not None:
+            missing = [s for s in required_skills if s not in agent_skills]
+            if file_block and "document_reader" in missing:
+                missing = [s for s in missing if s != "document_reader"]
+            if missing:
+                missing_str = ", ".join(f"'{s}'" for s in missing)
+                skill_notice_block = (
+                    f"\n\n--- [PERMISSION RESTRICTED: MISSING REQUIRED SKILL(S)] ---\n"
+                    f"The requested task requires or infers the following skill(s): {missing_str}, "
+                    f"but you ({agent_key}) do not have permission or this skill assigned.\n"
+                    f"You must explicitly state to the user that you do not have permission / the required skill(s) ({missing_str}) "
+                    f"to perform this action. Do NOT report that the file or resource was not found.\n"
+                    f"--- [END OF NOTICE] ---"
+                )
 
     # Dynamic orchestration directive
     orchestration_block = ""
@@ -81,7 +126,7 @@ def build_llm_messages(
         if effective_history:
             conversation.extend(effective_history)
         lang_part = f"\n\n{lang_directive}" if lang_directive else ""
-        user_prompt = f"{prompt}{lang_part}{file_block}{orchestration_block}"
+        user_prompt = f"{prompt}{lang_part}{file_block}{skill_notice_block}{orchestration_block}"
         conversation.append({"role": "user", "content": user_prompt})
     else:
         if effective_history:
@@ -93,7 +138,7 @@ def build_llm_messages(
                 "Please evaluate the discussion above and provide your response in accordance with your role and instructions."
                 f"{lang_part}"
             )
-            instruction = f"{instruction}{file_block}{orchestration_block}"
+            instruction = f"{instruction}{file_block}{skill_notice_block}{orchestration_block}"
             conversation.append(
                 {
                     "role": "user",
@@ -102,7 +147,7 @@ def build_llm_messages(
             )
         else:
             lang_part = f"\n\n{lang_directive}" if lang_directive else ""
-            user_prompt = f"{prompt}{lang_part}{file_block}{orchestration_block}"
+            user_prompt = f"{prompt}{lang_part}{file_block}{skill_notice_block}{orchestration_block}"
             conversation.append({"role": "user", "content": user_prompt})
 
     # Ensure the first conversational message has role 'user' (for strict APIs like Anthropic/Gemini)
