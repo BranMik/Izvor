@@ -77,6 +77,7 @@ def test_document_reader_skill_definition():
     assert skill is not None
     assert skill.name == "document_reader"
     assert skill.display_name == "Document Reader"
+    assert skill.scope == "agent"
     assert "resources" in skill.description.lower()
     assert set(skill.tools) == {"list_documents", "read_document"}
     assert "# Document Reader Skill" in skill.instructions
@@ -207,6 +208,11 @@ def test_skills_catalog_prompt_filtering():
     web_only = skill_registry.get_skills_catalog_prompt(allowed_skills=["web_research"])
     assert "web_research" in web_only
     assert "codebase_inspection" not in web_only
+
+    # When restricted to document_reader
+    doc_only = skill_registry.get_skills_catalog_prompt(allowed_skills=["document_reader"])
+    assert "document_reader" in doc_only
+    assert "web_research" not in doc_only
 
     # When zero skills allowed (pure debate persona), empty string returned
     empty_catalog = skill_registry.get_skills_catalog_prompt(allowed_skills=[])

@@ -89,8 +89,48 @@ def test_resolve_target_file():
     res = resolve_target_file(files, None)
     assert res["id"] == "F3"
 
-    # Empty list
-    assert resolve_target_file([], "test.py") is None
+    # Empty list and non-existent file
+    assert resolve_target_file([], "non_existent_random_file_12345.py") is None
+
+
+def test_resolve_target_file_resources_fallback_and_slack_precedence():
+    from services.mcp_tools import RESOURCES_DIR
+
+    test_filename = "precedence_test_doc.txt"
+    res_file = RESOURCES_DIR / test_filename
+    res_file.write_text("Content in resources folder", encoding="utf-8")
+
+    try:
+        # 1. When file is ONLY in resources/ (available_files is empty)
+        matched_res = resolve_target_file([], test_filename)
+        assert matched_res is not None
+        assert matched_res.get("is_resource_file") is True
+        assert matched_res.get("name") == test_filename
+
+        # 2. Case-insensitive match in resources/
+        matched_ci = resolve_target_file([], test_filename.upper())
+        assert matched_ci is not None
+        assert matched_ci.get("is_resource_file") is True
+
+        # 3. PRECEDENCE RULE: File exists in BOTH Slack attachments (available_files) AND resources/
+        # Attached Slack file MUST take precedence over resources folder!
+        slack_files = [
+            {
+                "id": "SLACK_F123",
+                "name": test_filename,
+                "size": 999,
+                "url_private_download": "https://files.slack.com/files-pri/T1/precedence_test_doc.txt",
+            }
+        ]
+        matched_slack = resolve_target_file(slack_files, test_filename)
+        assert matched_slack is not None
+        assert matched_slack.get("id") == "SLACK_F123"
+        assert matched_slack.get("is_resource_file") is not True
+
+    finally:
+        if res_file.exists():
+            res_file.unlink()
+
 
 
 def test_build_llm_messages_file_context_authorized_vs_unauthorized():
@@ -283,3 +323,43 @@ async def test_file_context_lifecycle_in_process_and_respond():
                         assert res3.get("ok") is True
                         # After OpAiTerra finishes, file context is cleanly destroyed
                         assert thread_state_manager.get_file_context(channel_id, thread_ts) is None
+
+
+@pytest.mark.anyio
+async def test_resource_file_resolution_in_validation_stage():
+    from orchestration.turn_pipeline import TurnContext, TurnPipeline
+    from services.mcp_tools import RESOURCES_DIR
+
+    channel_id = "C_RES_STAGE_TEST"
+    thread_ts = "1700000000.9999"
+
+    doc_filename = "server_resource_doc.txt"
+    res_file = RESOURCES_DIR / doc_filename
+    res_file.write_text("Unique local server resource document text", encoding="utf-8")
+
+    try:
+        pipeline = TurnPipeline()
+        ctx = TurnContext(
+            channel_id=channel_id,
+            thread_ts=thread_ts,
+            raw_text=f"/read-file {doc_filename}",
+            is_bot_trigger=False,
+        )
+
+        with patch.object(pipeline, "_get_hook", side_effect=lambda name, default=None: (
+            AsyncMock(return_value=[]) if name == "fetch_thread_files" else
+            AsyncMock(return_value={"ok": True}) if name == "post_system_message" else
+            default
+        )):
+            stage_res = await pipeline.stage_validate_and_parse(ctx)
+            assert stage_res is None or stage_res.get("ok", True) is True
+
+            fc = thread_state_manager.get_file_context(channel_id, thread_ts)
+            assert fc is not None
+            assert fc.get("file_name") == doc_filename
+            assert "Unique local server resource document text" in fc.get("content", "")
+    finally:
+        if res_file.exists():
+            res_file.unlink()
+        thread_state_manager.clear_file_context(channel_id, thread_ts)
+
