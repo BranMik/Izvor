@@ -113,7 +113,7 @@ def extract_min_words_limit(text: str) -> tuple[int | None, str]:
 # ==============================================================================
 
 FILE_COMMAND_PATTERN = re.compile(
-    r"/(?:read[-_]?file|file|attachment)(?:\s*[:=]\s*(\S+)|\s+\[([^\]]+)\]|\s+\(([^)]+)\)|\s+([\w\-.]+\.[a-zA-Z0-9]+))?",
+    r"/(?:read[-_]?file|file|attachment|image|screenshot|photo|diagram)(?:\s*[:=]\s*(\S+)|\s+\[([^\]]+)\]|\s+\(([^)]+)\)|\s+([\w\-.]+\.[a-zA-Z0-9]+))?",
     re.IGNORECASE,
 )
 

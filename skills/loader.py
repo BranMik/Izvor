@@ -47,6 +47,7 @@ LOAD_SKILL_SCHEMA = {
 import importlib.util
 from collections.abc import Callable
 
+
 @dataclass
 class SkillDefinition:
     """Represents a declarative Skill parsed from a SKILL.md file."""
@@ -99,7 +100,9 @@ class SkillRegistry:
                 skill_def = self._parse_skill_file(skill_file)
                 if skill_def:
                     self._skills[skill_def.name] = skill_def
-                    logger.debug(f"[SKILLS] Loaded declarative skill '{skill_def.name}' ({skill_def.scope}) from {skill_file}")
+                    logger.debug(
+                        f"[SKILLS] Loaded declarative skill '{skill_def.name}' ({skill_def.scope}) from {skill_file}"
+                    )
             except (FileNotFoundError, PermissionError, OSError) as e:
                 logger.error(f"[SKILLS] File I/O error reading {skill_file}: {e}")
             except (yaml.YAMLError, ValueError, TypeError, UnicodeError) as e:
@@ -123,7 +126,9 @@ class SkillRegistry:
 
         meta = yaml.safe_load(frontmatter_str) or {}
         name = str(meta.get("name", file_path.parent.name)).strip()
-        display_name = str(meta.get("display_name", name.replace("_", " ").title())).strip()
+        display_name = str(
+            meta.get("display_name", name.replace("_", " ").title())
+        ).strip()
         description = str(meta.get("description", "")).strip()
         scope = str(meta.get("scope", "agent")).strip().lower()
         triggers = meta.get("triggers") or {}
@@ -148,7 +153,9 @@ class SkillRegistry:
                     if hasattr(mod, "run"):
                         action_handler = getattr(mod, "run")
             except Exception as e:
-                logger.error(f"[SKILLS] Error loading action handler from {action_file}: {e}")
+                logger.error(
+                    f"[SKILLS] Error loading action handler from {action_file}: {e}"
+                )
 
         return SkillDefinition(
             name=name,
@@ -175,7 +182,9 @@ class SkillRegistry:
         """Returns a list of names for skills marked global in SKILL.md."""
         return [s.name for s in self._skills.values() if s.is_global]
 
-    def get_agent_skills(self, allowed_skills: list[str] | None = None) -> list[SkillDefinition]:
+    def get_agent_skills(
+        self, allowed_skills: list[str] | None = None
+    ) -> list[SkillDefinition]:
         """Returns skills with scope == 'agent', optionally filtered by allowed_skills and including global skills."""
         res = [s for s in self._skills.values() if s.scope == "agent"]
         if allowed_skills is not None:
@@ -200,7 +209,8 @@ class SkillRegistry:
     def get_auto_detect_skills(self) -> list[SkillDefinition]:
         """Returns all skills where auto_detect is not False (default True for all skills)."""
         return [
-            s for s in self._skills.values()
+            s
+            for s in self._skills.values()
             if s.triggers.get("auto_detect", True) is not False
         ]
 
@@ -240,29 +250,33 @@ class SkillRegistry:
             prompt_lines.extend(actions_lines)
             prompt_lines.append("")
 
-        prompt_lines.extend([
-            "SPECIAL RULES:",
-            "- 'max_words': Extract integer ceiling only if user requested a maximum length (e.g. 'in under 50 words', 'max 30 words', 'briefly in 40 words'). Do NOT extract minimum length as max_words.",
-            "- 'min_words': Extract integer floor only if user requested a minimum length (e.g. 'at least 100 words', 'minimalno 50 riječi').",
-            "- 'history': Extract integer message limit if requested (e.g. 'last 3 messages', 'zadnje 2 poruke').",
-            "- 'document_reader': If user asks to read, analyze, inspect, or reference an attached file or document, include action 'document_reader' with param 'target_file' (or null if generic).",
-            "- 'exclude_agents': If user asks to exclude or leave out specific agents, include action 'exclude_agents' with param 'agents' (list of string agent keys). Agents tagged to speak must NEVER be excluded.",
-            "",
-            "Respond ONLY with a valid JSON object matching this schema:",
-            "{",
-            '  "modifiers": {',
-            '    "max_words": <int or null>,',
-            '    "min_words": <int or null>,',
-            '    "history": <int or null>',
-            "  },",
-            '  "actions": [',
-            '    { "name": "<skill_name>", "params": { ... } }',
-            "  ]",
-            "}",
-        ])
+        prompt_lines.extend(
+            [
+                "SPECIAL RULES:",
+                "- 'max_words': Extract integer ceiling only if user requested a maximum length (e.g. 'in under 50 words', 'max 30 words', 'briefly in 40 words'). Do NOT extract minimum length as max_words.",
+                "- 'min_words': Extract integer floor only if user requested a minimum length (e.g. 'at least 100 words', 'minimalno 50 riječi').",
+                "- 'history': Extract integer message limit if requested (e.g. 'last 3 messages', 'zadnje 2 poruke').",
+                "- 'document_reader': If user asks to read, analyze, inspect, or reference an attached file or document, include action 'document_reader' with param 'target_file' (or null if generic).",
+                "- 'exclude_agents': If user asks to exclude or leave out specific agents, include action 'exclude_agents' with param 'agents' (list of string agent keys). Agents tagged to speak must NEVER be excluded.",
+                "",
+                "Respond ONLY with a valid JSON object matching this schema:",
+                "{",
+                '  "modifiers": {',
+                '    "max_words": <int or null>,',
+                '    "min_words": <int or null>,',
+                '    "history": <int or null>',
+                "  },",
+                '  "actions": [',
+                '    { "name": "<skill_name>", "params": { ... } }',
+                "  ]",
+                "}",
+            ]
+        )
         return "\n".join(prompt_lines)
 
-    def get_tools_for_skills(self, skill_names: list[str] | None) -> list[dict[str, Any]]:
+    def get_tools_for_skills(
+        self, skill_names: list[str] | None
+    ) -> list[dict[str, Any]]:
         """Aggregates tool schemas for a list of skill names without duplicates."""
         if not skill_names:
             return []
@@ -294,7 +308,9 @@ class SkillRegistry:
         # Strictly only show agent-scoped skills to LLM agents
         skills_to_show = [s for s in self._skills.values() if s.scope == "agent"]
         if allowed_skills is not None:
-            skills_to_show = [s for s in skills_to_show if s.name in allowed_skills or s.is_global]
+            skills_to_show = [
+                s for s in skills_to_show if s.name in allowed_skills or s.is_global
+            ]
             if not skills_to_show:
                 return ""
 
@@ -308,12 +324,14 @@ class SkillRegistry:
         for skill in skills_to_show:
             lines.append(f"- `{skill.name}`: {skill.description}")
 
-        lines.extend([
-            "",
-            "SKILL INFERENCE RULE:",
-            "- If your turn is purely conversational, conceptual, or philosophical, do NOT load any skills—respond directly.",
-            "- If you need external facts or file access, call `load_skill` with the relevant skill name.",
-        ])
+        lines.extend(
+            [
+                "",
+                "SKILL INFERENCE RULE:",
+                "- If your turn is purely conversational, conceptual, or philosophical, do NOT load any skills—respond directly.",
+                "- If you need external facts or file access, call `load_skill` with the relevant skill name.",
+            ]
+        )
         return "\n".join(lines) + "\n"
 
     def get_skill_agent_mapping(
@@ -323,8 +341,10 @@ class SkillRegistry:
         Returns a dictionary mapping each registered skill name to its metadata and authorized agents.
         """
         from core.config import AGENTS_CONFIG
+
         try:
             from orchestration.agent_settings import settings_manager
+
             agents_cfg = settings_manager.agents_config or AGENTS_CONFIG
         except Exception:
             agents_cfg = AGENTS_CONFIG
@@ -333,7 +353,10 @@ class SkillRegistry:
         if channel_id and thread_ts:
             try:
                 from orchestration.thread_skills_manager import thread_skills_manager
-                thread_skills = thread_skills_manager.get_active_skills(channel_id, thread_ts)
+
+                thread_skills = thread_skills_manager.get_active_skills(
+                    channel_id, thread_ts
+                )
             except Exception:
                 thread_skills = []
 
@@ -346,7 +369,8 @@ class SkillRegistry:
                 auth_agents = ["All Agents (Thread-Global Active)"]
             elif skill.scope == "agent":
                 matched = [
-                    agent_key for agent_key, cfg in sorted(agents_cfg.items())
+                    agent_key
+                    for agent_key, cfg in sorted(agents_cfg.items())
                     if isinstance(cfg, dict) and skill.name in cfg.get("skills", [])
                 ]
                 auth_agents = matched if matched else ["No agents currently assigned"]
@@ -374,7 +398,9 @@ class SkillRegistry:
         Formats the full platform skills directory into clean markdown.
         Beside each skill is listed all agents who can use it.
         """
-        mapping = self.get_skill_agent_mapping(channel_id=channel_id, thread_ts=thread_ts)
+        mapping = self.get_skill_agent_mapping(
+            channel_id=channel_id, thread_ts=thread_ts
+        )
         lines = ["*Application Skills & Capabilities Directory*:\n"]
 
         agent_skills = []
@@ -407,7 +433,9 @@ class SkillRegistry:
             lines.extend(modifier_skills)
             lines.append("")
 
-        lines.append("_Note: Agents are strictly limited to their assigned permissions and cannot execute unauthorized skills._")
+        lines.append(
+            "_Note: Agents are strictly limited to their assigned permissions and cannot execute unauthorized skills, unless /grant_for_all instructions was given in a thread._"
+        )
         return "\n".join(lines)
 
     def get_skills_directory_prompt(self) -> str:
@@ -422,16 +450,20 @@ class SkillRegistry:
         ]
         for name, info in sorted(mapping.items()):
             agents_str = ", ".join(info["authorized_agents"])
-            lines.append(f"- `{name}`: {info['description']} (Authorized: {agents_str})")
+            lines.append(
+                f"- `{name}`: {info['description']} (Authorized: {agents_str})"
+            )
 
-        lines.extend([
-            "",
-            "PERMISSION BOUNDARIES & USAGE RESTRICTIONS:",
-            "- You can view and reference this directory to accurately answer user questions about platform capabilities and agent assignments.",
-            "- However, you are strictly limited in skills usage. You may ONLY load and execute tools for skills specifically authorized for your role.",
-            "- If a user requests an action requiring a skill you are not authorized to use, state clearly that you do not have permission and direct them to an authorized agent.",
-            "- You must NEVER attempt to circumvent permission boundaries.",
-        ])
+        lines.extend(
+            [
+                "",
+                "PERMISSION BOUNDARIES & USAGE RESTRICTIONS:",
+                "- You can view and reference this directory to accurately answer user questions about platform capabilities and agent assignments.",
+                "- However, you are strictly limited in skills usage. You may ONLY load and execute tools for skills specifically authorized for your role.",
+                "- If a user requests an action requiring a skill you are not authorized to use, state clearly that you do not have permission and direct them to an authorized agent.",
+                "- You must NEVER attempt to circumvent permission boundaries.",
+            ]
+        )
         return "\n".join(lines) + "\n"
 
     def execute_tool(
@@ -453,40 +485,57 @@ class SkillRegistry:
             target_skill = self.get(skill_name)
             is_globally_allowed = bool(target_skill and target_skill.is_global)
 
-            if authorized_skills is not None and skill_name not in authorized_skills and not is_globally_allowed:
+            if (
+                authorized_skills is not None
+                and skill_name not in authorized_skills
+                and not is_globally_allowed
+            ):
                 if expired_skills and skill_name in expired_skills:
-                    ttl_str = f"{ttl_hours:.1f} hours" if ttl_hours else "the expiration limit"
-                    return json.dumps({
-                        "error": (
-                            f"Permission denied: Thread global skill '{skill_name}' expired after {ttl_str}. "
-                            f"Run `/grant_for_all {skill_name}` in this thread to grant access again."
-                        )
-                    })
-                allowed_str = ", ".join(f"'{s}'" for s in authorized_skills) or "none"
-                return json.dumps({
-                    "error": (
-                        f"Permission denied: Agent is not authorized to load skill '{skill_name}'. "
-                        f"Permitted skills: {allowed_str}. "
-                        f"CRITICAL INSTRUCTION: You do NOT have permission to load or use the skill '{skill_name}'. "
-                        f"You must explicitly state to the user that you do not have permission / the required skill '{skill_name}' to access or process this resource. "
-                        f"Do NOT report that the file or resource was not found."
+                    ttl_str = (
+                        f"{ttl_hours:.1f} hours"
+                        if ttl_hours
+                        else "the expiration limit"
                     )
-                })
+                    return json.dumps(
+                        {
+                            "error": (
+                                f"Permission denied: Thread global skill '{skill_name}' expired after {ttl_str}. "
+                                f"Run `/grant_for_all {skill_name}` in this thread to grant access again."
+                            )
+                        }
+                    )
+                allowed_str = ", ".join(f"'{s}'" for s in authorized_skills) or "none"
+                return json.dumps(
+                    {
+                        "error": (
+                            f"Permission denied: Agent is not authorized to load skill '{skill_name}'. "
+                            f"Permitted skills: {allowed_str}. "
+                            f"CRITICAL INSTRUCTION: You do NOT have permission to load or use the skill '{skill_name}'. "
+                            f"You must explicitly state to the user that you do not have permission / the required skill '{skill_name}' to access or process this resource. "
+                            f"Do NOT report that the file or resource was not found."
+                        )
+                    }
+                )
 
             skill = target_skill
             if not skill:
                 avail = ", ".join(f"'{s.name}'" for s in self.list_skills())
-                return json.dumps({
-                    "error": f"Skill '{skill_name}' not found. Available skills: {avail}"
-                })
+                return json.dumps(
+                    {
+                        "error": f"Skill '{skill_name}' not found. Available skills: {avail}"
+                    }
+                )
 
-            return json.dumps({
-                "status": "loaded",
-                "skill": skill.name,
-                "display_name": skill.display_name,
-                "unlocked_tools": skill.tools,
-                "operational_guidelines": skill.instructions,
-            }, indent=2)
+            return json.dumps(
+                {
+                    "status": "loaded",
+                    "skill": skill.name,
+                    "display_name": skill.display_name,
+                    "unlocked_tools": skill.tools,
+                    "operational_guidelines": skill.instructions,
+                },
+                indent=2,
+            )
 
         # For any other tool, verify authorization against authorized_skills if provided
         if authorized_skills is not None:
@@ -499,16 +548,20 @@ class SkillRegistry:
                 if s_def.is_global:
                     permitted_tools.update(s_def.tools)
             if tool_name not in permitted_tools:
-                allowed_tools_str = ", ".join(f"'{t}'" for t in sorted(permitted_tools)) or "none"
-                return json.dumps({
-                    "error": (
-                        f"Permission denied: Agent is not authorized to execute tool '{tool_name}'. "
-                        f"Permitted tools: {allowed_tools_str}. "
-                        f"CRITICAL INSTRUCTION: You do NOT have permission to execute tool '{tool_name}'. "
-                        f"You must explicitly state to the user that you do not have permission to execute this tool. "
-                        f"Do NOT report that the file or resource was not found."
-                    )
-                })
+                allowed_tools_str = (
+                    ", ".join(f"'{t}'" for t in sorted(permitted_tools)) or "none"
+                )
+                return json.dumps(
+                    {
+                        "error": (
+                            f"Permission denied: Agent is not authorized to execute tool '{tool_name}'. "
+                            f"Permitted tools: {allowed_tools_str}. "
+                            f"CRITICAL INSTRUCTION: You do NOT have permission to execute tool '{tool_name}'. "
+                            f"You must explicitly state to the user that you do not have permission to execute this tool. "
+                            f"Do NOT report that the file or resource was not found."
+                        )
+                    }
+                )
 
         return execute_mcp_tool(tool_name, arguments)
 
