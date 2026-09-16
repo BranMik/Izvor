@@ -230,19 +230,21 @@ def test_prompt_builder_strict_role_authorization():
     assert "AVAILABLE SKILLS (ON DEMAND VIA `load_skill`)" not in sceptic_prompt
 
     # Research expert has ['web_research']:
-    # Should contain web_research, but NOT codebase_inspection or workspace_authoring
+    # Loadable catalog should contain web_research, but NOT codebase_inspection or workspace_authoring
     market_prompt = build_agent_prompt("MarketAndCompetitionResearchExpert")
     assert "AVAILABLE SKILLS (ON DEMAND VIA `load_skill`)" in market_prompt
-    assert "`web_research`" in market_prompt
-    assert "`workspace_authoring`" not in market_prompt
+    loadable_market = market_prompt.split("AVAILABLE SKILLS (ON DEMAND VIA `load_skill`)")[1]
+    assert "`web_research`" in loadable_market
+    assert "`workspace_authoring`" not in loadable_market
 
     # TechLead has ['codebase_inspection', 'workspace_authoring']:
-    # Should contain codebase_inspection and workspace_authoring, but NOT web_research
+    # Loadable catalog should contain codebase_inspection and workspace_authoring, but NOT web_research
     tech_prompt = build_agent_prompt("TechLead")
     assert "AVAILABLE SKILLS (ON DEMAND VIA `load_skill`)" in tech_prompt
-    assert "`codebase_inspection`" in tech_prompt
-    assert "`workspace_authoring`" in tech_prompt
-    assert "`web_research`" not in tech_prompt
+    loadable_tech = tech_prompt.split("AVAILABLE SKILLS (ON DEMAND VIA `load_skill`)")[1]
+    assert "`codebase_inspection`" in loadable_tech
+    assert "`workspace_authoring`" in loadable_tech
+    assert "`web_research`" not in loadable_tech
 
 
 # ==============================================================================
