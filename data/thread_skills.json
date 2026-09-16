@@ -1,3 +1,10 @@
 {
-  "threads": {}
+  "threads": {
+    "C0BQGUCKVPE:1789568445.947649": {
+      "skills": [
+        "document_reader"
+      ],
+      "granted_at": 1789585735.2195585
+    }
+  }
 }

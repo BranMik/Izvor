@@ -18,6 +18,10 @@ from core.config import (
     resolve_avatar_url,
 )
 from core.models import OrchestrationMode
+from orchestration.app_settings import (
+    get_max_file_size_bytes,
+    get_max_file_size_mb,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -613,18 +617,54 @@ async def fetch_thread_files(channel_id: str, thread_ts: str) -> list[dict[str, 
         return []
 
 
+IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}
+
+
+def __getattr__(name: str) -> Any:
+    """Dynamic module attribute access for backward compatibility (e.g., MAX_FILE_SIZE_BYTES)."""
+    if name == "MAX_FILE_SIZE_BYTES":
+        return get_max_file_size_bytes()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def is_image_file(name: str, mimetype: str | None = None) -> bool:
+    """Checks whether a file is an image based on its mimetype or file extension."""
+    if mimetype and mimetype.lower().startswith("image/"):
+        return True
+    ext = Path(name).suffix.lower() if name else ""
+    return ext in IMAGE_EXTENSIONS
+
+
 async def download_slack_file(
     file_info: dict[str, Any], max_chars: int = 50000
 ) -> dict[str, Any]:
     """
-    Downloads a private Slack file attachment using SLACK_BOT_TOKEN and extracts its text content.
-    Returns dict: {"ok": bool, "file_name": str, "content": str, "truncated": bool, "size": int, "error": str | None}
+    Downloads a private Slack file attachment using SLACK_BOT_TOKEN and extracts its text or image content.
+    Returns dict: {"ok": bool, "file_name": str, "content": str, "truncated": bool, "size": int, "error": str | None,
+                   "is_image": bool, "mimetype": str, "b64_data": str | None, "data_url": str | None}
     """
+    import base64
     import httpx
+    import mimetypes
 
     file_name = file_info.get("name", "unknown_file")
     url = file_info.get("url_private_download") or file_info.get("url_private")
     file_size = file_info.get("size", 0)
+    mimetype = file_info.get("mimetype") or mimetypes.guess_type(file_name)[0] or "application/octet-stream"
+
+    max_size_bytes = get_max_file_size_bytes()
+    max_size_mb = get_max_file_size_mb()
+
+    if file_size > max_size_bytes:
+        return {
+            "ok": False,
+            "file_name": file_name,
+            "content": "",
+            "truncated": False,
+            "size": file_size,
+            "is_image": False,
+            "error": f"File '{file_name}' ({file_size} bytes) exceeds maximum allowed size of {max_size_mb:.1f} MB.",
+        }
 
     if not url:
         return {
@@ -633,16 +673,35 @@ async def download_slack_file(
             "content": "",
             "truncated": False,
             "size": file_size,
+            "is_image": False,
             "error": "No download URL available for this file.",
         }
 
+    is_img = is_image_file(file_name, mimetype)
+
     if not SLACK_BOT_TOKEN or SLACK_BOT_TOKEN == "xoxb-your-bot-user-oauth-token":
+        if is_img:
+            mock_b64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+            img_mime = mimetype if mimetype.startswith("image/") else "image/png"
+            return {
+                "ok": True,
+                "file_name": file_name,
+                "content": f"[Mock image content for {file_name}]",
+                "truncated": False,
+                "size": file_size or 100,
+                "is_image": True,
+                "mimetype": img_mime,
+                "b64_data": mock_b64,
+                "data_url": f"data:{img_mime};base64,{mock_b64}",
+                "error": None,
+            }
         return {
             "ok": True,
             "file_name": file_name,
             "content": f"[Mock file content for {file_name}]",
             "truncated": False,
             "size": file_size,
+            "is_image": False,
             "error": None,
         }
 
@@ -657,10 +716,50 @@ async def download_slack_file(
                     "content": "",
                     "truncated": False,
                     "size": file_size,
+                    "is_image": False,
                     "error": f"Slack file download failed with HTTP status {resp.status_code}",
                 }
 
             raw_bytes = resp.content
+            if len(raw_bytes) > max_size_bytes:
+                return {
+                    "ok": False,
+                    "file_name": file_name,
+                    "content": "",
+                    "truncated": False,
+                    "size": len(raw_bytes),
+                    "is_image": False,
+                    "error": f"File '{file_name}' ({len(raw_bytes)} bytes) exceeds maximum allowed size of {max_size_mb:.1f} MB.",
+                }
+
+            # Cache local copy to workspace
+            try:
+                downloads_dir = MCP_WORKSPACE_DIR / "downloads"
+                downloads_dir.mkdir(parents=True, exist_ok=True)
+                file_path = downloads_dir / file_name
+                file_path.write_bytes(raw_bytes)
+                logger.info(f"[SLACK FILE] Cached Slack file to workspace: {file_path}")
+            except Exception as save_err:
+                logger.warning(
+                    f"[SLACK FILE] Could not save local copy to workspace: {save_err}"
+                )
+
+            if is_img:
+                img_mime = mimetype if mimetype.startswith("image/") else "image/png"
+                b64_str = base64.b64encode(raw_bytes).decode("utf-8")
+                return {
+                    "ok": True,
+                    "file_name": file_name,
+                    "content": f"[Image Attachment: {file_name}]",
+                    "truncated": False,
+                    "size": len(raw_bytes),
+                    "is_image": True,
+                    "mimetype": img_mime,
+                    "b64_data": b64_str,
+                    "data_url": f"data:{img_mime};base64,{b64_str}",
+                    "error": None,
+                }
+
             if file_name.lower().endswith(".pdf"):
                 try:
                     import io
@@ -689,6 +788,7 @@ async def download_slack_file(
                     text_content = f"[Failed to extract text from PDF: {pdf_err}]"
             else:
                 text_content = raw_bytes.decode("utf-8", errors="replace")
+
             truncated = False
             if len(text_content) > max_chars:
                 text_content = (
@@ -697,27 +797,13 @@ async def download_slack_file(
                 )
                 truncated = True
 
-            try:
-                downloads_dir = MCP_WORKSPACE_DIR / "downloads"
-                downloads_dir.mkdir(parents=True, exist_ok=True)
-                file_path = downloads_dir / file_name
-                file_path.write_bytes(raw_bytes)
-                logger.info(f"[SLACK FILE] Cached Slack file to workspace: {file_path}")
-            except (PermissionError, FileNotFoundError, OSError) as save_err:
-                logger.warning(
-                    f"[SLACK FILE] Could not save local copy to workspace: {save_err}"
-                )
-            except Exception as save_err:
-                logger.warning(
-                    f"[SLACK FILE] Could not save local copy to workspace: {save_err}"
-                )
-
             return {
                 "ok": True,
                 "file_name": file_name,
                 "content": text_content,
                 "truncated": truncated,
                 "size": len(raw_bytes),
+                "is_image": False,
                 "error": None,
             }
     except (httpx.TimeoutException, httpx.RequestError) as e:
@@ -730,6 +816,7 @@ async def download_slack_file(
             "content": "",
             "truncated": False,
             "size": file_size,
+            "is_image": False,
             "error": str(e),
         }
     except Exception as e:
@@ -740,6 +827,7 @@ async def download_slack_file(
             "content": "",
             "truncated": False,
             "size": file_size,
+            "is_image": False,
             "error": str(e),
         }
 

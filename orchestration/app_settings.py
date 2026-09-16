@@ -38,6 +38,7 @@ class AppSettingsManager:
         self.circuit_breaker_enabled: bool = False
         self.circuit_breaker_threshold_usd: float = 0.0
         self.scribe_enabled: bool = True
+        self.max_file_size_mb: float = 50.0
 
         self._last_loaded_mtime: float = 0.0
 
@@ -65,6 +66,7 @@ class AppSettingsManager:
             self.circuit_breaker_enabled = bool(data.get("circuit_breaker_enabled", True))
             self.circuit_breaker_threshold_usd = float(data.get("circuit_breaker_threshold_usd", 1.5))
             self.scribe_enabled = bool(data.get("scribe_enabled", True))
+            self.max_file_size_mb = float(data.get("max_file_size_mb", 50.0))
 
             self._last_loaded_mtime = mtime
             logger.debug(f"[APP_SETTINGS] Loaded settings from {target_file}")
@@ -78,6 +80,7 @@ class AppSettingsManager:
                     self.circuit_breaker_enabled = bool(data.get("circuit_breaker_enabled", True))
                     self.circuit_breaker_threshold_usd = float(data.get("circuit_breaker_threshold_usd", 1.5))
                     self.scribe_enabled = bool(data.get("scribe_enabled", True))
+                    self.max_file_size_mb = float(data.get("max_file_size_mb", 50.0))
                     logger.warning("[APP_SETTINGS] Recovered settings from backup.")
                 except Exception as be:
                     logger.error(f"[APP_SETTINGS] Failed to read backup: {be}")
@@ -91,6 +94,7 @@ class AppSettingsManager:
             "circuit_breaker_enabled": self.circuit_breaker_enabled,
             "circuit_breaker_threshold_usd": self.circuit_breaker_threshold_usd,
             "scribe_enabled": self.scribe_enabled,
+            "max_file_size_mb": self.max_file_size_mb,
         }
 
         tmp_file = target_file.with_suffix(".tmp")
@@ -180,6 +184,23 @@ class AppSettingsManager:
             self.save()
         logger.info(f"[APP_SETTINGS] Set scribe_enabled to {self.scribe_enabled}.")
 
+    # --- File Size Limit ---
+    def get_max_file_size_mb(self) -> float:
+        self.load()
+        return float(self.max_file_size_mb)
+
+    def get_max_file_size_bytes(self) -> int:
+        return int(self.get_max_file_size_mb() * 1024 * 1024)
+
+    def set_max_file_size_mb(self, val: float, save: bool = True) -> None:
+        try:
+            self.max_file_size_mb = max(0.1, float(val))
+            if save:
+                self.save()
+            logger.info(f"[APP_SETTINGS] Set max_file_size_mb to {self.max_file_size_mb} MB.")
+        except (ValueError, TypeError) as e:
+            logger.error(f"[APP_SETTINGS] Invalid max_file_size_mb '{val}': {e}")
+
 
 app_settings_manager = AppSettingsManager()
 
@@ -210,3 +231,12 @@ def set_scribe_enabled(enabled: bool, save: bool = True) -> None:
 
 def get_circuit_breaker_config() -> CircuitBreakerConfig:
     return app_settings_manager.get_circuit_breaker_config()
+
+def get_max_file_size_mb() -> float:
+    return app_settings_manager.get_max_file_size_mb()
+
+def get_max_file_size_bytes() -> int:
+    return app_settings_manager.get_max_file_size_bytes()
+
+def set_max_file_size_mb(val: float, save: bool = True) -> None:
+    app_settings_manager.set_max_file_size_mb(val, save=save)

@@ -4,6 +4,10 @@ from pathlib import Path
 from typing import Any
 
 from core.config import MCP_WORKSPACE_DIR
+from orchestration.app_settings import (
+    get_max_file_size_bytes,
+    get_max_file_size_mb,
+)
 
 from .web_tools import fetch_web_page, web_search
 
@@ -234,9 +238,17 @@ def list_documents(rel_path: str = ".") -> str:
 
 def read_document(rel_path: str) -> str:
     """
-    Reads the content of a text or PDF document inside the resources/ directory.
+    Reads the content of a text, PDF, or image document inside the resources/ directory.
     resources/ is the default working and search directory even if omitted in rel_path.
+    For image files, returns Base64-encoded data URL for multimodal LLM consumption.
     """
+    import base64
+    import mimetypes as _mimetypes
+
+    IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}
+    max_size_bytes = get_max_file_size_bytes()
+    max_size_mb = get_max_file_size_mb()
+
     try:
         path = _resolve_resource_path(rel_path)
         if not path.exists() or not path.is_file():
@@ -248,7 +260,29 @@ def read_document(rel_path: str) -> str:
             elif not path.is_file():
                 return json.dumps({"error": f"Resource path '{rel_path}' is not a file."})
 
-        if path.suffix.lower() == ".pdf":
+        file_size = path.stat().st_size
+        if file_size > max_size_bytes:
+            return json.dumps({
+                "error": f"File '{rel_path}' ({file_size} bytes) exceeds maximum allowed size of {max_size_mb:.1f} MB."
+            })
+
+        ext = path.suffix.lower()
+
+        # Image files — return Base64 data URL
+        if ext in IMAGE_EXTENSIONS:
+            raw_bytes = path.read_bytes()
+            mime = _mimetypes.guess_type(str(path))[0] or "image/png"
+            b64_str = base64.b64encode(raw_bytes).decode("utf-8")
+            return json.dumps({
+                "document": rel_path,
+                "is_image": True,
+                "mimetype": mime,
+                "b64_data": b64_str,
+                "data_url": f"data:{mime};base64,{b64_str}",
+                "size": file_size,
+            })
+
+        if ext == ".pdf":
             try:
                 import pypdf
 

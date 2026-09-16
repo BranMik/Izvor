@@ -25,9 +25,11 @@ from .pricing_service import (
     warm_up_pricing_cache,
 )
 from .slack_client import (
+    MAX_FILE_SIZE_BYTES,
     build_app_home_view,
     download_slack_file,
     extract_thread_files_metadata,
+    is_image_file,
     fetch_thread_files,
     fetch_thread_history,
     get_bot_user_id,
@@ -64,6 +66,8 @@ __all__ = [
     "build_app_home_view",
     "download_slack_file",
     "execute_mcp_tool",
+    "is_image_file",
+    "MAX_FILE_SIZE_BYTES",
     "extract_thread_files_metadata",
     "fetch_pricing_from_web",
     "fetch_pricing_with_agent",
