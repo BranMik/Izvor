@@ -3,10 +3,6 @@
   "name": "Quick Tech Triage",
   "mode": "fixed",
   "description": "Focused linear pipeline for rapid technical problem triage.",
-  "sandwich_config": {
-    "start_chain": [],
-    "end_chain": []
-  },
   "fixed_config": {
     "chain": [
       "TechLead",

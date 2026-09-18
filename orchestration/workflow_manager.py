@@ -158,13 +158,22 @@ class WorkflowManager:
     ) -> WorkflowPreset:
         """Creates and saves a new or updated workflow preset."""
         w_id = workflow_id or slugify(name)
+        mode_normalized = str(mode or "").strip().lower()
+        if mode_normalized == OrchestrationMode.FIXED.value:
+            sw_cfg = {"start_chain": [], "end_chain": []}
+            fx_cfg = dict(fixed_config or {"chain": []})
+        else:
+            mode_normalized = OrchestrationMode.SANDWICH.value
+            sw_cfg = dict(sandwich_config or {"start_chain": [], "end_chain": []})
+            fx_cfg = {"chain": []}
+
         preset = WorkflowPreset(
             id=w_id,
             name=name.strip(),
-            mode=mode,
+            mode=mode_normalized,
             description=description.strip(),
-            sandwich_config=dict(sandwich_config or {"start_chain": [], "end_chain": []}),
-            fixed_config=dict(fixed_config or {"chain": []}),
+            sandwich_config=sw_cfg,
+            fixed_config=fx_cfg,
         )
         return self.save_preset(preset)
 
