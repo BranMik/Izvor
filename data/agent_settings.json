@@ -1,5 +1,5 @@
 {
-  "workflow_config": "test4",
+  "workflow_config": "idea_conceptual_feasibility_review",
   "enabled_agents": [
     "Architect",
     "CompliancePrivacyAndGovernanceOfficer",

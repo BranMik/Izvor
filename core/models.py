@@ -394,25 +394,42 @@ class WorkflowPreset:
     )
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        data: dict[str, Any] = {
             "id": self.id,
             "name": self.name,
             "mode": self.mode,
             "description": self.description,
-            "sandwich_config": self.sandwich_config,
-            "fixed_config": self.fixed_config,
         }
+        mode_normalized = str(self.mode or "").strip().lower()
+        if mode_normalized == OrchestrationMode.FIXED.value:
+            data["fixed_config"] = self.fixed_config
+        else:
+            data["sandwich_config"] = self.sandwich_config
+        return data
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "WorkflowPreset":
+        raw_mode = str(data.get("mode", OrchestrationMode.SANDWICH.value)).strip().lower()
+        mode = (
+            raw_mode
+            if raw_mode in (OrchestrationMode.SANDWICH.value, OrchestrationMode.FIXED.value)
+            else OrchestrationMode.SANDWICH.value
+        )
+        if mode == OrchestrationMode.FIXED.value:
+            fixed_config = dict(data.get("fixed_config") or {"chain": []})
+            sandwich_config = {"start_chain": [], "end_chain": []}
+        else:
+            sandwich_config = dict(
+                data.get("sandwich_config") or {"start_chain": [], "end_chain": []}
+            )
+            fixed_config = {"chain": []}
+
         return cls(
             id=str(data.get("id", "")),
             name=str(data.get("name", "")),
-            mode=str(data.get("mode", OrchestrationMode.SANDWICH.value)),
+            mode=mode,
             description=str(data.get("description", "")),
-            sandwich_config=dict(
-                data.get("sandwich_config") or {"start_chain": [], "end_chain": []}
-            ),
-            fixed_config=dict(data.get("fixed_config") or {"chain": []}),
+            sandwich_config=sandwich_config,
+            fixed_config=fixed_config,
         )
 

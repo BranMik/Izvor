@@ -3,20 +3,6 @@
   "name": "Test4",
   "mode": "fixed",
   "description": "",
-  "sandwich_config": {
-    "start_chain": [
-      "ScopeOptimizer",
-      "Visionary",
-      "UserAdvocate",
-      "Sceptic",
-      "Innovator",
-      "Architect"
-    ],
-    "end_chain": [
-      "Architect",
-      "Sceptic"
-    ]
-  },
   "fixed_config": {
     "chain": [
       "TechLead",

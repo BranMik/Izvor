@@ -307,14 +307,18 @@ async def handle_slack_interactivity(request: Request, background_tasks: Backgro
                             )
                             set_sandwich_config(start_chain, end_chain)
 
-                    sandwich_cfg = get_sandwich_config()
-                    fixed_cfg = get_fixed_config()
-                    saved = save_workflow(
-                        name=preset_name,
-                        mode=mode,
-                        sandwich_config=sandwich_cfg,
-                        fixed_config=fixed_cfg,
-                    )
+                    if mode == OrchestrationMode.FIXED.value:
+                        saved = save_workflow(
+                            name=preset_name,
+                            mode=mode,
+                            fixed_config=get_fixed_config(),
+                        )
+                    else:
+                        saved = save_workflow(
+                            name=preset_name,
+                            mode=mode,
+                            sandwich_config=get_sandwich_config(),
+                        )
                     set_active_workflow_id(saved.id)
             elif action_id == "select_orchestration_mode":
                 selected_option = action.get("selected_option", {})

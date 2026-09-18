@@ -244,19 +244,21 @@ class AgentSettingsManager:
 
         if preset:
             self.orchestration_mode = preset.mode
-            raw_start = preset.sandwich_config.get("start_chain", [])
-            raw_end = preset.sandwich_config.get("end_chain", [])
-            self.sandwich_start_chain = [
-                k for k in raw_start if isinstance(k, str) and (not self.agents_config or k in self.agents_config)
-            ] if isinstance(raw_start, list) else []
-            self.sandwich_end_chain = [
-                k for k in raw_end if isinstance(k, str) and (not self.agents_config or k in self.agents_config)
-            ] if isinstance(raw_end, list) else []
-
-            raw_chain = preset.fixed_config.get("chain", [])
-            self.fixed_chain = [
-                k for k in raw_chain if isinstance(k, str) and (not self.agents_config or k in self.agents_config)
-            ] if isinstance(raw_chain, list) else []
+            mode_normalized = str(preset.mode or "").strip().lower()
+            if mode_normalized == OrchestrationMode.FIXED.value:
+                raw_chain = preset.fixed_config.get("chain", [])
+                self.fixed_chain = [
+                    k for k in raw_chain if isinstance(k, str) and (not self.agents_config or k in self.agents_config)
+                ] if isinstance(raw_chain, list) else []
+            else:
+                raw_start = preset.sandwich_config.get("start_chain", [])
+                raw_end = preset.sandwich_config.get("end_chain", [])
+                self.sandwich_start_chain = [
+                    k for k in raw_start if isinstance(k, str) and (not self.agents_config or k in self.agents_config)
+                ] if isinstance(raw_start, list) else []
+                self.sandwich_end_chain = [
+                    k for k in raw_end if isinstance(k, str) and (not self.agents_config or k in self.agents_config)
+                ] if isinstance(raw_end, list) else []
 
             self.active_workflow_id = preset.id
             self.workflow_config = preset.id
@@ -289,16 +291,22 @@ class AgentSettingsManager:
         name = existing.name if existing else clean_id.replace("_", " ").title()
         desc = existing.description if existing else ""
 
+        mode_normalized = str(self.orchestration_mode or "").strip().lower()
+        if mode_normalized == OrchestrationMode.FIXED.value:
+            sandwich_cfg = None
+            fixed_cfg = {"chain": list(self.fixed_chain)}
+        else:
+            sandwich_cfg = {
+                "start_chain": list(self.sandwich_start_chain),
+                "end_chain": list(self.sandwich_end_chain),
+            }
+            fixed_cfg = None
+
         saved = self.workflow_manager.save_workflow(
             name=name,
             mode=self.orchestration_mode,
-            sandwich_config={
-                "start_chain": list(self.sandwich_start_chain),
-                "end_chain": list(self.sandwich_end_chain),
-            },
-            fixed_config={
-                "chain": list(self.fixed_chain),
-            },
+            sandwich_config=sandwich_cfg,
+            fixed_config=fixed_cfg,
             description=desc,
             workflow_id=clean_id,
         )
@@ -712,18 +720,21 @@ class AgentSettingsManager:
             return False
 
         self.orchestration_mode = preset.mode
-        raw_start = preset.sandwich_config.get("start_chain", [])
-        raw_end = preset.sandwich_config.get("end_chain", [])
-        self.sandwich_start_chain = [
-            k for k in raw_start if isinstance(k, str) and (not self.agents_config or k in self.agents_config)
-        ]
-        self.sandwich_end_chain = [
-            k for k in raw_end if isinstance(k, str) and (not self.agents_config or k in self.agents_config)
-        ]
-        raw_chain = preset.fixed_config.get("chain", [])
-        self.fixed_chain = [
-            k for k in raw_chain if isinstance(k, str) and (not self.agents_config or k in self.agents_config)
-        ]
+        mode_normalized = str(preset.mode or "").strip().lower()
+        if mode_normalized == OrchestrationMode.FIXED.value:
+            raw_chain = preset.fixed_config.get("chain", [])
+            self.fixed_chain = [
+                k for k in raw_chain if isinstance(k, str) and (not self.agents_config or k in self.agents_config)
+            ]
+        else:
+            raw_start = preset.sandwich_config.get("start_chain", [])
+            raw_end = preset.sandwich_config.get("end_chain", [])
+            self.sandwich_start_chain = [
+                k for k in raw_start if isinstance(k, str) and (not self.agents_config or k in self.agents_config)
+            ]
+            self.sandwich_end_chain = [
+                k for k in raw_end if isinstance(k, str) and (not self.agents_config or k in self.agents_config)
+            ]
 
         self.workflow_config = preset.id
         self.active_workflow_id = preset.id

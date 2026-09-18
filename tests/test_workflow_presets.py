@@ -34,19 +34,21 @@ from services.slack_client import build_app_home_view
 
 
 def test_workflow_preset_model():
-    """Verify WorkflowPreset serialization and deserialization."""
-    preset = WorkflowPreset(
+    """Verify WorkflowPreset serialization and deserialization isolates mode configs."""
+    sandwich_preset = WorkflowPreset(
         id="test_wf",
         name="Test Workflow",
         mode=OrchestrationMode.SANDWICH.value,
         description="A test workflow description",
         sandwich_config={"start_chain": ["Visionary"], "end_chain": ["Architect"]},
-        fixed_config={"chain": []},
+        fixed_config={"chain": ["Ignored"]},
     )
-    d = preset.to_dict()
+    d = sandwich_preset.to_dict()
     assert d["id"] == "test_wf"
     assert d["name"] == "Test Workflow"
     assert d["mode"] == "sandwich"
+    assert "sandwich_config" in d
+    assert "fixed_config" not in d
     assert d["sandwich_config"]["start_chain"] == ["Visionary"]
 
     restored = WorkflowPreset.from_dict(d)
@@ -54,6 +56,39 @@ def test_workflow_preset_model():
     assert restored.name == "Test Workflow"
     assert restored.mode == OrchestrationMode.SANDWICH.value
     assert restored.sandwich_config["start_chain"] == ["Visionary"]
+    assert restored.fixed_config == {"chain": []}
+
+    # Fixed mode preset isolation
+    fixed_preset = WorkflowPreset(
+        id="test_fixed",
+        name="Test Fixed",
+        mode=OrchestrationMode.FIXED.value,
+        description="A fixed pipeline",
+        sandwich_config={"start_chain": ["Ignored"], "end_chain": ["Ignored"]},
+        fixed_config={"chain": ["TechLead", "Architect"]},
+    )
+    d_fixed = fixed_preset.to_dict()
+    assert d_fixed["mode"] == "fixed"
+    assert "fixed_config" in d_fixed
+    assert "sandwich_config" not in d_fixed
+    assert d_fixed["fixed_config"]["chain"] == ["TechLead", "Architect"]
+
+    restored_fixed = WorkflowPreset.from_dict(d_fixed)
+    assert restored_fixed.mode == OrchestrationMode.FIXED.value
+    assert restored_fixed.fixed_config["chain"] == ["TechLead", "Architect"]
+    assert restored_fixed.sandwich_config == {"start_chain": [], "end_chain": []}
+
+    # Legacy corrupted dict with both keys -> ignores non-designated key
+    corrupted_data = {
+        "id": "corrupted",
+        "name": "Corrupted",
+        "mode": "fixed",
+        "sandwich_config": {"start_chain": ["Hallucinated"], "end_chain": []},
+        "fixed_config": {"chain": ["ActualAgent"]},
+    }
+    restored_corrupted = WorkflowPreset.from_dict(corrupted_data)
+    assert restored_corrupted.fixed_config["chain"] == ["ActualAgent"]
+    assert restored_corrupted.sandwich_config["start_chain"] == []
 
 
 def test_slugify():

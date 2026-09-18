@@ -3,31 +3,17 @@
   "name": "Idea conceptual feasibility review",
   "mode": "fixed",
   "description": "",
-  "sandwich_config": {
-    "start_chain": [
-      "ScopeOptimizer",
-      "Visionary",
-      "UserAdvocate",
-      "Sceptic",
-      "Innovator",
-      "Architect"
-    ],
-    "end_chain": [
-      "Architect",
-      "Sceptic"
-    ]
-  },
   "fixed_config": {
     "chain": [
       "Visionary",
       "Sceptic",
       "Innovator",
-      "Sceptic",
       "UserAdvocate",
       "ROIStrategist",
       "MarketAndCompetitionResearchExpert",
       "ScopeOptimizer",
-      "Architect"
+      "Architect",
+      "Sceptic"
     ]
   }
 }
