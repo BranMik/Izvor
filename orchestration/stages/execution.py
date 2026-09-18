@@ -109,42 +109,15 @@ class ExecutionStageMixin:
             else None
         )
 
-        try:
-            response = await exec_retry_fn(
-                litellm.acompletion,
-                completion_kwargs,
-                agent_key=ctx.agent_key,
-                thread_key=ctx.thread_key,
-                is_superseded_fn=ctx.is_superseded,
-                run_in_threadpool_fn=custom_runner,
-                allow_503_immediate_retry=allow_503_immediate,
-            )
-        except Exception as llm_exc:
-            exc_msg = str(llm_exc).lower()
-            # Detect vision-incompatible model errors
-            if any(kw in exc_msg for kw in ["image", "vision", "multimodal", "not support"]):
-                logger.warning(
-                    f"[LLM] Model '{ctx.agent_cfg['model']}' does not support image/vision input for {ctx.agent_key}: {llm_exc}"
-                )
-                vision_warning = (
-                    f"⚠️ *Vision Not Supported*: The model assigned to *{ctx.agent_cfg.get('username', ctx.agent_key)}* "
-                    f"(`{ctx.agent_cfg['model']}`) does not support image analysis. "
-                    f"The image attachment could not be processed by this agent."
-                )
-                post_resp_fn = self._get_hook("post_agent_response", post_agent_response)
-                await post_resp_fn(
-                    channel_id=ctx.channel_id,
-                    thread_ts=ctx.thread_ts,
-                    text=vision_warning,
-                    username=ctx.agent_cfg.get("username", ctx.agent_key),
-                    icon_url=ctx.icon_url or ctx.agent_cfg.get("icon_url"),
-                )
-                return {
-                    "ok": False,
-                    "error": f"Vision not supported by model: {ctx.agent_cfg['model']}",
-                    "vision_unsupported": True,
-                }
-            raise
+        response = await exec_retry_fn(
+            litellm.acompletion,
+            completion_kwargs,
+            agent_key=ctx.agent_key,
+            thread_key=ctx.thread_key,
+            is_superseded_fn=ctx.is_superseded,
+            run_in_threadpool_fn=custom_runner,
+            allow_503_immediate_retry=allow_503_immediate,
+        )
 
         if response is None and ctx.is_superseded():
             return {"ok": False, "cancelled": True, "reason": "superseded"}

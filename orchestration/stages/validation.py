@@ -370,10 +370,6 @@ class ValidationStageMixin:
                                 "content": doc_data.get("content", ""),
                                 "size": chosen_file.get("size", 0),
                                 "truncated": False,
-                                "is_image": doc_data.get("is_image", False),
-                                "mimetype": doc_data.get("mimetype", ""),
-                                "b64_data": doc_data.get("b64_data"),
-                                "data_url": doc_data.get("data_url"),
                             }
                         else:
                             dl_res = {
@@ -391,39 +387,6 @@ class ValidationStageMixin:
                         )
                         dl_res = await download_file_fn(chosen_file)
 
-                    # Collect ALL image attachments from the thread
-                    all_images: list[dict[str, Any]] = []
-                    download_file_fn = self._get_hook(
-                        "download_slack_file", download_slack_file
-                    )
-                    from services.slack_client import is_image_file
-                    for tf in (ctx.thread_files or []):
-                        tf_name = tf.get("name", "")
-                        tf_mime = tf.get("mimetype", "")
-                        if is_image_file(tf_name, tf_mime):
-                            if tf.get("id") == chosen_file.get("id") and dl_res.get("ok") and dl_res.get("is_image"):
-                                # Reuse already-downloaded primary image
-                                all_images.append({
-                                    "file_name": dl_res.get("file_name", tf_name),
-                                    "mimetype": dl_res.get("mimetype", "image/png"),
-                                    "b64_data": dl_res.get("b64_data"),
-                                    "data_url": dl_res.get("data_url"),
-                                    "size": dl_res.get("size", 0),
-                                })
-                            else:
-                                img_res = await download_file_fn(tf)
-                                if img_res.get("ok") and img_res.get("is_image"):
-                                    all_images.append({
-                                        "file_name": img_res.get("file_name", tf_name),
-                                        "mimetype": img_res.get("mimetype", "image/png"),
-                                        "b64_data": img_res.get("b64_data"),
-                                        "data_url": img_res.get("data_url"),
-                                        "size": img_res.get("size", 0),
-                                    })
-                                    logger.info(
-                                        f"[ROUTER] Downloaded additional image '{tf_name}' for thread {ctx.thread_key}"
-                                    )
-
                     if dl_res.get("ok"):
                         thread_state_manager.set_file_context(
                             ctx.channel_id,
@@ -437,11 +400,6 @@ class ValidationStageMixin:
                                 "truncated": dl_res.get("truncated", False),
                                 "authorized_agents": authorized_agents,
                                 "required_skill": "document_reader",
-                                "is_image": dl_res.get("is_image", False),
-                                "mimetype": dl_res.get("mimetype", ""),
-                                "b64_data": dl_res.get("b64_data"),
-                                "data_url": dl_res.get("data_url"),
-                                "images": all_images,
                             },
                         )
                     else:
@@ -457,7 +415,6 @@ class ValidationStageMixin:
                                 "truncated": False,
                                 "authorized_agents": authorized_agents,
                                 "required_skill": "document_reader",
-                                "images": all_images,
                             },
                         )
                 else:
