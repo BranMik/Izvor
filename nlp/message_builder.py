@@ -12,31 +12,6 @@ def markdown_to_slack(text: str) -> str:
     return text
 
 
-def _build_multimodal_content(
-    text: str,
-    images: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    """
-    Constructs a LiteLLM-standard multimodal content array with text + image_url entries.
-    Compatible with OpenAI Vision, Anthropic Claude, Google Gemini, and Mistral Pixtral APIs via LiteLLM.
-    """
-    content: list[dict[str, Any]] = [{"type": "text", "text": text}]
-    for img in images:
-        data_url = img.get("data_url")
-        if data_url:
-            content.append({
-                "type": "image_url",
-                "image_url": {"url": data_url},
-            })
-    return content
-
-
-def _has_authorized_images(file_context: dict[str, Any]) -> list[dict[str, Any]]:
-    """Returns the list of image dicts from file_context that have valid data_urls, or empty list."""
-    images = file_context.get("images") or []
-    return [img for img in images if img.get("data_url")]
-
-
 def build_llm_messages(
     system_prompt: str,
     effective_history: list[dict[str, Any]],
@@ -62,13 +37,11 @@ def build_llm_messages(
        which is strictly required by Anthropic (Claude), Mistral, and Google Gemini APIs.
     5. Injects on-demand attached file content if present and if the current agent is authorized.
     6. Injects explicit permission notices if an agent lacks authorization or required skills.
-    7. For image attachments, constructs multimodal content arrays (vision) when the agent is authorized.
     """
     conversation: list[dict[str, Any]] = []
 
     # Check authorization and skill requirements for attached file
     file_block = ""
-    image_payloads: list[dict[str, Any]] = []  # Authorized images for multimodal content
     if file_context:
         authorized_agents = file_context.get("authorized_agents")
         required_skill = file_context.get("required_skill", "document_reader")
@@ -80,8 +53,7 @@ def build_llm_messages(
         agent_skills = agent_cfg.get("skills")
         has_skill = True
         if required_skill and agent_skills is not None:
-            # Accept either document_reader or image_analysis for image files
-            has_skill = required_skill in agent_skills or "image_analysis" in agent_skills
+            has_skill = required_skill in agent_skills
 
         if not is_agent_authorized:
             file_block = (
@@ -100,34 +72,11 @@ def build_llm_messages(
                 f"--- [END OF NOTICE] ---"
             )
         else:
-            # Agent is authorized and has required skill — check for images
-            authorized_images = _has_authorized_images(file_context)
-            if authorized_images:
-                # Images present — use multimodal path
-                image_payloads = authorized_images
-                img_names = ", ".join(img.get("file_name", "image") for img in authorized_images)
-                file_block = (
-                    f"\n\n--- [ATTACHED IMAGE(S): {img_names}] ---\n"
-                    f"The following image(s) are attached to this message as visual context. "
-                    f"Analyze them carefully alongside the user's request.\n"
-                    f"--- [END OF ATTACHMENT NOTICE] ---"
-                )
-                # If main file is not an image (e.g. a PDF with images in thread), include text content too
-                if content and not file_context.get("is_image", False):
-                    file_block = (
-                        f"\n\n--- [ATTACHED SLACK FILE: {file_name} ({size} bytes)] ---\n"
-                        f"{content}\n"
-                        f"--- [END OF ATTACHED FILE] ---"
-                        f"\n\n--- [ATTACHED IMAGE(S): {img_names}] ---\n"
-                        f"The following image(s) are also attached as visual context.\n"
-                        f"--- [END OF ATTACHMENT NOTICE] ---"
-                    )
-            else:
-                file_block = (
-                    f"\n\n--- [ATTACHED SLACK FILE: {file_name} ({size} bytes)] ---\n"
-                    f"{content}\n"
-                    f"--- [END OF ATTACHED FILE] ---"
-                )
+            file_block = (
+                f"\n\n--- [ATTACHED SLACK FILE: {file_name} ({size} bytes)] ---\n"
+                f"{content}\n"
+                f"--- [END OF ATTACHED FILE] ---"
+            )
 
     # Check for any required or inferred skills that this agent lacks
     skill_notice_block = ""
@@ -173,18 +122,12 @@ def build_llm_messages(
             "including all section labels, headings, and bullet points."
         )
 
-    def _make_user_content(text: str) -> str | list[dict[str, Any]]:
-        """If image_payloads are present, return multimodal content array; otherwise plain string."""
-        if image_payloads:
-            return _build_multimodal_content(text, image_payloads)
-        return text
-
     if not is_bot_trigger:
         if effective_history:
             conversation.extend(effective_history)
         lang_part = f"\n\n{lang_directive}" if lang_directive else ""
         user_prompt = f"{prompt}{lang_part}{file_block}{skill_notice_block}{orchestration_block}"
-        conversation.append({"role": "user", "content": _make_user_content(user_prompt)})
+        conversation.append({"role": "user", "content": user_prompt})
     else:
         if effective_history:
             conversation.extend(effective_history)
@@ -199,13 +142,13 @@ def build_llm_messages(
             conversation.append(
                 {
                     "role": "user",
-                    "content": _make_user_content(instruction),
+                    "content": instruction,
                 }
             )
         else:
             lang_part = f"\n\n{lang_directive}" if lang_directive else ""
             user_prompt = f"{prompt}{lang_part}{file_block}{skill_notice_block}{orchestration_block}"
-            conversation.append({"role": "user", "content": _make_user_content(user_prompt)})
+            conversation.append({"role": "user", "content": user_prompt})
 
     # Ensure the first conversational message has role 'user' (for strict APIs like Anthropic/Gemini)
     if conversation and conversation[0]["role"] != "user":
@@ -229,7 +172,7 @@ def build_llm_messages(
         conversation.append(
             {
                 "role": "user",
-                "content": _make_user_content(instruction),
+                "content": instruction,
             }
         )
 

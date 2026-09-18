@@ -33,7 +33,8 @@
       "icon_url": "static/image_07.png",
       "is_short_output": false,
       "skills": [
-        "codebase_inspection"
+        "codebase_inspection",
+        "document_reader"
       ]
     },
     "Innovator": {

@@ -19,11 +19,6 @@ class FileContext:
     size: int = 0
     truncated: bool = False
     authorized_agents: set[str] | None = None
-    is_image: bool = False
-    mimetype: str = ""
-    b64_data: str | None = None
-    data_url: str | None = None
-    images: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -32,11 +27,6 @@ class FileContext:
             "size": self.size,
             "truncated": self.truncated,
             "authorized_agents": self.authorized_agents,
-            "is_image": self.is_image,
-            "mimetype": self.mimetype,
-            "b64_data": self.b64_data,
-            "data_url": self.data_url,
-            "images": self.images,
         }
 
     @classmethod
@@ -47,11 +37,6 @@ class FileContext:
             size=data.get("size", 0),
             truncated=data.get("truncated", False),
             authorized_agents=data.get("authorized_agents"),
-            is_image=data.get("is_image", False),
-            mimetype=data.get("mimetype", ""),
-            b64_data=data.get("b64_data"),
-            data_url=data.get("data_url"),
-            images=data.get("images", []),
         )
 
 
