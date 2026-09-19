@@ -42,9 +42,18 @@ def build_llm_messages(
 
     # Check authorization and skill requirements for attached file
     file_block = ""
+    required_skill = file_context.get("required_skill") if file_context else None
+    if file_context and not required_skill:
+        try:
+            from skills import skill_registry
+
+            file_skill = skill_registry.get_file_handler_skill()
+            required_skill = file_skill.name if file_skill else "document_reader"
+        except Exception:
+            required_skill = "document_reader"
+
     if file_context:
         authorized_agents = file_context.get("authorized_agents")
-        required_skill = file_context.get("required_skill", "document_reader")
         file_name = file_context.get("file_name", "unknown")
         content = file_context.get("content", "")
         size = file_context.get("size", 0)
@@ -84,8 +93,8 @@ def build_llm_messages(
         agent_skills = agent_cfg.get("skills")
         if agent_skills is not None:
             missing = [s for s in required_skills if s not in agent_skills]
-            if file_block and "document_reader" in missing:
-                missing = [s for s in missing if s != "document_reader"]
+            if file_block and required_skill and required_skill in missing:
+                missing = [s for s in missing if s != required_skill]
             if missing:
                 missing_str = ", ".join(f"'{s}'" for s in missing)
                 skill_notice_block = (

@@ -562,6 +562,20 @@ class ValidationStageMixin:
                 thread_state_manager.set_round_sequence(ctx.channel_id, ctx.thread_ts, current_seq)
 
             if ctx.is_file_req:
+                from skills import skill_registry
+
+                file_skill = skill_registry.get_file_handler_skill()
+                file_skill_name = file_skill.name if file_skill else "document_reader"
+                file_action = next(
+                    (
+                        a.name
+                        for a in getattr(ctx, "actions", [])
+                        if a.params.get("target_file") is not None or a.name == file_skill_name
+                    ),
+                    file_skill_name,
+                )
+                required_skill = file_action
+
                 if tagged:
                     authorized_agents = set(tagged)
                 elif ctx.was_explicit_target:
@@ -622,7 +636,7 @@ class ValidationStageMixin:
                                 "size": dl_res.get("size", 0),
                                 "truncated": dl_res.get("truncated", False),
                                 "authorized_agents": authorized_agents,
-                                "required_skill": "document_reader",
+                                "required_skill": required_skill,
                             },
                         )
                     else:
@@ -637,7 +651,7 @@ class ValidationStageMixin:
                                 "size": chosen_file.get("size", 0),
                                 "truncated": False,
                                 "authorized_agents": authorized_agents,
-                                "required_skill": "document_reader",
+                                "required_skill": required_skill,
                             },
                         )
                 else:
@@ -653,7 +667,7 @@ class ValidationStageMixin:
                             "size": 0,
                             "truncated": False,
                             "authorized_agents": authorized_agents,
-                            "required_skill": "document_reader",
+                            "required_skill": required_skill,
                         },
                     )
             else:

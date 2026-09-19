@@ -346,6 +346,8 @@ async def test_file_context_lifecycle_in_process_and_respond():
         patch("orchestration.agent_router.fetch_thread_files", new_callable=AsyncMock, return_value=mock_files),
         patch("orchestration.agent_router.fetch_thread_history", new_callable=AsyncMock, return_value=[]),
         patch("orchestration.agent_router.post_agent_response", new_callable=AsyncMock, return_value={"ok": True, "ts": "1700000000.2222"}),
+        patch("services.slack_client.download_slack_file", new_callable=AsyncMock, return_value={"ok": True, "file_name": "database.sql", "content": "SELECT 1;", "size": 50, "truncated": False}),
+        patch("orchestration.stages.validation.download_slack_file", new_callable=AsyncMock, return_value={"ok": True, "file_name": "database.sql", "content": "SELECT 1;", "size": 50, "truncated": False}),
         patch("litellm.completion", return_value=mock_litellm_resp),
         patch("orchestration.agent_router.asyncio.sleep", new_callable=AsyncMock),
     ):

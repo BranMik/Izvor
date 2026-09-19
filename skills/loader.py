@@ -62,6 +62,8 @@ class SkillDefinition:
     triggers: dict[str, Any] = field(default_factory=dict)
     action_handler: Callable[..., Any] | None = None
     is_global: bool = False
+    extraction_rule: str = ""
+    handles_files: bool = False
 
     def get_tool_schemas(self) -> list[dict[str, Any]]:
         """Returns the LiteLLM tool schemas for the tools declared by this skill."""
@@ -157,6 +159,11 @@ class SkillRegistry:
                     f"[SKILLS] Error loading action handler from {action_file}: {e}"
                 )
 
+        extraction_rule = str(meta.get("extraction_rule") or triggers.get("rule", "")).strip()
+        if "{name}" in extraction_rule:
+            extraction_rule = extraction_rule.replace("{name}", name)
+        handles_files = bool(meta.get("handles_files") or triggers.get("handles_files", False))
+
         return SkillDefinition(
             name=name,
             display_name=display_name,
@@ -168,6 +175,8 @@ class SkillRegistry:
             triggers=triggers,
             action_handler=action_handler,
             is_global=is_global,
+            extraction_rule=extraction_rule,
+            handles_files=handles_files,
         )
 
     def get(self, name: str) -> SkillDefinition | None:
@@ -206,6 +215,16 @@ class SkillRegistry:
                     mapping[cleaned] = (skill, skill.triggers)
         return mapping
 
+    def get_file_handler_skill(self) -> SkillDefinition | None:
+        """Returns the skill configured to handle file attachments, or None."""
+        for skill in self._skills.values():
+            if skill.handles_files:
+                return skill
+        for skill in self._skills.values():
+            if "read_document" in skill.tools or "read_file" in skill.tools:
+                return skill
+        return None
+
     def get_auto_detect_skills(self) -> list[SkillDefinition]:
         """Returns all skills where auto_detect is not False (default True for all skills)."""
         return [
@@ -217,7 +236,7 @@ class SkillRegistry:
     def build_extractor_catalog_prompt(self) -> str:
         """
         Dynamically generates the system prompt for the IntentExtractor LLM
-        based on all registered auto-detect skills.
+        based on all registered auto-detect skills and their extraction rules.
         """
         skills = self.get_auto_detect_skills()
         prompt_lines = [
@@ -250,15 +269,18 @@ class SkillRegistry:
             prompt_lines.extend(actions_lines)
             prompt_lines.append("")
 
+        special_rules = []
+        for skill in skills:
+            if skill.extraction_rule:
+                special_rules.append(f"- '{skill.name}': {skill.extraction_rule}")
+
+        if special_rules:
+            prompt_lines.append("SPECIAL RULES:")
+            prompt_lines.extend(special_rules)
+            prompt_lines.append("")
+
         prompt_lines.extend(
             [
-                "SPECIAL RULES:",
-                "- 'max_words': Extract integer ceiling only if user requested a maximum length (e.g. 'in under 50 words', 'max 30 words', 'briefly in 40 words'). Do NOT extract minimum length as max_words.",
-                "- 'min_words': Extract integer floor only if user requested a minimum length (e.g. 'at least 100 words', 'minimalno 50 riječi').",
-                "- 'history': Extract integer message limit if requested (e.g. 'last 3 messages', 'zadnje 2 poruke').",
-                "- 'document_reader': If user asks to read, analyze, inspect, or reference an attached file or document, include action 'document_reader' with param 'target_file' (or null if generic).",
-                "- 'exclude_agents': If user asks to exclude or leave out specific agents, include action 'exclude_agents' with param 'agents' (list of string agent keys). Agents tagged to speak must NEVER be excluded.",
-                "",
                 "Respond ONLY with a valid JSON object matching this schema:",
                 "{",
                 '  "modifiers": {',

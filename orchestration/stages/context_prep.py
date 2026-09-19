@@ -208,11 +208,14 @@ class ContextPrepStageMixin:
                 if act.name in known_agent_skills and act.name not in required_skills:
                     required_skills.append(act.name)
 
-        if getattr(ctx, "is_file_req", False) and "document_reader" not in required_skills:
-            required_skills.append("document_reader")
+        if getattr(ctx, "is_file_req", False):
+            file_skill = skill_registry.get_file_handler_skill()
+            file_skill_name = file_skill.name if file_skill else "document_reader"
+            if file_skill_name not in required_skills:
+                required_skills.append(file_skill_name)
 
         if ctx.file_context:
-            req_s = ctx.file_context.get("required_skill", "document_reader")
+            req_s = ctx.file_context.get("required_skill")
             if req_s and req_s not in required_skills:
                 required_skills.append(req_s)
 

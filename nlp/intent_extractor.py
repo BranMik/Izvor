@@ -173,18 +173,23 @@ class IntentExtractor:
                                 act_params["agents"] = resolved_agents
                         actions.append(ActionDirective(name=act_name, params=act_params))
 
-            # Legacy file_use / target_file
-            file_use = bool(parsed.get("file_use", False)) or any(a.name == "document_reader" for a in actions)
+            # Dynamic file_use / target_file
+            from skills import skill_registry
+
+            file_skill = skill_registry.get_file_handler_skill()
+            file_skill_name = file_skill.name if file_skill else "document_reader"
+
+            file_use = bool(parsed.get("file_use", False)) or any(a.name == file_skill_name for a in actions)
             target_file = parsed.get("target_file")
             if isinstance(target_file, str):
                 target_file = target_file.strip() or None
             else:
                 target_file = None
 
-            if file_use and not any(a.name == "document_reader" for a in actions):
-                actions.append(ActionDirective(name="document_reader", params={"target_file": target_file} if target_file else {}))
-            elif target_file and any(a.name == "document_reader" for a in actions):
-                doc_acts = [a for a in actions if a.name == "document_reader"]
+            if file_use and not any(a.name == file_skill_name for a in actions):
+                actions.append(ActionDirective(name=file_skill_name, params={"target_file": target_file} if target_file else {}))
+            elif target_file and any(a.name == file_skill_name for a in actions):
+                doc_acts = [a for a in actions if a.name == file_skill_name]
                 if doc_acts and not doc_acts[0].params.get("target_file"):
                     doc_acts[0].params["target_file"] = target_file
 

@@ -7,6 +7,7 @@ triggers:
   slash:
     - /history
   arg_type: int
+extraction_rule: "Extract integer message limit if requested (e.g. 'last 3 messages', 'zadnje 2 poruke')."
 ---
 
 ### THREAD HISTORY LIMIT
