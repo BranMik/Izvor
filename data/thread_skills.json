@@ -23,6 +23,28 @@
         "document_reader"
       ],
       "granted_at": 1789757890.6049142
+    },
+    "C_TEST:1726000000.1": {
+      "skills": [
+        "web_research"
+      ],
+      "granted_at": 1789762831.307824
+    },
+    "C_TEST:1726000000.2": {
+      "skills": [
+        "web_research"
+      ],
+      "granted_at": 1789762831.656165
+    },
+    "C_TEST:1726000000.3": {
+      "agent_skills": {
+        "Architect": {
+          "skills": [
+            "web_research"
+          ],
+          "granted_at": 1789762831.9948654
+        }
+      }
     }
   }
 }

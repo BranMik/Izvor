@@ -55,6 +55,12 @@ class ValidationStageMixin:
             ctx.target_filename = directives.target_filename
             ctx.raw_text_cleaned = directives.cleaned_prompt
 
+            # Record initial prompt for flat history if not already recorded for this thread
+            if not thread_state_manager.get_initial_prompt(ctx.channel_id, ctx.thread_ts):
+                thread_state_manager.set_initial_prompt(
+                    ctx.channel_id, ctx.thread_ts, ctx.raw_text
+                )
+
             # Check for stop_discussion or terminal action
             if directives.is_stop or any(a.name == "stop_discussion" for a in ctx.actions):
                 logger.info(f"[ROUTER] Stop action triggered for thread {ctx.thread_key}.")
@@ -94,8 +100,7 @@ class ValidationStageMixin:
                 if not requested_skills:
                     msg = "⚠️ *Missing Skills*: Please specify at least one skill to grant for all agents.\n_Example: `/grant_for_all web_research codebase_inspection`_"
                     await post_sys_msg(channel_id=ctx.channel_id, thread_ts=ctx.thread_ts, text=msg)
-                    if not ctx.raw_text_cleaned:
-                        return {"ok": True, "halted": True, "action": "grant_for_all"}
+                    return {"ok": True, "halted": True, "action": "grant_for_all"}
                 else:
                     known_agent_skills = {s.name for s in skill_registry.get_agent_skills()}
                     valid_skills = [s for s in requested_skills if s in known_agent_skills]
@@ -122,8 +127,87 @@ class ValidationStageMixin:
                     if lines:
                         await post_sys_msg(channel_id=ctx.channel_id, thread_ts=ctx.thread_ts, text="\n\n".join(lines))
 
-                    if not ctx.raw_text_cleaned:
-                        return {"ok": True, "halted": True, "action": "grant_for_all"}
+                    return {"ok": True, "halted": True, "action": "grant_for_all"}
+
+            # Process /grant_skill action
+            grant_skill_act = next((a for a in ctx.actions if a.name == "grant_skill"), None)
+            if grant_skill_act:
+                from orchestration.app_settings import app_settings_manager
+                from orchestration.thread_skills_manager import thread_skills_manager
+                from skills import skill_registry
+
+                requested_skill = grant_skill_act.params.get("skill")
+                requested_agents = grant_skill_act.params.get("agents", [])
+
+                if not requested_skill and grant_skill_act.params.get("skills"):
+                    requested_skill = grant_skill_act.params["skills"][0]
+
+                if not requested_skill and not requested_agents:
+                    msg = (
+                        "⚠️ *Missing Parameters*: Please specify a skill and at least one agent.\n"
+                        "_Example: `/grant_skill web_research Architect` or `/grant_skill [web_research] [Architect]`_"
+                    )
+                    await post_sys_msg(channel_id=ctx.channel_id, thread_ts=ctx.thread_ts, text=msg)
+                    return {"ok": True, "halted": True, "action": "grant_skill"}
+
+                if not requested_skill:
+                    msg = (
+                        "⚠️ *Missing Skill*: Please specify a skill to grant.\n"
+                        "_Example: `/grant_skill web_research Architect`_"
+                    )
+                    await post_sys_msg(channel_id=ctx.channel_id, thread_ts=ctx.thread_ts, text=msg)
+                    return {"ok": True, "halted": True, "action": "grant_skill"}
+
+                if not requested_agents:
+                    msg = (
+                        f"⚠️ *Missing Agent*: Please specify at least one agent to grant `{requested_skill}` to.\n"
+                        f"_Example: `/grant_skill {requested_skill} Architect`_"
+                    )
+                    await post_sys_msg(channel_id=ctx.channel_id, thread_ts=ctx.thread_ts, text=msg)
+                    return {"ok": True, "halted": True, "action": "grant_skill"}
+
+                known_agent_skills = {s.name for s in skill_registry.get_agent_skills()}
+                is_valid_skill = requested_skill in known_agent_skills
+
+                resolved_agents: list[str] = []
+                unresolved_agents: list[str] = []
+                for ag in requested_agents:
+                    candidates = entity_resolver.resolve_candidates(ag)
+                    if candidates:
+                        resolved_agents.extend(candidates)
+                    else:
+                        unresolved_agents.append(ag)
+                resolved_agents = list(dict.fromkeys(resolved_agents))
+
+                lines = []
+                if not is_valid_skill:
+                    avail = ", ".join(f"`{s}`" for s in sorted(known_agent_skills))
+                    lines.append(
+                        f"⚠️ *Unknown or non-agent skill*: `{requested_skill}`.\n_Available agent skills: {avail}_"
+                    )
+
+                if unresolved_agents:
+                    registered_agents = list(entity_resolver._get_agents_map().keys())
+                    avail_ag = ", ".join(f"`{a}`" for a in sorted(registered_agents))
+                    lines.append(
+                        f"⚠️ *Unknown agent(s)*: {', '.join(f'`{a}`' for a in unresolved_agents)}.\n_Available agents: {avail_ag}_"
+                    )
+
+                if is_valid_skill and resolved_agents:
+                    thread_skills_manager.grant_agent_skills(
+                        ctx.channel_id, ctx.thread_ts, requested_skill, resolved_agents
+                    )
+                    ttl_hours = app_settings_manager.get_thread_skill_expiration_time()
+                    agents_str = ", ".join(f"`{a}`" for a in resolved_agents)
+                    lines.append(
+                        f"🎯 *Agent Skill Granted*\n"
+                        f"Granted `{requested_skill}` to {agents_str} in this thread for *{ttl_hours:.1f} hours*."
+                    )
+
+                if lines:
+                    await post_sys_msg(channel_id=ctx.channel_id, thread_ts=ctx.thread_ts, text="\n\n".join(lines))
+
+                return {"ok": True, "halted": True, "action": "grant_skill"}
 
             # Process /revoke_for_all action
             revoke_act = next((a for a in ctx.actions if a.name == "revoke_for_all"), None)
@@ -337,6 +421,33 @@ class ValidationStageMixin:
                                 "halted": True,
                                 "reason": "all_agents_excluded",
                             }
+
+            # Save and maintain round sequence for multi-round debate topologies
+            if tagged:
+                current_seq = [ctx.agent_key] + [a for a in tagged if a != ctx.agent_key]
+            elif ctx.agent_key:
+                current_seq = [ctx.agent_key] + thread_state_manager.get_remaining_agents(ctx.channel_id, ctx.thread_ts)
+            else:
+                stored_seq = thread_state_manager.get_round_sequence(ctx.channel_id, ctx.thread_ts)
+                current_seq = stored_seq or get_initial_agents()
+                if ctx.excluded_agents:
+                    current_seq = [a for a in current_seq if a not in ctx.excluded_agents]
+
+            rounds_act = next((a for a in ctx.actions if a.name == "rounds"), None)
+            if rounds_act:
+                if not ctx.prompt or not ctx.raw_text_cleaned:
+                    ctx.prompt = "Please continue the discussion for the next round based on the arguments so far."
+                    ctx.raw_text_cleaned = ctx.prompt
+
+                if not ctx.agent_key and current_seq:
+                    ctx.agent_key = current_seq[0]
+                    ctx.was_explicit_target = False
+                    thread_state_manager.set_remaining_agents(
+                        ctx.channel_id, ctx.thread_ts, current_seq[1:]
+                    )
+
+            if current_seq:
+                thread_state_manager.set_round_sequence(ctx.channel_id, ctx.thread_ts, current_seq)
 
             if ctx.is_file_req:
                 if tagged:

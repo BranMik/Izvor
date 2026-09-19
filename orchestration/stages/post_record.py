@@ -24,8 +24,9 @@ from core.llm_utils import classify_agent_error
 from core.models import OrchestrationMode
 from nlp.message_builder import markdown_to_slack
 from orchestration.agent_settings import settings_manager
-from orchestration.nomination import enforce_valid_nomination
+from orchestration.nomination import enforce_valid_nomination, get_initial_agents
 from orchestration.thread_state import thread_state_manager
+from services.flat_history_recorder import record_flat_history
 from services.slack_client import (
     post_agent_response,
     update_slack_message,
@@ -63,6 +64,45 @@ class PostRecordStageMixin:
         retries = thread_state_manager.get_retry_queue(
             ctx.channel_id, ctx.thread_ts
         )
+
+        # Check if more discussion rounds remain when active round ends
+        if (
+            not ctx.remaining
+            and not retries
+            and not ctx.force_termination
+            and not thread_state_manager.is_stopped(ctx.channel_id, ctx.thread_ts)
+        ):
+            active_rounds = thread_state_manager.get_rounds(
+                ctx.channel_id, ctx.thread_ts
+            )
+            if active_rounds > 1:
+                thread_state_manager.decrement_rounds(
+                    ctx.channel_id, ctx.thread_ts
+                )
+                round_seq = thread_state_manager.get_round_sequence(
+                    ctx.channel_id, ctx.thread_ts
+                )
+                if not round_seq:
+                    round_seq = get_initial_agents()
+                if round_seq:
+                    next_speaker = round_seq[0]
+                    ctx.next_designated_agent = next_speaker
+                    ctx.eligible_remaining_agents = [next_speaker]
+                    thread_state_manager.set_remaining_agents(
+                        ctx.channel_id, ctx.thread_ts, list(round_seq)
+                    )
+                    ctx.force_termination = False
+                    logger.info(
+                        f"[ROUTER] Round completed for thread {ctx.thread_key}. "
+                        f"Continuing to next round ({active_rounds - 1} left) starting with [{next_speaker}]."
+                    )
+            elif active_rounds == 1:
+                thread_state_manager.clear_rounds(
+                    ctx.channel_id, ctx.thread_ts
+                )
+                logger.info(
+                    f"[ROUTER] Final round completed for thread {ctx.thread_key}. Concluding discussion."
+                )
         if not ctx.final_text:
             if ctx.force_termination:
                 ctx.final_text = "(No text response generated)"
@@ -234,6 +274,41 @@ class PostRecordStageMixin:
             thread_ts=ctx.thread_ts,
             is_completed=ctx.is_completed,
         )
+
+        # Incrementally update flat history file (1 thread = 1 file in flat-histories/)
+        try:
+            initial_prompt = thread_state_manager.get_initial_prompt(
+                ctx.channel_id, ctx.thread_ts
+            )
+            if not initial_prompt and not ctx.is_bot_trigger:
+                initial_prompt = ctx.raw_text
+
+            history_to_record = list(getattr(ctx, "full_history", []))
+            if ctx.final_text:
+                agent_name = ctx.agent_cfg.get("username", ctx.agent_key)
+                history_to_record.append(
+                    {
+                        "role": "assistant",
+                        "content": f"[{agent_name}]: {ctx.final_text}",
+                    }
+                )
+
+            record_flat_fn = self._get_hook(
+                "record_flat_history", record_flat_history
+            )
+            if record_flat_fn:
+                record_flat_fn(
+                    channel_id=ctx.channel_id,
+                    thread_ts=ctx.thread_ts,
+                    initial_prompt=initial_prompt,
+                    messages=history_to_record,
+                    bot_user_id=ctx.bot_user_id,
+                )
+        except Exception as e:
+            logger.error(
+                f"[ROUTER] Failed to record flat history for thread {ctx.thread_key}: {e}",
+                exc_info=True,
+            )
 
         if ctx.is_completed:
             logger.info(

@@ -17,6 +17,9 @@ logger = logging.getLogger(__name__)
 # Map thread identifier (channel_id, thread_ts) -> live_note_message_ts
 THREAD_NOTE_MSG_MAP: dict[tuple[str, str], str] = {}
 
+# Map thread identifier (channel_id, thread_ts) -> latest_notes_text
+THREAD_NOTE_TEXT_MAP: dict[tuple[str, str], str] = {}
+
 # Per-thread locks to ensure sequential note updates without race conditions
 THREAD_LOCKS: dict[tuple[str, str], asyncio.Lock] = {}
 
@@ -52,10 +55,61 @@ def set_thread_note(channel_id: str, thread_ts: str, message_ts: str | dict[str,
         THREAD_NOTE_MSG_MAP[thread_key] = str(message_ts)
 
 
+def get_thread_note_content(channel_id: str, thread_ts: str) -> str | None:
+    """Returns the latest strategic synthesis notes text associated with a thread."""
+    return THREAD_NOTE_TEXT_MAP.get((channel_id, thread_ts))
+
+
+def set_thread_note_content(channel_id: str, thread_ts: str, content: str) -> None:
+    """Stores the latest strategic synthesis notes text associated with a thread."""
+    THREAD_NOTE_TEXT_MAP[(channel_id, thread_ts)] = content
+
+
+def build_scribe_note_blocks(
+    formatted_text: str, channel_id: str, thread_ts: str
+) -> list[dict[str, Any]]:
+    """
+    Constructs Slack Block Kit blocks for Live Discussion Scribe message,
+    including a section with the notes and an action button to download as .txt.
+    """
+    # Slack section block text limit is 3000 characters
+    section_text = (
+        formatted_text
+        if len(formatted_text) <= 2900
+        else formatted_text[:2890] + "\n_...[truncated]_"
+    )
+    return [
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": section_text,
+            },
+        },
+        {
+            "type": "actions",
+            "block_id": "scribe_actions_block",
+            "elements": [
+                {
+                    "type": "button",
+                    "text": {
+                        "type": "plain_text",
+                        "text": "📥 Preuzmi bilješke (.txt)",
+                        "emoji": True,
+                    },
+                    "action_id": "download_scribe_notes_txt",
+                    "value": f"{channel_id}:{thread_ts}",
+                }
+            ],
+        },
+    ]
+
+
 def clear_thread_note(channel_id: str, thread_ts: str) -> None:
     """Removes live note tracking and cancels any running/pending tasks for a thread."""
     thread_key = (channel_id, thread_ts)
     THREAD_NOTE_MSG_MAP.pop(thread_key, None)
+    THREAD_NOTE_TEXT_MAP.pop(thread_key, None)
     THREAD_LOCKS.pop(thread_key, None)
     _PENDING_UPDATES.pop(thread_key, None)
     _PENDING_COMPLETED.pop(thread_key, None)
@@ -70,6 +124,7 @@ def reset_thread_notes() -> None:
         if task and not task.done():
             task.cancel()
     THREAD_NOTE_MSG_MAP.clear()
+    THREAD_NOTE_TEXT_MAP.clear()
     THREAD_LOCKS.clear()
     _RUNNING_TASKS.clear()
     _PENDING_UPDATES.clear()
@@ -175,6 +230,8 @@ async def update_notes_for_thread(
             timestamp_str = time.strftime("%H:%M:%S")
             footer = f"\n\n_Last updated: {timestamp_str} | Scribe tokens: {token_stats['total_tokens']}_"
             formatted_text = f"{notes_content.strip()}{footer}"
+            set_thread_note_content(channel_id, thread_ts, formatted_text)
+            blocks = build_scribe_note_blocks(formatted_text, channel_id, thread_ts)
 
             # 3. Post new note message or update existing note in-place
             note_ts = get_thread_note(channel_id, thread_ts)
@@ -186,6 +243,7 @@ async def update_notes_for_thread(
                     pin=True,
                     username="Live Discussion Scribe",
                     icon_emoji=":memo:",
+                    blocks=blocks,
                 )
                 note_ts = post_res.get("ts")
                 if note_ts:
@@ -198,6 +256,7 @@ async def update_notes_for_thread(
                     channel_id=channel_id,
                     message_ts=note_ts,
                     text=formatted_text,
+                    blocks=blocks,
                 )
                 logger.info(
                     f"[THREAD NOTES] Updated live synthesis note {note_ts} in thread {thread_ts}"

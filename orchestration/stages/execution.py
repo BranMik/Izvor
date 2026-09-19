@@ -66,7 +66,8 @@ class ExecutionStageMixin:
         from skills import skill_registry
         global_skills = skill_registry.get_global_skills()
         active_thread_skills = thread_skills_manager.get_active_skills(ctx.channel_id, ctx.thread_ts)
-        combined_extra = list(dict.fromkeys(global_skills + active_thread_skills))
+        active_agent_skills = thread_skills_manager.get_active_agent_skills(ctx.channel_id, ctx.thread_ts, ctx.agent_key)
+        combined_extra = list(dict.fromkeys(global_skills + active_thread_skills + active_agent_skills))
         if combined_extra:
             merged = list(agent_skills or [])
             for s in combined_extra:
@@ -74,7 +75,12 @@ class ExecutionStageMixin:
                     merged.append(s)
             agent_skills = merged
 
-        expired_thread_skills = thread_skills_manager.get_expired_skills(ctx.channel_id, ctx.thread_ts)
+        expired_thread_skills = list(
+            dict.fromkeys(
+                thread_skills_manager.get_expired_skills(ctx.channel_id, ctx.thread_ts)
+                + thread_skills_manager.get_expired_agent_skills(ctx.channel_id, ctx.thread_ts, ctx.agent_key)
+            )
+        )
         thread_ttl_hours = app_settings_manager.get_thread_skill_expiration_time()
 
         completion_kwargs: dict[str, Any] = {

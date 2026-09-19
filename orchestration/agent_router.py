@@ -155,6 +155,12 @@ async def orchestrate_discussion(
             )
 
         # 3. Subsequent turns
+        active_rounds = thread_state_manager.get_rounds(channel_id, thread_ts)
+        round_seq = thread_state_manager.get_round_sequence(channel_id, thread_ts)
+        expected_turns = (active_rounds + 1) * max(1, len(round_seq) or 6)
+        if expected_turns > max_turns:
+            max_turns = expected_turns
+
         for turn in range(2, max_turns + 1):
             if thread_state_manager.is_stopped(channel_id, thread_ts):
                 logger.info(
@@ -209,6 +215,20 @@ async def orchestrate_discussion(
                         "content": f"[{turn_res['username']}]: {turn_res['final_text']}",
                     }
                 )
+
+        try:
+            from services.flat_history_recorder import record_flat_history
+
+            init_p = thread_state_manager.get_initial_prompt(channel_id, thread_ts) or raw_text
+            record_flat_history(
+                channel_id=channel_id,
+                thread_ts=thread_ts,
+                initial_prompt=init_p,
+                messages=accumulated_history,
+                bot_user_id=bot_user_id,
+            )
+        except Exception as e:
+            logger.debug(f"[ORCHESTRATOR] Final flat history sync exception: {e}")
 
         return last_res
     finally:

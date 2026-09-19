@@ -350,6 +350,7 @@ class SkillRegistry:
             agents_cfg = AGENTS_CONFIG
 
         thread_skills: list[str] = []
+        thread_agent_skills: dict[str, list[str]] = {}
         if channel_id and thread_ts:
             try:
                 from orchestration.thread_skills_manager import thread_skills_manager
@@ -357,8 +358,12 @@ class SkillRegistry:
                 thread_skills = thread_skills_manager.get_active_skills(
                     channel_id, thread_ts
                 )
+                thread_agent_skills = thread_skills_manager.get_all_active_agent_skills(
+                    channel_id, thread_ts
+                )
             except Exception:
                 thread_skills = []
+                thread_agent_skills = {}
 
         mapping: dict[str, dict[str, Any]] = {}
         for skill in self.list_skills():
@@ -373,6 +378,9 @@ class SkillRegistry:
                     for agent_key, cfg in sorted(agents_cfg.items())
                     if isinstance(cfg, dict) and skill.name in cfg.get("skills", [])
                 ]
+                for ag_key, ag_s_list in sorted(thread_agent_skills.items()):
+                    if skill.name in ag_s_list and ag_key not in matched:
+                        matched.append(f"{ag_key} (Thread Active)")
                 auth_agents = matched if matched else ["No agents currently assigned"]
             elif skill.scope == "orchestrator":
                 auth_agents = ["System / Orchestrator Directive"]
