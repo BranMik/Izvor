@@ -667,6 +667,48 @@ def test_slack_interactivity_scribe_toggle():
         set_scribe_enabled(True)
 
 
+def test_slack_interactivity_weekly_pricing_toggle():
+    from orchestration.agent_settings import (
+        is_weekly_pricing_update_enabled,
+        set_weekly_pricing_update_enabled,
+    )
+
+    try:
+        set_weekly_pricing_update_enabled(True)
+        assert is_weekly_pricing_update_enabled() is True
+
+        payload_off = {
+            "type": "block_actions",
+            "user": {"id": "U_PRICING_TEST"},
+            "actions": [
+                {
+                    "action_id": "toggle_weekly_pricing_update_radio",
+                    "selected_option": {"value": "pricing_update:off"},
+                }
+            ],
+        }
+        response_off = client.post("/slack/actions", json=payload_off)
+        assert response_off.status_code == 200
+        assert is_weekly_pricing_update_enabled() is False
+
+        payload_on = {
+            "type": "block_actions",
+            "user": {"id": "U_PRICING_TEST"},
+            "actions": [
+                {
+                    "action_id": "toggle_weekly_pricing_update_radio",
+                    "selected_option": {"value": "pricing_update:on"},
+                }
+            ],
+        }
+        response_on = client.post("/slack/actions", json=payload_on)
+        assert response_on.status_code == 200
+        assert is_weekly_pricing_update_enabled() is True
+    finally:
+        set_weekly_pricing_update_enabled(True)
+
+
+
 
 
 

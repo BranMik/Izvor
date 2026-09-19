@@ -40,6 +40,8 @@ class DiscussionScribe:
         history: list[dict[str, Any]] | list[Turn],
         is_completed: bool = False,
         thread_language: str = "English",
+        scribe_max_words: int | None = None,
+        scribe_min_words: int | None = None,
     ) -> tuple[DiscussionBrief, dict[str, int]]:
         """
         Generates or updates a structured DiscussionBrief from conversation history.
@@ -55,12 +57,24 @@ class DiscussionScribe:
             if role == "assistant":
                 assistant_turns += 1
 
+        length_directives = []
+        if scribe_max_words is not None:
+            length_directives.append(
+                f"CRITICAL LENGTH CONSTRAINT: The entire synthesis note must strictly NOT exceed {scribe_max_words} words."
+            )
+        if scribe_min_words is not None:
+            length_directives.append(
+                f"CRITICAL LENGTH CONSTRAINT: The entire synthesis note must have a minimum length of {scribe_min_words} words."
+            )
+        extra_len_instruction = f" {' '.join(length_directives)}" if length_directives else ""
+
         if is_completed:
             status_directive = (
                 "The discussion has finished. Generate the FINAL concise strategic synthesis notes (strictly under 500 words maximum ceiling). "
                 "Include Core Objective & Problem Statement, Key Perspectives & Insights, Consensus & Strategic Decisions, Risks & Trade-offs, and Action Items & Next Steps. "
                 f"CRITICAL: Write ALL titles and content strictly in {thread_language}. "
                 "Use an appropriate natural status indicator translated into the thread language in the header (e.g. Completed ✅)."
+                f"{extra_len_instruction}"
             )
             max_tokens = 1500
         elif assistant_turns <= 1:
@@ -69,6 +83,7 @@ class DiscussionScribe:
                 "State the initial core objective and initial key perspective. "
                 f"CRITICAL: Write ALL titles and content strictly in {thread_language}. "
                 "Use an appropriate natural status indicator translated into the thread language in the header (e.g. Updating live...)."
+                f"{extra_len_instruction}"
             )
             max_tokens = 350
         else:
@@ -77,8 +92,12 @@ class DiscussionScribe:
                 "Synthesize current key perspectives, emerging consensus, identified risks, and preliminary action items. "
                 f"CRITICAL: Write ALL titles and content strictly in {thread_language}. "
                 "Use an appropriate natural status indicator translated into the thread language in the header (e.g. Updating live...)."
+                f"{extra_len_instruction}"
             )
             max_tokens = 800
+
+        if scribe_max_words is not None:
+            max_tokens = min(max_tokens, max(60, scribe_max_words * 4))
 
         # Build transcript text for the prompt
         transcript_lines: list[str] = []

@@ -8,8 +8,12 @@ from nlp.nl_patterns import (
     extract_excluded_agents,
     extract_file_instruction,
     extract_history_limit,
+    extract_included_agents,
     extract_max_words_limit,
     extract_min_words_limit,
+    extract_revoke_instruction,
+    extract_scribe_max_words_limit,
+    extract_scribe_min_words_limit,
     is_stop_command,
 )
 
@@ -25,11 +29,17 @@ class ParsedDirectives:
     modifiers: dict[str, Any] = field(default_factory=dict)
     attachments: list[MediaAttachment] = field(default_factory=list)
 
-    # Legacy accessors maintained for full backward compatibility
-    max_words: int | None = None
-    min_words: int | None = None
+    # Legacy & domain accessors
+    max_words: int | str | None = None
+    min_words: int | str | None = None
+    scribe_max_words: int | str | None = None
+    scribe_min_words: int | str | None = None
     history_limit: int | None = None
     excluded_agents: list[str] = field(default_factory=list)
+    included_agents: list[str] = field(default_factory=list)
+    exclude_off: bool = False
+    include_off: bool = False
+    revoke_target: str | None = None
     is_file_req: bool = False
     target_filename: str | None = None
     is_stop: bool = False
@@ -42,8 +52,14 @@ class ParsedDirectives:
             "attachments": [att.to_dict() for att in self.attachments],
             "max_words": self.max_words,
             "min_words": self.min_words,
+            "scribe_max_words": self.scribe_max_words,
+            "scribe_min_words": self.scribe_min_words,
             "history_limit": self.history_limit,
             "excluded_agents": self.excluded_agents,
+            "included_agents": self.included_agents,
+            "exclude_off": self.exclude_off,
+            "include_off": self.include_off,
+            "revoke_target": self.revoke_target,
             "is_file_req": self.is_file_req,
             "target_filename": self.target_filename,
             "is_stop": self.is_stop,
@@ -83,7 +99,11 @@ class DirectiveParser:
         history_limit, text_cleaned = extract_history_limit(text_cleaned)
         max_words, text_cleaned = extract_max_words_limit(text_cleaned)
         min_words, text_cleaned = extract_min_words_limit(text_cleaned)
-        excluded, text_cleaned = extract_excluded_agents(text_cleaned)
+        scribe_max_words, text_cleaned = extract_scribe_max_words_limit(text_cleaned)
+        scribe_min_words, text_cleaned = extract_scribe_min_words_limit(text_cleaned)
+        excluded, exclude_off, text_cleaned = extract_excluded_agents(text_cleaned)
+        included, include_off, text_cleaned = extract_included_agents(text_cleaned)
+        revoke_target, text_cleaned = extract_revoke_instruction(text_cleaned)
 
         is_file_req, target_filename, text_cleaned = extract_file_instruction(
             text_cleaned, available_files=available_files
@@ -93,6 +113,10 @@ class DirectiveParser:
             modifiers["max_words"] = max_words
         if min_words is not None:
             modifiers["min_words"] = min_words
+        if scribe_max_words is not None:
+            actions.append(ActionDirective(name="scribe_max_words", params={"words": scribe_max_words}))
+        if scribe_min_words is not None:
+            actions.append(ActionDirective(name="scribe_min_words", params={"words": scribe_min_words}))
         if history_limit is not None:
             modifiers["history"] = history_limit
 
@@ -104,11 +128,27 @@ class DirectiveParser:
                 )
             )
 
-        if excluded:
+        if excluded or exclude_off:
             actions.append(
                 ActionDirective(
                     name="exclude_agents",
-                    params={"agents": list(excluded)},
+                    params={"agents": list(excluded), "off": exclude_off},
+                )
+            )
+
+        if included or include_off:
+            actions.append(
+                ActionDirective(
+                    name="include_agents",
+                    params={"agents": list(included), "off": include_off},
+                )
+            )
+
+        if revoke_target is not None:
+            actions.append(
+                ActionDirective(
+                    name="revoke",
+                    params={"target": revoke_target},
                 )
             )
 
@@ -300,8 +340,10 @@ class DirectiveParser:
                         )
                     )
 
+            from pipeline.entity_resolver import entity_resolver
+            tagged_in_prompt = set(entity_resolver.extract_tagged_agents(raw_text))
             for exc in intent_dict.get("excluded_agents", []):
-                if exc not in excluded:
+                if exc not in excluded and exc not in tagged_in_prompt:
                     excluded.append(exc)
 
             if excluded and not any(a.name == "exclude_agents" for a in actions):
@@ -326,8 +368,14 @@ class DirectiveParser:
             modifiers=modifiers,
             max_words=max_words,
             min_words=min_words,
+            scribe_max_words=scribe_max_words,
+            scribe_min_words=scribe_min_words,
             history_limit=history_limit,
             excluded_agents=excluded,
+            included_agents=included,
+            exclude_off=exclude_off,
+            include_off=include_off,
+            revoke_target=revoke_target,
             is_file_req=is_file_req,
             target_filename=target_filename,
             is_stop=False,

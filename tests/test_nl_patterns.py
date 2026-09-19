@@ -179,12 +179,13 @@ def test_exclude_slash_command_single_and_multi():
     from nlp.nl_patterns import extract_excluded_agents
 
     # Single agent slash command
-    exc, text = extract_excluded_agents("/exclude [TechLead] Debate this feature")
+    exc, is_off, text = extract_excluded_agents("/exclude [TechLead] Debate this feature")
     assert exc == ["TechLead"]
+    assert is_off is False
     assert text == "Debate this feature"
 
     # Multi-agent syntax: /exclude [Agent1] [Agent2] [Agent3]
-    exc, text = extract_excluded_agents(
+    exc, is_off, text = extract_excluded_agents(
         "/exclude [TechLead] [Innovator] [ScopeOptimizer] Plan the sprint"
     )
     assert exc == [
@@ -192,31 +193,136 @@ def test_exclude_slash_command_single_and_multi():
         "Innovator",
         "ScopeOptimizer",
     ]
+    assert is_off is False
     assert text == "Plan the sprint"
 
     # Comma-separated syntax
-    exc, text = extract_excluded_agents(
+    exc, is_off, text = extract_excluded_agents(
         "/exclude [TechLead], [Innovator] Plan the sprint"
     )
     assert exc == ["TechLead", "Innovator"]
+    assert is_off is False
     assert text == "Plan the sprint"
 
     # Colon syntax
-    exc, text = extract_excluded_agents("/exclude: [TechLead] test")
+    exc, is_off, text = extract_excluded_agents("/exclude: [TechLead] test")
     assert exc == ["TechLead"]
+    assert is_off is False
     assert text == "test"
 
     # Unbracketed names
-    exc, text = extract_excluded_agents("/exclude TechLead Innovator test")
+    exc, is_off, text = extract_excluded_agents("/exclude TechLead Innovator test")
     assert exc == ["TechLead", "Innovator"]
+    assert is_off is False
     assert text == "test"
 
     # Multiple separate /exclude commands
-    exc, text = extract_excluded_agents(
+    exc, is_off, text = extract_excluded_agents(
         "/exclude [TechLead] Some text /exclude [Innovator]"
     )
     assert exc == ["TechLead", "Innovator"]
+    assert is_off is False
     assert text == "Some text"
+
+
+def test_exclude_off():
+    from nlp.nl_patterns import extract_excluded_agents
+
+    exc, is_off, text = extract_excluded_agents("/exclude off Continue the debate")
+    assert exc == []
+    assert is_off is True
+    assert text == "Continue the debate"
+
+    # Verify none or 0 are NOT treated as off
+    exc, is_off, text = extract_excluded_agents("/exclude none Continue the debate")
+    assert is_off is False
+
+
+def test_include_slash_command_and_off():
+    from nlp.nl_patterns import extract_included_agents
+
+    inc, is_off, text = extract_included_agents("/include [TechLead] Debate this feature")
+    assert inc == ["TechLead"]
+    assert is_off is False
+    assert text == "Debate this feature"
+
+    inc, is_off, text = extract_included_agents("/include [Innovator] [Architect] Let's discuss")
+    assert inc == ["Innovator", "Architect"]
+    assert is_off is False
+    assert text == "Let's discuss"
+
+    inc, is_off, text = extract_included_agents("/include off Reset inclusions")
+    assert inc == []
+    assert is_off is True
+    assert text == "Reset inclusions"
+
+    # Verify none or 0 are NOT treated as off
+    inc, is_off, text = extract_included_agents("/include none Reset inclusions")
+    assert is_off is False
+
+
+def test_word_limits_off():
+    from nlp.nl_patterns import extract_max_words_limit, extract_min_words_limit
+
+    val, text = extract_max_words_limit("/max_words 5 Discuss this")
+    assert val == 5
+    assert text == "Discuss this"
+
+    val, text = extract_max_words_limit("/max_words off Discuss this")
+    assert val == "off"
+    assert text == "Discuss this"
+
+    # None or 0 should NOT be off
+    val, text = extract_max_words_limit("/max_words none Discuss this")
+    assert val is None
+
+    val, text = extract_min_words_limit("/min_words 20 Elaborate")
+    assert val == 20
+    assert text == "Elaborate"
+
+    val, text = extract_min_words_limit("/min_words off Elaborate")
+    assert val == "off"
+    assert text == "Elaborate"
+
+
+def test_scribe_word_limits():
+    from nlp.nl_patterns import extract_scribe_max_words_limit, extract_scribe_min_words_limit
+
+    val, text = extract_scribe_max_words_limit("/scribe_max_words 50 Wrap up summary")
+    assert val == 50
+    assert text == "Wrap up summary"
+
+    val, text = extract_scribe_max_words_limit("/scribe-max-words off Wrap up summary")
+    assert val == "off"
+    assert text == "Wrap up summary"
+
+    val, text = extract_scribe_min_words_limit("/scribe_min_words 10 Wrap up summary")
+    assert val == 10
+    assert text == "Wrap up summary"
+
+    val, text = extract_scribe_min_words_limit("/scribe_min_words off Wrap up summary")
+    assert val == "off"
+    assert text == "Wrap up summary"
+
+    # None or 0 should not be off
+    val, text = extract_scribe_max_words_limit("/scribe_max_words none test")
+    assert val is None
+
+
+def test_revoke_instruction():
+    from nlp.nl_patterns import extract_revoke_instruction
+
+    target, text = extract_revoke_instruction("/revoke all Let's continue")
+    assert target == "all"
+    assert text == "Let's continue"
+
+    target, text = extract_revoke_instruction("/revoke max_words Continue")
+    assert target == "max_words"
+    assert text == "Continue"
+
+    target, text = extract_revoke_instruction("/revoke [exclude] Go ahead")
+    assert target == "exclude"
+    assert text == "Go ahead"
 
 
 @pytest.mark.skip(reason="TODO: Testing Second Line of Defense only (Micro-LLM IntentExtractor)")
@@ -224,30 +330,32 @@ def test_exclude_natural_language():
     from nlp.nl_patterns import extract_excluded_agents
 
     # English NL
-    exc, text = extract_excluded_agents("Debate this feature, but exclude TechLead from debate")
+    exc, is_off, text = extract_excluded_agents("Debate this feature, but exclude TechLead from debate")
     assert exc == ["TechLead"]
     assert "exclude" not in text
 
-    exc, text = extract_excluded_agents("Leave out [Innovator] and discuss architecture")
+    exc, is_off, text = extract_excluded_agents("Leave out [Innovator] and discuss architecture")
     assert exc == ["Innovator"]
     assert "Leave out" not in text
 
-    exc, text = extract_excluded_agents("Discuss without [ScopeOptimizer]")
+    exc, is_off, text = extract_excluded_agents("Discuss without [ScopeOptimizer]")
     assert exc == ["ScopeOptimizer"]
 
     # Croatian NL
-    exc, text = extract_excluded_agents("Raspravite o temi bez agenta TechLead")
+    exc, is_off, text = extract_excluded_agents("Raspravite o temi bez agenta TechLead")
     assert exc == ["TechLead"]
     assert "bez agenta" not in text
 
-    exc, text = extract_excluded_agents("Isključi [ScopeOptimizer] iz rasprave o bazi")
+    exc, is_off, text = extract_excluded_agents("Isključi [ScopeOptimizer] iz rasprave o bazi")
     assert exc == ["ScopeOptimizer"]
     assert "Isključi" not in text
 
-    exc, text = extract_excluded_agents("Nemoj uključiti agenta QALead")
+    exc, is_off, text = extract_excluded_agents("Nemoj uključiti agenta QALead")
     assert exc == ["QALead"]
 
     # Regular prompt without exclusions
-    exc, text = extract_excluded_agents("Just a standard user prompt with no directives")
+    exc, is_off, text = extract_excluded_agents("Just a standard user prompt with no directives")
     assert exc == []
+    assert is_off is False
     assert text == "Just a standard user prompt with no directives"
+

@@ -240,3 +240,122 @@ async def test_7_day_cache_ttl(monkeypatch):
         refreshed = await refresh_model_pricing(model, force=False)
         assert refreshed["source"] == "Refreshed Web Search"
         mock_fetch.assert_called_once()
+
+
+@pytest.mark.anyio
+async def test_refresh_pricing_when_weekly_update_disabled_and_price_already_set():
+    """
+    When weekly pricing update is OFF, if price is already set per model,
+    it must NOT update from web even if cache is older than 7 days.
+    """
+    model = "openai/gpt-5.6-terra"
+    now = time.time()
+
+    cached_data = {
+        model: {
+            "input_price_per_1m": 2.0,
+            "output_price_per_1m": 12.0,
+            "currency": "USD",
+            "source": "Cached Terra Pricing",
+            "updated_at": now - (10 * 24 * 3600),  # 10 days old (> 7 days)
+        }
+    }
+    save_pricing_cache(cached_data)
+
+    with patch("orchestration.app_settings.is_weekly_pricing_update_enabled", return_value=False), \
+         patch("services.pricing_service.fetch_pricing_from_web") as mock_fetch:
+        pricing = await refresh_model_pricing(model, force=False)
+        assert pricing["source"] == "Cached Terra Pricing"
+        assert pricing["input_price_per_1m"] == 2.0
+        assert pricing["output_price_per_1m"] == 12.0
+        mock_fetch.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_refresh_pricing_when_weekly_update_disabled_but_no_price_set():
+    """
+    When weekly pricing update is OFF, but there is NO price per token set
+    for the model (missing from cache or null price), it MUST still update from web.
+    """
+    model = "custom/new-unpriced-model"
+    now = time.time()
+
+    # Model not in cache at all
+    mock_fresh = {
+        "input_price_per_1m": 1.50,
+        "output_price_per_1m": 4.50,
+        "currency": "USD",
+        "source": "Web Search Fetched",
+        "updated_at": now,
+    }
+
+    with patch("orchestration.app_settings.is_weekly_pricing_update_enabled", return_value=False), \
+         patch("services.pricing_service.fetch_pricing_from_web", return_value=mock_fresh) as mock_fetch:
+        pricing = await refresh_model_pricing(model, force=False)
+        assert pricing["source"] == "Web Search Fetched"
+        assert pricing["input_price_per_1m"] == 1.50
+        assert pricing["output_price_per_1m"] == 4.50
+        mock_fetch.assert_called_once()
+
+    # Model in cache but price is None
+    cached_data = {
+        model: {
+            "input_price_per_1m": None,
+            "output_price_per_1m": None,
+            "currency": "USD",
+            "source": "Incomplete Cache",
+            "updated_at": now - (1 * 24 * 3600),
+        }
+    }
+    save_pricing_cache(cached_data)
+
+    mock_fresh2 = {
+        "input_price_per_1m": 1.75,
+        "output_price_per_1m": 5.00,
+        "currency": "USD",
+        "source": "Web Search Second Fetch",
+        "updated_at": now,
+    }
+
+    with patch("orchestration.app_settings.is_weekly_pricing_update_enabled", return_value=False), \
+         patch("services.pricing_service.fetch_pricing_from_web", return_value=mock_fresh2) as mock_fetch:
+        pricing = await refresh_model_pricing(model, force=False)
+        assert pricing["source"] == "Web Search Second Fetch"
+        assert pricing["input_price_per_1m"] == 1.75
+        mock_fetch.assert_called_once()
+
+
+@pytest.mark.anyio
+async def test_refresh_pricing_force_overrides_disabled_weekly_update():
+    """
+    Even when weekly pricing update is OFF, calling with force=True must fetch fresh pricing.
+    """
+    model = "anthropic/claude-opus-5"
+    now = time.time()
+
+    cached_data = {
+        model: {
+            "input_price_per_1m": 15.0,
+            "output_price_per_1m": 75.0,
+            "currency": "USD",
+            "source": "Old Cached Opus",
+            "updated_at": now - (1 * 24 * 3600),
+        }
+    }
+    save_pricing_cache(cached_data)
+
+    mock_forced = {
+        "input_price_per_1m": 10.0,
+        "output_price_per_1m": 50.0,
+        "currency": "USD",
+        "source": "Forced Refresh",
+        "updated_at": now,
+    }
+
+    with patch("orchestration.app_settings.is_weekly_pricing_update_enabled", return_value=False), \
+         patch("services.pricing_service.fetch_pricing_from_web", return_value=mock_forced) as mock_fetch:
+        pricing = await refresh_model_pricing(model, force=True)
+        assert pricing["source"] == "Forced Refresh"
+        assert pricing["input_price_per_1m"] == 10.0
+        mock_fetch.assert_called_once()
+

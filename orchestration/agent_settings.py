@@ -112,6 +112,14 @@ class AgentSettingsManager:
         self.app_settings.set_scribe_enabled(val, save=False)
 
     @property
+    def weekly_pricing_update_enabled(self) -> bool:
+        return self.app_settings.is_weekly_pricing_update_enabled()
+
+    @weekly_pricing_update_enabled.setter
+    def weekly_pricing_update_enabled(self, val: bool) -> None:
+        self.app_settings.set_weekly_pricing_update_enabled(val, save=False)
+
+    @property
     def active_settings_file(self) -> Path:
         if self._custom_settings_file:
             return self.default_settings_file
@@ -776,6 +784,12 @@ class AgentSettingsManager:
     def set_scribe_enabled(self, enabled: bool, save: bool = True) -> None:
         self.app_settings.set_scribe_enabled(enabled, save=save)
 
+    def is_weekly_pricing_update_enabled(self) -> bool:
+        return self.app_settings.is_weekly_pricing_update_enabled()
+
+    def set_weekly_pricing_update_enabled(self, enabled: bool, save: bool = True) -> None:
+        self.app_settings.set_weekly_pricing_update_enabled(enabled, save=save)
+
     def reset(self, save: bool = True) -> None:
         """Resets all registered agents to enabled state and resets orchestration mode to sandwich default."""
         self.enabled_agents.clear()
@@ -942,6 +956,14 @@ def is_scribe_enabled() -> bool:
 
 def set_scribe_enabled(enabled: bool, save: bool = True) -> None:
     settings_manager.set_scribe_enabled(enabled, save=save)
+
+
+def is_weekly_pricing_update_enabled() -> bool:
+    return settings_manager.is_weekly_pricing_update_enabled()
+
+
+def set_weekly_pricing_update_enabled(enabled: bool, save: bool = True) -> None:
+    settings_manager.set_weekly_pricing_update_enabled(enabled, save=save)
 
 
 def save_enabled_agents() -> None:

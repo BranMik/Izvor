@@ -462,17 +462,43 @@ class PricingService:
     async def refresh_pricing(self, model_name: str, force: bool = False) -> dict[str, Any]:
         """
         Returns pricing dictionary for a given model with 7-day TTL check.
-        Performs web search only if stale or missing.
+        Performs web search only if stale or missing, governed by weekly_pricing_update_enabled setting.
+        If weekly update is OFF, models with existing pricing are not updated, but models without set
+        pricing will still fetch pricing.
         """
         cache = self.load_cache()
         norm = _normalize_model_name(model_name)
         now = time.time()
 
+        from orchestration.app_settings import is_weekly_pricing_update_enabled
+        weekly_update_enabled = is_weekly_pricing_update_enabled()
+
         cached_entry = cache.get(norm)
+        has_price = (
+            cached_entry is not None
+            and cached_entry.get("input_price_per_1m") is not None
+            and cached_entry.get("output_price_per_1m") is not None
+        )
+
         if cached_entry and not force:
             updated_at = cached_entry.get("updated_at", 0)
             age = now - updated_at
-            if age < CACHE_TTL_SECONDS:
+
+            # If weekly updates are turned OFF and pricing is already set for this model,
+            # do not update and return cached pricing.
+            if not weekly_update_enabled and has_price:
+                logger.debug(
+                    f"[PRICING] Weekly updates disabled; using existing price for '{norm}'"
+                )
+                if not cached_entry.get("source_url"):
+                    baseline = get_baseline_for_model(model_name)
+                    cached_entry["source_url"] = baseline.get(
+                        "source_url", "https://artificialanalysis.ai/models"
+                    )
+                return cached_entry
+
+            # If weekly updates are turned ON, enforce the 7-day TTL check
+            if weekly_update_enabled and has_price and age < CACHE_TTL_SECONDS:
                 logger.debug(
                     f"[PRICING] Using cached pricing for '{norm}' (age: {age / 86400:.1f} days / 7-day TTL)"
                 )
