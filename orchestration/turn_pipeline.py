@@ -36,6 +36,7 @@ from orchestration.stages import (
     _build_tool_status_text,
 )
 from orchestration.thread_state import thread_state_manager
+from services.flat_history_recorder import record_flat_history
 from services.slack_client import (
     fetch_thread_files,
     fetch_thread_history,
@@ -106,6 +107,7 @@ class TurnContext:
 
     # LLM & Conversation Context
     effective_history: list[dict[str, Any]] = field(default_factory=list)
+    full_history: list[dict[str, Any]] = field(default_factory=list)
     system_prompt: str = ""
     file_context: dict[str, Any] | None = None
     thread_language: str = "English"
@@ -246,6 +248,7 @@ class TurnPipeline(
             "update_slack_message": update_slack_message,
             "update_agent_message": update_slack_message,
             "calculate_thread_costs": calculate_thread_costs,
+            "record_flat_history": record_flat_history,
         }
         return fallback_map.get(name, None)
 

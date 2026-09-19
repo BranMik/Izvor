@@ -99,10 +99,12 @@ def parse_agent_and_prompt(
     """
     thread_key = (channel_id, thread_ts)
     if thread_key not in thread_state_manager.remaining_agents_map:
+        stored_seq = thread_state_manager.get_round_sequence(channel_id, thread_ts)
+        init_seq = list(stored_seq) if stored_seq else get_initial_agents()
         logger.info(
-            f"[ORCHESTRATOR] INITIALIZING new remaining agents list for thread_key: {thread_key}"
+            f"[ORCHESTRATOR] INITIALIZING new remaining agents list for thread_key: {thread_key}: {init_seq}"
         )
-        thread_state_manager.remaining_agents_map[thread_key] = get_initial_agents()
+        thread_state_manager.remaining_agents_map[thread_key] = init_seq
 
     remaining = thread_state_manager.remaining_agents_map[thread_key]
     logger.info(
@@ -136,6 +138,11 @@ def parse_agent_and_prompt(
         return matched_key, prompt, True
 
     if remaining:
+        stored_seq = thread_state_manager.get_round_sequence(channel_id, thread_ts)
+        if stored_seq and remaining[0] in stored_seq:
+            first_agent = remaining.pop(0)
+            return first_agent, cleaned_text, False
+
         mode = settings_manager.get_orchestration_mode()
         if mode == OrchestrationMode.FIXED:
             fixed_cfg = settings_manager.get_fixed_config()

@@ -199,8 +199,27 @@ async def handle_slack_events(request: Request, background_tasks: BackgroundTask
                     thread_state_manager.request_stop(channel_id, thread_ts)
                     return Response(status_code=200)
 
-                # User messages must either have a bracketed tag or be an app_mention/DM
-                if has_tag or is_mention_or_dm:
+                # User messages must either have a bracketed tag, be an app_mention/DM, or contain a recognized slash command
+                has_slash_command = False
+                try:
+                    from skills import skill_registry
+                    triggers = skill_registry.get_slash_triggers()
+                    if triggers:
+                        slash_pattern = r"(?:^|\s)(?:" + "|".join(re.escape(c) for c in triggers.keys()) + r")\b"
+                        has_slash_command = bool(re.search(slash_pattern, raw_text, re.IGNORECASE))
+                except Exception as e:
+                    logger.debug(f"[WEBHOOK] Error checking skill_registry slash commands: {e}")
+
+                if not has_slash_command:
+                    has_slash_command = bool(
+                        re.search(
+                            r"(?:^|\s)/(?:grant_for_all|grant-for-all|grant_skill|grant-skill|revoke_for_all|revoke-for-all|list_skills|list-skills|rounds|round|next_round|next-round|nextround)\b",
+                            raw_text,
+                            re.IGNORECASE,
+                        )
+                    )
+
+                if has_tag or is_mention_or_dm or has_slash_command:
                     should_process = True
                     if thread_state_manager.is_discussion_active(channel_id, thread_ts):
                         logger.info(

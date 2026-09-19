@@ -252,10 +252,11 @@ async def post_thread_note(
     pin: bool = True,
     username: str = "Live Discussion Scribe",
     icon_emoji: str = ":memo:",
+    blocks: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """
     Posts a live updatable summary/notes message inside the given Slack thread.
-    Optionally pins the note message for quick discovery.
+    Optionally pins the note message for quick discovery. Supports Block Kit blocks.
     """
     text = _sanitize_and_truncate_slack_text(text)
 
@@ -264,17 +265,20 @@ async def post_thread_note(
         logger.info(
             f"[MOCK NOTE] Posted mock thread note in channel {channel_id}, thread {thread_ts}: {mock_ts}"
         )
-        return {"ok": True, "ts": mock_ts, "mock": True}
+        return {"ok": True, "ts": mock_ts, "mock": True, "blocks": blocks}
 
     try:
         await slack_rate_limiter.acquire()
-        response = await slack_async_client.chat_postMessage(
-            channel=channel_id,
-            thread_ts=thread_ts,
-            text=text,
-            username=username,
-            icon_emoji=icon_emoji,
-        )
+        kwargs: dict[str, Any] = {
+            "channel": channel_id,
+            "thread_ts": thread_ts,
+            "text": text,
+            "username": username,
+            "icon_emoji": icon_emoji,
+        }
+        if blocks:
+            kwargs["blocks"] = blocks
+        response = await slack_async_client.chat_postMessage(**kwargs)
         msg_ts = response.get("ts")
         logger.info(
             f"[SLACK NOTE] Posted live note message {msg_ts} in thread {thread_ts} of channel {channel_id} ({username})"
@@ -312,9 +316,11 @@ async def update_thread_note(
     channel_id: str,
     message_ts: str,
     text: str,
+    blocks: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """
     Updates an existing live summary/notes message in-place via Slack chat.update.
+    Supports Block Kit blocks.
     """
     text = _sanitize_and_truncate_slack_text(text)
 
@@ -324,15 +330,18 @@ async def update_thread_note(
         or (message_ts and str(message_ts).startswith("mock_"))
     ):
         logger.info(f"[MOCK NOTE] Updated mock note {message_ts} ({len(text)} chars)")
-        return {"ok": True, "ts": message_ts, "mock": True}
+        return {"ok": True, "ts": message_ts, "mock": True, "blocks": blocks}
 
     try:
         await slack_rate_limiter.acquire()
-        await slack_async_client.chat_update(
-            channel=channel_id,
-            ts=message_ts,
-            text=text,
-        )
+        kwargs: dict[str, Any] = {
+            "channel": channel_id,
+            "ts": message_ts,
+            "text": text,
+        }
+        if blocks:
+            kwargs["blocks"] = blocks
+        await slack_async_client.chat_update(**kwargs)
         logger.info(f"[SLACK NOTE] Successfully updated live note message {message_ts}")
         return {"ok": True, "ts": message_ts}
     except SlackApiError as e:
@@ -884,3 +893,65 @@ async def read_slack_file_text(
 ) -> str:
     res = await download_slack_file(file_info, max_chars=max_chars)
     return res.get("content", "")
+
+
+async def upload_text_file_to_slack(
+    channel_id: str,
+    content: str,
+    filename: str = "scribe_notes.txt",
+    title: str = "Discussion Notes",
+    initial_comment: str | None = None,
+    thread_ts: str | None = None,
+) -> dict[str, Any]:
+    """
+    Uploads a plain text file directly to a Slack channel or DM.
+    Supports modern files_upload_v2 with fallback to files_upload and mock support.
+    """
+    if (
+        not SLACK_BOT_TOKEN
+        or SLACK_BOT_TOKEN == "xoxb-your-bot-user-oauth-token"
+        or (channel_id and (str(channel_id).startswith(("mock_", "D_TEST", "D_MOCK", "C_TEST", "C_MOCK")) or "TEST" in str(channel_id)))
+    ):
+        mock_file_id = f"mock_file_{int(time.time() * 1000)}"
+        logger.info(
+            f"[MOCK FILE] Uploaded mock file '{filename}' ({len(content)} chars) to {channel_id}: {mock_file_id}"
+        )
+        return {
+            "ok": True,
+            "file": {
+                "id": mock_file_id,
+                "name": filename,
+                "title": title,
+                "channels": [channel_id],
+                "content": content,
+            },
+            "mock": True,
+        }
+
+    try:
+        await slack_rate_limiter.acquire()
+        kwargs: dict[str, Any] = {
+            "channel": channel_id,
+            "content": content,
+            "filename": filename,
+            "title": title,
+        }
+        if initial_comment:
+            kwargs["initial_comment"] = initial_comment
+        if thread_ts:
+            kwargs["thread_ts"] = thread_ts
+
+        if hasattr(slack_async_client, "files_upload_v2"):
+            res = await slack_async_client.files_upload_v2(**kwargs)
+        else:
+            res = await slack_async_client.files_upload(**kwargs)
+        file_data = res.data if hasattr(res, "data") else res
+        logger.info(f"[SLACK FILE] Successfully uploaded file '{filename}' to {channel_id}")
+        return {"ok": True, "file": file_data}
+    except SlackApiError as e:
+        logger.error(f"[SLACK FILE] SlackApiError uploading file: {e.response.get('error', e)}")
+        return {"ok": False, "error": str(e)}
+    except Exception as e:
+        logger.error(f"[SLACK FILE] Error uploading file: {e}")
+        return {"ok": False, "error": str(e)}
+

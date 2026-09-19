@@ -123,7 +123,63 @@ class DirectiveParser:
                     continue
 
                 arg_type = trg_cfg.get("arg_type")
-                if arg_type == "list":
+                if arg_type == "grant_skill" or skill_def.name == "grant_skill":
+                    cmd_match = re.search(rf"(?:^|\s){re.escape(slash_cmd)}(?=[\s:=]|$)", text_cleaned, re.IGNORECASE)
+                    if cmd_match:
+                        start_idx = cmd_match.start()
+                        curr_idx = cmd_match.end()
+                        remainder = text_cleaned[curr_idx:]
+
+                        token_pattern = re.compile(
+                            r"(\s*(?:,|and|&)?\s*)(\[[^\]]+\]|<@[A-Za-z0-9_]+>|@[a-zA-Z0-9_-]+|[a-zA-Z0-9_-]+)",
+                            re.IGNORECASE,
+                        )
+                        offset = 0
+                        tokens: list[str] = []
+
+                        from pipeline.entity_resolver import entity_resolver
+
+                        while True:
+                            t_match = token_pattern.match(remainder[offset:])
+                            if not t_match:
+                                break
+                            _, raw_token = t_match.groups()
+                            token_clean = raw_token.strip("[]@<>\t ")
+                            is_bracketed = (
+                                (raw_token.startswith("[") and raw_token.endswith("]"))
+                                or raw_token.startswith("@")
+                                or raw_token.startswith("<@")
+                            )
+
+                            if not tokens:
+                                # First token is skill
+                                tokens.append(token_clean)
+                                offset += len(t_match.group(0))
+                            else:
+                                is_agent = bool(entity_resolver.resolve_candidates(token_clean))
+                                if is_agent or is_bracketed or len(tokens) == 1:
+                                    tokens.append(token_clean)
+                                    offset += len(t_match.group(0))
+                                else:
+                                    break
+
+                        matched_tokens_span_end = curr_idx + offset
+                        skill_name = tokens[0] if tokens else ""
+                        agents_list = tokens[1:] if len(tokens) > 1 else []
+
+                        actions.append(
+                            ActionDirective(
+                                name="grant_skill",
+                                params={
+                                    "skill": skill_name,
+                                    "agents": agents_list,
+                                    "skills": [skill_name] if skill_name else [],
+                                },
+                            )
+                        )
+                        text_cleaned = (text_cleaned[:start_idx] + " " + text_cleaned[matched_tokens_span_end:]).strip()
+                        text_cleaned = re.sub(r"[ \t]+", " ", text_cleaned).strip()
+                elif arg_type == "list":
                     cmd_match = re.search(rf"(?:^|\s){re.escape(slash_cmd)}(?=[\s:=]|$)", text_cleaned, re.IGNORECASE)
                     if cmd_match:
                         start_idx = cmd_match.start()
@@ -167,7 +223,12 @@ class DirectiveParser:
                             modifiers[skill_def.name] = num_val
                         else:
                             param_name = trg_cfg.get("param_name", "value")
-                            actions.append(ActionDirective(name=skill_def.name, params={param_name: num_val}))
+                            params_dict: dict[str, Any] = {param_name: num_val, "slash_cmd": slash_cmd}
+                            if "next" in slash_cmd.lower():
+                                params_dict["is_next_round"] = True
+                                if num_val is None:
+                                    params_dict[param_name] = 1
+                            actions.append(ActionDirective(name=skill_def.name, params=params_dict))
                         text_cleaned = re.sub(
                             rf"(?:^|\s){re.escape(slash_cmd)}(?:\s*[:=]?\s*\d+)?",
                             " ",
@@ -199,13 +260,16 @@ class DirectiveParser:
         except Exception as e:
             logger.debug(f"[DIRECTIVE PARSER] Skill registry slash check error: {e}")
 
+        # If an exclusive grant command is present, skip micro-LLM intent extraction entirely
+        has_exclusive_grant = any(a.name in ("grant_for_all", "grant_skill") for a in actions)
+
         # 4. Check if micro-LLM intent extraction should run
         from nlp.intent_extractor import (
             extract_user_intent,
             should_skip_intent_extractor,
         )
 
-        if not should_skip_intent_extractor(raw_text=raw_text) and text_cleaned.strip():
+        if not has_exclusive_grant and not should_skip_intent_extractor(raw_text=raw_text) and text_cleaned.strip():
             intent: ExtractedIntent = await extract_user_intent(
                 text_cleaned, available_files=available_files
             )

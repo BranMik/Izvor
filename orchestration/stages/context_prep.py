@@ -59,6 +59,12 @@ class ContextPrepStageMixin:
             return {"ok": False, "cancelled": True, "reason": "superseded"}
 
         if not ctx.is_bot_trigger:
+            if not history or history[-1].get("role") != "user":
+                history = list(history) + [{"role": "user", "content": ctx.raw_text}]
+
+        ctx.full_history = list(history)
+
+        if not ctx.is_bot_trigger:
             if history and history[-1]["role"] == "user":
                 prior_messages = history[:-1]
             else:
@@ -101,12 +107,13 @@ class ContextPrepStageMixin:
             else:
                 ctx.effective_history = history
 
-        # System prompt generation & Thread-Global Skills
+        # System prompt generation & Thread-Global & Agent Skills
         from orchestration.thread_skills_manager import thread_skills_manager
         from skills import skill_registry
         global_skills = skill_registry.get_global_skills()
         active_thread_skills = thread_skills_manager.get_active_skills(ctx.channel_id, ctx.thread_ts)
-        extra_skills = list(dict.fromkeys(global_skills + active_thread_skills))
+        active_agent_skills = thread_skills_manager.get_active_agent_skills(ctx.channel_id, ctx.thread_ts, ctx.agent_key)
+        extra_skills = list(dict.fromkeys(global_skills + active_thread_skills + active_agent_skills))
         effective_skills = None
         if extra_skills:
             base_skills = ctx.agent_cfg.get("skills")
@@ -138,9 +145,13 @@ class ContextPrepStageMixin:
             ctx.channel_id, ctx.thread_ts
         )
 
+        active_rounds = thread_state_manager.get_rounds(ctx.channel_id, ctx.thread_ts)
         ctx.force_termination = bool(
-            (ctx.was_explicit_target and not ctx.is_bot_trigger and not ctx.remaining)
-            or (ctx.is_custom_flow and not ctx.remaining)
+            (
+                (ctx.was_explicit_target and not ctx.is_bot_trigger and not ctx.remaining)
+                or (ctx.is_custom_flow and not ctx.remaining)
+            )
+            and active_rounds <= 1
             or thread_state_manager.is_stopped(ctx.channel_id, ctx.thread_ts)
         )
 
@@ -150,7 +161,7 @@ class ContextPrepStageMixin:
             )
         else:
             logger.info(
-                f"[ROUTER] Agent {ctx.agent_key} remaining available agents: {ctx.remaining}"
+                f"[ROUTER] Agent {ctx.agent_key} remaining available agents: {ctx.remaining} (active rounds: {active_rounds})"
             )
 
         mode = get_orchestration_mode()
@@ -172,6 +183,13 @@ class ContextPrepStageMixin:
             ) = orchestrator.get_phase_info(
                 ctx.remaining, is_custom_flow=ctx.is_custom_flow
             )
+        elif not ctx.force_termination and not ctx.remaining and active_rounds > 1:
+            round_seq = thread_state_manager.get_round_sequence(
+                ctx.channel_id, ctx.thread_ts
+            ) or get_initial_agents()
+            if round_seq:
+                ctx.next_designated_agent = round_seq[0]
+                ctx.eligible_remaining_agents = [round_seq[0]]
 
         ctx.file_context = thread_state_manager.get_file_context(
             ctx.channel_id, ctx.thread_ts

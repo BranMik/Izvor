@@ -101,10 +101,9 @@ class ThreadSkillsManager:
             if s not in merged_skills:
                 merged_skills.append(s)
 
-        self._threads[key] = {
-            "skills": merged_skills,
-            "granted_at": now,
-        }
+        existing_entry["skills"] = merged_skills
+        existing_entry["granted_at"] = now
+        self._threads[key] = existing_entry
         self.save()
 
         ttl = self.get_ttl_seconds()
@@ -115,11 +114,143 @@ class ThreadSkillsManager:
         )
         return merged_skills, exp_ts
 
+    def grant_agent_skills(
+        self, channel_id: str, thread_ts: str, skill: str, agents: list[str]
+    ) -> tuple[dict[str, list[str]], float]:
+        """
+        Grants a skill to specific agents in this thread.
+        Resets expiration timer for each granted agent from current timestamp.
+        Returns (dict_of_agent_active_skills, expiration_timestamp).
+        """
+        self.load()
+        key = self._thread_key(channel_id, thread_ts)
+        clean_skill = skill.strip() if isinstance(skill, str) else ""
+        if not clean_skill or not agents:
+            return {}, 0.0
+
+        now = time.time()
+        existing_entry = self._threads.get(key, {})
+        agent_skills = existing_entry.setdefault("agent_skills", {})
+
+        result: dict[str, list[str]] = {}
+        for ag in agents:
+            ag_clean = ag.strip()
+            if not ag_clean:
+                continue
+            ag_entry = agent_skills.get(ag_clean, {})
+            current_skills = list(ag_entry.get("skills", []))
+            if clean_skill not in current_skills:
+                current_skills.append(clean_skill)
+            agent_skills[ag_clean] = {
+                "skills": current_skills,
+                "granted_at": now,
+            }
+            result[ag_clean] = current_skills
+
+        self._threads[key] = existing_entry
+        self.save()
+
+        ttl = self.get_ttl_seconds()
+        exp_ts = now + ttl
+        logger.info(
+            f"[THREAD_SKILLS] Granted skill '{clean_skill}' to agents {list(result.keys())} in thread {key}. "
+            f"Expires in {ttl / 3600:.1f}h"
+        )
+        return result, exp_ts
+
+    def get_active_agent_skills(
+        self, channel_id: str, thread_ts: str, agent_key: str
+    ) -> list[str]:
+        """
+        Returns list of skills currently active (unexpired) for a specific agent in this thread.
+        """
+        self.load()
+        key = self._thread_key(channel_id, thread_ts)
+        entry = self._threads.get(key)
+        if not entry:
+            return []
+
+        agent_skills = entry.get("agent_skills", {})
+        ag_entry = agent_skills.get(agent_key)
+        if not ag_entry:
+            return []
+
+        granted_at = ag_entry.get("granted_at", 0.0)
+        now = time.time()
+        ttl = self.get_ttl_seconds()
+
+        if now - granted_at <= ttl:
+            return list(ag_entry.get("skills", []))
+        return []
+
+    def get_all_active_agent_skills(
+        self, channel_id: str, thread_ts: str
+    ) -> dict[str, list[str]]:
+        """
+        Returns mapping of {agent_key: [active_skills]} for all agents with active grants in this thread.
+        """
+        self.load()
+        key = self._thread_key(channel_id, thread_ts)
+        entry = self._threads.get(key)
+        if not entry:
+            return {}
+
+        agent_skills = entry.get("agent_skills", {})
+        now = time.time()
+        ttl = self.get_ttl_seconds()
+        active_map: dict[str, list[str]] = {}
+
+        for ag_key, ag_entry in agent_skills.items():
+            granted_at = ag_entry.get("granted_at", 0.0)
+            if now - granted_at <= ttl:
+                skills = list(ag_entry.get("skills", []))
+                if skills:
+                    active_map[ag_key] = skills
+
+        return active_map
+
+    def get_expired_agent_skills(
+        self, channel_id: str, thread_ts: str, agent_key: str | None = None
+    ) -> list[str]:
+        """
+        Returns list of expired agent skills in this thread (for specific agent or all agents).
+        """
+        self.load()
+        key = self._thread_key(channel_id, thread_ts)
+        entry = self._threads.get(key)
+        if not entry:
+            return []
+
+        agent_skills = entry.get("agent_skills", {})
+        now = time.time()
+        ttl = self.get_ttl_seconds()
+        expired: list[str] = []
+
+        if agent_key is not None:
+            ag_entry = agent_skills.get(agent_key)
+            if ag_entry and now - ag_entry.get("granted_at", 0.0) > ttl:
+                return list(ag_entry.get("skills", []))
+            return []
+
+        for ag_key, ag_entry in agent_skills.items():
+            granted_at = ag_entry.get("granted_at", 0.0)
+            if now - granted_at > ttl:
+                for s in ag_entry.get("skills", []):
+                    if s not in expired:
+                        expired.append(s)
+
+        return expired
+
     def revoke_skills(
-        self, channel_id: str, thread_ts: str, skills: list[str] | None = None
+        self,
+        channel_id: str,
+        thread_ts: str,
+        skills: list[str] | None = None,
+        agent_key: str | None = None,
     ) -> list[str]:
         """
         Revokes specific skills or all skills if skills is None or contains 'all'.
+        If agent_key is specified, revokes only from that agent.
         Returns remaining active skills.
         """
         self.load()
@@ -127,6 +258,26 @@ class ThreadSkillsManager:
         if key not in self._threads:
             return []
 
+        # If targeting a specific agent
+        if agent_key is not None:
+            agent_skills = self._threads[key].get("agent_skills", {})
+            if agent_key not in agent_skills:
+                return []
+            if not skills or any(s.lower() == "all" for s in skills):
+                agent_skills.pop(agent_key, None)
+                self.save()
+                return []
+            clean_to_remove = {s.strip() for s in skills if isinstance(s, str)}
+            current = agent_skills[agent_key].get("skills", [])
+            remaining = [s for s in current if s not in clean_to_remove]
+            if remaining:
+                agent_skills[agent_key]["skills"] = remaining
+            else:
+                agent_skills.pop(agent_key, None)
+            self.save()
+            return remaining
+
+        # Global revocation
         if not skills or any(s.lower() == "all" for s in skills):
             self._threads.pop(key, None)
             self.save()
@@ -140,7 +291,10 @@ class ThreadSkillsManager:
         if remaining:
             self._threads[key]["skills"] = remaining
         else:
-            self._threads.pop(key, None)
+            self._threads[key].pop("skills", None)
+            # If no agent_skills either, clean up entire key
+            if not self._threads[key].get("agent_skills"):
+                self._threads.pop(key, None)
 
         self.save()
         logger.info(f"[THREAD_SKILLS] Revoked {clean_to_remove} from {key}. Remaining: {remaining}")

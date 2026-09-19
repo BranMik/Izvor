@@ -158,8 +158,8 @@ class IntentExtractor:
                 for act in raw_actions:
                     if isinstance(act, dict) and act.get("name"):
                         act_name = str(act["name"]).strip()
-                        # stop_discussion is strictly a deterministic /stop slash command, never inferred by LLM
-                        if act_name == "stop_discussion":
+                        # stop_discussion and rounds are strictly deterministic slash commands, never inferred by LLM
+                        if act_name in ("stop_discussion", "rounds"):
                             continue
                         act_params = dict(act.get("params") or {})
                         if act_name == "exclude_agents":

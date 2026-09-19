@@ -12,6 +12,9 @@ class DiscussionStateStore:
         self.active_thread_tasks: dict[tuple[str, str], asyncio.Task] = {}
         self.custom_flow_threads: set[tuple[str, str]] = set()
         self.stop_requested_threads: set[tuple[str, str]] = set()
+        self.thread_rounds: dict[tuple[str, str], int] = {}
+        self.thread_round_sequences: dict[tuple[str, str], list[str]] = {}
+        self.thread_initial_prompts: dict[tuple[str, str], str] = {}
 
     def get_remaining_agents(
         self, channel_id: str, thread_ts: str, default: list[str] | None = None
@@ -128,6 +131,57 @@ class DiscussionStateStore:
         """Clears stop flag for this thread."""
         self.stop_requested_threads.discard((channel_id, thread_ts))
 
+    def get_rounds(self, channel_id: str, thread_ts: str) -> int:
+        """Returns the number of remaining discussion rounds for this thread."""
+        return self.thread_rounds.get((channel_id, thread_ts), 0)
+
+    def set_rounds(self, channel_id: str, thread_ts: str, rounds: int) -> None:
+        """Sets the remaining discussion rounds for this thread."""
+        thread_key = (channel_id, thread_ts)
+        self.thread_rounds[thread_key] = max(0, int(rounds))
+        logger.info(f"[DISCUSSION STORE] Set rounds for {thread_key}: {self.thread_rounds[thread_key]}")
+
+    def decrement_rounds(self, channel_id: str, thread_ts: str) -> int:
+        """Decrements the remaining discussion rounds for this thread by 1."""
+        thread_key = (channel_id, thread_ts)
+        current = self.thread_rounds.get(thread_key, 0)
+        new_val = max(0, current - 1)
+        self.thread_rounds[thread_key] = new_val
+        logger.info(f"[DISCUSSION STORE] Decremented rounds for {thread_key}: {new_val}")
+        return new_val
+
+    def clear_rounds(self, channel_id: str, thread_ts: str) -> None:
+        """Clears remaining discussion rounds for this thread."""
+        self.thread_rounds.pop((channel_id, thread_ts), None)
+
+    def get_round_sequence(self, channel_id: str, thread_ts: str) -> list[str]:
+        """Returns the established agent sequence for a round in this thread."""
+        return list(self.thread_round_sequences.get((channel_id, thread_ts), []))
+
+    def set_round_sequence(self, channel_id: str, thread_ts: str, sequence: list[str]) -> None:
+        """Saves the established agent sequence for a round in this thread."""
+        self.thread_round_sequences[(channel_id, thread_ts)] = list(sequence)
+        logger.info(f"[DISCUSSION STORE] Set round sequence for {(channel_id, thread_ts)}: {sequence}")
+
+    def clear_round_sequence(self, channel_id: str, thread_ts: str) -> None:
+        """Clears the established round sequence for this thread."""
+        self.thread_round_sequences.pop((channel_id, thread_ts), None)
+
+    def get_initial_prompt(self, channel_id: str, thread_ts: str) -> str | None:
+        """Returns the initial user prompt that started this thread."""
+        return self.thread_initial_prompts.get((channel_id, thread_ts))
+
+    def set_initial_prompt(self, channel_id: str, thread_ts: str, prompt: str) -> None:
+        """Sets the initial user prompt that started this thread if not already set."""
+        key = (channel_id, thread_ts)
+        if key not in self.thread_initial_prompts and prompt:
+            self.thread_initial_prompts[key] = prompt
+            logger.info(f"[DISCUSSION STORE] Stored initial prompt for {key}: {prompt[:50]}")
+
+    def clear_initial_prompt(self, channel_id: str, thread_ts: str) -> None:
+        """Clears the stored initial user prompt for this thread."""
+        self.thread_initial_prompts.pop((channel_id, thread_ts), None)
+
     def is_active(self, channel_id: str, thread_ts: str) -> bool:
         """Checks if there is an active running task or pending remaining agents."""
         thread_key = (channel_id, thread_ts)
@@ -142,6 +196,7 @@ class DiscussionStateStore:
         self.clear_custom_flow(channel_id, thread_ts)
         self.clear_stop(channel_id, thread_ts)
         self.cancel_active_task(channel_id, thread_ts)
+        self.clear_rounds(channel_id, thread_ts)
 
     def reset(self) -> None:
         """Resets all discussion states across all threads."""
@@ -149,3 +204,6 @@ class DiscussionStateStore:
         self.active_thread_tasks.clear()
         self.custom_flow_threads.clear()
         self.stop_requested_threads.clear()
+        self.thread_rounds.clear()
+        self.thread_round_sequences.clear()
+        self.thread_initial_prompts.clear()

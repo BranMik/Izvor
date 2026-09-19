@@ -42,6 +42,8 @@ class ThreadStateManager:
         self.thread_min_words_limits = self.context.thread_min_words_limits
         self.thread_languages = self.context.thread_languages
         self.thread_active_file_context = self.context.thread_active_file_context
+        self.thread_rounds = self.discussion.thread_rounds
+        self.thread_round_sequences = self.discussion.thread_round_sequences
         self.thread_last_activity: dict[tuple[str, str], float] = {}
         self.ttl_seconds: float = float(os.getenv("THREAD_STATE_TTL_SECONDS", "3600.0"))
         self.max_tracked_threads: int = int(os.getenv("MAX_TRACKED_THREADS", "500"))
@@ -208,6 +210,40 @@ class ThreadStateManager:
     def clear_stop(self, channel_id: str, thread_ts: str) -> None:
         self.discussion.clear_stop(channel_id, thread_ts)
 
+    def get_rounds(self, channel_id: str, thread_ts: str) -> int:
+        return self.discussion.get_rounds(channel_id, thread_ts)
+
+    def set_rounds(self, channel_id: str, thread_ts: str, rounds: int) -> None:
+        self._touch(channel_id, thread_ts)
+        self.discussion.set_rounds(channel_id, thread_ts, rounds)
+
+    def decrement_rounds(self, channel_id: str, thread_ts: str) -> int:
+        self._touch(channel_id, thread_ts)
+        return self.discussion.decrement_rounds(channel_id, thread_ts)
+
+    def clear_rounds(self, channel_id: str, thread_ts: str) -> None:
+        self.discussion.clear_rounds(channel_id, thread_ts)
+
+    def get_round_sequence(self, channel_id: str, thread_ts: str) -> list[str]:
+        return self.discussion.get_round_sequence(channel_id, thread_ts)
+
+    def set_round_sequence(self, channel_id: str, thread_ts: str, sequence: list[str]) -> None:
+        self._touch(channel_id, thread_ts)
+        self.discussion.set_round_sequence(channel_id, thread_ts, sequence)
+
+    def clear_round_sequence(self, channel_id: str, thread_ts: str) -> None:
+        self.discussion.clear_round_sequence(channel_id, thread_ts)
+
+    def get_initial_prompt(self, channel_id: str, thread_ts: str) -> str | None:
+        return self.discussion.get_initial_prompt(channel_id, thread_ts)
+
+    def set_initial_prompt(self, channel_id: str, thread_ts: str, prompt: str) -> None:
+        self._touch(channel_id, thread_ts)
+        self.discussion.set_initial_prompt(channel_id, thread_ts, prompt)
+
+    def clear_initial_prompt(self, channel_id: str, thread_ts: str) -> None:
+        self.discussion.clear_initial_prompt(channel_id, thread_ts)
+
     # --- Cross-Store Coordination & Lifecycle ---
     def is_discussion_active(self, channel_id: str, thread_ts: str) -> bool:
         return self.discussion.is_active(channel_id, thread_ts) or self.retry.has_pending_retries(channel_id, thread_ts)
@@ -225,6 +261,7 @@ class ThreadStateManager:
         self.context.clear_file_context(channel_id, thread_ts)
         self.discussion.clear_custom_flow(channel_id, thread_ts)
         self.discussion.clear_stop(channel_id, thread_ts)
+        self.discussion.clear_rounds(channel_id, thread_ts)
 
     def request_stop(self, channel_id: str, thread_ts: str) -> None:
         self._touch(channel_id, thread_ts)
@@ -236,6 +273,7 @@ class ThreadStateManager:
         self.retry.clear_503_errored_agents(channel_id, thread_ts)
         self.context.clear_history_limit(channel_id, thread_ts)
         self.discussion.clear_custom_flow(channel_id, thread_ts)
+        self.discussion.clear_rounds(channel_id, thread_ts)
         logger.info(f"[THREAD STATE] Stop requested for thread {thread_key}. Queues and limits cleared.")
         try:
             from agents import trigger_thread_notes_update, trigger_usage_update

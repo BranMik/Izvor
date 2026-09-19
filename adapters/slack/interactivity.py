@@ -38,9 +38,53 @@ from orchestration.workflow_manager import (
     delete_workflow,
     save_workflow,
 )
-from services.slack_client import publish_app_home as _default_publish_app_home
+from agents.thread_notes_agent import get_thread_note_content
+from services.slack_client import (
+    open_dm_channel,
+    post_ephemeral_to_slack,
+    publish_app_home as _default_publish_app_home,
+    upload_text_file_to_slack,
+)
 
 logger = logging.getLogger("CaiLogicsBackend.SlackInteractivity")
+
+
+async def _handle_scribe_download(
+    user_id: str,
+    channel_id: str,
+    thread_ts: str,
+    content: str,
+) -> None:
+    """
+    Delivers Live Discussion Scribe notes privately to the requesting user:
+    1. Sends an ephemeral confirmation in the thread visible only to user.
+    2. Uploads the .txt file directly to the user's private DM channel.
+    """
+    try:
+        # 1. Ephemeral confirmation in thread
+        if channel_id and thread_ts:
+            await post_ephemeral_to_slack(
+                channel_id=channel_id,
+                user_id=user_id,
+                text="✅ Pripremljene bilješke su vam poslane kao `.txt` fajl u vaš privatni chat (DM).",
+                thread_ts=thread_ts,
+            )
+
+        # 2. Open DM channel with the requesting user
+        dm_channel_id = await open_dm_channel(user_id) or user_id
+
+        # 3. Upload .txt file to user DM
+        clean_ts = thread_ts.replace(".", "_") if thread_ts else "notes"
+        filename = f"scribe_notes_{clean_ts}.txt"
+        await upload_text_file_to_slack(
+            channel_id=dm_channel_id,
+            content=content,
+            filename=filename,
+            title=f"Live Discussion Scribe Notes ({thread_ts})",
+            initial_comment="Evo vaših zatraženih Live Discussion Scribe bilješki u vidu .txt fajla:",
+        )
+    except Exception as e:
+        logger.error(f"[INTERACTIVITY] Error delivering scribe download to {user_id}: {e}")
 
 
 def _verify_signature(body: bytes, headers: Any) -> bool:
@@ -130,10 +174,52 @@ async def handle_slack_interactivity(request: Request, background_tasks: Backgro
 
         actions = payload.get("actions", [])
         view_state = payload.get("view", {}).get("state", {}).get("values", {})
+        should_publish_home = True
 
         for action in actions:
             action_id = action.get("action_id", "")
-            if action_id == "toggle_circuit_breaker_radio":
+            if action_id == "download_scribe_notes_txt":
+                should_publish_home = False
+                val = action.get("value", "")
+                channel_id = ""
+                thread_ts = ""
+                if ":" in val:
+                    parts = val.split(":", 1)
+                    channel_id, thread_ts = parts[0], parts[1]
+                else:
+                    channel_id = payload.get("channel", {}).get("id") or ""
+                    thread_ts = (
+                        payload.get("container", {}).get("thread_ts")
+                        or payload.get("message", {}).get("thread_ts")
+                        or ""
+                    )
+
+                notes_text = (
+                    get_thread_note_content(channel_id, thread_ts)
+                    if channel_id and thread_ts
+                    else None
+                )
+                if not notes_text:
+                    msg = payload.get("message", {})
+                    blocks = msg.get("blocks", [])
+                    for b in blocks:
+                        if b.get("type") == "section":
+                            notes_text = b.get("text", {}).get("text", "")
+                            break
+                    if not notes_text:
+                        notes_text = msg.get("text", "")
+                if not notes_text:
+                    notes_text = "*(Nema zabilježenih Live Discussion Scribe bilješki za ovaj thread)*"
+
+                if user_id:
+                    background_tasks.add_task(
+                        _handle_scribe_download,
+                        user_id=user_id,
+                        channel_id=channel_id,
+                        thread_ts=thread_ts,
+                        content=notes_text,
+                    )
+            elif action_id == "toggle_circuit_breaker_radio":
                 selected_option = action.get("selected_option", {})
                 val = selected_option.get("value", "")
                 is_on = (val == "cb:on")
@@ -397,7 +483,7 @@ async def handle_slack_interactivity(request: Request, background_tasks: Backgro
                     f"[INTERACTIVITY] restore_from_backup invoked by user {user_id}: success={success}"
                 )
 
-        if user_id:
+        if user_id and should_publish_home:
             background_tasks.add_task(_safe_publish_home, user_id=user_id)
 
     return Response(status_code=200)
