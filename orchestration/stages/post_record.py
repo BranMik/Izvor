@@ -314,7 +314,7 @@ class PostRecordStageMixin:
             logger.info(
                 f"[ROUTER] Thread {ctx.thread_key} reached termination (forced or natural). Cleaning up state."
             )
-            thread_state_manager.clear_state(ctx.channel_id, ctx.thread_ts)
+            thread_state_manager.clear_round_execution_state(ctx.channel_id, ctx.thread_ts)
 
         if isinstance(slack_res, dict):
             slack_res["is_completed"] = ctx.is_completed
@@ -499,7 +499,7 @@ class PostRecordStageMixin:
         )
 
         if ctx.is_completed:
-            thread_state_manager.clear_state(ctx.channel_id, ctx.thread_ts)
+            thread_state_manager.clear_round_execution_state(ctx.channel_id, ctx.thread_ts)
 
         if isinstance(slack_res, dict):
             slack_res["is_completed"] = ctx.is_completed

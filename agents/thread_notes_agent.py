@@ -147,13 +147,19 @@ async def generate_thread_notes(
     history: list[dict[str, str]],
     is_completed: bool = False,
     thread_language: str = "English",
+    scribe_max_words: int | None = None,
+    scribe_min_words: int | None = None,
 ) -> tuple[str, dict[str, int]]:
     """
     Generates structured strategic synthesis live notes of the conversation history
     via the DiscussionScribe service. Returns (slack_mrkdwn_content, token_usage_dict).
     """
     brief, tokens = await discussion_scribe.generate_brief(
-        history, is_completed=is_completed, thread_language=thread_language
+        history,
+        is_completed=is_completed,
+        thread_language=thread_language,
+        scribe_max_words=scribe_max_words,
+        scribe_min_words=scribe_min_words,
     )
     raw_content = brief.raw_markdown or ""
 
@@ -217,13 +223,19 @@ async def update_notes_for_thread(
                 )
                 return {"ok": False, "reason": "No thread history"}
 
-            # Retrieve locked thread language if set
+            # Retrieve locked thread language and scribe word constraints if set
             from orchestration.thread_state import thread_state_manager
             thread_language = thread_state_manager.get_language(channel_id, thread_ts) or "English"
+            scribe_max_words = thread_state_manager.get_scribe_max_words(channel_id, thread_ts)
+            scribe_min_words = thread_state_manager.get_scribe_min_words(channel_id, thread_ts)
 
             # 2. Generate updated structured synthesis notes with mistral-small-latest
             notes_content, token_stats = await generate_thread_notes(
-                history, is_completed=is_completed, thread_language=thread_language
+                history,
+                is_completed=is_completed,
+                thread_language=thread_language,
+                scribe_max_words=scribe_max_words,
+                scribe_min_words=scribe_min_words,
             )
 
             # Append timestamp / token footnote

@@ -87,9 +87,15 @@ class TurnContext:
     # Parsed directives & flags (legacy mirrors)
     raw_text_cleaned: str = ""
     history_limit: int | None = None
-    max_words_limit: int | None = None
-    min_words_limit: int | None = None
+    max_words_limit: int | str | None = None
+    min_words_limit: int | str | None = None
+    scribe_max_words_limit: int | str | None = None
+    scribe_min_words_limit: int | str | None = None
     excluded_agents: list[str] = field(default_factory=list)
+    included_agents: list[str] = field(default_factory=list)
+    exclude_off: bool = False
+    include_off: bool = False
+    revoke_target: str | None = None
     is_file_req: bool = False
     target_filename: str | None = None
     thread_files: list[dict[str, Any]] = field(default_factory=list)

@@ -39,6 +39,7 @@ class AppSettingsManager:
         self.circuit_breaker_threshold_usd: float = 0.0
         self.scribe_enabled: bool = True
         self.max_file_size_mb: float = 50.0
+        self.weekly_pricing_update_enabled: bool = True
 
         self._last_loaded_mtime: float = 0.0
 
@@ -67,6 +68,7 @@ class AppSettingsManager:
             self.circuit_breaker_threshold_usd = float(data.get("circuit_breaker_threshold_usd", 1.5))
             self.scribe_enabled = bool(data.get("scribe_enabled", True))
             self.max_file_size_mb = float(data.get("max_file_size_mb", 50.0))
+            self.weekly_pricing_update_enabled = bool(data.get("weekly_pricing_update_enabled", True))
 
             self._last_loaded_mtime = mtime
             logger.debug(f"[APP_SETTINGS] Loaded settings from {target_file}")
@@ -81,6 +83,7 @@ class AppSettingsManager:
                     self.circuit_breaker_threshold_usd = float(data.get("circuit_breaker_threshold_usd", 1.5))
                     self.scribe_enabled = bool(data.get("scribe_enabled", True))
                     self.max_file_size_mb = float(data.get("max_file_size_mb", 50.0))
+                    self.weekly_pricing_update_enabled = bool(data.get("weekly_pricing_update_enabled", True))
                     logger.warning("[APP_SETTINGS] Recovered settings from backup.")
                 except Exception as be:
                     logger.error(f"[APP_SETTINGS] Failed to read backup: {be}")
@@ -95,6 +98,7 @@ class AppSettingsManager:
             "circuit_breaker_threshold_usd": self.circuit_breaker_threshold_usd,
             "scribe_enabled": self.scribe_enabled,
             "max_file_size_mb": self.max_file_size_mb,
+            "weekly_pricing_update_enabled": self.weekly_pricing_update_enabled,
         }
 
         tmp_file = target_file.with_suffix(".tmp")
@@ -201,6 +205,17 @@ class AppSettingsManager:
         except (ValueError, TypeError) as e:
             logger.error(f"[APP_SETTINGS] Invalid max_file_size_mb '{val}': {e}")
 
+    # --- Weekly Model Pricing Update ---
+    def is_weekly_pricing_update_enabled(self) -> bool:
+        self.load()
+        return bool(self.weekly_pricing_update_enabled)
+
+    def set_weekly_pricing_update_enabled(self, enabled: bool, save: bool = True) -> None:
+        self.weekly_pricing_update_enabled = bool(enabled)
+        if save:
+            self.save()
+        logger.info(f"[APP_SETTINGS] Set weekly_pricing_update_enabled to {self.weekly_pricing_update_enabled}.")
+
 
 app_settings_manager = AppSettingsManager()
 
@@ -240,3 +255,10 @@ def get_max_file_size_bytes() -> int:
 
 def set_max_file_size_mb(val: float, save: bool = True) -> None:
     app_settings_manager.set_max_file_size_mb(val, save=save)
+
+def is_weekly_pricing_update_enabled() -> bool:
+    return app_settings_manager.is_weekly_pricing_update_enabled()
+
+def set_weekly_pricing_update_enabled(enabled: bool, save: bool = True) -> None:
+    app_settings_manager.set_weekly_pricing_update_enabled(enabled, save=save)
+

@@ -414,4 +414,43 @@ def test_scribe_settings_toggle_and_app_home_view():
     assert is_scribe_enabled() is True
 
 
+def test_weekly_pricing_settings_toggle_and_app_home_view():
+    from orchestration.agent_settings import (
+        is_weekly_pricing_update_enabled,
+        set_weekly_pricing_update_enabled,
+    )
+    from services.slack_client import build_app_home_view
+
+    try:
+        set_weekly_pricing_update_enabled(True)
+        assert is_weekly_pricing_update_enabled() is True
+
+        view_on = build_app_home_view()
+        blocks_on = view_on.get("blocks", [])
+        pricing_block_on = next(
+            (b for b in blocks_on if b.get("block_id") == "weekly_pricing_toggle_section_on"),
+            None,
+        )
+        assert pricing_block_on is not None
+        assert pricing_block_on["accessory"]["action_id"] == "toggle_weekly_pricing_update_radio"
+        assert pricing_block_on["accessory"]["initial_option"]["value"] == "pricing_update:on"
+
+        set_weekly_pricing_update_enabled(False)
+        assert is_weekly_pricing_update_enabled() is False
+
+        view_off = build_app_home_view()
+        blocks_off = view_off.get("blocks", [])
+        pricing_block_off = next(
+            (b for b in blocks_off if b.get("block_id") == "weekly_pricing_toggle_section_off"),
+            None,
+        )
+        assert pricing_block_off is not None
+        assert pricing_block_off["accessory"]["action_id"] == "toggle_weekly_pricing_update_radio"
+        assert pricing_block_off["accessory"]["initial_option"]["value"] == "pricing_update:off"
+    finally:
+        set_weekly_pricing_update_enabled(True)
+        assert is_weekly_pricing_update_enabled() is True
+
+
+
 

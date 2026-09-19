@@ -50,7 +50,13 @@ class ValidationStageMixin:
             ctx.history_limit = directives.history_limit
             ctx.max_words_limit = directives.max_words
             ctx.min_words_limit = directives.min_words
+            ctx.scribe_max_words_limit = directives.scribe_max_words
+            ctx.scribe_min_words_limit = directives.scribe_min_words
             ctx.excluded_agents = directives.excluded_agents
+            ctx.included_agents = directives.included_agents
+            ctx.exclude_off = directives.exclude_off
+            ctx.include_off = directives.include_off
+            ctx.revoke_target = directives.revoke_target
             ctx.is_file_req = directives.is_file_req
             ctx.target_filename = directives.target_filename
             ctx.raw_text_cleaned = directives.cleaned_prompt
@@ -84,7 +90,13 @@ class ValidationStageMixin:
                 ctx.history_limit = directives.history_limit
                 ctx.max_words_limit = directives.max_words
                 ctx.min_words_limit = directives.min_words
+                ctx.scribe_max_words_limit = directives.scribe_max_words
+                ctx.scribe_min_words_limit = directives.scribe_min_words
                 ctx.excluded_agents = directives.excluded_agents
+                ctx.included_agents = directives.included_agents
+                ctx.exclude_off = directives.exclude_off
+                ctx.include_off = directives.include_off
+                ctx.revoke_target = directives.revoke_target
                 ctx.is_file_req = directives.is_file_req
                 ctx.target_filename = directives.target_filename
                 ctx.raw_text_cleaned = directives.cleaned_prompt
@@ -262,27 +274,112 @@ class ValidationStageMixin:
             except Exception as e:
                 logger.error(f"[VALIDATION] Error executing skill action handler: {e}")
 
-            if ctx.max_words_limit is not None:
+            # Process /revoke action
+            if ctx.revoke_target:
+                target = ctx.revoke_target.lower()
+                if target in ("all", "everything"):
+                    thread_state_manager.revoke_all(ctx.channel_id, ctx.thread_ts)
+                    msg = "🗑️ *Revoked all thread constraints* (word limits, language lock, inclusions, and exclusions) for this thread."
+                elif target in ("max_words", "max-words", "maxwords"):
+                    thread_state_manager.clear_max_words(ctx.channel_id, ctx.thread_ts)
+                    msg = "🗑️ *Revoked constraint*: `max_words` cleared for this thread."
+                elif target in ("min_words", "min-words", "minwords"):
+                    thread_state_manager.clear_min_words(ctx.channel_id, ctx.thread_ts)
+                    msg = "🗑️ *Revoked constraint*: `min_words` cleared for this thread."
+                elif target in ("scribe_max_words", "scribe-max-words", "scribemaxwords"):
+                    thread_state_manager.clear_scribe_max_words(ctx.channel_id, ctx.thread_ts)
+                    msg = "🗑️ *Revoked constraint*: `scribe_max_words` cleared for this thread."
+                elif target in ("scribe_min_words", "scribe-min-words", "scribeminwords"):
+                    thread_state_manager.clear_scribe_min_words(ctx.channel_id, ctx.thread_ts)
+                    msg = "🗑️ *Revoked constraint*: `scribe_min_words` cleared for this thread."
+                elif target in ("exclude", "exclude_agents", "excluded"):
+                    thread_state_manager.clear_excluded_agents(ctx.channel_id, ctx.thread_ts)
+                    msg = "🗑️ *Revoked constraint*: Agent exclusions cleared for this thread."
+                elif target in ("include", "include_agents", "included"):
+                    thread_state_manager.clear_included_agents(ctx.channel_id, ctx.thread_ts)
+                    msg = "🗑️ *Revoked constraint*: Forced agent inclusions cleared for this thread."
+                elif target in ("language", "lang"):
+                    thread_state_manager.clear_language(ctx.channel_id, ctx.thread_ts)
+                    msg = "🗑️ *Revoked language lock*: Thread language cleared."
+                else:
+                    msg = f"⚠️ *Unknown Revoke Target*: `{target}`. Available: `max_words`, `min_words`, `scribe_max_words`, `scribe_min_words`, `exclude`, `include`, `language`, `all`."
+                await post_sys_msg(channel_id=ctx.channel_id, thread_ts=ctx.thread_ts, text=msg)
+                if not ctx.raw_text_cleaned:
+                    return {"ok": True, "halted": True, "action": "revoke"}
+
+            # Update persistent word limits and off toggles
+            if ctx.max_words_limit == "off":
+                thread_state_manager.clear_max_words(ctx.channel_id, ctx.thread_ts)
+            elif ctx.max_words_limit is not None and isinstance(ctx.max_words_limit, int):
                 thread_state_manager.set_max_words(
                     ctx.channel_id, ctx.thread_ts, ctx.max_words_limit
                 )
-            if ctx.min_words_limit is not None:
+
+            if ctx.min_words_limit == "off":
+                thread_state_manager.clear_min_words(ctx.channel_id, ctx.thread_ts)
+            elif ctx.min_words_limit is not None and isinstance(ctx.min_words_limit, int):
                 thread_state_manager.set_min_words(
                     ctx.channel_id, ctx.thread_ts, ctx.min_words_limit
                 )
+
+            if ctx.scribe_max_words_limit == "off":
+                thread_state_manager.clear_scribe_max_words(ctx.channel_id, ctx.thread_ts)
+            elif ctx.scribe_max_words_limit is not None and isinstance(ctx.scribe_max_words_limit, int):
+                thread_state_manager.set_scribe_max_words(
+                    ctx.channel_id, ctx.thread_ts, ctx.scribe_max_words_limit
+                )
+
+            if ctx.scribe_min_words_limit == "off":
+                thread_state_manager.clear_scribe_min_words(ctx.channel_id, ctx.thread_ts)
+            elif ctx.scribe_min_words_limit is not None and isinstance(ctx.scribe_min_words_limit, int):
+                thread_state_manager.set_scribe_min_words(
+                    ctx.channel_id, ctx.thread_ts, ctx.scribe_min_words_limit
+                )
+
+            if ctx.exclude_off:
+                thread_state_manager.clear_excluded_agents(ctx.channel_id, ctx.thread_ts)
+            elif ctx.excluded_agents:
+                for ag in ctx.excluded_agents:
+                    thread_state_manager.add_excluded_agent(ctx.channel_id, ctx.thread_ts, ag)
+
+            if ctx.include_off:
+                thread_state_manager.clear_included_agents(ctx.channel_id, ctx.thread_ts)
+            elif ctx.included_agents:
+                for ag in ctx.included_agents:
+                    thread_state_manager.add_included_agent(ctx.channel_id, ctx.thread_ts, ag)
+
+            # If user message only contained directive toggles and no discussion prompt, halt cleanly
+            is_pure_toggle = bool(
+                (
+                    ctx.max_words_limit == "off"
+                    or ctx.min_words_limit == "off"
+                    or ctx.scribe_max_words_limit is not None
+                    or ctx.scribe_min_words_limit is not None
+                    or ctx.exclude_off
+                    or ctx.include_off
+                )
+                and not ctx.raw_text_cleaned
+            )
+            if is_pure_toggle:
+                msg = "⚙️ *Thread constraints updated.*"
+                await post_sys_msg(channel_id=ctx.channel_id, thread_ts=ctx.thread_ts, text=msg)
+                return {"ok": True, "halted": True, "action": "update_constraints"}
 
             # Lock language for this thread on first human prompt or preserve existing
             current_lang = thread_state_manager.get_language(ctx.channel_id, ctx.thread_ts)
             if not current_lang:
                 text_to_detect = ctx.raw_text_cleaned or ctx.raw_text
-                logger.info(
-                    f"[ROUTER] Inferring language for thread {ctx.thread_key} from text: '{text_to_detect[:80]}'"
-                )
-                current_lang = await detect_language_llm(text_to_detect)
-                thread_state_manager.set_language(ctx.channel_id, ctx.thread_ts, current_lang)
-                logger.info(
-                    f"[ROUTER] Locked thread language for {ctx.thread_key}: {current_lang}"
-                )
+                if text_to_detect and not text_to_detect.strip().startswith("/"):
+                    logger.info(
+                        f"[ROUTER] Inferring language for thread {ctx.thread_key} from text: '{text_to_detect[:80]}'"
+                    )
+                    current_lang = await detect_language_llm(text_to_detect)
+                    thread_state_manager.set_language(ctx.channel_id, ctx.thread_ts, current_lang)
+                    logger.info(
+                        f"[ROUTER] Locked thread language for {ctx.thread_key}: {current_lang}"
+                    )
+                else:
+                    current_lang = "English"
             ctx.thread_language = current_lang
 
             ambiguous_tags = entity_resolver.detect_ambiguous_tags(
@@ -359,10 +456,17 @@ class ValidationStageMixin:
             ctx.prompt = prompt
             ctx.was_explicit_target = was_explicit_target
 
+            effective_excluded = set(thread_state_manager.get_excluded_agents(ctx.channel_id, ctx.thread_ts))
+            effective_included = list(thread_state_manager.get_included_agents(ctx.channel_id, ctx.thread_ts))
+
             tagged = entity_resolver.extract_tagged_agents(ctx.raw_text_cleaned)
             if tagged:
-                if ctx.excluded_agents:
-                    tagged = [a for a in tagged if a not in ctx.excluded_agents]
+                if effective_excluded:
+                    tagged = [a for a in tagged if a not in effective_excluded]
+                for inc in effective_included:
+                    if inc not in tagged:
+                        tagged.append(inc)
+
                 if tagged:
                     ctx.agent_key = tagged[0]
                     remaining_tagged = [a for a in tagged if a != ctx.agent_key]
@@ -390,37 +494,41 @@ class ValidationStageMixin:
                     }
             else:
                 thread_state_manager.clear_custom_flow(ctx.channel_id, ctx.thread_ts)
-                if ctx.excluded_agents:
-                    curr_remaining = thread_state_manager.get_remaining_agents(
-                        ctx.channel_id, ctx.thread_ts, default=get_initial_agents()
-                    )
+                curr_remaining = thread_state_manager.get_remaining_agents(
+                    ctx.channel_id, ctx.thread_ts, default=get_initial_agents()
+                )
+                if effective_excluded:
                     curr_remaining = [
-                        a for a in curr_remaining if a not in ctx.excluded_agents
+                        a for a in curr_remaining if a not in effective_excluded
                     ]
-                    thread_state_manager.set_remaining_agents(
-                        ctx.channel_id, ctx.thread_ts, curr_remaining
-                    )
-                    if ctx.agent_key in ctx.excluded_agents:
-                        if curr_remaining:
-                            ctx.agent_key = curr_remaining.pop(0)
-                            thread_state_manager.set_remaining_agents(
-                                ctx.channel_id, ctx.thread_ts, curr_remaining
-                            )
-                        else:
-                            logger.warning(
-                                f"[ROUTER] Agent '{ctx.agent_key}' and all remaining agents in thread {ctx.thread_key} are excluded. Halting turn."
-                            )
-                            warning_msg = f"⚠️ *Agent Excluded*: Agent '{ctx.agent_key}' was excluded and no other agents are available to continue."
-                            await post_sys_msg(
-                                channel_id=ctx.channel_id,
-                                thread_ts=ctx.thread_ts,
-                                text=warning_msg,
-                            )
-                            return {
-                                "ok": True,
-                                "halted": True,
-                                "reason": "all_agents_excluded",
-                            }
+                for inc in effective_included:
+                    if inc not in curr_remaining and inc != ctx.agent_key:
+                        curr_remaining.append(inc)
+
+                thread_state_manager.set_remaining_agents(
+                    ctx.channel_id, ctx.thread_ts, curr_remaining
+                )
+                if ctx.agent_key in effective_excluded:
+                    if curr_remaining:
+                        ctx.agent_key = curr_remaining.pop(0)
+                        thread_state_manager.set_remaining_agents(
+                            ctx.channel_id, ctx.thread_ts, curr_remaining
+                        )
+                    else:
+                        logger.warning(
+                            f"[ROUTER] Agent '{ctx.agent_key}' and all remaining agents in thread {ctx.thread_key} are excluded. Halting turn."
+                        )
+                        warning_msg = f"⚠️ *Agent Excluded*: Agent '{ctx.agent_key}' was excluded and no other agents are available to continue."
+                        await post_sys_msg(
+                            channel_id=ctx.channel_id,
+                            thread_ts=ctx.thread_ts,
+                            text=warning_msg,
+                        )
+                        return {
+                            "ok": True,
+                            "halted": True,
+                            "reason": "all_agents_excluded",
+                        }
 
             # Save and maintain round sequence for multi-round debate topologies
             if tagged:
@@ -430,8 +538,12 @@ class ValidationStageMixin:
             else:
                 stored_seq = thread_state_manager.get_round_sequence(ctx.channel_id, ctx.thread_ts)
                 current_seq = stored_seq or get_initial_agents()
-                if ctx.excluded_agents:
-                    current_seq = [a for a in current_seq if a not in ctx.excluded_agents]
+
+            if effective_excluded:
+                current_seq = [a for a in current_seq if a not in effective_excluded]
+            for inc in effective_included:
+                if inc not in current_seq:
+                    current_seq.append(inc)
 
             rounds_act = next((a for a in ctx.actions if a.name == "rounds"), None)
             if rounds_act:

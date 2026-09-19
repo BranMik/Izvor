@@ -92,6 +92,26 @@ class ThreadStateManager:
     def clear_min_words(self, channel_id: str, thread_ts: str) -> None:
         self.context.clear_min_words(channel_id, thread_ts)
 
+    def get_scribe_max_words(self, channel_id: str, thread_ts: str) -> int | None:
+        return self.context.get_scribe_max_words(channel_id, thread_ts)
+
+    def set_scribe_max_words(self, channel_id: str, thread_ts: str, max_words: int) -> None:
+        self._touch(channel_id, thread_ts)
+        self.context.set_scribe_max_words(channel_id, thread_ts, max_words)
+
+    def clear_scribe_max_words(self, channel_id: str, thread_ts: str) -> None:
+        self.context.clear_scribe_max_words(channel_id, thread_ts)
+
+    def get_scribe_min_words(self, channel_id: str, thread_ts: str) -> int | None:
+        return self.context.get_scribe_min_words(channel_id, thread_ts)
+
+    def set_scribe_min_words(self, channel_id: str, thread_ts: str, min_words: int) -> None:
+        self._touch(channel_id, thread_ts)
+        self.context.set_scribe_min_words(channel_id, thread_ts, min_words)
+
+    def clear_scribe_min_words(self, channel_id: str, thread_ts: str) -> None:
+        self.context.clear_scribe_min_words(channel_id, thread_ts)
+
     def get_language(self, channel_id: str, thread_ts: str) -> str | None:
         return self.context.get_language(channel_id, thread_ts)
 
@@ -101,6 +121,58 @@ class ThreadStateManager:
 
     def clear_language(self, channel_id: str, thread_ts: str) -> None:
         self.context.clear_language(channel_id, thread_ts)
+
+    def get_excluded_agents(self, channel_id: str, thread_ts: str) -> list[str]:
+        return self.context.get_excluded_agents(channel_id, thread_ts)
+
+    def set_excluded_agents(self, channel_id: str, thread_ts: str, agents: list[str]) -> None:
+        self._touch(channel_id, thread_ts)
+        self.context.set_excluded_agents(channel_id, thread_ts, agents)
+
+    def add_excluded_agent(self, channel_id: str, thread_ts: str, agent: str) -> None:
+        self._touch(channel_id, thread_ts)
+        self.context.add_excluded_agent(channel_id, thread_ts, agent)
+
+    def remove_excluded_agent(self, channel_id: str, thread_ts: str, agent: str) -> None:
+        self._touch(channel_id, thread_ts)
+        self.context.remove_excluded_agent(channel_id, thread_ts, agent)
+
+    def clear_excluded_agents(self, channel_id: str, thread_ts: str) -> None:
+        self.context.clear_excluded_agents(channel_id, thread_ts)
+
+    def get_included_agents(self, channel_id: str, thread_ts: str) -> list[str]:
+        return self.context.get_included_agents(channel_id, thread_ts)
+
+    def set_included_agents(self, channel_id: str, thread_ts: str, agents: list[str]) -> None:
+        self._touch(channel_id, thread_ts)
+        self.context.set_included_agents(channel_id, thread_ts, agents)
+
+    def add_included_agent(self, channel_id: str, thread_ts: str, agent: str) -> None:
+        self._touch(channel_id, thread_ts)
+        self.context.add_included_agent(channel_id, thread_ts, agent)
+
+    def remove_included_agent(self, channel_id: str, thread_ts: str, agent: str) -> None:
+        self._touch(channel_id, thread_ts)
+        self.context.remove_included_agent(channel_id, thread_ts, agent)
+
+    def clear_included_agents(self, channel_id: str, thread_ts: str) -> None:
+        self.context.clear_included_agents(channel_id, thread_ts)
+
+    def get_format_modifiers(self, channel_id: str, thread_ts: str) -> dict[str, Any]:
+        return self.context.get_format_modifiers(channel_id, thread_ts)
+
+    def set_format_modifiers(
+        self, channel_id: str, thread_ts: str, modifiers: dict[str, Any]
+    ) -> None:
+        self._touch(channel_id, thread_ts)
+        self.context.set_format_modifiers(channel_id, thread_ts, modifiers)
+
+    def clear_format_modifiers(self, channel_id: str, thread_ts: str) -> None:
+        self.context.clear_format_modifiers(channel_id, thread_ts)
+
+    def revoke_all(self, channel_id: str, thread_ts: str) -> None:
+        self._touch(channel_id, thread_ts)
+        self.context.revoke_all(channel_id, thread_ts)
 
     def get_file_context(self, channel_id: str, thread_ts: str) -> dict[str, Any] | None:
         return self.context.get_file_context(channel_id, thread_ts)
@@ -293,6 +365,20 @@ class ThreadStateManager:
         if hook not in self._reset_hooks:
             self._reset_hooks.append(hook)
 
+    def clear_round_execution_state(self, channel_id: str, thread_ts: str) -> None:
+        """Clears ephemeral execution queue and tasks when a round or discussion concludes, preserving persistent context."""
+        self._touch(channel_id, thread_ts)
+        self.discussion.clear_remaining_agents(channel_id, thread_ts)
+        self.discussion.clear_custom_flow(channel_id, thread_ts)
+        self.discussion.clear_stop(channel_id, thread_ts)
+        self.discussion.clear_rounds(channel_id, thread_ts)
+        self.retry.clear_retry_queue(channel_id, thread_ts)
+        self.retry.clear_already_retried(channel_id, thread_ts)
+        self.retry.clear_503_errored_agents(channel_id, thread_ts)
+        # Persistent context (language, max_words, min_words, scribe_max_words, scribe_min_words,
+        # excluded_agents, included_agents, format_modifiers, round_sequences, initial_prompts)
+        # remains intact for subsequent rounds.
+
     def cleanup_thread(self, channel_id: str, thread_ts: str) -> None:
         self.discussion.clear_thread(channel_id, thread_ts)
         self.retry.clear_thread(channel_id, thread_ts)
@@ -347,6 +433,7 @@ thread_state_manager = ThreadStateManager()
 register_cleanup_hook = thread_state_manager.register_cleanup_hook
 register_reset_hook = thread_state_manager.register_reset_hook
 cleanup_thread = thread_state_manager.cleanup_thread
+clear_round_execution_state = thread_state_manager.clear_round_execution_state
 reset_all_thread_states = thread_state_manager.reset_all
 
 __all__ = [
@@ -355,6 +442,7 @@ __all__ = [
     "ThreadStateManager",
     "TurnRetryStateStore",
     "cleanup_thread",
+    "clear_round_execution_state",
     "register_cleanup_hook",
     "register_reset_hook",
     "reset_all_thread_states",

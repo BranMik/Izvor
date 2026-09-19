@@ -12,6 +12,7 @@ def build_app_home_view(
     enabled_agents: set[str] | None = None,
     circuit_breaker_config: dict[str, Any] | None = None,
     scribe_enabled: bool | None = None,
+    weekly_pricing_update_enabled: bool | None = None,
 ) -> dict[str, Any]:
     """
     Generates the Block Kit Home Tab view for the Slack Application Home page.
@@ -28,6 +29,7 @@ def build_app_home_view(
         get_sandwich_config,
         is_running_from_backup,
         is_scribe_enabled,
+        is_weekly_pricing_update_enabled,
         sync_settings_if_modified,
     )
     from orchestration.app_settings import get_thread_skill_expiration_time
@@ -48,6 +50,13 @@ def build_app_home_view(
         scribe_on = bool(scribe_enabled)
 
     scribe_status_str = "🟢 *Enabled (ON)*" if scribe_on else "🔴 *Disabled (OFF)*"
+
+    if weekly_pricing_update_enabled is None:
+        weekly_pricing_on = is_weekly_pricing_update_enabled()
+    else:
+        weekly_pricing_on = bool(weekly_pricing_update_enabled)
+
+    weekly_pricing_status_str = "🟢 *Enabled (ON)*" if weekly_pricing_on else "🔴 *Disabled (OFF)*"
 
     cb_enabled = bool(circuit_breaker_config.get("enabled", False))
     cb_threshold = float(circuit_breaker_config.get("threshold_usd", 0.0))
@@ -288,6 +297,49 @@ def build_app_home_view(
                             "emoji": True,
                         },
                         "value": "scribe:on" if scribe_on else "scribe:off",
+                    },
+                },
+            },
+            {"type": "divider"},
+            {
+                "type": "section",
+                "block_id": f"weekly_pricing_toggle_section_{'on' if weekly_pricing_on else 'off'}",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": (
+                        f"\n *────────🏷️ Weekly Model Pricing Updates:────────* \n"
+                        f"Status: {weekly_pricing_status_str}\n"
+                        f"_Controls weekly token pricing refresh. When OFF, models with existing pricing will not update, while models without set pricing will still fetch pricing._"
+                    ),
+                },
+                "accessory": {
+                    "type": "radio_buttons",
+                    "action_id": "toggle_weekly_pricing_update_radio",
+                    "options": [
+                        {
+                            "text": {
+                                "type": "plain_text",
+                                "text": "🟢 ON",
+                                "emoji": True,
+                            },
+                            "value": "pricing_update:on",
+                        },
+                        {
+                            "text": {
+                                "type": "plain_text",
+                                "text": "🔴 OFF",
+                                "emoji": True,
+                            },
+                            "value": "pricing_update:off",
+                        },
+                    ],
+                    "initial_option": {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "🟢 ON" if weekly_pricing_on else "🔴 OFF",
+                            "emoji": True,
+                        },
+                        "value": "pricing_update:on" if weekly_pricing_on else "pricing_update:off",
                     },
                 },
             },

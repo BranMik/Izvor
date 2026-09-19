@@ -31,6 +31,7 @@ from orchestration.agent_settings import (
     set_orchestration_mode,
     set_sandwich_config,
     set_scribe_enabled,
+    set_weekly_pricing_update_enabled,
     sync_settings_if_modified,
     toggle_agent,
 )
@@ -231,6 +232,11 @@ async def handle_slack_interactivity(request: Request, background_tasks: Backgro
                 val = selected_option.get("value", "")
                 is_on = (val == "scribe:on")
                 set_scribe_enabled(is_on)
+            elif action_id == "toggle_weekly_pricing_update_radio":
+                selected_option = action.get("selected_option", {})
+                val = selected_option.get("value", "")
+                is_on = (val == "pricing_update:on")
+                set_weekly_pricing_update_enabled(is_on)
             elif action_id == "set_circuit_breaker_threshold_input":
                 val_str = action.get("value", "")
                 try:

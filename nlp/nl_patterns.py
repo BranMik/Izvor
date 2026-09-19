@@ -49,26 +49,30 @@ def extract_history_limit(text: str) -> tuple[int | None, str]:
 # ==============================================================================
 
 MAX_WORDS_COMMAND_PATTERN = re.compile(
-    r"/(?:max_words|max-words|maxwords)\s*[:=]?\s*\[?(\d+)(?::(?:int|integer))?\]?",
+    r"/(?:max_words|max-words|maxwords)\s*[:=]?\s*(?:\[?(\d+)(?::(?:int|integer))?\]?|(off)\b)",
     re.IGNORECASE,
 )
 
 MAX_WORDS_NL_PATTERNS: list[re.Pattern[str]] = []
 
 
-def extract_max_words_limit(text: str) -> tuple[int | None, str]:
+def extract_max_words_limit(text: str) -> tuple[int | str | None, str]:
     """
     Extracts the max_words limit parameter if present in text and returns (max_words_limit, cleaned_text).
+    Returns an int limit, 'off' if explicitly turned off, or None.
 
     Supports:
-    - Slash command: /max_words 50, /max_words: 50, /max_words=50, /max_words [50:int]
+    - Slash command: /max_words 50, /max_words: 50, /max_words=50, /max_words [50:int], /max_words off
     - Natural language: Delegated to IntentExtractor (Micro-LLM).
     """
     if not text:
         return None, ""
     match = MAX_WORDS_COMMAND_PATTERN.search(text)
     if match:
-        limit = max(1, int(match.group(1)))
+        if match.group(2) and match.group(2).lower() == "off":
+            limit: int | str | None = "off"
+        else:
+            limit = max(1, int(match.group(1)))
         cleaned = MAX_WORDS_COMMAND_PATTERN.sub("", text).strip()
         cleaned = re.sub(r"[ \t]+", " ", cleaned).strip()
         return limit, cleaned
@@ -81,27 +85,86 @@ def extract_max_words_limit(text: str) -> tuple[int | None, str]:
 # ==============================================================================
 
 MIN_WORDS_COMMAND_PATTERN = re.compile(
-    r"/(?:min_words|min-words|minwords)\s*[:=]?\s*\[?(\d+)(?::(?:int|integer))?\]?",
+    r"/(?:min_words|min-words|minwords)\s*[:=]?\s*(?:\[?(\d+)(?::(?:int|integer))?\]?|(off)\b)",
     re.IGNORECASE,
 )
 
 MIN_WORDS_NL_PATTERNS: list[re.Pattern[str]] = []
 
 
-def extract_min_words_limit(text: str) -> tuple[int | None, str]:
+def extract_min_words_limit(text: str) -> tuple[int | str | None, str]:
     """
     Extracts the min_words limit parameter if present in text and returns (min_words_limit, cleaned_text).
+    Returns an int limit, 'off' if explicitly turned off, or None.
 
     Supports:
-    - Slash command: /min_words 50, /min_words: 50, /min_words=50, /min_words [50:int]
+    - Slash command: /min_words 50, /min_words: 50, /min_words=50, /min_words [50:int], /min_words off
     - Natural language: Delegated to IntentExtractor (Micro-LLM).
     """
     if not text:
         return None, ""
     match = MIN_WORDS_COMMAND_PATTERN.search(text)
     if match:
-        limit = max(1, int(match.group(1)))
+        if match.group(2) and match.group(2).lower() == "off":
+            limit: int | str | None = "off"
+        else:
+            limit = max(1, int(match.group(1)))
         cleaned = MIN_WORDS_COMMAND_PATTERN.sub("", text).strip()
+        cleaned = re.sub(r"[ \t]+", " ", cleaned).strip()
+        return limit, cleaned
+
+    return None, text
+
+
+# ==============================================================================
+# 3b. Scribe Maximum and Minimum Words Patterns
+# ==============================================================================
+
+SCRIBE_MAX_WORDS_COMMAND_PATTERN = re.compile(
+    r"/(?:scribe_max_words|scribe-max-words|scribemaxwords)\s*[:=]?\s*(?:\[?(\d+)(?::(?:int|integer))?\]?|(off)\b)",
+    re.IGNORECASE,
+)
+
+SCRIBE_MIN_WORDS_COMMAND_PATTERN = re.compile(
+    r"/(?:scribe_min_words|scribe-min-words|scribeminwords)\s*[:=]?\s*(?:\[?(\d+)(?::(?:int|integer))?\]?|(off)\b)",
+    re.IGNORECASE,
+)
+
+
+def extract_scribe_max_words_limit(text: str) -> tuple[int | str | None, str]:
+    """
+    Extracts the scribe_max_words limit parameter if present in text and returns (limit, cleaned_text).
+    Returns an int limit, 'off' if explicitly turned off, or None.
+    """
+    if not text:
+        return None, ""
+    match = SCRIBE_MAX_WORDS_COMMAND_PATTERN.search(text)
+    if match:
+        if match.group(2) and match.group(2).lower() == "off":
+            limit: int | str | None = "off"
+        else:
+            limit = max(1, int(match.group(1)))
+        cleaned = SCRIBE_MAX_WORDS_COMMAND_PATTERN.sub("", text).strip()
+        cleaned = re.sub(r"[ \t]+", " ", cleaned).strip()
+        return limit, cleaned
+
+    return None, text
+
+
+def extract_scribe_min_words_limit(text: str) -> tuple[int | str | None, str]:
+    """
+    Extracts the scribe_min_words limit parameter if present in text and returns (limit, cleaned_text).
+    Returns an int limit, 'off' if explicitly turned off, or None.
+    """
+    if not text:
+        return None, ""
+    match = SCRIBE_MIN_WORDS_COMMAND_PATTERN.search(text)
+    if match:
+        if match.group(2) and match.group(2).lower() == "off":
+            limit: int | str | None = "off"
+        else:
+            limit = max(1, int(match.group(1)))
+        cleaned = SCRIBE_MIN_WORDS_COMMAND_PATTERN.sub("", text).strip()
         cleaned = re.sub(r"[ \t]+", " ", cleaned).strip()
         return limit, cleaned
 
@@ -205,19 +268,33 @@ def resolve_agent_name(name_str: str) -> str | None:
     return entity_resolver.resolve_agent_name(name_str)
 
 
-def extract_excluded_agents(text: str) -> tuple[list[str], str]:
+EXCLUDE_OFF_PATTERN = re.compile(r"/exclude\s*[:=]?\s*off\b", re.IGNORECASE)
+INCLUDE_OFF_PATTERN = re.compile(r"/include\s*[:=]?\s*off\b", re.IGNORECASE)
+REVOKE_COMMAND_PATTERN = re.compile(r"/revoke\s*[:=]?\s*(?:\[?([a-zA-Z0-9_-]+)\]?|all\b)?", re.IGNORECASE)
+
+
+def extract_excluded_agents(text: str) -> tuple[list[str], bool, str]:
     """
     Extracts excluded agent keys from text (via slash command /exclude [Agent1] [Agent2]...
-    or natural language phrasing in English and Croatian).
-    Returns (excluded_agent_keys: list[str], cleaned_text: str).
+    or /exclude off).
+    Returns (excluded_agent_keys: list[str], is_off: bool, cleaned_text: str).
     """
     if not text:
-        return [], ""
+        return [], False, ""
+
+    cleaned_text = text
+    is_off = False
+
+    # Check for /exclude off
+    if EXCLUDE_OFF_PATTERN.search(cleaned_text):
+        is_off = True
+        cleaned_text = EXCLUDE_OFF_PATTERN.sub("", cleaned_text).strip()
+        cleaned_text = re.sub(r"[ \t]+", " ", cleaned_text).strip()
+        return [], is_off, cleaned_text
 
     excluded: list[str] = []
-    cleaned_text = text
 
-    # 1. Extract from slash commands: /exclude [Agent1] [Agent2] ...
+    # Extract from slash commands: /exclude [Agent1] [Agent2] ...
     token_pattern = re.compile(
         r"(\s*(?:,|and|&)?\s*)(\[[^\]]+\]|[a-zA-Z0-9_]+)", re.IGNORECASE
     )
@@ -257,26 +334,119 @@ def extract_excluded_agents(text: str) -> tuple[list[str], str]:
         )
 
     cleaned_text = re.sub(r"[ \t]+", " ", cleaned_text).strip()
-    return excluded, cleaned_text
+    return excluded, is_off, cleaned_text
+
+
+def extract_included_agents(text: str) -> tuple[list[str], bool, str]:
+    """
+    Extracts included agent keys from text (via slash command /include [Agent1] [Agent2]...
+    or /include off).
+    Returns (included_agent_keys: list[str], is_off: bool, cleaned_text: str).
+    """
+    if not text:
+        return [], False, ""
+
+    cleaned_text = text
+    is_off = False
+
+    # Check for /include off
+    if INCLUDE_OFF_PATTERN.search(cleaned_text):
+        is_off = True
+        cleaned_text = INCLUDE_OFF_PATTERN.sub("", cleaned_text).strip()
+        cleaned_text = re.sub(r"[ \t]+", " ", cleaned_text).strip()
+        return [], is_off, cleaned_text
+
+    included: list[str] = []
+
+    # Extract from slash commands: /include [Agent1] [Agent2] ...
+    token_pattern = re.compile(
+        r"(\s*(?:,|and|&)?\s*)(\[[^\]]+\]|[a-zA-Z0-9_]+)", re.IGNORECASE
+    )
+
+    while True:
+        match = re.search(r"/include\s*[:=]?", cleaned_text, re.IGNORECASE)
+        if not match:
+            break
+
+        start_idx = match.start()
+        curr_idx = match.end()
+        matched_tokens_span_end = curr_idx
+        remainder = cleaned_text[curr_idx:]
+
+        offset = 0
+        while True:
+            t_match = token_pattern.match(remainder[offset:])
+            if not t_match:
+                break
+            _, token = t_match.groups()
+            resolved = resolve_agent_name(token)
+            if resolved:
+                if resolved not in included:
+                    included.append(resolved)
+                offset += len(t_match.group(0))
+                matched_tokens_span_end = curr_idx + offset
+            elif token.startswith("[") and token.endswith("]"):
+                # Bracketed token after /include is consumed as part of command
+                offset += len(t_match.group(0))
+                matched_tokens_span_end = curr_idx + offset
+            else:
+                # Non-agent word token -> user prompt starts here
+                break
+
+        cleaned_text = (
+            cleaned_text[:start_idx] + " " + cleaned_text[matched_tokens_span_end:]
+        )
+
+    cleaned_text = re.sub(r"[ \t]+", " ", cleaned_text).strip()
+    return included, is_off, cleaned_text
+
+
+def extract_revoke_instruction(text: str) -> tuple[str | None, str]:
+    """
+    Extracts /revoke command instruction (e.g. /revoke max_words, /revoke all).
+    Returns (target: str | None, cleaned_text: str).
+    """
+    if not text:
+        return None, ""
+
+    cleaned_text = text
+    match = REVOKE_COMMAND_PATTERN.search(cleaned_text)
+    if match:
+        raw_target = match.group(1) or "all"
+        target = raw_target.strip().lower()
+        cleaned_text = REVOKE_COMMAND_PATTERN.sub("", cleaned_text).strip()
+        cleaned_text = re.sub(r"[ \t]+", " ", cleaned_text).strip()
+        return target, cleaned_text
+
+    return None, text
 
 
 __all__ = [
     "EXCLUDE_COMMAND_PATTERN",
     "EXCLUDE_NL_PATTERNS",
+    "EXCLUDE_OFF_PATTERN",
     "FILE_COMMAND_PATTERN",
     "FILE_NL_PATTERNS",
     "HISTORY_COMMAND_PATTERN",
     "HISTORY_NL_PATTERNS",
+    "INCLUDE_OFF_PATTERN",
     "MAX_WORDS_COMMAND_PATTERN",
     "MAX_WORDS_NL_PATTERNS",
     "MIN_WORDS_COMMAND_PATTERN",
     "MIN_WORDS_NL_PATTERNS",
+    "REVOKE_COMMAND_PATTERN",
+    "SCRIBE_MAX_WORDS_COMMAND_PATTERN",
+    "SCRIBE_MIN_WORDS_COMMAND_PATTERN",
     "STOP_COMMAND_PATTERN",
     "extract_excluded_agents",
     "extract_file_instruction",
     "extract_history_limit",
+    "extract_included_agents",
     "extract_max_words_limit",
     "extract_min_words_limit",
+    "extract_revoke_instruction",
+    "extract_scribe_max_words_limit",
+    "extract_scribe_min_words_limit",
     "is_stop_command",
     "resolve_agent_candidates",
     "resolve_agent_name",
