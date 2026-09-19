@@ -270,7 +270,7 @@ def resolve_agent_name(name_str: str) -> str | None:
 
 EXCLUDE_OFF_PATTERN = re.compile(r"/exclude\s*[:=]?\s*off\b", re.IGNORECASE)
 INCLUDE_OFF_PATTERN = re.compile(r"/include\s*[:=]?\s*off\b", re.IGNORECASE)
-REVOKE_COMMAND_PATTERN = re.compile(r"/revoke\s*[:=]?\s*(?:\[?([a-zA-Z0-9_-]+)\]?|all\b)?", re.IGNORECASE)
+REVOKE_COMMAND_PATTERN = re.compile(r"/revoke(?![-_])\s*[:=]?\s*(?:\[?([a-zA-Z0-9_-]+)\]?|all\b)?", re.IGNORECASE)
 
 
 def extract_excluded_agents(text: str) -> tuple[list[str], bool, str]:

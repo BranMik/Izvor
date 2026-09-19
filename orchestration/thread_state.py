@@ -375,6 +375,7 @@ class ThreadStateManager:
         self.retry.clear_retry_queue(channel_id, thread_ts)
         self.retry.clear_already_retried(channel_id, thread_ts)
         self.retry.clear_503_errored_agents(channel_id, thread_ts)
+        self.context.clear_file_context(channel_id, thread_ts)
         # Persistent context (language, max_words, min_words, scribe_max_words, scribe_min_words,
         # excluded_agents, included_agents, format_modifiers, round_sequences, initial_prompts)
         # remains intact for subsequent rounds.

@@ -121,9 +121,13 @@ class DirectiveParser:
             modifiers["history"] = history_limit
 
         if is_file_req:
+            from skills import skill_registry
+
+            file_skill = skill_registry.get_file_handler_skill()
+            file_skill_name = file_skill.name if file_skill else "document_reader"
             actions.append(
                 ActionDirective(
-                    name="document_reader",
+                    name=file_skill_name,
                     params={"target_file": target_filename} if target_filename else {},
                 )
             )
@@ -157,7 +161,8 @@ class DirectiveParser:
             from skills import skill_registry
 
             slash_triggers = skill_registry.get_slash_triggers()
-            for slash_cmd, (skill_def, trg_cfg) in slash_triggers.items():
+            sorted_triggers = sorted(slash_triggers.items(), key=lambda x: len(x[0]), reverse=True)
+            for slash_cmd, (skill_def, trg_cfg) in sorted_triggers:
                 # If already handled (e.g. by fast-path regexes or previous alias), skip
                 if skill_def.name in modifiers or any(a.name == skill_def.name for a in actions):
                     continue
@@ -255,7 +260,7 @@ class DirectiveParser:
                         text_cleaned = (text_cleaned[:start_idx] + " " + text_cleaned[matched_tokens_span_end:]).strip()
                         text_cleaned = re.sub(r"[ \t]+", " ", text_cleaned).strip()
                 elif arg_type in ("int", "integer"):
-                    pattern = re.compile(rf"(?:^|\s){re.escape(slash_cmd)}(?:\s*[:=]?\s*(\d+))?", re.IGNORECASE)
+                    pattern = re.compile(rf"(?:^|\s){re.escape(slash_cmd)}(?=[\s:=]|$)(?:\s*[:=]?\s*(\d+))?", re.IGNORECASE)
                     match = pattern.search(text_cleaned)
                     if match:
                         num_val = int(match.group(1)) if match.group(1) else None
@@ -270,7 +275,7 @@ class DirectiveParser:
                                     params_dict[param_name] = 1
                             actions.append(ActionDirective(name=skill_def.name, params=params_dict))
                         text_cleaned = re.sub(
-                            rf"(?:^|\s){re.escape(slash_cmd)}(?:\s*[:=]?\s*\d+)?",
+                            rf"(?:^|\s){re.escape(slash_cmd)}(?=[\s:=]|$)(?:\s*[:=]?\s*\d+)?",
                             " ",
                             text_cleaned,
                             flags=re.IGNORECASE,
@@ -282,7 +287,7 @@ class DirectiveParser:
                         text_cleaned = pattern.sub(" ", text_cleaned).strip()
                         text_cleaned = re.sub(r"[ \t]+", " ", text_cleaned).strip()
                 else:
-                    pattern = re.compile(rf"(?:^|\s){re.escape(slash_cmd)}(?:\s+([^\s/]+))?", re.IGNORECASE)
+                    pattern = re.compile(rf"(?:^|\s){re.escape(slash_cmd)}(?=[\s:=]|$)(?:\s*[:=]?\s*([^\s/]+))?", re.IGNORECASE)
                     match = pattern.search(text_cleaned)
                     if match:
                         arg_val = match.group(1)
@@ -291,8 +296,12 @@ class DirectiveParser:
                         else:
                             param_name = trg_cfg.get("param_name", "arg")
                             actions.append(ActionDirective(name=skill_def.name, params={param_name: arg_val} if arg_val else {}))
+                            if trg_cfg.get("handles_files") or param_name == "target_file":
+                                is_file_req = True
+                                if arg_val:
+                                    target_filename = arg_val
                         text_cleaned = re.sub(
-                            rf"(?:^|\s){re.escape(slash_cmd)}(?:\s+[^\s/]+)?",
+                            rf"(?:^|\s){re.escape(slash_cmd)}(?=[\s:=]|$)(?:\s*[:=]?\s*[^\s/]+)?",
                             " ",
                             text_cleaned,
                             flags=re.IGNORECASE,
@@ -332,10 +341,14 @@ class DirectiveParser:
                 is_file_req = True
                 if not target_filename and intent_dict.get("target_file"):
                     target_filename = intent_dict["target_file"]
-                if not any(a.name == "document_reader" for a in actions):
+                from skills import skill_registry
+
+                file_skill = skill_registry.get_file_handler_skill()
+                file_skill_name = file_skill.name if file_skill else "document_reader"
+                if not any(a.name == file_skill_name for a in actions):
                     actions.append(
                         ActionDirective(
-                            name="document_reader",
+                            name=file_skill_name,
                             params={"target_file": target_filename} if target_filename else {},
                         )
                     )

@@ -5,6 +5,8 @@ Comprehensive test suite for the Declarative SKILL.md Framework and LLM Progress
 import json
 from unittest.mock import patch
 
+import pytest
+
 from orchestration.agent_settings import settings_manager
 from prompts import build_agent_prompt
 from skills import (
@@ -313,4 +315,39 @@ def test_pipeline_tools_initialization_and_progressive_unlocking():
     final_names = {t["function"]["name"] for t in market_active_tools}
     assert "list_directory" not in final_names
     assert "read_file" not in final_names
+
+
+def test_declarative_extraction_rules_and_file_handler():
+    """Verifies that extraction rules and handles_files are loaded dynamically from SKILL.md without hardcoded strings."""
+    doc_skill = skill_registry.get("document_reader")
+    assert doc_skill is not None
+    assert doc_skill.handles_files is True
+    assert doc_skill.extraction_rule != ""
+    assert "document_reader" in doc_skill.extraction_rule
+
+    file_handler = skill_registry.get_file_handler_skill()
+    assert file_handler is not None
+    assert file_handler.name == "document_reader"
+
+    prompt = skill_registry.build_extractor_catalog_prompt()
+    assert "SPECIAL RULES:" in prompt
+    assert "- 'document_reader':" in prompt
+    assert "- 'exclude_agents':" in prompt
+    assert "- 'max_words':" in prompt
+
+
+@pytest.mark.anyio
+async def test_dynamic_slash_command_from_skill_definition():
+    """Verifies that slash commands registered in triggers.slash are dynamically parsed into ActionDirectives."""
+    from pipeline.directive_parser import directive_parser
+
+    # Slash command /document_reader registered in document_reader SKILL.md
+    res = await directive_parser.parse("/document_reader report.pdf Check this file")
+    acts = [a for a in res.actions if a.name == "document_reader"]
+    assert len(acts) == 1
+    assert acts[0].params.get("target_file") == "report.pdf"
+    assert res.is_file_req is True
+    assert res.target_filename == "report.pdf"
+    assert "Check this file" in res.cleaned_prompt
+
 
