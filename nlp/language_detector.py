@@ -105,10 +105,61 @@ def _is_empty_or_pure_code(text: str) -> bool:
     return len(meaningful_words) == 0
 
 
+def is_system_message(text: str) -> bool:
+    """Returns True if the text represents an internal system warning, test banner, or notification."""
+    if not text or not text.strip():
+        return False
+    stripped = text.strip()
+    if any(stripped.startswith(prefix) for prefix in ("⚠️", "⚙️", "🔒", "🗑️", "🧪", "⏱️", "🚨")):
+        return True
+    lower = stripped.lower()
+    if any(
+        marker in lower
+        for marker in (
+            "ambiguous agent reference",
+            "thread constraints updated",
+            "revoked all thread constraints",
+            "expense circuit breaker tripped",
+            "no agents enabled",
+            "automated behavioural test scenario",
+            "[panel system]",
+            "panel system:",
+            "e2e test runner",
+        )
+    ):
+        return True
+    return False
+
+
+def clean_system_and_tags(text: str) -> str:
+    """
+    Strips Slack user/bot mentions, bracketed agent tags, runner banners,
+    and system warning prefixes so language detection evaluates only genuine user text.
+    """
+    if not text:
+        return ""
+    cleaned = text
+    # Strip user/bot mentions: <@U12345>
+    cleaned = re.sub(r"<@[A-Z0-9]+>", " ", cleaned)
+    # Strip runner banners and follow-up wrappers: 🧪 *...* or 👤 *Follow-up Prompt:*\n>
+    cleaned = re.sub(r"🧪\s*\*?[^\n]*\n(?:>\s*\|?\s*)?", " ", cleaned)
+    cleaned = re.sub(
+        r"👤\s*\*?Follow-up Prompt:\*?\s*\n?>?", " ", cleaned, flags=re.IGNORECASE
+    )
+    # Strip system warning header lines
+    cleaned = re.sub(r"⚠️\s*\*?[^\n]*\n?", " ", cleaned)
+    cleaned = re.sub(r"⚙️\s*\*?[^\n]*\n?", " ", cleaned)
+    cleaned = re.sub(r"🗑️\s*\*?[^\n]*\n?", " ", cleaned)
+    # Strip blockquote markers
+    cleaned = re.sub(r"^>\s*\|?\s*", "", cleaned, flags=re.MULTILINE)
+    # Strip agent bracket tags: [TechLead], [Lead], [Visionary], etc.
+    cleaned = re.sub(r"\[[a-zA-Z0-9_ -]+\]", " ", cleaned)
+    return cleaned.strip()
+
+
 def _clean_slack_tags(text: str) -> str:
-    """Strips Slack user/bot mentions like <@U0BR4EH6XMY> so they don't pollute classification."""
-    cleaned = re.sub(r"<@[A-Z0-9]+>", " ", text).strip()
-    return cleaned or text
+    """Strips Slack user/bot mentions, bracketed agent tags, and system wrappers so they don't pollute classification."""
+    return clean_system_and_tags(text)
 
 
 def _sync_llm_classify(
@@ -154,6 +205,8 @@ async def detect_language_llm(
     Runs once on the first prompt of a thread.
     Falls back cleanly to `default` ('English') on any error or timeout.
     """
+    if is_system_message(text):
+        return default
     clean_text = _clean_slack_tags(text)
     if _is_empty_or_pure_code(clean_text):
         return default

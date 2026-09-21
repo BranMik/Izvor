@@ -234,7 +234,7 @@ class DirectiveParser:
                                 params={param_name or "target": target},
                             )
                         )
-                        if skill_def.name == "revoke":
+                        if skill_def.name in ("revoke", "revoke_constraint"):
                             revoke_target = target
 
                 elif arg_type == "grant_skill" or skill_def.name == "grant_skill":
@@ -326,9 +326,16 @@ class DirectiveParser:
         except Exception as e:
             logger.debug(f"[DIRECTIVE PARSER] Skill registry slash check error: {e}")
 
-        # If an exclusive grant command is present, skip micro-LLM intent extraction entirely
-        has_exclusive_grant = any(
-            a.name in ("grant_for_all", "grant_skill") for a in actions
+        # If an exclusive control/grant/revoke/list command is present, skip micro-LLM intent extraction entirely
+        has_exclusive_cmd = any(
+            a.name in (
+                "grant_skill_for_all",
+                "grant_skill",
+                "revoke_skill_for_all",
+                "revoke_constraint",
+                "list_skills",
+            )
+            for a in actions
         )
 
         # 3. Check if micro-LLM intent extraction should run
@@ -338,7 +345,7 @@ class DirectiveParser:
         )
 
         if (
-            not has_exclusive_grant
+            not has_exclusive_cmd
             and not should_skip_intent_extractor(raw_text=raw_text)
             and text_cleaned.strip()
         ):

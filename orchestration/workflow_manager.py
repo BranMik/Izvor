@@ -41,6 +41,17 @@ class WorkflowManager:
 
             default_presets = [
                 WorkflowPreset(
+                    id="default_review_flow",
+                    name="Default Review Workflow",
+                    mode=OrchestrationMode.SANDWICH.value,
+                    description="Standard review flow applied when no explicit agent is tagged (Visionary -> Innovator -> ... -> Architect).",
+                    sandwich_config={
+                        "start_chain": ["Visionary", "Innovator"],
+                        "end_chain": ["Architect"],
+                    },
+                    fixed_config={"chain": []},
+                ),
+                WorkflowPreset(
                     id="default_sandwich",
                     name="Default Sandwich Review",
                     mode=OrchestrationMode.SANDWICH.value,

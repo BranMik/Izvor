@@ -349,6 +349,56 @@ def test_nomination_and_entity_resolver():
     )
     assert "[Innovator]" in res_partial_nom
 
+    # Complete nomination removal when blocked from nominating (force_termination=True)
+    res_term_inline = enforce_valid_nomination(
+        text="My single vision response. [Sceptic]",
+        current_agent_key="Visionary",
+        remaining=[],
+        force_termination=True,
+    )
+    assert res_term_inline == "My single vision response."
+
+    res_term_leadin = enforce_valid_nomination(
+        text="My single vision response.\n\nNext: [Sceptic]",
+        current_agent_key="Visionary",
+        remaining=[],
+        force_termination=True,
+    )
+    assert res_term_leadin == "My single vision response."
+
+    res_term_nom_label = enforce_valid_nomination(
+        text="My single vision response.\n\nNomination: [Sceptic]",
+        current_agent_key="Visionary",
+        remaining=[],
+        force_termination=True,
+    )
+    assert res_term_nom_label == "My single vision response."
+
+    res_term_over_to = enforce_valid_nomination(
+        text="My single vision response. Over to you, [Sceptic].",
+        current_agent_key="Visionary",
+        remaining=[],
+        force_termination=True,
+    )
+    assert res_term_over_to == "My single vision response."
+
+    res_term_intext_mention = enforce_valid_nomination(
+        text="As [Architect] noted, we agree with the design. [Sceptic]",
+        current_agent_key="Visionary",
+        remaining=[],
+        force_termination=True,
+    )
+    assert res_term_intext_mention == "As Architect noted, we agree with the design."
+
+    # Complete nomination removal when no agents remain (natural end of panel)
+    res_end_of_panel = enforce_valid_nomination(
+        text="Final conclusions and recommendations.\n\nNext up: [Innovator]",
+        current_agent_key="Architect",
+        remaining=[],
+        force_termination=False,
+    )
+    assert res_end_of_panel == "Final conclusions and recommendations."
+
     # Target file resolution
     files = [{"name": "notes.txt"}, {"name": "schema.sql"}]
     assert resolve_target_file(files, "schema.sql")["name"] == "schema.sql"

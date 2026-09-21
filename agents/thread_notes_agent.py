@@ -94,7 +94,7 @@ def build_scribe_note_blocks(
                     "type": "button",
                     "text": {
                         "type": "plain_text",
-                        "text": "📥 Preuzmi bilješke (.txt)",
+                        "text": "📥 Download Notes (.txt)",
                         "emoji": True,
                     },
                     "action_id": "download_scribe_notes_txt",

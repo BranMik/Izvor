@@ -211,21 +211,32 @@ async def fetch_thread_history(
             if msg_text.strip().startswith(("_🔍", "_🌐", "_⚡", "_⏳")):
                 continue
 
+            # Ignore internal system warnings, test runner cards, and scribe summaries from LLM history
+            if (
+                username in ("Panel System", "E2E Test Runner", "Live Discussion Scribe")
+                or msg.get("is_scribe_note")
+                or msg_text.strip().startswith(("⚠️", "⚙️", "🔒", "🗑️", "🧪"))
+            ):
+                continue
+
+            # Clean runner follow-up wrapper if present
+            clean_text = re.sub(r"^👤\s*\*?Follow-up Prompt:\*?\s*\n?>?\s*", "", msg_text)
+
             # Determine role
             if subtype == "bot_message" or username or user_id == bot_user_id:
                 persona_name = username if username else "Assistant"
                 formatted_history.append(
-                    {"role": "assistant", "content": f"[{persona_name}]: {msg_text}"}
+                    {"role": "assistant", "content": f"[{persona_name}]: {clean_text}"}
                 )
                 short_history_logging.append(
                     {
                         "role": "assistant",
-                        "content": f"[{persona_name}]: {msg_text[:20]}",
+                        "content": f"[{persona_name}]: {clean_text[:20]}",
                     }
                 )
             else:
-                formatted_history.append({"role": "user", "content": msg_text})
-                short_history_logging.append({"role": "user", "content": msg_text})
+                formatted_history.append({"role": "user", "content": clean_text})
+                short_history_logging.append({"role": "user", "content": clean_text})
 
         logger.info(f"\n short_history:\n {short_history_logging}")
         return formatted_history

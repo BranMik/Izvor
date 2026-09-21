@@ -20,7 +20,70 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-FLAT_HISTORIES_DIR = Path(__file__).resolve().parent.parent / "flat-histories"
+DEFAULT_FLAT_HISTORIES_DIR = Path(__file__).resolve().parent.parent / "flat-histories"
+FLAT_HISTORIES_DIR = DEFAULT_FLAT_HISTORIES_DIR
+
+# Known prefixes and indicators for automated test channels and threads
+TEST_CHANNEL_PREFIXES = ("C_TEST", "TEST_", "test_", "mock_", "MOCK_")
+TEST_CHANNEL_IDS = frozenset({
+    "C_TEST",
+    "C_FILE_TEST",
+    "C123",
+    "C12345",
+    "C999",
+    "test_channel",
+    "TEST_CHANNEL",
+})
+
+
+def is_test_thread(
+    channel_id: str | None = None,
+    thread_ts: str | None = None,
+) -> bool:
+    """
+    Returns True if the thread or channel is identified as part of automated testing
+    (unit tests, integration tests, or E2E harness executions).
+    """
+    # If FLAT_HISTORIES_DIR has been redirected to an isolated test folder
+    # (e.g. tmp_path in test_flat_history), allow writing to that test dir.
+    try:
+        if FLAT_HISTORIES_DIR.resolve() != DEFAULT_FLAT_HISTORIES_DIR.resolve():
+            return False
+    except Exception:
+        pass
+
+    # 1. Check explicit test execution environment flags
+    if (
+        os.getenv("E2E_TESTING") == "1"
+        or os.getenv("IS_E2E_TEST") == "1"
+        or os.getenv("DISABLE_FLAT_HISTORY") == "1"
+    ):
+        return True
+
+    # 2. Check if running under pytest and targeting the real project directory
+    if os.getenv("PYTEST_CURRENT_TEST"):
+        return True
+
+    # 3. Check channel ID heuristics
+    cid = (channel_id or "").strip()
+    if cid:
+        if cid in TEST_CHANNEL_IDS or cid.startswith(TEST_CHANNEL_PREFIXES):
+            return True
+
+    # 4. Check thread timestamp heuristics
+    tts = str(thread_ts or "").strip()
+    if tts:
+        # E2E test thread ID formats (e.g. T_01, T_08, T_15, T_26)
+        if re.match(r"^T_\d+$", tts, re.IGNORECASE):
+            return True
+        # Synthetic mock timestamps starting with 1700000 (standard test epoch mock)
+        if tts.startswith("1700000"):
+            return True
+        # Synthetic test run timestamps (e.g. 100001, 12345..., 200001, etc.)
+        if re.match(r"^(12345|10000|20000|55500|66600|77777|88888|99999)\d*", tts):
+            return True
+
+    return False
 
 
 def generate_flat_history_filename(prompt: str, thread_ts: str) -> str:
@@ -130,11 +193,19 @@ def record_flat_history(
     initial_prompt: str | None = None,
     messages: list[dict[str, Any]] | None = None,
     bot_user_id: str | None = None,
+    force: bool = False,
 ) -> Path | None:
     """
     Atomically writes the full conversation history to flat-histories/<prompt10>_<thread_ts10>.md.
     Guarantees 1 thread = 1 file.
+    Does NOT write files for testing threads (e2e or unit tests) unless force=True.
     """
+    if not force and is_test_thread(channel_id, thread_ts):
+        logger.debug(
+            f"[FLAT HISTORY] Skipping flat history creation for testing thread: channel={channel_id}, thread_ts={thread_ts}"
+        )
+        return None
+
     try:
         target_path = get_flat_history_filepath(channel_id, thread_ts, initial_prompt)
         effective_messages = messages or []
@@ -181,6 +252,7 @@ async def async_record_flat_history(
     initial_prompt: str | None = None,
     messages: list[dict[str, Any]] | None = None,
     bot_user_id: str | None = None,
+    force: bool = False,
 ) -> Path | None:
     """Asynchronous wrapper for record_flat_history."""
     return await asyncio.to_thread(
@@ -190,4 +262,5 @@ async def async_record_flat_history(
         initial_prompt=initial_prompt,
         messages=messages,
         bot_user_id=bot_user_id,
+        force=force,
     )

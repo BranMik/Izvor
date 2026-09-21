@@ -326,9 +326,9 @@ async def test_thread_stop_during_llm_execution(monkeypatch):
     assert len(posted_messages) == 1
     assert "Here is my architecture analysis." in posted_messages[0]
 
-    # 2. Nomination tag [Innovator] was stripped
+    # 2. Nomination tag and agent name [Innovator] completely stripped
     assert "[Innovator]" not in posted_messages[0]
-    assert "Innovator" in posted_messages[0]
+    assert "Innovator" not in posted_messages[0]
 
     # 3. State cleaned up - no remaining agents, not in stop requested set
     assert thread_key not in thread_state_manager.remaining_agents_map

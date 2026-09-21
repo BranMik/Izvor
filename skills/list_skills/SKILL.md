@@ -8,7 +8,7 @@ triggers:
     - /list_skills
     - /list-skills
   arg_type: none
-  auto_detect: true
+  auto_detect: false
 ---
 
 ### LIST SKILLS

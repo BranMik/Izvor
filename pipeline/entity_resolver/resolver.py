@@ -184,6 +184,15 @@ class EntityResolver:
             )
         return sanitized
 
+    def strip_agent_nominations(self, text: str) -> str:
+        """
+        Completely removes nominations (lead-in phrases and agent names) when an agent
+        is blocked from nominating.
+        """
+        from orchestration.nomination import strip_all_nominations
+
+        return strip_all_nominations(text)
+
 
 # Global default instance
 entity_resolver = EntityResolver()

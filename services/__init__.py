@@ -4,6 +4,7 @@ from .flat_history_recorder import (
     format_messages_to_markdown,
     generate_flat_history_filename,
     get_flat_history_filepath,
+    is_test_thread,
     record_flat_history,
 )
 from .mcp_tools import (
@@ -89,6 +90,7 @@ __all__ = [
     "get_flat_history_filepath",
     "get_model_pricing",
     "get_or_create_usage_channel",
+    "is_test_thread",
     "list_directory",
     "load_baseline_pricing",
     "load_pricing_cache",

@@ -5,10 +5,11 @@ Stage 1: Input validation, directive parsing, tag checking, and candidate resolu
 from __future__ import annotations
 
 import logging
+import re
 from typing import TYPE_CHECKING, Any
 
 from core.config import AGENTS_CONFIG
-from nlp import detect_language_llm
+from nlp import clean_system_and_tags, detect_language_llm, is_system_message
 from orchestration.agent_settings import settings_manager
 from orchestration.nomination import (
     get_initial_agents,
@@ -101,8 +102,8 @@ class ValidationStageMixin:
                 ctx.target_filename = directives.target_filename
                 ctx.raw_text_cleaned = directives.cleaned_prompt
 
-            # Process /grant_for_all action
-            grant_act = next((a for a in ctx.actions if a.name == "grant_for_all"), None)
+            # Process /grant_skill_for_all action
+            grant_act = next((a for a in ctx.actions if a.name in ("grant_skill_for_all", "grant_for_all")), None)
             if grant_act:
                 from orchestration.app_settings import app_settings_manager
                 from orchestration.thread_skills_manager import thread_skills_manager
@@ -110,9 +111,9 @@ class ValidationStageMixin:
 
                 requested_skills = grant_act.params.get("skills", [])
                 if not requested_skills:
-                    msg = "⚠️ *Missing Skills*: Please specify at least one skill to grant for all agents.\n_Example: `/grant_for_all web_research codebase_inspection`_"
+                    msg = "⚠️ *Missing Skills*: Please specify at least one skill to grant for all agents.\n_Example: `/grant_skill_for_all web_research codebase_inspection`_"
                     await post_sys_msg(channel_id=ctx.channel_id, thread_ts=ctx.thread_ts, text=msg)
-                    return {"ok": True, "halted": True, "action": "grant_for_all"}
+                    return {"ok": True, "halted": True, "action": "grant_skill_for_all"}
                 else:
                     known_agent_skills = {s.name for s in skill_registry.get_agent_skills()}
                     valid_skills = [s for s in requested_skills if s in known_agent_skills]
@@ -139,7 +140,7 @@ class ValidationStageMixin:
                     if lines:
                         await post_sys_msg(channel_id=ctx.channel_id, thread_ts=ctx.thread_ts, text="\n\n".join(lines))
 
-                    return {"ok": True, "halted": True, "action": "grant_for_all"}
+                    return {"ok": True, "halted": True, "action": "grant_skill_for_all"}
 
             # Process /grant_skill action
             grant_skill_act = next((a for a in ctx.actions if a.name == "grant_skill"), None)
@@ -221,17 +222,16 @@ class ValidationStageMixin:
 
                 return {"ok": True, "halted": True, "action": "grant_skill"}
 
-            # Process /revoke_for_all action
-            revoke_act = next((a for a in ctx.actions if a.name == "revoke_for_all"), None)
+            # Process /revoke_skill_for_all action
+            revoke_act = next((a for a in ctx.actions if a.name in ("revoke_skill_for_all", "revoke_for_all")), None)
             if revoke_act:
                 from orchestration.thread_skills_manager import thread_skills_manager
 
                 skills_to_revoke = revoke_act.params.get("skills", [])
                 if not skills_to_revoke:
-                    msg = "⚠️ *Missing Parameters*: Please specify skills to revoke or `all`.\n_Example: `/revoke_for_all web_research` or `/revoke_for_all all`_"
+                    msg = "⚠️ *Missing Parameters*: Please specify skills to revoke or `all`.\n_Example: `/revoke_skill_for_all web_research` or `/revoke_skill_for_all all`_"
                     await post_sys_msg(channel_id=ctx.channel_id, thread_ts=ctx.thread_ts, text=msg)
-                    if not ctx.raw_text_cleaned:
-                        return {"ok": True, "halted": True, "action": "revoke_for_all"}
+                    return {"ok": True, "halted": True, "action": "revoke_skill_for_all"}
                 else:
                     remaining = thread_skills_manager.revoke_skills(
                         ctx.channel_id, ctx.thread_ts, skills_to_revoke
@@ -242,9 +242,7 @@ class ValidationStageMixin:
                         rem_str = ", ".join(f"`{s}`" for s in remaining)
                         msg = f"🗑️ *Revoked specified thread-global skills*. Remaining active in thread: {rem_str}"
                     await post_sys_msg(channel_id=ctx.channel_id, thread_ts=ctx.thread_ts, text=msg)
-
-                    if not ctx.raw_text_cleaned:
-                        return {"ok": True, "halted": True, "action": "revoke_for_all"}
+                    return {"ok": True, "halted": True, "action": "revoke_skill_for_all"}
 
             # Check if user prompt attempts to refer to an expired thread skill
             from orchestration.thread_skills_manager import thread_skills_manager
@@ -258,7 +256,7 @@ class ValidationStageMixin:
                     exp_str = ", ".join(f"`{s}`" for s in mentioned_expired)
                     exp_msg = (
                         f"⚠️ *Expired Global Skill*: The thread-global skill {exp_str} has expired.\n"
-                        f"Run `/grant_for_all {mentioned_expired[0]}` in this thread to re-enable access for all agents."
+                        f"Run `/grant_skill_for_all {mentioned_expired[0]}` in this thread to re-enable access for all agents."
                     )
                     await post_sys_msg(channel_id=ctx.channel_id, thread_ts=ctx.thread_ts, text=exp_msg)
 
@@ -274,7 +272,7 @@ class ValidationStageMixin:
             except Exception as e:
                 logger.error(f"[VALIDATION] Error executing skill action handler: {e}")
 
-            # Process /revoke action
+            # Process /revoke_constraint action
             if ctx.revoke_target:
                 target = ctx.revoke_target.lower()
                 if target in ("all", "everything"):
@@ -304,8 +302,7 @@ class ValidationStageMixin:
                 else:
                     msg = f"⚠️ *Unknown Revoke Target*: `{target}`. Available: `max_words`, `min_words`, `scribe_max_words`, `scribe_min_words`, `exclude`, `include`, `language`, `all`."
                 await post_sys_msg(channel_id=ctx.channel_id, thread_ts=ctx.thread_ts, text=msg)
-                if not ctx.raw_text_cleaned:
-                    return {"ok": True, "halted": True, "action": "revoke"}
+                return {"ok": True, "halted": True, "action": "revoke_constraint"}
 
             # Update persistent word limits and off toggles
             if ctx.max_words_limit == "off":
@@ -368,19 +365,20 @@ class ValidationStageMixin:
             # Lock language for this thread on first human prompt or preserve existing
             current_lang = thread_state_manager.get_language(ctx.channel_id, ctx.thread_ts)
             if not current_lang:
-                text_to_detect = ctx.raw_text_cleaned or ctx.raw_text
-                if text_to_detect and not text_to_detect.strip().startswith("/"):
-                    logger.info(
-                        f"[ROUTER] Inferring language for thread {ctx.thread_key} from text: '{text_to_detect[:80]}'"
-                    )
-                    current_lang = await detect_language_llm(text_to_detect)
-                    thread_state_manager.set_language(ctx.channel_id, ctx.thread_ts, current_lang)
-                    logger.info(
-                        f"[ROUTER] Locked thread language for {ctx.thread_key}: {current_lang}"
-                    )
-                else:
-                    current_lang = "English"
-            ctx.thread_language = current_lang
+                raw_candidate = ctx.raw_text_cleaned or ctx.raw_text
+                # Never infer or lock language from system warnings, runner banners, or slash commands
+                if not is_system_message(raw_candidate) and not raw_candidate.strip().startswith("/"):
+                    pure_user_text = clean_system_and_tags(raw_candidate)
+                    if pure_user_text:
+                        logger.info(
+                            f"[ROUTER] Inferring language for thread {ctx.thread_key} from user prompt: '{pure_user_text[:80]}'"
+                        )
+                        current_lang = await detect_language_llm(pure_user_text)
+                        thread_state_manager.set_language(ctx.channel_id, ctx.thread_ts, current_lang)
+                        logger.info(
+                            f"[ROUTER] Locked thread language for {ctx.thread_key}: {current_lang}"
+                        )
+            ctx.thread_language = current_lang or "English"
 
             ambiguous_tags = entity_resolver.detect_ambiguous_tags(
                 ctx.raw_text_cleaned
@@ -470,13 +468,35 @@ class ValidationStageMixin:
                 if tagged:
                     ctx.agent_key = tagged[0]
                     remaining_tagged = [a for a in tagged if a != ctx.agent_key]
-                    thread_state_manager.set_remaining_agents(
-                        ctx.channel_id, ctx.thread_ts, remaining_tagged
+                    is_nomination_requested = bool(
+                        re.search(
+                            r"\b(?:nominate|nominating|nomination|start\s+us\s+off|who\s+speaks\s+next|challenge\s+or\s+validate|kick\s+off|lead\s+the\s+debate|nominiraj|nominirajte|nominacija|započni|zapocni)\b",
+                            ctx.raw_text_cleaned,
+                            re.IGNORECASE,
+                        )
                     )
-                    thread_state_manager.set_custom_flow(
-                        ctx.channel_id, ctx.thread_ts, True
-                    )
-                    ctx.was_explicit_target = True
+                    if len(tagged) == 1 and is_nomination_requested:
+                        thread_state_manager.clear_custom_flow(ctx.channel_id, ctx.thread_ts)
+                        initial_pool = get_initial_agents()
+                        remaining_pool = [
+                            a for a in initial_pool
+                            if a != ctx.agent_key and a not in effective_excluded
+                        ]
+                        for inc in effective_included:
+                            if inc not in remaining_pool and inc != ctx.agent_key:
+                                remaining_pool.append(inc)
+                        thread_state_manager.set_remaining_agents(
+                            ctx.channel_id, ctx.thread_ts, remaining_pool
+                        )
+                        ctx.was_explicit_target = True
+                    else:
+                        thread_state_manager.set_remaining_agents(
+                            ctx.channel_id, ctx.thread_ts, remaining_tagged
+                        )
+                        thread_state_manager.set_custom_flow(
+                            ctx.channel_id, ctx.thread_ts, True
+                        )
+                        ctx.was_explicit_target = True
                 else:
                     logger.warning(
                         f"[ROUTER] All tagged agents in thread {ctx.thread_key} were excluded. Halting turn."

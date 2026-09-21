@@ -339,6 +339,7 @@ class ThreadStateManager:
         self._touch(channel_id, thread_ts)
         thread_key = (channel_id, thread_ts)
         self.discussion.request_stop(channel_id, thread_ts)
+        self.discussion.cancel_active_task(channel_id, thread_ts)
         self.discussion.clear_remaining_agents(channel_id, thread_ts)
         self.retry.clear_retry_queue(channel_id, thread_ts)
         self.retry.clear_already_retried(channel_id, thread_ts)

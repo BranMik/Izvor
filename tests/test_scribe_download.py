@@ -34,7 +34,7 @@ def test_build_scribe_note_blocks():
     assert btn["type"] == "button"
     assert btn["action_id"] == "download_scribe_notes_txt"
     assert btn["value"] == f"{channel_id}:{thread_ts}"
-    assert "Preuzmi bilješke" in btn["text"]["text"]
+    assert "Download Notes" in btn["text"]["text"]
 
 
 def test_build_scribe_note_blocks_truncates_long_text():
@@ -138,7 +138,7 @@ def test_slack_interactivity_download_scribe_action():
         assert mock_ephemeral.call_args.kwargs["channel_id"] == channel_id
         assert mock_ephemeral.call_args.kwargs["user_id"] == user_id
         assert mock_ephemeral.call_args.kwargs["thread_ts"] == thread_ts
-        assert "privatni chat (DM)" in mock_ephemeral.call_args.kwargs["text"]
+        assert "direct message (DM)" in mock_ephemeral.call_args.kwargs["text"]
 
         assert mock_open_dm.called
         assert mock_open_dm.call_args[0][0] == user_id

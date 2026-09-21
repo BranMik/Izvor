@@ -201,33 +201,33 @@ def test_global_skill_declarative_frontmatter():
 
 @pytest.mark.anyio
 async def test_dynamic_slash_parsing_grant_and_revoke_for_all():
-    """Verifies dynamic slash command extraction for grant_for_all and revoke_for_all without hardcoding."""
-    # Test grant_for_all with multiple skills
-    raw1 = "/grant_for_all web_research codebase_inspection Discuss database schema"
+    """Verifies dynamic slash command extraction for grant_skill_for_all and revoke_skill_for_all without hardcoding."""
+    # Test grant_skill_for_all with multiple skills
+    raw1 = "/grant_skill_for_all web_research codebase_inspection Discuss database schema"
     d1 = await directive_parser.parse(raw1)
-    grant_acts = [a for a in d1.actions if a.name == "grant_for_all"]
+    grant_acts = [a for a in d1.actions if a.name == "grant_skill_for_all"]
     assert len(grant_acts) == 1
     assert grant_acts[0].params.get("skills") == ["web_research", "codebase_inspection"]
     assert "Discuss database schema" in d1.cleaned_prompt
-    assert "/grant_for_all" not in d1.cleaned_prompt
+    assert "/grant_skill_for_all" not in d1.cleaned_prompt
 
-    # Test hyphenated alias /grant-for-all
-    raw2 = "/grant-for-all web_research"
+    # Test hyphenated alias /grant-skill-for-all
+    raw2 = "/grant-skill-for-all web_research"
     d2 = await directive_parser.parse(raw2)
-    assert any(a.name == "grant_for_all" and a.params.get("skills") == ["web_research"] for a in d2.actions)
+    assert any(a.name == "grant_skill_for_all" and a.params.get("skills") == ["web_research"] for a in d2.actions)
 
-    # Test revoke_for_all with specific skill
-    raw3 = "/revoke_for_all web_research Please continue"
+    # Test revoke_skill_for_all with specific skill
+    raw3 = "/revoke_skill_for_all web_research Please continue"
     d3 = await directive_parser.parse(raw3)
-    revoke_acts = [a for a in d3.actions if a.name == "revoke_for_all"]
+    revoke_acts = [a for a in d3.actions if a.name == "revoke_skill_for_all"]
     assert len(revoke_acts) == 1
     assert revoke_acts[0].params.get("skills") == ["web_research"]
     assert "Please continue" in d3.cleaned_prompt
 
-    # Test revoke_for_all all
-    raw4 = "/revoke-for-all all"
+    # Test revoke_skill_for_all all
+    raw4 = "/revoke-skill-for-all all"
     d4 = await directive_parser.parse(raw4)
-    revoke_acts4 = [a for a in d4.actions if a.name == "revoke_for_all"]
+    revoke_acts4 = [a for a in d4.actions if a.name == "revoke_skill_for_all"]
     assert len(revoke_acts4) == 1
     assert revoke_acts4[0].params.get("skills") == ["all"]
 

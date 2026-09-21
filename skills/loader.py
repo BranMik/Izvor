@@ -508,7 +508,7 @@ class SkillRegistry:
             lines.append("")
 
         lines.append(
-            "_Note: Agents are strictly limited to their assigned permissions and cannot execute unauthorized skills, unless /grant_for_all instructions was given in a thread._"
+            "_Note: Agents are strictly limited to their assigned permissions and cannot execute unauthorized skills, unless /grant_skill_for_all instructions was given in a thread._"
         )
         return "\n".join(lines)
 
@@ -574,7 +574,7 @@ class SkillRegistry:
                         {
                             "error": (
                                 f"Permission denied: Thread global skill '{skill_name}' expired after {ttl_str}. "
-                                f"Run `/grant_for_all {skill_name}` in this thread to grant access again."
+                                f"Run `/grant_skill_for_all {skill_name}` in this thread to grant access again."
                             )
                         }
                     )

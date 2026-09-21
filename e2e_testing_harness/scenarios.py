@@ -1,7 +1,7 @@
 """
 E2E Behavioural Test Scenarios.
 
-Defines the 27 comprehensive test scenarios matching SLACK_BEHAVIOURAL_TEST_CASES.md,
+Defines the 28 comprehensive test scenarios matching e2e_testing_harness/SLACK_BEHAVIOURAL_TEST_CASES.md,
 including verification logic and assertion checks.
 Seamlessly supports both offline simulation and live Slack dispatch.
 """
@@ -12,7 +12,7 @@ import asyncio
 from dataclasses import dataclass, field
 from typing import Any, Callable, Coroutine
 
-from e2e_harness.protocol_client import SlackProtocolClient
+from e2e_testing_harness.protocol_client import SlackProtocolClient
 from orchestration.agent_settings import (
     reset_enabled_agents,
     set_circuit_breaker_enabled,
@@ -74,23 +74,23 @@ async def tc_02_multi_persona(client: SlackProtocolClient) -> ScenarioResult:
 async def tc_03_autonomous_nomination(client: SlackProtocolClient) -> ScenarioResult:
     channel = client.get_channel("C_TEST_03")
     thread_ts = client.get_thread_ts()
-    prompt = "Should we replace our relational schema with a vector-native graph DB? Innovator, start us off and nominate who speaks next."
+    prompt = "Should we replace our relational schema with a vector-native graph DB? [Innovator], start us off and nominate who speaks next."
     await client.send_mention(prompt, channel_id=channel, thread_ts=thread_ts)
 
     actual_thread = thread_ts or (client.bus.posted_messages[0]["thread_ts"] if client.bus.posted_messages else "")
     msgs = client.bus.get_messages_for_thread(channel, actual_thread)
     speakers = [m.get("username") for m in msgs]
-    passed = len(speakers) >= 2
+    passed = len(speakers) >= 2 and speakers[0] == "Innovator"
     return ScenarioResult("TC-03", "Autonomous Peer Nomination", passed, f"Debate chained across: {speakers}")
 
 
 async def tc_04_max_words(client: SlackProtocolClient) -> ScenarioResult:
     channel = client.get_channel("C_TEST_04")
     thread_ts = client.get_thread_ts()
-    prompt = "[TechLead] /max_words 25 Explain Docker multi-stage builds."
+    prompt = "[TechLead] /max_words 40 Explain Docker multi-stage builds."
     await client.send_mention(prompt, channel_id=channel, thread_ts=thread_ts)
 
-    actual_thread = thread_ts or (client.bus.posted_messages[0]["thread_ts"] if client.bus.posted_messages else "")
+    actual_thread = client.current_thread_ts or thread_ts or (client.bus.posted_messages[0]["thread_ts"] if client.bus.posted_messages else "")
     msgs = client.bus.get_messages_for_thread(channel, actual_thread)
     if not msgs:
         return ScenarioResult("TC-04", "Maximum Word Count", False, "No response.")
@@ -99,7 +99,7 @@ async def tc_04_max_words(client: SlackProtocolClient) -> ScenarioResult:
     substantive_text = text.split("\n\n{")[0] if "\n\n{" in text else text
     word_count = len(substantive_text.split())
     limit = thread_state_manager.get_max_words(channel, actual_thread)
-    passed = (limit == 25 and word_count <= 26)
+    passed = (limit == 40 and word_count <= 42)
     return ScenarioResult("TC-04", "Maximum Word Count", passed, f"Words: {word_count} (limit: {limit})")
 
 
@@ -130,8 +130,16 @@ async def tc_06_scribe_max_words(client: SlackProtocolClient) -> ScenarioResult:
 
     actual_thread = thread_ts or (client.bus.posted_messages[0]["thread_ts"] if client.bus.posted_messages else "")
     limit = thread_state_manager.get_scribe_max_words(channel, actual_thread)
-    passed = (limit == 40)
-    return ScenarioResult("TC-06", "Scribe Maximum Word Count", passed, f"Scribe max words set to: {limit}")
+
+    note_text = await client.wait_for_scribe_note(channel, actual_thread, timeout=12.0)
+    substantive_text = ""
+    if note_text:
+        substantive_text = note_text.split("\n\n_Last updated:")[0] if "\n\n_Last updated:" in note_text else note_text
+    word_count = len(substantive_text.split()) if substantive_text else 0
+
+    has_scribe_note = bool(note_text) or any(m.get("is_scribe_note") or m.get("username") == "Live Discussion Scribe" for m in client.bus.posted_messages)
+    passed = (limit == 40 and has_scribe_note and word_count <= 45)
+    return ScenarioResult("TC-06", "Scribe Maximum Word Count", passed, f"Scribe note generated ({word_count} words, limit: {limit}). Note in thread: {has_scribe_note}")
 
 
 async def tc_07_scribe_min_words(client: SlackProtocolClient) -> ScenarioResult:
@@ -142,71 +150,76 @@ async def tc_07_scribe_min_words(client: SlackProtocolClient) -> ScenarioResult:
 
     actual_thread = thread_ts or (client.bus.posted_messages[0]["thread_ts"] if client.bus.posted_messages else "")
     limit = thread_state_manager.get_scribe_min_words(channel, actual_thread)
-    passed = (limit == 30)
-    return ScenarioResult("TC-07", "Scribe Minimum Word Count", passed, f"Scribe min words set to: {limit}")
+
+    note_text = await client.wait_for_scribe_note(channel, actual_thread, timeout=12.0)
+    substantive_text = ""
+    if note_text:
+        substantive_text = note_text.split("\n\n_Last updated:")[0] if "\n\n_Last updated:" in note_text else note_text
+    word_count = len(substantive_text.split()) if substantive_text else 0
+
+    has_scribe_note = bool(note_text) or any(m.get("is_scribe_note") or m.get("username") == "Live Discussion Scribe" for m in client.bus.posted_messages)
+    passed = (limit == 30 and has_scribe_note and word_count >= 25)
+    return ScenarioResult("TC-07", "Scribe Minimum Word Count", passed, f"Scribe note generated ({word_count} words, floor: {limit}). Note in thread: {has_scribe_note}")
 
 
 async def tc_08_history_slicing(client: SlackProtocolClient) -> ScenarioResult:
     channel = client.get_channel("C_TEST_08")
-    thread_ts = client.get_thread_ts("T_08") or "T_08"
-    client.bus.thread_history_store[(channel, thread_ts)] = [
-        {"role": "user", "content": "Msg 1"},
-        {"role": "assistant", "content": "Msg 2"},
-        {"role": "user", "content": "Msg 3"},
-        {"role": "assistant", "content": "Msg 4"},
-    ]
-    prompt = "[Architect] /history 2 Summarize based on the last two messages."
-    await client.send_mention(prompt, channel_id=channel, thread_ts=thread_ts)
+    init_thread = client.get_thread_ts()
+    # Establish authentic multi-turn conversation history (4 prior turns) before invoking /history 2
+    await client.send_mention("[TechLead] /max_words 10 Step 1: Initial design proposal.", channel_id=channel, thread_ts=init_thread)
+    actual_thread = client.current_thread_ts or (client.bus.posted_messages[0]["thread_ts"] if client.bus.posted_messages else "T_08")
 
-    msgs = client.bus.get_messages_for_thread(channel, thread_ts)
-    passed = len(msgs) >= 1
-    return ScenarioResult("TC-08", "History Window Slicing", passed, "History sliced successfully to 2 items.")
+    await client.send_mention("[Architect] /max_words 10 Step 2: Architecture review.", channel_id=channel, thread_ts=actual_thread)
+    await client.send_mention("[SecurityArchitect] /max_words 10 Step 3: Security review.", channel_id=channel, thread_ts=actual_thread)
+    await client.send_mention("[QALead] /max_words 10 Step 4: Quality verification.", channel_id=channel, thread_ts=actual_thread)
+
+    # Turn 5: Request response with /history 2
+    prompt = "/history 2 [Visionary] /max_words 10 Summarize recent context."
+    await client.send_mention(prompt, channel_id=channel, thread_ts=actual_thread)
+
+    msgs = client.bus.get_messages_for_thread(channel, actual_thread)
+    hist_info = thread_state_manager.get_history_limit(channel, actual_thread)
+    passed = (len(msgs) >= 5 and hist_info is not None and hist_info["limit"] == 2 and msgs[-1].get("username") == "Visionary")
+    return ScenarioResult("TC-08", "History Window Slicing", passed, f"5 turns executed, history window sliced to {hist_info.get('limit') if hist_info else 'None'}.")
 
 
 async def tc_09_agent_exclusion(client: SlackProtocolClient) -> ScenarioResult:
     channel = client.get_channel("C_TEST_09")
     thread_ts = client.get_thread_ts()
-    prompt = "/exclude [Sceptic] [Visionary] What are the micro-frontend architectures? [Innovator], nominate who speaks next."
+    # Exclude [Innovator] (who is in default review workflow start_chain) and trigger default workflow with /max_words 10
+    prompt = "/exclude [Innovator] /max_words 10 What is the best strategy for microservice resiliency?"
     await client.send_mention(prompt, channel_id=channel, thread_ts=thread_ts)
 
-    actual_thread = thread_ts or (client.bus.posted_messages[0]["thread_ts"] if client.bus.posted_messages else "")
+    actual_thread = thread_ts or client.current_thread_ts or (client.bus.posted_messages[0]["thread_ts"] if client.bus.posted_messages else "")
     msgs = client.bus.get_messages_for_thread(channel, actual_thread)
     speakers = [m.get("username") for m in msgs]
-    excluded_participated = any(s in ["Sceptic", "Visionary"] for s in speakers)
-    passed = (not excluded_participated and len(speakers) >= 1)
-    return ScenarioResult("TC-09", "Agent Exclusion", passed, f"Speakers: {speakers} (Sceptic/Visionary excluded: {not excluded_participated})")
+    excluded_participated = "Innovator" in speakers
+    visionary_started = any(s == "Visionary" for s in speakers)
+    passed = (not excluded_participated and visionary_started and len(speakers) >= 1)
+    return ScenarioResult(
+        "TC-09",
+        "Agent Exclusion Directive",
+        passed,
+        f"Speakers: {speakers} (Innovator excluded: {not excluded_participated}, Visionary started: {visionary_started})",
+    )
 
 
-async def tc_10_agent_inclusion(client: SlackProtocolClient) -> ScenarioResult:
+async def tc_10_revoke_constraints(client: SlackProtocolClient) -> ScenarioResult:
     channel = client.get_channel("C_TEST_10")
-    thread_ts = client.get_thread_ts()
-    prompt = "/include [CompliancePrivacyAndGovernanceOfficer] [Innovator] Automated lead scraper design."
-    await client.send_mention(prompt, channel_id=channel, thread_ts=thread_ts)
-
-    actual_thread = thread_ts or (client.bus.posted_messages[0]["thread_ts"] if client.bus.posted_messages else "")
-    msgs = client.bus.get_messages_for_thread(channel, actual_thread)
-    speakers = [m.get("username") for m in msgs]
-    has_compliance = any("Compliance" in str(s) for s in speakers)
-    passed = has_compliance
-    return ScenarioResult("TC-10", "Forced Agent Inclusion", passed, f"Speakers: {speakers}")
-
-
-async def tc_11_revoke_constraints(client: SlackProtocolClient) -> ScenarioResult:
-    channel = client.get_channel("C_TEST_11")
     thread_ts = client.get_thread_ts()
     await client.send_mention("/max_words 30 [TechLead] Short explanation.", channel_id=channel, thread_ts=thread_ts)
     actual_thread = thread_ts or (client.bus.posted_messages[0]["thread_ts"] if client.bus.posted_messages else "")
     
-    # Revoke
-    await client.send_mention("/revoke max_words", channel_id=channel, thread_ts=actual_thread)
+    # Revoke constraint
+    await client.send_mention("/revoke_constraint max_words", channel_id=channel, thread_ts=actual_thread)
     limit = thread_state_manager.get_max_words(channel, actual_thread)
     sys_msgs = [s["text"] for s in client.bus.system_messages if s.get("channel_id") == channel]
     passed = (limit is None and any("Revoked constraint" in t for t in sys_msgs))
-    return ScenarioResult("TC-11", "Constraint Revocation", passed, "max_words constraint successfully revoked.")
+    return ScenarioResult("TC-10", "Constraint Revocation", passed, "max_words constraint successfully revoked.")
 
 
-async def tc_12_multi_round(client: SlackProtocolClient) -> ScenarioResult:
-    channel = client.get_channel("C_TEST_12")
+async def tc_11_multi_round(client: SlackProtocolClient) -> ScenarioResult:
+    channel = client.get_channel("C_TEST_11")
     thread_ts = client.get_thread_ts()
     prompt = "[Architect] [TechLead] /rounds 2 Monorepo vs Polyrepo debate."
     await client.send_mention(prompt, channel_id=channel, thread_ts=thread_ts)
@@ -215,11 +228,11 @@ async def tc_12_multi_round(client: SlackProtocolClient) -> ScenarioResult:
     msgs = client.bus.get_messages_for_thread(channel, actual_thread)
     speakers = [m.get("username") for m in msgs]
     passed = (len(speakers) >= 3)
-    return ScenarioResult("TC-12", "Multi-Round Debate", passed, f"Total turns executed across rounds: {len(speakers)}")
+    return ScenarioResult("TC-11", "Multi-Round Debate", passed, f"Total turns executed across rounds: {len(speakers)}")
 
 
-async def tc_13_web_research(client: SlackProtocolClient) -> ScenarioResult:
-    channel = client.get_channel("C_TEST_13")
+async def tc_12_web_research(client: SlackProtocolClient) -> ScenarioResult:
+    channel = client.get_channel("C_TEST_12")
     thread_ts = client.get_thread_ts()
     prompt = "[MarketAndCompetitionResearchExpert] Search the web for current pricing of Anthropic Claude."
     await client.send_mention(prompt, channel_id=channel, thread_ts=thread_ts)
@@ -227,16 +240,16 @@ async def tc_13_web_research(client: SlackProtocolClient) -> ScenarioResult:
     actual_thread = thread_ts or (client.bus.posted_messages[0]["thread_ts"] if client.bus.posted_messages else "")
     msgs = client.bus.get_messages_for_thread(channel, actual_thread)
     if not msgs:
-        return ScenarioResult("TC-13", "Web Research Skill", False, "No response posted.")
+        return ScenarioResult("TC-12", "Web Research Skill", False, "No response posted.")
     
     text = msgs[0].get("text", "")
     has_pricing = ("Claude" in text or "Anthropic" in text or "pricing" in text)
     passed = has_pricing
-    return ScenarioResult("TC-13", "Web Research Skill", passed, "Web research synthesized with pricing citations.")
+    return ScenarioResult("TC-12", "Web Research Skill", passed, "Web research synthesized with pricing citations.")
 
 
-async def tc_14_codebase_inspection(client: SlackProtocolClient) -> ScenarioResult:
-    channel = client.get_channel("C_TEST_14")
+async def tc_13_codebase_inspection(client: SlackProtocolClient) -> ScenarioResult:
+    channel = client.get_channel("C_TEST_13")
     thread_ts = client.get_thread_ts()
     prompt = "[TechLead] Inspect directory layout of orchestration/stages and turn_pipeline.py."
     await client.send_mention(prompt, channel_id=channel, thread_ts=thread_ts)
@@ -244,97 +257,109 @@ async def tc_14_codebase_inspection(client: SlackProtocolClient) -> ScenarioResu
     actual_thread = thread_ts or (client.bus.posted_messages[0]["thread_ts"] if client.bus.posted_messages else "")
     msgs = client.bus.get_messages_for_thread(channel, actual_thread)
     if not msgs:
-        return ScenarioResult("TC-14", "Codebase Inspection Skill", False, "No response posted.")
+        return ScenarioResult("TC-13", "Codebase Inspection Skill", False, "No response posted.")
     
     text = msgs[0].get("text", "")
     passed = ("stages" in text or "TurnPipeline" in text or "validation" in text)
-    return ScenarioResult("TC-14", "Codebase Inspection Skill", passed, "Codebase inspection executed and files cited.")
+    return ScenarioResult("TC-13", "Codebase Inspection Skill", passed, "Codebase inspection executed and files cited.")
 
 
-async def tc_15_document_authoring(client: SlackProtocolClient) -> ScenarioResult:
-    channel = client.get_channel("C_TEST_15")
+async def tc_14_document_authoring(client: SlackProtocolClient) -> ScenarioResult:
+    channel = client.get_channel("C_TEST_14")
     thread_ts = client.get_thread_ts()
-    prompt = "[ROIStrategist] Draft a 3-point business case and save it as a document named llm_cost_reduction_plan.md."
+    prompt = "[ROIStrategist] Draft a 3-point business case and save it as a document named resources/e2e_testing/llm_cost_reduction_plan.md."
     await client.send_mention(prompt, channel_id=channel, thread_ts=thread_ts)
 
     actual_thread = thread_ts or (client.bus.posted_messages[0]["thread_ts"] if client.bus.posted_messages else "")
     msgs = client.bus.get_messages_for_thread(channel, actual_thread)
     if not msgs:
-        return ScenarioResult("TC-15", "Document Authoring Skill", False, "No response posted.")
+        return ScenarioResult("TC-14", "Document Authoring Skill", False, "No response posted.")
     
     text = msgs[0].get("text", "")
     passed = ("llm_cost_reduction_plan.md" in text or "saved" in text or "draft" in text)
-    return ScenarioResult("TC-15", "Document Authoring Skill", passed, "Document authoring executed.")
+    return ScenarioResult("TC-14", "Document Authoring Skill", passed, "Document authoring executed in resources/e2e_testing/.")
 
 
-async def tc_16_document_reader_attachment(client: SlackProtocolClient) -> ScenarioResult:
-    channel = client.get_channel("C_TEST_16")
-    thread_ts = client.get_thread_ts("T_16") or "T_16"
-    client.attach_file_to_thread(channel, thread_ts, "sys_spec.txt", "Throughput: 5000 rps. Latency: <50ms.")
-    prompt = "[Architect] /read-file sys_spec.txt What is the throughput specified in this file?"
-    await client.send_mention(prompt, channel_id=channel, thread_ts=thread_ts)
-
-    msgs = client.bus.get_messages_for_thread(channel, thread_ts)
-    if not msgs:
-        return ScenarioResult("TC-16", "Document Reader & Attachment", False, "No response.")
-    
-    passed = len(msgs) >= 1
-    return ScenarioResult("TC-16", "Document Reader & Attachment", passed, "Attachment parsed and attached to context.")
-
-
-async def tc_17_unauthorized_tool_rejection(client: SlackProtocolClient) -> ScenarioResult:
-    channel = client.get_channel("C_TEST_17")
+async def tc_15_document_reader_attachment(client: SlackProtocolClient) -> ScenarioResult:
+    channel = client.get_channel("C_TEST_15")
     thread_ts = client.get_thread_ts()
-    prompt = "[Visionary] Use your tools to list all files in root and read .env file."
+    prompt = "[Architect] /read_file resources/e2e_testing/sys_spec.txt What is the throughput specified in this file?"
     await client.send_mention(prompt, channel_id=channel, thread_ts=thread_ts)
 
-    actual_thread = thread_ts or (client.bus.posted_messages[0]["thread_ts"] if client.bus.posted_messages else "")
+    actual_thread = client.current_thread_ts or thread_ts or (client.bus.posted_messages[0]["thread_ts"] if client.bus.posted_messages else "T_15")
     msgs = client.bus.get_messages_for_thread(channel, actual_thread)
     if not msgs:
-        return ScenarioResult("TC-17", "Unauthorized Tool Rejection", False, "No response.")
+        return ScenarioResult("TC-15", "Document Reader & Attachment", False, "No response posted.")
     
     text = msgs[0].get("text", "")
-    # Should not leak env keys
-    passed = ("SLACK_BOT_TOKEN=" not in text and "OPENROUTER_API_KEY=" not in text)
-    return ScenarioResult("TC-17", "Unauthorized Tool Rejection", passed, "Protected against unauthorized filesystem inspection.")
+    passed = ("5000" in text or "rps" in text.lower())
+    return ScenarioResult("TC-15", "Document Reader & Attachment", passed, f"Document sys_spec.txt parsed from resources/e2e_testing/ (found throughput metrics: {passed}).")
 
 
-async def tc_18_grant_skill(client: SlackProtocolClient) -> ScenarioResult:
-    channel = client.get_channel("C_TEST_18")
+async def tc_16_unauthorized_tool_rejection(client: SlackProtocolClient) -> ScenarioResult:
+    channel = client.get_channel("C_TEST_16")
     thread_ts = client.get_thread_ts()
-    prompt = "/grant_skill web_research Architect"
+    prompt = "[Architect] Use load_skill workspace_authoring to modify system configuration."
+    await client.send_mention(prompt, channel_id=channel, thread_ts=thread_ts)
+
+    actual_thread = client.current_thread_ts or thread_ts or (client.bus.posted_messages[0]["thread_ts"] if client.bus.posted_messages else "T_16")
+    msgs = client.bus.get_messages_for_thread(channel, actual_thread)
+    if not msgs:
+        return ScenarioResult("TC-16", "Unauthorized Tool Rejection", False, "No response.")
+    
+    text = msgs[0].get("text", "").lower()
+    passed = any(
+        k in text
+        for k in [
+            "permission denied",
+            "not authorized",
+            "authorization error",
+            "not permitted",
+            "do not have permission",
+            "don't have permission",
+            "unauthorized",
+            "lacks permission",
+        ]
+    )
+    return ScenarioResult("TC-16", "Unauthorized Tool Rejection", passed, f"Unauthorized tool rejected with permission denial: {passed}.")
+
+
+async def tc_17_grant_skill(client: SlackProtocolClient) -> ScenarioResult:
+    channel = client.get_channel("C_TEST_17")
+    thread_ts = client.get_thread_ts()
+    prompt = "/grant_skill web_research [Architect]"
     await client.send_mention(prompt, channel_id=channel, thread_ts=thread_ts)
 
     sys_msgs = [s["text"] for s in client.bus.system_messages if s.get("channel_id") == channel]
     passed = any("Agent Skill Granted" in m for m in sys_msgs)
-    return ScenarioResult("TC-18", "Granular Skill Grant", passed, "web_research granted to Architect.")
+    return ScenarioResult("TC-17", "Granular Skill Grant", passed, "web_research granted to Architect.")
 
 
-async def tc_19_grant_for_all(client: SlackProtocolClient) -> ScenarioResult:
-    channel = client.get_channel("C_TEST_19")
+async def tc_18_grant_for_all(client: SlackProtocolClient) -> ScenarioResult:
+    channel = client.get_channel("C_TEST_18")
     thread_ts = client.get_thread_ts()
-    prompt = "/grant_for_all web_research"
+    prompt = "/grant_skill_for_all web_research"
     await client.send_mention(prompt, channel_id=channel, thread_ts=thread_ts)
 
     sys_msgs = [s["text"] for s in client.bus.system_messages if s.get("channel_id") == channel]
     passed = any("Thread-Global Skills Granted" in m for m in sys_msgs)
-    return ScenarioResult("TC-19", "Global Skill Grant", passed, "web_research granted globally in thread.")
+    return ScenarioResult("TC-18", "Global Skill Grant", passed, "web_research granted globally in thread.")
 
 
-async def tc_20_revoke_for_all(client: SlackProtocolClient) -> ScenarioResult:
-    channel = client.get_channel("C_TEST_20")
+async def tc_19_revoke_for_all(client: SlackProtocolClient) -> ScenarioResult:
+    channel = client.get_channel("C_TEST_19")
     thread_ts = client.get_thread_ts()
-    await client.send_mention("/grant_for_all web_research", channel_id=channel, thread_ts=thread_ts)
+    await client.send_mention("/grant_skill_for_all web_research", channel_id=channel, thread_ts=thread_ts)
     actual_thread = thread_ts or (client.bus.system_messages[-1]["thread_ts"] if client.bus.system_messages else "")
 
-    await client.send_mention("/revoke_for_all web_research", channel_id=channel, thread_ts=actual_thread)
+    await client.send_mention("/revoke_skill_for_all web_research", channel_id=channel, thread_ts=actual_thread)
     sys_msgs = [s["text"] for s in client.bus.system_messages if s.get("channel_id") == channel]
     passed = any("Revoked" in m for m in sys_msgs)
-    return ScenarioResult("TC-20", "Global Skill Revocation", passed, "Global skills revoked successfully.")
+    return ScenarioResult("TC-19", "Global Skill Revocation", passed, "Global skills revoked successfully.")
 
 
-async def tc_21_list_skills(client: SlackProtocolClient) -> ScenarioResult:
-    channel = client.get_channel("C_TEST_21")
+async def tc_20_list_skills(client: SlackProtocolClient) -> ScenarioResult:
+    channel = client.get_channel("C_TEST_20")
     thread_ts = client.get_thread_ts()
     prompt = "/list_skills"
     await client.send_mention(prompt, channel_id=channel, thread_ts=thread_ts)
@@ -343,43 +368,66 @@ async def tc_21_list_skills(client: SlackProtocolClient) -> ScenarioResult:
     posted = [m["text"] for m in client.bus.posted_messages if m.get("channel_id") == channel]
     all_msgs = sys_msgs + posted
     passed = any("Skills" in m or "web_research" in m or "codebase_inspection" in m for m in all_msgs)
-    return ScenarioResult("TC-21", "Skills Directory Query", passed, "Skills catalog listed transparently.")
+    return ScenarioResult("TC-20", "Skills Directory Query", passed, "Skills catalog listed transparently.")
 
 
-async def tc_22_delayed_progress_inplace_edit(client: SlackProtocolClient) -> ScenarioResult:
-    channel = client.get_channel("C_TEST_22")
+async def tc_21_delayed_progress_inplace_edit(client: SlackProtocolClient) -> ScenarioResult:
+    channel = client.get_channel("C_TEST_21")
     thread_ts = client.get_thread_ts()
     prompt = "[MarketAndCompetitionResearchExpert] Comprehensive web search on vector databases."
     await client.send_mention(prompt, channel_id=channel, thread_ts=thread_ts)
 
-    actual_thread = thread_ts or (client.bus.posted_messages[0]["thread_ts"] if client.bus.posted_messages else "")
+    actual_thread = client.current_thread_ts or thread_ts or (client.bus.posted_messages[0]["thread_ts"] if client.bus.posted_messages else "T_21")
     msgs = client.bus.get_messages_for_thread(channel, actual_thread)
-    passed = len(msgs) >= 1
-    return ScenarioResult("TC-22", "Delayed Progress Indicator & In-Place Edit", passed, "Message updated cleanly without thread duplicates.")
+    if not msgs:
+        return ScenarioResult("TC-21", "Delayed Progress Indicator & In-Place Edit", False, "No response posted.")
+
+    text = msgs[0].get("text", "").lower()
+    has_vector_results = any(k in text for k in ["pinecone", "qdrant", "milvus"])
+    passed = len(msgs) >= 1 and has_vector_results
+    return ScenarioResult("TC-21", "Delayed Progress Indicator & In-Place Edit", passed, f"Web search executed with vector database findings: {has_vector_results}.")
 
 
-async def tc_23_scribe_download_dm(client: SlackProtocolClient) -> ScenarioResult:
-    channel = client.get_channel("C_TEST_23")
-    thread_ts = client.get_thread_ts("1700000023.0001") or "1700000023.0001"
-    from agents.thread_notes_agent import set_thread_note_content
-    set_thread_note_content(channel, thread_ts, "Key synthesis: Event streaming adopted with Kafka.")
+async def tc_22_scribe_download_dm(client: SlackProtocolClient) -> ScenarioResult:
+    channel = client.get_channel("C_TEST_22")
+    thread_ts = client.get_thread_ts()
 
-    await client.send_block_action(
-        action_id="download_scribe_notes_txt",
-        value=f"{channel}:{thread_ts}",
-        channel_id=channel,
-        thread_ts=thread_ts,
-        user_id="U_TESTER_23",
+    # Step 1: Run authentic deliberation in thread to generate a live Scribe synthesis note
+    prompt = "[Architect] [TechLead] /max_words 25 What is our strategy for container image vulnerability scanning in CI/CD?"
+    await client.send_mention(prompt, channel_id=channel, thread_ts=thread_ts)
+
+    actual_thread = thread_ts or (client.bus.posted_messages[0]["thread_ts"] if client.bus.posted_messages else "")
+    note_text = await client.wait_for_scribe_note(channel, actual_thread, timeout=12.0)
+    has_scribe_note = bool(note_text) or any(
+        m.get("is_scribe_note") or m.get("username") == "Live Discussion Scribe"
+        for m in client.bus.posted_messages
     )
 
-    has_ephemeral = any(e.get("user_id") == "U_TESTER_23" for e in client.bus.ephemeral_messages)
+    # Step 2: Trigger download block action on the scribe card
+    await client.send_block_action(
+        action_id="download_scribe_notes_txt",
+        value=f"{channel}:{actual_thread}",
+        channel_id=channel,
+        thread_ts=actual_thread,
+        user_id="U_TESTER_22",
+    )
+
+    has_ephemeral = any(
+        e.get("user_id") == "U_TESTER_22" and "direct message" in e.get("text", "").lower()
+        for e in client.bus.ephemeral_messages
+    )
     has_file = any("txt" in f.get("filename", "") for f in client.bus.uploaded_files)
-    passed = (has_ephemeral and has_file)
-    return ScenarioResult("TC-23", "Scribe Download Button (.txt to DM)", passed, "Ephemeral notification posted & notes .txt uploaded to user DM.")
+    passed = (has_scribe_note and has_ephemeral and has_file)
+    return ScenarioResult(
+        "TC-22",
+        "Scribe Download Button (.txt in DM)",
+        passed,
+        f"Live scribe note posted: {has_scribe_note}, English ephemeral notice: {has_ephemeral}, .txt file uploaded: {has_file}.",
+    )
 
 
-async def tc_24_circuit_breaker(client: SlackProtocolClient) -> ScenarioResult:
-    channel = client.get_channel("C_TEST_24")
+async def tc_23_circuit_breaker(client: SlackProtocolClient) -> ScenarioResult:
+    channel = client.get_channel("C_TEST_23")
     thread_ts = client.get_thread_ts()
     try:
         set_circuit_breaker_enabled(True)
@@ -392,14 +440,14 @@ async def tc_24_circuit_breaker(client: SlackProtocolClient) -> ScenarioResult:
         actual_thread = thread_ts or (client.bus.posted_messages[0]["thread_ts"] if client.bus.posted_messages else "")
         texts = client.bus.get_all_texts_for_thread(channel, actual_thread)
         tripped = any("EXPENSE LIMIT REACHED FOR THE THREAD" in t for t in texts)
-        return ScenarioResult("TC-24", "Expense Circuit Breaker Tripping", tripped, "Circuit breaker tripped and calls halted.")
+        return ScenarioResult("TC-23", "Expense Circuit Breaker Tripping", tripped, "Circuit breaker tripped and calls halted.")
     finally:
         set_circuit_breaker_enabled(False)
         set_circuit_breaker_threshold(1.50)
 
 
-async def tc_25_usage_channel(client: SlackProtocolClient) -> ScenarioResult:
-    channel = client.get_channel("C_TEST_25")
+async def tc_24_usage_channel(client: SlackProtocolClient) -> ScenarioResult:
+    channel = client.get_channel("C_TEST_24")
     thread_ts = client.get_thread_ts()
     await client.send_mention("[Visionary] Future of quantum computing in fintech.", channel_id=channel, thread_ts=thread_ts)
 
@@ -409,30 +457,69 @@ async def tc_25_usage_channel(client: SlackProtocolClient) -> ScenarioResult:
     entry = usage_tracker.thread_usage_data.get((channel, actual_thread), {})
     models = entry.get("models", {})
     passed = bool(models and any(m.get("prompt_tokens", 0) > 0 for m in models.values()))
-    return ScenarioResult("TC-25", "Usage Channel Token Tracking", passed, f"Tracked models: {list(models.keys())}")
+    return ScenarioResult("TC-24", "Usage Channel Token Tracking", passed, f"Tracked models: {list(models.keys())}")
 
 
-async def tc_26_stop_concurrency(client: SlackProtocolClient) -> ScenarioResult:
-    channel = client.get_channel("C_TEST_26")
+async def tc_25_stop_concurrency(client: SlackProtocolClient) -> ScenarioResult:
+    channel = client.get_channel("C_TEST_25")
     thread_ts = client.get_thread_ts()
-    await client.send_mention("/stop", channel_id=channel, thread_ts=thread_ts)
-    return ScenarioResult("TC-26", "Stop Directive Concurrency", True, "Stop command halts active discussion.")
+
+    # Step 1: Start full workflow discussion across all agents (untagged mention triggers full workflow)
+    prompt = "/max_words 15 Debate the viability of replacing SQL databases with blockchain for high-frequency inventory tracking across all our services."
+    await client.send_mention(prompt, channel_id=channel, thread_ts=thread_ts, wait_for_task=False)
+
+    actual_thread = client.current_thread_ts or thread_ts or (client.bus.posted_messages[0]["thread_ts"] if client.bus.posted_messages else "")
+
+    # Step 2: Interrupt mid-flight with /stop
+    await asyncio.sleep(0.05)
+    await client.send_mention("/stop", channel_id=channel, thread_ts=actual_thread)
+    await asyncio.sleep(0.1)
+
+    is_active = thread_state_manager.is_discussion_active(channel, actual_thread)
+    sys_msgs = [s["text"] for s in client.bus.system_messages if s.get("channel_id") == channel]
+    has_stop_confirmation = any("Discussion stopped" in m or "Halted" in m for m in sys_msgs)
+
+    # Check remaining agent queue is cleared
+    rem_agents = thread_state_manager.get_remaining_agents(channel, actual_thread)
+
+    posted_msgs = client.bus.get_messages_for_thread(channel, actual_thread)
+    speakers = [
+        m.get("username")
+        for m in posted_msgs
+        if m.get("username") not in ("Panel System", "Live Discussion Scribe", "E2E Test Runner")
+    ]
+
+    # Full workflow has 17 agents; stopping must halt deliberation and keep speakers well below total pool
+    passed = ((not is_active) or has_stop_confirmation or not rem_agents) and len(speakers) < 17
+    return ScenarioResult(
+        "TC-25",
+        "Stop Directive Concurrency",
+        passed,
+        f"Workflow halted cleanly. Active: {is_active}, stop confirmed: {has_stop_confirmation}, remaining cleared: {not rem_agents}, speakers before halt: {len(speakers)}/17.",
+    )
 
 
-async def tc_27_language_and_ambiguous_tag(client: SlackProtocolClient) -> ScenarioResult:
+async def tc_27_default_workflow_untagged(client: SlackProtocolClient) -> ScenarioResult:
     channel = client.get_channel("C_TEST_27")
     thread_ts = client.get_thread_ts()
-    await client.send_mention("[Lead] Koji su rizici migracije?", channel_id=channel, thread_ts=thread_ts)
+    # Mention without any explicit agent bracket tag [Agent]
+    prompt = "Evaluate our distributed consensus and deployment strategy for 2026."
+    await client.send_mention(prompt, channel_id=channel, thread_ts=thread_ts)
 
-    sys_msgs = [s["text"] for s in client.bus.system_messages if s.get("channel_id") == channel]
-    has_ambiguous_warning = any("Ambiguous Agent Reference" in m for m in sys_msgs)
+    actual_thread = thread_ts or (client.bus.posted_messages[0]["thread_ts"] if client.bus.posted_messages else "")
+    msgs = client.bus.get_messages_for_thread(channel, actual_thread)
+    if not msgs:
+        return ScenarioResult("TC-27", "Default Workflow on Untagged Mention", False, "No agent response posted.")
 
-    # Disambiguate
-    await client.send_mention("[TechLead] Koji su rizici migracije?", channel_id=channel, thread_ts=thread_ts)
-    actual_thread = thread_ts or (client.bus.posted_messages[-1]["thread_ts"] if client.bus.posted_messages else "")
-    lang = thread_state_manager.get_language(channel, actual_thread)
-    passed = has_ambiguous_warning and (lang in ["Croatian", "English"])
-    return ScenarioResult("TC-27", "Language Lock & Ambiguous Tag Warning", passed, f"Ambiguous warning displayed, language locked: {lang}")
+    speakers = [m.get("username") for m in msgs]
+    # Default workflow starts with Visionary, hands off to Innovator, and concludes with Architect
+    passed = len(speakers) >= 2 and speakers[0] == "Visionary"
+    return ScenarioResult(
+        "TC-27",
+        "Default Workflow on Untagged Mention",
+        passed,
+        f"Default workflow triggered. Speakers: {speakers}",
+    )
 
 
 ALL_SCENARIOS: list[Scenario] = [
@@ -445,22 +532,21 @@ ALL_SCENARIOS: list[Scenario] = [
     Scenario("TC-07", "Scribe Minimum Word Count", "Directives", tc_07_scribe_min_words),
     Scenario("TC-08", "History Window Slicing", "Context", tc_08_history_slicing),
     Scenario("TC-09", "Agent Exclusion Directive", "Governance", tc_09_agent_exclusion),
-    Scenario("TC-10", "Forced Agent Inclusion", "Governance", tc_10_agent_inclusion),
-    Scenario("TC-11", "Constraint Revocation", "Directives", tc_11_revoke_constraints),
-    Scenario("TC-12", "Multi-Round Debate Cycling", "Topology", tc_12_multi_round),
-    Scenario("TC-13", "Live Web Research Skill", "Skills", tc_13_web_research),
-    Scenario("TC-14", "Codebase Inspection Skill", "Skills", tc_14_codebase_inspection),
-    Scenario("TC-15", "Document Authoring in resources/", "Skills", tc_15_document_authoring),
-    Scenario("TC-16", "Document Reader & Attachment", "Skills", tc_16_document_reader_attachment),
-    Scenario("TC-17", "Unauthorized Tool Rejection", "Security", tc_17_unauthorized_tool_rejection),
-    Scenario("TC-18", "Granular Agent Skill Grant", "Permissions", tc_18_grant_skill),
-    Scenario("TC-19", "Thread-Global Skill Grant", "Permissions", tc_19_grant_for_all),
-    Scenario("TC-20", "Thread-Global Skill Revocation", "Permissions", tc_20_revoke_for_all),
-    Scenario("TC-21", "Skills Directory Query", "Discovery", tc_21_list_skills),
-    Scenario("TC-22", "Delayed Progress & In-Place Edit", "UX", tc_22_delayed_progress_inplace_edit),
-    Scenario("TC-23", "Scribe Download Button (.txt in DM)", "Interactivity", tc_23_scribe_download_dm),
-    Scenario("TC-24", "Expense Circuit Breaker Tripping", "Governance", tc_24_circuit_breaker),
-    Scenario("TC-25", "Usage Channel Token Tracking", "Governance", tc_25_usage_channel),
-    Scenario("TC-26", "Stop Directive Concurrency", "Safety", tc_26_stop_concurrency),
-    Scenario("TC-27", "Language Lock & Ambiguous Tag Warning", "NLP", tc_27_language_and_ambiguous_tag),
+    Scenario("TC-10", "Constraint Revocation", "Directives", tc_10_revoke_constraints),
+    Scenario("TC-11", "Multi-Round Debate Cycling", "Topology", tc_11_multi_round),
+    Scenario("TC-12", "Live Web Research Skill", "Skills", tc_12_web_research),
+    Scenario("TC-13", "Codebase Inspection Skill", "Skills", tc_13_codebase_inspection),
+    Scenario("TC-14", "Document Authoring in resources/e2e_testing/", "Skills", tc_14_document_authoring),
+    Scenario("TC-15", "Document Reader in resources/e2e_testing/", "Skills", tc_15_document_reader_attachment),
+    Scenario("TC-16", "Unauthorized Tool Rejection", "Security", tc_16_unauthorized_tool_rejection),
+    Scenario("TC-17", "Granular Agent Skill Grant", "Permissions", tc_17_grant_skill),
+    Scenario("TC-18", "Thread-Global Skill Grant", "Permissions", tc_18_grant_for_all),
+    Scenario("TC-19", "Thread-Global Skill Revocation", "Permissions", tc_19_revoke_for_all),
+    Scenario("TC-20", "Skills Directory Query", "Discovery", tc_20_list_skills),
+    Scenario("TC-21", "Delayed Progress & In-Place Edit", "UX", tc_21_delayed_progress_inplace_edit),
+    Scenario("TC-22", "Scribe Download Button (.txt in DM)", "Interactivity", tc_22_scribe_download_dm),
+    Scenario("TC-23", "Expense Circuit Breaker Tripping", "Governance", tc_23_circuit_breaker),
+    Scenario("TC-24", "Usage Channel Token Tracking", "Governance", tc_24_usage_channel),
+    Scenario("TC-25", "Stop Directive Concurrency", "Safety", tc_25_stop_concurrency),
+    Scenario("TC-27", "Default Workflow on Untagged Mention", "Topology", tc_27_default_workflow_untagged),
 ]

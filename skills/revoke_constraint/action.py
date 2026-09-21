@@ -1,6 +1,6 @@
 """
-Action handler for the revoke skill.
-Executes when /revoke [target] is parsed.
+Action handler for the revoke_constraint skill.
+Executes when /revoke_constraint [target] is parsed.
 Revokes designated thread constraints or all constraints.
 """
 
@@ -19,7 +19,7 @@ async def run(ctx: Any, params: dict[str, Any] | None = None) -> dict[str, Any] 
     target = str(params.get("target", "") or params.get("arg", "")).strip().lower()
 
     logger.info(
-        f"[REVOKE ACTION] Revoking '{target}' for thread {channel_id}:{thread_ts}"
+        f"[REVOKE CONSTRAINT ACTION] Revoking '{target}' for thread {channel_id}:{thread_ts}"
     )
 
     if not target or target in ("all", "everything"):
@@ -41,6 +41,6 @@ async def run(ctx: Any, params: dict[str, Any] | None = None) -> dict[str, Any] 
     elif target in ("modifiers", "modifier"):
         thread_state_manager.clear_format_modifiers(channel_id, thread_ts)
     else:
-        logger.warning(f"[REVOKE ACTION] Unknown revoke target '{target}' for thread {channel_id}:{thread_ts}")
+        logger.warning(f"[REVOKE CONSTRAINT ACTION] Unknown revoke target '{target}' for thread {channel_id}:{thread_ts}")
 
     return None

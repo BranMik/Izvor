@@ -6,7 +6,7 @@ Supports dual-mode execution:
 - Offline Simulation: fast, zero-delay in-memory test harness
 - Live Slack Dispatch: streams authentic messages, Block Kit cards, avatars, and
   progress edits directly into a designated Slack test channel with configurable pacing.
-Supports standalone CLI execution: `python -m e2e_harness.runner` or via `pytest`.
+Supports standalone CLI execution: `python -m e2e_testing_harness.runner` or via `pytest`.
 """
 
 from __future__ import annotations
@@ -15,6 +15,7 @@ import argparse
 import asyncio
 import json
 import logging
+import os
 from pathlib import Path
 import sys
 import time
@@ -22,17 +23,18 @@ from typing import Any
 from unittest.mock import AsyncMock, patch
 
 from core.config import SLACK_TEST_CHANNEL_ID
-from e2e_harness.hybrid_interceptor import HybridInterceptor
-from e2e_harness.protocol_client import SlackProtocolClient
-from e2e_harness.scenarios import ALL_SCENARIOS, Scenario, ScenarioResult
+from e2e_testing_harness.hybrid_interceptor import HybridInterceptor
+from e2e_testing_harness.protocol_client import SlackProtocolClient
+from e2e_testing_harness.scenarios import ALL_SCENARIOS, Scenario, ScenarioResult
 from orchestration.agent_settings import (
     reset_enabled_agents,
     set_circuit_breaker_enabled,
     set_circuit_breaker_threshold,
+    settings_manager,
 )
 from orchestration.thread_state import thread_state_manager
 
-logger = logging.getLogger("e2e_harness.runner")
+logger = logging.getLogger("e2e_testing_harness.runner")
 
 
 def get_next_test_run_prefix(run_id: str | None = None, run_num: int | None = None) -> str:
@@ -54,7 +56,22 @@ def get_next_test_run_prefix(run_id: str | None = None, run_num: int | None = No
         counter_file.write_text(str(next_num))
     except Exception:
         pass
-    return f"TEST_RUN_{next_num}"
+def _mock_web_search(query: str, max_results: int = 5) -> str:
+    """Fixture returning scenario-relevant search results (Claude pricing or Vector DBs)."""
+    q = str(query or "").lower()
+    if "vector" in q:
+        return json.dumps({
+            "results": [
+                {"title": "Pinecone Vector Database", "url": "https://pinecone.io", "snippet": "Pinecone is a managed cloud vector database for AI similarity search."},
+                {"title": "Qdrant Vector Search", "url": "https://qdrant.tech", "snippet": "Qdrant is an open-source vector search engine and database with payload filtering."},
+                {"title": "Milvus Vector DB", "url": "https://milvus.io", "snippet": "Milvus is a distributed open-source vector database for massive similarity search."}
+            ]
+        })
+    return json.dumps({
+        "results": [
+            {"title": "Claude Pricing", "url": "https://anthropic.com/pricing", "snippet": "Claude 3.7 Sonnet: $3.00 / MTok input, $15.00 / MTok output"}
+        ]
+    })
 
 
 class E2ETestRunner:
@@ -63,15 +80,25 @@ class E2ETestRunner:
     def __init__(
         self,
         allow_live_system_llm: bool = True,
-        allow_all_live_llm: bool = False,
+        allow_all_live_llm: bool | None = None,
+        mocked_llm: bool = False,
         live_slack: bool = False,
         live_channel_id: str | None = None,
         pacing: float | None = None,
         run_id: str | None = None,
         run_num: int | None = None,
     ) -> None:
+        if mocked_llm:
+            effective_allow_all_live = False
+        elif allow_all_live_llm is not None:
+            effective_allow_all_live = allow_all_live_llm
+        else:
+            # Default: Live LLM execution for all agents
+            effective_allow_all_live = True
+
         self.allow_live_system_llm = allow_live_system_llm
-        self.allow_all_live_llm = allow_all_live_llm
+        self.allow_all_live_llm = effective_allow_all_live
+        self.mocked_llm = not effective_allow_all_live
         self.live_slack = live_slack
         self.live_channel_id = live_channel_id or (SLACK_TEST_CHANNEL_ID if live_slack else None)
         
@@ -92,6 +119,7 @@ class E2ETestRunner:
             live_mode=self.live_slack,
             live_channel_id=self.live_channel_id,
         )
+        os.environ["E2E_TESTING"] = "1"
 
     async def run_scenario(self, scenario: Scenario) -> ScenarioResult:
         # Reset runtime state between tests
@@ -103,16 +131,14 @@ class E2ETestRunner:
 
         start = time.time()
         scenario_tag = f"{self.run_prefix}-[{scenario.id}]"
-
-        # In live mode, initialize the root scenario card in the test channel
-        if self.client.live_mode:
-            await self.client.start_live_scenario(scenario_tag, scenario.name)
+        self.client.set_active_scenario(scenario_tag, scenario.name)
 
         from contextlib import ExitStack
 
         patches = [
             patch("services.slack_client.post_agent_response", self.client.mock_post_agent_response),
             patch("services.slack_client.update_slack_message", self.client.mock_update_slack_message),
+            patch("orchestration.stages.post_record.update_slack_message", self.client.mock_update_slack_message),
             patch("services.slack_client.post_system_message", self.client.mock_post_system_message),
             patch("services.slack_client.post_ephemeral_to_slack", self.client.mock_post_ephemeral),
             patch("services.slack_client.upload_text_file_to_slack", self.client.mock_upload_file),
@@ -131,11 +157,19 @@ class E2ETestRunner:
             patch("orchestration.stages.resolution.post_agent_response", self.client.mock_post_agent_response),
             patch("orchestration.stages.execution.post_agent_response", self.client.mock_post_agent_response),
             patch("orchestration.stages.post_record.post_agent_response", self.client.mock_post_agent_response),
-            patch("orchestration.stages.post_record.update_slack_message", self.client.mock_update_slack_message),
+            patch("services.slack_client.post_thread_note", self.client.mock_post_thread_note),
+            patch("services.slack_client.update_thread_note", self.client.mock_update_thread_note),
+            patch("agents.thread_notes_agent.post_thread_note", self.client.mock_post_thread_note),
+            patch("agents.thread_notes_agent.update_thread_note", self.client.mock_update_thread_note),
+            patch("agents.thread_notes_agent.fetch_thread_history", self.client.mock_fetch_thread_history),
+            patch("services.flat_history_recorder.record_flat_history", lambda *args, **kwargs: None),
+            patch("services.flat_history_recorder.async_record_flat_history", new_callable=AsyncMock),
+            patch("orchestration.stages.post_record.record_flat_history", lambda *args, **kwargs: None),
             patch("core.slack_security.verify_slack_signature", lambda body, headers: True),
             patch("main.verify_slack_signature", lambda body, headers: True),
             patch("litellm.acompletion", self.interceptor.intercept_acompletion),
-            patch("services.mcp_tools.web_search", lambda query, max_results=5: json.dumps({"results": [{"title": "Claude Pricing", "url": "https://anthropic.com/pricing", "snippet": "Claude 3.7 Sonnet: $3.00/$15.00"}]})),
+            patch("litellm.completion", self.interceptor.intercept_completion),
+            patch("services.mcp_tools.web_search", _mock_web_search),
             patch("orchestration.stages.post_record.DEBATE_TURN_PACING_SECONDS", self.pacing),
             patch("orchestration.stages.post_record.SLACK_POST_PAUSE_SECONDS", self.pacing),
             patch("orchestration.stages.resolution.SLACK_POST_PAUSE_SECONDS", self.pacing),
@@ -157,8 +191,18 @@ class E2ETestRunner:
                     duration_seconds=time.time() - start,
                 )
 
-            # In live mode, post completion card into the thread
+            # In live mode, allow any active background scribe task to finish before posting completion card
             if self.client.live_mode:
+                try:
+                    from agents.thread_notes_agent import _RUNNING_TASKS
+                    target_thread = self.client.current_thread_ts
+                    if target_thread:
+                        target_key = (self.client.get_channel(), target_thread)
+                        bg_task = _RUNNING_TASKS.get(target_key)
+                        if bg_task and not bg_task.done():
+                            await asyncio.wait_for(asyncio.shield(bg_task), timeout=8.0)
+                except Exception:
+                    pass
                 await self.client.finish_live_scenario(res)
 
             return res
@@ -166,7 +210,8 @@ class E2ETestRunner:
     async def run_all(self, filter_id: str | None = None) -> list[ScenarioResult]:
         scenarios = ALL_SCENARIOS
         if filter_id:
-            scenarios = [s for s in scenarios if s.id.lower() == filter_id.lower()]
+            allowed_ids = {x.strip().lower() for x in filter_id.split(",") if x.strip()}
+            scenarios = [s for s in scenarios if s.id.lower() in allowed_ids]
 
         results: list[ScenarioResult] = []
         mode_desc = f"LIVE SLACK [Channel: {self.live_channel_id}, Pacing: {self.pacing}s]" if self.live_slack else "OFFLINE SIMULATION"
@@ -179,16 +224,21 @@ class E2ETestRunner:
         print(f"  LLM Pipeline:    {llm_mode}")
         print(f"  Total Scenarios: {len(scenarios)}\n")
 
-        for sc in scenarios:
-            scenario_tag = f"{self.run_prefix}-[{sc.id}]"
-            sys.stdout.write(f"  {scenario_tag:22s} {sc.name:42s} ... ")
-            sys.stdout.flush()
-            res = await self.run_scenario(sc)
-            results.append(res)
-            status_tag = "PASS" if res.passed else "FAIL"
-            print(f"[{status_tag}] ({res.duration_seconds:.2f}s)")
-            if not res.passed:
-                print(f"         --> [WARN] {res.details}")
+        initial_workflow = settings_manager.get_workflow_config()
+        try:
+            for sc in scenarios:
+                scenario_tag = f"{self.run_prefix}-[{sc.id}]"
+                sys.stdout.write(f"  {scenario_tag:22s} {sc.name:42s} ... ")
+                sys.stdout.flush()
+                res = await self.run_scenario(sc)
+                results.append(res)
+                status_tag = "PASS" if res.passed else "FAIL"
+                print(f"[{status_tag}] ({res.duration_seconds:.2f}s)")
+                if not res.passed:
+                    print(f"         --> [WARN] {res.details}")
+        finally:
+            if initial_workflow:
+                settings_manager.set_workflow_config(initial_workflow)
 
         print("\n" + "-" * 80)
         passed_count = sum(1 for r in results if r.passed)
@@ -201,8 +251,15 @@ class E2ETestRunner:
 def main() -> None:
     parser = argparse.ArgumentParser(description="E2E Hybrid Simulation Test Runner")
     parser.add_argument("--case", type=str, help="Specific Scenario ID to execute (e.g. TC-06)")
+    parser.add_argument(
+        "--hybrid--mocked-llm",
+        "--hybrid-mocked-llm",
+        dest="hybrid_mocked_llm",
+        action="store_true",
+        help="Activates hybrid mocked LLM testing (by default, live LLM execution is enabled for all agents)",
+    )
     parser.add_argument("--no-live-llm", action="store_true", help="Disables live LLM fallback for system agents")
-    parser.add_argument("--live-all-llm", action="store_true", help="Enables live LLM execution for all agents (including persona turns)")
+    parser.add_argument("--live-all-llm", action="store_true", default=True, help="Enables live LLM execution for all agents (DEFAULT: enabled unless --hybrid--mocked-llm is specified)")
     parser.add_argument("--live-slack", action="store_true", help="Enables live Slack dispatch to dedicated channel/thread")
     parser.add_argument("--channel", type=str, help="Target live Slack channel ID (defaults to SLACK_TEST_CHANNEL_ID in .env)")
     parser.add_argument("--pacing", type=float, help="Pacing delay in seconds between Slack posts (defaults to 1.0s in live mode, 0.0s in offline mode)")
@@ -215,9 +272,13 @@ def main() -> None:
         print("\n[ERROR] --live-slack requires a valid Slack channel ID. Please provide --channel <CHANNEL_ID> or set SLACK_TEST_CHANNEL_ID in your .env file.\n")
         sys.exit(1)
 
+    use_mocked_llm = args.hybrid_mocked_llm
+    allow_all_live = not use_mocked_llm
+
     runner = E2ETestRunner(
         allow_live_system_llm=not args.no_live_llm,
-        allow_all_live_llm=args.live_all_llm,
+        allow_all_live_llm=allow_all_live,
+        mocked_llm=use_mocked_llm,
         live_slack=args.live_slack,
         live_channel_id=channel_id,
         pacing=args.pacing,

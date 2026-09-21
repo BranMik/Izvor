@@ -84,7 +84,7 @@ async def test_directive_parser_grant_skill_trailing_text_ignored():
 
 
 @pytest.mark.anyio
-async def test_grant_for_all_unconditionally_halts():
+async def test_grant_skill_for_all_unconditionally_halts():
     pipeline = TurnPipeline()
     channel_id = "C_TEST"
     thread_ts = "1726000000.1"
@@ -96,7 +96,7 @@ async def test_grant_for_all_unconditionally_halts():
     ctx = TurnContext(
         channel_id=channel_id,
         thread_ts=thread_ts,
-        raw_text="/grant_for_all web_research Now discuss everything",
+        raw_text="/grant_skill_for_all web_research Now discuss everything",
     )
     directives = await directive_parser.parse(ctx.raw_text)
     ctx.actions = directives.actions
@@ -106,12 +106,12 @@ async def test_grant_for_all_unconditionally_halts():
     assert res is not None
     assert res.get("ok") is True
     assert res.get("halted") is True
-    assert res.get("action") == "grant_for_all"
+    assert res.get("action") == "grant_skill_for_all"
     post_mock.assert_awaited_once()
 
 
 @pytest.mark.anyio
-async def test_grant_for_all_halts_on_bot_mention():
+async def test_grant_skill_for_all_halts_on_bot_mention():
     pipeline = TurnPipeline()
     channel_id = "C_TEST"
     thread_ts = "1726000000.2"
@@ -122,7 +122,7 @@ async def test_grant_for_all_halts_on_bot_mention():
     ctx = TurnContext(
         channel_id=channel_id,
         thread_ts=thread_ts,
-        raw_text="<@U0812345> /grant_for_all web_research",
+        raw_text="<@U0812345> /grant_skill_for_all web_research",
     )
     directives = await directive_parser.parse(ctx.raw_text)
     ctx.actions = directives.actions
@@ -132,7 +132,7 @@ async def test_grant_for_all_halts_on_bot_mention():
     assert res is not None
     assert res.get("ok") is True
     assert res.get("halted") is True
-    assert res.get("action") == "grant_for_all"
+    assert res.get("action") == "grant_skill_for_all"
 
 
 @pytest.mark.anyio

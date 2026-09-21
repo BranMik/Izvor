@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import re
@@ -213,7 +214,7 @@ async def handle_slack_events(request: Request, background_tasks: BackgroundTask
                 if not has_slash_command:
                     has_slash_command = bool(
                         re.search(
-                            r"(?:^|\s)/(?:grant_for_all|grant-for-all|grant_skill|grant-skill|revoke_for_all|revoke-for-all|list_skills|list-skills|rounds|round|next_round|next-round|nextround)\b",
+                            r"(?:^|\s)/(?:grant_skill_for_all|grant-skill-for-all|grant_for_all|grant-for-all|grant_skill|grant-skill|revoke_skill_for_all|revoke-skill-for-all|revoke_for_all|revoke-for-all|revoke_constraint|revoke-constraint|revoke|list_skills|list-skills|rounds|round|next_round|next-round|nextround)\b",
                             raw_text,
                             re.IGNORECASE,
                         )
@@ -237,16 +238,18 @@ async def handle_slack_events(request: Request, background_tasks: BackgroundTask
                     logger.info(
                         f"[WEBHOOK] DISPATCHING BackgroundTask for '{event_type}' - channel: {channel_id}, thread: {thread_ts}"
                     )
-                    # Use FastAPI BackgroundTasks to run agent processing after returning 200 OK
-                    background_tasks.add_task(
-                        _get_process_and_respond(),
-                        channel_id=channel_id,
-                        thread_ts=thread_ts,
-                        raw_text=raw_text,
-                        bot_user_id=bot_user_id,
-                        is_bot_trigger=False,
-                        run_internal_loop=True,
+                    # Dispatch agent discussion loop asynchronously and register task with thread_state_manager
+                    task = asyncio.create_task(
+                        _get_process_and_respond()(
+                            channel_id=channel_id,
+                            thread_ts=thread_ts,
+                            raw_text=raw_text,
+                            bot_user_id=bot_user_id,
+                            is_bot_trigger=False,
+                            run_internal_loop=True,
+                        )
                     )
+                    thread_state_manager.set_active_task(channel_id, thread_ts, task)
                 else:
                     logger.info(
                         "[WEBHOOK] Ignoring event - should_process evaluated to False"

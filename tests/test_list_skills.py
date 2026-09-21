@@ -31,7 +31,7 @@ def test_list_skills_registered():
     assert skill_def.display_name == "List Skills"
     assert "/list_skills" in skill_def.triggers.get("slash", [])
     assert "/list-skills" in skill_def.triggers.get("slash", [])
-    assert skill_def.triggers.get("auto_detect") is True
+    assert skill_def.triggers.get("auto_detect") is False
     assert skill_def.action_handler is not None
 
 
@@ -141,33 +141,37 @@ async def test_action_run_no_agent_no_text_halts():
 
 
 @pytest.mark.anyio
-async def test_action_run_with_named_agent_does_not_halt():
+async def test_action_run_with_named_agent_halts_exclusively():
     """
-    If /list_skills is invoked with a named agent, it should NOT halt,
-    allowing the pipeline to route to that agent.
+    If /list_skills is invoked with a named agent, it is strictly exclusive
+    and halts immediately after presenting skills.
     """
     ctx = TurnContext(
         channel_id="C12345",
         thread_ts="1234567.89",
         raw_text="/list_skills [Architect]",
     )
-    res = await list_skills_action_run(ctx)
-    assert res is None
+    with patch("skills.list_skills.action.execute_llm_with_retry", new_callable=AsyncMock) as mock_llm, \
+         patch("skills.list_skills.action.post_system_message", new_callable=AsyncMock) as mock_post:
+        res = await list_skills_action_run(ctx)
+        assert res == {"ok": True, "halted": True, "action": "list_skills"}
 
 
 @pytest.mark.anyio
-async def test_action_run_with_additional_text_does_not_halt():
+async def test_action_run_with_additional_text_halts_exclusively():
     """
-    If /list_skills is invoked with additional prompt text, it should NOT halt,
-    allowing the conversation turn to proceed.
+    If /list_skills is invoked with additional prompt text, it is strictly exclusive
+    and halts immediately after presenting skills.
     """
     ctx = TurnContext(
         channel_id="C12345",
         thread_ts="1234567.89",
         raw_text="/list_skills which agent should I use for code reviews?",
     )
-    res = await list_skills_action_run(ctx)
-    assert res is None
+    with patch("skills.list_skills.action.execute_llm_with_retry", new_callable=AsyncMock) as mock_llm, \
+         patch("skills.list_skills.action.post_system_message", new_callable=AsyncMock) as mock_post:
+        res = await list_skills_action_run(ctx)
+        assert res == {"ok": True, "halted": True, "action": "list_skills"}
 
 
 def test_all_agents_see_skills_in_prompt():

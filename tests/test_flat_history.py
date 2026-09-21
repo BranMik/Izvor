@@ -9,10 +9,12 @@ from orchestration.agent_router import process_and_respond
 from orchestration.agent_settings import reset_enabled_agents, set_orchestration_mode
 from orchestration.thread_state import thread_state_manager
 from services.flat_history_recorder import (
+    DEFAULT_FLAT_HISTORIES_DIR,
     FLAT_HISTORIES_DIR,
     format_messages_to_markdown,
     generate_flat_history_filename,
     get_flat_history_filepath,
+    is_test_thread,
     record_flat_history,
 )
 
@@ -167,3 +169,69 @@ async def test_process_and_respond_writes_flat_history(monkeypatch, tmp_path):
     assert "### **[User]**" in content
     assert "Kako podici Docker container?" in content
     assert "Ovo je rjesenje" in content
+
+
+def test_is_test_thread_detection(monkeypatch):
+    """Verify that is_test_thread properly classifies testing vs real production threads."""
+    # When FLAT_HISTORIES_DIR is pointed to default project directory
+    monkeypatch.setattr(
+        "services.flat_history_recorder.FLAT_HISTORIES_DIR", DEFAULT_FLAT_HISTORIES_DIR
+    )
+
+    # 1. Channels starting with test prefixes or test IDs
+    assert is_test_thread(channel_id="C_TEST_01", thread_ts="1789000001.0000") is True
+    assert is_test_thread(channel_id="C_TEST", thread_ts="1789000001.0000") is True
+    assert is_test_thread(channel_id="test_channel", thread_ts="1789000001.0000") is True
+    assert is_test_thread(channel_id="C123", thread_ts="1789000001.0000") is True
+    assert is_test_thread(channel_id="C_FILE_TEST", thread_ts="1789000001.0000") is True
+
+    # 2. Test thread timestamps (e.g. E2E T_xx or mock synthetic timestamps)
+    assert is_test_thread(channel_id="C0123REAL", thread_ts="T_08") is True
+    assert is_test_thread(channel_id="C0123REAL", thread_ts="T_15") is True
+    assert is_test_thread(channel_id="C0123REAL", thread_ts="1700000001.0000") is True
+    assert is_test_thread(channel_id="C0123REAL", thread_ts="123450001") is True
+    assert is_test_thread(channel_id="C0123REAL", thread_ts="888880001") is True
+
+    # 3. Environment flags
+    monkeypatch.setenv("E2E_TESTING", "1")
+    assert is_test_thread(channel_id="C0123REAL", thread_ts="1789123456.789012") is True
+    monkeypatch.delenv("E2E_TESTING")
+
+    # 4. When redirected to isolated tmp_path, is_test_thread returns False to allow test writes
+    monkeypatch.setattr(
+        "services.flat_history_recorder.FLAT_HISTORIES_DIR", Path("/tmp/isolated_test")
+    )
+    assert is_test_thread(channel_id="C_TEST_01", thread_ts="T_15") is False
+
+
+def test_record_flat_history_skips_testing_thread(monkeypatch, tmp_path):
+    """Verify that record_flat_history returns None and creates NO files for testing threads."""
+    # Point FLAT_HISTORIES_DIR to default to test real behavior
+    monkeypatch.setattr(
+        "services.flat_history_recorder.FLAT_HISTORIES_DIR", DEFAULT_FLAT_HISTORIES_DIR
+    )
+
+    res = record_flat_history(
+        channel_id="C_TEST_01",
+        thread_ts="T_01",
+        initial_prompt="Should skip this",
+        messages=[{"role": "user", "content": "hello"}],
+    )
+    assert res is None
+
+    # But with force=True and a custom dir, it can write
+    custom_dir = tmp_path / "custom_flat"
+    custom_dir.mkdir()
+    monkeypatch.setattr(
+        "services.flat_history_recorder.FLAT_HISTORIES_DIR", custom_dir
+    )
+    res_forced = record_flat_history(
+        channel_id="C_TEST_01",
+        thread_ts="1712345678.999",
+        initial_prompt="Forced test write",
+        messages=[{"role": "user", "content": "hello forced"}],
+        force=True,
+    )
+    assert res_forced is not None
+    assert res_forced.exists()
+
