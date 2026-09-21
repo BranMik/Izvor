@@ -60,18 +60,29 @@ class DiscussionScribe:
         length_directives = []
         if scribe_max_words is not None:
             length_directives.append(
-                f"CRITICAL LENGTH CONSTRAINT: The entire synthesis note must strictly NOT exceed {scribe_max_words} words."
+                f"CRITICAL LENGTH CONSTRAINT: The entire synthesis note must strictly NOT exceed {scribe_max_words} words total. Be extremely concise."
             )
         if scribe_min_words is not None:
             length_directives.append(
-                f"CRITICAL LENGTH CONSTRAINT: The entire synthesis note must have a minimum length of {scribe_min_words} words."
+                f"CRITICAL LENGTH CONSTRAINT: The entire synthesis note must have a minimum length of {scribe_min_words} words. Elaborate sufficiently to meet this floor."
             )
         extra_len_instruction = f" {' '.join(length_directives)}" if length_directives else ""
 
         if is_completed:
+            if scribe_max_words is not None and scribe_max_words <= 60:
+                structure_req = (
+                    f"Keep it ultra-concise with a brief objective and core conclusion only. "
+                    f"Do not use multiple verbose section headings. The entire response MUST be under {scribe_max_words} words."
+                )
+            else:
+                structure_req = (
+                    "Include Core Objective & Problem Statement, Key Perspectives & Insights, "
+                    "Consensus & Strategic Decisions, Risks & Trade-offs, and Action Items & Next Steps."
+                )
+            ceiling_text = f"strictly under {scribe_max_words} words" if scribe_max_words is not None else "strictly under 500 words maximum ceiling"
             status_directive = (
-                "The discussion has finished. Generate the FINAL concise strategic synthesis notes (strictly under 500 words maximum ceiling). "
-                "Include Core Objective & Problem Statement, Key Perspectives & Insights, Consensus & Strategic Decisions, Risks & Trade-offs, and Action Items & Next Steps. "
+                f"The discussion has finished. Generate the FINAL concise strategic synthesis notes ({ceiling_text}). "
+                f"{structure_req} "
                 f"CRITICAL: Write ALL titles and content strictly in {thread_language}. "
                 "Use an appropriate natural status indicator translated into the thread language in the header (e.g. Completed ✅)."
                 f"{extra_len_instruction}"
@@ -97,7 +108,9 @@ class DiscussionScribe:
             max_tokens = 800
 
         if scribe_max_words is not None:
-            max_tokens = min(max_tokens, max(60, scribe_max_words * 4))
+            max_tokens = min(max_tokens, max(30, int(scribe_max_words * 1.5)))
+        elif scribe_min_words is not None:
+            max_tokens = max(max_tokens, int(scribe_min_words * 3))
 
         # Build transcript text for the prompt
         transcript_lines: list[str] = []

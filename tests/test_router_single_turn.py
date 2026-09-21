@@ -251,10 +251,11 @@ async def test_scenario_1_single_agent_tagged(monkeypatch):
     # 2. State cleaned up
     assert thread_key not in thread_state_manager.custom_flow_threads
     assert thread_key not in thread_state_manager.remaining_agents_map
-    # 3. Posted message has stripped bracket tags (so no next bot is triggered)
+    # 3. Posted message has complete nomination stripped (not just brackets, agent name is removed too)
     assert len(posted_messages) == 1
     assert "[Sceptic]" not in posted_messages[0]
-    assert "Sceptic" in posted_messages[0]
+    assert "Sceptic" not in posted_messages[0]
+    assert posted_messages[0].startswith("My single vision response.")
 
 
 @pytest.mark.anyio

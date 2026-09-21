@@ -204,16 +204,16 @@ def test_file_slash_command_extraction():
 
 
 def test_revoke_instruction():
-    matched, target, text = parse_token("/revoke", "/revoke all Let's continue")
+    matched, target, text = parse_token("/revoke_constraint", "/revoke_constraint all Let's continue")
     assert matched is True
     assert target == "all"
     assert text == "Let's continue"
 
-    matched, target, text = parse_token("/revoke", "/revoke max_words Continue")
+    matched, target, text = parse_token("/revoke_constraint", "/revoke_constraint max_words Continue")
     assert target == "max_words"
     assert text == "Continue"
 
-    matched, target, text = parse_token("/revoke", "/revoke [exclude] Go ahead")
+    matched, target, text = parse_token("/revoke_constraint", "/revoke_constraint [exclude] Go ahead")
     assert target == "exclude"
     assert text == "Go ahead"
 
@@ -239,7 +239,7 @@ async def test_directive_parser_dynamic_skills_sourcing():
 @pytest.mark.anyio
 async def test_directive_parser_file_and_revoke():
     parser = DirectiveParser()
-    raw = "/file schema.sql /revoke max_words Check this query"
+    raw = "/file schema.sql /revoke_constraint max_words Check this query"
     directives = await parser.parse(raw)
 
     assert directives.is_file_req is True

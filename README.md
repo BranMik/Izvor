@@ -180,6 +180,12 @@ pytest
 pytest tests/test_tool_loop_and_updates.py
 pytest tests/test_agent_settings_ssot.py
 pytest tests/test_models_and_managers.py
+
+# Run E2E Behavioural Regression Suite (27 Scenarios)
+# (See e2e_testing_harness/SLACK_BEHAVIOURAL_TEST_CASES.md for full scenario specifications)
+python -m e2e_testing_harness.runner
+python -m e2e_testing_harness.runner --live-slack --channel <CHANNEL_ID> --case TC-01
+pytest e2e_testing_harness/test_e2e_suite.py
 ```
 
 ---

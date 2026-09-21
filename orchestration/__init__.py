@@ -10,6 +10,9 @@ from .agent_router import (
 from .agent_settings import (
     CIRCUIT_BREAKER_ENABLED,
     CIRCUIT_BREAKER_THRESHOLD_USD,
+    DEFAULT_SANDWICH_END_CHAIN,
+    DEFAULT_SANDWICH_START_CHAIN,
+    DEFAULT_WORKFLOW_ID,
     ENABLED_DEBATE_AGENTS,
     LOCKED_AGENTS,
     SETTINGS_FILE,
@@ -52,6 +55,7 @@ from .nomination import (
     get_initial_agents,
     parse_agent_and_prompt,
     resolve_target_file,
+    strip_all_nominations,
 )
 from .thread_state import (
     DiscussionStateStore,
@@ -65,6 +69,9 @@ from .thread_state import (
 __all__ = [
     "CIRCUIT_BREAKER_ENABLED",
     "CIRCUIT_BREAKER_THRESHOLD_USD",
+    "DEFAULT_SANDWICH_END_CHAIN",
+    "DEFAULT_SANDWICH_START_CHAIN",
+    "DEFAULT_WORKFLOW_ID",
     "ENABLED_DEBATE_AGENTS",
     "LOCKED_AGENTS",
     "SETTINGS_FILE",
@@ -107,6 +114,7 @@ __all__ = [
     "set_workflow_config",
     "settings_manager",
     "slugify",
+    "strip_all_nominations",
     "thread_state_manager",
     "toggle_agent",
     "workflow_manager",

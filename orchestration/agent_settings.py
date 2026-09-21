@@ -28,6 +28,12 @@ LOCKED_AGENTS: set[str] = set()
 BACKUP_INTERVAL_SECONDS = 7 * 86400
 
 
+# Default untagged workflow configuration: Sandwich mode (Visionary -> Innovator -> ... -> Architect)
+DEFAULT_WORKFLOW_ID = "default_review_flow"
+DEFAULT_SANDWICH_START_CHAIN = ["Visionary", "Innovator"]
+DEFAULT_SANDWICH_END_CHAIN = ["Architect"]
+
+
 class AgentSettingsManager:
     """
     Manages persistent agent configurations, system agent models, and thread circuit breaker limits.
@@ -44,9 +50,9 @@ class AgentSettingsManager:
         auto_load: bool = True,
         workflows_dir: Path | None = None,
     ):
-        self._custom_settings_file: bool = settings_file is not None
-        self._custom_backup_file: bool = backup_file is not None
         self.default_settings_file = settings_file or SETTINGS_FILE
+        self._custom_settings_file = settings_file is not None
+        self._custom_backup_file = backup_file is not None
         self.default_backup_file = backup_file or BACKUP_FILE
         self.locked_agents = set(locked_agents or set())
         self.backup_interval_seconds = backup_interval_seconds
@@ -72,11 +78,11 @@ class AgentSettingsManager:
 
         # Orchestration flow mode and chains
         self.orchestration_mode: str = OrchestrationMode.SANDWICH.value
-        self.sandwich_start_chain: list[str] = []
-        self.sandwich_end_chain: list[str] = []
+        self.sandwich_start_chain: list[str] = list(DEFAULT_SANDWICH_START_CHAIN)
+        self.sandwich_end_chain: list[str] = list(DEFAULT_SANDWICH_END_CHAIN)
         self.fixed_chain: list[str] = []
-        self.workflow_config: str | None = None
-        self.active_workflow_id: str | None = None
+        self.workflow_config: str | None = DEFAULT_WORKFLOW_ID
+        self.active_workflow_id: str | None = DEFAULT_WORKFLOW_ID
 
         # Emergency backup status
         self.is_running_from_backup: bool = False
@@ -213,9 +219,9 @@ class AgentSettingsManager:
                     "Attempting fallback to default preset."
                 )
                 try:
-                    preset = self.workflow_manager.get_workflow("default_sandwich")
+                    preset = self.workflow_manager.get_workflow("default_review_flow") or self.workflow_manager.get_workflow("default_sandwich")
                 except Exception as e:
-                    logger.warning(f"[SETTINGS] Error loading default_sandwich fallback: {e}")
+                    logger.warning(f"[SETTINGS] Error loading default_review_flow fallback: {e}")
 
         # If still not found, check if fallback_data contains legacy embedded chains (backward compatibility)
         if not preset and fallback_data and (fallback_data.get("sandwich_config") or fallback_data.get("fixed_config")):
@@ -279,12 +285,12 @@ class AgentSettingsManager:
                 except Exception:
                     pass
         else:
-            # Complete fallback default when no preset is active
-            self.active_workflow_id = None
-            self.workflow_config = None
+            # Complete fallback default when no preset is active (Visionary -> Innovator -> ... -> Architect)
+            self.active_workflow_id = DEFAULT_WORKFLOW_ID
+            self.workflow_config = DEFAULT_WORKFLOW_ID
             self.orchestration_mode = OrchestrationMode.SANDWICH.value
-            self.sandwich_start_chain = []
-            self.sandwich_end_chain = []
+            self.sandwich_start_chain = list(DEFAULT_SANDWICH_START_CHAIN)
+            self.sandwich_end_chain = list(DEFAULT_SANDWICH_END_CHAIN)
             self.fixed_chain = []
 
     def persist_active_workflow(self) -> None:
@@ -795,12 +801,14 @@ class AgentSettingsManager:
         self.enabled_agents.clear()
         self.enabled_agents.update(self.agents_config.keys())
         self.orchestration_mode = OrchestrationMode.SANDWICH.value
-        self.sandwich_start_chain = []
-        self.sandwich_end_chain = []
+        self.sandwich_start_chain = list(DEFAULT_SANDWICH_START_CHAIN)
+        self.sandwich_end_chain = list(DEFAULT_SANDWICH_END_CHAIN)
         self.fixed_chain = []
+        self.workflow_config = DEFAULT_WORKFLOW_ID
+        self.active_workflow_id = DEFAULT_WORKFLOW_ID
         if save:
             self.save()
-        logger.info(f"[SETTINGS] Reset all {len(self.enabled_agents)} agents to ENABLED and mode to default sandwich.")
+        logger.info(f"[SETTINGS] Reset all {len(self.enabled_agents)} agents to ENABLED and mode to default review sandwich.")
 
     def get_enabled_agents(self) -> set[str]:
         return set(self.enabled_agents)

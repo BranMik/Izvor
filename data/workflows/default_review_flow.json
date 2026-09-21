@@ -1,0 +1,18 @@
+{
+  "id": "default_review_flow",
+  "name": "Default Review Workflow",
+  "mode": "sandwich",
+  "description": "Standard review flow applied when no explicit agent is tagged (Visionary -> Innovator -> ... -> Architect).",
+  "sandwich_config": {
+    "start_chain": [
+      "Visionary",
+      "Innovator"
+    ],
+    "end_chain": [
+      "Architect"
+    ]
+  },
+  "fixed_config": {
+    "chain": []
+  }
+}

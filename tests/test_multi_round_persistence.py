@@ -296,9 +296,9 @@ async def test_include_overrides_exclude():
 @pytest.mark.anyio
 async def test_revoke_skill_functionality():
     """
-    Test skill /revoke [instruction_name | all]:
-    - /revoke max_words: clears max_words
-    - /revoke all: clears all constraints
+    Test skill /revoke_constraint [instruction_name | all]:
+    - /revoke_constraint max_words: clears max_words
+    - /revoke_constraint all: clears all constraints
     """
     channel = "C_REV"
     thread_ts = "888.001"
@@ -314,7 +314,7 @@ async def test_revoke_skill_functionality():
     res = await process_and_respond(
         channel_id=channel,
         thread_ts=thread_ts,
-        raw_text="/revoke max_words",
+        raw_text="/revoke_constraint max_words",
         is_bot_trigger=False,
     )
     assert res.get("ok")
@@ -329,7 +329,7 @@ async def test_revoke_skill_functionality():
     res_all = await process_and_respond(
         channel_id=channel,
         thread_ts=thread_ts,
-        raw_text="/revoke all",
+        raw_text="/revoke_constraint all",
         is_bot_trigger=False,
     )
     assert res_all.get("ok")

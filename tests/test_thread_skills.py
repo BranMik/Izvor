@@ -86,20 +86,20 @@ def test_thread_skills_manager_ttl_expiration():
 
 @pytest.mark.anyio
 async def test_directive_parser_grant_and_revoke_for_all():
-    raw_grant = "/grant_for_all web_research codebase_inspection [Architect] inspect repo"
+    raw_grant = "/grant_skill_for_all web_research codebase_inspection [Architect] inspect repo"
     parsed_grant = await directive_parser.parse(raw_grant)
 
-    assert any(a.name == "grant_for_all" for a in parsed_grant.actions)
-    grant_action = next(a for a in parsed_grant.actions if a.name == "grant_for_all")
+    assert any(a.name == "grant_skill_for_all" for a in parsed_grant.actions)
+    grant_action = next(a for a in parsed_grant.actions if a.name == "grant_skill_for_all")
     assert grant_action.params["skills"] == ["web_research", "codebase_inspection"]
     assert "[Architect] inspect repo" in parsed_grant.cleaned_prompt
-    assert "/grant_for_all" not in parsed_grant.cleaned_prompt
+    assert "/grant_skill_for_all" not in parsed_grant.cleaned_prompt
 
-    raw_revoke = "/revoke_for_all web_research"
+    raw_revoke = "/revoke_skill_for_all web_research"
     parsed_revoke = await directive_parser.parse(raw_revoke)
 
-    assert any(a.name == "revoke_for_all" for a in parsed_revoke.actions)
-    revoke_action = next(a for a in parsed_revoke.actions if a.name == "revoke_for_all")
+    assert any(a.name == "revoke_skill_for_all" for a in parsed_revoke.actions)
+    revoke_action = next(a for a in parsed_revoke.actions if a.name == "revoke_skill_for_all")
     assert revoke_action.params["skills"] == ["web_research"]
     assert parsed_revoke.cleaned_prompt == ""
 
@@ -116,7 +116,7 @@ def test_execute_tool_expired_skill_warning():
     data = json.loads(res)
     assert "error" in data
     assert "expired after 12.0 hours" in data["error"]
-    assert "/grant_for_all web_research" in data["error"]
+    assert "/grant_skill_for_all web_research" in data["error"]
 
 
 def test_stop_does_not_cancel_thread_skills():

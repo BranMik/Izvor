@@ -5,7 +5,12 @@ from .intent_extractor import (
     intent_extractor,
     should_skip_intent_extractor,
 )
-from .language_detector import detect_language, detect_language_llm
+from .language_detector import (
+    clean_system_and_tags,
+    detect_language,
+    detect_language_llm,
+    is_system_message,
+)
 from .message_builder import (
     build_llm_messages,
     markdown_to_slack,
@@ -15,10 +20,12 @@ __all__ = [
     "EXTRACTOR_SYSTEM_PROMPT",
     "IntentExtractor",
     "build_llm_messages",
+    "clean_system_and_tags",
     "detect_language",
     "detect_language_llm",
     "extract_user_intent",
     "intent_extractor",
+    "is_system_message",
     "markdown_to_slack",
     "should_skip_intent_extractor",
 ]

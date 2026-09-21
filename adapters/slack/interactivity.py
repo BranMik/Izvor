@@ -67,7 +67,7 @@ async def _handle_scribe_download(
             await post_ephemeral_to_slack(
                 channel_id=channel_id,
                 user_id=user_id,
-                text="✅ Pripremljene bilješke su vam poslane kao `.txt` fajl u vaš privatni chat (DM).",
+                text="✅ Prepared notes have been sent as a `.txt` file to your direct message (DM).",
                 thread_ts=thread_ts,
             )
 
