@@ -48,7 +48,7 @@ python -m pytest e2e_harness/test_e2e_suite.py
 | **21** | Skills Directory | Skills & Agent Authorization Query | `/list_skills` |
 | **22** | Real-Time UX | Delayed Progress Indicator & In-Place Edit | Tool Calls > 5s |
 | **23** | Discussion Scribe | Live Synthesis Card & DM Download Button | Live Scribe + Download (.txt) |
-| **24** | Spend Governance | Thread Expense Circuit Breaker Tripping | `/cb 0.05` Budget Ceiling |
+| **24** | Spend Governance | Thread Expense Circuit Breaker Tripping | App Home Settings Threshold |
 | **25** | Spend Governance | Usage Channel Live Card Audit | `#cailogics-usage` Channel |
 | **26** | Concurrency & Safety | Interruption & Mid-Flight Superseding | Fast Double Prompt / `/stop` |
 | **27** | Language & Resolution | Language Lock & Ambiguous Tag Warning | Croatian Prompt + Ambiguous Tag |
@@ -447,15 +447,11 @@ python -m pytest e2e_harness/test_e2e_suite.py
 
 ---
 
-### TC-24: Thread Expense Circuit Breaker Tripping (`/cb`)
+### TC-24: Thread Expense Circuit Breaker Tripping
 - **Category**: Spend Governance & Safety
-- **Objective**: Verify that the thread circuit breaker stops deliberation immediately when costs reach or exceed the threshold.
-- **Preconditions**: Set an ultra-low threshold for testing purposes via Slack prompt.
+- **Objective**: Verify that the thread circuit breaker stops deliberation immediately when costs reach or exceed the threshold configured in App Home.
+- **Preconditions**: In Slack App Home > Settings, toggle Circuit Breaker to `ON` and set an ultra-low threshold for testing purposes (e.g., `$0.005`).
 - **Slack Input Prompt**:
-  ```text
-  @BotName /cb 0.005
-  ```
-  *(Follow-up prompt in same thread)*:
   ```text
   @BotName [Architect] [TechLead] [Innovator] [Sceptic] Please write a 500-word comprehensive treatise on distributed consensus algorithms from Paxos to Raft to Byzantine Fault Tolerance.
   ```
@@ -590,7 +586,7 @@ When executing these tests in your Slack workspace, copy this table to track res
 | TC-21 | Directory Query (`/list_skills`) | | | | |
 | TC-22 | 5s Delayed Progress & In-Place Edit | | | | |
 | TC-23 | Scribe Card & DM Download Button | | | | |
-| TC-24 | Circuit Breaker Tripping (`/cb`) | | | | |
+| TC-24 | Circuit Breaker Tripping (App Home Settings) | | | | |
 | TC-25 | Usage Channel Card (`#cailogics-usage`) | | | | |
 | TC-26 | Mid-Flight Interruption & Superseding | | | | |
 | TC-27 | Language Lock & Ambiguous Tag Warning | | | | |

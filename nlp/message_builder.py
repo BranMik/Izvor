@@ -48,9 +48,9 @@ def build_llm_messages(
             from skills import skill_registry
 
             file_skill = skill_registry.get_file_handler_skill()
-            required_skill = file_skill.name if file_skill else "document_reader"
+            required_skill = file_skill.name if file_skill else None
         except Exception:
-            required_skill = "document_reader"
+            required_skill = None
 
     if file_context:
         authorized_agents = file_context.get("authorized_agents")

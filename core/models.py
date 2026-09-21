@@ -196,35 +196,59 @@ class ExtractedIntent:
 
     @property
     def file_use(self) -> bool:
-        return bool(self.has_action("document_reader") or self.modifiers.get("file_use", False))
+        if self.modifiers.get("file_use", False):
+            return True
+        try:
+            from skills import skill_registry
+            file_skill = skill_registry.get_file_handler_skill()
+            if file_skill and self.has_action(file_skill.name):
+                return True
+        except Exception:
+            pass
+        return any("target_file" in a.params for a in self.actions)
 
     @file_use.setter
     def file_use(self, val: bool) -> None:
         self.modifiers["file_use"] = bool(val)
-        if val and not self.has_action("document_reader"):
-            self.actions.append(ActionDirective(name="document_reader"))
-        elif not val and self.has_action("document_reader"):
-            self.actions = [a for a in self.actions if a.name != "document_reader"]
+        try:
+            from skills import skill_registry
+            file_skill = skill_registry.get_file_handler_skill()
+            skill_name = file_skill.name if file_skill else None
+        except Exception:
+            skill_name = None
+
+        if skill_name:
+            if val and not self.has_action(skill_name):
+                self.actions.append(ActionDirective(name=skill_name))
+            elif not val and self.has_action(skill_name):
+                self.actions = [a for a in self.actions if a.name != skill_name]
 
     @property
     def target_file(self) -> str | None:
-        doc_actions = self.get_actions("document_reader")
-        if doc_actions and doc_actions[0].params.get("target_file"):
-            return str(doc_actions[0].params["target_file"])
+        for a in self.actions:
+            if a.params.get("target_file"):
+                return str(a.params["target_file"])
         return self.modifiers.get("target_file")
 
     @target_file.setter
     def target_file(self, val: str | None) -> None:
         if val is not None:
             self.modifiers["target_file"] = val
-            doc_actions = self.get_actions("document_reader")
-            if doc_actions:
-                doc_actions[0].params["target_file"] = val
-            else:
-                self.actions.append(ActionDirective(name="document_reader", params={"target_file": val}))
+            try:
+                from skills import skill_registry
+                file_skill = skill_registry.get_file_handler_skill()
+                skill_name = file_skill.name if file_skill else None
+            except Exception:
+                skill_name = None
+
+            matched = [a for a in self.actions if (skill_name and a.name == skill_name) or "target_file" in a.params]
+            if matched:
+                matched[0].params["target_file"] = val
+            elif skill_name:
+                self.actions.append(ActionDirective(name=skill_name, params={"target_file": val}))
         else:
             self.modifiers.pop("target_file", None)
-            for a in self.get_actions("document_reader"):
+            for a in self.actions:
                 a.params.pop("target_file", None)
 
     @property

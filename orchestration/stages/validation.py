@@ -565,12 +565,12 @@ class ValidationStageMixin:
                 from skills import skill_registry
 
                 file_skill = skill_registry.get_file_handler_skill()
-                file_skill_name = file_skill.name if file_skill else "document_reader"
+                file_skill_name = file_skill.name if file_skill else None
                 file_action = next(
                     (
                         a.name
                         for a in getattr(ctx, "actions", [])
-                        if a.params.get("target_file") is not None or a.name == file_skill_name
+                        if a.params.get("target_file") is not None or (file_skill_name and a.name == file_skill_name)
                     ),
                     file_skill_name,
                 )

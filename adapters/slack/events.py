@@ -11,7 +11,7 @@ from starlette.requests import ClientDisconnect
 import sys
 
 from core.slack_security import verify_slack_signature as _default_verify_slack_signature
-from nlp.nl_patterns import is_stop_command
+from pipeline.directive_parser import is_stop_command
 from orchestration.agent_router import process_and_respond
 from orchestration.thread_state import thread_state_manager
 from pipeline.entity_resolver import entity_resolver

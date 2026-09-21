@@ -183,7 +183,7 @@ class HybridInterceptor:
                 break
 
         needs_web_search = any(k in user_prompt_str.lower() for k in ["search the web", "pricing", "anthropic", "competitor"])
-        needs_codebase = any(k in user_prompt_str.lower() for k in ["inspect", "directory layout", "read", "turn_pipeline.py"])
+        needs_codebase = any(k in user_prompt_str.lower() for k in ["inspect", "directory layout", "codebase", "turn_pipeline.py"])
         needs_doc_authoring = any(k in user_prompt_str.lower() for k in ["draft", "business case", "save it as a document", "llm_cost_reduction_plan.md"])
 
         # First turn of tool loop: trigger tool call

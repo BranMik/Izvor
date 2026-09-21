@@ -210,9 +210,8 @@ class ContextPrepStageMixin:
 
         if getattr(ctx, "is_file_req", False):
             file_skill = skill_registry.get_file_handler_skill()
-            file_skill_name = file_skill.name if file_skill else "document_reader"
-            if file_skill_name not in required_skills:
-                required_skills.append(file_skill_name)
+            if file_skill and file_skill.name not in required_skills:
+                required_skills.append(file_skill.name)
 
         if ctx.file_context:
             req_s = ctx.file_context.get("required_skill")
