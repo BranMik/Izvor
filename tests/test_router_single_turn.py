@@ -1,9 +1,10 @@
+import json
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from core.models import ActionDirective, ExtractedIntent
 from nlp.message_builder import build_llm_messages
-from nlp.nl_patterns import extract_history_limit
 from orchestration import agent_router
 from orchestration.agent_router import process_and_respond
 from orchestration.agent_settings import (
@@ -256,61 +257,53 @@ async def test_scenario_1_single_agent_tagged(monkeypatch):
     assert "Sceptic" in posted_messages[0]
 
 
-def test_extract_history_limit_formats():
+@pytest.mark.anyio
+async def test_extract_history_limit_formats():
+    from pipeline.directive_parser import directive_parser
+
     # 1. Standard format /history 5
-    limit, cleaned = extract_history_limit("<@U12345> Tell me a joke /history 5")
-    assert limit == 5
-    assert cleaned == "<@U12345> Tell me a joke"
+    res = await directive_parser.parse("<@U12345> Tell me a joke /history 5")
+    assert res.history_limit == 5
+    assert res.cleaned_prompt == "<@U12345> Tell me a joke"
 
     # 2. Bracketed format /history [3]
-    limit, cleaned = extract_history_limit(
-        "@CaiLogics [TechLead] Explain rust /history [3]"
-    )
-    assert limit == 3
-    assert cleaned == "@CaiLogics [TechLead] Explain rust"
+    res = await directive_parser.parse("@CaiLogics [TechLead] Explain rust /history [3]")
+    assert res.history_limit == 3
+    assert res.cleaned_prompt == "@CaiLogics [TechLead] Explain rust"
 
     # 3. Explicit int format /history [2:int]
-    limit, cleaned = extract_history_limit("@app_mention /history [2:int] summarize")
-    assert limit == 2
-    assert cleaned == "@app_mention summarize"
+    res = await directive_parser.parse("@app_mention /history [2:int] summarize")
+    assert res.history_limit == 2
+    assert res.cleaned_prompt == "@app_mention summarize"
 
     # 4. Colon format /history: 10 and /history:4
-    limit, cleaned = extract_history_limit("@CaiLogics /history: 10 test prompt")
-    assert limit == 10
-    assert cleaned == "@CaiLogics test prompt"
+    res = await directive_parser.parse("@CaiLogics /history: 10 test prompt")
+    assert res.history_limit == 10
+    assert res.cleaned_prompt == "@CaiLogics test prompt"
 
-    limit, cleaned = extract_history_limit("@CaiLogics /history:4 test prompt")
-    assert limit == 4
-    assert cleaned == "@CaiLogics test prompt"
+    res = await directive_parser.parse("@CaiLogics /history:4 test prompt")
+    assert res.history_limit == 4
+    assert res.cleaned_prompt == "@CaiLogics test prompt"
 
     # 5. Equals format /history=7
-    limit, cleaned = extract_history_limit("@CaiLogics /history=7 test prompt")
-    assert limit == 7
-    assert cleaned == "@CaiLogics test prompt"
+    res = await directive_parser.parse("@CaiLogics /history=7 test prompt")
+    assert res.history_limit == 7
+    assert res.cleaned_prompt == "@CaiLogics test prompt"
 
     # 6. Zero history /history 0
-    limit, cleaned = extract_history_limit("Prompt with /history 0")
-    assert limit == 0
-    assert cleaned == "Prompt with"
+    res = await directive_parser.parse("Prompt with /history 0")
+    assert res.history_limit == 0
+    assert res.cleaned_prompt == "Prompt with"
 
     # 7. No history command
-    limit, cleaned = extract_history_limit("Plain prompt without history")
-    assert limit is None
-    assert cleaned == "Plain prompt without history"
+    res = await directive_parser.parse("Plain prompt without history")
+    assert res.history_limit is None
+    assert res.cleaned_prompt == "Plain prompt without history"
 
     # 8. Command in middle of text
-    limit, cleaned = extract_history_limit(
-        "@CaiLogics What is /history 3 quantum computing?"
-    )
-    assert limit == 3
-    assert cleaned == "@CaiLogics What is quantum computing?"
-
-    # 9. Natural language variations (Croatian and English)
-    # Note: NL pattern extraction is delegated to IntentExtractor (Micro-LLM).
-    # limit, cleaned = extract_history_limit("uzmi u obzir zadnjih 5 poruka i nastavi")
-    # assert limit == 5
-    # assert cleaned == "i nastavi"
-    #
+    res = await directive_parser.parse("@CaiLogics What is /history 3 quantum computing?")
+    assert res.history_limit == 3
+    assert res.cleaned_prompt == "@CaiLogics What is quantum computing?"
     # limit, cleaned = extract_history_limit("last 3 messages analyze the issue")
     # assert limit == 3
     # assert cleaned == "analyze the issue"
@@ -545,115 +538,76 @@ def test_build_llm_messages_leading_assistant_gets_user_prefix():
     assert messages[4]["role"] == "user"
 
 
-def test_extract_max_words_limit():
-    from nlp.nl_patterns import extract_max_words_limit
+@pytest.mark.anyio
+async def test_extract_max_words_limit():
+    from pipeline.directive_parser import directive_parser
 
     # Standard syntax
-    limit, text = extract_max_words_limit("/max_words 50 hello world")
-    assert limit == 50
-    assert text == "hello world"
+    res = await directive_parser.parse("/max_words 50 hello world")
+    assert res.max_words == 50
+    assert res.cleaned_prompt == "hello world"
 
     # Bracketed typed syntax /max_words [x:int]
-    limit, text = extract_max_words_limit("/max_words [75:int] evaluate this")
-    assert limit == 75
-    assert text == "evaluate this"
+    res = await directive_parser.parse("/max_words [75:int] evaluate this")
+    assert res.max_words == 75
+    assert res.cleaned_prompt == "evaluate this"
 
     # Colon and equals syntax
-    limit, text = extract_max_words_limit("/max_words: 30 test")
-    assert limit == 30
-    assert text == "test"
+    res = await directive_parser.parse("/max_words: 30 test")
+    assert res.max_words == 30
+    assert res.cleaned_prompt == "test"
 
-    limit, text = extract_max_words_limit("/max_words=100 test")
-    assert limit == 100
-    assert text == "test"
+    res = await directive_parser.parse("/max_words=100 test")
+    assert res.max_words == 100
+    assert res.cleaned_prompt == "test"
 
     # Hyphen and single-word variations
-    limit, text = extract_max_words_limit("/max-words 25 test")
-    assert limit == 25
+    res = await directive_parser.parse("/max-words 25 test")
+    assert res.max_words == 25
 
-    limit, text = extract_max_words_limit("/maxwords 15 test")
-    assert limit == 15
-
-    # TODO: Testing Second Line of Defense only (Micro-LLM IntentExtractor).
-    # Natural language variations commented out since regex matching is disabled.
-    # limit, text = extract_max_words_limit(
-    #     "odgovori u maksimalno 100 riječi na pitanje o k8s"
-    # )
-    # assert limit == 100
-    # assert text == "odgovori na pitanje o k8s"
-    #
-    # limit, text = extract_max_words_limit("odgovori u maximalno 80 rijeci")
-    # assert limit == 80
-    #
-    # limit, text = extract_max_words_limit("objasni temu u najviše 50 riječi")
-    # assert limit == 50
-    # assert text == "objasni temu"
-    #
-    # limit, text = extract_max_words_limit("in max 120 words please")
-    # assert limit == 120
-    # assert text == "please"
-    #
-    # limit, text = extract_max_words_limit("up to 60 words summarize")
-    # assert limit == 60
-    # assert text == "summarize"
+    res = await directive_parser.parse("/maxwords 15 test")
+    assert res.max_words == 15
 
     # No command present
-    limit, text = extract_max_words_limit("Just a regular prompt")
-    assert limit is None
-    assert text == "Just a regular prompt"
+    res = await directive_parser.parse("Just a regular prompt")
+    assert res.max_words is None
+    assert res.cleaned_prompt == "Just a regular prompt"
 
 
-def test_extract_min_words_limit():
-    from nlp.nl_patterns import extract_min_words_limit
+@pytest.mark.anyio
+async def test_extract_min_words_limit():
+    from pipeline.directive_parser import directive_parser
 
     # Standard syntax
-    limit, text = extract_min_words_limit("/min_words 50 hello world")
-    assert limit == 50
-    assert text == "hello world"
+    res = await directive_parser.parse("/min_words 50 hello world")
+    assert res.min_words == 50
+    assert res.cleaned_prompt == "hello world"
 
     # Bracketed typed syntax /min_words [x:int]
-    limit, text = extract_min_words_limit("/min_words [75:int] evaluate this")
-    assert limit == 75
-    assert text == "evaluate this"
+    res = await directive_parser.parse("/min_words [75:int] evaluate this")
+    assert res.min_words == 75
+    assert res.cleaned_prompt == "evaluate this"
 
     # Colon and equals syntax
-    limit, text = extract_min_words_limit("/min_words: 30 test")
-    assert limit == 30
-    assert text == "test"
+    res = await directive_parser.parse("/min_words: 30 test")
+    assert res.min_words == 30
+    assert res.cleaned_prompt == "test"
 
-    limit, text = extract_min_words_limit("/min_words=100 test")
-    assert limit == 100
-    assert text == "test"
+    res = await directive_parser.parse("/min_words=100 test")
+    assert res.min_words == 100
+    assert res.cleaned_prompt == "test"
 
     # Hyphen and single-word variations
-    limit, text = extract_min_words_limit("/min-words 25 test")
-    assert limit == 25
+    res = await directive_parser.parse("/min-words 25 test")
+    assert res.min_words == 25
 
-    limit, text = extract_min_words_limit("/minwords 15 test")
-    assert limit == 15
-
-    # Natural language variations (Croatian and English)
-    # Note: NL pattern extraction is delegated to IntentExtractor (Micro-LLM).
-    # limit, text = extract_min_words_limit("odgovori u minimalno 120 riječi na pitanje")
-    # assert limit == 120
-    # assert text == "odgovori na pitanje"
-    #
-    # limit, text = extract_min_words_limit("barem 150 riječi opiši arhitekturu")
-    # assert limit == 150
-    # assert text == "opiši arhitekturu"
-    #
-    # limit, text = extract_min_words_limit("at least 100 words detailed analysis")
-    # assert limit == 100
-    # assert text == "detailed analysis"
-    #
-    # limit, text = extract_min_words_limit("najmanje 90 rijeci molim")
-    # assert limit == 90
-    # assert text == "molim"
+    res = await directive_parser.parse("/minwords 15 test")
+    assert res.min_words == 15
 
     # No command present
-    limit, text = extract_min_words_limit("Just a regular prompt")
-    assert limit is None
-    assert text == "Just a regular prompt"
+    res = await directive_parser.parse("Just a regular prompt")
+    assert res.min_words is None
+    assert res.cleaned_prompt == "Just a regular prompt"
 
 
 @pytest.mark.anyio
@@ -907,7 +861,10 @@ async def test_process_and_respond_with_natural_language_limits(monkeypatch):
     monkeypatch.setattr(
         "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
     )
-    monkeypatch.setattr("orchestration.agent_router.record_thread_tokens", MagicMock())
+    monkeypatch.setattr(
+        "nlp.intent_extractor.extract_intent",
+        AsyncMock(return_value=ExtractedIntent(modifiers={"max_words": 60})),
+    )
 
     res = await process_and_respond(
         channel_id=channel_id,
@@ -1104,7 +1061,18 @@ async def test_process_and_respond_with_nl_exclude(monkeypatch):
     monkeypatch.setattr(
         "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
     )
-    monkeypatch.setattr("orchestration.agent_router.record_thread_tokens", MagicMock())
+    monkeypatch.setattr(
+        "nlp.intent_extractor.extract_intent",
+        AsyncMock(
+            return_value=ExtractedIntent(
+                actions=[
+                    ActionDirective(
+                        name="exclude_agents", params={"agents": ["TechLead"]}
+                    )
+                ]
+            )
+        ),
+    )
 
     res = await process_and_respond(
         channel_id=channel_id,

@@ -62,6 +62,7 @@ class SkillDefinition:
     triggers: dict[str, Any] = field(default_factory=dict)
     action_handler: Callable[..., Any] | None = None
     is_global: bool = False
+    is_terminal: bool = False
     extraction_rule: str = ""
     handles_files: bool = False
 
@@ -163,6 +164,7 @@ class SkillRegistry:
         if "{name}" in extraction_rule:
             extraction_rule = extraction_rule.replace("{name}", name)
         handles_files = bool(meta.get("handles_files") or triggers.get("handles_files", False))
+        is_terminal = bool(meta.get("terminal") or triggers.get("terminal", False) or triggers.get("arg_type") == "terminal_flag")
 
         return SkillDefinition(
             name=name,
@@ -175,6 +177,7 @@ class SkillRegistry:
             triggers=triggers,
             action_handler=action_handler,
             is_global=is_global,
+            is_terminal=is_terminal,
             extraction_rule=extraction_rule,
             handles_files=handles_files,
         )
@@ -214,6 +217,37 @@ class SkillRegistry:
                         cleaned = f"/{cleaned}"
                     mapping[cleaned] = (skill, skill.triggers)
         return mapping
+
+    def get_terminal_slash_triggers(self) -> list[str]:
+        """Returns all slash triggers for skills configured with terminal: true."""
+        terminals: list[str] = []
+        for skill in self._skills.values():
+            if skill.is_terminal:
+                slash_list = skill.triggers.get("slash") or []
+                if isinstance(slash_list, str):
+                    slash_list = [slash_list]
+                for cmd in slash_list:
+                    cleaned = str(cmd).strip().lower()
+                    if cleaned:
+                        if not cleaned.startswith("/"):
+                            cleaned = f"/{cleaned}"
+                        terminals.append(cleaned)
+        return terminals
+
+    def is_stop_command(self, raw_text: str, is_mention_or_dm: bool = False) -> bool:
+        """Detects if raw_text contains an explicit terminal/stop command."""
+        if not raw_text:
+            return False
+        import re
+
+        terminals = self.get_terminal_slash_triggers()
+        if not terminals:
+            terminals = ["/stop"]
+        for cmd in terminals:
+            pattern = rf"(?:^|\s){re.escape(cmd)}(?=[\s!.,;?]|$)"
+            if re.search(pattern, raw_text, re.IGNORECASE):
+                return True
+        return False
 
     def get_file_handler_skill(self) -> SkillDefinition | None:
         """Returns the skill configured to handle file attachments, or None."""
@@ -279,14 +313,23 @@ class SkillRegistry:
             prompt_lines.extend(special_rules)
             prompt_lines.append("")
 
-        prompt_lines.extend(
+        schema_modifiers = []
+        for skill in skills:
+            if skill.scope == "prompt_modifier":
+                arg_type = skill.triggers.get("arg_type", "string")
+                schema_modifiers.append(f'    "{skill.name}": <{arg_type} or null>')
+
+        schema_lines = [
+            "Respond ONLY with a valid JSON object matching this schema:",
+            "{",
+            '  "modifiers": {',
+        ]
+        if schema_modifiers:
+            schema_lines.append(",\n".join(schema_modifiers))
+        else:
+            schema_lines.append('    "<modifier_name>": <value>')
+        schema_lines.extend(
             [
-                "Respond ONLY with a valid JSON object matching this schema:",
-                "{",
-                '  "modifiers": {',
-                '    "max_words": <int or null>,',
-                '    "min_words": <int or null>,',
-                '    "history": <int or null>',
                 "  },",
                 '  "actions": [',
                 '    { "name": "<skill_name>", "params": { ... } }',
@@ -294,6 +337,7 @@ class SkillRegistry:
                 "}",
             ]
         )
+        prompt_lines.extend(schema_lines)
         return "\n".join(prompt_lines)
 
     def get_tools_for_skills(

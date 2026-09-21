@@ -370,10 +370,8 @@ async def test_intent_extractor_class():
             message=MagicMock(
                 content=json.dumps(
                     {
-                        "max_words": 75,
-                        "history": 2,
-                        "file_use": False,
-                        "target_file": None,
+                        "modifiers": {"max_words": 75, "history": 2},
+                        "actions": [],
                     }
                 )
             )

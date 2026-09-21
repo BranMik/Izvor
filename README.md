@@ -64,7 +64,7 @@ graph TD
 - **Per-Thread Token Tracking**: Logs prompt and completion tokens per model after every turn.
 - **Autonomous Pricing Researcher**: Dispatches a web-searching agent to query and benchmark per-token API costs from official provider pricing tables.
 - **7-Day Disk-Backed Cache**: Caches model pricing in `data/model_pricing_cache.json` with baseline fallbacks.
-- **Circuit Breaker**: Automatic thread cut-off when expenses exceed a configurable USD threshold (configured globally or via `/cb`).
+- **Circuit Breaker**: Automatic thread cut-off when expenses exceed a configurable USD threshold (configured via App Home Settings).
 
 ### 5. Interactive Slack App Home & Settings SSOT
 - **Live Configuration**: Real-time toggling of enabled debate personas, orchestration modes, and circuit breaker thresholds directly from the Slack App Home tab.
@@ -193,7 +193,7 @@ pytest tests/test_models_and_managers.py
 - **Word Limits**: `@BotName max 100 riječi (Keep answers under 100 words)`
 - **History Window**: `@BotName zadnje 3 poruke (Limit context window to last 3 messages)`
 - **Directives & Commands**:
-  - `/cb on` / `/cb off` / `/cb 2.50` — Control the thread expense circuit breaker.
+  - **Circuit Breaker**: Configured via the App Home Settings tab (toggle ON/OFF and custom USD expense threshold).
   - `/stop-discussion` or posting `stop` / `prekini` — Halts active deliberation immediately.
   - `/read-file: filename.py` — Grants authorization and attaches specified file content to agent prompts.
 

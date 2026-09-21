@@ -8,7 +8,7 @@ triggers:
     - /scribe_max_words
     - /scribe-max-words
     - /scribemaxwords
-  arg_type: int
+  arg_type: int_or_off
   param_name: words
 ---
 

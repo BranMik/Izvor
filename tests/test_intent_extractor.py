@@ -63,11 +63,14 @@ async def test_extract_user_intent_success():
             message=MagicMock(
                 content=json.dumps(
                     {
-                        "max_words": 60,
-                        "history": 4,
-                        "file_use": True,
-                        "target_file": "schema.sql",
-                        "excluded_agents": ["TechLead", "Innovator"],
+                        "modifiers": {
+                            "max_words": 60,
+                            "history": 4,
+                        },
+                        "actions": [
+                            {"name": "document_reader", "params": {"target_file": "schema.sql"}},
+                            {"name": "exclude_agents", "params": {"agents": ["TechLead", "Innovator"]}},
+                        ],
                     }
                 )
             )
@@ -85,6 +88,10 @@ async def test_extract_user_intent_success():
         assert intent["file_use"] is True
         assert intent["target_file"] == "schema.sql"
         assert intent["excluded_agents"] == ["TechLead", "Innovator"]
+        assert intent["modifiers"]["max_words"] == 60
+        assert intent["modifiers"]["history"] == 4
+        assert any(a["name"] == "document_reader" for a in intent["actions"])
+        assert any(a["name"] == "exclude_agents" for a in intent["actions"])
 
 
 @pytest.mark.anyio
@@ -128,12 +135,8 @@ async def test_directive_parser_uses_intent_extractor_for_max_words():
             message=MagicMock(
                 content=json.dumps(
                     {
-                        "max_words": 5,
-                        "min_words": None,
-                        "history": None,
-                        "file_use": False,
-                        "target_file": None,
-                        "excluded_agents": [],
+                        "modifiers": {"max_words": 5},
+                        "actions": [],
                     }
                 )
             )
@@ -160,12 +163,15 @@ async def test_directive_parser_uses_intent_extractor_for_all_directives():
             message=MagicMock(
                 content=json.dumps(
                     {
-                        "max_words": 100,
-                        "min_words": 30,
-                        "history": 4,
-                        "file_use": True,
-                        "target_file": "schema.sql",
-                        "excluded_agents": ["TechLead"],
+                        "modifiers": {
+                            "max_words": 100,
+                            "min_words": 30,
+                            "history": 4,
+                        },
+                        "actions": [
+                            {"name": "document_reader", "params": {"target_file": "schema.sql"}},
+                            {"name": "exclude_agents", "params": {"agents": ["TechLead"]}},
+                        ],
                     }
                 )
             )

@@ -6,7 +6,7 @@ scope: orchestrator
 triggers:
   slash:
     - /revoke
-  arg_type: str
+  arg_type: token
   param_name: target
 ---
 

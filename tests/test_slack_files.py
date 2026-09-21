@@ -3,31 +3,32 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from nlp.message_builder import build_llm_messages
-from nlp.nl_patterns import extract_file_instruction
+from pipeline.directive_parser import directive_parser
 from orchestration.agent_router import process_and_respond
 from orchestration.nomination import resolve_target_file
 from orchestration.thread_state import thread_state_manager
 from services.slack_client import download_slack_file
 
 
-def test_extract_file_instruction_slash_commands():
+@pytest.mark.anyio
+async def test_extract_file_instruction_slash_commands():
     # Basic slash command
-    req, target, cleaned = extract_file_instruction("/read-file Analiziraj ovo")
-    assert req is True
-    assert target is None
-    assert cleaned == "Analiziraj ovo"
+    res = await directive_parser.parse("/read-file Analiziraj ovo")
+    assert res.is_file_req is True
+    assert res.target_filename is None
+    assert res.cleaned_prompt == "Analiziraj ovo"
 
     # Slash command with target filename
-    req, target, cleaned = extract_file_instruction("/read-file: code.py Što radi ovaj kod?")
-    assert req is True
-    assert target == "code.py"
-    assert cleaned == "Što radi ovaj kod?"
+    res = await directive_parser.parse("/read-file: code.py Što radi ovaj kod?")
+    assert res.is_file_req is True
+    assert res.target_filename == "code.py"
+    assert res.cleaned_prompt == "Što radi ovaj kod?"
 
     # /file command with bracketed filename
-    req, target, cleaned = extract_file_instruction("/file [data.csv] Napravi statistiku")
-    assert req is True
-    assert target == "data.csv"
-    assert cleaned == "Napravi statistiku"
+    res = await directive_parser.parse("/file [data.csv] Napravi statistiku")
+    assert res.is_file_req is True
+    assert res.target_filename == "data.csv"
+    assert res.cleaned_prompt == "Napravi statistiku"
 
 
 def test_extract_file_instruction_croatian_nl():
@@ -42,19 +43,21 @@ def test_extract_file_instruction_english_nl():
     pass
 
 
-def test_extract_file_instruction_matching_uploaded_filename():
+@pytest.mark.anyio
+async def test_extract_file_instruction_matching_uploaded_filename():
     available_files = [
         {"name": "sales_report_2026.csv", "id": "F1"},
         {"name": "architecture_diagram.png", "id": "F2"},
     ]
-    req, target, _ = extract_file_instruction(
+    res = await directive_parser.parse(
         "Možeš li pregledati sales_report_2026.csv?", available_files=available_files
     )
-    assert req is True
-    assert target == "sales_report_2026.csv"
+    assert res.is_file_req is True
+    assert res.target_filename == "sales_report_2026.csv"
 
 
-def test_extract_file_instruction_negative_cases():
+@pytest.mark.anyio
+async def test_extract_file_instruction_negative_cases():
     cases = [
         "Bok, kako si danas?",
         "Tko je predsjednik Hrvatske?",
@@ -62,9 +65,9 @@ def test_extract_file_instruction_negative_cases():
         "/history 5",
     ]
     for prompt in cases:
-        req, target, _ = extract_file_instruction(prompt)
-        assert req is False, f"False positive file trigger detected in: '{prompt}'"
-        assert target is None
+        res = await directive_parser.parse(prompt)
+        assert res.is_file_req is False, f"False positive file trigger detected in: '{prompt}'"
+        assert res.target_filename is None
 
 
 def test_resolve_target_file():

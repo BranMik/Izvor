@@ -14,7 +14,7 @@ from typing import Any
 
 from core.config import AGENTS_CONFIG
 from core.models import OrchestrationMode
-from nlp.nl_patterns import extract_history_limit
+from pipeline.directive_parser.slash_parser import strip_all_slash_commands
 from pipeline.entity_resolver import entity_resolver
 from pipeline.orchestrator import SandwichOrchestrator
 
@@ -110,7 +110,7 @@ def parse_agent_and_prompt(
     logger.info(
         f"[ORCHESTRATOR] Current remaining agents for thread_key {thread_key}: {remaining}"
     )
-    _, cleaned_text = extract_history_limit(text)
+    cleaned_text = strip_all_slash_commands(text)
     cleaned_text = re.sub(r"<@[A-Z0-9]+>", "", cleaned_text).strip()
 
     tag_matches = []

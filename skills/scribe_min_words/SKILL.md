@@ -8,7 +8,7 @@ triggers:
     - /scribe_min_words
     - /scribe-min-words
     - /scribeminwords
-  arg_type: int
+  arg_type: int_or_off
   param_name: words
 ---
 

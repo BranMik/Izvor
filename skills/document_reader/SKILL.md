@@ -10,7 +10,7 @@ triggers:
     - /file
     - /attachment
     - /document_reader
-  arg_type: string
+  arg_type: file_target
   param_name: target_file
   handles_files: true
 extraction_rule: "If user asks to read, analyze, inspect, or reference an attached file or document, include action '{name}' with param 'target_file' (or null if generic)."

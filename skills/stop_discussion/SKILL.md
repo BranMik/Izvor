@@ -8,6 +8,7 @@ triggers:
     - /stop
   auto_detect: false
   terminal: true
+  arg_type: terminal_flag
 ---
 
 ### STOP DISCUSSION

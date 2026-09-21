@@ -6,7 +6,7 @@ scope: orchestrator
 triggers:
   slash:
     - /include
-  arg_type: list
+  arg_type: agent_list
   param_name: agents
 ---
 

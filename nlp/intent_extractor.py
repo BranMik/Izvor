@@ -11,28 +11,24 @@ from core.config import INTENT_EXTRACTOR_MODEL
 from core.llm_utils import execute_llm_with_retry
 from core.models import ActionDirective, ExtractedIntent
 
-from .nl_patterns import is_stop_command, resolve_agent_name
+from pipeline.directive_parser import is_stop_command
+from pipeline.entity_resolver import entity_resolver
 
 logger = logging.getLogger(__name__)
 
 EXTRACTOR_SYSTEM_PROMPT = """You are a precise, language-agnostic intent, directive, and parameter extractor for an AI multi-agent Slack platform.
-Analyze the user's message and extract any requested constraints or directives:
+Analyze the user's message and extract any requested constraints, directives, or action triggers:
 
-1. "max_words": Integer maximum word count if the user requested a maximum length ceiling.
-2. "min_words": Integer minimum word count if the user requested a minimum length floor.
-3. "history": Integer number of previous messages to consider.
-4. "document_reader": If user asks to read, analyze, inspect, or reference an attached file/document.
-5. "exclude_agents": List of agent names if the user explicitly requests to exclude agents.
+1. "modifiers": Formatting, word count limits, or context constraints requested by the user (key-value pairs).
+2. "actions": Operations, tools, or directives requested by the user.
 
 Respond ONLY with a valid JSON object matching this schema:
 {
   "modifiers": {
-    "max_words": <int or null>,
-    "min_words": <int or null>,
-    "history": <int or null>
+    "<modifier_name>": <value>
   },
   "actions": [
-    { "name": "<skill_name>", "params": { ... } }
+    { "name": "<skill_or_action_name>", "params": { ... } }
   ]
 }"""
 
@@ -139,19 +135,6 @@ class IntentExtractor:
                     if v is not None:
                         modifiers[k] = v
 
-            # Fallback/merge legacy top-level keys
-            raw_max = parsed.get("max_words") or modifiers.get("max_words")
-            if raw_max is not None and str(raw_max).isdigit() and int(raw_max) > 0:
-                modifiers["max_words"] = int(raw_max)
-
-            raw_min = parsed.get("min_words") or modifiers.get("min_words")
-            if raw_min is not None and str(raw_min).isdigit() and int(raw_min) > 0:
-                modifiers["min_words"] = int(raw_min)
-
-            raw_hist = parsed.get("history") or modifiers.get("history")
-            if raw_hist is not None and str(raw_hist).isdigit() and int(raw_hist) >= 0:
-                modifiers["history"] = int(raw_hist)
-
             # 2. Actions from structured "actions" list
             raw_actions = parsed.get("actions")
             if isinstance(raw_actions, list):
@@ -167,53 +150,28 @@ class IntentExtractor:
                             if isinstance(raw_agents, list):
                                 resolved_agents = []
                                 for ag in raw_agents:
-                                    res = resolve_agent_name(str(ag))
+                                    res = entity_resolver.resolve_agent_name(str(ag))
                                     if res and res not in resolved_agents:
                                         resolved_agents.append(res)
                                 act_params["agents"] = resolved_agents
                         actions.append(ActionDirective(name=act_name, params=act_params))
 
-            # Dynamic file_use / target_file
+            # 3. Dynamic file handler resolution
             from skills import skill_registry
 
             file_skill = skill_registry.get_file_handler_skill()
-            file_skill_name = file_skill.name if file_skill else "document_reader"
-
-            file_use = bool(parsed.get("file_use", False)) or any(a.name == file_skill_name for a in actions)
-            target_file = parsed.get("target_file")
-            if isinstance(target_file, str):
-                target_file = target_file.strip() or None
-            else:
-                target_file = None
-
-            if file_use and not any(a.name == file_skill_name for a in actions):
-                actions.append(ActionDirective(name=file_skill_name, params={"target_file": target_file} if target_file else {}))
-            elif target_file and any(a.name == file_skill_name for a in actions):
-                doc_acts = [a for a in actions if a.name == file_skill_name]
-                if doc_acts and not doc_acts[0].params.get("target_file"):
-                    doc_acts[0].params["target_file"] = target_file
-
-            # Legacy excluded_agents
-            raw_excluded = parsed.get("excluded_agents", [])
-            excluded_agents = []
-            if isinstance(raw_excluded, list):
-                for agent_token in raw_excluded:
-                    if isinstance(agent_token, str):
-                        resolved = resolve_agent_name(agent_token)
-                        if resolved and resolved not in excluded_agents:
-                            excluded_agents.append(resolved)
-
-            if excluded_agents:
-                exc_actions = [a for a in actions if a.name == "exclude_agents"]
-                if exc_actions:
-                    existing = exc_actions[0].params.get("agents", [])
-                    merged = list(existing)
-                    for a in excluded_agents:
-                        if a not in merged:
-                            merged.append(a)
-                    exc_actions[0].params["agents"] = merged
+            if file_skill:
+                file_skill_name = file_skill.name
+                target_file = parsed.get("target_file")
+                if target_file and isinstance(target_file, str):
+                    target_file = target_file.strip() or None
                 else:
-                    actions.append(ActionDirective(name="exclude_agents", params={"agents": excluded_agents}))
+                    target_file = None
+
+                # If LLM returned file action or target file, ensure params are set
+                file_acts = [a for a in actions if a.name == file_skill_name]
+                if file_acts and target_file and not file_acts[0].params.get("target_file"):
+                    file_acts[0].params["target_file"] = target_file
 
             logger.info(
                 f"[INTENT EXTRACTOR] Extracted: modifiers={modifiers}, actions={[a.name for a in actions]}"

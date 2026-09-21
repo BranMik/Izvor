@@ -4,20 +4,29 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from core.models import ActionDirective, ExtractedIntent, MediaAttachment
-from nlp.nl_patterns import (
-    extract_excluded_agents,
-    extract_file_instruction,
-    extract_history_limit,
-    extract_included_agents,
-    extract_max_words_limit,
-    extract_min_words_limit,
-    extract_revoke_instruction,
-    extract_scribe_max_words_limit,
-    extract_scribe_min_words_limit,
-    is_stop_command,
+from .slash_parser import (
+    parse_agent_list,
+    parse_file_target,
+    parse_grant_skill,
+    parse_int_or_off,
+    parse_list,
+    parse_terminal_flag,
+    parse_token,
 )
 
 logger = logging.getLogger(__name__)
+
+
+def is_stop_command(raw_text: str, is_mention_or_dm: bool = False) -> bool:
+    """
+    Detects if raw_text contains an explicit terminal/stop command.
+    Driven dynamically by registered terminal skills from skill_registry.
+    """
+    if not raw_text:
+        return False
+    from skills import skill_registry
+
+    return skill_registry.is_stop_command(raw_text, is_mention_or_dm=is_mention_or_dm)
 
 
 @dataclass
@@ -68,7 +77,8 @@ class ParsedDirectives:
 
 class DirectiveParser:
     """
-    Unified two-tier parser: deterministic fast-path slash matching + micro-LLM smart merge.
+    Unified two-tier parser: deterministic dynamic slash matching + micro-LLM smart merge.
+    All slash commands and parameters are sourced entirely from the skills registry.
     """
 
     def __init__(self, extractor_client: Any = None):
@@ -93,232 +103,245 @@ class DirectiveParser:
 
         actions: list[ActionDirective] = []
         modifiers: dict[str, Any] = {}
-
-        # 2. Fast-path deterministic extractions (Slash commands)
         text_cleaned = raw_text
-        history_limit, text_cleaned = extract_history_limit(text_cleaned)
-        max_words, text_cleaned = extract_max_words_limit(text_cleaned)
-        min_words, text_cleaned = extract_min_words_limit(text_cleaned)
-        scribe_max_words, text_cleaned = extract_scribe_max_words_limit(text_cleaned)
-        scribe_min_words, text_cleaned = extract_scribe_min_words_limit(text_cleaned)
-        excluded, exclude_off, text_cleaned = extract_excluded_agents(text_cleaned)
-        included, include_off, text_cleaned = extract_included_agents(text_cleaned)
-        revoke_target, text_cleaned = extract_revoke_instruction(text_cleaned)
 
-        is_file_req, target_filename, text_cleaned = extract_file_instruction(
-            text_cleaned, available_files=available_files
-        )
+        max_words: int | str | None = None
+        min_words: int | str | None = None
+        scribe_max_words: int | str | None = None
+        scribe_min_words: int | str | None = None
+        history_limit: int | None = None
+        excluded: list[str] = []
+        included: list[str] = []
+        exclude_off: bool = False
+        include_off: bool = False
+        revoke_target: str | None = None
+        is_file_req: bool = False
+        target_filename: str | None = None
 
-        if max_words is not None:
-            modifiers["max_words"] = max_words
-        if min_words is not None:
-            modifiers["min_words"] = min_words
-        if scribe_max_words is not None:
-            actions.append(ActionDirective(name="scribe_max_words", params={"words": scribe_max_words}))
-        if scribe_min_words is not None:
-            actions.append(ActionDirective(name="scribe_min_words", params={"words": scribe_min_words}))
-        if history_limit is not None:
-            modifiers["history"] = history_limit
-
-        if is_file_req:
-            from skills import skill_registry
-
-            file_skill = skill_registry.get_file_handler_skill()
-            file_skill_name = file_skill.name if file_skill else "document_reader"
-            actions.append(
-                ActionDirective(
-                    name=file_skill_name,
-                    params={"target_file": target_filename} if target_filename else {},
-                )
-            )
-
-        if excluded or exclude_off:
-            actions.append(
-                ActionDirective(
-                    name="exclude_agents",
-                    params={"agents": list(excluded), "off": exclude_off},
-                )
-            )
-
-        if included or include_off:
-            actions.append(
-                ActionDirective(
-                    name="include_agents",
-                    params={"agents": list(included), "off": include_off},
-                )
-            )
-
-        if revoke_target is not None:
-            actions.append(
-                ActionDirective(
-                    name="revoke",
-                    params={"target": revoke_target},
-                )
-            )
-
-        # 3. Dynamic slash check against registered skills
+        # 2. Dynamic deterministic slash command extraction driven by SkillRegistry
         try:
             from skills import skill_registry
 
             slash_triggers = skill_registry.get_slash_triggers()
-            sorted_triggers = sorted(slash_triggers.items(), key=lambda x: len(x[0]), reverse=True)
+            sorted_triggers = sorted(
+                slash_triggers.items(), key=lambda x: len(x[0]), reverse=True
+            )
+
             for slash_cmd, (skill_def, trg_cfg) in sorted_triggers:
-                # If already handled (e.g. by fast-path regexes or previous alias), skip
-                if skill_def.name in modifiers or any(a.name == skill_def.name for a in actions):
+                if skill_def.name in modifiers or any(
+                    a.name == skill_def.name for a in actions
+                ):
                     continue
 
                 arg_type = trg_cfg.get("arg_type")
-                if arg_type == "grant_skill" or skill_def.name == "grant_skill":
-                    cmd_match = re.search(rf"(?:^|\s){re.escape(slash_cmd)}(?=[\s:=]|$)", text_cleaned, re.IGNORECASE)
-                    if cmd_match:
-                        start_idx = cmd_match.start()
-                        curr_idx = cmd_match.end()
-                        remainder = text_cleaned[curr_idx:]
+                param_name = trg_cfg.get("param_name")
 
-                        token_pattern = re.compile(
-                            r"(\s*(?:,|and|&)?\s*)(\[[^\]]+\]|<@[A-Za-z0-9_]+>|@[a-zA-Z0-9_-]+|[a-zA-Z0-9_-]+)",
-                            re.IGNORECASE,
-                        )
-                        offset = 0
-                        tokens: list[str] = []
+                if arg_type == "terminal_flag" or skill_def.is_terminal:
+                    matched, text_cleaned = parse_terminal_flag(
+                        slash_cmd, text_cleaned
+                    )
+                    if matched:
+                        actions.append(ActionDirective(name=skill_def.name, params={}))
 
-                        from pipeline.entity_resolver import entity_resolver
-
-                        while True:
-                            t_match = token_pattern.match(remainder[offset:])
-                            if not t_match:
-                                break
-                            _, raw_token = t_match.groups()
-                            token_clean = raw_token.strip("[]@<>\t ")
-                            is_bracketed = (
-                                (raw_token.startswith("[") and raw_token.endswith("]"))
-                                or raw_token.startswith("@")
-                                or raw_token.startswith("<@")
+                elif arg_type in ("int", "integer", "int_or_off"):
+                    min_val = 1 if "words" in skill_def.name else None
+                    matched, val, text_cleaned = parse_int_or_off(
+                        slash_cmd, text_cleaned, min_val=min_val
+                    )
+                    if matched:
+                        if skill_def.scope == "prompt_modifier":
+                            modifiers[skill_def.name] = val
+                            if skill_def.name == "max_words":
+                                max_words = val
+                            elif skill_def.name == "min_words":
+                                min_words = val
+                        elif skill_def.name == "thread_history":
+                            history_limit = int(val) if isinstance(val, int) else None
+                            modifiers["history"] = history_limit
+                        else:
+                            p_name = (
+                                param_name
+                                or ("words" if "words" in skill_def.name else "value")
                             )
+                            params_dict: dict[str, Any] = {
+                                p_name: val,
+                                "slash_cmd": slash_cmd,
+                            }
+                            if "next" in slash_cmd.lower():
+                                params_dict["is_next_round"] = True
+                                if val is None:
+                                    params_dict[p_name] = 1
+                            actions.append(
+                                ActionDirective(name=skill_def.name, params=params_dict)
+                            )
+                            if skill_def.name == "scribe_max_words":
+                                scribe_max_words = val
+                            elif skill_def.name == "scribe_min_words":
+                                scribe_min_words = val
 
-                            if not tokens:
-                                # First token is skill
-                                tokens.append(token_clean)
-                                offset += len(t_match.group(0))
-                            else:
-                                is_agent = bool(entity_resolver.resolve_candidates(token_clean))
-                                if is_agent or is_bracketed or len(tokens) == 1:
-                                    tokens.append(token_clean)
-                                    offset += len(t_match.group(0))
-                                else:
-                                    break
+                elif arg_type == "agent_list":
+                    matched, agents_list, is_off, text_cleaned = parse_agent_list(
+                        slash_cmd, text_cleaned
+                    )
+                    if matched:
+                        actions.append(
+                            ActionDirective(
+                                name=skill_def.name,
+                                params={
+                                    param_name or "agents": list(agents_list),
+                                    "off": is_off,
+                                },
+                            )
+                        )
+                        if skill_def.name == "exclude_agents":
+                            excluded = list(agents_list)
+                            exclude_off = is_off
+                        elif skill_def.name == "include_agents":
+                            included = list(agents_list)
+                            include_off = is_off
 
-                        matched_tokens_span_end = curr_idx + offset
-                        skill_name = tokens[0] if tokens else ""
-                        agents_list = tokens[1:] if len(tokens) > 1 else []
+                elif (
+                    arg_type in ("file_target", "file")
+                    or trg_cfg.get("handles_files")
+                    or skill_def.handles_files
+                ):
+                    matched, target_fn, text_cleaned = parse_file_target(
+                        slash_cmd, text_cleaned, available_files=available_files
+                    )
+                    if matched:
+                        is_file_req = True
+                        if target_fn:
+                            target_filename = target_fn
+                        actions.append(
+                            ActionDirective(
+                                name=skill_def.name,
+                                params=(
+                                    {param_name or "target_file": target_filename}
+                                    if target_filename
+                                    else {}
+                                ),
+                            )
+                        )
 
+                elif arg_type in ("token", "str", "string"):
+                    matched, target, text_cleaned = parse_token(
+                        slash_cmd, text_cleaned
+                    )
+                    if matched:
+                        actions.append(
+                            ActionDirective(
+                                name=skill_def.name,
+                                params={param_name or "target": target},
+                            )
+                        )
+                        if skill_def.name == "revoke":
+                            revoke_target = target
+
+                elif arg_type == "grant_skill" or skill_def.name == "grant_skill":
+                    matched, sk_name, ag_list, text_cleaned = parse_grant_skill(
+                        slash_cmd, text_cleaned
+                    )
+                    if matched:
                         actions.append(
                             ActionDirective(
                                 name="grant_skill",
                                 params={
-                                    "skill": skill_name,
-                                    "agents": agents_list,
-                                    "skills": [skill_name] if skill_name else [],
+                                    "skill": sk_name,
+                                    "agents": ag_list,
+                                    "skills": [sk_name] if sk_name else [],
                                 },
                             )
                         )
-                        text_cleaned = (text_cleaned[:start_idx] + " " + text_cleaned[matched_tokens_span_end:]).strip()
-                        text_cleaned = re.sub(r"[ \t]+", " ", text_cleaned).strip()
+
                 elif arg_type == "list":
-                    cmd_match = re.search(rf"(?:^|\s){re.escape(slash_cmd)}(?=[\s:=]|$)", text_cleaned, re.IGNORECASE)
-                    if cmd_match:
-                        start_idx = cmd_match.start()
-                        curr_idx = cmd_match.end()
-                        matched_tokens_span_end = curr_idx
-                        remainder = text_cleaned[curr_idx:]
+                    known_skill_names = {
+                        s.name.lower() for s in skill_registry.list_skills()
+                    }
+                    matched, items_list, text_cleaned = parse_list(
+                        slash_cmd, text_cleaned, known_items=known_skill_names
+                    )
+                    if matched:
+                        p_name = param_name or (
+                            "skills" if "skill" in skill_def.name else "items"
+                        )
+                        actions.append(
+                            ActionDirective(
+                                name=skill_def.name, params={p_name: items_list}
+                            )
+                        )
 
-                        token_pattern = re.compile(r"(\s*(?:,|and|&)?\s*)(\[[^\]]+\]|[a-zA-Z0-9_-]+)", re.IGNORECASE)
-                        offset = 0
-                        items_list: list[str] = []
-                        known_skill_names = {s.name.lower() for s in skill_registry.list_skills()}
-
-                        while True:
-                            t_match = token_pattern.match(remainder[offset:])
-                            if not t_match:
-                                break
-                            _, raw_token = t_match.groups()
-                            token_clean = raw_token.strip("[]")
-                            rem_after_token = remainder[offset + len(t_match.group(0)):].strip()
-                            is_bracketed = raw_token.startswith("[") and raw_token.endswith("]")
-                            is_known = token_clean.lower() in known_skill_names or token_clean.lower() == "all"
-                            is_last_token = not rem_after_token
-
-                            if is_known or (offset == 0 and is_last_token):
-                                items_list.append(token_clean)
-                                offset += len(t_match.group(0))
-                                matched_tokens_span_end = curr_idx + offset
-                            else:
-                                break
-
-                        param_name = trg_cfg.get("param_name", "skills" if "skill" in skill_def.name else "items")
-                        actions.append(ActionDirective(name=skill_def.name, params={param_name: items_list}))
-                        text_cleaned = (text_cleaned[:start_idx] + " " + text_cleaned[matched_tokens_span_end:]).strip()
-                        text_cleaned = re.sub(r"[ \t]+", " ", text_cleaned).strip()
-                elif arg_type in ("int", "integer"):
-                    pattern = re.compile(rf"(?:^|\s){re.escape(slash_cmd)}(?=[\s:=]|$)(?:\s*[:=]?\s*(\d+))?", re.IGNORECASE)
-                    match = pattern.search(text_cleaned)
-                    if match:
-                        num_val = int(match.group(1)) if match.group(1) else None
-                        if skill_def.scope == "prompt_modifier":
-                            modifiers[skill_def.name] = num_val
-                        else:
-                            param_name = trg_cfg.get("param_name", "value")
-                            params_dict: dict[str, Any] = {param_name: num_val, "slash_cmd": slash_cmd}
-                            if "next" in slash_cmd.lower():
-                                params_dict["is_next_round"] = True
-                                if num_val is None:
-                                    params_dict[param_name] = 1
-                            actions.append(ActionDirective(name=skill_def.name, params=params_dict))
-                        text_cleaned = re.sub(
-                            rf"(?:^|\s){re.escape(slash_cmd)}(?=[\s:=]|$)(?:\s*[:=]?\s*\d+)?",
-                            " ",
-                            text_cleaned,
-                            flags=re.IGNORECASE,
-                        ).strip()
                 elif arg_type in ("none", "flag"):
-                    pattern = re.compile(rf"(?:^|\s){re.escape(slash_cmd)}(?=[\s:=]|$)", re.IGNORECASE)
-                    if pattern.search(text_cleaned):
+                    matched, text_cleaned = parse_terminal_flag(
+                        slash_cmd, text_cleaned
+                    )
+                    if matched:
                         actions.append(ActionDirective(name=skill_def.name, params={}))
-                        text_cleaned = pattern.sub(" ", text_cleaned).strip()
-                        text_cleaned = re.sub(r"[ \t]+", " ", text_cleaned).strip()
+
                 else:
-                    pattern = re.compile(rf"(?:^|\s){re.escape(slash_cmd)}(?=[\s:=]|$)(?:\s*[:=]?\s*([^\s/]+))?", re.IGNORECASE)
+                    # Fallback generic token parser
+                    pattern = re.compile(
+                        rf"(?:^|\s){re.escape(slash_cmd)}(?=[\s:=]|$)(?:\s*[:=]?\s*([^\s/]+))?",
+                        re.IGNORECASE,
+                    )
                     match = pattern.search(text_cleaned)
                     if match:
                         arg_val = match.group(1)
                         if skill_def.scope == "prompt_modifier":
                             modifiers[skill_def.name] = arg_val or True
                         else:
-                            param_name = trg_cfg.get("param_name", "arg")
-                            actions.append(ActionDirective(name=skill_def.name, params={param_name: arg_val} if arg_val else {}))
-                            if trg_cfg.get("handles_files") or param_name == "target_file":
-                                is_file_req = True
-                                if arg_val:
-                                    target_filename = arg_val
+                            p_name = param_name or "arg"
+                            actions.append(
+                                ActionDirective(
+                                    name=skill_def.name,
+                                    params={p_name: arg_val} if arg_val else {},
+                                )
+                            )
                         text_cleaned = re.sub(
                             rf"(?:^|\s){re.escape(slash_cmd)}(?=[\s:=]|$)(?:\s*[:=]?\s*[^\s/]+)?",
                             " ",
                             text_cleaned,
                             flags=re.IGNORECASE,
                         ).strip()
+
+            # If no slash command matched file_target, check if available_files filename mentioned in prompt
+            if not is_file_req and available_files:
+                file_skill = skill_registry.get_file_handler_skill()
+                if file_skill:
+                    for f in available_files:
+                        fname = f.get("name")
+                        if fname and re.search(
+                            r"\b" + re.escape(fname) + r"\b",
+                            text_cleaned,
+                            re.IGNORECASE,
+                        ):
+                            is_file_req = True
+                            target_filename = fname
+                            actions.append(
+                                ActionDirective(
+                                    name=file_skill.name,
+                                    params={"target_file": target_filename},
+                                )
+                            )
+                            break
         except Exception as e:
             logger.debug(f"[DIRECTIVE PARSER] Skill registry slash check error: {e}")
 
         # If an exclusive grant command is present, skip micro-LLM intent extraction entirely
-        has_exclusive_grant = any(a.name in ("grant_for_all", "grant_skill") for a in actions)
+        has_exclusive_grant = any(
+            a.name in ("grant_for_all", "grant_skill") for a in actions
+        )
 
-        # 4. Check if micro-LLM intent extraction should run
+        # 3. Check if micro-LLM intent extraction should run
         from nlp.intent_extractor import (
             extract_user_intent,
             should_skip_intent_extractor,
         )
 
-        if not has_exclusive_grant and not should_skip_intent_extractor(raw_text=raw_text) and text_cleaned.strip():
+        if (
+            not has_exclusive_grant
+            and not should_skip_intent_extractor(raw_text=raw_text)
+            and text_cleaned.strip()
+        ):
             intent: ExtractedIntent = await extract_user_intent(
                 text_cleaned, available_files=available_files
             )
@@ -344,23 +367,31 @@ class DirectiveParser:
                 from skills import skill_registry
 
                 file_skill = skill_registry.get_file_handler_skill()
-                file_skill_name = file_skill.name if file_skill else "document_reader"
-                if not any(a.name == file_skill_name for a in actions):
+                if file_skill and not any(a.name == file_skill.name for a in actions):
                     actions.append(
                         ActionDirective(
-                            name=file_skill_name,
-                            params={"target_file": target_filename} if target_filename else {},
+                            name=file_skill.name,
+                            params=(
+                                {"target_file": target_filename}
+                                if target_filename
+                                else {}
+                            ),
                         )
                     )
 
             from pipeline.entity_resolver import entity_resolver
+
             tagged_in_prompt = set(entity_resolver.extract_tagged_agents(raw_text))
             for exc in intent_dict.get("excluded_agents", []):
                 if exc not in excluded and exc not in tagged_in_prompt:
                     excluded.append(exc)
 
             if excluded and not any(a.name == "exclude_agents" for a in actions):
-                actions.append(ActionDirective(name="exclude_agents", params={"agents": list(excluded)}))
+                actions.append(
+                    ActionDirective(
+                        name="exclude_agents", params={"agents": list(excluded)}
+                    )
+                )
 
             # Merge any other modifiers or actions from intent
             llm_modifiers = intent_dict.get("modifiers") or {}
@@ -370,9 +401,21 @@ class DirectiveParser:
 
             llm_actions = intent_dict.get("actions") or []
             for act in llm_actions:
-                act_name = act.get("name") if isinstance(act, dict) else getattr(act, "name", None)
-                act_params = act.get("params", {}) if isinstance(act, dict) else getattr(act, "params", {})
-                if act_name and act_name != "stop_discussion" and not any(a.name == act_name for a in actions):
+                act_name = (
+                    act.get("name")
+                    if isinstance(act, dict)
+                    else getattr(act, "name", None)
+                )
+                act_params = (
+                    act.get("params", {})
+                    if isinstance(act, dict)
+                    else getattr(act, "params", {})
+                )
+                if (
+                    act_name
+                    and act_name != "stop_discussion"
+                    and not any(a.name == act_name for a in actions)
+                ):
                     actions.append(ActionDirective(name=act_name, params=act_params))
 
         return ParsedDirectives(
