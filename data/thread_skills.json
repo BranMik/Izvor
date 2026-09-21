@@ -28,13 +28,13 @@
       "skills": [
         "web_research"
       ],
-      "granted_at": 1789859440.143826
+      "granted_at": 1789860455.4771283
     },
     "C_TEST:1726000000.2": {
       "skills": [
         "web_research"
       ],
-      "granted_at": 1789859440.4764812
+      "granted_at": 1789860455.8026562
     },
     "C_TEST:1726000000.3": {
       "agent_skills": {
@@ -42,9 +42,41 @@
           "skills": [
             "web_research"
           ],
-          "granted_at": 1789859440.891839
+          "granted_at": 1789860456.1427274
         }
       }
+    },
+    "C_TEST_18:1700000074.0000": {
+      "agent_skills": {
+        "Architect": {
+          "skills": [
+            "web_research"
+          ],
+          "granted_at": 1789983930.293048
+        }
+      }
+    },
+    "C_TEST_19:1700000076.0000": {
+      "skills": [
+        "web_research"
+      ],
+      "granted_at": 1789983930.3359494
+    },
+    "C_TEST_18:1700000041.0000": {
+      "agent_skills": {
+        "Architect": {
+          "skills": [
+            "web_research"
+          ],
+          "granted_at": 1789983673.339894
+        }
+      }
+    },
+    "C_TEST_19:1700000043.0000": {
+      "skills": [
+        "web_research"
+      ],
+      "granted_at": 1789983673.370706
     }
   }
 }
