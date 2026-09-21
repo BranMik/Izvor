@@ -34,6 +34,7 @@ venv/
 ENV/
 flat-histories/*
 resources/*
+e2e_harness/.test_run_counter
 
 # IDE / Editor
 .vscode/

@@ -9,14 +9,20 @@ A comprehensive manual testing guide with 27 actionable, copy-pasteable test sce
 
 To run the full suite automatically without manual typing in Slack:
 ```powershell
-# Run all 27 automated behavioral test cases with live system LLMs
+# 1. Offline In-Memory Simulation (Fast, 0s delay)
 python -m e2e_harness.runner
-
-# Run an individual scenario (e.g. TC-06)
 python -m e2e_harness.runner --case TC-06
-
-# Run via Pytest
 python -m pytest e2e_harness/test_e2e_suite.py
+
+# 2. Live Slack Dispatch Mode (Streams real cards, avatars & turns to Slack)
+# Runs scenario TC-01 into the dedicated channel with 1s pacing:
+python -m e2e_harness.runner --live-slack --channel C0123456789 --case TC-01
+
+# Run with custom testing run prefix (e.g. TEST_RUN_1-[TC-01]):
+python -m e2e_harness.runner --live-slack --channel C0123456789 --run-num 1 --case TC-02
+
+# Run live Slack dispatch using live LLMs for all agent persona debate turns:
+python -m e2e_harness.runner --live-slack --channel C0123456789 --live-all-llm --case TC-01
 ```
 
 ---

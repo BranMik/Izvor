@@ -101,8 +101,13 @@ class MockUsage:
 class HybridInterceptor:
     """Controls the routing of litellm.acompletion and external tool calls."""
 
-    def __init__(self, allow_live_system_llm: bool = True) -> None:
+    def __init__(
+        self,
+        allow_live_system_llm: bool = True,
+        allow_all_live_llm: bool = False,
+    ) -> None:
         self.allow_live_system_llm = allow_live_system_llm
+        self.allow_all_live_llm = allow_all_live_llm
         self.real_acompletion = litellm.acompletion
         self.call_history: list[dict[str, Any]] = []
 
@@ -112,6 +117,9 @@ class HybridInterceptor:
         **kwargs: Any,
     ) -> Any:
         self.call_history.append(kwargs)
+        if self.allow_all_live_llm:
+            return await self.real_acompletion(*args, **kwargs)
+
         messages = kwargs.get("messages", [])
         model = kwargs.get("model", "")
         tools = kwargs.get("tools", [])
