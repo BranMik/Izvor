@@ -249,6 +249,15 @@ async def handle_slack_events(request: Request, background_tasks: BackgroundTask
                             run_internal_loop=True,
                         )
                     )
+
+                    def _log_background_task_error(t: asyncio.Task) -> None:
+                        if not t.cancelled() and t.exception():
+                            logger.error(
+                                f"[WEBHOOK] Background task failed for thread {(channel_id, thread_ts)}: {t.exception()}",
+                                exc_info=t.exception(),
+                            )
+
+                    task.add_done_callback(_log_background_task_error)
                     thread_state_manager.set_active_task(channel_id, thread_ts, task)
                 else:
                     logger.info(

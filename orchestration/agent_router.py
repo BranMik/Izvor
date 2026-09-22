@@ -231,6 +231,11 @@ async def orchestrate_discussion(
             logger.debug(f"[ORCHESTRATOR] Final flat history sync exception: {e}")
 
         return last_res
+    except Exception as e:
+        logger.exception(
+            f"[ORCHESTRATOR] Unhandled exception in discussion loop for thread {thread_key}: {e}"
+        )
+        return {"ok": False, "error": str(e)}
     finally:
         if current_task and thread_state_manager.get_active_task(channel_id, thread_ts) == current_task:
             thread_state_manager.clear_active_task(channel_id, thread_ts, current_task)

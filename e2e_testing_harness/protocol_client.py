@@ -81,6 +81,8 @@ class OutboundEventBus:
             if m.get("channel_id") == channel_id
             and (not thread_ts or m.get("thread_ts") == thread_ts)
             and m.get("role") != "user"
+            and not m.get("is_scribe_note")
+            and m.get("username") != "Live Discussion Scribe"
         ]
 
     def get_all_texts_for_thread(self, channel_id: str, thread_ts: str) -> list[str]:
@@ -501,20 +503,15 @@ class SlackProtocolClient:
         if (channel_id, thread_ts) in self.bus.thread_history_store:
             return self.bus.thread_history_store[(channel_id, thread_ts)]
 
-        # 2. Live Slack retrieval if live mode is active
+        # 2. Live Slack retrieval if live mode is active (authentic call directly to Slack)
         if self.live_mode and SLACK_BOT_TOKEN and SLACK_BOT_TOKEN != "xoxb-your-bot-user-oauth-token":
-            try:
-                real_hist = await _REAL_SLACK_FETCH_HISTORY(
-                    channel_id=channel_id,
-                    thread_ts=thread_ts,
-                    bot_user_id=bot_user_id,
-                )
-                if real_hist:
-                    return real_hist
-            except Exception as e:
-                logger.warning(f"[LIVE SLACK] Live fetch_thread_history failed: {e}")
+            return await _REAL_SLACK_FETCH_HISTORY(
+                channel_id=channel_id,
+                thread_ts=thread_ts,
+                bot_user_id=bot_user_id,
+            )
 
-        # 3. Reconstruct history from in-memory bus messages
+        # 3. Offline simulation mode only: reconstruct history from in-memory bus messages
         history: list[dict[str, str]] = []
         for msg in self.bus.posted_messages:
             msg_ch = msg.get("channel_id")
@@ -534,10 +531,6 @@ class SlackProtocolClient:
                     history.append({"role": "user", "content": clean_text})
                 else:
                     history.append({"role": "assistant", "content": f"[{uname}]: {clean_text}"})
-
-        if not history:
-            history.append({"role": "user", "content": "Evaluate architectural consistency."})
-            history.append({"role": "assistant", "content": "[Architect]: Decoupling components provides resilience."})
 
         return history
 

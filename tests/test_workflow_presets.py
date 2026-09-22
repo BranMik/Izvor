@@ -358,7 +358,7 @@ def test_agent_settings_file_structure_and_dynamic_load():
     assert mgr.get_orchestration_mode() == OrchestrationMode.FIXED.value
     assert len(mgr.fixed_chain) > 0
     assert "Visionary" in mgr.fixed_chain
-    assert "DeploymentReleaseStrategist" in mgr.fixed_chain
+    assert "Architect" in mgr.fixed_chain
 
 
 def test_workflow_config_switching_and_fallback(tmp_path: Path):
