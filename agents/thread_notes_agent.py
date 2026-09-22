@@ -136,7 +136,7 @@ try:
 
     thread_state_manager.register_cleanup_hook(clear_thread_note)
     thread_state_manager.register_reset_hook(reset_thread_notes)
-except Exception as _e:
+except (ImportError, AttributeError, TypeError) as _e:
     logger.debug(f"[THREAD NOTES] Could not register thread_state hooks: {_e}")
 
 
@@ -302,9 +302,7 @@ async def update_notes_for_thread(
                     thread_ts=thread_ts,
                     is_completed=is_completed,
                 )
-            except (KeyError, ValueError, TypeError) as usage_err:
-                logger.debug(f"[THREAD NOTES] Non-critical usage data error: {usage_err}")
-            except Exception as usage_err:
+            except (KeyError, ValueError, TypeError, AttributeError, OSError) as usage_err:
                 logger.debug(f"[THREAD NOTES] Non-critical usage sync error: {usage_err}")
 
             return {
@@ -416,7 +414,7 @@ def trigger_thread_notes_update(
             f"[THREAD NOTES] Runtime error dispatching background notes update task: {e}"
         )
         return None
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - Background task dispatcher error boundary
         logger.error(
             f"[THREAD NOTES] Failed to dispatch background notes update task: {e}"
         )

@@ -1,16 +1,13 @@
 import asyncio
 import json
 import logging
-import re
 from typing import Any
 
 import litellm
-from starlette.concurrency import run_in_threadpool
 
 from core.config import INTENT_EXTRACTOR_MODEL
 from core.llm_utils import execute_llm_with_retry
 from core.models import ActionDirective, ExtractedIntent
-
 from pipeline.directive_parser import is_stop_command
 from pipeline.entity_resolver import entity_resolver
 
@@ -53,7 +50,7 @@ class IntentExtractor:
             prompt = skill_registry.build_extractor_catalog_prompt()
             if prompt:
                 return prompt
-        except Exception as e:
+        except (ImportError, AttributeError, KeyError, TypeError) as e:
             logger.debug(f"[INTENT EXTRACTOR] Error retrieving skill catalog prompt: {e}")
         return EXTRACTOR_SYSTEM_PROMPT
 
@@ -190,7 +187,7 @@ class IntentExtractor:
         except (json.JSONDecodeError, ValueError, KeyError, TypeError) as e:
             logger.warning(f"[INTENT EXTRACTOR] Extraction parsing error ({e}). Falling back.")
             return default_intent
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - Intent extraction error boundary falls back cleanly to default intent
             logger.warning(f"[INTENT EXTRACTOR] Extraction failed ({e}). Falling back.")
             return default_intent
 

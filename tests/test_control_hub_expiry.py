@@ -2,12 +2,11 @@
 Tests for Control Hub Thread Skill Expiration Time section and Interactivity.
 """
 
-from services.slack_client import build_app_home_view
 from orchestration.app_settings import (
-    app_settings_manager,
     get_thread_skill_expiration_time,
     set_thread_skill_expiration_time,
 )
+from services.slack_client import build_app_home_view
 
 
 def test_control_hub_blocks_contain_thread_skill_expiry():

@@ -50,7 +50,7 @@ class ThreadSkillsManager:
             self._threads = data.get("threads", {})
             self._last_loaded_mtime = mtime
             logger.debug(f"[THREAD_SKILLS] Loaded {len(self._threads)} thread entries from {self.storage_file}")
-        except Exception as e:
+        except (OSError, json.JSONDecodeError, TypeError, ValueError) as e:
             logger.error(f"[THREAD_SKILLS] Failed to load {self.storage_file}: {e}")
 
     def save(self) -> None:
@@ -65,13 +65,13 @@ class ThreadSkillsManager:
                 os.fsync(f.fileno())
             os.replace(tmp_file, self.storage_file)
             self._last_loaded_mtime = self.storage_file.stat().st_mtime
-        except Exception as e:
+        except (OSError, TypeError, ValueError) as e:
             logger.error(f"[THREAD_SKILLS] Error saving to {self.storage_file}: {e}")
             if tmp_file.exists():
                 try:
                     tmp_file.unlink()
-                except Exception:
-                    pass
+                except OSError as ue:
+                    logger.debug(f"[THREAD_SKILLS] Failed to remove temp file: {ue}")
 
     def get_ttl_seconds(self) -> float:
         ttl_hours = app_settings_manager.get_thread_skill_expiration_time()
@@ -232,7 +232,7 @@ class ThreadSkillsManager:
                 return list(ag_entry.get("skills", []))
             return []
 
-        for ag_key, ag_entry in agent_skills.items():
+        for ag_entry in agent_skills.values():
             granted_at = ag_entry.get("granted_at", 0.0)
             if now - granted_at > ttl:
                 for s in ag_entry.get("skills", []):

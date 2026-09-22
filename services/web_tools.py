@@ -95,7 +95,7 @@ def web_search(query: str, max_results: int = 5) -> str:
 
     except (httpx.TimeoutException, httpx.RequestError, httpx.HTTPStatusError) as e:
         logger.warning(f"[WEB_SEARCH] DuckDuckGo HTML endpoint failed: {e}. Attempting fallback...")
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - HTML search endpoint fallback to DDGS
         logger.warning(f"[WEB_SEARCH] DuckDuckGo HTML endpoint failed: {e}. Attempting fallback...")
 
     # Strategy 2: ddgs library fallback
@@ -127,7 +127,7 @@ def web_search(query: str, max_results: int = 5) -> str:
             )
     except (ImportError, AttributeError) as e:
         logger.error(f"[WEB_SEARCH] DDGS import or call failed: {e}")
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - DDGS search fallback boundary
         logger.error(f"[WEB_SEARCH] DDGS fallback failed: {e}")
 
     return json.dumps(
@@ -214,8 +214,6 @@ def validate_url_security(url: str) -> tuple[bool, str, str | None]:
         raw_parsed = urllib.parse.urlsplit(url.strip())
     except (ValueError, TypeError) as e:
         return False, url.strip(), f"Malformed URL: {e}"
-    except Exception as e:
-        return False, url.strip(), f"Malformed URL: {e}"
 
     if not raw_parsed.scheme:
         cleaned_url = f"https://{url.strip()}"
@@ -232,8 +230,6 @@ def validate_url_security(url: str) -> tuple[bool, str, str | None]:
     try:
         parsed = urllib.parse.urlsplit(cleaned_url)
     except (ValueError, TypeError) as e:
-        return False, cleaned_url, f"Malformed URL: {e}"
-    except Exception as e:
         return False, cleaned_url, f"Malformed URL: {e}"
 
     scheme = (parsed.scheme or "").lower()
@@ -309,10 +305,8 @@ def validate_url_security(url: str) -> tuple[bool, str, str | None]:
                 return False, cleaned_url, f"Host '{hostname_lower}' resolved to restricted IP address '{ip}'."
     except socket.gaierror as e:
         return False, cleaned_url, f"DNS resolution failed for '{hostname_lower}': {e}"
-    except OSError as e:
-        return False, cleaned_url, f"Socket error validating host '{hostname_lower}': {e}"
-    except Exception as e:
-        return False, cleaned_url, f"Error validating host '{hostname_lower}': {e}"
+    except (OSError, ValueError) as e:
+        return False, cleaned_url, f"Host validation error for '{hostname_lower}': {e}"
 
     return True, cleaned_url, None
 
@@ -454,7 +448,7 @@ def fetch_web_page(url: str, max_chars: int = 4000) -> str:
     except httpx.RequestError as e:
         logger.error(f"[FETCH_WEB_PAGE] Network error fetching '{cleaned_url}': {e}")
         return json.dumps({"error": f"Network error fetching web page: {e}", "url": cleaned_url})
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - Web page scraping error boundary returns error JSON
         logger.error(f"[FETCH_WEB_PAGE] Error fetching '{cleaned_url}': {e}")
         return json.dumps({"error": f"Error fetching web page: {e!s}", "url": cleaned_url})
 

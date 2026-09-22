@@ -24,9 +24,9 @@ from typing import Any
 
 import httpx
 
+import services.slack_client as _sc
 from core.config import SLACK_BOT_TOKEN, SLACK_SIGNING_SECRET, resolve_avatar_url
 from main import app
-import services.slack_client as _sc
 
 logger = logging.getLogger("e2e_testing_harness.protocol_client")
 
@@ -193,7 +193,7 @@ class SlackProtocolClient:
                 return self.current_thread_ts
             else:
                 logger.warning(f"[LIVE SLACK] Could not post scenario root message: {res}")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - Live Slack test scenario root initialization boundary
             logger.error(f"[LIVE SLACK] Error creating scenario root thread: {e}")
         return None
 
@@ -217,7 +217,7 @@ class SlackProtocolClient:
                 username="E2E Test Runner",
                 icon_url=resolve_avatar_url("static/v2/avatar_47.png"),
             )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - Live Slack scenario completion card boundary
             logger.error(f"[LIVE SLACK] Error posting scenario completion: {e}")
         finally:
             self.current_thread_ts = None
@@ -243,7 +243,7 @@ class SlackProtocolClient:
                     username=username or "Agent",
                     icon_url=icon_url,
                 )
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - Live Slack dispatch error boundary
                 logger.error(f"[LIVE SLACK] Failed to post agent response: {e}")
 
         ts = (str(real_result.get("ts")) if real_result and real_result.get("ok") and real_result.get("ts") else None) or self.next_ts()
@@ -270,7 +270,7 @@ class SlackProtocolClient:
         if self.live_mode and SLACK_BOT_TOKEN and SLACK_BOT_TOKEN != "xoxb-your-bot-user-oauth-token":
             try:
                 real_result = await _REAL_SLACK_UPDATE(channel_id=channel_id, ts=ts, text=text)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - Live Slack message update boundary
                 logger.error(f"[LIVE SLACK] Failed to update slack message: {e}")
 
         entry = {
@@ -304,7 +304,7 @@ class SlackProtocolClient:
                     username=username,
                     icon_url=icon_url,
                 )
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - Live Slack system message post boundary
                 logger.error(f"[LIVE SLACK] Failed to post system message: {e}")
 
         ts = (str(real_result.get("ts")) if real_result and real_result.get("ok") and real_result.get("ts") else None) or self.next_ts()
@@ -346,7 +346,7 @@ class SlackProtocolClient:
                     icon_emoji=icon_emoji,
                     blocks=blocks,
                 )
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - Live Slack note post boundary
                 logger.error(f"[LIVE SLACK] Failed to post thread note: {e}")
 
         ts = (str(real_result.get("ts")) if real_result and real_result.get("ok") and real_result.get("ts") else None) or self.next_ts()
@@ -372,18 +372,17 @@ class SlackProtocolClient:
         text: str,
         blocks: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
-        real_result = None
         target_channel = self.get_channel(channel_id)
 
         if self.live_mode and SLACK_BOT_TOKEN and SLACK_BOT_TOKEN != "xoxb-your-bot-user-oauth-token":
             try:
-                real_result = await _REAL_SLACK_UPDATE_NOTE(
+                await _REAL_SLACK_UPDATE_NOTE(
                     channel_id=target_channel,
                     message_ts=message_ts,
                     text=text,
                     blocks=blocks,
                 )
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - Live Slack note update boundary
                 logger.error(f"[LIVE SLACK] Failed to update thread note: {e}")
 
         for note in self.bus.thread_notes:
@@ -420,7 +419,7 @@ class SlackProtocolClient:
                         thread_ts=target_thread or "",
                         text=f"🔒 _[Ephemeral Notification for {user_id}]:_ {text}",
                     )
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - Live Slack ephemeral post fallback
                 logger.warning(f"[LIVE SLACK] Ephemeral post failed, posting as thread note: {e}")
                 try:
                     await _REAL_SLACK_POST_SYSTEM(
@@ -428,8 +427,8 @@ class SlackProtocolClient:
                         thread_ts=target_thread or "",
                         text=f"🔒 _[Ephemeral Notification for {user_id}]:_ {text}",
                     )
-                except Exception:
-                    pass
+                except Exception as fallback_err:  # noqa: BLE001 - Non-critical ephemeral fallback logging
+                    logger.debug(f"[LIVE SLACK] Ephemeral fallback thread post failed: {fallback_err}")
 
         entry = {
             "ok": True,
@@ -463,7 +462,7 @@ class SlackProtocolClient:
                     initial_comment=initial_comment,
                     thread_ts=target_thread,
                 )
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - Live Slack file upload boundary
                 logger.error(f"[LIVE SLACK] Failed to upload file to live Slack: {e}")
 
         entry = {
@@ -548,8 +547,10 @@ class SlackProtocolClient:
             if task and not task.done():
                 try:
                     await asyncio.wait_for(asyncio.shield(task), timeout=max(0.5, deadline - time.time()))
-                except Exception:
-                    pass
+                except (TimeoutError, asyncio.CancelledError):
+                    logger.debug("[LIVE SLACK] Timed out waiting for background task during note check")
+                except Exception as wait_err:  # noqa: BLE001 - Background task wait error boundary
+                    logger.warning(f"[LIVE SLACK] Error waiting for note task: {wait_err}")
             content = get_thread_note_content(channel_id, thread_ts)
             if content:
                 return content
@@ -660,7 +661,7 @@ class SlackProtocolClient:
                         username="Tester",
                         icon_url=resolve_avatar_url("static/v2/avatar_37.png"),
                     )
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001 - Live Slack follow-up post boundary
                     logger.warning(f"[LIVE SLACK] Failed to post follow-up prompt to thread: {e}")
         else:
             ts = self.next_ts()
@@ -691,8 +692,8 @@ class SlackProtocolClient:
                     await task
                 except asyncio.CancelledError:
                     pass
-                except Exception:
-                    pass
+                except Exception as task_err:  # noqa: BLE001 - Test client absorbs background task exceptions
+                    logger.debug(f"[LIVE SLACK] Dispatched background task finished with error: {task_err}")
         return res
 
     async def send_block_action(

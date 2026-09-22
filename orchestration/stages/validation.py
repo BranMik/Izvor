@@ -125,7 +125,7 @@ class ValidationStageMixin:
                         lines.append(f"⚠️ *Unknown or non-agent skill(s)*: {', '.join(f'`{s}`' for s in invalid_skills)}.\n_Available agent skills: {avail}_")
 
                     if valid_skills:
-                        active_skills, exp_ts = thread_skills_manager.grant_skills(
+                        active_skills, _exp_ts = thread_skills_manager.grant_skills(
                             ctx.channel_id, ctx.thread_ts, valid_skills
                         )
                         ttl_hours = app_settings_manager.get_thread_skill_expiration_time()
@@ -269,7 +269,7 @@ class ValidationStageMixin:
                         act_res = await sk.action_handler(ctx, act.params)
                         if act_res and isinstance(act_res, dict) and act_res.get("halted"):
                             return act_res
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - Error boundary isolates dynamic skill action execution from pipeline validation
                 logger.error(f"[VALIDATION] Error executing skill action handler: {e}")
 
             # Process /revoke_constraint action
@@ -612,12 +612,13 @@ class ValidationStageMixin:
                             f"[ROUTER] Target file '{chosen_file.get('name')}' resolved from default resources directory."
                         )
                         import json
+
                         from services.mcp_tools import read_document
 
                         doc_res_json = read_document(chosen_file.get("rel_path", chosen_file.get("name", "")))
                         try:
                             doc_data = json.loads(doc_res_json)
-                        except Exception as e:
+                        except (json.JSONDecodeError, TypeError, ValueError) as e:
                             doc_data = {"error": f"Failed to parse read_document output: {e}"}
 
                         if "error" not in doc_data:

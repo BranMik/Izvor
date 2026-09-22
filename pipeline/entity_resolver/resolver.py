@@ -24,18 +24,14 @@ class EntityResolver:
             from orchestration.agent_settings import settings_manager
             if settings_manager.agents_config:
                 return settings_manager.agents_config
-        except (ImportError, AttributeError) as e:
+        except (ImportError, AttributeError, TypeError) as e:
             logger.debug(f"[RESOLVER] settings_manager lookup skipped: {e}")
-        except Exception as e:
-            logger.debug(f"[RESOLVER] settings_manager unexpected lookup error: {e}")
         try:
             from core.config import AGENTS_CONFIG
             if AGENTS_CONFIG:
                 return AGENTS_CONFIG
-        except (ImportError, AttributeError) as e:
+        except (ImportError, AttributeError, TypeError) as e:
             logger.debug(f"[RESOLVER] AGENTS_CONFIG lookup skipped: {e}")
-        except Exception as e:
-            logger.debug(f"[RESOLVER] AGENTS_CONFIG unexpected lookup error: {e}")
         return {}
 
     def normalize(self, s: str) -> str:

@@ -223,9 +223,7 @@ def parse_grant_skill(
         _, raw_token = t_match.groups()
         token_clean = raw_token.strip("[]@<>\t ")
         is_bracketed = (
-            (raw_token.startswith("[") and raw_token.endswith("]"))
-            or raw_token.startswith("@")
-            or raw_token.startswith("<@")
+            raw_token.startswith("[") and raw_token.endswith("]") or raw_token.startswith(("@", "<@"))
         )
 
         if not tokens:

@@ -3,10 +3,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from nlp.message_builder import build_llm_messages
-from pipeline.directive_parser import directive_parser
 from orchestration.agent_router import process_and_respond
 from orchestration.nomination import resolve_target_file
 from orchestration.thread_state import thread_state_manager
+from pipeline.directive_parser import directive_parser
 from services.slack_client import download_slack_file
 
 
@@ -293,8 +293,9 @@ async def test_download_slack_file_http_mock():
 
 @pytest.mark.anyio
 async def test_download_slack_file_pdf_mock():
-    import pypdf
     import io
+
+    import pypdf
 
     # Create a real small PDF
     writer = pypdf.PdfWriter()

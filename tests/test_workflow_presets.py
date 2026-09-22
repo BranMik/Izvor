@@ -1,6 +1,6 @@
 import json
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi.testclient import TestClient
@@ -11,23 +11,14 @@ from orchestration.agent_settings import (
     AgentSettingsManager,
     apply_workflow,
     get_active_workflow_id,
-    get_fixed_config,
     get_orchestration_mode,
-    get_sandwich_config,
-    get_workflow_config,
     set_active_workflow_id,
-    set_fixed_config,
     set_orchestration_mode,
     set_sandwich_config,
-    set_workflow_config,
-    settings_manager,
 )
 from orchestration.workflow_manager import (
     WorkflowManager,
-    delete_workflow,
     get_workflow,
-    list_workflows,
-    save_workflow,
     slugify,
 )
 from services.slack_client import build_app_home_view
@@ -167,7 +158,7 @@ def test_agent_settings_workflow_integration(tmp_path: Path):
     """Verify AgentSettingsManager persistence and application of workflow presets."""
     settings_file = tmp_path / "agent_settings.json"
     wf_dir = tmp_path / "workflows"
-    wf_mgr = WorkflowManager(workflows_dir=wf_dir, auto_seed=True)
+    WorkflowManager(workflows_dir=wf_dir, auto_seed=True)
 
     mgr = AgentSettingsManager(settings_file=settings_file, auto_load=False, workflows_dir=wf_dir)
     mgr.agents_config = {"Visionary": {}, "Architect": {}, "TechLead": {}, "Sceptic": {}}

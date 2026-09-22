@@ -26,7 +26,7 @@ def _build_tool_status_text(username: str, tool_calls: list[Any]) -> str:
     if isinstance(raw_args, str):
         try:
             fn_args = json.loads(raw_args)
-        except Exception:
+        except (json.JSONDecodeError, TypeError, ValueError):
             fn_args = {}
     elif isinstance(raw_args, dict):
         fn_args = raw_args

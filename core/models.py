@@ -203,8 +203,8 @@ class ExtractedIntent:
             file_skill = skill_registry.get_file_handler_skill()
             if file_skill and self.has_action(file_skill.name):
                 return True
-        except Exception:
-            pass
+        except (ImportError, AttributeError):
+            file_skill = None
         return any("target_file" in a.params for a in self.actions)
 
     @file_use.setter
@@ -214,7 +214,7 @@ class ExtractedIntent:
             from skills import skill_registry
             file_skill = skill_registry.get_file_handler_skill()
             skill_name = file_skill.name if file_skill else None
-        except Exception:
+        except (ImportError, AttributeError):
             skill_name = None
 
         if skill_name:
@@ -238,7 +238,7 @@ class ExtractedIntent:
                 from skills import skill_registry
                 file_skill = skill_registry.get_file_handler_skill()
                 skill_name = file_skill.name if file_skill else None
-            except Exception:
+            except (ImportError, AttributeError):
                 skill_name = None
 
             matched = [a for a in self.actions if (skill_name and a.name == skill_name) or "target_file" in a.params]
@@ -321,9 +321,9 @@ class ExtractedIntent:
             intent.history = int(data["history"])
         if "file_use" in data and bool(data["file_use"]):
             intent.file_use = True
-        if "target_file" in data and data["target_file"]:
+        if data.get("target_file"):
             intent.target_file = str(data["target_file"])
-        if "excluded_agents" in data and data["excluded_agents"]:
+        if data.get("excluded_agents"):
             intent.excluded_agents = list(data["excluded_agents"])
 
         return intent

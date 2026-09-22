@@ -49,7 +49,7 @@ def build_llm_messages(
 
             file_skill = skill_registry.get_file_handler_skill()
             required_skill = file_skill.name if file_skill else None
-        except Exception:
+        except (ImportError, AttributeError):
             required_skill = None
 
     if file_context:

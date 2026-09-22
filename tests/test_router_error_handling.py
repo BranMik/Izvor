@@ -107,7 +107,7 @@ async def test_process_and_respond_api_key_not_found(monkeypatch):
     thread_state_manager.reset_all()
 
     async def mock_run_in_threadpool(func, *args, **kwargs):
-        raise Exception("AuthenticationError: Missing API key for Gemini")
+        raise RuntimeError("AuthenticationError: Missing API key for Gemini")
 
     posted = []
 
@@ -150,7 +150,7 @@ async def test_process_and_respond_model_not_found(monkeypatch):
     thread_state_manager.remaining_agents_map[thread_key] = ["Innovator"]
 
     async def mock_run_in_threadpool(func, *args, **kwargs):
-        raise Exception("NotFoundError: Model gemini/gemini-3.8-flash does not exist")
+        raise RuntimeError("NotFoundError: Model gemini/gemini-3.8-flash does not exist")
 
     posted = []
 
@@ -195,7 +195,7 @@ async def test_process_and_respond_retries_and_clean_error_message(monkeypatch):
     async def mock_fail_general_error(func, *args, **kwargs):
         nonlocal call_count
         call_count += 1
-        raise Exception("Internal Server Error: Unexpected JSON decoding crash")
+        raise RuntimeError("Internal Server Error: Unexpected JSON decoding crash")
 
     posted = []
 
@@ -252,7 +252,7 @@ async def test_process_and_respond_rate_limits_and_retry_flow(monkeypatch):
 
     # 1. First run of TechLead encounters 429 RateLimitError
     async def mock_fail_rate_limit(func, *args, **kwargs):
-        raise Exception("RateLimitError: 429 Too Many Requests, quota exceeded")
+        raise RuntimeError("RateLimitError: 429 Too Many Requests, quota exceeded")
 
     monkeypatch.setattr(
         "orchestration.agent_router.run_in_threadpool", mock_fail_rate_limit
@@ -350,7 +350,7 @@ async def test_process_and_respond_503_high_demand_first_skip_and_random_handoff
 
     # Simulate 503 High Demand error
     async def mock_fail_503(func, *args, **kwargs):
-        raise Exception(
+        raise RuntimeError(
             "ServiceUnavailableError: 503 The server is currently overloaded with high demand"
         )
 
@@ -417,7 +417,7 @@ async def test_process_and_respond_503_high_demand_second_query_retries_and_term
     async def mock_fail_503_retry(func, *args, **kwargs):
         nonlocal attempts_count
         attempts_count += 1
-        raise Exception("503 Server Temporarily Unavailable (high demand spike)")
+        raise RuntimeError("503 Server Temporarily Unavailable (high demand spike)")
 
     monkeypatch.setattr(
         "orchestration.agent_router.run_in_threadpool", mock_fail_503_retry
@@ -456,7 +456,7 @@ async def test_execute_llm_with_retry_503_selective_bypass():
     def mock_503_llm():
         nonlocal call_count
         call_count += 1
-        raise Exception("503 Service Unavailable: overloaded")
+        raise RuntimeError("503 Service Unavailable: overloaded")
 
     # 1. When allow_503_immediate_retry=False (first encounter): raises immediately after 1 attempt
     call_count = 0

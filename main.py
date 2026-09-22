@@ -9,9 +9,13 @@ from fastapi.staticfiles import StaticFiles
 
 from adapters.slack import (
     PROCESSED_EVENTS,
-    handle_slack_events as slack_events,
-    handle_slack_interactivity as slack_interactivity,
     slack_router,
+)
+from adapters.slack import (
+    handle_slack_events as slack_events,
+)
+from adapters.slack import (
+    handle_slack_interactivity as slack_interactivity,
 )
 from core.config import AGENTS_CONFIG, LOG_LEVEL
 from core.slack_security import verify_slack_signature

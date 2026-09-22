@@ -113,22 +113,7 @@ def is_system_message(text: str) -> bool:
     if any(stripped.startswith(prefix) for prefix in ("⚠️", "⚙️", "🔒", "🗑️", "🧪", "⏱️", "🚨")):
         return True
     lower = stripped.lower()
-    if any(
-        marker in lower
-        for marker in (
-            "ambiguous agent reference",
-            "thread constraints updated",
-            "revoked all thread constraints",
-            "expense circuit breaker tripped",
-            "no agents enabled",
-            "automated behavioural test scenario",
-            "[panel system]",
-            "panel system:",
-            "e2e test runner",
-        )
-    ):
-        return True
-    return False
+    return bool(any(marker in lower for marker in ("ambiguous agent reference", "thread constraints updated", "revoked all thread constraints", "expense circuit breaker tripped", "no agents enabled", "automated behavioural test scenario", "[panel system]", "panel system:", "e2e test runner")))
 
 
 def clean_system_and_tags(text: str) -> str:
@@ -231,7 +216,7 @@ async def detect_language_llm(
             f"[LANGUAGE DETECTOR LLM] Classified text '{clean_text[:60]}' -> {detected} (via {selected_model})"
         )
         return detected or default
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - Language detection error boundary falls back to default language
         logger.warning(
             f"[LANGUAGE DETECTOR LLM] LLM classification failed ({e}). Defaulting to {default}."
         )
@@ -246,7 +231,7 @@ def detect_language(
     """
     try:
         return _sync_llm_classify(text, model=model, default=default)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - Language detection error boundary falls back to default language
         logger.warning(
             f"[LANGUAGE DETECTOR] Sync classification failed ({e}). Defaulting to {default}."
         )

@@ -5,11 +5,9 @@ from pipeline.directive_parser.slash_parser import (
     parse_agent_list,
     parse_file_target,
     parse_int_or_off,
-    parse_terminal_flag,
     parse_token,
 )
 from pipeline.entity_resolver import entity_resolver
-
 
 # ==============================================================================
 # 1. Stop Command Detection
@@ -164,28 +162,28 @@ def test_exclude_slash_command_single_and_multi():
 
 
 def test_exclude_off():
-    matched, exc, is_off, text = parse_agent_list("/exclude", "/exclude off Continue the debate")
+    _matched, exc, is_off, text = parse_agent_list("/exclude", "/exclude off Continue the debate")
     assert exc == []
     assert is_off is True
     assert text == "Continue the debate"
 
     # Verify none is NOT treated as off
-    matched, exc, is_off, text = parse_agent_list("/exclude", "/exclude none Continue the debate")
+    _matched, exc, is_off, text = parse_agent_list("/exclude", "/exclude none Continue the debate")
     assert is_off is False
 
 
 def test_include_slash_command_and_off():
-    matched, inc, is_off, text = parse_agent_list("/include", "/include [TechLead] Debate this feature")
+    _matched, inc, is_off, text = parse_agent_list("/include", "/include [TechLead] Debate this feature")
     assert inc == ["TechLead"]
     assert is_off is False
     assert text == "Debate this feature"
 
-    matched, inc, is_off, text = parse_agent_list("/include", "/include [Innovator] [Architect] Let's discuss")
+    _matched, inc, is_off, text = parse_agent_list("/include", "/include [Innovator] [Architect] Let's discuss")
     assert inc == ["Innovator", "Architect"]
     assert is_off is False
     assert text == "Let's discuss"
 
-    matched, inc, is_off, text = parse_agent_list("/include", "/include off Reset inclusions")
+    _matched, inc, is_off, text = parse_agent_list("/include", "/include off Reset inclusions")
     assert inc == []
     assert is_off is True
     assert text == "Reset inclusions"

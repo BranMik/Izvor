@@ -49,8 +49,8 @@ def is_test_thread(
     try:
         if FLAT_HISTORIES_DIR.resolve() != DEFAULT_FLAT_HISTORIES_DIR.resolve():
             return False
-    except Exception:
-        pass
+    except OSError as e:
+        logger.debug(f"[FLAT HISTORY] Failed to resolve directory paths: {e}")
 
     # 1. Check explicit test execution environment flags
     if (
@@ -66,9 +66,8 @@ def is_test_thread(
 
     # 3. Check channel ID heuristics
     cid = (channel_id or "").strip()
-    if cid:
-        if cid in TEST_CHANNEL_IDS or cid.startswith(TEST_CHANNEL_PREFIXES):
-            return True
+    if cid and (cid in TEST_CHANNEL_IDS or cid.startswith(TEST_CHANNEL_PREFIXES)):
+        return True
 
     # 4. Check thread timestamp heuristics
     tts = str(thread_ts or "").strip()
@@ -125,8 +124,8 @@ def get_flat_history_filepath(
                 content = f.read_text(encoding="utf-8", errors="ignore")
                 if f"**Thread TS:** `{thread_ts}`" in content:
                     return f
-            except Exception:
-                pass
+            except OSError as e:
+                logger.debug(f"[FLAT HISTORY] Could not read file {f}: {e}")
         if existing:
             return existing[0]
 
@@ -231,17 +230,16 @@ def record_flat_history(
                 f"[FLAT HISTORY] Saved conversation history for {thread_ts} to {target_path}"
             )
             return target_path
-        except Exception as e:
+        except OSError:
             if os.path.exists(tmp_path):
                 try:
                     os.remove(tmp_path)
                 except OSError:
                     pass
-            raise e
-    except Exception as e:
-        logger.error(
-            f"[FLAT HISTORY] Failed to save flat history for thread {thread_ts}: {e}",
-            exc_info=True,
+            raise
+    except Exception:
+        logger.exception(
+            f"[FLAT HISTORY] Failed to save flat history for thread {thread_ts}"
         )
         return None
 

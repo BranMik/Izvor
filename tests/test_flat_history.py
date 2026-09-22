@@ -1,8 +1,7 @@
-import os
-import shutil
-import pytest
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from orchestration import agent_router
 from orchestration.agent_router import process_and_respond
@@ -10,7 +9,6 @@ from orchestration.agent_settings import reset_enabled_agents, set_orchestration
 from orchestration.thread_state import thread_state_manager
 from services.flat_history_recorder import (
     DEFAULT_FLAT_HISTORIES_DIR,
-    FLAT_HISTORIES_DIR,
     format_messages_to_markdown,
     generate_flat_history_filename,
     get_flat_history_filepath,
@@ -68,7 +66,7 @@ def test_generate_flat_history_filename_variations():
 
 def test_one_thread_one_file_reused(tmp_path):
     """Verify that get_flat_history_filepath reuses existing file for the same thread."""
-    test_dir = tmp_path / "flat-histories"
+    tmp_path / "flat-histories"
     thread_ts = "1712345678.555"
     fpath1 = get_flat_history_filepath("C123", thread_ts, "Kako napraviti web")
     fpath1.write_text(f"# Thread Conversation History\n- **Thread TS:** `{thread_ts}`\n", encoding="utf-8")

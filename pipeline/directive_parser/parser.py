@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from core.models import ActionDirective, ExtractedIntent, MediaAttachment
+
 from .slash_parser import (
     parse_agent_list,
     parse_file_target,
@@ -323,7 +324,7 @@ class DirectiveParser:
                                 )
                             )
                             break
-        except Exception as e:
+        except (AttributeError, KeyError, re.error, TypeError, ValueError, IndexError) as e:
             logger.debug(f"[DIRECTIVE PARSER] Skill registry slash check error: {e}")
 
         # If an exclusive control/grant/revoke/list command is present, skip micro-LLM intent extraction entirely

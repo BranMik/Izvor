@@ -16,10 +16,9 @@ import asyncio
 import json
 import logging
 import os
-from pathlib import Path
 import sys
 import time
-from typing import Any
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 from core.config import SLACK_BOT_TOKEN, SLACK_TEST_CHANNEL_ID
@@ -49,13 +48,16 @@ def get_next_test_run_prefix(run_id: str | None = None, run_num: int | None = No
     if counter_file.exists():
         try:
             current_num = int(counter_file.read_text().strip())
-        except Exception:
+        except (ValueError, OSError):
             current_num = 0
     next_num = current_num + 1
     try:
         counter_file.write_text(str(next_num))
-    except Exception:
-        pass
+    except OSError as e:
+        logger.warning("Could not write test run counter to %s: %s", counter_file, e)
+    return f"TEST_RUN_{next_num}"
+
+
 def _mock_web_search(query: str, max_results: int = 5) -> str:
     """Fixture returning scenario-relevant search results (Claude pricing or Vector DBs)."""
     q = str(query or "").lower()
@@ -214,7 +216,7 @@ class E2ETestRunner:
             try:
                 res = await scenario.run_fn(self.client)
                 res.duration_seconds = time.time() - start
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - Test runner must catch all scenario exceptions to record failure without crashing
                 res = ScenarioResult(
                     id=scenario.id,
                     name=scenario.name,
@@ -233,8 +235,10 @@ class E2ETestRunner:
                         bg_task = _RUNNING_TASKS.get(target_key)
                         if bg_task and not bg_task.done():
                             await asyncio.wait_for(asyncio.shield(bg_task), timeout=8.0)
-                except Exception:
-                    pass
+                except (TimeoutError, asyncio.CancelledError):
+                    logger.debug("Background scribe task timed out or was cancelled during scenario completion.")
+                except Exception as e:  # noqa: BLE001 - Resilient cleanup of background task
+                    logger.warning("Unexpected error awaiting background scribe task: %s", e)
                 await self.client.finish_live_scenario(res)
 
             return res

@@ -14,6 +14,7 @@ from agents import (
 )
 from core.config import MAX_DISCUSSION_TURNS
 from core.llm_utils import execute_llm_with_retry
+from orchestration.thread_state import thread_state_manager
 from services.slack_client import (
     fetch_thread_files,
     fetch_thread_history,
@@ -21,7 +22,6 @@ from services.slack_client import (
     post_system_message,
 )
 
-from orchestration.thread_state import thread_state_manager
 from .turn_pipeline import TurnContext, TurnPipeline
 
 __all__ = [
@@ -158,8 +158,7 @@ async def orchestrate_discussion(
         active_rounds = thread_state_manager.get_rounds(channel_id, thread_ts)
         round_seq = thread_state_manager.get_round_sequence(channel_id, thread_ts)
         expected_turns = (active_rounds + 1) * max(1, len(round_seq) or 6)
-        if expected_turns > max_turns:
-            max_turns = expected_turns
+        max_turns = max(max_turns, expected_turns)
 
         for turn in range(2, max_turns + 1):
             if thread_state_manager.is_stopped(channel_id, thread_ts):
@@ -227,13 +226,13 @@ async def orchestrate_discussion(
                 messages=accumulated_history,
                 bot_user_id=bot_user_id,
             )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - Error boundary prevents history recording error from failing main response
             logger.debug(f"[ORCHESTRATOR] Final flat history sync exception: {e}")
 
         return last_res
     except Exception as e:
         logger.exception(
-            f"[ORCHESTRATOR] Unhandled exception in discussion loop for thread {thread_key}: {e}"
+            f"[ORCHESTRATOR] Unhandled exception in discussion loop for thread {thread_key}"
         )
         return {"ok": False, "error": str(e)}
     finally:

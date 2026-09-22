@@ -106,11 +106,7 @@ class SkillRegistry:
                     logger.debug(
                         f"[SKILLS] Loaded declarative skill '{skill_def.name}' ({skill_def.scope}) from {skill_file}"
                     )
-            except (FileNotFoundError, PermissionError, OSError) as e:
-                logger.error(f"[SKILLS] File I/O error reading {skill_file}: {e}")
-            except (yaml.YAMLError, ValueError, TypeError, UnicodeError) as e:
-                logger.error(f"[SKILLS] Parse error in {skill_file}: {e}")
-            except Exception as e:
+            except (OSError, yaml.YAMLError, ValueError, TypeError, KeyError, AttributeError) as e:
                 logger.error(f"[SKILLS] Failed to parse {skill_file}: {e}")
 
     def _parse_skill_file(self, file_path: Path) -> SkillDefinition | None:
@@ -154,8 +150,8 @@ class SkillRegistry:
                     mod = importlib.util.module_from_spec(spec)
                     spec.loader.exec_module(mod)
                     if hasattr(mod, "run"):
-                        action_handler = getattr(mod, "run")
-            except Exception as e:
+                        action_handler = mod.run
+            except Exception as e:  # noqa: BLE001 - Dynamic plugin module loading catches all module errors to isolate broken skills
                 logger.error(
                     f"[SKILLS] Error loading action handler from {action_file}: {e}"
                 )
@@ -412,7 +408,7 @@ class SkillRegistry:
             from orchestration.agent_settings import settings_manager
 
             agents_cfg = settings_manager.agents_config or AGENTS_CONFIG
-        except Exception:
+        except (ImportError, AttributeError, TypeError):
             agents_cfg = AGENTS_CONFIG
 
         thread_skills: list[str] = []
@@ -427,7 +423,7 @@ class SkillRegistry:
                 thread_agent_skills = thread_skills_manager.get_all_active_agent_skills(
                     channel_id, thread_ts
                 )
-            except Exception:
+            except (ImportError, AttributeError, KeyError, TypeError):
                 thread_skills = []
                 thread_agent_skills = {}
 

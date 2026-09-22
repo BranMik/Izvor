@@ -10,7 +10,6 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from core.models import ActionDirective
-from orchestration.stages.validation import ValidationStageMixin
 from orchestration.turn_pipeline import TurnContext
 from pipeline.directive_parser import directive_parser
 from prompts.builder import build_agent_prompt
@@ -151,8 +150,8 @@ async def test_action_run_with_named_agent_halts_exclusively():
         thread_ts="1234567.89",
         raw_text="/list_skills [Architect]",
     )
-    with patch("skills.list_skills.action.execute_llm_with_retry", new_callable=AsyncMock) as mock_llm, \
-         patch("skills.list_skills.action.post_system_message", new_callable=AsyncMock) as mock_post:
+    with patch("skills.list_skills.action.execute_llm_with_retry", new_callable=AsyncMock), \
+         patch("skills.list_skills.action.post_system_message", new_callable=AsyncMock):
         res = await list_skills_action_run(ctx)
         assert res == {"ok": True, "halted": True, "action": "list_skills"}
 
@@ -168,8 +167,8 @@ async def test_action_run_with_additional_text_halts_exclusively():
         thread_ts="1234567.89",
         raw_text="/list_skills which agent should I use for code reviews?",
     )
-    with patch("skills.list_skills.action.execute_llm_with_retry", new_callable=AsyncMock) as mock_llm, \
-         patch("skills.list_skills.action.post_system_message", new_callable=AsyncMock) as mock_post:
+    with patch("skills.list_skills.action.execute_llm_with_retry", new_callable=AsyncMock), \
+         patch("skills.list_skills.action.post_system_message", new_callable=AsyncMock):
         res = await list_skills_action_run(ctx)
         assert res == {"ok": True, "halted": True, "action": "list_skills"}
 
