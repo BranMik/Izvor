@@ -1,6 +1,7 @@
 import asyncio
 import hashlib
 import logging
+import re
 import sys
 import time
 from pathlib import Path
@@ -242,6 +243,9 @@ async def fetch_thread_history(
         return formatted_history
     except SlackApiError as e:
         logger.error(f"Error fetching thread history: {e.response['error']}")
+        return []
+    except Exception as e:
+        logger.exception(f"Unexpected error fetching thread history: {e}")
         return []
 
 

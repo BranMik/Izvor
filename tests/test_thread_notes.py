@@ -279,7 +279,7 @@ async def test_router_invokes_trigger_thread_notes_update(monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_fetch_thread_history_includes_scribe_notes(monkeypatch):
+async def test_fetch_thread_history_excludes_scribe_notes(monkeypatch):
     from services import slack_client
 
     monkeypatch.setattr(slack_client, "SLACK_BOT_TOKEN", "xoxb-valid-test-token")
@@ -294,8 +294,8 @@ async def test_fetch_thread_history_includes_scribe_notes(monkeypatch):
         },
         {"user": "UBOT", "text": "We need microservices", "username": "TechLead", "subtype": "bot_message"},
         {"user": "UBOT", "text": "_⚡ *TechLead* is loading skill: web_research..._", "username": "TechLead", "subtype": "bot_message"},
+        {"user": "U1", "text": "👤 *Follow-up Prompt:*\n> What about SQLite?", "subtype": None},
     ]
-
 
     mock_replies = AsyncMock(return_value={"ok": True, "messages": fake_messages})
     monkeypatch.setattr(slack_client.slack_async_client, "conversations_replies", mock_replies)
@@ -303,14 +303,15 @@ async def test_fetch_thread_history_includes_scribe_notes(monkeypatch):
     history = await slack_client.fetch_thread_history("C123", "1700000000.001")
     contents = [m["content"] for m in history]
 
-    # Status indicator messages should be excluded
+    # Status indicator messages and scribe notes should be excluded
     assert not any("_⚡" in c for c in contents)
+    assert not any("Live Discussion Scribe" in c for c in contents)
 
-    # Scribe note should be standardly included in history
+    # Runner follow-up prefix should be cleaned via re.sub
     assert len(history) == 3
     assert contents[0] == "Let's debate the new API"
-    assert contents[1] == "[Live Discussion Scribe]: 📋 *Live Discussion Notes*\n\nKey takeaways so far..."
-    assert contents[2] == "[TechLead]: We need microservices"
+    assert contents[1] == "[TechLead]: We need microservices"
+    assert contents[2] == "What about SQLite?"
 
 
 @pytest.mark.anyio
