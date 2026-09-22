@@ -180,7 +180,7 @@ class DiscussionScribe:
                 "prompt_tokens": 0,
                 "completion_tokens": 0,
             }
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - Scribe synthesis error boundary returns fallback brief
             logger.error(f"[SCRIBE] Error generating brief: {e}")
             fallback_text = f"*(Synthesis unavailable: {e})*"
             return DiscussionBrief(raw_markdown=fallback_text, is_completed=is_completed), {

@@ -353,7 +353,7 @@ class ThreadStateManager:
 
             trigger_thread_notes_update(channel_id=channel_id, thread_ts=thread_ts, is_completed=True)
             trigger_usage_update(channel_id=channel_id, thread_ts=thread_ts, is_completed=True)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - Error boundary ensures notification errors do not abort stop request
             logger.debug(f"[THREAD STATE] Could not finalize thread note or usage on stop: {e}")
 
     def register_cleanup_hook(self, hook: Any) -> None:
@@ -389,7 +389,7 @@ class ThreadStateManager:
         for hook in list(self._cleanup_hooks):
             try:
                 hook(channel_id, thread_ts)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - Error boundary isolates third-party hook failure from thread cleanup
                 logger.debug(f"[THREAD STATE] Error executing cleanup hook for {(channel_id, thread_ts)}: {e}")
 
     def clear_state(self, channel_id: str, thread_ts: str) -> None:
@@ -403,7 +403,7 @@ class ThreadStateManager:
         for hook in list(self._reset_hooks):
             try:
                 hook()
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - Error boundary isolates individual hook failure from global reset
                 logger.debug(f"[THREAD STATE] Error executing reset hook: {e}")
 
     def cleanup_expired_threads(self, ttl_seconds: float | None = None) -> int:

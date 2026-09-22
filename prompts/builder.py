@@ -29,12 +29,8 @@ def _load_short_output_agents() -> set[str]:
                 k for k, v in data.get("agents", {}).items()
                 if isinstance(v, dict) and v.get("is_short_output") is True
             }
-        except (FileNotFoundError, PermissionError, OSError) as e:
-            logger.debug(f"[PROMPT BUILDER] Short output settings file read error: {e}")
-        except (json.JSONDecodeError, UnicodeError) as e:
-            logger.debug(f"[PROMPT BUILDER] Short output settings JSON decode error: {e}")
-        except Exception as e:
-            logger.debug(f"[PROMPT BUILDER] Unexpected error loading short output agents: {e}")
+        except (OSError, json.JSONDecodeError, UnicodeError, AttributeError, ValueError) as e:
+            logger.debug(f"[PROMPT BUILDER] Short output settings error: {e}")
     return set()
 
 
@@ -60,12 +56,8 @@ def _load_system_agents() -> set[str]:
             for k, v in data.get("agents", {}).items():
                 if isinstance(v, dict) and v.get("is_system_agent") is True:
                     system_keys.add(k)
-        except (FileNotFoundError, PermissionError, OSError) as e:
-            logger.debug(f"[PROMPT BUILDER] System agents settings file read error: {e}")
-        except (json.JSONDecodeError, UnicodeError) as e:
-            logger.debug(f"[PROMPT BUILDER] System agents settings JSON decode error: {e}")
-        except Exception as e:
-            logger.debug(f"[PROMPT BUILDER] Unexpected error loading system agents: {e}")
+        except (OSError, json.JSONDecodeError, UnicodeError, AttributeError, ValueError) as e:
+            logger.debug(f"[PROMPT BUILDER] System agents settings error: {e}")
     return system_keys
 
 
@@ -93,10 +85,8 @@ def is_system_agent(agent_key: str) -> bool:
                         return True
                     if k == agent_key and entry.get("is_system_agent") is True:
                         return True
-    except (ImportError, AttributeError, KeyError) as e:
+    except (ImportError, AttributeError, KeyError, TypeError) as e:
         logger.debug(f"[PROMPT BUILDER] Runtime system agent lookup skipped: {e}")
-    except Exception as e:
-        logger.debug(f"[PROMPT BUILDER] Unexpected error during system agent check for {agent_key}: {e}")
 
     return False
 
@@ -180,7 +170,7 @@ def build_agent_prompt(
                     custom_directives.append(formatted_inst)
                 elif mod_v:
                     custom_directives.append(f"### DIRECTIVE: {mod_k.replace('_', ' ').upper()}\n{mod_v}")
-        except Exception as e:
+        except (ImportError, AttributeError, KeyError, TypeError, ValueError) as e:
             logger.debug(f"[PROMPT BUILDER] Error formatting custom modifiers: {e}")
 
     directives_block = f"\n\n{chr(10).join(custom_directives)}\n" if custom_directives else ""
@@ -207,9 +197,7 @@ def build_agent_prompt(
             try:
                 from core.config import AGENTS_CONFIG
                 effective_skills = AGENTS_CONFIG.get(agent_key, {}).get("skills", [])
-            except (ImportError, AttributeError, KeyError):
-                effective_skills = []
-            except Exception:
+            except (ImportError, AttributeError, KeyError, TypeError):
                 effective_skills = []
 
         # Only inject catalog for skills this agent is authorized to load
@@ -225,9 +213,7 @@ def build_agent_prompt(
                     pinned_guidelines.append(s_def.instructions)
             if pinned_guidelines:
                 prompt += "\n### PRE-EQUIPPED SKILL GUIDELINES\n" + "\n\n".join(pinned_guidelines) + "\n\n"
-    except (ImportError, AttributeError, KeyError) as e:
-        logger.warning(f"[PROMPT BUILDER] Attribute or import error loading skills catalog for {agent_key}: {e}")
-    except Exception as e:
+    except (ImportError, AttributeError, KeyError, TypeError, ValueError) as e:
         logger.warning(f"[PROMPT BUILDER] Failed to load skills catalog/guidelines for {agent_key}: {e}")
 
     return prompt

@@ -2,7 +2,6 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from pipeline.directive_parser import is_stop_command
 from orchestration import agent_router
 from orchestration.agent_router import process_and_respond
 from orchestration.agent_settings import (
@@ -22,6 +21,7 @@ from orchestration.agent_settings import (
 )
 from orchestration.nomination import get_initial_agents, parse_agent_and_prompt
 from orchestration.thread_state import thread_state_manager
+from pipeline.directive_parser import is_stop_command
 from services.slack_client import build_app_home_view
 
 

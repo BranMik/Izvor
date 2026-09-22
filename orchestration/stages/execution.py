@@ -61,9 +61,8 @@ class ExecutionStageMixin:
         if agent_skills is None:
             agent_skills = settings_manager.get_agent_skills(ctx.agent_key)
 
-        from orchestration.thread_skills_manager import thread_skills_manager
         from orchestration.app_settings import app_settings_manager
-        from skills import skill_registry
+        from orchestration.thread_skills_manager import thread_skills_manager
         global_skills = skill_registry.get_global_skills()
         active_thread_skills = thread_skills_manager.get_active_skills(ctx.channel_id, ctx.thread_ts)
         active_agent_skills = thread_skills_manager.get_active_agent_skills(ctx.channel_id, ctx.thread_ts, ctx.agent_key)
@@ -178,7 +177,7 @@ class ExecutionStageMixin:
                             ctx.intermediate_msg_ts = res["ts"]
                 except asyncio.CancelledError:
                     pass
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001 - Error boundary prevents background Slack status post failure from interrupting tool execution
                     logger.warning(f"[ROUTER] Failed to post intermediate tool status: {e}")
 
             delay_task = asyncio.create_task(_delayed_intermediate_post())

@@ -114,9 +114,11 @@ def test_mcp_execute_tool_document_dispatch():
 
 
 def test_mcp_read_pdf_document():
+    from unittest.mock import MagicMock, patch
+
     import pypdf
-    from unittest.mock import patch, MagicMock
-    from services.mcp_tools import read_document, RESOURCES_DIR
+
+    from services.mcp_tools import RESOURCES_DIR, read_document
 
     pdf_filename = "test_sample.pdf"
     pdf_path = RESOURCES_DIR / pdf_filename
@@ -157,7 +159,7 @@ def test_mcp_read_pdf_document():
 
 
 def test_mcp_read_pdf_corrupted():
-    from services.mcp_tools import read_document, RESOURCES_DIR
+    from services.mcp_tools import RESOURCES_DIR, read_document
 
     bad_pdf = RESOURCES_DIR / "corrupt.pdf"
     bad_pdf.write_bytes(b"not a valid pdf data stream")
@@ -173,7 +175,7 @@ def test_mcp_read_pdf_corrupted():
 
 
 def test_mcp_resource_path_normalization_and_prefix_stripping():
-    from services.mcp_tools import _resolve_resource_path, RESOURCES_DIR
+    from services.mcp_tools import RESOURCES_DIR, _resolve_resource_path
 
     # Naked filename
     p1 = _resolve_resource_path("doc.txt")
@@ -193,7 +195,7 @@ def test_mcp_resource_path_normalization_and_prefix_stripping():
 
 
 def test_mcp_read_document_search_in_resources_subfolder_and_case_insensitive():
-    from services.mcp_tools import read_document, RESOURCES_DIR
+    from services.mcp_tools import RESOURCES_DIR, read_document
 
     sub_dir = RESOURCES_DIR / "subfolder"
     sub_dir.mkdir(parents=True, exist_ok=True)
@@ -220,7 +222,7 @@ def test_mcp_read_document_search_in_resources_subfolder_and_case_insensitive():
 
 
 def test_mcp_read_file_fallback_to_resources():
-    from services.mcp_tools import read_file, RESOURCES_DIR
+    from services.mcp_tools import RESOURCES_DIR, read_file
 
     res_only_file = RESOURCES_DIR / "resource_only.txt"
     res_only_file.write_text("Hello from resources folder fallback", encoding="utf-8")
@@ -236,7 +238,7 @@ def test_mcp_read_file_fallback_to_resources():
 
 
 def test_mcp_write_document_normalizes_resources_prefix():
-    from services.mcp_tools import write_document, RESOURCES_DIR
+    from services.mcp_tools import RESOURCES_DIR, write_document
 
     test_file = RESOURCES_DIR / "normalized_write.txt"
     try:

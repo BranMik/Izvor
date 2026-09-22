@@ -1,8 +1,5 @@
-import asyncio
-import hashlib
 import logging
 import re
-import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -11,14 +8,12 @@ from slack_sdk.errors import SlackApiError
 from slack_sdk.web.async_client import AsyncWebClient
 
 from core.config import (
-    AGENTS_CONFIG,
     MCP_WORKSPACE_DIR,
     SLACK_BOT_TOKEN,
     USAGE_CHANNEL_ID,
     USAGE_CHANNEL_NAME,
     resolve_avatar_url,
 )
-from core.models import OrchestrationMode
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +21,7 @@ logger = logging.getLogger(__name__)
 slack_async_client = AsyncWebClient(token=SLACK_BOT_TOKEN)
 
 
-from services.rate_limiter import SlackRateLimiter, slack_rate_limiter
+from services.rate_limiter import slack_rate_limiter
 
 # In-memory caches for channel metadata
 CHANNEL_NAME_CACHE: dict[str, str] = {}
@@ -67,7 +62,7 @@ async def publish_app_home(
             f"Error publishing App Home view to user {user_id}: {e.response['error']}"
         )
         return {"ok": False, "error": str(e)}
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - Slack API boundary returns error payload instead of crashing callers
         logger.error(f"Error publishing App Home view to user {user_id}: {e}")
         return {"ok": False, "error": str(e)}
 
@@ -146,12 +141,8 @@ async def post_system_message(
 
         default_username = SYSTEM_AGENT_USERNAME
         default_icon = SYSTEM_AGENT_AVATAR
-    except (ImportError, AttributeError) as e:
-        logger.debug(f"[SLACK CLIENT] Fallback core.config persona lookup skipped: {e}")
-    except Exception as e:
-        logger.debug(
-            f"[SLACK CLIENT] Unexpected error loading core.config persona: {e}"
-        )
+    except (ImportError, AttributeError, KeyError):
+        logger.debug("[SLACK CLIENT] Fallback core.config persona lookup skipped")
 
     try:
         from orchestration.agent_settings import settings_manager
@@ -161,14 +152,8 @@ async def post_system_message(
             default_username = sys_cfg["username"]
         if sys_cfg.get("icon_url"):
             default_icon = sys_cfg["icon_url"]
-    except (ImportError, AttributeError, KeyError) as e:
-        logger.debug(
-            f"[SLACK CLIENT] Fallback settings_manager persona lookup skipped: {e}"
-        )
-    except Exception as e:
-        logger.debug(
-            f"[SLACK CLIENT] Unexpected error loading settings_manager persona: {e}"
-        )
+    except (ImportError, AttributeError, KeyError, TypeError):
+        logger.debug("[SLACK CLIENT] Fallback settings_manager persona lookup skipped")
 
     final_username = username or default_username
     final_icon = icon_url or default_icon
@@ -244,8 +229,8 @@ async def fetch_thread_history(
     except SlackApiError as e:
         logger.error(f"Error fetching thread history: {e.response['error']}")
         return []
-    except Exception as e:
-        logger.exception(f"Unexpected error fetching thread history: {e}")
+    except Exception:
+        logger.exception("Unexpected error fetching thread history")
         return []
 
 
@@ -311,9 +296,7 @@ async def post_thread_note(
                     logger.debug(
                         f"[SLACK NOTE] Note message pinning skipped/failed: {err}"
                     )
-            except (KeyError, TypeError) as pin_ex:
-                logger.debug(f"[SLACK NOTE] Note message pinning skipped: {pin_ex}")
-            except Exception as pin_ex:
+            except (KeyError, TypeError, OSError) as pin_ex:
                 logger.debug(f"[SLACK NOTE] Note message pinning skipped: {pin_ex}")
 
         return {"ok": True, "ts": msg_ts}
@@ -322,7 +305,7 @@ async def post_thread_note(
             f"[SLACK NOTE] Error posting thread note: {e.response.get('error', e)}"
         )
         return {"ok": False, "error": str(e)}
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - Slack API boundary returns error payload instead of crashing callers
         logger.error(f"[SLACK NOTE] Unexpected error posting thread note: {e}")
         return {"ok": False, "error": str(e)}
 
@@ -364,7 +347,7 @@ async def update_thread_note(
             f"[SLACK NOTE] Error updating note {message_ts}: {e.response.get('error', e)}"
         )
         return {"ok": False, "error": str(e)}
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - Slack API boundary returns error payload instead of crashing callers
         logger.error(f"[SLACK NOTE] Unexpected error updating note {message_ts}: {e}")
         return {"ok": False, "error": str(e)}
 
@@ -399,7 +382,7 @@ async def get_channel_name(channel_id: str) -> str:
         logger.debug(
             f"[SLACK] Parsing error fetching channel name for {channel_id}: {e}"
         )
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - Channel name resolution fallback
         logger.debug(f"[SLACK] Could not fetch channel name for {channel_id}: {e}")
 
     fallback = f"#{channel_id}"
@@ -454,7 +437,7 @@ async def get_or_create_usage_channel() -> str | None:
                             logger.debug(
                                 f"[SLACK] Non-critical join attempt for {target_name}: {join_err}"
                             )
-                        except Exception as join_ex:
+                        except Exception as join_ex:  # noqa: BLE001 - Channel join attempt is non-critical
                             logger.debug(
                                 f"[SLACK] Non-critical join attempt for {target_name}: {join_ex}"
                             )
@@ -498,14 +481,14 @@ async def get_or_create_usage_channel() -> str | None:
                 logger.debug(
                     f"[SLACK] conversations_list API error during channel resolution: {err}"
                 )
-            except Exception as err:
+            except Exception as err:  # noqa: BLE001 - Channel listing fallback
                 logger.debug(
                     f"[SLACK] Unexpected error during channel resolution: {err}"
                 )
         logger.error(
             f"[SLACK] Error resolving/creating usage channel '{target_name}': {e}"
         )
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - Channel creation error boundary
         logger.error(f"[SLACK] Unexpected error resolving/creating usage channel: {e}")
 
     return None
@@ -546,7 +529,7 @@ async def post_usage_message(
             f"[SLACK USAGE] Error posting usage message: {e.response.get('error', e)}"
         )
         return {"ok": False, "error": str(e)}
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - Usage post error boundary returns error dict
         logger.error(f"[SLACK USAGE] Unexpected error posting usage message: {e}")
         return {"ok": False, "error": str(e)}
 
@@ -584,7 +567,7 @@ async def update_usage_message(
             f"[SLACK USAGE] Error updating usage message {message_ts}: {e.response.get('error', e)}"
         )
         return {"ok": False, "error": str(e)}
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - Usage update error boundary returns error dict
         logger.error(
             f"[SLACK USAGE] Unexpected error updating usage message {message_ts}: {e}"
         )
@@ -632,7 +615,7 @@ async def fetch_thread_files(channel_id: str, thread_ts: str) -> list[dict[str, 
             f"[SLACK FILES] Error fetching thread files: {e.response.get('error', e)}"
         )
         return []
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - File listing error boundary returns empty list
         logger.error(f"[SLACK FILES] Unexpected error fetching thread files: {e}")
         return []
 
@@ -644,8 +627,9 @@ async def download_slack_file(
     Downloads a private Slack file attachment using SLACK_BOT_TOKEN and extracts its text content.
     Returns dict: {"ok": bool, "file_name": str, "content": str, "truncated": bool, "size": int, "error": str | None}
     """
+
     import httpx
-    import mimetypes
+
     from orchestration.app_settings import (
         get_max_file_size_bytes,
         get_max_file_size_mb,
@@ -720,7 +704,7 @@ async def download_slack_file(
                 file_path = downloads_dir / file_name
                 file_path.write_bytes(raw_bytes)
                 logger.info(f"[SLACK FILE] Cached Slack file to workspace: {file_path}")
-            except Exception as save_err:
+            except OSError as save_err:
                 logger.warning(
                     f"[SLACK FILE] Could not save local copy to workspace: {save_err}"
                 )
@@ -728,6 +712,7 @@ async def download_slack_file(
             if file_name.lower().endswith(".pdf"):
                 try:
                     import io
+
                     import pypdf
 
                     pdf_stream = io.BytesIO(raw_bytes)
@@ -746,7 +731,7 @@ async def download_slack_file(
                         if pages_text
                         else "[Empty PDF document]"
                     )
-                except Exception as pdf_err:
+                except Exception as pdf_err:  # noqa: BLE001 - PDF parsing error boundary falls back cleanly
                     logger.warning(
                         f"[SLACK FILE] Could not parse PDF attachment {file_name}: {pdf_err}"
                     )
@@ -782,7 +767,7 @@ async def download_slack_file(
             "size": file_size,
             "error": str(e),
         }
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - File download error boundary returns error dict
         logger.error(f"[SLACK FILE] Error downloading Slack file {file_name}: {e}")
         return {
             "ok": False,
@@ -817,7 +802,7 @@ async def get_bot_user_id() -> str | None:
     except SlackApiError as e:
         logger.error(f"Slack API error fetching bot user ID: {e}")
         return None
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - Bot user ID lookup boundary returns None
         logger.error(f"Error fetching bot user ID: {e}")
         return None
 
@@ -832,7 +817,7 @@ async def open_dm_channel(user_id: str) -> str | None:
     except SlackApiError as e:
         logger.error(f"Slack API error opening DM channel with {user_id}: {e}")
         return None
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - DM channel open boundary returns None
         logger.error(f"Error opening DM channel with {user_id}: {e}")
         return None
 
@@ -859,7 +844,7 @@ async def post_ephemeral_to_slack(
     except SlackApiError as e:
         logger.error(f"Slack API error posting ephemeral message: {e}")
         return {"ok": False, "error": str(e)}
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - Ephemeral message post boundary returns error dict
         logger.error(f"Error posting ephemeral message: {e}")
         return {"ok": False, "error": str(e)}
 
@@ -890,7 +875,7 @@ async def post_message_to_slack(
     except SlackApiError as e:
         logger.error(f"Slack API error posting message to Slack: {e}")
         return {"ok": False, "error": str(e)}
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - Message post boundary returns error dict
         logger.error(f"Error posting message to Slack: {e}")
         return {"ok": False, "error": str(e)}
 
@@ -966,7 +951,7 @@ async def upload_text_file_to_slack(
     except SlackApiError as e:
         logger.error(f"[SLACK FILE] SlackApiError uploading file: {e.response.get('error', e)}")
         return {"ok": False, "error": str(e)}
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - File upload boundary returns error dict
         logger.error(f"[SLACK FILE] Error uploading file: {e}")
         return {"ok": False, "error": str(e)}
 

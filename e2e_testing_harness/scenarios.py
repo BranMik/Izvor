@@ -9,12 +9,12 @@ Seamlessly supports both offline simulation and live Slack dispatch.
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass, field
-from typing import Any, Callable, Coroutine
+from collections.abc import Callable, Coroutine
+from dataclasses import dataclass
+from typing import Any
 
 from e2e_testing_harness.protocol_client import SlackProtocolClient
 from orchestration.agent_settings import (
-    reset_enabled_agents,
     set_circuit_breaker_enabled,
     set_circuit_breaker_threshold,
 )

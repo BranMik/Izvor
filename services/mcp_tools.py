@@ -35,9 +35,7 @@ def _resolve_resource_path(rel_path: str) -> Path:
     clean_path = str(rel_path or "").strip().replace("\\", "/")
     if clean_path.lower().startswith("resources/"):
         clean_path = clean_path[len("resources/"):].lstrip("/")
-    elif clean_path.lower() == "resources":
-        clean_path = "."
-    elif not clean_path:
+    elif clean_path.lower() == "resources" or not clean_path:
         clean_path = "."
 
     target = (RESOURCES_DIR / clean_path).resolve()
@@ -61,8 +59,8 @@ def find_resource_file(filename_or_rel_path: str) -> Path | None:
         direct = _resolve_resource_path(filename_or_rel_path)
         if direct.exists() and direct.is_file():
             return direct
-    except Exception:
-        pass
+    except (OSError, ValueError) as e:
+        logger.debug(f"[RESOURCES] Direct path resolution skipped for '{filename_or_rel_path}': {e}")
 
     clean_name = Path(str(filename_or_rel_path).strip().replace("\\", "/")).name.lower()
     if not clean_name:
@@ -76,7 +74,7 @@ def find_resource_file(filename_or_rel_path: str) -> Path | None:
             for item in RESOURCES_DIR.rglob("*"):
                 if item.is_file() and item.name.lower() == clean_name:
                     return item
-    except Exception as e:
+    except OSError as e:
         logger.debug(f"[RESOURCES] Error searching for resource file '{filename_or_rel_path}': {e}")
 
     return None
@@ -131,8 +129,6 @@ def list_directory(rel_path: str = ".") -> str:
         return json.dumps({"error": f"Invalid path '{rel_path}': {e}"})
     except OSError as e:
         return json.dumps({"error": f"Operating system error: {e}"})
-    except Exception as e:
-        return json.dumps({"error": str(e)})
 
 
 def read_file(rel_path: str) -> str:
@@ -166,8 +162,6 @@ def read_file(rel_path: str) -> str:
         return json.dumps({"error": f"Invalid argument: {e}"})
     except OSError as e:
         return json.dumps({"error": f"Operating system error reading file '{rel_path}': {e}"})
-    except Exception as e:
-        return json.dumps({"error": str(e)})
 
 
 def write_file(rel_path: str, content: str) -> str:
@@ -195,8 +189,6 @@ def write_file(rel_path: str, content: str) -> str:
         return json.dumps({"error": f"Invalid argument: {e}"})
     except OSError as e:
         return json.dumps({"error": f"Operating system error writing file '{rel_path}': {e}"})
-    except Exception as e:
-        return json.dumps({"error": str(e)})
 
 
 def list_documents(rel_path: str = ".") -> str:
@@ -228,8 +220,6 @@ def list_documents(rel_path: str = ".") -> str:
         return json.dumps({"error": f"Invalid argument: {e}"})
     except OSError as e:
         return json.dumps({"error": f"Operating system error: {e}"})
-    except Exception as e:
-        return json.dumps({"error": str(e)})
 
 
 def read_document(rel_path: str) -> str:
@@ -284,7 +274,7 @@ def read_document(rel_path: str) -> str:
                 return json.dumps({
                     "error": "The 'pypdf' package is required to read PDF files. Please install pypdf."
                 })
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - PDF parser error boundary returns failure JSON
                 return json.dumps({"error": f"Failed to parse PDF '{rel_path}': {e}"})
 
         content = path.read_text(encoding="utf-8", errors="replace")
@@ -301,8 +291,6 @@ def read_document(rel_path: str) -> str:
         return json.dumps({"error": f"Invalid argument: {e}"})
     except OSError as e:
         return json.dumps({"error": f"Operating system error reading document '{rel_path}': {e}"})
-    except Exception as e:
-        return json.dumps({"error": str(e)})
 
 
 def write_document(rel_path: str, content: str) -> str:
@@ -330,8 +318,6 @@ def write_document(rel_path: str, content: str) -> str:
         return json.dumps({"error": f"Invalid argument: {e}"})
     except OSError as e:
         return json.dumps({"error": f"Operating system error writing document '{rel_path}': {e}"})
-    except Exception as e:
-        return json.dumps({"error": str(e)})
 
 
 # LiteLLM compatible tool schemas (OpenAI / Function calling standard)

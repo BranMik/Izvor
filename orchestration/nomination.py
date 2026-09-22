@@ -63,7 +63,7 @@ def resolve_target_file(
                     "is_resource_file": True,
                     "rel_path": str(matched_path.relative_to(RESOURCES_DIR)).replace("\\", "/"),
                 }
-        except Exception as e:
+        except (OSError, ValueError, ImportError, AttributeError) as e:
             logger.debug(f"[NOMINATION] Error resolving target file from resources: {e}")
 
     return None
@@ -192,7 +192,7 @@ def strip_all_nominations(text: str) -> str:
 
     agents = settings_manager.agents_config or AGENTS_CONFIG
     agent_tokens: set[str] = set(agents.keys())
-    for key, cfg in agents.items():
+    for cfg in agents.values():
         if isinstance(cfg, dict):
             uname = cfg.get("username")
             if uname:

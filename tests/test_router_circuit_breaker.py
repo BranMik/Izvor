@@ -78,7 +78,7 @@ async def test_circuit_breaker_triggers_when_threshold_exceeded(monkeypatch):
     async def mock_run_in_threadpool(func, *args, **kwargs):
         nonlocal llm_called
         llm_called = True
-        raise Exception("LLM should not be called when circuit-breaker is triggered")
+        raise RuntimeError("LLM should not be called when circuit-breaker is triggered")
 
     notes_updated = False
 

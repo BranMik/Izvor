@@ -202,12 +202,13 @@ async def test_sandwich_exclusion_and_bot_turn_not_stopped(monkeypatch):
     4. Turn 2 with is_bot_trigger=True does NOT parse user directives or stop discussion.
     """
     from unittest.mock import AsyncMock
+
     from core.config import AGENTS_CONFIG
     from orchestration.agent_router import process_and_respond
     from orchestration.agent_settings import (
+        set_agent_enabled,
         set_orchestration_mode,
         set_sandwich_config,
-        set_agent_enabled,
     )
     from orchestration.thread_state import thread_state_manager
 

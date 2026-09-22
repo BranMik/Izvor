@@ -15,7 +15,6 @@ import asyncio
 import logging
 import sys
 import time
-from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -27,6 +26,19 @@ from agents import (
 )
 from core.llm_utils import execute_llm_with_retry
 from core.models import ActionDirective, MediaAttachment
+from orchestration.protocols import (
+    CostCalculator,
+    FilesFetcher,
+    HistoryFetcher,
+    LLMExecutor,
+    NotesUpdater,
+    SlackMessageUpdater,
+    SlackPoster,
+    SleepFunction,
+    SystemMessagePoster,
+    TokenRecorder,
+    UsageUpdater,
+)
 from orchestration.stages import (
     ContextPrepStageMixin,
     ExecutionStageMixin,
@@ -43,19 +55,6 @@ from services.slack_client import (
     post_agent_response,
     post_system_message,
     update_slack_message,
-)
-from orchestration.protocols import (
-    CostCalculator,
-    FilesFetcher,
-    HistoryFetcher,
-    LLMExecutor,
-    NotesUpdater,
-    SlackMessageUpdater,
-    SlackPoster,
-    SleepFunction,
-    SystemMessagePoster,
-    TokenRecorder,
-    UsageUpdater,
 )
 
 logger = logging.getLogger(__name__)
@@ -310,7 +309,7 @@ class TurnPipeline(
                 f"[ROUTER] Task cancelled for thread {ctx.thread_key} (agent {ctx.agent_key}, gen {ctx.my_generation}). Aborting cleanly."
             )
             return {"ok": False, "cancelled": True, "reason": "cancelled"}
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - Pipeline error boundary catches unexpected stage errors and delegates to handle_error
             return await self.handle_error(ctx, e)
         finally:
             if (

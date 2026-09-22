@@ -1,11 +1,10 @@
 import asyncio
-import pytest
 
 from agents.thread_notes_agent import (
-    THREAD_LOCKS,
-    THREAD_NOTE_MSG_MAP,
     _PENDING_COMPLETED,
     _PENDING_UPDATES,
+    THREAD_LOCKS,
+    THREAD_NOTE_MSG_MAP,
 )
 from agents.usage_agent import usage_tracker
 from orchestration.thread_state import thread_state_manager

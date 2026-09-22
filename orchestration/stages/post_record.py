@@ -304,10 +304,9 @@ class PostRecordStageMixin:
                     messages=history_to_record,
                     bot_user_id=ctx.bot_user_id,
                 )
-        except Exception as e:
-            logger.error(
-                f"[ROUTER] Failed to record flat history for thread {ctx.thread_key}: {e}",
-                exc_info=True,
+        except Exception:
+            logger.exception(
+                f"[ROUTER] Failed to record flat history for thread {ctx.thread_key}"
             )
 
         if ctx.is_completed:

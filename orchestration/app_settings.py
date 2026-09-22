@@ -1,7 +1,6 @@
 import json
 import logging
 import os
-import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -72,7 +71,7 @@ class AppSettingsManager:
 
             self._last_loaded_mtime = mtime
             logger.debug(f"[APP_SETTINGS] Loaded settings from {target_file}")
-        except Exception as e:
+        except (OSError, json.JSONDecodeError, TypeError, ValueError) as e:
             logger.error(f"[APP_SETTINGS] Failed to load {target_file}: {e}")
             if self.default_backup_file.exists():
                 try:
@@ -85,7 +84,7 @@ class AppSettingsManager:
                     self.max_file_size_mb = float(data.get("max_file_size_mb", 50.0))
                     self.weekly_pricing_update_enabled = bool(data.get("weekly_pricing_update_enabled", True))
                     logger.warning("[APP_SETTINGS] Recovered settings from backup.")
-                except Exception as be:
+                except (OSError, json.JSONDecodeError, TypeError, ValueError) as be:
                     logger.error(f"[APP_SETTINGS] Failed to read backup: {be}")
 
     def save(self) -> None:
@@ -112,13 +111,13 @@ class AppSettingsManager:
 
             # Update backup if needed
             self._maybe_update_backup(payload)
-        except Exception as e:
+        except (OSError, TypeError, ValueError) as e:
             logger.error(f"[APP_SETTINGS] Error saving settings to {target_file}: {e}")
             if tmp_file.exists():
                 try:
                     tmp_file.unlink()
-                except Exception:
-                    pass
+                except OSError as ue:
+                    logger.debug(f"[APP_SETTINGS] Failed to remove temp file: {ue}")
 
     def _maybe_update_backup(self, payload: dict[str, Any]) -> None:
         try:
@@ -131,7 +130,7 @@ class AppSettingsManager:
                     json.dump(payload, f, indent=2)
                 os.replace(tmp_b, backup)
                 logger.info("[APP_SETTINGS] Updated emergency backup.")
-        except Exception as e:
+        except (OSError, TypeError, ValueError) as e:
             logger.warning(f"[APP_SETTINGS] Backup update failed: {e}")
 
     # --- Thread Skill Expiration ---

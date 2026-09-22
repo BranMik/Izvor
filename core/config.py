@@ -79,12 +79,8 @@ def _load_system_agents_from_ssot() -> dict[str, dict[str, Any]]:
         raw = data.get("system_agents", {})
         if isinstance(raw, dict):
             return {k: v for k, v in raw.items() if isinstance(v, dict)}
-    except (FileNotFoundError, PermissionError, OSError) as e:
-        logger.debug(f"[CONFIG] System agent settings file read error: {e}")
-    except (json.JSONDecodeError, UnicodeError) as e:
-        logger.debug(f"[CONFIG] System agent settings JSON parse error: {e}")
-    except Exception as e:
-        logger.debug(f"[CONFIG] Unexpected error loading system agents: {e}")
+    except (OSError, json.JSONDecodeError, UnicodeError, AttributeError, ValueError) as e:
+        logger.debug(f"[CONFIG] System agent settings load error: {e}")
     return {}
 
 

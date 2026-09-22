@@ -7,12 +7,10 @@ system message, and halts further agent invocation.
 """
 
 import logging
-import re
 from typing import Any
 
 from core.config import get_system_agent_model
 from core.llm_utils import execute_llm_with_retry
-from pipeline.entity_resolver import entity_resolver
 from services.slack_client import post_system_message
 
 logger = logging.getLogger(__name__)
@@ -65,7 +63,7 @@ async def run(ctx: Any, params: dict[str, Any] | None = None) -> dict[str, Any] 
         )
         if content:
             formatted_msg = content
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - Skill presentation fallback to raw directory text on LLM failure
         logger.warning(f"[LIST SKILLS] LLM presentation fallback to direct text: {e}")
         formatted_msg = skills_directory_text
 

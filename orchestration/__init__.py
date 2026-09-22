@@ -40,16 +40,6 @@ from .agent_settings import (
     settings_manager,
     toggle_agent,
 )
-from .workflow_manager import (
-    WORKFLOWS_DIR,
-    WorkflowManager,
-    delete_workflow,
-    get_workflow,
-    list_workflows,
-    save_workflow,
-    slugify,
-    workflow_manager,
-)
 from .nomination import (
     enforce_valid_nomination,
     get_initial_agents,
@@ -64,6 +54,16 @@ from .thread_state import (
     TurnRetryStateStore,
     thread_state_manager,
 )
+from .workflow_manager import (
+    WORKFLOWS_DIR,
+    WorkflowManager,
+    delete_workflow,
+    get_workflow,
+    list_workflows,
+    save_workflow,
+    slugify,
+    workflow_manager,
+)
 
 # Exports: Routing, Settings, Circuit Breaker, Nomination, and Thread State
 __all__ = [
@@ -75,6 +75,7 @@ __all__ = [
     "ENABLED_DEBATE_AGENTS",
     "LOCKED_AGENTS",
     "SETTINGS_FILE",
+    "WORKFLOWS_DIR",
     "AgentSettingsManager",
     "DiscussionStateStore",
     "OrchestrationMode",
@@ -82,7 +83,6 @@ __all__ = [
     "ThreadStateManager",
     "TurnRetryStateStore",
     "WorkflowManager",
-    "WORKFLOWS_DIR",
     "apply_workflow",
     "delete_workflow",
     "enforce_valid_nomination",

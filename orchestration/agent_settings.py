@@ -10,7 +10,7 @@ from core.config import (
     AGENTS_CONFIG,
     SYSTEM_AGENTS_CONFIG,
 )
-from core.models import CircuitBreakerConfig, OrchestrationMode
+from core.models import OrchestrationMode
 from orchestration.app_settings import AppSettingsManager, app_settings_manager
 from prompts import build_agent_prompt
 
@@ -162,7 +162,7 @@ class AgentSettingsManager:
             if tmp_path.exists():
                 try:
                     tmp_path.unlink()
-                except Exception as e:
+                except OSError as e:
                     logger.debug(f"[SETTINGS] Could not remove temp file {tmp_path}: {e}")
             raise
 
@@ -211,7 +211,7 @@ class AgentSettingsManager:
         if clean_ref:
             try:
                 preset = self.workflow_manager.get_workflow(clean_ref)
-            except Exception as e:
+            except (OSError, json.JSONDecodeError, ValueError, KeyError) as e:
                 logger.warning(f"[SETTINGS] Error retrieving workflow '{clean_ref}': {e}")
             if not preset:
                 logger.warning(
@@ -220,7 +220,7 @@ class AgentSettingsManager:
                 )
                 try:
                     preset = self.workflow_manager.get_workflow("default_review_flow") or self.workflow_manager.get_workflow("default_sandwich")
-                except Exception as e:
+                except (OSError, json.JSONDecodeError, ValueError, KeyError) as e:
                     logger.warning(f"[SETTINGS] Error loading default_review_flow fallback: {e}")
 
         # If still not found, check if fallback_data contains legacy embedded chains (backward compatibility)
@@ -282,8 +282,8 @@ class AgentSettingsManager:
             if wf_file.exists():
                 try:
                     self._last_workflow_mtime = wf_file.stat().st_mtime
-                except Exception:
-                    pass
+                except OSError as e:
+                    logger.debug(f"[SETTINGS] Error checking workflow mtime: {e}")
         else:
             # Complete fallback default when no preset is active (Visionary -> Innovator -> ... -> Architect)
             self.active_workflow_id = DEFAULT_WORKFLOW_ID
@@ -330,8 +330,8 @@ class AgentSettingsManager:
         if wf_file.exists():
             try:
                 self._last_workflow_mtime = wf_file.stat().st_mtime
-            except Exception:
-                pass
+            except OSError as e:
+                logger.debug(f"[SETTINGS] Error checking workflow mtime: {e}")
 
     _persist_active_workflow = persist_active_workflow
 
@@ -419,8 +419,7 @@ class AgentSettingsManager:
         raw_wf = data.get("workflow_config") or data.get("active_workflow_id")
         if isinstance(raw_wf, str):
             clean_wf = raw_wf.strip()
-            if clean_wf.endswith(".json"):
-                clean_wf = clean_wf[:-5]
+            clean_wf = clean_wf.removesuffix(".json")
             self.workflow_config = clean_wf
             self.active_workflow_id = clean_wf
         else:
@@ -476,7 +475,7 @@ class AgentSettingsManager:
                 mtime = backup_file.stat().st_mtime
                 if (time.time() - mtime) >= self.backup_interval_seconds:
                     needs_backup = True
-            except Exception as e:
+            except OSError as e:
                 logger.debug(f"[SETTINGS] Error checking backup mtime: {e}")
                 needs_backup = True
 
@@ -487,7 +486,7 @@ class AgentSettingsManager:
                 self._atomic_write_json(backup_file, data)
                 logger.info(f"[SETTINGS] Updated 7-day emergency backup: {backup_file.name}")
                 return True
-            except Exception as e:
+            except (OSError, json.JSONDecodeError, TypeError, ValueError) as e:
                 logger.error(f"[SETTINGS] Failed to update emergency backup: {e}")
                 return False
 
@@ -512,13 +511,13 @@ class AgentSettingsManager:
                     self.backup_error_reason = None
                     try:
                         self._last_loaded_mtime = target_file.stat().st_mtime
-                    except Exception:
-                        pass
+                    except OSError as e:
+                        logger.debug(f"[SETTINGS] Error checking settings file mtime: {e}")
                     self.check_and_update_backup()
                     return set(self.enabled_agents)
                 else:
                     err_reason = f"Schema validation failed in {target_file.name}"
-            except Exception as e:
+            except (OSError, json.JSONDecodeError, TypeError, ValueError) as e:
                 err_reason = f"Unreadable/corrupted JSON in {target_file.name}: {e}"
         else:
             err_reason = f"Active settings file '{target_file.name}' not found."
@@ -541,7 +540,7 @@ class AgentSettingsManager:
                         f"Original file '{target_file.name}' was left untouched."
                     )
                     return set(self.enabled_agents)
-            except Exception as backup_err:
+            except (OSError, json.JSONDecodeError, TypeError, ValueError) as backup_err:
                 logger.critical(f"[SETTINGS] Failed reading emergency backup: {backup_err}")
 
         # If both fail, raise RuntimeError
@@ -575,7 +574,7 @@ class AgentSettingsManager:
             self.load()
             logger.info(f"[SETTINGS] Successfully restored active settings file from {backup_file.name}.")
             return True
-        except Exception as e:
+        except (OSError, json.JSONDecodeError, TypeError, ValueError) as e:
             logger.error(f"[SETTINGS] Error executing restore from backup: {e}")
             return False
 
@@ -612,8 +611,8 @@ class AgentSettingsManager:
             self.backup_error_reason = None
             try:
                 self._last_loaded_mtime = target_file.stat().st_mtime
-            except Exception:
-                pass
+            except OSError as e:
+                logger.debug(f"[SETTINGS] Error checking settings file mtime: {e}")
             logger.info(
                 f"[SETTINGS] Saved settings ({len(self.enabled_agents)} enabled agents, "
                 f"workflow_config='{wf_ref}', "
@@ -621,7 +620,7 @@ class AgentSettingsManager:
                 f"threshold=${self.circuit_breaker_threshold_usd:.2f}) to {target_file.name}"
             )
             self.check_and_update_backup()
-        except Exception as e:
+        except (OSError, TypeError, ValueError) as e:
             logger.error(f"[SETTINGS] Error saving agent settings: {e}")
 
     def sync_if_modified(self) -> bool:
@@ -637,7 +636,7 @@ class AgentSettingsManager:
                 if mtime > last_mtime:
                     self.load()
                     return True
-            except Exception as e:
+            except (OSError, RuntimeError) as e:
                 logger.debug(f"[SETTINGS] Error checking settings file mtime: {e}")
 
         # Also check if the active workflow file changed on disk
@@ -652,7 +651,7 @@ class AgentSettingsManager:
                     if wf_mtime > last_wf_mtime:
                         self.load()
                         return True
-                except Exception as e:
+                except (OSError, RuntimeError) as e:
                     logger.debug(f"[SETTINGS] Error checking workflow file mtime: {e}")
         return False
 
@@ -757,8 +756,8 @@ class AgentSettingsManager:
         if wf_file.exists():
             try:
                 self._last_workflow_mtime = wf_file.stat().st_mtime
-            except Exception:
-                pass
+            except OSError as e:
+                logger.debug(f"[SETTINGS] Error checking workflow file mtime: {e}")
 
         if save:
             self.save()

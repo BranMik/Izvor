@@ -2,7 +2,7 @@ import asyncio
 import json
 import logging
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -24,11 +24,9 @@ def parse_thread_creation_time(thread_ts: str) -> str:
     """Parses Slack thread_ts epoch string into a human-readable datetime string."""
     try:
         ts_float = float(thread_ts)
-        dt = datetime.fromtimestamp(ts_float)
+        dt = datetime.fromtimestamp(ts_float, tz=timezone.utc)
         return dt.strftime("%Y-%m-%d %H:%M:%S")
     except (ValueError, TypeError, OSError):
-        return "Unknown"
-    except Exception:
         return "Unknown"
 
 
@@ -85,11 +83,7 @@ class ThreadUsageTracker:
             logger.info(
                 f"[USAGE AGENT] Loaded usage tracking for {len(self.thread_usage_data)} threads from {self.store_file.name}"
             )
-        except (FileNotFoundError, PermissionError, OSError) as e:
-            logger.error(f"[USAGE AGENT] File error loading thread usage store: {e}")
-        except (json.JSONDecodeError, UnicodeError) as e:
-            logger.error(f"[USAGE AGENT] Parse error loading thread usage store: {e}")
-        except Exception as e:
+        except (OSError, json.JSONDecodeError, UnicodeError, ValueError) as e:
             logger.error(f"[USAGE AGENT] Error loading thread usage store: {e}")
 
     def save(self) -> None:
@@ -102,11 +96,7 @@ class ThreadUsageTracker:
             self.store_file.write_text(
                 json.dumps(serializable, indent=2), encoding="utf-8"
             )
-        except (PermissionError, FileNotFoundError, OSError) as e:
-            logger.error(f"[USAGE AGENT] File error saving thread usage data: {e}")
-        except (TypeError, ValueError) as e:
-            logger.error(f"[USAGE AGENT] Format error saving thread usage data: {e}")
-        except Exception as e:
+        except (OSError, TypeError, ValueError) as e:
             logger.error(f"[USAGE AGENT] Error saving thread usage data: {e}")
 
     def record_tokens(
@@ -468,7 +458,7 @@ class ThreadUsageTracker:
                 f"[USAGE AGENT] Runtime error dispatching background usage update task: {e}"
             )
             return None
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - Background task dispatcher error boundary
             logger.error(
                 f"[USAGE AGENT] Failed to dispatch background usage update task: {e}"
             )
@@ -568,6 +558,6 @@ try:
 
     thread_state_manager.register_cleanup_hook(cleanup_thread_usage)
     thread_state_manager.register_reset_hook(reset_thread_usage)
-except Exception as _e:
+except (ImportError, AttributeError, TypeError) as _e:
     logger.debug(f"[USAGE AGENT] Could not register thread_state hooks: {_e}")
 

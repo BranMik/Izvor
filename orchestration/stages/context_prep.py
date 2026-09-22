@@ -58,9 +58,8 @@ class ContextPrepStageMixin:
             )
             return {"ok": False, "cancelled": True, "reason": "superseded"}
 
-        if not ctx.is_bot_trigger:
-            if not history or history[-1].get("role") != "user":
-                history = list(history) + [{"role": "user", "content": ctx.raw_text}]
+        if not ctx.is_bot_trigger and (not history or history[-1].get("role") != "user"):
+            history = list(history) + [{"role": "user", "content": ctx.raw_text}]
 
         ctx.full_history = list(history)
 

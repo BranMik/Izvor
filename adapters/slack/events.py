@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import re
+import sys
 import time
 from typing import Any
 
@@ -9,12 +10,12 @@ from fastapi import BackgroundTasks, HTTPException, Request, Response
 from slack_sdk.errors import SlackApiError
 from starlette.requests import ClientDisconnect
 
-import sys
-
-from core.slack_security import verify_slack_signature as _default_verify_slack_signature
-from pipeline.directive_parser import is_stop_command
+from core.slack_security import (
+    verify_slack_signature as _default_verify_slack_signature,
+)
 from orchestration.agent_router import process_and_respond
 from orchestration.thread_state import thread_state_manager
+from pipeline.directive_parser import is_stop_command
 from pipeline.entity_resolver import entity_resolver
 from services.slack_client import publish_app_home as _default_publish_app_home
 
@@ -45,15 +46,14 @@ async def _safe_publish_home(user_id: str) -> None:
         await _publish_home(user_id=user_id)
     except SlackApiError as e:
         logger.error(f"[WEBHOOK] SlackApiError publishing app home on open: {e}")
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - Webhook event handler isolates app home publishing failure
         logger.error(f"[WEBHOOK] Error publishing app home on open: {e}")
 
 
 def _get_process_and_respond() -> Any:
     main_mod = sys.modules.get("main")
     if main_mod and hasattr(main_mod, "process_and_respond"):
-        return getattr(main_mod, "process_and_respond")
-    from orchestration.agent_router import process_and_respond
+        return main_mod.process_and_respond
     return process_and_respond
 
 
@@ -206,9 +206,9 @@ async def handle_slack_events(request: Request, background_tasks: BackgroundTask
                     from skills import skill_registry
                     triggers = skill_registry.get_slash_triggers()
                     if triggers:
-                        slash_pattern = r"(?:^|\s)(?:" + "|".join(re.escape(c) for c in triggers.keys()) + r")\b"
+                        slash_pattern = r"(?:^|\s)(?:" + "|".join(re.escape(c) for c in triggers) + r")\b"
                         has_slash_command = bool(re.search(slash_pattern, raw_text, re.IGNORECASE))
-                except Exception as e:
+                except (ImportError, AttributeError, KeyError, TypeError, re.error) as e:
                     logger.debug(f"[WEBHOOK] Error checking skill_registry slash commands: {e}")
 
                 if not has_slash_command:

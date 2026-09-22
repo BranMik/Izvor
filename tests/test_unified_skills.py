@@ -2,8 +2,8 @@
 Unit and integration tests for the Unified Skills Architecture and Multimodal Data Contracts.
 """
 
-from pathlib import Path
 from unittest.mock import patch
+
 import pytest
 
 from core.models import (
@@ -99,7 +99,7 @@ def test_slash_triggers_mapping():
     assert "/history" in triggers
     assert "/stop" in triggers
 
-    skill_def, trg_cfg = triggers["/max_words"]
+    skill_def, _trg_cfg = triggers["/max_words"]
     assert skill_def.name == "max_words"
     assert skill_def.scope == "prompt_modifier"
 
@@ -151,6 +151,7 @@ async def test_smart_merge_slash_priority_over_llm():
 def test_global_skill_declarative_frontmatter():
     """Verifies that skills marked global: true are universally accessible to all agents."""
     import json
+
     from skills.loader import SkillDefinition
 
     mock_global_skill = SkillDefinition(

@@ -1,5 +1,6 @@
-import pytest
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from orchestration import agent_router
 from orchestration.agent_router import process_and_respond

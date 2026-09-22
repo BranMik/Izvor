@@ -5,6 +5,7 @@ Collects all scenarios from `ALL_SCENARIOS` and executes them using `E2ETestRunn
 """
 
 import os
+
 import pytest
 
 from e2e_testing_harness.runner import E2ETestRunner

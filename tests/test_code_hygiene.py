@@ -29,6 +29,7 @@ def test_no_undefined_variables_or_imports():
         cwd=root_dir,
         capture_output=True,
         text=True,
+        check=False,
     )
 
     assert result.returncode == 0, (

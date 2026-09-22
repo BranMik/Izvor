@@ -1,5 +1,6 @@
 import json
 import logging
+import sys
 import urllib.parse
 from typing import Any
 
@@ -7,18 +8,19 @@ from fastapi import BackgroundTasks, HTTPException, Request, Response
 from slack_sdk.errors import SlackApiError
 from starlette.requests import ClientDisconnect
 
-import sys
-
+from agents.thread_notes_agent import get_thread_note_content
 from core.config import AGENTS_CONFIG
 from core.models import OrchestrationMode
-from core.slack_security import verify_slack_signature as _default_verify_slack_signature
+from core.slack_security import (
+    verify_slack_signature as _default_verify_slack_signature,
+)
 from orchestration.agent_settings import (
     apply_workflow,
     get_active_workflow_id,
+    get_circuit_breaker_threshold,
     get_fixed_config,
     get_orchestration_mode,
     get_sandwich_config,
-    get_circuit_breaker_threshold,
     persist_active_workflow,
     reset_enabled_agents,
     restore_from_backup,
@@ -39,12 +41,13 @@ from orchestration.workflow_manager import (
     delete_workflow,
     save_workflow,
 )
-from agents.thread_notes_agent import get_thread_note_content
 from services.slack_client import (
     open_dm_channel,
     post_ephemeral_to_slack,
-    publish_app_home as _default_publish_app_home,
     upload_text_file_to_slack,
+)
+from services.slack_client import (
+    publish_app_home as _default_publish_app_home,
 )
 
 logger = logging.getLogger("CaiLogicsBackend.SlackInteractivity")
@@ -84,7 +87,7 @@ async def _handle_scribe_download(
             title=f"Live Discussion Scribe Notes ({thread_ts})",
             initial_comment="Evo vaših zatraženih Live Discussion Scribe bilješki u vidu .txt fajla:",
         )
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - Interactivity action handler isolates download delivery failure
         logger.error(f"[INTERACTIVITY] Error delivering scribe download to {user_id}: {e}")
 
 
@@ -108,7 +111,7 @@ async def _safe_publish_home(user_id: str) -> None:
         await _publish_home(user_id=user_id)
     except SlackApiError as e:
         logger.error(f"[INTERACTIVITY] SlackApiError publishing App Home for {user_id}: {e}")
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - Interactivity handler isolates app home publishing failure
         logger.error(f"[INTERACTIVITY] Failed to publish App Home for {user_id}: {e}")
 
 
@@ -136,9 +139,7 @@ async def handle_slack_interactivity(request: Request, background_tasks: Backgro
             parsed_form = urllib.parse.parse_qs(body_str)
             if parsed_form.get("payload"):
                 payload = json.loads(parsed_form["payload"][0])
-        except (json.JSONDecodeError, ValueError, KeyError, IndexError) as e:
-            logger.debug(f"[INTERACTIVITY] parse_qs extraction error: {e}")
-        except Exception as e:
+        except (json.JSONDecodeError, ValueError, KeyError, IndexError, TypeError) as e:
             logger.debug(f"[INTERACTIVITY] parse_qs extraction error: {e}")
 
     # 2. Try parsing request.form()
@@ -147,10 +148,8 @@ async def handle_slack_interactivity(request: Request, background_tasks: Backgro
             form_data = await request.form()
             if "payload" in form_data:
                 payload = json.loads(form_data["payload"])
-        except (json.JSONDecodeError, ValueError, KeyError) as e:
+        except (json.JSONDecodeError, ValueError, KeyError, UnicodeDecodeError, AttributeError) as e:
             logger.debug(f"[INTERACTIVITY] form-data extraction failed: {e}")
-        except Exception as e:
-            logger.debug(f"[INTERACTIVITY] form-data unexpected extraction error: {e}")
 
     # 3. Direct JSON payload fallback (used in unit tests / direct API callers)
     if not payload:
@@ -309,7 +308,9 @@ async def handle_slack_interactivity(request: Request, background_tasks: Backgro
             elif action_id.startswith("set_thread_skill_expiry_preset:"):
                 val_str = action_id.split(":", 1)[1]
                 try:
-                    from orchestration.app_settings import set_thread_skill_expiration_time
+                    from orchestration.app_settings import (
+                        set_thread_skill_expiration_time,
+                    )
                     val_float = float(val_str)
                     if val_float > 0:
                         set_thread_skill_expiration_time(val_float)

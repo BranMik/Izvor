@@ -4,7 +4,6 @@ import os
 import re
 import tempfile
 from pathlib import Path
-from typing import Any
 
 from core.models import OrchestrationMode, WorkflowPreset
 
@@ -82,8 +81,8 @@ class WorkflowManager:
             for preset in default_presets:
                 self.save_preset(preset)
             logger.info(f"[WORKFLOW] Seeded {len(default_presets)} default workflows in {self.workflows_dir}")
-        except Exception as e:
-            logger.error(f"[WORKFLOW] Failed to seed default workflows: {e}", exc_info=True)
+        except OSError:
+            logger.exception("[WORKFLOW] Failed to seed default workflows")
 
     def list_workflows(self) -> list[WorkflowPreset]:
         """Returns all valid workflow presets ordered by name."""
@@ -103,7 +102,7 @@ class WorkflowManager:
                 if not data.get("name"):
                     data["name"] = file_path.stem.replace("_", " ").title()
                 presets.append(WorkflowPreset.from_dict(data))
-            except Exception as e:
+            except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError) as e:
                 logger.warning(f"[WORKFLOW] Failed to load preset from {file_path.name}: {e}")
 
         presets.sort(key=lambda p: p.name.lower())
@@ -124,7 +123,7 @@ class WorkflowManager:
             if not data.get("id"):
                 data["id"] = clean_id
             return WorkflowPreset.from_dict(data)
-        except Exception as e:
+        except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError) as e:
             logger.error(f"[WORKFLOW] Error reading workflow '{workflow_id}': {e}")
             return None
 
@@ -199,7 +198,7 @@ class WorkflowManager:
             file_path.unlink()
             logger.info(f"[WORKFLOW] Deleted workflow preset '{clean_id}'")
             return True
-        except Exception as e:
+        except OSError as e:
             logger.error(f"[WORKFLOW] Failed to delete workflow '{clean_id}': {e}")
             return False
 

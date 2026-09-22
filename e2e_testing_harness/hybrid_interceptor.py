@@ -172,7 +172,7 @@ class HybridInterceptor:
             try:
                 # Test if model is executable
                 return await self.real_acompletion(*args, **kwargs)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - Hybrid interceptor falls back to mock extractor if live LLM fails
                 logger.warning(f"[HYBRID] Live system LLM failed ({e}), using deterministic extractor.")
 
         if is_scribe:
