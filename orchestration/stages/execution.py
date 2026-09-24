@@ -205,8 +205,9 @@ class ExecutionStageMixin:
                             )
                             # Dynamically unlock tools declared by this skill only if authorized
                             skill_name = fn_args.get("skill_name", "").strip()
-                            if agent_skills and skill_name in agent_skills:
-                                skill_def = skill_registry.get(skill_name)
+                            skill_def = skill_registry.get(skill_name)
+                            is_globally_allowed = bool(skill_def and skill_def.is_global)
+                            if (agent_skills and skill_name in agent_skills) or is_globally_allowed:
                                 if skill_def:
                                     for s_schema in skill_def.get_tool_schemas():
                                         if s_schema not in active_tools:
