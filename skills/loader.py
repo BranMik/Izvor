@@ -65,13 +65,17 @@ class SkillDefinition:
     is_terminal: bool = False
     extraction_rule: str = ""
     handles_files: bool = False
+    custom_tool_schemas: list[dict[str, Any]] = field(default_factory=list)
+    tool_handlers: dict[str, Callable[..., Any]] = field(default_factory=dict)
 
     def get_tool_schemas(self) -> list[dict[str, Any]]:
         """Returns the LiteLLM tool schemas for the tools declared by this skill."""
         matched: list[dict[str, Any]] = []
+        if self.custom_tool_schemas:
+            matched.extend(self.custom_tool_schemas)
         for schema in MCP_TOOLS_SCHEMAS:
             fn_name = schema.get("function", {}).get("name")
-            if fn_name in self.tools:
+            if fn_name in self.tools and schema not in matched:
                 matched.append(schema)
         return matched
 
@@ -162,6 +166,24 @@ class SkillRegistry:
         handles_files = bool(meta.get("handles_files") or triggers.get("handles_files", False))
         is_terminal = bool(meta.get("terminal") or triggers.get("terminal", False) or triggers.get("arg_type") == "terminal_flag")
 
+        # Check for tools.py handler and schemas
+        custom_tool_schemas: list[dict[str, Any]] = []
+        tool_handlers: dict[str, Callable[..., Any]] = {}
+        tools_file = file_path.parent / "tools.py"
+        if tools_file.exists():
+            try:
+                mod_name = f"skills.{name}.tools"
+                spec = importlib.util.spec_from_file_location(mod_name, tools_file)
+                if spec and spec.loader:
+                    mod = importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(mod)
+                    if hasattr(mod, "TOOL_SCHEMAS") and isinstance(mod.TOOL_SCHEMAS, list):
+                        custom_tool_schemas.extend(mod.TOOL_SCHEMAS)
+                    if hasattr(mod, "TOOL_HANDLERS") and isinstance(mod.TOOL_HANDLERS, dict):
+                        tool_handlers.update(mod.TOOL_HANDLERS)
+            except Exception as e:  # noqa: BLE001 - Isolate skill custom tool load errors
+                logger.error(f"[SKILLS] Error loading custom tools from {tools_file}: {e}")
+
         return SkillDefinition(
             name=name,
             display_name=display_name,
@@ -176,6 +198,8 @@ class SkillRegistry:
             is_terminal=is_terminal,
             extraction_rule=extraction_rule,
             handles_files=handles_files,
+            custom_tool_schemas=custom_tool_schemas,
+            tool_handlers=tool_handlers,
         )
 
     def get(self, name: str) -> SkillDefinition | None:
@@ -632,6 +656,16 @@ class SkillRegistry:
                         )
                     }
                 )
+
+        # Check if any skill registered a custom tool handler
+        for s_def in self._skills.values():
+            if tool_name in s_def.tool_handlers:
+                handler = s_def.tool_handlers[tool_name]
+                try:
+                    return handler(arguments)
+                except Exception as e:
+                    logger.error(f"[SKILLS] Custom tool handler error for '{tool_name}': {e}")
+                    return json.dumps({"error": f"Tool execution failed: {e}"})
 
         return execute_mcp_tool(tool_name, arguments)
 

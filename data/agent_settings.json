@@ -34,7 +34,8 @@
       "is_short_output": false,
       "skills": [
         "codebase_inspection",
-        "document_reader"
+        "document_reader",
+        "knowledge_base_rag"
       ]
     },
     "Innovator": {
@@ -51,7 +52,8 @@
       "is_short_output": false,
       "skills": [
         "codebase_inspection",
-        "workspace_authoring"
+        "workspace_authoring",
+        "knowledge_base_rag"
       ]
     },
     "Sceptic": {
@@ -109,7 +111,8 @@
       "is_short_output": false,
       "skills": [
         "codebase_inspection",
-        "document_reader"
+        "document_reader",
+        "knowledge_base_rag"
       ]
     },
     "ScalabilityEngineer": {
@@ -157,7 +160,8 @@
       "icon_url": "static/image_02.png",
       "is_short_output": true,
       "skills": [
-        "codebase_inspection"
+        "codebase_inspection",
+        "knowledge_base_rag"
       ]
     }
   },

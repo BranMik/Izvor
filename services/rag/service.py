@@ -1,0 +1,100 @@
+import json
+import logging
+from typing import Any
+
+from .config import DEFAULT_TOP_K
+from .embeddings import EmbeddingService, embedding_service
+from .vector_store import VectorStore, vector_store
+
+logger = logging.getLogger(__name__)
+
+
+class RAGService:
+    """
+    High-level facade for querying the agent-oriented RAG system.
+    """
+
+    def __init__(
+        self,
+        store: VectorStore | None = None,
+        embedder: EmbeddingService | None = None,
+    ) -> None:
+        self.vector_store = store or vector_store
+        self.embedder = embedder or embedding_service
+
+    async def search(
+        self,
+        query: str,
+        agent_name: str = "",
+        scope: str = "all",
+        max_results: int = DEFAULT_TOP_K,
+    ) -> str:
+        """
+        Executes hybrid search and returns a structured markdown string
+        with citations (doc_id, section_header) and text excerpts.
+        """
+        cleaned_query = (query or "").strip()
+        if not cleaned_query:
+            return "Error: Search query cannot be empty."
+
+        # Generate query vector
+        query_vector = None
+        try:
+            vectors = await self.embedder.get_embeddings([cleaned_query])
+            if vectors:
+                query_vector = vectors[0]
+        except Exception as e:
+            logger.warning(f"[RAG Service] Failed to compute query vector: {e}. Falling back to BM25 text search.")
+
+        # Execute search in vector store
+        try:
+            results = self.vector_store.search(
+                query_text=cleaned_query,
+                query_vector=query_vector,
+                agent_name=agent_name,
+                scope=scope,
+                top_k=max_results,
+            )
+        except Exception as e:
+            logger.error(f"[RAG Service] Search execution failed: {e}")
+            return f"Error executing knowledge base search: {e}"
+
+        if not results:
+            scope_desc = f"agent '{agent_name}' and shared knowledge" if scope == "all" else f"agent '{agent_name}' only"
+            return f"No relevant documentation found for '{cleaned_query}' in {scope_desc}."
+
+        # Format results as readable markdown citations
+        output_blocks = [
+            f"### Knowledge Base Search Results for: *\"{cleaned_query}\"*\n"
+        ]
+
+        for idx, item in enumerate(results, start=1):
+            doc_id = item.get("doc_id", "Unknown")
+            section = item.get("section_header", "Overview")
+            text = item.get("text", "").strip()
+
+            output_blocks.append(
+                f"**[{idx}] `{doc_id}` — {section}**\n"
+                f"> {text.replace(chr(10), chr(10) + '> ')}\n"
+            )
+
+        return "\n".join(output_blocks)
+
+
+# Global singleton facade
+rag_service = RAGService()
+
+
+async def search_knowledge_rag(
+    query: str,
+    agent_name: str = "",
+    scope: str = "all",
+    max_results: int = DEFAULT_TOP_K,
+) -> str:
+    """Convenience function for searching knowledge base."""
+    return await rag_service.search(
+        query=query,
+        agent_name=agent_name,
+        scope=scope,
+        max_results=max_results,
+    )

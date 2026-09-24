@@ -478,6 +478,34 @@ MCP_TOOLS_SCHEMAS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_knowledge_rag",
+            "description": "Search verified documentation, architecture decisions, and agent-specific runbooks using hybrid dense vector + BM25 full-text retrieval.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Natural language query or technical keyword to look up.",
+                    },
+                    "scope": {
+                        "type": "string",
+                        "enum": ["all", "self"],
+                        "description": "'all' searches both agent-specific and shared organization documents. 'self' restricts search strictly to the current agent's domain.",
+                        "default": "all",
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Maximum number of excerpts to return.",
+                        "default": 4,
+                    },
+                },
+                "required": ["query"],
+            },
+        },
+    },
 ]
 
 
@@ -514,5 +542,8 @@ def execute_mcp_tool(tool_name: str, arguments: dict[str, Any]) -> str:
         url = arguments.get("url", "")
         max_chars = arguments.get("max_chars", 4000)
         return fetch_web_page(url=url, max_chars=max_chars)
+    elif tool_name == "search_knowledge_rag":
+        from skills.knowledge_base_rag.tools import execute_search_knowledge_rag
+        return execute_search_knowledge_rag(arguments)
     else:
         return json.dumps({"error": f"Unknown tool: {tool_name}"})

@@ -23,6 +23,7 @@ from orchestration.agent_router import process_and_respond
 from orchestration.agent_settings import load_enabled_agents
 from orchestration.thread_state import thread_state_manager
 from services.pricing_service import warm_up_pricing_cache
+from services.rag.sync_engine import rag_sync_engine
 from services.slack_client import publish_app_home
 
 # Configure logging format
@@ -67,6 +68,7 @@ async def lifespan(app: FastAPI):
     loop_task = asyncio.create_task(keep_loop_alive()) if sys.platform == "win32" else None
     warmup_task = asyncio.create_task(warm_up_pricing_cache())
     cleanup_task = asyncio.create_task(periodic_thread_state_cleanup())
+    rag_sync_task = asyncio.create_task(rag_sync_engine.reconcile())
     try:
         yield
     finally:
@@ -74,6 +76,7 @@ async def lifespan(app: FastAPI):
             loop_task.cancel()
         warmup_task.cancel()
         cleanup_task.cancel()
+        rag_sync_task.cancel()
 
 
 app = FastAPI(
@@ -116,6 +119,27 @@ async def get_registered_skills():
             }
         )
     return {"skills": skills_data}
+
+
+@app.get("/api/rag/status")
+async def get_rag_status():
+    """Returns RAG manifest status and indexed documents overview."""
+    from services.rag.manifest_manager import ManifestManager
+    manifest = ManifestManager()
+    records = manifest.get_all_records()
+    return {
+        "status": "ready",
+        "total_documents": len(records),
+        "documents": records,
+    }
+
+
+@app.post("/api/rag/reconcile")
+async def trigger_rag_reconciliation():
+    """Triggers an on-demand reconciliation scan of rag_knowledge/."""
+    stats = await rag_sync_engine.reconcile()
+    return {"status": "reconciliation_complete", "stats": stats}
+
 
 
 __all__ = [
