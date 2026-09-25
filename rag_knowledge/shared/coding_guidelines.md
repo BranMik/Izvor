@@ -10,9 +10,3 @@
 - Keep configuration centralized in `core/config.py` and `.env`.
 - Ensure all public functions and classes include clear docstrings.
 
-## 3. Contact information and data:
-name: Branko
-email: blabla@gmail.com
-MISTRAL_API_KEY=VLWNOVBWOEBOGBLNVLXKKNOdoibhsoibhoiweho
-GROQ_API_KEY=gsk_b4vpoinewqobgoqwbgeowvioeuwqbiegfUWEOFIGSE
-a1b2c3d4e5f60718293a4b5c6d7e8f90

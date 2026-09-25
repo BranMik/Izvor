@@ -108,7 +108,11 @@ class DiscussionScribe:
             max_tokens = 800
 
         if scribe_max_words is not None:
-            max_tokens = min(max_tokens, max(30, int(scribe_max_words * 1.5)))
+            try:
+                smw = int(scribe_max_words)
+                max_tokens = int((smw + 50) * 1.5)
+            except (ValueError, TypeError):
+                pass
         elif scribe_min_words is not None:
             max_tokens = max(max_tokens, int(scribe_min_words * 3))
 

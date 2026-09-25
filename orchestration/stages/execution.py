@@ -88,6 +88,26 @@ class ExecutionStageMixin:
             "num_retries": 2,
         }
 
+        # Resolve mechanical limit (max_tokens) if /max_words is active or inferred
+        active_max_words = None
+        raw_max = ctx.modifiers.get("max_words") if ctx.modifiers else None
+        if raw_max is None:
+            raw_max = ctx.max_words_limit
+        if raw_max is None:
+            raw_max = thread_state_manager.get_max_words(ctx.channel_id, ctx.thread_ts)
+
+        if raw_max is not None and str(raw_max).strip().lower() != "off":
+            try:
+                parsed_max = int(raw_max)
+                if parsed_max > 0:
+                    active_max_words = parsed_max
+            except (ValueError, TypeError):
+                active_max_words = None
+
+        if active_max_words is not None:
+            # Mechanical limit on a larger range: /max_words limit + 50 words (1 word ≈ 1.5 tokens)
+            completion_kwargs["max_tokens"] = int((active_max_words + 50) * 1.5)
+
         # If agent has no authorized skills (pure debate agent), omit tools entirely
         # For skilled agents, start strictly with LOAD_SKILL_SCHEMA (progressive disclosure)
         active_tools: list[dict[str, Any]] = []
@@ -261,6 +281,8 @@ class ExecutionStageMixin:
                         "tool_choice": "auto",
                         "num_retries": 2,
                     }
+                    if "max_tokens" in completion_kwargs:
+                        follow_up_kwargs["max_tokens"] = completion_kwargs["max_tokens"]
                     if any(
                         keyword in ctx.agent_cfg["model"].lower()
                         for keyword in ["muse", "llama", "meta"]
