@@ -172,3 +172,11 @@ def test_skill_registry_loads_knowledge_base_rag():
         {"query": "coding standards", "scope": "all", "max_results": 2},
     )
     assert isinstance(result, str)
+
+    # Test tool execution dispatch with agent_name
+    result_agent = registry.execute_tool(
+        "search_knowledge_rag",
+        {"query": "AI in delivery", "scope": "all", "max_results": 2},
+        agent_name="TechLead",
+    )
+    assert isinstance(result_agent, str)

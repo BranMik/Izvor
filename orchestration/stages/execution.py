@@ -213,10 +213,12 @@ class ExecutionStageMixin:
                                         if s_schema not in active_tools:
                                             active_tools.append(s_schema)
                         elif exec_mcp_fn is not None and exec_mcp_fn is not execute_mcp_tool:
+                            sig = inspect.signature(exec_mcp_fn)
+                            kwargs = {"agent_name": ctx.agent_key} if "agent_name" in sig.parameters else {}
                             if inspect.iscoroutinefunction(exec_mcp_fn):
-                                tool_result = await exec_mcp_fn(fn_name, fn_args)
+                                tool_result = await exec_mcp_fn(fn_name, fn_args, **kwargs)
                             else:
-                                tool_result = await asyncio.to_thread(exec_mcp_fn, fn_name, fn_args)
+                                tool_result = await asyncio.to_thread(exec_mcp_fn, fn_name, fn_args, **kwargs)
                         else:
                             tool_result = await asyncio.to_thread(
                                 skill_registry.execute_tool,
@@ -225,6 +227,7 @@ class ExecutionStageMixin:
                                 authorized_skills=agent_skills,
                                 expired_skills=expired_thread_skills,
                                 ttl_hours=thread_ttl_hours,
+                                agent_name=ctx.agent_key,
                             )
 
                         ctx.messages.append(

@@ -168,7 +168,7 @@ def test_execute_delegated_mcp_tool():
         mock_exec.return_value = json.dumps({"contents": []})
         res = skill_registry.execute_tool("list_directory", {"rel_path": "."})
         assert "contents" in res
-        mock_exec.assert_called_once_with("list_directory", {"rel_path": "."})
+        mock_exec.assert_called_once_with("list_directory", {"rel_path": "."}, agent_name="")
 
 
 def test_execute_tool_authorization_enforcement():

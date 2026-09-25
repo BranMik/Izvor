@@ -414,7 +414,7 @@ class SkillRegistry:
             [
                 "",
                 "SKILL INFERENCE RULE:",
-                "- If your turn is purely conversational, conceptual, or philosophical, do NOT load any skills—respond directly.",
+                "- If your turn is purely conversational do NOT load any skills—respond directly.",
                 "- If you need external facts or file access, call `load_skill` with the relevant skill name.",
             ]
         )
@@ -567,6 +567,7 @@ class SkillRegistry:
         authorized_skills: list[str] | None = None,
         expired_skills: list[str] | None = None,
         ttl_hours: float | None = None,
+        agent_name: str = "",
     ) -> str:
         """
         Dispatches tool execution.
@@ -662,12 +663,16 @@ class SkillRegistry:
             if tool_name in s_def.tool_handlers:
                 handler = s_def.tool_handlers[tool_name]
                 try:
+                    import inspect
+                    sig = inspect.signature(handler)
+                    if "agent_name" in sig.parameters:
+                        return handler(arguments, agent_name=agent_name)
                     return handler(arguments)
                 except Exception as e:
                     logger.error(f"[SKILLS] Custom tool handler error for '{tool_name}': {e}")
                     return json.dumps({"error": f"Tool execution failed: {e}"})
 
-        return execute_mcp_tool(tool_name, arguments)
+        return execute_mcp_tool(tool_name, arguments, agent_name=agent_name)
 
 
 # Global singleton registry instance

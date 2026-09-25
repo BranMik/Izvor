@@ -13,7 +13,7 @@ triggers:
   arg_type: file_target
   param_name: target_file
   handles_files: true
-extraction_rule: "If user asks to read, analyze, inspect, or reference an attached file or document, include action '{name}' with param 'target_file' (or null if generic)."
+extraction_rule: "If user asks to read, analyze, inspect, or reference an attached Slack file or local resource file (distinct from internal documentation or knowledge base), include action '{name}' with param 'target_file' (or null if generic)."
 tools:
   - list_documents
   - read_document

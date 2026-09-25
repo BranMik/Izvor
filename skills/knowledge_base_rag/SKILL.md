@@ -3,6 +3,12 @@ name: knowledge_base_rag
 display_name: Knowledge Base RAG
 description: Progressive disclosure skill to search organizational documents, architecture specifications, coding standards, and agent domain runbooks using hybrid dense vector and BM25 full-text search.
 scope: agent
+triggers:
+  slash:
+    - /rag
+    - /search_docs
+    - /knowledge
+extraction_rule: "If user asks to search or query internal documentation, knowledge base, specs, runbooks, playbooks, or reference guides, include action 'knowledge_base_rag'."
 tools:
   - search_knowledge_rag
 ---
@@ -21,9 +27,9 @@ This skill provides on-demand access to verified project and organizational know
 - **`scope`** (string, optional, default: `"all"`):
   - `"all"`: Searches both your role-specific documentation (`rag_knowledge/{YourAgentName}/`) and shared organizational knowledge (`rag_knowledge/shared/`).
   - `"self"`: Restricts the search strictly to your role-specific documentation.
-- **`max_results`** (integer, optional, default: `4`): Number of most relevant excerpts to retrieve.
+- **`max_results`** (integer, optional, default: `6`): Number of most relevant excerpts to retrieve.
 
-## Best Practices
-1. Formulate concise, targeted queries matching the technical terms you are seeking.
-2. Always attribute retrieved information citing the document filename and section header returned by the tool.
-3. If search yields no results with `"self"`, consider broadening your scope to `"all"`.
+## Mandatory Operational Rules
+1. **Targeted Queries**: Formulate concise queries matching the exact technical or strategic terms you are seeking. If search yields no results with `"self"`, broaden scope to `"all"`.
+2. **Direct Relevance & Category Fidelity**: Focus your response directly on the specific section, step, or framework that explicitly answers the user's inquiry (e.g. when asked how AI makes money, present the dedicated financial levers defined in that step, rather than wandering into unrelated steps or tangential examples). Maintain high fidelity to the source: use the exact framework names, categories, numbers, and key phrasing from the document instead of inventing your own categories or paraphrasing them into generic concepts.
+3. **Mandatory Citations**: You MUST attribute all retrieved facts, use cases, metrics, or guidelines by citing the exact document path and section header at the end of your response (e.g. `_Source: `TechLead/03_AI_Strategy_Guide.pdf` (Page 2)_`). Never omit this source citation.
