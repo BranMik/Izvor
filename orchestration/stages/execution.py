@@ -207,11 +207,20 @@ class ExecutionStageMixin:
                             skill_name = fn_args.get("skill_name", "").strip()
                             skill_def = skill_registry.get(skill_name)
                             is_globally_allowed = bool(skill_def and skill_def.is_global)
-                            if (agent_skills and skill_name in agent_skills) or is_globally_allowed:
-                                if skill_def:
-                                    for s_schema in skill_def.get_tool_schemas():
-                                        if s_schema not in active_tools:
+                            if skill_def and ((agent_skills and skill_name in agent_skills) or is_globally_allowed):
+                                existing_names = {
+                                    s.get("function", {}).get("name")
+                                    for s in active_tools
+                                    if isinstance(s, dict) and "function" in s
+                                }
+                                for s_schema in skill_def.get_tool_schemas():
+                                    s_name = s_schema.get("function", {}).get("name")
+                                    if s_name:
+                                        if s_name not in existing_names:
                                             active_tools.append(s_schema)
+                                            existing_names.add(s_name)
+                                    elif s_schema not in active_tools:
+                                        active_tools.append(s_schema)
                         elif exec_mcp_fn is not None and exec_mcp_fn is not execute_mcp_tool:
                             sig = inspect.signature(exec_mcp_fn)
                             kwargs = {"agent_name": ctx.agent_key} if "agent_name" in sig.parameters else {}

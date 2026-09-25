@@ -162,9 +162,10 @@ def test_skill_registry_loads_knowledge_base_rag():
     assert "search_knowledge_rag" in skill.tools
 
     schemas = skill.get_tool_schemas()
-    assert len(schemas) >= 1
+    assert len(schemas) == 1
     fn_names = [s.get("function", {}).get("name") for s in schemas]
-    assert "search_knowledge_rag" in fn_names
+    assert fn_names == ["search_knowledge_rag"]
+    assert len(fn_names) == len(set(fn_names))
 
     # Test tool execution dispatch
     result = registry.execute_tool(
