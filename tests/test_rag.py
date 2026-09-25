@@ -2,13 +2,15 @@ import asyncio
 import shutil
 import tempfile
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from services.rag.config import get_pii_masking_mode
 from services.rag.document_parser import DocumentChunk, DocumentParser
 from services.rag.embeddings import EmbeddingService
 from services.rag.manifest_manager import ManifestManager, compute_sha256
+from services.rag.pii_masker import PIIMasker, pii_masker
 from services.rag.service import RAGService
 from services.rag.sync_engine import SyncReconciliationEngine
 from services.rag.vector_store import VectorStore
@@ -181,3 +183,82 @@ def test_skill_registry_loads_knowledge_base_rag():
         agent_name="TechLead",
     )
     assert isinstance(result_agent, str)
+
+
+def test_pii_masker_patterns():
+    masker = PIIMasker()
+
+    sample_text = (
+        "Contact me at alice.smith@example.com or 555-123-4567. "
+        "SSN: 000-12-3456. Card: 4111-2222-3333-4444. "
+        "Server IP is 192.168.1.100. "
+        "Use Slack token xoxb-123456789012-123456789012-abcdefghijklmnopqrstuvwx and OpenAI sk-abc1234567890abcdef123456. "
+        "Config: password: MySecretPassword123"
+    )
+
+    masked = masker.mask(sample_text)
+
+    assert "alice.smith@example.com" not in masked
+    assert "<EMAIL>" in masked
+    assert "000-12-3456" not in masked
+    assert "<SSN>" in masked
+    assert "4111-2222-3333-4444" not in masked
+    assert "<CREDIT_CARD>" in masked
+    assert "192.168.1.100" not in masked
+    assert "<IP_ADDRESS>" in masked
+    assert "xoxb-" not in masked
+    assert "<SLACK_TOKEN>" in masked
+    assert "sk-abc" not in masked
+    assert "<API_KEY>" in masked
+    assert "MySecretPassword123" not in masked
+    assert "<REDACTED_SECRET>" in masked
+
+
+def test_pii_masking_integration():
+    sample_raw = "Deploy keys: sk-proj-1234567890abcdef123456 and email dev@org.internal"
+
+    # 1. Test NONE mode
+    with patch("services.rag.pii_masker.get_pii_masking_mode", return_value="NONE"):
+        assert not pii_masker.should_mask_at_ingestion()
+        assert not pii_masker.should_mask_at_retrieval()
+
+    # 2. Test AT_INGESTION mode
+    with patch("services.rag.pii_masker.get_pii_masking_mode", return_value="AT_INGESTION"):
+        assert pii_masker.should_mask_at_ingestion()
+        assert not pii_masker.should_mask_at_retrieval()
+
+        parser = DocumentParser()
+        chunks = parser._chunk_text(sample_raw)
+        assert len(chunks) > 0
+        assert "dev@org.internal" not in chunks[0]
+        assert "<EMAIL>" in chunks[0]
+        assert "<API_KEY>" in chunks[0]
+
+    # 3. Test AT_RETRIEVAL mode (default)
+    with patch("services.rag.pii_masker.get_pii_masking_mode", return_value="AT_RETRIEVAL"):
+        assert not pii_masker.should_mask_at_ingestion()
+        assert pii_masker.should_mask_at_retrieval()
+
+        # Ingestion leaves raw content intact
+        parser = DocumentParser()
+        raw_chunks = parser._chunk_text(sample_raw)
+        assert "dev@org.internal" in raw_chunks[0]
+
+        # RAGService search masks it on output
+        mock_store = MagicMock()
+        mock_store.search.return_value = [
+            {"doc_id": "test_doc", "section_header": "Secrets", "text": sample_raw}
+        ]
+        mock_embedder = AsyncMock()
+        mock_embedder.get_embeddings.return_value = [[0.1] * 10]
+
+        service = RAGService(store=mock_store, embedder=mock_embedder)
+
+        async def _run_search():
+            return await service.search(query="keys", agent_name="Admin")
+
+        result = asyncio.run(_run_search())
+        assert "dev@org.internal" not in result
+        assert "<EMAIL>" in result
+        assert "<API_KEY>" in result
+
