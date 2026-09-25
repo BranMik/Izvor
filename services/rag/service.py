@@ -9,6 +9,18 @@ from .vector_store import VectorStore, vector_store
 logger = logging.getLogger(__name__)
 
 
+def _load_citation_instructions() -> str:
+    """Loads citation and fidelity instructions from external markdown file."""
+    try:
+        from .config import CITATION_INSTRUCTIONS_PATH
+
+        if CITATION_INSTRUCTIONS_PATH.exists():
+            return CITATION_INSTRUCTIONS_PATH.read_text(encoding="utf-8").strip()
+    except Exception as e:
+        logger.debug(f"[RAG Service] Could not load citation instructions: {e}")
+    return ""
+
+
 class RAGService:
     """
     High-level facade for querying the agent-oriented RAG system.
@@ -77,6 +89,10 @@ class RAGService:
                 f"**[{idx}] `{doc_id}` — {section}**\n"
                 f"> {text.replace(chr(10), chr(10) + '> ')}\n"
             )
+
+        instructions = _load_citation_instructions()
+        if instructions:
+            output_blocks.append(f"\n{instructions}")
 
         return "\n".join(output_blocks)
 

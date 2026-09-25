@@ -679,18 +679,26 @@ class ValidationStageMixin:
                     logger.warning(
                         f"[ROUTER] User requested file reading but no files were found in thread {ctx.thread_key}"
                     )
-                    thread_state_manager.set_file_context(
-                        ctx.channel_id,
-                        ctx.thread_ts,
-                        {
-                            "file_name": ctx.target_filename or "unknown",
-                            "content": "[No attached file found in this Slack thread to read.]",
-                            "size": 0,
-                            "truncated": False,
-                            "authorized_agents": authorized_agents,
-                            "required_skill": required_skill,
-                        },
-                    )
+                    # If this was a knowledge base / RAG request, do NOT set a phantom Slack file context!
+                    if any(a.name == "knowledge_base_rag" for a in getattr(ctx, "actions", [])):
+                        logger.info(
+                            f"[ROUTER] Action 'knowledge_base_rag' is active; skipping phantom Slack file context for '{ctx.target_filename}'."
+                        )
+                        ctx.is_file_req = False
+                        thread_state_manager.clear_file_context(ctx.channel_id, ctx.thread_ts)
+                    else:
+                        thread_state_manager.set_file_context(
+                            ctx.channel_id,
+                            ctx.thread_ts,
+                            {
+                                "file_name": ctx.target_filename or "unknown",
+                                "content": "[No attached file found in this Slack thread to read.]",
+                                "size": 0,
+                                "truncated": False,
+                                "authorized_agents": authorized_agents,
+                                "required_skill": required_skill,
+                            },
+                        )
             else:
                 thread_state_manager.clear_file_context(ctx.channel_id, ctx.thread_ts)
         else:

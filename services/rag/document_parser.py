@@ -1,9 +1,15 @@
 import logging
 import re
+import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 
-from .config import CHUNK_OVERLAP_CHARS, MAX_CHUNK_CHARS, MIN_CHUNK_CHARS
+from .config import (
+    CHUNK_OVERLAP_CHARS,
+    MAX_CHUNK_CHARS,
+    MIN_CHUNK_CHARS,
+    get_rag_setting,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +34,28 @@ class DocumentParser:
     Parses Markdown, PDF, and plain text files into semantic chunks
     with hierarchical section header metadata and chunk IDs.
     """
+
+    def __init__(
+        self,
+        max_chunk_chars: int | None = None,
+        chunk_overlap_chars: int | None = None,
+        min_chunk_chars: int | None = None,
+    ) -> None:
+        self.max_chunk_chars = (
+            max_chunk_chars
+            if max_chunk_chars is not None
+            else int(get_rag_setting("max_chunk_chars", MAX_CHUNK_CHARS))
+        )
+        self.chunk_overlap_chars = (
+            chunk_overlap_chars
+            if chunk_overlap_chars is not None
+            else int(get_rag_setting("chunk_overlap_chars", CHUNK_OVERLAP_CHARS))
+        )
+        self.min_chunk_chars = (
+            min_chunk_chars
+            if min_chunk_chars is not None
+            else int(get_rag_setting("min_chunk_chars", MIN_CHUNK_CHARS))
+        )
 
     def parse_file(
         self, file_path: Path, doc_id: str, agent_id: str
@@ -114,7 +142,7 @@ class DocumentParser:
             reader = pypdf.PdfReader(str(file_path))
             for page_num, page in enumerate(reader.pages, start=1):
                 page_text = page.extract_text() or ""
-                page_text = page_text.strip()
+                page_text = unicodedata.normalize("NFKD", page_text).strip()
                 if not page_text:
                     continue
 
@@ -170,10 +198,10 @@ class DocumentParser:
 
     def _chunk_text(self, text: str, header_context: str) -> list[str]:
         """
-        Splits a text body into chunks of MAX_CHUNK_CHARS with CHUNK_OVERLAP_CHARS.
+        Splits a text body into chunks of max_chunk_chars with chunk_overlap_chars.
         Prepends header context to provide semantic awareness if not already present.
         """
-        if len(text) <= MAX_CHUNK_CHARS:
+        if len(text) <= self.max_chunk_chars:
             return [text]
 
         # Split along paragraphs first, then sentences if necessary
@@ -183,11 +211,11 @@ class DocumentParser:
         current_len = 0
 
         for p in paragraphs:
-            if current_len + len(p) + 2 > MAX_CHUNK_CHARS and current_chunk:
+            if current_len + len(p) + 2 > self.max_chunk_chars and current_chunk:
                 joined = "\n\n".join(current_chunk)
                 chunks.append(joined)
                 # Keep overlap from the end of the previous chunk
-                overlap_text = joined[-CHUNK_OVERLAP_CHARS:] if len(joined) > CHUNK_OVERLAP_CHARS else ""
+                overlap_text = joined[-self.chunk_overlap_chars:] if len(joined) > self.chunk_overlap_chars else ""
                 current_chunk = [overlap_text, p] if overlap_text else [p]
                 current_len = sum(len(x) for x in current_chunk) + len(current_chunk) * 2
             else:
@@ -199,18 +227,18 @@ class DocumentParser:
             if joined.strip():
                 chunks.append(joined)
 
-        # Fallback if any single chunk is still exceeding MAX_CHUNK_CHARS
+        # Fallback if any single chunk is still exceeding max_chunk_chars
         final_chunks: list[str] = []
         for ch in chunks:
-            if len(ch) <= MAX_CHUNK_CHARS:
+            if len(ch) <= self.max_chunk_chars:
                 final_chunks.append(ch)
             else:
                 start = 0
                 while start < len(ch):
-                    end = start + MAX_CHUNK_CHARS
+                    end = start + self.max_chunk_chars
                     final_chunks.append(ch[start:end])
-                    start = end - CHUNK_OVERLAP_CHARS
-                    if start >= len(ch) - MIN_CHUNK_CHARS:
+                    start = end - self.chunk_overlap_chars
+                    if start >= len(ch) - self.min_chunk_chars:
                         break
 
         return final_chunks

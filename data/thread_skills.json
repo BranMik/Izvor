@@ -139,6 +139,12 @@
         "web_research"
       ],
       "granted_at": 1790024094.2142477
+    },
+    "C0BQGUCKVPE:1790330041.784259": {
+      "skills": [
+        "document_reader"
+      ],
+      "granted_at": 1790330091.2435315
     }
   }
 }
