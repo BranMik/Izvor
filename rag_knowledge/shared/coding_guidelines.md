@@ -1,11 +1,18 @@
 # Coding Guidelines & Standards
 
-## Python Best Practices
+## 1. Python Best Practices
 - Use Python 3.11+ type annotations consistently across function signatures.
 - Prefer asynchronous I/O (`asyncio`, `httpx`, `async with`) for all network operations.
 - Catch specific exceptions rather than bare `except:`; preserve error traceability with logging.
 
-## Code Quality & Architecture
+## 2. Code Quality & Architecture
 - Maintain single-responsibility modular services under `services/`.
 - Keep configuration centralized in `core/config.py` and `.env`.
 - Ensure all public functions and classes include clear docstrings.
+
+## 3. Contact information and data:
+name: Branko
+email: blabla@gmail.com
+MISTRAL_API_KEY=VLWNOVBWOEBOGBLNVLXKKNOdoibhsoibhoiweho
+GROQ_API_KEY=gsk_b4vpoinewqobgoqwbgeowvioeuwqbiegfUWEOFIGSE
+844556fb9fe6061f9676077b5feef0ef
