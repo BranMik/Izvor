@@ -10,6 +10,7 @@ from .config import (
     MIN_CHUNK_CHARS,
     get_rag_setting,
 )
+from .text_splitter import RecursiveTextSplitter
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +57,22 @@ class DocumentParser:
             if min_chunk_chars is not None
             else int(get_rag_setting("min_chunk_chars", MIN_CHUNK_CHARS))
         )
+        self._text_splitter: RecursiveTextSplitter | None = None
+
+    @property
+    def text_splitter(self) -> RecursiveTextSplitter:
+        if (
+            self._text_splitter is None
+            or self._text_splitter.chunk_size != self.max_chunk_chars
+            or self._text_splitter.chunk_overlap != self.chunk_overlap_chars
+            or self._text_splitter.min_chunk_size != self.min_chunk_chars
+        ):
+            self._text_splitter = RecursiveTextSplitter(
+                chunk_size=self.max_chunk_chars,
+                chunk_overlap=self.chunk_overlap_chars,
+                min_chunk_size=self.min_chunk_chars,
+            )
+        return self._text_splitter
 
     def parse_file(
         self, file_path: Path, doc_id: str, agent_id: str
@@ -196,49 +213,11 @@ class DocumentParser:
 
         return chunks
 
-    def _chunk_text(self, text: str, header_context: str) -> list[str]:
+    def _chunk_text(self, text: str, header_context: str = "") -> list[str]:
         """
-        Splits a text body into chunks of max_chunk_chars with chunk_overlap_chars.
-        Prepends header context to provide semantic awareness if not already present.
+        Splits a text body into semantic chunks using RecursiveTextSplitter.
+        Ensures splits cleanly happen at paragraph, line, or sentence breaks
+        rather than midway through sentences or words.
         """
-        if len(text) <= self.max_chunk_chars:
-            return [text]
+        return self.text_splitter.split_text(text)
 
-        # Split along paragraphs first, then sentences if necessary
-        paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
-        chunks: list[str] = []
-        current_chunk: list[str] = []
-        current_len = 0
-
-        for p in paragraphs:
-            if current_len + len(p) + 2 > self.max_chunk_chars and current_chunk:
-                joined = "\n\n".join(current_chunk)
-                chunks.append(joined)
-                # Keep overlap from the end of the previous chunk
-                overlap_text = joined[-self.chunk_overlap_chars:] if len(joined) > self.chunk_overlap_chars else ""
-                current_chunk = [overlap_text, p] if overlap_text else [p]
-                current_len = sum(len(x) for x in current_chunk) + len(current_chunk) * 2
-            else:
-                current_chunk.append(p)
-                current_len += len(p) + 2
-
-        if current_chunk:
-            joined = "\n\n".join(c for c in current_chunk if c.strip())
-            if joined.strip():
-                chunks.append(joined)
-
-        # Fallback if any single chunk is still exceeding max_chunk_chars
-        final_chunks: list[str] = []
-        for ch in chunks:
-            if len(ch) <= self.max_chunk_chars:
-                final_chunks.append(ch)
-            else:
-                start = 0
-                while start < len(ch):
-                    end = start + self.max_chunk_chars
-                    final_chunks.append(ch[start:end])
-                    start = end - self.chunk_overlap_chars
-                    if start >= len(ch) - self.min_chunk_chars:
-                        break
-
-        return final_chunks
