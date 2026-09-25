@@ -70,7 +70,7 @@ def get_rag_setting(key: str, default: Any = None) -> Any:
 
 # Table and search configuration
 TABLE_NAME = "agent_knowledge"
-DEFAULT_TOP_K = int(get_rag_setting("default_top_k", 6))
+DEFAULT_TOP_K = int(get_rag_setting("default_top_k", 3))
 
 # Embedding model settings (LiteLLM with Gemini gemini-embedding-001 by default)
 EMBEDDING_MODEL = str(get_rag_setting("embedding_model", "gemini/gemini-embedding-001"))
@@ -78,12 +78,14 @@ EMBEDDING_DIM = int(get_rag_setting("embedding_dim", 3072))
 EMBEDDING_BATCH_SIZE = int(get_rag_setting("embedding_batch_size", 32))
 
 # Semantic chunking configuration
-MAX_CHUNK_CHARS = int(get_rag_setting("max_chunk_chars", 3500))
+MAX_CHUNK_CHARS = int(get_rag_setting("max_chunk_chars", 1500))
 CHUNK_OVERLAP_CHARS = int(get_rag_setting("chunk_overlap_chars", 300))
-MIN_CHUNK_CHARS = int(get_rag_setting("min_chunk_chars", 80))
+MIN_CHUNK_CHARS = int(get_rag_setting("min_chunk_chars", 200))
 
 # Supported document extensions
 SUPPORTED_EXTENSIONS = {".md", ".markdown", ".txt", ".pdf"}
 
 # Prompt template and citation instructions
-CITATION_INSTRUCTIONS_PATH = (Path(__file__).resolve().parent / "citation_instructions.md").resolve()
+CITATION_INSTRUCTIONS_PATH = (
+    Path(__file__).resolve().parent / "citation_instructions.md"
+).resolve()

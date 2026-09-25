@@ -71,12 +71,20 @@ class SkillDefinition:
     def get_tool_schemas(self) -> list[dict[str, Any]]:
         """Returns the LiteLLM tool schemas for the tools declared by this skill."""
         matched: list[dict[str, Any]] = []
+        seen_names: set[str] = set()
         if self.custom_tool_schemas:
-            matched.extend(self.custom_tool_schemas)
+            for schema in self.custom_tool_schemas:
+                fn_name = schema.get("function", {}).get("name")
+                if fn_name and fn_name not in seen_names:
+                    matched.append(schema)
+                    seen_names.add(fn_name)
+                elif not fn_name and schema not in matched:
+                    matched.append(schema)
         for schema in MCP_TOOLS_SCHEMAS:
             fn_name = schema.get("function", {}).get("name")
-            if fn_name in self.tools and schema not in matched:
+            if fn_name in self.tools and fn_name not in seen_names:
                 matched.append(schema)
+                seen_names.add(fn_name)
         return matched
 
 
