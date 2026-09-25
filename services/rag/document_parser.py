@@ -10,6 +10,7 @@ from .config import (
     MIN_CHUNK_CHARS,
     get_rag_setting,
 )
+from .pii_masker import pii_masker
 from .text_splitter import RecursiveTextSplitter
 
 logger = logging.getLogger(__name__)
@@ -219,5 +220,7 @@ class DocumentParser:
         Ensures splits cleanly happen at paragraph, line, or sentence breaks
         rather than midway through sentences or words.
         """
+        if pii_masker.should_mask_at_ingestion():
+            text = pii_masker.mask(text)
         return self.text_splitter.split_text(text)
 

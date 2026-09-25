@@ -2,12 +2,15 @@ from .config import RAG_KNOWLEDGE_DIR, TABLE_NAME
 from .document_parser import DocumentChunk, DocumentParser
 from .embeddings import EmbeddingService, embedding_service
 from .manifest_manager import ManifestManager
+from .pii_masker import PIIMasker, pii_masker
 from .service import RAGService, rag_service, search_knowledge_rag
 from .sync_engine import SyncReconciliationEngine, rag_sync_engine
 from .text_splitter import RecursiveTextSplitter
 from .vector_store import VectorStore, vector_store
 
 __all__ = [
+    "PIIMasker",
+    "pii_masker",
     "RAG_KNOWLEDGE_DIR",
     "TABLE_NAME",
     "DocumentChunk",

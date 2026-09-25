@@ -72,6 +72,19 @@ def get_rag_setting(key: str, default: Any = None) -> Any:
 TABLE_NAME = "agent_knowledge"
 DEFAULT_TOP_K = int(get_rag_setting("default_top_k", 3))
 
+# PII masking configuration ("AT_RETRIEVAL", "AT_INGESTION", "NONE")
+VALID_PII_MASKING_MODES = {"AT_RETRIEVAL", "AT_INGESTION", "NONE"}
+PII_MASKING = str(get_rag_setting("pii_masking", "AT_RETRIEVAL")).strip().upper()
+
+
+def get_pii_masking_mode() -> str:
+    """Returns current PII masking mode ('AT_RETRIEVAL', 'AT_INGESTION', 'NONE')."""
+    mode = str(get_rag_setting("pii_masking", "AT_RETRIEVAL")).strip().upper()
+    if mode in VALID_PII_MASKING_MODES:
+        return mode
+    return "AT_RETRIEVAL"
+
+
 # Embedding model settings (LiteLLM with Gemini gemini-embedding-001 by default)
 EMBEDDING_MODEL = str(get_rag_setting("embedding_model", "gemini/gemini-embedding-001"))
 EMBEDDING_DIM = int(get_rag_setting("embedding_dim", 3072))

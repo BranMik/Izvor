@@ -4,6 +4,7 @@ from typing import Any
 
 from .config import DEFAULT_TOP_K
 from .embeddings import EmbeddingService, embedding_service
+from .pii_masker import pii_masker
 from .vector_store import VectorStore, vector_store
 
 logger = logging.getLogger(__name__)
@@ -84,6 +85,8 @@ class RAGService:
             doc_id = item.get("doc_id", "Unknown")
             section = item.get("section_header", "Overview")
             text = item.get("text", "").strip()
+            if pii_masker.should_mask_at_retrieval():
+                text = pii_masker.mask(text)
 
             output_blocks.append(
                 f"**[{idx}] `{doc_id}` — {section}**\n"
