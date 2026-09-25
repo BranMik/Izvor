@@ -16,11 +16,12 @@ BACKUP_INTERVAL_SECONDS = 7 * 86400
 
 class AppSettingsManager:
     """
-    Single Source of Truth (SSOT) for application-level operational settings:
+    Single Source of Truth (SSOT) for application-level operational settings changeable via Slack UI:
     - thread_skill_expiration_time (hours)
     - circuit_breaker_enabled (bool)
     - circuit_breaker_threshold_usd (float)
     - scribe_enabled (bool)
+    - weekly_pricing_update_enabled (bool)
     """
 
     def __init__(
@@ -37,7 +38,6 @@ class AppSettingsManager:
         self.circuit_breaker_enabled: bool = False
         self.circuit_breaker_threshold_usd: float = 0.0
         self.scribe_enabled: bool = True
-        self.max_file_size_mb: float = 50.0
         self.weekly_pricing_update_enabled: bool = True
 
         self._last_loaded_mtime: float = 0.0
@@ -63,10 +63,9 @@ class AppSettingsManager:
                 data = json.load(f)
 
             self.thread_skill_expiration_time = float(data.get("thread_skill_expiration_time", 12.0))
-            self.circuit_breaker_enabled = bool(data.get("circuit_breaker_enabled", True))
-            self.circuit_breaker_threshold_usd = float(data.get("circuit_breaker_threshold_usd", 1.5))
+            self.circuit_breaker_enabled = bool(data.get("circuit_breaker_enabled", False))
+            self.circuit_breaker_threshold_usd = float(data.get("circuit_breaker_threshold_usd", 0.0))
             self.scribe_enabled = bool(data.get("scribe_enabled", True))
-            self.max_file_size_mb = float(data.get("max_file_size_mb", 50.0))
             self.weekly_pricing_update_enabled = bool(data.get("weekly_pricing_update_enabled", True))
 
             self._last_loaded_mtime = mtime
@@ -78,10 +77,9 @@ class AppSettingsManager:
                     with open(self.default_backup_file, "r", encoding="utf-8") as bf:
                         data = json.load(bf)
                     self.thread_skill_expiration_time = float(data.get("thread_skill_expiration_time", 12.0))
-                    self.circuit_breaker_enabled = bool(data.get("circuit_breaker_enabled", True))
-                    self.circuit_breaker_threshold_usd = float(data.get("circuit_breaker_threshold_usd", 1.5))
+                    self.circuit_breaker_enabled = bool(data.get("circuit_breaker_enabled", False))
+                    self.circuit_breaker_threshold_usd = float(data.get("circuit_breaker_threshold_usd", 0.0))
                     self.scribe_enabled = bool(data.get("scribe_enabled", True))
-                    self.max_file_size_mb = float(data.get("max_file_size_mb", 50.0))
                     self.weekly_pricing_update_enabled = bool(data.get("weekly_pricing_update_enabled", True))
                     logger.warning("[APP_SETTINGS] Recovered settings from backup.")
                 except (OSError, json.JSONDecodeError, TypeError, ValueError) as be:
@@ -96,7 +94,6 @@ class AppSettingsManager:
             "circuit_breaker_enabled": self.circuit_breaker_enabled,
             "circuit_breaker_threshold_usd": self.circuit_breaker_threshold_usd,
             "scribe_enabled": self.scribe_enabled,
-            "max_file_size_mb": self.max_file_size_mb,
             "weekly_pricing_update_enabled": self.weekly_pricing_update_enabled,
         }
 
@@ -187,23 +184,6 @@ class AppSettingsManager:
             self.save()
         logger.info(f"[APP_SETTINGS] Set scribe_enabled to {self.scribe_enabled}.")
 
-    # --- File Size Limit ---
-    def get_max_file_size_mb(self) -> float:
-        self.load()
-        return float(self.max_file_size_mb)
-
-    def get_max_file_size_bytes(self) -> int:
-        return int(self.get_max_file_size_mb() * 1024 * 1024)
-
-    def set_max_file_size_mb(self, val: float, save: bool = True) -> None:
-        try:
-            self.max_file_size_mb = max(0.1, float(val))
-            if save:
-                self.save()
-            logger.info(f"[APP_SETTINGS] Set max_file_size_mb to {self.max_file_size_mb} MB.")
-        except (ValueError, TypeError) as e:
-            logger.error(f"[APP_SETTINGS] Invalid max_file_size_mb '{val}': {e}")
-
     # --- Weekly Model Pricing Update ---
     def is_weekly_pricing_update_enabled(self) -> bool:
         self.load()
@@ -218,46 +198,47 @@ class AppSettingsManager:
 
 app_settings_manager = AppSettingsManager()
 
+
 # Module-level convenience functions
 def get_thread_skill_expiration_time() -> float:
     return app_settings_manager.get_thread_skill_expiration_time()
 
+
 def set_thread_skill_expiration_time(hours: float, save: bool = True) -> None:
     app_settings_manager.set_thread_skill_expiration_time(hours, save=save)
+
 
 def is_circuit_breaker_enabled() -> bool:
     return app_settings_manager.is_circuit_breaker_enabled()
 
+
 def set_circuit_breaker_enabled(enabled: bool, save: bool = True) -> None:
     app_settings_manager.set_circuit_breaker_enabled(enabled, save=save)
+
 
 def get_circuit_breaker_threshold() -> float:
     return app_settings_manager.get_circuit_breaker_threshold()
 
+
 def set_circuit_breaker_threshold(val: float, save: bool = True) -> None:
     app_settings_manager.set_circuit_breaker_threshold(val, save=save)
+
 
 def is_scribe_enabled() -> bool:
     return app_settings_manager.is_scribe_enabled()
 
+
 def set_scribe_enabled(enabled: bool, save: bool = True) -> None:
     app_settings_manager.set_scribe_enabled(enabled, save=save)
+
 
 def get_circuit_breaker_config() -> CircuitBreakerConfig:
     return app_settings_manager.get_circuit_breaker_config()
 
-def get_max_file_size_mb() -> float:
-    return app_settings_manager.get_max_file_size_mb()
-
-def get_max_file_size_bytes() -> int:
-    return app_settings_manager.get_max_file_size_bytes()
-
-def set_max_file_size_mb(val: float, save: bool = True) -> None:
-    app_settings_manager.set_max_file_size_mb(val, save=save)
 
 def is_weekly_pricing_update_enabled() -> bool:
     return app_settings_manager.is_weekly_pricing_update_enabled()
 
+
 def set_weekly_pricing_update_enabled(enabled: bool, save: bool = True) -> None:
     app_settings_manager.set_weekly_pricing_update_enabled(enabled, save=save)
-

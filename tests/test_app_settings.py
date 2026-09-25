@@ -1,5 +1,6 @@
 """
 Tests for AppSettingsManager and data/app_settings.json.
+Only covers application settings changeable via the Slack UI.
 """
 
 import json
@@ -8,7 +9,14 @@ from pathlib import Path
 
 from orchestration.app_settings import (
     AppSettingsManager,
+    get_thread_skill_expiration_time,
+    is_circuit_breaker_enabled,
+    is_scribe_enabled,
     is_weekly_pricing_update_enabled,
+    set_circuit_breaker_enabled,
+    set_circuit_breaker_threshold,
+    set_scribe_enabled,
+    set_thread_skill_expiration_time,
     set_weekly_pricing_update_enabled,
 )
 
@@ -22,8 +30,6 @@ def test_app_settings_defaults():
         assert mgr.circuit_breaker_enabled is False
         assert mgr.circuit_breaker_threshold_usd == 0.0
         assert mgr.scribe_enabled is True
-        assert mgr.max_file_size_mb == 50.0
-        assert mgr.get_max_file_size_bytes() == 50 * 1024 * 1024
         assert mgr.weekly_pricing_update_enabled is True
         assert mgr.is_weekly_pricing_update_enabled() is True
 
@@ -37,7 +43,6 @@ def test_app_settings_custom_persistence():
         mgr.set_circuit_breaker_enabled(True)
         mgr.set_circuit_breaker_threshold(2.5)
         mgr.set_scribe_enabled(False)
-        mgr.set_max_file_size_mb(25.0)
         mgr.set_weekly_pricing_update_enabled(False)
 
         # Reload from disk
@@ -46,8 +51,6 @@ def test_app_settings_custom_persistence():
         assert mgr2.is_circuit_breaker_enabled() is True
         assert mgr2.get_circuit_breaker_threshold() == 2.5
         assert mgr2.is_scribe_enabled() is False
-        assert mgr2.get_max_file_size_mb() == 25.0
-        assert mgr2.get_max_file_size_bytes() == 25 * 1024 * 1024
         assert mgr2.is_weekly_pricing_update_enabled() is False
 
 
@@ -76,7 +79,6 @@ def test_app_settings_backup_resilience():
                 "circuit_breaker_enabled": True,
                 "circuit_breaker_threshold_usd": 2.0,
                 "scribe_enabled": True,
-                "max_file_size_mb": 30.0,
                 "weekly_pricing_update_enabled": False,
             }, f)
 
@@ -87,8 +89,6 @@ def test_app_settings_backup_resilience():
         mgr = AppSettingsManager(settings_file=settings_file, backup_file=backup_file, auto_load=True)
         assert mgr.thread_skill_expiration_time == 4.0
         assert mgr.circuit_breaker_threshold_usd == 2.0
-        assert mgr.max_file_size_mb == 30.0
-        assert mgr.get_max_file_size_bytes() == 30 * 1024 * 1024
         assert mgr.is_weekly_pricing_update_enabled() is False
 
 
@@ -104,3 +104,14 @@ def test_app_settings_module_convenience(monkeypatch, tmp_path):
     set_weekly_pricing_update_enabled(True)
     assert is_weekly_pricing_update_enabled() is True
 
+    set_thread_skill_expiration_time(8.0)
+    assert get_thread_skill_expiration_time() == 8.0
+
+    set_circuit_breaker_enabled(True)
+    assert is_circuit_breaker_enabled() is True
+
+    set_circuit_breaker_threshold(1.25)
+    assert mgr.get_circuit_breaker_threshold() == 1.25
+
+    set_scribe_enabled(False)
+    assert is_scribe_enabled() is False

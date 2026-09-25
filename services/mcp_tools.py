@@ -227,7 +227,7 @@ def read_document(rel_path: str) -> str:
     Reads the content of a text or PDF document inside the resources/ directory.
     resources/ is the default working and search directory even if omitted in rel_path.
     """
-    from orchestration.app_settings import (
+    from orchestration.system_settings import (
         get_max_file_size_bytes,
         get_max_file_size_mb,
     )
@@ -509,11 +509,11 @@ MCP_TOOLS_SCHEMAS = [
 ]
 
 
-def execute_mcp_tool(tool_name: str, arguments: dict[str, Any]) -> str:
+def execute_mcp_tool(tool_name: str, arguments: dict[str, Any], agent_name: str = "") -> str:
     """
     Executes a requested native MCP tool and returns the JSON string result.
     """
-    logger.info(f"Executing MCP tool: {tool_name} with args: {arguments}")
+    logger.info(f"Executing MCP tool: {tool_name} with args: {arguments} (agent: {agent_name})")
     if tool_name == "list_directory":
         rel_path = arguments.get("rel_path", ".")
         return list_directory(rel_path)
@@ -544,6 +544,6 @@ def execute_mcp_tool(tool_name: str, arguments: dict[str, Any]) -> str:
         return fetch_web_page(url=url, max_chars=max_chars)
     elif tool_name == "search_knowledge_rag":
         from skills.knowledge_base_rag.tools import execute_search_knowledge_rag
-        return execute_search_knowledge_rag(arguments)
+        return execute_search_knowledge_rag(arguments, agent_name=agent_name)
     else:
         return json.dumps({"error": f"Unknown tool: {tool_name}"})

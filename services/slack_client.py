@@ -630,7 +630,7 @@ async def download_slack_file(
 
     import httpx
 
-    from orchestration.app_settings import (
+    from orchestration.system_settings import (
         get_max_file_size_bytes,
         get_max_file_size_mb,
     )

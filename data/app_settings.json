@@ -3,6 +3,5 @@
   "circuit_breaker_enabled": false,
   "circuit_breaker_threshold_usd": 1.5,
   "scribe_enabled": true,
-  "max_file_size_mb": 50.0,
   "weekly_pricing_update_enabled": true
 }
