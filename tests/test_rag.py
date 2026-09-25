@@ -190,16 +190,24 @@ def test_pii_masker_patterns():
 
     sample_text = (
         "Contact me at alice.smith@example.com or 555-123-4567. "
+        "My name is Branko, living in New York. "
         "SSN: 000-12-3456. Card: 4111-2222-3333-4444. "
         "Server IP is 192.168.1.100. "
         "Use Slack token xoxb-123456789012-123456789012-abcdefghijklmnopqrstuvwx and OpenAI sk-abc1234567890abcdef123456. "
-        "Config: password: MySecretPassword123"
+        "Config: password: MySecretPassword123. "
+        "MISTRAL_API_KEY=VLWNOVBWOEBOGBLNVLXKKNOdoibhsoibhoiweho "
+        "GROQ_API_KEY=gsk_b4vpoinewqobgoqwbgeowvioeuwqbiegfUWEOFIGSE "
+        "Hash: a1b2c3d4e5f60718293a4b5c6d7e8f90"
     )
 
     masked = masker.mask(sample_text)
 
     assert "alice.smith@example.com" not in masked
     assert "<EMAIL>" in masked
+    assert "Branko" not in masked
+    assert "<PERSON>" in masked
+    assert "New York" not in masked
+    assert "<LOCATION>" in masked
     assert "000-12-3456" not in masked
     assert "<SSN>" in masked
     assert "4111-2222-3333-4444" not in masked
@@ -212,6 +220,10 @@ def test_pii_masker_patterns():
     assert "<API_KEY>" in masked
     assert "MySecretPassword123" not in masked
     assert "<REDACTED_SECRET>" in masked
+    assert "VLWNOVBWOEBOGBLNVLXKKNO" not in masked
+    assert "gsk_b4vpoinewqobgoqwbgeowvioeuwqbiegfUWEOFIGSE" not in masked
+    assert "a1b2c3d4e5f60718293a4b5c6d7e8f90" not in masked
+    assert "<TOKEN_HASH>" in masked
 
 
 def test_pii_masking_integration():

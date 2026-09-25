@@ -40,6 +40,11 @@ _SECRET_PATTERNS: list[tuple[re.Pattern, str]] = [
         re.compile(r"\bsk-ant-[a-zA-Z0-9_-]{20,}\b"),
         "<API_KEY>",
     ),
+    # Groq API Keys
+    (
+        re.compile(r"\bgsk_[a-zA-Z0-9_-]{20,}\b"),
+        "<API_KEY>",
+    ),
     # Google API Keys
     (
         re.compile(r"\bAIza[0-9A-Za-z-_]{35}\b"),
@@ -57,12 +62,17 @@ _SECRET_PATTERNS: list[tuple[re.Pattern, str]] = [
         ),
         "<JWT_TOKEN>",
     ),
-    # Key-value secret configurations (e.g. password: xyz, api_secret="abc")
+    # Broad key-value secret configurations (e.g. MISTRAL_API_KEY=..., GROQ_API_KEY=..., password: xyz, api_secret="abc")
     (
         re.compile(
-            r"(?i)\b(password|passwd|secret|api_key|access_token|client_secret)\s*[:=]\s*['\"]?([^\s'\"]{4,})['\"]?"
+            r"(?i)\b([A-Za-z0-9_]*(?:password|passwd|secret|api_key|access_token|client_secret|auth_token))\s*([:=])\s*['\"]?([^\s'\"]{4,})['\"]?"
         ),
-        r"\1: <REDACTED_SECRET>",
+        r"\1\2 <REDACTED_SECRET>",
+    ),
+    # Standalone 32-64 char hex hashes/tokens (MD5/SHA/API keys)
+    (
+        re.compile(r"\b[a-f0-9]{32,64}\b", re.IGNORECASE),
+        "<TOKEN_HASH>",
     ),
 ]
 
@@ -116,11 +126,20 @@ class PIIMasker:
         self._presidio_initialized = True
         try:
             from presidio_analyzer import AnalyzerEngine
+            from presidio_analyzer.nlp_engine import NlpEngineProvider
             from presidio_anonymizer import AnonymizerEngine
 
-            self._presidio_analyzer = AnalyzerEngine()
+            # Explicitly load the lightweight en_core_web_sm model
+            provider = NlpEngineProvider(
+                nlp_configuration={
+                    "nlp_engine_name": "spacy",
+                    "models": [{"lang_code": "en", "model_name": "en_core_web_sm"}],
+                }
+            )
+            nlp_engine = provider.create_engine()
+            self._presidio_analyzer = AnalyzerEngine(nlp_engine=nlp_engine)
             self._presidio_anonymizer = AnonymizerEngine()
-            logger.info("[PII Masker] Microsoft Presidio successfully initialized.")
+            logger.info("[PII Masker] Microsoft Presidio (en_core_web_sm) successfully initialized.")
         except ImportError:
             logger.debug(
                 "[PII Masker] Presidio not installed; using built-in high-performance regex engine."
@@ -163,7 +182,7 @@ class PIIMasker:
         for pattern, replacement in _PII_PATTERNS:
             masked_text = pattern.sub(replacement, masked_text)
 
-        # 3. Optional Presidio enhancement (for NER like PERSON, LOCATION)
+        # 3. Presidio enhancement (for NER: PERSON, LOCATION, ORGANIZATION)
         self._init_presidio_if_available()
         if self._presidio_analyzer and self._presidio_anonymizer:
             try:
@@ -171,7 +190,17 @@ class PIIMasker:
 
                 results = self._presidio_analyzer.analyze(
                     text=masked_text,
-                    entities=["PERSON", "LOCATION", "ORGANIZATION"],
+                    entities=[
+                        "PERSON",
+                        "LOCATION",
+                        "ORGANIZATION",
+                        "PHONE_NUMBER",
+                        "EMAIL_ADDRESS",
+                        "IP_ADDRESS",
+                        "US_SSN",
+                        "CREDIT_CARD",
+                        "IBAN_CODE",
+                    ],
                     language="en",
                 )
                 if results:
@@ -185,6 +214,12 @@ class PIIMasker:
                             "ORGANIZATION": OperatorConfig(
                                 "replace", {"new_value": "<ORGANIZATION>"}
                             ),
+                            "EMAIL_ADDRESS": OperatorConfig("replace", {"new_value": "<EMAIL>"}),
+                            "PHONE_NUMBER": OperatorConfig("replace", {"new_value": "<PHONE>"}),
+                            "CREDIT_CARD": OperatorConfig("replace", {"new_value": "<CREDIT_CARD>"}),
+                            "US_SSN": OperatorConfig("replace", {"new_value": "<SSN>"}),
+                            "IP_ADDRESS": OperatorConfig("replace", {"new_value": "<IP_ADDRESS>"}),
+                            "IBAN_CODE": OperatorConfig("replace", {"new_value": "<IBAN>"}),
                         },
                     )
                     masked_text = anonymized.text
