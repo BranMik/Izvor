@@ -4,6 +4,7 @@ from .embeddings import EmbeddingService, embedding_service
 from .manifest_manager import ManifestManager
 from .service import RAGService, rag_service, search_knowledge_rag
 from .sync_engine import SyncReconciliationEngine, rag_sync_engine
+from .text_splitter import RecursiveTextSplitter
 from .vector_store import VectorStore, vector_store
 
 __all__ = [
@@ -14,6 +15,7 @@ __all__ = [
     "EmbeddingService",
     "ManifestManager",
     "RAGService",
+    "RecursiveTextSplitter",
     "SyncReconciliationEngine",
     "VectorStore",
     "embedding_service",
