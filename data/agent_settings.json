@@ -1,5 +1,5 @@
 {
-  "workflow_config": "idea_architecture_feasibility_review",
+  "workflow_config": "default_sandwich",
   "enabled_agents": [
     "Architect",
     "CompliancePrivacyAndGovernanceOfficer",

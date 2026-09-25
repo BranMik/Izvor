@@ -4,7 +4,10 @@
 *.pem
 *.key
 *.pdf
-#/static
+/rag_knowledge
+
+#TODO comment /static before public
+/static 
 /static_backup
 
 # Python
@@ -54,6 +57,3 @@ data/.rag_cache/
 thread_usage_data.json
 model_pricing_cache.json
 
-ARCHITECTURE.md
-ANALYSIS_3-Opus_analysis_of_system_and_flaws.md
-DEFFERED_LINTER_FIXES.md
