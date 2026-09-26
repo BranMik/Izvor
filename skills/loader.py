@@ -390,6 +390,16 @@ class SkillRegistry:
 
         return tools
 
+    def find_skill_for_tool(self, tool_name: str) -> str | None:
+        """Finds the skill name that defines or provides the given tool_name."""
+        for s_name, s_def in self._skills.items():
+            if tool_name in s_def.tools:
+                return s_name
+            for schema in s_def.custom_tool_schemas:
+                if schema.get("function", {}).get("name") == tool_name:
+                    return s_name
+        return None
+
     def get_skills_catalog_prompt(self, allowed_skills: list[str] | None = None) -> str:
         """
         Generates the compact skills catalog for injection into the system prompt.

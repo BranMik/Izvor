@@ -212,7 +212,11 @@ class PostRecordStageMixin:
                 f"{{{ctx.total_prompt_tokens}/{ctx.total_completion_tokens}}}"
             )
 
-        ctx.final_text = f"{ctx.final_text}\n\n{token_footer}"
+        if ctx.skills_used:
+            skills_str = ", ".join(f"[{s}]" for s in ctx.skills_used)
+            ctx.final_text = f"{ctx.final_text}\n\nSkills used: {skills_str}\n\n{token_footer}"
+        else:
+            ctx.final_text = f"{ctx.final_text}\n\n{token_footer}"
         ctx.generated_tags = re.findall(
             r"[\[{]\s*([^\]}\r\n]+?)\s*[\]}]", ctx.final_text
         )

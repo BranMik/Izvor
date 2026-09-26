@@ -239,6 +239,14 @@ class ExecutionStageMixin:
                                 ttl_hours=thread_ttl_hours,
                                 agent_name=ctx.agent_key,
                             )
+                        # Track skill used
+                        if fn_name == "load_skill":
+                            s_name = fn_args.get("skill_name", "").strip()
+                        else:
+                            s_name = skill_registry.find_skill_for_tool(fn_name) or fn_name
+                        if s_name and "error" not in str(tool_result):
+                            if s_name not in ctx.skills_used:
+                                ctx.skills_used.append(s_name)
 
                         ctx.messages.append(
                             {

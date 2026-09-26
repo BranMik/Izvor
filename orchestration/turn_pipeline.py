@@ -122,6 +122,7 @@ class TurnContext:
     total_prompt_tokens: int = 0
     total_completion_tokens: int = 0
     final_text: str = ""
+    skills_used: list[str] = field(default_factory=list)
     generated_tags: list[str] = field(default_factory=list)
     intermediate_msg_ts: str | None = None
     slack_res: dict[str, Any] | None = None
