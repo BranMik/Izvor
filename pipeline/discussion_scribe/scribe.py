@@ -107,13 +107,7 @@ class DiscussionScribe:
             )
             max_tokens = 800
 
-        if scribe_max_words is not None:
-            try:
-                smw = int(scribe_max_words)
-                max_tokens = int((smw + 50) * 1.5)
-            except (ValueError, TypeError):
-                pass
-        elif scribe_min_words is not None:
+        if scribe_min_words is not None:
             max_tokens = max(max_tokens, int(scribe_min_words * 3))
 
         # Build transcript text for the prompt
@@ -156,6 +150,19 @@ class DiscussionScribe:
                 )
                 resp = await res if asyncio.iscoroutine(res) else res
             raw_text = resp.choices[0].message.content or ""
+            if scribe_max_words is not None:
+                try:
+                    smw = int(scribe_max_words)
+                    cutoff = smw + 50
+                    words = raw_text.split()
+                    if len(words) > cutoff:
+                        logger.info(
+                            f"[SCRIBE MECHANICAL CUTOFF] Scribe brief exceeded {cutoff} words ({len(words)} words). "
+                            f"Mechanically truncated to {cutoff} words."
+                        )
+                        raw_text = " ".join(words[:cutoff])
+                except (ValueError, TypeError):
+                    pass
             usage = getattr(resp, "usage", None)
             tokens = {
                 "prompt_tokens": getattr(usage, "prompt_tokens", 0) if usage else 0,

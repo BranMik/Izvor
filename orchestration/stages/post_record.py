@@ -38,6 +38,39 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def apply_mechanical_word_limit(text: str, max_words: int) -> str:
+    """
+    Mechanically truncates response text to (max_words + 50) words if it exceeds that threshold.
+    Preserves trailing nomination tags (e.g. [UserAdvocate]) so the debate chain is not disrupted.
+    """
+    if not text:
+        return text
+    cutoff = max_words + 50
+    # Match any trailing nomination tag at the end: e.g. "... [UserAdvocate]" or "... [UserAdvocate] next"
+    trailing_tag_pattern = re.compile(
+        r"(?:\n+|\s+)\s*(\[[^\]\r\n]+\](?:\s+next)?\s*[.!?]?)\s*$",
+        re.IGNORECASE,
+    )
+    match = trailing_tag_pattern.search(text)
+    trailing_tag = ""
+    body = text
+    if match:
+        trailing_tag = match.group(1).strip()
+        body = text[: match.start()].rstrip()
+
+    words = body.split()
+    if len(words) > cutoff:
+        truncated_body = " ".join(words[:cutoff])
+        logger.info(
+            f"[MECHANICAL CUTOFF] Agent response exceeded {cutoff} words ({len(words)} words). "
+            f"Mechanically truncated to {cutoff} words."
+        )
+        if trailing_tag:
+            return f"{truncated_body}\n\n{trailing_tag}"
+        return truncated_body
+    return text
+
+
 class PostRecordStageMixin:
     """Provides stage 5 dispatch, token accounting, and error handling for TurnPipeline."""
 
@@ -127,6 +160,24 @@ class PostRecordStageMixin:
                     ctx.force_termination = True
             logger.warning(f"[ROUTER] final_text was empty for {ctx.agent_key}!")
         else:
+            # Mechanical word limit (max_words + 50 words)
+            active_max_words = None
+            raw_max = ctx.modifiers.get("max_words") if ctx.modifiers else None
+            if raw_max is None:
+                raw_max = ctx.max_words_limit
+            if raw_max is None:
+                raw_max = thread_state_manager.get_max_words(ctx.channel_id, ctx.thread_ts)
+            if raw_max is not None and str(raw_max).strip().lower() != "off":
+                try:
+                    p_max = int(raw_max)
+                    if p_max > 0:
+                        active_max_words = p_max
+                except (ValueError, TypeError):
+                    active_max_words = None
+
+            if active_max_words is not None:
+                ctx.final_text = apply_mechanical_word_limit(ctx.final_text, active_max_words)
+
             ctx.final_text = markdown_to_slack(ctx.final_text)
             ctx.final_text = enforce_valid_nomination(
                 ctx.final_text,
