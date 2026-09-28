@@ -165,6 +165,6 @@
     "fast_model": "gemini/gemini-3.8-flash",
     "reasoning_model": "mistral/mistral-large-latest",
     "username": "Orchestrator",
-    "icon_url": "static/image_30.png"
+    "icon_url": "static/image_99.png"
   }
 }
