@@ -4,8 +4,8 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# Matches [TagName] but avoids matching token count brackets like [150/50] or URLs
-TAG_REGEX = re.compile(r"\[([a-zA-Z0-9_\- ]+)\]")
+# Matches /[TagName] but avoids matching token count brackets like [150/50] or URLs
+TAG_REGEX = re.compile(r"/\[\s*([a-zA-Z0-9_\- ]+?)\s*\]")
 
 
 class EntityResolver:
@@ -50,7 +50,7 @@ class EntityResolver:
             return []
 
         agents = self._get_agents_map()
-        cleaned = name_str.strip().strip("[](){}:,; \t*~_").strip()
+        cleaned = name_str.strip().strip("/[](){}:,; \t*~_").strip()
         if not cleaned:
             return []
 
@@ -170,13 +170,13 @@ class EntityResolver:
 
     def sanitize_agent_tags(self, text: str, agent_keys: list[str] | set[str]) -> str:
         """
-        Removes square brackets from agent tags to prevent re-triggering nominations.
-        E.g., `[Architect]` -> `Architect`.
+        Removes slash and square brackets from agent tags to prevent re-triggering nominations.
+        E.g., `/[Architect]` -> `Architect`.
         """
         sanitized = text
         for key in agent_keys:
             sanitized = re.sub(
-                r"\[" + re.escape(key) + r"\]", key, sanitized, flags=re.IGNORECASE
+                r"/?\[\s*" + re.escape(key) + r"\s*\]", key, sanitized, flags=re.IGNORECASE
             )
         return sanitized
 

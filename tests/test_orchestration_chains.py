@@ -135,14 +135,14 @@ def test_deterministic_directive_in_message_builder():
 def test_enforce_valid_nomination_with_designated_next_agent():
     # LLM nominated Visionary instead of designated next agent
     corrected = enforce_valid_nomination(
-        text="Here is my technical assessment. [Visionary]",
+        text="Here is my technical assessment. /[Visionary]",
         current_agent_key="TechLead",
         remaining=["Innovator"],
         force_termination=False,
         designated_next_agent="Innovator",
     )
-    assert "[Innovator]" in corrected
-    assert "[Visionary]" not in corrected
+    assert "/[Innovator]" in corrected
+    assert "/[Visionary]" not in corrected
 
 
 @pytest.mark.anyio
@@ -182,7 +182,7 @@ async def test_fixed_mode_end_to_end_discussion(monkeypatch):
     assert len(posted_messages) == 1
     assert posted_messages[0]["username"] == "TechLead"
     # Deterministic nomination enforced to next agent in chain
-    assert "[Innovator]" in posted_messages[0]["text"]
+    assert "/[Innovator]" in posted_messages[0]["text"]
     assert thread_state_manager.remaining_agents_map[thread_key] == ["Innovator", "Architect"]
 
     # Turn 2: Innovator
@@ -198,14 +198,14 @@ async def test_fixed_mode_end_to_end_discussion(monkeypatch):
     res_2 = await process_and_respond(
         channel_id="C_CHAIN",
         thread_ts="99999.0001",
-        raw_text="[Innovator] Your turn",
+        raw_text="/[Innovator] Your turn",
         is_bot_trigger=True,
     )
 
     assert res_2.get("ok") is True
     assert len(posted_messages) == 2
     assert posted_messages[1]["username"] == "Innovator"
-    assert "[Architect]" in posted_messages[1]["text"]
+    assert "/[Architect]" in posted_messages[1]["text"]
     assert thread_state_manager.remaining_agents_map[thread_key] == ["Architect"]
 
     # Turn 3: Architect (final in chain)
@@ -221,7 +221,7 @@ async def test_fixed_mode_end_to_end_discussion(monkeypatch):
     res_3 = await process_and_respond(
         channel_id="C_CHAIN",
         thread_ts="99999.0001",
-        raw_text="[Architect] Wrap up",
+        raw_text="/[Architect] Wrap up",
         is_bot_trigger=True,
     )
 
@@ -269,7 +269,7 @@ async def test_sandwich_mode_end_to_end_discussion(monkeypatch):
 
     # Turn 1: Architect opens discussion
     mock_choice_1 = MagicMock()
-    mock_choice_1.message.content = "Architecture proposal. [Visionary]"
+    mock_choice_1.message.content = "Architecture proposal. /[Visionary]"
     mock_choice_1.message.tool_calls = None
     mock_resp_1 = MagicMock(choices=[mock_choice_1], usage=None)
 
@@ -287,14 +287,14 @@ async def test_sandwich_mode_end_to_end_discussion(monkeypatch):
     assert res_1.get("ok") is True
     assert len(posted_messages) == 1
     assert posted_messages[0]["username"] == "Architect"
-    assert "[Visionary]" in posted_messages[0]["text"]
+    assert "/[Visionary]" in posted_messages[0]["text"]
     assert thread_state_manager.remaining_agents_map[thread_key] == ["Visionary", "TechLead", "Architect"]
 
     # Turn 2: Visionary speaks (last of start_chain).
-    # Visionary cites [Architect] in text and tries to nominate [Architect],
+    # Visionary cites [Architect] in text and tries to nominate /[Architect],
     # but TechLead is in middle_pool so Architect (end_chain) must NOT be nominated!
     mock_choice_2 = MagicMock()
-    mock_choice_2.message.content = "I agree with [Architect]. Let's wrap up with [Architect]"
+    mock_choice_2.message.content = "I agree with [Architect]. Let's wrap up with /[Architect]"
     mock_choice_2.message.tool_calls = None
     mock_resp_2 = MagicMock(choices=[mock_choice_2], usage=None)
 
@@ -305,7 +305,7 @@ async def test_sandwich_mode_end_to_end_discussion(monkeypatch):
     res_2 = await process_and_respond(
         channel_id="C_SANDWICH",
         thread_ts="88888.0001",
-        raw_text="[Visionary] Your turn",
+        raw_text="/[Visionary] Your turn",
         is_bot_trigger=True,
     )
 
@@ -313,7 +313,7 @@ async def test_sandwich_mode_end_to_end_discussion(monkeypatch):
     assert len(posted_messages) == 2
     assert posted_messages[1]["username"] == "Visionary"
     # Must have corrected nomination to TechLead (middle pool agent)
-    assert "[TechLead]" in posted_messages[1]["text"]
+    assert "/[TechLead]" in posted_messages[1]["text"]
     assert thread_state_manager.remaining_agents_map[thread_key] == ["TechLead", "Architect"]
 
     # Turn 3: TechLead speaks (middle pool).
@@ -330,14 +330,14 @@ async def test_sandwich_mode_end_to_end_discussion(monkeypatch):
     res_3 = await process_and_respond(
         channel_id="C_SANDWICH",
         thread_ts="88888.0001",
-        raw_text="[TechLead] Your assessment",
+        raw_text="/[TechLead] Your assessment",
         is_bot_trigger=True,
     )
 
     assert res_3.get("ok") is True
     assert len(posted_messages) == 3
     assert posted_messages[2]["username"] == "TechLead"
-    assert "[Architect]" in posted_messages[2]["text"]
+    assert "/[Architect]" in posted_messages[2]["text"]
     assert thread_state_manager.remaining_agents_map[thread_key] == ["Architect"]
 
     # Turn 4: Architect speaks (end_chain).
@@ -354,7 +354,7 @@ async def test_sandwich_mode_end_to_end_discussion(monkeypatch):
     res_4 = await process_and_respond(
         channel_id="C_SANDWICH",
         thread_ts="88888.0001",
-        raw_text="[Architect] Please conclude",
+        raw_text="/[Architect] Please conclude",
         is_bot_trigger=True,
     )
 

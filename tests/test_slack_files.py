@@ -359,7 +359,7 @@ async def test_file_context_lifecycle_in_process_and_respond():
                         res = await process_and_respond(
                             channel_id=channel_id,
                             thread_ts=thread_ts,
-                            raw_text="[Visionary] pročitaj fajl database.sql i provjeri tablice",
+                            raw_text="/[Visionary] pročitaj fajl database.sql i provjeri tablice",
                             is_bot_trigger=False,
                         )
                         assert res.get("ok") is True
@@ -371,7 +371,7 @@ async def test_file_context_lifecycle_in_process_and_respond():
                         res2 = await process_and_respond(
                             channel_id=channel_id,
                             thread_ts=thread_ts,
-                            raw_text="[Visionary] [Architect] analiziraj privitak",
+                            raw_text="/[Visionary] /[Architect] analiziraj privitak",
                             is_bot_trigger=False,
                         )
                         assert res2.get("ok") is True
@@ -380,7 +380,7 @@ async def test_file_context_lifecycle_in_process_and_respond():
                         res3 = await process_and_respond(
                             channel_id=channel_id,
                             thread_ts=thread_ts,
-                            raw_text="[Architect]",
+                            raw_text="/[Architect]",
                             is_bot_trigger=True,
                         )
                         assert res3.get("ok") is True

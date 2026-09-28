@@ -23,7 +23,7 @@ from .thread_state import thread_state_manager
 
 logger = logging.getLogger(__name__)
 
-TAG_REGEX = re.compile(r"[\[{]\s*([^\]}\r\n]+?)\s*[\]}]")
+TAG_REGEX = re.compile(r"/\[\s*([^\]\r\n]+?)\s*\]")
 
 
 def resolve_target_file(
@@ -122,16 +122,22 @@ def parse_agent_and_prompt(
 
     if tag_matches:
         matched_item = None
-        for match, key, raw_tag in reversed(tag_matches):
+        for match, key, raw_tag in tag_matches:
             if key in remaining:
                 matched_item = (match, key, raw_tag)
                 break
 
         if not matched_item:
-            matched_item = tag_matches[-1]
+            matched_item = tag_matches[0]
 
         match, matched_key, raw_tag = matched_item
-        prompt = re.sub(re.escape(match.group(0)), "", cleaned_text).strip()
+        # Strip all matched agent tags from prompt so that multi-tag prompts like
+        # "/[Architect] /[Sceptic] /[Innovator] Pa sad ostatak prompta."
+        # leave cleanly "Pa sad ostatak prompta."
+        prompt = cleaned_text
+        for m, _, _ in tag_matches:
+            prompt = re.sub(re.escape(m.group(0)), "", prompt)
+        prompt = prompt.strip()
         prompt = re.sub(r"^\*+|\*+$", "", prompt).strip()
         if matched_key in remaining:
             remaining.remove(matched_key)
@@ -210,7 +216,7 @@ def strip_all_nominations(text: str) -> str:
 
     clean = text.rstrip()
     agent_pattern = r"(?:" + "|".join(re.escape(tok) for tok in sorted(agent_tokens, key=len, reverse=True)) + r")"
-    tag_bracket_pattern = r"[\[{]\s*" + agent_pattern + r"\s*[\]}]"
+    tag_bracket_pattern = r"/\[\s*" + agent_pattern + r"\s*\]"
 
     # 1. Lead-in phrase followed by nomination tag at the end or on a newline/sentence boundary
     lead_in_regex = re.compile(
@@ -229,7 +235,7 @@ def strip_all_nominations(text: str) -> str:
         re.IGNORECASE,
     )
 
-    # 2. Standalone trailing nomination tag at end of text (e.g. "... [Sceptic]", "...\n\n[Sceptic]")
+    # 2. Standalone trailing nomination tag at end of text (e.g. "... /[Sceptic]", "...\n\n/[Sceptic]")
     trailing_tag_regex = re.compile(
         r"(?:\n+|\s+)\s*" + tag_bracket_pattern + r"\s*(?:next)?\s*[.!?]?\s*$",
         re.IGNORECASE,
@@ -242,11 +248,11 @@ def strip_all_nominations(text: str) -> str:
         clean = trailing_tag_regex.sub("", clean).rstrip()
         clean = lead_in_inline_regex.sub("", clean).rstrip()
 
-    # 3. For any remaining in-text bracketed agent mentions (e.g., "As [Architect] noted"),
-    # strip just the brackets to plain text so it doesn't trigger Slack nomination parsers.
+    # 3. For any remaining in-text slash bracketed agent mentions (e.g., "/[Architect]"),
+    # strip the slash so it doesn't trigger Slack nomination parsers.
     for tok in sorted(agent_tokens, key=len, reverse=True):
         clean = re.sub(
-            r"[\[{]\s*" + re.escape(tok) + r"\s*[\]}]",
+            r"/\[\s*" + re.escape(tok) + r"\s*\]",
             tok,
             clean,
             flags=re.IGNORECASE,
@@ -280,9 +286,9 @@ def enforce_valid_nomination(
             if last_key == designated_next_agent:
                 return text
             start, end = last_match.span()
-            return text[:start] + f"[{designated_next_agent}]" + text[end:]
+            return text[:start] + f"/[{designated_next_agent}]" + text[end:]
         else:
-            return f"{text.strip()}\n\n[{designated_next_agent}]"
+            return f"{text.strip()}\n\n/[{designated_next_agent}]"
 
     if remaining:
         valid_nomination = None
@@ -305,13 +311,13 @@ def enforce_valid_nomination(
                 f"Correcting nomination tag to [{fallback_agent}]."
             )
             start, end = last_match.span()
-            return text[:start] + f"[{fallback_agent}]" + text[end:]
+            return text[:start] + f"/[{fallback_agent}]" + text[end:]
         else:
             logger.warning(
                 f"[ORCHESTRATOR] Agent {current_agent_key} omitted nomination tag while {len(remaining)} agent(s) remain: {remaining}. "
                 f"Appending [{fallback_agent}]."
             )
-            return f"{text.strip()}\n\n[{fallback_agent}]"
+            return f"{text.strip()}\n\n/[{fallback_agent}]"
     else:
         retries_list = pending_retries or []
         if retries_list:
@@ -333,11 +339,11 @@ def enforce_valid_nomination(
                     f"[ORCHESTRATOR] Correcting nomination to pending rate-limit retry agent [{fallback_retry}]."
                 )
                 start, end = last_match.span()
-                return text[:start] + f"[{fallback_retry}]" + text[end:]
+                return text[:start] + f"/[{fallback_retry}]" + text[end:]
             else:
                 logger.info(
                     f"[ORCHESTRATOR] Appending pending rate-limit retry agent [{fallback_retry}]."
                 )
-                return f"{text.strip()}\n\n[{fallback_retry}]"
+                return f"{text.strip()}\n\n/[{fallback_retry}]"
         else:
             return strip_all_nominations(text)

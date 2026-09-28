@@ -46,9 +46,9 @@ def apply_mechanical_word_limit(text: str, max_words: int) -> str:
     if not text:
         return text
     cutoff = max_words + 50
-    # Match any trailing nomination tag at the end: e.g. "... [UserAdvocate]" or "... [UserAdvocate] next"
+    # Match any trailing nomination tag at the end: e.g. "... /[UserAdvocate]" or "... /[UserAdvocate] next"
     trailing_tag_pattern = re.compile(
-        r"(?:\n+|\s+)\s*(\[[^\]\r\n]+\](?:\s+next)?\s*[.!?]?)\s*$",
+        r"(?:\n+|\s+)\s*(/\[[^\]\r\n]+\](?:\s+next)?\s*[.!?]?)\s*$",
         re.IGNORECASE,
     )
     match = trailing_tag_pattern.search(text)
@@ -218,7 +218,7 @@ class PostRecordStageMixin:
         else:
             ctx.final_text = f"{ctx.final_text}\n\n{token_footer}"
         ctx.generated_tags = re.findall(
-            r"[\[{]\s*([^\]}\r\n]+?)\s*[\]}]", ctx.final_text
+            r"/\[\s*([^\]\r\n]+?)\s*\]", ctx.final_text
         )
         logger.info(
             f"[ROUTER] Agent {ctx.agent_key} generated tag(s): {ctx.generated_tags}. Full text length: {len(ctx.final_text)}"
@@ -475,13 +475,13 @@ class PostRecordStageMixin:
                 ]
                 if other_candidates:
                     next_agent = random.choice(other_candidates)
-                    next_nomination = f"[{next_agent}]"
+                    next_nomination = f"/[{next_agent}]"
                 elif ctx.remaining:
                     next_agent = ctx.remaining[0]
-                    next_nomination = f"[{next_agent}]"
+                    next_nomination = f"/[{next_agent}]"
             elif ctx.remaining:
                 next_agent = ctx.remaining[0]
-                next_nomination = f"[{next_agent}]"
+                next_nomination = f"/[{next_agent}]"
             else:
                 next_agent = thread_state_manager.pop_retry_agent(
                     ctx.channel_id, ctx.thread_ts
@@ -490,7 +490,7 @@ class PostRecordStageMixin:
                     thread_state_manager.mark_already_retried(
                         ctx.channel_id, ctx.thread_ts, next_agent
                     )
-                    next_nomination = f"[{next_agent}]"
+                    next_nomination = f"/[{next_agent}]"
 
         if next_nomination:
             error_post_text = f"{error_sentence}\n\n{next_nomination}"

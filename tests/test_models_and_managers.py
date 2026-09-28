@@ -296,40 +296,50 @@ def test_nomination_and_entity_resolver():
     assert len(initial) == 17
 
     # Tag extraction with exact and partial tags
-    tags = entity_resolver.extract_tagged_agents("Hello [Innovator] and [TechLead]")
+    tags = entity_resolver.extract_tagged_agents("Hello /[Innovator] and /[TechLead]")
     assert tags == ["Innovator", "TechLead"]
 
-    partial_tags = entity_resolver.extract_tagged_agents("Hello [Vis] and [TechLead] and [Inn]")
+    partial_tags = entity_resolver.extract_tagged_agents("Hello /[Vis] and /[TechLead] and /[Inn]")
     assert partial_tags == ["Visionary", "TechLead", "Innovator"]
 
+    # Plain brackets are NOT extracted as agent tags
+    assert entity_resolver.extract_tagged_agents("Hello [Innovator] and [TechLead]") == []
+
     # Ambiguous tags should not be extracted as single valid agent tags
-    ambig_tags = entity_resolver.extract_tagged_agents("Hello [Arch] and [Strategist]")
+    ambig_tags = entity_resolver.extract_tagged_agents("Hello /[Arch] and /[Strategist]")
     assert ambig_tags == []
 
     # Detect ambiguous tags
-    detected_ambig = entity_resolver.detect_ambiguous_tags("Hello [Arch] and [Vis]")
+    detected_ambig = entity_resolver.detect_ambiguous_tags("Hello /[Arch] and /[Vis]")
     assert len(detected_ambig) == 1
     assert detected_ambig[0][0] == "Arch"
     assert "Architect" in detected_ambig[0][1]
     assert "SecurityArchitect" in detected_ambig[0][1]
 
+    # Plain brackets do NOT trigger ambiguous tags
+    assert entity_resolver.detect_ambiguous_tags("Hello [Arch] and [Vis]") == []
+
     # Detect unrecognized tags
-    unrecognized = entity_resolver.detect_unrecognized_tags("Hello [NonExistentAgent] and [Vis] and [Link](http://a.com)")
+    unrecognized = entity_resolver.detect_unrecognized_tags("Hello /[NonExistentAgent] and /[Vis] and [Link](http://a.com)")
     assert unrecognized == ["NonExistentAgent"]
 
-    # Parse agent and prompt with partial tag containing spaces
-    agent, prompt, explicit = parse_agent_and_prompt("what do you think [Inn]", "C1", "T1")
+    # Plain brackets do NOT trigger unrecognized tags
+    assert entity_resolver.detect_unrecognized_tags("Hello [NonExistentAgent] and [Vis] and [Link](http://a.com)") == []
+
+    # Parse agent and prompt with partial tag
+    agent, prompt, explicit = parse_agent_and_prompt("what do you think /[Inn]", "C1", "T1")
     assert agent == "Innovator"
-    assert "[Inn]" not in prompt
+    assert "/[Inn]" not in prompt
     assert prompt == "what do you think"
     assert explicit is True
 
-    # Parse agent and prompt with typo bracket [Inn}
-    agent2, prompt2, explicit2 = parse_agent_and_prompt("what do you think [Inn}", "C1", "T1")
-    assert agent2 == "Innovator"
-    assert "[Inn}" not in prompt2
-    assert prompt2 == "what do you think"
-    assert explicit2 is True
+    # Parse multi-agent tags prompt
+    multi_agent, multi_prompt, multi_explicit = parse_agent_and_prompt(
+        "/[Architect] /[Sceptic] /[Innovator] Pa sad ostatak prompta.", "C1", "T1"
+    )
+    assert multi_agent == "Architect"
+    assert multi_prompt == "Pa sad ostatak prompta."
+    assert multi_explicit is True
 
     # Nomination enforcement
     res = enforce_valid_nomination(
@@ -338,20 +348,20 @@ def test_nomination_and_entity_resolver():
         remaining=["Innovator"],
         force_termination=False,
     )
-    assert "[Innovator]" in res
+    assert "/[Innovator]" in res
 
     # Nomination enforcement recognizing partial nomination
     res_partial_nom = enforce_valid_nomination(
-        text="Over to you [Innovator] for your review.",
+        text="Over to you /[Innovator] for your review.",
         current_agent_key="Visionary",
         remaining=["Innovator"],
         force_termination=False,
     )
-    assert "[Innovator]" in res_partial_nom
+    assert "/[Innovator]" in res_partial_nom
 
     # Complete nomination removal when blocked from nominating (force_termination=True)
     res_term_inline = enforce_valid_nomination(
-        text="My single vision response. [Sceptic]",
+        text="My single vision response. /[Sceptic]",
         current_agent_key="Visionary",
         remaining=[],
         force_termination=True,
@@ -359,7 +369,7 @@ def test_nomination_and_entity_resolver():
     assert res_term_inline == "My single vision response."
 
     res_term_leadin = enforce_valid_nomination(
-        text="My single vision response.\n\nNext: [Sceptic]",
+        text="My single vision response.\n\nNext: /[Sceptic]",
         current_agent_key="Visionary",
         remaining=[],
         force_termination=True,
@@ -367,7 +377,7 @@ def test_nomination_and_entity_resolver():
     assert res_term_leadin == "My single vision response."
 
     res_term_nom_label = enforce_valid_nomination(
-        text="My single vision response.\n\nNomination: [Sceptic]",
+        text="My single vision response.\n\nNomination: /[Sceptic]",
         current_agent_key="Visionary",
         remaining=[],
         force_termination=True,
@@ -375,7 +385,7 @@ def test_nomination_and_entity_resolver():
     assert res_term_nom_label == "My single vision response."
 
     res_term_over_to = enforce_valid_nomination(
-        text="My single vision response. Over to you, [Sceptic].",
+        text="My single vision response. Over to you, /[Sceptic].",
         current_agent_key="Visionary",
         remaining=[],
         force_termination=True,
@@ -383,16 +393,16 @@ def test_nomination_and_entity_resolver():
     assert res_term_over_to == "My single vision response."
 
     res_term_intext_mention = enforce_valid_nomination(
-        text="As [Architect] noted, we agree with the design. [Sceptic]",
+        text="As [Architect] noted, we agree with the design. /[Sceptic]",
         current_agent_key="Visionary",
         remaining=[],
         force_termination=True,
     )
-    assert res_term_intext_mention == "As Architect noted, we agree with the design."
+    assert res_term_intext_mention == "As [Architect] noted, we agree with the design."
 
     # Complete nomination removal when no agents remain (natural end of panel)
     res_end_of_panel = enforce_valid_nomination(
-        text="Final conclusions and recommendations.\n\nNext up: [Innovator]",
+        text="Final conclusions and recommendations.\n\nNext up: /[Innovator]",
         current_agent_key="Architect",
         remaining=[],
         force_termination=False,

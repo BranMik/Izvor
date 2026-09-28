@@ -3,7 +3,7 @@ from prompts.builder import SHORT_OUTPUT_AGENTS, build_agent_prompt
 
 
 def test_all_17_agents_configured():
-    assert len(AGENTS_CONFIG) == 17
+    assert len(AGENTS_CONFIG) == 19
 
 
 def test_visionary_prompt_structure():
@@ -28,8 +28,8 @@ def test_qa_lead_prompt_structure():
 
 
 def test_all_agents_contain_shared_skills():
-    assert len(AGENTS_CONFIG) == 17
-    assert len(SHORT_OUTPUT_AGENTS) == 8
+    assert len(AGENTS_CONFIG) == 19
+    assert len(SHORT_OUTPUT_AGENTS) == 10
 
     for key in AGENTS_CONFIG:
         prompt = AGENTS_CONFIG[key]["system_prompt"]
@@ -122,15 +122,13 @@ def test_system_agent_detection_and_prompts():
     from prompts.builder import is_system_agent
 
     # Metadata detection
-    assert is_system_agent("Pricing_Agent") is True
-    assert is_system_agent("Usage_Agent") is True
-    assert is_system_agent("Thread_Notes_Agent") is True
+    assert is_system_agent("Orchestrator") is True
+    assert is_system_agent("orchestrator") is True
     assert is_system_agent("Architect") is False
     assert is_system_agent("TechLead") is False
 
-    # Prompts for system agents must be self-contained (no nomination rules or debate output constraints)
-    for sys_agent in ("Pricing_Agent", "Usage_Agent", "Thread_Notes_Agent"):
-        prompt = build_agent_prompt(sys_agent)
-        assert "OUTPUT & LENGTH CONSTRAINTS:" not in prompt
-        assert "nominate the next agent" not in prompt
+    # Prompts for system agent (Orchestrator) must be self-contained (no nomination rules or debate output constraints)
+    prompt = build_agent_prompt("Orchestrator")
+    assert "OUTPUT & LENGTH CONSTRAINTS:" not in prompt
+    assert "nominate the next agent" not in prompt
 

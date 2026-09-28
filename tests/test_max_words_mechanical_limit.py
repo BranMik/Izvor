@@ -11,15 +11,15 @@ from pipeline.discussion_scribe.scribe import discussion_scribe
 def test_apply_mechanical_word_limit_preserves_trailing_tag():
     # 120 words followed by nomination tag
     words = [f"word{i}" for i in range(1, 121)]
-    long_text = " ".join(words) + " [UserAdvocate]"
+    long_text = " ".join(words) + " /[UserAdvocate]"
     
     # max_words = 50 -> cutoff is 50 + 50 = 100 words
     result = apply_mechanical_word_limit(long_text, max_words=50)
     
-    assert "[UserAdvocate]" in result
-    assert result.endswith("[UserAdvocate]")
+    assert "/[UserAdvocate]" in result
+    assert result.endswith("/[UserAdvocate]")
     # Extract body before tag
-    body = result.replace("[UserAdvocate]", "").strip()
+    body = result.replace("/[UserAdvocate]", "").strip()
     assert len(body.split()) == 100
     assert body.split()[0] == "word1"
     assert body.split()[-1] == "word100"
@@ -35,7 +35,7 @@ def test_apply_mechanical_word_limit_no_tag():
 
 def test_apply_mechanical_word_limit_within_threshold():
     words = [f"word{i}" for i in range(1, 75)]
-    text = " ".join(words) + " [Sceptic]"
+    text = " ".join(words) + " /[Sceptic]"
     result = apply_mechanical_word_limit(text, max_words=50)
     assert result == text
 
@@ -101,9 +101,9 @@ async def test_stage_post_and_record_mechanical_truncation():
         ctx.eligible_remaining_agents = ["TechLead"]
         ctx.remaining = ["TechLead"]
 
-        # 120 words followed by [TechLead] tag
+        # 120 words followed by /[TechLead] tag
         words = [f"word{i}" for i in range(1, 121)]
-        ctx.final_text = " ".join(words) + "\n\n[TechLead]"
+        ctx.final_text = " ".join(words) + "\n\n/[TechLead]"
 
         # Mock Slack post and sleep
         posted_payload = {}
@@ -120,10 +120,10 @@ async def test_stage_post_and_record_mechanical_truncation():
         assert res is None or res.get("ok", True)
 
         posted_text = posted_payload.get("text", "")
-        # Must retain [TechLead] nomination tag
-        assert "[TechLead]" in posted_text
+        # Must retain /[TechLead] nomination tag
+        assert "/[TechLead]" in posted_text
         # Extract body (excluding token footer {model : p/c} and nomination tag)
-        clean_body = posted_text.split("[TechLead]")[0].strip()
+        clean_body = posted_text.split("/[TechLead]")[0].strip()
         assert len(clean_body.split()) == 100
         assert clean_body.split()[-1] == "word100"
     finally:
@@ -151,7 +151,7 @@ async def test_stage_post_and_record_no_truncation_when_within_limit():
 
         words = [f"word{i}" for i in range(1, 60)]
         original_content = " ".join(words)
-        ctx.final_text = original_content + "\n\n[TechLead]"
+        ctx.final_text = original_content + "\n\n/[TechLead]"
 
         posted_payload = {}
 
@@ -166,7 +166,7 @@ async def test_stage_post_and_record_no_truncation_when_within_limit():
         await pipeline.stage_post_and_record(ctx)
 
         posted_text = posted_payload.get("text", "")
-        clean_body = posted_text.split("[TechLead]")[0].strip()
+        clean_body = posted_text.split("/[TechLead]")[0].strip()
         assert len(clean_body.split()) == 59
     finally:
         thread_state_manager.clear_max_words(channel, thread_ts)

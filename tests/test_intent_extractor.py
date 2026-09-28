@@ -245,7 +245,7 @@ async def test_sandwich_exclusion_and_bot_turn_not_stopped(monkeypatch):
     ]
 
     mock_choice_1 = MagicMock()
-    mock_choice_1.message.content = "Cut scope ruthlessly. [Visionary]"
+    mock_choice_1.message.content = "Cut scope ruthlessly. /[Visionary]"
     mock_choice_1.message.tool_calls = None
     mock_llm_1 = MagicMock(choices=[mock_choice_1], usage=None)
 
@@ -275,7 +275,7 @@ async def test_sandwich_exclusion_and_bot_turn_not_stopped(monkeypatch):
     assert len(posted_messages) == 1
     assert posted_messages[0]["username"] == "Scope Optimizer"
     # Visionary was excluded so remaining sequence corrected nomination to next eligible (TechLead / Architect)
-    assert "[Visionary]" not in posted_messages[0]["text"]
+    assert "/[Visionary]" not in posted_messages[0]["text"]
     remaining = thread_state_manager.get_remaining_agents(thread_key[0], thread_key[1])
     assert "Visionary" not in remaining
 

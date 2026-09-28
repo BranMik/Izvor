@@ -367,7 +367,7 @@ class ValidationStageMixin:
             if not current_lang:
                 raw_candidate = ctx.raw_text_cleaned or ctx.raw_text
                 # Never infer or lock language from system warnings, runner banners, or slash commands
-                if not is_system_message(raw_candidate) and not raw_candidate.strip().startswith("/"):
+                if not is_system_message(raw_candidate) and not (raw_candidate.strip().startswith("/") and not raw_candidate.strip().startswith("/[")):
                     pure_user_text = clean_system_and_tags(raw_candidate)
                     if pure_user_text:
                         logger.info(
@@ -389,7 +389,7 @@ class ValidationStageMixin:
                 )
                 lines = ["⚠️ *Ambiguous Agent Reference*:"]
                 for tag_str, candidates in ambiguous_tags:
-                    clean_tag = tag_str.strip("[](){}:,; \t*~_")
+                    clean_tag = tag_str.strip("/[](){}:,; \t*~_")
                     lines.append(
                         f"Tag '{clean_tag}' matches multiple candidates:"
                     )
@@ -426,7 +426,7 @@ class ValidationStageMixin:
                 )
                 lines = ["⚠️ *Unrecognized Agent Tag*:"]
                 for tag_str in unrecognized_tags:
-                    clean_tag = tag_str.strip("[](){}:,; \t*~_")
+                    clean_tag = tag_str.strip("/[](){}:,; \t*~_")
                     lines.append(
                         f"Tag '{clean_tag}' could not be matched to any active agent."
                     )

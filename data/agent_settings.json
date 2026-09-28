@@ -1,16 +1,18 @@
 {
-  "workflow_config": "default_sandwich",
+  "workflow_config": "default_review_flow",
   "enabled_agents": [
     "Architect",
     "CompliancePrivacyAndGovernanceOfficer",
     "DataAndAnalyticsStrategist",
     "DeploymentReleaseStrategist",
     "Innovator",
+    "LegalAdvisor",
     "MarketAndCompetitionResearchExpert",
     "MonitoringAndAlertingSpecialist",
     "OperationalReliabilityLead",
     "QALead",
     "ROIStrategist",
+    "SalesAdvisor",
     "ScalabilityEngineer",
     "Sceptic",
     "ScopeOptimizer",
@@ -23,14 +25,14 @@
     "Visionary": {
       "model": "gemini/gemini-3.8-flash",
       "username": "Visionary",
-      "icon_url": "static/image_17.png",
+      "icon_url": "static/image_43.png",
       "is_short_output": false,
       "skills": []
     },
     "Architect": {
       "model": "openai/gpt-5.6-terra",
       "username": "Architect",
-      "icon_url": "static/image_07.png",
+      "icon_url": "static/image_21.png",
       "is_short_output": false,
       "skills": [
         "codebase_inspection",
@@ -41,14 +43,14 @@
     "Innovator": {
       "model": "anthropic/claude-opus-5",
       "username": "Innovator",
-      "icon_url": "static/image_16.png",
+      "icon_url": "static/image_01.png",
       "is_short_output": false,
       "skills": []
     },
     "TechLead": {
       "model": "mistral/mistral-large-latest",
       "username": "TechLead",
-      "icon_url": "static/image_14.png",
+      "icon_url": "static/image_08.png",
       "is_short_output": false,
       "skills": [
         "codebase_inspection",
@@ -66,7 +68,7 @@
     "DataAndAnalyticsStrategist": {
       "model": "gemini/gemini-3.8-flash",
       "username": "Data And Analytics Strategist",
-      "icon_url": "static/image_12.png",
+      "icon_url": "static/image_02.png",
       "is_short_output": true,
       "skills": [
         "document_authoring",
@@ -76,21 +78,21 @@
     "CompliancePrivacyAndGovernanceOfficer": {
       "model": "mistral/mistral-large-latest",
       "username": "Compliance, Privacy And Governance Officer",
-      "icon_url": "static/image_01.png",
+      "icon_url": "static/image_16.png",
       "is_short_output": true,
       "skills": []
     },
     "ScopeOptimizer": {
       "model": "gemini/gemini-3.8-flash",
       "username": "Scope Optimizer",
-      "icon_url": "static/image_11.png",
+      "icon_url": "static/image_24.png",
       "is_short_output": true,
       "skills": []
     },
     "ROIStrategist": {
       "model": "gemini/gemini-3.8-flash",
       "username": "ROI Strategist",
-      "icon_url": "static/image_09.png",
+      "icon_url": "static/image_45.png",
       "is_short_output": false,
       "skills": [
         "document_authoring",
@@ -101,14 +103,14 @@
     "UserAdvocate": {
       "model": "openai/gpt-5.6-terra",
       "username": "User Advocate",
-      "icon_url": "static/image_13.png",
+      "icon_url": "static/image_10.png",
       "is_short_output": false,
       "skills": []
     },
     "SecurityArchitect": {
       "model": "mistral/mistral-large-latest",
       "username": "Security Architect",
-      "icon_url": "static/image_05.png",
+      "icon_url": "static/image_29.png",
       "is_short_output": false,
       "skills": [
         "codebase_inspection",
@@ -119,7 +121,7 @@
     "ScalabilityEngineer": {
       "model": "gemini/gemini-3.8-flash",
       "username": "Scalability Engineer",
-      "icon_url": "static/image_04.png",
+      "icon_url": "static/image_06.png",
       "is_short_output": true,
       "skills": [
         "codebase_inspection"
@@ -128,21 +130,21 @@
     "OperationalReliabilityLead": {
       "model": "mistral/mistral-large-latest",
       "username": "Operational Reliability Lead",
-      "icon_url": "static/image_06.png",
+      "icon_url": "static/image_34.png",
       "is_short_output": true,
       "skills": []
     },
     "DeploymentReleaseStrategist": {
       "model": "mistral/mistral-large-latest",
       "username": "Deployment & Release Strategist",
-      "icon_url": "static/image_15.png",
+      "icon_url": "static/image_12.png",
       "is_short_output": true,
       "skills": []
     },
     "MarketAndCompetitionResearchExpert": {
       "model": "mistral/mistral-large-latest",
       "username": "Market & Competition Research Expert",
-      "icon_url": "static/image_08.png",
+      "icon_url": "static/image_09.png",
       "is_short_output": false,
       "skills": [
         "web_research"
@@ -151,48 +153,45 @@
     "MonitoringAndAlertingSpecialist": {
       "model": "mistral/mistral-large-latest",
       "username": "Monitoring & Alerting Specialist",
-      "icon_url": "static/image_10.png",
+      "icon_url": "static/image_30.png",
       "is_short_output": true,
       "skills": []
     },
     "QALead": {
       "model": "mistral/mistral-large-latest",
       "username": "QA Lead",
-      "icon_url": "static/image_02.png",
+      "icon_url": "static/image_17.png",
       "is_short_output": true,
       "skills": [
         "codebase_inspection",
         "knowledge_base_rag"
       ]
+    },
+    "SalesAdvisor": {
+      "model": "gemini/gemini-3.8-flash",
+      "username": "Sales Advisor",
+      "icon_url": "static/image_15.png",
+      "is_short_output": true,
+      "skills": [
+        "knowledge_base_rag",
+        "web_research"
+      ]
+    },
+    "LegalAdvisor": {
+      "model": "gemini/gemini-3.8-flash",
+      "username": "Legal Advisor",
+      "icon_url": "static/image_22.png",
+      "is_short_output": true,
+      "skills": [
+        "knowledge_base_rag",
+        "web_research"
+      ]
     }
   },
-  "system_agents": {
-    "thread_notes": {
-      "model": "mistral/mistral-small-latest",
-      "agent_key": "Thread_Notes_Agent",
-      "is_system_agent": true
-    },
-    "usage_agent": {
-      "model": "mistral/mistral-small-latest",
-      "agent_key": "Usage_Agent",
-      "is_system_agent": true
-    },
-    "pricing_agent": {
-      "model": "mistral/mistral-small-latest",
-      "agent_key": "Pricing_Agent",
-      "is_system_agent": true
-    },
-    "intent_extractor": {
-      "model": "mistral/mistral-small-latest",
-      "is_system_agent": true
-    },
-    "system_agent": {
-      "model": "mistral/mistral-small-latest",
-      "is_system_agent": true
-    },
-    "language_detector": {
-      "model": "gemini/gemini-3.8-flash",
-      "is_system_agent": true
-    }
+  "orchestrator": {
+    "fast_model": "gemini/gemini-3.8-flash",
+    "reasoning_model": "mistral/mistral-large-latest",
+    "username": "Orchestrator",
+    "icon_url": "static/image_30.png"
   }
 }

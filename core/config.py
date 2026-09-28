@@ -145,25 +145,47 @@ def get_pricing_agent_prompt() -> str:
     return _CACHED_PROMPTS["pricing_agent"]
 
 
+def get_orchestrator_fast_model(fallback: str = "gemini/gemini-3.8-flash") -> str:
+    """Retrieves the fast_model configured for the Orchestrator."""
+    env_val = os.getenv("ORCHESTRATOR_FAST_MODEL")
+    if env_val and env_val.strip():
+        return env_val.strip()
+    settings_mod = sys.modules.get("orchestration.agent_settings") or sys.modules.get("agent_settings")
+    if settings_mod and hasattr(settings_mod, "settings_manager"):
+        return settings_mod.settings_manager.get_orchestrator_fast_model()
+    return fallback
+
+
+def get_orchestrator_reasoning_model(fallback: str = "mistral/mistral-large-latest") -> str:
+    """Retrieves the reasoning_model configured for the Orchestrator."""
+    env_val = os.getenv("ORCHESTRATOR_REASONING_MODEL")
+    if env_val and env_val.strip():
+        return env_val.strip()
+    settings_mod = sys.modules.get("orchestration.agent_settings") or sys.modules.get("agent_settings")
+    if settings_mod and hasattr(settings_mod, "settings_manager"):
+        return settings_mod.settings_manager.get_orchestrator_reasoning_model()
+    return fallback
+
+
 # Module-level getters / properties (dynamically resolved from SSOT)
 def get_thread_notes_model() -> str:
-    return get_system_agent_model("thread_notes")
+    return get_orchestrator_reasoning_model()
 
 
 def get_usage_agent_model() -> str:
-    return get_system_agent_model("usage_agent")
+    return get_system_agent_model("usage_agent", fallback="mistral/mistral-small-latest")
 
 
 def get_pricing_agent_model() -> str:
-    return get_system_agent_model("pricing_agent")
+    return get_orchestrator_fast_model()
 
 
 def get_intent_extractor_model() -> str:
-    return get_system_agent_model("intent_extractor")
+    return get_orchestrator_fast_model()
 
 
 def get_language_detector_model() -> str:
-    return get_system_agent_model("language_detector")
+    return get_orchestrator_fast_model()
 
 
 
@@ -185,6 +207,10 @@ TOOL_INTERMEDIATE_UPDATE_DELAY_SECONDS = float(
 
 # Module-level variable aliases (dynamically resolve via module __getattr__)
 def __getattr__(name: str) -> Any:
+    if name == "ORCHESTRATOR_FAST_MODEL":
+        return get_orchestrator_fast_model()
+    if name == "ORCHESTRATOR_REASONING_MODEL":
+        return get_orchestrator_reasoning_model()
     if name == "THREAD_NOTES_MODEL":
         return get_thread_notes_model()
     if name == "USAGE_AGENT_MODEL":

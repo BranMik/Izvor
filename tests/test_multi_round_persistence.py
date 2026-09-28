@@ -105,7 +105,7 @@ async def test_three_round_five_word_croatian_test(monkeypatch):
     res_1 = await process_and_respond(
         channel_id=channel,
         thread_ts=thread_ts,
-        raw_text="[Innovator] [TechLead] Ovo je test, maximum 5 rijeci /max_words 5",
+        raw_text="/[Innovator] /[TechLead] Ovo je test, maximum 5 rijeci /max_words 5",
         is_bot_trigger=False,
     )
 
@@ -123,7 +123,7 @@ async def test_three_round_five_word_croatian_test(monkeypatch):
     res_2 = await process_and_respond(
         channel_id=channel,
         thread_ts=thread_ts,
-        raw_text="[TechLead] TechLead potvrda",
+        raw_text="/[TechLead] TechLead potvrda",
         is_bot_trigger=True,
     )
     assert res_2.get("is_completed")
@@ -170,7 +170,7 @@ async def test_three_round_five_word_croatian_test(monkeypatch):
     res_4 = await process_and_respond(
         channel_id=channel,
         thread_ts=thread_ts,
-        raw_text="[TechLead] TechLead runda dva",
+        raw_text="/[TechLead] TechLead runda dva",
         is_bot_trigger=True,
     )
     assert res_4.get("is_completed")
@@ -205,7 +205,7 @@ async def test_three_round_five_word_croatian_test(monkeypatch):
     res_6 = await process_and_respond(
         channel_id=channel,
         thread_ts=thread_ts,
-        raw_text="[TechLead] TechLead runda tri",
+        raw_text="/[TechLead] TechLead runda tri",
         is_bot_trigger=True,
     )
     assert res_6.get("is_completed")

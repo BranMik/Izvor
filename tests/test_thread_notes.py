@@ -266,7 +266,7 @@ async def test_router_invokes_trigger_thread_notes_update(monkeypatch):
     await agent_router.process_and_respond(
         channel_id="C_ROUTER_TEST_2",
         thread_ts="1700000000.888",
-        raw_text="[Visionary] only you answer",
+        raw_text="/[Visionary] only you answer",
         bot_user_id="U_BOT",
     )
 

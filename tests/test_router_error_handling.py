@@ -173,14 +173,14 @@ async def test_process_and_respond_model_not_found(monkeypatch):
     await process_and_respond(
         channel_id="C123",
         thread_ts="12345.0002",
-        raw_text="[TechLead] Analyze this code",
+        raw_text="/[TechLead] Analyze this code",
         is_bot_trigger=True,
     )
 
     assert len(posted) == 1
     assert posted[0]["username"] == "TechLead"
     assert "MODEL NOT FOUND" in posted[0]["text"]
-    assert "[Innovator]" in posted[0]["text"]
+    assert "/[Innovator]" in posted[0]["text"]
 
 
 @pytest.mark.anyio
@@ -218,7 +218,7 @@ async def test_process_and_respond_retries_and_clean_error_message(monkeypatch):
     await process_and_respond(
         channel_id="C123",
         thread_ts="12345.9999",
-        raw_text="[TechLead] Analyze this code",
+        raw_text="/[TechLead] Analyze this code",
         is_bot_trigger=True,
     )
 
@@ -230,7 +230,7 @@ async def test_process_and_respond_retries_and_clean_error_message(monkeypatch):
     assert "Error processing request - check the logs" in posted[0]["text"]
     assert "Unexpected JSON decoding crash" not in posted[0]["text"]
     # Continues thread to next agent
-    assert "[Innovator]" in posted[0]["text"]
+    assert "/[Innovator]" in posted[0]["text"]
 
 
 @pytest.mark.anyio
@@ -267,7 +267,7 @@ async def test_process_and_respond_rate_limits_and_retry_flow(monkeypatch):
     await process_and_respond(
         channel_id="C123",
         thread_ts="12345.0003",
-        raw_text="[TechLead] Database architecture review",
+        raw_text="/[TechLead] Database architecture review",
         is_bot_trigger=True,
     )
 
@@ -276,7 +276,7 @@ async def test_process_and_respond_rate_limits_and_retry_flow(monkeypatch):
     assert (
         "RATE LIMITS CROSSED, will retry at the end of discussion" in posted[0]["text"]
     )
-    assert "[Innovator]" in posted[0]["text"]
+    assert "/[Innovator]" in posted[0]["text"]
     assert thread_key in thread_state_manager.rate_limit_retry_queue
     assert "TechLead" in thread_state_manager.rate_limit_retry_queue[thread_key]
 
@@ -296,13 +296,13 @@ async def test_process_and_respond_rate_limits_and_retry_flow(monkeypatch):
     await process_and_respond(
         channel_id="C123",
         thread_ts="12345.0003",
-        raw_text="[Innovator] Your turn",
+        raw_text="/[Innovator] Your turn",
         is_bot_trigger=True,
     )
 
     assert len(posted) == 2
     assert posted[1]["username"] == "Innovator"
-    assert "[TechLead]" in posted[1]["text"]
+    assert "/[TechLead]" in posted[1]["text"]
     # Verify TechLead is now marked as already retried once
     assert "TechLead" in thread_state_manager.rate_limit_already_retried[thread_key]
 
@@ -315,7 +315,7 @@ async def test_process_and_respond_rate_limits_and_retry_flow(monkeypatch):
     await process_and_respond(
         channel_id="C123",
         thread_ts="12345.0003",
-        raw_text="[TechLead] Retry turn",
+        raw_text="/[TechLead] Retry turn",
         is_bot_trigger=True,
     )
 
@@ -327,7 +327,7 @@ async def test_process_and_respond_rate_limits_and_retry_flow(monkeypatch):
     # Should NOT be added back to RATE_LIMIT_RETRY_QUEUE
     assert "TechLead" not in thread_state_manager.rate_limit_retry_queue.get(thread_key, [])
     # Clean termination without forced closing nomination tag
-    assert "[Architect]" not in posted[2]["text"]
+    assert "/[Architect]" not in posted[2]["text"]
 
 
 @pytest.mark.anyio
@@ -365,7 +365,7 @@ async def test_process_and_respond_503_high_demand_first_skip_and_random_handoff
     await process_and_respond(
         channel_id="C_503",
         thread_ts="12345.5031",
-        raw_text="[TechLead] Analyze backend structure",
+        raw_text="/[TechLead] Analyze backend structure",
         is_bot_trigger=True,
     )
 
@@ -386,9 +386,9 @@ async def test_process_and_respond_503_high_demand_first_skip_and_random_handoff
 
     # Verify next nomination is one of the other candidates
     nominated_tag = None
-    if "[Innovator]" in posted[0]["text"]:
+    if "/[Innovator]" in posted[0]["text"]:
         nominated_tag = "Innovator"
-    elif "[DeepSeek_Challenger]" in posted[0]["text"]:
+    elif "/[DeepSeek_Challenger]" in posted[0]["text"]:
         nominated_tag = "DeepSeek_Challenger"
     assert nominated_tag in ["Innovator", "DeepSeek_Challenger"]
 
@@ -432,7 +432,7 @@ async def test_process_and_respond_503_high_demand_second_query_retries_and_term
     await process_and_respond(
         channel_id="C_503",
         thread_ts="12345.5032",
-        raw_text="[TechLead] Second attempt query",
+        raw_text="/[TechLead] Second attempt query",
         is_bot_trigger=True,
     )
 
@@ -446,7 +446,7 @@ async def test_process_and_respond_503_high_demand_second_query_retries_and_term
     # Should NOT be added back to remaining
     assert "TechLead" not in thread_state_manager.remaining_agents_map.get(thread_key, [])
     # Clean termination without forced closing nomination tag
-    assert "[Architect]" not in posted[0]["text"]
+    assert "/[Architect]" not in posted[0]["text"]
 
 
 @pytest.mark.anyio
