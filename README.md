@@ -1,4 +1,4 @@
-# CaiLogics Multi-Agent Slack Hub (SlackAgenticPanel)
+# CaiLogics Multi-Agent Slack Hub (SilvanAgora)
 
 An enterprise-ready, asynchronous multi-agent deliberation platform that connects Slack workspaces (via the Slack Events API, Interactive Components, and App Home) to specialized LLM personas using LiteLLM and Model Context Protocol (MCP) tools.
 
@@ -75,7 +75,7 @@ graph TD
 ## 📁 Project Structure
 
 ```
-SlackAgenticPanel/
+SilvanAgora/
 ├── agents/                     # Specialized utility agents (Usage, Thread Notes)
 ├── core/                       # Core configuration, models, domain entities, and LLM retry utilities
 │   ├── config.py               # Central environment variables & pacing defaults
@@ -113,8 +113,8 @@ SlackAgenticPanel/
 
 ```bash
 # Clone the repository
-git clone https://github.com/BranMik/SlackAgenticPanel.git
-cd SlackAgenticPanel
+git clone https://github.com/BranMik/SilvanAgora.git
+cd SilvanAgora
 
 # Create virtual environment
 python -m venv .venv

@@ -62,7 +62,7 @@ flowchart TD
 ## 3. Directory Layout
 
 ```
-SlackAgenticPanel/
+SilvanAgora/
 ├── rag_knowledge/                        # Document root dropped by users/developers
 │   ├── shared/                           # Shared knowledge accessible to all agents
 │   │   ├── system_overview.md

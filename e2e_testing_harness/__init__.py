@@ -1,5 +1,5 @@
 """
-CaiLogics SlackAgenticPanel - End-to-End Hybrid Simulation Test Harness.
+CaiLogics SilvanAgora - End-to-End Hybrid Simulation Test Harness.
 
 A standalone, regression-ready testing framework simulating the Slack protocol with 100% fidelity:
 - Authentic Slack Events API and Block Kit Interactivity payloads with HMAC-SHA256 signatures.

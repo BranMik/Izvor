@@ -1,5 +1,5 @@
 """
-Declarative Agent Skills Framework for SlackAgenticPanel.
+Declarative Agent Skills Framework for SilvanAgora.
 Discovers SKILL.md documents and enables LLM-driven progressive disclosure.
 """
 

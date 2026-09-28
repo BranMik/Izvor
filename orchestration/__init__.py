@@ -1,4 +1,4 @@
-"""Orchestration package for SlackAgenticPanel.
+"""Orchestration package for SilvanAgora.
 
 Exposes routing, settings management, agent nomination, and thread state management.
 """
