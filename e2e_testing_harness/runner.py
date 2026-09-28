@@ -253,7 +253,7 @@ class E2ETestRunner:
         mode_desc = f"LIVE SLACK [Channel: {self.live_channel_id}, Pacing: {self.pacing}s]" if self.live_slack else "OFFLINE SIMULATION"
         llm_mode = "LIVE ALL LLM" if self.allow_all_live_llm else ("HYBRID" if self.allow_live_system_llm else "MOCK ONLY")
         print("\n" + "=" * 80)
-        print("  CaiLogics SlackAgenticPanel — E2E Hybrid Simulation Test Suite")
+        print("  CaiLogics SilvanAgora — E2E Hybrid Simulation Test Suite")
         print("=" * 80)
         print(f"  Run Identifier:  {self.run_prefix}")
         print(f"  Execution Mode:  {mode_desc}")

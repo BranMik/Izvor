@@ -1,5 +1,5 @@
 """
-Flat History Recorder for SlackAgenticPanel.
+Flat History Recorder for SilvanAgora.
 
 Records and maintains a single Markdown conversation history file per Slack thread in flat-histories/.
 Filename convention:
