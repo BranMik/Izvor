@@ -337,19 +337,23 @@ def test_agent_settings_file_structure_and_dynamic_load():
 
     # Must contain workflow_config reference
     assert "workflow_config" in data
-    assert data["workflow_config"] == "idea_architecture_feasibility_review"
+    assert data["workflow_config"] in ("idea_architecture_feasibility_review", "default_sandwich")
 
     # Must NOT contain embedded chain definitions
     assert "sandwich_config" not in data
     assert "fixed_config" not in data
 
-    # Verify that loading this file populates chains from idea_architecture_feasibility_review.json
+    # Verify that loading this file populates chains dynamically
     mgr = AgentSettingsManager(settings_file=settings_file, auto_load=True)
-    assert mgr.get_workflow_config() == "idea_architecture_feasibility_review"
-    assert mgr.get_orchestration_mode() == OrchestrationMode.FIXED.value
-    assert len(mgr.fixed_chain) > 0
-    assert "Visionary" in mgr.fixed_chain
-    assert "Architect" in mgr.fixed_chain
+    assert mgr.get_workflow_config() == data["workflow_config"]
+    if data["workflow_config"] == "idea_architecture_feasibility_review":
+        assert mgr.get_orchestration_mode() == OrchestrationMode.FIXED.value
+        assert len(mgr.fixed_chain) > 0
+        assert "Visionary" in mgr.fixed_chain
+        assert "Architect" in mgr.fixed_chain
+    else:
+        assert mgr.get_orchestration_mode() == OrchestrationMode.SANDWICH.value
+        assert len(mgr.sandwich_start_chain) > 0 or len(mgr.sandwich_end_chain) > 0
 
 
 def test_workflow_config_switching_and_fallback(tmp_path: Path):

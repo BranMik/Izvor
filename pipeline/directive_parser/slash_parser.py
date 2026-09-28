@@ -91,7 +91,7 @@ def parse_agent_list(
         return True, [], is_off, clean_spaces(cleaned_text)
 
     token_pattern = re.compile(
-        r"(\s*(?:,|and|&)?\s*)(\[[^\]]+\]|[a-zA-Z0-9_]+)", re.IGNORECASE
+        r"(\s*(?:,|and|&)?\s*)(/?\[[^\]]+\]|[a-zA-Z0-9_]+)", re.IGNORECASE
     )
     agents: list[str] = []
 
@@ -120,7 +120,7 @@ def parse_agent_list(
                     agents.append(resolved)
                 offset += len(t_match.group(0))
                 matched_tokens_span_end = curr_idx + offset
-            elif token.startswith("[") and token.endswith("]"):
+            elif (token.startswith("[") and token.endswith("]")) or (token.startswith("/[") and token.endswith("]")):
                 offset += len(t_match.group(0))
                 matched_tokens_span_end = curr_idx + offset
             else:

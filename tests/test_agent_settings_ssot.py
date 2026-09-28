@@ -53,9 +53,11 @@ def test_agent_settings_ssot_loading():
                     "icon_url": "static/avatar_33.png",
                 },
             },
-            "system_agents": {
-                "thread_notes": {"model": "mistral/mistral-small-latest"},
-                "usage_agent": {"model": "groq/llama-3.3-70b-versatile"},
+            "orchestrator": {
+                "fast_model": "gemini/gemini-3.8-flash",
+                "reasoning_model": "mistral/mistral-large-latest",
+                "username": "Orchestrator",
+                "icon_url": "static/image_30.png",
             },
         }
         with open(settings_file, "w", encoding="utf-8") as f:
@@ -73,7 +75,10 @@ def test_agent_settings_ssot_loading():
         assert "Visionary" in mgr.agents_config
         assert mgr.agents_config["Visionary"]["model"] == "gemini/gemini-3.8-flash"
         assert mgr.agents_config["Visionary"]["icon_url"] == "static/avatar_25.png"
-        assert mgr.system_agents_config["usage_agent"]["model"] == "groq/llama-3.3-70b-versatile"
+        assert mgr.orchestrator_config["fast_model"] == "gemini/gemini-3.8-flash"
+        assert mgr.orchestrator_config["reasoning_model"] == "mistral/mistral-large-latest"
+        assert mgr.get_orchestrator_fast_model() == "gemini/gemini-3.8-flash"
+        assert mgr.get_orchestrator_reasoning_model() == "mistral/mistral-large-latest"
 
 
 def test_agent_validation_skips_invalid():
@@ -298,28 +303,31 @@ def test_dynamic_config_getattr_resolution():
         _ = core.config.NON_EXISTENT_ATTRIBUTE
 
     # Test dynamic resolution through settings_manager
-    original_system_agents = dict(settings_manager.system_agents_config)
+    original_orchestrator = dict(settings_manager.orchestrator_config)
     try:
-        # Without override, returns default from SSOT file
-        settings_manager.system_agents_config = {}
-        default_model = core.config.THREAD_NOTES_MODEL
-        assert default_model == "mistral/mistral-small-latest"
-        assert core.config.LANGUAGE_DETECTOR_MODEL == "gemini/gemini-3.8-flash"
-        assert core.config.INTENT_EXTRACTOR_MODEL == "mistral/mistral-small-latest"
-
-        # With dynamic override, __getattr__ dynamically fetches the updated model
-        settings_manager.system_agents_config = {
-            "thread_notes": {"model": "anthropic/claude-3-7-sonnet-dynamic"},
-            "usage_agent": {"model": "openai/gpt-5-turbo-dynamic"},
-            "language_detector": {"model": "groq/llama-3.3-70b-versatile-dynamic"},
-            "intent_extractor": {"model": "mistral/mistral-large-latest-dynamic"},
+        settings_manager.orchestrator_config = {
+            "fast_model": "gemini/gemini-3.8-flash",
+            "reasoning_model": "mistral/mistral-large-latest",
+            "username": "Orchestrator",
+            "icon_url": "static/image_30.png",
         }
+        assert core.config.ORCHESTRATOR_FAST_MODEL == "gemini/gemini-3.8-flash"
+        assert core.config.ORCHESTRATOR_REASONING_MODEL == "mistral/mistral-large-latest"
+        assert core.config.THREAD_NOTES_MODEL == "mistral/mistral-large-latest"
+        assert core.config.INTENT_EXTRACTOR_MODEL == "gemini/gemini-3.8-flash"
+        assert core.config.LANGUAGE_DETECTOR_MODEL == "gemini/gemini-3.8-flash"
+
+        settings_manager.set_orchestrator_models(
+            fast_model="groq/llama-3.3-70b-versatile-dynamic",
+            reasoning_model="anthropic/claude-3-7-sonnet-dynamic",
+            save=False,
+        )
+        assert core.config.ORCHESTRATOR_FAST_MODEL == "groq/llama-3.3-70b-versatile-dynamic"
+        assert core.config.ORCHESTRATOR_REASONING_MODEL == "anthropic/claude-3-7-sonnet-dynamic"
         assert core.config.THREAD_NOTES_MODEL == "anthropic/claude-3-7-sonnet-dynamic"
-        assert core.config.USAGE_AGENT_MODEL == "openai/gpt-5-turbo-dynamic"
-        assert core.config.LANGUAGE_DETECTOR_MODEL == "groq/llama-3.3-70b-versatile-dynamic"
-        assert core.config.INTENT_EXTRACTOR_MODEL == "mistral/mistral-large-latest-dynamic"
+        assert core.config.INTENT_EXTRACTOR_MODEL == "groq/llama-3.3-70b-versatile-dynamic"
     finally:
-        settings_manager.system_agents_config = original_system_agents
+        settings_manager.orchestrator_config = original_orchestrator
 
 
 def test_configurable_pacing_defaults():
@@ -342,7 +350,7 @@ async def test_turn_pipeline_propagates_agent_avatar_icon():
     ctx = TurnContext(
         channel_id="C_TEST",
         thread_ts="12345.6789",
-        raw_text="[Visionary] Hello test",
+        raw_text="/[Visionary] Hello test",
         icon_url=None,
     )
     ctx.my_generation = 0

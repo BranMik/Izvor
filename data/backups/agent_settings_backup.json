@@ -161,33 +161,10 @@
       ]
     }
   },
-  "system_agents": {
-    "thread_notes": {
-      "model": "mistral/mistral-small-latest",
-      "agent_key": "Thread_Notes_Agent",
-      "is_system_agent": true
-    },
-    "usage_agent": {
-      "model": "mistral/mistral-small-latest",
-      "agent_key": "Usage_Agent",
-      "is_system_agent": true
-    },
-    "pricing_agent": {
-      "model": "mistral/mistral-small-latest",
-      "agent_key": "Pricing_Agent",
-      "is_system_agent": true
-    },
-    "intent_extractor": {
-      "model": "mistral/mistral-small-latest",
-      "is_system_agent": true
-    },
-    "system_agent": {
-      "model": "mistral/mistral-small-latest",
-      "is_system_agent": true
-    },
-    "language_detector": {
-      "model": "gemini/gemini-3.8-flash",
-      "is_system_agent": true
-    }
+  "orchestrator": {
+    "fast_model": "gemini/gemini-3.8-flash",
+    "reasoning_model": "mistral/mistral-large-latest",
+    "username": "Orchestrator",
+    "icon_url": "static/image_30.png"
   }
 }

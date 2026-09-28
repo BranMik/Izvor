@@ -28,7 +28,7 @@ async def test_post_record_with_single_skill_used():
     ctx.agent_cfg = {"username": "Architect", "model": "openai/gpt-4o"}
     ctx.eligible_remaining_agents = ["TechLead"]
     ctx.remaining = ["TechLead"]
-    ctx.final_text = "I reviewed the architecture.\n\n[TechLead]"
+    ctx.final_text = "I reviewed the architecture.\n\n/[TechLead]"
     ctx.skills_used = ["knowledge_base_rag"]
     ctx.total_prompt_tokens = 500
     ctx.total_completion_tokens = 100
@@ -47,8 +47,8 @@ async def test_post_record_with_single_skill_used():
 
     text = posted_payload["text"]
     assert "Skills used: [knowledge_base_rag]" in text
-    # Verify exact ordering: [TechLead] then Skills used then {model : p/c}
-    idx_nom = text.index("[TechLead]")
+    # Verify exact ordering: /[TechLead] then Skills used then {model : p/c}
+    idx_nom = text.index("/[TechLead]")
     idx_skill = text.index("Skills used: [knowledge_base_rag]")
     idx_footer = text.index("{openai/gpt-4o : 500/100}")
 
@@ -69,7 +69,7 @@ async def test_post_record_with_multiple_skills_used():
     ctx.agent_cfg = {"username": "TechLead", "model": "mistral/mistral-large"}
     ctx.eligible_remaining_agents = ["Visionary"]
     ctx.remaining = ["Visionary"]
-    ctx.final_text = "Analysis complete.\n\n[Visionary]"
+    ctx.final_text = "Analysis complete.\n\n/[Visionary]"
     ctx.skills_used = ["codebase_inspection", "web_research"]
     ctx.total_prompt_tokens = 600
     ctx.total_completion_tokens = 150
@@ -88,7 +88,7 @@ async def test_post_record_with_multiple_skills_used():
 
     text = posted_payload["text"]
     assert "Skills used: [codebase_inspection], [web_research]" in text
-    idx_nom = text.index("[Visionary]")
+    idx_nom = text.index("/[Visionary]")
     idx_skill = text.index("Skills used: [codebase_inspection], [web_research]")
     idx_footer = text.index("{mistral/mistral-large : 600/150}")
 
@@ -109,7 +109,7 @@ async def test_post_record_omits_skills_used_when_none():
     ctx.agent_cfg = {"username": "Visionary", "model": "gemini/gemini-3.8-flash"}
     ctx.eligible_remaining_agents = ["Sceptic"]
     ctx.remaining = ["Sceptic"]
-    ctx.final_text = "Creative thought.\n\n[Sceptic]"
+    ctx.final_text = "Creative thought.\n\n/[Sceptic]"
     ctx.skills_used = []
     ctx.total_prompt_tokens = 300
     ctx.total_completion_tokens = 50

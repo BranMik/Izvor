@@ -47,7 +47,7 @@ def test_entity_resolver_exact_and_partial(mock_agents_config):
 def test_entity_resolver_ambiguous_and_unrecognized(mock_agents_config):
     resolver = EntityResolver(agents_config=mock_agents_config)
 
-    text = "Let [Strategist] review the plan, and ignore [UnknownGuy] and [150/50]."
+    text = "Let /[Strategist] review the plan, and ignore /[UnknownGuy] and [150/50]."
     ambiguous = resolver.detect_ambiguous_tags(text)
     assert len(ambiguous) == 1
     assert ambiguous[0][0] == "Strategist"
@@ -57,12 +57,21 @@ def test_entity_resolver_ambiguous_and_unrecognized(mock_agents_config):
     # Token counter [150/50] should NOT be flagged as unrecognized agent
     assert "[150/50]" not in unrecognized
 
+    # Ordinary brackets do NOT trigger anything
+    plain_text = "Let [Strategist] review the plan, and ignore [UnknownGuy] and [150/50]."
+    assert resolver.detect_ambiguous_tags(plain_text) == []
+    assert resolver.detect_unrecognized_tags(plain_text) == []
+
 
 def test_entity_resolver_extract_tags(mock_agents_config):
     resolver = EntityResolver(agents_config=mock_agents_config)
-    text = "First [Visionary], then [Tech], and finally [Architect]."
+    text = "First /[Visionary], then /[Tech], and finally /[Architect]."
     tagged = resolver.extract_tagged_agents(text)
     assert tagged == ["Visionary", "TechLead", "Architect"]
+
+    # Plain brackets are ignored and not extracted as tagged agents
+    plain_text = "First [Visionary], then [Tech], and finally [Architect]."
+    assert resolver.extract_tagged_agents(plain_text) == []
 
 
 # ==============================================================================

@@ -42,10 +42,16 @@ def _load_system_agents() -> set[str]:
     """Loads agent keys configured as system agents from agent_settings.json metadata."""
     settings_path = PROMPTS_DIR.parent / "data" / "agent_settings.json"
     system_keys: set[str] = set()
+    system_keys.add("orchestrator")
+    system_keys.add("Orchestrator")
     if settings_path.exists():
         try:
             with open(settings_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
+            if "orchestrator" in data:
+                orch = data["orchestrator"]
+                if isinstance(orch, dict) and orch.get("username"):
+                    system_keys.add(str(orch["username"]))
             for sys_k, sys_v in data.get("system_agents", {}).items():
                 if isinstance(sys_v, dict):
                     system_keys.add(sys_k)

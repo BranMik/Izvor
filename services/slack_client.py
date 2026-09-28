@@ -147,11 +147,11 @@ async def post_system_message(
     try:
         from orchestration.agent_settings import settings_manager
 
-        sys_cfg = settings_manager.system_agents_config.get("system_agent", {})
-        if sys_cfg.get("username"):
-            default_username = sys_cfg["username"]
-        if sys_cfg.get("icon_url"):
-            default_icon = sys_cfg["icon_url"]
+        orch_cfg = settings_manager.get_orchestrator_config()
+        if orch_cfg.get("username"):
+            default_username = orch_cfg["username"]
+        if orch_cfg.get("icon_url"):
+            default_icon = orch_cfg["icon_url"]
     except (ImportError, AttributeError, KeyError, TypeError):
         logger.debug("[SLACK CLIENT] Fallback settings_manager persona lookup skipped")
 
