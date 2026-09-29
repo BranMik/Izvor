@@ -3,7 +3,5 @@
   "circuit_breaker_enabled": false,
   "circuit_breaker_threshold_usd": 1.5,
   "scribe_enabled": true,
-  "weekly_pricing_update_enabled": true,
-  "_comment_workspace_write_blacklist": "Automatic hardcoded protection blocks writes to .env, .git, data/agent_settings.json, and data/app_settings.json. Add any additional relative workspace paths or file patterns here to prevent unauthorized modifications.",
-  "workspace_write_blacklist": []
+  "weekly_pricing_update_enabled": true
 }

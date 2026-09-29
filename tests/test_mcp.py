@@ -269,11 +269,11 @@ def test_mcp_write_file_blocks_protected_default_files():
 
 
 def test_mcp_write_file_blocks_custom_blacklist(monkeypatch, tmp_path):
-    from orchestration.app_settings import app_settings_manager
+    from orchestration.system_settings import system_settings_manager
     from services.mcp_tools import write_file
 
     monkeypatch.setattr(
-        app_settings_manager,
+        system_settings_manager,
         "get_workspace_write_blacklist",
         lambda: ["custom_blocked_dir/*", "blacklisted.txt"],
     )
@@ -298,11 +298,11 @@ def test_mcp_write_file_blocks_custom_blacklist(monkeypatch, tmp_path):
 
 
 def test_mcp_write_document_blocks_blacklisted_path(monkeypatch):
-    from orchestration.app_settings import app_settings_manager
+    from orchestration.system_settings import system_settings_manager
     from services.mcp_tools import write_document
 
     monkeypatch.setattr(
-        app_settings_manager,
+        system_settings_manager,
         "get_workspace_write_blacklist",
         lambda: ["resources/secret_doc.txt"],
     )

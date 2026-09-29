@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from core.config import MCP_WORKSPACE_DIR
-from orchestration.app_settings import is_path_write_blocked
+from orchestration.system_settings import is_path_write_blocked
 
 from .web_tools import fetch_web_page, web_search
 
