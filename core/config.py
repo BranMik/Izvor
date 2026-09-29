@@ -34,6 +34,10 @@ else:
 # Logging level configuration
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 
+# Admin HTTP Basic Authentication credentials
+ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
+
 # Base URL for resolving relative avatar icon paths for Slack messages
 BASE_AVATAR_URL = os.getenv("BASE_AVATAR_URL", "https://agents-slack.cailogics.com/").rstrip("/") + "/"
 
