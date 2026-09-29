@@ -4,7 +4,9 @@ import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+import secrets
+from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
 
 from adapters.slack import (
@@ -17,7 +19,12 @@ from adapters.slack import (
 from adapters.slack import (
     handle_slack_interactivity as slack_interactivity,
 )
-from core.config import AGENTS_CONFIG, LOG_LEVEL
+from core.config import (
+    ADMIN_PASSWORD,
+    ADMIN_USERNAME,
+    AGENTS_CONFIG,
+    LOG_LEVEL,
+)
 from core.slack_security import verify_slack_signature
 from orchestration.agent_router import process_and_respond
 from orchestration.agent_settings import load_enabled_agents
@@ -103,7 +110,41 @@ async def health_check():
     }
 
 
-@app.get("/api/skills")
+# HTTP Basic Authentication security scheme for admin endpoints
+admin_security = HTTPBasic()
+
+
+def verify_admin_basic_auth(
+    credentials: HTTPBasicCredentials = Depends(admin_security),
+) -> str:
+    """
+    Verifies HTTP Basic Auth credentials against ADMIN_USERNAME and ADMIN_PASSWORD.
+    Uses secrets.compare_digest to defend against timing attacks.
+    """
+    if not ADMIN_PASSWORD:
+        logger.error("ADMIN_PASSWORD is not configured in environment/.env")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Admin authentication is not configured on the server",
+        )
+
+    is_correct_username = secrets.compare_digest(
+        credentials.username.encode("utf8"), ADMIN_USERNAME.encode("utf8")
+    )
+    is_correct_password = secrets.compare_digest(
+        credentials.password.encode("utf8"), ADMIN_PASSWORD.encode("utf8")
+    )
+
+    if not (is_correct_username and is_correct_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+    return credentials.username
+
+
+@app.get("/api/skills", dependencies=[Depends(verify_admin_basic_auth)])
 async def get_registered_skills():
     """Returns all registered skills, descriptions, and their tool schemas."""
     from skills import skill_registry
@@ -121,7 +162,7 @@ async def get_registered_skills():
     return {"skills": skills_data}
 
 
-@app.get("/api/rag/status")
+@app.get("/api/rag/status", dependencies=[Depends(verify_admin_basic_auth)])
 async def get_rag_status():
     """Returns RAG manifest status and indexed documents overview."""
     from services.rag.manifest_manager import ManifestManager
@@ -134,11 +175,12 @@ async def get_rag_status():
     }
 
 
-@app.post("/api/rag/reconcile")
+@app.post("/api/rag/reconcile", dependencies=[Depends(verify_admin_basic_auth)])
 async def trigger_rag_reconciliation():
     """Triggers an on-demand reconciliation scan of rag_knowledge/."""
     stats = await rag_sync_engine.reconcile()
     return {"status": "reconciliation_complete", "stats": stats}
+
 
 
 
