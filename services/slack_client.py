@@ -171,19 +171,46 @@ async def post_system_message(
 
 
 async def fetch_thread_history(
-    channel_id: str, thread_ts: str, bot_user_id: str | None = None
+    channel_id: str,
+    thread_ts: str,
+    bot_user_id: str | None = None,
+    max_messages: int = 500,
 ) -> list[dict[str, str]]:
     """
     Fetches past messages in a Slack thread and formats them as LiteLLM conversation history.
+    Implements cursor-based pagination (up to max_messages) to prevent truncating long discussions.
     """
     if not SLACK_BOT_TOKEN or SLACK_BOT_TOKEN == "xoxb-your-bot-user-oauth-token":
         return []
 
     try:
-        response = await slack_async_client.conversations_replies(
-            channel=channel_id, ts=thread_ts, limit=100
-        )
-        messages = response.get("messages", [])
+        messages: list[dict[str, Any]] = []
+        cursor: str | None = None
+        max_pages = max(1, (max_messages + 99) // 100)
+
+        for _ in range(max_pages):
+            kwargs: dict[str, Any] = {
+                "channel": channel_id,
+                "ts": thread_ts,
+                "limit": 100,
+            }
+            if cursor:
+                kwargs["cursor"] = cursor
+
+            response = await slack_async_client.conversations_replies(**kwargs)
+            page_messages = response.get("messages", [])
+            messages.extend(page_messages)
+
+            if not response.get("has_more"):
+                break
+
+            cursor = response.get("response_metadata", {}).get("next_cursor")
+            if not cursor:
+                break
+
+        if len(messages) > max_messages:
+            messages = messages[-max_messages:]
+
         formatted_history: list[dict[str, str]] = []
         short_history_logging: list[dict[str, str]] = []
 
@@ -574,19 +601,42 @@ async def update_usage_message(
         return {"ok": False, "error": str(e)}
 
 
-async def fetch_thread_files(channel_id: str, thread_ts: str) -> list[dict[str, Any]]:
+async def fetch_thread_files(
+    channel_id: str, thread_ts: str, max_messages: int = 500
+) -> list[dict[str, Any]]:
     """
     Fetches all file attachment metadata uploaded in a Slack thread.
+    Implements cursor-based pagination (up to max_messages) to discover files across long threads.
     Returns a list of file dicts with keys: id, name, title, mimetype, filetype, size, url_private_download, url_private.
     """
     if not SLACK_BOT_TOKEN or SLACK_BOT_TOKEN == "xoxb-your-bot-user-oauth-token":
         return []
 
     try:
-        response = await slack_async_client.conversations_replies(
-            channel=channel_id, ts=thread_ts, limit=100
-        )
-        messages = response.get("messages", [])
+        messages: list[dict[str, Any]] = []
+        cursor: str | None = None
+        max_pages = max(1, (max_messages + 99) // 100)
+
+        for _ in range(max_pages):
+            kwargs: dict[str, Any] = {
+                "channel": channel_id,
+                "ts": thread_ts,
+                "limit": 100,
+            }
+            if cursor:
+                kwargs["cursor"] = cursor
+
+            response = await slack_async_client.conversations_replies(**kwargs)
+            page_messages = response.get("messages", [])
+            messages.extend(page_messages)
+
+            if not response.get("has_more"):
+                break
+
+            cursor = response.get("response_metadata", {}).get("next_cursor")
+            if not cursor:
+                break
+
         thread_files: list[dict[str, Any]] = []
         for msg in messages:
             files = msg.get("files", [])
