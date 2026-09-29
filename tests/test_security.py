@@ -7,19 +7,19 @@ from core.slack_security import verify_slack_signature
 
 def test_verify_slack_signature_unconfigured_secret(monkeypatch):
     # If SLACK_SIGNING_SECRET is empty, verify returns False
-    monkeypatch.setattr("core.slack_security.SLACK_SIGNING_SECRET", "")
+    monkeypatch.setenv("SLACK_SIGNING_SECRET", "")
     res = verify_slack_signature(b"{}", {})
     assert res is False
 
     # If SLACK_SIGNING_SECRET is default placeholder, verify returns False
-    monkeypatch.setattr("core.slack_security.SLACK_SIGNING_SECRET", "your-slack-signing-secret")
+    monkeypatch.setenv("SLACK_SIGNING_SECRET", "your-slack-signing-secret")
     res_default = verify_slack_signature(b"{}", {})
     assert res_default is False
 
 
 def test_verify_slack_signature_valid(monkeypatch):
     test_secret = "8f74a053265c0a1d752d47864070275e"
-    monkeypatch.setattr("core.slack_security.SLACK_SIGNING_SECRET", test_secret)
+    monkeypatch.setenv("SLACK_SIGNING_SECRET", test_secret)
 
     body = b'{"type": "url_verification", "challenge": "test1234"}'
     timestamp = str(int(time.time()))
@@ -43,7 +43,7 @@ def test_verify_slack_signature_valid(monkeypatch):
 
 def test_verify_slack_signature_invalid(monkeypatch):
     test_secret = "8f74a053265c0a1d752d47864070275e"
-    monkeypatch.setattr("core.slack_security.SLACK_SIGNING_SECRET", test_secret)
+    monkeypatch.setenv("SLACK_SIGNING_SECRET", test_secret)
 
     body = b'{"type": "url_verification"}'
     timestamp = str(int(time.time()))
