@@ -15,8 +15,11 @@ from orchestration.system_settings import (
     get_max_file_size_mb,
     get_rag_config,
     get_rag_setting,
+    get_workspace_write_blacklist,
+    is_path_write_blocked,
     set_max_file_size_mb,
     set_rag_setting,
+    set_workspace_write_blacklist,
 )
 
 
@@ -36,6 +39,7 @@ def test_system_settings_defaults():
         assert rag["embedding_model"] == "gemini/gemini-embedding-001"
         assert rag["embedding_dim"] == 3072
         assert rag["embedding_batch_size"] == 32
+        assert mgr.get_workspace_write_blacklist() == []
 
 
 def test_system_settings_custom_persistence():
@@ -119,3 +123,63 @@ def test_system_settings_module_convenience(monkeypatch, tmp_path):
     set_rag_setting("default_top_k", 10)
     assert get_rag_setting("default_top_k") == 10
     assert get_rag_config()["default_top_k"] == 10
+
+    set_workspace_write_blacklist(["secrets/*", "custom.key"])
+    assert get_workspace_write_blacklist() == ["secrets/*", "custom.key"]
+
+
+def test_workspace_write_blacklist_persistence(tmp_path):
+    settings_file = tmp_path / "system_settings.json"
+    backup_file = tmp_path / "system_settings_backup.json"
+    mgr = SystemSettingsManager(settings_file=settings_file, backup_file=backup_file, auto_load=True)
+
+    assert mgr.get_workspace_write_blacklist() == []
+    mgr.set_workspace_write_blacklist(["restricted_dir/*", "secret.token"])
+
+    # Reload from disk
+    mgr2 = SystemSettingsManager(settings_file=settings_file, backup_file=backup_file, auto_load=True)
+    assert mgr2.get_workspace_write_blacklist() == ["restricted_dir/*", "secret.token"]
+
+    # Verify JSON content contains comment and blacklist at root
+    with open(settings_file, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    assert "_comment_workspace_write_blacklist" in data
+    assert data["workspace_write_blacklist"] == ["restricted_dir/*", "secret.token"]
+
+
+def test_is_path_write_blocked_defaults(tmp_path):
+    # Tests that .env, .git, agent_settings.json, app_settings.json, and system_settings.json are blocked by default
+    base_dir = tmp_path
+
+    # .env variations
+    assert is_path_write_blocked(".env", base_dir=base_dir) is True
+    assert is_path_write_blocked(".env.local", base_dir=base_dir) is True
+    assert is_path_write_blocked("subfolder/../../.env", base_dir=base_dir) is True
+
+    # .git variations
+    assert is_path_write_blocked(".git", base_dir=base_dir) is True
+    assert is_path_write_blocked(".git/config", base_dir=base_dir) is True
+    assert is_path_write_blocked(".git/hooks/pre-commit", base_dir=base_dir) is True
+
+    # Config files protection
+    assert is_path_write_blocked("data/agent_settings.json", base_dir=base_dir) is True
+    assert is_path_write_blocked("agent_settings.json", base_dir=base_dir) is True
+    assert is_path_write_blocked("data/app_settings.json", base_dir=base_dir) is True
+    assert is_path_write_blocked("app_settings.json", base_dir=base_dir) is True
+    assert is_path_write_blocked("data/system_settings.json", base_dir=base_dir) is True
+    assert is_path_write_blocked("system_settings.json", base_dir=base_dir) is True
+
+    # Normal files should not be blocked
+    assert is_path_write_blocked("normal_file.txt", base_dir=base_dir) is False
+    assert is_path_write_blocked("src/app.py", base_dir=base_dir) is False
+
+
+def test_is_path_write_blocked_custom_blacklist(tmp_path):
+    base_dir = tmp_path
+    custom_bl = ["confidential/*", "*.pem", "custom_locked.md"]
+
+    assert is_path_write_blocked("confidential/secrets.txt", base_dir=base_dir, custom_blacklist=custom_bl) is True
+    assert is_path_write_blocked("server.pem", base_dir=base_dir, custom_blacklist=custom_bl) is True
+    assert is_path_write_blocked("custom_locked.md", base_dir=base_dir, custom_blacklist=custom_bl) is True
+    assert is_path_write_blocked("public/readme.md", base_dir=base_dir, custom_blacklist=custom_bl) is False
+
