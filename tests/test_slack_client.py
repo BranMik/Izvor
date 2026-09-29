@@ -103,3 +103,83 @@ async def test_fetch_thread_history_empty_token(monkeypatch):
     monkeypatch.setattr(slack_client, "SLACK_BOT_TOKEN", "")
     result = await slack_client.fetch_thread_history("C1", "T1")
     assert result == []
+
+
+@pytest.mark.anyio
+async def test_fetch_thread_history_pagination(monkeypatch):
+    """Verifies fetch_thread_history fetches multiple pages when has_more is True."""
+    from services import slack_client
+
+    monkeypatch.setattr(slack_client, "SLACK_BOT_TOKEN", "xoxb-valid-test-token")
+
+    page1_msgs = [{"user": "U1", "text": f"Msg {i}", "subtype": None} for i in range(100)]
+    page2_msgs = [{"user": "U1", "text": f"Msg {i}", "subtype": None} for i in range(100, 130)]
+
+    call_count = 0
+
+    async def mock_replies(**kwargs):
+        nonlocal call_count
+        call_count += 1
+        cursor = kwargs.get("cursor")
+        if not cursor:
+            return {
+                "ok": True,
+                "messages": page1_msgs,
+                "has_more": True,
+                "response_metadata": {"next_cursor": "cursor_page_2"},
+            }
+        elif cursor == "cursor_page_2":
+            return {
+                "ok": True,
+                "messages": page2_msgs,
+                "has_more": False,
+                "response_metadata": {},
+            }
+        return {"ok": True, "messages": [], "has_more": False}
+
+    monkeypatch.setattr(slack_client.slack_async_client, "conversations_replies", mock_replies)
+
+    result = await slack_client.fetch_thread_history("C1", "T1", max_messages=500)
+    assert call_count == 2
+    assert len(result) == 130
+    assert result[0]["content"] == "Msg 0"
+    assert result[-1]["content"] == "Msg 129"
+
+
+@pytest.mark.anyio
+async def test_fetch_thread_files_pagination(monkeypatch):
+    """Verifies fetch_thread_files paginates to discover file attachments across long threads."""
+    from services import slack_client
+
+    monkeypatch.setattr(slack_client, "SLACK_BOT_TOKEN", "xoxb-valid-test-token")
+
+    page1_msgs = [
+        {"user": "U1", "ts": "1.0", "files": [{"id": "F1", "name": "doc1.txt"}]}
+    ]
+    page2_msgs = [
+        {"user": "U2", "ts": "2.0", "files": [{"id": "F2", "name": "doc2.txt"}]}
+    ]
+
+    async def mock_replies(**kwargs):
+        if not kwargs.get("cursor"):
+            return {
+                "ok": True,
+                "messages": page1_msgs,
+                "has_more": True,
+                "response_metadata": {"next_cursor": "c2"},
+            }
+        return {
+            "ok": True,
+            "messages": page2_msgs,
+            "has_more": False,
+            "response_metadata": {},
+        }
+
+    monkeypatch.setattr(slack_client.slack_async_client, "conversations_replies", mock_replies)
+
+    files = await slack_client.fetch_thread_files("C1", "T1", max_messages=500)
+    assert len(files) == 2
+    file_names = [f["name"] for f in files]
+    assert "doc1.txt" in file_names
+    assert "doc2.txt" in file_names
+
