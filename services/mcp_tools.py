@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from core.config import MCP_WORKSPACE_DIR
+from orchestration.app_settings import is_path_write_blocked
 
 from .web_tools import fetch_web_page, web_search
 
@@ -170,6 +171,10 @@ def write_file(rel_path: str, content: str) -> str:
     """
     try:
         path = _resolve_safe_path(rel_path)
+        if is_path_write_blocked(path, base_dir=WORKSPACE_DIR):
+            return json.dumps({
+                "error": f"Permission denied: Writing to protected path '{rel_path}' is strictly prohibited."
+            })
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
         return json.dumps(
@@ -299,6 +304,10 @@ def write_document(rel_path: str, content: str) -> str:
     """
     try:
         path = _resolve_resource_path(rel_path)
+        if is_path_write_blocked(path, base_dir=WORKSPACE_DIR):
+            return json.dumps({
+                "error": f"Permission denied: Writing to protected path '{rel_path}' is strictly prohibited."
+            })
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
         return json.dumps(

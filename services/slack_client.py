@@ -620,6 +620,25 @@ async def fetch_thread_files(channel_id: str, thread_ts: str) -> list[dict[str, 
         return []
 
 
+def sanitize_slack_download_filename(file_name: str, prefix_len: int = 6) -> str:
+    """
+    Sanitizes untrusted filenames from Slack attachments:
+    - Extracts base name, stripping any path traversal characters (../)
+    - Sanitizes characters in filename stem and extension
+    - Prepends a short UUID prefix to avoid collisions and overwrites
+    """
+    import uuid
+
+    raw_name = Path(file_name or "file").name
+    stem = Path(raw_name).stem
+    suffix = Path(raw_name).suffix
+
+    clean_stem = re.sub(r"[^\w\-]", "_", stem).strip("._") or "file"
+    clean_suffix = re.sub(r"[^\w\.]", "", suffix)
+    short_uuid = uuid.uuid4().hex[:prefix_len]
+    return f"{short_uuid}_{clean_stem}{clean_suffix}"
+
+
 async def download_slack_file(
     file_info: dict[str, Any], max_chars: int = 50000
 ) -> dict[str, Any]:
@@ -697,14 +716,19 @@ async def download_slack_file(
                     "error": f"File '{file_name}' ({len(raw_bytes)} bytes) exceeds maximum allowed size of {max_size_mb:.1f} MB.",
                 }
 
-            # Cache local copy to workspace
+            # Cache local copy to workspace safely
             try:
-                downloads_dir = MCP_WORKSPACE_DIR / "downloads"
+                downloads_dir = (MCP_WORKSPACE_DIR / "downloads").resolve()
                 downloads_dir.mkdir(parents=True, exist_ok=True)
-                file_path = downloads_dir / file_name
+                safe_name = sanitize_slack_download_filename(file_name, prefix_len=6)
+                file_path = (downloads_dir / safe_name).resolve()
+                if not file_path.is_relative_to(downloads_dir):
+                    raise PermissionError(
+                        f"Path traversal detected: '{file_name}' resolves outside downloads directory"
+                    )
                 file_path.write_bytes(raw_bytes)
-                logger.info(f"[SLACK FILE] Cached Slack file to workspace: {file_path}")
-            except OSError as save_err:
+                logger.info(f"[SLACK FILE] Cached Slack file safely to workspace: {file_path}")
+            except (OSError, PermissionError) as save_err:
                 logger.warning(
                     f"[SLACK FILE] Could not save local copy to workspace: {save_err}"
                 )

@@ -7,7 +7,7 @@ from orchestration.agent_router import process_and_respond
 from orchestration.nomination import resolve_target_file
 from orchestration.thread_state import thread_state_manager
 from pipeline.directive_parser import directive_parser
-from services.slack_client import download_slack_file
+from services.slack_client import download_slack_file, sanitize_slack_download_filename
 
 
 @pytest.mark.anyio
@@ -425,4 +425,68 @@ async def test_resource_file_resolution_in_validation_stage():
         if res_file.exists():
             res_file.unlink()
         thread_state_manager.clear_file_context(channel_id, thread_ts)
+
+
+def test_sanitize_slack_download_filename():
+    # 1. Strips directory traversal
+    name1 = sanitize_slack_download_filename("../../etc/passwd.txt", prefix_len=6)
+    assert "../" not in name1
+    assert "etc" not in name1
+    assert name1.endswith("passwd.txt")
+    assert len(name1.split("_")[0]) == 6
+
+    # 2. Replaces illegal/unsafe characters
+    name2 = sanitize_slack_download_filename("my unsafe * file (1).pdf", prefix_len=6)
+    assert "*" not in name2
+    assert " " not in name2
+    assert "(" not in name2
+    assert name2.endswith(".pdf")
+
+    # 3. Collision prevention with short UUID
+    name3 = sanitize_slack_download_filename("report.csv", prefix_len=6)
+    name4 = sanitize_slack_download_filename("report.csv", prefix_len=6)
+    assert name3 != name4
+    assert name3.endswith("_report.csv")
+    assert name4.endswith("_report.csv")
+
+
+@pytest.mark.anyio
+async def test_download_slack_file_saves_safely_inside_downloads():
+    from pathlib import Path
+    from core.config import MCP_WORKSPACE_DIR
+
+    downloads_dir = (MCP_WORKSPACE_DIR / "downloads").resolve()
+    downloads_dir.mkdir(parents=True, exist_ok=True)
+
+    # Malicious filename attempting path traversal
+    file_info = {
+        "name": "../../../traversal_attack.py",
+        "url_private_download": "https://files.slack.com/files-pri/T1/attack.py",
+        "size": 35,
+    }
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.content = b"print('malicious injection attempt')"
+
+    with (
+        patch("services.slack_client.SLACK_BOT_TOKEN", "xoxb-real-mock-token"),
+        patch("httpx.AsyncClient.get", new_callable=AsyncMock) as mock_get,
+    ):
+        mock_get.return_value = mock_resp
+        res = await download_slack_file(file_info)
+        assert res["ok"] is True
+
+        # Verify nothing was created in parent directories
+        parent_file = MCP_WORKSPACE_DIR.parent / "traversal_attack.py"
+        workspace_file = MCP_WORKSPACE_DIR / "traversal_attack.py"
+        assert not parent_file.exists()
+        assert not workspace_file.exists()
+
+        # Verify file is inside downloads_dir
+        found = list(downloads_dir.glob("*_traversal_attack.py"))
+        assert len(found) >= 1
+        for f in found:
+            assert f.is_relative_to(downloads_dir)
+            f.unlink()
+
 

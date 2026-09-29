@@ -251,3 +251,64 @@ def test_mcp_write_document_normalizes_resources_prefix():
         if test_file.exists():
             test_file.unlink()
 
+
+def test_mcp_write_file_blocks_protected_default_files():
+    from services.mcp_tools import write_file
+
+    targets = [
+        ".env",
+        ".env.local",
+        ".git/hooks/pre-commit",
+        "data/agent_settings.json",
+        "data/app_settings.json",
+    ]
+    for target in targets:
+        res = json.loads(write_file(target, "malicious_overwrite_attempt"))
+        assert "error" in res, f"Expected error when writing to {target}"
+        assert "Permission denied: Writing to protected path" in res["error"]
+
+
+def test_mcp_write_file_blocks_custom_blacklist(monkeypatch, tmp_path):
+    from orchestration.app_settings import app_settings_manager
+    from services.mcp_tools import write_file
+
+    monkeypatch.setattr(
+        app_settings_manager,
+        "get_workspace_write_blacklist",
+        lambda: ["custom_blocked_dir/*", "blacklisted.txt"],
+    )
+
+    # 1. Blocked custom paths
+    res1 = json.loads(write_file("custom_blocked_dir/sample.txt", "content"))
+    assert "error" in res1
+    assert "Permission denied: Writing to protected path" in res1["error"]
+
+    res2 = json.loads(write_file("blacklisted.txt", "content"))
+    assert "error" in res2
+    assert "Permission denied: Writing to protected path" in res2["error"]
+
+    # 2. Allowed normal path
+    allowed_file = "tests/test_write_allowed.tmp"
+    res3 = json.loads(write_file(allowed_file, "valid content"))
+    assert res3.get("success") is True
+    from services.mcp_tools import WORKSPACE_DIR
+    p = WORKSPACE_DIR / allowed_file
+    if p.exists():
+        p.unlink()
+
+
+def test_mcp_write_document_blocks_blacklisted_path(monkeypatch):
+    from orchestration.app_settings import app_settings_manager
+    from services.mcp_tools import write_document
+
+    monkeypatch.setattr(
+        app_settings_manager,
+        "get_workspace_write_blacklist",
+        lambda: ["resources/secret_doc.txt"],
+    )
+
+    res = json.loads(write_document("secret_doc.txt", "confidential"))
+    assert "error" in res
+    assert "Permission denied: Writing to protected path" in res["error"]
+
+
