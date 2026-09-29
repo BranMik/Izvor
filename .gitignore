@@ -6,8 +6,6 @@
 *.pdf
 /rag_knowledge
 
-#TODO comment /static before public
-/static
 /static_backup
 
 # Python

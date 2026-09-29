@@ -1,9 +1,8 @@
 import hashlib
 import hmac
 import logging
+import os
 import time
-
-from core.config import SLACK_SIGNING_SECRET
 
 logger = logging.getLogger(__name__)
 
@@ -13,8 +12,10 @@ def verify_slack_signature(body_bytes: bytes, headers: dict) -> bool:
     Verifies that the incoming HTTP request is genuinely sent from Slack
     using HMAC SHA256 signature verification.
     """
+    signing_secret = os.getenv("SLACK_SIGNING_SECRET", "")
+
     # If signing secret is not configured or is default placeholder, reject request
-    if not SLACK_SIGNING_SECRET or SLACK_SIGNING_SECRET == "your-slack-signing-secret":
+    if not signing_secret or signing_secret == "your-slack-signing-secret":
         logger.error(
             "SLACK_SIGNING_SECRET is not configured or has default placeholder. Rejecting request."
         )
@@ -43,7 +44,7 @@ def verify_slack_signature(body_bytes: bytes, headers: dict) -> bool:
     my_signature = (
         "v0="
         + hmac.new(
-            SLACK_SIGNING_SECRET.encode("utf-8"),
+            signing_secret.encode("utf-8"),
             sig_basestring.encode("utf-8"),
             hashlib.sha256,
         ).hexdigest()
