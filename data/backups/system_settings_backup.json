@@ -1,4 +1,6 @@
 {
+  "default_fast_model": "gemini/gemini-3.8-flash",
+  "default_reasoning_model": "mistral/mistral-large-latest",
   "max_file_size_mb": 50.0,
   "rag": {
     "max_chunk_chars": 3500,

@@ -5,7 +5,7 @@ from typing import Any
 
 import litellm
 
-from core.config import INTENT_EXTRACTOR_MODEL
+from core.config import get_intent_extractor_model
 from core.llm_utils import execute_llm_with_retry
 from core.models import ActionDirective, ExtractedIntent
 from pipeline.directive_parser import is_stop_command
@@ -35,11 +35,19 @@ class IntentExtractor:
 
     def __init__(
         self,
-        model: str = INTENT_EXTRACTOR_MODEL,
+        model: str | None = None,
         system_prompt: str | None = None,
     ):
-        self.model = model
+        self._custom_model = model
         self._custom_system_prompt = system_prompt
+
+    @property
+    def model(self) -> str:
+        return self._custom_model or get_intent_extractor_model()
+
+    @model.setter
+    def model(self, val: str | None) -> None:
+        self._custom_model = val
 
     @property
     def system_prompt(self) -> str:

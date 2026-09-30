@@ -71,7 +71,19 @@ class EntityResolver:
             if username and norm_cleaned == self.normalize(username):
                 return [key]
 
-        # 3. Substring/prefix/role match against key or username
+        # 3. Word-level prefix match (e.g. "Vis" -> "Visionary", "Arch" -> "Architect" & "SecurityArchitect")
+        word_matches = []
+        for key, cfg in agents.items():
+            words = re.findall(r"[A-Z]?[a-z0-9]+", key)
+            username = cfg.get("username")
+            if username:
+                words.extend(re.findall(r"[A-Z]?[a-z0-9]+", username))
+            if any(w.lower().startswith(norm_cleaned) for w in words if w):
+                word_matches.append(key)
+        if word_matches:
+            return list(dict.fromkeys(word_matches))
+
+        # 4. Substring/role match against key or username
         matches = []
         for key, cfg in agents.items():
             if norm_cleaned in self.normalize(key) or (

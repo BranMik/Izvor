@@ -337,7 +337,11 @@ def test_agent_settings_file_structure_and_dynamic_load():
 
     # Must contain workflow_config reference
     assert "workflow_config" in data
-    assert data["workflow_config"] in ("idea_architecture_feasibility_review", "default_sandwich")
+    assert data["workflow_config"] in (
+        "idea_architecture_feasibility_review",
+        "default_sandwich",
+        "default_review_flow",
+    )
 
     # Must NOT contain embedded chain definitions
     assert "sandwich_config" not in data

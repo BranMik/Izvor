@@ -44,6 +44,8 @@ class SystemSettingsManager:
         self.default_settings_file = settings_file or SYSTEM_SETTINGS_FILE
         self.default_backup_file = backup_file or SYSTEM_BACKUP_FILE
 
+        self.default_fast_model: str = "gemini/gemini-3.8-flash"
+        self.default_reasoning_model: str = "mistral/mistral-large-latest"
         self.max_file_size_mb: float = 50.0
         self.workspace_write_blacklist: list[str] = []
 
@@ -97,6 +99,14 @@ class SystemSettingsManager:
             with open(target_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
 
+            self.default_fast_model = (
+                str(data.get("default_fast_model", "gemini/gemini-3.8-flash")).strip()
+                or "gemini/gemini-3.8-flash"
+            )
+            self.default_reasoning_model = (
+                str(data.get("default_reasoning_model", "mistral/mistral-large-latest")).strip()
+                or "mistral/mistral-large-latest"
+            )
             self.max_file_size_mb = float(data.get("max_file_size_mb", 50.0))
             self._parse_rag_section(data.get("rag"))
             raw_bl = data.get("workspace_write_blacklist", [])
@@ -114,6 +124,14 @@ class SystemSettingsManager:
                 try:
                     with open(self.default_backup_file, "r", encoding="utf-8") as bf:
                         data = json.load(bf)
+                    self.default_fast_model = (
+                        str(data.get("default_fast_model", "gemini/gemini-3.8-flash")).strip()
+                        or "gemini/gemini-3.8-flash"
+                    )
+                    self.default_reasoning_model = (
+                        str(data.get("default_reasoning_model", "mistral/mistral-large-latest")).strip()
+                        or "mistral/mistral-large-latest"
+                    )
                     self.max_file_size_mb = float(data.get("max_file_size_mb", 50.0))
                     self._parse_rag_section(data.get("rag"))
                     raw_bl = data.get("workspace_write_blacklist", [])
@@ -131,6 +149,8 @@ class SystemSettingsManager:
         target_file.parent.mkdir(parents=True, exist_ok=True)
 
         payload = {
+            "default_fast_model": self.default_fast_model,
+            "default_reasoning_model": self.default_reasoning_model,
             "max_file_size_mb": self.max_file_size_mb,
             "rag": self.rag_config,
             "_comment_workspace_write_blacklist": (
@@ -173,6 +193,31 @@ class SystemSettingsManager:
                 logger.info("[SYSTEM_SETTINGS] Updated emergency backup.")
         except (OSError, TypeError, ValueError) as e:
             logger.warning(f"[SYSTEM_SETTINGS] Backup update failed: {e}")
+
+    # --- Default Model Settings ---
+    def get_default_fast_model(self) -> str:
+        self.load()
+        return str(self.default_fast_model)
+
+    def get_default_reasoning_model(self) -> str:
+        self.load()
+        return str(self.default_reasoning_model)
+
+    def set_default_fast_model(self, model: str, save: bool = True) -> None:
+        clean = str(model).strip()
+        if clean:
+            self.default_fast_model = clean
+            if save:
+                self.save()
+            logger.info(f"[SYSTEM_SETTINGS] Set default_fast_model to '{self.default_fast_model}'.")
+
+    def set_default_reasoning_model(self, model: str, save: bool = True) -> None:
+        clean = str(model).strip()
+        if clean:
+            self.default_reasoning_model = clean
+            if save:
+                self.save()
+            logger.info(f"[SYSTEM_SETTINGS] Set default_reasoning_model to '{self.default_reasoning_model}'.")
 
     # --- File Size Limit ---
     def get_max_file_size_mb(self) -> float:
@@ -346,4 +391,21 @@ def is_path_write_blocked(
     return system_settings_manager.is_path_write_blocked(
         target_path, base_dir=base_dir, custom_blacklist=custom_blacklist
     )
+
+
+def get_default_fast_model() -> str:
+    return system_settings_manager.get_default_fast_model()
+
+
+def set_default_fast_model(model: str, save: bool = True) -> None:
+    system_settings_manager.set_default_fast_model(model, save=save)
+
+
+def get_default_reasoning_model() -> str:
+    return system_settings_manager.get_default_reasoning_model()
+
+
+def set_default_reasoning_model(model: str, save: bool = True) -> None:
+    system_settings_manager.set_default_reasoning_model(model, save=save)
+
 

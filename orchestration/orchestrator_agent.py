@@ -108,9 +108,12 @@ class OrchestratorAgent:
             return self._custom_fast_model
         try:
             from orchestration.agent_settings import settings_manager
+
             return settings_manager.get_orchestrator_fast_model()
         except (ImportError, AttributeError, KeyError):
-            return "gemini/gemini-3.8-flash"
+            from core.config import get_default_fast_model
+
+            return get_default_fast_model()
 
     @property
     def reasoning_model(self) -> str:
@@ -118,9 +121,12 @@ class OrchestratorAgent:
             return self._custom_reasoning_model
         try:
             from orchestration.agent_settings import settings_manager
+
             return settings_manager.get_orchestrator_reasoning_model()
         except (ImportError, AttributeError, KeyError):
-            return "mistral/mistral-large-latest"
+            from core.config import get_default_reasoning_model
+
+            return get_default_reasoning_model()
 
     def get_model_for_task(self, task: OrchestratorTask) -> str:
         """Selects either the fast_model or reasoning_model based on task complexity."""

@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 import pytest
 
+from core.config import get_pricing_agent_model
 import services.pricing_service as pricing_module
 from services.pricing_service import (
     PRICING_TOOL_SCHEMAS,
@@ -155,10 +156,10 @@ async def test_fetch_pricing_with_agent_success():
         assert res["source_url"] == "https://ai.google.dev/pricing"
         assert "updated_at" in res
 
-        # Verify litellm called with mistral/mistral-small-latest
+        # Verify litellm called with configured pricing agent model
         assert mock_completion.call_count == 2
         first_call_kwargs = mock_completion.call_args_list[0].kwargs
-        assert first_call_kwargs["model"] == "mistral/mistral-small-latest"
+        assert first_call_kwargs["model"] == get_pricing_agent_model()
         assert first_call_kwargs["tools"] == PRICING_TOOL_SCHEMAS
 
         # Verify web_search was called with query requested by agent

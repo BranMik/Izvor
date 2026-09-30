@@ -4,7 +4,6 @@ from pathlib import Path
 from typing import Any
 
 from core.config import MCP_WORKSPACE_DIR
-from orchestration.system_settings import is_path_write_blocked
 
 from .web_tools import fetch_web_page, web_search
 
@@ -170,6 +169,8 @@ def write_file(rel_path: str, content: str) -> str:
     Writes or overwrites content to a text file inside the workspace.
     """
     try:
+        from orchestration.system_settings import is_path_write_blocked
+
         path = _resolve_safe_path(rel_path)
         if is_path_write_blocked(path, base_dir=WORKSPACE_DIR):
             return json.dumps({
@@ -303,6 +304,8 @@ def write_document(rel_path: str, content: str) -> str:
     Writes or overwrites content to a text document inside the resources/ directory.
     """
     try:
+        from orchestration.system_settings import is_path_write_blocked
+
         path = _resolve_resource_path(rel_path)
         if is_path_write_blocked(path, base_dir=WORKSPACE_DIR):
             return json.dumps({
@@ -490,38 +493,29 @@ MCP_TOOLS_SCHEMAS = [
 ]
 
 
-def execute_mcp_tool(tool_name: str, arguments: dict[str, Any], agent_name: str = "") -> str:
+TOOL_DISPATCHER: dict[str, Any] = {
+    "list_directory": lambda args: list_directory(args.get("rel_path", ".")),
+    "read_file": lambda args: read_file(args.get("rel_path", "")),
+    "write_file": lambda args: write_file(args.get("rel_path", ""), args.get("content", "")),
+    "list_documents": lambda args: list_documents(args.get("rel_path", ".")),
+    "read_document": lambda args: read_document(args.get("rel_path", "")),
+    "write_document": lambda args: write_document(args.get("rel_path", ""), args.get("content", "")),
+    "web_search": lambda args: web_search(query=args.get("query", ""), max_results=args.get("max_results", 5)),
+    "fetch_web_page": lambda args: fetch_web_page(url=args.get("url", ""), max_chars=args.get("max_chars", 4000)),
+    "web_scrape": lambda args: fetch_web_page(url=args.get("url", ""), max_chars=args.get("max_chars", 4000)),
+}
+
+
+def execute_mcp_tool(tool_name: str, arguments: dict[str, Any] | None = None, agent_name: str = "") -> str:
     """
-    Executes a requested native MCP tool and returns the JSON string result.
+    Executes a requested native MCP tool via dispatcher dictionary and returns the JSON string result.
     """
     logger.info(f"Executing MCP tool: {tool_name} with args: {arguments} (agent: {agent_name})")
-    if tool_name == "list_directory":
-        rel_path = arguments.get("rel_path", ".")
-        return list_directory(rel_path)
-    elif tool_name == "read_file":
-        rel_path = arguments.get("rel_path", "")
-        return read_file(rel_path)
-    elif tool_name == "write_file":
-        rel_path = arguments.get("rel_path", "")
-        content = arguments.get("content", "")
-        return write_file(rel_path, content)
-    elif tool_name == "list_documents":
-        rel_path = arguments.get("rel_path", ".")
-        return list_documents(rel_path)
-    elif tool_name == "read_document":
-        rel_path = arguments.get("rel_path", "")
-        return read_document(rel_path)
-    elif tool_name == "write_document":
-        rel_path = arguments.get("rel_path", "")
-        content = arguments.get("content", "")
-        return write_document(rel_path, content)
-    elif tool_name == "web_search":
-        query = arguments.get("query", "")
-        max_results = arguments.get("max_results", 5)
-        return web_search(query=query, max_results=max_results)
-    elif tool_name in ("fetch_web_page", "web_scrape"):
-        url = arguments.get("url", "")
-        max_chars = arguments.get("max_chars", 4000)
-        return fetch_web_page(url=url, max_chars=max_chars)
-    else:
-        return json.dumps({"error": f"Unknown tool: {tool_name}"})
+    handler = TOOL_DISPATCHER.get(tool_name)
+    if handler:
+        try:
+            return handler(arguments or {})
+        except Exception as e:
+            logger.error(f"[MCP] Error executing tool {tool_name}: {e}")
+            return json.dumps({"error": f"Tool execution error: {e}"})
+    return json.dumps({"error": f"Unknown tool: {tool_name}"})

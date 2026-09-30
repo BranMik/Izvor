@@ -11,12 +11,16 @@ from pathlib import Path
 
 from orchestration.system_settings import (
     SystemSettingsManager,
+    get_default_fast_model,
+    get_default_reasoning_model,
     get_max_file_size_bytes,
     get_max_file_size_mb,
     get_rag_config,
     get_rag_setting,
     get_workspace_write_blacklist,
     is_path_write_blocked,
+    set_default_fast_model,
+    set_default_reasoning_model,
     set_max_file_size_mb,
     set_rag_setting,
     set_workspace_write_blacklist,
@@ -30,6 +34,10 @@ def test_system_settings_defaults():
 
         assert mgr.max_file_size_mb == 50.0
         assert mgr.get_max_file_size_bytes() == 50 * 1024 * 1024
+        assert mgr.default_fast_model == "gemini/gemini-3.8-flash"
+        assert mgr.default_reasoning_model == "mistral/mistral-large-latest"
+        assert mgr.get_default_fast_model() == "gemini/gemini-3.8-flash"
+        assert mgr.get_default_reasoning_model() == "mistral/mistral-large-latest"
 
         rag = mgr.get_rag_config()
         assert rag["max_chunk_chars"] == 3500
@@ -55,6 +63,25 @@ def test_system_settings_custom_persistence():
         assert mgr2.get_max_file_size_mb() == 25.0
         assert mgr2.get_max_file_size_bytes() == 25 * 1024 * 1024
         assert mgr2.get_rag_setting("max_chunk_chars") == 4200
+
+
+def test_system_settings_default_models_persistence():
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        settings_file = Path(tmp_dir) / "system_settings.json"
+        mgr = SystemSettingsManager(settings_file=settings_file, auto_load=True)
+
+        mgr.set_default_fast_model("openai/gpt-4o-mini")
+        mgr.set_default_reasoning_model("anthropic/claude-3-5-sonnet")
+
+        assert mgr.get_default_fast_model() == "openai/gpt-4o-mini"
+        assert mgr.get_default_reasoning_model() == "anthropic/claude-3-5-sonnet"
+
+        # Reload from disk
+        mgr2 = SystemSettingsManager(settings_file=settings_file, auto_load=True)
+        assert mgr2.get_default_fast_model() == "openai/gpt-4o-mini"
+        assert mgr2.get_default_reasoning_model() == "anthropic/claude-3-5-sonnet"
+        assert mgr2.default_fast_model == "openai/gpt-4o-mini"
+        assert mgr2.default_reasoning_model == "anthropic/claude-3-5-sonnet"
 
 
 def test_system_settings_rag_section_persistence():
@@ -126,6 +153,14 @@ def test_system_settings_module_convenience(monkeypatch, tmp_path):
 
     set_workspace_write_blacklist(["secrets/*", "custom.key"])
     assert get_workspace_write_blacklist() == ["secrets/*", "custom.key"]
+
+    assert get_default_fast_model() == "gemini/gemini-3.8-flash"
+    set_default_fast_model("test/fast-model")
+    assert get_default_fast_model() == "test/fast-model"
+
+    assert get_default_reasoning_model() == "mistral/mistral-large-latest"
+    set_default_reasoning_model("test/reasoning-model")
+    assert get_default_reasoning_model() == "test/reasoning-model"
 
 
 def test_workspace_write_blacklist_persistence(tmp_path):

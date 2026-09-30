@@ -3,7 +3,7 @@ import logging
 import time
 from typing import Any
 
-from core.config import THREAD_NOTES_MODEL
+from core.config import get_thread_notes_model
 from services.slack_client import (
     fetch_thread_history,
     post_thread_note,
@@ -275,13 +275,14 @@ async def update_notes_for_thread(
                 )
 
             duration = time.time() - start_time
+            thread_notes_model = get_thread_notes_model()
 
             # 4. Mandatory Log: Tokens spent and latency
             logger.info(
                 f"[THREAD NOTES] 📊 Live Note Update Completed | "
                 f"Thread: {thread_ts} (Channel: {channel_id}) | "
                 f"Note TS: {note_ts} | "
-                f"Model: {THREAD_NOTES_MODEL} | "
+                f"Model: {thread_notes_model} | "
                 f"Tokens: Prompt={token_stats['prompt_tokens']}, "
                 f"Completion={token_stats['completion_tokens']}, "
                 f"Total={token_stats['total_tokens']} | "
@@ -293,7 +294,7 @@ async def update_notes_for_thread(
                 record_thread_tokens(
                     channel_id=channel_id,
                     thread_ts=thread_ts,
-                    model_name=THREAD_NOTES_MODEL,
+                    model_name=thread_notes_model,
                     prompt_tokens=token_stats["prompt_tokens"],
                     completion_tokens=token_stats["completion_tokens"],
                 )

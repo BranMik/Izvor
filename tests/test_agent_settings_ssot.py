@@ -295,7 +295,7 @@ def test_slack_app_home_emergency_alert():
         assert has_alert is False
 
 
-def test_dynamic_config_getattr_resolution():
+def test_dynamic_config_getter_resolution():
     import core.config
 
     # Attribute error on unknown attribute
@@ -311,21 +311,21 @@ def test_dynamic_config_getattr_resolution():
             "username": "Orchestrator",
             "icon_url": "static/image_30.png",
         }
-        assert core.config.ORCHESTRATOR_FAST_MODEL == "gemini/gemini-3.8-flash"
-        assert core.config.ORCHESTRATOR_REASONING_MODEL == "mistral/mistral-large-latest"
-        assert core.config.THREAD_NOTES_MODEL == "mistral/mistral-large-latest"
-        assert core.config.INTENT_EXTRACTOR_MODEL == "gemini/gemini-3.8-flash"
-        assert core.config.LANGUAGE_DETECTOR_MODEL == "gemini/gemini-3.8-flash"
+        assert core.config.get_orchestrator_fast_model() == "gemini/gemini-3.8-flash"
+        assert core.config.get_orchestrator_reasoning_model() == "mistral/mistral-large-latest"
+        assert core.config.get_thread_notes_model() == "mistral/mistral-large-latest"
+        assert core.config.get_intent_extractor_model() == "gemini/gemini-3.8-flash"
+        assert core.config.get_language_detector_model() == "gemini/gemini-3.8-flash"
 
         settings_manager.set_orchestrator_models(
             fast_model="groq/llama-3.3-70b-versatile-dynamic",
             reasoning_model="anthropic/claude-3-7-sonnet-dynamic",
             save=False,
         )
-        assert core.config.ORCHESTRATOR_FAST_MODEL == "groq/llama-3.3-70b-versatile-dynamic"
-        assert core.config.ORCHESTRATOR_REASONING_MODEL == "anthropic/claude-3-7-sonnet-dynamic"
-        assert core.config.THREAD_NOTES_MODEL == "anthropic/claude-3-7-sonnet-dynamic"
-        assert core.config.INTENT_EXTRACTOR_MODEL == "groq/llama-3.3-70b-versatile-dynamic"
+        assert core.config.get_orchestrator_fast_model() == "groq/llama-3.3-70b-versatile-dynamic"
+        assert core.config.get_orchestrator_reasoning_model() == "anthropic/claude-3-7-sonnet-dynamic"
+        assert core.config.get_thread_notes_model() == "anthropic/claude-3-7-sonnet-dynamic"
+        assert core.config.get_intent_extractor_model() == "groq/llama-3.3-70b-versatile-dynamic"
     finally:
         settings_manager.orchestrator_config = original_orchestrator
 
