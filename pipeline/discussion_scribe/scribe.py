@@ -32,8 +32,16 @@ class DiscussionScribe:
     """
 
     def __init__(self, model: str | None = None, system_prompt: str | None = None):
-        self.model = model or get_thread_notes_model()
+        self._custom_model = model
         self.system_prompt = system_prompt or SCRIBE_DEFAULT_PROMPT
+
+    @property
+    def model(self) -> str:
+        return self._custom_model or get_thread_notes_model()
+
+    @model.setter
+    def model(self, val: str | None) -> None:
+        self._custom_model = val
 
     async def generate_brief(
         self,

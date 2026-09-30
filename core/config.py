@@ -1,3 +1,11 @@
+"""
+Core Configuration Module for SilvanAgora.
+
+Provides centralized environment resolution, workspace paths, default LLM model
+specifications (from data/system_settings.json SSOT), and dynamic model getter
+functions that read from agent_settings.json SSOT without circular dependencies.
+"""
+
 import logging
 import os
 import sys
@@ -56,7 +64,6 @@ def resolve_avatar_url(icon_url: str | None) -> str | None:
     return f"{BASE_AVATAR_URL}{icon_str.lstrip('/')}"
 
 
-
 # Default system agent persona for warnings and moderation
 SYSTEM_AGENT_USERNAME = os.getenv("SYSTEM_AGENT_USERNAME", "Panel System")
 SYSTEM_AGENT_AVATAR = os.getenv("SYSTEM_AGENT_AVATAR", "static/v2/avatar_47.png")
@@ -68,6 +75,43 @@ USAGE_CHANNEL_ID = os.getenv("USAGE_CHANNEL_ID", "")
 # Shared in-memory configuration maps (populated by AgentSettingsManager from data/agent_settings.json)
 AGENTS_CONFIG: dict[str, dict[str, Any]] = {}
 SYSTEM_AGENTS_CONFIG: dict[str, dict[str, Any]] = {}
+ORCHESTRATOR_CONFIG: dict[str, Any] = {}
+
+
+def _load_default_models_from_ssot() -> tuple[str, str]:
+    """Loads default_fast_model and default_reasoning_model from data/system_settings.json SSOT."""
+    settings_file = PROJECT_ROOT / "data" / "system_settings.json"
+    fast_default = "gemini/gemini-3.8-flash"
+    reasoning_default = "mistral/mistral-large-latest"
+    if not settings_file.exists():
+        return fast_default, reasoning_default
+    try:
+        import json
+
+        with open(settings_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        fast = str(data.get("default_fast_model", fast_default)).strip() or fast_default
+        reasoning = (
+            str(data.get("default_reasoning_model", reasoning_default)).strip()
+            or reasoning_default
+        )
+        return fast, reasoning
+    except Exception as e:
+        logger.debug(f"[CONFIG] System settings default models load error: {e}")
+        return fast_default, reasoning_default
+
+
+DEFAULT_FAST_MODEL, DEFAULT_REASONING_MODEL = _load_default_models_from_ssot()
+
+
+def get_default_fast_model() -> str:
+    """Returns the system-level default fast LLM model."""
+    return DEFAULT_FAST_MODEL
+
+
+def get_default_reasoning_model() -> str:
+    """Returns the system-level default reasoning LLM model."""
+    return DEFAULT_REASONING_MODEL
 
 
 def _load_system_agents_from_ssot() -> dict[str, dict[str, Any]]:
@@ -88,6 +132,24 @@ def _load_system_agents_from_ssot() -> dict[str, dict[str, Any]]:
     return {}
 
 
+def _load_agents_from_ssot() -> dict[str, dict[str, Any]]:
+    """Loads agents mapping directly from data/agent_settings.json SSOT."""
+    settings_file = PROJECT_ROOT / "data" / "agent_settings.json"
+    if not settings_file.exists():
+        return {}
+    try:
+        import json
+
+        with open(settings_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        raw = data.get("agents", {})
+        if isinstance(raw, dict):
+            return {k: v for k, v in raw.items() if isinstance(v, dict)}
+    except (OSError, json.JSONDecodeError, UnicodeError, AttributeError, ValueError) as e:
+        logger.debug(f"[CONFIG] Agent settings load error: {e}")
+    return {}
+
+
 def get_system_agent_model(name: str, fallback: str = "") -> str:
     """
     Retrieves the configured LLM model for a system agent from SSOT (data/agent_settings.json).
@@ -99,21 +161,12 @@ def get_system_agent_model(name: str, fallback: str = "") -> str:
     if env_val and env_val.strip():
         return env_val.strip()
 
-    # 1. Check settings_manager if available in loaded modules
-    settings_mod = sys.modules.get("orchestration.agent_settings") or sys.modules.get("agent_settings")
-    if settings_mod and hasattr(settings_mod, "settings_manager"):
-        mgr_cfg = getattr(settings_mod.settings_manager, "system_agents_config", {})
-        if isinstance(mgr_cfg, dict) and name in mgr_cfg:
-            entry = mgr_cfg[name]
-            if isinstance(entry, dict) and entry.get("model"):
-                return str(entry["model"]).strip()
-
-    # 2. Check in-memory shared SYSTEM_AGENTS_CONFIG
+    # 1. Check in-memory shared SYSTEM_AGENTS_CONFIG
     sys_cfg = SYSTEM_AGENTS_CONFIG.get(name, {})
     if isinstance(sys_cfg, dict) and sys_cfg.get("model"):
         return str(sys_cfg["model"]).strip()
 
-    # 3. Direct load from SSOT file (data/agent_settings.json)
+    # 2. Direct load from SSOT file (data/agent_settings.json)
     ssot_agents = _load_system_agents_from_ssot()
     if name in ssot_agents:
         entry = ssot_agents[name]
@@ -121,7 +174,65 @@ def get_system_agent_model(name: str, fallback: str = "") -> str:
             SYSTEM_AGENTS_CONFIG[name] = entry
             return str(entry["model"]).strip()
 
-    return fallback
+    return fallback or get_orchestrator_fast_model()
+
+
+def _load_orchestrator_from_ssot() -> dict[str, Any]:
+    """Loads orchestrator mapping directly from data/agent_settings.json SSOT."""
+    settings_file = PROJECT_ROOT / "data" / "agent_settings.json"
+    if not settings_file.exists():
+        return {}
+    try:
+        import json
+
+        with open(settings_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        raw = data.get("orchestrator", {})
+        if isinstance(raw, dict):
+            return dict(raw)
+    except (OSError, json.JSONDecodeError, UnicodeError, AttributeError, ValueError) as e:
+        logger.debug(f"[CONFIG] Orchestrator settings load error: {e}")
+    return {}
+
+
+def get_orchestrator_fast_model(fallback: str | None = None) -> str:
+    """Retrieves the fast_model configured for the Orchestrator from env, in-memory ORCHESTRATOR_CONFIG, or SSOT."""
+    effective_fallback = fallback or get_default_fast_model()
+    env_val = os.getenv("ORCHESTRATOR_FAST_MODEL")
+    if env_val and env_val.strip():
+        return env_val.strip()
+
+    # 1. Check in-memory shared ORCHESTRATOR_CONFIG
+    if isinstance(ORCHESTRATOR_CONFIG, dict) and ORCHESTRATOR_CONFIG.get("fast_model"):
+        return str(ORCHESTRATOR_CONFIG["fast_model"]).strip()
+
+    # 2. Check direct SSOT file
+    ssot_orch = _load_orchestrator_from_ssot()
+    if isinstance(ssot_orch, dict) and ssot_orch.get("fast_model"):
+        ORCHESTRATOR_CONFIG.update(ssot_orch)
+        return str(ssot_orch["fast_model"]).strip()
+
+    return effective_fallback
+
+
+def get_orchestrator_reasoning_model(fallback: str | None = None) -> str:
+    """Retrieves the reasoning_model configured for the Orchestrator from env, in-memory ORCHESTRATOR_CONFIG, or SSOT."""
+    effective_fallback = fallback or get_default_reasoning_model()
+    env_val = os.getenv("ORCHESTRATOR_REASONING_MODEL")
+    if env_val and env_val.strip():
+        return env_val.strip()
+
+    # 1. Check in-memory shared ORCHESTRATOR_CONFIG
+    if isinstance(ORCHESTRATOR_CONFIG, dict) and ORCHESTRATOR_CONFIG.get("reasoning_model"):
+        return str(ORCHESTRATOR_CONFIG["reasoning_model"]).strip()
+
+    # 2. Check direct SSOT file
+    ssot_orch = _load_orchestrator_from_ssot()
+    if isinstance(ssot_orch, dict) and ssot_orch.get("reasoning_model"):
+        ORCHESTRATOR_CONFIG.update(ssot_orch)
+        return str(ssot_orch["reasoning_model"]).strip()
+
+    return effective_fallback
 
 
 # System / Utility Agent prompts (lazily built to prevent circular imports with prompts)
@@ -131,6 +242,7 @@ _CACHED_PROMPTS: dict[str, str] = {}
 def get_thread_notes_prompt() -> str:
     if "thread_notes" not in _CACHED_PROMPTS:
         from prompts import build_agent_prompt
+
         _CACHED_PROMPTS["thread_notes"] = build_agent_prompt("Thread_Notes_Agent")
     return _CACHED_PROMPTS["thread_notes"]
 
@@ -138,6 +250,7 @@ def get_thread_notes_prompt() -> str:
 def get_usage_agent_prompt() -> str:
     if "usage_agent" not in _CACHED_PROMPTS:
         from prompts import build_agent_prompt
+
         _CACHED_PROMPTS["usage_agent"] = build_agent_prompt("Usage_Agent")
     return _CACHED_PROMPTS["usage_agent"]
 
@@ -145,33 +258,12 @@ def get_usage_agent_prompt() -> str:
 def get_pricing_agent_prompt() -> str:
     if "pricing_agent" not in _CACHED_PROMPTS:
         from prompts import build_agent_prompt
+
         _CACHED_PROMPTS["pricing_agent"] = build_agent_prompt("Pricing_Agent")
     return _CACHED_PROMPTS["pricing_agent"]
 
 
-def get_orchestrator_fast_model(fallback: str = "gemini/gemini-3.8-flash") -> str:
-    """Retrieves the fast_model configured for the Orchestrator."""
-    env_val = os.getenv("ORCHESTRATOR_FAST_MODEL")
-    if env_val and env_val.strip():
-        return env_val.strip()
-    settings_mod = sys.modules.get("orchestration.agent_settings") or sys.modules.get("agent_settings")
-    if settings_mod and hasattr(settings_mod, "settings_manager"):
-        return settings_mod.settings_manager.get_orchestrator_fast_model()
-    return fallback
-
-
-def get_orchestrator_reasoning_model(fallback: str = "mistral/mistral-large-latest") -> str:
-    """Retrieves the reasoning_model configured for the Orchestrator."""
-    env_val = os.getenv("ORCHESTRATOR_REASONING_MODEL")
-    if env_val and env_val.strip():
-        return env_val.strip()
-    settings_mod = sys.modules.get("orchestration.agent_settings") or sys.modules.get("agent_settings")
-    if settings_mod and hasattr(settings_mod, "settings_manager"):
-        return settings_mod.settings_manager.get_orchestrator_reasoning_model()
-    return fallback
-
-
-# Module-level getters / properties (dynamically resolved from SSOT)
+# Module-level getters (dynamically resolved from SSOT)
 def get_thread_notes_model() -> str:
     return get_orchestrator_reasoning_model()
 
@@ -192,7 +284,6 @@ def get_language_detector_model() -> str:
     return get_orchestrator_fast_model()
 
 
-
 # Pacing & Orchestration Defaults (configurable via environment variables)
 DEBATE_TURN_PACING_SECONDS = float(
     os.getenv("DEBATE_TURN_PACING_SECONDS", "0.01" if "pytest" in sys.modules else "3.0")
@@ -208,29 +299,45 @@ TOOL_INTERMEDIATE_UPDATE_DELAY_SECONDS = float(
     os.getenv("TOOL_INTERMEDIATE_UPDATE_DELAY_SECONDS", "5.0")
 )
 
-
-# Module-level variable aliases (dynamically resolve via module __getattr__)
-def __getattr__(name: str) -> Any:
-    if name == "ORCHESTRATOR_FAST_MODEL":
-        return get_orchestrator_fast_model()
-    if name == "ORCHESTRATOR_REASONING_MODEL":
-        return get_orchestrator_reasoning_model()
-    if name == "THREAD_NOTES_MODEL":
-        return get_thread_notes_model()
-    if name == "USAGE_AGENT_MODEL":
-        return get_usage_agent_model()
-    if name == "PRICING_AGENT_MODEL":
-        return get_pricing_agent_model()
-    if name == "INTENT_EXTRACTOR_MODEL":
-        return get_intent_extractor_model()
-    if name == "LANGUAGE_DETECTOR_MODEL":
-        return get_language_detector_model()
-    if name == "THREAD_NOTES_PROMPT":
-        return get_thread_notes_prompt()
-    if name == "USAGE_AGENT_PROMPT":
-        return get_usage_agent_prompt()
-    if name == "PRICING_AGENT_PROMPT":
-        return get_pricing_agent_prompt()
-    raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
+__all__ = [
+    "PROJECT_ROOT",
+    "logger",
+    "SLACK_BOT_TOKEN",
+    "SLACK_SIGNING_SECRET",
+    "SLACK_TEST_CHANNEL_ID",
+    "MCP_WORKSPACE_DIR",
+    "LOG_LEVEL",
+    "ADMIN_USERNAME",
+    "ADMIN_PASSWORD",
+    "BASE_AVATAR_URL",
+    "SYSTEM_AGENT_USERNAME",
+    "SYSTEM_AGENT_AVATAR",
+    "USAGE_CHANNEL_NAME",
+    "USAGE_CHANNEL_ID",
+    "AGENTS_CONFIG",
+    "SYSTEM_AGENTS_CONFIG",
+    "ORCHESTRATOR_CONFIG",
+    "DEFAULT_FAST_MODEL",
+    "DEFAULT_REASONING_MODEL",
+    "DEBATE_TURN_PACING_SECONDS",
+    "SLACK_POST_PAUSE_SECONDS",
+    "MAX_DISCUSSION_TURNS",
+    "TOOL_CALL_LOOP_TIMEOUT_SECONDS",
+    "TOOL_INTERMEDIATE_UPDATE_DELAY_SECONDS",
+    "resolve_avatar_url",
+    "get_default_fast_model",
+    "get_default_reasoning_model",
+    "get_system_agent_model",
+    "get_orchestrator_fast_model",
+    "get_orchestrator_reasoning_model",
+    "get_thread_notes_model",
+    "get_usage_agent_model",
+    "get_pricing_agent_model",
+    "get_intent_extractor_model",
+    "get_language_detector_model",
+    "get_thread_notes_prompt",
+    "get_usage_agent_prompt",
+    "get_pricing_agent_prompt",
+]
 
 

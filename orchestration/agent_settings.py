@@ -8,10 +8,12 @@ from typing import Any
 
 from core.config import (
     AGENTS_CONFIG,
+    ORCHESTRATOR_CONFIG,
     SYSTEM_AGENTS_CONFIG,
 )
 from core.models import OrchestrationMode
 from orchestration.app_settings import AppSettingsManager, app_settings_manager
+from orchestration.system_settings import SystemSettingsManager, system_settings_manager
 from prompts import build_agent_prompt
 
 logger = logging.getLogger(__name__)
@@ -65,27 +67,33 @@ class AgentSettingsManager:
 
         if settings_file is not None or backup_file is not None:
             # Isolated dictionaries for custom instances (e.g. tests)
-            self.agents_config = {}
-            self.system_agents_config = {}
-            self.orchestrator_config = {
-                "fast_model": "gemini/gemini-3.8-flash",
-                "reasoning_model": "mistral/mistral-large-latest",
+            self._agents_config = {}
+            self._system_agents_config = {}
+            self._orchestrator_config = {}
+            app_set_file = self.default_settings_file.parent / "app_settings.json"
+            sys_set_file = self.default_settings_file.parent / "system_settings.json"
+            self.app_settings = AppSettingsManager(settings_file=app_set_file, auto_load=True)
+            self.system_settings = SystemSettingsManager(settings_file=sys_set_file, auto_load=True)
+            self._orchestrator_config.update({
+                "fast_model": self.system_settings.get_default_fast_model(),
+                "reasoning_model": self.system_settings.get_default_reasoning_model(),
                 "username": "Orchestrator",
                 "icon_url": "static/image_30.png",
-            }
-            app_set_file = self.default_settings_file.parent / "app_settings.json"
-            self.app_settings = AppSettingsManager(settings_file=app_set_file, auto_load=True)
+            })
         else:
             # Global default instance bound to core.config
-            self.agents_config = AGENTS_CONFIG
-            self.system_agents_config = SYSTEM_AGENTS_CONFIG
-            self.orchestrator_config = {
-                "fast_model": "gemini/gemini-3.8-flash",
-                "reasoning_model": "mistral/mistral-large-latest",
+            self._agents_config = AGENTS_CONFIG
+            self._system_agents_config = SYSTEM_AGENTS_CONFIG
+            self._orchestrator_config = ORCHESTRATOR_CONFIG
+            self.app_settings = app_settings_manager
+            self.system_settings = system_settings_manager
+            self._orchestrator_config.clear()
+            self._orchestrator_config.update({
+                "fast_model": self.system_settings.get_default_fast_model(),
+                "reasoning_model": self.system_settings.get_default_reasoning_model(),
                 "username": "Orchestrator",
                 "icon_url": "static/image_30.png",
-            }
-            self.app_settings = app_settings_manager
+            })
         self.enabled_agents: set[str] = set()
 
         # Orchestration flow mode and chains
@@ -104,6 +112,45 @@ class AgentSettingsManager:
 
         if auto_load:
             self.load()
+
+    @property
+    def agents_config(self) -> dict[str, Any]:
+        return self._agents_config
+
+    @agents_config.setter
+    def agents_config(self, val: dict[str, Any]) -> None:
+        if hasattr(self, "_agents_config") and isinstance(self._agents_config, dict):
+            self._agents_config.clear()
+            if isinstance(val, dict):
+                self._agents_config.update(val)
+        else:
+            self._agents_config = dict(val) if isinstance(val, dict) else {}
+
+    @property
+    def system_agents_config(self) -> dict[str, Any]:
+        return self._system_agents_config
+
+    @system_agents_config.setter
+    def system_agents_config(self, val: dict[str, Any]) -> None:
+        if hasattr(self, "_system_agents_config") and isinstance(self._system_agents_config, dict):
+            self._system_agents_config.clear()
+            if isinstance(val, dict):
+                self._system_agents_config.update(val)
+        else:
+            self._system_agents_config = dict(val) if isinstance(val, dict) else {}
+
+    @property
+    def orchestrator_config(self) -> dict[str, Any]:
+        return self._orchestrator_config
+
+    @orchestrator_config.setter
+    def orchestrator_config(self, val: dict[str, Any]) -> None:
+        if hasattr(self, "_orchestrator_config") and isinstance(self._orchestrator_config, dict):
+            self._orchestrator_config.clear()
+            if isinstance(val, dict):
+                self._orchestrator_config.update(val)
+        else:
+            self._orchestrator_config = dict(val) if isinstance(val, dict) else {}
 
     @property
     def circuit_breaker_enabled(self) -> bool:
@@ -396,20 +443,23 @@ class AgentSettingsManager:
 
         # Parse orchestrator config
         raw_orch = data.get("orchestrator", {})
+        default_fast = self.system_settings.get_default_fast_model()
+        default_reasoning = self.system_settings.get_default_reasoning_model()
+        self.orchestrator_config.clear()
         if isinstance(raw_orch, dict) and raw_orch:
-            self.orchestrator_config = {
-                "fast_model": str(raw_orch.get("fast_model", "gemini/gemini-3.8-flash")).strip(),
-                "reasoning_model": str(raw_orch.get("reasoning_model", "mistral/mistral-large-latest")).strip(),
+            self.orchestrator_config.update({
+                "fast_model": str(raw_orch.get("fast_model", default_fast)).strip(),
+                "reasoning_model": str(raw_orch.get("reasoning_model", default_reasoning)).strip(),
                 "username": str(raw_orch.get("username", "Orchestrator")).strip(),
                 "icon_url": str(raw_orch.get("icon_url", "static/image_30.png")).strip(),
-            }
+            })
         else:
-            self.orchestrator_config = {
-                "fast_model": "gemini/gemini-3.8-flash",
-                "reasoning_model": "mistral/mistral-large-latest",
+            self.orchestrator_config.update({
+                "fast_model": default_fast,
+                "reasoning_model": default_reasoning,
                 "username": "Orchestrator",
                 "icon_url": "static/image_30.png",
-            }
+            })
 
         # Parse system agents (legacy or secondary entries)
         self.system_agents_config.clear()
@@ -922,10 +972,10 @@ class AgentSettingsManager:
         return dict(self.orchestrator_config)
 
     def get_orchestrator_fast_model(self) -> str:
-        return self.orchestrator_config.get("fast_model", "gemini/gemini-3.8-flash")
+        return self.orchestrator_config.get("fast_model") or self.system_settings.get_default_fast_model()
 
     def get_orchestrator_reasoning_model(self) -> str:
-        return self.orchestrator_config.get("reasoning_model", "mistral/mistral-large-latest")
+        return self.orchestrator_config.get("reasoning_model") or self.system_settings.get_default_reasoning_model()
 
     def set_orchestrator_fast_model(self, model: str, save: bool = True) -> bool:
         clean = str(model).strip()

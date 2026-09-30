@@ -12,7 +12,7 @@ from agents.thread_notes_agent import (
     trigger_thread_notes_update,
     update_notes_for_thread,
 )
-from core.config import THREAD_NOTES_MODEL
+from core.config import get_thread_notes_model
 from services.slack_client import post_thread_note, update_thread_note
 
 
@@ -60,8 +60,7 @@ async def test_generate_thread_notes_calls_mistral_model():
 
         assert mock_litellm.called
         call_kwargs = mock_litellm.call_args.kwargs
-        assert call_kwargs["model"] == THREAD_NOTES_MODEL
-        assert call_kwargs["model"] == "mistral/mistral-small-latest"
+        assert call_kwargs["model"] == get_thread_notes_model()
         assert "Strategic Synthesis" in content
         assert "Core Objective" in content
         assert token_stats["prompt_tokens"] == 150

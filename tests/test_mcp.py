@@ -312,3 +312,42 @@ def test_mcp_write_document_blocks_blacklisted_path(monkeypatch):
     assert "Permission denied: Writing to protected path" in res["error"]
 
 
+def test_mcp_tool_dispatcher_registry():
+    from services.mcp_tools import TOOL_DISPATCHER
+
+    expected_tools = {
+        "read_file",
+        "write_file",
+        "list_directory",
+        "read_document",
+        "write_document",
+        "list_documents",
+        "web_search",
+        "fetch_web_page",
+    }
+    assert expected_tools.issubset(set(TOOL_DISPATCHER.keys()))
+    for name, func in TOOL_DISPATCHER.items():
+        assert callable(func), f"Dispatcher entry '{name}' must be callable"
+
+
+def test_mcp_execute_tool_unknown_and_invalid_args(monkeypatch):
+    from services.mcp_tools import TOOL_DISPATCHER, execute_mcp_tool
+
+    # Unknown tool
+    unknown_res = execute_mcp_tool("non_existent_tool_xyz", {"foo": "bar"})
+    unknown_json = json.loads(unknown_res)
+    assert "error" in unknown_json
+    assert "Unknown tool: non_existent_tool_xyz" in unknown_json["error"]
+
+    # Tool execution error when handler raises an exception
+    def _failing_handler(args):
+        raise RuntimeError("Boom")
+
+    monkeypatch.setitem(TOOL_DISPATCHER, "faulty_tool", _failing_handler)
+    error_res = execute_mcp_tool("faulty_tool", {})
+    error_json = json.loads(error_res)
+    assert "error" in error_json
+    assert "Tool execution error: Boom" in error_json["error"]
+
+
+

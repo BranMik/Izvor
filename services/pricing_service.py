@@ -10,7 +10,7 @@ from typing import Any
 
 import litellm
 
-from core.config import PRICING_AGENT_PROMPT, get_pricing_agent_model
+from core.config import get_pricing_agent_model, get_pricing_agent_prompt
 from core.llm_utils import execute_llm_with_retry
 
 from .web_tools import fetch_web_page, web_search
@@ -275,7 +275,7 @@ class PricingService:
         baseline = get_baseline_for_model(model_name)
 
         messages = [
-            {"role": "system", "content": PRICING_AGENT_PROMPT},
+            {"role": "system", "content": get_pricing_agent_prompt()},
             {
                 "role": "user",
                 "content": f"Find official per-token API pricing in USD for model: {model_name}",
@@ -504,11 +504,12 @@ class PricingService:
     async def warm_up_cache(self, models: list[str] | None = None) -> None:
         """Warms up pricing cache at server startup for all known models."""
         if models is None:
-            from core.config import AGENTS_CONFIG, THREAD_NOTES_MODEL
+            from core.config import AGENTS_CONFIG, get_thread_notes_model
 
             models_to_check = {cfg["model"] for cfg in AGENTS_CONFIG.values()}
-            if THREAD_NOTES_MODEL:
-                models_to_check.add(THREAD_NOTES_MODEL)
+            thread_notes_m = get_thread_notes_model()
+            if thread_notes_m:
+                models_to_check.add(thread_notes_m)
         else:
             models_to_check = set(models)
 
