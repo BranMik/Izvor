@@ -1,5 +1,5 @@
 """
-Unit and integration tests for the Unified Skills Architecture and Multimodal Data Contracts.
+Unit and integration tests for the Unified Skills SecurityArchitecture and Multimodal Data Contracts.
 """
 
 from unittest.mock import patch
@@ -26,18 +26,18 @@ def test_media_attachment_contract():
         attachment_type=AttachmentType.IMAGE,
         size=1024,
         b64_data="iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
-        authorized_agents={"Architect", "TechLead"},
+        authorized_agents={"SecurityArchitect", "LegalAdvisor"},
     )
     d = img_att.to_dict()
     assert d["file_id"] == "F_IMG_123"
     assert d["attachment_type"] == "image"
     assert d["b64_data"] is not None
-    assert set(d["authorized_agents"]) == {"Architect", "TechLead"}
+    assert set(d["authorized_agents"]) == {"SecurityArchitect", "LegalAdvisor"}
 
     restored = MediaAttachment.from_dict(d)
     assert restored.file_id == "F_IMG_123"
     assert restored.attachment_type == AttachmentType.IMAGE
-    assert restored.authorized_agents == {"Architect", "TechLead"}
+    assert restored.authorized_agents == {"SecurityArchitect", "LegalAdvisor"}
 
 
 def test_action_directive_contract():
@@ -82,11 +82,11 @@ def test_skill_registry_scopes_and_agent_catalog_isolation():
     all_skills = skill_registry.list_skills()
     assert any(s.name == "max_words" and s.scope == "prompt_modifier" for s in all_skills)
     assert any(s.name == "stop_discussion" and s.scope == "orchestrator" for s in all_skills)
-    assert any(s.name == "codebase_inspection" and s.scope == "agent" for s in all_skills)
+    assert any(s.name == "document_reader" and s.scope == "agent" for s in all_skills)
 
     # Catalog for agents must strictly only contain agent skills
     agent_catalog = skill_registry.get_skills_catalog_prompt()
-    assert "codebase_inspection" in agent_catalog
+    assert "document_reader" in agent_catalog
     assert "max_words" not in agent_catalog
     assert "stop_discussion" not in agent_catalog
     assert "thread_history" not in agent_catalog
@@ -108,14 +108,14 @@ def test_slash_triggers_mapping():
 @pytest.mark.anyio
 async def test_deterministic_fast_path_slash_commands():
     """Tests 100% fail-proof slash command parsing via DirectiveParser."""
-    raw = "/max-words 45 /history 2 [Architect] inspect database"
+    raw = "/max-words 45 /history 2 [SecurityArchitect] inspect database"
     directives = await directive_parser.parse(raw)
 
     assert directives.max_words == 45
     assert directives.modifiers.get("max_words") == 45
     assert directives.history_limit == 2
     assert directives.modifiers.get("history") == 2
-    assert "[Architect] inspect database" in directives.cleaned_prompt
+    assert "[SecurityArchitect] inspect database" in directives.cleaned_prompt
 
 
 @pytest.mark.anyio
@@ -205,11 +205,11 @@ def test_global_skill_declarative_frontmatter():
 async def test_dynamic_slash_parsing_grant_and_revoke_for_all():
     """Verifies dynamic slash command extraction for grant_skill_for_all and revoke_skill_for_all without hardcoding."""
     # Test grant_skill_for_all with multiple skills
-    raw1 = "/grant_skill_for_all web_research codebase_inspection Discuss database schema"
+    raw1 = "/grant_skill_for_all web_research document_reader Discuss database schema"
     d1 = await directive_parser.parse(raw1)
     grant_acts = [a for a in d1.actions if a.name == "grant_skill_for_all"]
     assert len(grant_acts) == 1
-    assert grant_acts[0].params.get("skills") == ["web_research", "codebase_inspection"]
+    assert grant_acts[0].params.get("skills") == ["web_research", "document_reader"]
     assert "Discuss database schema" in d1.cleaned_prompt
     assert "/grant_skill_for_all" not in d1.cleaned_prompt
 

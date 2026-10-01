@@ -133,7 +133,7 @@ def build_app_home_view(
                     "text": (
                         "*Welcome to CaiLogics Control Hub!*\n"
                         "Manage debate agents and spend limits (circuit-breaker) here.\n\n"
-                        "💡 *Note:* Disabled agents can still be directly invoked by tagging (e.g. `[TechLead]`)."
+                        "💡 *Note:* Disabled agents can still be directly invoked by tagging (e.g. `[LegalAdvisor]`)."
                     ),
                 },
             },
@@ -576,7 +576,7 @@ def build_app_home_view(
                         "initial_value": end_chain_str,
                         "placeholder": {
                             "type": "plain_text",
-                            "text": "e.g. Architect (comma-separated)",
+                            "text": "e.g. SecuritySecurity Architect (comma-separated)",
                         },
                     },
                     "label": {
@@ -634,7 +634,7 @@ def build_app_home_view(
                         "initial_value": fixed_chain_str,
                         "placeholder": {
                             "type": "plain_text",
-                            "text": "e.g. TechLead, Innovator, Architect (comma-separated)",
+                            "text": "e.g. LegalAdvisor, Innovator, SecuritySecurity Architect (comma-separated)",
                         },
                     },
                     "label": {

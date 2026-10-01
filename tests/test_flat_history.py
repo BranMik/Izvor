@@ -82,7 +82,7 @@ def test_format_messages_to_markdown():
     messages = [
         {"role": "user", "content": "Kako optimizirati bazu podataka?"},
         {"role": "assistant", "content": "[Visionary]: Preporucujem skaliranje i indeksiranje."},
-        {"role": "assistant", "content": "[TechLead]: Slazem se, a mozemo dodati i Redis cache."},
+        {"role": "assistant", "content": "[LegalAdvisor]: Slazem se, a mozemo dodati i Redis cache."},
     ]
     md = format_messages_to_markdown(
         messages=messages,
@@ -96,7 +96,7 @@ def test_format_messages_to_markdown():
     assert "- **Initial Prompt:** Kako optimizirati bazu podataka?" in md
     assert "### **[User]**\n\nKako optimizirati bazu podataka?" in md
     assert "### **[Visionary]**\n\nPreporucujem skaliranje i indeksiranje." in md
-    assert "### **[TechLead]**\n\nSlazem se, a mozemo dodati i Redis cache." in md
+    assert "### **[LegalAdvisor]**\n\nSlazem se, a mozemo dodati i Redis cache." in md
 
 
 def test_record_flat_history_atomic_write(tmp_path):
@@ -129,7 +129,7 @@ async def test_process_and_respond_writes_flat_history(monkeypatch, tmp_path):
 
     mock_llm_response = MagicMock()
     mock_llm_response.choices = [
-        MagicMock(message=MagicMock(content="Ovo je rjesenje [TechLead]."))
+        MagicMock(message=MagicMock(content="Ovo je rjesenje [LegalAdvisor]."))
     ]
     mock_llm_response.usage = {"prompt_tokens": 50, "completion_tokens": 20}
 

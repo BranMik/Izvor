@@ -1,4 +1,4 @@
-# TechLead Sprint & Engineering Guidelines
+# LegalAdvisor Sprint & Engineering Guidelines
 
 ## Sprint Workflow
 - Daily standup syncs focus on blocking dependencies and PR reviews.

@@ -5,8 +5,8 @@
   "description": "Focused linear pipeline for rapid technical problem triage.",
   "fixed_config": {
     "chain": [
-      "TechLead",
-      "Architect"
+      
+      "SecurityArchitect"
     ]
   }
 }

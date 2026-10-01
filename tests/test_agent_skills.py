@@ -24,8 +24,6 @@ def test_skill_md_discovery_and_frontmatter_parsing():
     skill_names = {s.name for s in skills}
 
     assert "web_research" in skill_names
-    assert "codebase_inspection" in skill_names
-    assert "workspace_authoring" in skill_names
     assert "document_reader" in skill_names
     assert "document_authoring" in skill_names
 
@@ -49,29 +47,7 @@ def test_web_research_skill_definition():
     assert schema_names == {"web_search", "fetch_web_page"}
 
 
-def test_codebase_inspection_skill_definition():
-    skill = skill_registry.get("codebase_inspection")
-    assert skill is not None
-    assert skill.name == "codebase_inspection"
-    assert set(skill.tools) == {"list_directory", "read_file"}
-    assert "# Codebase Inspection Skill" in skill.instructions
 
-    schemas = skill.get_tool_schemas()
-    assert len(schemas) == 2
-    schema_names = {s["function"]["name"] for s in schemas}
-    assert schema_names == {"list_directory", "read_file"}
-
-
-def test_workspace_authoring_skill_definition():
-    skill = skill_registry.get("workspace_authoring")
-    assert skill is not None
-    assert skill.name == "workspace_authoring"
-    assert skill.tools == ["write_file"]
-    assert "# Workspace Authoring Skill" in skill.instructions
-
-    schemas = skill.get_tool_schemas()
-    assert len(schemas) == 1
-    assert schemas[0]["function"]["name"] == "write_file"
 
 
 def test_document_reader_skill_definition():
@@ -145,9 +121,9 @@ def test_execute_load_skill_authorization():
     assert "CRITICAL INSTRUCTION" in denied_data["error"]
     assert "Do NOT report that the file or resource was not found." in denied_data["error"]
 
-    # Unauthorized case: TechLead has ['codebase_inspection'], tries to load web_research
+    # Unauthorized case: LegalAdvisor has ['document_reader'], tries to load web_research
     tl_denied = skill_registry.execute_tool(
-        "load_skill", {"skill_name": "web_research"}, authorized_skills=["codebase_inspection"]
+        "load_skill", {"skill_name": "web_research"}, authorized_skills=["document_reader"]
     )
     tl_data = json.loads(tl_denied)
     assert "Permission denied" in tl_data["error"]
@@ -166,9 +142,9 @@ def test_execute_load_skill_invalid():
 def test_execute_delegated_mcp_tool():
     with patch("skills.loader.execute_mcp_tool") as mock_exec:
         mock_exec.return_value = json.dumps({"contents": []})
-        res = skill_registry.execute_tool("list_directory", {"rel_path": "."})
+        res = skill_registry.execute_tool("list_documents", {"rel_path": "."})
         assert "contents" in res
-        mock_exec.assert_called_once_with("list_directory", {"rel_path": "."}, agent_name="")
+        mock_exec.assert_called_once_with("list_documents", {"rel_path": "."}, agent_name="")
 
 
 def test_execute_tool_authorization_enforcement():
@@ -181,21 +157,21 @@ def test_execute_tool_authorization_enforcement():
         assert json.loads(res) == {"results": ["ok"]}
         mock_exec.assert_called_once()
 
-    # Unauthorized tool: web_research does NOT allow read_file
+    # Unauthorized tool: web_research does NOT allow read_document
     denied_res = skill_registry.execute_tool(
-        "read_file", {"file_path": "secret.txt"}, authorized_skills=["web_research"]
+        "read_document", {"file_path": "secret.txt"}, authorized_skills=["web_research"]
     )
     denied_data = json.loads(denied_res)
     assert "error" in denied_data
-    assert "Permission denied: Agent is not authorized to execute tool 'read_file'" in denied_data["error"]
+    assert "Permission denied: Agent is not authorized to execute tool 'read_document'" in denied_data["error"]
     assert "'web_search'" in denied_data["error"]
 
     # Zero skills agent: no tools authorized at all
     zero_res = skill_registry.execute_tool(
-        "read_file", {"file_path": "test.txt"}, authorized_skills=[]
+        "read_document", {"file_path": "test.txt"}, authorized_skills=[]
     )
     zero_data = json.loads(zero_res)
-    assert "Permission denied: Agent is not authorized to execute tool 'read_file'" in zero_data["error"]
+    assert "Permission denied: Agent is not authorized to execute tool 'read_document'" in zero_data["error"]
     assert "Permitted tools: none" in zero_data["error"]
 
 
@@ -208,12 +184,10 @@ def test_skills_catalog_prompt_filtering():
     # When no allowed skills specified, all skills shown
     full_catalog = skill_registry.get_skills_catalog_prompt()
     assert "web_research" in full_catalog
-    assert "codebase_inspection" in full_catalog
 
     # When restricted to web_research only
     web_only = skill_registry.get_skills_catalog_prompt(allowed_skills=["web_research"])
     assert "web_research" in web_only
-    assert "codebase_inspection" not in web_only
 
     # When restricted to document_reader
     doc_only = skill_registry.get_skills_catalog_prompt(allowed_skills=["document_reader"])
@@ -232,21 +206,19 @@ def test_prompt_builder_strict_role_authorization():
     assert "AVAILABLE SKILLS (ON DEMAND VIA `load_skill`)" not in sceptic_prompt
 
     # Research expert has ['web_research']:
-    # Loadable catalog should contain web_research, but NOT codebase_inspection or workspace_authoring
+    # Loadable catalog should contain web_research, but NOT document_reader or workspace_authoring
     market_prompt = build_agent_prompt("MarketAndCompetitionResearchExpert")
     assert "AVAILABLE SKILLS (ON DEMAND VIA `load_skill`)" in market_prompt
     loadable_market = market_prompt.split("AVAILABLE SKILLS (ON DEMAND VIA `load_skill`)")[1]
     assert "`web_research`" in loadable_market
     assert "`workspace_authoring`" not in loadable_market
 
-    # TechLead has ['codebase_inspection', 'workspace_authoring']:
-    # Loadable catalog should contain codebase_inspection and workspace_authoring, but NOT web_research
-    tech_prompt = build_agent_prompt("TechLead")
+    # LegalAdvisor has ['knowledge_base_rag', 'web_research']
+    tech_prompt = build_agent_prompt("LegalAdvisor")
     assert "AVAILABLE SKILLS (ON DEMAND VIA `load_skill`)" in tech_prompt
     loadable_tech = tech_prompt.split("AVAILABLE SKILLS (ON DEMAND VIA `load_skill`)")[1]
-    assert "`codebase_inspection`" in loadable_tech
-    assert "`workspace_authoring`" in loadable_tech
-    assert "`web_research`" not in loadable_tech
+    assert "`knowledge_base_rag`" in loadable_tech
+    assert "`web_research`" in loadable_tech
 
 
 # ==============================================================================
@@ -258,8 +230,8 @@ def test_skill_loader_tool_aggregation():
     web_tools = skill_registry.get_tools_for_skills(["web_research"])
     assert len(web_tools) == 2
 
-    # Request schemas for codebase_inspection and workspace_authoring
-    author_tools = skill_registry.get_tools_for_skills(["codebase_inspection", "workspace_authoring"])
+    # Request schemas for document_reader and document_authoring
+    author_tools = skill_registry.get_tools_for_skills(["document_reader", "document_authoring"])
     assert len(author_tools) == 3
 
     # Unknown skill ignored gracefully
@@ -302,19 +274,19 @@ def test_pipeline_tools_initialization_and_progressive_unlocking():
 
     # Unauthorized load_skill call rejects and does NOT unlock forbidden tools
     unauth_res = skill_registry.execute_tool(
-        "load_skill", {"skill_name": "codebase_inspection"}, authorized_skills=market_skills
+        "load_skill", {"skill_name": "document_reader"}, authorized_skills=market_skills
     )
     unauth_data = json.loads(unauth_res)
     assert "Permission denied" in unauth_data["error"]
-    if "codebase_inspection" in market_skills:
-        cb_def = skill_registry.get("codebase_inspection")
+    if "document_reader" in market_skills:
+        cb_def = skill_registry.get("document_reader")
         for s_schema in cb_def.get_tool_schemas():
             market_active_tools.append(s_schema)
 
-    # list_directory and read_file should NOT be in market_active_tools
+    # list_documents and read_document should NOT be in market_active_tools
     final_names = {t["function"]["name"] for t in market_active_tools}
-    assert "list_directory" not in final_names
-    assert "read_file" not in final_names
+    assert "list_documents" not in final_names
+    assert "read_document" not in final_names
 
 
 def test_declarative_extraction_rules_and_file_handler():

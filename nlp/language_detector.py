@@ -137,7 +137,7 @@ def clean_system_and_tags(text: str) -> str:
     cleaned = re.sub(r"🗑️\s*\*?[^\n]*\n?", " ", cleaned)
     # Strip blockquote markers
     cleaned = re.sub(r"^>\s*\|?\s*", "", cleaned, flags=re.MULTILINE)
-    # Strip agent bracket tags: /[TechLead], [TechLead], /[Visionary], etc.
+    # Strip agent bracket tags: /[LegalAdvisor], [LegalAdvisor], /[Visionary], etc.
     cleaned = re.sub(r"/?\[[a-zA-Z0-9_ -]+\]", " ", cleaned)
     return cleaned.strip()
 

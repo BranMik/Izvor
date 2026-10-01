@@ -5,7 +5,7 @@
 - Prefer asynchronous I/O (`asyncio`, `httpx`, `async with`) for all network operations.
 - Catch specific exceptions rather than bare `except:`; preserve error traceability with logging.
 
-## 2. Code Quality & Architecture
+## 2. Code Quality & SecuritySecurity Architecture
 - Maintain single-responsibility modular services under `services/`.
 - Keep configuration centralized in `core/config.py` and `.env`.
 - Ensure all public functions and classes include clear docstrings.

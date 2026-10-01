@@ -60,10 +60,10 @@ async def test_scenario_2_multiple_agents_custom_flow(monkeypatch):
 
     thread_key = ("C123", "12345.0002")
 
-    # Step 1: User requests 2 specific agents: [Innovator] and [TechLead]
+    # Step 1: User requests 2 specific agents: [Innovator] and [LegalAdvisor]
     mock_choice_1 = MagicMock()
-    # Innovator attempts to nominate Architect prematurely (Architect was not in user's list)
-    mock_choice_1.message.content = "Innovative idea. [Architect]"
+    # Innovator attempts to nominate SecurityArchitect prematurely (SecurityArchitect was not in user's list)
+    mock_choice_1.message.content = "Innovative idea. [SecurityArchitect]"
     mock_choice_1.message.tool_calls = None
     mock_response_1 = MagicMock(choices=[mock_choice_1], usage=None)
 
@@ -75,18 +75,18 @@ async def test_scenario_2_multiple_agents_custom_flow(monkeypatch):
     await process_and_respond(
         channel_id="C123",
         thread_ts="12345.0002",
-        raw_text="/[Innovator] /[TechLead] Debate this feature",
+        raw_text="/[Innovator] /[LegalAdvisor] Debate this feature",
         is_bot_trigger=False,
     )
 
-    # Innovator's premature Architect nomination should be corrected to TechLead
+    # Innovator's premature SecurityArchitect nomination should be corrected to LegalAdvisor
     assert thread_key in thread_state_manager.custom_flow_threads
-    assert thread_state_manager.remaining_agents_map[thread_key] == ["TechLead"]
-    assert "/[TechLead]" in posted_messages[0]
+    assert thread_state_manager.remaining_agents_map[thread_key] == ["LegalAdvisor"]
+    assert "/[LegalAdvisor]" in posted_messages[0]
 
-    # Step 2: Next bot trigger for TechLead (the last custom agent)
+    # Step 2: Next bot trigger for LegalAdvisor (the last custom agent)
     mock_choice_2 = MagicMock()
-    mock_choice_2.message.content = "Tech lead evaluation and conclusion. /[Architect]"
+    mock_choice_2.message.content = "Tech lead evaluation and conclusion. /[SecurityArchitect]"
     mock_choice_2.message.tool_calls = None
     mock_response_2 = MagicMock(choices=[mock_choice_2], usage=None)
 
@@ -100,7 +100,7 @@ async def test_scenario_2_multiple_agents_custom_flow(monkeypatch):
     await process_and_respond(
         channel_id="C123",
         thread_ts="12345.0002",
-        raw_text="/[TechLead] Debate this feature",
+        raw_text="/[LegalAdvisor] Debate this feature",
         is_bot_trigger=True,
     )
 
@@ -108,7 +108,7 @@ async def test_scenario_2_multiple_agents_custom_flow(monkeypatch):
     assert "CRITICAL CONSTRAINT" in mock_run_2.captured_user_prompt
     assert thread_key not in thread_state_manager.custom_flow_threads
     assert thread_key not in thread_state_manager.remaining_agents_map
-    assert "/[Architect]" not in posted_messages[1]
+    assert "/[SecurityArchitect]" not in posted_messages[1]
 
 
 @pytest.mark.anyio
@@ -116,7 +116,7 @@ async def test_scenario_3_no_agent_tagged_default_flow(monkeypatch):
     """
     Scenario: User tags NO agent (plain message / app_mention).
     Expected: Default flow starts with Visionary, initializes all 15 panel agents,
-    programmatically prevents premature Architect nomination, and finishes with Architect.
+    programmatically prevents premature SecurityArchitect nomination, and finishes with SecurityArchitect.
     """
     thread_state_manager.reset_all()
 
@@ -157,18 +157,18 @@ async def test_scenario_3_no_agent_tagged_default_flow(monkeypatch):
 
     # Default starts with Visionary and initializes all panel agents
     assert thread_key not in thread_state_manager.custom_flow_threads
-    assert len(thread_state_manager.remaining_agents_map[thread_key]) == 18
+    assert len(thread_state_manager.remaining_agents_map[thread_key]) == 10
     assert "/[Sceptic]" in posted_messages[0]
 
-    # Step 2: Intermediate agent (Monitoring Specialist) tries to prematurely nominate Architect
+    # Step 2: Intermediate agent (Monitoring Specialist) tries to prematurely nominate SecurityArchitect
     thread_state_manager.remaining_agents_map[thread_key] = [
         "UserAdvocate",
         "SecurityArchitect",
-        "MonitoringAndAlertingSpecialist",
+        "Sceptic",
     ]
 
     mock_choice_2 = MagicMock()
-    mock_choice_2.message.content = "Monitoring review. /[Architect]"
+    mock_choice_2.message.content = "Monitoring review. /[Innovator]"
     mock_choice_2.message.tool_calls = None
     mock_response_2 = MagicMock(choices=[mock_choice_2], usage=None)
 
@@ -180,16 +180,16 @@ async def test_scenario_3_no_agent_tagged_default_flow(monkeypatch):
     await process_and_respond(
         channel_id="C123",
         thread_ts="12345.0003",
-        raw_text="/[MonitoringAndAlertingSpecialist] next",
+        raw_text="/[Sceptic] next",
         is_bot_trigger=True,
     )
 
-    # Premature Architect tag is programmatically replaced with first remaining agent (UserAdvocate)
+    # Premature Innovator tag is programmatically replaced with first remaining agent (UserAdvocate)
     assert "/[UserAdvocate]" in posted_messages[1]
     assert "UserAdvocate" in thread_state_manager.remaining_agents_map[thread_key]
 
     # Step 3: Intermediate agent speaks and nominates next remaining agent
-    thread_state_manager.remaining_agents_map[thread_key] = ["SecurityArchitect", "Architect"]
+    thread_state_manager.remaining_agents_map[thread_key] = ["SecurityArchitect", "SecurityArchitect"]
 
     mock_choice_3 = MagicMock()
     mock_choice_3.message.content = "Security review finished."
@@ -208,11 +208,11 @@ async def test_scenario_3_no_agent_tagged_default_flow(monkeypatch):
         is_bot_trigger=True,
     )
 
-    # Next agent is Architect
-    assert thread_state_manager.remaining_agents_map[thread_key] == ["Architect"]
-    assert "/[Architect]" in posted_messages[2]
+    # Next agent is SecurityArchitect
+    assert thread_state_manager.remaining_agents_map[thread_key] == ["SecurityArchitect"]
+    assert "/[SecurityArchitect]" in posted_messages[2]
 
-    # Step 4: Architect executes final summary
+    # Step 4: SecurityArchitect executes final summary
     mock_choice_4 = MagicMock()
     mock_choice_4.message.content = "Final architecture summary. /[Visionary]"
     mock_choice_4.message.tool_calls = None
@@ -226,11 +226,11 @@ async def test_scenario_3_no_agent_tagged_default_flow(monkeypatch):
     await process_and_respond(
         channel_id="C123",
         thread_ts="12345.0003",
-        raw_text="/[Architect] next",
+        raw_text="/[SecurityArchitect] next",
         is_bot_trigger=True,
     )
 
-    # Architect finishes, state cleaned up, tags stripped
+    # SecurityArchitect finishes, state cleaned up, tags stripped
     assert thread_key not in thread_state_manager.remaining_agents_map
     assert "/[Visionary]" not in posted_messages[3]
 
@@ -342,8 +342,8 @@ def test_locked_agents_cannot_be_disabled():
     assert set_agent_enabled("Visionary", False) is True
     assert "Visionary" not in ENABLED_DEBATE_AGENTS
 
-    assert set_agent_enabled("Architect", False) is True
-    assert "Architect" not in ENABLED_DEBATE_AGENTS
+    assert set_agent_enabled("SecurityArchitect", False) is True
+    assert "SecurityArchitect" not in ENABLED_DEBATE_AGENTS
 
     assert set_agent_enabled("Sceptic", False) is True
     assert "Sceptic" not in ENABLED_DEBATE_AGENTS
@@ -351,38 +351,38 @@ def test_locked_agents_cannot_be_disabled():
 
 def test_toggleable_agent_enable_and_disable():
     reset_enabled_agents()
-    assert "TechLead" in ENABLED_DEBATE_AGENTS
+    assert "LegalAdvisor" in ENABLED_DEBATE_AGENTS
 
-    # Disable TechLead
-    assert set_agent_enabled("TechLead", False) is True
-    assert "TechLead" not in ENABLED_DEBATE_AGENTS
-    assert "TechLead" not in get_initial_agents()
+    # Disable LegalAdvisor
+    assert set_agent_enabled("LegalAdvisor", False) is True
+    assert "LegalAdvisor" not in ENABLED_DEBATE_AGENTS
+    assert "LegalAdvisor" not in get_initial_agents()
 
     # Re-enable via toggle_agent
-    assert toggle_agent("TechLead") is True
-    assert "TechLead" in ENABLED_DEBATE_AGENTS
-    assert "TechLead" in get_initial_agents()
+    assert toggle_agent("LegalAdvisor") is True
+    assert "LegalAdvisor" in ENABLED_DEBATE_AGENTS
+    assert "LegalAdvisor" in get_initial_agents()
 
 
 def test_disabled_agent_can_still_be_explicitly_tagged():
     reset_enabled_agents()
-    # Disable TechLead for automatic debate
-    set_agent_enabled("TechLead", False)
-    assert "TechLead" not in get_initial_agents()
+    # Disable LegalAdvisor for automatic debate
+    set_agent_enabled("LegalAdvisor", False)
+    assert "LegalAdvisor" not in get_initial_agents()
 
     # User explicitly tags the disabled agent
     agent_key, prompt, was_explicit = parse_agent_and_prompt(
-        "/[TechLead] Direct question to disabled agent",
+        "/[LegalAdvisor] Direct question to disabled agent",
         "C_TEST",
         "123.001",
     )
-    assert agent_key == "TechLead"
+    assert agent_key == "LegalAdvisor"
     assert prompt == "Direct question to disabled agent"
     assert was_explicit is True
 
     # User mentions persona name without brackets -> does NOT tag disabled agent, falls back to default agent
     agent_key_2, _, was_explicit_2 = parse_agent_and_prompt(
-        "<@U123> @MistLar TechLead Direct question to disabled agent",
+        "<@U123> @MistLar LegalAdvisor Direct question to disabled agent",
         "C_TEST",
         "123.002",
     )
@@ -419,7 +419,7 @@ def test_build_app_home_view():
     assert "set_start_chain_input" in action_ids
     assert "set_end_chain_input" in action_ids
     assert "save_sandwich_chains_button" in action_ids
-    assert "toggle_agent_radio:TechLead" in action_ids
+    assert "toggle_agent_radio:LegalAdvisor" in action_ids
     assert "toggle_circuit_breaker_radio" in action_ids
     assert "set_circuit_breaker_threshold_input" in action_ids
     assert "save_circuit_breaker_threshold_button" in action_ids
@@ -430,10 +430,10 @@ def test_build_app_home_view():
     assert "cb_threshold_block_2.50" in block_ids
     assert any(b.startswith("sandwich_start_chain_block") for b in block_ids)
     assert any(b.startswith("sandwich_end_chain_block") for b in block_ids)
-    assert "agent_toggle_block_TechLead_on" in block_ids
+    assert "agent_toggle_block_LegalAdvisor_on" in block_ids
 
     # Agent ID in square brackets rendered
-    assert any("[TechLead]" in b.get("text", {}).get("text", "") for b in blocks)
+    assert any("[LegalAdvisor]" in b.get("text", {}).get("text", "") for b in blocks)
 
 
 def test_settings_persistence(tmp_path, monkeypatch):
@@ -442,13 +442,13 @@ def test_settings_persistence(tmp_path, monkeypatch):
 
     # 1. Reset and disable specific agents & set circuit-breaker config
     reset_enabled_agents()
-    set_agent_enabled("TechLead", False)
+    set_agent_enabled("LegalAdvisor", False)
     set_agent_enabled("Innovator", False)
     set_circuit_breaker_enabled(True)
     set_circuit_breaker_threshold(3.50)
 
     assert test_settings_path.exists()
-    assert "TechLead" not in ENABLED_DEBATE_AGENTS
+    assert "LegalAdvisor" not in ENABLED_DEBATE_AGENTS
     assert "Innovator" not in ENABLED_DEBATE_AGENTS
     assert is_circuit_breaker_enabled() is True
     assert get_circuit_breaker_threshold() == 3.50
@@ -458,13 +458,13 @@ def test_settings_persistence(tmp_path, monkeypatch):
     assert len(ENABLED_DEBATE_AGENTS) == 0
 
     loaded = load_enabled_agents()
-    assert "TechLead" not in loaded
+    assert "LegalAdvisor" not in loaded
     assert "Innovator" not in loaded
     # Verify locked agents are always present even on reload
     assert "Visionary" in loaded
     assert "Sceptic" in loaded
-    assert "Architect" in loaded
-    assert len(loaded) == 17
+    assert "SecurityArchitect" in loaded
+    assert len(loaded) == 9
     assert is_circuit_breaker_enabled() is True
     assert get_circuit_breaker_threshold() == 3.50
 
@@ -479,7 +479,7 @@ def test_is_discussion_active_behavior():
     assert thread_state_manager.is_discussion_active("C_ACTIVE_TEST", "12345.1001") is False
 
     # 2. Active when remaining agents exist
-    thread_state_manager.remaining_agents_map[thread_key] = ["TechLead"]
+    thread_state_manager.remaining_agents_map[thread_key] = ["LegalAdvisor"]
     assert thread_state_manager.is_discussion_active("C_ACTIVE_TEST", "12345.1001") is True
 
     # 3. Active when retry queue has entries
@@ -498,9 +498,9 @@ async def test_interrupt_thread_discussion_clears_state_and_cancels_task():
 
     thread_key = ("C_INTERRUPT_TEST", "12345.1002")
 
-    thread_state_manager.remaining_agents_map[thread_key] = ["TechLead", "Innovator"]
+    thread_state_manager.remaining_agents_map[thread_key] = ["LegalAdvisor", "Innovator"]
     thread_state_manager.rate_limit_retry_queue[thread_key] = ["Visionary"]
-    thread_state_manager.rate_limit_already_retried[thread_key] = {"TechLead"}
+    thread_state_manager.rate_limit_already_retried[thread_key] = {"LegalAdvisor"}
     thread_state_manager.custom_flow_threads.add(thread_key)
     thread_state_manager.stop_requested_threads.add(thread_key)
 
@@ -561,7 +561,7 @@ async def test_interruption_during_llm_execution_aborts_superseded_turn(monkeypa
     )
 
     mock_choice_1 = MagicMock()
-    mock_choice_1.message.content = "Turn 1 answer to old query. /[TechLead]"
+    mock_choice_1.message.content = "Turn 1 answer to old query. /[LegalAdvisor]"
     mock_choice_1.message.tool_calls = None
     mock_resp_1 = MagicMock(choices=[mock_choice_1], usage=None)
 
@@ -586,7 +586,7 @@ async def test_interruption_during_llm_execution_aborts_superseded_turn(monkeypa
 
     # Now run Turn 2 (the new user query)
     mock_choice_2 = MagicMock()
-    mock_choice_2.message.content = "Turn 2 answer to new query. /[TechLead]"
+    mock_choice_2.message.content = "Turn 2 answer to new query. /[LegalAdvisor]"
     mock_choice_2.message.tool_calls = None
     mock_resp_2 = MagicMock(choices=[mock_choice_2], usage=None)
 
@@ -605,7 +605,7 @@ async def test_interruption_during_llm_execution_aborts_superseded_turn(monkeypa
     # Turn 2 successfully posts
     assert len(posted_messages) == 1
     assert "Turn 2 answer to new query." in posted_messages[0]["text"]
-    assert "/[TechLead]" in posted_messages[0]["text"]
+    assert "/[LegalAdvisor]" in posted_messages[0]["text"]
 
 
 @pytest.mark.anyio
@@ -636,7 +636,7 @@ async def test_interruption_during_pacing_delay_aborts_superseded_turn(monkeypat
     )
 
     mock_choice = MagicMock()
-    mock_choice.message.content = "Turn 1 answer before sleep. /[TechLead]"
+    mock_choice.message.content = "Turn 1 answer before sleep. /[LegalAdvisor]"
     mock_choice.message.tool_calls = None
     mock_resp = MagicMock(choices=[mock_choice], usage=None)
 
@@ -668,7 +668,7 @@ async def test_interruption_during_pacing_delay_aborts_superseded_turn(monkeypat
 @pytest.mark.anyio
 async def test_process_and_respond_history_limit_subsequent_bot_rounds(monkeypatch):
     """
-    Scenario: Following the previous prompt (/history 2), a bot trigger occurs (e.g. Mistral_TechLead).
+    Scenario: Following the previous prompt (/history 2), a bot trigger occurs (e.g. Mistral_LegalAdvisor).
     Expected:
     - Scribe/Slack history has 5 prior messages + user prompt + Agent 1 reply.
     - LiteLLM receives last 2 prior messages + user prompt + Agent 1 reply + closing user turn.
@@ -688,7 +688,7 @@ async def test_process_and_respond_history_limit_subsequent_bot_rounds(monkeypat
         {"role": "user", "content": "What now?"},
         {
             "role": "assistant",
-            "content": "[CaiLogics Visionary]: Visionary response. /[TechLead]",
+            "content": "[CaiLogics Visionary]: Visionary response. /[LegalAdvisor]",
         },
     ]
 
@@ -700,7 +700,7 @@ async def test_process_and_respond_history_limit_subsequent_bot_rounds(monkeypat
     captured_messages = []
 
     mock_choice = MagicMock()
-    mock_choice.message.content = "TechLead response. /[Sceptic]"
+    mock_choice.message.content = "LegalAdvisor response. /[Sceptic]"
     mock_choice.message.tool_calls = None
     mock_resp = MagicMock(choices=[mock_choice], usage=None)
 
@@ -718,7 +718,7 @@ async def test_process_and_respond_history_limit_subsequent_bot_rounds(monkeypat
     await process_and_respond(
         channel_id="C_HIST_TEST_2",
         thread_ts="12345.3001",
-        raw_text="Visionary response. /[TechLead]",
+        raw_text="Visionary response. /[LegalAdvisor]",
         is_bot_trigger=True,
     )
 
@@ -729,7 +729,7 @@ async def test_process_and_respond_history_limit_subsequent_bot_rounds(monkeypat
     # 3: Message 3 (prior)
     # 4: What now? (discussion prompt)
     # 5: Visionary response... (discussion reply 1)
-    # 6: user turn prompting TechLead (ensures conversation ends with user)
+    # 6: user turn prompting LegalAdvisor (ensures conversation ends with user)
     assert len(captured_messages) == 7
     assert captured_messages[0]["role"] == "system"
     assert captured_messages[1]["role"] == "user"
@@ -739,7 +739,7 @@ async def test_process_and_respond_history_limit_subsequent_bot_rounds(monkeypat
     assert captured_messages[5]["role"] == "assistant"
     assert "[CaiLogics Visionary]" in captured_messages[5]["content"]
     assert captured_messages[6]["role"] == "user"
-    assert "TechLead" in captured_messages[6]["content"]
+    assert "Legal Advisor" in captured_messages[6]["content"]
 
 
 @pytest.mark.anyio
@@ -771,7 +771,7 @@ async def test_process_and_respond_subsequent_prompt_resets_full_history(monkeyp
     captured_messages = []
 
     mock_choice = MagicMock()
-    mock_choice.message.content = "Full history response. /[TechLead]"
+    mock_choice.message.content = "Full history response. /[LegalAdvisor]"
     mock_choice.message.tool_calls = None
     mock_resp = MagicMock(choices=[mock_choice], usage=None)
 

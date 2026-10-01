@@ -38,27 +38,25 @@ def test_list_skills_registered():
 def test_skill_agent_mapping():
     """Verify that every skill is mapped to its authorized agents."""
     mapping = skill_registry.get_skill_agent_mapping()
-    assert "codebase_inspection" in mapping
-    assert "workspace_authoring" in mapping
-    assert "web_research" in mapping
     assert "document_reader" in mapping
+    assert "web_research" in mapping
     assert "document_authoring" in mapping
     assert "list_skills" in mapping
 
     # Verify specific agent assignments
-    code_agents = mapping["codebase_inspection"]["authorized_agents"]
-    assert "Architect" in code_agents
-    assert "TechLead" in code_agents
+    code_agents = mapping["document_reader"]["authorized_agents"]
+    assert "SecurityArchitect" in code_agents
+    assert "ROIStrategist" in code_agents
 
-    ws_agents = mapping["workspace_authoring"]["authorized_agents"]
-    assert "TechLead" in ws_agents
-    assert "Architect" not in ws_agents  # Architect only has codebase_inspection
+    ws_agents = mapping["document_authoring"]["authorized_agents"]
+    assert "ROIStrategist" in ws_agents
+    assert "SecurityArchitect" not in ws_agents  # SecurityArchitect only has document_reader
 
     web_agents = mapping["web_research"]["authorized_agents"]
     assert "MarketAndCompetitionResearchExpert" in web_agents
 
     doc_agents = mapping["document_reader"]["authorized_agents"]
-    assert "DataAndAnalyticsStrategist" in doc_agents or "ROIStrategist" in doc_agents
+    assert "MarketAndCompetitionResearchExpert" in doc_agents or "ROIStrategist" in doc_agents
 
     # Verify orchestrator and modifier skills categorization
     assert "stop_discussion" in mapping
@@ -71,12 +69,11 @@ def test_format_skills_directory_markdown():
     """Verify formatting of the markdown skills directory."""
     md = skill_registry.format_skills_directory_markdown()
     assert "Application Skills & Capabilities Directory" in md
-    assert "`codebase_inspection`" in md
-    assert "`workspace_authoring`" in md
+    assert "`document_reader`" in md
     assert "`web_research`" in md
     assert "*Authorized*:" in md
-    assert "TechLead" in md
-    assert "Architect" in md
+    assert "LegalAdvisor" in md
+    assert "SecurityArchitect" in md
 
 
 @pytest.mark.anyio
@@ -93,9 +90,9 @@ async def test_directive_parser_slash_list_skills():
     assert d2.cleaned_prompt == ""
 
     # 3. With tagged agent
-    d3 = await directive_parser.parse("/list_skills [Architect]")
+    d3 = await directive_parser.parse("/list_skills [SecurityArchitect]")
     assert any(a.name == "list_skills" for a in d3.actions)
-    assert "[Architect]" in d3.cleaned_prompt
+    assert "[SecurityArchitect]" in d3.cleaned_prompt
 
     # 4. Agent first, slash command second
     d4 = await directive_parser.parse("[Visionary] /list_skills please explain")
@@ -122,7 +119,7 @@ async def test_action_run_no_agent_no_text_halts():
         "choices": [
             {
                 "message": {
-                    "content": "Here are all the application skills:\n• codebase_inspection: TechLead, Architect"
+                    "content": "Here are all the application skills:\n• document_reader: ROIStrategist, SecurityArchitect"
                 }
             }
         ]
@@ -137,7 +134,7 @@ async def test_action_run_no_agent_no_text_halts():
         call_kwargs = mock_post.await_args.kwargs
         assert call_kwargs["channel_id"] == "C12345"
         assert call_kwargs["thread_ts"] == "1234567.89"
-        assert "codebase_inspection" in call_kwargs["text"]
+        assert "document_reader" in call_kwargs["text"]
 
 
 @pytest.mark.anyio
@@ -149,7 +146,7 @@ async def test_action_run_with_named_agent_halts_exclusively():
     ctx = TurnContext(
         channel_id="C12345",
         thread_ts="1234567.89",
-        raw_text="/list_skills [Architect]",
+        raw_text="/list_skills [SecurityArchitect]",
     )
     with patch("skills.list_skills.action.execute_llm_with_retry", new_callable=AsyncMock), \
          patch("skills.list_skills.action.post_system_message", new_callable=AsyncMock):
@@ -182,22 +179,22 @@ def test_all_agents_see_skills_in_prompt():
     # 1. Pure debate agent with 0 allowed skills (e.g. Sceptic, Visionary)
     sceptic_prompt = build_agent_prompt("Sceptic")
     assert "APPLICATION SKILLS DIRECTORY" in sceptic_prompt
-    assert "`codebase_inspection`" in sceptic_prompt
-    assert "`workspace_authoring`" in sceptic_prompt
+    assert "`document_reader`" in sceptic_prompt
+    assert "`document_authoring`" in sceptic_prompt
     assert "`web_research`" in sceptic_prompt
-    assert "TechLead" in sceptic_prompt
-    assert "Architect" in sceptic_prompt
+    assert "LegalAdvisor" in sceptic_prompt
+    assert "SecurityArchitect" in sceptic_prompt
     # Sceptic must NOT have load_skill tool catalog (0 tool overhead)
     assert "AVAILABLE SKILLS (ON DEMAND VIA `load_skill`)" not in sceptic_prompt
 
-    # 2. Technical agent with allowed skills (e.g. Architect)
-    architect_prompt = build_agent_prompt("Architect")
+    # 2. Technical agent with allowed skills (e.g. SecurityArchitect)
+    architect_prompt = build_agent_prompt("SecurityArchitect")
     assert "APPLICATION SKILLS DIRECTORY" in architect_prompt
-    assert "`workspace_authoring`" in architect_prompt
+    assert "`document_authoring`" in architect_prompt
     assert "`web_research`" in architect_prompt
-    # Architect DOES have load_skill catalog for its authorized skills
+    # SecurityArchitect DOES have load_skill catalog for its authorized skills
     assert "AVAILABLE SKILLS (ON DEMAND VIA `load_skill`)" in architect_prompt
-    assert "`codebase_inspection`" in architect_prompt
+    assert "`document_reader`" in architect_prompt
 
 
 def test_runtime_permission_enforcement():
@@ -205,18 +202,18 @@ def test_runtime_permission_enforcement():
     Verify that an agent cannot circumvent its permission boundaries:
     runtime rejects unauthorized load_skill or tool execution.
     """
-    # Architect is only authorized for codebase_inspection
-    architect_skills = ["codebase_inspection"]
+    # SecurityArchitect is only authorized for document_reader
+    architect_skills = ["document_reader"]
 
-    # 1. Attempting to load unauthorized skill workspace_authoring -> Rejected
+    # 1. Attempting to load unauthorized skill document_authoring -> Rejected
     res1 = skill_registry.execute_tool(
         tool_name="load_skill",
-        arguments={"skill_name": "workspace_authoring"},
+        arguments={"skill_name": "document_authoring"},
         authorized_skills=architect_skills,
     )
     data1 = json.loads(res1)
     assert "error" in data1
-    assert "Permission denied: Agent is not authorized to load skill 'workspace_authoring'" in data1["error"]
+    assert "Permission denied: Agent is not authorized to load skill 'document_authoring'" in data1["error"]
 
     # 2. Attempting to execute unauthorized tool write_to_file -> Rejected
     res2 = skill_registry.execute_tool(
@@ -228,12 +225,12 @@ def test_runtime_permission_enforcement():
     assert "error" in data2
     assert "Permission denied: Agent is not authorized to execute tool 'write_to_file'" in data2["error"]
 
-    # 3. Loading authorized skill codebase_inspection -> Allowed
+    # 3. Loading authorized skill document_reader -> Allowed
     res3 = skill_registry.execute_tool(
         tool_name="load_skill",
-        arguments={"skill_name": "codebase_inspection"},
+        arguments={"skill_name": "document_reader"},
         authorized_skills=architect_skills,
     )
     data3 = json.loads(res3)
     assert data3.get("status") == "loaded"
-    assert data3.get("skill") == "codebase_inspection"
+    assert data3.get("skill") == "document_reader"

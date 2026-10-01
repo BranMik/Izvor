@@ -93,23 +93,23 @@ def test_thread_state_manager_rounds_lifecycle():
     assert dec == 2
     assert thread_state_manager.get_rounds(channel_id, thread_ts) == 2
 
-    thread_state_manager.set_round_sequence(channel_id, thread_ts, ["Innovator", "TechLead"])
-    assert thread_state_manager.get_round_sequence(channel_id, thread_ts) == ["Innovator", "TechLead"]
+    thread_state_manager.set_round_sequence(channel_id, thread_ts, ["Innovator", "LegalAdvisor"])
+    assert thread_state_manager.get_round_sequence(channel_id, thread_ts) == ["Innovator", "LegalAdvisor"]
 
     thread_state_manager.clear_rounds(channel_id, thread_ts)
     assert thread_state_manager.get_rounds(channel_id, thread_ts) == 0
     # Sequence is retained for subsequent /next_round calls
-    assert thread_state_manager.get_round_sequence(channel_id, thread_ts) == ["Innovator", "TechLead"]
+    assert thread_state_manager.get_round_sequence(channel_id, thread_ts) == ["Innovator", "LegalAdvisor"]
 
 
 @pytest.mark.anyio
 async def test_multi_round_execution_end_to_end(monkeypatch):
     """
     Test that /rounds 2 loops through participating agents twice.
-    Round 1: Innovator -> TechLead
-    TechLead finishes Round 1, nominates Innovator for Round 2.
-    Round 2: Innovator -> TechLead
-    TechLead finishes Round 2, terminates discussion cleanly.
+    Round 1: Innovator -> LegalAdvisor
+    LegalAdvisor finishes Round 1, nominates Innovator for Round 2.
+    Round 2: Innovator -> LegalAdvisor
+    LegalAdvisor finishes Round 2, terminates discussion cleanly.
     """
     posted_messages = []
 
@@ -135,15 +135,15 @@ async def test_multi_round_execution_end_to_end(monkeypatch):
     res_1 = await process_and_respond(
         channel_id="C_ROUNDS",
         thread_ts="100.001",
-        raw_text="/[Innovator] /[TechLead] Compare frameworks /rounds 2",
+        raw_text="/[Innovator] /[LegalAdvisor] Compare frameworks /rounds 2",
         is_bot_trigger=False,
     )
     assert not res_1.get("is_completed")
-    assert "/[TechLead]" in posted_messages[0]
+    assert "/[LegalAdvisor]" in posted_messages[0]
 
-    # Turn 2: TechLead at end of Round 1
+    # Turn 2: LegalAdvisor at end of Round 1
     mock_choice_2 = MagicMock()
-    mock_choice_2.message.content = "TechLead evaluation for round 1."
+    mock_choice_2.message.content = "LegalAdvisor evaluation for round 1."
     mock_choice_2.message.tool_calls = None
     mock_resp_2 = MagicMock(choices=[mock_choice_2], usage=None)
     mock_run_turn.current_response = mock_resp_2
@@ -151,10 +151,10 @@ async def test_multi_round_execution_end_to_end(monkeypatch):
     res_2 = await process_and_respond(
         channel_id="C_ROUNDS",
         thread_ts="100.001",
-        raw_text="/[TechLead] TechLead evaluation",
+        raw_text="/[LegalAdvisor] LegalAdvisor evaluation",
         is_bot_trigger=True,
     )
-    # Since rounds=2, TechLead at the end of Round 1 must NOT terminate;
+    # Since rounds=2, LegalAdvisor at the end of Round 1 must NOT terminate;
     # it must nominate the first agent Innovator to start Round 2!
     assert not res_2.get("is_completed")
     assert "/[Innovator]" in posted_messages[1]
@@ -174,11 +174,11 @@ async def test_multi_round_execution_end_to_end(monkeypatch):
         is_bot_trigger=True,
     )
     assert not res_3.get("is_completed")
-    assert "/[TechLead]" in posted_messages[2]
+    assert "/[LegalAdvisor]" in posted_messages[2]
 
-    # Turn 4: TechLead in Round 2 (Final round!)
+    # Turn 4: LegalAdvisor in Round 2 (Final round!)
     mock_choice_4 = MagicMock()
-    mock_choice_4.message.content = "TechLead final conclusion."
+    mock_choice_4.message.content = "LegalAdvisor final conclusion."
     mock_choice_4.message.tool_calls = None
     mock_resp_4 = MagicMock(choices=[mock_choice_4], usage=None)
     mock_run_turn.current_response = mock_resp_4
@@ -186,13 +186,13 @@ async def test_multi_round_execution_end_to_end(monkeypatch):
     res_4 = await process_and_respond(
         channel_id="C_ROUNDS",
         thread_ts="100.001",
-        raw_text="/[TechLead] TechLead final conclusion",
+        raw_text="/[LegalAdvisor] LegalAdvisor final conclusion",
         is_bot_trigger=True,
     )
     # Final round completes!
     assert res_4.get("is_completed")
     assert "/[Innovator]" not in posted_messages[3]
-    assert "/[TechLead]" not in posted_messages[3]
+    assert "/[LegalAdvisor]" not in posted_messages[3]
 
 
 @pytest.mark.anyio
@@ -224,7 +224,7 @@ async def test_next_round_command_after_discussion_finishes(monkeypatch):
     await process_and_respond(
         channel_id="C_NEXT",
         thread_ts="200.001",
-        raw_text="/[Innovator] /[TechLead] Let's discuss",
+        raw_text="/[Innovator] /[LegalAdvisor] Let's discuss",
         is_bot_trigger=False,
     )
 
@@ -237,7 +237,7 @@ async def test_next_round_command_after_discussion_finishes(monkeypatch):
     res_finish = await process_and_respond(
         channel_id="C_NEXT",
         thread_ts="200.001",
-        raw_text="/[TechLead] Conclusion 1",
+        raw_text="/[LegalAdvisor] Conclusion 1",
         is_bot_trigger=True,
     )
     assert res_finish.get("is_completed")
@@ -254,24 +254,24 @@ async def test_next_round_command_after_discussion_finishes(monkeypatch):
         raw_text="/next_round Please also consider scalability",
         is_bot_trigger=False,
     )
-    # Innovator (first agent) must have answered and nominated TechLead!
+    # Innovator (first agent) must have answered and nominated LegalAdvisor!
     assert res_next_1.get("agent_key") == "Innovator"
     assert not res_next_1.get("is_completed")
-    assert "/[TechLead]" in posted_messages[2]
+    assert "/[LegalAdvisor]" in posted_messages[2]
 
-    # TechLead answers and completes the next round!
+    # LegalAdvisor answers and completes the next round!
     mock_choice_4 = MagicMock()
-    mock_choice_4.message.content = "TechLead scalability conclusion"
+    mock_choice_4.message.content = "LegalAdvisor scalability conclusion"
     mock_choice_4.message.tool_calls = None
     mock_run_turn.current_response = MagicMock(choices=[mock_choice_4], usage=None)
 
     res_next_2 = await process_and_respond(
         channel_id="C_NEXT",
         thread_ts="200.001",
-        raw_text="[TechLead] TechLead scalability",
+        raw_text="[LegalAdvisor] LegalAdvisor scalability",
         is_bot_trigger=True,
     )
-    assert res_next_2.get("agent_key") == "TechLead"
+    assert res_next_2.get("agent_key") == "LegalAdvisor"
     assert res_next_2.get("is_completed")
 
 
@@ -282,7 +282,7 @@ async def test_stop_command_cancels_multi_round_debate(monkeypatch):
     thread_ts = "300.001"
 
     thread_state_manager.set_rounds(channel_id, thread_ts, 3)
-    thread_state_manager.set_round_sequence(channel_id, thread_ts, ["Innovator", "TechLead"])
+    thread_state_manager.set_round_sequence(channel_id, thread_ts, ["Innovator", "LegalAdvisor"])
 
     thread_state_manager.request_stop(channel_id, thread_ts)
 

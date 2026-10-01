@@ -201,7 +201,7 @@ class HybridInterceptor:
                     "🎯 *Core Objective & Problem Statement*\n"
                     "Analyze event sourcing replay guarantees, partition offsets, and consumer group rebalancing across high-throughput Kafka clusters.\n\n"
                     "💡 *Key Perspectives & Insights*\n"
-                    "• Architect emphasized partition offset retention, idempotency, and consumer rebalancing protocols.\n"
+                    "• SecuritySecurity Architect emphasized partition offset retention, idempotency, and consumer rebalancing protocols.\n"
                     "• Exactly-once semantics are required to prevent duplicate state mutations.\n\n"
                     "🚀 *Action Items & Next Steps*\n"
                     "• Configure automated consumer rebalancing tests."
@@ -280,7 +280,7 @@ class HybridInterceptor:
         needs_web_search = any(k in user_prompt_str.lower() for k in ["search the web", "pricing", "anthropic", "competitor", "web search", "vector"])
         needs_codebase = any(k in user_prompt_str.lower() for k in ["inspect", "directory layout", "codebase", "turn_pipeline.py"])
         needs_doc_authoring = any(k in user_prompt_str.lower() for k in ["draft", "business case", "save it as a document", "llm_cost_reduction_plan.md"])
-        needs_file_read = any(k in user_prompt_str.lower() for k in ["read_file", "sys_spec.txt", "read document", "throughput"])
+        needs_file_read = any(k in user_prompt_str.lower() for k in ["read_document", "sys_spec.txt", "read document", "throughput"])
         needs_unauthorized_tool = any(k in user_prompt_str.lower() for k in ["load_skill workspace_authoring", "modify system configuration", "unauthorized"])
 
         # First turn of tool loop: trigger tool call
@@ -315,8 +315,8 @@ class HybridInterceptor:
                 tc = MockToolCall("call_web_search", "web_search", {"query": q})
                 return MockModelResponse(content=None, tool_calls=[tc], model=model)
 
-            if "list_directory" in tool_names and needs_codebase:
-                tc = MockToolCall("call_list_dir", "list_directory", {"rel_path": "orchestration/stages"})
+            if "list_documents" in tool_names and needs_codebase:
+                tc = MockToolCall("call_list_dir", "list_documents", {"rel_path": "orchestration/stages"})
                 return MockModelResponse(content=None, tool_calls=[tc], model=model)
 
             if "write_document" in tool_names and needs_doc_authoring:
@@ -371,7 +371,7 @@ class HybridInterceptor:
         nomination_tag = ""
         if warrants_nomination:
             if "sceptic" in user_prompt_str.lower():
-                nomination_tag = " [TechLead]"
+                nomination_tag = " [LegalAdvisor]"
             else:
                 nomination_tag = " [Sceptic]"
 

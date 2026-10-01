@@ -31,10 +31,10 @@ LOCKED_AGENTS: set[str] = set()
 BACKUP_INTERVAL_SECONDS = 7 * 86400
 
 
-# Default untagged workflow configuration: Sandwich mode (Visionary -> Innovator -> ... -> Architect)
+# Default untagged workflow configuration: Sandwich mode (Visionary -> Innovator -> ... -> SecuritySecurity Architect)
 DEFAULT_WORKFLOW_ID = "default_review_flow"
 DEFAULT_SANDWICH_START_CHAIN = ["Visionary", "Innovator"]
-DEFAULT_SANDWICH_END_CHAIN = ["Architect"]
+DEFAULT_SANDWICH_END_CHAIN = ["SecuritySecurity Architect"]
 
 
 class AgentSettingsManager:
@@ -346,7 +346,7 @@ class AgentSettingsManager:
                 except OSError as e:
                     logger.debug(f"[SETTINGS] Error checking workflow mtime: {e}")
         else:
-            # Complete fallback default when no preset is active (Visionary -> Innovator -> ... -> Architect)
+            # Complete fallback default when no preset is active (Visionary -> Innovator -> ... -> SecuritySecurity Architect)
             self.active_workflow_id = DEFAULT_WORKFLOW_ID
             self.workflow_config = DEFAULT_WORKFLOW_ID
             self.orchestration_mode = OrchestrationMode.SANDWICH.value

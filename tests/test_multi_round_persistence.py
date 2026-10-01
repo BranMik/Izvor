@@ -105,7 +105,7 @@ async def test_three_round_five_word_croatian_test(monkeypatch):
     res_1 = await process_and_respond(
         channel_id=channel,
         thread_ts=thread_ts,
-        raw_text="/[Innovator] /[TechLead] Ovo je test, maximum 5 rijeci /max_words 5",
+        raw_text="/[Innovator] /[LegalAdvisor] Ovo je test, maximum 5 rijeci /max_words 5",
         is_bot_trigger=False,
     )
 
@@ -114,16 +114,16 @@ async def test_three_round_five_word_croatian_test(monkeypatch):
     assert thread_state_manager.get_max_words(channel, thread_ts) == 5
     assert any("5 words" in prompt for prompt in captured_system_prompts)
 
-    # Turn 2: TechLead finishes Round 1
+    # Turn 2: LegalAdvisor finishes Round 1
     mock_choice_2 = MagicMock()
-    mock_choice_2.message.content = "TechLead potvrda za rundu jedan."  # 5 words
+    mock_choice_2.message.content = "LegalAdvisor potvrda za rundu jedan."  # 5 words
     mock_choice_2.message.tool_calls = None
     mock_run_turn.current_response = MagicMock(choices=[mock_choice_2], usage=None)
 
     res_2 = await process_and_respond(
         channel_id=channel,
         thread_ts=thread_ts,
-        raw_text="/[TechLead] TechLead potvrda",
+        raw_text="/[LegalAdvisor] LegalAdvisor potvrda",
         is_bot_trigger=True,
     )
     assert res_2.get("is_completed")
@@ -161,16 +161,16 @@ async def test_three_round_five_word_croatian_test(monkeypatch):
     assert thread_state_manager.get_max_words(channel, thread_ts) == 5
     assert any("5 words" in prompt for prompt in captured_system_prompts)
 
-    # TechLead finishes Round 2
+    # LegalAdvisor finishes Round 2
     mock_choice_4 = MagicMock()
-    mock_choice_4.message.content = "TechLead kraj druge runde sada."  # 5 words
+    mock_choice_4.message.content = "LegalAdvisor kraj druge runde sada."  # 5 words
     mock_choice_4.message.tool_calls = None
     mock_run_turn.current_response = MagicMock(choices=[mock_choice_4], usage=None)
 
     res_4 = await process_and_respond(
         channel_id=channel,
         thread_ts=thread_ts,
-        raw_text="/[TechLead] TechLead runda dva",
+        raw_text="/[LegalAdvisor] LegalAdvisor runda dva",
         is_bot_trigger=True,
     )
     assert res_4.get("is_completed")
@@ -196,7 +196,7 @@ async def test_three_round_five_word_croatian_test(monkeypatch):
     assert thread_state_manager.get_max_words(channel, thread_ts) == 5
     assert any("5 words" in prompt for prompt in captured_system_prompts)
 
-    # TechLead finishes Round 3
+    # LegalAdvisor finishes Round 3
     mock_choice_6 = MagicMock()
     mock_choice_6.message.content = "Kraj trece runde napokon ovdje."  # 5 words
     mock_choice_6.message.tool_calls = None
@@ -205,7 +205,7 @@ async def test_three_round_five_word_croatian_test(monkeypatch):
     res_6 = await process_and_respond(
         channel_id=channel,
         thread_ts=thread_ts,
-        raw_text="/[TechLead] TechLead runda tri",
+        raw_text="/[LegalAdvisor] LegalAdvisor runda tri",
         is_bot_trigger=True,
     )
     assert res_6.get("is_completed")
@@ -275,23 +275,23 @@ async def test_include_overrides_exclude():
     channel = "C_INC"
     thread_ts = "777.001"
 
-    # Initially exclude TechLead
-    thread_state_manager.set_excluded_agents(channel, thread_ts, ["TechLead"])
-    assert thread_state_manager.get_excluded_agents(channel, thread_ts) == ["TechLead"]
+    # Initially exclude LegalAdvisor
+    thread_state_manager.set_excluded_agents(channel, thread_ts, ["LegalAdvisor"])
+    assert thread_state_manager.get_excluded_agents(channel, thread_ts) == ["LegalAdvisor"]
 
-    # Now apply /include [TechLead]
+    # Now apply /include [LegalAdvisor]
     from pipeline.directive_parser import directive_parser
-    parsed = await directive_parser.parse("/include [TechLead] [Architect]")
-    assert parsed.included_agents == ["TechLead", "Architect"]
+    parsed = await directive_parser.parse("/include [LegalAdvisor] [SecurityArchitect]")
+    assert parsed.included_agents == ["LegalAdvisor", "SecurityArchitect"]
 
     # In validation stage logic: include removes from excluded and sets included
     for inc in parsed.included_agents:
         thread_state_manager.remove_excluded_agent(channel, thread_ts, inc)
     thread_state_manager.set_included_agents(channel, thread_ts, parsed.included_agents)
 
-    assert "TechLead" not in thread_state_manager.get_excluded_agents(channel, thread_ts)
-    assert "TechLead" in thread_state_manager.get_included_agents(channel, thread_ts)
-    assert "Architect" in thread_state_manager.get_included_agents(channel, thread_ts)
+    assert "LegalAdvisor" not in thread_state_manager.get_excluded_agents(channel, thread_ts)
+    assert "LegalAdvisor" in thread_state_manager.get_included_agents(channel, thread_ts)
+    assert "SecurityArchitect" in thread_state_manager.get_included_agents(channel, thread_ts)
 
 
 @pytest.mark.anyio
@@ -308,7 +308,7 @@ async def test_revoke_skill_functionality():
     thread_state_manager.set_min_words(channel, thread_ts, 10)
     thread_state_manager.set_scribe_max_words(channel, thread_ts, 100)
     thread_state_manager.set_excluded_agents(channel, thread_ts, ["Innovator"])
-    thread_state_manager.set_included_agents(channel, thread_ts, ["TechLead"])
+    thread_state_manager.set_included_agents(channel, thread_ts, ["LegalAdvisor"])
     thread_state_manager.set_language(channel, thread_ts, "Croatian")
 
     # Revoke max_words specifically via pure toggle
@@ -353,7 +353,7 @@ async def test_off_toggles_execution():
 
     thread_state_manager.set_max_words(channel, thread_ts, 25)
     thread_state_manager.set_min_words(channel, thread_ts, 5)
-    thread_state_manager.set_excluded_agents(channel, thread_ts, ["TechLead"])
+    thread_state_manager.set_excluded_agents(channel, thread_ts, ["LegalAdvisor"])
     thread_state_manager.set_included_agents(channel, thread_ts, ["Innovator"])
     thread_state_manager.set_scribe_max_words(channel, thread_ts, 60)
     thread_state_manager.set_scribe_min_words(channel, thread_ts, 15)

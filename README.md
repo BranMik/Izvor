@@ -4,7 +4,7 @@ An enterprise-ready, asynchronous multi-agent deliberation platform that connect
 
 ---
 
-## 🏗️ Architecture Overview
+## 🏗️ SecuritySecurity Architecture Overview
 
 ```mermaid
 graph TD
@@ -47,7 +47,7 @@ graph TD
 ### 1. Multi-Persona Discussion Topologies
 - **🥪 Sandwich Mode**: Starts with designated initial speakers (*Start Chain*), flows into an arbitrary/nominated pool (*Middle Pool*), and terminates with a designated summarizer/synthesizer (*End Chain*).
 - **🎯 Fixed Mode**: Executes a strict, predetermined sequential chain of agents.
-- **Dynamic Nomination**: Personas nominate their peers naturally using bracketed identifiers (e.g., `[TechLead]`, `[Architect]`).
+- **Dynamic Nomination**: Personas nominate their peers naturally using bracketed identifiers (e.g., `[LegalAdvisor]`, `[SecuritySecurity Architect]`).
 
 ### 2. Thread State & Memory Safety
 - **Bounded In-Memory State**: Automatic time-to-live (TTL) thread tracking (`cleanup_expired_threads`) running every 10 minutes and opportunistically evicting inactive threads (`max_tracked_threads = 500`).

@@ -10,9 +10,9 @@ from .flat_history_recorder import (
 from .mcp_tools import (
     MCP_TOOLS_SCHEMAS,
     execute_mcp_tool,
-    list_directory,
-    read_file,
-    write_file,
+    list_documents,
+    read_document,
+    write_document,
 )
 from .pricing_service import (
     BASELINE_CONFIG_FILE,
@@ -92,7 +92,7 @@ __all__ = [
     "get_model_pricing",
     "get_or_create_usage_channel",
     "is_test_thread",
-    "list_directory",
+    "list_documents",
     "load_baseline_pricing",
     "load_pricing_cache",
     "open_dm_channel",
@@ -103,7 +103,7 @@ __all__ = [
     "post_thread_note",
     "post_usage_message",
     "publish_app_home",
-    "read_file",
+    "read_document",
     "read_slack_file_text",
     "record_flat_history",
     "refresh_model_pricing",
@@ -115,5 +115,5 @@ __all__ = [
     "upload_text_file_to_slack",
     "warm_up_pricing_cache",
     "web_search",
-    "write_file",
+    "write_document",
 ]

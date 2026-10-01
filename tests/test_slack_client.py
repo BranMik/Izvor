@@ -20,16 +20,16 @@ async def test_fetch_thread_history_filters_and_formats(monkeypatch):
         # 2. Runner follow-up prompt requiring re.sub cleaning
         {"user": "U_USER1", "text": "👤 *Follow-up Prompt:*\n> What about SQLite for storage?", "subtype": None},
         # 3. Status messages to be ignored
-        {"user": "U_BOT", "text": "_⚡ *Architect* is loading skill: db_inspect..._", "subtype": "bot_message"},
+        {"user": "U_BOT", "text": "_⚡ *SecurityArchitect* is loading skill: db_inspect..._", "subtype": "bot_message"},
         {"user": "U_BOT", "text": "_🔍 Searching online resources..._", "subtype": "bot_message"},
         # 4. System warnings / scribe / test cards to be ignored
         {"user": "U_BOT", "text": "📋 Scribe summary note", "username": "Live Discussion Scribe", "subtype": "bot_message"},
         {"user": "U_BOT", "text": "🧪 E2E test card", "username": "E2E Test Runner", "subtype": "bot_message"},
         {"user": "U_BOT", "text": "⚠️ Warning: Spend limit close", "username": "Panel System", "subtype": "bot_message"},
         # 5. Legitimate bot assistant message
-        {"user": "U_BOT", "text": "SQLite is suitable for low-write embedded environments.", "username": "Architect", "subtype": "bot_message"},
+        {"user": "U_BOT", "text": "SQLite is suitable for low-write embedded environments.", "username": "SecurityArchitect", "subtype": "bot_message"},
         # 6. Bot message matched by bot_user_id
-        {"user": "U_BOT_APP_ID", "text": "I agree with Architect.", "subtype": None},
+        {"user": "U_BOT_APP_ID", "text": "I agree with SecurityArchitect.", "subtype": None},
     ]
 
     mock_replies = AsyncMock(return_value={"ok": True, "messages": raw_messages})
@@ -59,10 +59,10 @@ async def test_fetch_thread_history_filters_and_formats(monkeypatch):
     assert history[1] == {"role": "user", "content": "What about SQLite for storage?"}
 
     # Message 3: assistant persona
-    assert history[2] == {"role": "assistant", "content": "[Architect]: SQLite is suitable for low-write embedded environments."}
+    assert history[2] == {"role": "assistant", "content": "[SecurityArchitect]: SQLite is suitable for low-write embedded environments."}
 
     # Message 4: matched by bot_user_id
-    assert history[3] == {"role": "assistant", "content": "[Assistant]: I agree with Architect."}
+    assert history[3] == {"role": "assistant", "content": "[Assistant]: I agree with SecurityArchitect."}
 
 
 @pytest.mark.anyio

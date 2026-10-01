@@ -54,7 +54,7 @@ async def test_circuit_breaker_triggers_when_threshold_exceeded(monkeypatch):
     channel_id = "C_CB_TRIGGER"
     thread_ts = "123456789.9001"
     thread_key = (channel_id, thread_ts)
-    thread_state_manager.remaining_agents_map[thread_key] = ["TechLead", "Architect"]
+    thread_state_manager.remaining_agents_map[thread_key] = ["LegalAdvisor", "SecurityArchitect"]
 
     set_circuit_breaker_enabled(True)
     set_circuit_breaker_threshold(0.50)
@@ -144,7 +144,7 @@ async def test_circuit_breaker_allows_normal_response_when_below_threshold(
     )
 
     mock_choice = MagicMock()
-    mock_choice.message.content = "Normal agent response [Architect]"
+    mock_choice.message.content = "Normal agent response [SecurityArchitect]"
     mock_choice.message.tool_calls = None
 
     mock_response = MagicMock()

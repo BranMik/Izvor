@@ -158,14 +158,14 @@ def test_build_llm_messages_file_context_authorized_vs_unauthorized():
     assert "--- [ATTACHED SLACK FILE: app.py (28 bytes)] ---" in user_turn
     assert "print('hello from app.py')" in user_turn
 
-    # 2. Unauthorized agent (TechLead) does NOT receive file context
+    # 2. Unauthorized agent (LegalAdvisor) does NOT receive file context
     msgs_unauthorized = build_llm_messages(
-        system_prompt="You are TechLead.",
+        system_prompt="You are LegalAdvisor.",
         effective_history=[],
         prompt="Objasni ovaj kod.",
         is_bot_trigger=False,
-        agent_key="TechLead",
-        agent_cfg={"username": "TechLead"},
+        agent_key="LegalAdvisor",
+        agent_cfg={"username": "LegalAdvisor"},
         file_context=file_context,
     )
     user_turn_unauth = msgs_unauthorized[-1]["content"]
@@ -183,12 +183,12 @@ def test_build_llm_messages_file_context_all_authorized():
     }
 
     msgs = build_llm_messages(
-        system_prompt="You are Architect.",
+        system_prompt="You are SecurityArchitect.",
         effective_history=[{"role": "user", "content": "Prior context"}],
         prompt="",
         is_bot_trigger=True,
-        agent_key="Architect",
-        agent_cfg={"username": "OpAiTerra Architect"},
+        agent_key="SecurityArchitect",
+        agent_cfg={"username": "OpAiTerra SecurityArchitect"},
         file_context=file_context,
     )
     assert msgs[-1]["role"] == "user"
@@ -207,12 +207,12 @@ def test_build_llm_messages_file_context_missing_skill_notice():
 
     # Agent with skills configured but lacking document_reader
     msgs = build_llm_messages(
-        system_prompt="You are TechLead.",
+        system_prompt="You are LegalAdvisor.",
         effective_history=[],
         prompt="Analyze data.csv",
         is_bot_trigger=False,
-        agent_key="TechLead",
-        agent_cfg={"username": "TechLead", "skills": ["codebase_inspection"]},
+        agent_key="LegalAdvisor",
+        agent_cfg={"username": "LegalAdvisor", "skills": ["document_reader"]},
         file_context=file_context,
     )
     user_turn = msgs[-1]["content"]
@@ -227,7 +227,7 @@ def test_build_llm_messages_file_context_missing_skill_notice():
         effective_history=[],
         prompt="Analyze data.csv",
         is_bot_trigger=False,
-        agent_key="DataAndAnalyticsStrategist",
+        agent_key="MarketAndCompetitionResearchExpert",
         agent_cfg={"username": "Data Strategist", "skills": ["document_reader"]},
         file_context=file_context,
     )
@@ -367,20 +367,20 @@ async def test_file_context_lifecycle_in_process_and_respond():
                         # Since Gemini was the only tagged agent in explicit target mode, discussion finished and cleared file context
                         assert thread_state_manager.get_file_context(channel_id, thread_ts) is None
 
-                        # 2. Test explicit multi-agent flow: [Visionary] and [Architect]
+                        # 2. Test explicit multi-agent flow: [Visionary] and [SecurityArchitect]
                         res2 = await process_and_respond(
                             channel_id=channel_id,
                             thread_ts=thread_ts,
-                            raw_text="/[Visionary] /[Architect] analiziraj privitak",
+                            raw_text="/[Visionary] /[SecurityArchitect] analiziraj privitak",
                             is_bot_trigger=False,
                         )
                         assert res2.get("ok") is True
                         # During the active discussion before OpAiTerra finishes, file context was active for both tagged agents
-                        # Now simulate next turn with Architect completing the flow
+                        # Now simulate next turn with SecurityArchitect completing the flow
                         res3 = await process_and_respond(
                             channel_id=channel_id,
                             thread_ts=thread_ts,
-                            raw_text="/[Architect]",
+                            raw_text="/[SecurityArchitect]",
                             is_bot_trigger=True,
                         )
                         assert res3.get("ok") is True

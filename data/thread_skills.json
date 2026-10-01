@@ -28,27 +28,33 @@
       "skills": [
         "web_research"
       ],
-      "granted_at": 1790102660.3738606
+      "granted_at": 1790889226.4228573
     },
     "C_TEST:1726000000.2": {
       "skills": [
         "web_research"
       ],
-      "granted_at": 1790102660.7342641
+      "granted_at": 1790889226.7644277
     },
     "C_TEST:1726000000.3": {
       "agent_skills": {
-        "Architect": {
+        "SecuritySecurity Architect": {
           "skills": [
             "web_research"
           ],
           "granted_at": 1790102661.0910563
+        },
+        "SecurityArchitect": {
+          "skills": [
+            "web_research"
+          ],
+          "granted_at": 1790889227.1086488
         }
       }
     },
     "C_TEST_18:1700000074.0000": {
       "agent_skills": {
-        "Architect": {
+        "SecuritySecurity Architect": {
           "skills": [
             "web_research"
           ],
@@ -64,7 +70,7 @@
     },
     "C_TEST_18:1700000041.0000": {
       "agent_skills": {
-        "Architect": {
+        "SecuritySecurity Architect": {
           "skills": [
             "web_research"
           ],
@@ -80,7 +86,7 @@
     },
     "C_TEST_18:1700000073.0000": {
       "agent_skills": {
-        "Architect": {
+        "SecuritySecurity Architect": {
           "skills": [
             "web_research"
           ],
@@ -96,7 +102,7 @@
     },
     "C0C474SQ8SU:1790005548.850049": {
       "agent_skills": {
-        "Architect": {
+        "SecuritySecurity Architect": {
           "skills": [
             "web_research"
           ],
@@ -112,7 +118,7 @@
     },
     "C_TEST_18:1700000001.0000": {
       "agent_skills": {
-        "Architect": {
+        "SecuritySecurity Architect": {
           "skills": [
             "web_research"
           ],
@@ -126,7 +132,7 @@
     },
     "C0C474SQ8SU:1790024092.148269": {
       "agent_skills": {
-        "Architect": {
+        "SecuritySecurity Architect": {
           "skills": [
             "web_research"
           ],

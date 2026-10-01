@@ -43,10 +43,10 @@ class WorkflowManager:
                     id="default_review_flow",
                     name="Default Review Workflow",
                     mode=OrchestrationMode.SANDWICH.value,
-                    description="Standard review flow applied when no explicit agent is tagged (Visionary -> Innovator -> ... -> Architect).",
+                    description="Standard review flow applied when no explicit agent is tagged (Visionary -> Innovator -> ... -> SecuritySecurity Architect).",
                     sandwich_config={
                         "start_chain": ["Visionary", "Innovator"],
-                        "end_chain": ["Architect"],
+                        "end_chain": ["SecuritySecurity Architect"],
                     },
                     fixed_config={"chain": []},
                 ),
@@ -62,9 +62,9 @@ class WorkflowManager:
                             "UserAdvocate",
                             "Sceptic",
                             "Innovator",
-                            "Architect",
+                            "SecuritySecurity Architect",
                         ],
-                        "end_chain": ["Architect", "Sceptic"],
+                        "end_chain": ["SecuritySecurity Architect", "Sceptic"],
                     },
                     fixed_config={"chain": []},
                 ),
@@ -74,7 +74,7 @@ class WorkflowManager:
                     mode=OrchestrationMode.FIXED.value,
                     description="Focused linear pipeline for rapid technical problem triage.",
                     sandwich_config={"start_chain": [], "end_chain": []},
-                    fixed_config={"chain": ["TechLead", "Architect"]},
+                    fixed_config={"chain": ["LegalAdvisor", "SecuritySecurity Architect"]},
                 ),
             ]
 

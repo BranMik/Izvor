@@ -37,18 +37,18 @@ def setup_test_chains(monkeypatch):
 def test_sandwich_mode_ordering_and_pool():
     set_orchestration_mode("sandwich")
     set_sandwich_config(
-        start_chain=["Visionary", "TechLead"],
-        end_chain=["Architect"],
+        start_chain=["Visionary", "LegalAdvisor"],
+        end_chain=["SecurityArchitect"],
     )
 
     agents_flow = get_initial_agents()
 
     # Start chain is at the beginning
     assert agents_flow[0] == "Visionary"
-    assert agents_flow[1] == "TechLead"
+    assert agents_flow[1] == "LegalAdvisor"
 
     # End chain is at the end
-    assert agents_flow[-1] == "Architect"
+    assert agents_flow[-1] == "SecurityArchitect"
 
     # Total count includes start chain, middle pool, end chain
     assert len(agents_flow) == len(AGENTS_CONFIG)
@@ -66,29 +66,29 @@ def test_sandwich_mode_empty_chains_is_arbitrary_pool():
 
 
 def test_sandwich_mode_reentrance():
-    # Architect placed in both start_chain and end_chain
+    # SecurityArchitect placed in both start_chain and end_chain
     set_orchestration_mode("sandwich")
     set_sandwich_config(
-        start_chain=["Architect", "Visionary"],
-        end_chain=["Architect"],
+        start_chain=["SecurityArchitect", "Visionary"],
+        end_chain=["SecurityArchitect"],
     )
 
     agents_flow = get_initial_agents()
 
-    assert agents_flow[0] == "Architect"
+    assert agents_flow[0] == "SecurityArchitect"
     assert agents_flow[1] == "Visionary"
-    assert agents_flow[-1] == "Architect"
-    assert agents_flow.count("Architect") == 2
+    assert agents_flow[-1] == "SecurityArchitect"
+    assert agents_flow.count("SecurityArchitect") == 2
 
 
 def test_fixed_mode_strict_sequence():
     set_orchestration_mode("fixed")
-    set_fixed_config(["TechLead", "Innovator", "Architect"])
+    set_fixed_config(["LegalAdvisor", "Innovator", "SecurityArchitect"])
 
     agents_flow = get_initial_agents()
 
     # Exactly 3 agents in exact sequence
-    assert agents_flow == ["TechLead", "Innovator", "Architect"]
+    assert agents_flow == ["LegalAdvisor", "Innovator", "SecurityArchitect"]
 
 
 def test_fixed_mode_empty_chain_falls_back_to_all_enabled():
@@ -123,7 +123,7 @@ def test_deterministic_directive_in_message_builder():
         effective_history=[],
         prompt="Discuss feature scope",
         is_bot_trigger=False,
-        agent_key="Architect",
+        agent_key="SecurityArchitect",
         agent_cfg=agent_cfg,
         force_termination=True,
     )
@@ -136,7 +136,7 @@ def test_enforce_valid_nomination_with_designated_next_agent():
     # LLM nominated Visionary instead of designated next agent
     corrected = enforce_valid_nomination(
         text="Here is my technical assessment. /[Visionary]",
-        current_agent_key="TechLead",
+        current_agent_key="LegalAdvisor",
         remaining=["Innovator"],
         force_termination=False,
         designated_next_agent="Innovator",
@@ -148,7 +148,7 @@ def test_enforce_valid_nomination_with_designated_next_agent():
 @pytest.mark.anyio
 async def test_fixed_mode_end_to_end_discussion(monkeypatch):
     set_orchestration_mode("fixed")
-    set_fixed_config(["TechLead", "Innovator", "Architect"])
+    set_fixed_config(["LegalAdvisor", "Innovator", "SecurityArchitect"])
 
     posted_messages = []
     async def mock_post_agent_response(channel_id, thread_ts, text, username, icon_url=None):
@@ -161,7 +161,7 @@ async def test_fixed_mode_end_to_end_discussion(monkeypatch):
 
     thread_key = ("C_CHAIN", "99999.0001")
 
-    # Turn 1: TechLead starts
+    # Turn 1: LegalAdvisor starts
     mock_choice_1 = MagicMock()
     mock_choice_1.message.content = "Tech lead evaluation."
     mock_choice_1.message.tool_calls = None
@@ -180,10 +180,10 @@ async def test_fixed_mode_end_to_end_discussion(monkeypatch):
 
     assert res_1.get("ok") is True
     assert len(posted_messages) == 1
-    assert posted_messages[0]["username"] == "TechLead"
+    assert posted_messages[0]["username"] == "Legal Advisor"
     # Deterministic nomination enforced to next agent in chain
     assert "/[Innovator]" in posted_messages[0]["text"]
-    assert thread_state_manager.remaining_agents_map[thread_key] == ["Innovator", "Architect"]
+    assert thread_state_manager.remaining_agents_map[thread_key] == ["Innovator", "SecurityArchitect"]
 
     # Turn 2: Innovator
     mock_choice_2 = MagicMock()
@@ -205,12 +205,12 @@ async def test_fixed_mode_end_to_end_discussion(monkeypatch):
     assert res_2.get("ok") is True
     assert len(posted_messages) == 2
     assert posted_messages[1]["username"] == "Innovator"
-    assert "/[Architect]" in posted_messages[1]["text"]
-    assert thread_state_manager.remaining_agents_map[thread_key] == ["Architect"]
+    assert "/[SecurityArchitect]" in posted_messages[1]["text"]
+    assert thread_state_manager.remaining_agents_map[thread_key] == ["SecurityArchitect"]
 
-    # Turn 3: Architect (final in chain)
+    # Turn 3: SecurityArchitect (final in chain)
     mock_choice_3 = MagicMock()
-    mock_choice_3.message.content = "Architect final verdict."
+    mock_choice_3.message.content = "SecurityArchitect final verdict."
     mock_choice_3.message.tool_calls = None
     mock_resp_3 = MagicMock(choices=[mock_choice_3], usage=None)
 
@@ -221,13 +221,13 @@ async def test_fixed_mode_end_to_end_discussion(monkeypatch):
     res_3 = await process_and_respond(
         channel_id="C_CHAIN",
         thread_ts="99999.0001",
-        raw_text="/[Architect] Wrap up",
+        raw_text="/[SecurityArchitect] Wrap up",
         is_bot_trigger=True,
     )
 
     assert res_3.get("ok") is True
     assert len(posted_messages) == 3
-    assert posted_messages[2]["username"] == "Architect"
+    assert posted_messages[2]["username"] == "Security Architect"
     # Thread finished -> state cleaned up, tags stripped
     assert thread_key not in thread_state_manager.remaining_agents_map
     assert "[" not in posted_messages[2]["text"].split("\n\n[")[0]
@@ -237,24 +237,24 @@ async def test_fixed_mode_end_to_end_discussion(monkeypatch):
 async def test_sandwich_mode_end_to_end_discussion(monkeypatch):
     """
     Tests full Sandwich Mode execution with re-entrance:
-    start_chain: [Architect, Visionary]
-    middle_pool: [TechLead]
-    end_chain: [Architect]
+    start_chain: [SecurityArchitect, Visionary]
+    middle_pool: [LegalAdvisor]
+    end_chain: [SecurityArchitect]
     Verifies that:
-    1. Architect opens the discussion and nominates Visionary.
-    2. Visionary attempts to nominate Architect (from end_chain), but the router corrects
-       the nomination to TechLead (the middle pool agent).
-    3. TechLead (last middle pool agent) hands off to Architect (end_chain).
-    4. Architect closes the discussion with force_termination (does not nominate anyone).
+    1. SecurityArchitect opens the discussion and nominates Visionary.
+    2. Visionary attempts to nominate SecurityArchitect (from end_chain), but the router corrects
+       the nomination to LegalAdvisor (the middle pool agent).
+    3. LegalAdvisor (last middle pool agent) hands off to SecurityArchitect (end_chain).
+    4. SecurityArchitect closes the discussion with force_termination (does not nominate anyone).
     """
     set_orchestration_mode("sandwich")
     set_sandwich_config(
-        start_chain=["Architect", "Visionary"],
-        end_chain=["Architect"],
+        start_chain=["SecurityArchitect", "Visionary"],
+        end_chain=["SecurityArchitect"],
     )
-    # Enable only these 3 agents so middle_pool has exactly TechLead
+    # Enable only these 3 agents so middle_pool has exactly LegalAdvisor
     for a in AGENTS_CONFIG:
-        set_agent_enabled(a, a in ("Architect", "Visionary", "TechLead"))
+        set_agent_enabled(a, a in ("SecurityArchitect", "Visionary", "LegalAdvisor"))
 
     posted_messages = []
     async def mock_post_agent_response(channel_id, thread_ts, text, username, icon_url=None):
@@ -267,9 +267,9 @@ async def test_sandwich_mode_end_to_end_discussion(monkeypatch):
 
     thread_key = ("C_SANDWICH", "88888.0001")
 
-    # Turn 1: Architect opens discussion
+    # Turn 1: SecurityArchitect opens discussion
     mock_choice_1 = MagicMock()
-    mock_choice_1.message.content = "Architecture proposal. /[Visionary]"
+    mock_choice_1.message.content = "SecurityArchitecture proposal. /[Visionary]"
     mock_choice_1.message.tool_calls = None
     mock_resp_1 = MagicMock(choices=[mock_choice_1], usage=None)
 
@@ -286,15 +286,15 @@ async def test_sandwich_mode_end_to_end_discussion(monkeypatch):
 
     assert res_1.get("ok") is True
     assert len(posted_messages) == 1
-    assert posted_messages[0]["username"] == "Architect"
+    assert posted_messages[0]["username"] == "Security Architect"
     assert "/[Visionary]" in posted_messages[0]["text"]
-    assert thread_state_manager.remaining_agents_map[thread_key] == ["Visionary", "TechLead", "Architect"]
+    assert thread_state_manager.remaining_agents_map[thread_key] == ["Visionary", "LegalAdvisor", "SecurityArchitect"]
 
     # Turn 2: Visionary speaks (last of start_chain).
-    # Visionary cites [Architect] in text and tries to nominate /[Architect],
-    # but TechLead is in middle_pool so Architect (end_chain) must NOT be nominated!
+    # Visionary cites [SecurityArchitect] in text and tries to nominate /[SecurityArchitect],
+    # but LegalAdvisor is in middle_pool so SecurityArchitect (end_chain) must NOT be nominated!
     mock_choice_2 = MagicMock()
-    mock_choice_2.message.content = "I agree with [Architect]. Let's wrap up with /[Architect]"
+    mock_choice_2.message.content = "I agree with [SecurityArchitect]. Let's wrap up with /[SecurityArchitect]"
     mock_choice_2.message.tool_calls = None
     mock_resp_2 = MagicMock(choices=[mock_choice_2], usage=None)
 
@@ -312,12 +312,12 @@ async def test_sandwich_mode_end_to_end_discussion(monkeypatch):
     assert res_2.get("ok") is True
     assert len(posted_messages) == 2
     assert posted_messages[1]["username"] == "Visionary"
-    # Must have corrected nomination to TechLead (middle pool agent)
-    assert "/[TechLead]" in posted_messages[1]["text"]
-    assert thread_state_manager.remaining_agents_map[thread_key] == ["TechLead", "Architect"]
+    # Must have corrected nomination to LegalAdvisor (middle pool agent)
+    assert "/[LegalAdvisor]" in posted_messages[1]["text"]
+    assert thread_state_manager.remaining_agents_map[thread_key] == ["LegalAdvisor", "SecurityArchitect"]
 
-    # Turn 3: TechLead speaks (middle pool).
-    # TechLead is the last of middle pool, so designated next agent is Architect (end_chain).
+    # Turn 3: LegalAdvisor speaks (middle pool).
+    # LegalAdvisor is the last of middle pool, so designated next agent is SecurityArchitect (end_chain).
     mock_choice_3 = MagicMock()
     mock_choice_3.message.content = "Technical implementation details."
     mock_choice_3.message.tool_calls = None
@@ -330,17 +330,17 @@ async def test_sandwich_mode_end_to_end_discussion(monkeypatch):
     res_3 = await process_and_respond(
         channel_id="C_SANDWICH",
         thread_ts="88888.0001",
-        raw_text="/[TechLead] Your assessment",
+        raw_text="/[LegalAdvisor] Your assessment",
         is_bot_trigger=True,
     )
 
     assert res_3.get("ok") is True
     assert len(posted_messages) == 3
-    assert posted_messages[2]["username"] == "TechLead"
-    assert "/[Architect]" in posted_messages[2]["text"]
-    assert thread_state_manager.remaining_agents_map[thread_key] == ["Architect"]
+    assert posted_messages[2]["username"] == "Legal Advisor"
+    assert "/[SecurityArchitect]" in posted_messages[2]["text"]
+    assert thread_state_manager.remaining_agents_map[thread_key] == ["SecurityArchitect"]
 
-    # Turn 4: Architect speaks (end_chain).
+    # Turn 4: SecurityArchitect speaks (end_chain).
     # This is the final agent; must force termination and NOT nominate anyone.
     mock_choice_4 = MagicMock()
     mock_choice_4.message.content = "Final architecture synthesis."
@@ -354,13 +354,13 @@ async def test_sandwich_mode_end_to_end_discussion(monkeypatch):
     res_4 = await process_and_respond(
         channel_id="C_SANDWICH",
         thread_ts="88888.0001",
-        raw_text="/[Architect] Please conclude",
+        raw_text="/[SecurityArchitect] Please conclude",
         is_bot_trigger=True,
     )
 
     assert res_4.get("ok") is True
     assert len(posted_messages) == 4
-    assert posted_messages[3]["username"] == "Architect"
+    assert posted_messages[3]["username"] == "Security Architect"
     # Thread finished -> state cleaned up, tags stripped
     assert thread_key not in thread_state_manager.remaining_agents_map
     assert "[" not in posted_messages[3]["text"].split("\n\n[")[0]
@@ -368,7 +368,7 @@ async def test_sandwich_mode_end_to_end_discussion(monkeypatch):
 
 def test_app_home_view_displays_orchestration_modes():
     set_orchestration_mode("sandwich")
-    set_sandwich_config(start_chain=["Visionary"], end_chain=["Architect"])
+    set_sandwich_config(start_chain=["Visionary"], end_chain=["SecurityArchitect"])
 
     view = build_app_home_view()
     blocks = view["blocks"]
@@ -380,7 +380,7 @@ def test_app_home_view_displays_orchestration_modes():
 
     # Switch to fixed mode and verify fixed view
     set_orchestration_mode("fixed")
-    set_fixed_config(["TechLead", "Architect"])
+    set_fixed_config(["LegalAdvisor", "SecurityArchitect"])
 
     view_fixed = build_app_home_view()
     blocks_fixed = view_fixed["blocks"]
@@ -390,4 +390,4 @@ def test_app_home_view_displays_orchestration_modes():
 
     fixed_input = next((b for b in blocks_fixed if b.get("block_id", "").startswith("fixed_chain_block")), None)
     assert fixed_input is not None
-    assert "TechLead, Architect" in fixed_input["element"]["initial_value"]
+    assert "LegalAdvisor, SecurityArchitect" in fixed_input["element"]["initial_value"]
