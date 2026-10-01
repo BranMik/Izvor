@@ -312,6 +312,11 @@ class SystemSettingsManager:
         if target_name in ("agent_settings.json", "app_settings.json", "system_settings.json"):
             return True
 
+        # - Python source files (.py)
+        if target.suffix.lower() == ".py":
+            return True
+
+
         for d_path in DEFAULT_PROTECTED_WRITE_PATHS:
             try:
                 d_resolved = (base_dir / d_path).resolve()
