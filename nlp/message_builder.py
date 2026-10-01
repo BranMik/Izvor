@@ -45,7 +45,8 @@ def build_llm_messages(
     required_skill = file_context.get("required_skill") if file_context else None
     if file_context and not required_skill:
         try:
-            from skills import skill_registry
+            from core.registry import get_skill_registry
+            skill_registry = get_skill_registry()
 
             file_skill = skill_registry.get_file_handler_skill()
             required_skill = file_skill.name if file_skill else None

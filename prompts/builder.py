@@ -165,7 +165,8 @@ def build_agent_prompt(
     custom_directives = []
     if modifiers:
         try:
-            from skills import skill_registry
+            from core.registry import get_skill_registry
+            skill_registry = get_skill_registry()
 
             for mod_k, mod_v in modifiers.items():
                 if mod_k in ("max_words", "min_words", "history", "file_use", "target_file", "excluded_agents"):
@@ -191,7 +192,8 @@ def build_agent_prompt(
 
     # Append Skills Directory and on-demand progressive disclosure (strictly filtered to authorized skills)
     try:
-        from skills import skill_registry
+        from core.registry import get_skill_registry
+        skill_registry = get_skill_registry()
 
         # Inject comprehensive skills directory so any agent asked can accurately list all skills and authorized agents
         skills_dir_prompt = skill_registry.get_skills_directory_prompt()

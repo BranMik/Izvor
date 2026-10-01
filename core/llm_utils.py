@@ -35,6 +35,8 @@ def is_openai_model(model: str | None) -> bool:
     )
 
 
+import litellm
+
 def classify_agent_error(e: Exception) -> str:
     """
     Classifies an agent execution exception into one of:
@@ -44,13 +46,21 @@ def classify_agent_error(e: Exception) -> str:
     - 'model_not_found': Model does not exist or unknown model identifier.
     - 'general_error': Any other unexpected runtime exception.
     """
+    if isinstance(e, litellm.exceptions.RateLimitError):
+        return "rate_limit"
+    if isinstance(e, litellm.exceptions.ServiceUnavailableError) or isinstance(e, litellm.exceptions.Timeout):
+        return "service_unavailable"
+    if isinstance(e, litellm.exceptions.AuthenticationError):
+        return "api_key_not_found"
+    if isinstance(e, litellm.exceptions.NotFoundError):
+        return "model_not_found"
+        
     error_str = str(e).lower()
     error_type = type(e).__name__.lower()
 
-    # 1. Rate Limit Checks (429 / Quotas)
+    # Fallback string matching for wrapped exceptions
     if (
-        "ratelimit" in error_type
-        or "rate_limit" in error_str
+        "rate_limit" in error_str
         or "ratelimit" in error_str
         or "rate limit" in error_str
         or "429" in error_str
@@ -58,12 +68,9 @@ def classify_agent_error(e: Exception) -> str:
         or "resourceexhausted" in error_str
         or "resource_exhausted" in error_str
         or "quota" in error_str
-        or "tpm" in error_str
-        or "rpm" in error_str
     ):
         return "rate_limit"
 
-    # 2. Service Unavailable / High Demand / 503 Overloaded Checks
     if (
         "serviceunavailable" in error_type
         or "internalservererror" in error_type
@@ -72,7 +79,6 @@ def classify_agent_error(e: Exception) -> str:
         or "capacityerror" in error_type
         or "service_unavailable" in error_str
         or "service unavailable" in error_str
-        or "serviceunavailable" in error_str
         or "503" in error_str
         or "529" in error_str
         or "high demand" in error_str
@@ -80,14 +86,9 @@ def classify_agent_error(e: Exception) -> str:
         or "overloaded" in error_str
         or "capacity exceeded" in error_str
         or "temporarily unavailable" in error_str
-        or "temporarily overloaded" in error_str
-        or "model is overloaded" in error_str
-        or "server is overloaded" in error_str
-        or "upstream connect error" in error_str
     ):
         return "service_unavailable"
 
-    # 3. API Key Not Found / Authentication Checks
     if (
         "auth" in error_type
         or "api_key" in error_str
@@ -101,7 +102,6 @@ def classify_agent_error(e: Exception) -> str:
     ):
         return "api_key_not_found"
 
-    # 4. Model Not Found Checks
     if (
         "notfound" in error_type
         or "model_not_found" in error_str

@@ -107,7 +107,8 @@ class ValidationStageMixin:
             if grant_act:
                 from orchestration.app_settings import app_settings_manager
                 from orchestration.thread_skills_manager import thread_skills_manager
-                from skills import skill_registry
+                from core.registry import get_skill_registry
+                skill_registry = get_skill_registry()
 
                 requested_skills = grant_act.params.get("skills", [])
                 if not requested_skills:
@@ -147,7 +148,8 @@ class ValidationStageMixin:
             if grant_skill_act:
                 from orchestration.app_settings import app_settings_manager
                 from orchestration.thread_skills_manager import thread_skills_manager
-                from skills import skill_registry
+                from core.registry import get_skill_registry
+                skill_registry = get_skill_registry()
 
                 requested_skill = grant_skill_act.params.get("skill")
                 requested_agents = grant_skill_act.params.get("agents", [])
@@ -262,7 +264,8 @@ class ValidationStageMixin:
 
             # Execute any registered orchestrator action handlers
             try:
-                from skills import skill_registry
+                from core.registry import get_skill_registry
+                skill_registry = get_skill_registry()
                 for act in ctx.actions:
                     sk = skill_registry.get(act.name)
                     if sk and sk.action_handler:
@@ -582,7 +585,8 @@ class ValidationStageMixin:
                 thread_state_manager.set_round_sequence(ctx.channel_id, ctx.thread_ts, current_seq)
 
             if ctx.is_file_req:
-                from skills import skill_registry
+                from core.registry import get_skill_registry
+                skill_registry = get_skill_registry()
 
                 file_skill = skill_registry.get_file_handler_skill()
                 file_skill_name = file_skill.name if file_skill else None

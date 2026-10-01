@@ -141,7 +141,8 @@ class OrchestratorAgent:
         """
         if task == OrchestratorTask.INTENT_EXTRACTION:
             try:
-                from skills import skill_registry
+                from core.registry import get_skill_registry
+                skill_registry = get_skill_registry()
                 catalog = skill_registry.build_extractor_catalog_prompt()
                 if catalog:
                     return catalog
@@ -186,7 +187,8 @@ class OrchestratorAgent:
 
         if task == OrchestratorTask.PRICING_RESEARCH:
             try:
-                from skills import skill_registry
+                from core.registry import get_skill_registry
+                skill_registry = get_skill_registry()
                 web_skill = skill_registry.get_skill("web_research")
                 if web_skill:
                     return web_skill.get_tool_schemas()

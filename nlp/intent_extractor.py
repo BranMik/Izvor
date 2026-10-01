@@ -54,7 +54,8 @@ class IntentExtractor:
         if self._custom_system_prompt:
             return self._custom_system_prompt
         try:
-            from skills import skill_registry
+            from core.registry import get_skill_registry
+            skill_registry = get_skill_registry()
             prompt = skill_registry.build_extractor_catalog_prompt()
             if prompt:
                 return prompt
@@ -162,7 +163,8 @@ class IntentExtractor:
                         actions.append(ActionDirective(name=act_name, params=act_params))
 
             # 3. Dynamic file handler resolution
-            from skills import skill_registry
+            from core.registry import get_skill_registry
+            skill_registry = get_skill_registry()
 
             file_skill = skill_registry.get_file_handler_skill()
             if file_skill:

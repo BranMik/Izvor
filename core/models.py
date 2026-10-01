@@ -199,7 +199,8 @@ class ExtractedIntent:
         if self.modifiers.get("file_use", False):
             return True
         try:
-            from skills import skill_registry
+            from core.registry import get_skill_registry
+            skill_registry = get_skill_registry()
             file_skill = skill_registry.get_file_handler_skill()
             if file_skill and self.has_action(file_skill.name):
                 return True
@@ -211,7 +212,8 @@ class ExtractedIntent:
     def file_use(self, val: bool) -> None:
         self.modifiers["file_use"] = bool(val)
         try:
-            from skills import skill_registry
+            from core.registry import get_skill_registry
+            skill_registry = get_skill_registry()
             file_skill = skill_registry.get_file_handler_skill()
             skill_name = file_skill.name if file_skill else None
         except (ImportError, AttributeError):
@@ -235,7 +237,8 @@ class ExtractedIntent:
         if val is not None:
             self.modifiers["target_file"] = val
             try:
-                from skills import skill_registry
+                from core.registry import get_skill_registry
+                skill_registry = get_skill_registry()
                 file_skill = skill_registry.get_file_handler_skill()
                 skill_name = file_skill.name if file_skill else None
             except (ImportError, AttributeError):

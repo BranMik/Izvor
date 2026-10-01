@@ -152,7 +152,8 @@ def verify_admin_basic_auth(
 @app.get("/api/skills", dependencies=[Depends(verify_admin_basic_auth)])
 async def get_registered_skills():
     """Returns all registered skills, descriptions, and their tool schemas."""
-    from skills import skill_registry
+    from core.registry import get_skill_registry
+    skill_registry = get_skill_registry()
     skills_data = []
     for s in skill_registry.list_skills():
         skills_data.append(

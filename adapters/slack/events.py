@@ -61,7 +61,8 @@ _SKILLS_SLASH_CACHE: tuple[tuple[str, ...], re.Pattern] | None = None
 def _get_skills_slash_regex() -> re.Pattern | None:
     global _SKILLS_SLASH_CACHE
     try:
-        from skills import skill_registry
+        from core.registry import get_skill_registry
+        skill_registry = get_skill_registry()
 
         triggers = tuple(sorted(skill_registry.get_slash_triggers()))
         if not triggers:
@@ -246,9 +247,11 @@ async def handle_slack_events(request: Request, background_tasks: BackgroundTask
                     logger.info(
                         f"[WEBHOOK] DISPATCHING BackgroundTask for '{event_type}' - channel: {channel_id}, thread: {thread_ts}"
                     )
-                    # Dispatch agent discussion loop asynchronously and register task with thread_state_manager
-                    task = asyncio.create_task(
-                        process_and_respond(
+                    # Dispatch agent discussion loop asynchronously via thread_state_manager
+                    thread_state_manager.dispatch_discussion_task(
+                        channel_id=channel_id,
+                        thread_ts=thread_ts,
+                        coro=process_and_respond(
                             channel_id=channel_id,
                             thread_ts=thread_ts,
                             raw_text=raw_text,
@@ -257,16 +260,6 @@ async def handle_slack_events(request: Request, background_tasks: BackgroundTask
                             run_internal_loop=True,
                         )
                     )
-
-                    def _log_background_task_error(t: asyncio.Task) -> None:
-                        if not t.cancelled() and t.exception():
-                            logger.error(
-                                f"[WEBHOOK] Background task failed for thread {(channel_id, thread_ts)}: {t.exception()}",
-                                exc_info=t.exception(),
-                            )
-
-                    task.add_done_callback(_log_background_task_error)
-                    thread_state_manager.set_active_task(channel_id, thread_ts, task)
                 else:
                     logger.info(
                         "[WEBHOOK] Ignoring event - should_process evaluated to False"
