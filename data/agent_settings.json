@@ -35,7 +35,6 @@
       "icon_url": "static/image_21.png",
       "is_short_output": false,
       "skills": [
-        "codebase_inspection",
         "document_reader",
         "knowledge_base_rag"
       ]
@@ -53,8 +52,6 @@
       "icon_url": "static/image_08.png",
       "is_short_output": false,
       "skills": [
-        "codebase_inspection",
-        "workspace_authoring",
         "knowledge_base_rag"
       ]
     },
@@ -113,7 +110,6 @@
       "icon_url": "static/image_29.png",
       "is_short_output": false,
       "skills": [
-        "codebase_inspection",
         "document_reader",
         "knowledge_base_rag"
       ]
@@ -123,9 +119,7 @@
       "username": "Scalability Engineer",
       "icon_url": "static/image_06.png",
       "is_short_output": true,
-      "skills": [
-        "codebase_inspection"
-      ]
+      "skills": []
     },
     "OperationalReliabilityLead": {
       "model": "mistral/mistral-large-latest",
@@ -163,7 +157,6 @@
       "icon_url": "static/image_17.png",
       "is_short_output": true,
       "skills": [
-        "codebase_inspection",
         "knowledge_base_rag"
       ]
     },

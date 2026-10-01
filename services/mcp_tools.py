@@ -80,122 +80,6 @@ def find_resource_file(filename_or_rel_path: str) -> Path | None:
     return None
 
 
-def _resolve_safe_path(rel_path: str) -> Path:
-    """
-    Ensures the requested file/directory path stays within the workspace boundary (PROJECT_ROOT by default)
-    to prevent directory traversal attacks.
-    """
-    base_dir = (
-        MCP_WORKSPACE_DIR.resolve()
-        if (isinstance(MCP_WORKSPACE_DIR, Path) and MCP_WORKSPACE_DIR.exists())
-        else PROJECT_ROOT
-    )
-    target = (base_dir / rel_path).resolve()
-    if not target.is_relative_to(base_dir):
-        raise PermissionError(
-            f"Access denied: Path '{rel_path}' is outside workspace boundary '{base_dir}'."
-        )
-    return target
-
-
-def list_directory(rel_path: str = ".") -> str:
-    """
-    Lists the contents of a directory inside the workspace.
-    """
-    try:
-        path = _resolve_safe_path(rel_path)
-        if not path.exists():
-            return json.dumps({"error": f"Directory '{rel_path}' does not exist."})
-        if not path.is_dir():
-            return json.dumps({"error": f"Path '{rel_path}' is not a directory."})
-
-        items = []
-        for child in path.iterdir():
-            items.append(
-                {
-                    "name": child.name,
-                    "type": "directory" if child.is_dir() else "file",
-                    "size_bytes": child.stat().st_size if child.is_file() else None,
-                }
-            )
-        return json.dumps({"directory": rel_path, "contents": items}, indent=2)
-    except PermissionError as e:
-        return json.dumps({"error": str(e)})
-    except FileNotFoundError:
-        return json.dumps({"error": f"Directory '{rel_path}' does not exist."})
-    except NotADirectoryError:
-        return json.dumps({"error": f"Path '{rel_path}' is not a directory."})
-    except (ValueError, TypeError) as e:
-        return json.dumps({"error": f"Invalid path '{rel_path}': {e}"})
-    except OSError as e:
-        return json.dumps({"error": f"Operating system error: {e}"})
-
-
-def read_file(rel_path: str) -> str:
-    """
-    Reads the content of a text file inside the workspace.
-    If not found in the root workspace, seamlessly checks the default resources/ directory.
-    """
-    try:
-        path = _resolve_safe_path(rel_path)
-        if not path.exists() or not path.is_file():
-            # Fallback to resources/ if file is not found in root workspace
-            res_path = find_resource_file(rel_path)
-            if res_path and res_path.exists() and res_path.is_file():
-                path = res_path
-            elif not path.exists():
-                return json.dumps({"error": f"File '{rel_path}' does not exist."})
-            elif not path.is_file():
-                return json.dumps({"error": f"Path '{rel_path}' is not a file."})
-
-        content = path.read_text(encoding="utf-8", errors="replace")
-        return json.dumps({"file": rel_path, "content": content})
-    except PermissionError as e:
-        return json.dumps({"error": str(e)})
-    except FileNotFoundError:
-        return json.dumps({"error": f"File '{rel_path}' does not exist."})
-    except IsADirectoryError:
-        return json.dumps({"error": f"Path '{rel_path}' is a directory, not a file."})
-    except UnicodeError as e:
-        return json.dumps({"error": f"Encoding error reading file '{rel_path}': {e}"})
-    except (ValueError, TypeError) as e:
-        return json.dumps({"error": f"Invalid argument: {e}"})
-    except OSError as e:
-        return json.dumps({"error": f"Operating system error reading file '{rel_path}': {e}"})
-
-
-def write_file(rel_path: str, content: str) -> str:
-    """
-    Writes or overwrites content to a text file inside the workspace.
-    """
-    try:
-        from orchestration.system_settings import is_path_write_blocked
-
-        path = _resolve_safe_path(rel_path)
-        if is_path_write_blocked(path, base_dir=WORKSPACE_DIR):
-            return json.dumps({
-                "error": f"Permission denied: Writing to protected path '{rel_path}' is strictly prohibited."
-            })
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(content, encoding="utf-8")
-        return json.dumps(
-            {
-                "success": True,
-                "file": rel_path,
-                "bytes_written": len(content.encode("utf-8")),
-            }
-        )
-    except PermissionError as e:
-        return json.dumps({"error": str(e)})
-    except IsADirectoryError:
-        return json.dumps({"error": f"Path '{rel_path}' is a directory, cannot write file."})
-    except UnicodeError as e:
-        return json.dumps({"error": f"Encoding error writing file '{rel_path}': {e}"})
-    except (ValueError, TypeError) as e:
-        return json.dumps({"error": f"Invalid argument: {e}"})
-    except OSError as e:
-        return json.dumps({"error": f"Operating system error writing file '{rel_path}': {e}"})
-
 
 def list_documents(rel_path: str = ".") -> str:
     """
@@ -334,62 +218,7 @@ def write_document(rel_path: str, content: str) -> str:
 
 # LiteLLM compatible tool schemas (OpenAI / Function calling standard)
 MCP_TOOLS_SCHEMAS = [
-    {
-        "type": "function",
-        "function": {
-            "name": "list_directory",
-            "description": "List files and subdirectories in a workspace directory.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "rel_path": {
-                        "type": "string",
-                        "description": "Relative path to list within the workspace. Defaults to '.' for root.",
-                        "default": ".",
-                    }
-                },
-                "required": [],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "read_file",
-            "description": "Read text content of a file inside the workspace.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "rel_path": {
-                        "type": "string",
-                        "description": "Relative path of the file to read.",
-                    }
-                },
-                "required": ["rel_path"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "write_file",
-            "description": "Write text content to a file inside the workspace.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "rel_path": {
-                        "type": "string",
-                        "description": "Relative path of the file to write.",
-                    },
-                    "content": {
-                        "type": "string",
-                        "description": "Text content to write into the file.",
-                    },
-                },
-                "required": ["rel_path", "content"],
-            },
-        },
-    },
+
     {
         "type": "function",
         "function": {
@@ -494,9 +323,7 @@ MCP_TOOLS_SCHEMAS = [
 
 
 TOOL_DISPATCHER: dict[str, Any] = {
-    "list_directory": lambda args: list_directory(args.get("rel_path", ".")),
-    "read_file": lambda args: read_file(args.get("rel_path", "")),
-    "write_file": lambda args: write_file(args.get("rel_path", ""), args.get("content", "")),
+
     "list_documents": lambda args: list_documents(args.get("rel_path", ".")),
     "read_document": lambda args: read_document(args.get("rel_path", "")),
     "write_document": lambda args: write_document(args.get("rel_path", ""), args.get("content", "")),
