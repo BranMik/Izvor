@@ -28,13 +28,13 @@
       "skills": [
         "web_research"
       ],
-      "granted_at": 1790889226.4228573
+      "granted_at": 1790892902.6674402
     },
     "C_TEST:1726000000.2": {
       "skills": [
         "web_research"
       ],
-      "granted_at": 1790889226.7644277
+      "granted_at": 1790892903.0716753
     },
     "C_TEST:1726000000.3": {
       "agent_skills": {
@@ -49,6 +49,12 @@
             "web_research"
           ],
           "granted_at": 1790889227.1086488
+        },
+        "agent-10008": {
+          "skills": [
+            "web_research"
+          ],
+          "granted_at": 1790892903.4275453
         }
       }
     },

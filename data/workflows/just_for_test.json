@@ -5,8 +5,8 @@
   "description": "",
   "fixed_config": {
     "chain": [
-      "Innovator",
-      "Sceptic"
+      "agent-10002",
+      "agent-10003"
     ]
   }
 }

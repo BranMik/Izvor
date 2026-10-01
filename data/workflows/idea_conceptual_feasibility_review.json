@@ -5,15 +5,15 @@
   "description": "",
   "fixed_config": {
     "chain": [
-      "Visionary",
-      "Sceptic",
-      "Innovator",
-      "UserAdvocate",
-      "ROIStrategist",
-      "MarketAndCompetitionResearchExpert",
-      "ScopeOptimizer",
-      "SecurityArchitect",
-      "Sceptic"
+      "agent-10001",
+      "agent-10003",
+      "agent-10002",
+      "agent-10007",
+      "agent-10006",
+      "agent-10009",
+      "agent-10005",
+      "agent-10008",
+      "agent-10003"
     ]
   }
 }

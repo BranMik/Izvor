@@ -5,11 +5,9 @@
   "description": "",
   "sandwich_config": {
     "start_chain": [
-      "ScopeOptimizer",
-      "Visionary"
+      "agent-10005",
+      "agent-10001"
     ],
-    "end_chain": [
-      
-    ]
+    "end_chain": []
   }
 }

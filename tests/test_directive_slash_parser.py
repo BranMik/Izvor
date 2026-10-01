@@ -27,31 +27,31 @@ def test_stop_command_detection():
 
 
 def test_resolve_agent_name():
-    assert entity_resolver.resolve_agent_name("[LegalAdvisor]") == "LegalAdvisor"
-    assert entity_resolver.resolve_agent_name("legaladvisor") == "LegalAdvisor"
-    assert entity_resolver.resolve_agent_name("Legal Advisor") == "LegalAdvisor"
-    assert entity_resolver.resolve_agent_name("[Innovator]") == "Innovator"
-    assert entity_resolver.resolve_agent_name("Innovator") == "Innovator"
-    assert entity_resolver.resolve_agent_name("Sceptic") == "Sceptic"
-    assert entity_resolver.resolve_agent_name("Visionary") == "Visionary"
-    assert entity_resolver.resolve_agent_name("[Vis]") == "Visionary"
-    assert entity_resolver.resolve_agent_name("Vis") == "Visionary"
-    assert entity_resolver.resolve_agent_name("[SecurityArchitect]") == "SecurityArchitect"
-    assert entity_resolver.resolve_agent_name("SecurityArchitect") == "SecurityArchitect"
-    assert entity_resolver.resolve_agent_name("[Inn]") == "Innovator"
-    assert entity_resolver.resolve_agent_name("[Inn}") == "Innovator"
-    assert entity_resolver.resolve_agent_name("*[Market]*") == "MarketAndCompetitionResearchExpert"
-    assert entity_resolver.resolve_agent_name("[Market]") == "MarketAndCompetitionResearchExpert"
+    assert entity_resolver.resolve_agent_name("[agent-10011]") == "agent-10011"
+    assert entity_resolver.resolve_agent_name("legaladvisor") == "agent-10011"
+    assert entity_resolver.resolve_agent_name("Legal Advisor") == "agent-10011"
+    assert entity_resolver.resolve_agent_name("[agent-10002]") == "agent-10002"
+    assert entity_resolver.resolve_agent_name("agent-10002") == "agent-10002"
+    assert entity_resolver.resolve_agent_name("agent-10003") == "agent-10003"
+    assert entity_resolver.resolve_agent_name("agent-10001") == "agent-10001"
+    assert entity_resolver.resolve_agent_name("[Vis]") == "agent-10001"
+    assert entity_resolver.resolve_agent_name("Vis") == "agent-10001"
+    assert entity_resolver.resolve_agent_name("[agent-10008]") == "agent-10008"
+    assert entity_resolver.resolve_agent_name("agent-10008") == "agent-10008"
+    assert entity_resolver.resolve_agent_name("[Inn]") == "agent-10002"
+    assert entity_resolver.resolve_agent_name("[Inn}") == "agent-10002"
+    assert entity_resolver.resolve_agent_name("*[Market]*") == "agent-10009"
+    assert entity_resolver.resolve_agent_name("[Market]") == "agent-10009"
     # Ambiguous check: [Arch] matches SecurityArchitect & SecurityArchitect -> None
-    assert entity_resolver.resolve_agent_name("[Arch]") == "SecurityArchitect"
+    assert entity_resolver.resolve_agent_name("[Arch]") == "agent-10008"
     assert entity_resolver.resolve_agent_name("NonExistentAgent") is None
     assert entity_resolver.resolve_agent_name("") is None
 
     # Test resolve_candidates
-    assert entity_resolver.resolve_candidates("[Vis]") == ["Visionary"]
-    assert "SecurityArchitect" in entity_resolver.resolve_candidates("[SecurityArchitect]")
+    assert entity_resolver.resolve_candidates("[Vis]") == ["agent-10001"]
+    assert "agent-10008" in entity_resolver.resolve_candidates("[agent-10008]")
     assert len(entity_resolver.resolve_candidates("[Arch]")) == 1
-    assert "SecurityArchitect" in entity_resolver.resolve_candidates("[Arch]")
+    assert "agent-10008" in entity_resolver.resolve_candidates("[Arch]")
     assert len(entity_resolver.resolve_candidates("[Strategist]")) == 1
     assert entity_resolver.resolve_candidates("[NonExistent]") == []
     assert entity_resolver.resolve_candidates("[TODO]") == []
@@ -117,45 +117,45 @@ def test_scribe_word_limits():
 
 def test_exclude_slash_command_single_and_multi():
     # Single agent slash command
-    matched, exc, is_off, text = parse_agent_list("/exclude", "/exclude [LegalAdvisor] Debate this feature")
+    matched, exc, is_off, text = parse_agent_list("/exclude", "/exclude [agent-10011] Debate this feature")
     assert matched is True
-    assert exc == ["LegalAdvisor"]
+    assert exc == ["agent-10011"]
     assert is_off is False
     assert text == "Debate this feature"
 
     # Multi-agent syntax: /exclude [Agent1] [Agent2] [Agent3]
     matched, exc, is_off, text = parse_agent_list(
-        "/exclude", "/exclude [LegalAdvisor] [Innovator] [ScopeOptimizer] Plan the sprint"
+        "/exclude", "/exclude [agent-10011] [agent-10002] [agent-10005] Plan the sprint"
     )
-    assert exc == ["LegalAdvisor", "Innovator", "ScopeOptimizer"]
+    assert exc == ["agent-10011", "agent-10002", "agent-10005"]
     assert is_off is False
     assert text == "Plan the sprint"
 
     # Comma-separated syntax
     matched, exc, is_off, text = parse_agent_list(
-        "/exclude", "/exclude [LegalAdvisor], [Innovator] Plan the sprint"
+        "/exclude", "/exclude [agent-10011], [agent-10002] Plan the sprint"
     )
-    assert exc == ["LegalAdvisor", "Innovator"]
+    assert exc == ["agent-10011", "agent-10002"]
     assert is_off is False
     assert text == "Plan the sprint"
 
     # Colon syntax
-    matched, exc, is_off, text = parse_agent_list("/exclude", "/exclude: [LegalAdvisor] test")
-    assert exc == ["LegalAdvisor"]
+    matched, exc, is_off, text = parse_agent_list("/exclude", "/exclude: [agent-10011] test")
+    assert exc == ["agent-10011"]
     assert is_off is False
     assert text == "test"
 
     # Unbracketed names
     matched, exc, is_off, text = parse_agent_list("/exclude", "/exclude LegalAdvisor Innovator test")
-    assert exc == ["LegalAdvisor", "Innovator"]
+    assert exc == ["agent-10011", "agent-10002"]
     assert is_off is False
     assert text == "test"
 
     # Multiple separate /exclude commands
     matched, exc, is_off, text = parse_agent_list(
-        "/exclude", "/exclude [LegalAdvisor] Some text /exclude [Innovator]"
+        "/exclude", "/exclude [agent-10011] Some text /exclude [agent-10002]"
     )
-    assert exc == ["LegalAdvisor", "Innovator"]
+    assert exc == ["agent-10011", "agent-10002"]
     assert is_off is False
     assert text == "Some text"
 
@@ -172,13 +172,13 @@ def test_exclude_off():
 
 
 def test_include_slash_command_and_off():
-    _matched, inc, is_off, text = parse_agent_list("/include", "/include [LegalAdvisor] Debate this feature")
-    assert inc == ["LegalAdvisor"]
+    _matched, inc, is_off, text = parse_agent_list("/include", "/include [agent-10011] Debate this feature")
+    assert inc == ["agent-10011"]
     assert is_off is False
     assert text == "Debate this feature"
 
-    _matched, inc, is_off, text = parse_agent_list("/include", "/include [Innovator] [SecurityArchitect] Let's discuss")
-    assert inc == ["Innovator", "SecurityArchitect"]
+    _matched, inc, is_off, text = parse_agent_list("/include", "/include [agent-10002] [agent-10008] Let's discuss")
+    assert inc == ["agent-10002", "agent-10008"]
     assert is_off is False
     assert text == "Let's discuss"
 
@@ -223,12 +223,12 @@ def test_revoke_instruction():
 @pytest.mark.anyio
 async def test_directive_parser_dynamic_skills_sourcing():
     parser = DirectiveParser()
-    raw = "/max_words 40 /history 5 /exclude [LegalAdvisor] What is our roadmap?"
+    raw = "/max_words 40 /history 5 /exclude [agent-10011] What is our roadmap?"
     directives = await parser.parse(raw)
 
     assert directives.max_words == 40
     assert directives.history_limit == 5
-    assert "LegalAdvisor" in directives.excluded_agents
+    assert "agent-10011" in directives.excluded_agents
     assert "What is our roadmap?" in directives.cleaned_prompt
     assert not directives.is_stop
 
@@ -248,11 +248,11 @@ async def test_directive_parser_file_and_revoke():
 def test_strip_all_slash_commands():
     from pipeline.directive_parser.slash_parser import strip_all_slash_commands
 
-    raw = "[LegalAdvisor] /history 3 /max_words 50 /exclude [Innovator] What should we refactor?"
+    raw = "[agent-10011] /history 3 /max_words 50 /exclude [agent-10002] What should we refactor?"
     cleaned = strip_all_slash_commands(raw)
     assert "/history" not in cleaned
     assert "/max_words" not in cleaned
     assert "/exclude" not in cleaned
-    assert "[Innovator]" not in cleaned
-    assert "[LegalAdvisor]" in cleaned
+    assert "[agent-10002]" not in cleaned
+    assert "[agent-10011]" in cleaned
     assert "What should we refactor?" in cleaned

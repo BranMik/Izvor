@@ -105,7 +105,7 @@ async def test_three_round_five_word_croatian_test(monkeypatch):
     res_1 = await process_and_respond(
         channel_id=channel,
         thread_ts=thread_ts,
-        raw_text="/[Innovator] /[LegalAdvisor] Ovo je test, maximum 5 rijeci /max_words 5",
+        raw_text="/[agent-10002] /[agent-10011] Ovo je test, maximum 5 rijeci /max_words 5",
         is_bot_trigger=False,
     )
 
@@ -123,7 +123,7 @@ async def test_three_round_five_word_croatian_test(monkeypatch):
     res_2 = await process_and_respond(
         channel_id=channel,
         thread_ts=thread_ts,
-        raw_text="/[LegalAdvisor] LegalAdvisor potvrda",
+        raw_text="/[agent-10011] LegalAdvisor potvrda",
         is_bot_trigger=True,
     )
     assert res_2.get("is_completed")
@@ -170,7 +170,7 @@ async def test_three_round_five_word_croatian_test(monkeypatch):
     res_4 = await process_and_respond(
         channel_id=channel,
         thread_ts=thread_ts,
-        raw_text="/[LegalAdvisor] LegalAdvisor runda dva",
+        raw_text="/[agent-10011] LegalAdvisor runda dva",
         is_bot_trigger=True,
     )
     assert res_4.get("is_completed")
@@ -205,7 +205,7 @@ async def test_three_round_five_word_croatian_test(monkeypatch):
     res_6 = await process_and_respond(
         channel_id=channel,
         thread_ts=thread_ts,
-        raw_text="/[LegalAdvisor] LegalAdvisor runda tri",
+        raw_text="/[agent-10011] LegalAdvisor runda tri",
         is_bot_trigger=True,
     )
     assert res_6.get("is_completed")
@@ -247,7 +247,7 @@ async def test_scribe_max_and_min_words_separation(monkeypatch):
     await process_and_respond(
         channel_id=channel,
         thread_ts=thread_ts,
-        raw_text="[Innovator] Discuss feature /scribe_max_words 40 /scribe_min_words 10",
+        raw_text="[agent-10002] Discuss feature /scribe_max_words 40 /scribe_min_words 10",
         is_bot_trigger=False,
     )
 
@@ -276,22 +276,22 @@ async def test_include_overrides_exclude():
     thread_ts = "777.001"
 
     # Initially exclude LegalAdvisor
-    thread_state_manager.set_excluded_agents(channel, thread_ts, ["LegalAdvisor"])
-    assert thread_state_manager.get_excluded_agents(channel, thread_ts) == ["LegalAdvisor"]
+    thread_state_manager.set_excluded_agents(channel, thread_ts, ["agent-10011"])
+    assert thread_state_manager.get_excluded_agents(channel, thread_ts) == ["agent-10011"]
 
-    # Now apply /include [LegalAdvisor]
+    # Now apply /include [agent-10011]
     from pipeline.directive_parser import directive_parser
-    parsed = await directive_parser.parse("/include [LegalAdvisor] [SecurityArchitect]")
-    assert parsed.included_agents == ["LegalAdvisor", "SecurityArchitect"]
+    parsed = await directive_parser.parse("/include [agent-10011] [agent-10008]")
+    assert parsed.included_agents == ["agent-10011", "agent-10008"]
 
     # In validation stage logic: include removes from excluded and sets included
     for inc in parsed.included_agents:
         thread_state_manager.remove_excluded_agent(channel, thread_ts, inc)
     thread_state_manager.set_included_agents(channel, thread_ts, parsed.included_agents)
 
-    assert "LegalAdvisor" not in thread_state_manager.get_excluded_agents(channel, thread_ts)
-    assert "LegalAdvisor" in thread_state_manager.get_included_agents(channel, thread_ts)
-    assert "SecurityArchitect" in thread_state_manager.get_included_agents(channel, thread_ts)
+    assert "agent-10011" not in thread_state_manager.get_excluded_agents(channel, thread_ts)
+    assert "agent-10011" in thread_state_manager.get_included_agents(channel, thread_ts)
+    assert "agent-10008" in thread_state_manager.get_included_agents(channel, thread_ts)
 
 
 @pytest.mark.anyio
@@ -307,8 +307,8 @@ async def test_revoke_skill_functionality():
     thread_state_manager.set_max_words(channel, thread_ts, 50)
     thread_state_manager.set_min_words(channel, thread_ts, 10)
     thread_state_manager.set_scribe_max_words(channel, thread_ts, 100)
-    thread_state_manager.set_excluded_agents(channel, thread_ts, ["Innovator"])
-    thread_state_manager.set_included_agents(channel, thread_ts, ["LegalAdvisor"])
+    thread_state_manager.set_excluded_agents(channel, thread_ts, ["agent-10002"])
+    thread_state_manager.set_included_agents(channel, thread_ts, ["agent-10011"])
     thread_state_manager.set_language(channel, thread_ts, "Croatian")
 
     # Revoke max_words specifically via pure toggle
@@ -353,8 +353,8 @@ async def test_off_toggles_execution():
 
     thread_state_manager.set_max_words(channel, thread_ts, 25)
     thread_state_manager.set_min_words(channel, thread_ts, 5)
-    thread_state_manager.set_excluded_agents(channel, thread_ts, ["LegalAdvisor"])
-    thread_state_manager.set_included_agents(channel, thread_ts, ["Innovator"])
+    thread_state_manager.set_excluded_agents(channel, thread_ts, ["agent-10011"])
+    thread_state_manager.set_included_agents(channel, thread_ts, ["agent-10002"])
     thread_state_manager.set_scribe_max_words(channel, thread_ts, 60)
     thread_state_manager.set_scribe_min_words(channel, thread_ts, 15)
 

@@ -40,16 +40,16 @@ def test_agent_settings_ssot_loading():
         data = {
             "circuit_breaker_enabled": True,
             "circuit_breaker_threshold_usd": 2.50,
-            "enabled_agents": ["Visionary", "SecurityArchitect"],
+            "enabled_agents": ["agent-10001", "agent-10008"],
             "agents": {
-                "Visionary": {
+                "agent-10001": {
                     "model": "gemini/gemini-3.8-flash",
-                    "username": "Visionary",
+                    "username": "agent-10001",
                     "icon_url": "static/avatar_25.png",
                 },
-                "SecurityArchitect": {
+                "agent-10008": {
                     "model": "openai/gpt-5.6-terra",
-                    "username": "SecurityArchitect",
+                    "username": "agent-10008",
                     "icon_url": "static/avatar_33.png",
                 },
             },
@@ -72,9 +72,9 @@ def test_agent_settings_ssot_loading():
         assert mgr.is_running_from_backup is False
         assert mgr.is_circuit_breaker_enabled() is True
         assert mgr.get_circuit_breaker_threshold() == 2.50
-        assert "Visionary" in mgr.agents_config
-        assert mgr.agents_config["Visionary"]["model"] == "gemini/gemini-3.8-flash"
-        assert mgr.agents_config["Visionary"]["icon_url"] == "static/avatar_25.png"
+        assert "agent-10001" in mgr.agents_config
+        assert mgr.agents_config["agent-10001"]["model"] == "gemini/gemini-3.8-flash"
+        assert mgr.agents_config["agent-10001"]["icon_url"] == "static/avatar_25.png"
         assert mgr.orchestrator_config["fast_model"] == "gemini/gemini-3.8-flash"
         assert mgr.orchestrator_config["reasoning_model"] == "mistral/mistral-large-latest"
         assert mgr.get_orchestrator_fast_model() == "gemini/gemini-3.8-flash"
@@ -89,11 +89,11 @@ def test_agent_validation_skips_invalid():
         data = {
             "circuit_breaker_enabled": False,
             "circuit_breaker_threshold_usd": 1.0,
-            "enabled_agents": ["Visionary", "Bad_Agent_No_Model", "Bad_Agent_No_Persona"],
+            "enabled_agents": ["agent-10001", "Bad_Agent_No_Model", "Bad_Agent_No_Persona"],
             "agents": {
-                "Visionary": {
+                "agent-10001": {
                     "model": "gemini/gemini-3.8-flash",
-                    "username": "Visionary",
+                    "username": "agent-10001",
                     "icon_url": "static/avatar_25.png",
                 },
                 "Bad_Agent_No_Model": {
@@ -122,7 +122,7 @@ def test_agent_validation_skips_invalid():
             auto_load=True,
         )
 
-        assert "Visionary" in mgr.agents_config
+        assert "agent-10001" in mgr.agents_config
         assert "Bad_Agent_No_Model" not in mgr.agents_config
         assert "Bad_Agent_No_Username" not in mgr.agents_config
         assert "Bad_Agent_No_Persona" not in mgr.agents_config
@@ -138,11 +138,11 @@ def test_emergency_backup_failover_non_destructive():
         backup_data = {
             "circuit_breaker_enabled": True,
             "circuit_breaker_threshold_usd": 5.0,
-            "enabled_agents": ["Visionary"],
+            "enabled_agents": ["agent-10001"],
             "agents": {
-                "Visionary": {
+                "agent-10001": {
                     "model": "gemini/gemini-3.8-flash",
-                    "username": "Visionary",
+                    "username": "agent-10001",
                     "icon_url": "static/avatar_25.png",
                 }
             },
@@ -165,7 +165,7 @@ def test_emergency_backup_failover_non_destructive():
         assert mgr.is_running_from_backup is True
         assert mgr.backup_error_reason is not None
         assert "Unreadable/corrupted JSON" in mgr.backup_error_reason
-        assert "Visionary" in mgr.agents_config
+        assert "agent-10001" in mgr.agents_config
         assert mgr.is_circuit_breaker_enabled() is True
 
         # Non-destructive check: active file MUST still contain corrupted content untouched
@@ -182,16 +182,16 @@ def test_restore_from_backup():
         backup_data = {
             "circuit_breaker_enabled": False,
             "circuit_breaker_threshold_usd": 1.0,
-            "enabled_agents": ["Visionary", "SecurityArchitect"],
+            "enabled_agents": ["agent-10001", "agent-10008"],
             "agents": {
-                "Visionary": {
+                "agent-10001": {
                     "model": "gemini/gemini-3.8-flash",
-                    "username": "Visionary",
+                    "username": "agent-10001",
                     "icon_url": "static/avatar_25.png",
                 },
-                "SecurityArchitect": {
+                "agent-10008": {
                     "model": "openai/gpt-5.6-terra",
-                    "username": "SecurityArchitect",
+                    "username": "agent-10008",
                     "icon_url": "static/avatar_33.png",
                 },
             },
@@ -219,8 +219,8 @@ def test_restore_from_backup():
         # Verify active file on disk has been replaced with backup data
         with open(settings_file, "r", encoding="utf-8") as f:
             restored = json.load(f)
-        assert "Visionary" in restored["agents"]
-        assert "SecurityArchitect" in restored["agents"]
+        assert "agent-10001" in restored["agents"]
+        assert "agent-10008" in restored["agents"]
 
 
 def test_7_day_backup_refresh():
@@ -231,11 +231,11 @@ def test_7_day_backup_refresh():
         data = {
             "circuit_breaker_enabled": False,
             "circuit_breaker_threshold_usd": 1.0,
-            "enabled_agents": ["Visionary"],
+            "enabled_agents": ["agent-10001"],
             "agents": {
-                "Visionary": {
+                "agent-10001": {
                     "model": "gemini/gemini-3.8-flash",
-                    "username": "Visionary",
+                    "username": "agent-10001",
                     "icon_url": "static/avatar_25.png",
                 }
             },
@@ -266,7 +266,7 @@ def test_slack_app_home_emergency_alert():
     # Test alert presence when running in backup mode
     with patch("orchestration.agent_settings.is_running_from_backup", return_value=True), \
          patch("orchestration.agent_settings.get_backup_error_reason", return_value="Test file missing"):
-        view = build_app_home_view(enabled_agents={"Visionary"})
+        view = build_app_home_view(enabled_agents={"agent-10001"})
         blocks = view.get("blocks", [])
 
         # Check for emergency alert section
@@ -286,7 +286,7 @@ def test_slack_app_home_emergency_alert():
 
     # Test no alert when normal
     with patch("orchestration.agent_settings.is_running_from_backup", return_value=False):
-        view = build_app_home_view(enabled_agents={"Visionary"})
+        view = build_app_home_view(enabled_agents={"agent-10001"})
         blocks = view.get("blocks", [])
         has_alert = any(
             b.get("type") == "section" and "EMERGENCY BACKUP" in b.get("text", {}).get("text", "")
@@ -350,7 +350,7 @@ async def test_turn_pipeline_propagates_agent_avatar_icon():
     ctx = TurnContext(
         channel_id="C_TEST",
         thread_ts="12345.6789",
-        raw_text="/[Visionary] Hello test",
+        raw_text="/[agent-10001] Hello test",
         icon_url=None,
     )
     ctx.my_generation = 0
@@ -358,7 +358,7 @@ async def test_turn_pipeline_propagates_agent_avatar_icon():
     # Stage 1: parse directives & agent
     res1 = await pipeline.stage_validate_and_parse(ctx)
     assert res1 is None
-    assert ctx.agent_key == "Visionary"
+    assert ctx.agent_key == "agent-10001"
 
     # Stage 2: resolve agent cfg and populate icon_url
     res2 = await pipeline.stage_resolve_agent_and_governance(ctx)

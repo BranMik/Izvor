@@ -112,11 +112,11 @@ def test_document_parser_markdown():
         temp_path = Path(f.name)
 
     try:
-        chunks = parser.parse_file(temp_path, "arch.md", "SecurityArchitect")
+        chunks = parser.parse_file(temp_path, "arch.md", "agent-10008")
         assert len(chunks) >= 2
         assert any("Storage Layer" in c.section_header for c in chunks)
         assert any("Network Layer" in c.section_header for c in chunks)
-        assert all(c.agent_id == "SecurityArchitect" for c in chunks)
+        assert all(c.agent_id == "agent-10008" for c in chunks)
         assert all(c.filename == temp_path.name for c in chunks)
     finally:
         if temp_path.exists():
@@ -145,7 +145,7 @@ def test_document_parser_text_file():
         temp_path = Path(f.name)
 
     try:
-        chunks = parser.parse_file(temp_path, "notes.txt", "LegalAdvisor")
+        chunks = parser.parse_file(temp_path, "notes.txt", "agent-10011")
         assert len(chunks) >= 1
         assert all(isinstance(c, DocumentChunk) for c in chunks)
         assert all(c.section_header == "General" for c in chunks)

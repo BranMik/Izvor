@@ -88,13 +88,13 @@ def test_thread_skills_manager_ttl_expiration():
 
 @pytest.mark.anyio
 async def test_directive_parser_grant_and_revoke_for_all():
-    raw_grant = "/grant_skill_for_all web_research document_reader [SecurityArchitect] inspect repo"
+    raw_grant = "/grant_skill_for_all web_research document_reader [agent-10008] inspect repo"
     parsed_grant = await directive_parser.parse(raw_grant)
 
     assert any(a.name == "grant_skill_for_all" for a in parsed_grant.actions)
     grant_action = next(a for a in parsed_grant.actions if a.name == "grant_skill_for_all")
     assert grant_action.params["skills"] == ["web_research", "document_reader"]
-    assert "[SecurityArchitect] inspect repo" in parsed_grant.cleaned_prompt
+    assert "[agent-10008] inspect repo" in parsed_grant.cleaned_prompt
     assert "/grant_skill_for_all" not in parsed_grant.cleaned_prompt
 
     raw_revoke = "/revoke_skill_for_all web_research"

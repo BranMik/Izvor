@@ -41,14 +41,14 @@ def test_models_serialization():
         content="print('hello')",
         size=14,
         truncated=False,
-        authorized_agents={"Visionary"},
+        authorized_agents={"agent-10001"},
     )
     d = fc.to_dict()
     assert d["file_name"] == "app.py"
-    assert d["authorized_agents"] == {"Visionary"}
+    assert d["authorized_agents"] == {"agent-10001"}
     fc_restored = FileContext.from_dict(d)
     assert fc_restored.file_name == "app.py"
-    assert fc_restored.authorized_agents == {"Visionary"}
+    assert fc_restored.authorized_agents == {"agent-10001"}
 
     # 2. ExtractedIntent
     ei = ExtractedIntent(max_words=50, history=3, file_use=True, target_file="data.csv")
@@ -91,30 +91,30 @@ def test_agent_settings_manager():
         mgr = AgentSettingsManager(settings_file=settings_file)
 
         # Defaults
-        assert "Visionary" in mgr.get_enabled_agents()
+        assert "agent-10001" in mgr.get_enabled_agents()
         assert mgr.is_circuit_breaker_enabled() is False
         assert mgr.get_orchestration_mode() == "sandwich"
 
         # Toggle all agents freely (no locked agents)
-        assert mgr.set_agent_enabled("Visionary", False) is True
-        assert "Visionary" not in mgr.get_enabled_agents()
-        assert mgr.set_agent_enabled("Innovator", False) is True
-        assert "Innovator" not in mgr.get_enabled_agents()
+        assert mgr.set_agent_enabled("agent-10001", False) is True
+        assert "agent-10001" not in mgr.get_enabled_agents()
+        assert mgr.set_agent_enabled("agent-10002", False) is True
+        assert "agent-10002" not in mgr.get_enabled_agents()
 
         # Orchestration mode and chain configuration
         mgr.set_orchestration_mode(OrchestrationMode.FIXED)
         assert mgr.get_orchestration_mode() == "fixed"
         assert mgr.get_orchestration_mode() == OrchestrationMode.FIXED
-        mgr.set_fixed_config(["LegalAdvisor", "Innovator"])
-        assert mgr.get_fixed_config() == {"chain": ["LegalAdvisor", "Innovator"]}
+        mgr.set_fixed_config(["agent-10011", "agent-10002"])
+        assert mgr.get_fixed_config() == {"chain": ["agent-10011", "agent-10002"]}
 
         mgr.set_orchestration_mode(OrchestrationMode.SANDWICH)
         assert mgr.get_orchestration_mode() == "sandwich"
         assert mgr.get_orchestration_mode() == OrchestrationMode.SANDWICH
-        mgr.set_sandwich_config(["Visionary"], ["SecurityArchitect"])
+        mgr.set_sandwich_config(["agent-10001"], ["agent-10008"])
         assert mgr.get_sandwich_config() == {
-            "start_chain": ["Visionary"],
-            "end_chain": ["SecurityArchitect"],
+            "start_chain": ["agent-10001"],
+            "end_chain": ["agent-10008"],
         }
 
         # Circuit breaker settings
@@ -128,7 +128,7 @@ def test_agent_settings_manager():
         mgr_reloaded.load()
         assert mgr_reloaded.is_circuit_breaker_enabled() is True
         assert mgr_reloaded.get_circuit_breaker_threshold() == 3.75
-        assert "Innovator" not in mgr_reloaded.get_enabled_agents()
+        assert "agent-10002" not in mgr_reloaded.get_enabled_agents()
         assert mgr_reloaded.get_orchestration_mode() == "sandwich"
         assert mgr_reloaded.get_workflow_config() == "default_review_flow"
 
@@ -157,10 +157,10 @@ def test_thread_state_manager():
     assert mgr.get_file_context(channel_id, thread_ts)["file_name"] == "schema.sql"
 
     # 503 tracking
-    assert mgr.has_agent_503_errored(channel_id, thread_ts, "Visionary") is False
-    mgr.mark_agent_503_errored(channel_id, thread_ts, "Visionary")
-    assert mgr.has_agent_503_errored(channel_id, thread_ts, "Visionary") is True
-    assert mgr.get_503_errored_agents(channel_id, thread_ts) == {"Visionary"}
+    assert mgr.has_agent_503_errored(channel_id, thread_ts, "agent-10001") is False
+    mgr.mark_agent_503_errored(channel_id, thread_ts, "agent-10001")
+    assert mgr.has_agent_503_errored(channel_id, thread_ts, "agent-10001") is True
+    assert mgr.get_503_errored_agents(channel_id, thread_ts) == {"agent-10001"}
 
     # Stop and clear
     mgr.request_stop(channel_id, thread_ts)
@@ -171,42 +171,42 @@ def test_thread_state_manager():
     assert mgr.get_max_words(channel_id, thread_ts) is None
     assert mgr.get_file_context(channel_id, thread_ts) is None
     assert mgr.is_stopped(channel_id, thread_ts) is False
-    assert mgr.has_agent_503_errored(channel_id, thread_ts, "Visionary") is False
+    assert mgr.has_agent_503_errored(channel_id, thread_ts, "agent-10001") is False
     assert mgr.get_503_errored_agents(channel_id, thread_ts) == set()
 
     # Remaining agents operations
     assert mgr.get_remaining_agents(channel_id, thread_ts) == []
-    mgr.set_remaining_agents(channel_id, thread_ts, ["Visionary", "SecurityArchitect", "Critic"])
-    assert mgr.get_remaining_agents(channel_id, thread_ts) == ["Visionary", "SecurityArchitect", "Critic"]
+    mgr.set_remaining_agents(channel_id, thread_ts, ["agent-10001", "agent-10008", "Critic"])
+    assert mgr.get_remaining_agents(channel_id, thread_ts) == ["agent-10001", "agent-10008", "Critic"]
     popped = mgr.pop_remaining_agent(channel_id, thread_ts)
-    assert popped == "Visionary"
-    assert mgr.get_remaining_agents(channel_id, thread_ts) == ["SecurityArchitect", "Critic"]
+    assert popped == "agent-10001"
+    assert mgr.get_remaining_agents(channel_id, thread_ts) == ["agent-10008", "Critic"]
     popped_specific = mgr.pop_remaining_agent(channel_id, thread_ts, "Critic")
     assert popped_specific == "Critic"
-    assert mgr.get_remaining_agents(channel_id, thread_ts) == ["SecurityArchitect"]
+    assert mgr.get_remaining_agents(channel_id, thread_ts) == ["agent-10008"]
     mgr.clear_remaining_agents(channel_id, thread_ts)
     assert mgr.get_remaining_agents(channel_id, thread_ts) == []
 
     # Retry queue operations
     assert mgr.has_pending_retries(channel_id, thread_ts) is False
-    mgr.add_to_retry_queue(channel_id, thread_ts, "LegalAdvisor")
-    mgr.add_to_retry_queue(channel_id, thread_ts, "Innovator")
+    mgr.add_to_retry_queue(channel_id, thread_ts, "agent-10011")
+    mgr.add_to_retry_queue(channel_id, thread_ts, "agent-10002")
     assert mgr.has_pending_retries(channel_id, thread_ts) is True
-    assert mgr.get_retry_queue(channel_id, thread_ts) == ["LegalAdvisor", "Innovator"]
+    assert mgr.get_retry_queue(channel_id, thread_ts) == ["agent-10011", "agent-10002"]
     popped_retry = mgr.pop_retry_agent(channel_id, thread_ts)
-    assert popped_retry == "LegalAdvisor"
-    assert mgr.get_retry_queue(channel_id, thread_ts) == ["Innovator"]
-    popped_retry_spec = mgr.pop_retry_agent(channel_id, thread_ts, "Innovator")
-    assert popped_retry_spec == "Innovator"
+    assert popped_retry == "agent-10011"
+    assert mgr.get_retry_queue(channel_id, thread_ts) == ["agent-10002"]
+    popped_retry_spec = mgr.pop_retry_agent(channel_id, thread_ts, "agent-10002")
+    assert popped_retry_spec == "agent-10002"
     assert mgr.has_pending_retries(channel_id, thread_ts) is False
 
     # Already retried operations
-    assert mgr.is_already_retried(channel_id, thread_ts, "LegalAdvisor") is False
-    mgr.mark_already_retried(channel_id, thread_ts, "LegalAdvisor")
-    assert mgr.is_already_retried(channel_id, thread_ts, "LegalAdvisor") is True
-    assert mgr.get_already_retried(channel_id, thread_ts) == {"LegalAdvisor"}
+    assert mgr.is_already_retried(channel_id, thread_ts, "agent-10011") is False
+    mgr.mark_already_retried(channel_id, thread_ts, "agent-10011")
+    assert mgr.is_already_retried(channel_id, thread_ts, "agent-10011") is True
+    assert mgr.get_already_retried(channel_id, thread_ts) == {"agent-10011"}
     mgr.clear_already_retried(channel_id, thread_ts)
-    assert mgr.is_already_retried(channel_id, thread_ts, "LegalAdvisor") is False
+    assert mgr.is_already_retried(channel_id, thread_ts, "agent-10011") is False
 
     # Active task operations
     fake_task = object()
@@ -234,8 +234,8 @@ def test_thread_state_manager():
     assert mgr.is_custom_flow(channel_id, thread_ts) is False
 
     # Reset all
-    mgr.set_remaining_agents(channel_id, thread_ts, ["Visionary"])
-    mgr.add_to_retry_queue(channel_id, thread_ts, "SecurityArchitect")
+    mgr.set_remaining_agents(channel_id, thread_ts, ["agent-10001"])
+    mgr.add_to_retry_queue(channel_id, thread_ts, "agent-10008")
     mgr.increment_generation(channel_id, thread_ts)
     mgr.reset_all()
     assert mgr.get_remaining_agents(channel_id, thread_ts) == []
@@ -255,7 +255,7 @@ def test_thread_state_manager_eviction():
     assert mgr.get_last_activity(channel, ts_inactive) is not None
 
     # Set state on active thread
-    mgr.set_remaining_agents(channel, ts_active, ["Visionary"])
+    mgr.set_remaining_agents(channel, ts_active, ["agent-10001"])
     assert mgr.is_discussion_active(channel, ts_active) is True
 
     # Simulate time passing by artificially backdating timestamps
@@ -272,7 +272,7 @@ def test_thread_state_manager_eviction():
     assert (channel, ts_inactive) not in mgr.thread_last_activity
 
     # Active thread must be preserved
-    assert mgr.get_remaining_agents(channel, ts_active) == ["Visionary"]
+    assert mgr.get_remaining_agents(channel, ts_active) == ["agent-10001"]
     assert (channel, ts_active) in mgr.thread_last_activity
 
     # Clean active thread and ensure it can be evicted once inactive
@@ -296,25 +296,25 @@ def test_nomination_and_entity_resolver():
     assert len(initial) == 11
 
     # Tag extraction with exact and partial tags
-    tags = entity_resolver.extract_tagged_agents("Hello /[Innovator] and /[LegalAdvisor]")
-    assert tags == ["Innovator", "LegalAdvisor"]
+    tags = entity_resolver.extract_tagged_agents("Hello /[agent-10002] and /[agent-10011]")
+    assert tags == ["agent-10002", "agent-10011"]
 
-    partial_tags = entity_resolver.extract_tagged_agents("Hello /[Vis] and /[LegalAdvisor] and /[Inn]")
-    assert partial_tags == ["Visionary", "LegalAdvisor", "Innovator"]
+    partial_tags = entity_resolver.extract_tagged_agents("Hello /[Vis] and /[agent-10011] and /[Inn]")
+    assert partial_tags == ["agent-10001", "agent-10011", "agent-10002"]
 
     # Plain brackets are NOT extracted as agent tags
-    assert entity_resolver.extract_tagged_agents("Hello [Innovator] and [LegalAdvisor]") == []
+    assert entity_resolver.extract_tagged_agents("Hello [agent-10002] and [agent-10011]") == []
 
     # Ambiguous tags should not be extracted as single valid agent tags
     ambig_tags = entity_resolver.extract_tagged_agents("Hello /[Arch] and /[Strategist]")
-    assert ambig_tags == ["SecurityArchitect", "ROIStrategist"]
+    assert ambig_tags == ["agent-10008", "agent-10006"]
 
     # Detect ambiguous tags
     detected_ambig = entity_resolver.detect_ambiguous_tags("Hello /[S] and /[Vis]")
     assert len(detected_ambig) == 1
     assert detected_ambig[0][0] == "S"
-    assert "SecurityArchitect" in detected_ambig[0][1]
-    assert "SecurityArchitect" in detected_ambig[0][1]
+    assert "agent-10008" in detected_ambig[0][1]
+    assert "agent-10008" in detected_ambig[0][1]
 
     # Plain brackets do NOT trigger ambiguous tags
     assert entity_resolver.detect_ambiguous_tags("Hello [Arch] and [Vis]") == []
@@ -328,82 +328,82 @@ def test_nomination_and_entity_resolver():
 
     # Parse agent and prompt with partial tag
     agent, prompt, explicit = parse_agent_and_prompt("what do you think /[Inn]", "C1", "T1")
-    assert agent == "Innovator"
+    assert agent == "agent-10002"
     assert "/[Inn]" not in prompt
     assert prompt == "what do you think"
     assert explicit is True
 
     # Parse multi-agent tags prompt
     multi_agent, multi_prompt, multi_explicit = parse_agent_and_prompt(
-        "/[SecurityArchitect] /[Sceptic] /[Innovator] Pa sad ostatak prompta.", "C1", "T1"
+        "/[agent-10008] /[agent-10003] /[agent-10002] Pa sad ostatak prompta.", "C1", "T1"
     )
-    assert multi_agent == "SecurityArchitect"
+    assert multi_agent == "agent-10008"
     assert multi_prompt == "Pa sad ostatak prompta."
     assert multi_explicit is True
 
     # Nomination enforcement
     res = enforce_valid_nomination(
         text="My thoughts on this architecture.",
-        current_agent_key="Visionary",
-        remaining=["Innovator"],
+        current_agent_key="agent-10001",
+        remaining=["agent-10002"],
         force_termination=False,
     )
-    assert "/[Innovator]" in res
+    assert "/[agent-10002]" in res
 
     # Nomination enforcement recognizing partial nomination
     res_partial_nom = enforce_valid_nomination(
-        text="Over to you /[Innovator] for your review.",
-        current_agent_key="Visionary",
-        remaining=["Innovator"],
+        text="Over to you /[agent-10002] for your review.",
+        current_agent_key="agent-10001",
+        remaining=["agent-10002"],
         force_termination=False,
     )
-    assert "/[Innovator]" in res_partial_nom
+    assert "/[agent-10002]" in res_partial_nom
 
     # Complete nomination removal when blocked from nominating (force_termination=True)
     res_term_inline = enforce_valid_nomination(
-        text="My single vision response. /[Sceptic]",
-        current_agent_key="Visionary",
+        text="My single vision response. /[agent-10003]",
+        current_agent_key="agent-10001",
         remaining=[],
         force_termination=True,
     )
     assert res_term_inline == "My single vision response."
 
     res_term_leadin = enforce_valid_nomination(
-        text="My single vision response.\n\nNext: /[Sceptic]",
-        current_agent_key="Visionary",
+        text="My single vision response.\n\nNext: /[agent-10003]",
+        current_agent_key="agent-10001",
         remaining=[],
         force_termination=True,
     )
     assert res_term_leadin == "My single vision response."
 
     res_term_nom_label = enforce_valid_nomination(
-        text="My single vision response.\n\nNomination: /[Sceptic]",
-        current_agent_key="Visionary",
+        text="My single vision response.\n\nNomination: /[agent-10003]",
+        current_agent_key="agent-10001",
         remaining=[],
         force_termination=True,
     )
     assert res_term_nom_label == "My single vision response."
 
     res_term_over_to = enforce_valid_nomination(
-        text="My single vision response. Over to you, /[Sceptic].",
-        current_agent_key="Visionary",
+        text="My single vision response. Over to you, /[agent-10003].",
+        current_agent_key="agent-10001",
         remaining=[],
         force_termination=True,
     )
     assert res_term_over_to == "My single vision response."
 
     res_term_intext_mention = enforce_valid_nomination(
-        text="As [SecurityArchitect] noted, we agree with the design. /[Sceptic]",
-        current_agent_key="Visionary",
+        text="As [agent-10008] noted, we agree with the design. /[agent-10003]",
+        current_agent_key="agent-10001",
         remaining=[],
         force_termination=True,
     )
-    assert res_term_intext_mention == "As [SecurityArchitect] noted, we agree with the design."
+    assert res_term_intext_mention == "As [agent-10008] noted, we agree with the design."
 
     # Complete nomination removal when no agents remain (natural end of panel)
     res_end_of_panel = enforce_valid_nomination(
-        text="Final conclusions and recommendations.\n\nNext up: /[Innovator]",
-        current_agent_key="SecurityArchitect",
+        text="Final conclusions and recommendations.\n\nNext up: /[agent-10002]",
+        current_agent_key="agent-10008",
         remaining=[],
         force_termination=False,
     )

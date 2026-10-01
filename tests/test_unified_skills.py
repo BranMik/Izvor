@@ -26,18 +26,18 @@ def test_media_attachment_contract():
         attachment_type=AttachmentType.IMAGE,
         size=1024,
         b64_data="iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
-        authorized_agents={"SecurityArchitect", "LegalAdvisor"},
+        authorized_agents={"agent-10008", "agent-10011"},
     )
     d = img_att.to_dict()
     assert d["file_id"] == "F_IMG_123"
     assert d["attachment_type"] == "image"
     assert d["b64_data"] is not None
-    assert set(d["authorized_agents"]) == {"SecurityArchitect", "LegalAdvisor"}
+    assert set(d["authorized_agents"]) == {"agent-10008", "agent-10011"}
 
     restored = MediaAttachment.from_dict(d)
     assert restored.file_id == "F_IMG_123"
     assert restored.attachment_type == AttachmentType.IMAGE
-    assert restored.authorized_agents == {"SecurityArchitect", "LegalAdvisor"}
+    assert restored.authorized_agents == {"agent-10008", "agent-10011"}
 
 
 def test_action_directive_contract():
@@ -108,14 +108,14 @@ def test_slash_triggers_mapping():
 @pytest.mark.anyio
 async def test_deterministic_fast_path_slash_commands():
     """Tests 100% fail-proof slash command parsing via DirectiveParser."""
-    raw = "/max-words 45 /history 2 [SecurityArchitect] inspect database"
+    raw = "/max-words 45 /history 2 [agent-10008] inspect database"
     directives = await directive_parser.parse(raw)
 
     assert directives.max_words == 45
     assert directives.modifiers.get("max_words") == 45
     assert directives.history_limit == 2
     assert directives.modifiers.get("history") == 2
-    assert "[SecurityArchitect] inspect database" in directives.cleaned_prompt
+    assert "[agent-10008] inspect database" in directives.cleaned_prompt
 
 
 @pytest.mark.anyio

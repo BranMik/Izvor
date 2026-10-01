@@ -202,19 +202,19 @@ def test_skills_catalog_prompt_filtering():
 def test_prompt_builder_strict_role_authorization():
     # Pure debate agent (Sceptic) has [] skills in agent_settings.json:
     # Must NOT have any skills catalog injected (zero tool overhead)
-    sceptic_prompt = build_agent_prompt("Sceptic")
+    sceptic_prompt = build_agent_prompt("agent-10003")
     assert "AVAILABLE SKILLS (ON DEMAND VIA `load_skill`)" not in sceptic_prompt
 
     # Research expert has ['web_research']:
     # Loadable catalog should contain web_research, but NOT document_reader or workspace_authoring
-    market_prompt = build_agent_prompt("MarketAndCompetitionResearchExpert")
+    market_prompt = build_agent_prompt("agent-10009")
     assert "AVAILABLE SKILLS (ON DEMAND VIA `load_skill`)" in market_prompt
     loadable_market = market_prompt.split("AVAILABLE SKILLS (ON DEMAND VIA `load_skill`)")[1]
     assert "`web_research`" in loadable_market
     assert "`workspace_authoring`" not in loadable_market
 
     # LegalAdvisor has ['knowledge_base_rag', 'web_research']
-    tech_prompt = build_agent_prompt("LegalAdvisor")
+    tech_prompt = build_agent_prompt("agent-10011")
     assert "AVAILABLE SKILLS (ON DEMAND VIA `load_skill`)" in tech_prompt
     loadable_tech = tech_prompt.split("AVAILABLE SKILLS (ON DEMAND VIA `load_skill`)")[1]
     assert "`knowledge_base_rag`" in loadable_tech
@@ -241,7 +241,7 @@ def test_skill_loader_tool_aggregation():
 
 def test_pipeline_tools_initialization_and_progressive_unlocking():
     # 1. Zero-skills persona (Sceptic)
-    sceptic_skills = settings_manager.get_agent_skills("Sceptic")
+    sceptic_skills = settings_manager.get_agent_skills("agent-10003")
     assert sceptic_skills == []
     sceptic_active_tools = []
     if sceptic_skills:
@@ -249,7 +249,7 @@ def test_pipeline_tools_initialization_and_progressive_unlocking():
     assert sceptic_active_tools == []
 
     # 2. Skilled agent (MarketAndCompetitionResearchExpert)
-    market_skills = settings_manager.get_agent_skills("MarketAndCompetitionResearchExpert")
+    market_skills = settings_manager.get_agent_skills("agent-10009")
     assert market_skills == ["web_research"]
 
     # Initial turn: only LOAD_SKILL_SCHEMA is provided

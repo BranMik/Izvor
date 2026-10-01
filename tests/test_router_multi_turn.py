@@ -60,10 +60,10 @@ async def test_scenario_2_multiple_agents_custom_flow(monkeypatch):
 
     thread_key = ("C123", "12345.0002")
 
-    # Step 1: User requests 2 specific agents: [Innovator] and [LegalAdvisor]
+    # Step 1: User requests 2 specific agents: [agent-10002] and [agent-10011]
     mock_choice_1 = MagicMock()
     # Innovator attempts to nominate SecurityArchitect prematurely (SecurityArchitect was not in user's list)
-    mock_choice_1.message.content = "Innovative idea. [SecurityArchitect]"
+    mock_choice_1.message.content = "Innovative idea. [agent-10008]"
     mock_choice_1.message.tool_calls = None
     mock_response_1 = MagicMock(choices=[mock_choice_1], usage=None)
 
@@ -75,18 +75,18 @@ async def test_scenario_2_multiple_agents_custom_flow(monkeypatch):
     await process_and_respond(
         channel_id="C123",
         thread_ts="12345.0002",
-        raw_text="/[Innovator] /[LegalAdvisor] Debate this feature",
+        raw_text="/[agent-10002] /[agent-10011] Debate this feature",
         is_bot_trigger=False,
     )
 
     # Innovator's premature SecurityArchitect nomination should be corrected to LegalAdvisor
     assert thread_key in thread_state_manager.custom_flow_threads
-    assert thread_state_manager.remaining_agents_map[thread_key] == ["LegalAdvisor"]
-    assert "/[LegalAdvisor]" in posted_messages[0]
+    assert thread_state_manager.remaining_agents_map[thread_key] == ["agent-10011"]
+    assert "/[agent-10011]" in posted_messages[0]
 
     # Step 2: Next bot trigger for LegalAdvisor (the last custom agent)
     mock_choice_2 = MagicMock()
-    mock_choice_2.message.content = "Tech lead evaluation and conclusion. /[SecurityArchitect]"
+    mock_choice_2.message.content = "Tech lead evaluation and conclusion. /[agent-10008]"
     mock_choice_2.message.tool_calls = None
     mock_response_2 = MagicMock(choices=[mock_choice_2], usage=None)
 
@@ -100,7 +100,7 @@ async def test_scenario_2_multiple_agents_custom_flow(monkeypatch):
     await process_and_respond(
         channel_id="C123",
         thread_ts="12345.0002",
-        raw_text="/[LegalAdvisor] Debate this feature",
+        raw_text="/[agent-10011] Debate this feature",
         is_bot_trigger=True,
     )
 
@@ -108,7 +108,7 @@ async def test_scenario_2_multiple_agents_custom_flow(monkeypatch):
     assert "CRITICAL CONSTRAINT" in mock_run_2.captured_user_prompt
     assert thread_key not in thread_state_manager.custom_flow_threads
     assert thread_key not in thread_state_manager.remaining_agents_map
-    assert "/[SecurityArchitect]" not in posted_messages[1]
+    assert "/[agent-10008]" not in posted_messages[1]
 
 
 @pytest.mark.anyio
@@ -139,7 +139,7 @@ async def test_scenario_3_no_agent_tagged_default_flow(monkeypatch):
 
     # Step 1: Plain user prompt (no tags)
     mock_choice_1 = MagicMock()
-    mock_choice_1.message.content = "Vision for the product. /[Sceptic]"
+    mock_choice_1.message.content = "Vision for the product. /[agent-10003]"
     mock_choice_1.message.tool_calls = None
     mock_response_1 = MagicMock(choices=[mock_choice_1], usage=None)
 
@@ -158,17 +158,17 @@ async def test_scenario_3_no_agent_tagged_default_flow(monkeypatch):
     # Default starts with Visionary and initializes all panel agents
     assert thread_key not in thread_state_manager.custom_flow_threads
     assert len(thread_state_manager.remaining_agents_map[thread_key]) == 10
-    assert "/[Sceptic]" in posted_messages[0]
+    assert "/[agent-10003]" in posted_messages[0]
 
     # Step 2: Intermediate agent (Monitoring Specialist) tries to prematurely nominate SecurityArchitect
     thread_state_manager.remaining_agents_map[thread_key] = [
-        "UserAdvocate",
-        "SecurityArchitect",
-        "Sceptic",
+        "agent-10007",
+        "agent-10008",
+        "agent-10003",
     ]
 
     mock_choice_2 = MagicMock()
-    mock_choice_2.message.content = "Monitoring review. /[Innovator]"
+    mock_choice_2.message.content = "Monitoring review. /[agent-10002]"
     mock_choice_2.message.tool_calls = None
     mock_response_2 = MagicMock(choices=[mock_choice_2], usage=None)
 
@@ -180,16 +180,16 @@ async def test_scenario_3_no_agent_tagged_default_flow(monkeypatch):
     await process_and_respond(
         channel_id="C123",
         thread_ts="12345.0003",
-        raw_text="/[Sceptic] next",
+        raw_text="/[agent-10003] next",
         is_bot_trigger=True,
     )
 
     # Premature Innovator tag is programmatically replaced with first remaining agent (UserAdvocate)
-    assert "/[UserAdvocate]" in posted_messages[1]
-    assert "UserAdvocate" in thread_state_manager.remaining_agents_map[thread_key]
+    assert "/[agent-10007]" in posted_messages[1]
+    assert "agent-10007" in thread_state_manager.remaining_agents_map[thread_key]
 
     # Step 3: Intermediate agent speaks and nominates next remaining agent
-    thread_state_manager.remaining_agents_map[thread_key] = ["SecurityArchitect", "SecurityArchitect"]
+    thread_state_manager.remaining_agents_map[thread_key] = ["agent-10008", "agent-10008"]
 
     mock_choice_3 = MagicMock()
     mock_choice_3.message.content = "Security review finished."
@@ -204,17 +204,17 @@ async def test_scenario_3_no_agent_tagged_default_flow(monkeypatch):
     await process_and_respond(
         channel_id="C123",
         thread_ts="12345.0003",
-        raw_text="/[SecurityArchitect] next",
+        raw_text="/[agent-10008] next",
         is_bot_trigger=True,
     )
 
     # Next agent is SecurityArchitect
-    assert thread_state_manager.remaining_agents_map[thread_key] == ["SecurityArchitect"]
-    assert "/[SecurityArchitect]" in posted_messages[2]
+    assert thread_state_manager.remaining_agents_map[thread_key] == ["agent-10008"]
+    assert "/[agent-10008]" in posted_messages[2]
 
     # Step 4: SecurityArchitect executes final summary
     mock_choice_4 = MagicMock()
-    mock_choice_4.message.content = "Final architecture summary. /[Visionary]"
+    mock_choice_4.message.content = "Final architecture summary. /[agent-10001]"
     mock_choice_4.message.tool_calls = None
     mock_response_4 = MagicMock(choices=[mock_choice_4], usage=None)
 
@@ -226,13 +226,13 @@ async def test_scenario_3_no_agent_tagged_default_flow(monkeypatch):
     await process_and_respond(
         channel_id="C123",
         thread_ts="12345.0003",
-        raw_text="/[SecurityArchitect] next",
+        raw_text="/[agent-10008] next",
         is_bot_trigger=True,
     )
 
     # SecurityArchitect finishes, state cleaned up, tags stripped
     assert thread_key not in thread_state_manager.remaining_agents_map
-    assert "/[Visionary]" not in posted_messages[3]
+    assert "/[agent-10001]" not in posted_messages[3]
 
 
 def test_is_stop_command():
@@ -244,7 +244,7 @@ def test_is_stop_command():
     assert is_stop_command("@CaiLogics Test /stop") is True
     assert is_stop_command("@CaiLogics /stop") is True
     assert is_stop_command("@app_mention /stop") is True
-    assert is_stop_command("[Visionary] /stop") is True
+    assert is_stop_command("[agent-10001] /stop") is True
     assert is_stop_command("/stop", is_mention_or_dm=True) is True
     assert is_stop_command("anything /stop bla") is True
     assert is_stop_command("/stop bla bla") is True
@@ -265,7 +265,7 @@ def test_is_stop_command():
     assert is_stop_command("<@U12345> Where is the nearest bus stop?") is False
     assert is_stop_command("<@U12345> Can you stop by our office tomorrow?") is False
     assert (
-        is_stop_command("[Visionary] Design a stop-motion animation pipeline") is False
+        is_stop_command("[agent-10001] Design a stop-motion animation pipeline") is False
     )
     assert is_stop_command("<@U12345> stop") is False
     assert is_stop_command("") is False
@@ -302,7 +302,7 @@ async def test_thread_stop_during_llm_execution(monkeypatch):
 
     mock_choice = MagicMock()
     # Model generates response and tries to nominate next agent
-    mock_choice.message.content = "Here is my architecture analysis. /[Innovator]"
+    mock_choice.message.content = "Here is my architecture analysis. /[agent-10002]"
     mock_choice.message.tool_calls = None
     mock_response = MagicMock(choices=[mock_choice], usage=None)
 
@@ -326,9 +326,9 @@ async def test_thread_stop_during_llm_execution(monkeypatch):
     assert len(posted_messages) == 1
     assert "Here is my architecture analysis." in posted_messages[0]
 
-    # 2. Nomination tag and agent name /[Innovator] completely stripped
-    assert "/[Innovator]" not in posted_messages[0]
-    assert "Innovator" not in posted_messages[0]
+    # 2. Nomination tag and agent name /[agent-10002] completely stripped
+    assert "/[agent-10002]" not in posted_messages[0]
+    assert "agent-10002" not in posted_messages[0]
 
     # 3. State cleaned up - no remaining agents, not in stop requested set
     assert thread_key not in thread_state_manager.remaining_agents_map
@@ -339,44 +339,44 @@ async def test_thread_stop_during_llm_execution(monkeypatch):
 def test_locked_agents_cannot_be_disabled():
     reset_enabled_agents()
     # All agents can be freely toggled on and off (no locked agents)
-    assert set_agent_enabled("Visionary", False) is True
-    assert "Visionary" not in ENABLED_DEBATE_AGENTS
+    assert set_agent_enabled("agent-10001", False) is True
+    assert "agent-10001" not in ENABLED_DEBATE_AGENTS
 
-    assert set_agent_enabled("SecurityArchitect", False) is True
-    assert "SecurityArchitect" not in ENABLED_DEBATE_AGENTS
+    assert set_agent_enabled("agent-10008", False) is True
+    assert "agent-10008" not in ENABLED_DEBATE_AGENTS
 
-    assert set_agent_enabled("Sceptic", False) is True
-    assert "Sceptic" not in ENABLED_DEBATE_AGENTS
+    assert set_agent_enabled("agent-10003", False) is True
+    assert "agent-10003" not in ENABLED_DEBATE_AGENTS
 
 
 def test_toggleable_agent_enable_and_disable():
     reset_enabled_agents()
-    assert "LegalAdvisor" in ENABLED_DEBATE_AGENTS
+    assert "agent-10011" in ENABLED_DEBATE_AGENTS
 
     # Disable LegalAdvisor
-    assert set_agent_enabled("LegalAdvisor", False) is True
-    assert "LegalAdvisor" not in ENABLED_DEBATE_AGENTS
-    assert "LegalAdvisor" not in get_initial_agents()
+    assert set_agent_enabled("agent-10011", False) is True
+    assert "agent-10011" not in ENABLED_DEBATE_AGENTS
+    assert "agent-10011" not in get_initial_agents()
 
     # Re-enable via toggle_agent
-    assert toggle_agent("LegalAdvisor") is True
-    assert "LegalAdvisor" in ENABLED_DEBATE_AGENTS
-    assert "LegalAdvisor" in get_initial_agents()
+    assert toggle_agent("agent-10011") is True
+    assert "agent-10011" in ENABLED_DEBATE_AGENTS
+    assert "agent-10011" in get_initial_agents()
 
 
 def test_disabled_agent_can_still_be_explicitly_tagged():
     reset_enabled_agents()
     # Disable LegalAdvisor for automatic debate
-    set_agent_enabled("LegalAdvisor", False)
-    assert "LegalAdvisor" not in get_initial_agents()
+    set_agent_enabled("agent-10011", False)
+    assert "agent-10011" not in get_initial_agents()
 
     # User explicitly tags the disabled agent
     agent_key, prompt, was_explicit = parse_agent_and_prompt(
-        "/[LegalAdvisor] Direct question to disabled agent",
+        "/[agent-10011] Direct question to disabled agent",
         "C_TEST",
         "123.001",
     )
-    assert agent_key == "LegalAdvisor"
+    assert agent_key == "agent-10011"
     assert prompt == "Direct question to disabled agent"
     assert was_explicit is True
 
@@ -433,7 +433,7 @@ def test_build_app_home_view():
     assert "agent_toggle_block_LegalAdvisor_on" in block_ids
 
     # Agent ID in square brackets rendered
-    assert any("[LegalAdvisor]" in b.get("text", {}).get("text", "") for b in blocks)
+    assert any("[agent-10011]" in b.get("text", {}).get("text", "") for b in blocks)
 
 
 def test_settings_persistence(tmp_path, monkeypatch):
@@ -442,14 +442,14 @@ def test_settings_persistence(tmp_path, monkeypatch):
 
     # 1. Reset and disable specific agents & set circuit-breaker config
     reset_enabled_agents()
-    set_agent_enabled("LegalAdvisor", False)
-    set_agent_enabled("Innovator", False)
+    set_agent_enabled("agent-10011", False)
+    set_agent_enabled("agent-10002", False)
     set_circuit_breaker_enabled(True)
     set_circuit_breaker_threshold(3.50)
 
     assert test_settings_path.exists()
-    assert "LegalAdvisor" not in ENABLED_DEBATE_AGENTS
-    assert "Innovator" not in ENABLED_DEBATE_AGENTS
+    assert "agent-10011" not in ENABLED_DEBATE_AGENTS
+    assert "agent-10002" not in ENABLED_DEBATE_AGENTS
     assert is_circuit_breaker_enabled() is True
     assert get_circuit_breaker_threshold() == 3.50
 
@@ -458,12 +458,12 @@ def test_settings_persistence(tmp_path, monkeypatch):
     assert len(ENABLED_DEBATE_AGENTS) == 0
 
     loaded = load_enabled_agents()
-    assert "LegalAdvisor" not in loaded
-    assert "Innovator" not in loaded
+    assert "agent-10011" not in loaded
+    assert "agent-10002" not in loaded
     # Verify locked agents are always present even on reload
-    assert "Visionary" in loaded
-    assert "Sceptic" in loaded
-    assert "SecurityArchitect" in loaded
+    assert "agent-10001" in loaded
+    assert "agent-10003" in loaded
+    assert "agent-10008" in loaded
     assert len(loaded) == 9
     assert is_circuit_breaker_enabled() is True
     assert get_circuit_breaker_threshold() == 3.50
@@ -479,12 +479,12 @@ def test_is_discussion_active_behavior():
     assert thread_state_manager.is_discussion_active("C_ACTIVE_TEST", "12345.1001") is False
 
     # 2. Active when remaining agents exist
-    thread_state_manager.remaining_agents_map[thread_key] = ["LegalAdvisor"]
+    thread_state_manager.remaining_agents_map[thread_key] = ["agent-10011"]
     assert thread_state_manager.is_discussion_active("C_ACTIVE_TEST", "12345.1001") is True
 
     # 3. Active when retry queue has entries
     thread_state_manager.remaining_agents_map.pop(thread_key, None)
-    thread_state_manager.rate_limit_retry_queue[thread_key] = ["Innovator"]
+    thread_state_manager.rate_limit_retry_queue[thread_key] = ["agent-10002"]
     assert thread_state_manager.is_discussion_active("C_ACTIVE_TEST", "12345.1001") is True
 
     # Clean up
@@ -498,9 +498,9 @@ async def test_interrupt_thread_discussion_clears_state_and_cancels_task():
 
     thread_key = ("C_INTERRUPT_TEST", "12345.1002")
 
-    thread_state_manager.remaining_agents_map[thread_key] = ["LegalAdvisor", "Innovator"]
-    thread_state_manager.rate_limit_retry_queue[thread_key] = ["Visionary"]
-    thread_state_manager.rate_limit_already_retried[thread_key] = {"LegalAdvisor"}
+    thread_state_manager.remaining_agents_map[thread_key] = ["agent-10011", "agent-10002"]
+    thread_state_manager.rate_limit_retry_queue[thread_key] = ["agent-10001"]
+    thread_state_manager.rate_limit_already_retried[thread_key] = {"agent-10011"}
     thread_state_manager.custom_flow_threads.add(thread_key)
     thread_state_manager.stop_requested_threads.add(thread_key)
 
@@ -561,7 +561,7 @@ async def test_interruption_during_llm_execution_aborts_superseded_turn(monkeypa
     )
 
     mock_choice_1 = MagicMock()
-    mock_choice_1.message.content = "Turn 1 answer to old query. /[LegalAdvisor]"
+    mock_choice_1.message.content = "Turn 1 answer to old query. /[agent-10011]"
     mock_choice_1.message.tool_calls = None
     mock_resp_1 = MagicMock(choices=[mock_choice_1], usage=None)
 
@@ -586,7 +586,7 @@ async def test_interruption_during_llm_execution_aborts_superseded_turn(monkeypa
 
     # Now run Turn 2 (the new user query)
     mock_choice_2 = MagicMock()
-    mock_choice_2.message.content = "Turn 2 answer to new query. /[LegalAdvisor]"
+    mock_choice_2.message.content = "Turn 2 answer to new query. /[agent-10011]"
     mock_choice_2.message.tool_calls = None
     mock_resp_2 = MagicMock(choices=[mock_choice_2], usage=None)
 
@@ -605,7 +605,7 @@ async def test_interruption_during_llm_execution_aborts_superseded_turn(monkeypa
     # Turn 2 successfully posts
     assert len(posted_messages) == 1
     assert "Turn 2 answer to new query." in posted_messages[0]["text"]
-    assert "/[LegalAdvisor]" in posted_messages[0]["text"]
+    assert "/[agent-10011]" in posted_messages[0]["text"]
 
 
 @pytest.mark.anyio
@@ -636,7 +636,7 @@ async def test_interruption_during_pacing_delay_aborts_superseded_turn(monkeypat
     )
 
     mock_choice = MagicMock()
-    mock_choice.message.content = "Turn 1 answer before sleep. /[LegalAdvisor]"
+    mock_choice.message.content = "Turn 1 answer before sleep. /[agent-10011]"
     mock_choice.message.tool_calls = None
     mock_resp = MagicMock(choices=[mock_choice], usage=None)
 
@@ -688,7 +688,7 @@ async def test_process_and_respond_history_limit_subsequent_bot_rounds(monkeypat
         {"role": "user", "content": "What now?"},
         {
             "role": "assistant",
-            "content": "[CaiLogics Visionary]: Visionary response. /[LegalAdvisor]",
+            "content": "[CaiLogics Visionary]: Visionary response. /[agent-10011]",
         },
     ]
 
@@ -700,7 +700,7 @@ async def test_process_and_respond_history_limit_subsequent_bot_rounds(monkeypat
     captured_messages = []
 
     mock_choice = MagicMock()
-    mock_choice.message.content = "LegalAdvisor response. /[Sceptic]"
+    mock_choice.message.content = "LegalAdvisor response. /[agent-10003]"
     mock_choice.message.tool_calls = None
     mock_resp = MagicMock(choices=[mock_choice], usage=None)
 
@@ -718,7 +718,7 @@ async def test_process_and_respond_history_limit_subsequent_bot_rounds(monkeypat
     await process_and_respond(
         channel_id="C_HIST_TEST_2",
         thread_ts="12345.3001",
-        raw_text="Visionary response. /[LegalAdvisor]",
+        raw_text="Visionary response. /[agent-10011]",
         is_bot_trigger=True,
     )
 
@@ -771,7 +771,7 @@ async def test_process_and_respond_subsequent_prompt_resets_full_history(monkeyp
     captured_messages = []
 
     mock_choice = MagicMock()
-    mock_choice.message.content = "Full history response. /[LegalAdvisor]"
+    mock_choice.message.content = "Full history response. /[agent-10011]"
     mock_choice.message.tool_calls = None
     mock_resp = MagicMock(choices=[mock_choice], usage=None)
 

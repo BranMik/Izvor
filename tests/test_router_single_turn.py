@@ -29,27 +29,27 @@ def setup_test_environment(monkeypatch):
 
 def test_parse_explicit_bracket_tags():
     agent_key, prompt, was_explicit = parse_agent_and_prompt(
-        "<@U12345> /[Visionary] Create a new UI flow", "C12345", "123456789.0001"
+        "<@U12345> /[agent-10001] Create a new UI flow", "C12345", "123456789.0001"
     )
-    assert agent_key == "Visionary"
+    assert agent_key == "agent-10001"
     assert prompt == "Create a new UI flow"
     assert was_explicit is True
 
 
 def test_parse_mistral_techlead_tag():
     agent_key, prompt, was_explicit = parse_agent_and_prompt(
-        "/[LegalAdvisor] Check this database query", "C12345", "123456789.0001"
+        "/[agent-10011] Check this database query", "C12345", "123456789.0001"
     )
-    assert agent_key == "LegalAdvisor"
+    assert agent_key == "agent-10011"
     assert prompt == "Check this database query"
     assert was_explicit is True
 
 
 def test_parse_multiple_tags_first_invalid():
     agent_key, prompt, was_explicit = parse_agent_and_prompt(
-        "/[InvalidTag] /[LegalAdvisor] Check this database query", "C12345", "123456789.0001"
+        "/[InvalidTag] /[agent-10011] Check this database query", "C12345", "123456789.0001"
     )
-    assert agent_key == "LegalAdvisor"
+    assert agent_key == "agent-10011"
     assert prompt == "/[InvalidTag]  Check this database query"
     assert was_explicit is True
 
@@ -67,21 +67,21 @@ def test_parse_at_mention_persona():
 
     # Bracketed tag without slash is NOT an explicit agent tag
     agent_key_plain, prompt_plain, was_explicit_plain = parse_agent_and_prompt(
-        "<@U12345> [Visionary] generate a concept",
+        "<@U12345> [agent-10001] generate a concept",
         "C12345",
         "123456789.0002",
     )
     assert agent_key_plain in get_enabled_agents()
-    assert prompt_plain == "[Visionary] generate a concept"
+    assert prompt_plain == "[agent-10001] generate a concept"
     assert was_explicit_plain is False
 
     # Slash bracketed tag is the only recognized explicit agent tag
     agent_key_tagged, prompt_tagged, was_explicit_tagged = parse_agent_and_prompt(
-        "<@U12345> /[Visionary] generate a concept",
+        "<@U12345> /[agent-10001] generate a concept",
         "C12345",
         "123456789.0003",
     )
-    assert agent_key_tagged == "Visionary"
+    assert agent_key_tagged == "agent-10001"
     assert prompt_tagged == "generate a concept"
     assert was_explicit_tagged is True
 
@@ -135,7 +135,7 @@ async def test_process_and_respond_token_appending(monkeypatch):
     await process_and_respond(
         channel_id="C123",
         thread_ts="12345.6789",
-        raw_text="Hello /[Visionary]",
+        raw_text="Hello /[agent-10001]",
     )
 
     assert len(posted_messages) == 1
@@ -183,7 +183,7 @@ async def test_process_and_respond_model_token_footer_openai(monkeypatch):
     await process_and_respond(
         channel_id="C123",
         thread_ts="12345.9999",
-        raw_text="Hello /[SecurityArchitect]",
+        raw_text="Hello /[agent-10008]",
     )
 
     assert len(posted_messages) == 1
@@ -215,7 +215,7 @@ async def test_scenario_1_single_agent_tagged(monkeypatch):
 
     mock_choice = MagicMock()
     # Model attempts to nominate Sceptic even though user only wanted 1 agent
-    mock_choice.message.content = "My single vision response. /[Sceptic]"
+    mock_choice.message.content = "My single vision response. /[agent-10003]"
     mock_choice.message.tool_calls = None
 
     mock_response = MagicMock()
@@ -250,7 +250,7 @@ async def test_scenario_1_single_agent_tagged(monkeypatch):
     await process_and_respond(
         channel_id="C123",
         thread_ts="12345.0001",
-        raw_text="/[Visionary] Explain this concept only",
+        raw_text="/[agent-10001] Explain this concept only",
         is_bot_trigger=False,
     )
 
@@ -262,8 +262,8 @@ async def test_scenario_1_single_agent_tagged(monkeypatch):
     assert thread_key not in thread_state_manager.remaining_agents_map
     # 3. Posted message has complete nomination stripped (not just brackets, agent name is removed too)
     assert len(posted_messages) == 1
-    assert "/[Sceptic]" not in posted_messages[0]
-    assert "Sceptic" not in posted_messages[0]
+    assert "/[agent-10003]" not in posted_messages[0]
+    assert "agent-10003" not in posted_messages[0]
     assert posted_messages[0].startswith("My single vision response.")
 
 
@@ -277,9 +277,9 @@ async def test_extract_history_limit_formats():
     assert res.cleaned_prompt == "<@U12345> Tell me a joke"
 
     # 2. Bracketed format /history [3]
-    res = await directive_parser.parse("@CaiLogics [LegalAdvisor] Explain rust /history [3]")
+    res = await directive_parser.parse("@CaiLogics [agent-10011] Explain rust /history [3]")
     assert res.history_limit == 3
-    assert res.cleaned_prompt == "@CaiLogics [LegalAdvisor] Explain rust"
+    assert res.cleaned_prompt == "@CaiLogics [agent-10011] Explain rust"
 
     # 3. Explicit int format /history [2:int]
     res = await directive_parser.parse("@app_mention /history [2:int] summarize")
@@ -325,11 +325,11 @@ async def test_extract_history_limit_formats():
 
 def test_parse_agent_and_prompt_cleans_history_command():
     agent_key, prompt, was_explicit = parse_agent_and_prompt(
-        "<@U12345> /[Visionary] What is AI? /history 4",
+        "<@U12345> /[agent-10001] What is AI? /history 4",
         "C_HIST_PARSE",
         "12345.0001",
     )
-    assert agent_key == "Visionary"
+    assert agent_key == "agent-10001"
     assert prompt == "What is AI?"
     assert was_explicit is True
 
@@ -372,7 +372,7 @@ async def test_process_and_respond_history_limit_initial_prompt(monkeypatch):
     captured_messages = []
 
     mock_choice = MagicMock()
-    mock_choice.message.content = "Visionary response. /[LegalAdvisor]"
+    mock_choice.message.content = "Visionary response. /[agent-10011]"
     mock_choice.message.tool_calls = None
     mock_resp = MagicMock(choices=[mock_choice], usage=None)
 
@@ -439,7 +439,7 @@ async def test_process_and_respond_history_zero(monkeypatch):
     captured_messages = []
 
     mock_choice = MagicMock()
-    mock_choice.message.content = "Fresh response. [LegalAdvisor]"
+    mock_choice.message.content = "Fresh response. [agent-10011]"
     mock_choice.message.tool_calls = None
     mock_resp = MagicMock(choices=[mock_choice], usage=None)
 
@@ -497,7 +497,7 @@ def test_build_llm_messages_bot_trigger_strictly_ends_with_user_turn():
     sys_prompt = "You are The Sceptic."
     history = [
         {"role": "user", "content": "Initial question"},
-        {"role": "assistant", "content": "[Innovator]: Propose X [Sceptic]"},
+        {"role": "assistant", "content": "[agent-10002]: Propose X [agent-10003]"},
     ]
     agent_cfg = {"username": "The Sceptic"}
     messages = build_llm_messages(
@@ -505,7 +505,7 @@ def test_build_llm_messages_bot_trigger_strictly_ends_with_user_turn():
         effective_history=history,
         prompt="Propose X",
         is_bot_trigger=True,
-        agent_key="Sceptic",
+        agent_key="agent-10003",
         agent_cfg=agent_cfg,
     )
     assert len(messages) == 4
@@ -513,7 +513,7 @@ def test_build_llm_messages_bot_trigger_strictly_ends_with_user_turn():
     assert messages[1] == {"role": "user", "content": "Initial question"}
     assert messages[2] == {
         "role": "assistant",
-        "content": "[Innovator]: Propose X [Sceptic]",
+        "content": "[agent-10002]: Propose X [agent-10003]",
     }
     assert messages[3]["role"] == "user"
     assert "The Sceptic" in messages[3]["content"]
@@ -532,7 +532,7 @@ def test_build_llm_messages_leading_assistant_gets_user_prefix():
         effective_history=history,
         prompt="Test",
         is_bot_trigger=True,
-        agent_key="LegalAdvisor",
+        agent_key="agent-10011",
         agent_cfg=agent_cfg,
     )
     # index 0: system
@@ -627,14 +627,14 @@ async def test_process_and_respond_with_max_words(monkeypatch):
     channel_id = "C_MAX_WORDS"
     thread_ts = "99999.0001"
     thread_key = (channel_id, thread_ts)
-    thread_state_manager.remaining_agents_map[thread_key] = ["SecurityArchitect"]
+    thread_state_manager.remaining_agents_map[thread_key] = ["agent-10008"]
 
     captured_messages = []
 
     mock_response = MagicMock()
     mock_choice = MagicMock()
     mock_choice.message = MagicMock(
-        content="Concise response under limit /[SecurityArchitect]", tool_calls=None
+        content="Concise response under limit /[agent-10008]", tool_calls=None
     )
     mock_response.choices = [mock_choice]
     mock_response.usage = MagicMock(prompt_tokens=15, completion_tokens=10)
@@ -665,7 +665,7 @@ async def test_process_and_respond_with_max_words(monkeypatch):
     res = await process_and_respond(
         channel_id=channel_id,
         thread_ts=thread_ts,
-        raw_text="/[LegalAdvisor] /[SecurityArchitect] /max_words [40:int] Explain Kubernetes ingress architecture",
+        raw_text="/[agent-10011] /[agent-10008] /max_words [40:int] Explain Kubernetes ingress architecture",
         is_bot_trigger=False,
     )
 
@@ -697,14 +697,14 @@ async def test_process_and_respond_with_min_words(monkeypatch):
     channel_id = "C_MIN_WORDS"
     thread_ts = "88888.0001"
     thread_key = (channel_id, thread_ts)
-    thread_state_manager.remaining_agents_map[thread_key] = ["SecurityArchitect"]
+    thread_state_manager.remaining_agents_map[thread_key] = ["agent-10008"]
 
     captured_messages = []
 
     mock_response = MagicMock()
     mock_choice = MagicMock()
     mock_choice.message = MagicMock(
-        content="Detailed thorough response with at least eighty words /[SecurityArchitect]",
+        content="Detailed thorough response with at least eighty words /[agent-10008]",
         tool_calls=None,
     )
     mock_response.choices = [mock_choice]
@@ -736,7 +736,7 @@ async def test_process_and_respond_with_min_words(monkeypatch):
     res = await process_and_respond(
         channel_id=channel_id,
         thread_ts=thread_ts,
-        raw_text="/[LegalAdvisor] /[SecurityArchitect] /min_words [80:int] Explain Kubernetes ingress architecture",
+        raw_text="/[agent-10011] /[agent-10008] /min_words [80:int] Explain Kubernetes ingress architecture",
         is_bot_trigger=False,
     )
 
@@ -768,14 +768,14 @@ async def test_process_and_respond_with_min_and_max_words(monkeypatch):
     channel_id = "C_MIN_MAX_WORDS"
     thread_ts = "77777.0001"
     thread_key = (channel_id, thread_ts)
-    thread_state_manager.remaining_agents_map[thread_key] = ["SecurityArchitect"]
+    thread_state_manager.remaining_agents_map[thread_key] = ["agent-10008"]
 
     captured_messages = []
 
     mock_response = MagicMock()
     mock_choice = MagicMock()
     mock_choice.message = MagicMock(
-        content="Response between bounds /[SecurityArchitect]", tool_calls=None
+        content="Response between bounds /[agent-10008]", tool_calls=None
     )
     mock_response.choices = [mock_choice]
     mock_response.usage = MagicMock(prompt_tokens=15, completion_tokens=60)
@@ -806,7 +806,7 @@ async def test_process_and_respond_with_min_and_max_words(monkeypatch):
     res = await process_and_respond(
         channel_id=channel_id,
         thread_ts=thread_ts,
-        raw_text="/[LegalAdvisor] /[SecurityArchitect] /min_words [50:int] /max_words [150:int] Analyze database scaling",
+        raw_text="/[agent-10011] /[agent-10008] /min_words [50:int] /max_words [150:int] Analyze database scaling",
         is_bot_trigger=False,
     )
 
@@ -838,14 +838,14 @@ async def test_process_and_respond_with_natural_language_limits(monkeypatch):
     channel_id = "C_NL_LIMITS"
     thread_ts = "66666.0001"
     thread_key = (channel_id, thread_ts)
-    thread_state_manager.remaining_agents_map[thread_key] = ["SecurityArchitect"]
+    thread_state_manager.remaining_agents_map[thread_key] = ["agent-10008"]
 
     captured_messages = []
 
     mock_response = MagicMock()
     mock_choice = MagicMock()
     mock_choice.message = MagicMock(
-        content="Response under 60 words /[SecurityArchitect]", tool_calls=None
+        content="Response under 60 words /[agent-10008]", tool_calls=None
     )
     mock_response.choices = [mock_choice]
     mock_response.usage = MagicMock(prompt_tokens=15, completion_tokens=30)
@@ -879,7 +879,7 @@ async def test_process_and_respond_with_natural_language_limits(monkeypatch):
     res = await process_and_respond(
         channel_id=channel_id,
         thread_ts=thread_ts,
-        raw_text="/[LegalAdvisor] /[SecurityArchitect] odgovori u maksimalno 60 riječi o mikroservisima",
+        raw_text="/[agent-10011] /[agent-10008] odgovori u maksimalno 60 riječi o mikroservisima",
         is_bot_trigger=False,
     )
 
@@ -912,7 +912,7 @@ async def test_process_and_respond_with_exclude_command(monkeypatch):
     mock_response = MagicMock()
     mock_choice = MagicMock()
     mock_choice.message = MagicMock(
-        content="Reviewing without innovator /[ScopeOptimizer]", tool_calls=None
+        content="Reviewing without innovator /[agent-10005]", tool_calls=None
     )
     mock_response.choices = [mock_choice]
     mock_response.usage = MagicMock(prompt_tokens=20, completion_tokens=40)
@@ -943,14 +943,14 @@ async def test_process_and_respond_with_exclude_command(monkeypatch):
     res = await process_and_respond(
         channel_id=channel_id,
         thread_ts=thread_ts,
-        raw_text="/[LegalAdvisor] /[Innovator] /[ScopeOptimizer] /exclude [Innovator] Evaluate the refactoring",
+        raw_text="/[agent-10011] /[agent-10002] /[agent-10005] /exclude [agent-10002] Evaluate the refactoring",
         is_bot_trigger=False,
     )
 
     assert res.get("ok") is True
     # Innovator should be removed immediately from remaining agents
-    assert "Innovator" not in thread_state_manager.remaining_agents_map[thread_key]
-    assert thread_state_manager.remaining_agents_map[thread_key] == ["ScopeOptimizer"]
+    assert "agent-10002" not in thread_state_manager.remaining_agents_map[thread_key]
+    assert thread_state_manager.remaining_agents_map[thread_key] == ["agent-10005"]
 
     # Command should be cleanly stripped from user message passed to model
     user_msg = captured_messages[0][-1]["content"]
@@ -969,7 +969,7 @@ async def test_process_and_respond_with_multi_agent_exclude_command(monkeypatch)
     mock_response = MagicMock()
     mock_choice = MagicMock()
     mock_choice.message = MagicMock(
-        content="Reviewing /[UserAdvocate]", tool_calls=None
+        content="Reviewing /[agent-10007]", tool_calls=None
     )
     mock_response.choices = [mock_choice]
     mock_response.usage = MagicMock(prompt_tokens=20, completion_tokens=40)
@@ -992,13 +992,13 @@ async def test_process_and_respond_with_multi_agent_exclude_command(monkeypatch)
     res = await process_and_respond(
         channel_id=channel_id,
         thread_ts=thread_ts,
-        raw_text="/[LegalAdvisor] /[Innovator] /[ScopeOptimizer] /[UserAdvocate] /exclude [Innovator] [ScopeOptimizer] Plan sprint",
+        raw_text="/[agent-10011] /[agent-10002] /[agent-10005] /[agent-10007] /exclude [agent-10002] [agent-10005] Plan sprint",
         is_bot_trigger=False,
     )
 
     assert res.get("ok") is True
     # Both Innovator and ScopeOptimizer should be removed from remaining agents
-    assert thread_state_manager.remaining_agents_map[thread_key] == ["UserAdvocate"]
+    assert thread_state_manager.remaining_agents_map[thread_key] == ["agent-10007"]
 
 
 @pytest.mark.anyio
@@ -1012,7 +1012,7 @@ async def test_process_and_respond_with_default_flow_and_exclude(monkeypatch):
     mock_response = MagicMock()
     mock_choice = MagicMock()
     mock_choice.message = MagicMock(
-        content="Debating without techlead and innovator /[Sceptic]", tool_calls=None
+        content="Debating without techlead and innovator /[agent-10003]", tool_calls=None
     )
     mock_response.choices = [mock_choice]
     mock_response.usage = MagicMock(prompt_tokens=20, completion_tokens=40)
@@ -1035,13 +1035,13 @@ async def test_process_and_respond_with_default_flow_and_exclude(monkeypatch):
     res = await process_and_respond(
         channel_id=channel_id,
         thread_ts=thread_ts,
-        raw_text="Debate this architecture /exclude [LegalAdvisor] [Innovator]",
+        raw_text="Debate this architecture /exclude [agent-10011] [agent-10002]",
         is_bot_trigger=False,
     )
 
     assert res.get("ok") is True
-    assert "LegalAdvisor" not in thread_state_manager.remaining_agents_map[thread_key]
-    assert "Innovator" not in thread_state_manager.remaining_agents_map[thread_key]
+    assert "agent-10011" not in thread_state_manager.remaining_agents_map[thread_key]
+    assert "agent-10002" not in thread_state_manager.remaining_agents_map[thread_key]
 
 
 @pytest.mark.anyio
@@ -1054,7 +1054,7 @@ async def test_process_and_respond_with_nl_exclude(monkeypatch):
 
     mock_response = MagicMock()
     mock_choice = MagicMock()
-    mock_choice.message = MagicMock(content="Debating topic [Sceptic]", tool_calls=None)
+    mock_choice.message = MagicMock(content="Debating topic [agent-10003]", tool_calls=None)
     mock_response.choices = [mock_choice]
     mock_response.usage = MagicMock(prompt_tokens=20, completion_tokens=40)
 
@@ -1077,7 +1077,7 @@ async def test_process_and_respond_with_nl_exclude(monkeypatch):
             return_value=ExtractedIntent(
                 actions=[
                     ActionDirective(
-                        name="exclude_agents", params={"agents": ["LegalAdvisor"]}
+                        name="exclude_agents", params={"agents": ["agent-10011"]}
                     )
                 ]
             )
@@ -1092,7 +1092,7 @@ async def test_process_and_respond_with_nl_exclude(monkeypatch):
     )
 
     assert res.get("ok") is True
-    assert "LegalAdvisor" not in thread_state_manager.remaining_agents_map[thread_key]
+    assert "agent-10011" not in thread_state_manager.remaining_agents_map[thread_key]
 
 
 @pytest.mark.anyio
@@ -1105,7 +1105,7 @@ async def test_partial_tag_routing(monkeypatch):
     mock_response = MagicMock()
     mock_choice = MagicMock()
     mock_choice.message = MagicMock(
-        content="Visionary speaking /[LegalAdvisor]", tool_calls=None
+        content="Visionary speaking /[agent-10011]", tool_calls=None
     )
     mock_response.choices = [mock_choice]
     mock_response.usage = MagicMock(prompt_tokens=20, completion_tokens=40)
@@ -1140,7 +1140,7 @@ async def test_partial_tag_routing(monkeypatch):
 
     assert res.get("ok") is True
     assert len(posted_messages) == 1
-    assert "Visionary" in posted_messages[0]["username"]
+    assert "agent-10001" in posted_messages[0]["username"]
 
 
 @pytest.mark.anyio
@@ -1187,8 +1187,8 @@ async def test_ambiguous_tag_system_warning_halt(monkeypatch):
     assert llm_called is False
     assert len(system_posts) == 1
     assert "Ambiguous Agent Reference" in system_posts[0]["text"]
-    assert "SecurityArchitect" in system_posts[0]["text"]
-    assert "SecurityArchitect" in system_posts[0]["text"]
+    assert "agent-10008" in system_posts[0]["text"]
+    assert "agent-10008" in system_posts[0]["text"]
     assert "[" not in system_posts[0]["text"]
     assert "]" not in system_posts[0]["text"]
 
@@ -1245,7 +1245,7 @@ async def test_unrecognized_tag_system_warning_halt(monkeypatch):
 @pytest.mark.anyio
 async def test_plain_bracket_does_not_halt_or_warn(monkeypatch):
     """
-    Verifies that plain brackets like [SomeUnknownTag] or [SecurityArchitect] do NOT trigger
+    Verifies that plain brackets like [SomeUnknownTag] or [agent-10008] do NOT trigger
     unrecognized tag warnings or nomination tags, and normal execution proceeds.
     """
     thread_state_manager.reset_all()
@@ -1296,10 +1296,10 @@ async def test_plain_bracket_does_not_halt_or_warn(monkeypatch):
 async def test_multi_agent_nomination_syntax(monkeypatch):
     """
     Scenario: User prompt nominates multiple agents:
-    '/[SecurityArchitect] /[Sceptic] /[Innovator] Pa sad ostatak prompta.'
+    '/[agent-10008] /[agent-10003] /[agent-10002] Pa sad ostatak prompta.'
     Expected:
     - First agent speaks (SecurityArchitect)
-    - Remaining agents in thread are ['Sceptic', 'Innovator']
+    - Remaining agents in thread are ['agent-10003', 'agent-10002']
     - User prompt received by model is cleanly 'Pa sad ostatak prompta.'
     """
     thread_state_manager.reset_all()
@@ -1335,15 +1335,15 @@ async def test_multi_agent_nomination_syntax(monkeypatch):
     res = await process_and_respond(
         channel_id=channel_id,
         thread_ts=thread_ts,
-        raw_text="/[SecurityArchitect] /[Sceptic] /[Innovator] Pa sad ostatak prompta.",
+        raw_text="/[agent-10008] /[agent-10003] /[agent-10002] Pa sad ostatak prompta.",
         is_bot_trigger=False,
     )
 
     assert res.get("ok") is True
     assert len(posted_messages) == 1
     assert posted_messages[0]["username"] == "Security Architect"
-    assert thread_state_manager.remaining_agents_map[thread_key] == ["Sceptic", "Innovator"]
+    assert thread_state_manager.remaining_agents_map[thread_key] == ["agent-10003", "agent-10002"]
     assert "Pa sad ostatak prompta." in captured_prompt
-    assert "/[SecurityArchitect]" not in captured_prompt
-    assert "/[Sceptic]" not in captured_prompt
-    assert "/[Innovator]" not in captured_prompt
+    assert "/[agent-10008]" not in captured_prompt
+    assert "/[agent-10003]" not in captured_prompt
+    assert "/[agent-10002]" not in captured_prompt

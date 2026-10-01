@@ -45,7 +45,7 @@ class WorkflowManager:
                     mode=OrchestrationMode.SANDWICH.value,
                     description="Standard review flow applied when no explicit agent is tagged (Visionary -> Innovator -> ... -> SecuritySecurity Architect).",
                     sandwich_config={
-                        "start_chain": ["Visionary", "Innovator"],
+                        "start_chain": ["agent-10001", "agent-10002"],
                         "end_chain": ["SecuritySecurity Architect"],
                     },
                     fixed_config={"chain": []},
@@ -57,14 +57,14 @@ class WorkflowManager:
                     description="Standard multi-agent panel with kickoff and concluding wrap-up.",
                     sandwich_config={
                         "start_chain": [
-                            "ScopeOptimizer",
-                            "Visionary",
-                            "UserAdvocate",
-                            "Sceptic",
-                            "Innovator",
+                            "agent-10005",
+                            "agent-10001",
+                            "agent-10007",
+                            "agent-10003",
+                            "agent-10002",
                             "SecuritySecurity Architect",
                         ],
-                        "end_chain": ["SecuritySecurity Architect", "Sceptic"],
+                        "end_chain": ["SecuritySecurity Architect", "agent-10003"],
                     },
                     fixed_config={"chain": []},
                 ),
@@ -74,7 +74,7 @@ class WorkflowManager:
                     mode=OrchestrationMode.FIXED.value,
                     description="Focused linear pipeline for rapid technical problem triage.",
                     sandwich_config={"start_chain": [], "end_chain": []},
-                    fixed_config={"chain": ["LegalAdvisor", "SecuritySecurity Architect"]},
+                    fixed_config={"chain": ["agent-10011", "SecuritySecurity Architect"]},
                 ),
             ]
 

@@ -21,8 +21,8 @@ def test_should_skip_intent_extractor_rules():
     assert should_skip_intent_extractor("/file: test.py /max_words 50 /history 2") is False
     assert should_skip_intent_extractor("/max_words 50 /history 2") is False
     assert should_skip_intent_extractor("explain how this works in 50 words") is False
-    assert should_skip_intent_extractor("/exclude [LegalAdvisor] debate this topic in 50 words") is False
-    assert should_skip_intent_extractor("/exclude [LegalAdvisor] /max_words 50 /history 2") is False
+    assert should_skip_intent_extractor("/exclude [agent-10011] debate this topic in 50 words") is False
+    assert should_skip_intent_extractor("/exclude [agent-10011] /max_words 50 /history 2") is False
     assert should_skip_intent_extractor("<@U0BR4EH6XMY> Test /max_words 5, exclude Visionary") is False
     assert should_skip_intent_extractor("<@U0BR4EH6XMY> Test /max_words 50 /history 2, exclude Visionary") is False
     assert should_skip_intent_extractor("Rasprava /max_words 10, bez Visionary") is False
@@ -69,7 +69,7 @@ async def test_extract_user_intent_success():
                         },
                         "actions": [
                             {"name": "document_reader", "params": {"target_file": "schema.sql"}},
-                            {"name": "exclude_agents", "params": {"agents": ["LegalAdvisor", "Innovator"]}},
+                            {"name": "exclude_agents", "params": {"agents": ["agent-10011", "agent-10002"]}},
                         ],
                     }
                 )
@@ -87,7 +87,7 @@ async def test_extract_user_intent_success():
         assert intent["history"] == 4
         assert intent["file_use"] is True
         assert intent["target_file"] == "schema.sql"
-        assert intent["excluded_agents"] == ["LegalAdvisor", "Innovator"]
+        assert intent["excluded_agents"] == ["agent-10011", "agent-10002"]
         assert intent["modifiers"]["max_words"] == 60
         assert intent["modifiers"]["history"] == 4
         assert any(a["name"] == "document_reader" for a in intent["actions"])
@@ -170,7 +170,7 @@ async def test_directive_parser_uses_intent_extractor_for_all_directives():
                         },
                         "actions": [
                             {"name": "document_reader", "params": {"target_file": "schema.sql"}},
-                            {"name": "exclude_agents", "params": {"agents": ["LegalAdvisor"]}},
+                            {"name": "exclude_agents", "params": {"agents": ["agent-10011"]}},
                         ],
                     }
                 )
@@ -188,7 +188,7 @@ async def test_directive_parser_uses_intent_extractor_for_all_directives():
         assert res.history_limit == 4
         assert res.is_file_req is True
         assert res.target_filename == "schema.sql"
-        assert res.excluded_agents == ["LegalAdvisor"]
+        assert res.excluded_agents == ["agent-10011"]
 
 
 @pytest.mark.anyio
@@ -198,7 +198,7 @@ async def test_sandwich_exclusion_and_bot_turn_not_stopped(monkeypatch):
     natural language alongside /max_words:
     1. IntentExtractor extracts exclude_agents without being skipped.
     2. Visionary is removed from remaining agents.
-    3. ScopeOptimizer speaks first; if it tags [Visionary], it is corrected.
+    3. ScopeOptimizer speaks first; if it tags [agent-10001], it is corrected.
     4. Turn 2 with is_bot_trigger=True does NOT parse user directives or stop discussion.
     """
     from unittest.mock import AsyncMock
@@ -214,11 +214,11 @@ async def test_sandwich_exclusion_and_bot_turn_not_stopped(monkeypatch):
 
     set_orchestration_mode("sandwich")
     set_sandwich_config(
-        start_chain=["ScopeOptimizer", "Visionary"],
-        end_chain=["SecurityArchitect"],
+        start_chain=["agent-10005", "agent-10001"],
+        end_chain=["agent-10008"],
     )
     for a in AGENTS_CONFIG:
-        set_agent_enabled(a, a in ("ScopeOptimizer", "Visionary", "SecurityArchitect", "LegalAdvisor"))
+        set_agent_enabled(a, a in ("agent-10005", "agent-10001", "agent-10008", "agent-10011"))
 
     posted_messages = []
 
@@ -237,7 +237,7 @@ async def test_sandwich_exclusion_and_bot_turn_not_stopped(monkeypatch):
                 content=json.dumps(
                     {
                         "modifiers": {"max_words": 5},
-                        "actions": [{"name": "exclude_agents", "params": {"agents": ["Visionary"]}}],
+                        "actions": [{"name": "exclude_agents", "params": {"agents": ["agent-10001"]}}],
                     }
                 )
             )
@@ -245,7 +245,7 @@ async def test_sandwich_exclusion_and_bot_turn_not_stopped(monkeypatch):
     ]
 
     mock_choice_1 = MagicMock()
-    mock_choice_1.message.content = "Cut scope ruthlessly. /[Visionary]"
+    mock_choice_1.message.content = "Cut scope ruthlessly. /[agent-10001]"
     mock_choice_1.message.tool_calls = None
     mock_llm_1 = MagicMock(choices=[mock_choice_1], usage=None)
 
@@ -275,9 +275,9 @@ async def test_sandwich_exclusion_and_bot_turn_not_stopped(monkeypatch):
     assert len(posted_messages) == 1
     assert posted_messages[0]["username"] == "Scope Optimizer"
     # Visionary was excluded so remaining sequence corrected nomination to next eligible (LegalAdvisor / SecurityArchitect)
-    assert "/[Visionary]" not in posted_messages[0]["text"]
+    assert "/[agent-10001]" not in posted_messages[0]["text"]
     remaining = thread_state_manager.get_remaining_agents(thread_key[0], thread_key[1])
-    assert "Visionary" not in remaining
+    assert "agent-10001" not in remaining
 
     # Turn 2: Next agent triggered by bot response
     mock_choice_2 = MagicMock()

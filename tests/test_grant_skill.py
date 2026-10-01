@@ -27,53 +27,53 @@ def temp_skills_mgr():
 
 @pytest.mark.anyio
 async def test_directive_parser_grant_skill_basic():
-    raw = "/grant_skill web_research SecurityArchitect"
+    raw = "/grant_skill web_research agent-10008"
     parsed = await directive_parser.parse(raw)
     act = next((a for a in parsed.actions if a.name == "grant_skill"), None)
     assert act is not None
     assert act.params.get("skill") == "web_research"
-    assert act.params.get("agents") == ["SecurityArchitect"]
+    assert act.params.get("agents") == ["agent-10008"]
 
 
 @pytest.mark.anyio
 async def test_directive_parser_grant_skill_bracketed():
-    raw = "/grant_skill [web_research] [SecurityArchitect]"
+    raw = "/grant_skill [web_research] [agent-10008]"
     parsed = await directive_parser.parse(raw)
     act = next((a for a in parsed.actions if a.name == "grant_skill"), None)
     assert act is not None
     assert act.params.get("skill") == "web_research"
-    assert act.params.get("agents") == ["SecurityArchitect"]
+    assert act.params.get("agents") == ["agent-10008"]
 
 
 @pytest.mark.anyio
 async def test_directive_parser_grant_skill_multiple_agents():
-    raw = "/grant_skill [web_research] [SecurityArchitect] [Visionary]"
+    raw = "/grant_skill [web_research] [agent-10008] [agent-10001]"
     parsed = await directive_parser.parse(raw)
     act = next((a for a in parsed.actions if a.name == "grant_skill"), None)
     assert act is not None
     assert act.params.get("skill") == "web_research"
-    assert "SecurityArchitect" in act.params.get("agents", [])
-    assert "Visionary" in act.params.get("agents", [])
+    assert "agent-10008" in act.params.get("agents", [])
+    assert "agent-10001" in act.params.get("agents", [])
 
 
 @pytest.mark.anyio
 async def test_directive_parser_grant_skill_alias():
-    raw = "/grant-skill web_research SecurityArchitect"
+    raw = "/grant-skill web_research agent-10008"
     parsed = await directive_parser.parse(raw)
     act = next((a for a in parsed.actions if a.name == "grant_skill"), None)
     assert act is not None
     assert act.params.get("skill") == "web_research"
-    assert act.params.get("agents") == ["SecurityArchitect"]
+    assert act.params.get("agents") == ["agent-10008"]
 
 
 @pytest.mark.anyio
 async def test_directive_parser_grant_skill_trailing_text_ignored():
-    raw = "/grant_skill web_research SecurityArchitect and please tell me about python"
+    raw = "/grant_skill web_research agent-10008 and please tell me about python"
     parsed = await directive_parser.parse(raw)
     act = next((a for a in parsed.actions if a.name == "grant_skill"), None)
     assert act is not None
     assert act.params.get("skill") == "web_research"
-    assert act.params.get("agents") == ["SecurityArchitect"]
+    assert act.params.get("agents") == ["agent-10008"]
 
 
 # ---------------------------------------------------------------------------
@@ -253,20 +253,20 @@ def test_thread_skills_manager_agent_grants(temp_skills_mgr):
     channel_id = "C_TEST"
     thread_ts = "1726000000.8"
 
-    res, exp_ts = mgr.grant_agent_skills(channel_id, thread_ts, "web_research", ["SecurityArchitect"])
-    assert "SecurityArchitect" in res
-    assert res["SecurityArchitect"] == ["web_research"]
+    res, exp_ts = mgr.grant_agent_skills(channel_id, thread_ts, "web_research", ["agent-10008"])
+    assert "agent-10008" in res
+    assert res["agent-10008"] == ["web_research"]
     assert exp_ts > time.time()
 
     # SecurityArchitect has skill
-    assert mgr.get_active_agent_skills(channel_id, thread_ts, "SecurityArchitect") == ["web_research"]
+    assert mgr.get_active_agent_skills(channel_id, thread_ts, "agent-10008") == ["web_research"]
     # Visionary does not
-    assert mgr.get_active_agent_skills(channel_id, thread_ts, "Visionary") == []
+    assert mgr.get_active_agent_skills(channel_id, thread_ts, "agent-10001") == []
 
     # Check all active
     all_active = mgr.get_all_active_agent_skills(channel_id, thread_ts)
-    assert all_active.get("SecurityArchitect") == ["web_research"]
-    assert "Visionary" not in all_active
+    assert all_active.get("agent-10008") == ["web_research"]
+    assert "agent-10001" not in all_active
 
 
 def test_thread_skills_manager_agent_expiry(temp_skills_mgr):
@@ -274,13 +274,13 @@ def test_thread_skills_manager_agent_expiry(temp_skills_mgr):
     channel_id = "C_TEST"
     thread_ts = "1726000000.9"
 
-    mgr.grant_agent_skills(channel_id, thread_ts, "web_research", ["SecurityArchitect"])
+    mgr.grant_agent_skills(channel_id, thread_ts, "web_research", ["agent-10008"])
 
     # Simulate 13 hours later (TTL is default 12h)
     future_time = time.time() + (13 * 3600)
     with patch("time.time", return_value=future_time):
-        assert mgr.get_active_agent_skills(channel_id, thread_ts, "SecurityArchitect") == []
-        assert mgr.get_expired_agent_skills(channel_id, thread_ts, "SecurityArchitect") == ["web_research"]
+        assert mgr.get_active_agent_skills(channel_id, thread_ts, "agent-10008") == []
+        assert mgr.get_expired_agent_skills(channel_id, thread_ts, "agent-10008") == ["web_research"]
 
 
 def test_thread_skills_manager_agent_revocation(temp_skills_mgr):
@@ -288,15 +288,15 @@ def test_thread_skills_manager_agent_revocation(temp_skills_mgr):
     channel_id = "C_TEST"
     thread_ts = "1726000000.10"
 
-    mgr.grant_agent_skills(channel_id, thread_ts, "web_research", ["SecurityArchitect", "Visionary"])
-    assert mgr.get_active_agent_skills(channel_id, thread_ts, "SecurityArchitect") == ["web_research"]
-    assert mgr.get_active_agent_skills(channel_id, thread_ts, "Visionary") == ["web_research"]
+    mgr.grant_agent_skills(channel_id, thread_ts, "web_research", ["agent-10008", "agent-10001"])
+    assert mgr.get_active_agent_skills(channel_id, thread_ts, "agent-10008") == ["web_research"]
+    assert mgr.get_active_agent_skills(channel_id, thread_ts, "agent-10001") == ["web_research"]
 
     # Revoke only SecurityArchitect
-    mgr.revoke_skills(channel_id, thread_ts, ["web_research"], agent_key="SecurityArchitect")
-    assert mgr.get_active_agent_skills(channel_id, thread_ts, "SecurityArchitect") == []
+    mgr.revoke_skills(channel_id, thread_ts, ["web_research"], agent_key="agent-10008")
+    assert mgr.get_active_agent_skills(channel_id, thread_ts, "agent-10008") == []
     # Visionary still has it
-    assert mgr.get_active_agent_skills(channel_id, thread_ts, "Visionary") == ["web_research"]
+    assert mgr.get_active_agent_skills(channel_id, thread_ts, "agent-10001") == ["web_research"]
 
 
 # ---------------------------------------------------------------------------
@@ -308,9 +308,9 @@ def test_loader_authorizations_with_agent_grant(temp_skills_mgr):
     channel_id = "C_TEST"
     thread_ts = "1726000000.11"
 
-    temp_skills_mgr.grant_agent_skills(channel_id, thread_ts, "web_research", ["SecurityArchitect"])
+    temp_skills_mgr.grant_agent_skills(channel_id, thread_ts, "web_research", ["agent-10008"])
 
     with patch("orchestration.thread_skills_manager.thread_skills_manager", temp_skills_mgr):
         auth_map = skill_registry.get_skill_agent_mapping(channel_id, thread_ts)
         wr_agents = auth_map.get("web_research", {}).get("authorized_agents", [])
-        assert any("SecurityArchitect" in a for a in wr_agents)
+        assert any("agent-10008" in a for a in wr_agents)

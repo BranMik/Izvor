@@ -5,8 +5,8 @@
   "description": "",
   "fixed_config": {
     "chain": [
-      "Visionary",
-      "CompliancePrivacyAndGovernanceOfficer"
+      "agent-10001",
+      "agent-10004"
     ]
   }
 }

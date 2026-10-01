@@ -141,7 +141,7 @@ def test_build_llm_messages_file_context_authorized_vs_unauthorized():
         "file_name": "app.py",
         "content": "print('hello from app.py')",
         "size": 28,
-        "authorized_agents": {"Visionary"},
+        "authorized_agents": {"agent-10001"},
     }
 
     # 1. Authorized agent (Visionary) receives file context in user turn
@@ -150,8 +150,8 @@ def test_build_llm_messages_file_context_authorized_vs_unauthorized():
         effective_history=[],
         prompt="Objasni ovaj kod.",
         is_bot_trigger=False,
-        agent_key="Visionary",
-        agent_cfg={"username": "Visionary"},
+        agent_key="agent-10001",
+        agent_cfg={"username": "agent-10001"},
         file_context=file_context,
     )
     user_turn = msgs_authorized[-1]["content"]
@@ -164,8 +164,8 @@ def test_build_llm_messages_file_context_authorized_vs_unauthorized():
         effective_history=[],
         prompt="Objasni ovaj kod.",
         is_bot_trigger=False,
-        agent_key="LegalAdvisor",
-        agent_cfg={"username": "LegalAdvisor"},
+        agent_key="agent-10011",
+        agent_cfg={"username": "agent-10011"},
         file_context=file_context,
     )
     user_turn_unauth = msgs_unauthorized[-1]["content"]
@@ -187,7 +187,7 @@ def test_build_llm_messages_file_context_all_authorized():
         effective_history=[{"role": "user", "content": "Prior context"}],
         prompt="",
         is_bot_trigger=True,
-        agent_key="SecurityArchitect",
+        agent_key="agent-10008",
         agent_cfg={"username": "OpAiTerra SecurityArchitect"},
         file_context=file_context,
     )
@@ -211,8 +211,8 @@ def test_build_llm_messages_file_context_missing_skill_notice():
         effective_history=[],
         prompt="Analyze data.csv",
         is_bot_trigger=False,
-        agent_key="LegalAdvisor",
-        agent_cfg={"username": "LegalAdvisor", "skills": ["document_reader"]},
+        agent_key="agent-10011",
+        agent_cfg={"username": "agent-10011", "skills": ["document_reader"]},
         file_context=file_context,
     )
     user_turn = msgs[-1]["content"]
@@ -227,7 +227,7 @@ def test_build_llm_messages_file_context_missing_skill_notice():
         effective_history=[],
         prompt="Analyze data.csv",
         is_bot_trigger=False,
-        agent_key="MarketAndCompetitionResearchExpert",
+        agent_key="agent-10009",
         agent_cfg={"username": "Data Strategist", "skills": ["document_reader"]},
         file_context=file_context,
     )
@@ -243,8 +243,8 @@ def test_build_llm_messages_required_skills_missing_notice():
         effective_history=[],
         prompt="Write a report to resources/report.md",
         is_bot_trigger=False,
-        agent_key="Visionary",
-        agent_cfg={"username": "Visionary", "skills": []},
+        agent_key="agent-10001",
+        agent_cfg={"username": "agent-10001", "skills": []},
         required_skills=["document_authoring"],
     )
     user_turn = msgs[-1]["content"]
@@ -355,11 +355,11 @@ async def test_file_context_lifecycle_in_process_and_respond():
         patch("litellm.completion", return_value=mock_litellm_resp),
         patch("orchestration.agent_router.asyncio.sleep", new_callable=AsyncMock),
     ):
-                        # 1. User prompts with specific tag [Visionary] and requests file reading
+                        # 1. User prompts with specific tag [agent-10001] and requests file reading
                         res = await process_and_respond(
                             channel_id=channel_id,
                             thread_ts=thread_ts,
-                            raw_text="/[Visionary] pročitaj fajl database.sql i provjeri tablice",
+                            raw_text="/[agent-10001] pročitaj fajl database.sql i provjeri tablice",
                             is_bot_trigger=False,
                         )
                         assert res.get("ok") is True
@@ -367,11 +367,11 @@ async def test_file_context_lifecycle_in_process_and_respond():
                         # Since Gemini was the only tagged agent in explicit target mode, discussion finished and cleared file context
                         assert thread_state_manager.get_file_context(channel_id, thread_ts) is None
 
-                        # 2. Test explicit multi-agent flow: [Visionary] and [SecurityArchitect]
+                        # 2. Test explicit multi-agent flow: [agent-10001] and [agent-10008]
                         res2 = await process_and_respond(
                             channel_id=channel_id,
                             thread_ts=thread_ts,
-                            raw_text="/[Visionary] /[SecurityArchitect] analiziraj privitak",
+                            raw_text="/[agent-10001] /[agent-10008] analiziraj privitak",
                             is_bot_trigger=False,
                         )
                         assert res2.get("ok") is True
@@ -380,7 +380,7 @@ async def test_file_context_lifecycle_in_process_and_respond():
                         res3 = await process_and_respond(
                             channel_id=channel_id,
                             thread_ts=thread_ts,
-                            raw_text="/[SecurityArchitect]",
+                            raw_text="/[agent-10008]",
                             is_bot_trigger=True,
                         )
                         assert res3.get("ok") is True
