@@ -301,7 +301,9 @@ def strip_all_slash_commands(text: str) -> str:
     if not text:
         return ""
 
-    from skills import skill_registry
+    from core.registry import get_skill_registry
+
+    skill_registry = get_skill_registry()
 
     cleaned = text
     # Sort triggers by length descending to match longer commands first

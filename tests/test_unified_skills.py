@@ -13,7 +13,8 @@ from core.models import (
     MediaAttachment,
 )
 from pipeline.directive_parser import directive_parser
-from skills import skill_registry
+from core.registry import get_skill_registry
+skill_registry = get_skill_registry()
 
 
 def test_media_attachment_contract():

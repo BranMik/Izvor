@@ -25,7 +25,8 @@ def is_stop_command(raw_text: str, is_mention_or_dm: bool = False) -> bool:
     """
     if not raw_text:
         return False
-    from skills import skill_registry
+    from core.registry import get_skill_registry
+    skill_registry = get_skill_registry()
 
     return skill_registry.is_stop_command(raw_text, is_mention_or_dm=is_mention_or_dm)
 
@@ -121,7 +122,8 @@ class DirectiveParser:
 
         # 2. Dynamic deterministic slash command extraction driven by SkillRegistry
         try:
-            from skills import skill_registry
+            from core.registry import get_skill_registry
+            skill_registry = get_skill_registry()
 
             slash_triggers = skill_registry.get_slash_triggers()
             sorted_triggers = sorted(
@@ -372,7 +374,8 @@ class DirectiveParser:
                 is_file_req = True
                 if not target_filename and intent_dict.get("target_file"):
                     target_filename = intent_dict["target_file"]
-                from skills import skill_registry
+                from core.registry import get_skill_registry
+                skill_registry = get_skill_registry()
 
                 file_skill = skill_registry.get_file_handler_skill()
                 if file_skill and not any(a.name == file_skill.name for a in actions):

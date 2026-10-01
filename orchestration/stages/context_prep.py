@@ -108,7 +108,8 @@ class ContextPrepStageMixin:
 
         # System prompt generation & Thread-Global & Agent Skills
         from orchestration.thread_skills_manager import thread_skills_manager
-        from skills import skill_registry
+        from core.registry import get_skill_registry
+        skill_registry = get_skill_registry()
         global_skills = skill_registry.get_global_skills()
         active_thread_skills = thread_skills_manager.get_active_skills(ctx.channel_id, ctx.thread_ts)
         active_agent_skills = thread_skills_manager.get_active_agent_skills(ctx.channel_id, ctx.thread_ts, ctx.agent_key)

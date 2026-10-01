@@ -517,7 +517,8 @@ def is_agent_authorized_for_tool(agent_name: str, tool_name: str) -> bool:
         return True
 
     try:
-        from skills import skill_registry
+        from core.registry import get_skill_registry
+        skill_registry = get_skill_registry()
 
         # 1. Check if tool is global across all skills
         for s_def in skill_registry.list_skills():

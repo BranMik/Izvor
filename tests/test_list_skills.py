@@ -13,7 +13,8 @@ from core.models import ActionDirective
 from orchestration.turn_pipeline import TurnContext
 from pipeline.directive_parser import directive_parser
 from prompts.builder import build_agent_prompt
-from skills import skill_registry
+from core.registry import get_skill_registry
+skill_registry = get_skill_registry()
 from skills.list_skills.action import run as list_skills_action_run
 
 

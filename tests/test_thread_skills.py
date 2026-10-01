@@ -12,7 +12,8 @@ import pytest
 
 from orchestration.thread_skills_manager import ThreadSkillsManager
 from pipeline.directive_parser import directive_parser
-from skills import skill_registry
+from core.registry import get_skill_registry
+skill_registry = get_skill_registry()
 
 
 def test_thread_skills_manager_grant_and_active():

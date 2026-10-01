@@ -20,7 +20,8 @@ async def run(ctx: Any, params: dict[str, Any] | None = None) -> dict[str, Any] 
     # /list_skills is strictly exclusive: presents platform skills directory and halts discussion
     channel_id = getattr(ctx, "channel_id", "")
     thread_ts = getattr(ctx, "thread_ts", "")
-    from skills import skill_registry
+    from core.registry import get_skill_registry
+    skill_registry = get_skill_registry()
 
     skills_directory_text = skill_registry.format_skills_directory_markdown(
         channel_id=channel_id, thread_ts=thread_ts

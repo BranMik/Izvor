@@ -12,7 +12,8 @@ from orchestration.agent_settings import (
 )
 from orchestration.thread_state import thread_state_manager
 from pipeline.directive_parser import directive_parser
-from skills import skill_registry
+from core.registry import get_skill_registry
+skill_registry = get_skill_registry()
 
 
 @pytest.fixture(autouse=True)

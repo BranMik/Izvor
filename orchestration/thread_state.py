@@ -266,6 +266,21 @@ class ThreadStateManager:
     def clear_active_task(self, channel_id: str, thread_ts: str, task: asyncio.Task | None = None) -> None:
         self.discussion.clear_active_task(channel_id, thread_ts, task)
 
+    def dispatch_discussion_task(self, channel_id: str, thread_ts: str, coro: Any) -> None:
+        """Dispatches an asynchronous discussion agent loop, attaching error tracking and state registry natively."""
+        self._touch(channel_id, thread_ts)
+        task = asyncio.create_task(coro)
+
+        def _log_background_task_error(t: asyncio.Task) -> None:
+            if not t.cancelled() and t.exception():
+                logger.error(
+                    f"[THREAD STATE] Background task failed for thread {(channel_id, thread_ts)}: {t.exception()}",
+                    exc_info=t.exception(),
+                )
+
+        task.add_done_callback(_log_background_task_error)
+        self.discussion.set_active_task(channel_id, thread_ts, task)
+
     def is_custom_flow(self, channel_id: str, thread_ts: str) -> bool:
         return self.discussion.is_custom_flow(channel_id, thread_ts)
 
