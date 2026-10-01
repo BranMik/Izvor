@@ -9,6 +9,7 @@ triggers:
     - /revoke-constraint
   arg_type: token
   param_name: target
+  auto_detect: false
 ---
 
 ### REVOKE CONSTRAINT

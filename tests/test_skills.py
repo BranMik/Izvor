@@ -12,12 +12,12 @@ from pipeline.spend_governance import SpendGovernance
 def mock_agents_config():
     return {
         "Visionary": {"username": "Visionary", "model": "gemini/gemini-3.8-flash"},
-        "Architect": {"username": "Architect", "model": "openai/gpt-5.6-terra"},
-        "TechLead": {"username": "TechLead", "model": "mistral/mistral-large-latest"},
-        "SecurityArchitect": {"username": "Security Architect", "model": "mistral/mistral-large-latest"},
+        "SecurityArchitect": {"username": "SecurityArchitect", "model": "openai/gpt-5.6-terra"},
+        "LegalAdvisor": {"username": "LegalAdvisor", "model": "mistral/mistral-large-latest"},
+        "SecurityArchitect": {"username": "Security SecurityArchitect", "model": "mistral/mistral-large-latest"},
         "ScopeOptimizer": {"username": "Scope Optimizer", "model": "gemini/gemini-3.8-flash"},
         "ROIStrategist": {"username": "ROI Strategist", "model": "gemini/gemini-3.8-flash"},
-        "DataAndAnalyticsStrategist": {"username": "Data And Analytics Strategist", "model": "gemini/gemini-3.8-flash"},
+        "MarketAndCompetitionResearchExpert": {"username": "Market And Competition Research Expert", "model": "gemini/gemini-3.8-flash"},
     }
 
 
@@ -30,17 +30,17 @@ def test_entity_resolver_exact_and_partial(mock_agents_config):
 
     # Exact match
     assert resolver.resolve_agent_name("Visionary") == "Visionary"
-    assert resolver.resolve_agent_name("[Architect]") == "Architect"
+    assert resolver.resolve_agent_name("[SecurityArchitect]") == "SecurityArchitect"
 
     # Partial / abbreviation match
-    assert resolver.resolve_agent_name("Tech") == "TechLead"
+    assert resolver.resolve_agent_name("Tech") == "LegalAdvisor"
     assert resolver.resolve_agent_name("[Sec]") == "SecurityArchitect"
 
     # Ambiguity detection
     candidates = resolver.resolve_candidates("Strategist")
     assert len(candidates) >= 2
     assert "ROIStrategist" in candidates
-    assert "DataAndAnalyticsStrategist" in candidates
+    assert "MarketAndCompetitionResearchExpert" in candidates
     assert resolver.resolve_agent_name("Strategist") is None
 
 
@@ -65,12 +65,12 @@ def test_entity_resolver_ambiguous_and_unrecognized(mock_agents_config):
 
 def test_entity_resolver_extract_tags(mock_agents_config):
     resolver = EntityResolver(agents_config=mock_agents_config)
-    text = "First /[Visionary], then /[Tech], and finally /[Architect]."
+    text = "First /[Visionary], then /[LegalAdvisor], and finally /[SecurityArchitect]."
     tagged = resolver.extract_tagged_agents(text)
-    assert tagged == ["Visionary", "TechLead", "Architect"]
+    assert tagged == ["Visionary", "LegalAdvisor", "SecurityArchitect"]
 
     # Plain brackets are ignored and not extracted as tagged agents
-    plain_text = "First [Visionary], then [Tech], and finally [Architect]."
+    plain_text = "First [Visionary], then [LegalAdvisor], and finally [SecurityArchitect]."
     assert resolver.extract_tagged_agents(plain_text) == []
 
 
@@ -81,12 +81,12 @@ def test_entity_resolver_extract_tags(mock_agents_config):
 @pytest.mark.anyio
 async def test_directive_parser_slash_commands():
     parser = DirectiveParser()
-    raw = "/max_words 40 /history 5 /exclude [TechLead] What is our roadmap?"
+    raw = "/max_words 40 /history 5 /exclude [LegalAdvisor] What is our roadmap?"
     directives = await parser.parse(raw)
 
     assert directives.max_words == 40
     assert directives.history_limit == 5
-    assert "TechLead" in directives.excluded_agents
+    assert "LegalAdvisor" in directives.excluded_agents
     assert "What is our roadmap?" in directives.cleaned_prompt
     assert not directives.is_stop
 
@@ -105,19 +105,19 @@ async def test_directive_parser_stop_command():
 def test_sandwich_orchestrator_deterministic_phases(mock_agents_config):
     orchestrator = SandwichOrchestrator(
         mode="sandwich",
-        start_chain=["Architect", "ScopeOptimizer"],
-        end_chain=["Architect"],
+        start_chain=["SecurityArchitect", "ScopeOptimizer"],
+        end_chain=["SecurityArchitect"],
         agents_map=mock_agents_config,
     )
 
-    available = ["Architect", "ScopeOptimizer", "TechLead", "Visionary"]
+    available = ["SecurityArchitect", "ScopeOptimizer", "LegalAdvisor", "Visionary"]
     initial_seq = orchestrator.build_initial_sequence(available)
-    assert initial_seq == ["Architect", "ScopeOptimizer", "TechLead", "Visionary", "Architect"]
+    assert initial_seq == ["SecurityArchitect", "ScopeOptimizer", "LegalAdvisor", "Visionary", "SecurityArchitect"]
 
-    # Phase 1: Start Chain turn 1 (Architect)
+    # Phase 1: Start Chain turn 1 (SecurityArchitect)
     desig1, elig1 = orchestrator.get_phase_info(initial_seq)
-    assert desig1 == "Architect"
-    assert elig1 == ["Architect"]
+    assert desig1 == "SecurityArchitect"
+    assert elig1 == ["SecurityArchitect"]
 
     # Phase 1: Start Chain turn 2 (ScopeOptimizer)
     rem_start_2 = initial_seq[1:]
@@ -126,34 +126,34 @@ def test_sandwich_orchestrator_deterministic_phases(mock_agents_config):
     assert elig2 == ["ScopeOptimizer"]
 
     # Phase 2: Middle pool open debate with multiple agents
-    rem_middle = rem_start_2[1:]  # ["TechLead", "Visionary", "Architect"]
+    rem_middle = rem_start_2[1:]  # ["LegalAdvisor", "Visionary", "SecurityArchitect"]
     desig_mid, elig_mid = orchestrator.get_phase_info(rem_middle)
     assert desig_mid is None
-    assert elig_mid == ["TechLead", "Visionary"]
+    assert elig_mid == ["LegalAdvisor", "Visionary"]
 
     # Phase 2: Middle pool with single remaining specialist
-    rem_mid_single = ["Visionary", "Architect"]
+    rem_mid_single = ["Visionary", "SecurityArchitect"]
     desig_single, elig_single = orchestrator.get_phase_info(rem_mid_single)
     assert desig_single == "Visionary"
     assert elig_single == ["Visionary"]
 
     # Phase 3: End Chain
-    rem_end = ["Architect"]
+    rem_end = ["SecurityArchitect"]
     desig_end, elig_end = orchestrator.get_phase_info(rem_end)
-    assert desig_end == "Architect"
-    assert elig_end == ["Architect"]
+    assert desig_end == "SecurityArchitect"
+    assert elig_end == ["SecurityArchitect"]
 
 
 def test_sandwich_orchestrator_fixed_mode(mock_agents_config):
     orchestrator = SandwichOrchestrator(
         mode="fixed",
-        fixed_chain=["Visionary", "TechLead"],
+        fixed_chain=["Visionary", "LegalAdvisor"],
         agents_map=mock_agents_config,
     )
 
-    available = ["Visionary", "TechLead"]
+    available = ["Visionary", "LegalAdvisor"]
     seq = orchestrator.build_initial_sequence(available)
-    assert seq == ["Visionary", "TechLead"]
+    assert seq == ["Visionary", "LegalAdvisor"]
 
     desig, elig = orchestrator.get_phase_info(seq)
     assert desig == "Visionary"

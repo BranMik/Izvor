@@ -9,8 +9,8 @@ def test_find_skill_for_tool():
     """Verify that skill_registry maps tool names to their declaring skill."""
     assert skill_registry.find_skill_for_tool("search_knowledge_rag") == "knowledge_base_rag"
     assert skill_registry.find_skill_for_tool("web_search") == "web_research"
-    assert skill_registry.find_skill_for_tool("read_file") == "codebase_inspection"
-    assert skill_registry.find_skill_for_tool("list_directory") == "codebase_inspection"
+    assert skill_registry.find_skill_for_tool("read_document") == "document_reader"
+    assert skill_registry.find_skill_for_tool("list_documents") == "document_reader"
     assert skill_registry.find_skill_for_tool("nonexistent_tool_xyz") is None
 
 
@@ -24,11 +24,11 @@ async def test_post_record_with_single_skill_used():
         raw_text="Hello",
     )
     ctx.thread_key = ("C_SKILL_TEST", "1234.5678")
-    ctx.agent_key = "Architect"
-    ctx.agent_cfg = {"username": "Architect", "model": "openai/gpt-4o"}
-    ctx.eligible_remaining_agents = ["TechLead"]
-    ctx.remaining = ["TechLead"]
-    ctx.final_text = "I reviewed the architecture.\n\n/[TechLead]"
+    ctx.agent_key = "SecurityArchitect"
+    ctx.agent_cfg = {"username": "SecurityArchitect", "model": "openai/gpt-4o"}
+    ctx.eligible_remaining_agents = ["LegalAdvisor"]
+    ctx.remaining = ["LegalAdvisor"]
+    ctx.final_text = "I reviewed the architecture.\n\n/[LegalAdvisor]"
     ctx.skills_used = ["knowledge_base_rag"]
     ctx.total_prompt_tokens = 500
     ctx.total_completion_tokens = 100
@@ -47,8 +47,8 @@ async def test_post_record_with_single_skill_used():
 
     text = posted_payload["text"]
     assert "Skills used: [knowledge_base_rag]" in text
-    # Verify exact ordering: /[TechLead] then Skills used then {model : p/c}
-    idx_nom = text.index("/[TechLead]")
+    # Verify exact ordering: /[LegalAdvisor] then Skills used then {model : p/c}
+    idx_nom = text.index("/[LegalAdvisor]")
     idx_skill = text.index("Skills used: [knowledge_base_rag]")
     idx_footer = text.index("{openai/gpt-4o : 500/100}")
 
@@ -65,12 +65,12 @@ async def test_post_record_with_multiple_skills_used():
         raw_text="Hello",
     )
     ctx.thread_key = ("C_SKILL_TEST", "1234.5678")
-    ctx.agent_key = "TechLead"
-    ctx.agent_cfg = {"username": "TechLead", "model": "mistral/mistral-large"}
+    ctx.agent_key = "LegalAdvisor"
+    ctx.agent_cfg = {"username": "LegalAdvisor", "model": "mistral/mistral-large"}
     ctx.eligible_remaining_agents = ["Visionary"]
     ctx.remaining = ["Visionary"]
     ctx.final_text = "Analysis complete.\n\n/[Visionary]"
-    ctx.skills_used = ["codebase_inspection", "web_research"]
+    ctx.skills_used = ["document_reader", "web_research"]
     ctx.total_prompt_tokens = 600
     ctx.total_completion_tokens = 150
 
@@ -87,9 +87,9 @@ async def test_post_record_with_multiple_skills_used():
     await pipeline.stage_post_and_record(ctx)
 
     text = posted_payload["text"]
-    assert "Skills used: [codebase_inspection], [web_research]" in text
+    assert "Skills used: [document_reader], [web_research]" in text
     idx_nom = text.index("/[Visionary]")
-    idx_skill = text.index("Skills used: [codebase_inspection], [web_research]")
+    idx_skill = text.index("Skills used: [document_reader], [web_research]")
     idx_footer = text.index("{mistral/mistral-large : 600/150}")
 
     assert idx_nom < idx_skill < idx_footer

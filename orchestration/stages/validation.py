@@ -160,7 +160,7 @@ class ValidationStageMixin:
                 if not requested_skill and not requested_agents:
                     msg = (
                         "⚠️ *Missing Parameters*: Please specify a skill and at least one agent.\n"
-                        "_Example: `/grant_skill web_research Architect` or `/grant_skill [web_research] [Architect]`_"
+                        "_Example: `/grant_skill web_research SecuritySecurity Architect` or `/grant_skill [web_research] [SecuritySecurity Architect]`_"
                     )
                     await post_sys_msg(channel_id=ctx.channel_id, thread_ts=ctx.thread_ts, text=msg)
                     return {"ok": True, "halted": True, "action": "grant_skill"}
@@ -168,7 +168,7 @@ class ValidationStageMixin:
                 if not requested_skill:
                     msg = (
                         "⚠️ *Missing Skill*: Please specify a skill to grant.\n"
-                        "_Example: `/grant_skill web_research Architect`_"
+                        "_Example: `/grant_skill web_research SecuritySecurity Architect`_"
                     )
                     await post_sys_msg(channel_id=ctx.channel_id, thread_ts=ctx.thread_ts, text=msg)
                     return {"ok": True, "halted": True, "action": "grant_skill"}
@@ -176,7 +176,7 @@ class ValidationStageMixin:
                 if not requested_agents:
                     msg = (
                         f"⚠️ *Missing Agent*: Please specify at least one agent to grant `{requested_skill}` to.\n"
-                        f"_Example: `/grant_skill {requested_skill} Architect`_"
+                        f"_Example: `/grant_skill {requested_skill} SecuritySecurity Architect`_"
                     )
                     await post_sys_msg(channel_id=ctx.channel_id, thread_ts=ctx.thread_ts, text=msg)
                     return {"ok": True, "halted": True, "action": "grant_skill"}
@@ -434,7 +434,7 @@ class ValidationStageMixin:
                         f"Tag '{clean_tag}' could not be matched to any active agent."
                     )
                 lines.append(
-                    "\nPlease check the agent name or tag a valid agent (e.g. 'Visionary', 'TechLead', 'Innovator') to proceed."
+                    "\nPlease check the agent name or tag a valid agent (e.g. 'Visionary', 'LegalAdvisor', 'Innovator') to proceed."
                 )
                 warning_msg = "\n".join(lines)
 

@@ -24,7 +24,7 @@ def temp_rag_dir():
     path = Path(tmp)
     knowledge_dir = path / "rag_knowledge"
     shared_dir = knowledge_dir / "shared"
-    tl_dir = knowledge_dir / "TechLead"
+    tl_dir = knowledge_dir / "LegalAdvisor"
     shared_dir.mkdir(parents=True)
     tl_dir.mkdir(parents=True)
 
@@ -34,7 +34,7 @@ def temp_rag_dir():
         encoding="utf-8",
     )
     (tl_dir / "runbook.md").write_text(
-        "# TechLead Runbook\n\n## Deployment\n\nSteps for deploying to production.",
+        "# LegalAdvisor Runbook\n\n## Deployment\n\nSteps for deploying to production.",
         encoding="utf-8",
     )
 
@@ -61,11 +61,11 @@ def test_document_parser():
             "# Title\n\nIntroduction paragraph.\n\n## First Header\n\nBody content of first section.\n\n## Second Header\n\nSecond body content.",
             encoding="utf-8",
         )
-        chunks = parser.parse_file(tmp_file, "doc_01.md", "TechLead")
+        chunks = parser.parse_file(tmp_file, "doc_01.md", "LegalAdvisor")
         assert len(chunks) >= 2
         assert any(c.section_header == "## First Header" for c in chunks)
         assert any(c.section_header == "## Second Header" for c in chunks)
-        assert all(c.agent_id == "TechLead" for c in chunks)
+        assert all(c.agent_id == "LegalAdvisor" for c in chunks)
     finally:
         if tmp_file.exists():
             tmp_file.unlink()
@@ -102,10 +102,10 @@ def test_manifest_diff(temp_rag_dir):
     assert diff3["modified"][0][0] == "shared/overview.md"
 
     # Delete one file
-    (knowledge_dir / "TechLead" / "runbook.md").unlink()
+    (knowledge_dir / "LegalAdvisor" / "runbook.md").unlink()
     diff4 = mgr2.diff_filesystem(knowledge_dir)
     assert len(diff4["deleted"]) == 1
-    assert diff4["deleted"][0][0] == "TechLead/runbook.md"
+    assert diff4["deleted"][0][0] == "LegalAdvisor/runbook.md"
 
 
 def test_reconciliation_engine_lifecycle(temp_rag_dir):
@@ -142,16 +142,16 @@ def test_reconciliation_engine_lifecycle(temp_rag_dir):
         # 3. Test Search via RAGService
         service = RAGService(store=store, embedder=mock_embedder)
         res_techlead = await service.search(
-            query="deployment", agent_name="TechLead", scope="all", max_results=3
+            query="deployment", agent_name="LegalAdvisor", scope="all", max_results=3
         )
-        assert "TechLead" in res_techlead or "shared" in res_techlead
+        assert "LegalAdvisor" in res_techlead or "shared" in res_techlead
         assert "Knowledge Base Search Results" in res_techlead
 
-        # 4. Agent scoping test: searching as Architect with scope="self" shouldn't see TechLead docs
+        # 4. Agent scoping test: searching as SecurityArchitect with scope="self" shouldn't see LegalAdvisor docs
         res_self = await service.search(
-            query="deployment", agent_name="Architect", scope="self", max_results=3
+            query="deployment", agent_name="SecurityArchitect", scope="self", max_results=3
         )
-        assert "No relevant documentation found" in res_self or "Architect" not in res_self
+        assert "No relevant documentation found" in res_self or "SecurityArchitect" not in res_self
 
     asyncio.run(_run())
 
@@ -180,7 +180,7 @@ def test_skill_registry_loads_knowledge_base_rag():
     result_agent = registry.execute_tool(
         "search_knowledge_rag",
         {"query": "AI in delivery", "scope": "all", "max_results": 2},
-        agent_name="TechLead",
+        agent_name="LegalAdvisor",
     )
     assert isinstance(result_agent, str)
 

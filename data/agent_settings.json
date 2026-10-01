@@ -1,23 +1,15 @@
 {
   "workflow_config": "default_review_flow",
   "enabled_agents": [
-    "Architect",
     "CompliancePrivacyAndGovernanceOfficer",
-    "DataAndAnalyticsStrategist",
-    "DeploymentReleaseStrategist",
     "Innovator",
     "LegalAdvisor",
     "MarketAndCompetitionResearchExpert",
-    "MonitoringAndAlertingSpecialist",
-    "OperationalReliabilityLead",
-    "QALead",
     "ROIStrategist",
     "SalesAdvisor",
-    "ScalabilityEngineer",
     "Sceptic",
     "ScopeOptimizer",
     "SecurityArchitect",
-    "TechLead",
     "UserAdvocate",
     "Visionary"
   ],
@@ -29,16 +21,6 @@
       "is_short_output": false,
       "skills": []
     },
-    "Architect": {
-      "model": "openai/gpt-5.6-terra",
-      "username": "Architect",
-      "icon_url": "static/image_21.png",
-      "is_short_output": false,
-      "skills": [
-        "document_reader",
-        "knowledge_base_rag"
-      ]
-    },
     "Innovator": {
       "model": "anthropic/claude-opus-5",
       "username": "Innovator",
@@ -46,31 +28,12 @@
       "is_short_output": false,
       "skills": []
     },
-    "TechLead": {
-      "model": "mistral/mistral-large-latest",
-      "username": "TechLead",
-      "icon_url": "static/image_08.png",
-      "is_short_output": false,
-      "skills": [
-        "knowledge_base_rag"
-      ]
-    },
     "Sceptic": {
       "model": "anthropic/claude-opus-5",
       "username": "Sceptic",
       "icon_url": "static/image_03.png",
       "is_short_output": false,
       "skills": []
-    },
-    "DataAndAnalyticsStrategist": {
-      "model": "gemini/gemini-3.8-flash",
-      "username": "Data And Analytics Strategist",
-      "icon_url": "static/image_02.png",
-      "is_short_output": true,
-      "skills": [
-        "document_authoring",
-        "document_reader"
-      ]
     },
     "CompliancePrivacyAndGovernanceOfficer": {
       "model": "mistral/mistral-large-latest",
@@ -114,27 +77,6 @@
         "knowledge_base_rag"
       ]
     },
-    "ScalabilityEngineer": {
-      "model": "gemini/gemini-3.8-flash",
-      "username": "Scalability Engineer",
-      "icon_url": "static/image_06.png",
-      "is_short_output": true,
-      "skills": []
-    },
-    "OperationalReliabilityLead": {
-      "model": "mistral/mistral-large-latest",
-      "username": "Operational Reliability Lead",
-      "icon_url": "static/image_34.png",
-      "is_short_output": true,
-      "skills": []
-    },
-    "DeploymentReleaseStrategist": {
-      "model": "mistral/mistral-large-latest",
-      "username": "Deployment & Release Strategist",
-      "icon_url": "static/image_12.png",
-      "is_short_output": true,
-      "skills": []
-    },
     "MarketAndCompetitionResearchExpert": {
       "model": "mistral/mistral-large-latest",
       "username": "Market & Competition Research Expert",
@@ -142,22 +84,6 @@
       "is_short_output": false,
       "skills": [
         "web_research"
-      ]
-    },
-    "MonitoringAndAlertingSpecialist": {
-      "model": "mistral/mistral-large-latest",
-      "username": "Monitoring & Alerting Specialist",
-      "icon_url": "static/image_30.png",
-      "is_short_output": true,
-      "skills": []
-    },
-    "QALead": {
-      "model": "mistral/mistral-large-latest",
-      "username": "QA Lead",
-      "icon_url": "static/image_17.png",
-      "is_short_output": true,
-      "skills": [
-        "knowledge_base_rag"
       ]
     },
     "SalesAdvisor": {

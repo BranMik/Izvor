@@ -21,8 +21,8 @@ def test_should_skip_intent_extractor_rules():
     assert should_skip_intent_extractor("/file: test.py /max_words 50 /history 2") is False
     assert should_skip_intent_extractor("/max_words 50 /history 2") is False
     assert should_skip_intent_extractor("explain how this works in 50 words") is False
-    assert should_skip_intent_extractor("/exclude [TechLead] debate this topic in 50 words") is False
-    assert should_skip_intent_extractor("/exclude [TechLead] /max_words 50 /history 2") is False
+    assert should_skip_intent_extractor("/exclude [LegalAdvisor] debate this topic in 50 words") is False
+    assert should_skip_intent_extractor("/exclude [LegalAdvisor] /max_words 50 /history 2") is False
     assert should_skip_intent_extractor("<@U0BR4EH6XMY> Test /max_words 5, exclude Visionary") is False
     assert should_skip_intent_extractor("<@U0BR4EH6XMY> Test /max_words 50 /history 2, exclude Visionary") is False
     assert should_skip_intent_extractor("Rasprava /max_words 10, bez Visionary") is False
@@ -69,7 +69,7 @@ async def test_extract_user_intent_success():
                         },
                         "actions": [
                             {"name": "document_reader", "params": {"target_file": "schema.sql"}},
-                            {"name": "exclude_agents", "params": {"agents": ["TechLead", "Innovator"]}},
+                            {"name": "exclude_agents", "params": {"agents": ["LegalAdvisor", "Innovator"]}},
                         ],
                     }
                 )
@@ -79,7 +79,7 @@ async def test_extract_user_intent_success():
 
     with patch("nlp.intent_extractor.litellm.completion", return_value=mock_response):
         intent = await extract_user_intent(
-            "Please analyze schema.sql based on last 4 messages in under 60 words and exclude TechLead",
+            "Please analyze schema.sql based on last 4 messages in under 60 words and exclude LegalAdvisor",
             available_files=[{"name": "schema.sql", "id": "F123"}],
         )
 
@@ -87,7 +87,7 @@ async def test_extract_user_intent_success():
         assert intent["history"] == 4
         assert intent["file_use"] is True
         assert intent["target_file"] == "schema.sql"
-        assert intent["excluded_agents"] == ["TechLead", "Innovator"]
+        assert intent["excluded_agents"] == ["LegalAdvisor", "Innovator"]
         assert intent["modifiers"]["max_words"] == 60
         assert intent["modifiers"]["history"] == 4
         assert any(a["name"] == "document_reader" for a in intent["actions"])
@@ -170,7 +170,7 @@ async def test_directive_parser_uses_intent_extractor_for_all_directives():
                         },
                         "actions": [
                             {"name": "document_reader", "params": {"target_file": "schema.sql"}},
-                            {"name": "exclude_agents", "params": {"agents": ["TechLead"]}},
+                            {"name": "exclude_agents", "params": {"agents": ["LegalAdvisor"]}},
                         ],
                     }
                 )
@@ -180,7 +180,7 @@ async def test_directive_parser_uses_intent_extractor_for_all_directives():
 
     with patch("nlp.intent_extractor.litellm.completion", return_value=mock_resp):
         res = await directive_parser.parse(
-            "pogledaj priloženi schema.sql, uzmi zadnje 4 poruke, bez TechLeada, između 30 i 100 riječi",
+            "pogledaj priloženi schema.sql, uzmi zadnje 4 poruke, bez LegalAdvisora, između 30 i 100 riječi",
             available_files=[{"name": "schema.sql", "id": "F123"}],
         )
         assert res.max_words == 100
@@ -188,7 +188,7 @@ async def test_directive_parser_uses_intent_extractor_for_all_directives():
         assert res.history_limit == 4
         assert res.is_file_req is True
         assert res.target_filename == "schema.sql"
-        assert res.excluded_agents == ["TechLead"]
+        assert res.excluded_agents == ["LegalAdvisor"]
 
 
 @pytest.mark.anyio
@@ -215,10 +215,10 @@ async def test_sandwich_exclusion_and_bot_turn_not_stopped(monkeypatch):
     set_orchestration_mode("sandwich")
     set_sandwich_config(
         start_chain=["ScopeOptimizer", "Visionary"],
-        end_chain=["Architect"],
+        end_chain=["SecurityArchitect"],
     )
     for a in AGENTS_CONFIG:
-        set_agent_enabled(a, a in ("ScopeOptimizer", "Visionary", "Architect", "TechLead"))
+        set_agent_enabled(a, a in ("ScopeOptimizer", "Visionary", "SecurityArchitect", "LegalAdvisor"))
 
     posted_messages = []
 
@@ -274,7 +274,7 @@ async def test_sandwich_exclusion_and_bot_turn_not_stopped(monkeypatch):
     assert res_1.get("ok") is True
     assert len(posted_messages) == 1
     assert posted_messages[0]["username"] == "Scope Optimizer"
-    # Visionary was excluded so remaining sequence corrected nomination to next eligible (TechLead / Architect)
+    # Visionary was excluded so remaining sequence corrected nomination to next eligible (LegalAdvisor / SecurityArchitect)
     assert "/[Visionary]" not in posted_messages[0]["text"]
     remaining = thread_state_manager.get_remaining_agents(thread_key[0], thread_key[1])
     assert "Visionary" not in remaining

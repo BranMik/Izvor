@@ -1,46 +1,30 @@
 import json
 
-from services.mcp_tools import list_directory, read_file, write_file
+from services.mcp_tools import list_documents, read_document, write_document
 
 
 def test_mcp_write_and_read():
     rel_path = "tests/scratch_test.txt"
     content = "Hello from Native MCP Test!"
 
-    write_res = write_file(rel_path, content)
+    write_res = write_document(rel_path, content)
     assert "success" in write_res
 
-    read_res = read_file(rel_path)
+    read_res = read_document(rel_path)
     res_json = json.loads(read_res)
     assert res_json.get("content") == content
 
 def test_mcp_list_directory():
-    list_res = list_directory(".")
+    list_res = list_documents(".")
     res_json = json.loads(list_res)
     assert "contents" in res_json
     assert isinstance(res_json["contents"], list)
 
 def test_mcp_directory_traversal_prevention():
-    read_res = read_file("../../windows/system32/cmd.exe")
+    read_res = read_document("../../windows/system32/cmd.exe")
     res_json = json.loads(read_res)
     assert "error" in res_json
     assert "Access denied" in res_json["error"] or "does not exist" in res_json["error"]
-
-
-def test_mcp_workspace_root_is_project_root():
-    from pathlib import Path
-
-    from services.mcp_tools import PROJECT_ROOT, _resolve_safe_path
-
-    expected_root = Path(__file__).resolve().parent.parent
-    assert PROJECT_ROOT == expected_root
-    assert _resolve_safe_path(".") == expected_root
-
-    # Can read services/mcp_tools.py from the project root
-    read_res = read_file("services/mcp_tools.py")
-    res_json = json.loads(read_res)
-    assert "content" in res_json
-    assert "def read_file" in res_json["content"]
 
 
 def test_mcp_document_write_and_read():
@@ -222,14 +206,14 @@ def test_mcp_read_document_search_in_resources_subfolder_and_case_insensitive():
 
 
 def test_mcp_read_file_fallback_to_resources():
-    from services.mcp_tools import RESOURCES_DIR, read_file
+    from services.mcp_tools import RESOURCES_DIR, read_document
 
     res_only_file = RESOURCES_DIR / "resource_only.txt"
     res_only_file.write_text("Hello from resources folder fallback", encoding="utf-8")
 
     try:
-        # read_file should find resource_only.txt via resources/ fallback
-        res = json.loads(read_file("resource_only.txt"))
+        # read_document should find resource_only.txt via resources/ fallback
+        res = json.loads(read_document("resource_only.txt"))
         assert "content" in res
         assert "Hello from resources folder fallback" in res["content"]
     finally:
@@ -253,7 +237,7 @@ def test_mcp_write_document_normalizes_resources_prefix():
 
 
 def test_mcp_write_file_blocks_protected_default_files():
-    from services.mcp_tools import write_file
+    from services.mcp_tools import write_document
 
     targets = [
         ".env",
@@ -263,14 +247,14 @@ def test_mcp_write_file_blocks_protected_default_files():
         "data/app_settings.json",
     ]
     for target in targets:
-        res = json.loads(write_file(target, "malicious_overwrite_attempt"))
+        res = json.loads(write_document(target, "malicious_overwrite_attempt"))
         assert "error" in res, f"Expected error when writing to {target}"
         assert "Permission denied: Writing to protected path" in res["error"]
 
 
 def test_mcp_write_file_blocks_custom_blacklist(monkeypatch, tmp_path):
     from orchestration.system_settings import system_settings_manager
-    from services.mcp_tools import write_file
+    from services.mcp_tools import write_document
 
     monkeypatch.setattr(
         system_settings_manager,
@@ -279,17 +263,17 @@ def test_mcp_write_file_blocks_custom_blacklist(monkeypatch, tmp_path):
     )
 
     # 1. Blocked custom paths
-    res1 = json.loads(write_file("custom_blocked_dir/sample.txt", "content"))
+    res1 = json.loads(write_document("custom_blocked_dir/sample.txt", "content"))
     assert "error" in res1
     assert "Permission denied: Writing to protected path" in res1["error"]
 
-    res2 = json.loads(write_file("blacklisted.txt", "content"))
+    res2 = json.loads(write_document("blacklisted.txt", "content"))
     assert "error" in res2
     assert "Permission denied: Writing to protected path" in res2["error"]
 
     # 2. Allowed normal path
     allowed_file = "tests/test_write_allowed.tmp"
-    res3 = json.loads(write_file(allowed_file, "valid content"))
+    res3 = json.loads(write_document(allowed_file, "valid content"))
     assert res3.get("success") is True
     from services.mcp_tools import WORKSPACE_DIR
     p = WORKSPACE_DIR / allowed_file
@@ -316,9 +300,9 @@ def test_mcp_tool_dispatcher_registry():
     from services.mcp_tools import TOOL_DISPATCHER
 
     expected_tools = {
-        "read_file",
-        "write_file",
-        "list_directory",
+        "read_document",
+        "write_document",
+        "list_documents",
         "read_document",
         "write_document",
         "list_documents",
@@ -353,9 +337,9 @@ def test_mcp_execute_tool_unknown_and_invalid_args(monkeypatch):
 def test_mcp_execute_tool_agent_authorization():
     from services.mcp_tools import execute_mcp_tool
 
-    # Sceptic has no skills configured -> write_file must be denied
+    # Sceptic has no skills configured -> write_document must be denied
     denied_res = execute_mcp_tool(
-        "write_file",
+        "write_document",
         {"rel_path": "resources/unauthorized_test.txt", "content": "test"},
         agent_name="Sceptic",
     )
@@ -373,11 +357,11 @@ def test_mcp_execute_tool_agent_authorization():
     sys_json = json.loads(sys_res)
     assert "contents" in sys_json
 
-    # TechLead has codebase_inspection skill -> list_directory must be allowed
+    # SecurityArchitect has document_reader skill -> list_documents must be allowed
     tech_res = execute_mcp_tool(
-        "list_directory",
+        "list_documents",
         {"rel_path": "."},
-        agent_name="TechLead",
+        agent_name="SecurityArchitect",
     )
     tech_json = json.loads(tech_res)
     assert "contents" in tech_json

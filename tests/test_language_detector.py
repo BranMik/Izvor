@@ -112,7 +112,7 @@ def test_thread_state_language_management():
 def test_build_llm_messages_with_thread_language():
     system_prompt = "You are an assistant."
     prompt = "Analyze system architecture."
-    agent_cfg = {"username": "TechLead"}
+    agent_cfg = {"username": "LegalAdvisor"}
 
     # 1. Bot trigger with English
     msgs_eng = build_llm_messages(
@@ -120,7 +120,7 @@ def test_build_llm_messages_with_thread_language():
         effective_history=[{"role": "user", "content": "Hello"}],
         prompt=prompt,
         is_bot_trigger=True,
-        agent_key="TechLead",
+        agent_key="LegalAdvisor",
         agent_cfg=agent_cfg,
         thread_language="English",
     )
@@ -135,7 +135,7 @@ def test_build_llm_messages_with_thread_language():
         effective_history=[{"role": "user", "content": "Bok"}],
         prompt="",
         is_bot_trigger=True,
-        agent_key="TechLead",
+        agent_key="LegalAdvisor",
         agent_cfg=agent_cfg,
         thread_language="Croatian",
     )

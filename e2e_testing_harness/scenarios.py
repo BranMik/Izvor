@@ -61,13 +61,13 @@ async def tc_01_single_persona(client: SlackProtocolClient) -> ScenarioResult:
 async def tc_02_multi_persona(client: SlackProtocolClient) -> ScenarioResult:
     channel = client.get_channel("C_TEST_02")
     thread_ts = client.get_thread_ts()
-    prompt = "[Architect] [TechLead] How should we migrate to event-driven architecture?"
+    prompt = "[SecuritySecurity Architect] [LegalAdvisor] How should we migrate to event-driven architecture?"
     await client.send_mention(prompt, channel_id=channel, thread_ts=thread_ts)
 
     actual_thread = thread_ts or (client.bus.posted_messages[0]["thread_ts"] if client.bus.posted_messages else "")
     msgs = client.bus.get_messages_for_thread(channel, actual_thread)
     speakers = [m.get("username") for m in msgs]
-    passed = ("Architect" in speakers and "TechLead" in speakers and len(speakers) >= 2)
+    passed = ("SecuritySecurity Architect" in speakers and "LegalAdvisor" in speakers and len(speakers) >= 2)
     return ScenarioResult("TC-02", "Multi-Persona Handoff", passed, f"Speakers: {speakers}")
 
 
@@ -87,7 +87,7 @@ async def tc_03_autonomous_nomination(client: SlackProtocolClient) -> ScenarioRe
 async def tc_04_max_words(client: SlackProtocolClient) -> ScenarioResult:
     channel = client.get_channel("C_TEST_04")
     thread_ts = client.get_thread_ts()
-    prompt = "[TechLead] /max_words 40 Explain Docker multi-stage builds."
+    prompt = "[LegalAdvisor] /max_words 40 Explain Docker multi-stage builds."
     await client.send_mention(prompt, channel_id=channel, thread_ts=thread_ts)
 
     actual_thread = client.current_thread_ts or thread_ts or (client.bus.posted_messages[0]["thread_ts"] if client.bus.posted_messages else "")
@@ -106,7 +106,7 @@ async def tc_04_max_words(client: SlackProtocolClient) -> ScenarioResult:
 async def tc_05_min_words(client: SlackProtocolClient) -> ScenarioResult:
     channel = client.get_channel("C_TEST_05")
     thread_ts = client.get_thread_ts()
-    prompt = "[SecurityArchitect] /min_words 60 Detail webhook security threat modeling."
+    prompt = "[SecuritySecuritySecurity Architect] /min_words 60 Detail webhook security threat modeling."
     await client.send_mention(prompt, channel_id=channel, thread_ts=thread_ts)
 
     actual_thread = thread_ts or (client.bus.posted_messages[0]["thread_ts"] if client.bus.posted_messages else "")
@@ -125,7 +125,7 @@ async def tc_05_min_words(client: SlackProtocolClient) -> ScenarioResult:
 async def tc_06_scribe_max_words(client: SlackProtocolClient) -> ScenarioResult:
     channel = client.get_channel("C_TEST_06")
     thread_ts = client.get_thread_ts()
-    prompt = "/scribe_max_words 40 [Architect] Evaluate distributed transaction consistency."
+    prompt = "/scribe_max_words 40 [SecuritySecurity Architect] Evaluate distributed transaction consistency."
     await client.send_mention(prompt, channel_id=channel, thread_ts=thread_ts)
 
     actual_thread = thread_ts or (client.bus.posted_messages[0]["thread_ts"] if client.bus.posted_messages else "")
@@ -145,7 +145,7 @@ async def tc_06_scribe_max_words(client: SlackProtocolClient) -> ScenarioResult:
 async def tc_07_scribe_min_words(client: SlackProtocolClient) -> ScenarioResult:
     channel = client.get_channel("C_TEST_07")
     thread_ts = client.get_thread_ts()
-    prompt = "/scribe_min_words 30 [Architect] Analyze event sourcing replay guarantees."
+    prompt = "/scribe_min_words 30 [SecuritySecurity Architect] Analyze event sourcing replay guarantees."
     await client.send_mention(prompt, channel_id=channel, thread_ts=thread_ts)
 
     actual_thread = thread_ts or (client.bus.posted_messages[0]["thread_ts"] if client.bus.posted_messages else "")
@@ -166,12 +166,12 @@ async def tc_08_history_slicing(client: SlackProtocolClient) -> ScenarioResult:
     channel = client.get_channel("C_TEST_08")
     init_thread = client.get_thread_ts()
     # Establish authentic multi-turn conversation history (4 prior turns) before invoking /history 2
-    await client.send_mention("[TechLead] /max_words 10 Step 1: Initial design proposal.", channel_id=channel, thread_ts=init_thread)
+    await client.send_mention("[LegalAdvisor] /max_words 10 Step 1: Initial design proposal.", channel_id=channel, thread_ts=init_thread)
     actual_thread = client.current_thread_ts or (client.bus.posted_messages[0]["thread_ts"] if client.bus.posted_messages else "T_08")
 
-    await client.send_mention("[Architect] /max_words 10 Step 2: Architecture review.", channel_id=channel, thread_ts=actual_thread)
-    await client.send_mention("[SecurityArchitect] /max_words 10 Step 3: Security review.", channel_id=channel, thread_ts=actual_thread)
-    await client.send_mention("[QALead] /max_words 10 Step 4: Quality verification.", channel_id=channel, thread_ts=actual_thread)
+    await client.send_mention("[SecuritySecurity Architect] /max_words 10 Step 2: SecuritySecurity Architecture review.", channel_id=channel, thread_ts=actual_thread)
+    await client.send_mention("[SecuritySecuritySecurity Architect] /max_words 10 Step 3: Security review.", channel_id=channel, thread_ts=actual_thread)
+    await client.send_mention("[SalesAdvisor] /max_words 10 Step 4: Quality verification.", channel_id=channel, thread_ts=actual_thread)
 
     # Turn 5: Request response with /history 2
     prompt = "/history 2 [Visionary] /max_words 10 Summarize recent context."
@@ -207,7 +207,7 @@ async def tc_09_agent_exclusion(client: SlackProtocolClient) -> ScenarioResult:
 async def tc_10_revoke_constraints(client: SlackProtocolClient) -> ScenarioResult:
     channel = client.get_channel("C_TEST_10")
     thread_ts = client.get_thread_ts()
-    await client.send_mention("/max_words 30 [TechLead] Short explanation.", channel_id=channel, thread_ts=thread_ts)
+    await client.send_mention("/max_words 30 [LegalAdvisor] Short explanation.", channel_id=channel, thread_ts=thread_ts)
     actual_thread = thread_ts or (client.bus.posted_messages[0]["thread_ts"] if client.bus.posted_messages else "")
     
     # Revoke constraint
@@ -221,7 +221,7 @@ async def tc_10_revoke_constraints(client: SlackProtocolClient) -> ScenarioResul
 async def tc_11_multi_round(client: SlackProtocolClient) -> ScenarioResult:
     channel = client.get_channel("C_TEST_11")
     thread_ts = client.get_thread_ts()
-    prompt = "[Architect] [TechLead] /rounds 2 Monorepo vs Polyrepo debate."
+    prompt = "[SecuritySecurity Architect] [LegalAdvisor] /rounds 2 Monorepo vs Polyrepo debate."
     await client.send_mention(prompt, channel_id=channel, thread_ts=thread_ts)
 
     actual_thread = thread_ts or (client.bus.posted_messages[0]["thread_ts"] if client.bus.posted_messages else "")
@@ -251,7 +251,7 @@ async def tc_12_web_research(client: SlackProtocolClient) -> ScenarioResult:
 async def tc_13_codebase_inspection(client: SlackProtocolClient) -> ScenarioResult:
     channel = client.get_channel("C_TEST_13")
     thread_ts = client.get_thread_ts()
-    prompt = "[TechLead] Inspect directory layout of orchestration/stages and turn_pipeline.py."
+    prompt = "[LegalAdvisor] Inspect directory layout of orchestration/stages and turn_pipeline.py."
     await client.send_mention(prompt, channel_id=channel, thread_ts=thread_ts)
 
     actual_thread = thread_ts or (client.bus.posted_messages[0]["thread_ts"] if client.bus.posted_messages else "")
@@ -283,7 +283,7 @@ async def tc_14_document_authoring(client: SlackProtocolClient) -> ScenarioResul
 async def tc_15_document_reader_attachment(client: SlackProtocolClient) -> ScenarioResult:
     channel = client.get_channel("C_TEST_15")
     thread_ts = client.get_thread_ts()
-    prompt = "[Architect] /read_file resources/e2e_testing/sys_spec.txt What is the throughput specified in this file?"
+    prompt = "[SecuritySecurity Architect] /read_document resources/e2e_testing/sys_spec.txt What is the throughput specified in this file?"
     await client.send_mention(prompt, channel_id=channel, thread_ts=thread_ts)
 
     actual_thread = client.current_thread_ts or thread_ts or (client.bus.posted_messages[0]["thread_ts"] if client.bus.posted_messages else "T_15")
@@ -299,7 +299,7 @@ async def tc_15_document_reader_attachment(client: SlackProtocolClient) -> Scena
 async def tc_16_unauthorized_tool_rejection(client: SlackProtocolClient) -> ScenarioResult:
     channel = client.get_channel("C_TEST_16")
     thread_ts = client.get_thread_ts()
-    prompt = "[Architect] Use load_skill workspace_authoring to modify system configuration."
+    prompt = "[SecuritySecurity Architect] Use load_skill workspace_authoring to modify system configuration."
     await client.send_mention(prompt, channel_id=channel, thread_ts=thread_ts)
 
     actual_thread = client.current_thread_ts or thread_ts or (client.bus.posted_messages[0]["thread_ts"] if client.bus.posted_messages else "T_16")
@@ -327,12 +327,12 @@ async def tc_16_unauthorized_tool_rejection(client: SlackProtocolClient) -> Scen
 async def tc_17_grant_skill(client: SlackProtocolClient) -> ScenarioResult:
     channel = client.get_channel("C_TEST_17")
     thread_ts = client.get_thread_ts()
-    prompt = "/grant_skill web_research [Architect]"
+    prompt = "/grant_skill web_research [SecuritySecurity Architect]"
     await client.send_mention(prompt, channel_id=channel, thread_ts=thread_ts)
 
     sys_msgs = [s["text"] for s in client.bus.system_messages if s.get("channel_id") == channel]
     passed = any("Agent Skill Granted" in m for m in sys_msgs)
-    return ScenarioResult("TC-17", "Granular Skill Grant", passed, "web_research granted to Architect.")
+    return ScenarioResult("TC-17", "Granular Skill Grant", passed, "web_research granted to SecuritySecurity Architect.")
 
 
 async def tc_18_grant_for_all(client: SlackProtocolClient) -> ScenarioResult:
@@ -393,7 +393,7 @@ async def tc_22_scribe_download_dm(client: SlackProtocolClient) -> ScenarioResul
     thread_ts = client.get_thread_ts()
 
     # Step 1: Run authentic deliberation in thread to generate a live Scribe synthesis note
-    prompt = "[Architect] [TechLead] /max_words 25 What is our strategy for container image vulnerability scanning in CI/CD?"
+    prompt = "[SecuritySecurity Architect] [LegalAdvisor] /max_words 25 What is our strategy for container image vulnerability scanning in CI/CD?"
     await client.send_mention(prompt, channel_id=channel, thread_ts=thread_ts)
 
     actual_thread = thread_ts or (client.bus.posted_messages[0]["thread_ts"] if client.bus.posted_messages else "")
@@ -434,7 +434,7 @@ async def tc_23_circuit_breaker(client: SlackProtocolClient) -> ScenarioResult:
         set_circuit_breaker_threshold(0.00001)
 
         # Trigger turn that exceeds $0.00001
-        prompt = "[Architect] [TechLead] Migration to event streaming."
+        prompt = "[SecuritySecurity Architect] [LegalAdvisor] Migration to event streaming."
         await client.send_mention(prompt, channel_id=channel, thread_ts=thread_ts)
 
         actual_thread = thread_ts or (client.bus.posted_messages[0]["thread_ts"] if client.bus.posted_messages else "")
@@ -512,7 +512,7 @@ async def tc_27_default_workflow_untagged(client: SlackProtocolClient) -> Scenar
         return ScenarioResult("TC-27", "Default Workflow on Untagged Mention", False, "No agent response posted.")
 
     speakers = [m.get("username") for m in msgs]
-    # Default workflow starts with Visionary, hands off to Innovator, and concludes with Architect
+    # Default workflow starts with Visionary, hands off to Innovator, and concludes with SecuritySecurity Architect
     passed = len(speakers) >= 2 and speakers[0] == "Visionary"
     return ScenarioResult(
         "TC-27",

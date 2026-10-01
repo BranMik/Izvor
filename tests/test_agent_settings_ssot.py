@@ -40,16 +40,16 @@ def test_agent_settings_ssot_loading():
         data = {
             "circuit_breaker_enabled": True,
             "circuit_breaker_threshold_usd": 2.50,
-            "enabled_agents": ["Visionary", "Architect"],
+            "enabled_agents": ["Visionary", "SecurityArchitect"],
             "agents": {
                 "Visionary": {
                     "model": "gemini/gemini-3.8-flash",
                     "username": "Visionary",
                     "icon_url": "static/avatar_25.png",
                 },
-                "Architect": {
+                "SecurityArchitect": {
                     "model": "openai/gpt-5.6-terra",
-                    "username": "Architect",
+                    "username": "SecurityArchitect",
                     "icon_url": "static/avatar_33.png",
                 },
             },
@@ -182,16 +182,16 @@ def test_restore_from_backup():
         backup_data = {
             "circuit_breaker_enabled": False,
             "circuit_breaker_threshold_usd": 1.0,
-            "enabled_agents": ["Visionary", "Architect"],
+            "enabled_agents": ["Visionary", "SecurityArchitect"],
             "agents": {
                 "Visionary": {
                     "model": "gemini/gemini-3.8-flash",
                     "username": "Visionary",
                     "icon_url": "static/avatar_25.png",
                 },
-                "Architect": {
+                "SecurityArchitect": {
                     "model": "openai/gpt-5.6-terra",
-                    "username": "Architect",
+                    "username": "SecurityArchitect",
                     "icon_url": "static/avatar_33.png",
                 },
             },
@@ -220,7 +220,7 @@ def test_restore_from_backup():
         with open(settings_file, "r", encoding="utf-8") as f:
             restored = json.load(f)
         assert "Visionary" in restored["agents"]
-        assert "Architect" in restored["agents"]
+        assert "SecurityArchitect" in restored["agents"]
 
 
 def test_7_day_backup_refresh():

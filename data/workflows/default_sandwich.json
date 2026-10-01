@@ -10,10 +10,10 @@
       "UserAdvocate",
       "Sceptic",
       "Innovator",
-      "Architect"
+      "SecurityArchitect"
     ],
     "end_chain": [
-      "Architect",
+      "SecurityArchitect",
       "Sceptic"
     ]
   }

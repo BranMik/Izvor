@@ -23,8 +23,8 @@ def test_build_tool_status_text():
 
     mock_tool.function.name = "fetch_web_page"
     mock_tool.function.arguments = json.dumps({"url": "https://example.com/data"})
-    text_fetch = _build_tool_status_text("TechLead", [mock_tool])
-    assert "TechLead" in text_fetch
+    text_fetch = _build_tool_status_text("LegalAdvisor", [mock_tool])
+    assert "LegalAdvisor" in text_fetch
     assert "is fetching webpage" in text_fetch
     assert "https://example.com/data" in text_fetch
 

@@ -100,7 +100,7 @@ async def test_openai_agent_emits_no_cache_logs(caplog):
         res = await agent_router.process_and_respond(
             channel_id="C123",
             thread_ts="1234567890.123456",
-            raw_text="[Architect] Architecture review",
+            raw_text="[SecurityArchitect] SecurityArchitecture review",
             is_bot_trigger=False,
         )
 

@@ -13,8 +13,8 @@ logger = logging.getLogger(__name__)
 # Schema defining the LanceDB agent_knowledge table
 RAG_SCHEMA = pa.schema([
     pa.field("chunk_id", pa.string()),
-    pa.field("agent_id", pa.string()),          # e.g. "TechLead", "Architect", "shared"
-    pa.field("doc_id", pa.string()),            # e.g. "TechLead/runbook.md"
+    pa.field("agent_id", pa.string()),          # e.g. "LegalAdvisor", "SecuritySecurity Architect", "shared"
+    pa.field("doc_id", pa.string()),            # e.g. "LegalAdvisor/runbook.md"
     pa.field("filename", pa.string()),          # e.g. "runbook.md"
     pa.field("section_header", pa.string()),    # e.g. "## Rollback Procedures"
     pa.field("text", pa.string()),              # Raw chunk text

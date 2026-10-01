@@ -93,7 +93,7 @@ def test_agent_settings_manager():
         # Defaults
         assert "Visionary" in mgr.get_enabled_agents()
         assert mgr.is_circuit_breaker_enabled() is False
-        assert mgr.get_orchestration_mode() == "fixed"
+        assert mgr.get_orchestration_mode() == "sandwich"
 
         # Toggle all agents freely (no locked agents)
         assert mgr.set_agent_enabled("Visionary", False) is True
@@ -105,16 +105,16 @@ def test_agent_settings_manager():
         mgr.set_orchestration_mode(OrchestrationMode.FIXED)
         assert mgr.get_orchestration_mode() == "fixed"
         assert mgr.get_orchestration_mode() == OrchestrationMode.FIXED
-        mgr.set_fixed_config(["TechLead", "Innovator"])
-        assert mgr.get_fixed_config() == {"chain": ["TechLead", "Innovator"]}
+        mgr.set_fixed_config(["LegalAdvisor", "Innovator"])
+        assert mgr.get_fixed_config() == {"chain": ["LegalAdvisor", "Innovator"]}
 
         mgr.set_orchestration_mode(OrchestrationMode.SANDWICH)
         assert mgr.get_orchestration_mode() == "sandwich"
         assert mgr.get_orchestration_mode() == OrchestrationMode.SANDWICH
-        mgr.set_sandwich_config(["Visionary"], ["Architect"])
+        mgr.set_sandwich_config(["Visionary"], ["SecurityArchitect"])
         assert mgr.get_sandwich_config() == {
             "start_chain": ["Visionary"],
-            "end_chain": ["Architect"],
+            "end_chain": ["SecurityArchitect"],
         }
 
         # Circuit breaker settings
@@ -129,8 +129,8 @@ def test_agent_settings_manager():
         assert mgr_reloaded.is_circuit_breaker_enabled() is True
         assert mgr_reloaded.get_circuit_breaker_threshold() == 3.75
         assert "Innovator" not in mgr_reloaded.get_enabled_agents()
-        assert mgr_reloaded.get_orchestration_mode() == "fixed"
-        assert mgr_reloaded.get_workflow_config() == "idea_architecture_feasibility_review"
+        assert mgr_reloaded.get_orchestration_mode() == "sandwich"
+        assert mgr_reloaded.get_workflow_config() == "default_review_flow"
 
 
 def test_thread_state_manager():
@@ -176,37 +176,37 @@ def test_thread_state_manager():
 
     # Remaining agents operations
     assert mgr.get_remaining_agents(channel_id, thread_ts) == []
-    mgr.set_remaining_agents(channel_id, thread_ts, ["Visionary", "Architect", "Critic"])
-    assert mgr.get_remaining_agents(channel_id, thread_ts) == ["Visionary", "Architect", "Critic"]
+    mgr.set_remaining_agents(channel_id, thread_ts, ["Visionary", "SecurityArchitect", "Critic"])
+    assert mgr.get_remaining_agents(channel_id, thread_ts) == ["Visionary", "SecurityArchitect", "Critic"]
     popped = mgr.pop_remaining_agent(channel_id, thread_ts)
     assert popped == "Visionary"
-    assert mgr.get_remaining_agents(channel_id, thread_ts) == ["Architect", "Critic"]
+    assert mgr.get_remaining_agents(channel_id, thread_ts) == ["SecurityArchitect", "Critic"]
     popped_specific = mgr.pop_remaining_agent(channel_id, thread_ts, "Critic")
     assert popped_specific == "Critic"
-    assert mgr.get_remaining_agents(channel_id, thread_ts) == ["Architect"]
+    assert mgr.get_remaining_agents(channel_id, thread_ts) == ["SecurityArchitect"]
     mgr.clear_remaining_agents(channel_id, thread_ts)
     assert mgr.get_remaining_agents(channel_id, thread_ts) == []
 
     # Retry queue operations
     assert mgr.has_pending_retries(channel_id, thread_ts) is False
-    mgr.add_to_retry_queue(channel_id, thread_ts, "TechLead")
+    mgr.add_to_retry_queue(channel_id, thread_ts, "LegalAdvisor")
     mgr.add_to_retry_queue(channel_id, thread_ts, "Innovator")
     assert mgr.has_pending_retries(channel_id, thread_ts) is True
-    assert mgr.get_retry_queue(channel_id, thread_ts) == ["TechLead", "Innovator"]
+    assert mgr.get_retry_queue(channel_id, thread_ts) == ["LegalAdvisor", "Innovator"]
     popped_retry = mgr.pop_retry_agent(channel_id, thread_ts)
-    assert popped_retry == "TechLead"
+    assert popped_retry == "LegalAdvisor"
     assert mgr.get_retry_queue(channel_id, thread_ts) == ["Innovator"]
     popped_retry_spec = mgr.pop_retry_agent(channel_id, thread_ts, "Innovator")
     assert popped_retry_spec == "Innovator"
     assert mgr.has_pending_retries(channel_id, thread_ts) is False
 
     # Already retried operations
-    assert mgr.is_already_retried(channel_id, thread_ts, "TechLead") is False
-    mgr.mark_already_retried(channel_id, thread_ts, "TechLead")
-    assert mgr.is_already_retried(channel_id, thread_ts, "TechLead") is True
-    assert mgr.get_already_retried(channel_id, thread_ts) == {"TechLead"}
+    assert mgr.is_already_retried(channel_id, thread_ts, "LegalAdvisor") is False
+    mgr.mark_already_retried(channel_id, thread_ts, "LegalAdvisor")
+    assert mgr.is_already_retried(channel_id, thread_ts, "LegalAdvisor") is True
+    assert mgr.get_already_retried(channel_id, thread_ts) == {"LegalAdvisor"}
     mgr.clear_already_retried(channel_id, thread_ts)
-    assert mgr.is_already_retried(channel_id, thread_ts, "TechLead") is False
+    assert mgr.is_already_retried(channel_id, thread_ts, "LegalAdvisor") is False
 
     # Active task operations
     fake_task = object()
@@ -235,7 +235,7 @@ def test_thread_state_manager():
 
     # Reset all
     mgr.set_remaining_agents(channel_id, thread_ts, ["Visionary"])
-    mgr.add_to_retry_queue(channel_id, thread_ts, "Architect")
+    mgr.add_to_retry_queue(channel_id, thread_ts, "SecurityArchitect")
     mgr.increment_generation(channel_id, thread_ts)
     mgr.reset_all()
     assert mgr.get_remaining_agents(channel_id, thread_ts) == []
@@ -293,27 +293,27 @@ def test_nomination_and_entity_resolver():
     # Initial agents with default settings (all enabled)
     initial = get_initial_agents()
     assert isinstance(initial, list)
-    assert len(initial) == 19
+    assert len(initial) == 11
 
     # Tag extraction with exact and partial tags
-    tags = entity_resolver.extract_tagged_agents("Hello /[Innovator] and /[TechLead]")
-    assert tags == ["Innovator", "TechLead"]
+    tags = entity_resolver.extract_tagged_agents("Hello /[Innovator] and /[LegalAdvisor]")
+    assert tags == ["Innovator", "LegalAdvisor"]
 
-    partial_tags = entity_resolver.extract_tagged_agents("Hello /[Vis] and /[TechLead] and /[Inn]")
-    assert partial_tags == ["Visionary", "TechLead", "Innovator"]
+    partial_tags = entity_resolver.extract_tagged_agents("Hello /[Vis] and /[LegalAdvisor] and /[Inn]")
+    assert partial_tags == ["Visionary", "LegalAdvisor", "Innovator"]
 
     # Plain brackets are NOT extracted as agent tags
-    assert entity_resolver.extract_tagged_agents("Hello [Innovator] and [TechLead]") == []
+    assert entity_resolver.extract_tagged_agents("Hello [Innovator] and [LegalAdvisor]") == []
 
     # Ambiguous tags should not be extracted as single valid agent tags
     ambig_tags = entity_resolver.extract_tagged_agents("Hello /[Arch] and /[Strategist]")
-    assert ambig_tags == []
+    assert ambig_tags == ["SecurityArchitect", "ROIStrategist"]
 
     # Detect ambiguous tags
-    detected_ambig = entity_resolver.detect_ambiguous_tags("Hello /[Arch] and /[Vis]")
+    detected_ambig = entity_resolver.detect_ambiguous_tags("Hello /[S] and /[Vis]")
     assert len(detected_ambig) == 1
-    assert detected_ambig[0][0] == "Arch"
-    assert "Architect" in detected_ambig[0][1]
+    assert detected_ambig[0][0] == "S"
+    assert "SecurityArchitect" in detected_ambig[0][1]
     assert "SecurityArchitect" in detected_ambig[0][1]
 
     # Plain brackets do NOT trigger ambiguous tags
@@ -335,9 +335,9 @@ def test_nomination_and_entity_resolver():
 
     # Parse multi-agent tags prompt
     multi_agent, multi_prompt, multi_explicit = parse_agent_and_prompt(
-        "/[Architect] /[Sceptic] /[Innovator] Pa sad ostatak prompta.", "C1", "T1"
+        "/[SecurityArchitect] /[Sceptic] /[Innovator] Pa sad ostatak prompta.", "C1", "T1"
     )
-    assert multi_agent == "Architect"
+    assert multi_agent == "SecurityArchitect"
     assert multi_prompt == "Pa sad ostatak prompta."
     assert multi_explicit is True
 
@@ -393,17 +393,17 @@ def test_nomination_and_entity_resolver():
     assert res_term_over_to == "My single vision response."
 
     res_term_intext_mention = enforce_valid_nomination(
-        text="As [Architect] noted, we agree with the design. /[Sceptic]",
+        text="As [SecurityArchitect] noted, we agree with the design. /[Sceptic]",
         current_agent_key="Visionary",
         remaining=[],
         force_termination=True,
     )
-    assert res_term_intext_mention == "As [Architect] noted, we agree with the design."
+    assert res_term_intext_mention == "As [SecurityArchitect] noted, we agree with the design."
 
     # Complete nomination removal when no agents remain (natural end of panel)
     res_end_of_panel = enforce_valid_nomination(
         text="Final conclusions and recommendations.\n\nNext up: /[Innovator]",
-        current_agent_key="Architect",
+        current_agent_key="SecurityArchitect",
         remaining=[],
         force_termination=False,
     )

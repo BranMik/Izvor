@@ -102,7 +102,7 @@ def test_document_parser_markdown():
     parser = DocumentParser(max_chunk_chars=500, chunk_overlap_chars=50)
     with tempfile.NamedTemporaryFile(suffix=".md", mode="w", delete=False, encoding="utf-8") as f:
         f.write(
-            "# System Architecture\n\n"
+            "# System SecurityArchitecture\n\n"
             "This document describes the architectural layout of the agentic system.\n\n"
             "## Storage Layer\n\n"
             "LanceDB stores vectors. Tantivy handles keyword search indices.\n\n"
@@ -112,11 +112,11 @@ def test_document_parser_markdown():
         temp_path = Path(f.name)
 
     try:
-        chunks = parser.parse_file(temp_path, "arch.md", "Architect")
+        chunks = parser.parse_file(temp_path, "arch.md", "SecurityArchitect")
         assert len(chunks) >= 2
         assert any("Storage Layer" in c.section_header for c in chunks)
         assert any("Network Layer" in c.section_header for c in chunks)
-        assert all(c.agent_id == "Architect" for c in chunks)
+        assert all(c.agent_id == "SecurityArchitect" for c in chunks)
         assert all(c.filename == temp_path.name for c in chunks)
     finally:
         if temp_path.exists():
@@ -145,7 +145,7 @@ def test_document_parser_text_file():
         temp_path = Path(f.name)
 
     try:
-        chunks = parser.parse_file(temp_path, "notes.txt", "TechLead")
+        chunks = parser.parse_file(temp_path, "notes.txt", "LegalAdvisor")
         assert len(chunks) >= 1
         assert all(isinstance(c, DocumentChunk) for c in chunks)
         assert all(c.section_header == "General" for c in chunks)

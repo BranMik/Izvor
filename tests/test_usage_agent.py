@@ -45,7 +45,7 @@ def test_record_thread_tokens_accumulation():
         channel_name="#general",
     )
 
-    # Turn 2: Mistral TechLead
+    # Turn 2: Mistral LegalAdvisor
     record_thread_tokens(
         channel_id=channel_id,
         thread_ts=thread_ts,

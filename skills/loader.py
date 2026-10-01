@@ -283,7 +283,7 @@ class SkillRegistry:
             if skill.handles_files:
                 return skill
         for skill in self._skills.values():
-            if "read_document" in skill.tools or "read_file" in skill.tools:
+            if "read_document" in skill.tools or "read_document" in skill.tools:
                 return skill
         return None
 

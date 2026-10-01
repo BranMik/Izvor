@@ -53,7 +53,7 @@ async def test_stage_execute_llm_does_not_artificially_choke_max_tokens():
         raw_text="Explain architecture /max_words 50",
     )
     ctx.thread_key = ("C123", "1234.5678")
-    ctx.agent_key = "Architect"
+    ctx.agent_key = "SecurityArchitect"
     ctx.agent_cfg = {"model": "gpt-4o", "skills": []}
     ctx.messages = [{"role": "user", "content": "Explain architecture"}]
     ctx.modifiers = {"max_words": 50}
@@ -96,14 +96,14 @@ async def test_stage_post_and_record_mechanical_truncation():
             raw_text="Test prompt",
         )
         ctx.thread_key = (channel, thread_ts)
-        ctx.agent_key = "Architect"
-        ctx.agent_cfg = {"username": "Architect", "model": "openai/gpt-4o"}
-        ctx.eligible_remaining_agents = ["TechLead"]
-        ctx.remaining = ["TechLead"]
+        ctx.agent_key = "SecurityArchitect"
+        ctx.agent_cfg = {"username": "SecurityArchitect", "model": "openai/gpt-4o"}
+        ctx.eligible_remaining_agents = ["LegalAdvisor"]
+        ctx.remaining = ["LegalAdvisor"]
 
-        # 120 words followed by /[TechLead] tag
+        # 120 words followed by /[LegalAdvisor] tag
         words = [f"word{i}" for i in range(1, 121)]
-        ctx.final_text = " ".join(words) + "\n\n/[TechLead]"
+        ctx.final_text = " ".join(words) + "\n\n/[LegalAdvisor]"
 
         # Mock Slack post and sleep
         posted_payload = {}
@@ -120,10 +120,10 @@ async def test_stage_post_and_record_mechanical_truncation():
         assert res is None or res.get("ok", True)
 
         posted_text = posted_payload.get("text", "")
-        # Must retain /[TechLead] nomination tag
-        assert "/[TechLead]" in posted_text
+        # Must retain /[LegalAdvisor] nomination tag
+        assert "/[LegalAdvisor]" in posted_text
         # Extract body (excluding token footer {model : p/c} and nomination tag)
-        clean_body = posted_text.split("/[TechLead]")[0].strip()
+        clean_body = posted_text.split("/[LegalAdvisor]")[0].strip()
         assert len(clean_body.split()) == 100
         assert clean_body.split()[-1] == "word100"
     finally:
@@ -144,14 +144,14 @@ async def test_stage_post_and_record_no_truncation_when_within_limit():
             raw_text="Test prompt",
         )
         ctx.thread_key = (channel, thread_ts)
-        ctx.agent_key = "Architect"
-        ctx.agent_cfg = {"username": "Architect", "model": "openai/gpt-4o"}
-        ctx.eligible_remaining_agents = ["TechLead"]
-        ctx.remaining = ["TechLead"]
+        ctx.agent_key = "SecurityArchitect"
+        ctx.agent_cfg = {"username": "SecurityArchitect", "model": "openai/gpt-4o"}
+        ctx.eligible_remaining_agents = ["LegalAdvisor"]
+        ctx.remaining = ["LegalAdvisor"]
 
         words = [f"word{i}" for i in range(1, 60)]
         original_content = " ".join(words)
-        ctx.final_text = original_content + "\n\n/[TechLead]"
+        ctx.final_text = original_content + "\n\n/[LegalAdvisor]"
 
         posted_payload = {}
 
@@ -166,7 +166,7 @@ async def test_stage_post_and_record_no_truncation_when_within_limit():
         await pipeline.stage_post_and_record(ctx)
 
         posted_text = posted_payload.get("text", "")
-        clean_body = posted_text.split("/[TechLead]")[0].strip()
+        clean_body = posted_text.split("/[LegalAdvisor]")[0].strip()
         assert len(clean_body.split()) == 59
     finally:
         thread_state_manager.clear_max_words(channel, thread_ts)

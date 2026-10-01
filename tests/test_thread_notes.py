@@ -52,7 +52,7 @@ async def test_generate_thread_notes_calls_mistral_model():
 
     history = [
         {"role": "user", "content": "How should we design the database?"},
-        {"role": "assistant", "content": "[Architect]: Use PostgreSQL with connection pooling."},
+        {"role": "assistant", "content": "[SecurityArchitect]: Use PostgreSQL with connection pooling."},
     ]
 
     with patch("pipeline.discussion_scribe.scribe.litellm.completion", return_value=mock_resp) as mock_litellm:
@@ -291,8 +291,8 @@ async def test_fetch_thread_history_excludes_scribe_notes(monkeypatch):
             "username": "Live Discussion Scribe",
             "subtype": "bot_message",
         },
-        {"user": "UBOT", "text": "We need microservices", "username": "TechLead", "subtype": "bot_message"},
-        {"user": "UBOT", "text": "_⚡ *TechLead* is loading skill: web_research..._", "username": "TechLead", "subtype": "bot_message"},
+        {"user": "UBOT", "text": "We need microservices", "username": "LegalAdvisor", "subtype": "bot_message"},
+        {"user": "UBOT", "text": "_⚡ *LegalAdvisor* is loading skill: web_research..._", "username": "LegalAdvisor", "subtype": "bot_message"},
         {"user": "U1", "text": "👤 *Follow-up Prompt:*\n> What about SQLite?", "subtype": None},
     ]
 
@@ -309,7 +309,7 @@ async def test_fetch_thread_history_excludes_scribe_notes(monkeypatch):
     # Runner follow-up prefix should be cleaned via re.sub
     assert len(history) == 3
     assert contents[0] == "Let's debate the new API"
-    assert contents[1] == "[TechLead]: We need microservices"
+    assert contents[1] == "[LegalAdvisor]: We need microservices"
     assert contents[2] == "What about SQLite?"
 
 

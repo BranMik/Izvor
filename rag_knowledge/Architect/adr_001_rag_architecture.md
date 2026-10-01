@@ -1,4 +1,4 @@
-# ADR 001: Modular Agent-Oriented RAG Architecture
+# ADR 001: Modular Agent-Oriented RAG SecuritySecurity Architecture
 
 ## Context & Problem Statement
 Agents in the panel need access to organizational domain knowledge and role-specific runbooks without overflowing context windows or causing high latency during startup.

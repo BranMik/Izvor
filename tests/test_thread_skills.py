@@ -29,15 +29,15 @@ def test_thread_skills_manager_grant_and_active():
         assert mgr.get_expired_skills(channel_id, thread_ts) == []
 
         # Grant skills
-        active, exp_ts = mgr.grant_skills(channel_id, thread_ts, ["web_research", "codebase_inspection"])
+        active, exp_ts = mgr.grant_skills(channel_id, thread_ts, ["web_research", "document_reader"])
         assert "web_research" in active
-        assert "codebase_inspection" in active
+        assert "document_reader" in active
         assert exp_ts > time.time()
 
         # Check file persisted
         assert storage_file.exists()
         mgr2 = ThreadSkillsManager(storage_file=storage_file, auto_load=True)
-        assert mgr2.get_active_skills(channel_id, thread_ts) == ["web_research", "codebase_inspection"]
+        assert mgr2.get_active_skills(channel_id, thread_ts) == ["web_research", "document_reader"]
 
 
 def test_thread_skills_manager_revocation():
@@ -48,12 +48,12 @@ def test_thread_skills_manager_revocation():
         channel_id = "C_TEST"
         thread_ts = "1726000000.123456"
 
-        mgr.grant_skills(channel_id, thread_ts, ["web_research", "codebase_inspection"])
+        mgr.grant_skills(channel_id, thread_ts, ["web_research", "document_reader"])
 
         # Revoke one
         remaining = mgr.revoke_skills(channel_id, thread_ts, ["web_research"])
-        assert remaining == ["codebase_inspection"]
-        assert mgr.get_active_skills(channel_id, thread_ts) == ["codebase_inspection"]
+        assert remaining == ["document_reader"]
+        assert mgr.get_active_skills(channel_id, thread_ts) == ["document_reader"]
 
         # Revoke all
         remaining = mgr.revoke_skills(channel_id, thread_ts, ["all"])
@@ -88,13 +88,13 @@ def test_thread_skills_manager_ttl_expiration():
 
 @pytest.mark.anyio
 async def test_directive_parser_grant_and_revoke_for_all():
-    raw_grant = "/grant_skill_for_all web_research codebase_inspection [Architect] inspect repo"
+    raw_grant = "/grant_skill_for_all web_research document_reader [SecurityArchitect] inspect repo"
     parsed_grant = await directive_parser.parse(raw_grant)
 
     assert any(a.name == "grant_skill_for_all" for a in parsed_grant.actions)
     grant_action = next(a for a in parsed_grant.actions if a.name == "grant_skill_for_all")
-    assert grant_action.params["skills"] == ["web_research", "codebase_inspection"]
-    assert "[Architect] inspect repo" in parsed_grant.cleaned_prompt
+    assert grant_action.params["skills"] == ["web_research", "document_reader"]
+    assert "[SecurityArchitect] inspect repo" in parsed_grant.cleaned_prompt
     assert "/grant_skill_for_all" not in parsed_grant.cleaned_prompt
 
     raw_revoke = "/revoke_skill_for_all web_research"
