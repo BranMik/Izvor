@@ -45,18 +45,18 @@ def test_skill_agent_mapping():
 
     # Verify specific agent assignments
     code_agents = mapping["document_reader"]["authorized_agents"]
-    assert "SecurityArchitect" in code_agents
-    assert "ROIStrategist" in code_agents
+    assert "agent-10008" in code_agents
+    assert "agent-10006" in code_agents
 
     ws_agents = mapping["document_authoring"]["authorized_agents"]
-    assert "ROIStrategist" in ws_agents
-    assert "SecurityArchitect" not in ws_agents  # SecurityArchitect only has document_reader
+    assert "agent-10006" in ws_agents
+    assert "agent-10008" not in ws_agents  # SecurityArchitect only has document_reader
 
     web_agents = mapping["web_research"]["authorized_agents"]
-    assert "MarketAndCompetitionResearchExpert" in web_agents
+    assert "agent-10009" in web_agents
 
     doc_agents = mapping["document_reader"]["authorized_agents"]
-    assert "MarketAndCompetitionResearchExpert" in doc_agents or "ROIStrategist" in doc_agents
+    assert "agent-10009" in doc_agents or "agent-10006" in doc_agents
 
     # Verify orchestrator and modifier skills categorization
     assert "stop_discussion" in mapping
@@ -72,8 +72,8 @@ def test_format_skills_directory_markdown():
     assert "`document_reader`" in md
     assert "`web_research`" in md
     assert "*Authorized*:" in md
-    assert "LegalAdvisor" in md
-    assert "SecurityArchitect" in md
+    assert "agent-10011" in md
+    assert "agent-10008" in md
 
 
 @pytest.mark.anyio
@@ -90,14 +90,14 @@ async def test_directive_parser_slash_list_skills():
     assert d2.cleaned_prompt == ""
 
     # 3. With tagged agent
-    d3 = await directive_parser.parse("/list_skills [SecurityArchitect]")
+    d3 = await directive_parser.parse("/list_skills [agent-10008]")
     assert any(a.name == "list_skills" for a in d3.actions)
-    assert "[SecurityArchitect]" in d3.cleaned_prompt
+    assert "[agent-10008]" in d3.cleaned_prompt
 
     # 4. Agent first, slash command second
-    d4 = await directive_parser.parse("[Visionary] /list_skills please explain")
+    d4 = await directive_parser.parse("[agent-10001] /list_skills please explain")
     assert any(a.name == "list_skills" for a in d4.actions)
-    assert "[Visionary]" in d4.cleaned_prompt
+    assert "[agent-10001]" in d4.cleaned_prompt
     assert "please explain" in d4.cleaned_prompt
 
 
@@ -146,7 +146,7 @@ async def test_action_run_with_named_agent_halts_exclusively():
     ctx = TurnContext(
         channel_id="C12345",
         thread_ts="1234567.89",
-        raw_text="/list_skills [SecurityArchitect]",
+        raw_text="/list_skills [agent-10008]",
     )
     with patch("skills.list_skills.action.execute_llm_with_retry", new_callable=AsyncMock), \
          patch("skills.list_skills.action.post_system_message", new_callable=AsyncMock):
@@ -177,18 +177,18 @@ def test_all_agents_see_skills_in_prompt():
     while non-technical agents remain restricted from loading tools on demand.
     """
     # 1. Pure debate agent with 0 allowed skills (e.g. Sceptic, Visionary)
-    sceptic_prompt = build_agent_prompt("Sceptic")
+    sceptic_prompt = build_agent_prompt("agent-10003")
     assert "APPLICATION SKILLS DIRECTORY" in sceptic_prompt
     assert "`document_reader`" in sceptic_prompt
     assert "`document_authoring`" in sceptic_prompt
     assert "`web_research`" in sceptic_prompt
-    assert "LegalAdvisor" in sceptic_prompt
-    assert "SecurityArchitect" in sceptic_prompt
+    assert "agent-10011" in sceptic_prompt
+    assert "agent-10008" in sceptic_prompt
     # Sceptic must NOT have load_skill tool catalog (0 tool overhead)
     assert "AVAILABLE SKILLS (ON DEMAND VIA `load_skill`)" not in sceptic_prompt
 
     # 2. Technical agent with allowed skills (e.g. SecurityArchitect)
-    architect_prompt = build_agent_prompt("SecurityArchitect")
+    architect_prompt = build_agent_prompt("agent-10008")
     assert "APPLICATION SKILLS DIRECTORY" in architect_prompt
     assert "`document_authoring`" in architect_prompt
     assert "`web_research`" in architect_prompt

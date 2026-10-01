@@ -133,7 +133,7 @@ def build_app_home_view(
                     "text": (
                         "*Welcome to CaiLogics Control Hub!*\n"
                         "Manage debate agents and spend limits (circuit-breaker) here.\n\n"
-                        "💡 *Note:* Disabled agents can still be directly invoked by tagging (e.g. `[LegalAdvisor]`)."
+                        "💡 *Note:* Disabled agents can still be directly invoked by tagging (e.g. `[agent-10011]`)."
                     ),
                 },
             },

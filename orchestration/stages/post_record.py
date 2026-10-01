@@ -41,12 +41,12 @@ logger = logging.getLogger(__name__)
 def apply_mechanical_word_limit(text: str, max_words: int) -> str:
     """
     Mechanically truncates response text to (max_words + 50) words if it exceeds that threshold.
-    Preserves trailing nomination tags (e.g. [UserAdvocate]) so the debate chain is not disrupted.
+    Preserves trailing nomination tags (e.g. [agent-10007]) so the debate chain is not disrupted.
     """
     if not text:
         return text
     cutoff = max_words + 50
-    # Match any trailing nomination tag at the end: e.g. "... /[UserAdvocate]" or "... /[UserAdvocate] next"
+    # Match any trailing nomination tag at the end: e.g. "... /[agent-10007]" or "... /[agent-10007] next"
     trailing_tag_pattern = re.compile(
         r"(?:\n+|\s+)\s*(/\[[^\]\r\n]+\](?:\s+next)?\s*[.!?]?)\s*$",
         re.IGNORECASE,

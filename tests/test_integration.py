@@ -90,7 +90,7 @@ def test_bot_message_filtering():
             "subtype": "bot_message",
             "channel": "C_TEST_BOT",
             "ts": "123456789.0003",
-            "text": "I nominate [Innovator] to speak next.",
+            "text": "I nominate [agent-10002] to speak next.",
         },
     }
     response2 = client.post("/slack/events", json=payload_with_nom)
@@ -123,7 +123,7 @@ def test_user_message_filtering():
             "type": "message",
             "channel": "C_TEST_USER",
             "ts": "123456789.0005",
-            "text": "[LegalAdvisor] Please analyze this schema.",
+            "text": "[agent-10011] Please analyze this schema.",
         },
     }
     response2 = client.post("/slack/events", json=payload_tag)
@@ -178,7 +178,7 @@ def test_stop_command_integration(monkeypatch):
 
     # Pre-populate remaining agents for thread to verify they are cleared on stop
     thread_key = ("C_TEST_STOP", "123456789.0008")
-    thread_state_manager.remaining_agents_map[thread_key] = ["LegalAdvisor", "Innovator"]
+    thread_state_manager.remaining_agents_map[thread_key] = ["agent-10011", "agent-10002"]
 
     mock_process = AsyncMock(return_value={"ok": True})
     monkeypatch.setattr("adapters.slack.events.process_and_respond", mock_process)
@@ -206,7 +206,7 @@ def test_stop_command_integration(monkeypatch):
     # 2. User sends stop via persona name mention in regular message
     thread_state_manager.stop_requested_threads.clear()
     thread_key_2 = ("C_TEST_STOP", "123456789.0009")
-    thread_state_manager.remaining_agents_map[thread_key_2] = ["ROIStrategist"]
+    thread_state_manager.remaining_agents_map[thread_key_2] = ["agent-10006"]
 
     payload_stop_persona = {
         "type": "event_callback",
@@ -256,9 +256,9 @@ def test_slack_interactivity_radio_toggle_action(monkeypatch):
         "user": {"id": "U_TEST_USER_2"},
         "actions": [
             {
-                "action_id": "toggle_agent_radio:LegalAdvisor",
+                "action_id": "toggle_agent_radio:agent-10011",
                 "selected_option": {
-                    "value": "LegalAdvisor:off",
+                    "value": "agent-10011:off",
                     "text": {"type": "plain_text", "text": "🔴 OFF"},
                 },
             }
@@ -267,7 +267,7 @@ def test_slack_interactivity_radio_toggle_action(monkeypatch):
 
     response = client.post("/slack/actions", json=payload_off)
     assert response.status_code == 200
-    assert "LegalAdvisor" not in ENABLED_DEBATE_AGENTS
+    assert "agent-10011" not in ENABLED_DEBATE_AGENTS
     mock_publish.assert_called_with(user_id="U_TEST_USER_2")
 
     # 2. Turn ON LegalAdvisor via radio button
@@ -276,9 +276,9 @@ def test_slack_interactivity_radio_toggle_action(monkeypatch):
         "user": {"id": "U_TEST_USER_2"},
         "actions": [
             {
-                "action_id": "toggle_agent_radio:LegalAdvisor",
+                "action_id": "toggle_agent_radio:agent-10011",
                 "selected_option": {
-                    "value": "LegalAdvisor:on",
+                    "value": "agent-10011:on",
                     "text": {"type": "plain_text", "text": "🟢 ON"},
                 },
             }
@@ -287,7 +287,7 @@ def test_slack_interactivity_radio_toggle_action(monkeypatch):
 
     response_on = client.post("/slack/interactivity", json=payload_on)
     assert response_on.status_code == 200
-    assert "LegalAdvisor" in ENABLED_DEBATE_AGENTS
+    assert "agent-10011" in ENABLED_DEBATE_AGENTS
 
     # 3. Bulk disable optional (only locked agents remain ON)
     payload_bulk_off = {
@@ -317,7 +317,7 @@ def test_user_new_query_interrupts_ongoing_discussion_webhook(monkeypatch):
     thread_key = ("C_TEST_INTERRUPT_WEBHOOK", "123456789.2001")
     
     # 1. Simulate an ongoing discussion with remaining agents
-    thread_state_manager.remaining_agents_map[thread_key] = ["LegalAdvisor", "Innovator"]
+    thread_state_manager.remaining_agents_map[thread_key] = ["agent-10011", "agent-10002"]
     initial_gen = thread_state_manager.thread_generations.get(thread_key, 0)
     assert thread_state_manager.is_discussion_active("C_TEST_INTERRUPT_WEBHOOK", "123456789.2001") is True
 
@@ -358,7 +358,7 @@ def test_user_mention_syntax_variations_webhook_interruption(monkeypatch):
     thread_key = ("C_TEST_INTERRUPT_SYNTAX", "123456789.3001")
     
     # 1. Message with @CaiLogics Hub
-    thread_state_manager.remaining_agents_map[thread_key] = ["SecurityArchitect"]
+    thread_state_manager.remaining_agents_map[thread_key] = ["agent-10008"]
     mock_process = AsyncMock(return_value={"ok": True})
     monkeypatch.setattr("adapters.slack.events.process_and_respond", mock_process)
 
@@ -378,8 +378,8 @@ def test_user_mention_syntax_variations_webhook_interruption(monkeypatch):
     assert thread_key not in thread_state_manager.remaining_agents_map
     assert mock_process.call_count == 1
 
-    # 2. Message with agent bracket tag [Visionary]
-    thread_state_manager.remaining_agents_map[thread_key] = ["SecurityArchitect"]
+    # 2. Message with agent bracket tag [agent-10001]
+    thread_state_manager.remaining_agents_map[thread_key] = ["agent-10008"]
     payload_tag = {
         "type": "event_callback",
         "event": {
@@ -387,7 +387,7 @@ def test_user_mention_syntax_variations_webhook_interruption(monkeypatch):
             "channel": "C_TEST_INTERRUPT_SYNTAX",
             "ts": "123456789.3003",
             "thread_ts": "123456789.3001",
-            "text": "[Visionary] Start fresh with this",
+            "text": "[agent-10001] Start fresh with this",
         },
     }
 

@@ -31,7 +31,7 @@ def test_workflow_preset_model():
         name="Test Workflow",
         mode=OrchestrationMode.SANDWICH.value,
         description="A test workflow description",
-        sandwich_config={"start_chain": ["Visionary"], "end_chain": ["SecurityArchitect"]},
+        sandwich_config={"start_chain": ["agent-10001"], "end_chain": ["agent-10008"]},
         fixed_config={"chain": ["Ignored"]},
     )
     d = sandwich_preset.to_dict()
@@ -40,13 +40,13 @@ def test_workflow_preset_model():
     assert d["mode"] == "sandwich"
     assert "sandwich_config" in d
     assert "fixed_config" not in d
-    assert d["sandwich_config"]["start_chain"] == ["Visionary"]
+    assert d["sandwich_config"]["start_chain"] == ["agent-10001"]
 
     restored = WorkflowPreset.from_dict(d)
     assert restored.id == "test_wf"
     assert restored.name == "Test Workflow"
     assert restored.mode == OrchestrationMode.SANDWICH.value
-    assert restored.sandwich_config["start_chain"] == ["Visionary"]
+    assert restored.sandwich_config["start_chain"] == ["agent-10001"]
     assert restored.fixed_config == {"chain": []}
 
     # Fixed mode preset isolation
@@ -56,17 +56,17 @@ def test_workflow_preset_model():
         mode=OrchestrationMode.FIXED.value,
         description="A fixed pipeline",
         sandwich_config={"start_chain": ["Ignored"], "end_chain": ["Ignored"]},
-        fixed_config={"chain": ["LegalAdvisor", "SecurityArchitect"]},
+        fixed_config={"chain": ["agent-10011", "agent-10008"]},
     )
     d_fixed = fixed_preset.to_dict()
     assert d_fixed["mode"] == "fixed"
     assert "fixed_config" in d_fixed
     assert "sandwich_config" not in d_fixed
-    assert d_fixed["fixed_config"]["chain"] == ["LegalAdvisor", "SecurityArchitect"]
+    assert d_fixed["fixed_config"]["chain"] == ["agent-10011", "agent-10008"]
 
     restored_fixed = WorkflowPreset.from_dict(d_fixed)
     assert restored_fixed.mode == OrchestrationMode.FIXED.value
-    assert restored_fixed.fixed_config["chain"] == ["LegalAdvisor", "SecurityArchitect"]
+    assert restored_fixed.fixed_config["chain"] == ["agent-10011", "agent-10008"]
     assert restored_fixed.sandwich_config == {"start_chain": [], "end_chain": []}
 
     # Legacy corrupted dict with both keys -> ignores non-designated key
@@ -108,13 +108,13 @@ def test_workflow_manager_crud(tmp_path: Path):
     sw = mgr.get_workflow("default_sandwich")
     assert sw is not None
     assert sw.mode == OrchestrationMode.SANDWICH.value
-    assert "Visionary" in sw.sandwich_config["start_chain"]
+    assert "agent-10001" in sw.sandwich_config["start_chain"]
 
     # 3. Save new workflow
     created = mgr.save_workflow(
         name="Custom Fixed Pipeline",
         mode=OrchestrationMode.FIXED.value,
-        fixed_config={"chain": ["Visionary", "SecurityArchitect"]},
+        fixed_config={"chain": ["agent-10001", "agent-10008"]},
         description="A custom fixed sequence.",
     )
     assert created.id == "custom_fixed_pipeline"
@@ -123,7 +123,7 @@ def test_workflow_manager_crud(tmp_path: Path):
 
     fetched = mgr.get_workflow("custom_fixed_pipeline")
     assert fetched is not None
-    assert fetched.fixed_config["chain"] == ["Visionary", "SecurityArchitect"]
+    assert fetched.fixed_config["chain"] == ["agent-10001", "agent-10008"]
 
     # 4. List workflows includes new one
     current = mgr.list_workflows()
@@ -161,7 +161,7 @@ def test_agent_settings_workflow_integration(tmp_path: Path):
     WorkflowManager(workflows_dir=wf_dir, auto_seed=True)
 
     mgr = AgentSettingsManager(settings_file=settings_file, auto_load=False, workflows_dir=wf_dir)
-    mgr.agents_config = {"Visionary": {}, "SecurityArchitect": {}, "LegalAdvisor": {}, "Sceptic": {}}
+    mgr.agents_config = {"agent-10001": {}, "agent-10008": {}, "agent-10011": {}, "agent-10003": {}}
     mgr.save()
 
     # Verify agent_settings.json does not embed chains
@@ -177,8 +177,8 @@ def test_agent_settings_workflow_integration(tmp_path: Path):
     assert mgr.get_workflow_config() == "default_sandwich"
     assert mgr.get_active_workflow_id() == "default_sandwich"
     assert mgr.orchestration_mode == OrchestrationMode.SANDWICH.value
-    assert "Visionary" in mgr.sandwich_start_chain
-    assert "SecurityArchitect" in mgr.sandwich_end_chain
+    assert "agent-10001" in mgr.sandwich_start_chain
+    assert "agent-10008" in mgr.sandwich_end_chain
 
     # Switch to quick_tech_triage
     applied_fixed = mgr.apply_workflow("quick_tech_triage")
@@ -186,7 +186,7 @@ def test_agent_settings_workflow_integration(tmp_path: Path):
     assert mgr.get_workflow_config() == "quick_tech_triage"
     assert mgr.get_active_workflow_id() == "quick_tech_triage"
     assert mgr.orchestration_mode == OrchestrationMode.FIXED.value
-    assert mgr.fixed_chain == ["LegalAdvisor", "SecurityArchitect"]
+    assert mgr.fixed_chain == ["agent-10011", "agent-10008"]
 
     # Attempt invalid workflow
     assert mgr.apply_workflow("unknown_preset") is False
@@ -251,7 +251,7 @@ async def test_main_interactivity_workflow_actions(monkeypatch):
         },
     }
 
-    set_sandwich_config(["Visionary"], ["SecurityArchitect"])
+    set_sandwich_config(["agent-10001"], ["agent-10008"])
     set_orchestration_mode("sandwich")
 
     resp = client.post("/slack/interactivity", json=save_payload)
@@ -260,7 +260,7 @@ async def test_main_interactivity_workflow_actions(monkeypatch):
     saved = get_workflow("integration_test_preset")
     assert saved is not None
     assert saved.name == "Integration Test Preset"
-    assert saved.sandwich_config["start_chain"] == ["Visionary"]
+    assert saved.sandwich_config["start_chain"] == ["agent-10001"]
     assert get_active_workflow_id() == "integration_test_preset"
 
     # 2. Select different preset via dropdown
@@ -353,8 +353,8 @@ def test_agent_settings_file_structure_and_dynamic_load():
     if data["workflow_config"] == "idea_architecture_feasibility_review":
         assert mgr.get_orchestration_mode() == OrchestrationMode.FIXED.value
         assert len(mgr.fixed_chain) > 0
-        assert "Visionary" in mgr.fixed_chain
-        assert "SecurityArchitect" in mgr.fixed_chain
+        assert "agent-10001" in mgr.fixed_chain
+        assert "agent-10008" in mgr.fixed_chain
     else:
         assert mgr.get_orchestration_mode() == OrchestrationMode.SANDWICH.value
         assert len(mgr.sandwich_start_chain) > 0 or len(mgr.sandwich_end_chain) > 0
@@ -365,22 +365,22 @@ def test_workflow_config_switching_and_fallback(tmp_path: Path):
     settings_file = tmp_path / "settings.json"
     wf_dir = tmp_path / "workflows"
     mgr = AgentSettingsManager(settings_file=settings_file, auto_load=False, workflows_dir=wf_dir)
-    mgr.agents_config = {"Visionary": {}, "SecurityArchitect": {}, "LegalAdvisor": {}}
+    mgr.agents_config = {"agent-10001": {}, "agent-10008": {}, "agent-10011": {}}
 
     # Seeded default_sandwich has sandwich mode
     mgr.set_workflow_config("default_sandwich")
     assert mgr.get_orchestration_mode() == OrchestrationMode.SANDWICH.value
-    assert "Visionary" in mgr.sandwich_start_chain
+    assert "agent-10001" in mgr.sandwich_start_chain
 
     # Switch to quick_tech_triage
     mgr.set_workflow_config("quick_tech_triage")
     assert mgr.get_orchestration_mode() == OrchestrationMode.FIXED.value
-    assert mgr.fixed_chain == ["LegalAdvisor", "SecurityArchitect"]
+    assert mgr.fixed_chain == ["agent-10011", "agent-10008"]
 
     # Point to nonexistent workflow -> should fallback to default_sandwich without crashing
     mgr.set_workflow_config("nonexistent_workflow_xyz")
     assert mgr.get_orchestration_mode() == OrchestrationMode.SANDWICH.value
-    assert "Visionary" in mgr.sandwich_start_chain
+    assert "agent-10001" in mgr.sandwich_start_chain
 
 
 def test_chain_mutation_persists_to_workflow_file(tmp_path: Path):
@@ -388,7 +388,7 @@ def test_chain_mutation_persists_to_workflow_file(tmp_path: Path):
     settings_file = tmp_path / "settings.json"
     wf_dir = tmp_path / "workflows"
     mgr = AgentSettingsManager(settings_file=settings_file, auto_load=False, workflows_dir=wf_dir)
-    mgr.agents_config = {"Visionary": {}, "SecurityArchitect": {}, "LegalAdvisor": {}}
+    mgr.agents_config = {"agent-10001": {}, "agent-10008": {}, "agent-10011": {}}
 
     # Start with quick_tech_triage
     mgr.set_workflow_config("quick_tech_triage")
@@ -396,14 +396,14 @@ def test_chain_mutation_persists_to_workflow_file(tmp_path: Path):
     assert wf_file.exists()
 
     # Modify fixed chain and persist
-    mgr.set_fixed_config(["Visionary", "LegalAdvisor"])
+    mgr.set_fixed_config(["agent-10001", "agent-10011"])
     mgr.persist_active_workflow()
-    assert mgr.fixed_chain == ["Visionary", "LegalAdvisor"]
+    assert mgr.fixed_chain == ["agent-10001", "agent-10011"]
 
     # Verify directly inside quick_tech_triage.json
     with open(wf_file, "r", encoding="utf-8") as f:
         file_data = json.load(f)
-    assert file_data["fixed_config"]["chain"] == ["Visionary", "LegalAdvisor"]
+    assert file_data["fixed_config"]["chain"] == ["agent-10001", "agent-10011"]
 
     # Verify agent_settings.json still does not embed the chain
     with open(settings_file, "r", encoding="utf-8") as f:

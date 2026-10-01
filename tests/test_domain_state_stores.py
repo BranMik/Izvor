@@ -17,15 +17,15 @@ def test_discussion_state_store_isolated():
     # Remaining agents
     assert store.get_remaining_agents(channel_id, thread_ts) == []
     assert store.has_remaining_agents_key(channel_id, thread_ts) is False
-    store.set_remaining_agents(channel_id, thread_ts, ["Visionary", "SecurityArchitect", "Critic"])
+    store.set_remaining_agents(channel_id, thread_ts, ["agent-10001", "agent-10008", "Critic"])
     assert store.has_remaining_agents_key(channel_id, thread_ts) is True
-    assert store.get_remaining_agents(channel_id, thread_ts) == ["Visionary", "SecurityArchitect", "Critic"]
+    assert store.get_remaining_agents(channel_id, thread_ts) == ["agent-10001", "agent-10008", "Critic"]
 
     # Pop remaining agents
-    assert store.pop_remaining_agent(channel_id, thread_ts) == "Visionary"
-    assert store.get_remaining_agents(channel_id, thread_ts) == ["SecurityArchitect", "Critic"]
+    assert store.pop_remaining_agent(channel_id, thread_ts) == "agent-10001"
+    assert store.get_remaining_agents(channel_id, thread_ts) == ["agent-10008", "Critic"]
     assert store.pop_remaining_agent(channel_id, thread_ts, "Critic") == "Critic"
-    assert store.get_remaining_agents(channel_id, thread_ts) == ["SecurityArchitect"]
+    assert store.get_remaining_agents(channel_id, thread_ts) == ["agent-10008"]
     store.clear_remaining_agents(channel_id, thread_ts)
     assert store.get_remaining_agents(channel_id, thread_ts) == []
 
@@ -53,7 +53,7 @@ def test_discussion_state_store_isolated():
     assert store.get_active_task(channel_id, thread_ts) is None
 
     # Reset
-    store.set_remaining_agents(channel_id, thread_ts, ["Visionary"])
+    store.set_remaining_agents(channel_id, thread_ts, ["agent-10001"])
     store.set_custom_flow(channel_id, thread_ts, True)
     store.request_stop(channel_id, thread_ts)
     store.reset()
@@ -70,29 +70,29 @@ def test_retry_state_store_isolated():
     # Retry queue
     assert store.has_pending_retries(channel_id, thread_ts) is False
     assert store.get_retry_queue(channel_id, thread_ts) == []
-    store.add_to_retry_queue(channel_id, thread_ts, "LegalAdvisor")
-    store.add_to_retry_queue(channel_id, thread_ts, "Innovator")
+    store.add_to_retry_queue(channel_id, thread_ts, "agent-10011")
+    store.add_to_retry_queue(channel_id, thread_ts, "agent-10002")
     assert store.has_pending_retries(channel_id, thread_ts) is True
-    assert store.get_retry_queue(channel_id, thread_ts) == ["LegalAdvisor", "Innovator"]
-    assert store.pop_retry_agent(channel_id, thread_ts) == "LegalAdvisor"
-    assert store.pop_retry_agent(channel_id, thread_ts, "Innovator") == "Innovator"
+    assert store.get_retry_queue(channel_id, thread_ts) == ["agent-10011", "agent-10002"]
+    assert store.pop_retry_agent(channel_id, thread_ts) == "agent-10011"
+    assert store.pop_retry_agent(channel_id, thread_ts, "agent-10002") == "agent-10002"
     assert store.has_pending_retries(channel_id, thread_ts) is False
 
     # Already retried
-    assert store.is_already_retried(channel_id, thread_ts, "LegalAdvisor") is False
-    store.mark_already_retried(channel_id, thread_ts, "LegalAdvisor")
-    assert store.is_already_retried(channel_id, thread_ts, "LegalAdvisor") is True
-    assert store.get_already_retried(channel_id, thread_ts) == {"LegalAdvisor"}
+    assert store.is_already_retried(channel_id, thread_ts, "agent-10011") is False
+    store.mark_already_retried(channel_id, thread_ts, "agent-10011")
+    assert store.is_already_retried(channel_id, thread_ts, "agent-10011") is True
+    assert store.get_already_retried(channel_id, thread_ts) == {"agent-10011"}
     store.clear_already_retried(channel_id, thread_ts)
-    assert store.is_already_retried(channel_id, thread_ts, "LegalAdvisor") is False
+    assert store.is_already_retried(channel_id, thread_ts, "agent-10011") is False
 
     # 503 errored agents
-    assert store.has_agent_503_errored(channel_id, thread_ts, "Visionary") is False
-    store.mark_agent_503_errored(channel_id, thread_ts, "Visionary")
-    assert store.has_agent_503_errored(channel_id, thread_ts, "Visionary") is True
-    assert store.get_503_errored_agents(channel_id, thread_ts) == {"Visionary"}
+    assert store.has_agent_503_errored(channel_id, thread_ts, "agent-10001") is False
+    store.mark_agent_503_errored(channel_id, thread_ts, "agent-10001")
+    assert store.has_agent_503_errored(channel_id, thread_ts, "agent-10001") is True
+    assert store.get_503_errored_agents(channel_id, thread_ts) == {"agent-10001"}
     store.clear_503_errored_agents(channel_id, thread_ts)
-    assert store.has_agent_503_errored(channel_id, thread_ts, "Visionary") is False
+    assert store.has_agent_503_errored(channel_id, thread_ts, "agent-10001") is False
 
     # Generations
     assert store.get_generation(channel_id, thread_ts) == 0
@@ -103,9 +103,9 @@ def test_retry_state_store_isolated():
     assert store.get_generation(channel_id, thread_ts) == 0
 
     # Reset
-    store.add_to_retry_queue(channel_id, thread_ts, "LegalAdvisor")
-    store.mark_already_retried(channel_id, thread_ts, "LegalAdvisor")
-    store.mark_agent_503_errored(channel_id, thread_ts, "LegalAdvisor")
+    store.add_to_retry_queue(channel_id, thread_ts, "agent-10011")
+    store.mark_already_retried(channel_id, thread_ts, "agent-10011")
+    store.mark_agent_503_errored(channel_id, thread_ts, "agent-10011")
     store.increment_generation(channel_id, thread_ts)
     store.reset()
     assert store.has_pending_retries(channel_id, thread_ts) is False
@@ -172,13 +172,13 @@ def test_thread_state_manager_facade_composition():
     assert isinstance(mgr.context, ThreadContextStore)
 
     # State mutations via facade reflect on domain store
-    mgr.set_remaining_agents(channel_id, thread_ts, ["Visionary", "SecurityArchitect"])
-    assert mgr.discussion.get_remaining_agents(channel_id, thread_ts) == ["Visionary", "SecurityArchitect"]
-    assert mgr.remaining_agents_map[(channel_id, thread_ts)] == ["Visionary", "SecurityArchitect"]
+    mgr.set_remaining_agents(channel_id, thread_ts, ["agent-10001", "agent-10008"])
+    assert mgr.discussion.get_remaining_agents(channel_id, thread_ts) == ["agent-10001", "agent-10008"]
+    assert mgr.remaining_agents_map[(channel_id, thread_ts)] == ["agent-10001", "agent-10008"]
 
-    mgr.add_to_retry_queue(channel_id, thread_ts, "Innovator")
-    assert mgr.retry.get_retry_queue(channel_id, thread_ts) == ["Innovator"]
-    assert mgr.rate_limit_retry_queue[(channel_id, thread_ts)] == ["Innovator"]
+    mgr.add_to_retry_queue(channel_id, thread_ts, "agent-10002")
+    assert mgr.retry.get_retry_queue(channel_id, thread_ts) == ["agent-10002"]
+    assert mgr.rate_limit_retry_queue[(channel_id, thread_ts)] == ["agent-10002"]
 
     mgr.set_language(channel_id, thread_ts, "de")
     assert mgr.context.get_language(channel_id, thread_ts) == "de"

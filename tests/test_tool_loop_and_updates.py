@@ -16,15 +16,15 @@ def test_build_tool_status_text():
     mock_tool.function.name = "web_search"
     mock_tool.function.arguments = json.dumps({"query": "AI breakthroughs 2026"})
 
-    text = _build_tool_status_text("Visionary", [mock_tool])
-    assert "Visionary" in text
+    text = _build_tool_status_text("agent-10001", [mock_tool])
+    assert "agent-10001" in text
     assert "is searching the web" in text
     assert "AI breakthroughs 2026" in text
 
     mock_tool.function.name = "fetch_web_page"
     mock_tool.function.arguments = json.dumps({"url": "https://example.com/data"})
-    text_fetch = _build_tool_status_text("LegalAdvisor", [mock_tool])
-    assert "LegalAdvisor" in text_fetch
+    text_fetch = _build_tool_status_text("agent-10011", [mock_tool])
+    assert "agent-10011" in text_fetch
     assert "is fetching webpage" in text_fetch
     assert "https://example.com/data" in text_fetch
 
@@ -71,10 +71,10 @@ async def test_tool_call_loop_timeout_fallback():
         thread_ts="12345.6789",
         raw_text="Test prompt",
     )
-    ctx.agent_key = "Visionary"
+    ctx.agent_key = "agent-10001"
     ctx.agent_cfg = {
         "model": "openrouter/auto",
-        "username": "Visionary",
+        "username": "agent-10001",
         "skills": ["web_tools"],
     }
 
@@ -130,10 +130,10 @@ async def test_delayed_intermediate_status_and_inplace_update():
         thread_ts="12345.6789",
         raw_text="Tell me about tech",
     )
-    ctx.agent_key = "Visionary"
+    ctx.agent_key = "agent-10001"
     ctx.agent_cfg = {
         "model": "openrouter/auto",
-        "username": "Visionary",
+        "username": "agent-10001",
         "skills": ["web_tools"],
     }
 

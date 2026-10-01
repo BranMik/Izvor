@@ -71,7 +71,7 @@ class EntityResolver:
             if username and norm_cleaned == self.normalize(username):
                 return [key]
 
-        # 3. Word-level prefix match (e.g. "Vis" -> "Visionary", "Arch" -> "SecuritySecurity Architect" & "SecuritySecuritySecurity Architect")
+        # 3. Word-level prefix match (e.g. "Vis" -> "agent-10001", "Arch" -> "SecuritySecurity Architect" & "SecuritySecuritySecurity Architect")
         word_matches = []
         for key, cfg in agents.items():
             words = re.findall(r"[A-Z]?[a-z0-9]+", key)

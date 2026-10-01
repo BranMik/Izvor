@@ -27,7 +27,7 @@ async def test_fetch_thread_history_filters_and_formats(monkeypatch):
         {"user": "U_BOT", "text": "🧪 E2E test card", "username": "E2E Test Runner", "subtype": "bot_message"},
         {"user": "U_BOT", "text": "⚠️ Warning: Spend limit close", "username": "Panel System", "subtype": "bot_message"},
         # 5. Legitimate bot assistant message
-        {"user": "U_BOT", "text": "SQLite is suitable for low-write embedded environments.", "username": "SecurityArchitect", "subtype": "bot_message"},
+        {"user": "U_BOT", "text": "SQLite is suitable for low-write embedded environments.", "username": "agent-10008", "subtype": "bot_message"},
         # 6. Bot message matched by bot_user_id
         {"user": "U_BOT_APP_ID", "text": "I agree with SecurityArchitect.", "subtype": None},
     ]
@@ -59,7 +59,7 @@ async def test_fetch_thread_history_filters_and_formats(monkeypatch):
     assert history[1] == {"role": "user", "content": "What about SQLite for storage?"}
 
     # Message 3: assistant persona
-    assert history[2] == {"role": "assistant", "content": "[SecurityArchitect]: SQLite is suitable for low-write embedded environments."}
+    assert history[2] == {"role": "assistant", "content": "[agent-10008]: SQLite is suitable for low-write embedded environments."}
 
     # Message 4: matched by bot_user_id
     assert history[3] == {"role": "assistant", "content": "[Assistant]: I agree with SecurityArchitect."}

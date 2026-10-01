@@ -132,7 +132,7 @@ def parse_agent_and_prompt(
 
         match, matched_key, raw_tag = matched_item
         # Strip all matched agent tags from prompt so that multi-tag prompts like
-        # "/[SecuritySecurity Architect] /[Sceptic] /[Innovator] Pa sad ostatak prompta."
+        # "/[SecuritySecurity Architect] /[agent-10003] /[agent-10002] Pa sad ostatak prompta."
         # leave cleanly "Pa sad ostatak prompta."
         prompt = cleaned_text
         for m, _, _ in tag_matches:
@@ -235,7 +235,7 @@ def strip_all_nominations(text: str) -> str:
         re.IGNORECASE,
     )
 
-    # 2. Standalone trailing nomination tag at end of text (e.g. "... /[Sceptic]", "...\n\n/[Sceptic]")
+    # 2. Standalone trailing nomination tag at end of text (e.g. "... /[agent-10003]", "...\n\n/[agent-10003]")
     trailing_tag_regex = re.compile(
         r"(?:\n+|\s+)\s*" + tag_bracket_pattern + r"\s*(?:next)?\s*[.!?]?\s*$",
         re.IGNORECASE,

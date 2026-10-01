@@ -11,13 +11,13 @@ from pipeline.spend_governance import SpendGovernance
 @pytest.fixture
 def mock_agents_config():
     return {
-        "Visionary": {"username": "Visionary", "model": "gemini/gemini-3.8-flash"},
-        "SecurityArchitect": {"username": "SecurityArchitect", "model": "openai/gpt-5.6-terra"},
-        "LegalAdvisor": {"username": "LegalAdvisor", "model": "mistral/mistral-large-latest"},
-        "SecurityArchitect": {"username": "Security SecurityArchitect", "model": "mistral/mistral-large-latest"},
-        "ScopeOptimizer": {"username": "Scope Optimizer", "model": "gemini/gemini-3.8-flash"},
-        "ROIStrategist": {"username": "ROI Strategist", "model": "gemini/gemini-3.8-flash"},
-        "MarketAndCompetitionResearchExpert": {"username": "Market And Competition Research Expert", "model": "gemini/gemini-3.8-flash"},
+        "agent-10001": {"username": "agent-10001", "model": "gemini/gemini-3.8-flash"},
+        "agent-10008": {"username": "agent-10008", "model": "openai/gpt-5.6-terra"},
+        "agent-10011": {"username": "agent-10011", "model": "mistral/mistral-large-latest"},
+        "agent-10008": {"username": "Security SecurityArchitect", "model": "mistral/mistral-large-latest"},
+        "agent-10005": {"username": "Scope Optimizer", "model": "gemini/gemini-3.8-flash"},
+        "agent-10006": {"username": "ROI Strategist", "model": "gemini/gemini-3.8-flash"},
+        "agent-10009": {"username": "Market And Competition Research Expert", "model": "gemini/gemini-3.8-flash"},
     }
 
 
@@ -29,18 +29,18 @@ def test_entity_resolver_exact_and_partial(mock_agents_config):
     resolver = EntityResolver(agents_config=mock_agents_config)
 
     # Exact match
-    assert resolver.resolve_agent_name("Visionary") == "Visionary"
-    assert resolver.resolve_agent_name("[SecurityArchitect]") == "SecurityArchitect"
+    assert resolver.resolve_agent_name("agent-10001") == "agent-10001"
+    assert resolver.resolve_agent_name("[agent-10008]") == "agent-10008"
 
     # Partial / abbreviation match
-    assert resolver.resolve_agent_name("Tech") == "LegalAdvisor"
-    assert resolver.resolve_agent_name("[Sec]") == "SecurityArchitect"
+    assert resolver.resolve_agent_name("Tech") == "agent-10011"
+    assert resolver.resolve_agent_name("[Sec]") == "agent-10008"
 
     # Ambiguity detection
     candidates = resolver.resolve_candidates("Strategist")
     assert len(candidates) >= 2
-    assert "ROIStrategist" in candidates
-    assert "MarketAndCompetitionResearchExpert" in candidates
+    assert "agent-10006" in candidates
+    assert "agent-10009" in candidates
     assert resolver.resolve_agent_name("Strategist") is None
 
 
@@ -65,12 +65,12 @@ def test_entity_resolver_ambiguous_and_unrecognized(mock_agents_config):
 
 def test_entity_resolver_extract_tags(mock_agents_config):
     resolver = EntityResolver(agents_config=mock_agents_config)
-    text = "First /[Visionary], then /[LegalAdvisor], and finally /[SecurityArchitect]."
+    text = "First /[agent-10001], then /[agent-10011], and finally /[agent-10008]."
     tagged = resolver.extract_tagged_agents(text)
-    assert tagged == ["Visionary", "LegalAdvisor", "SecurityArchitect"]
+    assert tagged == ["agent-10001", "agent-10011", "agent-10008"]
 
     # Plain brackets are ignored and not extracted as tagged agents
-    plain_text = "First [Visionary], then [LegalAdvisor], and finally [SecurityArchitect]."
+    plain_text = "First [agent-10001], then [agent-10011], and finally [agent-10008]."
     assert resolver.extract_tagged_agents(plain_text) == []
 
 
@@ -81,12 +81,12 @@ def test_entity_resolver_extract_tags(mock_agents_config):
 @pytest.mark.anyio
 async def test_directive_parser_slash_commands():
     parser = DirectiveParser()
-    raw = "/max_words 40 /history 5 /exclude [LegalAdvisor] What is our roadmap?"
+    raw = "/max_words 40 /history 5 /exclude [agent-10011] What is our roadmap?"
     directives = await parser.parse(raw)
 
     assert directives.max_words == 40
     assert directives.history_limit == 5
-    assert "LegalAdvisor" in directives.excluded_agents
+    assert "agent-10011" in directives.excluded_agents
     assert "What is our roadmap?" in directives.cleaned_prompt
     assert not directives.is_stop
 
@@ -105,59 +105,59 @@ async def test_directive_parser_stop_command():
 def test_sandwich_orchestrator_deterministic_phases(mock_agents_config):
     orchestrator = SandwichOrchestrator(
         mode="sandwich",
-        start_chain=["SecurityArchitect", "ScopeOptimizer"],
-        end_chain=["SecurityArchitect"],
+        start_chain=["agent-10008", "agent-10005"],
+        end_chain=["agent-10008"],
         agents_map=mock_agents_config,
     )
 
-    available = ["SecurityArchitect", "ScopeOptimizer", "LegalAdvisor", "Visionary"]
+    available = ["agent-10008", "agent-10005", "agent-10011", "agent-10001"]
     initial_seq = orchestrator.build_initial_sequence(available)
-    assert initial_seq == ["SecurityArchitect", "ScopeOptimizer", "LegalAdvisor", "Visionary", "SecurityArchitect"]
+    assert initial_seq == ["agent-10008", "agent-10005", "agent-10011", "agent-10001", "agent-10008"]
 
     # Phase 1: Start Chain turn 1 (SecurityArchitect)
     desig1, elig1 = orchestrator.get_phase_info(initial_seq)
-    assert desig1 == "SecurityArchitect"
-    assert elig1 == ["SecurityArchitect"]
+    assert desig1 == "agent-10008"
+    assert elig1 == ["agent-10008"]
 
     # Phase 1: Start Chain turn 2 (ScopeOptimizer)
     rem_start_2 = initial_seq[1:]
     desig2, elig2 = orchestrator.get_phase_info(rem_start_2)
-    assert desig2 == "ScopeOptimizer"
-    assert elig2 == ["ScopeOptimizer"]
+    assert desig2 == "agent-10005"
+    assert elig2 == ["agent-10005"]
 
     # Phase 2: Middle pool open debate with multiple agents
-    rem_middle = rem_start_2[1:]  # ["LegalAdvisor", "Visionary", "SecurityArchitect"]
+    rem_middle = rem_start_2[1:]  # ["agent-10011", "agent-10001", "agent-10008"]
     desig_mid, elig_mid = orchestrator.get_phase_info(rem_middle)
     assert desig_mid is None
-    assert elig_mid == ["LegalAdvisor", "Visionary"]
+    assert elig_mid == ["agent-10011", "agent-10001"]
 
     # Phase 2: Middle pool with single remaining specialist
-    rem_mid_single = ["Visionary", "SecurityArchitect"]
+    rem_mid_single = ["agent-10001", "agent-10008"]
     desig_single, elig_single = orchestrator.get_phase_info(rem_mid_single)
-    assert desig_single == "Visionary"
-    assert elig_single == ["Visionary"]
+    assert desig_single == "agent-10001"
+    assert elig_single == ["agent-10001"]
 
     # Phase 3: End Chain
-    rem_end = ["SecurityArchitect"]
+    rem_end = ["agent-10008"]
     desig_end, elig_end = orchestrator.get_phase_info(rem_end)
-    assert desig_end == "SecurityArchitect"
-    assert elig_end == ["SecurityArchitect"]
+    assert desig_end == "agent-10008"
+    assert elig_end == ["agent-10008"]
 
 
 def test_sandwich_orchestrator_fixed_mode(mock_agents_config):
     orchestrator = SandwichOrchestrator(
         mode="fixed",
-        fixed_chain=["Visionary", "LegalAdvisor"],
+        fixed_chain=["agent-10001", "agent-10011"],
         agents_map=mock_agents_config,
     )
 
-    available = ["Visionary", "LegalAdvisor"]
+    available = ["agent-10001", "agent-10011"]
     seq = orchestrator.build_initial_sequence(available)
-    assert seq == ["Visionary", "LegalAdvisor"]
+    assert seq == ["agent-10001", "agent-10011"]
 
     desig, elig = orchestrator.get_phase_info(seq)
-    assert desig == "Visionary"
-    assert elig == ["Visionary"]
+    assert desig == "agent-10001"
+    assert elig == ["agent-10001"]
 
 
 # ==============================================================================

@@ -5,8 +5,7 @@
   "description": "Focused linear pipeline for rapid technical problem triage.",
   "fixed_config": {
     "chain": [
-      
-      "SecurityArchitect"
+      "agent-10008"
     ]
   }
 }

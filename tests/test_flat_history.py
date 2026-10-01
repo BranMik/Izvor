@@ -81,8 +81,8 @@ def test_format_messages_to_markdown():
     """Verify markdown output formatting with bold speaker tags and metadata."""
     messages = [
         {"role": "user", "content": "Kako optimizirati bazu podataka?"},
-        {"role": "assistant", "content": "[Visionary]: Preporucujem skaliranje i indeksiranje."},
-        {"role": "assistant", "content": "[LegalAdvisor]: Slazem se, a mozemo dodati i Redis cache."},
+        {"role": "assistant", "content": "[agent-10001]: Preporucujem skaliranje i indeksiranje."},
+        {"role": "assistant", "content": "[agent-10011]: Slazem se, a mozemo dodati i Redis cache."},
     ]
     md = format_messages_to_markdown(
         messages=messages,
@@ -95,8 +95,8 @@ def test_format_messages_to_markdown():
     assert "- **Channel ID:** `C_TEST`" in md
     assert "- **Initial Prompt:** Kako optimizirati bazu podataka?" in md
     assert "### **[User]**\n\nKako optimizirati bazu podataka?" in md
-    assert "### **[Visionary]**\n\nPreporucujem skaliranje i indeksiranje." in md
-    assert "### **[LegalAdvisor]**\n\nSlazem se, a mozemo dodati i Redis cache." in md
+    assert "### **[agent-10001]**\n\nPreporucujem skaliranje i indeksiranje." in md
+    assert "### **[agent-10011]**\n\nSlazem se, a mozemo dodati i Redis cache." in md
 
 
 def test_record_flat_history_atomic_write(tmp_path):
@@ -105,7 +105,7 @@ def test_record_flat_history_atomic_write(tmp_path):
     channel_id = "C_TEST"
     messages = [
         {"role": "user", "content": "Plan projekta"},
-        {"role": "assistant", "content": "[Visionary]: Definirajmo ciljeve."},
+        {"role": "assistant", "content": "[agent-10001]: Definirajmo ciljeve."},
     ]
     path = record_flat_history(
         channel_id=channel_id,
@@ -117,7 +117,7 @@ def test_record_flat_history_atomic_write(tmp_path):
     assert path.exists()
     content = path.read_text(encoding="utf-8")
     assert "### **[User]**" in content
-    assert "### **[Visionary]**" in content
+    assert "### **[agent-10001]**" in content
     assert "Definirajmo ciljeve." in content
 
 
@@ -129,7 +129,7 @@ async def test_process_and_respond_writes_flat_history(monkeypatch, tmp_path):
 
     mock_llm_response = MagicMock()
     mock_llm_response.choices = [
-        MagicMock(message=MagicMock(content="Ovo je rjesenje [LegalAdvisor]."))
+        MagicMock(message=MagicMock(content="Ovo je rjesenje [agent-10011]."))
     ]
     mock_llm_response.usage = {"prompt_tokens": 50, "completion_tokens": 20}
 

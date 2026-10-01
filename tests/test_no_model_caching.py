@@ -57,7 +57,7 @@ async def test_anthropic_agent_omits_cache_control(caplog):
         res = await agent_router.process_and_respond(
             channel_id="C123",
             thread_ts="1234567890.123456",
-            raw_text="[Innovator] Analyze this architecture",
+            raw_text="[agent-10002] Analyze this architecture",
             is_bot_trigger=False,
         )
 
@@ -100,7 +100,7 @@ async def test_openai_agent_emits_no_cache_logs(caplog):
         res = await agent_router.process_and_respond(
             channel_id="C123",
             thread_ts="1234567890.123456",
-            raw_text="[SecurityArchitect] SecurityArchitecture review",
+            raw_text="[agent-10008] SecurityArchitecture review",
             is_bot_trigger=False,
         )
 

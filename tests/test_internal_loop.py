@@ -19,7 +19,7 @@ def reset_state():
 @pytest.mark.anyio
 async def test_internal_loop_multi_agent_custom_flow(monkeypatch):
     """
-    Verify that tagging multiple agents ([Innovator] [LegalAdvisor]) executes both
+    Verify that tagging multiple agents ([agent-10002] [agent-10011]) executes both
     agents in-memory sequentially in a single orchestrator call, posting each to Slack,
     accumulating history, and cleanly terminating when the chain finishes.
     """
@@ -49,9 +49,9 @@ async def test_internal_loop_multi_agent_custom_flow(monkeypatch):
 
         mock_choice = MagicMock()
         if turn_counter == 1:
-            mock_choice.message.content = "Innovator response proposing a new idea. /[LegalAdvisor]"
+            mock_choice.message.content = "Innovator response proposing a new idea. /[agent-10011]"
         else:
-            mock_choice.message.content = "LegalAdvisor evaluation and conclusion. /[SecurityArchitect]"
+            mock_choice.message.content = "LegalAdvisor evaluation and conclusion. /[agent-10008]"
         mock_choice.message.tool_calls = None
         mock_response = MagicMock(choices=[mock_choice], usage=None)
         return mock_response
@@ -62,7 +62,7 @@ async def test_internal_loop_multi_agent_custom_flow(monkeypatch):
     await orchestrate_discussion(
         channel_id=channel_id,
         thread_ts=thread_ts,
-        raw_text="/[Innovator] /[LegalAdvisor] What is the best architecture for our caching layer?",
+        raw_text="/[agent-10002] /[agent-10011] What is the best architecture for our caching layer?",
     )
 
     # 1. Verify two turns executed
@@ -71,11 +71,11 @@ async def test_internal_loop_multi_agent_custom_flow(monkeypatch):
 
     # 2. Verify turn 1 was Innovator, turn 2 was LegalAdvisor
     assert posted_messages[0]["username"] == "Innovator"
-    assert "/[LegalAdvisor]" in posted_messages[0]["text"]
+    assert "/[agent-10011]" in posted_messages[0]["text"]
 
     assert posted_messages[1]["username"] == "Legal Advisor"
     # LegalAdvisor was the last agent in custom flow, so premature SecurityArchitect tag is stripped
-    assert "/[SecurityArchitect]" not in posted_messages[1]["text"]
+    assert "/[agent-10008]" not in posted_messages[1]["text"]
 
     # 3. Verify in-memory history: turn 2 messages contained turn 1 Innovator post
     turn_2_messages = captured_contexts[1]
@@ -115,7 +115,7 @@ async def test_internal_loop_user_stop_interruption(monkeypatch):
         nonlocal turn_counter
         turn_counter += 1
         mock_choice = MagicMock()
-        mock_choice.message.content = f"Turn {turn_counter} completed. /[LegalAdvisor]"
+        mock_choice.message.content = f"Turn {turn_counter} completed. /[agent-10011]"
         mock_choice.message.tool_calls = None
         # Simulate user typing 'stop' right after Turn 1 LLM finishes
         if turn_counter == 1:
@@ -127,7 +127,7 @@ async def test_internal_loop_user_stop_interruption(monkeypatch):
     await orchestrate_discussion(
         channel_id=channel_id,
         thread_ts=thread_ts,
-        raw_text="/[Innovator] /[LegalAdvisor] Discuss caching",
+        raw_text="/[agent-10002] /[agent-10011] Discuss caching",
     )
 
     # Verify only Turn 1 ran, Turn 2 was stopped before execution
@@ -147,7 +147,7 @@ async def test_process_and_respond_with_run_internal_loop(monkeypatch):
     res = await process_and_respond(
         channel_id="C_DISPATCH",
         thread_ts="3000.0001",
-        raw_text="Hello [Visionary]",
+        raw_text="Hello [agent-10001]",
         run_internal_loop=True,
     )
 
@@ -155,7 +155,7 @@ async def test_process_and_respond_with_run_internal_loop(monkeypatch):
     mock_orchestrate.assert_awaited_once_with(
         channel_id="C_DISPATCH",
         thread_ts="3000.0001",
-        raw_text="Hello [Visionary]",
+        raw_text="Hello [agent-10001]",
         bot_user_id=None,
         icon_url=None,
     )

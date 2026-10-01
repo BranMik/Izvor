@@ -52,7 +52,7 @@ async def test_generate_thread_notes_calls_mistral_model():
 
     history = [
         {"role": "user", "content": "How should we design the database?"},
-        {"role": "assistant", "content": "[SecurityArchitect]: Use PostgreSQL with connection pooling."},
+        {"role": "assistant", "content": "[agent-10008]: Use PostgreSQL with connection pooling."},
     ]
 
     with patch("pipeline.discussion_scribe.scribe.litellm.completion", return_value=mock_resp) as mock_litellm:
@@ -76,7 +76,7 @@ async def test_update_notes_for_thread_creates_new_note_on_first_reply(caplog):
 
     history = [
         {"role": "user", "content": "Start project kickoff"},
-        {"role": "assistant", "content": "[Visionary]: Here is the vision for our product."},
+        {"role": "assistant", "content": "[agent-10001]: Here is the vision for our product."},
     ]
 
     with patch("agents.thread_notes_agent.fetch_thread_history", new_callable=AsyncMock) as mock_fetch, \
@@ -113,8 +113,8 @@ async def test_update_notes_for_thread_updates_existing_note_on_subsequent_repli
 
     history = [
         {"role": "user", "content": "Start kickoff"},
-        {"role": "assistant", "content": "[Visionary]: Vision defined."},
-        {"role": "assistant", "content": "[Sceptic]: Security and privacy must be evaluated."},
+        {"role": "assistant", "content": "[agent-10001]: Vision defined."},
+        {"role": "assistant", "content": "[agent-10003]: Security and privacy must be evaluated."},
     ]
 
     with patch("agents.thread_notes_agent.fetch_thread_history", new_callable=AsyncMock) as mock_fetch, \
@@ -234,7 +234,7 @@ async def test_router_invokes_trigger_thread_notes_update(monkeypatch):
         "orchestration.agent_router.run_in_threadpool",
         AsyncMock(
             return_value=MagicMock(
-                choices=[MagicMock(message=MagicMock(content="Hello world [Sceptic]", tool_calls=None))],
+                choices=[MagicMock(message=MagicMock(content="Hello world [agent-10003]", tool_calls=None))],
                 usage=MagicMock(prompt_tokens=10, completion_tokens=10, total_tokens=20),
             )
         ),
@@ -265,7 +265,7 @@ async def test_router_invokes_trigger_thread_notes_update(monkeypatch):
     await agent_router.process_and_respond(
         channel_id="C_ROUTER_TEST_2",
         thread_ts="1700000000.888",
-        raw_text="/[Visionary] only you answer",
+        raw_text="/[agent-10001] only you answer",
         bot_user_id="U_BOT",
     )
 
@@ -291,8 +291,8 @@ async def test_fetch_thread_history_excludes_scribe_notes(monkeypatch):
             "username": "Live Discussion Scribe",
             "subtype": "bot_message",
         },
-        {"user": "UBOT", "text": "We need microservices", "username": "LegalAdvisor", "subtype": "bot_message"},
-        {"user": "UBOT", "text": "_⚡ *LegalAdvisor* is loading skill: web_research..._", "username": "LegalAdvisor", "subtype": "bot_message"},
+        {"user": "UBOT", "text": "We need microservices", "username": "agent-10011", "subtype": "bot_message"},
+        {"user": "UBOT", "text": "_⚡ *LegalAdvisor* is loading skill: web_research..._", "username": "agent-10011", "subtype": "bot_message"},
         {"user": "U1", "text": "👤 *Follow-up Prompt:*\n> What about SQLite?", "subtype": None},
     ]
 
@@ -309,7 +309,7 @@ async def test_fetch_thread_history_excludes_scribe_notes(monkeypatch):
     # Runner follow-up prefix should be cleaned via re.sub
     assert len(history) == 3
     assert contents[0] == "Let's debate the new API"
-    assert contents[1] == "[LegalAdvisor]: We need microservices"
+    assert contents[1] == "[agent-10011]: We need microservices"
     assert contents[2] == "What about SQLite?"
 
 

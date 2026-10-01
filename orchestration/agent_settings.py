@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import sys
+import re
 import threading
 import time
 from pathlib import Path
@@ -33,7 +34,7 @@ BACKUP_INTERVAL_SECONDS = 7 * 86400
 
 # Default untagged workflow configuration: Sandwich mode (Visionary -> Innovator -> ... -> SecuritySecurity Architect)
 DEFAULT_WORKFLOW_ID = "default_review_flow"
-DEFAULT_SANDWICH_START_CHAIN = ["Visionary", "Innovator"]
+DEFAULT_SANDWICH_START_CHAIN = ["agent-10001", "agent-10002"]
 DEFAULT_SANDWICH_END_CHAIN = ["SecuritySecurity Architect"]
 
 
@@ -419,6 +420,9 @@ class AgentSettingsManager:
 
         valid_agents: dict[str, dict[str, Any]] = {}
         for key, cfg in raw_agents.items():
+            if not re.match(r'^agent-\d+$', key):
+                logger.warning(f"[SETTINGS] Invalid agent key format: '{key}'. Must match '^agent-\d+$'. Ignoring this agent.")
+                continue
             if self._validate_agent_entry(key, cfg):
                 is_short = bool(cfg.get("is_short_output", False))
                 skills = [
@@ -427,6 +431,7 @@ class AgentSettingsManager:
                     if isinstance(s, str) and s.strip()
                 ]
                 valid_agents[key] = {
+                    "name": cfg.get("name", key),
                     "model": cfg["model"].strip(),
                     "username": cfg["username"].strip(),
                     "icon_url": cfg["icon_url"].strip(),
@@ -676,6 +681,7 @@ class AgentSettingsManager:
                     "enabled_agents": sorted(self.enabled_agents),
                     "agents": {
                         k: {
+                            "name": v.get("name", k),
                             "model": v.get("model", ""),
                             "username": v.get("username", k),
                             "icon_url": v.get("icon_url", ""),

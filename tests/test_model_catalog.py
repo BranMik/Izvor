@@ -115,13 +115,13 @@ def test_agent_settings_set_agent_model(tmp_path):
     assert mgr.set_agent_model("NonExistentAgent", "openai/gpt-5.6-sol") is False
 
     # Valid agent key updates model
-    assert mgr.set_agent_model("Visionary", "openai/gpt-5.6-luna") is True
-    assert mgr.agents_config["Visionary"]["model"] == "openai/gpt-5.6-luna"
+    assert mgr.set_agent_model("agent-10001", "openai/gpt-5.6-luna") is True
+    assert mgr.agents_config["agent-10001"]["model"] == "openai/gpt-5.6-luna"
 
     # Reload from JSON file and verify persistence
     mgr2 = AgentSettingsManager(settings_file=test_settings_file)
     mgr2.load()
-    assert mgr2.agents_config["Visionary"]["model"] == "openai/gpt-5.6-luna"
+    assert mgr2.agents_config["agent-10001"]["model"] == "openai/gpt-5.6-luna"
 
 
 def test_build_app_home_view_renders_model_dropdowns():
@@ -165,8 +165,8 @@ async def test_slack_interactivity_model_change():
         "user": {"id": "U123TEST", "name": "testuser"},
         "actions": [
             {
-                "action_id": "select_agent_model:Visionary",
-                "block_id": "agent_model_block_Visionary",
+                "action_id": "select_agent_model:agent-10001",
+                "block_id": "agent_model_block_agent-10001",
                 "type": "static_select",
                 "selected_option": {
                     "text": {"type": "plain_text", "text": "openai/gpt-5.6-sol"},
@@ -176,7 +176,7 @@ async def test_slack_interactivity_model_change():
         ],
     }
 
-    orig_model = AGENTS_CONFIG["Visionary"].get("model")
+    orig_model = AGENTS_CONFIG["agent-10001"].get("model")
     try:
         with patch("adapters.slack.interactivity.verify_slack_signature", return_value=True), \
              patch("adapters.slack.interactivity.publish_app_home", new_callable=AsyncMock) as mock_publish:
@@ -184,10 +184,10 @@ async def test_slack_interactivity_model_change():
             assert resp.status_code == 200
             assert mock_publish.called
             assert mock_publish.call_args.kwargs["user_id"] == "U123TEST"
-            assert AGENTS_CONFIG["Visionary"]["model"] == "openai/gpt-5.6-sol"
+            assert AGENTS_CONFIG["agent-10001"]["model"] == "openai/gpt-5.6-sol"
     finally:
         if orig_model:
-            set_agent_model("Visionary", orig_model)
+            set_agent_model("agent-10001", orig_model)
 
 
 def test_load_provider_catalog_from_json():

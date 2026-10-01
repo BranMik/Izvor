@@ -434,7 +434,7 @@ class ValidationStageMixin:
                         f"Tag '{clean_tag}' could not be matched to any active agent."
                     )
                 lines.append(
-                    "\nPlease check the agent name or tag a valid agent (e.g. 'Visionary', 'LegalAdvisor', 'Innovator') to proceed."
+                    "\nPlease check the agent name or tag a valid agent (e.g. 'agent-10001', 'agent-10011', 'agent-10002') to proceed."
                 )
                 warning_msg = "\n".join(lines)
 

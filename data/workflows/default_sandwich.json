@@ -5,16 +5,16 @@
   "description": "Standard multi-agent panel with kickoff and concluding wrap-up.",
   "sandwich_config": {
     "start_chain": [
-      "ScopeOptimizer",
-      "Visionary",
-      "UserAdvocate",
-      "Sceptic",
-      "Innovator",
-      "SecurityArchitect"
+      "agent-10005",
+      "agent-10001",
+      "agent-10007",
+      "agent-10003",
+      "agent-10002",
+      "agent-10008"
     ],
     "end_chain": [
-      "SecurityArchitect",
-      "Sceptic"
+      "agent-10008",
+      "agent-10003"
     ]
   }
 }

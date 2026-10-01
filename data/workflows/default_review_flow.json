@@ -5,11 +5,11 @@
   "description": "Standard review flow applied when no explicit agent is tagged (Visionary -> Innovator -> ... -> Architect).",
   "sandwich_config": {
     "start_chain": [
-      "Visionary",
-      "Innovator"
+      "agent-10001",
+      "agent-10002"
     ],
     "end_chain": [
-      "SecurityArchitect"
+      "agent-10008"
     ]
   },
   "fixed_config": {

@@ -5,10 +5,8 @@
   "description": "",
   "fixed_config": {
     "chain": [
-      
-      
-      "ScopeOptimizer",
-      "ROIStrategist"
+      "agent-10005",
+      "agent-10006"
     ]
   }
 }
