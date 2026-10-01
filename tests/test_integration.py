@@ -30,10 +30,13 @@ from unittest.mock import AsyncMock
 @pytest.fixture(autouse=True)
 def patch_slack_calls(monkeypatch):
     reset_enabled_agents()
-    monkeypatch.setattr("main.process_and_respond", AsyncMock(return_value={"ok": True}))
+    monkeypatch.setattr("adapters.slack.events.process_and_respond", AsyncMock(return_value={"ok": True}))
     monkeypatch.setattr("orchestration.agent_router.post_agent_response", mock_post_agent_response)
     monkeypatch.setattr("orchestration.agent_router.fetch_thread_history", mock_fetch_thread_history)
-    monkeypatch.setattr("main.verify_slack_signature", lambda body, headers: True)
+    monkeypatch.setattr("adapters.slack.events.verify_slack_signature", lambda body, headers: True)
+    monkeypatch.setattr("adapters.slack.interactivity.verify_slack_signature", lambda body, headers: True)
+    monkeypatch.setattr("adapters.slack.events.publish_app_home", AsyncMock(return_value={"ok": True}))
+    monkeypatch.setattr("adapters.slack.interactivity.publish_app_home", AsyncMock(return_value={"ok": True}))
 
 
 def test_slack_events_deduplication():
@@ -178,7 +181,7 @@ def test_stop_command_integration(monkeypatch):
     thread_state_manager.remaining_agents_map[thread_key] = ["TechLead", "Innovator"]
 
     mock_process = AsyncMock(return_value={"ok": True})
-    monkeypatch.setattr("main.process_and_respond", mock_process)
+    monkeypatch.setattr("adapters.slack.events.process_and_respond", mock_process)
 
     # 1. User sends stop via app_mention
     payload_stop_mention = {
@@ -226,7 +229,7 @@ def test_stop_command_integration(monkeypatch):
 
 def test_app_home_opened_event(monkeypatch):
     mock_publish = AsyncMock(return_value={"ok": True})
-    monkeypatch.setattr("main.publish_app_home", mock_publish)
+    monkeypatch.setattr("adapters.slack.events.publish_app_home", mock_publish)
 
     payload = {
         "type": "event_callback",
@@ -245,7 +248,7 @@ def test_app_home_opened_event(monkeypatch):
 def test_slack_interactivity_radio_toggle_action(monkeypatch):
     reset_enabled_agents()
     mock_publish = AsyncMock(return_value={"ok": True})
-    monkeypatch.setattr("main.publish_app_home", mock_publish)
+    monkeypatch.setattr("adapters.slack.interactivity.publish_app_home", mock_publish)
 
     # 1. Turn OFF TechLead via radio button
     payload_off = {
@@ -319,7 +322,7 @@ def test_user_new_query_interrupts_ongoing_discussion_webhook(monkeypatch):
     assert thread_state_manager.is_discussion_active("C_TEST_INTERRUPT_WEBHOOK", "123456789.2001") is True
 
     mock_process = AsyncMock(return_value={"ok": True})
-    monkeypatch.setattr("main.process_and_respond", mock_process)
+    monkeypatch.setattr("adapters.slack.events.process_and_respond", mock_process)
 
     # 2. User sends new query in the same thread with @app_name
     payload = {
@@ -357,7 +360,7 @@ def test_user_mention_syntax_variations_webhook_interruption(monkeypatch):
     # 1. Message with @CaiLogics Hub
     thread_state_manager.remaining_agents_map[thread_key] = ["Architect"]
     mock_process = AsyncMock(return_value={"ok": True})
-    monkeypatch.setattr("main.process_and_respond", mock_process)
+    monkeypatch.setattr("adapters.slack.events.process_and_respond", mock_process)
 
     payload_hub = {
         "type": "event_callback",
@@ -398,7 +401,7 @@ def test_webhook_with_history_limit_dispatches_properly(monkeypatch):
     PROCESSED_EVENTS.clear()
 
     mock_process = AsyncMock(return_value={"ok": True})
-    monkeypatch.setattr("main.process_and_respond", mock_process)
+    monkeypatch.setattr("adapters.slack.events.process_and_respond", mock_process)
 
     payload = {
         "type": "event_callback",

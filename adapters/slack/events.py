@@ -10,51 +10,85 @@ from fastapi import BackgroundTasks, HTTPException, Request, Response
 from slack_sdk.errors import SlackApiError
 from starlette.requests import ClientDisconnect
 
-from core.slack_security import (
-    verify_slack_signature as _default_verify_slack_signature,
-)
+from core.slack_security import verify_slack_signature
 from orchestration.agent_router import process_and_respond
 from orchestration.thread_state import thread_state_manager
 from pipeline.directive_parser import is_stop_command
 from pipeline.entity_resolver import entity_resolver
-from services.slack_client import publish_app_home as _default_publish_app_home
+from services.slack_client import publish_app_home
 
 logger = logging.getLogger("CaiLogicsBackend.SlackEvents")
 
+
+class EventDeduplicationCache(dict):
+    """
+    Time-to-live (TTL) bounded in-memory cache for request deduplication.
+    Automatically evicts expired entries older than ttl_seconds upon access.
+    """
+
+    def __init__(self, ttl_seconds: float = 600.0, maxsize: int = 2000):
+        super().__init__()
+        self.ttl_seconds = ttl_seconds
+        self.maxsize = maxsize
+
+    def _evict_expired(self) -> None:
+        now = time.time()
+        expired = [k for k, v in self.items() if now - v > self.ttl_seconds]
+        for k in expired:
+            super().pop(k, None)
+        if len(self) > self.maxsize:
+            super().clear()
+
+    def __contains__(self, key: Any) -> bool:
+        self._evict_expired()
+        return super().__contains__(key)
+
+    def __setitem__(self, key: Any, value: float) -> None:
+        self._evict_expired()
+        super().__setitem__(key, value)
+
+
 # Global in-memory cache for request deduplication
-PROCESSED_EVENTS: dict[tuple[str, str], float] = {}  # key: (channel_id, ts), value: timestamp
+PROCESSED_EVENTS: EventDeduplicationCache = EventDeduplicationCache(ttl_seconds=600.0, maxsize=2000)
+
+_FALLBACK_SLASH_RE = re.compile(
+    r"(?:^|\s)/(?:grant_skill_for_all|grant-skill-for-all|grant_for_all|grant-for-all|grant_skill|grant-skill|revoke_skill_for_all|revoke-skill-for-all|revoke_for_all|revoke-for-all|revoke_constraint|revoke-constraint|revoke|list_skills|list-skills|rounds|round|next_round|next-round|nextround)\b",
+    re.IGNORECASE,
+)
+_SKILLS_SLASH_CACHE: tuple[tuple[str, ...], re.Pattern] | None = None
 
 
-def _verify_signature(body: bytes, headers: Any) -> bool:
-    main_mod = sys.modules.get("main")
-    if main_mod and hasattr(main_mod, "verify_slack_signature"):
-        return main_mod.verify_slack_signature(body, headers)
-    return _default_verify_slack_signature(body, headers)
+def _get_skills_slash_regex() -> re.Pattern | None:
+    global _SKILLS_SLASH_CACHE
+    try:
+        from skills import skill_registry
 
-
-async def _publish_home(user_id: str) -> Any:
-    from orchestration.agent_settings import sync_settings_if_modified
-    sync_settings_if_modified()
-    main_mod = sys.modules.get("main")
-    if main_mod and hasattr(main_mod, "publish_app_home"):
-        return await main_mod.publish_app_home(user_id=user_id)
-    return await _default_publish_app_home(user_id=user_id)
+        triggers = tuple(sorted(skill_registry.get_slash_triggers()))
+        if not triggers:
+            return None
+        if _SKILLS_SLASH_CACHE is not None and _SKILLS_SLASH_CACHE[0] == triggers:
+            return _SKILLS_SLASH_CACHE[1]
+        pattern = re.compile(
+            r"(?:^|\s)(?:" + "|".join(re.escape(c) for c in triggers) + r")\b",
+            re.IGNORECASE,
+        )
+        _SKILLS_SLASH_CACHE = (triggers, pattern)
+        return pattern
+    except (ImportError, AttributeError, KeyError, TypeError, re.error) as e:
+        logger.debug(f"[WEBHOOK] Error checking skill_registry slash commands: {e}")
+        return None
 
 
 async def _safe_publish_home(user_id: str) -> None:
     try:
-        await _publish_home(user_id=user_id)
+        from orchestration.agent_settings import sync_settings_if_modified
+
+        sync_settings_if_modified()
+        await publish_app_home(user_id=user_id)
     except SlackApiError as e:
         logger.error(f"[WEBHOOK] SlackApiError publishing app home on open: {e}")
     except Exception as e:  # noqa: BLE001 - Webhook event handler isolates app home publishing failure
         logger.error(f"[WEBHOOK] Error publishing app home on open: {e}")
-
-
-def _get_process_and_respond() -> Any:
-    main_mod = sys.modules.get("main")
-    if main_mod and hasattr(main_mod, "process_and_respond"):
-        return main_mod.process_and_respond
-    return process_and_respond
 
 
 async def handle_slack_events(request: Request, background_tasks: BackgroundTasks) -> Any:
@@ -78,7 +112,7 @@ async def handle_slack_events(request: Request, background_tasks: BackgroundTask
         return Response(status_code=200)
 
     # 3. Verify Slack HMAC Signature
-    if not _verify_signature(body_bytes, headers):
+    if not verify_slack_signature(body_bytes, headers):
         logger.warning("Rejected unauthorized request to /slack/events")
         raise HTTPException(status_code=401, detail="Invalid Slack signature")
 
@@ -86,9 +120,6 @@ async def handle_slack_events(request: Request, background_tasks: BackgroundTask
     try:
         data = await request.json()
     except (json.JSONDecodeError, UnicodeError, ValueError) as e:
-        logger.error(f"Failed to parse Slack event JSON: {e}")
-        raise HTTPException(status_code=400, detail="Invalid JSON payload") from e
-    except Exception as e:
         logger.error(f"Failed to parse Slack event JSON: {e}")
         raise HTTPException(status_code=400, detail="Invalid JSON payload") from e
 
@@ -138,17 +169,7 @@ async def handle_slack_events(request: Request, background_tasks: BackgroundTask
             )
 
             if channel_id and ts and raw_text:
-                # Deduplication cache cleanup (prevent memory leaks)
                 now = time.time()
-                if len(PROCESSED_EVENTS) > 1000:
-                    # Remove items older than 10 minutes
-                    expired = [k for k, v in PROCESSED_EVENTS.items() if now - v > 600]
-                    for k in expired:
-                        PROCESSED_EVENTS.pop(k, None)
-                    # If still too large, clear completely
-                    if len(PROCESSED_EVENTS) > 1000:
-                        PROCESSED_EVENTS.clear()
-
                 # 6b. Deduplicate Slack duplicate events
                 event_key = (channel_id, ts)
                 if event_key in PROCESSED_EVENTS:
@@ -201,24 +222,11 @@ async def handle_slack_events(request: Request, background_tasks: BackgroundTask
                     return Response(status_code=200)
 
                 # User messages must either have a bracketed tag, be an app_mention/DM, or contain a recognized slash command
-                has_slash_command = False
-                try:
-                    from skills import skill_registry
-                    triggers = skill_registry.get_slash_triggers()
-                    if triggers:
-                        slash_pattern = r"(?:^|\s)(?:" + "|".join(re.escape(c) for c in triggers) + r")\b"
-                        has_slash_command = bool(re.search(slash_pattern, raw_text, re.IGNORECASE))
-                except (ImportError, AttributeError, KeyError, TypeError, re.error) as e:
-                    logger.debug(f"[WEBHOOK] Error checking skill_registry slash commands: {e}")
-
-                if not has_slash_command:
-                    has_slash_command = bool(
-                        re.search(
-                            r"(?:^|\s)/(?:grant_skill_for_all|grant-skill-for-all|grant_for_all|grant-for-all|grant_skill|grant-skill|revoke_skill_for_all|revoke-skill-for-all|revoke_for_all|revoke-for-all|revoke_constraint|revoke-constraint|revoke|list_skills|list-skills|rounds|round|next_round|next-round|nextround)\b",
-                            raw_text,
-                            re.IGNORECASE,
-                        )
-                    )
+                skills_slash_re = _get_skills_slash_regex()
+                has_slash_command = bool(
+                    (skills_slash_re and skills_slash_re.search(raw_text))
+                    or _FALLBACK_SLASH_RE.search(raw_text)
+                )
 
                 if has_tag or is_mention_or_dm or has_slash_command:
                     should_process = True
@@ -240,7 +248,7 @@ async def handle_slack_events(request: Request, background_tasks: BackgroundTask
                     )
                     # Dispatch agent discussion loop asynchronously and register task with thread_state_manager
                     task = asyncio.create_task(
-                        _get_process_and_respond()(
+                        process_and_respond(
                             channel_id=channel_id,
                             thread_ts=thread_ts,
                             raw_text=raw_text,
