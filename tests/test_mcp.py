@@ -350,4 +350,37 @@ def test_mcp_execute_tool_unknown_and_invalid_args(monkeypatch):
     assert "Tool execution error: Boom" in error_json["error"]
 
 
+def test_mcp_execute_tool_agent_authorization():
+    from services.mcp_tools import execute_mcp_tool
+
+    # Sceptic has no skills configured -> write_file must be denied
+    denied_res = execute_mcp_tool(
+        "write_file",
+        {"rel_path": "resources/unauthorized_test.txt", "content": "test"},
+        agent_name="Sceptic",
+    )
+    denied_json = json.loads(denied_res)
+    assert "error" in denied_json
+    assert "Permission denied" in denied_json["error"]
+    assert "Sceptic" in denied_json["error"]
+
+    # System or empty agent_name must be allowed
+    sys_res = execute_mcp_tool(
+        "list_documents",
+        {"rel_path": "."},
+        agent_name="system",
+    )
+    sys_json = json.loads(sys_res)
+    assert "contents" in sys_json
+
+    # TechLead has codebase_inspection skill -> list_directory must be allowed
+    tech_res = execute_mcp_tool(
+        "list_directory",
+        {"rel_path": "."},
+        agent_name="TechLead",
+    )
+    tech_json = json.loads(tech_res)
+    assert "contents" in tech_json
+
+
 

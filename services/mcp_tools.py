@@ -506,11 +506,62 @@ TOOL_DISPATCHER: dict[str, Any] = {
 }
 
 
-def execute_mcp_tool(tool_name: str, arguments: dict[str, Any] | None = None, agent_name: str = "") -> str:
+def is_agent_authorized_for_tool(agent_name: str, tool_name: str) -> bool:
+    """
+    Validates whether an agent has authorization to execute the requested tool.
+    Internal or system callers (empty, 'system', 'orchestrator') bypass this check.
+    For debate agents, verifies that the tool belongs to one of their configured skills
+    or is exposed by a global skill.
+    """
+    if not agent_name or agent_name.lower() in ("system", "orchestrator", "panel system"):
+        return True
+
+    try:
+        from skills import skill_registry
+
+        # 1. Check if tool is global across all skills
+        for s_def in skill_registry.list_skills():
+            if getattr(s_def, "is_global", False) and tool_name in getattr(s_def, "tools", []):
+                return True
+
+        # 2. Check agent's assigned skills
+        from orchestration.agent_settings import get_agent_skills
+
+        agent_skills = get_agent_skills(agent_name)
+        if not agent_skills:
+            return False
+
+        permitted_tools: set[str] = set()
+        for s_name in agent_skills:
+            s_def = skill_registry.get(s_name)
+            if s_def and hasattr(s_def, "tools"):
+                permitted_tools.update(s_def.tools)
+
+        return tool_name in permitted_tools
+    except Exception as e:
+        logger.warning(f"[MCP] Error verifying tool authorization for agent '{agent_name}': {e}")
+        return False
+
+
+def execute_mcp_tool(
+    tool_name: str,
+    arguments: dict[str, Any] | None = None,
+    agent_name: str = "",
+) -> str:
     """
     Executes a requested native MCP tool via dispatcher dictionary and returns the JSON string result.
+    Enforces agent tool authorization when agent_name is specified (defense-in-depth).
     """
     logger.info(f"Executing MCP tool: {tool_name} with args: {arguments} (agent: {agent_name})")
+
+    if agent_name and not is_agent_authorized_for_tool(agent_name, tool_name):
+        logger.warning(
+            f"[MCP] Access denied: Agent '{agent_name}' is not authorized to execute tool '{tool_name}'."
+        )
+        return json.dumps({
+            "error": f"Permission denied: Agent '{agent_name}' is not authorized to execute tool '{tool_name}'."
+        })
+
     handler = TOOL_DISPATCHER.get(tool_name)
     if handler:
         try:
@@ -519,3 +570,4 @@ def execute_mcp_tool(tool_name: str, arguments: dict[str, Any] | None = None, ag
             logger.error(f"[MCP] Error executing tool {tool_name}: {e}")
             return json.dumps({"error": f"Tool execution error: {e}"})
     return json.dumps({"error": f"Unknown tool: {tool_name}"})
+

@@ -178,8 +178,8 @@ async def test_slack_interactivity_model_change():
 
     orig_model = AGENTS_CONFIG["Visionary"].get("model")
     try:
-        with patch("main.verify_slack_signature", return_value=True), \
-             patch("main.publish_app_home", new_callable=AsyncMock) as mock_publish:
+        with patch("adapters.slack.interactivity.verify_slack_signature", return_value=True), \
+             patch("adapters.slack.interactivity.publish_app_home", new_callable=AsyncMock) as mock_publish:
             resp = client.post("/slack/actions", json=payload)
             assert resp.status_code == 200
             assert mock_publish.called

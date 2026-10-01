@@ -40,12 +40,17 @@ def verify_slack_signature(body_bytes: bytes, headers: dict) -> bool:
         logger.error("Invalid Slack request timestamp header.")
         return False
 
-    sig_basestring = f"v0:{timestamp}:{body_bytes.decode('utf-8')}"
+    sig_basestring = (
+        b"v0:"
+        + str(timestamp).encode("utf-8")
+        + b":"
+        + (body_bytes if isinstance(body_bytes, bytes) else str(body_bytes).encode("utf-8"))
+    )
     my_signature = (
         "v0="
         + hmac.new(
             signing_secret.encode("utf-8"),
-            sig_basestring.encode("utf-8"),
+            sig_basestring,
             hashlib.sha256,
         ).hexdigest()
     )

@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -58,6 +59,7 @@ class AgentSettingsManager:
         self.default_backup_file = backup_file or BACKUP_FILE
         self.locked_agents = set(locked_agents or set())
         self.backup_interval_seconds = backup_interval_seconds
+        self._save_lock = threading.RLock()
 
         from orchestration.workflow_manager import WorkflowManager, workflow_manager
         if workflows_dir is not None:
@@ -632,30 +634,31 @@ class AgentSettingsManager:
         Restores the active settings file by copying the emergency backup over it.
         Resets emergency backup mode upon successful load.
         """
-        backup_file = self.active_backup_file
-        target_file = self.active_settings_file
+        with self._save_lock:
+            backup_file = self.active_backup_file
+            target_file = self.active_settings_file
 
-        if not backup_file.exists():
-            logger.error(f"[SETTINGS] Cannot restore: emergency backup file '{backup_file}' does not exist.")
-            return False
-
-        try:
-            with open(backup_file, "r", encoding="utf-8") as f:
-                backup_data = json.load(f)
-
-            if not self._parse_and_validate_payload(backup_data, backup_file.name):
-                logger.error("[SETTINGS] Emergency backup data failed validation. Restore aborted.")
+            if not backup_file.exists():
+                logger.error(f"[SETTINGS] Cannot restore: emergency backup file '{backup_file}' does not exist.")
                 return False
 
-            self._atomic_write_json(target_file, backup_data)
-            self.is_running_from_backup = False
-            self.backup_error_reason = None
-            self.load()
-            logger.info(f"[SETTINGS] Successfully restored active settings file from {backup_file.name}.")
-            return True
-        except (OSError, json.JSONDecodeError, TypeError, ValueError) as e:
-            logger.error(f"[SETTINGS] Error executing restore from backup: {e}")
-            return False
+            try:
+                with open(backup_file, "r", encoding="utf-8") as f:
+                    backup_data = json.load(f)
+
+                if not self._parse_and_validate_payload(backup_data, backup_file.name):
+                    logger.error("[SETTINGS] Emergency backup data failed validation. Restore aborted.")
+                    return False
+
+                self._atomic_write_json(target_file, backup_data)
+                self.is_running_from_backup = False
+                self.backup_error_reason = None
+                self.load()
+                logger.info(f"[SETTINGS] Successfully restored active settings file from {backup_file.name}.")
+                return True
+            except (OSError, json.JSONDecodeError, TypeError, ValueError) as e:
+                logger.error(f"[SETTINGS] Error executing restore from backup: {e}")
+                return False
 
     def save(self) -> None:
         """
@@ -664,45 +667,46 @@ class AgentSettingsManager:
         Does NOT embed workflow details (chains), keeping workflow files as SSOT.
         Resets emergency backup mode once active file is successfully saved.
         """
-        target_file = self.active_settings_file
-        try:
-            wf_ref = self.workflow_config or self.active_workflow_id
-            data = {
-                "workflow_config": wf_ref,
-                "enabled_agents": sorted(self.enabled_agents),
-                "agents": {
-                    k: {
-                        "model": v.get("model", ""),
-                        "username": v.get("username", k),
-                        "icon_url": v.get("icon_url", ""),
-                        "is_short_output": bool(v.get("is_short_output", False)),
-                        "skills": list(v.get("skills", [])),
-                    }
-                    for k, v in self.agents_config.items()
-                },
-                "orchestrator": {
-                    "fast_model": self.get_orchestrator_fast_model(),
-                    "reasoning_model": self.get_orchestrator_reasoning_model(),
-                    "username": self.orchestrator_config.get("username", "Orchestrator"),
-                    "icon_url": self.orchestrator_config.get("icon_url", "static/image_30.png"),
-                },
-            }
-            self._atomic_write_json(target_file, data)
-            self.is_running_from_backup = False
-            self.backup_error_reason = None
+        with self._save_lock:
+            target_file = self.active_settings_file
             try:
-                self._last_loaded_mtime = target_file.stat().st_mtime
-            except OSError as e:
-                logger.debug(f"[SETTINGS] Error checking settings file mtime: {e}")
-            logger.info(
-                f"[SETTINGS] Saved settings ({len(self.enabled_agents)} enabled agents, "
-                f"workflow_config='{wf_ref}', "
-                f"circuit_breaker={self.circuit_breaker_enabled}, "
-                f"threshold=${self.circuit_breaker_threshold_usd:.2f}) to {target_file.name}"
-            )
-            self.check_and_update_backup()
-        except (OSError, TypeError, ValueError) as e:
-            logger.error(f"[SETTINGS] Error saving agent settings: {e}")
+                wf_ref = self.workflow_config or self.active_workflow_id
+                data = {
+                    "workflow_config": wf_ref,
+                    "enabled_agents": sorted(self.enabled_agents),
+                    "agents": {
+                        k: {
+                            "model": v.get("model", ""),
+                            "username": v.get("username", k),
+                            "icon_url": v.get("icon_url", ""),
+                            "is_short_output": bool(v.get("is_short_output", False)),
+                            "skills": list(v.get("skills", [])),
+                        }
+                        for k, v in self.agents_config.items()
+                    },
+                    "orchestrator": {
+                        "fast_model": self.get_orchestrator_fast_model(),
+                        "reasoning_model": self.get_orchestrator_reasoning_model(),
+                        "username": self.orchestrator_config.get("username", "Orchestrator"),
+                        "icon_url": self.orchestrator_config.get("icon_url", "static/image_30.png"),
+                    },
+                }
+                self._atomic_write_json(target_file, data)
+                self.is_running_from_backup = False
+                self.backup_error_reason = None
+                try:
+                    self._last_loaded_mtime = target_file.stat().st_mtime
+                except OSError as e:
+                    logger.debug(f"[SETTINGS] Error checking settings file mtime: {e}")
+                logger.info(
+                    f"[SETTINGS] Saved settings ({len(self.enabled_agents)} enabled agents, "
+                    f"workflow_config='{wf_ref}', "
+                    f"circuit_breaker={self.circuit_breaker_enabled}, "
+                    f"threshold=${self.circuit_breaker_threshold_usd:.2f}) to {target_file.name}"
+                )
+                self.check_and_update_backup()
+            except (OSError, TypeError, ValueError) as e:
+                logger.error(f"[SETTINGS] Error saving agent settings: {e}")
 
     def sync_if_modified(self) -> bool:
         """

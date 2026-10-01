@@ -70,6 +70,11 @@ async def periodic_thread_state_cleanup():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    if not ADMIN_PASSWORD:
+        logger.warning(
+            "[SECURITY] ADMIN_PASSWORD is not configured in environment/.env. "
+            "Protected admin endpoints (/api/*) will reject all requests."
+        )
     enabled = load_enabled_agents()
     logger.info(f"[STARTUP] Loaded {len(enabled)} enabled debate agents from persistent storage.")
     loop_task = asyncio.create_task(keep_loop_alive()) if sys.platform == "win32" else None

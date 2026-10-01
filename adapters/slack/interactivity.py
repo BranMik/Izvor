@@ -11,9 +11,7 @@ from starlette.requests import ClientDisconnect
 from agents.thread_notes_agent import get_thread_note_content
 from core.config import AGENTS_CONFIG
 from core.models import OrchestrationMode
-from core.slack_security import (
-    verify_slack_signature as _default_verify_slack_signature,
-)
+from core.slack_security import verify_slack_signature
 from orchestration.agent_settings import (
     apply_workflow,
     get_active_workflow_id,
@@ -44,10 +42,8 @@ from orchestration.workflow_manager import (
 from services.slack_client import (
     open_dm_channel,
     post_ephemeral_to_slack,
+    publish_app_home,
     upload_text_file_to_slack,
-)
-from services.slack_client import (
-    publish_app_home as _default_publish_app_home,
 )
 
 logger = logging.getLogger("CaiLogicsBackend.SlackInteractivity")
@@ -91,24 +87,10 @@ async def _handle_scribe_download(
         logger.error(f"[INTERACTIVITY] Error delivering scribe download to {user_id}: {e}")
 
 
-def _verify_signature(body: bytes, headers: Any) -> bool:
-    main_mod = sys.modules.get("main")
-    if main_mod and hasattr(main_mod, "verify_slack_signature"):
-        return main_mod.verify_slack_signature(body, headers)
-    return _default_verify_slack_signature(body, headers)
-
-
-async def _publish_home(user_id: str) -> Any:
-    sync_settings_if_modified()
-    main_mod = sys.modules.get("main")
-    if main_mod and hasattr(main_mod, "publish_app_home"):
-        return await main_mod.publish_app_home(user_id=user_id)
-    return await _default_publish_app_home(user_id=user_id)
-
-
 async def _safe_publish_home(user_id: str) -> None:
     try:
-        await _publish_home(user_id=user_id)
+        sync_settings_if_modified()
+        await publish_app_home(user_id=user_id)
     except SlackApiError as e:
         logger.error(f"[INTERACTIVITY] SlackApiError publishing App Home for {user_id}: {e}")
     except Exception as e:  # noqa: BLE001 - Interactivity handler isolates app home publishing failure
@@ -126,7 +108,7 @@ async def handle_slack_interactivity(request: Request, background_tasks: Backgro
         logger.info("Slack client disconnected before interactivity body could be read.")
         return Response(status_code=200)
 
-    if not _verify_signature(body_bytes, headers):
+    if not verify_slack_signature(body_bytes, headers):
         logger.warning("Rejected unauthorized request to /slack/actions")
         raise HTTPException(status_code=401, detail="Invalid Slack signature")
 
