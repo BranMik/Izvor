@@ -1,49 +1,19 @@
 {
   "threads": {
-    "C0BQGUCKVPE:1789568445.947649": {
-      "skills": [
-        "document_reader"
-      ],
-      "granted_at": 1789585735.2195585
-    },
-    "C0BQGUCKVPE:1789719042.214539": {
-      "skills": [
-        "document_reader"
-      ],
-      "granted_at": 1789719195.985237
-    },
-    "C0BQGUCKVPE:1789756473.588829": {
-      "skills": [
-        "document_reader"
-      ],
-      "granted_at": 1789757068.3792167
-    },
-    "C0BQGUCKVPE:1789757836.713629": {
-      "skills": [
-        "document_reader"
-      ],
-      "granted_at": 1789757890.6049142
-    },
     "C_TEST:1726000000.1": {
       "skills": [
         "web_research"
       ],
-      "granted_at": 1790892902.6674402
+      "granted_at": 1790929272.240561
     },
     "C_TEST:1726000000.2": {
       "skills": [
         "web_research"
       ],
-      "granted_at": 1790892903.0716753
+      "granted_at": 1790929272.579082
     },
     "C_TEST:1726000000.3": {
       "agent_skills": {
-        "SecuritySecurity Architect": {
-          "skills": [
-            "web_research"
-          ],
-          "granted_at": 1790102661.0910563
-        },
         "SecurityArchitect": {
           "skills": [
             "web_research"
@@ -54,109 +24,9 @@
           "skills": [
             "web_research"
           ],
-          "granted_at": 1790892903.4275453
+          "granted_at": 1790929272.9088533
         }
       }
-    },
-    "C_TEST_18:1700000074.0000": {
-      "agent_skills": {
-        "SecuritySecurity Architect": {
-          "skills": [
-            "web_research"
-          ],
-          "granted_at": 1789988429.9485538
-        }
-      }
-    },
-    "C_TEST_19:1700000076.0000": {
-      "skills": [
-        "web_research"
-      ],
-      "granted_at": 1789988429.985644
-    },
-    "C_TEST_18:1700000041.0000": {
-      "agent_skills": {
-        "SecuritySecurity Architect": {
-          "skills": [
-            "web_research"
-          ],
-          "granted_at": 1789983673.339894
-        }
-      }
-    },
-    "C_TEST_19:1700000043.0000": {
-      "skills": [
-        "web_research"
-      ],
-      "granted_at": 1789983673.370706
-    },
-    "C_TEST_18:1700000073.0000": {
-      "agent_skills": {
-        "SecuritySecurity Architect": {
-          "skills": [
-            "web_research"
-          ],
-          "granted_at": 1789988711.5228534
-        }
-      }
-    },
-    "C_TEST_19:1700000075.0000": {
-      "skills": [
-        "web_research"
-      ],
-      "granted_at": 1789988711.563014
-    },
-    "C0123456789:1790005548.850049": {
-      "agent_skills": {
-        "SecuritySecurity Architect": {
-          "skills": [
-            "web_research"
-          ],
-          "granted_at": 1790005549.1103268
-        }
-      }
-    },
-    "C0123456789:1790005550.992329": {
-      "skills": [
-        "web_research"
-      ],
-      "granted_at": 1790005551.113967
-    },
-    "C_TEST_18:1700000001.0000": {
-      "agent_skills": {
-        "SecuritySecurity Architect": {
-          "skills": [
-            "web_research"
-          ],
-          "granted_at": 1790011440.1956053
-        }
-      },
-      "skills": [
-        "web_research"
-      ],
-      "granted_at": 1790020420.4286406
-    },
-    "C0123456789:1790024092.148269": {
-      "agent_skills": {
-        "SecuritySecurity Architect": {
-          "skills": [
-            "web_research"
-          ],
-          "granted_at": 1790024092.5028324
-        }
-      }
-    },
-    "C0123456789:1790024093.874229": {
-      "skills": [
-        "web_research"
-      ],
-      "granted_at": 1790024094.2142477
-    },
-    "C0BQGUCKVPE:1790330041.784259": {
-      "skills": [
-        "document_reader"
-      ],
-      "granted_at": 1790330091.2435315
     }
   }
 }
