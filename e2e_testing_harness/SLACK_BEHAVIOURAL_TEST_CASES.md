@@ -37,7 +37,7 @@ python -m e2e_testing_harness.runner --live-slack --channel C0123456789 --hybrid
 | # | Category | Test Case Title | Primary Persona / Feature |
 |---|---|---|---|
 | **01** | Core Deliberation | Direct Single Persona Invocation | `[Visionary]` |
-| **02** | Core Deliberation | Multi-Persona Handoff & Tagging | `[SecuritySecurity Architect]` `[LegalAdvisor]` |
+| **02** | Core Deliberation | Multi-Persona Handoff & Tagging | `[Security Architect]` `[LegalAdvisor]` |
 | **03** | Core Deliberation | Autonomous Middle-Pool Peer Nomination | Sandwich Topology Middle Pool |
 | **04** | Directives & Limits | Maximum Word Count Enforcement | `/max_words 50` |
 | **05** | Directives & Limits | Minimum Word Count Floor | `/min_words 150` |
@@ -45,15 +45,15 @@ python -m e2e_testing_harness.runner --live-slack --channel C0123456789 --hybrid
 | **07** | Directives & Limits | Scribe Minimum Word Count | `/scribe_min_words 30` |
 | **08** | Directives & Limits | History Window Slicing | `/history 2` |
 | **09** | Directives & Limits | Agent Exclusion Directive | `/exclude [Sceptic]` |
-| **10** | Directives & Limits | Forced Agent Inclusion | `/include [SecuritySecuritySecurity Architect]` |
+| **10** | Directives & Limits | Forced Agent Inclusion | `/include [Security Architect]` |
 | **11** | Directives & Limits | Thread Constraint Revocation | `/revoke max_words` & `/revoke all` |
 | **12** | Debate Control | Multi-Round Debate Cycling | `/rounds 2` |
 | **13** | Skills: Web Research | Live Web Search & Citation | `[MarketAndCompetitionResearchExpert]` |
 | **14** | Skills: Codebase Inspection | Directory Exploration & Source Inspection | `[LegalAdvisor]` |
 | **15** | Skills: Doc Authoring | Document Drafting in `resources/e2e_testing/` | `[ROIStrategist]` |
-| **16** | Skills: Doc Reader | Document Reading from `resources/e2e_testing/` | `[SecuritySecurity Architect]` |
+| **16** | Skills: Doc Reader | Document Reading from `resources/e2e_testing/` | `[Security Architect]` |
 | **17** | Skills: Governance | Unauthorized Skill Access Rejection | `[Visionary]` (No tools allowed) |
-| **18** | Dynamic Permissions | Granular Agent Skill Grant | `/grant_skill web_research [SecuritySecurity Architect]` |
+| **18** | Dynamic Permissions | Granular Agent Skill Grant | `/grant_skill web_research [Security Architect]` |
 | **19** | Dynamic Permissions | Thread-Global Skill Grant | `/grant_for_all web_research` |
 | **20** | Dynamic Permissions | Thread-Global Skill Revocation | `/revoke_for_all web_research` |
 | **21** | Skills Directory | Skills & Agent Authorization Query | `/list_skills` |
@@ -91,13 +91,13 @@ python -m e2e_testing_harness.runner --live-slack --channel C0123456789 --hybrid
 ### TC-02: Multi-Persona Handoff & Tagging
 - **Category**: Core Deliberation & Persona Routing
 - **Objective**: Verify that tagging multiple agents in a single prompt triggers an ordered chain where each tagged agent delivers their response sequentially.
-- **Preconditions**: Both `SecuritySecurity Architect` and `LegalAdvisor` are enabled in App Home.
+- **Preconditions**: Both `Security Architect` and `LegalAdvisor` are enabled in App Home.
 - **Slack Input Prompt**:
   ```text
-  @BotName [SecuritySecurity Architect] [LegalAdvisor] We need to migrate our synchronous REST ingestion pipeline to an event-driven architecture using Kafka or Redpanda. What are the key architectural decisions and technical implementation pitfalls?
+  @BotName [Security Architect] [LegalAdvisor] We need to migrate our synchronous REST ingestion pipeline to an event-driven architecture using Kafka or Redpanda. What are the key architectural decisions and technical implementation pitfalls?
   ```
 - **Expected Behaviour**:
-  1. **SecuritySecurity Architect** speaks first, focusing on high-level system boundaries, data flow, and trade-offs.
+  1. **Security Architect** speaks first, focusing on high-level system boundaries, data flow, and trade-offs.
   2. A natural pacing delay (default ~3 seconds) occurs.
   3. **LegalAdvisor** speaks second in the thread, diving into partitioning strategies, concurrency, dead-letter queues, and operational maintenance.
   4. Discussion halts cleanly after both tagged agents have responded.
@@ -115,7 +115,7 @@ python -m e2e_testing_harness.runner --live-slack --channel C0123456789 --hybrid
   ```
 - **Expected Behaviour**:
   1. **Innovator** posts an ambitious recommendation in favor of new technologies.
-  2. Innovator's response includes a peer nomination tag (e.g., `[Sceptic]` or `[SecuritySecurity Architect]`).
+  2. Innovator's response includes a peer nomination tag (e.g., `[Sceptic]` or `[Security Architect]`).
   3. The backend router resolves the nominated tag and dispatches the turn to the nominated agent.
   4. The nominated agent picks up the context and directly addresses Innovator's points.
 - **Pass Criteria**: At least 2-3 agents participate in thread deliberation sequentially via natural nominations without user re-prompting.
@@ -144,10 +144,10 @@ python -m e2e_testing_harness.runner --live-slack --channel C0123456789 --hybrid
 - **Preconditions**: None.
 - **Slack Input Prompt**:
   ```text
-  @BotName [SecuritySecuritySecurity Architect] /min_words 150 Detail our threat model considerations when exposing internal webhooks to third-party SaaS vendors.
+  @BotName [Security Architect] /min_words 150 Detail our threat model considerations when exposing internal webhooks to third-party SaaS vendors.
   ```
 - **Expected Behaviour**:
-  1. **SecuritySecuritySecurity Architect** produces an exhaustive analysis covering authentication (HMAC), TLS termination, replay attacks, rate limiting, and egress filtering.
+  1. **Security Architect** produces an exhaustive analysis covering authentication (HMAC), TLS termination, replay attacks, rate limiting, and egress filtering.
   2. The response content exceeds 150 words.
 - **Pass Criteria**: Response length >= 150 words.
 
@@ -161,10 +161,10 @@ python -m e2e_testing_harness.runner --live-slack --channel C0123456789 --hybrid
 - **Preconditions**: ThreadNotesAgent enabled.
 - **Slack Input Prompt**:
   ```text
-  @BotName [SecuritySecurity Architect] /scribe_max_words 60 Evaluate event-driven architectures with high throughput Kafka clusters.
+  @BotName [Security Architect] /scribe_max_words 60 Evaluate event-driven architectures with high throughput Kafka clusters.
   ```
 - **Expected Behaviour**:
-  1. SecuritySecurity Architect delivers a standard technical overview.
+  1. Security Architect delivers a standard technical overview.
   2. The background ThreadNotesAgent produces a concise strategic executive summary strictly adhering to the 60-word ceiling.
   3. The limit is persisted in the thread context store for future turns in this thread.
 - **Pass Criteria**: Synthesis output in ThreadNotes strictly conforms to <= 60 words.
@@ -177,10 +177,10 @@ python -m e2e_testing_harness.runner --live-slack --channel C0123456789 --hybrid
 - **Preconditions**: ThreadNotesAgent enabled.
 - **Slack Input Prompt**:
   ```text
-  @BotName [SecuritySecurity Architect] /scribe_min_words 40 Detail replay guarantees, partition offsets, and consumer group rebalancing.
+  @BotName [Security Architect] /scribe_min_words 40 Detail replay guarantees, partition offsets, and consumer group rebalancing.
   ```
 - **Expected Behaviour**:
-  1. SecuritySecurity Architect responds to the prompt.
+  1. Security Architect responds to the prompt.
   2. The scribe synthesis card expands with thorough bullet points meeting or exceeding 40 words.
 - **Pass Criteria**: Scribe note length >= 40 words.
 
@@ -193,8 +193,8 @@ python -m e2e_testing_harness.runner --live-slack --channel C0123456789 --hybrid
 - **Slack Input Prompt**:
   *Prior turns (Turns 1-4)*:
   - Turn 1: `@BotName [LegalAdvisor] /max_words 10 Explain step 1 of database indexing.`
-  - Turn 2: `@BotName [SecuritySecurity Architect] /max_words 10 Explain step 2 of sharding.`
-  - Turn 3: `@BotName [SecuritySecuritySecurity Architect] /max_words 10 Explain step 3 of encryption.`
+  - Turn 2: `@BotName [Security Architect] /max_words 10 Explain step 2 of sharding.`
+  - Turn 3: `@BotName [Security Architect] /max_words 10 Explain step 3 of encryption.`
   - Turn 4: `@BotName [SalesAdvisor] /max_words 10 Explain step 4 of load testing.`
   *Turn 5 (Directive)*:
   ```text
@@ -211,7 +211,7 @@ python -m e2e_testing_harness.runner --live-slack --channel C0123456789 --hybrid
 ### TC-09: Agent Exclusion Directive (`/exclude`)
 - **Category**: Routing Governance
 - **Objective**: Verify that `/exclude [Agent]` prevents the specified agent (e.g., `[Innovator]`) from being selected or nominated during deliberation on an untagged default review flow.
-- **Preconditions**: Default review flow active (`start_chain`: `["Visionary", "Innovator"]`, `end_chain`: `["SecuritySecurity Architect"]`).
+- **Preconditions**: Default review flow active (`start_chain`: `["Visionary", "Innovator"]`, `end_chain`: `["Security Architect"]`).
 - **Slack Input Prompt**:
   ```text
   @BotName /exclude [Innovator] /max_words 10 Evaluate our distributed consensus and deployment strategy.
@@ -248,14 +248,14 @@ python -m e2e_testing_harness.runner --live-slack --channel C0123456789 --hybrid
 - **Preconditions**: Active panel.
 - **Slack Input Prompt**:
   ```text
-  @BotName [SecuritySecurity Architect] [LegalAdvisor] /rounds 2 Debate the pros and cons of Monorepo (via Nx/Turborepo) vs Polyrepo for our 50-engineer engineering department.
+  @BotName [Security Architect] [LegalAdvisor] /rounds 2 Debate the pros and cons of Monorepo (via Nx/Turborepo) vs Polyrepo for our 50-engineer engineering department.
   ```
 - **Expected Behaviour**:
-  1. **Round 1**: SecuritySecurity Architect speaks, followed by LegalAdvisor.
+  1. **Round 1**: Security Architect speaks, followed by LegalAdvisor.
   2. The system detects rounds remaining (`active_rounds = 2`), decrements to 1, and re-triggers the debate loop.
-  3. **Round 2**: SecuritySecurity Architect rebuts LegalAdvisor's points; LegalAdvisor offers closing technical recommendations.
+  3. **Round 2**: Security Architect rebuts LegalAdvisor's points; LegalAdvisor offers closing technical recommendations.
   4. Panel concludes cleanly after Round 2 completes.
-- **Pass Criteria**: Both SecuritySecurity Architect and LegalAdvisor post twice in alternating sequence (total of 4 agent turns).
+- **Pass Criteria**: Both Security Architect and LegalAdvisor post twice in alternating sequence (total of 4 agent turns).
 
 ---
 
@@ -314,28 +314,28 @@ python -m e2e_testing_harness.runner --live-slack --channel C0123456789 --hybrid
 - **Preconditions**: File `resources/e2e_testing/sys_spec.txt` exists on disk with system throughput and latency metrics.
 - **Slack Input Prompt**:
   ```text
-  @BotName [SecuritySecurity Architect] /read_file resources/e2e_testing/sys_spec.txt What is the throughput specified in this file?
+  @BotName [Security Architect] /read_file resources/e2e_testing/sys_spec.txt What is the throughput specified in this file?
   ```
 - **Expected Behaviour**:
-  1. SecuritySecurity Architect requests `document_reader` via `load_skill`.
-  2. SecuritySecurity Architect calls `read_document(rel_path="resources/e2e_testing/sys_spec.txt")`.
-  3. SecuritySecurity Architect parses the file and answers with the target throughput (`5000 rps`).
-- **Pass Criteria**: SecuritySecurity Architect accurately cites `5000 rps` from `resources/e2e_testing/sys_spec.txt`.
+  1. Security Architect requests `document_reader` via `load_skill`.
+  2. Security Architect calls `read_document(rel_path="resources/e2e_testing/sys_spec.txt")`.
+  3. Security Architect parses the file and answers with the target throughput (`5000 rps`).
+- **Pass Criteria**: Security Architect accurately cites `5000 rps` from `resources/e2e_testing/sys_spec.txt`.
 
 ---
 
 ### TC-16: Skills: Unauthorized Skill Access Rejection
 - **Category**: Security & Sandbox Boundary
 - **Objective**: Verify that attempting to load or execute an unauthorized skill fails with a strict permission denial.
-- **Preconditions**: `SecuritySecurity Architect` has `skills: ["codebase_inspection", "document_reader"]` but not `workspace_authoring`.
+- **Preconditions**: `Security Architect` has `skills: ["codebase_inspection", "document_reader"]` but not `workspace_authoring`.
 - **Slack Input Prompt**:
   ```text
-  @BotName [SecuritySecurity Architect] Use load_skill workspace_authoring to modify system configuration.
+  @BotName [Security Architect] Use load_skill workspace_authoring to modify system configuration.
   ```
 - **Expected Behaviour**:
-  1. SecuritySecurity Architect invokes `load_skill(skill_name="workspace_authoring")`.
+  1. Security Architect invokes `load_skill(skill_name="workspace_authoring")`.
   2. `skill_registry.execute_tool` evaluates authorization and returns `Permission denied: Agent is not authorized to load skill 'workspace_authoring'`.
-  3. SecuritySecurity Architect reports the authorization denial directly to the user.
+  3. Security Architect reports the authorization denial directly to the user.
 - **Pass Criteria**: Permission denial returned from runtime skill registry; unauthorized tool access blocked.
 
 ---
@@ -343,19 +343,19 @@ python -m e2e_testing_harness.runner --live-slack --channel C0123456789 --hybrid
 ### TC-17: Dynamic Permissions: Granular Agent Skill Grant (`/grant_skill`)
 - **Category**: Runtime Permissions
 - **Objective**: Verify that `/grant_skill` dynamically unlocks a tool for an agent that previously lacked it, scoped to the thread.
-- **Preconditions**: `SecuritySecurity Architect` initially lacks `web_research`.
+- **Preconditions**: `Security Architect` initially lacks `web_research`.
 - **Slack Input Prompt**:
   ```text
-  @BotName /grant_skill web_research [SecuritySecurity Architect]
+  @BotName /grant_skill web_research [Security Architect]
   ```
   *(Follow-up prompt in same thread)*:
   ```text
-  @BotName [SecuritySecurity Architect] Now search the web for the latest updates on Python 3.14 release candidate features and cite what you find.
+  @BotName [Security Architect] Now search the web for the latest updates on Python 3.14 release candidate features and cite what you find.
   ```
 - **Expected Behaviour**:
-  1. System posts: `🎯 *Agent Skill Granted* - Granted web_research to SecuritySecurity Architect in this thread for X hours.`
+  1. System posts: `🎯 *Agent Skill Granted* - Granted web_research to Security Architect in this thread for X hours.`
   2. Command is strictly exclusive: halts immediately without triggering an agent debate on itself.
-  3. On the follow-up prompt, `SecuritySecurity Architect` dynamically receives the `web_research` skill and executes `web_search`.
+  3. On the follow-up prompt, `Security Architect` dynamically receives the `web_research` skill and executes `web_search`.
 - **Pass Criteria**: System confirmation posted; command halts cleanly without triggering agent turn.
 
 ---
@@ -439,7 +439,7 @@ python -m e2e_testing_harness.runner --live-slack --channel C0123456789 --hybrid
 - **Preconditions**: Discussion Scribe enabled in App Home.
 - **Slack Input Prompt**:
   ```text
-  @BotName [SecuritySecurity Architect] [LegalAdvisor] /max_words 25 What is our strategy for container image vulnerability scanning in CI/CD?
+  @BotName [Security Architect] [LegalAdvisor] /max_words 25 What is our strategy for container image vulnerability scanning in CI/CD?
   ```
   *(After deliberation completes)*:
   - Locate the **Live Discussion Scribe** summary message card in the thread.
@@ -460,7 +460,7 @@ python -m e2e_testing_harness.runner --live-slack --channel C0123456789 --hybrid
 - **Preconditions**: In Slack App Home > Settings, toggle Circuit Breaker to `ON` and set an ultra-low threshold for testing purposes (e.g., `$0.005`).
 - **Slack Input Prompt**:
   ```text
-  @BotName [SecuritySecurity Architect] [LegalAdvisor] [Innovator] [Sceptic] Please write a 500-word comprehensive treatise on distributed consensus algorithms from Paxos to Raft to Byzantine Fault Tolerance.
+  @BotName [Security Architect] [LegalAdvisor] [Innovator] [Sceptic] Please write a 500-word comprehensive treatise on distributed consensus algorithms from Paxos to Raft to Byzantine Fault Tolerance.
   ```
 - **Expected Behaviour**:
   1. The first agent turn executes, consuming tokens and accruing monetary cost (e.g. ~$0.008).
@@ -480,7 +480,7 @@ python -m e2e_testing_harness.runner --live-slack --channel C0123456789 --hybrid
 - **Slack Input Prompt**:
   *(Run any multi-turn debate in any channel)*:
   ```text
-  @BotName [Visionary] [SecuritySecurity Architect] How will edge computing affect microservice deployment in 2026?
+  @BotName [Visionary] [Security Architect] How will edge computing affect microservice deployment in 2026?
   ```
 - **Verification Steps in `#cailogics-usage`**:
   1. Navigate to the `#cailogics-usage` Slack channel.
@@ -502,7 +502,7 @@ python -m e2e_testing_harness.runner --live-slack --channel C0123456789 --hybrid
 - **Preconditions**: Trigger a multi-turn or long debate.
 - **Slack Input Prompt 1**:
   ```text
-  @BotName [Innovator] [SecuritySecurity Architect] [LegalAdvisor] [Sceptic] Debate the viability of replacing SQL databases with blockchain for high-frequency inventory tracking.
+  @BotName [Innovator] [Security Architect] [LegalAdvisor] [Sceptic] Debate the viability of replacing SQL databases with blockchain for high-frequency inventory tracking.
   ```
   *(While Innovator is still responding or right after turn 1)*:
 - **Slack Input Prompt 2 (Interrupting)**:
@@ -524,7 +524,7 @@ python -m e2e_testing_harness.runner --live-slack --channel C0123456789 --hybrid
 
 ### TC-27: Default Workflow on Untagged Mention
 - **Category**: Multi-Agent Topology (Default Sandwich Review Flow)
-- **Objective**: Verify that when a user or tester posts a message without explicit agent bracket tags (`@BotName <prompt>`), the system applies the default review workflow (`Visionary` -> `Innovator` -> middle pool -> `SecuritySecurity Architect`).
+- **Objective**: Verify that when a user or tester posts a message without explicit agent bracket tags (`@BotName <prompt>`), the system applies the default review workflow (`Visionary` -> `Innovator` -> middle pool -> `Security Architect`).
 - **Preconditions**: Standard default settings active (no manual persona tagging).
 - **Slack Input Prompt**:
   ```text
@@ -534,7 +534,7 @@ python -m e2e_testing_harness.runner --live-slack --channel C0123456789 --hybrid
   1. Because no explicit persona tag is provided, the orchestrator defaults to the standard sandwich review flow.
   2. **Visionary** opens the review as the first agent in `start_chain`.
   3. **Visionary** nominates **Innovator** (`[Innovator]`).
-  4. Deliberation proceeds sequentially through the panel and concludes with **SecuritySecurity Architect** (`end_chain`).
+  4. Deliberation proceeds sequentially through the panel and concludes with **Security Architect** (`end_chain`).
 - **Pass Criteria**: Conversation starts with `Visionary`, delegates to `Innovator`, and chains through at least 2 distinct agents without manual intervention.
 
 ---
@@ -558,7 +558,7 @@ When executing these tests in your Slack workspace, copy this table to track res
 | Test ID | Scenario Description | Tested By | Date | Result (PASS/FAIL) | Notes / Anomalies |
 |---|---|---|---|---|---|
 | TC-01 | Single Persona (`[Visionary]`) | | | | |
-| TC-02 | Multi-Persona (`[SecuritySecurity Architect] [LegalAdvisor]`) | | | | |
+| TC-02 | Multi-Persona (`[Security Architect] [LegalAdvisor]`) | | | | |
 | TC-03 | Autonomous Peer Nomination | | | | |
 | TC-04 | Max Words Limit (`/max_words 50`) | | | | |
 | TC-05 | Min Words Floor (`/min_words 150`) | | | | |
@@ -573,7 +573,7 @@ When executing these tests in your Slack workspace, copy this table to track res
 | TC-14 | Document Authoring (`resources/e2e_testing/`) | | | | |
 | TC-15 | Document Reader (`resources/e2e_testing/sys_spec.txt`) | | | | |
 | TC-16 | Unauthorized Tool Rejection | | | | |
-| TC-17 | Granular Skill Grant (`/grant_skill web_research [SecuritySecurity Architect]`) | | | | |
+| TC-17 | Granular Skill Grant (`/grant_skill web_research [Security Architect]`) | | | | |
 | TC-18 | Thread-Global Skill Grant (`/grant_skill_for_all`) | | | | |
 | TC-19 | Thread-Global Skill Revocation (`/revoke_skill_for_all`) | | | | |
 | TC-20 | Directory Query (`/list_skills`) | | | | |

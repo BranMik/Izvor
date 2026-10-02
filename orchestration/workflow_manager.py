@@ -43,7 +43,7 @@ class WorkflowManager:
                     id="default_review_flow",
                     name="Default Review Workflow",
                     mode=OrchestrationMode.SANDWICH.value,
-                    description="Standard review flow applied when no explicit agent is tagged (Visionary -> Innovator -> ... -> SecuritySecurity Architect).",
+                    description="Standard review flow applied when no explicit agent is tagged (Visionary -> Innovator -> ... -> Security Architect).",
                     sandwich_config={
                         "start_chain": ["agent-10001", "agent-10002"],
                         "end_chain": ["agent-10008"],

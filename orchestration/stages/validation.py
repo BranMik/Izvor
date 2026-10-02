@@ -160,7 +160,7 @@ class ValidationStageMixin:
                 if not requested_skill and not requested_agents:
                     msg = (
                         "⚠️ *Missing Parameters*: Please specify a skill and at least one agent.\n"
-                        "_Example: `/grant_skill web_research SecuritySecurity Architect` or `/grant_skill [web_research] [SecuritySecurity Architect]`_"
+                        "_Example: `/grant_skill web_research Security Architect` or `/grant_skill [web_research] [Security Architect]`_"
                     )
                     await post_sys_msg(channel_id=ctx.channel_id, thread_ts=ctx.thread_ts, text=msg)
                     return {"ok": True, "halted": True, "action": "grant_skill"}
@@ -168,7 +168,7 @@ class ValidationStageMixin:
                 if not requested_skill:
                     msg = (
                         "⚠️ *Missing Skill*: Please specify a skill to grant.\n"
-                        "_Example: `/grant_skill web_research SecuritySecurity Architect`_"
+                        "_Example: `/grant_skill web_research Security Architect`_"
                     )
                     await post_sys_msg(channel_id=ctx.channel_id, thread_ts=ctx.thread_ts, text=msg)
                     return {"ok": True, "halted": True, "action": "grant_skill"}
@@ -176,7 +176,7 @@ class ValidationStageMixin:
                 if not requested_agents:
                     msg = (
                         f"⚠️ *Missing Agent*: Please specify at least one agent to grant `{requested_skill}` to.\n"
-                        f"_Example: `/grant_skill {requested_skill} SecuritySecurity Architect`_"
+                        f"_Example: `/grant_skill {requested_skill} Security Architect`_"
                     )
                     await post_sys_msg(channel_id=ctx.channel_id, thread_ts=ctx.thread_ts, text=msg)
                     return {"ok": True, "halted": True, "action": "grant_skill"}

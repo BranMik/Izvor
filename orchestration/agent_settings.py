@@ -348,7 +348,7 @@ class AgentSettingsManager:
                 except OSError as e:
                     logger.debug(f"[SETTINGS] Error checking workflow mtime: {e}")
         else:
-            # Complete fallback default when no preset is active (Visionary -> Innovator -> ... -> SecuritySecurity Architect)
+            # Complete fallback default when no preset is active (Visionary -> Innovator -> ... -> Security Architect)
             self.active_workflow_id = DEFAULT_WORKFLOW_ID
             self.workflow_config = DEFAULT_WORKFLOW_ID
             self.orchestration_mode = OrchestrationMode.SANDWICH.value

@@ -54,20 +54,24 @@ class MockModelResponse:
         prompt_tokens: int = 150,
         completion_tokens: int = 45,
     ) -> None:
-        self.choices = [
-            MockChoice(content=content, tool_calls=tool_calls)
-        ]
+        self.choices = [MockChoice(content=content, tool_calls=tool_calls)]
         self.model = model
-        self.usage = MockUsage(prompt_tokens=prompt_tokens, completion_tokens=completion_tokens)
+        self.usage = MockUsage(
+            prompt_tokens=prompt_tokens, completion_tokens=completion_tokens
+        )
 
 
 class MockChoice:
-    def __init__(self, content: str | None, tool_calls: list[Any] | None = None) -> None:
+    def __init__(
+        self, content: str | None, tool_calls: list[Any] | None = None
+    ) -> None:
         self.message = MockMessage(content=content, tool_calls=tool_calls)
 
 
 class MockMessage:
-    def __init__(self, content: str | None, tool_calls: list[Any] | None = None) -> None:
+    def __init__(
+        self, content: str | None, tool_calls: list[Any] | None = None
+    ) -> None:
         self.content = content
         self.tool_calls = tool_calls or []
         self.role = "assistant"
@@ -90,12 +94,16 @@ class MockMessage:
 
 
 class MockToolCall:
-    def __init__(self, call_id: str, name: str, arguments: dict[str, Any] | str) -> None:
+    def __init__(
+        self, call_id: str, name: str, arguments: dict[str, Any] | str
+    ) -> None:
         self.id = call_id
         self.type = "function"
         self.function = MagicMock()
         self.function.name = name
-        self.function.arguments = json.dumps(arguments) if isinstance(arguments, dict) else arguments
+        self.function.arguments = (
+            json.dumps(arguments) if isinstance(arguments, dict) else arguments
+        )
 
 
 class MockUsage:
@@ -131,8 +139,11 @@ class HybridInterceptor:
         except RuntimeError:
             # Event loop already running in current thread, create separate thread
             import concurrent.futures
+
             with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                future = executor.submit(asyncio.run, self.intercept_acompletion(*args, **kwargs))
+                future = executor.submit(
+                    asyncio.run, self.intercept_acompletion(*args, **kwargs)
+                )
                 return future.result()
 
     async def intercept_acompletion(
@@ -150,30 +161,40 @@ class HybridInterceptor:
 
         # 1. Identify System Agents (IntentExtractor, LanguageDetector)
         is_intent_extractor = any(
-            "intent, directive, and parameter extractor" in str(m.get("content", "")).lower()
-            for m in messages if m.get("role") == "system"
+            "intent, directive, and parameter extractor"
+            in str(m.get("content", "")).lower()
+            for m in messages
+            if m.get("role") == "system"
         )
         is_language_detector = any(
             "language classifier" in str(m.get("content", "")).lower()
             or "natural language" in str(m.get("content", "")).lower()
-            or "identify the primary natural language" in str(m.get("content", "")).lower()
-            or "identify the primary natural human language" in str(m.get("content", "")).lower()
-            for m in messages if m.get("role") == "system"
+            or "identify the primary natural language"
+            in str(m.get("content", "")).lower()
+            or "identify the primary natural human language"
+            in str(m.get("content", "")).lower()
+            for m in messages
+            if m.get("role") == "system"
         )
 
         is_scribe = any(
             "discussion scribe" in str(m.get("content", "")).lower()
             or "strategic synthesizer" in str(m.get("content", "")).lower()
-            for m in messages if m.get("role") == "system"
+            for m in messages
+            if m.get("role") == "system"
         )
 
         # Run Live LLM for System Agents if keys exist and live is allowed
-        if (is_intent_extractor or is_language_detector or is_scribe) and self.allow_live_system_llm:
+        if (
+            is_intent_extractor or is_language_detector or is_scribe
+        ) and self.allow_live_system_llm:
             try:
                 # Test if model is executable
                 return await self.real_acompletion(*args, **kwargs)
             except Exception as e:  # noqa: BLE001 - Hybrid interceptor falls back to mock extractor if live LLM fails
-                logger.warning(f"[HYBRID] Live system LLM failed ({e}), using deterministic extractor.")
+                logger.warning(
+                    f"[HYBRID] Live system LLM failed ({e}), using deterministic extractor."
+                )
 
         if is_scribe:
             sys_text = ""
@@ -182,8 +203,12 @@ class HybridInterceptor:
                     sys_text = str(m.get("content", ""))
                     break
 
-            max_words_m = re.search(r"NOT exceed\s*(\d+)\s*words", sys_text, re.IGNORECASE)
-            min_words_m = re.search(r"minimum length of\s*(\d+)\s*words", sys_text, re.IGNORECASE)
+            max_words_m = re.search(
+                r"NOT exceed\s*(\d+)\s*words", sys_text, re.IGNORECASE
+            )
+            min_words_m = re.search(
+                r"minimum length of\s*(\d+)\s*words", sys_text, re.IGNORECASE
+            )
             max_words = int(max_words_m.group(1)) if max_words_m else None
             min_words = int(min_words_m.group(1)) if min_words_m else None
 
@@ -201,7 +226,7 @@ class HybridInterceptor:
                     "🎯 *Core Objective & Problem Statement*\n"
                     "Analyze event sourcing replay guarantees, partition offsets, and consumer group rebalancing across high-throughput Kafka clusters.\n\n"
                     "💡 *Key Perspectives & Insights*\n"
-                    "• SecuritySecurity Architect emphasized partition offset retention, idempotency, and consumer rebalancing protocols.\n"
+                    "• Security Architect emphasized partition offset retention, idempotency, and consumer rebalancing protocols.\n"
                     "• Exactly-once semantics are required to prevent duplicate state mutations.\n\n"
                     "🚀 *Action Items & Next Steps*\n"
                     "• Configure automated consumer rebalancing tests."
@@ -226,16 +251,38 @@ class HybridInterceptor:
         if is_language_detector:
             # Deterministic language detection fallback
             from nlp.language_detector import clean_system_and_tags
+
             user_text = messages[-1].get("content", "") if messages else ""
             clean_user = clean_system_and_tags(user_text)
             croatian_words = [
-                "koji", "su", "kljucni", "ključni", "rizici", "rizik", "ako", "migriramo",
-                "rijeci", "riječi", "poruke", "sustav", "sustava", "servis", "servisa",
-                "tehnički", "tehnicki", "pristup", "stručnjak", "strucnjak", "bez", "prekini"
+                "koji",
+                "su",
+                "kljucni",
+                "ključni",
+                "rizici",
+                "rizik",
+                "ako",
+                "migriramo",
+                "rijeci",
+                "riječi",
+                "poruke",
+                "sustav",
+                "sustava",
+                "servis",
+                "servisa",
+                "tehnički",
+                "tehnicki",
+                "pristup",
+                "stručnjak",
+                "strucnjak",
+                "bez",
+                "prekini",
             ]
             has_croatian = any(w in clean_user.lower() for w in croatian_words)
             detected = "Croatian" if has_croatian else "English"
-            return MockModelResponse(content=detected, model=model, prompt_tokens=40, completion_tokens=5)
+            return MockModelResponse(
+                content=detected, model=model, prompt_tokens=40, completion_tokens=5
+            )
 
         if is_intent_extractor:
             # Deterministic intent extractor fallback
@@ -243,23 +290,42 @@ class HybridInterceptor:
             extracted_modifiers: dict[str, Any] = {}
             extracted_actions: list[dict[str, Any]] = []
 
-            m_words = re.search(r"(?:max|maksimalno)\s*(\d+)\s*(?:rije[cč]i|words)", user_text, re.IGNORECASE)
+            m_words = re.search(
+                r"(?:max|maksimalno)\s*(\d+)\s*(?:rije[cč]i|words)",
+                user_text,
+                re.IGNORECASE,
+            )
             if m_words:
                 extracted_modifiers["max_words"] = int(m_words.group(1))
 
-            min_words = re.search(r"(?:min|minimalno|barem)\s*(\d+)\s*(?:rije[cč]i|words)", user_text, re.IGNORECASE)
+            min_words = re.search(
+                r"(?:min|minimalno|barem)\s*(\d+)\s*(?:rije[cč]i|words)",
+                user_text,
+                re.IGNORECASE,
+            )
             if min_words:
                 extracted_modifiers["min_words"] = int(min_words.group(1))
 
-            hist = re.search(r"(?:zadnje|last)\s*(\d+)\s*(?:poruke|messages)", user_text, re.IGNORECASE)
+            hist = re.search(
+                r"(?:zadnje|last)\s*(\d+)\s*(?:poruke|messages)",
+                user_text,
+                re.IGNORECASE,
+            )
             if hist:
                 extracted_modifiers["history"] = int(hist.group(1))
 
-            content_json = json.dumps({
-                "modifiers": extracted_modifiers,
-                "actions": extracted_actions,
-            })
-            return MockModelResponse(content=content_json, model=model, prompt_tokens=80, completion_tokens=25)
+            content_json = json.dumps(
+                {
+                    "modifiers": extracted_modifiers,
+                    "actions": extracted_actions,
+                }
+            )
+            return MockModelResponse(
+                content=content_json,
+                model=model,
+                prompt_tokens=80,
+                completion_tokens=25,
+            )
 
         # 2. Agent Turn Execution: Tool reasoning vs Verbose discussion text
         last_message = messages[-1] if messages else {}
@@ -268,7 +334,7 @@ class HybridInterceptor:
 
         # Check if model should perform tool calls (progressive disclosure)
         has_tool_schemas = bool(tools)
-        has_tool_results = (last_role == "tool")
+        has_tool_results = last_role == "tool"
 
         # Did user request web search?
         user_prompt_str = ""
@@ -277,11 +343,42 @@ class HybridInterceptor:
                 user_prompt_str = str(m.get("content", ""))
                 break
 
-        needs_web_search = any(k in user_prompt_str.lower() for k in ["search the web", "pricing", "anthropic", "competitor", "web search", "vector"])
-        needs_codebase = any(k in user_prompt_str.lower() for k in ["inspect", "directory layout", "codebase", "turn_pipeline.py"])
-        needs_doc_authoring = any(k in user_prompt_str.lower() for k in ["draft", "business case", "save it as a document", "llm_cost_reduction_plan.md"])
-        needs_file_read = any(k in user_prompt_str.lower() for k in ["read_document", "sys_spec.txt", "read document", "throughput"])
-        needs_unauthorized_tool = any(k in user_prompt_str.lower() for k in ["load_skill workspace_authoring", "modify system configuration", "unauthorized"])
+        needs_web_search = any(
+            k in user_prompt_str.lower()
+            for k in [
+                "search the web",
+                "pricing",
+                "anthropic",
+                "competitor",
+                "web search",
+                "vector",
+            ]
+        )
+        needs_codebase = any(
+            k in user_prompt_str.lower()
+            for k in ["inspect", "directory layout", "codebase", "turn_pipeline.py"]
+        )
+        needs_doc_authoring = any(
+            k in user_prompt_str.lower()
+            for k in [
+                "draft",
+                "business case",
+                "save it as a document",
+                "llm_cost_reduction_plan.md",
+            ]
+        )
+        needs_file_read = any(
+            k in user_prompt_str.lower()
+            for k in ["read_document", "sys_spec.txt", "read document", "throughput"]
+        )
+        needs_unauthorized_tool = any(
+            k in user_prompt_str.lower()
+            for k in [
+                "load_skill workspace_authoring",
+                "modify system configuration",
+                "unauthorized",
+            ]
+        )
 
         # First turn of tool loop: trigger tool call
         if has_tool_schemas and not has_tool_results:
@@ -290,33 +387,61 @@ class HybridInterceptor:
             # Step A: Progressive disclosure load_skill
             if "load_skill" in tool_names:
                 if needs_unauthorized_tool:
-                    tc = MockToolCall("call_unauth", "load_skill", {"skill_name": "workspace_authoring"})
+                    tc = MockToolCall(
+                        "call_unauth",
+                        "load_skill",
+                        {"skill_name": "workspace_authoring"},
+                    )
                     return MockModelResponse(content=None, tool_calls=[tc], model=model)
                 elif needs_file_read:
-                    tc = MockToolCall("call_load_doc_reader", "load_skill", {"skill_name": "document_reader"})
+                    tc = MockToolCall(
+                        "call_load_doc_reader",
+                        "load_skill",
+                        {"skill_name": "document_reader"},
+                    )
                     return MockModelResponse(content=None, tool_calls=[tc], model=model)
                 elif needs_web_search:
-                    tc = MockToolCall("call_load_web", "load_skill", {"skill_name": "web_research"})
+                    tc = MockToolCall(
+                        "call_load_web", "load_skill", {"skill_name": "web_research"}
+                    )
                     return MockModelResponse(content=None, tool_calls=[tc], model=model)
                 elif needs_codebase:
-                    tc = MockToolCall("call_load_code", "load_skill", {"skill_name": "codebase_inspection"})
+                    tc = MockToolCall(
+                        "call_load_code",
+                        "load_skill",
+                        {"skill_name": "codebase_inspection"},
+                    )
                     return MockModelResponse(content=None, tool_calls=[tc], model=model)
                 elif needs_doc_authoring:
-                    tc = MockToolCall("call_load_doc", "load_skill", {"skill_name": "document_authoring"})
+                    tc = MockToolCall(
+                        "call_load_doc",
+                        "load_skill",
+                        {"skill_name": "document_authoring"},
+                    )
                     return MockModelResponse(content=None, tool_calls=[tc], model=model)
 
             # Step B: Low-level tool calling
             if "read_document" in tool_names and needs_file_read:
-                tc = MockToolCall("call_read_doc", "read_document", {"rel_path": "sys_spec.txt"})
+                tc = MockToolCall(
+                    "call_read_doc", "read_document", {"rel_path": "sys_spec.txt"}
+                )
                 return MockModelResponse(content=None, tool_calls=[tc], model=model)
 
             if "web_search" in tool_names and needs_web_search:
-                q = "vector databases" if "vector" in user_prompt_str.lower() else "Anthropic Claude pricing 2025"
+                q = (
+                    "vector databases"
+                    if "vector" in user_prompt_str.lower()
+                    else "Anthropic Claude pricing 2025"
+                )
                 tc = MockToolCall("call_web_search", "web_search", {"query": q})
                 return MockModelResponse(content=None, tool_calls=[tc], model=model)
 
             if "list_documents" in tool_names and needs_codebase:
-                tc = MockToolCall("call_list_dir", "list_documents", {"rel_path": "orchestration/stages"})
+                tc = MockToolCall(
+                    "call_list_dir",
+                    "list_documents",
+                    {"rel_path": "orchestration/stages"},
+                )
                 return MockModelResponse(content=None, tool_calls=[tc], model=model)
 
             if "write_document" in tool_names and needs_doc_authoring:
@@ -341,23 +466,38 @@ class HybridInterceptor:
         is_croatian = (
             "croatian" in system_content.lower()
             or "hrvatskom" in system_content.lower()
-            or any("strictly in croatian" in str(m.get("content", "")).lower() for m in messages)
+            or any(
+                "strictly in croatian" in str(m.get("content", "")).lower()
+                for m in messages
+            )
             or any("hrvatskom" in str(m.get("content", "")).lower() for m in messages)
         )
 
         # Check for word constraints in system prompt or messages
-        max_words_match = re.search(r"(?:MAXIMUM WORD COUNT|strictly NOT exceed|max_words).*?(\d+)", system_content, re.IGNORECASE)
+        max_words_match = re.search(
+            r"(?:MAXIMUM WORD COUNT|strictly NOT exceed|max_words).*?(\d+)",
+            system_content,
+            re.IGNORECASE,
+        )
         max_limit = int(max_words_match.group(1)) if max_words_match else None
 
-        min_words_match = re.search(r"(?:MINIMUM WORD COUNT|minimum length of|min_words).*?(\d+)", system_content, re.IGNORECASE)
+        min_words_match = re.search(
+            r"(?:MINIMUM WORD COUNT|minimum length of|min_words).*?(\d+)",
+            system_content,
+            re.IGNORECASE,
+        )
         min_limit = int(min_words_match.group(1)) if min_words_match else None
 
         if not min_limit:
-            u_min = re.search(r"/(?:scribe_)?min_words\s+(\d+)", user_prompt_str, re.IGNORECASE)
+            u_min = re.search(
+                r"/(?:scribe_)?min_words\s+(\d+)", user_prompt_str, re.IGNORECASE
+            )
             if u_min:
                 min_limit = int(u_min.group(1))
         if not max_limit:
-            u_max = re.search(r"/(?:scribe_)?max_words\s+(\d+)", user_prompt_str, re.IGNORECASE)
+            u_max = re.search(
+                r"/(?:scribe_)?max_words\s+(\d+)", user_prompt_str, re.IGNORECASE
+            )
             if u_max:
                 max_limit = int(u_max.group(1))
 
@@ -381,7 +521,9 @@ class HybridInterceptor:
                 f"Kao tehnički stručnjak, smatram da je modularni pristup temelj stabilnosti našeg sustava. "
                 f"Potrebno je osigurati odgovarajuću izolaciju servisa, definirati ugovore i pratiti latenciju.{nomination_tag}"
             )
-        elif ("Permission denied" in last_content or "not authorized" in last_content) and has_tool_results:
+        elif (
+            "Permission denied" in last_content or "not authorized" in last_content
+        ) and has_tool_results:
             base_text = (
                 f"I attempted to execute the action, but received an authorization error: {last_content}. "
                 f"I am not authorized to load the requested skill in this thread.{nomination_tag}"
@@ -450,11 +592,14 @@ async def mock_execute_mcp_tool(tool_name: str, arguments: dict[str, Any] | str)
         if "vector" in query:
             results = MOCK_WEB_SEARCH_FIXTURES["vector"]
         else:
-            results = MOCK_WEB_SEARCH_FIXTURES.get(query, MOCK_WEB_SEARCH_FIXTURES["default"])
+            results = MOCK_WEB_SEARCH_FIXTURES.get(
+                query, MOCK_WEB_SEARCH_FIXTURES["default"]
+            )
         return json.dumps({"results": results})
     elif tool_name == "fetch_web_page":
         return "Anthropic Claude 3.7 Sonnet pricing: $3.00/MTok input, $15.00/MTok output. Fast reasoning capabilities."
 
     # For local filesystem/doc tools, run the real implementation
     from services.mcp_tools import execute_mcp_tool
+
     return execute_mcp_tool(tool_name, arguments)

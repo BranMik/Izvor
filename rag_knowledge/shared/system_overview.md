@@ -1,6 +1,6 @@
 # System Overview
 
-## SecuritySecurity Architecture & Principles
+## Security Architecture & Principles
 The CaiLogics Multi-Agent Slack Hub orchestrates collaborative discussions across specialized AI agent personas. 
 Communication happens through Slack channels, direct messages, and interactive thread panels.
 
