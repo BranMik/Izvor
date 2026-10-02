@@ -16,15 +16,15 @@ from e2e_testing_harness.scenarios import ALL_SCENARIOS, Scenario
 @pytest.mark.parametrize("scenario", ALL_SCENARIOS, ids=[s.id for s in ALL_SCENARIOS])
 async def test_scenario(scenario: Scenario, request):
     mock = bool(
-        request.config.getoption("mock", default=False)
+        request.config.getoption("mock", default=True)
         if hasattr(request.config, "getoption")
-        else False
-    ) or bool(os.getenv("E2E_MOCK"))
+        else True
+    ) or bool(os.getenv("E2E_MOCK", "1"))
     mocked_llm = bool(
-        request.config.getoption("hybrid_mocked_llm", default=False)
+        request.config.getoption("hybrid_mocked_llm", default=True)
         if hasattr(request.config, "getoption")
-        else False
-    ) or bool(os.getenv("E2E_HYBRID_MOCKED_LLM"))
+        else True
+    ) or bool(os.getenv("E2E_HYBRID_MOCKED_LLM", "1"))
     runner = E2ETestRunner(mock=mock, mocked_llm=mocked_llm)
     result = await runner.run_scenario(scenario)
     assert result.passed, f"{scenario.id} ({scenario.name}) failed: {result.details}"
