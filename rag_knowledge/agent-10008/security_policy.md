@@ -1,4 +1,4 @@
-# Security SecuritySecurity Architecture & Data Protection Policy
+# Security Security Architecture & Data Protection Policy
 
 ## Data Isolation & Sandboxing
 - Documents placed in agent-specific directories are only retrievable by that agent persona.

@@ -132,7 +132,7 @@ def parse_agent_and_prompt(
 
         match, matched_key, raw_tag = matched_item
         # Strip all matched agent tags from prompt so that multi-tag prompts like
-        # "/[SecuritySecurity Architect] /[agent-10003] /[agent-10002] Pa sad ostatak prompta."
+        # "/[Security Architect] /[agent-10003] /[agent-10002] Pa sad ostatak prompta."
         # leave cleanly "Pa sad ostatak prompta."
         prompt = cleaned_text
         for m, _, _ in tag_matches:
@@ -248,7 +248,7 @@ def strip_all_nominations(text: str) -> str:
         clean = trailing_tag_regex.sub("", clean).rstrip()
         clean = lead_in_inline_regex.sub("", clean).rstrip()
 
-    # 3. For any remaining in-text slash bracketed agent mentions (e.g., "/[SecuritySecurity Architect]"),
+    # 3. For any remaining in-text slash bracketed agent mentions (e.g., "/[Security Architect]"),
     # strip the slash so it doesn't trigger Slack nomination parsers.
     for tok in sorted(agent_tokens, key=len, reverse=True):
         clean = re.sub(

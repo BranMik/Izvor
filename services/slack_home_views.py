@@ -576,7 +576,7 @@ def build_app_home_view(
                         "initial_value": end_chain_str,
                         "placeholder": {
                             "type": "plain_text",
-                            "text": "e.g. SecuritySecurity Architect (comma-separated)",
+                            "text": "e.g. Security Architect (comma-separated)",
                         },
                     },
                     "label": {
@@ -634,7 +634,7 @@ def build_app_home_view(
                         "initial_value": fixed_chain_str,
                         "placeholder": {
                             "type": "plain_text",
-                            "text": "e.g. LegalAdvisor, Innovator, SecuritySecurity Architect (comma-separated)",
+                            "text": "e.g. LegalAdvisor, Innovator, Security Architect (comma-separated)",
                         },
                     },
                     "label": {
