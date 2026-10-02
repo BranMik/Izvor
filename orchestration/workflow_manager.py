@@ -46,7 +46,7 @@ class WorkflowManager:
                     description="Standard review flow applied when no explicit agent is tagged (Visionary -> Innovator -> ... -> SecuritySecurity Architect).",
                     sandwich_config={
                         "start_chain": ["agent-10001", "agent-10002"],
-                        "end_chain": ["SecuritySecurity Architect"],
+                        "end_chain": ["agent-10008"],
                     },
                     fixed_config={"chain": []},
                 ),
@@ -62,9 +62,9 @@ class WorkflowManager:
                             "agent-10007",
                             "agent-10003",
                             "agent-10002",
-                            "SecuritySecurity Architect",
+                            "agent-10008",
                         ],
-                        "end_chain": ["SecuritySecurity Architect", "agent-10003"],
+                        "end_chain": ["agent-10008", "agent-10003"],
                     },
                     fixed_config={"chain": []},
                 ),
@@ -74,7 +74,7 @@ class WorkflowManager:
                     mode=OrchestrationMode.FIXED.value,
                     description="Focused linear pipeline for rapid technical problem triage.",
                     sandwich_config={"start_chain": [], "end_chain": []},
-                    fixed_config={"chain": ["agent-10011", "SecuritySecurity Architect"]},
+                    fixed_config={"chain": ["agent-10011", "agent-10008"]},
                 ),
             ]
 

@@ -419,7 +419,7 @@ def test_build_app_home_view():
     assert "set_start_chain_input" in action_ids
     assert "set_end_chain_input" in action_ids
     assert "save_sandwich_chains_button" in action_ids
-    assert "toggle_agent_radio:LegalAdvisor" in action_ids
+    assert "toggle_agent_radio:agent-10011" in action_ids
     assert "toggle_circuit_breaker_radio" in action_ids
     assert "set_circuit_breaker_threshold_input" in action_ids
     assert "save_circuit_breaker_threshold_button" in action_ids
@@ -430,7 +430,7 @@ def test_build_app_home_view():
     assert "cb_threshold_block_2.50" in block_ids
     assert any(b.startswith("sandwich_start_chain_block") for b in block_ids)
     assert any(b.startswith("sandwich_end_chain_block") for b in block_ids)
-    assert "agent_toggle_block_LegalAdvisor_on" in block_ids
+    assert "agent_toggle_block_agent-10011_on" in block_ids
 
     # Agent ID in square brackets rendered
     assert any("[agent-10011]" in b.get("text", {}).get("text", "") for b in blocks)

@@ -11,13 +11,13 @@ from pipeline.spend_governance import SpendGovernance
 @pytest.fixture
 def mock_agents_config():
     return {
-        "agent-10001": {"username": "agent-10001", "model": "gemini/gemini-3.8-flash"},
-        "agent-10008": {"username": "agent-10008", "model": "openai/gpt-5.6-terra"},
-        "agent-10011": {"username": "agent-10011", "model": "mistral/mistral-large-latest"},
-        "agent-10008": {"username": "Security SecurityArchitect", "model": "mistral/mistral-large-latest"},
-        "agent-10005": {"username": "Scope Optimizer", "model": "gemini/gemini-3.8-flash"},
-        "agent-10006": {"username": "ROI Strategist", "model": "gemini/gemini-3.8-flash"},
-        "agent-10009": {"username": "Market And Competition Research Expert", "model": "gemini/gemini-3.8-flash"},
+        "agent-10001": {"username": "Visionary", "name": "Visionary", "model": "gemini/gemini-3.8-flash"},
+        "agent-10008": {"username": "Security Architect", "name": "SecurityArchitect", "model": "openai/gpt-5.6-terra"},
+        "agent-10011": {"username": "Legal Advisor", "name": "LegalAdvisor", "model": "mistral/mistral-large-latest"},
+        "agent-10010": {"username": "Sales Advisor", "name": "SalesAdvisor", "model": "gemini/gemini-3.8-flash"},
+        "agent-10005": {"username": "Scope Optimizer", "name": "ScopeOptimizer", "model": "gemini/gemini-3.8-flash"},
+        "agent-10006": {"username": "ROI Strategist", "name": "ROIStrategist", "model": "gemini/gemini-3.8-flash"},
+        "agent-10009": {"username": "Market And Competition Research Expert", "name": "MarketAndCompetitionResearchExpert", "model": "gemini/gemini-3.8-flash"},
     }
 
 
@@ -33,24 +33,24 @@ def test_entity_resolver_exact_and_partial(mock_agents_config):
     assert resolver.resolve_agent_name("[agent-10008]") == "agent-10008"
 
     # Partial / abbreviation match
-    assert resolver.resolve_agent_name("Tech") == "agent-10011"
+    assert resolver.resolve_agent_name("Legal") == "agent-10011"
     assert resolver.resolve_agent_name("[Sec]") == "agent-10008"
 
-    # Ambiguity detection
-    candidates = resolver.resolve_candidates("Strategist")
+    # Ambiguity detection — "Advisor" matches both Legal Advisor and Sales Advisor
+    candidates = resolver.resolve_candidates("Advisor")
     assert len(candidates) >= 2
-    assert "agent-10006" in candidates
-    assert "agent-10009" in candidates
-    assert resolver.resolve_agent_name("Strategist") is None
+    assert "agent-10011" in candidates
+    assert "agent-10010" in candidates
+    assert resolver.resolve_agent_name("Advisor") is None
 
 
 def test_entity_resolver_ambiguous_and_unrecognized(mock_agents_config):
     resolver = EntityResolver(agents_config=mock_agents_config)
 
-    text = "Let /[Strategist] review the plan, and ignore /[UnknownGuy] and [150/50]."
+    text = "Let /[Advisor] review the plan, and ignore /[UnknownGuy] and [150/50]."
     ambiguous = resolver.detect_ambiguous_tags(text)
     assert len(ambiguous) == 1
-    assert ambiguous[0][0] == "Strategist"
+    assert ambiguous[0][0] == "Advisor"
 
     unrecognized = resolver.detect_unrecognized_tags(text)
     assert "UnknownGuy" in unrecognized
