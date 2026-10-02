@@ -85,7 +85,7 @@ async def tc_02_multi_persona(client: SlackProtocolClient) -> ScenarioResult:
     speakers = [m.get("username") for m in msgs]
     passed = (
         "Security Architect" in speakers
-        and "LegalAdvisor" in speakers
+        and "Legal Advisor" in speakers
         and len(speakers) >= 2
     )
     return ScenarioResult(
@@ -616,7 +616,7 @@ async def tc_21_delayed_progress_inplace_edit(
 ) -> ScenarioResult:
     channel = client.get_channel("C_TEST_21")
     thread_ts = client.get_thread_ts()
-    prompt = "[MarketAndCompetitionResearchExpert] Comprehensive web search on vector databases."
+    prompt = "/[MarketAndCompetitionResearchExpert] Comprehensive web search on vector databases."
     await client.send_mention(prompt, channel_id=channel, thread_ts=thread_ts)
 
     actual_thread = (
