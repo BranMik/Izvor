@@ -4,6 +4,7 @@ display_name: Discussion Scribe Minimum Words
 description: Require a minimum word count floor for the Scribe's strategic synthesis notes.
 scope: orchestrator
 triggers:
+  auto_detect: true
   slash:
     - /scribe_min_words
     - /scribe-min-words

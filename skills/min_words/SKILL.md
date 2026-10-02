@@ -4,6 +4,7 @@ display_name: Minimum Word Count Floor
 description: Require a minimum word count floor for the agent's response.
 scope: prompt_modifier
 triggers:
+  auto_detect: true
   slash:
     - /min_words
     - /min-words

@@ -4,6 +4,7 @@ display_name: Document Reader
 description: Read and analyze reference documents, reports, guidelines, PDF files, text files, and notes inside the default resources directory to answer questions.
 scope: agent
 triggers:
+  auto_detect: true
   slash:
     - /read_file
     - /read-file

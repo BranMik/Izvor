@@ -4,6 +4,7 @@ display_name: Include Agents in Debate
 description: Include or add specific agents into the debate regardless of workflow, overriding previous exclusions.
 scope: orchestrator
 triggers:
+  auto_detect: true
   slash:
     - /include
   arg_type: agent_list

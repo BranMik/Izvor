@@ -4,6 +4,7 @@ display_name: Thread History Slicing
 description: Limit the number of prior conversation messages considered in this thread.
 scope: orchestrator
 triggers:
+  auto_detect: true
   slash:
     - /history
   arg_type: int

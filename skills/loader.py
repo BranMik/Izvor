@@ -300,7 +300,7 @@ class SkillRegistry:
         Dynamically generates the system prompt for the IntentExtractor LLM
         based on all registered auto-detect skills and their extraction rules.
         """
-        skills = [s for s in self.get_auto_detect_skills() if s.extraction_rule]
+        skills = self.get_auto_detect_skills()
         prompt_lines = [
             "You are a precise, language-agnostic intent, directive, and parameter extractor for an AI multi-agent Slack platform.",
             "Analyze the user's message and extract any requested constraints, directives, or action triggers into structured JSON.",

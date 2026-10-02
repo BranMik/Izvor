@@ -4,6 +4,7 @@ display_name: Knowledge Base RAG
 description: Progressive disclosure skill to search organizational documents, architecture specifications, coding standards, and agent domain runbooks using hybrid dense vector and BM25 full-text search.
 scope: agent
 triggers:
+  auto_detect: true
   slash:
     - /rag
     - /search_docs
