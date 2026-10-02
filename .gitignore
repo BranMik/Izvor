@@ -4,7 +4,21 @@
 *.pem
 *.key
 *.pdf
-/rag_knowledge
+# 1. Ignoriraj sve unutar rag_knowledge foldera
+rag_knowledge/*
+
+# 2. Omogući (un-ignore) agent-10008 i shared foldere (kako bi Git uopće ušao u njih)
+!rag_knowledge/agent-10008/
+!rag_knowledge/shared/
+
+# 3. Ignoriraj sav sadržaj unutar tih foldera
+rag_knowledge/agent-10008/*
+rag_knowledge/shared/*
+
+# 4. Omogući (un-ignore) specifične fajlove koje želiš pratiti
+!rag_knowledge/agent-10008/security_policy.md
+!rag_knowledge/shared/system_overview.md
+!rag_knowledge/shared/rag_instructions.md
 
 /static_backup
 
