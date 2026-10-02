@@ -4,6 +4,7 @@ display_name: Maximum Word Count Limit
 description: Restrict the maximum word ceiling of the agent's response.
 scope: prompt_modifier
 triggers:
+  auto_detect: true
   slash:
     - /max_words
     - /max-words

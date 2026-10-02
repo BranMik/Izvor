@@ -4,6 +4,7 @@ display_name: Exclude Agents from Debate
 description: Exclude or leave out specific agents from participating in the thread discussion.
 scope: orchestrator
 triggers:
+  auto_detect: true
   slash:
     - /exclude
   arg_type: agent_list
