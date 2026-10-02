@@ -67,6 +67,9 @@ class EntityResolver:
         for key, cfg in agents.items():
             if norm_cleaned == self.normalize(key):
                 return [key]
+            name = cfg.get("name", "")
+            if name and norm_cleaned == self.normalize(name):
+                return [key]
             username = cfg.get("username", "")
             if username and norm_cleaned == self.normalize(username):
                 return [key]
@@ -75,6 +78,9 @@ class EntityResolver:
         word_matches = []
         for key, cfg in agents.items():
             words = re.findall(r"[A-Z]?[a-z0-9]+", key)
+            name = cfg.get("name")
+            if name:
+                words.extend(re.findall(r"[A-Z]?[a-z0-9]+", name))
             username = cfg.get("username")
             if username:
                 words.extend(re.findall(r"[A-Z]?[a-z0-9]+", username))
