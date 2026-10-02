@@ -167,12 +167,9 @@ class HybridInterceptor:
             if m.get("role") == "system"
         )
         is_language_detector = any(
-            "language classifier" in str(m.get("content", "")).lower()
-            or "natural language" in str(m.get("content", "")).lower()
-            or "identify the primary natural language"
+            "identify the primary natural human language"
             in str(m.get("content", "")).lower()
-            or "identify the primary natural human language"
-            in str(m.get("content", "")).lower()
+            or "language classifier" in str(m.get("content", "")).lower()
             for m in messages
             if m.get("role") == "system"
         )
@@ -282,6 +279,18 @@ class HybridInterceptor:
             detected = "Croatian" if has_croatian else "English"
             return MockModelResponse(
                 content=detected, model=model, prompt_tokens=40, completion_tokens=5
+            )
+
+        is_list_skills = any(
+            "current platform skills directory:" in str(m.get("content", "")).lower()
+            for m in messages
+        )
+        if is_list_skills:
+            return MockModelResponse(
+                content="Here is the Skills directory:\n- web_research\n- codebase_inspection",
+                model=model,
+                prompt_tokens=150,
+                completion_tokens=20,
             )
 
         if is_intent_extractor:
@@ -414,9 +423,9 @@ class HybridInterceptor:
                     return MockModelResponse(content=None, tool_calls=[tc], model=model)
                 elif needs_codebase:
                     tc = MockToolCall(
-                        "call_load_code",
+                        "call_load_doc_reader",
                         "load_skill",
-                        {"skill_name": "codebase_inspection"},
+                        {"skill_name": "document_reader"},
                     )
                     return MockModelResponse(content=None, tool_calls=[tc], model=model)
                 elif needs_doc_authoring:

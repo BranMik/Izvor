@@ -370,7 +370,7 @@ async def tc_11_multi_round(client: SlackProtocolClient) -> ScenarioResult:
 async def tc_12_web_research(client: SlackProtocolClient) -> ScenarioResult:
     channel = client.get_channel("C_TEST_12")
     thread_ts = client.get_thread_ts()
-    prompt = "[MarketAndCompetitionResearchExpert] Search the web for current pricing of Anthropic Claude."
+    prompt = "/[MarketAndCompetitionResearchExpert] Search the web for current pricing of Anthropic Claude."
     await client.send_mention(prompt, channel_id=channel, thread_ts=thread_ts)
 
     actual_thread = thread_ts or (
@@ -396,7 +396,7 @@ async def tc_12_web_research(client: SlackProtocolClient) -> ScenarioResult:
 async def tc_13_codebase_inspection(client: SlackProtocolClient) -> ScenarioResult:
     channel = client.get_channel("C_TEST_13")
     thread_ts = client.get_thread_ts()
-    prompt = "/[LegalAdvisor] Inspect directory layout of orchestration/stages and turn_pipeline.py."
+    prompt = "/[Security Architect] Inspect directory layout of orchestration/stages and turn_pipeline.py."
     await client.send_mention(prompt, channel_id=channel, thread_ts=thread_ts)
 
     actual_thread = thread_ts or (

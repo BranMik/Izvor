@@ -34,7 +34,7 @@ LOAD_SKILL_SCHEMA = {
                     "type": "string",
                     "description": (
                         "Name of the skill to load (e.g. 'web_research', "
-                        "'codebase_inspection', 'workspace_authoring')."
+                        "'document_reader', 'knowledge_base_rag')."
                     ),
                 }
             },

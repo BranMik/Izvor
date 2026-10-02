@@ -4,13 +4,13 @@
       "skills": [
         "web_research"
       ],
-      "granted_at": 1790940804.2239835
+      "granted_at": 1790967090.9981005
     },
     "C_TEST:1726000000.2": {
       "skills": [
         "web_research"
       ],
-      "granted_at": 1790940804.5777607
+      "granted_at": 1790967091.3277287
     },
     "C_TEST:1726000000.3": {
       "agent_skills": {
@@ -24,9 +24,63 @@
           "skills": [
             "web_research"
           ],
-          "granted_at": 1790940804.9441674
+          "granted_at": 1790967091.6553037
         }
       }
+    },
+    "C_TEST_17:1700000295.0000": {
+      "agent_skills": {
+        "agent-10008": {
+          "skills": [
+            "web_research"
+          ],
+          "granted_at": 1790957416.5930758
+        }
+      }
+    },
+    "C_TEST_18:1700000298.0000": {
+      "skills": [
+        "web_research"
+      ],
+      "granted_at": 1790957416.63858
+    },
+    "C_TEST_18:1700000121.0000": {
+      "skills": [
+        "web_research"
+      ],
+      "granted_at": 1790958013.5511181
+    },
+    "C_TEST_18:1700000113.0000": {
+      "skills": [
+        "web_research"
+      ],
+      "granted_at": 1790966656.9819944
+    },
+    "C_TEST_17:1700000110.0000": {
+      "agent_skills": {
+        "agent-10008": {
+          "skills": [
+            "web_research"
+          ],
+          "granted_at": 1790966656.9454596
+        }
+      }
+    },
+    "C_TEST_17:1700000001.0000": {
+      "agent_skills": {
+        "agent-10008": {
+          "skills": [
+            "web_research"
+          ],
+          "granted_at": 1790968597.043407
+        }
+      }
+    },
+    "C_TEST_18:1700000001.0000": {
+      "skills": [
+        "web_research"
+      ],
+      "granted_at": 1790968597.1516056
     }
   }
 }

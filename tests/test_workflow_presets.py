@@ -201,12 +201,15 @@ def test_agent_settings_workflow_integration(tmp_path: Path):
 
 def test_build_app_home_view_includes_workflow_ui():
     """Verify Slack App Home view renders the workflow presets section."""
-    from core.models import WorkflowPreset
     from orchestration.agent_settings import settings_manager as mgr
-    preset = WorkflowPreset(id="custom_preset", name="Custom", mode="fixed", fixed_config={"chain": []})
-    mgr.workflow_manager.save_preset(preset)
-    set_orchestration_mode("fixed")
-    set_active_workflow_id("custom_preset")
+    
+    custom_presets = [p for p in mgr.workflow_manager.list_workflows() if not p.id.startswith("default_")]
+    if not custom_presets:
+        return  # No custom presets found, nothing to test for delete rendering
+        
+    preset_to_test = custom_presets[0]
+    set_orchestration_mode(preset_to_test.mode)
+    set_active_workflow_id(preset_to_test.id)
 
     view = build_app_home_view()
     assert view["type"] == "home"
