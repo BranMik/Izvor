@@ -17,6 +17,7 @@ from core.models import OrchestrationMode
 from orchestration.app_settings import AppSettingsManager, app_settings_manager
 from orchestration.system_settings import SystemSettingsManager, system_settings_manager
 from prompts import build_agent_prompt
+from core.integrity_checks import AppIntegrityValidator
 
 logger = logging.getLogger(__name__)
 
@@ -32,10 +33,10 @@ LOCKED_AGENTS: set[str] = set()
 BACKUP_INTERVAL_SECONDS = 7 * 86400
 
 
-# Default untagged workflow configuration: Sandwich mode (Visionary -> Innovator -> ... -> SecuritySecurity Architect)
+# Default untagged workflow configuration: Sandwich mode
 DEFAULT_WORKFLOW_ID = "default_review_flow"
 DEFAULT_SANDWICH_START_CHAIN = ["agent-10001", "agent-10002"]
-DEFAULT_SANDWICH_END_CHAIN = ["SecuritySecurity Architect"]
+DEFAULT_SANDWICH_END_CHAIN = ["agent-10008"]
 
 
 class AgentSettingsManager:
@@ -403,9 +404,11 @@ class AgentSettingsManager:
             logger.error(f"[SETTINGS] Payload from {source_name} is not a valid JSON object.")
             return False
 
+        data = AppIntegrityValidator.run_all_checks(data, personas_dir=PERSONAS_DIR)
+        
         raw_agents = data.get("agents", {})
         if not isinstance(raw_agents, dict):
-            logger.error(f"[SETTINGS] 'agents' key in {source_name} is not a dictionary.")
+            logger.error(f"[SETTINGS] 'agents' key in {source_name} is not a dictionary after validation.")
             return False
 
         # Sync SHORT_OUTPUT_AGENTS before building agent prompts (only for primary settings file)
@@ -420,9 +423,6 @@ class AgentSettingsManager:
 
         valid_agents: dict[str, dict[str, Any]] = {}
         for key, cfg in raw_agents.items():
-            if not re.match(r'^agent-\d+$', key):
-                logger.warning(f"[SETTINGS] Invalid agent key format: '{key}'. Must match '^agent-\d+$'. Ignoring this agent.")
-                continue
             if self._validate_agent_entry(key, cfg):
                 is_short = bool(cfg.get("is_short_output", False))
                 skills = [
@@ -591,7 +591,9 @@ class AgentSettingsManager:
         if target_file.exists():
             try:
                 with open(target_file, "r", encoding="utf-8") as f:
-                    data = json.load(f)
+                    raw_text = f.read()
+                AppIntegrityValidator.check_duplicate_ids_in_raw_json(raw_text)
+                data = json.loads(raw_text)
                 if self._parse_and_validate_payload(data, target_file.name):
                     self.is_running_from_backup = False
                     self.backup_error_reason = None

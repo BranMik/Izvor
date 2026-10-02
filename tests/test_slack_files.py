@@ -212,7 +212,7 @@ def test_build_llm_messages_file_context_missing_skill_notice():
         prompt="Analyze data.csv",
         is_bot_trigger=False,
         agent_key="agent-10011",
-        agent_cfg={"username": "agent-10011", "skills": ["document_reader"]},
+        agent_cfg={"username": "Legal Advisor", "skills": ["web_research"]},
         file_context=file_context,
     )
     user_turn = msgs[-1]["content"]

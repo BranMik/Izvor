@@ -1140,7 +1140,7 @@ async def test_partial_tag_routing(monkeypatch):
 
     assert res.get("ok") is True
     assert len(posted_messages) == 1
-    assert "agent-10001" in posted_messages[0]["username"]
+    assert "Visionary" in posted_messages[0]["username"]
 
 
 @pytest.mark.anyio
