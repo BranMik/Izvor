@@ -2,8 +2,13 @@
 name: web_research
 display_name: Web Research
 description: Search the live web and extract clean text content from web pages for real-time intelligence, competitor pricing, documentation, and external benchmarks.
+scope: agent
 triggers:
+  slash:
+    - /web_research
+    - /webresearch
   auto_detect: true
+  param_name: query
 extraction_rule: "If user asks to search the live web, check current pricing, or find recent external news/benchmarks, include action '{name}' with param 'query'."
 tools:
   - web_search
