@@ -126,7 +126,7 @@ def test_slack_interactivity_download_scribe_action():
         ],
     }
 
-    with patch("adapters.slack.interactivity._verify_signature", return_value=True), \
+    with patch("adapters.slack.interactivity.verify_slack_signature", return_value=True), \
          patch("adapters.slack.interactivity.post_ephemeral_to_slack", new_callable=AsyncMock) as mock_ephemeral, \
          patch("adapters.slack.interactivity.open_dm_channel", new_callable=AsyncMock, return_value="D_USER_DM") as mock_open_dm, \
          patch("adapters.slack.interactivity.upload_text_file_to_slack", new_callable=AsyncMock, return_value={"ok": True}) as mock_upload:
@@ -178,7 +178,7 @@ def test_slack_interactivity_download_scribe_fallback_to_payload():
         ],
     }
 
-    with patch("adapters.slack.interactivity._verify_signature", return_value=True), \
+    with patch("adapters.slack.interactivity.verify_slack_signature", return_value=True), \
          patch("adapters.slack.interactivity.post_ephemeral_to_slack", new_callable=AsyncMock) as mock_ephemeral, \
          patch("adapters.slack.interactivity.open_dm_channel", new_callable=AsyncMock, return_value="D_USER_88"), \
          patch("adapters.slack.interactivity.upload_text_file_to_slack", new_callable=AsyncMock, return_value={"ok": True}) as mock_upload:
