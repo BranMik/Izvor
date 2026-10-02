@@ -2,6 +2,7 @@
 name: document_authoring
 display_name: Document Authoring
 description: Create, write, or update non-code documents, reports, meeting notes, and summaries inside the default resources directory.
+extraction_rule: "If user asks to draft, write, or save a document/file locally (e.g. to resources/), include action '{name}' with param 'target_file'."
 tools:
   - write_document
 ---
