@@ -204,9 +204,11 @@ def test_is_path_write_blocked_defaults(tmp_path):
     assert is_path_write_blocked("data/system_settings.json", base_dir=base_dir) is True
     assert is_path_write_blocked("system_settings.json", base_dir=base_dir) is True
 
+    # Python source files must be blocked
+    assert is_path_write_blocked("src/app.py", base_dir=base_dir) is True
+
     # Normal files should not be blocked
     assert is_path_write_blocked("normal_file.txt", base_dir=base_dir) is False
-    assert is_path_write_blocked("src/app.py", base_dir=base_dir) is False
 
 
 def test_is_path_write_blocked_custom_blacklist(tmp_path):
