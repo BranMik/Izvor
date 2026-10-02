@@ -470,7 +470,12 @@ def build_app_home_view(
                     ),
                 },
                 "accessory": preset_select_element,
-            },
+            }
+        ]
+    )
+
+    if active_wf_id not in ("default_review_flow", "default_sandwich"):
+        blocks.append(
             {
                 "type": "actions",
                 "block_id": f"workflow_preset_actions_block_{active_wf_id or 'none'}",
@@ -486,7 +491,12 @@ def build_app_home_view(
                         "style": "danger",
                     },
                 ],
-            },
+            }
+        )
+
+    blocks.extend(
+        [
+            {"type": "divider"},
             {"type": "divider"},
             {
                 "type": "section",
@@ -671,41 +681,50 @@ def build_app_home_view(
             ]
         )
 
+        )
+
+    if active_wf_id not in ("default_review_flow", "default_sandwich"):
+        blocks.extend(
+            [
+                {
+                    "type": "input",
+                    "block_id": f"save_workflow_preset_block_{active_wf_id or 'none'}",
+                    "dispatch_action": False,
+                    "element": {
+                        "type": "plain_text_input",
+                        "action_id": "save_workflow_preset_name_input",
+                        "placeholder": {
+                            "type": "plain_text",
+                            "text": "e.g. Full Security Audit",
+                        },
+                    },
+                    "label": {
+                        "type": "plain_text",
+                        "text": "💾 Save Current Configuration as Preset:",
+                        "emoji": True,
+                    },
+                },
+                {
+                    "type": "actions",
+                    "block_id": f"save_workflow_preset_actions_{active_wf_id or 'none'}",
+                    "elements": [
+                        {
+                            "type": "button",
+                            "text": {
+                                "type": "plain_text",
+                                "text": "💾 Save Preset",
+                                "emoji": True,
+                            },
+                            "action_id": "save_workflow_preset_button",
+                        },
+                    ],
+                }
+            ]
+        )
+
     blocks.extend(
         [
-            {
-                "type": "input",
-                "block_id": f"save_workflow_preset_block_{active_wf_id or 'none'}",
-                "dispatch_action": False,
-                "element": {
-                    "type": "plain_text_input",
-                    "action_id": "save_workflow_preset_name_input",
-                    "placeholder": {
-                        "type": "plain_text",
-                        "text": "e.g. Full Security Audit",
-                    },
-                },
-                "label": {
-                    "type": "plain_text",
-                    "text": "💾 Save Current Configuration as Preset:",
-                    "emoji": True,
-                },
-            },
-            {
-                "type": "actions",
-                "block_id": f"save_workflow_preset_actions_{active_wf_id or 'none'}",
-                "elements": [
-                    {
-                        "type": "button",
-                        "text": {
-                            "type": "plain_text",
-                            "text": "💾 Save Preset",
-                            "emoji": True,
-                        },
-                        "action_id": "save_workflow_preset_button",
-                    },
-                ],
-            },
+            {"type": "divider"},
             {"type": "divider"},
             {
                 "type": "section",

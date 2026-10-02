@@ -59,6 +59,8 @@ class AppIntegrityValidator:
         payload = cls.check_duplicate_agent_names(payload)
         payload = cls.check_missing_prompt_files(payload, p_dir)
         payload = cls.check_workflow_references(payload, w_dir)
+        payload = cls.check_default_workflows_integrity(payload, w_dir)
+        payload = cls.check_active_workflow_exists(payload, w_dir)
         payload = cls.check_orphaned_persona_files(payload, p_dir)
         payload = cls.check_model_strings(payload)
         return payload
@@ -207,7 +209,98 @@ class AppIntegrityValidator:
         return payload
 
     # ------------------------------------------------------------------
-    # 5. Orphaned persona files — warning only
+    # 5. Default workflows integrity — hard gate
+    # ------------------------------------------------------------------
+    @classmethod
+    def check_default_workflows_integrity(cls, payload: dict, workflows_dir: Path) -> dict:
+        """
+        Validates that the required default workflows exist and have not been altered.
+        If they are missing or altered, recreates them from the system defaults.
+        """
+        # Import inside method to avoid circular imports if any
+        from orchestration.workflow_manager import WorkflowManager
+        from core.models import OrchestrationMode, WorkflowPreset
+
+        expected_defaults = [
+            WorkflowPreset(
+                id="default_review_flow",
+                name="Default Review Workflow",
+                mode=OrchestrationMode.SANDWICH.value,
+                description="[DO NOT DELETE OR MODIFY - SYSTEM DEFAULT] Standard review flow applied when no explicit agent is tagged.",
+                sandwich_config={"start_chain": ["agent-10001", "agent-10002"], "end_chain": ["agent-10008"]},
+                fixed_config={"chain": []},
+            ),
+            WorkflowPreset(
+                id="default_sandwich",
+                name="Default Sandwich Review",
+                mode=OrchestrationMode.SANDWICH.value,
+                description="[DO NOT DELETE OR MODIFY - SYSTEM DEFAULT] Standard multi-agent panel with kickoff and concluding wrap-up.",
+                sandwich_config={
+                    "start_chain": ["agent-10005", "agent-10001", "agent-10007", "agent-10003", "agent-10002", "agent-10008"],
+                    "end_chain": ["agent-10008", "agent-10003"],
+                },
+                fixed_config={"chain": []},
+            )
+        ]
+
+        if not workflows_dir.exists():
+            workflows_dir.mkdir(parents=True, exist_ok=True)
+
+        for expected in expected_defaults:
+            wf_file = workflows_dir / f"{expected.id}.json"
+            needs_restore = False
+
+            if not wf_file.exists():
+                logger.warning("[INTEGRITY] Default workflow '%s' is missing. Restoring from backup.", expected.id)
+                needs_restore = True
+            else:
+                try:
+                    with open(wf_file, "r", encoding="utf-8") as f:
+                        disk_data = json.load(f)
+                    
+                    # Compare serialized forms
+                    expected_data = expected.to_dict()
+                    if disk_data != expected_data:
+                        logger.warning("[INTEGRITY] Default workflow '%s' was altered. Restoring from backup.", expected.id)
+                        needs_restore = True
+                except (OSError, json.JSONDecodeError):
+                    logger.warning("[INTEGRITY] Default workflow '%s' is corrupted. Restoring from backup.", expected.id)
+                    needs_restore = True
+
+            if needs_restore:
+                try:
+                    with open(wf_file, "w", encoding="utf-8") as f:
+                        json.dump(expected.to_dict(), f, indent=2)
+                except OSError as e:
+                    logger.error("[INTEGRITY] Failed to restore workflow '%s': %s", expected.id, e)
+
+        return payload
+
+    # ------------------------------------------------------------------
+    # 6. Active workflow validation — fallback to default
+    # ------------------------------------------------------------------
+    @classmethod
+    def check_active_workflow_exists(cls, payload: dict, workflows_dir: Path) -> dict:
+        """
+        Validates that the active workflow configured in settings actually exists on disk.
+        If it doesn't, falls back to the default review flow.
+        """
+        active_wf_id = payload.get("workflow_config")
+        if not active_wf_id:
+            return payload
+
+        wf_file = workflows_dir / f"{active_wf_id}.json"
+        if not wf_file.exists():
+            logger.warning(
+                "[INTEGRITY] Active workflow '%s' does not exist in workflows directory. Falling back to 'default_review_flow'.",
+                active_wf_id
+            )
+            payload["workflow_config"] = "default_review_flow"
+
+        return payload
+
+    # ------------------------------------------------------------------
+    # 7. Orphaned persona files — warning only
     # ------------------------------------------------------------------
     @classmethod
     def check_orphaned_persona_files(cls, payload: dict, personas_dir: Path) -> dict:
@@ -236,7 +329,7 @@ class AppIntegrityValidator:
         return payload
 
     # ------------------------------------------------------------------
-    # 6. Model string validation — warning only
+    # 8. Model string validation — warning only
     # ------------------------------------------------------------------
     @classmethod
     def check_model_strings(cls, payload: dict) -> dict:

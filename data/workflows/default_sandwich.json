@@ -2,7 +2,7 @@
   "id": "default_sandwich",
   "name": "Default Sandwich Review",
   "mode": "sandwich",
-  "description": "Standard multi-agent panel with kickoff and concluding wrap-up.",
+  "description": "[DO NOT DELETE OR MODIFY - SYSTEM DEFAULT] Standard multi-agent panel with kickoff and concluding wrap-up.",
   "sandwich_config": {
     "start_chain": [
       "agent-10005",

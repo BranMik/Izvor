@@ -43,7 +43,7 @@ class WorkflowManager:
                     id="default_review_flow",
                     name="Default Review Workflow",
                     mode=OrchestrationMode.SANDWICH.value,
-                    description="Standard review flow applied when no explicit agent is tagged (Visionary -> Innovator -> ... -> Security Architect).",
+                    description="[DO NOT DELETE OR MODIFY - SYSTEM DEFAULT] Standard review flow applied when no explicit agent is tagged.",
                     sandwich_config={
                         "start_chain": ["agent-10001", "agent-10002"],
                         "end_chain": ["agent-10008"],
@@ -54,7 +54,7 @@ class WorkflowManager:
                     id="default_sandwich",
                     name="Default Sandwich Review",
                     mode=OrchestrationMode.SANDWICH.value,
-                    description="Standard multi-agent panel with kickoff and concluding wrap-up.",
+                    description="[DO NOT DELETE OR MODIFY - SYSTEM DEFAULT] Standard multi-agent panel with kickoff and concluding wrap-up.",
                     sandwich_config={
                         "start_chain": [
                             "agent-10005",
@@ -67,14 +67,6 @@ class WorkflowManager:
                         "end_chain": ["agent-10008", "agent-10003"],
                     },
                     fixed_config={"chain": []},
-                ),
-                WorkflowPreset(
-                    id="quick_tech_triage",
-                    name="Quick Tech Triage",
-                    mode=OrchestrationMode.FIXED.value,
-                    description="Focused linear pipeline for rapid technical problem triage.",
-                    sandwich_config={"start_chain": [], "end_chain": []},
-                    fixed_config={"chain": ["agent-10011", "agent-10008"]},
                 ),
             ]
 

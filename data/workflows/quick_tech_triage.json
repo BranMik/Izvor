@@ -2,9 +2,10 @@
   "id": "quick_tech_triage",
   "name": "Quick Tech Triage",
   "mode": "fixed",
-  "description": "Focused linear pipeline for rapid technical problem triage.",
+  "description": "",
   "fixed_config": {
     "chain": [
+      "agent-10011",
       "agent-10008"
     ]
   }

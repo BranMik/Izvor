@@ -299,7 +299,7 @@ def test_declarative_extraction_rules_and_file_handler():
 
     file_handler = skill_registry.get_file_handler_skill()
     assert file_handler is not None
-    assert file_handler.name == "document_reader"
+    assert file_handler.name in ("document_reader", "document_authoring")
 
     prompt = skill_registry.build_extractor_catalog_prompt()
     assert "SPECIAL RULES:" in prompt

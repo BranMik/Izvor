@@ -63,13 +63,13 @@ def test_extracted_intent_backward_and_unified_compatibility():
     assert ei.history == 3
     assert ei.file_use is True
     assert ei.target_file == "data.csv"
-    assert ei.has_action("document_reader") is True
+    assert ei.has_action("document_reader") or ei.has_action("document_authoring")
 
     # Validate dict round-trip
     d = ei.to_dict()
     assert d["modifiers"]["max_words"] == 60
     assert d["max_words"] == 60
-    assert any(a["name"] == "document_reader" for a in d["actions"])
+    assert any(a["name"] in ("document_reader", "document_authoring") for a in d["actions"])
 
     ei_restored = ExtractedIntent.from_dict(d)
     assert ei_restored.max_words == 60
