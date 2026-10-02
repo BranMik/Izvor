@@ -680,9 +680,6 @@ def build_app_home_view(
                 },
             ]
         )
-
-        )
-
     if active_wf_id not in ("default_review_flow", "default_sandwich"):
         blocks.extend(
             [
