@@ -2,7 +2,7 @@
   "id": "default_review_flow",
   "name": "Default Review Workflow",
   "mode": "sandwich",
-  "description": "Standard review flow applied when no explicit agent is tagged (Visionary -> Innovator -> ... -> Architect).",
+  "description": "[DO NOT DELETE OR MODIFY - SYSTEM DEFAULT] Standard review flow applied when no explicit agent is tagged.",
   "sandwich_config": {
     "start_chain": [
       "agent-10001",
@@ -11,8 +11,5 @@
     "end_chain": [
       "agent-10008"
     ]
-  },
-  "fixed_config": {
-    "chain": []
   }
 }

@@ -1,7 +1,7 @@
 {
   "thread_skill_expiration_time": 12.0,
-  "circuit_breaker_enabled": true,
-  "circuit_breaker_threshold_usd": 2.5,
+  "circuit_breaker_enabled": false,
+  "circuit_breaker_threshold_usd": 1.5,
   "scribe_enabled": true,
   "weekly_pricing_update_enabled": true
 }

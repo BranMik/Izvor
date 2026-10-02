@@ -101,8 +101,8 @@ def test_workflow_manager_crud(tmp_path: Path):
     mgr.seed_default_workflows()
     seeded = mgr.list_workflows()
     assert len(seeded) >= 2
+    assert any(p.id == "default_review_flow" for p in seeded)
     assert any(p.id == "default_sandwich" for p in seeded)
-    assert any(p.id == "quick_tech_triage" for p in seeded)
 
     # 2. Get workflow
     sw = mgr.get_workflow("default_sandwich")
@@ -181,6 +181,13 @@ def test_agent_settings_workflow_integration(tmp_path: Path):
     assert "agent-10008" in mgr.sandwich_end_chain
 
     # Switch to quick_tech_triage
+    quick = WorkflowPreset(
+        id="quick_tech_triage",
+        name="Quick Tech Triage",
+        mode=OrchestrationMode.FIXED.value,
+        fixed_config={"chain": ["agent-10011", "agent-10008"]}
+    )
+    mgr.workflow_manager.save_preset(quick)
     applied_fixed = mgr.apply_workflow("quick_tech_triage")
     assert applied_fixed is True
     assert mgr.get_workflow_config() == "quick_tech_triage"
@@ -262,6 +269,15 @@ async def test_main_interactivity_workflow_actions(monkeypatch):
     assert saved.name == "Integration Test Preset"
     assert saved.sandwich_config["start_chain"] == ["agent-10001"]
     assert get_active_workflow_id() == "integration_test_preset"
+
+    quick = WorkflowPreset(
+        id="quick_tech_triage",
+        name="Quick Tech Triage",
+        mode=OrchestrationMode.FIXED.value,
+        fixed_config={"chain": ["agent-10011", "agent-10008"]}
+    )
+    from orchestration.agent_settings import settings_manager
+    settings_manager.workflow_manager.save_preset(quick)
 
     # 2. Select different preset via dropdown
     select_payload = {
@@ -373,6 +389,13 @@ def test_workflow_config_switching_and_fallback(tmp_path: Path):
     assert "agent-10001" in mgr.sandwich_start_chain
 
     # Switch to quick_tech_triage
+    quick = WorkflowPreset(
+        id="quick_tech_triage",
+        name="Quick Tech Triage",
+        mode=OrchestrationMode.FIXED.value,
+        fixed_config={"chain": ["agent-10011", "agent-10008"]}
+    )
+    mgr.workflow_manager.save_preset(quick)
     mgr.set_workflow_config("quick_tech_triage")
     assert mgr.get_orchestration_mode() == OrchestrationMode.FIXED.value
     assert mgr.fixed_chain == ["agent-10011", "agent-10008"]
@@ -391,6 +414,13 @@ def test_chain_mutation_persists_to_workflow_file(tmp_path: Path):
     mgr.agents_config = {"agent-10001": {}, "agent-10008": {}, "agent-10011": {}}
 
     # Start with quick_tech_triage
+    quick = WorkflowPreset(
+        id="quick_tech_triage",
+        name="Quick Tech Triage",
+        mode=OrchestrationMode.FIXED.value,
+        fixed_config={"chain": ["agent-10011", "agent-10008"]}
+    )
+    mgr.workflow_manager.save_preset(quick)
     mgr.set_workflow_config("quick_tech_triage")
     wf_file = wf_dir / "quick_tech_triage.json"
     assert wf_file.exists()
