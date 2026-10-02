@@ -27,6 +27,7 @@ class ThreadSkillsManager:
         self.storage_file = storage_file or THREAD_SKILLS_FILE
         self._threads: dict[str, dict[str, Any]] = {}
         self._last_loaded_mtime: float = 0.0
+        self._last_cleanup_time: float = 0.0
 
         if auto_load:
             self.load()
@@ -42,6 +43,7 @@ class ThreadSkillsManager:
         try:
             mtime = self.storage_file.stat().st_mtime
             if mtime == self._last_loaded_mtime and self._last_loaded_mtime > 0:
+                self._maybe_run_cleanup()
                 return
 
             with open(self.storage_file, "r", encoding="utf-8") as f:
@@ -50,8 +52,59 @@ class ThreadSkillsManager:
             self._threads = data.get("threads", {})
             self._last_loaded_mtime = mtime
             logger.debug(f"[THREAD_SKILLS] Loaded {len(self._threads)} thread entries from {self.storage_file}")
+            self._maybe_run_cleanup()
         except (OSError, json.JSONDecodeError, TypeError, ValueError) as e:
             logger.error(f"[THREAD_SKILLS] Failed to load {self.storage_file}: {e}")
+
+    def _maybe_run_cleanup(self) -> None:
+        now = time.time()
+        # Run cleanup at most once per hour (3600 seconds)
+        if now - self._last_cleanup_time > 3600.0:
+            self._last_cleanup_time = now
+            self._cleanup_expired()
+
+    def _cleanup_expired(self) -> None:
+        if not self._threads:
+            return
+
+        now = time.time()
+        ttl = self.get_ttl_seconds()
+        modified = False
+        threads_to_delete = []
+
+        for key, entry in self._threads.items():
+            # Clean up global thread skills. Add 24h grace period so app can still report them as "expired" rather than "never existed".
+            if "granted_at" in entry and now - entry["granted_at"] > ttl + 86400.0:
+                entry.pop("skills", None)
+                entry.pop("granted_at", None)
+                modified = True
+
+            # Clean up specific agent skills
+            agent_skills = entry.get("agent_skills", {})
+            agents_to_delete = []
+            for ag_key, ag_entry in agent_skills.items():
+                if "granted_at" in ag_entry and now - ag_entry["granted_at"] > ttl + 86400.0:
+                    agents_to_delete.append(ag_key)
+
+            for ag_key in agents_to_delete:
+                agent_skills.pop(ag_key)
+                modified = True
+
+            if "agent_skills" in entry and not agent_skills:
+                entry.pop("agent_skills")
+                modified = True
+
+            # If the entry is now empty, mark for deletion
+            if not entry:
+                threads_to_delete.append(key)
+
+        for key in threads_to_delete:
+            self._threads.pop(key)
+            modified = True
+
+        if modified:
+            logger.info(f"[THREAD_SKILLS] Cleaned up {len(threads_to_delete)} expired thread entries. Saving to disk.")
+            self.save()
 
     def save(self) -> None:
         self.storage_file.parent.mkdir(parents=True, exist_ok=True)
