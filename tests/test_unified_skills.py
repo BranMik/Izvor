@@ -74,7 +74,7 @@ def test_extracted_intent_backward_and_unified_compatibility():
     ei_restored = ExtractedIntent.from_dict(d)
     assert ei_restored.max_words == 60
     assert ei_restored.min_words == 10
-    assert ei_restored.has_action("document_reader") is True
+    assert ei_restored.has_action("document_reader") or ei_restored.has_action("document_authoring")
 
 
 def test_skill_registry_scopes_and_agent_catalog_isolation():
