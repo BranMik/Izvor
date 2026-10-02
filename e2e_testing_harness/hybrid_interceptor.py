@@ -314,6 +314,13 @@ class HybridInterceptor:
             if hist:
                 extracted_modifiers["history"] = int(hist.group(1))
 
+            from pipeline.entity_resolver import entity_resolver
+            tagged = entity_resolver.extract_tagged_agents(user_text)
+            for ag in tagged:
+                resolved = entity_resolver.resolve_agent_name(ag)
+                if resolved:
+                    extracted_actions.append({"name": resolved, "params": {}})
+
             content_json = json.dumps(
                 {
                     "modifiers": extracted_modifiers,

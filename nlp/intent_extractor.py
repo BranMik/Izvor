@@ -193,13 +193,28 @@ class IntentExtractor:
             logger.warning(
                 f"[INTENT EXTRACTOR] Extraction timed out after {timeout_seconds}s. Falling back."
             )
-            return default_intent
+            return self._deterministic_fallback(text)
         except (json.JSONDecodeError, ValueError, KeyError, TypeError) as e:
             logger.warning(f"[INTENT EXTRACTOR] Extraction parsing error ({e}). Falling back.")
-            return default_intent
+            return self._deterministic_fallback(text)
         except Exception as e:  # noqa: BLE001 - Intent extraction error boundary falls back cleanly to default intent
             logger.warning(f"[INTENT EXTRACTOR] Extraction failed ({e}). Falling back.")
-            return default_intent
+            return self._deterministic_fallback(text)
+
+    def _deterministic_fallback(self, text: str) -> ExtractedIntent:
+        """Deterministic regex fallback for explicitly tagged agents when LLM times out."""
+        actions = []
+        try:
+            from pipeline.entity_resolver import entity_resolver
+            tagged = entity_resolver.extract_tagged_agents(text)
+            for ag in tagged:
+                resolved = entity_resolver.resolve_agent_name(ag)
+                if resolved:
+                    actions.append(ActionDirective(name=resolved, params={}))
+        except Exception as e:
+            logger.warning(f"[INTENT EXTRACTOR] Deterministic fallback error: {e}")
+            
+        return ExtractedIntent(actions=actions, modifiers={})
 
 
 # Default singleton instance
