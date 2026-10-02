@@ -71,7 +71,7 @@ def parse_agent_list(
 ) -> tuple[bool, list[str], bool, str]:
     """
     Extracts agent keys from text for commands like /exclude or /include,
-    supporting /<cmd> [Agent1] [Agent2]... or /<cmd> off.
+    supporting /<cmd> /[Agent1] /[Agent2]... or /<cmd> off.
     Returns (matched: bool, agents: list[str], is_off: bool, cleaned_text: str).
     """
     if not text:
@@ -176,7 +176,7 @@ def parse_token(slash_cmd: str, text: str) -> tuple[bool, str | None, str]:
         return False, None, ""
 
     pattern = re.compile(
-        rf"(?:^|\s){re.escape(slash_cmd)}(?![-_])\s*[:=]?\s*(?:\[?([a-zA-Z0-9_-]+)\]?|all\b)?",
+        rf"(?:^|\s){re.escape(slash_cmd)}(?![-_])\s*[:=]?\s*(?:/?\[?([a-zA-Z0-9_-]+)\]?|all\b)?",
         re.IGNORECASE,
     )
     match = pattern.search(text)
@@ -193,7 +193,7 @@ def parse_grant_skill(
     slash_cmd: str, text: str
 ) -> tuple[bool, str, list[str], str]:
     """
-    Extracts skill name and agent targets for /grant_skill <skill> [Agent1] [Agent2].
+    Extracts skill name and agent targets for /grant_skill <skill> /[Agent1] /[Agent2].
     Returns (matched: bool, skill_name: str, agents_list: list[str], cleaned_text: str).
     """
     if not text:
@@ -210,7 +210,7 @@ def parse_grant_skill(
     remainder = text[curr_idx:]
 
     token_pattern = re.compile(
-        r"(\s*(?:,|and|&)?\s*)(\[[^\]]+\]|<@[A-Za-z0-9_]+>|@[a-zA-Z0-9_-]+|[a-zA-Z0-9_-]+)",
+        r"(\s*(?:,|and|&)?\s*)(/?\[[^\]]+\]|<@[A-Za-z0-9_]+>|@[a-zA-Z0-9_-]+|[a-zA-Z0-9_-]+)",
         re.IGNORECASE,
     )
     offset = 0
@@ -221,9 +221,9 @@ def parse_grant_skill(
         if not t_match:
             break
         _, raw_token = t_match.groups()
-        token_clean = raw_token.strip("[]@<>\t ")
+        token_clean = raw_token.strip("/[]@<>\t ")
         is_bracketed = (
-            raw_token.startswith("[") and raw_token.endswith("]") or raw_token.startswith(("@", "<@"))
+            (raw_token.startswith("[") or raw_token.startswith("/[")) and raw_token.endswith("]") or raw_token.startswith(("@", "<@"))
         )
 
         if not tokens:
@@ -248,7 +248,7 @@ def parse_list(
     slash_cmd: str, text: str, known_items: set[str] | None = None
 ) -> tuple[bool, list[str], str]:
     """
-    Extracts a list of items for commands like /list_skills [skill1] [skill2] or /revoke_for_all.
+    Extracts a list of items for commands like /grant_skill_for_all [skill1] [skill2] or /revoke_skill_for_all.
     Returns (matched: bool, items_list: list[str], cleaned_text: str).
     """
     if not text:
@@ -265,7 +265,7 @@ def parse_list(
     remainder = text[curr_idx:]
 
     token_pattern = re.compile(
-        r"(\s*(?:,|and|&)?\s*)(\[[^\]]+\]|[a-zA-Z0-9_-]+)", re.IGNORECASE
+        r"(\s*(?:,|and|&)?\s*)(/?\[[^\]]+\]|[a-zA-Z0-9_-]+)", re.IGNORECASE
     )
     offset = 0
     items_list: list[str] = []
@@ -275,7 +275,7 @@ def parse_list(
         if not t_match:
             break
         _, raw_token = t_match.groups()
-        token_clean = raw_token.strip("[]")
+        token_clean = raw_token.strip("/[]")
         rem_after_token = remainder[offset + len(t_match.group(0)):].strip()
         is_known = known_items and (
             token_clean.lower() in known_items or token_clean.lower() == "all"
