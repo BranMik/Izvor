@@ -258,7 +258,7 @@ def test_mcp_write_file_blocks_custom_blacklist(monkeypatch, tmp_path):
 
     monkeypatch.setattr(
         system_settings_manager,
-        "get_workspace_write_blacklist",
+        "get_workspace_write_blacklist_additional",
         lambda: ["custom_blocked_dir/*", "blacklisted.txt"],
     )
 
@@ -287,7 +287,7 @@ def test_mcp_write_document_blocks_blacklisted_path(monkeypatch):
 
     monkeypatch.setattr(
         system_settings_manager,
-        "get_workspace_write_blacklist",
+        "get_workspace_write_blacklist_additional",
         lambda: ["resources/secret_doc.txt"],
     )
 

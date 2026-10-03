@@ -26,7 +26,7 @@ class SystemSettingsManager:
     Single Source of Truth (SSOT) for system-level settings that are changeable ONLY in file (not through UI):
     - max_file_size_mb (float)
     - rag (dict): semantic chunking and LanceDB embedding settings
-    - workspace_write_blacklist (list[str])
+    - workspace_write_blacklist_additional (list[str])
     """
 
     _RAG_KEY_ALIASES: dict[str, str] = {
@@ -47,7 +47,7 @@ class SystemSettingsManager:
         self.default_fast_model: str = "gemini/gemini-3.8-flash"
         self.default_reasoning_model: str = "mistral/mistral-large-latest"
         self.max_file_size_mb: float = 50.0
-        self.workspace_write_blacklist: list[str] = []
+        self.workspace_write_blacklist_additional: list[str] = []
 
         self.rag_config: dict[str, Any] = {
             "max_chunk_chars": 3500,
@@ -109,8 +109,8 @@ class SystemSettingsManager:
             )
             self.max_file_size_mb = float(data.get("max_file_size_mb", 50.0))
             self._parse_rag_section(data.get("rag"))
-            raw_bl = data.get("workspace_write_blacklist", [])
-            self.workspace_write_blacklist = (
+            raw_bl = data.get("workspace_write_blacklist_additional", [])
+            self.workspace_write_blacklist_additional = (
                 [str(p).strip() for p in raw_bl if str(p).strip()]
                 if isinstance(raw_bl, list)
                 else []
@@ -134,8 +134,8 @@ class SystemSettingsManager:
                     )
                     self.max_file_size_mb = float(data.get("max_file_size_mb", 50.0))
                     self._parse_rag_section(data.get("rag"))
-                    raw_bl = data.get("workspace_write_blacklist", [])
-                    self.workspace_write_blacklist = (
+                    raw_bl = data.get("workspace_write_blacklist_additional", [])
+                    self.workspace_write_blacklist_additional = (
                         [str(p).strip() for p in raw_bl if str(p).strip()]
                         if isinstance(raw_bl, list)
                         else []
@@ -153,12 +153,12 @@ class SystemSettingsManager:
             "default_reasoning_model": self.default_reasoning_model,
             "max_file_size_mb": self.max_file_size_mb,
             "rag": self.rag_config,
-            "_comment_workspace_write_blacklist": (
+            "_comment_workspace_write_blacklist_additional": (
                 "Automatic hardcoded protection blocks writes to .env, .git, data/agent_settings.json, "
                 "data/app_settings.json, and data/system_settings.json. Add any additional relative workspace "
                 "paths or file patterns here to prevent unauthorized modifications."
             ),
-            "workspace_write_blacklist": self.workspace_write_blacklist,
+            "workspace_write_blacklist_additional": self.workspace_write_blacklist_additional,
         }
 
         tmp_file = target_file.with_suffix(".tmp")
@@ -257,16 +257,18 @@ class SystemSettingsManager:
             self.save()
         logger.info(f"[SYSTEM_SETTINGS] Set RAG setting '{key}' to {value}.")
 
-    # --- Workspace Write Blacklist & Protections ---
-    def get_workspace_write_blacklist(self) -> list[str]:
+    # --- Workspace Write Blacklist Additional & Protections ---
+    def get_workspace_write_blacklist_additional(self) -> list[str]:
         self.load()
-        return list(self.workspace_write_blacklist)
+        return list(self.workspace_write_blacklist_additional)
 
-    def set_workspace_write_blacklist(self, paths: list[str], save: bool = True) -> None:
-        self.workspace_write_blacklist = [str(p).strip() for p in paths if str(p).strip()]
+    def set_workspace_write_blacklist_additional(self, paths: list[str], save: bool = True) -> None:
+        self.workspace_write_blacklist_additional = [str(p).strip() for p in paths if str(p).strip()]
         if save:
             self.save()
-        logger.info(f"[SYSTEM_SETTINGS] Set workspace_write_blacklist to {self.workspace_write_blacklist}.")
+        logger.info(
+            f"[SYSTEM_SETTINGS] Set workspace_write_blacklist_additional to {self.workspace_write_blacklist_additional}."
+        )
 
     def is_path_write_blocked(
         self,
@@ -277,7 +279,7 @@ class SystemSettingsManager:
         """
         Determines whether writing to target_path is blocked by default protections
         (.env, .git, data/agent_settings.json, data/app_settings.json, data/system_settings.json) or
-        the configured workspace_write_blacklist.
+        the configured workspace_write_blacklist_additional.
         """
         if base_dir is None:
             base_dir = Path(__file__).resolve().parent.parent
@@ -325,11 +327,11 @@ class SystemSettingsManager:
             except (ValueError, OSError):
                 pass
 
-        # 2. Configurable workspace_write_blacklist
+        # 2. Configurable workspace_write_blacklist_additional
         blacklist = (
             custom_blacklist
             if custom_blacklist is not None
-            else self.get_workspace_write_blacklist()
+            else self.get_workspace_write_blacklist_additional()
         )
         for item in blacklist:
             clean_item = str(item).strip()
@@ -380,12 +382,12 @@ def set_rag_setting(key: str, value: Any, save: bool = True) -> None:
     system_settings_manager.set_rag_setting(key, value, save=save)
 
 
-def get_workspace_write_blacklist() -> list[str]:
-    return system_settings_manager.get_workspace_write_blacklist()
+def get_workspace_write_blacklist_additional() -> list[str]:
+    return system_settings_manager.get_workspace_write_blacklist_additional()
 
 
-def set_workspace_write_blacklist(paths: list[str], save: bool = True) -> None:
-    system_settings_manager.set_workspace_write_blacklist(paths, save=save)
+def set_workspace_write_blacklist_additional(paths: list[str], save: bool = True) -> None:
+    system_settings_manager.set_workspace_write_blacklist_additional(paths, save=save)
 
 
 def is_path_write_blocked(
