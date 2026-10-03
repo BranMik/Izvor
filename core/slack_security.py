@@ -58,4 +58,19 @@ def verify_slack_signature(body_bytes: bytes, headers: dict) -> bool:
     is_valid = hmac.compare_digest(my_signature, slack_signature)
     if not is_valid:
         logger.error("Slack signature verification failed!")
+        try:
+            from services.audit_logger import log_audit_event
+
+            log_audit_event(
+                event_type="AUTH_FAILURE",
+                actor={"type": "slack_webhook", "id": "unverified_client"},
+                action="verify_slack_signature",
+                target="/slack/*",
+                details={"reason": "HMAC signature mismatch"},
+                severity="CRITICAL",
+                status="FAILED",
+            )
+        except Exception:
+            pass
     return is_valid
+

@@ -190,20 +190,61 @@ def write_document(rel_path: str, content: str) -> str:
     try:
         from orchestration.system_settings import is_path_write_blocked
 
+        if is_path_write_blocked(rel_path, base_dir=WORKSPACE_DIR):
+            from services.audit_logger import log_audit_event
+
+            log_audit_event(
+                event_type="FILE_WRITE_BLOCKED",
+                actor={"type": "agent_tool", "id": "write_document"},
+                action="write_document",
+                target=rel_path,
+                details={"reason": "Target path matches protected path policy"},
+                severity="CRITICAL",
+                status="BLOCKED",
+            )
+            return json.dumps({
+                "error": f"Permission denied: Writing to protected path '{rel_path}' is strictly prohibited."
+            })
+
         path = _resolve_resource_path(rel_path)
         if is_path_write_blocked(path, base_dir=WORKSPACE_DIR):
+            from services.audit_logger import log_audit_event
+
+            log_audit_event(
+                event_type="FILE_WRITE_BLOCKED",
+                actor={"type": "agent_tool", "id": "write_document"},
+                action="write_document",
+                target=rel_path,
+                details={"resolved_path": str(path), "reason": "Path is protected in system settings"},
+                severity="CRITICAL",
+                status="BLOCKED",
+            )
             return json.dumps({
                 "error": f"Permission denied: Writing to protected path '{rel_path}' is strictly prohibited."
             })
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
+        bytes_written = len(content.encode("utf-8"))
+        from services.audit_logger import log_audit_event
+
+        log_audit_event(
+            event_type="TOOL_EXECUTE_FILE_WRITE",
+            actor={"type": "agent_tool", "id": "write_document"},
+            action="write_document",
+            target=rel_path,
+            details={"bytes_written": bytes_written},
+            severity="WARNING",
+            status="SUCCESS",
+        )
         return json.dumps(
             {
                 "success": True,
                 "document": rel_path,
-                "bytes_written": len(content.encode("utf-8")),
+                "bytes_written": bytes_written,
             }
         )
+
+
     except PermissionError as e:
         return json.dumps({"error": str(e)})
     except IsADirectoryError:
@@ -386,11 +427,36 @@ def execute_mcp_tool(
         logger.warning(
             f"[MCP] Access denied: Agent '{agent_name}' is not authorized to execute tool '{tool_name}'."
         )
+        from services.audit_logger import log_audit_event
+
+        log_audit_event(
+            event_type="SECURITY_POLICY_VIOLATION",
+            actor={"type": "agent", "id": agent_name},
+            action="execute_mcp_tool",
+            target=f"tool:{tool_name}",
+            details={"reason": "Defense-in-depth authorization check failed"},
+            severity="CRITICAL",
+            status="BLOCKED",
+        )
         return json.dumps({
             "error": f"Permission denied: Agent '{agent_name}' is not authorized to execute tool '{tool_name}'."
         })
 
+    if tool_name in ("web_search", "fetch_web_page"):
+        from services.audit_logger import log_audit_event
+
+        log_audit_event(
+            event_type="TOOL_EXECUTE_NETWORK",
+            actor={"type": "agent", "id": agent_name or "mcp_runner"},
+            action=tool_name,
+            target=str((arguments or {}).get("url") or (arguments or {}).get("query") or "network"),
+            details=arguments or {},
+            severity="INFO",
+            status="SUCCESS",
+        )
+
     handler = TOOL_DISPATCHER.get(tool_name)
+
     if handler:
         try:
             return handler(arguments or {})

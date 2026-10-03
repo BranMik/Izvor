@@ -15,6 +15,7 @@ BACKUP_INTERVAL_SECONDS = 7 * 86400
 DEFAULT_PROTECTED_WRITE_PATHS: list[str] = [
     ".env",
     ".git",
+    "audit",
     "data/agent_settings.json",
     "data/app_settings.json",
     "data/system_settings.json",

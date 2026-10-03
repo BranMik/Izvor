@@ -603,11 +603,22 @@ class SkillRegistry:
                 and skill_name not in authorized_skills
                 and not is_globally_allowed
             ):
+                from services.audit_logger import log_audit_event
+
                 if expired_skills and skill_name in expired_skills:
                     ttl_str = (
                         f"{ttl_hours:.1f} hours"
                         if ttl_hours
                         else "the expiration limit"
+                    )
+                    log_audit_event(
+                        event_type="SECURITY_POLICY_VIOLATION",
+                        actor={"type": "agent", "id": agent_name or "unknown_agent"},
+                        action="load_skill",
+                        target=f"skill:{skill_name}",
+                        details={"reason": "Skill expired", "ttl_hours": ttl_hours},
+                        severity="CRITICAL",
+                        status="BLOCKED",
                     )
                     return json.dumps(
                         {
@@ -618,6 +629,15 @@ class SkillRegistry:
                         }
                     )
                 allowed_str = ", ".join(f"'{s}'" for s in authorized_skills) or "none"
+                log_audit_event(
+                    event_type="SECURITY_POLICY_VIOLATION",
+                    actor={"type": "agent", "id": agent_name or "unknown_agent"},
+                    action="load_skill",
+                    target=f"skill:{skill_name}",
+                    details={"reason": "Agent not authorized for skill", "authorized_skills": authorized_skills},
+                    severity="CRITICAL",
+                    status="BLOCKED",
+                )
                 return json.dumps(
                     {
                         "error": (
@@ -638,6 +658,18 @@ class SkillRegistry:
                         "error": f"Skill '{skill_name}' not found. Available skills: {avail}"
                     }
                 )
+
+            from services.audit_logger import log_audit_event
+
+            log_audit_event(
+                event_type="SKILL_LOADED",
+                actor={"type": "agent", "id": agent_name or "unknown_agent"},
+                action="load_skill",
+                target=f"skill:{skill.name}",
+                details={"unlocked_tools": skill.tools},
+                severity="INFO",
+                status="SUCCESS",
+            )
 
             return json.dumps(
                 {
@@ -664,6 +696,20 @@ class SkillRegistry:
                 allowed_tools_str = (
                     ", ".join(f"'{t}'" for t in sorted(permitted_tools)) or "none"
                 )
+                from services.audit_logger import log_audit_event
+
+                log_audit_event(
+                    event_type="SECURITY_POLICY_VIOLATION",
+                    actor={"type": "agent", "id": agent_name or "unknown_agent"},
+                    action="execute_tool",
+                    target=f"tool:{tool_name}",
+                    details={
+                        "reason": "Agent not authorized for tool",
+                        "permitted_tools": sorted(permitted_tools),
+                    },
+                    severity="CRITICAL",
+                    status="BLOCKED",
+                )
                 return json.dumps(
                     {
                         "error": (
@@ -675,6 +721,7 @@ class SkillRegistry:
                         )
                     }
                 )
+
 
         # Check if any skill registered a custom tool handler
         for s_def in self._skills.values():
