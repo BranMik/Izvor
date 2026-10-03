@@ -17,13 +17,13 @@ from orchestration.system_settings import (
     get_max_file_size_mb,
     get_rag_config,
     get_rag_setting,
-    get_workspace_write_blacklist,
+    get_workspace_write_blacklist_additional,
     is_path_write_blocked,
     set_default_fast_model,
     set_default_reasoning_model,
     set_max_file_size_mb,
     set_rag_setting,
-    set_workspace_write_blacklist,
+    set_workspace_write_blacklist_additional,
 )
 
 
@@ -47,7 +47,7 @@ def test_system_settings_defaults():
         assert rag["embedding_model"] == "gemini/gemini-embedding-001"
         assert rag["embedding_dim"] == 3072
         assert rag["embedding_batch_size"] == 32
-        assert mgr.get_workspace_write_blacklist() == []
+        assert mgr.get_workspace_write_blacklist_additional() == []
 
 
 def test_system_settings_custom_persistence():
@@ -151,8 +151,8 @@ def test_system_settings_module_convenience(monkeypatch, tmp_path):
     assert get_rag_setting("default_top_k") == 10
     assert get_rag_config()["default_top_k"] == 10
 
-    set_workspace_write_blacklist(["secrets/*", "custom.key"])
-    assert get_workspace_write_blacklist() == ["secrets/*", "custom.key"]
+    set_workspace_write_blacklist_additional(["secrets/*", "custom.key"])
+    assert get_workspace_write_blacklist_additional() == ["secrets/*", "custom.key"]
 
     assert get_default_fast_model() == "gemini/gemini-3.8-flash"
     set_default_fast_model("test/fast-model")
@@ -163,23 +163,23 @@ def test_system_settings_module_convenience(monkeypatch, tmp_path):
     assert get_default_reasoning_model() == "test/reasoning-model"
 
 
-def test_workspace_write_blacklist_persistence(tmp_path):
+def test_workspace_write_blacklist_additional_persistence(tmp_path):
     settings_file = tmp_path / "system_settings.json"
     backup_file = tmp_path / "system_settings_backup.json"
     mgr = SystemSettingsManager(settings_file=settings_file, backup_file=backup_file, auto_load=True)
 
-    assert mgr.get_workspace_write_blacklist() == []
-    mgr.set_workspace_write_blacklist(["restricted_dir/*", "secret.token"])
+    assert mgr.get_workspace_write_blacklist_additional() == []
+    mgr.set_workspace_write_blacklist_additional(["restricted_dir/*", "secret.token"])
 
     # Reload from disk
     mgr2 = SystemSettingsManager(settings_file=settings_file, backup_file=backup_file, auto_load=True)
-    assert mgr2.get_workspace_write_blacklist() == ["restricted_dir/*", "secret.token"]
+    assert mgr2.get_workspace_write_blacklist_additional() == ["restricted_dir/*", "secret.token"]
 
     # Verify JSON content contains comment and blacklist at root
     with open(settings_file, "r", encoding="utf-8") as f:
         data = json.load(f)
-    assert "_comment_workspace_write_blacklist" in data
-    assert data["workspace_write_blacklist"] == ["restricted_dir/*", "secret.token"]
+    assert "_comment_workspace_write_blacklist_additional" in data
+    assert data["workspace_write_blacklist_additional"] == ["restricted_dir/*", "secret.token"]
 
 
 def test_is_path_write_blocked_defaults(tmp_path):
