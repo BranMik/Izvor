@@ -409,10 +409,16 @@ class AppIntegrityValidator:
         month: str | None = None,
     ) -> dict[str, Any]:
         """
-        Validates the non-repudiable audit log cryptographic hash chain.
-        Returns a dictionary with status, errors, and verification details.
+        Validates the non-repudiable audit log cryptographic hash chain and HMAC key continuity.
+        Returns a dictionary with status, errors, hmac_continuity, and verification details.
         """
-        from services.audit_logger import verify_audit_log_integrity
+        from services.audit_logger import check_hmac_secret_continuity, verify_audit_log_integrity
+
+        hmac_continuity = check_hmac_secret_continuity(audit_dir=audit_dir)
+        if not hmac_continuity["matches"]:
+            logger.warning(
+                f"[INTEGRITY] AUDIT_HMAC_SECRET continuity check warning: {hmac_continuity['message']}"
+            )
 
         result = verify_audit_log_integrity(audit_dir=audit_dir, month=month)
         if not result.valid:
@@ -429,5 +435,6 @@ class AppIntegrityValidator:
             "errors": result.errors,
             "last_verified_seq": result.last_verified_seq,
             "last_verified_hash": result.last_verified_hash,
+            "hmac_continuity": hmac_continuity,
         }
 
