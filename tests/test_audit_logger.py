@@ -15,6 +15,7 @@ from services.audit_logger import (
     GENESIS_HASH,
     AuditLogger,
     canonical_serialize,
+    check_hmac_secret_continuity,
     compute_entry_hash,
     log_audit_event,
     send_admin_audit_alert,
@@ -212,6 +213,8 @@ def test_app_integrity_validator_integration(temp_audit_dir):
     assert status["total_records"] == 1
     assert status["last_verified_seq"] == 1
     assert len(status["errors"]) == 0
+    assert "hmac_continuity" in status
+    assert status["hmac_continuity"]["matches"] is True
 
 
 def test_sandbox_audit_write_protection():
@@ -243,4 +246,95 @@ def test_send_admin_audit_alert_mock(monkeypatch):
         )
     )
     assert success is True
+
+
+def test_hmac_continuity_empty_records(tmp_path: Path):
+    """Verifies that an empty audit directory reports NO_RECORDS and passes."""
+    empty_dir = tmp_path / "empty_audit"
+    empty_dir.mkdir()
+    res = check_hmac_secret_continuity(audit_dir=empty_dir, secret_key=b"test-secret")
+    assert res["has_records"] is False
+    assert res["matches"] is True
+    assert res["status"] == "NO_RECORDS"
+
+
+def test_hmac_continuity_key_matches(temp_audit_dir, monkeypatch):
+    """Verifies that matching HMAC secret reports MATCH."""
+    test_dir, logger = temp_audit_dir
+    monkeypatch.setattr("services.audit_logger.AUDIT_HMAC_SECRET", b"secret-v1")
+
+    logger.log_event(
+        event_type="ADMIN_CONFIG_CHANGE",
+        actor={"type": "admin", "id": "admin"},
+        action="update_settings",
+        target="sys",
+    )
+
+    res = check_hmac_secret_continuity(audit_dir=test_dir, secret_key=b"secret-v1")
+    assert res["has_records"] is True
+    assert res["matches"] is True
+    assert res["status"] == "MATCH"
+    assert res["last_seq"] == 1
+
+
+def test_hmac_continuity_key_changed(temp_audit_dir, monkeypatch):
+    """Verifies that changing the HMAC secret key is detected as SECRET_CHANGED."""
+    test_dir, logger = temp_audit_dir
+    monkeypatch.setattr("services.audit_logger.AUDIT_HMAC_SECRET", b"secret-original")
+
+    logger.log_event(
+        event_type="ADMIN_CONFIG_CHANGE",
+        actor={"type": "admin", "id": "admin"},
+        action="update_settings",
+        target="sys",
+    )
+
+    # Validate with a different key
+    res = check_hmac_secret_continuity(audit_dir=test_dir, secret_key=b"secret-changed-new")
+    assert res["has_records"] is True
+    assert res["matches"] is False
+    assert res["status"] == "SECRET_CHANGED"
+    assert "does not match the HMAC key" in res["message"]
+
+
+def test_hmac_continuity_secret_added_to_plain_chain(temp_audit_dir, monkeypatch):
+    """Verifies that adding a secret when previous logs were plain SHA-256 reports SECRET_ADDED."""
+    test_dir, logger = temp_audit_dir
+    # Write record without HMAC secret
+    monkeypatch.setattr("services.audit_logger.AUDIT_HMAC_SECRET", None)
+
+    logger.log_event(
+        event_type="ADMIN_CONFIG_CHANGE",
+        actor={"type": "admin", "id": "admin"},
+        action="update_settings",
+        target="sys",
+    )
+
+    # Validate with a newly configured secret
+    res = check_hmac_secret_continuity(audit_dir=test_dir, secret_key=b"newly-added-secret")
+    assert res["has_records"] is True
+    assert res["matches"] is False
+    assert res["status"] == "SECRET_ADDED"
+    assert "plain SHA-256" in res["message"]
+
+
+def test_hmac_continuity_secret_removed(temp_audit_dir, monkeypatch):
+    """Verifies that removing the secret when previous logs were HMAC signed reports SECRET_REMOVED."""
+    test_dir, logger = temp_audit_dir
+    # Write record with HMAC secret
+    monkeypatch.setattr("services.audit_logger.AUDIT_HMAC_SECRET", b"original-secret")
+
+    logger.log_event(
+        event_type="ADMIN_CONFIG_CHANGE",
+        actor={"type": "admin", "id": "admin"},
+        action="update_settings",
+        target="sys",
+    )
+
+    # Validate with empty/None secret
+    res = check_hmac_secret_continuity(audit_dir=test_dir, secret_key=b"")
+    assert res["has_records"] is True
+    assert res["matches"] is False
+    assert res["status"] == "SECRET_REMOVED"
+    assert "AUDIT_HMAC_SECRET is not set" in res["message"]
 

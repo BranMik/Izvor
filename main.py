@@ -80,6 +80,11 @@ async def periodic_audit_integrity_guard():
         try:
             await asyncio.sleep(43200)  # check every 12 hours
             res = AppIntegrityValidator.check_audit_log_integrity()
+            hmac_check = res.get("hmac_continuity", {})
+            if hmac_check and not hmac_check.get("matches", True):
+                logger.warning(
+                    f"[SECURITY GUARD] Periodic AUDIT_HMAC_SECRET mismatch: {hmac_check.get('message')}"
+                )
             if not res["valid"]:
                 err_msg = "; ".join(res["errors"])
                 logger.critical(f"[SECURITY GUARD] Periodic audit integrity violation: {err_msg}")
@@ -104,12 +109,51 @@ async def lifespan(app: FastAPI):
     enabled = load_enabled_agents()
     logger.info(f"[STARTUP] Loaded {len(enabled)} enabled debate agents from persistent storage.")
 
-    # Run startup audit log integrity check
+    # Run startup audit log integrity and HMAC key continuity check
     from core.integrity_checks import AppIntegrityValidator
     from services.audit_logger import send_admin_audit_alert
 
     audit_status = AppIntegrityValidator.check_audit_log_integrity()
-    if not audit_status["valid"]:
+    hmac_check = audit_status.get("hmac_continuity", {})
+
+    if hmac_check and not hmac_check.get("matches", True):
+        status = hmac_check.get("status")
+        msg = hmac_check.get("message")
+        logger.warning(f"[SECURITY STARTUP] AUDIT_HMAC_SECRET mismatch: {msg}")
+
+        if not audit_status["valid"]:
+            # Combined alert: secret mismatch caused chain verification failure
+            err_msg = "; ".join(audit_status["errors"])
+            logger.critical(
+                f"[SECURITY STARTUP] Audit chain verification failed with secret mismatch: {err_msg}"
+            )
+            asyncio.create_task(
+                send_admin_audit_alert(
+                    title=f"Startup Audit Integrity Alert: Secret Mismatch ({status})",
+                    message="Server startup detected that AUDIT_HMAC_SECRET does not match the key used for existing audit logs, causing verification failure.",
+                    details={
+                        "Status": status,
+                        "Warning": msg,
+                        "Last File": hmac_check.get("last_file") or "N/A",
+                        "Last Seq": str(hmac_check.get("last_seq", 0)),
+                        "Errors": err_msg[:500],
+                    },
+                )
+            )
+        else:
+            asyncio.create_task(
+                send_admin_audit_alert(
+                    title=f"AUDIT_HMAC_SECRET Discrepancy ({status})",
+                    message="Server startup detected that AUDIT_HMAC_SECRET does not match the key used for existing audit logs.",
+                    details={
+                        "Status": status,
+                        "Warning": msg,
+                        "Last File": hmac_check.get("last_file") or "N/A",
+                        "Last Seq": str(hmac_check.get("last_seq", 0)),
+                    },
+                )
+            )
+    elif not audit_status["valid"]:
         err_msg = "; ".join(audit_status["errors"])
         logger.critical(f"[SECURITY STARTUP] Audit log integrity violation detected: {err_msg}")
         asyncio.create_task(

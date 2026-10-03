@@ -74,10 +74,18 @@ def canonical_serialize(data: dict[str, Any]) -> str:
     return json.dumps(data, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
 
+def get_audit_hmac_secret() -> bytes:
+    """Returns the current HMAC secret from module global or environment."""
+    val = globals().get("AUDIT_HMAC_SECRET")
+    if val is not None:
+        return val if isinstance(val, bytes) else str(val).encode("utf-8")
+    return os.getenv("AUDIT_HMAC_SECRET", "").encode("utf-8")
+
+
 def compute_entry_hash(prev_hash: str, canonical_json: str, secret_key: bytes | None = None) -> str:
     """Computes SHA-256 (or HMAC-SHA256 if secret_key is provided) entry hash."""
     message = (prev_hash + canonical_json).encode("utf-8")
-    key = secret_key if secret_key else AUDIT_HMAC_SECRET
+    key = secret_key if secret_key is not None else get_audit_hmac_secret()
     if key:
         return hmac.new(key, message, hashlib.sha256).hexdigest()
     return hashlib.sha256(message).hexdigest()
@@ -238,6 +246,11 @@ class AuditLogger:
             return snapshot_path
 
 
+    def check_hmac_secret_continuity(self, secret_key: bytes | None = None) -> dict[str, Any]:
+        """Validates whether the current AUDIT_HMAC_SECRET matches the latest audit record."""
+        return check_hmac_secret_continuity(audit_dir=self.audit_dir, secret_key=secret_key)
+
+
 # Global module singleton instance
 audit_logger = AuditLogger()
 
@@ -261,6 +274,140 @@ def log_audit_event(
         severity=severity,
         status=status,
     )
+
+
+# ---------------------------------------------------------------------------
+# HMAC Secret Continuity & Verification Engine
+# ---------------------------------------------------------------------------
+
+
+def check_hmac_secret_continuity(
+    audit_dir: Path | None = None,
+    secret_key: bytes | None = None,
+) -> dict[str, Any]:
+    """
+    Validates whether the current AUDIT_HMAC_SECRET matches the cryptographic key
+    used for the latest existing audit record.
+
+    Detects if the secret was changed, added, removed, or if records were altered.
+    Returns:
+        dict with keys: has_records, matches, status, message, last_seq, last_file, recorded_hash, computed_hash
+    """
+    base_dir = audit_dir or DEFAULT_AUDIT_DIR
+    if not base_dir.exists():
+        return {
+            "has_records": False,
+            "matches": True,
+            "status": "NO_RECORDS",
+            "message": "Audit directory does not exist yet; HMAC secret accepted as genesis key.",
+            "last_seq": 0,
+            "last_file": None,
+            "recorded_hash": None,
+            "computed_hash": None,
+        }
+
+    sorted_files = sorted(list(base_dir.glob("audit_*.jsonl")), key=lambda p: p.name)
+    last_record_dict: dict[str, Any] | None = None
+    last_file: Path | None = None
+
+    for file_path in reversed(sorted_files):
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                lines = [line.strip() for line in f if line.strip()]
+                if lines:
+                    last_record_dict = json.loads(lines[-1])
+                    last_file = file_path
+                    break
+        except Exception as e:
+            logger.error(f"[AUDIT] Failed to read record from {file_path.name}: {e}")
+            continue
+
+    if not last_record_dict or not last_file:
+        return {
+            "has_records": False,
+            "matches": True,
+            "status": "NO_RECORDS",
+            "message": "No existing audit records found; HMAC secret accepted as genesis key.",
+            "last_seq": 0,
+            "last_file": None,
+            "recorded_hash": None,
+            "computed_hash": None,
+        }
+
+    seq = last_record_dict.get("seq", 0)
+    prev_hash = last_record_dict.get("prev_hash", "")
+    recorded_entry_hash = str(last_record_dict.get("entry_hash", ""))
+
+    record_obj = AuditRecord(
+        seq=seq,
+        timestamp=last_record_dict.get("timestamp", ""),
+        event_type=last_record_dict.get("event_type", ""),
+        severity=last_record_dict.get("severity", "INFO"),
+        actor=last_record_dict.get("actor", {}),
+        action=last_record_dict.get("action", ""),
+        target=last_record_dict.get("target", ""),
+        details=last_record_dict.get("details", {}),
+        status=last_record_dict.get("status", "SUCCESS"),
+        prev_hash=prev_hash,
+    )
+    canonical = canonical_serialize(record_obj.to_canonical_dict())
+
+    # Active key (or explicit parameter override)
+    active_key = secret_key if secret_key is not None else get_audit_hmac_secret()
+    computed_with_active = compute_entry_hash(prev_hash, canonical, secret_key=active_key)
+    computed_plain = compute_entry_hash(prev_hash, canonical, secret_key=b"")
+
+    if computed_with_active == recorded_entry_hash:
+        return {
+            "has_records": True,
+            "matches": True,
+            "status": "MATCH",
+            "message": f"Active secret matches the key used to sign the latest audit record (seq {seq}).",
+            "last_seq": seq,
+            "last_file": last_file.name,
+            "recorded_hash": recorded_entry_hash,
+            "computed_hash": computed_with_active,
+        }
+
+    # Discrepancy detected
+    has_active_secret = bool(active_key)
+    recorded_is_plain = recorded_entry_hash == computed_plain
+
+    if has_active_secret and recorded_is_plain:
+        status = "SECRET_ADDED"
+        msg = (
+            f"AUDIT_HMAC_SECRET is configured, but the latest audit record "
+            f"(seq {seq} in {last_file.name}) was sealed with plain SHA-256 without HMAC."
+        )
+    elif not has_active_secret and not recorded_is_plain:
+        status = "SECRET_REMOVED"
+        msg = (
+            f"AUDIT_HMAC_SECRET is not set, but the latest audit record "
+            f"(seq {seq} in {last_file.name}) was sealed with an HMAC key."
+        )
+    elif has_active_secret:
+        status = "SECRET_CHANGED"
+        msg = (
+            f"The active AUDIT_HMAC_SECRET does not match the HMAC key used to seal the latest audit record "
+            f"(seq {seq} in {last_file.name}). Has the secret been rotated or altered?"
+        )
+    else:
+        status = "TAMPERED"
+        msg = (
+            f"Latest audit record (seq {seq} in {last_file.name}) hash mismatch: "
+            f"recorded '{recorded_entry_hash}', computed '{computed_with_active}'."
+        )
+
+    return {
+        "has_records": True,
+        "matches": False,
+        "status": status,
+        "message": msg,
+        "last_seq": seq,
+        "last_file": last_file.name,
+        "recorded_hash": recorded_entry_hash,
+        "computed_hash": computed_with_active,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -506,6 +653,11 @@ def cli_main() -> None:
         help="Filter verification or stats to a specific month (e.g. 2026-10 or 2026_10).",
     )
     parser.add_argument(
+        "--check-secret",
+        action="store_true",
+        help="Validate whether the active AUDIT_HMAC_SECRET matches the latest audit record.",
+    )
+    parser.add_argument(
         "--snapshot",
         action="store_true",
         help="Create a backup snapshot and update the SHA-256 manifest.",
@@ -517,6 +669,22 @@ def cli_main() -> None:
     )
 
     args = parser.parse_args()
+
+    if args.check_secret:
+        continuity = check_hmac_secret_continuity(audit_dir=audit_logger.audit_dir)
+        print("\n=== SilvanAgora AUDIT_HMAC_SECRET Validation ===")
+        print(f"Status:       {continuity['status']}")
+        print(f"Key Matches:  {continuity['matches']}")
+        print(f"Message:      {continuity['message']}")
+        if continuity["has_records"]:
+            print(f"Last Seq:     {continuity['last_seq']}")
+            print(f"Last File:    {continuity['last_file']}")
+            print(f"Recorded:     {continuity['recorded_hash']}")
+            print(f"Computed:     {continuity['computed_hash']}")
+        print("================================================\n")
+        if not continuity["matches"]:
+            exit(1)
+        return
 
     if args.snapshot:
         logger.info("Triggering manual audit snapshot...")
@@ -531,12 +699,14 @@ def cli_main() -> None:
         files = audit_logger._get_sorted_audit_files()
         total_bytes = sum(f.stat().st_size for f in files)
         last_seq, last_hash = audit_logger.get_last_state()
+        continuity = check_hmac_secret_continuity(audit_dir=audit_logger.audit_dir)
         print("\n=== SilvanAgora Audit Log Statistics ===")
         print(f"Audit Directory:    {audit_logger.audit_dir}")
         print(f"Total Log Files:    {len(files)}")
         print(f"Total Size:         {total_bytes / 1024:.2f} KB ({total_bytes} bytes)")
         print(f"Total Events (Seq): {last_seq}")
         print(f"Latest Entry Hash:  {last_hash[:16]}...{last_hash[-8:]}")
+        print(f"HMAC Key Status:    {continuity['status']} (matches={continuity['matches']})")
         print("Files:")
         for f in files:
             print(f"  - {f.name} ({f.stat().st_size} bytes)")
@@ -544,12 +714,14 @@ def cli_main() -> None:
         return
 
     # Default action or --verify
+    continuity = check_hmac_secret_continuity(audit_dir=audit_logger.audit_dir)
     result = verify_audit_log_integrity(month=args.month)
     print("\n=== SilvanAgora Audit Log Integrity Verification ===")
     print(f"Scanned Files:    {', '.join(result.scanned_files) or 'None'}")
     print(f"Total Records:    {result.total_records}")
     print(f"Last Seq Number:  {result.last_verified_seq}")
     print(f"Last Entry Hash:  {result.last_verified_hash}")
+    print(f"HMAC Key Status:  {continuity['status']} ({continuity['message']})")
 
     if result.valid:
         print("\n[VERIFIED] All cryptographic audit chains are fully intact. No tampering detected.\n")
