@@ -45,6 +45,7 @@ from services.slack_client import (
     publish_app_home,
     upload_text_file_to_slack,
 )
+from services.audit_logger import log_audit_event
 
 logger = logging.getLogger("CaiLogicsBackend.SlackInteractivity")
 
@@ -208,16 +209,40 @@ async def handle_slack_interactivity(request: Request, background_tasks: Backgro
                 set_circuit_breaker_enabled(is_on)
                 if not is_on:
                     set_circuit_breaker_threshold(0.0)
+                log_audit_event(
+                    event_type="ADMIN_CONFIG_CHANGE",
+                    actor={"type": "slack_admin", "id": user_id or "unknown"},
+                    action="toggle_circuit_breaker",
+                    target="circuit_breaker.enabled",
+                    details={"enabled": is_on},
+                    severity="CRITICAL",
+                )
             elif action_id == "toggle_scribe_radio":
                 selected_option = action.get("selected_option", {})
                 val = selected_option.get("value", "")
                 is_on = (val == "scribe:on")
                 set_scribe_enabled(is_on)
+                log_audit_event(
+                    event_type="ADMIN_CONFIG_CHANGE",
+                    actor={"type": "slack_admin", "id": user_id or "unknown"},
+                    action="toggle_scribe",
+                    target="discussion_scribe.enabled",
+                    details={"enabled": is_on},
+                    severity="CRITICAL",
+                )
             elif action_id == "toggle_weekly_pricing_update_radio":
                 selected_option = action.get("selected_option", {})
                 val = selected_option.get("value", "")
                 is_on = (val == "pricing_update:on")
                 set_weekly_pricing_update_enabled(is_on)
+                log_audit_event(
+                    event_type="ADMIN_CONFIG_CHANGE",
+                    actor={"type": "slack_admin", "id": user_id or "unknown"},
+                    action="toggle_weekly_pricing_update",
+                    target="pricing_service.weekly_update",
+                    details={"enabled": is_on},
+                    severity="CRITICAL",
+                )
             elif action_id == "set_circuit_breaker_threshold_input":
                 val_str = action.get("value", "")
                 try:
@@ -229,6 +254,14 @@ async def handle_slack_interactivity(request: Request, background_tasks: Backgro
                     else:
                         set_circuit_breaker_threshold(0.0)
                         set_circuit_breaker_enabled(False)
+                    log_audit_event(
+                        event_type="ADMIN_CONFIG_CHANGE",
+                        actor={"type": "slack_admin", "id": user_id or "unknown"},
+                        action="set_circuit_breaker_threshold",
+                        target="circuit_breaker.threshold",
+                        details={"threshold_input": val_clean, "parsed_threshold": val_float},
+                        severity="CRITICAL",
+                    )
                 except (ValueError, TypeError):
                     logger.warning(
                         f"[INTERACTIVITY] Could not parse threshold from input: '{val_str}'"
@@ -275,6 +308,14 @@ async def handle_slack_interactivity(request: Request, background_tasks: Backgro
                     else:
                         set_circuit_breaker_threshold(0.0)
                         set_circuit_breaker_enabled(False)
+                log_audit_event(
+                    event_type="ADMIN_CONFIG_CHANGE",
+                    actor={"type": "slack_admin", "id": user_id or "unknown"},
+                    action="save_circuit_breaker_threshold",
+                    target="circuit_breaker.threshold",
+                    details={"saved_threshold": val_float},
+                    severity="CRITICAL",
+                )
             elif action_id.startswith("set_circuit_breaker_preset:"):
                 val_str = action_id.split(":", 1)[1]
                 try:
@@ -285,8 +326,17 @@ async def handle_slack_interactivity(request: Request, background_tasks: Backgro
                     else:
                         set_circuit_breaker_threshold(0.0)
                         set_circuit_breaker_enabled(False)
+                    log_audit_event(
+                        event_type="ADMIN_CONFIG_CHANGE",
+                        actor={"type": "slack_admin", "id": user_id or "unknown"},
+                        action="set_circuit_breaker_preset",
+                        target="circuit_breaker.threshold",
+                        details={"preset_value": val_float},
+                        severity="CRITICAL",
+                    )
                 except (ValueError, TypeError):
                     pass
+
             elif action_id.startswith("set_thread_skill_expiry_preset:"):
                 val_str = action_id.split(":", 1)[1]
                 try:
@@ -305,6 +355,14 @@ async def handle_slack_interactivity(request: Request, background_tasks: Backgro
                     wf_id = val.split(":", 1)[1]
                     if wf_id and wf_id != "none":
                         apply_workflow(wf_id)
+                        log_audit_event(
+                            event_type="WORKFLOW_PRESET_MUTATION",
+                            actor={"type": "slack_admin", "id": user_id or "unknown"},
+                            action="apply_workflow_preset",
+                            target=f"workflow:{wf_id}",
+                            details={"workflow_id": wf_id},
+                            severity="CRITICAL",
+                        )
             elif action_id == "load_workflow_preset_button":
                 selected_wf_id = None
                 if isinstance(view_state, dict):
@@ -319,6 +377,14 @@ async def handle_slack_interactivity(request: Request, background_tasks: Backgro
                     selected_wf_id = get_active_workflow_id()
                 if selected_wf_id and selected_wf_id != "none":
                     apply_workflow(selected_wf_id)
+                    log_audit_event(
+                        event_type="WORKFLOW_PRESET_MUTATION",
+                        actor={"type": "slack_admin", "id": user_id or "unknown"},
+                        action="apply_workflow_preset",
+                        target=f"workflow:{selected_wf_id}",
+                        details={"workflow_id": selected_wf_id},
+                        severity="CRITICAL",
+                    )
             elif action_id == "delete_workflow_preset_button":
                 selected_wf_id = None
                 if isinstance(view_state, dict):
@@ -335,6 +401,14 @@ async def handle_slack_interactivity(request: Request, background_tasks: Backgro
                     delete_workflow(selected_wf_id)
                     if get_active_workflow_id() == selected_wf_id:
                         set_active_workflow_id(None)
+                    log_audit_event(
+                        event_type="WORKFLOW_PRESET_MUTATION",
+                        actor={"type": "slack_admin", "id": user_id or "unknown"},
+                        action="delete_workflow_preset",
+                        target=f"workflow:{selected_wf_id}",
+                        details={"workflow_id": selected_wf_id},
+                        severity="CRITICAL",
+                    )
             elif action_id == "save_workflow_preset_button":
                 preset_name = ""
                 if isinstance(view_state, dict):
@@ -395,6 +469,15 @@ async def handle_slack_interactivity(request: Request, background_tasks: Backgro
                             sandwich_config=get_sandwich_config(),
                         )
                     set_active_workflow_id(saved.id)
+                    log_audit_event(
+                        event_type="WORKFLOW_PRESET_MUTATION",
+                        actor={"type": "slack_admin", "id": user_id or "unknown"},
+                        action="save_workflow_preset",
+                        target=f"workflow:{saved.id}",
+                        details={"name": preset_name, "mode": mode, "workflow_id": saved.id},
+                        severity="CRITICAL",
+                    )
+
             elif action_id == "select_orchestration_mode":
                 selected_option = action.get("selected_option", {})
                 val = selected_option.get("value", "")
@@ -451,26 +534,75 @@ async def handle_slack_interactivity(request: Request, background_tasks: Backgro
                 if agent_key and val:
                     logger.info(f"[INTERACTIVITY] Changing model for agent '{agent_key}' to '{val}'")
                     set_agent_model(agent_key, val)
+                    log_audit_event(
+                        event_type="ADMIN_CONFIG_CHANGE",
+                        actor={"type": "slack_admin", "id": user_id or "unknown"},
+                        action="set_agent_model",
+                        target=f"agent:{agent_key}.model",
+                        details={"agent": agent_key, "model": val},
+                        severity="CRITICAL",
+                    )
             elif action_id.startswith("toggle_agent_radio:"):
                 selected_option = action.get("selected_option", {})
                 val = selected_option.get("value", "")
                 if ":" in val:
                     agent_key, state = val.split(":", 1)
                     set_agent_enabled(agent_key, state == "on")
+                    log_audit_event(
+                        event_type="ADMIN_CONFIG_CHANGE",
+                        actor={"type": "slack_admin", "id": user_id or "unknown"},
+                        action="toggle_agent",
+                        target=f"agent:{agent_key}.enabled",
+                        details={"agent": agent_key, "enabled": state == "on"},
+                        severity="CRITICAL",
+                    )
             elif action_id.startswith("toggle_agent:"):
                 agent_key = action.get("value")
                 if agent_key:
                     toggle_agent(agent_key)
+                    log_audit_event(
+                        event_type="ADMIN_CONFIG_CHANGE",
+                        actor={"type": "slack_admin", "id": user_id or "unknown"},
+                        action="toggle_agent",
+                        target=f"agent:{agent_key}.enabled",
+                        details={"agent": agent_key},
+                        severity="CRITICAL",
+                    )
             elif action_id == "bulk_enable_all":
                 reset_enabled_agents()
+                log_audit_event(
+                    event_type="ADMIN_CONFIG_CHANGE",
+                    actor={"type": "slack_admin", "id": user_id or "unknown"},
+                    action="bulk_enable_all_agents",
+                    target="agents.enabled",
+                    details={"action": "reset_enabled_agents"},
+                    severity="CRITICAL",
+                )
             elif action_id in ("bulk_disable_all", "bulk_disable_optional"):
                 for key in AGENTS_CONFIG:
                     set_agent_enabled(key, False)
+                log_audit_event(
+                    event_type="ADMIN_CONFIG_CHANGE",
+                    actor={"type": "slack_admin", "id": user_id or "unknown"},
+                    action="bulk_disable_agents",
+                    target="agents.enabled",
+                    details={"mode": action_id},
+                    severity="CRITICAL",
+                )
             elif action_id == "restore_from_backup":
                 success = restore_from_backup()
                 logger.info(
                     f"[INTERACTIVITY] restore_from_backup invoked by user {user_id}: success={success}"
                 )
+                log_audit_event(
+                    event_type="WORKFLOW_PRESET_MUTATION",
+                    actor={"type": "slack_admin", "id": user_id or "unknown"},
+                    action="restore_from_backup",
+                    target="agent_settings_backup",
+                    details={"success": success},
+                    severity="CRITICAL",
+                )
+
 
         if user_id and should_publish_home:
             background_tasks.add_task(_safe_publish_home, user_id=user_id)

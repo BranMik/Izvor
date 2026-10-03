@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN", "")
 SLACK_SIGNING_SECRET = os.getenv("SLACK_SIGNING_SECRET", "")
 SLACK_TEST_CHANNEL_ID = os.getenv("SLACK_TEST_CHANNEL_ID", "").strip()
+ADMIN_SLACK_USER_ID = os.getenv("ADMIN_SLACK_USER_ID", "").strip()
 
 # MCP workspace directory: defaults to project root (one directory above 'core' and 'services')
 _raw_workspace = os.getenv("MCP_WORKSPACE_DIR", "").strip()

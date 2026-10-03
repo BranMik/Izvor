@@ -69,3 +69,7 @@ data/.rag_cache/
 thread_usage_data.json
 model_pricing_cache.json
 
+# Audit logs (runtime files preserved locally, not tracked in git)
+audit/*
+!audit/.gitkeep
+

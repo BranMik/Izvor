@@ -68,6 +68,32 @@ async def periodic_thread_state_cleanup():
             logger.exception("[CLEANUP] Error during periodic thread state cleanup")
 
 
+async def periodic_audit_integrity_guard():
+    """
+    Periodically validates the active month's audit log integrity.
+    If tampering or chain corruption is detected, dispatches an urgent admin alert.
+    """
+    from core.integrity_checks import AppIntegrityValidator
+    from services.audit_logger import send_admin_audit_alert
+
+    while True:
+        try:
+            await asyncio.sleep(43200)  # check every 12 hours
+            res = AppIntegrityValidator.check_audit_log_integrity()
+            if not res["valid"]:
+                err_msg = "; ".join(res["errors"])
+                logger.critical(f"[SECURITY GUARD] Periodic audit integrity violation: {err_msg}")
+                await send_admin_audit_alert(
+                    title="Periodic Audit Guard Integrity Breach",
+                    message="Periodic scan identified corruption or tampering in the active audit trail.",
+                    details={"Violations": err_msg, "Files": ", ".join(res["scanned_files"])},
+                )
+        except asyncio.CancelledError:
+            break
+        except Exception:
+            logger.exception("[SECURITY GUARD] Error during periodic audit integrity check")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     if not ADMIN_PASSWORD:
@@ -77,9 +103,27 @@ async def lifespan(app: FastAPI):
         )
     enabled = load_enabled_agents()
     logger.info(f"[STARTUP] Loaded {len(enabled)} enabled debate agents from persistent storage.")
+
+    # Run startup audit log integrity check
+    from core.integrity_checks import AppIntegrityValidator
+    from services.audit_logger import send_admin_audit_alert
+
+    audit_status = AppIntegrityValidator.check_audit_log_integrity()
+    if not audit_status["valid"]:
+        err_msg = "; ".join(audit_status["errors"])
+        logger.critical(f"[SECURITY STARTUP] Audit log integrity violation detected: {err_msg}")
+        asyncio.create_task(
+            send_admin_audit_alert(
+                title="Startup Audit Log Integrity Violation",
+                message="Application startup detected corruption or tampering in non-repudiable audit logs.",
+                details={"Violations": err_msg, "Files": ", ".join(audit_status["scanned_files"])},
+            )
+        )
+
     loop_task = asyncio.create_task(keep_loop_alive()) if sys.platform == "win32" else None
     warmup_task = asyncio.create_task(warm_up_pricing_cache())
     cleanup_task = asyncio.create_task(periodic_thread_state_cleanup())
+    audit_guard_task = asyncio.create_task(periodic_audit_integrity_guard())
     rag_sync_task = asyncio.create_task(rag_sync_engine.reconcile())
     try:
         yield
@@ -88,6 +132,7 @@ async def lifespan(app: FastAPI):
             loop_task.cancel()
         warmup_task.cancel()
         cleanup_task.cancel()
+        audit_guard_task.cancel()
         rag_sync_task.cancel()
 
 
@@ -125,9 +170,21 @@ def verify_admin_basic_auth(
     """
     Verifies HTTP Basic Auth credentials against ADMIN_USERNAME and ADMIN_PASSWORD.
     Uses secrets.compare_digest to defend against timing attacks.
+    Emits non-repudiable audit events for both successful and failed attempts.
     """
+    from services.audit_logger import log_audit_event
+
     if not ADMIN_PASSWORD:
         logger.error("ADMIN_PASSWORD is not configured in environment/.env")
+        log_audit_event(
+            event_type="AUTH_FAILURE",
+            actor={"type": "api_client", "id": credentials.username},
+            action="admin_basic_auth",
+            target="/api/*",
+            details={"reason": "ADMIN_PASSWORD not configured on server"},
+            severity="CRITICAL",
+            status="FAILED",
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Admin authentication is not configured on the server",
@@ -141,11 +198,30 @@ def verify_admin_basic_auth(
     )
 
     if not (is_correct_username and is_correct_password):
+        log_audit_event(
+            event_type="AUTH_FAILURE",
+            actor={"type": "api_client", "id": credentials.username},
+            action="admin_basic_auth",
+            target="/api/*",
+            details={"reason": "Invalid credentials provided"},
+            severity="CRITICAL",
+            status="FAILED",
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password",
             headers={"WWW-Authenticate": "Basic"},
         )
+
+    log_audit_event(
+        event_type="AUTH_SUCCESS",
+        actor={"type": "admin_user", "id": credentials.username},
+        action="admin_basic_auth",
+        target="/api/*",
+        details={"status": "Authenticated successfully"},
+        severity="INFO",
+        status="SUCCESS",
+    )
     return credentials.username
 
 
@@ -181,11 +257,31 @@ async def get_rag_status():
     }
 
 
-@app.post("/api/rag/reconcile", dependencies=[Depends(verify_admin_basic_auth)])
-async def trigger_rag_reconciliation():
+@app.post("/api/rag/reconcile")
+async def trigger_rag_reconciliation(admin_user: str = Depends(verify_admin_basic_auth)):
     """Triggers an on-demand reconciliation scan of rag_knowledge/."""
+    from services.audit_logger import log_audit_event
+
+    log_audit_event(
+        event_type="RAG_RECONCILE_TRIGGERED",
+        actor={"type": "admin_user", "id": admin_user},
+        action="reconcile_rag_knowledge",
+        target="rag_knowledge/",
+        details={"source": "api_endpoint"},
+        severity="WARNING",
+        status="SUCCESS",
+    )
     stats = await rag_sync_engine.reconcile()
     return {"status": "reconciliation_complete", "stats": stats}
+
+
+@app.get("/api/audit/status", dependencies=[Depends(verify_admin_basic_auth)])
+async def get_audit_status():
+    """Returns non-repudiable audit log cryptographic integrity status and statistics."""
+    from core.integrity_checks import AppIntegrityValidator
+
+    return AppIntegrityValidator.check_audit_log_integrity()
+
 
 
 

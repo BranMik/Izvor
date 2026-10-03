@@ -398,3 +398,36 @@ class AppIntegrityValidator:
             pass  # parse errors are handled elsewhere
 
         return duplicates
+
+    # ------------------------------------------------------------------
+    # 9. Non-repudiable audit log integrity check
+    # ------------------------------------------------------------------
+    @classmethod
+    def check_audit_log_integrity(
+        cls,
+        audit_dir: Path | None = None,
+        month: str | None = None,
+    ) -> dict[str, Any]:
+        """
+        Validates the non-repudiable audit log cryptographic hash chain.
+        Returns a dictionary with status, errors, and verification details.
+        """
+        from services.audit_logger import verify_audit_log_integrity
+
+        result = verify_audit_log_integrity(audit_dir=audit_dir, month=month)
+        if not result.valid:
+            for err in result.errors:
+                logger.critical(f"[INTEGRITY] Audit log verification failed: {err}")
+        else:
+            logger.info(
+                f"[INTEGRITY] Audit log chain verified successfully ({result.total_records} records in {len(result.scanned_files)} files)."
+            )
+        return {
+            "valid": result.valid,
+            "total_records": result.total_records,
+            "scanned_files": result.scanned_files,
+            "errors": result.errors,
+            "last_verified_seq": result.last_verified_seq,
+            "last_verified_hash": result.last_verified_hash,
+        }
+

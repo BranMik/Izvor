@@ -138,9 +138,26 @@ class ResolutionStageMixin:
                 logger.warning(
                     f"[CIRCUIT BREAKER] Thread {ctx.thread_key} cost (${current_cost:.5f}) reached or exceeded threshold (${threshold:.5f}). Interrupting response."
                 )
+                from services.audit_logger import log_audit_event
+
+                log_audit_event(
+                    event_type="CIRCUIT_BREAKER_TRIGGERED",
+                    actor={"type": "system", "id": "spend_governance"},
+                    action="trip_circuit_breaker",
+                    target=ctx.thread_key,
+                    details={
+                        "channel_id": ctx.channel_id,
+                        "thread_ts": ctx.thread_ts,
+                        "current_cost_usd": current_cost,
+                        "threshold_usd": threshold,
+                    },
+                    severity="CRITICAL",
+                    status="SUCCESS",
+                )
                 circuit_breaker_msg = (
                     "EXPENSE LIMIT REACHED FOR THE THREAD. ENDING CALLS"
                 )
+
                 post_resp_fn = self._get_hook(
                     "post_agent_response", post_agent_response
                 )
