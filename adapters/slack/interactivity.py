@@ -604,6 +604,41 @@ async def handle_slack_interactivity(request: Request, background_tasks: Backgro
                 )
 
 
+            elif action_id == "hitl_approve_tool":
+                val = action.get("value", "")
+                if ":" in val:
+                    parts = val.split(":", 2)
+                    if len(parts) == 3:
+                        c_id, t_ts, f_name = parts
+                        from services.hitl import mark_tool_approved
+                        mark_tool_approved(c_id, t_ts, f_name)
+                        
+                        msg = payload.get("message", {})
+                        if msg and msg.get("ts"):
+                            background_tasks.add_task(
+                                slack_async_client.chat_update,
+                                channel=c_id,
+                                ts=msg["ts"],
+                                text=f"✅ Approved execution of `{f_name}` by <@{user_id}>. Please reply to the thread to resume the agent.",
+                                blocks=[]
+                            )
+            elif action_id == "hitl_deny_tool":
+                val = action.get("value", "")
+                if ":" in val:
+                    parts = val.split(":", 2)
+                    if len(parts) == 3:
+                        c_id, t_ts, f_name = parts
+                        msg = payload.get("message", {})
+                        if msg and msg.get("ts"):
+                            background_tasks.add_task(
+                                slack_async_client.chat_update,
+                                channel=c_id,
+                                ts=msg["ts"],
+                                text=f"❌ Denied execution of `{f_name}` by <@{user_id}>. Please reply to the thread to inform the agent.",
+                                blocks=[]
+                            )
+
+
         if user_id and should_publish_home:
             background_tasks.add_task(_safe_publish_home, user_id=user_id)
 

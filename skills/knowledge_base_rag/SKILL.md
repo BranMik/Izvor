@@ -12,6 +12,7 @@ triggers:
 extraction_rule: "If user asks to search or query internal documentation, knowledge base, specs, runbooks, playbooks, or reference guides, include action 'knowledge_base_rag'."
 tools:
   - search_knowledge_rag
+requires_human_ITL: false
 ---
 
 # Knowledge Base RAG Operational Guidelines

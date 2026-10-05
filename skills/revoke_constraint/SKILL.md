@@ -10,6 +10,7 @@ triggers:
   arg_type: token
   param_name: target
   auto_detect: false
+requires_human_ITL: false
 ---
 
 ### REVOKE CONSTRAINT

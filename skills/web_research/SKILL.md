@@ -13,6 +13,7 @@ extraction_rule: "If user asks to search the live web, check current pricing, or
 tools:
   - web_search
   - fetch_web_page
+requires_human_ITL: false
 ---
 
 # Web Research Skill

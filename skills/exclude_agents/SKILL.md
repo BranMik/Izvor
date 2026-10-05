@@ -10,6 +10,7 @@ triggers:
   arg_type: agent_list
   param_name: agents
 extraction_rule: "If user asks to exclude or leave out specific agents, include action '{name}' with param 'agents' (list of string agent keys). Agents tagged to speak must NEVER be excluded."
+requires_human_ITL: false
 ---
 
 ### EXCLUDE AGENTS

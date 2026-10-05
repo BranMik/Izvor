@@ -230,6 +230,27 @@ class ExecutionStageMixin:
                             else:
                                 tool_result = await asyncio.to_thread(exec_mcp_fn, fn_name, fn_args, **kwargs)
                         else:
+                            s_name = skill_registry.find_skill_for_tool(fn_name)
+                            skill_def = skill_registry.get(s_name) if s_name else None
+                            
+                            if skill_def and skill_def.requires_human_ITL:
+                                from services.hitl import consume_tool_approval, request_human_approval
+                                if not consume_tool_approval(ctx.channel_id, ctx.thread_ts, fn_name):
+                                    await request_human_approval(
+                                        ctx.channel_id, ctx.thread_ts, ctx.agent_key,
+                                        skill_def.name, fn_name, fn_args
+                                    )
+                                    tool_result_str = f"<untrusted_file_content>\nTOOL EXECUTION PAUSED: Tool '{fn_name}' requires human approval. I have sent an approval request to the Slack thread. End your turn now and do NOT retry calling this tool until the human approves it.\n</untrusted_file_content>"
+                                    ctx.messages.append({
+                                        "role": "tool",
+                                        "tool_call_id": tool_call.id,
+                                        "name": fn_name,
+                                        "content": tool_result_str,
+                                    })
+                                    if s_name and s_name not in ctx.skills_used:
+                                        ctx.skills_used.append(s_name)
+                                    continue
+                            
                             tool_result = await asyncio.to_thread(
                                 skill_registry.execute_tool,
                                 fn_name,
@@ -248,12 +269,17 @@ class ExecutionStageMixin:
                             if s_name not in ctx.skills_used:
                                 ctx.skills_used.append(s_name)
 
+                        if isinstance(tool_result, str):
+                            tool_result_str = f"<untrusted_file_content>\n{tool_result}\n</untrusted_file_content>"
+                        else:
+                            tool_result_str = tool_result
+
                         ctx.messages.append(
                             {
                                 "role": "tool",
                                 "tool_call_id": tool_call.id,
                                 "name": fn_name,
-                                "content": tool_result,
+                                "content": tool_result_str,
                             }
                         )
 
