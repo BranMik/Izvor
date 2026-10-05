@@ -215,7 +215,7 @@ def write_document(rel_path: str, content: str) -> str:
                 actor={"type": "agent_tool", "id": "write_document"},
                 action="write_document",
                 target=rel_path,
-                details={"resolved_path": str(path), "reason": "Path is protected in system settings"},
+                details={"resolved_path": str(path.relative_to(WORKSPACE_DIR).as_posix()), "reason": "Path is protected in system settings"},
                 severity="CRITICAL",
                 status="BLOCKED",
             )
