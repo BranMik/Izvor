@@ -26,11 +26,12 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class ContextPrepStageMixin:
+class ContextPrepStage:
+    def __init__(self, pipeline: Any):
+        self.pipeline = pipeline
     """Provides stage 3 context preparation and prompt construction for TurnPipeline."""
 
-    def _get_hook(self, name: str, default: Any = None) -> Any:
-        raise NotImplementedError
+
 
     async def stage_prepare_context(
         self, ctx: TurnContext
@@ -42,7 +43,7 @@ class ContextPrepStageMixin:
                 f"[ROUTER] Using in-memory history with {len(history)} messages."
             )
         else:
-            fetch_hist_fn = self._get_hook(
+            fetch_hist_fn = self.pipeline._get_hook(
                 "fetch_thread_history", fetch_thread_history
             )
             history = await fetch_hist_fn(

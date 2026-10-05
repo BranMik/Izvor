@@ -33,11 +33,12 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class ExecutionStageMixin:
+class ExecutionStage:
+    def __init__(self, pipeline: Any):
+        self.pipeline = pipeline
     """Provides stage 4 LLM execution and tool calling loops for TurnPipeline."""
 
-    def _get_hook(self, name: str, default: Any = None) -> Any:
-        raise NotImplementedError
+
 
     async def stage_execute_llm(self, ctx: TurnContext) -> dict[str, Any] | None:
         """Stage 4: Execute model completion and handle tool calling loop."""
@@ -105,10 +106,10 @@ class ExecutionStageMixin:
             if os.getenv("META_API_BASE"):
                 completion_kwargs["api_base"] = os.getenv("META_API_BASE")
 
-        exec_retry_fn = self._get_hook(
+        exec_retry_fn = self.pipeline._get_hook(
             "execute_llm_with_retry", execute_llm_with_retry
         )
-        threadpool_fn = self._get_hook("run_in_threadpool", None)
+        threadpool_fn = self.pipeline._get_hook("run_in_threadpool", None)
         custom_runner = (
             threadpool_fn
             if (threadpool_fn is not None and threadpool_fn is not run_in_threadpool)
@@ -144,13 +145,13 @@ class ExecutionStageMixin:
         tool_calls = getattr(response_message, "tool_calls", None)
 
         if tool_calls:
-            exec_mcp_fn = self._get_hook("execute_mcp_tool", None)
+            exec_mcp_fn = self.pipeline._get_hook("execute_mcp_tool", None)
             max_tool_iterations = 3
             iteration = 0
-            timeout_secs = self._get_hook(
+            timeout_secs = self.pipeline._get_hook(
                 "TOOL_CALL_LOOP_TIMEOUT_SECONDS", TOOL_CALL_LOOP_TIMEOUT_SECONDS
             )
-            intermediate_delay_secs = self._get_hook(
+            intermediate_delay_secs = self.pipeline._get_hook(
                 "TOOL_INTERMEDIATE_UPDATE_DELAY_SECONDS",
                 TOOL_INTERMEDIATE_UPDATE_DELAY_SECONDS,
             )
@@ -163,7 +164,7 @@ class ExecutionStageMixin:
                         username = ctx.agent_cfg.get("username", ctx.agent_key)
                         resolved_icon = ctx.icon_url or ctx.agent_cfg.get("icon_url")
                         status_text = _build_tool_status_text(username, tool_calls)
-                        post_resp_fn = self._get_hook("post_agent_response", post_agent_response)
+                        post_resp_fn = self.pipeline._get_hook("post_agent_response", post_agent_response)
                         logger.info(
                             f"[ROUTER] Tool delay reached ({intermediate_delay_secs}s). Posting intermediate status for {username}."
                         )

@@ -73,6 +73,7 @@ async def post_agent_response(
     text: str,
     username: str,
     icon_url: str | None = None,
+    blocks: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """
     Posts a message to Slack thread using dynamic persona fields (chat:write.customize).
@@ -117,6 +118,7 @@ async def post_agent_response(
             channel=channel_id,
             thread_ts=thread_ts,
             text=text,
+            blocks=blocks,
             username=username,
             icon_url=final_icon_url,
         )

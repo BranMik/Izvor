@@ -72,7 +72,7 @@ async def test_stage_execute_llm_does_not_artificially_choke_max_tokens():
         return mock_resp
 
     pipeline._hooks["execute_llm_with_retry"] = mock_exec_retry
-    await pipeline.stage_execute_llm(ctx)
+    await pipeline.execution_stage.stage_execute_llm(ctx)
 
     # max_tokens should NOT be present in captured_kwargs for normal debate
     assert "max_tokens" not in captured_kwargs
@@ -116,7 +116,7 @@ async def test_stage_post_and_record_mechanical_truncation():
         pipeline._hooks["DEBATE_TURN_PACING_SECONDS"] = 0
         pipeline._hooks["SLACK_POST_PAUSE_SECONDS"] = 0
 
-        res = await pipeline.stage_post_and_record(ctx)
+        res = await pipeline.post_record_stage.stage_post_and_record(ctx)
         assert res is None or res.get("ok", True)
 
         posted_text = posted_payload.get("text", "")
@@ -163,7 +163,7 @@ async def test_stage_post_and_record_no_truncation_when_within_limit():
         pipeline._hooks["DEBATE_TURN_PACING_SECONDS"] = 0
         pipeline._hooks["SLACK_POST_PAUSE_SECONDS"] = 0
 
-        await pipeline.stage_post_and_record(ctx)
+        await pipeline.post_record_stage.stage_post_and_record(ctx)
 
         posted_text = posted_payload.get("text", "")
         clean_body = posted_text.split("/[agent-10011]")[0].strip()

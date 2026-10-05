@@ -674,47 +674,56 @@ class AgentSettingsManager:
         Does NOT embed workflow details (chains), keeping workflow files as SSOT.
         Resets emergency backup mode once active file is successfully saved.
         """
-        with self._save_lock:
-            target_file = self.active_settings_file
-            try:
-                wf_ref = self.workflow_config or self.active_workflow_id
-                data = {
-                    "workflow_config": wf_ref,
-                    "enabled_agents": sorted(self.enabled_agents),
-                    "agents": {
-                        k: {
-                            "name": v.get("name", k),
-                            "model": v.get("model", ""),
-                            "username": v.get("username", k),
-                            "icon_url": v.get("icon_url", ""),
-                            "is_short_output": bool(v.get("is_short_output", False)),
-                            "skills": list(v.get("skills", [])),
-                        }
-                        for k, v in self.agents_config.items()
-                    },
-                    "orchestrator": {
-                        "fast_model": self.get_orchestrator_fast_model(),
-                        "reasoning_model": self.get_orchestrator_reasoning_model(),
-                        "username": self.orchestrator_config.get("username", "Orchestrator"),
-                        "icon_url": self.orchestrator_config.get("icon_url", "static/image_30.png"),
-                    },
+        wf_ref = self.workflow_config or self.active_workflow_id
+        data = {
+            "workflow_config": wf_ref,
+            "enabled_agents": sorted(self.enabled_agents),
+            "agents": {
+                k: {
+                    "name": v.get("name", k),
+                    "model": v.get("model", ""),
+                    "username": v.get("username", k),
+                    "icon_url": v.get("icon_url", ""),
+                    "is_short_output": bool(v.get("is_short_output", False)),
+                    "skills": list(v.get("skills", [])),
                 }
-                self._atomic_write_json(target_file, data)
-                self.is_running_from_backup = False
-                self.backup_error_reason = None
+                for k, v in self.agents_config.items()
+            },
+            "orchestrator": {
+                "fast_model": self.get_orchestrator_fast_model(),
+                "reasoning_model": self.get_orchestrator_reasoning_model(),
+                "username": self.orchestrator_config.get("username", "Orchestrator"),
+                "icon_url": self.orchestrator_config.get("icon_url", "static/image_30.png"),
+            },
+        }
+
+        def do_save():
+            with self._save_lock:
+                target_file = self.active_settings_file
                 try:
-                    self._last_loaded_mtime = target_file.stat().st_mtime
-                except OSError as e:
-                    logger.debug(f"[SETTINGS] Error checking settings file mtime: {e}")
-                logger.info(
-                    f"[SETTINGS] Saved settings ({len(self.enabled_agents)} enabled agents, "
-                    f"workflow_config='{wf_ref}', "
-                    f"circuit_breaker={self.circuit_breaker_enabled}, "
-                    f"threshold=${self.circuit_breaker_threshold_usd:.2f}) to {target_file.name}"
-                )
-                self.check_and_update_backup()
-            except (OSError, TypeError, ValueError) as e:
-                logger.error(f"[SETTINGS] Error saving agent settings: {e}")
+                    self._atomic_write_json(target_file, data)
+                    self.is_running_from_backup = False
+                    self.backup_error_reason = None
+                    try:
+                        self._last_loaded_mtime = target_file.stat().st_mtime
+                    except OSError as e:
+                        logger.debug(f"[SETTINGS] Error checking settings file mtime: {e}")
+                    logger.info(
+                        f"[SETTINGS] Saved settings ({len(self.enabled_agents)} enabled agents, "
+                        f"workflow_config='{wf_ref}', "
+                        f"circuit_breaker={self.circuit_breaker_enabled}, "
+                        f"threshold=${self.circuit_breaker_threshold_usd:.2f}) to {target_file.name}"
+                    )
+                    self.check_and_update_backup()
+                except (OSError, TypeError, ValueError) as e:
+                    logger.error(f"[SETTINGS] Error saving agent settings: {e}")
+
+        try:
+            import asyncio
+            loop = asyncio.get_running_loop()
+            loop.run_in_executor(None, do_save)
+        except RuntimeError:
+            do_save()
 
     def sync_if_modified(self) -> bool:
         """

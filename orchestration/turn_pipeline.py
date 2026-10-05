@@ -40,11 +40,11 @@ from orchestration.protocols import (
     UsageUpdater,
 )
 from orchestration.stages import (
-    ContextPrepStageMixin,
-    ExecutionStageMixin,
-    PostRecordStageMixin,
-    ResolutionStageMixin,
-    ValidationStageMixin,
+    ContextPrepStage,
+    ExecutionStage,
+    PostRecordStage,
+    ResolutionStage,
+    ValidationStage,
     _build_tool_status_text,
 )
 from orchestration.thread_state import thread_state_manager
@@ -155,13 +155,7 @@ class TurnContext:
             self.total_completion_tokens += getattr(usage, "completion_tokens", 0) or 0
 
 
-class TurnPipeline(
-    ValidationStageMixin,
-    ResolutionStageMixin,
-    ContextPrepStageMixin,
-    ExecutionStageMixin,
-    PostRecordStageMixin,
-):
+class TurnPipeline:
     """
     Orchestrates turn processing across modular stages:
       1. Validation & Directive Parsing
@@ -203,6 +197,13 @@ class TurnPipeline(
         self.post_system_message_fn = post_system_message_fn
         self.update_message_fn = update_message_fn
         self.calc_costs_fn = calc_costs_fn
+
+        # Initialize the composed stage instances
+        self.validation_stage = ValidationStage(self)
+        self.resolution_stage = ResolutionStage(self)
+        self.context_prep_stage = ContextPrepStage(self)
+        self.execution_stage = ExecutionStage(self)
+        self.post_record_stage = PostRecordStage(self)
 
     @property
     def router(self):
@@ -283,27 +284,27 @@ class TurnPipeline(
 
         try:
             # Stage 1: Validate input, parse directives & resolve candidate agents
-            halt = await self.stage_validate_and_parse(ctx)
+            halt = await self.validation_stage.stage_validate_and_parse(ctx)
             if halt:
                 return halt
 
             # Stage 2: Resolve agent config & spend governance (circuit breaker)
-            halt = await self.stage_resolve_agent_and_governance(ctx)
+            halt = await self.resolution_stage.stage_resolve_agent_and_governance(ctx)
             if halt:
                 return halt
 
             # Stage 3: Prepare conversation context, history slicing & prompt assembly
-            halt = await self.stage_prepare_context(ctx)
+            halt = await self.context_prep_stage.stage_prepare_context(ctx)
             if halt:
                 return halt
 
             # Stage 4: Execute LLM turn and handle any tool calls
-            halt = await self.stage_execute_llm(ctx)
+            halt = await self.execution_stage.stage_execute_llm(ctx)
             if halt:
                 return halt
 
             # Stage 5: Format response, enforce nominations, post to Slack, and audit
-            return await self.stage_post_and_record(ctx)
+            return await self.post_record_stage.stage_post_and_record(ctx)
 
         except asyncio.CancelledError:
             logger.info(
@@ -311,7 +312,7 @@ class TurnPipeline(
             )
             return {"ok": False, "cancelled": True, "reason": "cancelled"}
         except Exception as e:  # noqa: BLE001 - Pipeline error boundary catches unexpected stage errors and delegates to handle_error
-            return await self.handle_error(ctx, e)
+            return await self.post_record_stage.handle_error(ctx, e)
         finally:
             if (
                 ctx.current_task

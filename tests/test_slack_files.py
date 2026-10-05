@@ -414,7 +414,7 @@ async def test_resource_file_resolution_in_validation_stage():
             AsyncMock(return_value={"ok": True}) if name == "post_system_message" else
             default
         )):
-            stage_res = await pipeline.stage_validate_and_parse(ctx)
+            stage_res = await pipeline.validation_stage.stage_validate_and_parse(ctx)
             assert stage_res is None or stage_res.get("ok", True) is True
 
             fc = thread_state_manager.get_file_context(channel_id, thread_ts)

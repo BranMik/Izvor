@@ -1,5 +1,12 @@
 import ipaddress
 import json
+
+def _test_loads(s):
+    if isinstance(s, str):
+        s = s.replace("<untrusted_file_content>\n", "").replace("\n</untrusted_file_content>", "")
+    import json
+    return _test_loads(s)
+
 from unittest.mock import MagicMock, patch
 
 from services.mcp_tools import MCP_TOOLS_SCHEMAS, execute_mcp_tool
@@ -19,7 +26,7 @@ def test_mcp_schemas_include_web_tools():
 
 def test_web_search_empty_query():
     res = web_search("")
-    data = json.loads(res)
+    data = _test_loads(res)
     assert "error" in data
     assert "empty" in data["error"]
 
@@ -42,7 +49,7 @@ def test_web_search_mocked_html():
 
     with patch("httpx.Client.post", return_value=mock_resp):
         res = web_search("AI agent platform", max_results=3)
-        data = json.loads(res)
+        data = _test_loads(res)
         assert data.get("query") == "AI agent platform"
         assert data.get("results_count") == 1
         assert len(data.get("results", [])) == 1
@@ -54,7 +61,7 @@ def test_web_search_mocked_html():
 
 def test_fetch_web_page_empty_url():
     res = fetch_web_page("")
-    data = json.loads(res)
+    data = _test_loads(res)
     assert "error" in data
 
 
@@ -85,7 +92,7 @@ def test_fetch_web_page_clean_extraction():
 
     with patch("httpx.Client.get", return_value=mock_resp):
         res = fetch_web_page("https://competitor.com/pricing", max_chars=2000)
-        data = json.loads(res)
+        data = _test_loads(res)
         assert data.get("url") == "https://competitor.com/pricing"
         assert data.get("title") == "Competitor X - Pricing & Features"
         content = data.get("content", "")
@@ -104,7 +111,7 @@ def test_fetch_web_page_truncation():
 
     with patch("httpx.Client.get", return_value=mock_resp):
         res = fetch_web_page("https://example.com/long-page", max_chars=500)
-        data = json.loads(res)
+        data = _test_loads(res)
         assert data.get("truncated") is True
         assert len(data.get("content", "")) <= 600
 
@@ -116,7 +123,7 @@ def test_fetch_web_page_http_error():
 
     with patch("httpx.Client.get", return_value=mock_resp):
         res = fetch_web_page("https://example.com/nonexistent")
-        data = json.loads(res)
+        data = _test_loads(res)
         assert "error" in data
         assert "404" in data["error"]
 
@@ -147,14 +154,14 @@ def test_fetch_web_page_ssrf_loopback():
         "http://service.localhost",
     ]:
         res = fetch_web_page(blocked_url)
-        data = json.loads(res)
+        data = _test_loads(res)
         assert "error" in data
         assert "Security violation" in data["error"]
 
 
 def test_fetch_web_page_ssrf_cloud_metadata():
     res = fetch_web_page("http://169.254.169.254/latest/meta-data")
-    data = json.loads(res)
+    data = _test_loads(res)
     assert "error" in data
     assert "Security violation" in data["error"]
     assert "restricted IP" in data["error"] or "blocked" in data["error"]
@@ -168,7 +175,7 @@ def test_fetch_web_page_ssrf_private_network():
         "http://100.64.0.1",
     ]:
         res = fetch_web_page(private_url)
-        data = json.loads(res)
+        data = _test_loads(res)
         assert "error" in data
         assert "Security violation" in data["error"]
 
@@ -176,7 +183,7 @@ def test_fetch_web_page_ssrf_private_network():
 def test_fetch_web_page_query_length_limit():
     huge_query = "https://example.com/search?q=" + ("x" * 1050)
     res = fetch_web_page(huge_query)
-    data = json.loads(res)
+    data = _test_loads(res)
     assert "error" in data
     assert "Query string length" in data["error"]
 
@@ -190,7 +197,7 @@ def test_fetch_web_page_blocked_mutating_actions():
         "https://example.com/api?cmd=destroy",
     ]:
         res = fetch_web_page(dangerous_url)
-        data = json.loads(res)
+        data = _test_loads(res)
         assert "error" in data
         assert "Blocked mutating parameter" in data["error"]
 
@@ -203,7 +210,7 @@ def test_fetch_web_page_allowed_safe_query_params():
 
     with patch("httpx.Client.get", return_value=mock_resp):
         res = fetch_web_page("https://example.com/wiki?title=Main_Page&action=view&lang=en")
-        data = json.loads(res)
+        data = _test_loads(res)
         assert "title" in data
         assert "Article Title" in data["title"]
         assert "Safe content paragraph." in data["content"]
@@ -216,7 +223,7 @@ def test_fetch_web_page_redirect_to_ssrf_blocked():
 
     with patch("httpx.Client.get", return_value=redirect_resp):
         res = fetch_web_page("https://example.com/redirect-target")
-        data = json.loads(res)
+        data = _test_loads(res)
         assert "error" in data
         assert "Security violation on redirect" in data["error"]
 
@@ -228,7 +235,7 @@ def test_fetch_web_page_too_many_redirects():
 
     with patch("httpx.Client.get", return_value=redirect_resp):
         res = fetch_web_page("https://example.com/hop")
-        data = json.loads(res)
+        data = _test_loads(res)
         assert "error" in data
         assert "Exceeded maximum allowed redirects" in data["error"]
 

@@ -100,7 +100,7 @@ async def test_grant_skill_for_all_unconditionally_halts():
     ctx.actions = directives.actions
     ctx.raw_text_cleaned = directives.cleaned_prompt
 
-    res = await pipeline.stage_validate_and_parse(ctx)
+    res = await pipeline.validation_stage.stage_validate_and_parse(ctx)
     assert res is not None
     assert res.get("ok") is True
     assert res.get("halted") is True
@@ -126,7 +126,7 @@ async def test_grant_skill_for_all_halts_on_bot_mention():
     ctx.actions = directives.actions
     ctx.raw_text_cleaned = directives.cleaned_prompt
 
-    res = await pipeline.stage_validate_and_parse(ctx)
+    res = await pipeline.validation_stage.stage_validate_and_parse(ctx)
     assert res is not None
     assert res.get("ok") is True
     assert res.get("halted") is True
@@ -151,7 +151,7 @@ async def test_grant_skill_unconditionally_halts():
     ctx.actions = directives.actions
     ctx.raw_text_cleaned = directives.cleaned_prompt
 
-    res = await pipeline.stage_validate_and_parse(ctx)
+    res = await pipeline.validation_stage.stage_validate_and_parse(ctx)
     assert res is not None
     assert res.get("ok") is True
     assert res.get("halted") is True
@@ -179,7 +179,7 @@ async def test_grant_skill_missing_params():
     directives = await directive_parser.parse(ctx.raw_text)
     ctx.actions = directives.actions
 
-    res = await pipeline.stage_validate_and_parse(ctx)
+    res = await pipeline.validation_stage.stage_validate_and_parse(ctx)
     assert res.get("halted") is True
     assert res.get("action") == "grant_skill"
     assert "Missing Parameters" in post_mock.call_args.kwargs["text"]
@@ -199,7 +199,7 @@ async def test_grant_skill_missing_agent():
     directives = await directive_parser.parse(ctx.raw_text)
     ctx.actions = directives.actions
 
-    res = await pipeline.stage_validate_and_parse(ctx)
+    res = await pipeline.validation_stage.stage_validate_and_parse(ctx)
     assert res.get("halted") is True
     assert res.get("action") == "grant_skill"
     assert "Missing Agent" in post_mock.call_args.kwargs["text"]
@@ -219,7 +219,7 @@ async def test_grant_skill_unknown_skill():
     directives = await directive_parser.parse(ctx.raw_text)
     ctx.actions = directives.actions
 
-    res = await pipeline.stage_validate_and_parse(ctx)
+    res = await pipeline.validation_stage.stage_validate_and_parse(ctx)
     assert res.get("halted") is True
     assert "Unknown or non-agent skill" in post_mock.call_args.kwargs["text"]
 
@@ -238,7 +238,7 @@ async def test_grant_skill_unknown_agent():
     directives = await directive_parser.parse(ctx.raw_text)
     ctx.actions = directives.actions
 
-    res = await pipeline.stage_validate_and_parse(ctx)
+    res = await pipeline.validation_stage.stage_validate_and_parse(ctx)
     assert res.get("halted") is True
     assert "Unknown agent(s)" in post_mock.call_args.kwargs["text"]
 

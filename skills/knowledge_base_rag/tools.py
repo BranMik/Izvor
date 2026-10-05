@@ -70,7 +70,7 @@ def execute_search_knowledge_rag(arguments: dict[str, Any], agent_name: str = ""
     max_results = arguments.get("max_results", DEFAULT_TOP_K)
 
     try:
-        return _run_coroutine_sync(
+        result = _run_coroutine_sync(
             rag_service.search(
                 query=query,
                 agent_name=agent_name,
@@ -78,6 +78,8 @@ def execute_search_knowledge_rag(arguments: dict[str, Any], agent_name: str = ""
                 max_results=max_results,
             )
         )
+        from core.security_utils import wrap_untrusted_content
+        return wrap_untrusted_content(result)
     except Exception as e:
         logger.error(f"[search_knowledge_rag] Tool execution failed: {e}")
         return f"Error executing knowledge search: {e}"

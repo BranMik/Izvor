@@ -44,6 +44,7 @@ from services.slack_client import (
     post_ephemeral_to_slack,
     publish_app_home,
     upload_text_file_to_slack,
+    slack_async_client,
 )
 from services.audit_logger import log_audit_event
 
@@ -202,6 +203,65 @@ async def handle_slack_interactivity(request: Request, background_tasks: Backgro
                         thread_ts=thread_ts,
                         content=notes_text,
                     )
+            elif action_id == "resume_sequence_action":
+                should_publish_home = False
+                channel_id = payload.get("channel", {}).get("id") or ""
+                thread_ts = (
+                    payload.get("container", {}).get("thread_ts")
+                    or payload.get("message", {}).get("thread_ts")
+                    or ""
+                )
+
+                if channel_id and thread_ts:
+                    from pipeline.spend_governance import spend_governance
+                    from orchestration.agent_settings import get_circuit_breaker_threshold
+                    import sys
+                    
+                    session_id = f"{channel_id}:{thread_ts}"
+                    threshold = get_circuit_breaker_threshold()
+                    calc_costs_fn = getattr(sys.modules.get("agents"), "calculate_thread_costs", None)
+                    current_cost = 0.0
+                    if calc_costs_fn:
+                        cost_info = calc_costs_fn(channel_id, thread_ts)
+                        current_cost = cost_info.get("grand_total_cost_usd", 0.0)
+
+                    tripped, _, _ = spend_governance.is_budget_exceeded(
+                        session_id=session_id,
+                        threshold_usd=threshold,
+                        enabled=True,
+                        current_cost_usd=current_cost,
+                    )
+                    
+                    if tripped:
+                        background_tasks.add_task(
+                            post_ephemeral_to_slack,
+                            channel_id=channel_id,
+                            user_id=user_id,
+                            text=f"The budget limit (${threshold:.5f}) is still too low compared to current cost (${current_cost:.5f}). Please raise it first.",
+                            thread_ts=thread_ts,
+                        )
+                    else:
+                        msg = payload.get("message", {})
+                        if msg and msg.get("ts"):
+                            background_tasks.add_task(
+                                slack_async_client.chat_update,
+                                channel=channel_id,
+                                ts=msg["ts"],
+                                text=f"✅ Sequence resumed by <@{user_id}>.",
+                                blocks=[]
+                            )
+                        from orchestration.turn_pipeline import TurnContext, TurnPipeline
+                        from orchestration.thread_state import thread_state_manager
+                        
+                        ctx = TurnContext(
+                            channel_id=channel_id,
+                            thread_ts=thread_ts,
+                            raw_text="",
+                            is_bot_trigger=True,
+                            was_explicit_target=False,
+                        )
+                        pipeline = TurnPipeline()
+                        thread_state_manager.dispatch_discussion_task(channel_id, thread_ts, pipeline.run(ctx))
             elif action_id == "toggle_circuit_breaker_radio":
                 selected_option = action.get("selected_option", {})
                 val = selected_option.get("value", "")

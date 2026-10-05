@@ -45,10 +45,16 @@ class ThreadStateManager:
         self.thread_rounds = self.discussion.thread_rounds
         self.thread_round_sequences = self.discussion.thread_round_sequences
         self.thread_last_activity: dict[tuple[str, str], float] = {}
-        self.ttl_seconds: float = float(os.getenv("THREAD_STATE_TTL_SECONDS", "3600.0"))
-        self.max_tracked_threads: int = int(os.getenv("MAX_TRACKED_THREADS", "500"))
         self._cleanup_hooks: list[Any] = []
         self._reset_hooks: list[Any] = []
+
+    @property
+    def ttl_seconds(self) -> float:
+        return float(os.getenv("THREAD_STATE_TTL_SECONDS", "3600.0"))
+
+    @property
+    def max_tracked_threads(self) -> int:
+        return int(os.getenv("MAX_TRACKED_THREADS", "500"))
 
     def _touch(self, channel_id: str, thread_ts: str) -> None:
         self.thread_last_activity[(channel_id, thread_ts)] = time.time()
@@ -334,6 +340,12 @@ class ThreadStateManager:
     # --- Cross-Store Coordination & Lifecycle ---
     def is_discussion_active(self, channel_id: str, thread_ts: str) -> bool:
         return self.discussion.is_active(channel_id, thread_ts) or self.retry.has_pending_retries(channel_id, thread_ts)
+
+    def suspend_thread(self, channel_id: str, thread_ts: str) -> None:
+        """Suspends thread execution (e.g., for circuit breakers), keeping context intact for resumption."""
+        self._touch(channel_id, thread_ts)
+        self.discussion.cancel_active_task(channel_id, thread_ts)
+        logger.info(f"[THREAD STATE] Thread {(channel_id, thread_ts)} suspended. Routing queue preserved.")
 
     def interrupt_discussion(self, channel_id: str, thread_ts: str) -> None:
         self._touch(channel_id, thread_ts)

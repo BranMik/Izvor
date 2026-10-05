@@ -78,7 +78,7 @@ async def test_tool_call_loop_timeout_fallback():
         "skills": ["web_tools"],
     }
 
-    res = await pipeline.stage_execute_llm(ctx)
+    res = await pipeline.execution_stage.stage_execute_llm(ctx)
     assert res is None  # continues gracefully
     assert ctx.final_text == "Initial analysis before tool"
 
@@ -137,7 +137,7 @@ async def test_delayed_intermediate_status_and_inplace_update():
         "skills": ["web_tools"],
     }
 
-    res = await pipeline.stage_execute_llm(ctx)
+    res = await pipeline.execution_stage.stage_execute_llm(ctx)
     assert res is None
     assert ctx.final_text == "Here is the final answer about AI 2026."
     assert ctx.intermediate_msg_ts == "11111.0001"
@@ -148,7 +148,7 @@ async def test_delayed_intermediate_status_and_inplace_update():
     with patch("orchestration.turn_pipeline.record_thread_tokens"), \
          patch("orchestration.turn_pipeline.trigger_thread_notes_update"), \
          patch("orchestration.turn_pipeline.trigger_usage_update"):
-        post_res = await pipeline.stage_post_and_record(ctx)
+        post_res = await pipeline.post_record_stage.stage_post_and_record(ctx)
         assert post_res.get("ok") is True
         mock_update_msg.assert_called_once()
         call_kwargs = mock_update_msg.call_args[1]

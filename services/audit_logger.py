@@ -187,37 +187,46 @@ class AuditLogger:
         actor_dict = asdict(actor) if isinstance(actor, AuditActor) else dict(actor)
         clean_details = details or {}
 
-        with self._write_lock:
-            last_seq, last_hash = self.get_last_state()
-            current_seq = last_seq + 1
-            prev_hash = last_hash
+        def do_log():
+            with self._write_lock:
+                last_seq, last_hash = self.get_last_state()
+                current_seq = last_seq + 1
+                prev_hash = last_hash
 
-            record = AuditRecord(
-                seq=current_seq,
-                timestamp=iso_timestamp,
-                event_type=event_type,
-                severity=severity,
-                actor=actor_dict,
-                action=action,
-                target=target,
-                details=clean_details,
-                status=status,
-                prev_hash=prev_hash,
-            )
+                record = AuditRecord(
+                    seq=current_seq,
+                    timestamp=iso_timestamp,
+                    event_type=event_type,
+                    severity=severity,
+                    actor=actor_dict,
+                    action=action,
+                    target=target,
+                    details=clean_details,
+                    status=status,
+                    prev_hash=prev_hash,
+                )
 
-            canonical = canonical_serialize(record.to_canonical_dict())
-            record.entry_hash = compute_entry_hash(prev_hash, canonical)
+                canonical = canonical_serialize(record.to_canonical_dict())
+                record.entry_hash = compute_entry_hash(prev_hash, canonical)
 
-            # Append atomic line to monthly audit file
-            line_str = json.dumps(asdict(record), ensure_ascii=False) + "\n"
-            with open(target_file, "a", encoding="utf-8") as f:
-                f.write(line_str)
-                f.flush()
+                # Append atomic line to monthly audit file
+                line_str = json.dumps(asdict(record), ensure_ascii=False) + "\n"
+                with open(target_file, "a", encoding="utf-8") as f:
+                    f.write(line_str)
+                    f.flush()
 
-            logger.info(
-                f"[AUDIT] Seq {record.seq} ({record.event_type}) recorded by {actor_dict.get('id')} -> {target_file.name}"
-            )
-            return asdict(record)
+                logger.info(
+                    f"[AUDIT] Seq {record.seq} ({record.event_type}) recorded by {actor_dict.get('id')} -> {target_file.name}"
+                )
+                return asdict(record)
+
+        try:
+            import asyncio
+            loop = asyncio.get_running_loop()
+            loop.run_in_executor(None, do_log)
+            return {}
+        except RuntimeError:
+            return do_log()
 
     def create_snapshot(self) -> Path | None:
         """

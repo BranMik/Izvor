@@ -30,11 +30,12 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class ResolutionStageMixin:
+class ResolutionStage:
+    def __init__(self, pipeline: Any):
+        self.pipeline = pipeline
     """Provides stage 2 agent resolution and spend governance for TurnPipeline."""
 
-    def _get_hook(self, name: str, default: Any = None) -> Any:
-        raise NotImplementedError
+
 
     async def _sleep(self, seconds: float):
         raise NotImplementedError
@@ -43,7 +44,7 @@ class ResolutionStageMixin:
         self, ctx: TurnContext
     ) -> dict[str, Any] | None:
         """Stage 2: Agent config lookup, fallback rotation, and circuit breaker verification."""
-        post_sys_msg = self._get_hook("post_system_message", post_system_message)
+        post_sys_msg = self.pipeline._get_hook("post_system_message", post_system_message)
         agents_map = settings_manager.agents_config or AGENTS_CONFIG
 
         if ctx.agent_key not in agents_map:
@@ -119,7 +120,7 @@ class ResolutionStageMixin:
 
         # Circuit breaker verification
         if is_circuit_breaker_enabled():
-            calc_costs_fn = self._get_hook(
+            calc_costs_fn = self.pipeline._get_hook(
                 "calculate_thread_costs", calculate_thread_costs
             )
             cost_info = calc_costs_fn(ctx.channel_id, ctx.thread_ts)
@@ -158,22 +159,40 @@ class ResolutionStageMixin:
                     "EXPENSE LIMIT REACHED FOR THE THREAD. ENDING CALLS"
                 )
 
-                post_resp_fn = self._get_hook(
+                post_resp_fn = self.pipeline._get_hook(
                     "post_agent_response", post_agent_response
                 )
+                blocks = [
+                    {
+                        "type": "section",
+                        "text": {"type": "mrkdwn", "text": circuit_breaker_msg}
+                    },
+                    {
+                        "type": "actions",
+                        "elements": [
+                            {
+                                "type": "button",
+                                "text": {"type": "plain_text", "text": "Continue Sequence"},
+                                "action_id": "resume_sequence_action",
+                                "style": "primary"
+                            }
+                        ]
+                    }
+                ]
                 slack_res = await post_resp_fn(
                     channel_id=ctx.channel_id,
                     thread_ts=ctx.thread_ts,
                     text=circuit_breaker_msg,
                     username=ctx.agent_cfg["username"],
                     icon_url=ctx.agent_cfg.get("icon_url"),
+                    blocks=blocks,
                 )
-                pause_secs = self._get_hook(
+                pause_secs = self.pipeline._get_hook(
                     "SLACK_POST_PAUSE_SECONDS", SLACK_POST_PAUSE_SECONDS
                 )
-                await self._sleep(pause_secs)
+                await self.pipeline._sleep(pause_secs)
 
-                trig_notes = self._get_hook(
+                trig_notes = self.pipeline._get_hook(
                     "trigger_thread_notes_update", trigger_thread_notes_update
                 )
                 trig_notes(
@@ -183,7 +202,7 @@ class ResolutionStageMixin:
                     bot_user_id=ctx.bot_user_id,
                 )
 
-                trig_usage = self._get_hook(
+                trig_usage = self.pipeline._get_hook(
                     "trigger_usage_update", trigger_usage_update
                 )
                 trig_usage(
@@ -192,7 +211,7 @@ class ResolutionStageMixin:
                     is_completed=True,
                 )
 
-                thread_state_manager.clear_state(ctx.channel_id, ctx.thread_ts)
+                thread_state_manager.suspend_thread(ctx.channel_id, ctx.thread_ts)
                 if isinstance(slack_res, dict):
                     slack_res["is_completed"] = True
                     slack_res["final_text"] = circuit_breaker_msg
