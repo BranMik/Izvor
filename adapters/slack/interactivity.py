@@ -82,7 +82,7 @@ async def _handle_scribe_download(
             content=content,
             filename=filename,
             title=f"Live Discussion Scribe Notes ({thread_ts})",
-            initial_comment="Evo vaših zatraženih Live Discussion Scribe bilješki u vidu .txt fajla:",
+            initial_comment="Here are your requested Live Discussion Scribe notes as a .txt file:",
         )
     except Exception as e:  # noqa: BLE001 - Interactivity action handler isolates download delivery failure
         logger.error(f"[INTERACTIVITY] Error delivering scribe download to {user_id}: {e}")
@@ -192,7 +192,7 @@ async def handle_slack_interactivity(request: Request, background_tasks: Backgro
                     if not notes_text:
                         notes_text = msg.get("text", "")
                 if not notes_text:
-                    notes_text = "*(Nema zabilježenih Live Discussion Scribe bilješki za ovaj thread)*"
+                    notes_text = "*(No Live Discussion Scribe notes recorded for this thread)*"
 
                 if user_id:
                     background_tasks.add_task(

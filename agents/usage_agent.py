@@ -302,9 +302,8 @@ class ThreadUsageTracker:
 
         lines.append("━" * 38)
         lines.append(
-            "💡 *METRICS NOTICE / NAPOMENA:* Glavna metrika je *potrošnja tokena* (token consumption). "
-            "Prikazane cene su samo orijentacijske i mogu biti pogrešne pa je dobro proveriti na originalnim stranicama provajdera. "
-            "_(Primary metric is token consumption; costs are orientational estimates only.)_"
+            "💡 *METRICS NOTICE:* The primary metric is *token consumption*. "
+            "Displayed prices are orientational estimates only and may be inaccurate, so it is recommended to verify them on the provider's official pricing pages."
         )
 
         curr_time = time.strftime("%H:%M:%S")
