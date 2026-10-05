@@ -356,12 +356,12 @@ async def test_turn_pipeline_propagates_agent_avatar_icon():
     ctx.my_generation = 0
 
     # Stage 1: parse directives & agent
-    res1 = await pipeline.stage_validate_and_parse(ctx)
+    res1 = await pipeline.validation_stage.stage_validate_and_parse(ctx)
     assert res1 is None
     assert ctx.agent_key == "agent-10001"
 
     # Stage 2: resolve agent cfg and populate icon_url
-    res2 = await pipeline.stage_resolve_agent_and_governance(ctx)
+    res2 = await pipeline.resolution_stage.stage_resolve_agent_and_governance(ctx)
     assert res2 is None
     expected_icon = ctx.agent_cfg.get("icon_url")
     assert expected_icon is not None
@@ -374,7 +374,7 @@ async def test_turn_pipeline_propagates_agent_avatar_icon():
          patch("orchestration.agent_router.trigger_usage_update"), \
          patch("orchestration.agent_router.record_thread_tokens"):
         ctx.final_text = "Visionary response."
-        res5 = await pipeline.stage_post_and_record(ctx)
+        res5 = await pipeline.post_record_stage.stage_post_and_record(ctx)
 
         assert mock_post.called
         call_kwargs = mock_post.call_args.kwargs

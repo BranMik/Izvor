@@ -18,7 +18,7 @@ USER_AGENT = (
 )
 
 
-def web_search(query: str, max_results: int = 5) -> str:
+def _web_search_inner(query: str, max_results: int = 5) -> str:
     """
     Performs a live web search for the given query and returns a list of results
     with titles, URLs, and snippets in JSON format.
@@ -136,6 +136,12 @@ def web_search(query: str, max_results: int = 5) -> str:
             "results": [],
         }
     )
+
+
+def web_search(query: str, max_results: int = 5) -> str:
+    from core.security_utils import wrap_untrusted_content
+    result = _web_search_inner(query, max_results)
+    return wrap_untrusted_content(result)
 
 
 # Security constraints for SSRF & outbound HTTP defense
@@ -311,7 +317,7 @@ def validate_url_security(url: str) -> tuple[bool, str, str | None]:
     return True, cleaned_url, None
 
 
-def fetch_web_page(url: str, max_chars: int = 4000) -> str:
+def _fetch_web_page_inner(url: str, max_chars: int = 4000) -> str:
     """
     Fetches the content of a web page and extracts clean, readable text/markdown.
     Strips scripts, styles, navigation, headers, footers, and ads.
@@ -451,6 +457,12 @@ def fetch_web_page(url: str, max_chars: int = 4000) -> str:
     except Exception as e:  # noqa: BLE001 - Web page scraping error boundary returns error JSON
         logger.error(f"[FETCH_WEB_PAGE] Error fetching '{cleaned_url}': {e}")
         return json.dumps({"error": f"Error fetching web page: {e!s}", "url": cleaned_url})
+
+
+def fetch_web_page(url: str, max_chars: int = 4000) -> str:
+    from core.security_utils import wrap_untrusted_content
+    result = _fetch_web_page_inner(url, max_chars)
+    return wrap_untrusted_content(result)
 
 
 async def async_web_search(query: str, max_results: int = 5) -> str:

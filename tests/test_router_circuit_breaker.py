@@ -68,7 +68,7 @@ async def test_circuit_breaker_triggers_when_threshold_exceeded(monkeypatch):
     posted_messages = []
 
     async def mock_post_agent_response(
-        channel_id, thread_ts, text, username, icon_url=None
+        channel_id, thread_ts, text, username, icon_url=None, **kwargs
     ):
         posted_messages.append({"text": text, "username": username})
         return {"ok": True, "ts": "12345.9999"}

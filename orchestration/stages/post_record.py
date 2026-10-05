@@ -71,11 +71,12 @@ def apply_mechanical_word_limit(text: str, max_words: int) -> str:
     return text
 
 
-class PostRecordStageMixin:
+class PostRecordStage:
+    def __init__(self, pipeline: Any):
+        self.pipeline = pipeline
     """Provides stage 5 dispatch, token accounting, and error handling for TurnPipeline."""
 
-    def _get_hook(self, name: str, default: Any = None) -> Any:
-        raise NotImplementedError
+
 
     async def _sleep(self, seconds: float):
         raise NotImplementedError
@@ -224,10 +225,10 @@ class PostRecordStageMixin:
             f"[ROUTER] Agent {ctx.agent_key} generated tag(s): {ctx.generated_tags}. Full text length: {len(ctx.final_text)}"
         )
 
-        pacing_secs = self._get_hook(
+        pacing_secs = self.pipeline._get_hook(
             "DEBATE_TURN_PACING_SECONDS", DEBATE_TURN_PACING_SECONDS
         )
-        await self._sleep(pacing_secs)
+        await self.pipeline._sleep(pacing_secs)
 
         if ctx.is_superseded():
             logger.info(
@@ -236,10 +237,10 @@ class PostRecordStageMixin:
             return {"ok": False, "cancelled": True, "reason": "superseded"}
 
         resolved_turn_icon = ctx.icon_url or ctx.agent_cfg.get("icon_url")
-        update_msg_fn = self._get_hook(
+        update_msg_fn = self.pipeline._get_hook(
             "update_slack_message", update_slack_message
         )
-        post_resp_fn = self._get_hook(
+        post_resp_fn = self.pipeline._get_hook(
             "post_agent_response", post_agent_response
         )
         if ctx.intermediate_msg_ts:
@@ -280,10 +281,10 @@ class PostRecordStageMixin:
         ctx.slack_res = slack_res
         logger.info(f"[SLACK] Successfully posted message! Received ts: {posted_ts}")
 
-        pause_secs = self._get_hook(
+        pause_secs = self.pipeline._get_hook(
             "SLACK_POST_PAUSE_SECONDS", SLACK_POST_PAUSE_SECONDS
         )
-        await self._sleep(pause_secs)
+        await self.pipeline._sleep(pause_secs)
 
         has_pending_retries = thread_state_manager.has_pending_retries(
             ctx.channel_id, ctx.thread_ts
@@ -300,7 +301,7 @@ class PostRecordStageMixin:
             or (thread_state_manager.is_stopped(ctx.channel_id, ctx.thread_ts))
         )
 
-        record_tokens_fn = self._get_hook(
+        record_tokens_fn = self.pipeline._get_hook(
             "record_thread_tokens", record_thread_tokens
         )
         record_tokens_fn(
@@ -311,7 +312,7 @@ class PostRecordStageMixin:
             completion_tokens=ctx.total_completion_tokens,
         )
 
-        trig_notes = self._get_hook(
+        trig_notes = self.pipeline._get_hook(
             "trigger_thread_notes_update", trigger_thread_notes_update
         )
         trig_notes(
@@ -321,7 +322,7 @@ class PostRecordStageMixin:
             bot_user_id=ctx.bot_user_id,
         )
 
-        trig_usage = self._get_hook(
+        trig_usage = self.pipeline._get_hook(
             "trigger_usage_update", trigger_usage_update
         )
         trig_usage(
@@ -348,7 +349,7 @@ class PostRecordStageMixin:
                     }
                 )
 
-            record_flat_fn = self._get_hook(
+            record_flat_fn = self.pipeline._get_hook(
                 "record_flat_history", record_flat_history
             )
             if record_flat_fn:
@@ -500,7 +501,7 @@ class PostRecordStageMixin:
         logger.info(
             f"[SLACK] Posting gracious error message to channel {ctx.channel_id}, thread_ts {ctx.thread_ts} as {ctx.agent_cfg.get('username', ctx.agent_key)}"
         )
-        post_resp_fn = self._get_hook(
+        post_resp_fn = self.pipeline._get_hook(
             "post_agent_response", post_agent_response
         )
         slack_res = await post_resp_fn(
@@ -511,10 +512,10 @@ class PostRecordStageMixin:
             icon_url=ctx.agent_cfg.get("icon_url"),
         )
 
-        pause_secs = self._get_hook(
+        pause_secs = self.pipeline._get_hook(
             "SLACK_POST_PAUSE_SECONDS", SLACK_POST_PAUSE_SECONDS
         )
-        await self._sleep(pause_secs)
+        await self.pipeline._sleep(pause_secs)
 
         ctx.is_completed = bool(
             ctx.force_termination
@@ -522,7 +523,7 @@ class PostRecordStageMixin:
             or thread_state_manager.is_stopped(ctx.channel_id, ctx.thread_ts)
         )
 
-        record_tokens_fn = self._get_hook(
+        record_tokens_fn = self.pipeline._get_hook(
             "record_thread_tokens", record_thread_tokens
         )
         record_tokens_fn(
@@ -533,7 +534,7 @@ class PostRecordStageMixin:
             completion_tokens=0,
         )
 
-        trig_notes = self._get_hook(
+        trig_notes = self.pipeline._get_hook(
             "trigger_thread_notes_update", trigger_thread_notes_update
         )
         trig_notes(
@@ -543,7 +544,7 @@ class PostRecordStageMixin:
             bot_user_id=ctx.bot_user_id,
         )
 
-        trig_usage = self._get_hook(
+        trig_usage = self.pipeline._get_hook(
             "trigger_usage_update", trigger_usage_update
         )
         trig_usage(

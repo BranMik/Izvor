@@ -31,17 +31,18 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class ValidationStageMixin:
+class ValidationStage:
+    def __init__(self, pipeline: Any):
+        self.pipeline = pipeline
     """Provides stage 1 validation and parsing for TurnPipeline."""
 
-    def _get_hook(self, name: str, default: Any = None) -> Any:
-        raise NotImplementedError
+
 
     async def stage_validate_and_parse(
         self, ctx: TurnContext
     ) -> dict[str, Any] | None:
         """Stage 1: Directives, file inspection, tag validation, and candidate exclusions."""
-        post_sys_msg = self._get_hook("post_system_message", post_system_message)
+        post_sys_msg = self.pipeline._get_hook("post_system_message", post_system_message)
 
         if not ctx.is_bot_trigger:
             directives = await directive_parser.parse(ctx.raw_text)
@@ -75,7 +76,7 @@ class ValidationStageMixin:
                 return {"ok": True, "halted": True, "action": "stop_discussion"}
 
             thread_state_manager.clear_stop(ctx.channel_id, ctx.thread_ts)
-            fetch_files_fn = self._get_hook(
+            fetch_files_fn = self.pipeline._get_hook(
                 "fetch_thread_files", fetch_thread_files
             )
             ctx.thread_files = await fetch_files_fn(
@@ -644,7 +645,7 @@ class ValidationStageMixin:
                         logger.info(
                             f"[ROUTER] User requested file reading for thread {ctx.thread_key}. Downloading file: {chosen_file.get('name')}"
                         )
-                        download_file_fn = self._get_hook(
+                        download_file_fn = self.pipeline._get_hook(
                             "download_slack_file", download_slack_file
                         )
                         dl_res = await download_file_fn(chosen_file)

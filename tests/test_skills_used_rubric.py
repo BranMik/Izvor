@@ -43,7 +43,7 @@ async def test_post_record_with_single_skill_used():
     pipeline._hooks["DEBATE_TURN_PACING_SECONDS"] = 0
     pipeline._hooks["SLACK_POST_PAUSE_SECONDS"] = 0
 
-    await pipeline.stage_post_and_record(ctx)
+    await pipeline.post_record_stage.stage_post_and_record(ctx)
 
     text = posted_payload["text"]
     assert "Skills used: [knowledge_base_rag]" in text
@@ -84,7 +84,7 @@ async def test_post_record_with_multiple_skills_used():
     pipeline._hooks["DEBATE_TURN_PACING_SECONDS"] = 0
     pipeline._hooks["SLACK_POST_PAUSE_SECONDS"] = 0
 
-    await pipeline.stage_post_and_record(ctx)
+    await pipeline.post_record_stage.stage_post_and_record(ctx)
 
     text = posted_payload["text"]
     assert "Skills used: [document_reader], [web_research]" in text
@@ -124,7 +124,7 @@ async def test_post_record_omits_skills_used_when_none():
     pipeline._hooks["DEBATE_TURN_PACING_SECONDS"] = 0
     pipeline._hooks["SLACK_POST_PAUSE_SECONDS"] = 0
 
-    await pipeline.stage_post_and_record(ctx)
+    await pipeline.post_record_stage.stage_post_and_record(ctx)
 
     text = posted_payload["text"]
     assert "Skills used" not in text
