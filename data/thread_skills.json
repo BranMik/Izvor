@@ -4,65 +4,21 @@
       "skills": [
         "web_research"
       ],
-      "granted_at": 1790967090.9981005
+      "granted_at": 1791199360.0164216
     },
     "C_TEST:1726000000.2": {
       "skills": [
         "web_research"
       ],
-      "granted_at": 1790967091.3277287
+      "granted_at": 1791199360.375314
     },
     "C_TEST:1726000000.3": {
       "agent_skills": {
-        "SecurityArchitect": {
-          "skills": [
-            "web_research"
-          ],
-          "granted_at": 1790889227.1086488
-        },
         "agent-10008": {
           "skills": [
             "web_research"
           ],
-          "granted_at": 1790967091.6553037
-        }
-      }
-    },
-    "C_TEST_17:1700000295.0000": {
-      "agent_skills": {
-        "agent-10008": {
-          "skills": [
-            "web_research"
-          ],
-          "granted_at": 1790957416.5930758
-        }
-      }
-    },
-    "C_TEST_18:1700000298.0000": {
-      "skills": [
-        "web_research"
-      ],
-      "granted_at": 1790957416.63858
-    },
-    "C_TEST_18:1700000121.0000": {
-      "skills": [
-        "web_research"
-      ],
-      "granted_at": 1790958013.5511181
-    },
-    "C_TEST_18:1700000113.0000": {
-      "skills": [
-        "web_research"
-      ],
-      "granted_at": 1790966656.9819944
-    },
-    "C_TEST_17:1700000110.0000": {
-      "agent_skills": {
-        "agent-10008": {
-          "skills": [
-            "web_research"
-          ],
-          "granted_at": 1790966656.9454596
+          "granted_at": 1791199360.7424338
         }
       }
     },
@@ -72,7 +28,7 @@
           "skills": [
             "web_research"
           ],
-          "granted_at": 1790968597.043407
+          "granted_at": 1791201709.0956078
         }
       }
     },
@@ -80,7 +36,7 @@
       "skills": [
         "web_research"
       ],
-      "granted_at": 1790968597.1516056
+      "granted_at": 1791201709.1298356
     }
   }
 }
