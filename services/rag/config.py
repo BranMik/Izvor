@@ -102,3 +102,6 @@ SUPPORTED_EXTENSIONS = {".md", ".markdown", ".txt", ".pdf"}
 CITATION_INSTRUCTIONS_PATH = (
     Path(__file__).resolve().parent / "citation_instructions.md"
 ).resolve()
+
+# Guardrail Threshold
+GUARDRAIL_THRESHOLD = float(get_rag_setting("guardrail_threshold", 0.85))

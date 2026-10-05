@@ -53,6 +53,23 @@ async def process_and_respond(
     calls LiteLLM with agent parameters & MCP tools, and posts response back to Slack thread.
     If run_internal_loop is True, executes the entire multi-agent discussion loop internally.
     """
+    # Guardrail Check for user inputs
+    if not is_bot_trigger:
+        try:
+            from services.security.guardrail import guardrail_service
+            is_injection = await guardrail_service.is_prompt_injection(raw_text)
+            if is_injection:
+                logger.warning(f"[GUARDRAIL] Blocked malicious request in {channel_id}")
+                await post_system_message(
+                    channel_id=channel_id,
+                    thread_ts=thread_ts,
+                    text="⚠️ *Security Guardrail Triggered*\nThis request violates safety policies and has been blocked.",
+                )
+                thread_state_manager.request_stop(channel_id, thread_ts)
+                return {"status": "blocked_by_guardrail"}
+        except Exception as e:
+            logger.error(f"[GUARDRAIL] Check failed, allowing request: {e}")
+
     if run_internal_loop:
         return await orchestrate_discussion(
             channel_id=channel_id,
