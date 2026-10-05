@@ -9,6 +9,7 @@ triggers:
   auto_detect: false
   terminal: true
   arg_type: terminal_flag
+requires_human_ITL: false
 ---
 
 ### STOP DISCUSSION

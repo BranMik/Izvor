@@ -106,6 +106,12 @@ async def post_agent_response(
             f"[SLACK] chat_postMessage channel={channel_id} thread_ts={thread_ts} as '{username}' icon_url='{final_icon_url}'"
         )
 
+        from services.security import scan_output_for_secrets
+        matched_rule = scan_output_for_secrets(text, user_id=username)
+        if matched_rule:
+            logger.warning(f"[SECURITY] Message blocked by guardrail rule: {matched_rule}")
+            text = f"⚠️ *Message blocked by security policy.* (Rule: {matched_rule})"
+
         await slack_rate_limiter.acquire()
         response = await slack_async_client.chat_postMessage(
             channel=channel_id,
@@ -295,6 +301,12 @@ async def post_thread_note(
         return {"ok": True, "ts": mock_ts, "mock": True, "blocks": blocks}
 
     try:
+        from services.security import scan_output_for_secrets
+        matched_rule = scan_output_for_secrets(text, user_id=username)
+        if matched_rule:
+            logger.warning(f"[SECURITY] Note blocked by guardrail rule: {matched_rule}")
+            text = f"⚠️ *Note blocked by security policy.* (Rule: {matched_rule})"
+
         await slack_rate_limiter.acquire()
         kwargs: dict[str, Any] = {
             "channel": channel_id,
@@ -358,6 +370,12 @@ async def update_thread_note(
         return {"ok": True, "ts": message_ts, "mock": True, "blocks": blocks}
 
     try:
+        from services.security import scan_output_for_secrets
+        matched_rule = scan_output_for_secrets(text, user_id="system_update")
+        if matched_rule:
+            logger.warning(f"[SECURITY] Update blocked by guardrail rule: {matched_rule}")
+            text = f"⚠️ *Update blocked by security policy.* (Rule: {matched_rule})"
+
         await slack_rate_limiter.acquire()
         kwargs: dict[str, Any] = {
             "channel": channel_id,

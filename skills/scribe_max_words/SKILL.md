@@ -12,6 +12,7 @@ triggers:
   arg_type: int_or_off
   param_name: words
 extraction_rule: "Extract integer ceiling if user requested a maximum length specifically for the scribe/summary (e.g. '/scribe_max_words 50', 'scribe summary under 40 words')."
+requires_human_ITL: false
 ---
 
 ### DISCUSSION SCRIBE MAXIMUM WORDS

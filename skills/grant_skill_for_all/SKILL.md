@@ -10,6 +10,7 @@ triggers:
   arg_type: list
   param_name: skills
   auto_detect: false
+requires_human_ITL: false
 ---
 
 ### GRANT SKILL FOR ALL

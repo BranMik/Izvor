@@ -13,6 +13,7 @@ triggers:
   auto_detect: false
   arg_type: int
   param_name: rounds
+requires_human_ITL: false
 ---
 
 ### DISCUSSION ROUNDS

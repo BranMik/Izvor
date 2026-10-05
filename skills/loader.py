@@ -63,6 +63,7 @@ class SkillDefinition:
     action_handler: Callable[..., Any] | None = None
     is_global: bool = False
     is_terminal: bool = False
+    requires_human_ITL: bool = False
     extraction_rule: str = ""
     handles_files: bool = False
     custom_tool_schemas: list[dict[str, Any]] = field(default_factory=list)
@@ -136,6 +137,17 @@ class SkillRegistry:
         body_markdown = parts[2].strip()
 
         meta = yaml.safe_load(frontmatter_str) or {}
+
+        # Validate required fields
+        required_fields = ["name", "display_name", "description", "scope", "requires_human_ITL"]
+        for field_name in required_fields:
+            if field_name not in meta:
+                logger.warning(f"[SKILLS] Validation warning in {file_path}: missing required field '{field_name}'")
+        
+        triggers = meta.get("triggers") or {}
+        if isinstance(triggers, dict) and "auto_detect" not in triggers:
+            logger.warning(f"[SKILLS] Validation warning in {file_path}: missing required field 'auto_detect' in triggers")
+
         name = str(meta.get("name", file_path.parent.name)).strip()
         display_name = str(
             meta.get("display_name", name.replace("_", " ").title())
@@ -150,6 +162,7 @@ class SkillRegistry:
         tools = [str(t).strip() for t in raw_tools if str(t).strip()]
 
         is_global = bool(meta.get("global", meta.get("all_agents", False)))
+        requires_human_ITL = bool(meta.get("requires_human_ITL", False))
 
         # Check for action.py handler
         action_handler = None
@@ -204,6 +217,7 @@ class SkillRegistry:
             action_handler=action_handler,
             is_global=is_global,
             is_terminal=is_terminal,
+            requires_human_ITL=requires_human_ITL,
             extraction_rule=extraction_rule,
             handles_files=handles_files,
             custom_tool_schemas=custom_tool_schemas,

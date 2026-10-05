@@ -10,6 +10,7 @@ triggers:
   arg_type: agent_list
   param_name: agents
 extraction_rule: "If user asks to forcefully include, bring in, or add specific agents to the discussion, include action '{name}' with param 'agents'."
+requires_human_ITL: false
 ---
 
 ### INCLUDE AGENTS

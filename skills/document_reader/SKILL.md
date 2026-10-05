@@ -18,6 +18,7 @@ extraction_rule: "If user asks to read, analyze, inspect, or reference an attach
 tools:
   - list_documents
   - read_document
+requires_human_ITL: false
 ---
 
 # Document Reader Skill

@@ -9,6 +9,7 @@ triggers:
     - /list-skills
   arg_type: none
   auto_detect: false
+requires_human_ITL: false
 ---
 
 ### LIST SKILLS

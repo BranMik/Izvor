@@ -9,6 +9,7 @@ triggers:
     - /grant-skill
   arg_type: grant_skill
   auto_detect: false
+requires_human_ITL: false
 ---
 
 ### GRANT SKILL
