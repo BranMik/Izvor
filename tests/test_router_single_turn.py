@@ -318,9 +318,9 @@ async def test_extract_history_limit_formats():
     # assert limit == 3
     # assert cleaned == "analyze the issue"
     #
-    # limit, cleaned = extract_history_limit("povijest od 4 poruke i odgovori")
+    # limit, cleaned = extract_history_limit("history of 4 messages and respond")
     # assert limit == 4
-    # assert cleaned == "i odgovori"
+    # assert cleaned == "and respond"
 
 
 def test_parse_agent_and_prompt_cleans_history_command():
@@ -895,7 +895,7 @@ async def test_process_and_respond_with_natural_language_limits(monkeypatch):
 
     user_msg = captured_messages[0][-1]["content"]
     # TODO: With pure IntentExtractor, the user prompt is preserved without destructive regex stripping.
-    # assert "maksimalno 60 riječi" not in user_msg
+    # assert "maximum 60 words" not in user_msg
     assert "mikroservisima" in user_msg
 
 
