@@ -237,6 +237,7 @@ class AgentSettingsManager:
 
         model = config.get("model")
         username = config.get("username")
+        displayname = config.get("displayname")
         icon_url = config.get("icon_url")
 
         if not model or not isinstance(model, str) or not model.strip():
@@ -245,6 +246,10 @@ class AgentSettingsManager:
 
         if not username or not isinstance(username, str) or not username.strip():
             logger.warning(f"[SETTINGS VALIDATION] Agent '{key}' is missing valid 'username'. Skipping.")
+            return False
+
+        if not displayname or not isinstance(displayname, str) or not displayname.strip():
+            logger.warning(f"[SETTINGS VALIDATION] Agent '{key}' is missing valid 'displayname'. Skipping.")
             return False
 
         if not icon_url or not isinstance(icon_url, str) or not icon_url.strip():
@@ -431,9 +436,9 @@ class AgentSettingsManager:
                     if isinstance(s, str) and s.strip()
                 ]
                 valid_agents[key] = {
-                    "name": cfg.get("name", key),
+                    "username": cfg.get("username", key),
                     "model": cfg["model"].strip(),
-                    "username": cfg["username"].strip(),
+                    "displayname": cfg["displayname"].strip(),
                     "icon_url": cfg["icon_url"].strip(),
                     "is_short_output": is_short,
                     "skills": skills,
@@ -458,6 +463,7 @@ class AgentSettingsManager:
                 "fast_model": str(raw_orch.get("fast_model", default_fast)).strip(),
                 "reasoning_model": str(raw_orch.get("reasoning_model", default_reasoning)).strip(),
                 "username": str(raw_orch.get("username", "Orchestrator")).strip(),
+                "displayname": str(raw_orch.get("displayname", "Orchestrator")).strip(),
                 "icon_url": str(raw_orch.get("icon_url", "static/image_30.png")).strip(),
             })
         else:
@@ -479,6 +485,8 @@ class AgentSettingsManager:
                         sys_entry["model"] = str(sys_v["model"]).strip()
                     if sys_v.get("username"):
                         sys_entry["username"] = str(sys_v["username"]).strip()
+                    if sys_v.get("displayname"):
+                        sys_entry["displayname"] = str(sys_v["displayname"]).strip()
                     if sys_v.get("icon_url"):
                         sys_entry["icon_url"] = str(sys_v["icon_url"]).strip()
                     if sys_v.get("agent_key"):
@@ -680,9 +688,9 @@ class AgentSettingsManager:
             "enabled_agents": sorted(self.enabled_agents),
             "agents": {
                 k: {
-                    "name": v.get("name", k),
-                    "model": v.get("model", ""),
                     "username": v.get("username", k),
+                    "model": v.get("model", ""),
+                    "displayname": v.get("displayname", k),
                     "icon_url": v.get("icon_url", ""),
                     "is_short_output": bool(v.get("is_short_output", False)),
                     "skills": list(v.get("skills", [])),
@@ -693,6 +701,7 @@ class AgentSettingsManager:
                 "fast_model": self.get_orchestrator_fast_model(),
                 "reasoning_model": self.get_orchestrator_reasoning_model(),
                 "username": self.orchestrator_config.get("username", "Orchestrator"),
+                "displayname": self.orchestrator_config.get("displayname", "Orchestrator"),
                 "icon_url": self.orchestrator_config.get("icon_url", "static/image_30.png"),
             },
         }

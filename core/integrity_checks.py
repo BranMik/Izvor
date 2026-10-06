@@ -108,19 +108,19 @@ class AppIntegrityValidator:
         for agent_key, agent_data in payload["agents"].items():
             if not isinstance(agent_data, dict):
                 continue
-            name = agent_data.get("name")
-            if not name or not isinstance(name, str):
+            username = agent_data.get("username")
+            if not username or not isinstance(username, str):
                 continue
-            if name in seen:
+            if username in seen:
                 logger.warning(
-                    "[INTEGRITY] Duplicate agent name '%s' found on IDs "
+                    "[INTEGRITY] Duplicate agent username '%s' found on IDs "
                     "'%s' and '%s'. Consider renaming one of them.",
-                    name,
-                    seen[name],
+                    username,
+                    seen[username],
                     agent_key,
                 )
             else:
-                seen[name] = agent_key
+                seen[username] = agent_key
 
         return payload
 

@@ -65,10 +65,11 @@ def build_llm_messages(
         if required_skill and agent_skills is not None:
             has_skill = required_skill in agent_skills
 
+        agent_display = agent_cfg.get("username", agent_key)
         if not is_agent_authorized:
             file_block = (
                 f"\n\n--- [FILE ACCESS RESTRICTED: NOT AUTHORIZED] ---\n"
-                f"The file '{file_name}' was provided in this thread, but you ({agent_key}) are not in the authorized agents list to access it.\n"
+                f"The file '{file_name}' was provided in this thread, but you ({agent_display}) are not in the authorized agents list to access it.\n"
                 f"You must explicitly inform the user that you do not have permission / authorization to access or read this file. "
                 f"Do NOT report that the file was not found.\n"
                 f"--- [END OF NOTICE] ---"
@@ -76,7 +77,7 @@ def build_llm_messages(
         elif not has_skill:
             file_block = (
                 f"\n\n--- [FILE ACCESS RESTRICTED: MISSING SKILL] ---\n"
-                f"The file '{file_name}' is available, but you ({agent_key}) do not have the required '{required_skill}' skill assigned to access or read files.\n"
+                f"The file '{file_name}' is available, but you ({agent_display}) do not have the required '{required_skill}' skill assigned to access or read files.\n"
                 f"You must explicitly state to the user that you do not have permission / the required '{required_skill}' skill to access or read this file. "
                 f"Do NOT report that the file was not found.\n"
                 f"--- [END OF NOTICE] ---"
@@ -101,7 +102,7 @@ def build_llm_messages(
                 skill_notice_block = (
                     f"\n\n--- [PERMISSION RESTRICTED: MISSING REQUIRED SKILL(S)] ---\n"
                     f"The requested task requires or infers the following skill(s): {missing_str}, "
-                    f"but you ({agent_key}) do not have permission or this skill assigned.\n"
+                    f"but you ({agent_display}) do not have permission or this skill assigned.\n"
                     f"You must explicitly state to the user that you do not have permission / the required skill(s) ({missing_str}) "
                     f"to perform this action. Do NOT report that the file or resource was not found.\n"
                     f"--- [END OF NOTICE] ---"
@@ -141,7 +142,7 @@ def build_llm_messages(
     else:
         if effective_history:
             conversation.extend(effective_history)
-            persona_name = agent_cfg.get("username", agent_key)
+            persona_name = agent_cfg.get("displayname", agent_cfg.get("username", agent_key))
             lang_part = f" {lang_directive}" if lang_directive else ""
             instruction = (
                 f"You have been called to speak as {persona_name}. "
@@ -172,7 +173,7 @@ def build_llm_messages(
 
     # Ensure the last conversational message has role 'user'
     if conversation and conversation[-1]["role"] != "user":
-        persona_name = agent_cfg.get("username", agent_key)
+        persona_name = agent_cfg.get("displayname", agent_cfg.get("username", agent_key))
         instruction = (
             f"You have been called to speak as {persona_name}. "
             "Please evaluate the discussion above and provide your response in accordance with your role and instructions. "

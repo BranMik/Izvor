@@ -4,12 +4,7 @@
   "mode": "sandwich",
   "description": "[DO NOT DELETE OR MODIFY - SYSTEM DEFAULT] Standard review flow applied when no explicit agent is tagged.",
   "sandwich_config": {
-    "start_chain": [
-      "agent-10001",
-      "agent-10002"
-    ],
-    "end_chain": [
-      "agent-10008"
-    ]
+    "start_chain": [],
+    "end_chain": []
   }
 }

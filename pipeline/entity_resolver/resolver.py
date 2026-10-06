@@ -67,23 +67,23 @@ class EntityResolver:
         for key, cfg in agents.items():
             if norm_cleaned == self.normalize(key):
                 return [key]
-            name = cfg.get("name", "")
-            if name and norm_cleaned == self.normalize(name):
-                return [key]
             username = cfg.get("username", "")
             if username and norm_cleaned == self.normalize(username):
+                return [key]
+            displayname = cfg.get("displayname", "")
+            if displayname and norm_cleaned == self.normalize(displayname):
                 return [key]
 
         # 3. Word-level prefix match (e.g. "Vis" -> "agent-10001", "Arch" -> "Security Architect" & "Security Architect")
         word_matches = []
         for key, cfg in agents.items():
             words = re.findall(r"[A-Z]?[a-z0-9]+", key)
-            name = cfg.get("name")
-            if name:
-                words.extend(re.findall(r"[A-Z]?[a-z0-9]+", name))
             username = cfg.get("username")
             if username:
                 words.extend(re.findall(r"[A-Z]?[a-z0-9]+", username))
+            displayname = cfg.get("displayname")
+            if displayname:
+                words.extend(re.findall(r"[A-Z]?[a-z0-9]+", displayname))
             if any(w.lower().startswith(norm_cleaned) for w in words if w):
                 word_matches.append(key)
         if word_matches:
@@ -93,6 +93,8 @@ class EntityResolver:
         matches = []
         for key, cfg in agents.items():
             if norm_cleaned in self.normalize(key) or (
+                cfg.get("displayname") and norm_cleaned in self.normalize(cfg["displayname"])
+            ) or (
                 cfg.get("username") and norm_cleaned in self.normalize(cfg["username"])
             ):
                 matches.append(key)

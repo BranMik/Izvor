@@ -1,0 +1,10 @@
+refactor(agents): migrate name to username and username to displayname
+
+- Renamed agent settings schema properties across settings, orchestration, and resolver
+- Ensures strict token-less username used for /[AGENT] nominations and Slack Hub lists
+- Resolves casual name representation in agent-to-agent LLM thread history via displayname
+- fix(nlp): increased intent extractor timeout to 15s to prevent truncation constraint drop
+
+Generated with Antigravity
+
+Co-Authored-By: Gemini 3.8 Flash

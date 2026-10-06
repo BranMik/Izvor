@@ -18,137 +18,137 @@
   ],
   "agents": {
     "agent-10001": {
-      "name": "Visionary",
       "model": "gemini/gemini-3.8-flash",
-      "username": "Visionary",
       "icon_url": "static/image_43.png",
       "is_short_output": false,
-      "skills": []
+      "skills": [],
+      "displayname": "Visionary",
+      "username": "Visionary"
     },
     "agent-10002": {
-      "name": "Innovator",
       "model": "anthropic/claude-opus-5",
-      "username": "Innovator",
       "icon_url": "static/image_01.png",
       "is_short_output": false,
-      "skills": []
+      "skills": [],
+      "displayname": "Innovator",
+      "username": "Innovator"
     },
     "agent-10003": {
-      "name": "Sceptic",
       "model": "anthropic/claude-opus-5",
-      "username": "Sceptic",
       "icon_url": "static/image_03.png",
       "is_short_output": false,
-      "skills": []
+      "skills": [],
+      "displayname": "Sceptic",
+      "username": "Sceptic"
     },
     "agent-10004": {
-      "name": "CompliancePrivacyAndGovernanceOfficer",
       "model": "mistral/mistral-large-latest",
-      "username": "Compliance, Privacy And Governance Officer",
       "icon_url": "static/image_16.png",
       "is_short_output": true,
-      "skills": []
+      "skills": [],
+      "displayname": "Compliance, Privacy And Governance Officer",
+      "username": "CompliancePrivacyAndGovernanceOfficer"
     },
     "agent-10005": {
-      "name": "ScopeOptimizer",
       "model": "gemini/gemini-3.8-flash",
-      "username": "Scope Optimizer",
       "icon_url": "static/image_24.png",
       "is_short_output": true,
-      "skills": []
+      "skills": [],
+      "displayname": "Scope Optimizer",
+      "username": "ScopeOptimizer"
     },
     "agent-10006": {
-      "name": "ROIStrategist",
       "model": "gemini/gemini-3.8-flash",
-      "username": "ROI Strategist",
       "icon_url": "static/image_45.png",
       "is_short_output": false,
       "skills": [
         "document_authoring",
         "document_reader",
         "knowledge_base_rag"
-      ]
+      ],
+      "displayname": "ROI Strategist",
+      "username": "ROIStrategist"
     },
     "agent-10007": {
-      "name": "UserAdvocate",
       "model": "openai/gpt-5.6-terra",
-      "username": "User Advocate",
       "icon_url": "static/image_10.png",
       "is_short_output": false,
-      "skills": []
+      "skills": [],
+      "displayname": "User Advocate",
+      "username": "UserAdvocate"
     },
     "agent-10008": {
-      "name": "SecurityArchitect",
       "model": "mistral/mistral-large-latest",
-      "username": "Security Architect",
       "icon_url": "static/image_29.png",
       "is_short_output": false,
       "skills": [
         "document_reader",
         "knowledge_base_rag"
-      ]
+      ],
+      "displayname": "Security Architect",
+      "username": "SecurityArchitect"
     },
     "agent-10009": {
-      "name": "MarketAndCompetitionResearchExpert",
       "model": "mistral/mistral-large-latest",
-      "username": "Market & Competition Research Expert",
       "icon_url": "static/image_09.png",
       "is_short_output": false,
       "skills": [
         "web_research"
-      ]
+      ],
+      "displayname": "Market & Competition Research Expert",
+      "username": "MarketAndCompetitionResearchExpert"
     },
     "agent-10010": {
-      "name": "SalesAdvisor",
       "model": "gemini/gemini-3.8-flash",
-      "username": "Sales Advisor",
       "icon_url": "static/image_15.png",
       "is_short_output": true,
       "skills": [
         "knowledge_base_rag",
         "web_research"
-      ]
+      ],
+      "displayname": "Sales Advisor",
+      "username": "SalesAdvisor"
     },
     "agent-10011": {
-      "name": "LegalAdvisor",
       "model": "gemini/gemini-3.8-flash",
-      "username": "Legal Advisor",
       "icon_url": "static/image_21.png",
       "is_short_output": true,
       "skills": [
         "knowledge_base_rag",
         "web_research"
-      ]
+      ],
+      "displayname": "Legal Advisor",
+      "username": "LegalAdvisor"
     },
     "agent-10012": {
-      "name": "ProductStrategist",
       "model": "gemini/gemini-3.8-flash",
-      "username": "Product Strategist",
       "icon_url": "static/image_08.png",
       "is_short_output": false,
-      "skills": []
+      "skills": [],
+      "displayname": "Product Strategist",
+      "username": "ProductStrategist"
     },
     "agent-10013": {
-      "name": "RiskAuditor",
       "model": "gemini/gemini-3.8-flash",
-      "username": "Risk Auditor",
       "icon_url": "static/image_30.png",
       "is_short_output": false,
-      "skills": []
+      "skills": [],
+      "displayname": "Risk Auditor",
+      "username": "RiskAuditor"
     },
     "agent-10014": {
-      "name": "Tactician",
       "model": "gemini/gemini-3.8-flash",
-      "username": "Tactician",
       "icon_url": "static/image_22.png",
       "is_short_output": false,
-      "skills": []
+      "skills": [],
+      "displayname": "Tactician",
+      "username": "Tactician"
     }
   },
   "orchestrator": {
     "fast_model": "gemini/gemini-3.8-flash",
     "reasoning_model": "mistral/mistral-large-latest",
-    "username": "Orchestrator",
-    "icon_url": "static/image_99.png"
+    "icon_url": "static/image_99.png",
+    "displayname": "Orchestrator"
   }
 }
