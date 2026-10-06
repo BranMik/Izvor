@@ -1,10 +1,13 @@
 {
   "id": "default_review_flow",
   "name": "Default Review Workflow",
-  "mode": "sandwich",
+  "mode": "fixed",
   "description": "[DO NOT DELETE OR MODIFY - SYSTEM DEFAULT] Standard review flow applied when no explicit agent is tagged.",
-  "sandwich_config": {
-    "start_chain": [],
-    "end_chain": []
+  "fixed_config": {
+    "chain": [
+      "agent-10001",
+      "agent-10002",
+      "agent-10003"
+    ]
   }
 }

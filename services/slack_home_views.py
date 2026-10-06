@@ -72,13 +72,13 @@ def build_app_home_view(
     sandwich_cfg = get_sandwich_config()
     fixed_cfg = get_fixed_config()
 
-    start_chain_str = ", ".join(sandwich_cfg.get("start_chain", []))
-    end_chain_str = ", ".join(sandwich_cfg.get("end_chain", []))
-    fixed_chain_str = ", ".join(fixed_cfg.get("chain", []))
+    start_chain_str = ", ".join(AGENTS_CONFIG.get(a, {}).get("username", a) for a in sandwich_cfg.get("start_chain", []))
+    end_chain_str = ", ".join(AGENTS_CONFIG.get(a, {}).get("username", a) for a in sandwich_cfg.get("end_chain", []))
+    fixed_chain_str = ", ".join(AGENTS_CONFIG.get(a, {}).get("username", a) for a in fixed_cfg.get("chain", []))
 
-    fixed_hash = hashlib.md5(fixed_chain_str.encode("utf-8")).hexdigest()[:8]
-    start_hash = hashlib.md5(start_chain_str.encode("utf-8")).hexdigest()[:8]
-    end_hash = hashlib.md5(end_chain_str.encode("utf-8")).hexdigest()[:8]
+    fixed_hash = hashlib.md5((", ".join(fixed_cfg.get("chain", []))).encode("utf-8")).hexdigest()[:8]
+    start_hash = hashlib.md5((", ".join(sandwich_cfg.get("start_chain", []))).encode("utf-8")).hexdigest()[:8]
+    end_hash = hashlib.md5((", ".join(sandwich_cfg.get("end_chain", []))).encode("utf-8")).hexdigest()[:8]
 
     total_agents = len(AGENTS_CONFIG)
     active_count = len(enabled_agents)
@@ -508,41 +508,45 @@ def build_app_home_view(
                         f"Current mode: *{'🥪 Sandwich Chain (Start ➔ Middle ➔ End)' if orch_mode == OrchestrationMode.SANDWICH else '🎯 Fixed Sequence'}*"
                     ),
                 },
-                "accessory": {
-                    "type": "radio_buttons",
-                    "action_id": "select_orchestration_mode",
-                    "options": [
-                        {
-                            "text": {
-                                "type": "plain_text",
-                                "text": "🥪 Sandwich Flow",
-                                "emoji": True,
-                            },
-                            "value": f"mode:{OrchestrationMode.SANDWICH.value}",
-                        },
-                        {
-                            "text": {
-                                "type": "plain_text",
-                                "text": "🎯 Fixed Sequence",
-                                "emoji": True,
-                            },
-                            "value": f"mode:{OrchestrationMode.FIXED.value}",
-                        },
-                    ],
-                    "initial_option": {
-                        "text": {
-                            "type": "plain_text",
-                            "text": "🥪 Sandwich Flow"
-                            if orch_mode == OrchestrationMode.SANDWICH
-                            else "🎯 Fixed Sequence",
-                            "emoji": True,
-                        },
-                        "value": f"mode:{orch_mode}",
-                    },
-                },
-            },
+            }
         ]
     )
+
+    if not (active_wf_id in ("default_review_flow", "default_sandwich")):
+        blocks[-1]["accessory"] = {
+            "type": "radio_buttons",
+            "action_id": "select_orchestration_mode",
+            "options": [
+                {
+                    "text": {
+                        "type": "plain_text",
+                        "text": "🥪 Sandwich Flow",
+                        "emoji": True,
+                    },
+                    "value": f"mode:{OrchestrationMode.SANDWICH.value}",
+                },
+                {
+                    "text": {
+                        "type": "plain_text",
+                        "text": "🎯 Fixed Sequence",
+                        "emoji": True,
+                    },
+                    "value": f"mode:{OrchestrationMode.FIXED.value}",
+                },
+            ],
+            "initial_option": {
+                "text": {
+                    "type": "plain_text",
+                    "text": "🥪 Sandwich Flow"
+                    if orch_mode == OrchestrationMode.SANDWICH
+                    else "🎯 Fixed Sequence",
+                    "emoji": True,
+                },
+                "value": f"mode:{orch_mode}",
+            },
+        }
+
+    is_default_wf = active_wf_id in ("default_review_flow", "default_sandwich")
 
     # Mode-specific chain configuration UI
     if orch_mode == OrchestrationMode.SANDWICH:
@@ -556,7 +560,19 @@ def build_app_home_view(
                             "text": "ℹ️ *Sandwich Flow:* Begins with _Start Chain_, continues with remaining active agents in the _middle (flexible)_, and concludes with _End Chain_. If chains are empty, order is 100% flexible.",
                         }
                     ],
-                },
+                }
+            ]
+        )
+        if is_default_wf:
+            blocks.append({
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"🚫 *Editing Disabled for System Defaults*\n*🚩 Start Chain:* {start_chain_str or 'None'}\n*🏁 End Chain:* {end_chain_str or 'None'}"
+                }
+            })
+        else:
+            blocks.extend([
                 {
                     "type": "input",
                     "block_id": f"sandwich_start_chain_block_{start_hash}",
@@ -620,8 +636,7 @@ def build_app_home_view(
                         },
                     ],
                 },
-            ]
-        )
+            ])
     else:
         blocks.extend(
             [
@@ -633,7 +648,19 @@ def build_app_home_view(
                             "text": "ℹ️ *Fixed Sequence Flow:* Only listed agents participate in strict sequence. If chain is empty, all active agents participate in flexible order.",
                         }
                     ],
-                },
+                }
+            ]
+        )
+        if is_default_wf:
+            blocks.append({
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"🚫 *Editing Disabled for System Defaults*\n*🎯 Fixed Sequence Order:* {fixed_chain_str or 'None'}"
+                }
+            })
+        else:
+            blocks.extend([
                 {
                     "type": "input",
                     "block_id": f"fixed_chain_block_{fixed_hash}",
@@ -678,8 +705,7 @@ def build_app_home_view(
                         },
                     ],
                 },
-            ]
-        )
+            ])
     if active_wf_id not in ("default_review_flow", "default_sandwich"):
         blocks.extend(
             [
