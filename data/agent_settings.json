@@ -11,7 +11,10 @@
     "agent-10008",
     "agent-10009",
     "agent-10010",
-    "agent-10011"
+    "agent-10011",
+    "agent-10012",
+    "agent-10013",
+    "agent-10014"
   ],
   "agents": {
     "agent-10001": {
@@ -110,12 +113,36 @@
       "name": "LegalAdvisor",
       "model": "gemini/gemini-3.8-flash",
       "username": "Legal Advisor",
-      "icon_url": "static/image_22.png",
+      "icon_url": "static/image_21.png",
       "is_short_output": true,
       "skills": [
         "knowledge_base_rag",
         "web_research"
       ]
+    },
+    "agent-10012": {
+      "name": "ProductStrategist",
+      "model": "gemini/gemini-3.8-flash",
+      "username": "Product Strategist",
+      "icon_url": "static/image_08.png",
+      "is_short_output": false,
+      "skills": []
+    },
+    "agent-10013": {
+      "name": "RiskAuditor",
+      "model": "gemini/gemini-3.8-flash",
+      "username": "Risk Auditor",
+      "icon_url": "static/image_30.png",
+      "is_short_output": false,
+      "skills": []
+    },
+    "agent-10014": {
+      "name": "Tactician",
+      "model": "gemini/gemini-3.8-flash",
+      "username": "Tactician",
+      "icon_url": "static/image_22.png",
+      "is_short_output": false,
+      "skills": []
     }
   },
   "orchestrator": {

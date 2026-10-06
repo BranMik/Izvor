@@ -8,6 +8,7 @@ logger = logging.getLogger(__name__)
 
 PROMPTS_DIR = Path(__file__).resolve().parent
 PERSONAS_DIR = PROMPTS_DIR / "personas"
+SYSTEM_AGENTS_DIR = PROMPTS_DIR / "system_agents"
 SHARED_DIR = PROMPTS_DIR / "shared"
 
 
@@ -128,12 +129,19 @@ def build_agent_prompt(
     - Completely skips adding output_constraints.md / output_constraints_100w.md text.
     - Adds only the simple constraint for max_words and/or min_words.
     """
+    persona_file_sys = SYSTEM_AGENTS_DIR / f"{agent_key}.md"
+    if persona_file_sys.exists():
+        persona_content = _read_prompt_file(persona_file_sys)
+        return f"\n{persona_content}\n\n"
+
     persona_file = PERSONAS_DIR / f"{agent_key}.md"
     persona_content = _read_prompt_file(persona_file)
 
     # Support agents with self-contained prompts driven by metadata
     if is_system_agent(agent_key):
         return f"\n{persona_content}\n\n"
+
+
 
     effective_max = max_words
     effective_min = min_words
