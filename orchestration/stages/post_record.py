@@ -375,6 +375,7 @@ class PostRecordStage:
             slack_res["is_completed"] = ctx.is_completed
             slack_res["final_text"] = ctx.final_text
             slack_res["username"] = ctx.agent_cfg["username"]
+            slack_res["displayname"] = ctx.agent_cfg.get("displayname", ctx.agent_cfg["username"])
             slack_res["agent_key"] = ctx.agent_key
             slack_res["icon_url"] = resolved_turn_icon
             slack_res["generated_tags"] = ctx.generated_tags
@@ -561,6 +562,9 @@ class PostRecordStage:
             slack_res["final_text"] = error_post_text
             slack_res["username"] = ctx.agent_cfg.get(
                 "username", ctx.agent_key
+            )
+            slack_res["displayname"] = ctx.agent_cfg.get(
+                "displayname", slack_res["username"]
             )
             slack_res["agent_key"] = ctx.agent_key
 

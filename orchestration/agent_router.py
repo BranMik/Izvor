@@ -162,12 +162,12 @@ async def orchestrate_discussion(
             )
             return turn_res
 
-        # Append first agent's post to in-memory history
-        if "final_text" in turn_res and "username" in turn_res:
+        if "final_text" in turn_res:
+            agent_name = turn_res.get("displayname", turn_res.get("username", "Unknown Agent"))
             accumulated_history.append(
                 {
                     "role": "assistant",
-                    "content": f"[{turn_res['username']}]: {turn_res['final_text']}",
+                    "content": f"[{agent_name}]: {turn_res['final_text']}",
                 }
             )
 
@@ -224,11 +224,12 @@ async def orchestrate_discussion(
                 )
                 break
 
-            if "final_text" in turn_res and "username" in turn_res:
+            if "final_text" in turn_res:
+                agent_name = turn_res.get("displayname", turn_res.get("username", "Unknown Agent"))
                 accumulated_history.append(
                     {
                         "role": "assistant",
-                        "content": f"[{turn_res['username']}]: {turn_res['final_text']}",
+                        "content": f"[{agent_name}]: {turn_res['final_text']}",
                     }
                 )
 

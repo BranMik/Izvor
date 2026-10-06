@@ -219,6 +219,20 @@ class ContextPrepStage:
             if req_s and req_s not in required_skills:
                 required_skills.append(req_s)
 
+        mapped_remaining_agents = []
+        for k in ctx.eligible_remaining_agents:
+            if k in settings_manager.agents_config:
+                mapped_remaining_agents.append(settings_manager.agents_config[k].get("username", k))
+            else:
+                mapped_remaining_agents.append(k)
+
+        mapped_next_designated = None
+        if ctx.next_designated_agent:
+            if ctx.next_designated_agent in settings_manager.agents_config:
+                mapped_next_designated = settings_manager.agents_config[ctx.next_designated_agent].get("username", ctx.next_designated_agent)
+            else:
+                mapped_next_designated = ctx.next_designated_agent
+
         ctx.messages = build_llm_messages(
             system_prompt=ctx.system_prompt,
             effective_history=ctx.effective_history,
@@ -227,9 +241,9 @@ class ContextPrepStage:
             agent_key=ctx.agent_key,
             agent_cfg=ctx.agent_cfg,
             file_context=ctx.file_context,
-            remaining_agents=ctx.eligible_remaining_agents,
+            remaining_agents=mapped_remaining_agents,
             force_termination=ctx.force_termination,
-            next_designated_agent=ctx.next_designated_agent,
+            next_designated_agent=mapped_next_designated,
             thread_language=ctx.thread_language,
             required_skills=required_skills,
         )

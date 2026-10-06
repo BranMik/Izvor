@@ -80,7 +80,7 @@ class IntentExtractor:
         self,
         text: str,
         available_files: list[dict[str, Any]] | None = None,
-        timeout_seconds: float = 3.0,
+        timeout_seconds: float = 15.0,
     ) -> ExtractedIntent:
         """
         Calls extractor model to parse structured constraints (max_words, history, file_use, target_file, excluded_agents).
@@ -232,7 +232,7 @@ def should_skip_intent_extractor(
 async def extract_user_intent(
     text: str,
     available_files: list[dict[str, Any]] | None = None,
-    timeout_seconds: float = 3.0,
+    timeout_seconds: float = 15.0,
 ) -> dict[str, Any]:
     intent_obj = await intent_extractor.extract_intent(
         text=text,
