@@ -1,9 +1,9 @@
-refactor(agents): migrate name to username and username to displayname
+fix(workflows): resolve default workflow configs and Slack UI presentation
 
-- Renamed agent settings schema properties across settings, orchestration, and resolver
-- Ensures strict token-less username used for /[AGENT] nominations and Slack Hub lists
-- Resolves casual name representation in agent-to-agent LLM thread history via displayname
-- fix(nlp): increased intent extractor timeout to 15s to prevent truncation constraint drop
+- Fix default_sandwich and default_review_flow to use agent IDs instead of usernames
+- Set default_review_flow mode to FIXED
+- Update Slack App Home view to resolve agent IDs back to usernames
+- Disable chain editing and mode selection in Slack UI for system defaults
 
 Generated with Antigravity
 

@@ -4,9 +4,6 @@
   "mode": "fixed",
   "description": "",
   "fixed_config": {
-    "chain": [
-      "agent-10001",
-      "agent-10004"
-    ]
+    "chain": []
   }
 }

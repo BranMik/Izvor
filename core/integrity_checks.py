@@ -212,7 +212,9 @@ class AppIntegrityValidator:
     # 5. Default workflows integrity — hard gate
     # ------------------------------------------------------------------
     @classmethod
-    def check_default_workflows_integrity(cls, payload: dict, workflows_dir: Path) -> dict:
+    def check_default_workflows_integrity(
+        cls, payload: dict, workflows_dir: Path
+    ) -> dict:
         """
         Validates that the required default workflows exist and have not been altered.
         If they are missing or altered, recreates them from the system defaults.
@@ -225,10 +227,10 @@ class AppIntegrityValidator:
             WorkflowPreset(
                 id="default_review_flow",
                 name="Default Review Workflow",
-                mode=OrchestrationMode.SANDWICH.value,
+                mode=OrchestrationMode.FIXED.value,
                 description="[DO NOT DELETE OR MODIFY - SYSTEM DEFAULT] Standard review flow applied when no explicit agent is tagged.",
-                sandwich_config={"start_chain": ["agent-10001", "agent-10002"], "end_chain": ["agent-10008"]},
-                fixed_config={"chain": []},
+                sandwich_config={"start_chain": [], "end_chain": []},
+                fixed_config={"chain": ["agent-10001", "agent-10002", "agent-10003"]},
             ),
             WorkflowPreset(
                 id="default_sandwich",
@@ -236,11 +238,17 @@ class AppIntegrityValidator:
                 mode=OrchestrationMode.SANDWICH.value,
                 description="[DO NOT DELETE OR MODIFY - SYSTEM DEFAULT] Standard multi-agent panel with kickoff and concluding wrap-up.",
                 sandwich_config={
-                    "start_chain": ["agent-10005", "agent-10001", "agent-10007", "agent-10003", "agent-10002", "agent-10008"],
+                    "start_chain": [
+                        "agent-10005",
+                        "agent-10001",
+                        "agent-10007",
+                        "agent-10003",
+                        "agent-10002",
+                    ],
                     "end_chain": ["agent-10008", "agent-10003"],
                 },
                 fixed_config={"chain": []},
-            )
+            ),
         ]
 
         if not workflows_dir.exists():
@@ -251,20 +259,29 @@ class AppIntegrityValidator:
             needs_restore = False
 
             if not wf_file.exists():
-                logger.warning("[INTEGRITY] Default workflow '%s' is missing. Restoring from backup.", expected.id)
+                logger.warning(
+                    "[INTEGRITY] Default workflow '%s' is missing. Restoring from backup.",
+                    expected.id,
+                )
                 needs_restore = True
             else:
                 try:
                     with open(wf_file, "r", encoding="utf-8") as f:
                         disk_data = json.load(f)
-                    
+
                     # Compare serialized forms
                     expected_data = expected.to_dict()
                     if disk_data != expected_data:
-                        logger.warning("[INTEGRITY] Default workflow '%s' was altered. Restoring from backup.", expected.id)
+                        logger.warning(
+                            "[INTEGRITY] Default workflow '%s' was altered. Restoring from backup.",
+                            expected.id,
+                        )
                         needs_restore = True
                 except (OSError, json.JSONDecodeError):
-                    logger.warning("[INTEGRITY] Default workflow '%s' is corrupted. Restoring from backup.", expected.id)
+                    logger.warning(
+                        "[INTEGRITY] Default workflow '%s' is corrupted. Restoring from backup.",
+                        expected.id,
+                    )
                     needs_restore = True
 
             if needs_restore:
@@ -272,7 +289,11 @@ class AppIntegrityValidator:
                     with open(wf_file, "w", encoding="utf-8") as f:
                         json.dump(expected.to_dict(), f, indent=2)
                 except OSError as e:
-                    logger.error("[INTEGRITY] Failed to restore workflow '%s': %s", expected.id, e)
+                    logger.error(
+                        "[INTEGRITY] Failed to restore workflow '%s': %s",
+                        expected.id,
+                        e,
+                    )
 
         return payload
 
@@ -293,7 +314,7 @@ class AppIntegrityValidator:
         if not wf_file.exists():
             logger.warning(
                 "[INTEGRITY] Active workflow '%s' does not exist in workflows directory. Falling back to 'default_review_flow'.",
-                active_wf_id
+                active_wf_id,
             )
             payload["workflow_config"] = "default_review_flow"
 
@@ -412,7 +433,10 @@ class AppIntegrityValidator:
         Validates the non-repudiable audit log cryptographic hash chain and HMAC key continuity.
         Returns a dictionary with status, errors, hmac_continuity, and verification details.
         """
-        from services.audit_logger import check_hmac_secret_continuity, verify_audit_log_integrity
+        from services.audit_logger import (
+            check_hmac_secret_continuity,
+            verify_audit_log_integrity,
+        )
 
         hmac_continuity = check_hmac_secret_continuity(audit_dir=audit_dir)
         if not hmac_continuity["matches"]:
@@ -437,4 +461,3 @@ class AppIntegrityValidator:
             "last_verified_hash": result.last_verified_hash,
             "hmac_continuity": hmac_continuity,
         }
-
