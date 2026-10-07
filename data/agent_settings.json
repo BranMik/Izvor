@@ -1,5 +1,5 @@
 {
-  "workflow_config": "default_sandwich",
+  "workflow_config": "default_review_flow",
   "enabled_agents": [
     "agent-10001",
     "agent-10002",
@@ -14,7 +14,9 @@
     "agent-10011",
     "agent-10012",
     "agent-10013",
-    "agent-10014"
+    "agent-10014",
+    "agent-10015",
+    "agent-10016"
   ],
   "agents": {
     "agent-10001": {
@@ -51,7 +53,7 @@
     },
     "agent-10005": {
       "username": "ScopeOptimizer",
-      "model": "gemini/mistral/mistral-large-latest",
+      "model": "mistral/mistral-large-latest",
       "displayname": "Scope Optimizer",
       "icon_url": "static/image_24.png",
       "is_short_output": true,
@@ -143,6 +145,30 @@
       "icon_url": "static/image_22.png",
       "is_short_output": false,
       "skills": []
+    },
+    "agent-10015": {
+      "username": "Revisor",
+      "model": "gemini/gemini-3.1-pro",
+      "displayname": "Revisor",
+      "icon_url": "static/image_02.png",
+      "is_short_output": false,
+      "skills": [
+        "web_research",
+        "knowledge_base_rag"
+      ]
+    },
+    "agent-10016": {
+      "username": "CreativeAdvisor",
+      "model": "gemini/gemini-3.8-flash",
+      "displayname": "Creative Advisor",
+      "icon_url": "static/image_17.png",
+      "is_short_output": false,
+      "skills": [
+        "document_authoring",
+        "document_reader",
+        "knowledge_base_rag",
+        "web_research"
+      ]
     }
   },
   "orchestrator": {

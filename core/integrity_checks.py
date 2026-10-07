@@ -230,7 +230,14 @@ class AppIntegrityValidator:
                 mode=OrchestrationMode.FIXED.value,
                 description="[DO NOT DELETE OR MODIFY - SYSTEM DEFAULT] Standard review flow applied when no explicit agent is tagged.",
                 sandwich_config={"start_chain": [], "end_chain": []},
-                fixed_config={"chain": ["agent-10001", "agent-10002", "agent-10003"]},
+                fixed_config={
+                    "chain": [
+                        "agent-10001",
+                        "agent-10002",
+                        "agent-10003",
+                        "agent-10015",
+                    ]
+                },
             ),
             WorkflowPreset(
                 id="default_sandwich",
@@ -245,7 +252,7 @@ class AppIntegrityValidator:
                         "agent-10003",
                         "agent-10002",
                     ],
-                    "end_chain": ["agent-10008", "agent-10003"],
+                    "end_chain": ["agent-10008", "agent-10003", "agent-10015"],
                 },
                 fixed_config={"chain": []},
             ),
