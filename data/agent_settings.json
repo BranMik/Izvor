@@ -148,7 +148,7 @@
     },
     "agent-10015": {
       "username": "Revisor",
-      "model": "gemini/gemini-3.1-pro",
+      "model": "gemini/gemini-3.8-flash",
       "displayname": "Revisor",
       "icon_url": "static/image_02.png",
       "is_short_output": false,

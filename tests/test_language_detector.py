@@ -77,6 +77,21 @@ async def test_detect_language_llm_uses_configured_model():
         call_kwargs = mock_comp.call_args[1]
         assert call_kwargs["model"] == expected_model
         assert "temperature" not in call_kwargs
+        assert "max_tokens" not in call_kwargs
+
+
+@pytest.mark.anyio
+async def test_detect_language_reasoning_content_fallback():
+    """If model outputs empty content but provides reasoning_content, extracts language cleanly."""
+    mock_resp = MagicMock()
+    mock_choice = MagicMock()
+    mock_choice.message.content = ""
+    mock_choice.message.reasoning_content = "Thinking Process: The text is clearly Croatian. Answer: Croatian"
+    mock_resp.choices = [mock_choice]
+
+    with patch("litellm.completion", return_value=mock_resp):
+        res = await detect_language_llm("Ajmo opet, isti upit.")
+        assert res == "Croatian"
 
 
 @pytest.mark.anyio

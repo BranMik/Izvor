@@ -318,8 +318,6 @@ class OrchestratorAgent:
                     kwargs={
                         "model": model,
                         "messages": messages,
-                        "max_tokens": 10,
-                        "temperature": 0.0,
                         "num_retries": 1,
                     },
                     agent_key="orchestrator",
@@ -332,7 +330,10 @@ class OrchestratorAgent:
             if not resp or not getattr(resp, "choices", None):
                 return "English"
 
-            content = resp.choices[0].message.content or ""
+            msg = resp.choices[0].message
+            content = getattr(msg, "content", None) or ""
+            if not content:
+                content = getattr(msg, "reasoning_content", None) or ""
             clean_word = content.strip().split("\n")[0].split()
             if clean_word:
                 first = re.sub(r"[^\w]", "", clean_word[0]).lower()
