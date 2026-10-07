@@ -73,3 +73,6 @@ model_pricing_cache.json
 audit/*
 !audit/.gitkeep
 
+# Temporary commit message files
+.commit_msg*
+
