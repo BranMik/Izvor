@@ -13,12 +13,15 @@ def build_app_home_view(
     circuit_breaker_config: dict[str, Any] | None = None,
     scribe_enabled: bool | None = None,
     weekly_pricing_update_enabled: bool | None = None,
+    user_id: str | None = None,
 ) -> dict[str, Any]:
     """
     Generates the Block Kit Home Tab view for the Slack Application Home page.
     Displays panel agents, locked agents, thread cost circuit-breaker settings,
-    Live Discussion Scribe toggle, and emergency backup warning if active settings file is unreadable.
+    Live Discussion Scribe toggle, emergency backup warning if active settings file is unreadable,
+    and Workspace Baseline Context.
     """
+    from core.config import ADMIN_SLACK_USER_ID
     from orchestration.agent_settings import (
         get_active_workflow_id,
         get_backup_error_reason,
@@ -32,11 +35,16 @@ def build_app_home_view(
         is_weekly_pricing_update_enabled,
         sync_settings_if_modified,
     )
-    from orchestration.app_settings import get_thread_skill_expiration_time
+    from orchestration.app_settings import (
+        get_thread_skill_expiration_time,
+        get_workspace_context,
+    )
     from orchestration.workflow_manager import list_workflows
 
     sync_settings_if_modified()
     expiry_hours = get_thread_skill_expiration_time()
+    ws_ctx = get_workspace_context()
+    is_admin = bool(not ADMIN_SLACK_USER_ID or (user_id and user_id.strip() == ADMIN_SLACK_USER_ID))
 
     if enabled_agents is None:
         enabled_agents = get_enabled_agents()
@@ -116,6 +124,34 @@ def build_app_home_view(
             ]
         )
 
+    ws_display = f"> {ws_ctx}" if ws_ctx else "_No baseline workspace context configured yet._"
+    role_note = "_(✏️ Admin editable)_" if is_admin else "_(🔒 View-only: Admin managed)_"
+    ws_section_text = (
+        f"*────────🌐 Workspace Baseline Context:────────*\n"
+        f"{ws_display}\n\n"
+        f"💡 *Scope:* Persistent across all debate agents and threads. {role_note}"
+    )
+
+    ws_block: dict[str, Any] = {
+        "type": "section",
+        "block_id": "workspace_context_display_section",
+        "text": {
+            "type": "mrkdwn",
+            "text": ws_section_text,
+        },
+    }
+    if is_admin:
+        ws_block["accessory"] = {
+            "type": "button",
+            "action_id": "open_edit_workspace_context_modal",
+            "text": {
+                "type": "plain_text",
+                "text": "✏️ Edit Context",
+                "emoji": True,
+            },
+            "style": "primary",
+        }
+
     blocks.extend(
         [
             {
@@ -147,6 +183,8 @@ def build_app_home_view(
                     },
                 ],
             },
+            {"type": "divider"},
+            ws_block,
             {"type": "divider"},
             {
                 "type": "section",
@@ -876,4 +914,64 @@ def build_app_home_view(
     return {"type": "home", "blocks": blocks}
 
 
-__all__ = ["build_app_home_view"]
+def build_edit_workspace_context_modal(current_context: str = "") -> dict[str, Any]:
+    """
+    Constructs the Block Kit modal dialog for editing the global Workspace Baseline Context.
+    Capped at 1,000 characters.
+    """
+    return {
+        "type": "modal",
+        "callback_id": "submit_workspace_context_modal",
+        "title": {
+            "type": "plain_text",
+            "text": "Workspace Context",
+            "emoji": True,
+        },
+        "submit": {
+            "type": "plain_text",
+            "text": "Save",
+            "emoji": True,
+        },
+        "close": {
+            "type": "plain_text",
+            "text": "Cancel",
+            "emoji": True,
+        },
+        "blocks": [
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": (
+                        "Provide global background, organizational guidelines, or rules that *all debate agents* "
+                        "receive in their system prompt across all threads.\n\n"
+                        "🔒 *Admin only. Maximum 1,000 characters.*"
+                    ),
+                },
+            },
+            {
+                "type": "input",
+                "block_id": "workspace_context_input_block",
+                "label": {
+                    "type": "plain_text",
+                    "text": "Baseline Context / Guidelines",
+                    "emoji": True,
+                },
+                "element": {
+                    "type": "plain_text_input",
+                    "action_id": "workspace_context_input",
+                    "multiline": True,
+                    "max_length": 1000,
+                    "initial_value": current_context or "",
+                    "placeholder": {
+                        "type": "plain_text",
+                        "text": "e.g., We are Acme Corp building enterprise healthcare software. Always prioritize HIPAA compliance, user privacy, and scalable cloud architectures.",
+                    },
+                },
+                "optional": True,
+            },
+        ],
+    }
+
+
+__all__ = ["build_app_home_view", "build_edit_workspace_context_modal"]

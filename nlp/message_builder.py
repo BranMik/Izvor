@@ -29,7 +29,7 @@ def build_llm_messages(
     """
     Constructs a normalized, provider-safe message sequence for LiteLLM.
     Guarantees:
-    1. System prompt is at index 0 (100% static for robust Anthropic prompt caching).
+    1. System prompt is at index 0 (clean static persona/system instructions).
     2. Dynamic orchestration context (available agents list / termination constraints / locked language)
        is appended directly to the final user prompt (benefiting from LLM recency attention).
     3. The conversational sequence starts with a 'user' turn (handles trimmed history).

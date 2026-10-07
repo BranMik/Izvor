@@ -965,6 +965,12 @@ class AgentSettingsManager:
         logger.info(f"[SETTINGS] Updated skills for '{agent_key}': {sanitized_skills}")
         return True
 
+    def refresh_agent_prompts(self) -> None:
+        """Refreshes all in-memory agent system prompts (e.g. after global workspace context updates)."""
+        for agent_key, cfg in self.agents_config.items():
+            cfg["system_prompt"] = build_agent_prompt(agent_key, skills=cfg.get("skills"))
+        logger.info(f"[SETTINGS] Refreshed system prompts for {len(self.agents_config)} agents.")
+
     def set_agent_model(self, agent_key: str, model: str, save: bool = True) -> bool:
         """Sets the LLM model for a panel agent and persists to settings JSON."""
         if agent_key not in self.agents_config:

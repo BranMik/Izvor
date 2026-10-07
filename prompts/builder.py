@@ -198,6 +198,15 @@ def build_agent_prompt(
         f"{directives_block}\n"
     )
 
+    # Append workspace baseline context if configured
+    try:
+        from orchestration.app_settings import get_workspace_context
+        ws_ctx = get_workspace_context()
+        if ws_ctx:
+            prompt += f"\n### WORKSPACE BASELINE CONTEXT\n{ws_ctx}\n\n"
+    except (ImportError, AttributeError) as e:
+        logger.debug(f"[PROMPT BUILDER] Could not load workspace context: {e}")
+
     # Append Skills Directory and on-demand progressive disclosure (strictly filtered to authorized skills)
     try:
         from core.registry import get_skill_registry

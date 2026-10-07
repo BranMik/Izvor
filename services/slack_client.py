@@ -29,7 +29,10 @@ _RESOLVED_USAGE_CHANNEL_ID: str | None = None
 
 
 
-from services.slack_home_views import build_app_home_view
+from services.slack_home_views import (
+    build_app_home_view,
+    build_edit_workspace_context_modal,
+)
 
 
 async def publish_app_home(
@@ -50,6 +53,7 @@ async def publish_app_home(
             enabled_agents=enabled_agents,
             circuit_breaker_config=circuit_breaker_config,
             scribe_enabled=scribe_enabled,
+            user_id=user_id,
         )
         response = await slack_async_client.views_publish(
             user_id=user_id,
