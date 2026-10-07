@@ -166,11 +166,16 @@ def _sync_llm_classify(
     resp = litellm.completion(
         model=selected_model,
         messages=messages,
-        max_tokens=100,
         num_retries=1,
     )
-    content = resp.choices[0].message.content
+    msg = resp.choices[0].message
+    content = getattr(msg, "content", None)
     if not content:
+        reasoning = getattr(msg, "reasoning_content", None)
+        if reasoning:
+            extracted = _extract_language_from_content(reasoning, default="")
+            if extracted:
+                return extracted
         finish_reason = getattr(resp.choices[0], "finish_reason", "unknown")
         logger.warning(
             f"[LANGUAGE DETECTOR] Model {selected_model} returned empty content (finish_reason={finish_reason}). Defaulting to {default}."

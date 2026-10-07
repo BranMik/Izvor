@@ -71,6 +71,9 @@ async def test_orchestrator_detect_language_mock():
     mock_choice.message.content = "Croatian"
     mock_resp = MagicMock(choices=[mock_choice])
 
-    with patch("orchestration.orchestrator_agent.litellm.completion", return_value=mock_resp):
+    with patch("orchestration.orchestrator_agent.litellm.completion", return_value=mock_resp) as mock_comp:
         lang = await orchestrator_agent.detect_language("Bok, kako si danas?")
         assert lang == "Croatian"
+        call_kwargs = mock_comp.call_args[1]
+        assert "temperature" not in call_kwargs
+        assert "max_tokens" not in call_kwargs

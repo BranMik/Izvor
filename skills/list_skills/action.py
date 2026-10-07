@@ -50,7 +50,6 @@ async def run(ctx: Any, params: dict[str, Any] | None = None) -> dict[str, Any] 
                     {"role": "system", "content": sys_prompt},
                     {"role": "user", "content": user_msg},
                 ],
-                "temperature": 0.2,
                 "max_tokens": 1000,
             },
             agent_key="list_skills",
