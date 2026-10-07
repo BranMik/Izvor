@@ -134,7 +134,7 @@
       "username": "RiskAuditor",
       "model": "gemini/gemini-3.8-flash",
       "displayname": "Risk Auditor",
-      "icon_url": "static/image_30.png",
+      "icon_url": "static/image_17.png",
       "is_short_output": false,
       "skills": []
     },
@@ -161,7 +161,7 @@
       "username": "CreativeAdvisor",
       "model": "gemini/gemini-3.8-flash",
       "displayname": "Creative Advisor",
-      "icon_url": "static/image_17.png",
+      "icon_url": "static/image_12.png",
       "is_short_output": false,
       "skills": [
         "document_authoring",

@@ -132,7 +132,7 @@ async def handle_slack_interactivity(request: Request, background_tasks: Backgro
             form_data = await request.form()
             if "payload" in form_data:
                 payload = json.loads(form_data["payload"])
-        except (json.JSONDecodeError, ValueError, KeyError, UnicodeDecodeError, AttributeError) as e:
+        except (json.JSONDecodeError, ValueError, KeyError, UnicodeDecodeError, AttributeError, TypeError) as e:
             logger.debug(f"[INTERACTIVITY] form-data extraction failed: {e}")
 
     # 3. Direct JSON payload fallback (used in unit tests / direct API callers)
@@ -697,9 +697,87 @@ async def handle_slack_interactivity(request: Request, background_tasks: Backgro
                                 text=f"❌ Denied execution of `{f_name}` by <@{user_id}>. Please reply to the thread to inform the agent.",
                                 blocks=[]
                             )
+            elif action_id == "open_edit_workspace_context_modal":
+                should_publish_home = False
+                from core.config import ADMIN_SLACK_USER_ID
+                from orchestration.app_settings import get_workspace_context
+                from services.slack_home_views import build_edit_workspace_context_modal
 
+                is_admin = bool(not ADMIN_SLACK_USER_ID or (user_id and user_id.strip() == ADMIN_SLACK_USER_ID))
+                if not is_admin:
+                    logger.warning(
+                        f"[INTERACTIVITY] Non-admin user {user_id} attempted to open workspace context edit modal."
+                    )
+                else:
+                    trigger_id = payload.get("trigger_id")
+                    if trigger_id:
+                        modal_view = build_edit_workspace_context_modal(current_context=get_workspace_context())
+                        background_tasks.add_task(
+                            slack_async_client.views_open,
+                            trigger_id=trigger_id,
+                            view=modal_view,
+                        )
 
         if user_id and should_publish_home:
             background_tasks.add_task(_safe_publish_home, user_id=user_id)
+
+    elif payload_type == "view_submission":
+        view = payload.get("view", {})
+        callback_id = view.get("callback_id")
+        if callback_id == "submit_workspace_context_modal":
+            user_id = None
+            if isinstance(payload.get("user"), dict):
+                user_id = payload.get("user", {}).get("id")
+            elif isinstance(payload.get("user"), str):
+                user_id = payload.get("user")
+            if not user_id and isinstance(payload.get("view"), dict):
+                user_id = payload.get("view", {}).get("user", {}).get("id")
+
+            from core.config import ADMIN_SLACK_USER_ID
+            from orchestration.app_settings import set_workspace_context
+            from starlette.responses import JSONResponse
+
+            is_admin = bool(not ADMIN_SLACK_USER_ID or (user_id and user_id.strip() == ADMIN_SLACK_USER_ID))
+            if not is_admin:
+                logger.warning(
+                    f"[INTERACTIVITY] Non-admin user {user_id} attempted to submit workspace context."
+                )
+                return Response(status_code=403)
+
+            values = view.get("state", {}).get("values", {})
+            input_val = (
+                values.get("workspace_context_input_block", {})
+                .get("workspace_context_input", {})
+                .get("value")
+            ) or ""
+            clean_val = str(input_val).strip()
+
+            if len(clean_val) > 1000:
+                return JSONResponse(
+                    content={
+                        "response_action": "errors",
+                        "errors": {
+                            "workspace_context_input_block": (
+                                f"Workspace context cannot exceed 1,000 characters (currently {len(clean_val)})."
+                            )
+                        },
+                    }
+                )
+
+            set_workspace_context(clean_val)
+            logger.info(
+                f"[INTERACTIVITY] Workspace context updated by admin {user_id}: {len(clean_val)} chars."
+            )
+            log_audit_event(
+                event_type="WORKSPACE_CONTEXT_MUTATION",
+                actor={"type": "slack_admin", "id": user_id or "unknown"},
+                action="update_workspace_context",
+                target="app_settings",
+                details={"length": len(clean_val)},
+                severity="INFO",
+            )
+            if user_id:
+                background_tasks.add_task(_safe_publish_home, user_id=user_id)
+            return Response(status_code=200)
 
     return Response(status_code=200)

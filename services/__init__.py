@@ -35,6 +35,7 @@ from .pricing_service import (
 )
 from .slack_client import (
     build_app_home_view,
+    build_edit_workspace_context_modal,
     download_slack_file,
     extract_thread_files_metadata,
     fetch_thread_files,
@@ -75,6 +76,7 @@ __all__ = [
     "PricingService",
     "async_record_flat_history",
     "build_app_home_view",
+    "build_edit_workspace_context_modal",
     "download_slack_file",
     "execute_mcp_tool",
     "extract_thread_files_metadata",

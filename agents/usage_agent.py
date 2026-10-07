@@ -107,7 +107,6 @@ class ThreadUsageTracker:
         prompt_tokens: int,
         completion_tokens: int,
         channel_name: str | None = None,
-        cached_tokens: int = 0,
     ) -> dict[str, Any]:
         """
         Accumulates input and output tokens for a specific model within a thread.
@@ -140,7 +139,6 @@ class ThreadUsageTracker:
             }
 
         m_stats = models_map[model_name]
-        m_stats.pop("cached_tokens", None)
         m_stats["prompt_tokens"] += int(prompt_tokens)
         m_stats["completion_tokens"] += int(completion_tokens)
         m_stats["total_tokens"] = m_stats["prompt_tokens"] + m_stats["completion_tokens"]
@@ -495,7 +493,6 @@ def record_thread_tokens(
     prompt_tokens: int,
     completion_tokens: int,
     channel_name: str | None = None,
-    cached_tokens: int = 0,
 ) -> dict[str, Any]:
     return usage_tracker.record_tokens(
         channel_id=channel_id,
@@ -504,7 +501,6 @@ def record_thread_tokens(
         prompt_tokens=prompt_tokens,
         completion_tokens=completion_tokens,
         channel_name=channel_name,
-        cached_tokens=cached_tokens,
     )
 
 

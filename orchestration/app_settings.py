@@ -39,6 +39,7 @@ class AppSettingsManager:
         self.circuit_breaker_threshold_usd: float = 0.0
         self.scribe_enabled: bool = True
         self.weekly_pricing_update_enabled: bool = True
+        self.workspace_context: str = ""
 
         self._last_loaded_mtime: float = 0.0
 
@@ -67,6 +68,7 @@ class AppSettingsManager:
             self.circuit_breaker_threshold_usd = float(data.get("circuit_breaker_threshold_usd", 0.0))
             self.scribe_enabled = bool(data.get("scribe_enabled", True))
             self.weekly_pricing_update_enabled = bool(data.get("weekly_pricing_update_enabled", True))
+            self.workspace_context = str(data.get("workspace_context", "")).strip()[:1000]
 
             self._last_loaded_mtime = mtime
             logger.debug(f"[APP_SETTINGS] Loaded settings from {target_file}")
@@ -81,6 +83,7 @@ class AppSettingsManager:
                     self.circuit_breaker_threshold_usd = float(data.get("circuit_breaker_threshold_usd", 0.0))
                     self.scribe_enabled = bool(data.get("scribe_enabled", True))
                     self.weekly_pricing_update_enabled = bool(data.get("weekly_pricing_update_enabled", True))
+                    self.workspace_context = str(data.get("workspace_context", "")).strip()[:1000]
                     logger.warning("[APP_SETTINGS] Recovered settings from backup.")
                 except (OSError, json.JSONDecodeError, TypeError, ValueError) as be:
                     logger.error(f"[APP_SETTINGS] Failed to read backup: {be}")
@@ -95,6 +98,7 @@ class AppSettingsManager:
             "circuit_breaker_threshold_usd": self.circuit_breaker_threshold_usd,
             "scribe_enabled": self.scribe_enabled,
             "weekly_pricing_update_enabled": self.weekly_pricing_update_enabled,
+            "workspace_context": self.workspace_context,
         }
 
         tmp_file = target_file.with_suffix(".tmp")
@@ -196,10 +200,36 @@ class AppSettingsManager:
         logger.info(f"[APP_SETTINGS] Set weekly_pricing_update_enabled to {self.weekly_pricing_update_enabled}.")
 
 
+    # --- Workspace Baseline Context ---
+    def get_workspace_context(self) -> str:
+        self.load()
+        return self.workspace_context
+
+    def set_workspace_context(self, context: str, save: bool = True) -> None:
+        clean = str(context or "").strip()[:1000]
+        self.workspace_context = clean
+        if save:
+            self.save()
+        logger.info(f"[APP_SETTINGS] Set workspace_context ({len(clean)} chars).")
+        try:
+            from orchestration.agent_settings import settings_manager
+            settings_manager.refresh_agent_prompts()
+        except (ImportError, AttributeError) as e:
+            logger.debug(f"[APP_SETTINGS] Note: could not trigger refresh_agent_prompts: {e}")
+
+
 app_settings_manager = AppSettingsManager()
 
 
 # Module-level convenience functions
+def get_workspace_context() -> str:
+    return app_settings_manager.get_workspace_context()
+
+
+def set_workspace_context(context: str, save: bool = True) -> None:
+    app_settings_manager.set_workspace_context(context, save=save)
+
+
 def get_thread_skill_expiration_time() -> float:
     return app_settings_manager.get_thread_skill_expiration_time()
 
