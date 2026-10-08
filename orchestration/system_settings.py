@@ -49,6 +49,7 @@ class SystemSettingsManager:
         self.default_reasoning_model: str = "mistral/mistral-large-latest"
         self.max_file_size_mb: float = 50.0
         self.workspace_write_blacklist_additional: list[str] = []
+        self.strict_privacy_mode_enabled: bool = True
 
         self.rag_config: dict[str, Any] = {
             "max_chunk_chars": 3500,
@@ -116,6 +117,7 @@ class SystemSettingsManager:
                 if isinstance(raw_bl, list)
                 else []
             )
+            self.strict_privacy_mode_enabled = bool(data.get("strict_privacy_mode_enabled", True))
 
             self._last_loaded_mtime = mtime
             logger.debug(f"[SYSTEM_SETTINGS] Loaded settings from {target_file}")
@@ -141,6 +143,7 @@ class SystemSettingsManager:
                         if isinstance(raw_bl, list)
                         else []
                     )
+                    self.strict_privacy_mode_enabled = bool(data.get("strict_privacy_mode_enabled", True))
                     logger.warning("[SYSTEM_SETTINGS] Recovered settings from backup.")
                 except (OSError, json.JSONDecodeError, TypeError, ValueError) as be:
                     logger.error(f"[SYSTEM_SETTINGS] Failed to read backup: {be}")
@@ -160,6 +163,7 @@ class SystemSettingsManager:
                 "paths or file patterns here to prevent unauthorized modifications."
             ),
             "workspace_write_blacklist_additional": self.workspace_write_blacklist_additional,
+            "strict_privacy_mode_enabled": self.strict_privacy_mode_enabled,
         }
 
         tmp_file = target_file.with_suffix(".tmp")
@@ -270,6 +274,17 @@ class SystemSettingsManager:
         logger.info(
             f"[SYSTEM_SETTINGS] Set workspace_write_blacklist_additional to {self.workspace_write_blacklist_additional}."
         )
+
+    # --- Strict Privacy Mode ---
+    def is_strict_privacy_mode_enabled(self) -> bool:
+        self.load()
+        return bool(self.strict_privacy_mode_enabled)
+
+    def set_strict_privacy_mode_enabled(self, enabled: bool, save: bool = True) -> None:
+        self.strict_privacy_mode_enabled = bool(enabled)
+        if save:
+            self.save()
+        logger.info(f"[SYSTEM_SETTINGS] Set strict_privacy_mode_enabled to {self.strict_privacy_mode_enabled}.")
 
     def is_path_write_blocked(
         self,
@@ -415,5 +430,13 @@ def get_default_reasoning_model() -> str:
 
 def set_default_reasoning_model(model: str, save: bool = True) -> None:
     system_settings_manager.set_default_reasoning_model(model, save=save)
+
+
+def is_strict_privacy_mode_enabled() -> bool:
+    return system_settings_manager.is_strict_privacy_mode_enabled()
+
+
+def set_strict_privacy_mode_enabled(enabled: bool, save: bool = True) -> None:
+    system_settings_manager.set_strict_privacy_mode_enabled(enabled, save=save)
 
 

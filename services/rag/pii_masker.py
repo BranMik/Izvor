@@ -112,7 +112,7 @@ _PII_PATTERNS: list[tuple[re.Pattern, str]] = [
 class PIIMasker:
     """
     Sanitizes documents and search results to prevent PII and secrets
-    from reaching LLMs or vector indices.
+    from reaching LLMs or vector indices. Supports two-way tokenization.
     """
 
     def __init__(self) -> None:
@@ -164,23 +164,59 @@ class PIIMasker:
         """True if any masking is configured."""
         return self.mode in {"AT_INGESTION", "AT_RETRIEVAL"}
 
-    def mask(self, text: str) -> str:
+    def mask(self, text: str) -> tuple[str, dict[str, str]]:
         """
         Masks secrets, credentials, and PII in the given text.
         Applies deterministic pattern scrubbers first, followed by Presidio NER (if installed).
+        Returns a tuple of (masked_text, token_mapping).
         """
         if not text or not isinstance(text, str):
-            return text or ""
+            return text or "", {}
 
         masked_text = text
+        token_mapping: dict[str, str] = {}
+        counts: dict[str, int] = {}
+
+        def get_replacer(base_token: str):
+            base_token_bare = base_token.strip("<>")
+            
+            def replacer(match: re.Match) -> str:
+                original = match.group(0)
+                
+                if base_token == r"\1\2 <REDACTED_SECRET>" and len(match.groups()) == 3:
+                    prefix = match.group(1) + match.group(2) + " "
+                    secret_val = match.group(3)
+                    
+                    for t, v in token_mapping.items():
+                        if v == secret_val and t.startswith("<REDACTED_SECRET_"):
+                            return prefix + t
+                            
+                    idx = counts.get("REDACTED_SECRET", 0)
+                    counts["REDACTED_SECRET"] = idx + 1
+                    token_key = f"<REDACTED_SECRET_{idx}>"
+                    token_mapping[token_key] = secret_val
+                    return prefix + token_key
+                
+                # Deduplicate exact matches
+                for t, v in token_mapping.items():
+                    if v == original and t.startswith(f"<{base_token_bare}_"):
+                        return t
+                
+                idx = counts.get(base_token_bare, 0)
+                counts[base_token_bare] = idx + 1
+                token = f"<{base_token_bare}_{idx}>"
+                token_mapping[token] = original
+                return token
+                
+            return replacer
 
         # 1. Mask deterministic secrets and credentials
         for pattern, replacement in _SECRET_PATTERNS:
-            masked_text = pattern.sub(replacement, masked_text)
+            masked_text = pattern.sub(get_replacer(replacement), masked_text)
 
         # 2. Mask deterministic PII (emails, phones, SSNs, credit cards, IPs)
         for pattern, replacement in _PII_PATTERNS:
-            masked_text = pattern.sub(replacement, masked_text)
+            masked_text = pattern.sub(get_replacer(replacement), masked_text)
 
         # 3. Presidio enhancement (for NER: PERSON, LOCATION, ORGANIZATION)
         self._init_presidio_if_available()
@@ -204,30 +240,42 @@ class PIIMasker:
                     language="en",
                 )
                 if results:
-                    anonymized = self._presidio_anonymizer.anonymize(
-                        text=masked_text,
-                        analyzer_results=results,
-                        operators={
-                            "DEFAULT": OperatorConfig("replace", {"new_value": "<REDACTED>"}),
-                            "PERSON": OperatorConfig("replace", {"new_value": "<PERSON>"}),
-                            "LOCATION": OperatorConfig("replace", {"new_value": "<LOCATION>"}),
-                            "ORGANIZATION": OperatorConfig(
-                                "replace", {"new_value": "<ORGANIZATION>"}
-                            ),
-                            "EMAIL_ADDRESS": OperatorConfig("replace", {"new_value": "<EMAIL>"}),
-                            "PHONE_NUMBER": OperatorConfig("replace", {"new_value": "<PHONE>"}),
-                            "CREDIT_CARD": OperatorConfig("replace", {"new_value": "<CREDIT_CARD>"}),
-                            "US_SSN": OperatorConfig("replace", {"new_value": "<SSN>"}),
-                            "IP_ADDRESS": OperatorConfig("replace", {"new_value": "<IP_ADDRESS>"}),
-                            "IBAN_CODE": OperatorConfig("replace", {"new_value": "<IBAN>"}),
-                        },
-                    )
-                    masked_text = anonymized.text
+                    def custom_anonymize(res) -> str:
+                        entity_type = res.entity_type
+                        original_str = masked_text[res.start:res.end]
+                        for t, v in token_mapping.items():
+                            if v == original_str and t.startswith(f"<{entity_type}_"):
+                                return t
+                        idx = counts.get(entity_type, 0)
+                        counts[entity_type] = idx + 1
+                        token = f"<{entity_type}_{idx}>"
+                        token_mapping[token] = original_str
+                        return token
+
+                    # Sort results by start index descending to replace from end to start without affecting indices
+                    results.sort(key=lambda x: x.start, reverse=True)
+                    for res in results:
+                        replacement = custom_anonymize(res)
+                        masked_text = masked_text[:res.start] + replacement + masked_text[res.end:]
+
             except Exception as e:
                 logger.debug(f"[PII Masker] Presidio NER processing error: {e}")
 
-        return masked_text
+        return masked_text, token_mapping
+
+    def unmask(self, text: str, token_mapping: dict[str, str]) -> str:
+        """
+        Restores tokenized PII back to original values in the text.
+        """
+        if not text or not token_mapping:
+            return text
+            
+        unmasked = text
+        for token, original in token_mapping.items():
+            unmasked = unmasked.replace(token, original)
+        return unmasked
 
 
 # Global singleton instance
 pii_masker = PIIMasker()
+

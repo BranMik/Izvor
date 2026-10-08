@@ -221,6 +221,6 @@ class DocumentParser:
         rather than midway through sentences or words.
         """
         if pii_masker.should_mask_at_ingestion():
-            text = pii_masker.mask(text)
+            text, _ = pii_masker.mask(text)
         return self.text_splitter.split_text(text)
 
