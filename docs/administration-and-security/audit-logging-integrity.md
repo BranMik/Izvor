@@ -6,7 +6,7 @@ This document details **Izvor**'s non-repudiable audit logging system, cryptogra
 
 ## 🔒 Architectural Overview
 
-Enterprise governance requires an immutable record of system events, administrative changes, and security actions. Izvor implements a hash-chained, HMAC-signed JSON Lines (JSONL) audit log managed by [`services/audit_logger.py`](file:///c:/Users/Hp/Documents/agy2-projects/SilvanAgora/services/audit_logger.py).
+Enterprise governance requires an immutable record of system events, administrative changes, and security actions. Izvor implements a hash-chained, HMAC-signed JSON Lines (JSONL) audit log managed by [`services/audit_logger.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/services/audit_logger.py).
 
 ```mermaid
 graph LR
@@ -43,14 +43,14 @@ When `AUDIT_HMAC_SECRET` is configured:
 To detect tampering, file truncation, or key discrepancies immediately, Izvor runs two validation layers:
 
 ### 1. Startup Verification
-During server boot in [`main.py`](file:///c:/Users/Hp/Documents/agy2-projects/SilvanAgora/main.py#L112-L166), [`AppIntegrityValidator.check_audit_log_integrity()`](file:///c:/Users/Hp/Documents/agy2-projects/SilvanAgora/core/integrity_checks.py) scans all historical and active audit files:
+During server boot in [`main.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/main.py#L112-L166), [`AppIntegrityValidator.check_audit_log_integrity()`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/core/integrity_checks.py) scans all historical and active audit files:
 - Verifies line-by-line hash continuity.
 - Verifies sequence number monotonicity (no missing or skipped lines).
 - Confirms HMAC secret continuity.
 - If corruption or key mismatches are discovered, startup raises a critical alert and notifies the administrative Slack channel immediately.
 
 ### 2. Scheduled Background Guard (`periodic_audit_integrity_guard`)
-- Configured in [`main.py:L71-L100`](file:///c:/Users/Hp/Documents/agy2-projects/SilvanAgora/main.py#L71-L100).
+- Configured in [`main.py:L71-L100`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/main.py#L71-L100).
 - Runs automatically every **12 hours** (43,200 seconds).
 - Validates that logs written during runtime remain unaltered and undamaged on disk.
 
@@ -58,7 +58,7 @@ During server boot in [`main.py`](file:///c:/Users/Hp/Documents/agy2-projects/Si
 
 ## 🚨 Emergency Alerts on Integrity Breaches
 
-If any violation occurs (e.g., an unauthorized edit or corrupted disk sector), [`send_admin_audit_alert`](file:///c:/Users/Hp/Documents/agy2-projects/SilvanAgora/services/audit_logger.py) formats and posts a high-priority incident notice to the administrative Slack channel:
+If any violation occurs (e.g., an unauthorized edit or corrupted disk sector), [`send_admin_audit_alert`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/services/audit_logger.py) formats and posts a high-priority incident notice to the administrative Slack channel:
 
 ```
 🚨 *CRITICAL SECURITY ALERT: Audit Chain Tampering Detected*

@@ -16,7 +16,7 @@ In Izvor, personas are not simply "chatbots" with different system instructions.
 
 ## 📋 The Complete Persona Roster
 
-The roster is managed dynamically in [`data/agent_settings.json`](file:///c:/Users/Hp/Documents/agy2-projects/SilvanAgora/data/agent_settings.json) and configured via [`orchestration/agent_settings.py`](file:///c:/Users/Hp/Documents/agy2-projects/SilvanAgora/orchestration/agent_settings.py):
+The roster is managed dynamically in [`data/agent_settings.json`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/data/agent_settings.json) and configured via [`orchestration/agent_settings.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/orchestration/agent_settings.py):
 
 | Agent ID | Display Name | Username Tag | Default LLM Model | Default Assigned Skills | Output Style |
 |---|---|---|---|---|---|
@@ -48,11 +48,11 @@ In addition to the debate roster, Izvor runs dedicated system-level agents:
 - **Models**: Configured with a fast model (`gemini/gemini-3.8-flash`) for routing and an advanced reasoning model (`mistral/mistral-large-latest`) for complex structural planning.
 
 ### 2. Pricing Research Agent (`Pricing_Agent`)
-- **Prompt**: [`prompts/system_agents/Pricing_Agent.md`](file:///c:/Users/Hp/Documents/agy2-projects/SilvanAgora/prompts/system_agents/Pricing_Agent.md)
+- **Prompt**: [`prompts/system_agents/Pricing_Agent.md`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/prompts/system_agents/Pricing_Agent.md)
 - **Role**: Dispatched in the background to inspect official provider documentation and determine token pricing for new models.
 
 ### 3. Usage Reporter Agent (`Usage_Agent`)
-- **Prompt**: [`prompts/system_agents/Usage_Agent.md`](file:///c:/Users/Hp/Documents/agy2-projects/SilvanAgora/prompts/system_agents/Usage_Agent.md)
+- **Prompt**: [`prompts/system_agents/Usage_Agent.md`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/prompts/system_agents/Usage_Agent.md)
 - **Role**: Posts token consumption and spend summaries to the dedicated usage channel (`#cailogics-usage`).
 
 ### 4. Scribe (`Scribe`)
@@ -62,9 +62,9 @@ In addition to the debate roster, Izvor runs dedicated system-level agents:
 
 ## 📝 Prompt Composition Engine
 
-Personas' effective system prompts are assembled dynamically during **Stage 2: Context Preparation** ([`orchestration/stages/context_prep.py`](file:///c:/Users/Hp/Documents/agy2-projects/SilvanAgora/orchestration/stages/context_prep.py)):
+Personas' effective system prompts are assembled dynamically during **Stage 2: Context Preparation** ([`orchestration/stages/context_prep.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/orchestration/stages/context_prep.py)):
 
-1. **Base System Prompt**: Loaded from [`prompts/`](file:///c:/Users/Hp/Documents/agy2-projects/SilvanAgora/prompts).
+1. **Base System Prompt**: Loaded from [`prompts/`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/prompts).
 2. **Behavioral Guidelines**: Rules prohibiting self-repetition, requiring peer engagement, and enforcing civil intellectual tension.
 3. **Word Constraints**: If `is_short_output: true` or if a directive (`[max_words: N]`, `[min_words: N]`) is active, instructions are injected into the context.
 4. **Active Tools & Skills**: Schemas of granted tools (e.g. search, document reader) are appended to the LiteLLM tool definition payload.

@@ -1,5 +1,5 @@
 """
-Non-repudiable audit logging service for security-critical events in SilvanAgora.
+Non-repudiable audit logging service for security-critical events in Izvor.
 
 Features:
 - Cryptographic SHA-256 hash chaining (Merkle-style chain) with optional HMAC verification.
@@ -648,7 +648,7 @@ async def send_admin_audit_alert(
 
 def cli_main() -> None:
     parser = argparse.ArgumentParser(
-        description="SilvanAgora Non-Repudiable Audit Log CLI Tool",
+        description="Izvor Non-Repudiable Audit Log CLI Tool",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
@@ -681,7 +681,7 @@ def cli_main() -> None:
 
     if args.check_secret:
         continuity = check_hmac_secret_continuity(audit_dir=audit_logger.audit_dir)
-        print("\n=== SilvanAgora AUDIT_HMAC_SECRET Validation ===")
+        print("\n=== Izvor AUDIT_HMAC_SECRET Validation ===")
         print(f"Status:       {continuity['status']}")
         print(f"Key Matches:  {continuity['matches']}")
         print(f"Message:      {continuity['message']}")
@@ -709,7 +709,7 @@ def cli_main() -> None:
         total_bytes = sum(f.stat().st_size for f in files)
         last_seq, last_hash = audit_logger.get_last_state()
         continuity = check_hmac_secret_continuity(audit_dir=audit_logger.audit_dir)
-        print("\n=== SilvanAgora Audit Log Statistics ===")
+        print("\n=== Izvor Audit Log Statistics ===")
         print(f"Audit Directory:    {audit_logger.audit_dir}")
         print(f"Total Log Files:    {len(files)}")
         print(f"Total Size:         {total_bytes / 1024:.2f} KB ({total_bytes} bytes)")
@@ -725,7 +725,7 @@ def cli_main() -> None:
     # Default action or --verify
     continuity = check_hmac_secret_continuity(audit_dir=audit_logger.audit_dir)
     result = verify_audit_log_integrity(month=args.month)
-    print("\n=== SilvanAgora Audit Log Integrity Verification ===")
+    print("\n=== Izvor Audit Log Integrity Verification ===")
     print(f"Scanned Files:    {', '.join(result.scanned_files) or 'None'}")
     print(f"Total Records:    {result.total_records}")
     print(f"Last Seq Number:  {result.last_verified_seq}")

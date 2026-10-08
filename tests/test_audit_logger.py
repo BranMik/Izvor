@@ -1,5 +1,5 @@
 """
-Comprehensive test suite for the non-repudiable audit logging system in SilvanAgora.
+Comprehensive test suite for the non-repudiable audit logging system in Izvor.
 """
 
 import datetime

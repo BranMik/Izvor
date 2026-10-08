@@ -27,7 +27,7 @@ graph TD
 
 ## 🎛️ Configurable Controls
 
-The App Home view ([`services/slack_home_views.py`](file:///c:/Users/Hp/Documents/agy2-projects/SilvanAgora/services/slack_home_views.py)) organizes controls into several sections:
+The App Home view ([`services/slack_home_views.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/services/slack_home_views.py)) organizes controls into several sections:
 
 ### 1. Active Personas Roster
 - **Multi-Select Checkboxes**: Enable or disable any of the 16 debate personas.
@@ -51,7 +51,7 @@ The App Home view ([`services/slack_home_views.py`](file:///c:/Users/Hp/Document
 
 ## 💾 Single Source of Truth (SSOT) & Atomic Persistence
 
-All configuration changes are handled through [`AgentSettingsManager`](file:///c:/Users/Hp/Documents/agy2-projects/SilvanAgora/orchestration/agent_settings.py):
+All configuration changes are handled through [`AgentSettingsManager`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/orchestration/agent_settings.py):
 
 ### 1. Atomic Disk Writes
 To prevent file corruption during concurrent updates:

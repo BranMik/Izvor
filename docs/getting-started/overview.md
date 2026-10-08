@@ -56,10 +56,10 @@ graph TD
 Izvor does not rely on rigid turn-taking. It supports:
 - **🥪 Sandwich Mode**: Starts with designated initial thinkers (*Start Chain*), transitions through an open debate or peer-nominated pool (*Middle Pool*), and concludes with an authoritative synthesis by designated closers (*End Chain*).
 - **🎯 Fixed Mode**: Executes an ordered, sequential chain of personas defined by the operator or preset.
-- **Dynamic Peer Nomination**: Personas naturally pass the baton by referencing peers using bracket notation (e.g., `[Security Architect]`, `[Pragmatist]`), parsed automatically by the [`EntityResolver`](file:///c:/Users/Hp/Documents/agy2-projects/SilvanAgora/pipeline/entity_resolver).
+- **Dynamic Peer Nomination**: Personas naturally pass the baton by referencing peers using bracket notation (e.g., `[Security Architect]`, `[Pragmatist]`), parsed automatically by the [`EntityResolver`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/pipeline/entity_resolver).
 
 ### 2. Thread State & Memory Safety
-- **Bounded In-Memory State**: Managed by [`ThreadStateManager`](file:///c:/Users/Hp/Documents/agy2-projects/SilvanAgora/orchestration/thread_state.py). Inactive threads are evicted after an idle TTL via background pruning ([`periodic_thread_state_cleanup`](file:///c:/Users/Hp/Documents/agy2-projects/SilvanAgora/main.py#L55-L69)).
+- **Bounded In-Memory State**: Managed by [`ThreadStateManager`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/orchestration/thread_state.py). Inactive threads are evicted after an idle TTL via background pruning ([`periodic_thread_state_cleanup`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/main.py#L55-L69)).
 - **Generation-Based Superseding**: If a human user replies to an ongoing deliberation, the thread generation counter increments. Obsolete background agent turns detect generation divergence and gracefully abort without race conditions.
 
 ### 3. Asynchronous Tool Execution & Non-Blocking Slack UX
@@ -68,21 +68,21 @@ Izvor does not rely on rigid turn-taking. It supports:
 - **In-Place Message Editing**: When tool output resolves, the placeholder is edited in-place with the final response, avoiding cluttered Slack threads.
 
 ### 4. Spend Governance & Model Pricing
-- **Autonomous Token & Cost Tracking**: Detailed prompt and completion tokens are recorded for each turn via [`services/pricing_service.py`](file:///c:/Users/Hp/Documents/agy2-projects/SilvanAgora/services/pricing_service.py).
+- **Autonomous Token & Cost Tracking**: Detailed prompt and completion tokens are recorded for each turn via [`services/pricing_service.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/services/pricing_service.py).
 - **Disk-Backed 7-Day Pricing Cache**: An autonomous pricing agent dynamically checks official model provider pricing tables, caching per-token rates in `data/model_pricing_cache.json`.
 - **Circuit Breaker**: When cumulative thread expense exceeds configured USD thresholds, the debate is safely paused, and a spend warning is posted.
 
 ### 5. Interactive Slack App Home & Administrative SSOT
-- **Live Configuration**: Slack workspace admins can configure debate presets, agent rosters, circuit breaker thresholds, and topologies directly in the Slack App Home tab ([`services/slack_home_views.py`](file:///c:/Users/Hp/Documents/agy2-projects/SilvanAgora/services/slack_home_views.py)).
+- **Live Configuration**: Slack workspace admins can configure debate presets, agent rosters, circuit breaker thresholds, and topologies directly in the Slack App Home tab ([`services/slack_home_views.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/services/slack_home_views.py)).
 - **Resilient Persistence**: Changes are committed atomically to `data/agent_settings.json` and `data/app_settings.json`, backed by automated 7-day emergency failover archives.
 
 ### 6. Non-Repudiable Cryptographic Audit Logging
-- Every administrative action, security event, and RAG synchronization is recorded in a cryptographically chained, HMAC-verified JSONL audit log ([`services/audit_logger.py`](file:///c:/Users/Hp/Documents/agy2-projects/SilvanAgora/services/audit_logger.py)).
-- Continuous integrity scans ([`core/integrity_checks.py`](file:///c:/Users/Hp/Documents/agy2-projects/SilvanAgora/core/integrity_checks.py)) detect any tampering or key mismatch, instantly dispatching high-priority admin alerts.
+- Every administrative action, security event, and RAG synchronization is recorded in a cryptographically chained, HMAC-verified JSONL audit log ([`services/audit_logger.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/services/audit_logger.py)).
+- Continuous integrity scans ([`core/integrity_checks.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/core/integrity_checks.py)) detect any tampering or key mismatch, instantly dispatching high-priority admin alerts.
 
 ---
 
 ## 🔗 Next Steps
 
-- Proceed to the [Installation Guide](file:///c:/Users/Hp/Documents/agy2-projects/SilvanAgora/docs/getting-started/installation.md) to set up Izvor locally.
-- Configure your Slack Bot using the [Slack App Setup Guide](file:///c:/Users/Hp/Documents/agy2-projects/SilvanAgora/docs/getting-started/slack-app-setup.md).
+- Proceed to the [Installation Guide](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/docs/getting-started/installation.md) to set up Izvor locally.
+- Configure your Slack Bot using the [Slack App Setup Guide](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/docs/getting-started/slack-app-setup.md).

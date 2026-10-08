@@ -19,7 +19,7 @@ When a deliberation reaches its configured round limit or when a user requests s
 
 ## 📁 Flat History Markdown Recording
 
-Every deliberation turn is automatically archived to a local markdown file by [`services/flat_history_recorder.py`](file:///c:/Users/Hp/Documents/agy2-projects/SilvanAgora/services/flat_history_recorder.py).
+Every deliberation turn is automatically archived to a local markdown file by [`services/flat_history_recorder.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/services/flat_history_recorder.py).
 
 ### 1. Storage Location & Naming
 Transcripts are persisted in the `flat-histories/` directory using slugified names:
@@ -52,7 +52,7 @@ While attractive, high-frequency session writes cause table bloat and vacuum str
 
 When users share files in Slack threads:
 1. Izvor's file listener downloads the attachment to `downloads/`.
-2. The [`document_reader`](file:///c:/Users/Hp/Documents/agy2-projects/SilvanAgora/skills/document_reader) parses the document content.
+2. The [`document_reader`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/skills/document_reader) parses the document content.
 3. Extracted text is fed into the context preparation stage, enabling all enabled debate personas to critique the uploaded RFC, PDF, or code snippet.
 
 ---

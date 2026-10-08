@@ -1,5 +1,5 @@
 """
-Declarative Agent Skills Framework for SilvanAgora.
+Declarative Agent Skills Framework for Izvor.
 Discovers SKILL.md documents and enables LLM-driven progressive disclosure.
 """
 

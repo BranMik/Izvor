@@ -1,4 +1,4 @@
-# CaiLogics Multi-Agent Slack Hub (SilvanAgora)
+# CaiLogics Multi-Agent Slack Hub (Izvor)
 
 An enterprise-ready, asynchronous multi-agent deliberation platform that connects Slack workspaces (via the Slack Events API, Interactive Components, and App Home) to specialized LLM personas using LiteLLM and Model Context Protocol (MCP) tools.
 
@@ -75,7 +75,7 @@ graph TD
 ## 📁 Project Structure
 
 ```
-SilvanAgora/
+Izvor/
 ├── agents/                     # Specialized utility agents (Usage, Thread Notes)
 ├── core/                       # Core configuration, models, domain entities, and LLM retry utilities
 │   ├── config.py               # Central environment variables & pacing defaults
@@ -113,8 +113,8 @@ SilvanAgora/
 
 ```bash
 # Clone the repository
-git clone https://github.com/BranMik/SilvanAgora.git
-cd SilvanAgora
+git clone https://github.com/BranMik/Izvor.git
+cd Izvor
 
 # Create virtual environment
 python -m venv .venv
@@ -193,11 +193,11 @@ pytest e2e_testing_harness/test_e2e_suite.py
 ## 💬 Usage & Directives
 
 ### Triggering Discussions
-- **Mention**: `@SilvanAgora What are the architectural trade-offs of microservices vs modular monoliths?`
-- **Explicit Target**: `@SilvanAgora [Visionary] Give your perspective first.`
-- **Exclusion**: `@SilvanAgora without Strategist (Exclude Strategist)`
-- **Word Limits**: `@SilvanAgora max 100 words (Keep answers under 100 words)`
-- **History Window**: `@SilvanAgora last 3 messages (Limit context window to last 3 messages)`
+- **Mention**: `@Izvor What are the architectural trade-offs of microservices vs modular monoliths?`
+- **Explicit Target**: `@Izvor [Visionary] Give your perspective first.`
+- **Exclusion**: `@Izvor without Strategist (Exclude Strategist)`
+- **Word Limits**: `@Izvor max 100 words (Keep answers under 100 words)`
+- **History Window**: `@Izvor last 3 messages (Limit context window to last 3 messages)`
 - **Directives & Commands**:
   - **Circuit Breaker**: Configured via the App Home Settings tab (toggle ON/OFF and custom USD expense threshold).
   - `/stop-discussion` or posting `stop` — Halts active deliberation immediately.

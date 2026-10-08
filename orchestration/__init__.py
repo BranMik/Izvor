@@ -1,4 +1,4 @@
-"""Orchestration package for SilvanAgora.
+"""Orchestration package for Izvor.
 
 Exposes routing, settings management, agent nomination, and thread state management.
 """

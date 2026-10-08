@@ -1,5 +1,5 @@
 """
-Nomination and prompt resolution module for SilvanAgora.
+Nomination and prompt resolution module for Izvor.
 
 Handles speaker turn-taking, bracketed agent tag parsing, target file resolution,
 and valid nomination enforcement without unnecessary class wrapper indirection.

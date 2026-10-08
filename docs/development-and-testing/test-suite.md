@@ -1,6 +1,6 @@
 # Test Suite & Quality Assurance
 
-This document details the test suites, testing practices, and quality assurance mechanisms for **Izvor** located in [`tests/`](file:///c:/Users/Hp/Documents/agy2-projects/SilvanAgora/tests).
+This document details the test suites, testing practices, and quality assurance mechanisms for **Izvor** located in [`tests/`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/tests).
 
 ---
 
@@ -68,4 +68,4 @@ pytest tests/test_code_hygiene.py -v
 
 1. **Deterministic Mocking**: Real LLM API calls and Slack HTTP calls must never be executed in standard unit tests. Use mocked LiteLLM responses and `conftest.py` stubs.
 2. **Generation Divergence Tests**: Concurrency tests must verify that incrementing thread generation aborts ongoing background tasks without dangling coroutines.
-3. **Hygiene Asserts**: All new files must conform to [`test_code_hygiene.py`](file:///c:/Users/Hp/Documents/agy2-projects/SilvanAgora/tests/test_code_hygiene.py) standards, preventing debug print statements and dead imports.
+3. **Hygiene Asserts**: All new files must conform to [`test_code_hygiene.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/tests/test_code_hygiene.py) standards, preventing debug print statements and dead imports.

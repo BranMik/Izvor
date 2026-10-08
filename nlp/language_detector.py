@@ -1,5 +1,5 @@
 """
-Natural language detection for SilvanAgora via LLM.
+Natural language detection for Izvor via LLM.
 
 Uses an ultra-fast LLM call (Mistral Small by default) to accurately classify
 natural language, with clean normalization to canonical English language names.
