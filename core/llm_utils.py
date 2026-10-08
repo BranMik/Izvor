@@ -152,6 +152,23 @@ async def execute_llm_with_retry(
     If `allow_503_immediate_retry` is False and a 503/high-demand error occurs on attempt 1,
     the exception is raised immediately to allow postponement and multi-agent rotation.
     """
+    from orchestration.system_settings import is_strict_privacy_mode_enabled
+    from services.rag.pii_masker import pii_masker
+    import copy
+
+    is_strict = is_strict_privacy_mode_enabled()
+    turn_token_mapping: dict[str, str] = {}
+    
+    # 1. Masking Phase
+    if is_strict and "messages" in kwargs:
+        # Create a deep copy to avoid mutating the original message array referenced elsewhere
+        kwargs = copy.deepcopy(kwargs)
+        for msg in kwargs.get("messages", []):
+            if "content" in msg and isinstance(msg["content"], str):
+                masked_content, mapping = pii_masker.mask(msg["content"])
+                msg["content"] = masked_content
+                turn_token_mapping.update(mapping)
+
     last_error: Exception | None = None
     for attempt in range(1, max_attempts + 1):
         if is_superseded_fn and is_superseded_fn():
@@ -165,7 +182,18 @@ async def execute_llm_with_retry(
                 logger.info(
                     f"[LLM] Retrying LLM completion for {agent_key} (attempt {attempt}/{max_attempts})..."
                 )
-            return await _invoke_llm(func, kwargs, runner=run_in_threadpool_fn)
+            res = await _invoke_llm(func, kwargs, runner=run_in_threadpool_fn)
+            
+            # 2. Unmasking Phase
+            if is_strict and turn_token_mapping and hasattr(res, "choices") and res.choices:
+                first_choice = res.choices[0]
+                if hasattr(first_choice, "message") and hasattr(first_choice.message, "content"):
+                    if isinstance(first_choice.message.content, str):
+                        unmasked_content = pii_masker.unmask(first_choice.message.content, turn_token_mapping)
+                        first_choice.message.content = unmasked_content
+
+            return res
+
         except asyncio.CancelledError:
             raise
         except (TimeoutError, asyncio.TimeoutError) as exc:

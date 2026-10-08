@@ -200,31 +200,31 @@ def test_pii_masker_patterns():
         "Hash: a1b2c3d4e5f60718293a4b5c6d7e8f90"
     )
 
-    masked = masker.mask(sample_text)
+    masked, mapping = masker.mask(sample_text)
 
     assert "alice.smith@example.com" not in masked
-    assert "<EMAIL>" in masked
+    assert "<EMAIL_0>" in masked
     if masker._presidio_analyzer is not None:
         assert "Branko" not in masked
-        assert "<PERSON>" in masked
+        assert "<PERSON_0>" in masked
         assert "New York" not in masked
-        assert "<LOCATION>" in masked
+        assert "<LOCATION_0>" in masked
     assert "000-12-3456" not in masked
-    assert "<SSN>" in masked
+    assert "<SSN_0>" in masked
     assert "4111-2222-3333-4444" not in masked
-    assert "<CREDIT_CARD>" in masked
+    assert "<CREDIT_CARD_0>" in masked
     assert "192.168.1.100" not in masked
-    assert "<IP_ADDRESS>" in masked
+    assert "<IP_ADDRESS_0>" in masked
     assert "xoxb-" not in masked
-    assert "<SLACK_TOKEN>" in masked
+    assert "<SLACK_TOKEN_0>" in masked
     assert "sk-abc" not in masked
-    assert "<API_KEY>" in masked
+    assert "<API_KEY_0>" in masked
     assert "MySecretPassword123" not in masked
-    assert "<REDACTED_SECRET>" in masked
+    assert "<REDACTED_SECRET_0>" in masked
     assert "VLWNOVBWOEBOGBLNVLXKKNO" not in masked
     assert "gsk_b4vpoinewqobgoqwbgeowvioeuwqbiegfUWEOFIGSE" not in masked
     assert "a1b2c3d4e5f60718293a4b5c6d7e8f90" not in masked
-    assert "<TOKEN_HASH>" in masked
+    assert "<TOKEN_HASH_0>" in masked
 
 
 def test_pii_masking_integration():
@@ -244,8 +244,8 @@ def test_pii_masking_integration():
         chunks = parser._chunk_text(sample_raw)
         assert len(chunks) > 0
         assert "dev@org.internal" not in chunks[0]
-        assert "<EMAIL>" in chunks[0]
-        assert "<API_KEY>" in chunks[0]
+        assert "<EMAIL_0>" in chunks[0]
+        assert "<API_KEY_0>" in chunks[0]
 
     # 3. Test AT_RETRIEVAL mode (default)
     with patch("services.rag.pii_masker.get_pii_masking_mode", return_value="AT_RETRIEVAL"):
@@ -272,6 +272,6 @@ def test_pii_masking_integration():
 
         result = asyncio.run(_run_search())
         assert "dev@org.internal" not in result
-        assert "<EMAIL>" in result
-        assert "<API_KEY>" in result
+        assert "<EMAIL_0>" in result
+        assert "<API_KEY_0>" in result
 
