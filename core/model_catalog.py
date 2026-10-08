@@ -16,7 +16,7 @@ from dotenv import dotenv_values
 logger = logging.getLogger(__name__)
 
 # Path to the provider catalog JSON configuration file in data/
-MODEL_PROVIDER_CATALOG_FILE = Path(__file__).resolve().parent.parent / "data" / "model_provider_catalog.json"
+MODEL_PROVIDER_CATALOG_FILE = Path(__file__).resolve().parent.parent / "data" / "pricing" / "model_provider_catalog.json"
 PROVIDER_CATALOG_FILE = MODEL_PROVIDER_CATALOG_FILE
 
 

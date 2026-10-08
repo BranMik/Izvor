@@ -15,7 +15,7 @@ graph TD
     
     subgraph Pricing Service Architecture
         PricingService --> CacheCheck{Cache < 7 Days?}
-        CacheCheck -->|Yes| DiskCache[Read data/model_pricing_cache.json]
+        CacheCheck -->|Yes| DiskCache[Read data/pricing/model_pricing_cache.json]
         CacheCheck -->|No / Miss| Researcher[Autonomous Pricing Researcher Agent]
         Researcher --> WebQuery[Query Provider Official Rate Tables]
         Researcher --> UpdateCache[Save Updated Rates to Disk Cache]
@@ -37,7 +37,7 @@ Unlike static cost tables that go out of date as providers adjust their prices, 
 1. **Prompt Template**: Defined in [`prompts/system_agents/Pricing_Agent.md`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/prompts/system_agents/Pricing_Agent.md).
 2. **Execution**: Dispatched by [`services/pricing_service.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/services/pricing_service.py) during application startup or when an unindexed model is encountered.
 3. **Web Research**: Utilizes web search tools to locate official provider pricing tables (per 1,000 or per 1,000,000 tokens for prompt and completion).
-4. **Caching**: Results are stored in `data/model_pricing_cache.json` with a 7-day TTL.
+4. **Caching**: Results are stored in `data/pricing/model_pricing_cache.json` with a 7-day TTL.
 5. **Hardcoded Fallbacks**: If web access is unavailable, baseline fallbacks for standard flagship models (Claude 3.5 Sonnet, GPT-4o, Gemini 1.5 Pro) are loaded safely.
 
 ---

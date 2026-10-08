@@ -31,7 +31,7 @@ Do not automatically create git commits after making changes. Commits should be 
 To introduce a new debate persona:
 
 1. **System Prompt**: Add a dedicated markdown prompt file in [`prompts/`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/prompts) defining the persona's core perspective, biases, and tone.
-2. **Roster Registration**: Register the agent entry in [`data/agent_settings.json`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/data/agent_settings.json) with:
+2. **Roster Registration**: Register the agent entry in [`data/settings/agent_settings.json`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/data/settings/agent_settings.json) with:
    - `username`: Canonical identifier (e.g. `DataScientist`).
    - `displayname`: Formatted title (e.g. `Data Scientist`).
    - `model`: Default LLM router string.

@@ -45,11 +45,13 @@ def test_agent_settings_ssot_loading():
                 "agent-10001": {
                     "model": "gemini/gemini-3.8-flash",
                     "username": "agent-10001",
+                    "displayname": "Agent 10001",
                     "icon_url": "static/avatar_25.png",
                 },
                 "agent-10008": {
                     "model": "openai/gpt-5.6-terra",
                     "username": "agent-10008",
+                    "displayname": "Agent 10008",
                     "icon_url": "static/avatar_33.png",
                 },
             },
@@ -94,6 +96,7 @@ def test_agent_validation_skips_invalid():
                 "agent-10001": {
                     "model": "gemini/gemini-3.8-flash",
                     "username": "agent-10001",
+                    "displayname": "Agent 10001",
                     "icon_url": "static/avatar_25.png",
                 },
                 "Bad_Agent_No_Model": {
@@ -143,6 +146,7 @@ def test_emergency_backup_failover_non_destructive():
                 "agent-10001": {
                     "model": "gemini/gemini-3.8-flash",
                     "username": "agent-10001",
+                    "displayname": "Agent 10001",
                     "icon_url": "static/avatar_25.png",
                 }
             },
@@ -187,11 +191,13 @@ def test_restore_from_backup():
                 "agent-10001": {
                     "model": "gemini/gemini-3.8-flash",
                     "username": "agent-10001",
+                    "displayname": "Agent 10001",
                     "icon_url": "static/avatar_25.png",
                 },
                 "agent-10008": {
                     "model": "openai/gpt-5.6-terra",
                     "username": "agent-10008",
+                    "displayname": "Agent 10008",
                     "icon_url": "static/avatar_33.png",
                 },
             },
@@ -236,6 +242,7 @@ def test_7_day_backup_refresh():
                 "agent-10001": {
                     "model": "gemini/gemini-3.8-flash",
                     "username": "agent-10001",
+                    "displayname": "Agent 10001",
                     "icon_url": "static/avatar_25.png",
                 }
             },

@@ -10,7 +10,7 @@ RAG_KNOWLEDGE_DIR = (BASE_DIR / "rag_knowledge").resolve()
 CACHE_DIR = (BASE_DIR / "data" / ".rag_cache").resolve()
 LANCEDB_DIR = (CACHE_DIR / "lancedb").resolve()
 MANIFEST_PATH = (CACHE_DIR / "file_manifest.json").resolve()
-SYSTEM_SETTINGS_PATH = (BASE_DIR / "data" / "system_settings.json").resolve()
+SYSTEM_SETTINGS_PATH = (BASE_DIR / "data" / "settings" / "system_settings.json").resolve()
 
 logger = logging.getLogger(__name__)
 

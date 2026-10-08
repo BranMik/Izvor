@@ -49,7 +49,7 @@ def isolate_audit_logger_for_tests(tmp_path):
 @pytest.fixture(autouse=True)
 def isolate_pricing_cache_for_tests(tmp_path, monkeypatch):
     """
-    Prevents tests from modifying or overwriting production data/model_pricing_cache.json.
+    Prevents tests from modifying or overwriting production data/pricing/model_pricing_cache.json.
     Each test gets an isolated copy in tmp_path.
     """
     temp_pricing_cache = tmp_path / "model_pricing_cache.json"
@@ -62,7 +62,7 @@ def isolate_pricing_cache_for_tests(tmp_path, monkeypatch):
 @pytest.fixture(autouse=True)
 def isolate_agent_settings_for_tests(tmp_path, monkeypatch):
     """
-    Prevents tests from modifying or overwriting production data/agent_settings.json.
+    Prevents tests from modifying or overwriting production data/settings/agent_settings.json.
     Each test gets an isolated copy in tmp_path.
     """
     temp_settings = tmp_path / "agent_settings.json"

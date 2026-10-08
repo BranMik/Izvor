@@ -21,7 +21,7 @@ def _read_prompt_file(path: Path) -> str:
 
 def _load_short_output_agents() -> set[str]:
     """Loads agent keys configured with is_short_output: true from agent_settings.json."""
-    settings_path = PROMPTS_DIR.parent / "data" / "agent_settings.json"
+    settings_path = PROMPTS_DIR.parent / "data" / "settings" / "agent_settings.json"
     if settings_path.exists():
         try:
             with open(settings_path, "r", encoding="utf-8") as f:
@@ -41,7 +41,7 @@ SHORT_OUTPUT_AGENTS: set[str] = _load_short_output_agents()
 
 def _load_system_agents() -> set[str]:
     """Loads agent keys configured as system agents from agent_settings.json metadata."""
-    settings_path = PROMPTS_DIR.parent / "data" / "agent_settings.json"
+    settings_path = PROMPTS_DIR.parent / "data" / "settings" / "agent_settings.json"
     system_keys: set[str] = set()
     system_keys.add("orchestrator")
     system_keys.add("Orchestrator")

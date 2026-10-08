@@ -9,7 +9,7 @@ from core.models import CircuitBreakerConfig
 
 logger = logging.getLogger(__name__)
 
-APP_SETTINGS_FILE = Path(__file__).parent.parent / "data" / "app_settings.json"
+APP_SETTINGS_FILE = Path(__file__).parent.parent / "data" / "settings" / "app_settings.json"
 APP_BACKUP_FILE = Path(__file__).parent.parent / "data" / "backups" / "app_settings_backup.json"
 BACKUP_INTERVAL_SECONDS = 7 * 86400
 

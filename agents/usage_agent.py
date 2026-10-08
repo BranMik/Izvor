@@ -17,7 +17,7 @@ from services.slack_client import (
 logger = logging.getLogger(__name__)
 
 # Persistence storage file for thread token/cost metrics
-USAGE_STORE_FILE = Path(__file__).resolve().parent.parent / "data" / "thread_usage_data.json"
+USAGE_STORE_FILE = Path(__file__).resolve().parent.parent / "data" / "thread" / "thread_usage_data.json"
 
 
 def parse_thread_creation_time(thread_ts: str) -> str:

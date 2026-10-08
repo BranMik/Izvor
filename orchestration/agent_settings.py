@@ -22,7 +22,7 @@ from core.integrity_checks import AppIntegrityValidator
 logger = logging.getLogger(__name__)
 
 # Paths to settings and emergency backup files
-SETTINGS_FILE = Path(__file__).parent.parent / "data" / "agent_settings.json"
+SETTINGS_FILE = Path(__file__).parent.parent / "data" / "settings" / "agent_settings.json"
 BACKUP_FILE = Path(__file__).parent.parent / "data" / "backups" / "agent_settings_backup.json"
 PERSONAS_DIR = Path(__file__).parent.parent / "prompts" / "personas"
 

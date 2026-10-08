@@ -16,7 +16,7 @@ graph TD
     InteractivityHandler --> SettingsMgr["orchestration/agent_settings.py (SSOT)"]
     
     subgraph Persistence & Durability
-        SettingsMgr --> AtomicWrite["Atomic File Write to data/agent_settings.json"]
+        SettingsMgr --> AtomicWrite["Atomic File Write to data/settings/agent_settings.json"]
         AtomicWrite --> EmergencyBackup["7-Day Rolling Emergency Backup (audit/backups/)"]
     end
     
@@ -62,4 +62,4 @@ To prevent file corruption during concurrent updates:
 Every modification generates a timestamped copy stored in `audit/backups/`. Files older than 7 days are automatically pruned.
 
 ### 3. Non-Destructive Failover
-If `data/agent_settings.json` is missing or corrupted on startup, Izvor automatically recovers by inspecting the latest valid snapshot in `audit/backups/` before falling back to default factory presets.
+If `data/settings/agent_settings.json` is missing or corrupted on startup, Izvor automatically recovers by inspecting the latest valid snapshot in `audit/backups/` before falling back to default factory presets.

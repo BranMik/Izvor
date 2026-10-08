@@ -23,7 +23,6 @@ from core.config import (
     ADMIN_PASSWORD,
     ADMIN_USERNAME,
     AGENTS_CONFIG,
-    LOG_LEVEL,
 )
 from core.slack_security import verify_slack_signature
 from orchestration.agent_router import process_and_respond
@@ -33,10 +32,12 @@ from services.pricing_service import warm_up_pricing_cache
 from services.rag.sync_engine import rag_sync_engine
 from services.slack_client import publish_app_home
 
+from orchestration.system_settings import system_settings_manager
+
 # Configure logging format
-numeric_log_level = getattr(logging, LOG_LEVEL, logging.INFO)
+dynamic_log_level = getattr(logging, system_settings_manager.get_log_level(), logging.INFO)
 logging.basicConfig(
-    level=numeric_log_level, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+    level=dynamic_log_level, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 )
 logger = logging.getLogger("CaiLogicsBackend")
 
