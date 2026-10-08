@@ -18,7 +18,7 @@ This guide covers installing, configuring, and running **Izvor** locally or in p
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/BranMik/SilvanAgora.git izvor
+git clone https://github.com/BranMik/Izvor.git izvor
 cd izvor
 ```
 
@@ -54,15 +54,15 @@ Izvor utilizes:
 
 ## 🔐 Environment Configuration
 
-Create a `.env` file in the project root by copying [`.env.example`](file:///c:/Users/Hp/Documents/agy2-projects/SilvanAgora/.env.example):
+Create a `.env` file in the project root by copying [`.env.example`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/.env.example):
 
 ```bash
 cp .env.example .env
 ```
 
 ### Configuration Variables Breakdown
-
-Refer to [`core/config.py`](file:///c:/Users/Hp/Documents/agy2-projects/SilvanAgora/core/config.py) for the full definitions:
+Configure .env file with the following variables.
+Refer to [`core/config.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/core/config.py) for the full definitions:
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
@@ -100,7 +100,7 @@ uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 
 ### Windows Proactor Loop Notice
 
-On Windows platforms, Python's Proactor event loop can occasionally stall when no incoming HTTP sockets are active. Izvor automatically starts a background heartbeat coroutine [`keep_loop_alive`](file:///c:/Users/Hp/Documents/agy2-projects/SilvanAgora/main.py#L46-L53) to keep the loop responsive without measurable CPU overhead.
+On Windows platforms, Python's Proactor event loop can occasionally stall when no incoming HTTP sockets are active. Izvor automatically starts a background heartbeat coroutine [`keep_loop_alive`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/main.py#L46-L53) to keep the loop responsive without measurable CPU overhead.
 
 ### Health Check Verification
 
@@ -131,4 +131,4 @@ Use a tunnel such as `ngrok` or `cloudflared`:
 ngrok http 8000
 ```
 
-Note your public HTTPS URL (e.g., `https://abcdef123.ngrok-free.app`). You will use this in the [Slack App Setup Guide](file:///c:/Users/Hp/Documents/agy2-projects/SilvanAgora/docs/getting-started/slack-app-setup.md).
+Note your public HTTPS URL (e.g., `https://abcdef123.ngrok-free.app`). You will use this in the [Slack App Setup Guide](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/docs/getting-started/slack-app-setup.md).

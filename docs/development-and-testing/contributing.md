@@ -30,15 +30,15 @@ Do not automatically create git commits after making changes. Commits should be 
 
 To introduce a new debate persona:
 
-1. **System Prompt**: Add a dedicated markdown prompt file in [`prompts/`](file:///c:/Users/Hp/Documents/agy2-projects/SilvanAgora/prompts) defining the persona's core perspective, biases, and tone.
-2. **Roster Registration**: Register the agent entry in [`data/agent_settings.json`](file:///c:/Users/Hp/Documents/agy2-projects/SilvanAgora/data/agent_settings.json) with:
+1. **System Prompt**: Add a dedicated markdown prompt file in [`prompts/`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/prompts) defining the persona's core perspective, biases, and tone.
+2. **Roster Registration**: Register the agent entry in [`data/agent_settings.json`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/data/agent_settings.json) with:
    - `username`: Canonical identifier (e.g. `DataScientist`).
    - `displayname`: Formatted title (e.g. `Data Scientist`).
    - `model`: Default LLM router string.
    - `icon_url`: Avatar asset path.
    - `skills`: Initial tool permissions.
-3. **Entity Resolution**: Add aliases or nickname mappings to [`pipeline/entity_resolver`](file:///c:/Users/Hp/Documents/agy2-projects/SilvanAgora/pipeline/entity_resolver).
-4. **Tests**: Add unit test verification to [`tests/test_agent_settings_ssot.py`](file:///c:/Users/Hp/Documents/agy2-projects/SilvanAgora/tests/test_agent_settings_ssot.py).
+3. **Entity Resolution**: Add aliases or nickname mappings to [`pipeline/entity_resolver`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/pipeline/entity_resolver).
+4. **Tests**: Add unit test verification to [`tests/test_agent_settings_ssot.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/tests/test_agent_settings_ssot.py).
 
 ---
 
@@ -46,10 +46,10 @@ To introduce a new debate persona:
 
 To implement a new skill:
 
-1. **Directory Structure**: Create a new folder under [`skills/<skill_name>/`](file:///c:/Users/Hp/Documents/agy2-projects/SilvanAgora/skills).
+1. **Directory Structure**: Create a new folder under [`skills/<skill_name>/`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/skills).
 2. **`SKILL.md` Manifest**: Define YAML frontmatter with `name`, `display_name`, `description`, and parameter schemas.
 3. **Execution Logic**: If tool-backed, implement the execution handler and register it with the skill registry.
-4. **Validation Test**: Add corresponding test cases in [`tests/test_agent_skills.py`](file:///c:/Users/Hp/Documents/agy2-projects/SilvanAgora/tests/test_agent_skills.py).
+4. **Validation Test**: Add corresponding test cases in [`tests/test_agent_skills.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/tests/test_agent_skills.py).
 
 ---
 

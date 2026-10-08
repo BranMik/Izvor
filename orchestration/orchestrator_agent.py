@@ -84,7 +84,7 @@ DEFAULT_LANGUAGE_SYSTEM_PROMPT = (
 
 class OrchestratorAgent:
     """
-    Unified Orchestrator Agent for SilvanAgora.
+    Unified Orchestrator Agent for Izvor.
     Combines pre-turn intake/intent extraction, language detection, Slack moderator responses,
     and post-turn thread synthesis using task-phase driven dynamic prompt and tool injection.
     Leverages fast_model for low-latency tasks and reasoning_model for deep synthesis.

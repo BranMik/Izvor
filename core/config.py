@@ -1,5 +1,5 @@
 """
-Core Configuration Module for SilvanAgora.
+Core Configuration Module for Izvor.
 
 Provides centralized environment resolution, workspace paths, default LLM model
 specifications (from data/system_settings.json SSOT), and dynamic model getter

@@ -30,8 +30,8 @@ graph TD
 
 ## 🔍 Discovery & Registration Lifecycle
 
-### 1. Skill Discovery ([`skills/loader.py`](file:///c:/Users/Hp/Documents/agy2-projects/SilvanAgora/skills/loader.py))
-During application boot, the loader scans the [`skills/`](file:///c:/Users/Hp/Documents/agy2-projects/SilvanAgora/skills) root directory. Every subdirectory containing a valid `SKILL.md` file is evaluated.
+### 1. Skill Discovery ([`skills/loader.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/skills/loader.py))
+During application boot, the loader scans the [`skills/`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/skills) root directory. Every subdirectory containing a valid `SKILL.md` file is evaluated.
 
 ### 2. Manifest & Schema Parsing
 The loader extracts:
@@ -40,17 +40,17 @@ The loader extracts:
 - `description`: Explanatory text injected into LLM system prompts or tool definitions.
 - `parameters`: JSON schema specifying expected input arguments.
 
-### 3. Registry Storage ([`core/registry.py`](file:///c:/Users/Hp/Documents/agy2-projects/SilvanAgora/core/registry.py))
+### 3. Registry Storage ([`core/registry.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/core/registry.py))
 Valid skills are registered into the global `SkillRegistry`. They can be queried via the administrative REST endpoint (`GET /api/skills`) or listed inside Slack via `[list_skills]`.
 
 ---
 
 ## 🔄 Dynamic Grant & Revoke Mechanics
 
-Izvor provides fine-grained control over skill assignment through [`ThreadSkillsManager`](file:///c:/Users/Hp/Documents/agy2-projects/SilvanAgora/orchestration/thread_skills_manager.py):
+Izvor provides fine-grained control over skill assignment through [`ThreadSkillsManager`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/orchestration/thread_skills_manager.py):
 
 ### 1. Static Configuration (Baseline)
-Personas can be assigned permanent baseline skills in [`data/agent_settings.json`](file:///c:/Users/Hp/Documents/agy2-projects/SilvanAgora/data/agent_settings.json) (e.g. `SecurityArchitect` defaults with `knowledge_base_rag` and `document_reader`).
+Personas can be assigned permanent baseline skills in [`data/agent_settings.json`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/data/agent_settings.json) (e.g. `SecurityArchitect` defaults with `knowledge_base_rag` and `document_reader`).
 
 ### 2. Runtime Dynamic Granting
 Users can grant skills on the fly within an active thread:

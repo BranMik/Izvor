@@ -32,35 +32,35 @@ This document provides a complete reference guide for all **18 built-in skills a
 ## 🛠️ Detailed Skill Specifications
 
 ### `web_research`
-- **Location**: [`skills/web_research/SKILL.md`](file:///c:/Users/Hp/Documents/agy2-projects/SilvanAgora/skills/web_research/SKILL.md)
+- **Location**: [`skills/web_research/SKILL.md`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/skills/web_research/SKILL.md)
 - **Tool Name**: `web_research`
 - **Description**: Connects the LLM to DuckDuckGo/Google search backends to fetch external facts, documentation, or pricing tables.
 - **Input Parameters**: `{"query": "string", "num_results": "integer"}`
 
 ### `knowledge_base_rag`
-- **Location**: [`skills/knowledge_base_rag/SKILL.md`](file:///c:/Users/Hp/Documents/agy2-projects/SilvanAgora/skills/knowledge_base_rag/SKILL.md)
+- **Location**: [`skills/knowledge_base_rag/SKILL.md`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/skills/knowledge_base_rag/SKILL.md)
 - **Tool Name**: `search_knowledge_base`
 - **Description**: Performs semantic and keyword queries against files in `rag_knowledge/shared/` and persona-specific knowledge directories (e.g., `rag_knowledge/agent-10008/`).
 - **Input Parameters**: `{"query": "string", "limit": "integer"}`
 
 ### `document_reader`
-- **Location**: [`skills/document_reader/SKILL.md`](file:///c:/Users/Hp/Documents/agy2-projects/SilvanAgora/skills/document_reader/SKILL.md)
+- **Location**: [`skills/document_reader/SKILL.md`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/skills/document_reader/SKILL.md)
 - **Tool Name**: `read_document`
 - **Description**: Parses files uploaded to Slack threads or local workspace documents. Extracts text from PDFs, Markdown, CSVs, and code files.
 - **Input Parameters**: `{"file_id": "string", "file_path": "string"}`
 
 ### `document_authoring`
-- **Location**: [`skills/document_authoring/SKILL.md`](file:///c:/Users/Hp/Documents/agy2-projects/SilvanAgora/skills/document_authoring/SKILL.md)
+- **Location**: [`skills/document_authoring/SKILL.md`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/skills/document_authoring/SKILL.md)
 - **Description**: Guides the agent to produce formally structured deliverables (Executive Summaries, Architecture Review Boards, RFCs).
 
 ### `min_words` & `max_words`
-- **Locations**: [`skills/min_words/SKILL.md`](file:///c:/Users/Hp/Documents/agy2-projects/SilvanAgora/skills/min_words/SKILL.md), [`skills/max_words/SKILL.md`](file:///c:/Users/Hp/Documents/agy2-projects/SilvanAgora/skills/max_words/SKILL.md)
+- **Locations**: [`skills/min_words/SKILL.md`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/skills/min_words/SKILL.md), [`skills/max_words/SKILL.md`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/skills/max_words/SKILL.md)
 - **Mechanism**: Injects strong system prompt guardrails into Stage 2 Context Prep, and enforces post-processing mechanical truncation if an agent significantly overshoots bounds.
 
 ### `rounds`
-- **Location**: [`skills/rounds/SKILL.md`](file:///c:/Users/Hp/Documents/agy2-projects/SilvanAgora/skills/rounds/SKILL.md)
+- **Location**: [`skills/rounds/SKILL.md`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/skills/rounds/SKILL.md)
 - **Mechanism**: Configures the total number of debate passes in Sandwich mode before transitioning from the middle pool to the end chain.
 
 ### `grant_skill` & `grant_skill_for_all`
-- **Locations**: [`skills/grant_skill/SKILL.md`](file:///c:/Users/Hp/Documents/agy2-projects/SilvanAgora/skills/grant_skill/SKILL.md), [`skills/grant_skill_for_all/SKILL.md`](file:///c:/Users/Hp/Documents/agy2-projects/SilvanAgora/skills/grant_skill_for_all/SKILL.md)
-- **Mechanism**: Modifies thread-scoped skill permissions inside [`ThreadSkillsManager`](file:///c:/Users/Hp/Documents/agy2-projects/SilvanAgora/orchestration/thread_skills_manager.py). Tool definitions become immediately available on the subsequent agent turn.
+- **Locations**: [`skills/grant_skill/SKILL.md`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/skills/grant_skill/SKILL.md), [`skills/grant_skill_for_all/SKILL.md`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/skills/grant_skill_for_all/SKILL.md)
+- **Mechanism**: Modifies thread-scoped skill permissions inside [`ThreadSkillsManager`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/orchestration/thread_skills_manager.py). Tool definitions become immediately available on the subsequent agent turn.

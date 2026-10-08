@@ -35,7 +35,7 @@ graph TD
 
 ## 📡 Slack Ingress: HMAC-SHA256 Signature Verification
 
-Every incoming HTTP request to `/slack/events` or `/slack/interactivity` is inspected by [`core/slack_security.py`](file:///c:/Users/Hp/Documents/agy2-projects/SilvanAgora/core/slack_security.py).
+Every incoming HTTP request to `/slack/events` or `/slack/interactivity` is inspected by [`core/slack_security.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/core/slack_security.py).
 
 ### 1. Timestamp Freshness (Anti-Replay)
 The header `X-Slack-Request-Timestamp` is compared against current system epoch time:
@@ -57,7 +57,7 @@ The calculated digest is compared against `X-Slack-Signature` using `hmac.compar
 
 ## 🔑 Administrative API: HTTP Basic Authentication
 
-Administrative operations (inspecting registered skills, viewing audit integrity diagnostics, and triggering RAG index reconciliation) are served under `/api/*` and protected by HTTP Basic Auth in [`main.py`](file:///c:/Users/Hp/Documents/agy2-projects/SilvanAgora/main.py#L211-L270).
+Administrative operations (inspecting registered skills, viewing audit integrity diagnostics, and triggering RAG index reconciliation) are served under `/api/*` and protected by HTTP Basic Auth in [`main.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/main.py#L211-L270).
 
 ### 1. Mandatory Password Enforcement
 If `ADMIN_PASSWORD` is not configured in `.env`, the server logs a critical warning on startup. Any request attempting to access `/api/*` is immediately blocked with HTTP 500/401 to ensure the endpoint cannot default to an unauthenticated state.
@@ -70,6 +70,6 @@ is_correct_password = secrets.compare_digest(credentials.password.encode("utf8")
 ```
 
 ### 3. Non-Repudiable Audit Logging
-Both successful logins and failed attempts emit immediate audit trail records to the non-repudiable log via [`services/audit_logger.py`](file:///c:/Users/Hp/Documents/agy2-projects/SilvanAgora/services/audit_logger.py):
+Both successful logins and failed attempts emit immediate audit trail records to the non-repudiable log via [`services/audit_logger.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/services/audit_logger.py):
 - `AUTH_FAILURE` records log the actor IP, target endpoint, and timestamp with severity `CRITICAL`.
 - `AUTH_SUCCESS` records capture the operator identity and session start.

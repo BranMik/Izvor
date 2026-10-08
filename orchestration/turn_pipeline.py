@@ -1,5 +1,5 @@
 """
-Turn Execution Pipeline for SilvanAgora.
+Turn Execution Pipeline for Izvor.
 
 Coordinates turn processing across modular stages with an explicit TurnContext container:
   1. ValidationStageMixin: Directives, file inspection, tag validation

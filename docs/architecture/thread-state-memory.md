@@ -8,7 +8,7 @@ This document describes how **Izvor** maintains stateful conversation context in
 
 Multi-turn multi-agent debates require persistent in-memory tracking of conversation progress, turn counters, speaker history, spend accumulators, and active skills.
 
-In Izvor, all thread state is managed by [`ThreadStateManager`](file:///c:/Users/Hp/Documents/agy2-projects/SilvanAgora/orchestration/thread_state.py).
+In Izvor, all thread state is managed by [`ThreadStateManager`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/orchestration/thread_state.py).
 
 ```mermaid
 graph TD
@@ -44,7 +44,7 @@ If left unchecked, the obsolete agent turn would complete and post its answer, c
 Izvor utilizes a **Thread Generation Counter**:
 
 1. **Incoming Message Increments Generation**:
-   Whenever a human user posts a message in an existing thread, [`adapters/slack/events.py`](file:///c:/Users/Hp/Documents/agy2-projects/SilvanAgora/adapters/slack/events.py) calls:
+   Whenever a human user posts a message in an existing thread, [`adapters/slack/events.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/adapters/slack/events.py) calls:
    ```python
    thread_state_manager.increment_generation(channel_id, thread_ts)
    ```
@@ -54,7 +54,7 @@ Izvor utilizes a **Thread Generation Counter**:
    turn_generation = thread_state.generation
    ```
 3. **Continuous Generation Checks**:
-   At each stage of the [Turn Execution Pipeline](file:///c:/Users/Hp/Documents/agy2-projects/SilvanAgora/docs/architecture/orchestration-pipeline.md) (before LLM call, after tool execution, and before posting to Slack), the pipeline checks:
+   At each stage of the [Turn Execution Pipeline](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/docs/architecture/orchestration-pipeline.md) (before LLM call, after tool execution, and before posting to Slack), the pipeline checks:
    ```python
    if current_thread_state.generation > turn_generation:
        logger.info("Generation mismatch detected. Aborting stale turn.")
@@ -73,10 +73,10 @@ Izvor enforces a two-layer bounded memory strategy:
 
 ### 1. Opportunistic Capacity Pruning
 - **`max_tracked_threads`** (default: `500`):
-  [`ThreadStateManager`](file:///c:/Users/Hp/Documents/agy2-projects/SilvanAgora/orchestration/thread_state.py) enforces a soft upper bound on the number of concurrently tracked threads in memory.
+  [`ThreadStateManager`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/orchestration/thread_state.py) enforces a soft upper bound on the number of concurrently tracked threads in memory.
 - When capacity is exceeded, the least recently active threads (LRU) are evicted opportunistically upon inserting new state.
 
 ### 2. Scheduled Inactive TTL Pruning
-- **Background Worker**: [`periodic_thread_state_cleanup`](file:///c:/Users/Hp/Documents/agy2-projects/SilvanAgora/main.py#L55-L69) in `main.py` wakes up every 10 minutes (600s).
+- **Background Worker**: [`periodic_thread_state_cleanup`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/main.py#L55-L69) in `main.py` wakes up every 10 minutes (600s).
 - **TTL Window**: Threads with no incoming messages or agent turns for more than 2 hours are pruned from memory.
 - **Persistent Archival**: Before any thread state is evicted, its final status and transcript are already permanently saved to the disk-backed flat history store in `flat-histories/`.

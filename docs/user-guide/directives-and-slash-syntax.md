@@ -75,7 +75,7 @@ Grant or revoke tool capabilities on the fly:
 
 ## 🗣️ Natural Language Intent Extraction
 
-If you prefer natural phrasing over bracketed syntax, Izvor's [`nlp/intent_extractor.py`](file:///c:/Users/Hp/Documents/agy2-projects/SilvanAgora/nlp/intent_extractor.py) extracts directives automatically from conversational English:
+If you prefer natural phrasing over bracketed syntax, Izvor's [`nlp/intent_extractor.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/nlp/intent_extractor.py) extracts directives automatically from conversational English:
 
 - *"Please keep all answers under 100 words"* ➔ Automatically parses as `[max_words: 100]`.
 - *"Limit the discussion to 2 rounds"* ➔ Automatically parses as `[rounds: 2]`.

@@ -6,7 +6,7 @@ This document details how **Izvor** routes conversation turns across multi-agent
 
 ## 🥪 Topologies Supported
 
-Izvor supports two primary orchestration topologies configured via [`core/models.py`](file:///c:/Users/Hp/Documents/agy2-projects/SilvanAgora/core/models.py) and selectable in the Slack App Home:
+Izvor supports two primary orchestration topologies configured via [`core/models.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/core/models.py) and selectable in the Slack App Home:
 
 ```mermaid
 graph TD
@@ -49,7 +49,7 @@ Could [Pragmatist] evaluate the migration effort?
 ```
 
 ### Extraction & Resolution
-- **Extractor**: [`orchestration/nomination.py`](file:///c:/Users/Hp/Documents/agy2-projects/SilvanAgora/orchestration/nomination.py) parses the output text using regular expressions to capture bracketed candidates.
+- **Extractor**: [`orchestration/nomination.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/orchestration/nomination.py) parses the output text using regular expressions to capture bracketed candidates.
 - **Candidate Filtering**:
   - The currently speaking persona cannot nominate itself.
   - Personas that have already spoken in the current round are deprioritized to prevent echo chambers.
@@ -59,7 +59,7 @@ Could [Pragmatist] evaluate the migration effort?
 
 ## 🎯 Entity Resolution Engine
 
-Users and agents may refer to personas by nick-names, partial titles, or informal roles. The [`EntityResolver`](file:///c:/Users/Hp/Documents/agy2-projects/SilvanAgora/pipeline/entity_resolver) maps informal mentions to canonical persona identifiers:
+Users and agents may refer to personas by nick-names, partial titles, or informal roles. The [`EntityResolver`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/pipeline/entity_resolver) maps informal mentions to canonical persona identifiers:
 
 | Input Mention | Resolved Persona | Matching Rule |
 |---|---|---|
@@ -78,7 +78,7 @@ If an extracted nomination cannot be resolved to any active, enabled persona, th
 To prevent LLM API rate-limit spikes and avoid overwhelming Slack users with an instant wall of text, Izvor enforces controlled pacing between turns:
 
 1. **`DEBATE_TURN_PACING_SECONDS`** (default: `3.0`):
-   - Configured in [`core/config.py`](file:///c:/Users/Hp/Documents/agy2-projects/SilvanAgora/core/config.py).
+   - Configured in [`core/config.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/core/config.py).
    - An asynchronous sleep between consecutive agent turns in a thread.
 2. **`SLACK_POST_PAUSE_SECONDS`** (default: `2.0`):
    - A brief deliberate pause immediately before posting to Slack, giving the visual appearance of real-time typing and conversational cadence.

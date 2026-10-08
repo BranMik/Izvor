@@ -34,8 +34,8 @@ graph TD
 
 Unlike static cost tables that go out of date as providers adjust their prices, Izvor features an autonomous pricing researcher agent:
 
-1. **Prompt Template**: Defined in [`prompts/system_agents/Pricing_Agent.md`](file:///c:/Users/Hp/Documents/agy2-projects/SilvanAgora/prompts/system_agents/Pricing_Agent.md).
-2. **Execution**: Dispatched by [`services/pricing_service.py`](file:///c:/Users/Hp/Documents/agy2-projects/SilvanAgora/services/pricing_service.py) during application startup or when an unindexed model is encountered.
+1. **Prompt Template**: Defined in [`prompts/system_agents/Pricing_Agent.md`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/prompts/system_agents/Pricing_Agent.md).
+2. **Execution**: Dispatched by [`services/pricing_service.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/services/pricing_service.py) during application startup or when an unindexed model is encountered.
 3. **Web Research**: Utilizes web search tools to locate official provider pricing tables (per 1,000 or per 1,000,000 tokens for prompt and completion).
 4. **Caching**: Results are stored in `data/model_pricing_cache.json` with a 7-day TTL.
 5. **Hardcoded Fallbacks**: If web access is unavailable, baseline fallbacks for standard flagship models (Claude 3.5 Sonnet, GPT-4o, Gemini 1.5 Pro) are loaded safely.
@@ -44,13 +44,13 @@ Unlike static cost tables that go out of date as providers adjust their prices, 
 
 ## 📊 Token & Cost Tracking Per Turn
 
-After each completed agent turn, [`orchestration/stages/post_record.py`](file:///c:/Users/Hp/Documents/agy2-projects/SilvanAgora/orchestration/stages/post_record.py) records:
+After each completed agent turn, [`orchestration/stages/post_record.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/orchestration/stages/post_record.py) records:
 - **`prompt_tokens`**: Input tokens processed by the LLM.
 - **`completion_tokens`**: Output tokens generated in the reply.
 - **`model_name`**: The exact model identifier invoked.
 - **`turn_cost_usd`**: Calculated using:
   $$\text{Cost} = \left(\text{Prompt Tokens} \times \text{Rate}_{\text{prompt}}\right) + \left(\text{Completion Tokens} \times \text{Rate}_{\text{completion}}\right)$$
-- **Cumulative Metrics**: Stored in [`SpendMetrics`](file:///c:/Users/Hp/Documents/agy2-projects/SilvanAgora/core/domain.py) on the thread's session context.
+- **Cumulative Metrics**: Stored in [`SpendMetrics`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/core/domain.py) on the thread's session context.
 
 ---
 
@@ -64,7 +64,7 @@ Admins configure circuit breaker rules globally or via Slack App Home:
 - **`max_thread_spend_usd`**: Maximum allowed USD cost per thread (e.g., `$1.50`).
 
 ### 2. Tripping the Breaker
-Before starting any new turn, [`orchestration/stages/validation.py`](file:///c:/Users/Hp/Documents/agy2-projects/SilvanAgora/orchestration/stages/validation.py) evaluates:
+Before starting any new turn, [`orchestration/stages/validation.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/orchestration/stages/validation.py) evaluates:
 ```python
 if thread_spend.total_cost_usd >= circuit_breaker_threshold:
     raise CircuitBreakerTrippedException(...)

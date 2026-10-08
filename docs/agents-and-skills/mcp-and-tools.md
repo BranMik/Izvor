@@ -8,7 +8,7 @@ This document details **Izvor**'s tool execution architecture, Model Context Pro
 
 Izvor integrates with the Model Context Protocol (MCP) to allow personas to interact with workspace environments, execute code inspection, and access files safely.
 
-The integration is managed by [`services/mcp_tools.py`](file:///c:/Users/Hp/Documents/agy2-projects/SilvanAgora/services/mcp_tools.py), translating MCP tool schemas into standard JSON function definitions compatible with LiteLLM.
+The integration is managed by [`services/mcp_tools.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/services/mcp_tools.py), translating MCP tool schemas into standard JSON function definitions compatible with LiteLLM.
 
 ```mermaid
 graph TD
