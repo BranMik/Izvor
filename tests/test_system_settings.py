@@ -1,5 +1,5 @@
 """
-Tests for SystemSettingsManager and data/system_settings.json.
+Tests for SystemSettingsManager and data/settings/system_settings.json.
 Only covers system-level settings changeable only in file (not through UI):
 - max_file_size_mb
 - rag configuration
@@ -197,11 +197,11 @@ def test_is_path_write_blocked_defaults(tmp_path):
     assert is_path_write_blocked(".git/hooks/pre-commit", base_dir=base_dir) is True
 
     # Config files protection
-    assert is_path_write_blocked("data/agent_settings.json", base_dir=base_dir) is True
+    assert is_path_write_blocked("data/settings/agent_settings.json", base_dir=base_dir) is True
     assert is_path_write_blocked("agent_settings.json", base_dir=base_dir) is True
-    assert is_path_write_blocked("data/app_settings.json", base_dir=base_dir) is True
+    assert is_path_write_blocked("data/settings/app_settings.json", base_dir=base_dir) is True
     assert is_path_write_blocked("app_settings.json", base_dir=base_dir) is True
-    assert is_path_write_blocked("data/system_settings.json", base_dir=base_dir) is True
+    assert is_path_write_blocked("data/settings/system_settings.json", base_dir=base_dir) is True
     assert is_path_write_blocked("system_settings.json", base_dir=base_dir) is True
 
     # Python source files must be blocked

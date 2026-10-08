@@ -29,7 +29,7 @@ def clean_pricing_cache(monkeypatch, tmp_path):
 
 
 def test_load_baseline_pricing_from_json():
-    """Verify load_baseline_pricing loads data/baseline_prices.json correctly."""
+    """Verify load_baseline_pricing loads data/pricing/baseline_prices.json correctly."""
     catalog = load_baseline_pricing()
     assert isinstance(catalog, dict)
     assert "gemini/gemini-3.8-flash" in catalog

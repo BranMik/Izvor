@@ -18,10 +18,10 @@ from .web_tools import fetch_web_page, web_search
 logger = logging.getLogger(__name__)
 
 # Model pricing cache file
-PRICING_CACHE_FILE = Path(__file__).parent.parent / "data" / "model_pricing_cache.json"
+PRICING_CACHE_FILE = Path(__file__).parent.parent / "data" / "pricing" / "model_pricing_cache.json"
 
 # Baseline model pricing configuration file
-BASELINE_PRICES_FILE = Path(__file__).parent.parent / "data" / "baseline_prices.json"
+BASELINE_PRICES_FILE = Path(__file__).parent.parent / "data" / "pricing" / "baseline_prices.json"
 BASELINE_CONFIG_FILE = BASELINE_PRICES_FILE  # Backward-compatible alias
 
 # Cache TTL: 7 days in seconds

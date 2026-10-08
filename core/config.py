@@ -179,8 +179,8 @@ def get_system_agent_model(name: str, fallback: str = "") -> str:
 
 
 def _load_orchestrator_from_ssot() -> dict[str, Any]:
-    """Loads orchestrator mapping directly from data/agent_settings.json SSOT."""
-    settings_file = PROJECT_ROOT / "data" / "agent_settings.json"
+    """Loads orchestrator mapping directly from data/settings/agent_settings.json SSOT."""
+    settings_file = PROJECT_ROOT / "data" / "settings" / "agent_settings.json"
     if not settings_file.exists():
         return {}
     try:

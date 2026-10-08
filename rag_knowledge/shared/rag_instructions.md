@@ -5,7 +5,7 @@
 - A document will be removed from the vector database after its file deletion and a system restart.
 - Any modifications to existing documents will also be synced to the vector database upon system restart.
 - **Supported file formats:** .md, .txt, .pdf, .csv (and other standard text-based formats).
-- RAG capability is accessible to an agent only if the `knowledge_base_rag` skill is added to their skills in the `/data/agent_settings.json` file.
+- RAG capability is accessible to an agent only if the `knowledge_base_rag` skill is added to their skills in the `/data/settings/agent_settings.json` file.
 
 ## Security
 - For a document in the RAG system to be accessible to an agent, it has to be either in that agent's sub-folder inside the `/rag_knowledge/` folder, or in the `/rag_knowledge/shared/` folder. The agent also has to have the `knowledge_base_rag` skill added.

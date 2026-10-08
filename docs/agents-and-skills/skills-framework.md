@@ -50,7 +50,7 @@ Valid skills are registered into the global `SkillRegistry`. They can be queried
 Izvor provides fine-grained control over skill assignment through [`ThreadSkillsManager`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/orchestration/thread_skills_manager.py):
 
 ### 1. Static Configuration (Baseline)
-Personas can be assigned permanent baseline skills in [`data/agent_settings.json`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/data/agent_settings.json) (e.g. `SecurityArchitect` defaults with `knowledge_base_rag` and `document_reader`).
+Personas can be assigned permanent baseline skills in [`data/settings/agent_settings.json`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/data/settings/agent_settings.json) (e.g. `SecurityArchitect` defaults with `knowledge_base_rag` and `document_reader`).
 
 ### 2. Runtime Dynamic Granting
 Users can grant skills on the fly within an active thread:

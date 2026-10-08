@@ -243,8 +243,8 @@ def test_mcp_write_file_blocks_protected_default_files():
         ".env",
         ".env.local",
         ".git/hooks/pre-commit",
-        "data/agent_settings.json",
-        "data/app_settings.json",
+        "data/settings/agent_settings.json",
+        "data/settings/app_settings.json",
     ]
     for target in targets:
         res = json.loads(write_document(target, "malicious_overwrite_attempt"))

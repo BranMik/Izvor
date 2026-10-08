@@ -69,12 +69,12 @@ Izvor does not rely on rigid turn-taking. It supports:
 
 ### 4. Spend Governance & Model Pricing
 - **Autonomous Token & Cost Tracking**: Detailed prompt and completion tokens are recorded for each turn via [`services/pricing_service.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/services/pricing_service.py).
-- **Disk-Backed 7-Day Pricing Cache**: An autonomous pricing agent dynamically checks official model provider pricing tables, caching per-token rates in `data/model_pricing_cache.json`.
+- **Disk-Backed 7-Day Pricing Cache**: An autonomous pricing agent dynamically checks official model provider pricing tables, caching per-token rates in `data/pricing/model_pricing_cache.json`.
 - **Circuit Breaker**: When cumulative thread expense exceeds configured USD thresholds, the debate is safely paused, and a spend warning is posted.
 
 ### 5. Interactive Slack App Home & Administrative SSOT
 - **Live Configuration**: Slack workspace admins can configure debate presets, agent rosters, circuit breaker thresholds, and topologies directly in the Slack App Home tab ([`services/slack_home_views.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/services/slack_home_views.py)).
-- **Resilient Persistence**: Changes are committed atomically to `data/agent_settings.json` and `data/app_settings.json`, backed by automated 7-day emergency failover archives.
+- **Resilient Persistence**: Changes are committed atomically to `data/settings/agent_settings.json` and `data/settings/app_settings.json`, backed by automated 7-day emergency failover archives.
 
 ### 6. Non-Repudiable Cryptographic Audit Logging
 - Every administrative action, security event, and RAG synchronization is recorded in a cryptographically chained, HMAC-verified JSONL audit log ([`services/audit_logger.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/services/audit_logger.py)).

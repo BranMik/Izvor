@@ -8,7 +8,7 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_SETTINGS_FILE = Path(__file__).parent.parent / "data" / "system_settings.json"
+SYSTEM_SETTINGS_FILE = Path(__file__).parent.parent / "data" / "settings" / "system_settings.json"
 SYSTEM_BACKUP_FILE = Path(__file__).parent.parent / "data" / "backups" / "system_settings_backup.json"
 BACKUP_INTERVAL_SECONDS = 7 * 86400
 
@@ -16,9 +16,9 @@ DEFAULT_PROTECTED_WRITE_PATHS: list[str] = [
     ".env",
     ".git",
     "audit",
-    "data/agent_settings.json",
-    "data/app_settings.json",
-    "data/system_settings.json",
+    "data/settings/agent_settings.json",
+    "data/settings/app_settings.json",
+    "data/settings/system_settings.json",
 ]
 
 
@@ -50,6 +50,7 @@ class SystemSettingsManager:
         self.max_file_size_mb: float = 50.0
         self.workspace_write_blacklist_additional: list[str] = []
         self.strict_privacy_mode_enabled: bool = True
+        self.log_level: str = "INFO"
 
         self.rag_config: dict[str, Any] = {
             "max_chunk_chars": 3500,
@@ -118,6 +119,7 @@ class SystemSettingsManager:
                 else []
             )
             self.strict_privacy_mode_enabled = bool(data.get("strict_privacy_mode_enabled", True))
+            self.log_level = str(data.get("log_level", "INFO")).strip().upper() or "INFO"
 
             self._last_loaded_mtime = mtime
             logger.debug(f"[SYSTEM_SETTINGS] Loaded settings from {target_file}")
@@ -144,6 +146,7 @@ class SystemSettingsManager:
                         else []
                     )
                     self.strict_privacy_mode_enabled = bool(data.get("strict_privacy_mode_enabled", True))
+                    self.log_level = str(data.get("log_level", "INFO")).strip().upper() or "INFO"
                     logger.warning("[SYSTEM_SETTINGS] Recovered settings from backup.")
                 except (OSError, json.JSONDecodeError, TypeError, ValueError) as be:
                     logger.error(f"[SYSTEM_SETTINGS] Failed to read backup: {be}")
@@ -158,12 +161,13 @@ class SystemSettingsManager:
             "max_file_size_mb": self.max_file_size_mb,
             "rag": self.rag_config,
             "_comment_workspace_write_blacklist_additional": (
-                "Automatic hardcoded protection blocks writes to .env, .git, data/agent_settings.json, "
-                "data/app_settings.json, and data/system_settings.json. Add any additional relative workspace "
+                "Automatic hardcoded protection blocks writes to .env, .git, data/settings/agent_settings.json, "
+                "data/settings/app_settings.json, and data/settings/system_settings.json. Add any additional relative workspace "
                 "paths or file patterns here to prevent unauthorized modifications."
             ),
             "workspace_write_blacklist_additional": self.workspace_write_blacklist_additional,
             "strict_privacy_mode_enabled": self.strict_privacy_mode_enabled,
+            "log_level": self.log_level,
         }
 
         tmp_file = target_file.with_suffix(".tmp")
@@ -285,6 +289,19 @@ class SystemSettingsManager:
         if save:
             self.save()
         logger.info(f"[SYSTEM_SETTINGS] Set strict_privacy_mode_enabled to {self.strict_privacy_mode_enabled}.")
+
+    # --- Log Level ---
+    def get_log_level(self) -> str:
+        self.load()
+        return self.log_level
+
+    def set_log_level(self, level: str, save: bool = True) -> None:
+        clean = str(level).strip().upper()
+        if clean:
+            self.log_level = clean
+            if save:
+                self.save()
+            logger.info(f"[SYSTEM_SETTINGS] Set log_level to '{self.log_level}'.")
 
     def is_path_write_blocked(
         self,
@@ -438,5 +455,13 @@ def is_strict_privacy_mode_enabled() -> bool:
 
 def set_strict_privacy_mode_enabled(enabled: bool, save: bool = True) -> None:
     system_settings_manager.set_strict_privacy_mode_enabled(enabled, save=save)
+
+
+def get_log_level() -> str:
+    return system_settings_manager.get_log_level()
+
+
+def set_log_level(level: str, save: bool = True) -> None:
+    system_settings_manager.set_log_level(level, save=save)
 
 

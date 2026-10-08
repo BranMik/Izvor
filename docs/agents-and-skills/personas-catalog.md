@@ -16,7 +16,7 @@ In Izvor, personas are not simply "chatbots" with different system instructions.
 
 ## 📋 The Complete Persona Roster
 
-The roster is managed dynamically in [`data/agent_settings.json`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/data/agent_settings.json) and configured via [`orchestration/agent_settings.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/orchestration/agent_settings.py):
+The roster is managed dynamically in [`data/settings/agent_settings.json`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/data/settings/agent_settings.json) and configured via [`orchestration/agent_settings.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/orchestration/agent_settings.py):
 
 | Agent ID | Display Name | Username Tag | Default LLM Model | Default Assigned Skills | Output Style |
 |---|---|---|---|---|---|

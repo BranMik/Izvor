@@ -82,7 +82,7 @@ Izvor uses the modern async context manager lifespan pattern in [`main.py`](file
 
 ### 4. Model Pricing Cache Warmup (`warm_up_pricing_cache`)
 - **File**: [`services/pricing_service.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/services/pricing_service.py)
-- **Behavior**: Validates whether `data/model_pricing_cache.json` exists and is fresher than 7 days. If missing or expired, triggers background pricing research asynchronously without blocking server readiness.
+- **Behavior**: Validates whether `data/pricing/model_pricing_cache.json` exists and is fresher than 7 days. If missing or expired, triggers background pricing research asynchronously without blocking server readiness.
 
 ### 5. RAG Knowledge Reconciliation (`rag_sync_engine.reconcile`)
 - **File**: [`services/rag/sync_engine.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/services/rag/sync_engine.py)
