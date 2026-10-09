@@ -80,8 +80,8 @@ ORCHESTRATOR_CONFIG: dict[str, Any] = {}
 
 
 def _load_default_models_from_ssot() -> tuple[str, str]:
-    """Loads default_fast_model and default_reasoning_model from data/system_settings.json SSOT."""
-    settings_file = PROJECT_ROOT / "data" / "system_settings.json"
+    """Loads default_fast_model and default_reasoning_model from data/settings/system_settings.json SSOT."""
+    settings_file = PROJECT_ROOT / "data" / "settings" / "system_settings.json"
     fast_default = "gemini/gemini-3.8-flash"
     reasoning_default = "mistral/mistral-large-latest"
     if not settings_file.exists():
@@ -116,8 +116,8 @@ def get_default_reasoning_model() -> str:
 
 
 def _load_system_agents_from_ssot() -> dict[str, dict[str, Any]]:
-    """Loads system_agents mapping directly from data/agent_settings.json SSOT."""
-    settings_file = PROJECT_ROOT / "data" / "agent_settings.json"
+    """Loads system_agents mapping directly from data/settings/agent_settings.json SSOT."""
+    settings_file = PROJECT_ROOT / "data" / "settings" / "agent_settings.json"
     if not settings_file.exists():
         return {}
     try:
@@ -134,8 +134,8 @@ def _load_system_agents_from_ssot() -> dict[str, dict[str, Any]]:
 
 
 def _load_agents_from_ssot() -> dict[str, dict[str, Any]]:
-    """Loads agents mapping directly from data/agent_settings.json SSOT."""
-    settings_file = PROJECT_ROOT / "data" / "agent_settings.json"
+    """Loads agents mapping directly from data/settings/agent_settings.json SSOT."""
+    settings_file = PROJECT_ROOT / "data" / "settings" / "agent_settings.json"
     if not settings_file.exists():
         return {}
     try:
@@ -300,6 +300,20 @@ TOOL_INTERMEDIATE_UPDATE_DELAY_SECONDS = float(
     os.getenv("TOOL_INTERMEDIATE_UPDATE_DELAY_SECONDS", "5.0")
 )
 
+def is_internal_revisor_enabled() -> bool:
+    """Checks if InternalRevisor is enabled in data/settings/system_settings.json."""
+    settings_file = PROJECT_ROOT / "data" / "settings" / "system_settings.json"
+    if not settings_file.exists():
+        return True
+    try:
+        import json
+        with open(settings_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return bool(data.get("internal_revisor_enabled", True))
+    except Exception as e:
+        logger.debug(f"[CONFIG] System settings load error: {e}")
+        return True
+
 __all__ = [
     "PROJECT_ROOT",
     "logger",
@@ -339,6 +353,7 @@ __all__ = [
     "get_thread_notes_prompt",
     "get_usage_agent_prompt",
     "get_pricing_agent_prompt",
+    "is_internal_revisor_enabled",
 ]
 
 

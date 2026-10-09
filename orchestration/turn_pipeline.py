@@ -309,8 +309,10 @@ class TurnPipeline:
             # --- Phase 2: CASCADING HALLUCINATION PREVENTION ---
             # Trigger InternalRevisor asynchronously if applicable
             try:
-                from orchestration.revisor_service import run_internal_revisor
-                asyncio.create_task(run_internal_revisor(ctx))
+                from core.config import is_internal_revisor_enabled
+                if is_internal_revisor_enabled():
+                    from orchestration.revisor_service import run_internal_revisor
+                    asyncio.create_task(run_internal_revisor(ctx))
             except Exception as e:
                 logger.error(f"[REVISOR] Failed to dispatch internal revisor: {e}")
                 
