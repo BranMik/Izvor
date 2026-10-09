@@ -304,7 +304,17 @@ class TurnPipeline:
                 return halt
 
             # Stage 5: Format response, enforce nominations, post to Slack, and audit
-            return await self.post_record_stage.stage_post_and_record(ctx)
+            slack_res = await self.post_record_stage.stage_post_and_record(ctx)
+            
+            # --- Phase 2: CASCADING HALLUCINATION PREVENTION ---
+            # Trigger InternalRevisor asynchronously if applicable
+            try:
+                from orchestration.revisor_service import run_internal_revisor
+                asyncio.create_task(run_internal_revisor(ctx))
+            except Exception as e:
+                logger.error(f"[REVISOR] Failed to dispatch internal revisor: {e}")
+                
+            return slack_res
 
         except asyncio.CancelledError:
             logger.info(
