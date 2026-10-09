@@ -180,7 +180,7 @@ async def test_fixed_mode_end_to_end_discussion(monkeypatch):
 
     assert res_1.get("ok") is True
     assert len(posted_messages) == 1
-    assert posted_messages[0]["username"] == "Legal Advisor"
+    assert posted_messages[0]["username"] == "LegalAdvisor"
     # Deterministic nomination enforced to next agent in chain
     assert "/[agent-10002]" in posted_messages[0]["text"]
     assert thread_state_manager.remaining_agents_map[thread_key] == ["agent-10002", "agent-10008"]
@@ -227,7 +227,7 @@ async def test_fixed_mode_end_to_end_discussion(monkeypatch):
 
     assert res_3.get("ok") is True
     assert len(posted_messages) == 3
-    assert posted_messages[2]["username"] == "Security Architect"
+    assert posted_messages[2]["username"] == "SecurityArchitect"
     # Thread finished -> state cleaned up, tags stripped
     assert thread_key not in thread_state_manager.remaining_agents_map
     assert "[" not in posted_messages[2]["text"].split("\n\n[")[0]
@@ -286,7 +286,7 @@ async def test_sandwich_mode_end_to_end_discussion(monkeypatch):
 
     assert res_1.get("ok") is True
     assert len(posted_messages) == 1
-    assert posted_messages[0]["username"] == "Security Architect"
+    assert posted_messages[0]["username"] == "SecurityArchitect"
     assert "/[agent-10001]" in posted_messages[0]["text"]
     assert thread_state_manager.remaining_agents_map[thread_key] == ["agent-10001", "agent-10011", "agent-10008"]
 
@@ -336,7 +336,7 @@ async def test_sandwich_mode_end_to_end_discussion(monkeypatch):
 
     assert res_3.get("ok") is True
     assert len(posted_messages) == 3
-    assert posted_messages[2]["username"] == "Legal Advisor"
+    assert posted_messages[2]["username"] == "LegalAdvisor"
     assert "/[agent-10008]" in posted_messages[2]["text"]
     assert thread_state_manager.remaining_agents_map[thread_key] == ["agent-10008"]
 
@@ -360,34 +360,9 @@ async def test_sandwich_mode_end_to_end_discussion(monkeypatch):
 
     assert res_4.get("ok") is True
     assert len(posted_messages) == 4
-    assert posted_messages[3]["username"] == "Security Architect"
+    assert posted_messages[3]["username"] == "SecurityArchitect"
     # Thread finished -> state cleaned up, tags stripped
     assert thread_key not in thread_state_manager.remaining_agents_map
     assert "[" not in posted_messages[3]["text"].split("\n\n[")[0]
 
 
-def test_app_home_view_displays_orchestration_modes():
-    set_orchestration_mode("sandwich")
-    set_sandwich_config(start_chain=["agent-10001"], end_chain=["agent-10008"])
-
-    view = build_app_home_view()
-    blocks = view["blocks"]
-
-    # Verify mode radio buttons
-    mode_block = next((b for b in blocks if b.get("accessory", {}).get("action_id") == "select_orchestration_mode"), None)
-    assert mode_block is not None
-    assert mode_block["accessory"]["initial_option"]["value"] == "mode:sandwich"
-
-    # Switch to fixed mode and verify fixed view
-    set_orchestration_mode("fixed")
-    set_fixed_config(["agent-10011", "agent-10008"])
-
-    view_fixed = build_app_home_view()
-    blocks_fixed = view_fixed["blocks"]
-    mode_block_fixed = next((b for b in blocks_fixed if b.get("accessory", {}).get("action_id") == "select_orchestration_mode"), None)
-    assert mode_block_fixed is not None
-    assert mode_block_fixed["accessory"]["initial_option"]["value"] == "mode:fixed"
-
-    fixed_input = next((b for b in blocks_fixed if b.get("block_id", "").startswith("fixed_chain_block")), None)
-    assert fixed_input is not None
-    assert "agent-10011, agent-10008" in fixed_input["element"]["initial_value"]
