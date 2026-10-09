@@ -1,5 +1,5 @@
 {
-  "workflow_config": "default_review_flow",
+  "workflow_config": "default_sandwich",
   "enabled_agents": [
     "agent-10001",
     "agent-10002",
@@ -169,6 +169,16 @@
         "knowledge_base_rag",
         "web_research"
       ]
+    }
+  },
+  "system_agents": {
+    "InternalRevisor": {
+      "username": "InternalRevisor",
+      "model": "mistral/mistral-small-latest",
+      "displayname": "Internal Revisor",
+      "icon_url": "static/image_99.png",
+      "is_short_output": true,
+      "skills": []
     }
   },
   "orchestrator": {
