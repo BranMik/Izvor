@@ -178,7 +178,7 @@ async def test_process_and_respond_model_not_found(monkeypatch):
     )
 
     assert len(posted) == 1
-    assert posted[0]["username"] == "Legal Advisor"
+    assert posted[0]["username"] == "LegalAdvisor"
     assert "MODEL NOT FOUND" in posted[0]["text"]
     assert "/[agent-10002]" in posted[0]["text"]
 
@@ -225,7 +225,7 @@ async def test_process_and_respond_retries_and_clean_error_message(monkeypatch):
     # Must have retried 3 times
     assert call_count == 3
     assert len(posted) == 1
-    assert posted[0]["username"] == "Legal Advisor"
+    assert posted[0]["username"] == "LegalAdvisor"
     # Clean error message without raw traceback
     assert "Error processing request - check the logs" in posted[0]["text"]
     assert "Unexpected JSON decoding crash" not in posted[0]["text"]
@@ -272,7 +272,7 @@ async def test_process_and_respond_rate_limits_and_retry_flow(monkeypatch):
     )
 
     assert len(posted) == 1
-    assert posted[0]["username"] == "Legal Advisor"
+    assert posted[0]["username"] == "LegalAdvisor"
     assert (
         "RATE LIMITS CROSSED, will retry at the end of discussion" in posted[0]["text"]
     )
@@ -320,7 +320,7 @@ async def test_process_and_respond_rate_limits_and_retry_flow(monkeypatch):
     )
 
     assert len(posted) == 3
-    assert posted[2]["username"] == "Legal Advisor"
+    assert posted[2]["username"] == "LegalAdvisor"
     # Should say RATE LIMITS CROSSED without 'will retry'
     assert "RATE LIMITS CROSSED" in posted[2]["text"]
     assert "will retry" not in posted[2]["text"]
@@ -370,7 +370,7 @@ async def test_process_and_respond_503_high_demand_first_skip_and_random_handoff
     )
 
     assert len(posted) == 1
-    assert posted[0]["username"] == "Legal Advisor"
+    assert posted[0]["username"] == "LegalAdvisor"
     assert (
         "HIGH DEMAND / SERVICE OVERLOADED (503) - Skipping for now, will retry later"
         in posted[0]["text"]
@@ -437,7 +437,7 @@ async def test_process_and_respond_503_high_demand_second_query_retries_and_term
     )
 
     assert len(posted) == 1
-    assert posted[0]["username"] == "Legal Advisor"
+    assert posted[0]["username"] == "LegalAdvisor"
     # Should say HIGH DEMAND / SERVICE OVERLOADED (503) without 'will retry later'
     assert "HIGH DEMAND / SERVICE OVERLOADED (503)" in posted[0]["text"]
     assert "will retry later" not in posted[0]["text"]
