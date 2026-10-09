@@ -52,7 +52,7 @@ def test_resolve_agent_name():
     assert "agent-10008" in entity_resolver.resolve_candidates("[agent-10008]")
     assert len(entity_resolver.resolve_candidates("[Arch]")) == 1
     assert "agent-10008" in entity_resolver.resolve_candidates("[Arch]")
-    assert len(entity_resolver.resolve_candidates("[Strategist]")) == 1
+    assert len(entity_resolver.resolve_candidates("[Strategist]")) == 2
     assert entity_resolver.resolve_candidates("[NonExistent]") == []
     assert entity_resolver.resolve_candidates("[TODO]") == []
 
