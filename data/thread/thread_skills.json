@@ -15,28 +15,6 @@
         "web_research"
       ],
       "granted_at": 1791473630.1221185
-    },
-    "C_TEST:1726000000.1": {
-      "skills": [
-        "web_research"
-      ],
-      "granted_at": 1791413882.4685376
-    },
-    "C_TEST:1726000000.2": {
-      "skills": [
-        "web_research"
-      ],
-      "granted_at": 1791413883.0283105
-    },
-    "C_TEST:1726000000.3": {
-      "agent_skills": {
-        "agent-10008": {
-          "skills": [
-            "web_research"
-          ],
-          "granted_at": 1791413883.5859976
-        }
-      }
     }
   }
 }
