@@ -352,7 +352,7 @@ async def test_main_interactivity_workflow_actions(monkeypatch):
 
 def test_agent_settings_file_structure_and_dynamic_load():
     """Verify data/settings/agent_settings.json only has workflow_config and dynamically resolves chains."""
-    settings_file = Path(__file__).parent.parent / "data" / "agent_settings.json"
+    settings_file = Path(__file__).parent.parent / "data" / "settings" / "agent_settings.json"
     assert settings_file.exists()
 
     with open(settings_file, "r", encoding="utf-8") as f:

@@ -87,10 +87,10 @@ class TestDuplicateAgentNames:
 
     def test_duplicate_names_warn(self, caplog):
         payload = _make_payload("agent-10001", "agent-10002")
-        payload["agents"]["agent-10001"]["name"] = "SameName"
-        payload["agents"]["agent-10002"]["name"] = "SameName"
+        payload["agents"]["agent-10001"]["username"] = "SameName"
+        payload["agents"]["agent-10002"]["username"] = "SameName"
         result = AppIntegrityValidator.check_duplicate_agent_names(payload)
-        assert "Duplicate agent name" in caplog.text
+        assert "Duplicate agent username" in caplog.text
         # Both agents are kept (warning only)
         assert len(result["agents"]) == 2
 
