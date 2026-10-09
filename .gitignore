@@ -6,7 +6,8 @@
 *.pdf
 # 1. Ignoriraj sve unutar rag_knowledge foldera
 rag_knowledge/*
-
+deprecated/*
+izvor-app/*
 # 2. Omogući (un-ignore) agent-10008 i shared foldere (kako bi Git uopće ušao u njih)
 !rag_knowledge/agent-10008/
 !rag_knowledge/shared/
