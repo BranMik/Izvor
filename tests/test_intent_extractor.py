@@ -273,7 +273,7 @@ async def test_sandwich_exclusion_and_bot_turn_not_stopped(monkeypatch):
 
     assert res_1.get("ok") is True
     assert len(posted_messages) == 1
-    assert posted_messages[0]["username"] == "Scope Optimizer"
+    assert posted_messages[0]["username"] == "ScopeOptimizer"
     # Visionary was excluded so remaining sequence corrected nomination to next eligible (LegalAdvisor / SecurityArchitect)
     assert "/[agent-10001]" not in posted_messages[0]["text"]
     remaining = thread_state_manager.get_remaining_agents(thread_key[0], thread_key[1])

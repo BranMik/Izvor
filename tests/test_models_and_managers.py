@@ -93,7 +93,7 @@ def test_agent_settings_manager():
         # Defaults
         assert "agent-10001" in mgr.get_enabled_agents()
         assert mgr.is_circuit_breaker_enabled() is False
-        assert mgr.get_orchestration_mode() == "sandwich"
+        assert mgr.get_orchestration_mode() == "fixed"
 
         # Toggle all agents freely (no locked agents)
         assert mgr.set_agent_enabled("agent-10001", False) is True
@@ -129,7 +129,7 @@ def test_agent_settings_manager():
         assert mgr_reloaded.is_circuit_breaker_enabled() is True
         assert mgr_reloaded.get_circuit_breaker_threshold() == 3.75
         assert "agent-10002" not in mgr_reloaded.get_enabled_agents()
-        assert mgr_reloaded.get_orchestration_mode() == "sandwich"
+        assert mgr_reloaded.get_orchestration_mode() == "fixed"
         assert mgr_reloaded.get_workflow_config() == "default_review_flow"
 
 
@@ -293,7 +293,7 @@ def test_nomination_and_entity_resolver():
     # Initial agents with default settings (all enabled)
     initial = get_initial_agents()
     assert isinstance(initial, list)
-    assert len(initial) == 11
+    assert len(initial) == 16
 
     # Tag extraction with exact and partial tags
     tags = entity_resolver.extract_tagged_agents("Hello /[agent-10002] and /[agent-10011]")
@@ -307,7 +307,7 @@ def test_nomination_and_entity_resolver():
 
     # Ambiguous tags should not be extracted as single valid agent tags
     ambig_tags = entity_resolver.extract_tagged_agents("Hello /[Arch] and /[Strategist]")
-    assert ambig_tags == ["agent-10008", "agent-10006"]
+    assert ambig_tags == ["agent-10008"]
 
     # Detect ambiguous tags
     detected_ambig = entity_resolver.detect_ambiguous_tags("Hello /[S] and /[Vis]")

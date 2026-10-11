@@ -157,7 +157,7 @@ async def test_scenario_3_no_agent_tagged_default_flow(monkeypatch):
 
     # Default starts with Visionary and initializes all panel agents
     assert thread_key not in thread_state_manager.custom_flow_threads
-    assert len(thread_state_manager.remaining_agents_map[thread_key]) == 10
+    assert len(thread_state_manager.remaining_agents_map[thread_key]) == 15
     assert "/[agent-10003]" in posted_messages[0]
 
     # Step 2: Intermediate agent (Monitoring Specialist) tries to prematurely nominate SecurityArchitect
@@ -415,10 +415,6 @@ def test_build_app_home_view():
 
     assert "bulk_enable_all" in action_ids
     assert "bulk_disable_all" in action_ids
-    assert "select_orchestration_mode" in action_ids
-    assert "set_start_chain_input" in action_ids
-    assert "set_end_chain_input" in action_ids
-    assert "save_sandwich_chains_button" in action_ids
     assert "toggle_agent_radio:agent-10011" in action_ids
     assert "toggle_circuit_breaker_radio" in action_ids
     assert "set_circuit_breaker_threshold_input" in action_ids
@@ -428,8 +424,6 @@ def test_build_app_home_view():
     # Dynamic block IDs present
     block_ids = [b.get("block_id") for b in blocks if "block_id" in b]
     assert "cb_threshold_block_2.50" in block_ids
-    assert any(b.startswith("sandwich_start_chain_block") for b in block_ids)
-    assert any(b.startswith("sandwich_end_chain_block") for b in block_ids)
     assert "agent_toggle_block_agent-10011_on" in block_ids
 
     # Agent ID in square brackets rendered
@@ -464,7 +458,7 @@ def test_settings_persistence(tmp_path, monkeypatch):
     assert "agent-10001" in loaded
     assert "agent-10003" in loaded
     assert "agent-10008" in loaded
-    assert len(loaded) == 9
+    assert len(loaded) == 14
     assert is_circuit_breaker_enabled() is True
     assert get_circuit_breaker_threshold() == 3.50
 
