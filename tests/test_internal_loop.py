@@ -73,7 +73,7 @@ async def test_internal_loop_multi_agent_custom_flow(monkeypatch):
     assert posted_messages[0]["username"] == "Innovator"
     assert "/[agent-10011]" in posted_messages[0]["text"]
 
-    assert posted_messages[1]["username"] == "Legal Advisor"
+    assert posted_messages[1]["username"] == "LegalAdvisor"
     # LegalAdvisor was the last agent in custom flow, so premature SecurityArchitect tag is stripped
     assert "/[agent-10008]" not in posted_messages[1]["text"]
 

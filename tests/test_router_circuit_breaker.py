@@ -123,7 +123,8 @@ async def test_circuit_breaker_triggers_when_threshold_exceeded(monkeypatch):
     )
     assert notes_updated is True
     assert usage_updated is True
-    assert thread_key not in thread_state_manager.remaining_agents_map
+    assert thread_key in thread_state_manager.remaining_agents_map
+    assert thread_state_manager.remaining_agents_map[thread_key] == ["agent-10008"]
 
 
 @pytest.mark.anyio

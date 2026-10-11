@@ -1341,7 +1341,7 @@ async def test_multi_agent_nomination_syntax(monkeypatch):
 
     assert res.get("ok") is True
     assert len(posted_messages) == 1
-    assert posted_messages[0]["username"] == "Security Architect"
+    assert posted_messages[0]["username"] == "SecurityArchitect"
     assert thread_state_manager.remaining_agents_map[thread_key] == ["agent-10003", "agent-10002"]
     assert "Pa sad ostatak prompta." in captured_prompt
     assert "/[agent-10008]" not in captured_prompt

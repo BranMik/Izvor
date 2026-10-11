@@ -53,6 +53,8 @@ def build_llm_messages(
         except (ImportError, AttributeError):
             required_skill = None
 
+    agent_display = agent_cfg.get("username", agent_key)
+
     if file_context:
         authorized_agents = file_context.get("authorized_agents")
         file_name = file_context.get("file_name", "unknown")
@@ -65,7 +67,6 @@ def build_llm_messages(
         if required_skill and agent_skills is not None:
             has_skill = required_skill in agent_skills
 
-        agent_display = agent_cfg.get("username", agent_key)
         if not is_agent_authorized:
             file_block = (
                 f"\n\n--- [FILE ACCESS RESTRICTED: NOT AUTHORIZED] ---\n"
