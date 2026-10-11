@@ -4,8 +4,7 @@ import json
 def _test_loads(s):
     if isinstance(s, str):
         s = s.replace("<untrusted_file_content>\n", "").replace("\n</untrusted_file_content>", "")
-    import json
-    return _test_loads(s)
+    return json.loads(s)
 
 from unittest.mock import MagicMock, patch
 
