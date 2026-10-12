@@ -11,18 +11,26 @@ from pathlib import Path
 
 from orchestration.system_settings import (
     SystemSettingsManager,
+    get_debate_turn_pacing_seconds,
     get_default_fast_model,
     get_default_reasoning_model,
+    get_log_level,
     get_max_file_size_bytes,
     get_max_file_size_mb,
     get_rag_config,
     get_rag_setting,
+    get_slack_post_pause_seconds,
+    get_tool_call_loop_timeout_seconds,
     get_workspace_write_blacklist_additional,
     is_path_write_blocked,
+    set_debate_turn_pacing_seconds,
     set_default_fast_model,
     set_default_reasoning_model,
+    set_log_level,
     set_max_file_size_mb,
     set_rag_setting,
+    set_slack_post_pause_seconds,
+    set_tool_call_loop_timeout_seconds,
     set_workspace_write_blacklist_additional,
 )
 
@@ -48,6 +56,15 @@ def test_system_settings_defaults():
         assert rag["embedding_dim"] == 3072
         assert rag["embedding_batch_size"] == 32
         assert mgr.get_workspace_write_blacklist_additional() == []
+        assert mgr.debate_turn_pacing_seconds == 3.0
+        assert mgr.slack_post_pause_seconds == 2.0
+        assert mgr.tool_call_loop_timeout_seconds == 60.0
+        assert mgr.log_level == "INFO"
+        assert mgr.get_tool_call_loop_timeout_seconds() == 60.0
+        assert mgr.get_log_level() == "INFO"
+        # Under pytest, getters scale down pacing unless explicitly set
+        assert mgr.get_debate_turn_pacing_seconds() == 0.01
+        assert mgr.get_slack_post_pause_seconds() == 0.01
 
 
 def test_system_settings_custom_persistence():
@@ -219,4 +236,27 @@ def test_is_path_write_blocked_custom_blacklist(tmp_path):
     assert is_path_write_blocked("server.pem", base_dir=base_dir, custom_blacklist=custom_bl) is True
     assert is_path_write_blocked("custom_locked.md", base_dir=base_dir, custom_blacklist=custom_bl) is True
     assert is_path_write_blocked("public/readme.md", base_dir=base_dir, custom_blacklist=custom_bl) is False
+
+
+def test_timing_and_guardrail_settings(tmp_path):
+    settings_file = tmp_path / "system_settings.json"
+    mgr = SystemSettingsManager(settings_file=settings_file, auto_load=True)
+
+    mgr.set_debate_turn_pacing_seconds(5.5)
+    mgr.set_slack_post_pause_seconds(4.2)
+    mgr.set_tool_call_loop_timeout_seconds(45.0)
+    mgr.set_log_level("DEBUG")
+
+    assert mgr.get_debate_turn_pacing_seconds() == 5.5
+    assert mgr.get_slack_post_pause_seconds() == 4.2
+    assert mgr.get_tool_call_loop_timeout_seconds() == 45.0
+    assert mgr.get_log_level() == "DEBUG"
+
+    # Reload from disk
+    mgr2 = SystemSettingsManager(settings_file=settings_file, auto_load=True)
+    assert mgr2.debate_turn_pacing_seconds == 5.5
+    assert mgr2.slack_post_pause_seconds == 4.2
+    assert mgr2.tool_call_loop_timeout_seconds == 45.0
+    assert mgr2.log_level == "DEBUG"
+
 

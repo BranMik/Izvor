@@ -55,7 +55,7 @@ Attempts to read sensitive files (such as `.env`, private keys, or system config
 When LLMs use iterative tool loops (e.g., searching, reading output, making another search), an agent can get stuck in a recursive loop.
 
 Izvor enforces a strict wall-clock timeout:
-- **Parameter**: `TOOL_CALL_LOOP_TIMEOUT_SECONDS` (default: `60` seconds).
+- **Parameter**: `tool_call_loop_timeout_seconds` (default: `60.0` seconds in [`data/settings/system_settings.json`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/data/settings/system_settings.json)).
 - **Mechanism**: The execution stage wraps the iterative tool loop in `asyncio.wait_for`. If the loop exceeds the timeout, execution is safely terminated, and the agent synthesizes the best available answer with the context gathered so far.
 
 ---

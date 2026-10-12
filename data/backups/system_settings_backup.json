@@ -12,5 +12,11 @@
     "embedding_batch_size": 32
   },
   "_comment_workspace_write_blacklist_additional": "Automatic hardcoded protection blocks writes to .env, .git, data/agent_settings.json, data/app_settings.json, and data/system_settings.json. Add any additional relative workspace paths or file patterns here to prevent unauthorized modifications.",
-  "workspace_write_blacklist_additional": []
+  "workspace_write_blacklist_additional": [],
+  "strict_privacy_mode_enabled": true,
+  "log_level": "INFO",
+  "internal_revisor_enabled": true,
+  "debate_turn_pacing_seconds": 3.0,
+  "tool_call_loop_timeout_seconds": 60.0,
+  "slack_post_pause_seconds": 2.0
 }
