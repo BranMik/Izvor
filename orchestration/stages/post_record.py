@@ -15,10 +15,10 @@ from agents import (
     trigger_thread_notes_update,
     trigger_usage_update,
 )
-from core.config import (
-    AGENTS_CONFIG,
-    DEBATE_TURN_PACING_SECONDS,
-    SLACK_POST_PAUSE_SECONDS,
+from core.config import AGENTS_CONFIG
+from orchestration.system_settings import (
+    get_debate_turn_pacing_seconds,
+    get_slack_post_pause_seconds,
 )
 from core.llm_utils import classify_agent_error
 from core.models import OrchestrationMode
@@ -226,7 +226,7 @@ class PostRecordStage:
         )
 
         pacing_secs = self.pipeline._get_hook(
-            "DEBATE_TURN_PACING_SECONDS", DEBATE_TURN_PACING_SECONDS
+            "DEBATE_TURN_PACING_SECONDS", get_debate_turn_pacing_seconds()
         )
         await self.pipeline._sleep(pacing_secs)
 
@@ -282,7 +282,7 @@ class PostRecordStage:
         logger.info(f"[SLACK] Successfully posted message! Received ts: {posted_ts}")
 
         pause_secs = self.pipeline._get_hook(
-            "SLACK_POST_PAUSE_SECONDS", SLACK_POST_PAUSE_SECONDS
+            "SLACK_POST_PAUSE_SECONDS", get_slack_post_pause_seconds()
         )
         await self.pipeline._sleep(pause_secs)
 
@@ -514,7 +514,7 @@ class PostRecordStage:
         )
 
         pause_secs = self.pipeline._get_hook(
-            "SLACK_POST_PAUSE_SECONDS", SLACK_POST_PAUSE_SECONDS
+            "SLACK_POST_PAUSE_SECONDS", get_slack_post_pause_seconds()
         )
         await self.pipeline._sleep(pause_secs)
 

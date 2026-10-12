@@ -77,8 +77,9 @@ If an extracted nomination cannot be resolved to any active, enabled persona, th
 
 To prevent LLM API rate-limit spikes and avoid overwhelming Slack users with an instant wall of text, Izvor enforces controlled pacing between turns:
 
-1. **`DEBATE_TURN_PACING_SECONDS`** (default: `3.0`):
-   - Configured in [`core/config.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/core/config.py).
+1. **`debate_turn_pacing_seconds`** (default: `3.0`):
+   - Configured in [`data/settings/system_settings.json`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/data/settings/system_settings.json).
    - An asynchronous sleep between consecutive agent turns in a thread.
-2. **`SLACK_POST_PAUSE_SECONDS`** (default: `2.0`):
+2. **`slack_post_pause_seconds`** (default: `2.0`):
+   - Configured in [`data/settings/system_settings.json`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/data/settings/system_settings.json).
    - A brief deliberate pause immediately before posting to Slack, giving the visual appearance of real-time typing and conversational cadence.

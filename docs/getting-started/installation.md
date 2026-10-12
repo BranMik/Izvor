@@ -56,10 +56,6 @@ Izvor utilizes:
 
 Create a `.env` file in the project root by copying [`.env.example`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/.env.example):
 
-```bash
-cp .env.example .env
-```
-
 ### Configuration Variables Breakdown
 Configure .env file with the following variables.
 Refer to [`core/config.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/core/config.py) for the full definitions:
@@ -78,13 +74,25 @@ Refer to [`core/config.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/co
 | `AUDIT_HMAC_SECRET` | Optional | `None` | Secret key used for signing non-repudiable audit logs. |
 | `PORT` | No | `8000` | HTTP port on which FastAPI listens. |
 | `MCP_WORKSPACE_DIR` | No | `.` | Root directory to which MCP filesystem tools are confined. |
-| `TOOL_CALL_LOOP_TIMEOUT_SECONDS` | No | `60` | Maximum wall-clock execution time for iterative tool calling loops. |
-| `DEBATE_TURN_PACING_SECONDS` | No | `3.0` | Delay between consecutive agent turns to prevent flooding. |
-| `SLACK_POST_PAUSE_SECONDS` | No | `2.0` | Brief pause before posting to allow human visual parsing. |
-| `LOG_LEVEL` | No | `INFO` | Application log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`). |
 
 > [!WARNING]
 > If `ADMIN_PASSWORD` is left unset, all protected endpoints (`/api/*`) will reject incoming requests with HTTP 500/401 to prevent unauthenticated access. Always set a strong, random password.
+
+### ⚙️ System Settings (`data/settings/system_settings.json`)
+
+System operational parameters and guardrails are configured in [`data/settings/system_settings.json`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/data/settings/system_settings.json). These settings can be modified live without server restarts:
+
+| Setting Key | Default | Description |
+|---|---|---|
+| `log_level` | `"INFO"` | Application log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`). |
+| `debate_turn_pacing_seconds` | `3.0` | Delay between consecutive agent turns to prevent flooding. |
+| `tool_call_loop_timeout_seconds` | `60.0` | Maximum wall-clock execution time for iterative tool calling loops. |
+| `slack_post_pause_seconds` | `2.0` | Brief pause before posting to Slack to allow human visual parsing. |
+| `max_file_size_mb` | `50.0` | Maximum allowable file size for uploads and workspace parsing. |
+| `strict_privacy_mode_enabled` | `true` | Enforces privacy boundaries and PII masking. |
+| `default_fast_model` | `"gemini/gemini-3.8-flash"` | System-level fallback model for fast tasks. |
+| `default_reasoning_model` | `"mistral/mistral-large-latest"` | System-level fallback model for reasoning tasks. |
+| `rag` | `{...}` | Semantic chunking, LanceDB dimensions, and embedding configuration. |
 
 ---
 

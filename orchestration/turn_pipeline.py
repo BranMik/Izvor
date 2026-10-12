@@ -230,9 +230,12 @@ class TurnPipeline:
         if name in di_map and di_map[name] is not None:
             return di_map[name]
 
-        # 2. Hooks dictionary passed to constructor
+        # 2. Hooks dictionary passed to constructor (supports both upper and lowercase keys)
         if name in self._hooks and self._hooks[name] is not None:
             return self._hooks[name]
+        alt_name = name.lower() if name.isupper() else name.upper()
+        if alt_name in self._hooks and self._hooks[alt_name] is not None:
+            return self._hooks[alt_name]
 
         # 3. Router module attribute or monkeypatch (for test monkeypatch compatibility)
         if self.router is not None and hasattr(self.router, name):

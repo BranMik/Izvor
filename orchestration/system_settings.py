@@ -2,6 +2,7 @@ import fnmatch
 import json
 import logging
 import os
+import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -51,6 +52,11 @@ class SystemSettingsManager:
         self.workspace_write_blacklist_additional: list[str] = []
         self.strict_privacy_mode_enabled: bool = True
         self.log_level: str = "INFO"
+        self.debate_turn_pacing_seconds: float = 3.0
+        self.slack_post_pause_seconds: float = 2.0
+        self.tool_call_loop_timeout_seconds: float = 60.0
+        self._debate_turn_pacing_manually_set: bool = False
+        self._slack_post_pause_manually_set: bool = False
 
         self.rag_config: dict[str, Any] = {
             "max_chunk_chars": 3500,
@@ -120,6 +126,9 @@ class SystemSettingsManager:
             )
             self.strict_privacy_mode_enabled = bool(data.get("strict_privacy_mode_enabled", True))
             self.log_level = str(data.get("log_level", "INFO")).strip().upper() or "INFO"
+            self.debate_turn_pacing_seconds = float(data.get("debate_turn_pacing_seconds", 3.0))
+            self.slack_post_pause_seconds = float(data.get("slack_post_pause_seconds", 2.0))
+            self.tool_call_loop_timeout_seconds = float(data.get("tool_call_loop_timeout_seconds", 60.0))
 
             self._last_loaded_mtime = mtime
             logger.debug(f"[SYSTEM_SETTINGS] Loaded settings from {target_file}")
@@ -147,6 +156,9 @@ class SystemSettingsManager:
                     )
                     self.strict_privacy_mode_enabled = bool(data.get("strict_privacy_mode_enabled", True))
                     self.log_level = str(data.get("log_level", "INFO")).strip().upper() or "INFO"
+                    self.debate_turn_pacing_seconds = float(data.get("debate_turn_pacing_seconds", 3.0))
+                    self.slack_post_pause_seconds = float(data.get("slack_post_pause_seconds", 2.0))
+                    self.tool_call_loop_timeout_seconds = float(data.get("tool_call_loop_timeout_seconds", 60.0))
                     logger.warning("[SYSTEM_SETTINGS] Recovered settings from backup.")
                 except (OSError, json.JSONDecodeError, TypeError, ValueError) as be:
                     logger.error(f"[SYSTEM_SETTINGS] Failed to read backup: {be}")
@@ -168,6 +180,9 @@ class SystemSettingsManager:
             "workspace_write_blacklist_additional": self.workspace_write_blacklist_additional,
             "strict_privacy_mode_enabled": self.strict_privacy_mode_enabled,
             "log_level": self.log_level,
+            "debate_turn_pacing_seconds": self.debate_turn_pacing_seconds,
+            "tool_call_loop_timeout_seconds": self.tool_call_loop_timeout_seconds,
+            "slack_post_pause_seconds": self.slack_post_pause_seconds,
         }
 
         tmp_file = target_file.with_suffix(".tmp")
@@ -302,6 +317,43 @@ class SystemSettingsManager:
             if save:
                 self.save()
             logger.info(f"[SYSTEM_SETTINGS] Set log_level to '{self.log_level}'.")
+
+    # --- Pacing & Execution Timeout Settings ---
+    def get_debate_turn_pacing_seconds(self) -> float:
+        self.load()
+        if "pytest" in sys.modules and not self._debate_turn_pacing_manually_set:
+            return 0.01
+        return self.debate_turn_pacing_seconds
+
+    def set_debate_turn_pacing_seconds(self, seconds: float, save: bool = True) -> None:
+        self.debate_turn_pacing_seconds = max(0.0, float(seconds))
+        self._debate_turn_pacing_manually_set = True
+        if save:
+            self.save()
+        logger.info(f"[SYSTEM_SETTINGS] Set debate_turn_pacing_seconds to {self.debate_turn_pacing_seconds}.")
+
+    def get_slack_post_pause_seconds(self) -> float:
+        self.load()
+        if "pytest" in sys.modules and not self._slack_post_pause_manually_set:
+            return 0.01
+        return self.slack_post_pause_seconds
+
+    def set_slack_post_pause_seconds(self, seconds: float, save: bool = True) -> None:
+        self.slack_post_pause_seconds = max(0.0, float(seconds))
+        self._slack_post_pause_manually_set = True
+        if save:
+            self.save()
+        logger.info(f"[SYSTEM_SETTINGS] Set slack_post_pause_seconds to {self.slack_post_pause_seconds}.")
+
+    def get_tool_call_loop_timeout_seconds(self) -> float:
+        self.load()
+        return self.tool_call_loop_timeout_seconds
+
+    def set_tool_call_loop_timeout_seconds(self, seconds: float, save: bool = True) -> None:
+        self.tool_call_loop_timeout_seconds = max(0.1, float(seconds))
+        if save:
+            self.save()
+        logger.info(f"[SYSTEM_SETTINGS] Set tool_call_loop_timeout_seconds to {self.tool_call_loop_timeout_seconds}.")
 
     def is_path_write_blocked(
         self,
@@ -463,5 +515,30 @@ def get_log_level() -> str:
 
 def set_log_level(level: str, save: bool = True) -> None:
     system_settings_manager.set_log_level(level, save=save)
+
+
+def get_debate_turn_pacing_seconds() -> float:
+    return system_settings_manager.get_debate_turn_pacing_seconds()
+
+
+def set_debate_turn_pacing_seconds(seconds: float, save: bool = True) -> None:
+    system_settings_manager.set_debate_turn_pacing_seconds(seconds, save=save)
+
+
+def get_slack_post_pause_seconds() -> float:
+    return system_settings_manager.get_slack_post_pause_seconds()
+
+
+def set_slack_post_pause_seconds(seconds: float, save: bool = True) -> None:
+    system_settings_manager.set_slack_post_pause_seconds(seconds, save=save)
+
+
+def get_tool_call_loop_timeout_seconds() -> float:
+    return system_settings_manager.get_tool_call_loop_timeout_seconds()
+
+
+def set_tool_call_loop_timeout_seconds(seconds: float, save: bool = True) -> None:
+    system_settings_manager.set_tool_call_loop_timeout_seconds(seconds, save=save)
+
 
 

@@ -339,9 +339,15 @@ def test_dynamic_config_getter_resolution():
 
 def test_configurable_pacing_defaults():
     import core.config
+    from orchestration.system_settings import (
+        get_debate_turn_pacing_seconds,
+        get_slack_post_pause_seconds,
+        get_tool_call_loop_timeout_seconds,
+    )
 
-    assert isinstance(core.config.DEBATE_TURN_PACING_SECONDS, float)
-    assert isinstance(core.config.SLACK_POST_PAUSE_SECONDS, float)
+    assert isinstance(get_debate_turn_pacing_seconds(), float)
+    assert isinstance(get_slack_post_pause_seconds(), float)
+    assert isinstance(get_tool_call_loop_timeout_seconds(), float)
     assert isinstance(core.config.MAX_DISCUSSION_TURNS, int)
     assert core.config.MAX_DISCUSSION_TURNS == 20
 

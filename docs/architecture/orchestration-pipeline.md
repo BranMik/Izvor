@@ -45,7 +45,7 @@ The pipeline operates on a shared state object ([`SessionContext`](file:///c:/Us
   3. **Tool Calling Loop**: If the model issues a tool call (e.g., `web_research`, `document_reader`, MCP filesystem tool):
      - Executes the tool inside the safe confinement boundary.
      - Feeds the tool output back into the conversation context.
-     - Enforces `TOOL_CALL_LOOP_TIMEOUT_SECONDS` (default: 60s) to prevent runaway execution loops.
+     - Enforces `tool_call_loop_timeout_seconds` (default: 60s in [`data/settings/system_settings.json`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/data/settings/system_settings.json)) to prevent runaway execution loops.
 
 ### Stage 4: In-Place Status Resolution (`tool_status.py`)
 - **File**: [`orchestration/stages/tool_status.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/orchestration/stages/tool_status.py)

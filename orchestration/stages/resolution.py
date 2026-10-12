@@ -13,7 +13,8 @@ from agents import (
     trigger_thread_notes_update,
     trigger_usage_update,
 )
-from core.config import AGENTS_CONFIG, SLACK_POST_PAUSE_SECONDS
+from core.config import AGENTS_CONFIG
+from orchestration.system_settings import get_slack_post_pause_seconds
 from core.models import OrchestrationMode
 from orchestration.agent_settings import (
     get_circuit_breaker_threshold,
@@ -188,7 +189,7 @@ class ResolutionStage:
                     blocks=blocks,
                 )
                 pause_secs = self.pipeline._get_hook(
-                    "SLACK_POST_PAUSE_SECONDS", SLACK_POST_PAUSE_SECONDS
+                    "SLACK_POST_PAUSE_SECONDS", get_slack_post_pause_seconds()
                 )
                 await self.pipeline._sleep(pause_secs)
 

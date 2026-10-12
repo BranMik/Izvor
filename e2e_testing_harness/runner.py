@@ -159,9 +159,9 @@ class E2ETestRunner:
         patches = [
             patch("core.slack_security.verify_slack_signature", lambda body, headers: True),
             patch("main.verify_slack_signature", lambda body, headers: True),
-            patch("orchestration.stages.post_record.DEBATE_TURN_PACING_SECONDS", self.pacing),
-            patch("orchestration.stages.post_record.SLACK_POST_PAUSE_SECONDS", self.pacing),
-            patch("orchestration.stages.resolution.SLACK_POST_PAUSE_SECONDS", self.pacing),
+            patch("orchestration.stages.post_record.get_debate_turn_pacing_seconds", lambda: self.pacing),
+            patch("orchestration.stages.post_record.get_slack_post_pause_seconds", lambda: self.pacing),
+            patch("orchestration.stages.resolution.get_slack_post_pause_seconds", lambda: self.pacing),
             patch("adapters.slack.interactivity.open_dm_channel", AsyncMock(return_value="D_TEST_DM")),
             patch("services.flat_history_recorder.record_flat_history", lambda *args, **kwargs: None),
             patch("services.flat_history_recorder.async_record_flat_history", new_callable=AsyncMock),

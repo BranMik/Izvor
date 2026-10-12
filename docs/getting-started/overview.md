@@ -1,6 +1,6 @@
 # Izvor Platform Overview
 
-**Izvor** is an enterprise-ready, asynchronous multi-agent deliberation platform that connects Slack workspaces to specialized LLM personas using [LiteLLM](https://github.com/BerriAI/litellm) and [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) tools.
+**Izvor** is an asynchronous multi-agent deliberation platform that connects Slack workspaces to specialized LLM personas using [LiteLLM](https://github.com/BerriAI/litellm) and [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) tools.
 
 ---
 
@@ -8,7 +8,7 @@
 
 In modern collaborative environments, complex engineering, security, and strategic decisions require diverse perspectives. Izvor replaces isolated single-prompt chat interactions with structured, multi-persona deliberations directly inside Slack threads.
 
-Instead of one generic assistant answering every prompt, Izvor orchestrates specialized personas (such as *Visionary*, *Pragmatist*, *Skeptic*, *Security Architect*, *LegalAdvisor*, and *Scribe*) that deliberate, critique, and synthesize decisions using defined orchestration topologies.
+Instead of one generic assistant answering every prompt, Izvor orchestrates specialized personas (such as *Visionary*, *Sceptic*, *Security Architect*, *Legal Advisor*, *Sales Advisor*, and *Scribe*) that deliberate, critique, and synthesize decisions using defined orchestration topologies.
 
 ---
 
@@ -53,7 +53,7 @@ graph TD
 ## ✨ Key Architectural Pillars
 
 ### 1. Multi-Persona Discussion Topologies
-Izvor does not rely on rigid turn-taking. It supports:
+Izvor does not rely on rigid turn-taking. It supports 2 types of Workflow:
 - **🥪 Sandwich Mode**: Starts with designated initial thinkers (*Start Chain*), transitions through an open debate or peer-nominated pool (*Middle Pool*), and concludes with an authoritative synthesis by designated closers (*End Chain*).
 - **🎯 Fixed Mode**: Executes an ordered, sequential chain of personas defined by the operator or preset.
 - **Dynamic Peer Nomination**: Personas naturally pass the baton by referencing peers using bracket notation (e.g., `[Security Architect]`, `[Pragmatist]`), parsed automatically by the [`EntityResolver`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/pipeline/entity_resolver).
@@ -63,7 +63,7 @@ Izvor does not rely on rigid turn-taking. It supports:
 - **Generation-Based Superseding**: If a human user replies to an ongoing deliberation, the thread generation counter increments. Obsolete background agent turns detect generation divergence and gracefully abort without race conditions.
 
 ### 3. Asynchronous Tool Execution & Non-Blocking Slack UX
-- **Wall-Clock Guard**: Tool loops are bounded by `TOOL_CALL_LOOP_TIMEOUT_SECONDS` (default: 60s) to prevent runaway recursive calls.
+- **Wall-Clock Guard**: Tool loops are bounded by `tool_call_loop_timeout_seconds` (default: 60s in [`data/settings/system_settings.json`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/data/settings/system_settings.json)) to prevent runaway recursive calls.
 - **5-Second Delayed Status Indicator**: If a tool call takes longer than 5 seconds, Izvor posts an intermediate placeholder (e.g., `_🔍 *Visionary* is searching the web..._`). Fast calls (<5s) complete silently without UI jitter.
 - **In-Place Message Editing**: When tool output resolves, the placeholder is edited in-place with the final response, avoiding cluttered Slack threads.
 
@@ -73,7 +73,7 @@ Izvor does not rely on rigid turn-taking. It supports:
 - **Circuit Breaker**: When cumulative thread expense exceeds configured USD thresholds, the debate is safely paused, and a spend warning is posted.
 
 ### 5. Interactive Slack App Home & Administrative SSOT
-- **Live Configuration**: Slack workspace admins can configure debate presets, agent rosters, circuit breaker thresholds, and topologies directly in the Slack App Home tab ([`services/slack_home_views.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/services/slack_home_views.py)).
+- **Live Configuration**: Slack workspace admins can configure debate workflows, agent rosters, circuit breaker thresholds, and topologies directly in the Slack App Home tab ([`services/slack_home_views.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/services/slack_home_views.py)).
 - **Resilient Persistence**: Changes are committed atomically to `data/settings/agent_settings.json` and `data/settings/app_settings.json`, backed by automated 7-day emergency failover archives.
 
 ### 6. Non-Repudiable Cryptographic Audit Logging

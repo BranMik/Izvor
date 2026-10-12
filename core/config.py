@@ -40,8 +40,6 @@ if _raw_workspace and _raw_workspace != ".":
 else:
     MCP_WORKSPACE_DIR = PROJECT_ROOT
 
-# Logging level configuration
-LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 
 # Admin HTTP Basic Authentication credentials
 ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
@@ -285,17 +283,8 @@ def get_language_detector_model() -> str:
     return get_orchestrator_fast_model()
 
 
-# Pacing & Orchestration Defaults (configurable via environment variables)
-DEBATE_TURN_PACING_SECONDS = float(
-    os.getenv("DEBATE_TURN_PACING_SECONDS", "0.01" if "pytest" in sys.modules else "3.0")
-)
-SLACK_POST_PAUSE_SECONDS = float(
-    os.getenv("SLACK_POST_PAUSE_SECONDS", "0.01" if "pytest" in sys.modules else "2.0")
-)
+# Discussion and Tool Update Limits (configurable via environment variables)
 MAX_DISCUSSION_TURNS = int(os.getenv("MAX_DISCUSSION_TURNS", "20"))
-TOOL_CALL_LOOP_TIMEOUT_SECONDS = float(
-    os.getenv("TOOL_CALL_LOOP_TIMEOUT_SECONDS", "60.0")
-)
 TOOL_INTERMEDIATE_UPDATE_DELAY_SECONDS = float(
     os.getenv("TOOL_INTERMEDIATE_UPDATE_DELAY_SECONDS", "5.0")
 )
@@ -321,7 +310,6 @@ __all__ = [
     "SLACK_SIGNING_SECRET",
     "SLACK_TEST_CHANNEL_ID",
     "MCP_WORKSPACE_DIR",
-    "LOG_LEVEL",
     "ADMIN_USERNAME",
     "ADMIN_PASSWORD",
     "BASE_AVATAR_URL",
@@ -334,10 +322,7 @@ __all__ = [
     "ORCHESTRATOR_CONFIG",
     "DEFAULT_FAST_MODEL",
     "DEFAULT_REASONING_MODEL",
-    "DEBATE_TURN_PACING_SECONDS",
-    "SLACK_POST_PAUSE_SECONDS",
     "MAX_DISCUSSION_TURNS",
-    "TOOL_CALL_LOOP_TIMEOUT_SECONDS",
     "TOOL_INTERMEDIATE_UPDATE_DELAY_SECONDS",
     "resolve_avatar_url",
     "get_default_fast_model",
