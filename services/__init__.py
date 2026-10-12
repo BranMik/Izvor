@@ -53,10 +53,17 @@ from .slack_client import (
     publish_app_home,
     read_slack_file_text,
     sanitize_slack_download_filename,
+    unpin_thread_note,
     update_slack_message,
     update_thread_note,
     update_usage_message,
     upload_text_file_to_slack,
+)
+from .thread_notes_writer import (
+    DEFAULT_THREAD_NOTES_DIR,
+    THREAD_NOTES_DIR,
+    generate_notes_filename,
+    save_thread_notes_to_disk,
 )
 from .web_tools import (
     fetch_web_page,
@@ -111,10 +118,15 @@ __all__ = [
     "refresh_model_pricing",
     "sanitize_slack_download_filename",
     "save_pricing_cache",
+    "unpin_thread_note",
     "update_slack_message",
     "update_thread_note",
     "update_usage_message",
     "upload_text_file_to_slack",
+    "save_thread_notes_to_disk",
+    "generate_notes_filename",
+    "THREAD_NOTES_DIR",
+    "DEFAULT_THREAD_NOTES_DIR",
     "warm_up_pricing_cache",
     "web_search",
     "write_document",

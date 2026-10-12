@@ -90,6 +90,28 @@ class DiscussionBrief:
 
 
 @dataclass
+class DiscussionConclusion:
+    """Structured conclusion brief containing problem statement and multi-perspective argumentation."""
+
+    problem_statement: str = ""
+    consensus: str = ""
+    opposing_conclusions: list[dict[str, Any]] = field(default_factory=list)
+    raw_markdown: str = ""
+    is_completed: bool = True
+    language: str = "en"  # "en" or "hr"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "problem_statement": self.problem_statement,
+            "consensus": self.consensus,
+            "opposing_conclusions": self.opposing_conclusions,
+            "raw_markdown": self.raw_markdown,
+            "is_completed": self.is_completed,
+            "language": self.language,
+        }
+
+
+@dataclass
 class SpendMetrics:
     """Monetary and token consumption metrics for a session."""
 
