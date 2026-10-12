@@ -238,8 +238,9 @@ async def fetch_thread_history(
 
             # Ignore internal system warnings, test runner cards, and scribe summaries from LLM history
             if (
-                username in ("Panel System", "E2E Test Runner", "Live Discussion Scribe")
+                username in ("Panel System", "E2E Test Runner", "Live Discussion Scribe", "Discussion Conclusion")
                 or msg.get("is_scribe_note")
+                or msg.get("is_conclusion_note")
                 or msg_text.strip().startswith(("⚠️", "⚙️", "🔒", "🗑️", "🧪"))
             ):
                 continue
@@ -337,7 +338,11 @@ async def post_thread_note(
                 )
             except SlackApiError as pin_err:
                 err = pin_err.response.get("error", "")
-                if err != "already_pinned":
+                if err in ("already_pinned", "too_many_pins"):
+                    logger.info(
+                        f"[SLACK NOTE] Note message pinning skipped ({err}) in channel {channel_id}"
+                    )
+                else:
                     logger.debug(
                         f"[SLACK NOTE] Note message pinning skipped/failed: {err}"
                     )
@@ -352,6 +357,42 @@ async def post_thread_note(
         return {"ok": False, "error": str(e)}
     except Exception as e:  # noqa: BLE001 - Slack API boundary returns error payload instead of crashing callers
         logger.error(f"[SLACK NOTE] Unexpected error posting thread note: {e}")
+        return {"ok": False, "error": str(e)}
+
+
+async def unpin_thread_note(
+    channel_id: str,
+    message_ts: str,
+) -> dict[str, Any]:
+    """
+    Unpins a thread note message from the channel.
+    Gracefully handles cases where the message is already unpinned or not found.
+    """
+    if not message_ts:
+        return {"ok": False, "error": "No message_ts provided"}
+
+    if (
+        not SLACK_BOT_TOKEN
+        or SLACK_BOT_TOKEN == "xoxb-your-bot-user-oauth-token"
+        or str(message_ts).startswith("mock_")
+    ):
+        logger.info(f"[MOCK NOTE] Unpinned mock note {message_ts} in channel {channel_id}")
+        return {"ok": True, "mock": True}
+
+    try:
+        await slack_rate_limiter.acquire()
+        await slack_async_client.pins_remove(channel=channel_id, timestamp=message_ts)
+        logger.info(f"[SLACK NOTE] Unpinned note message {message_ts} from channel {channel_id}")
+        return {"ok": True}
+    except SlackApiError as e:
+        err = e.response.get("error", "")
+        if err in ("not_pinned", "no_pin"):
+            logger.debug(f"[SLACK NOTE] Note {message_ts} was already unpinned ({err})")
+            return {"ok": True}
+        logger.debug(f"[SLACK NOTE] Error unpinning note {message_ts}: {err}")
+        return {"ok": False, "error": err}
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"[SLACK NOTE] Unexpected error unpinning note {message_ts}: {e}")
         return {"ok": False, "error": str(e)}
 
 

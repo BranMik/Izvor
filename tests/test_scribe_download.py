@@ -4,10 +4,13 @@ import pytest
 from fastapi.testclient import TestClient
 
 from agents.thread_notes_agent import (
+    build_conclusion_note_blocks,
     build_scribe_note_blocks,
     clear_thread_note,
+    get_thread_conclusion_content,
     get_thread_note_content,
     reset_thread_notes,
+    set_thread_conclusion_content,
     set_thread_note_content,
     update_notes_for_thread,
 )
@@ -190,3 +193,58 @@ def test_slack_interactivity_download_scribe_fallback_to_payload():
         assert mock_upload.called
         assert mock_upload.call_args.kwargs["channel_id"] == "D_USER_88"
         assert mock_upload.call_args.kwargs["content"] == "Fallback synthesis notes from message"
+
+
+def test_build_conclusion_note_blocks():
+    text = "Part 1: *Problem Statement*\nDefine DB.\n\nPart 2: *Conclusion and Argumentation*\nPostgreSQL wins."
+    channel_id = "C_TEST_CONC"
+    thread_ts = "1710000000.000999"
+
+    blocks = build_conclusion_note_blocks(text, channel_id, thread_ts)
+
+    assert len(blocks) == 2
+    assert blocks[0]["type"] == "section"
+    assert blocks[0]["text"]["text"] == text
+
+    assert blocks[1]["type"] == "actions"
+    assert blocks[1]["block_id"] == "conclusion_actions_block"
+    btn = blocks[1]["elements"][0]
+    assert btn["action_id"] == "download_conclusion_notes_txt"
+    assert btn["value"] == f"{channel_id}:{thread_ts}"
+    assert "Download Conclusion" in btn["text"]["text"]
+
+
+def test_slack_interactivity_download_conclusion_action():
+    client = TestClient(app)
+    channel_id = "C_INTERACTIVE_CONC"
+    thread_ts = "1710000000.000600"
+    user_id = "U_CLICKER_77"
+    conclusion_content = "Part 1: Problem statement.\nPart 2: Dialectical argumentation."
+
+    set_thread_conclusion_content(channel_id, thread_ts, conclusion_content)
+
+    payload = {
+        "type": "block_actions",
+        "user": {"id": user_id},
+        "actions": [
+            {
+                "action_id": "download_conclusion_notes_txt",
+                "value": f"{channel_id}:{thread_ts}",
+            }
+        ],
+    }
+
+    with patch("adapters.slack.interactivity.verify_slack_signature", return_value=True), \
+         patch("adapters.slack.interactivity.post_ephemeral_to_slack", new_callable=AsyncMock) as mock_ephemeral, \
+         patch("adapters.slack.interactivity.open_dm_channel", new_callable=AsyncMock, return_value="D_USER_CONC_DM") as mock_open_dm, \
+         patch("adapters.slack.interactivity.upload_text_file_to_slack", new_callable=AsyncMock, return_value={"ok": True}) as mock_upload:
+
+        resp = client.post("/slack/interactivity", json=payload)
+        assert resp.status_code == 200
+
+        assert mock_ephemeral.called
+        assert mock_open_dm.called
+        assert mock_upload.called
+        assert mock_upload.call_args.kwargs["channel_id"] == "D_USER_CONC_DM"
+        assert mock_upload.call_args.kwargs["content"] == conclusion_content
+        assert mock_upload.call_args.kwargs["filename"] == "conclusion_notes_1710000000_000600.txt"

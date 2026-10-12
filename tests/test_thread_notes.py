@@ -5,30 +5,31 @@ import pytest
 
 from agents import thread_notes_agent
 from agents.thread_notes_agent import (
+    THREAD_CONCLUSION_MSG_MAP,
     THREAD_NOTE_MSG_MAP,
+    generate_conclusion_notes,
     generate_thread_notes,
+    get_thread_conclusion_content,
+    get_thread_conclusion_note,
     get_thread_note,
+    get_thread_note_content,
+    reset_thread_notes,
+    set_thread_conclusion_note,
     set_thread_note,
     trigger_thread_notes_update,
     update_notes_for_thread,
 )
 from core.config import get_thread_notes_model
-from services.slack_client import post_thread_note, update_thread_note
+from services.slack_client import post_thread_note, unpin_thread_note, update_thread_note
 
 
 @pytest.fixture(autouse=True)
 def clean_notes_state(monkeypatch):
     from orchestration import agent_router
     monkeypatch.setattr(agent_router.asyncio, "sleep", AsyncMock(return_value=None))
-    THREAD_NOTE_MSG_MAP.clear()
-    thread_notes_agent.THREAD_LOCKS.clear()
-    thread_notes_agent._RUNNING_TASKS.clear()
-    thread_notes_agent._PENDING_UPDATES.clear()
+    reset_thread_notes()
     yield
-    THREAD_NOTE_MSG_MAP.clear()
-    thread_notes_agent.THREAD_LOCKS.clear()
-    thread_notes_agent._RUNNING_TASKS.clear()
-    thread_notes_agent._PENDING_UPDATES.clear()
+    reset_thread_notes()
 
 
 @pytest.mark.anyio
@@ -291,6 +292,12 @@ async def test_fetch_thread_history_excludes_scribe_notes(monkeypatch):
             "username": "Live Discussion Scribe",
             "subtype": "bot_message",
         },
+        {
+            "user": "UBOT",
+            "text": "🎯 *Discussion Conclusion*\n\nFinal consensus and arguments...",
+            "username": "Discussion Conclusion",
+            "subtype": "bot_message",
+        },
         {"user": "UBOT", "text": "We need microservices", "username": "agent-10011", "subtype": "bot_message"},
         {"user": "UBOT", "text": "_⚡ *LegalAdvisor* is loading skill: web_research..._", "username": "agent-10011", "subtype": "bot_message"},
         {"user": "U1", "text": "👤 *Follow-up Prompt:*\n> What about SQLite?", "subtype": None},
@@ -302,9 +309,10 @@ async def test_fetch_thread_history_excludes_scribe_notes(monkeypatch):
     history = await slack_client.fetch_thread_history("C123", "1700000000.001")
     contents = [m["content"] for m in history]
 
-    # Status indicator messages and scribe notes should be excluded
+    # Status indicator messages, live scribe, and conclusion notes should be excluded
     assert not any("_⚡" in c for c in contents)
     assert not any("Live Discussion Scribe" in c for c in contents)
+    assert not any("Discussion Conclusion" in c for c in contents)
 
     # Runner follow-up prefix should be cleaned via re.sub
     assert len(history) == 3
@@ -336,5 +344,110 @@ async def test_scribe_disabled_skips_trigger_and_update(monkeypatch):
         assert res["reason"] == "Scribe is disabled"
     finally:
         set_scribe_enabled(True)
+
+
+@pytest.mark.anyio
+async def test_update_notes_for_thread_completed_unpins_live_and_pins_conclusion(monkeypatch):
+    """
+    On is_completed=True:
+    1. Unpins Live Scribe Note.
+    2. Generates Conclusion Note with 2 parts (Problem Statement + Conclusion & Argumentation).
+    3. Posts and pins Conclusion Note as 'Discussion Conclusion'.
+    """
+    channel_id = "C_COMPLETE_TEST"
+    thread_ts = "1700000000.777"
+
+    history = [
+        {"role": "user", "content": "Choose between SQL and NoSQL"},
+        {"role": "assistant", "content": "[agent-10001]: SQL provides strict ACID compliance."},
+        {"role": "assistant", "content": "[agent-10003]: NoSQL provides flexible schema and easy scaling."},
+    ]
+
+    mock_live_notes = ("📋 *Live Strategic Synthesis*\n🎯 *Problem Statement*\nChoose DB.", {"prompt_tokens": 10, "completion_tokens": 10, "total_tokens": 20})
+    mock_conc_notes = (
+        "Part 1: *Problem Statement*\nChoose optimal database architecture.\n\n"
+        "Part 2: *Conclusion and Argumentation*\n"
+        "• *Consensus Decisions*: Need high availability.\n"
+        "• *Opposing Conclusions & Divergent Advice*:\n"
+        "  - PostgreSQL (Supporting: [agent-10001]): Strong ACID guarantees.\n"
+        "  - MongoDB (Supporting: [agent-10003]): Schema agility and horizontal scaling.",
+        {"prompt_tokens": 20, "completion_tokens": 30, "total_tokens": 50},
+    )
+
+    unpinned_ts_list = []
+    posted_notes = []
+
+    async def mock_post_thread_note(channel_id, thread_ts, text, pin=True, username="Live Discussion Scribe", icon_emoji=":memo:", blocks=None):
+        ts = f"mock_ts_{len(posted_notes) + 1}.000"
+        posted_notes.append({"channel_id": channel_id, "thread_ts": thread_ts, "text": text, "pin": pin, "username": username, "ts": ts})
+        return {"ok": True, "ts": ts}
+
+    async def mock_unpin_thread_note(channel_id, message_ts):
+        unpinned_ts_list.append(message_ts)
+        return {"ok": True}
+
+    monkeypatch.setattr("agents.thread_notes_agent.fetch_thread_history", AsyncMock(return_value=history))
+    monkeypatch.setattr("agents.thread_notes_agent.generate_thread_notes", AsyncMock(return_value=mock_live_notes))
+    monkeypatch.setattr("agents.thread_notes_agent.generate_conclusion_notes", AsyncMock(return_value=mock_conc_notes))
+    monkeypatch.setattr("agents.thread_notes_agent.post_thread_note", mock_post_thread_note)
+    monkeypatch.setattr("agents.thread_notes_agent.unpin_thread_note", mock_unpin_thread_note)
+
+    # 1. Active debate turn (is_completed=False)
+    res_active = await update_notes_for_thread(channel_id, thread_ts, is_completed=False)
+    assert res_active["ok"] is True
+    live_ts = res_active["note_ts"]
+    assert live_ts == "mock_ts_1.000"
+    assert len(posted_notes) == 1
+    assert posted_notes[0]["username"] == "Live Discussion Scribe"
+    assert posted_notes[0]["pin"] is True
+    assert unpinned_ts_list == []
+
+    # 2. Final round completed (is_completed=True)
+    res_completed = await update_notes_for_thread(channel_id, thread_ts, is_completed=True)
+    assert res_completed["ok"] is True
+    assert res_completed["conclusion_ts"] == "mock_ts_2.000"
+
+    # Verify live note was unpinned
+    assert live_ts in unpinned_ts_list
+
+    # Verify conclusion note was posted and pinned as 'Discussion Conclusion'
+    assert len(posted_notes) == 2
+    conc_post = posted_notes[1]
+    assert conc_post["username"] == "Discussion Conclusion"
+    assert conc_post["pin"] is True
+    assert "Part 1: *Problem Statement*" in conc_post["text"]
+    assert "Part 2: *Conclusion and Argumentation*" in conc_post["text"]
+    assert "PostgreSQL" in conc_post["text"]
+    assert "MongoDB" in conc_post["text"]
+
+
+@pytest.mark.anyio
+async def test_update_notes_for_thread_reengagement_updates_existing_notes(monkeypatch):
+    """
+    On user follow-up queries after completion, subsequent completion calls
+    must update existing live note and existing conclusion note in-place.
+    """
+    channel_id = "C_REENGAGE_TEST"
+    thread_ts = "1700000000.999"
+
+    mock_update_note = AsyncMock(return_value={"ok": True})
+    monkeypatch.setattr("agents.thread_notes_agent.update_thread_note", mock_update_note)
+    monkeypatch.setattr("agents.thread_notes_agent.unpin_thread_note", AsyncMock(return_value={"ok": True}))
+    monkeypatch.setattr("agents.thread_notes_agent.fetch_thread_history", AsyncMock(return_value=[{"role": "user", "content": "What about costs?"}]))
+    monkeypatch.setattr("agents.thread_notes_agent.generate_thread_notes", AsyncMock(return_value=("Updated live notes", {"prompt_tokens": 10, "completion_tokens": 10, "total_tokens": 20})))
+    monkeypatch.setattr("agents.thread_notes_agent.generate_conclusion_notes", AsyncMock(return_value=("Updated conclusion notes", {"prompt_tokens": 10, "completion_tokens": 10, "total_tokens": 20})))
+
+    # Pre-populate state as already created
+    set_thread_note(channel_id, thread_ts, "live_ts_123")
+    set_thread_conclusion_note(channel_id, thread_ts, "conclusion_ts_456")
+
+    res = await update_notes_for_thread(channel_id, thread_ts, is_completed=True)
+    assert res["ok"] is True
+
+    # Both notes should be updated in-place via update_thread_note
+    calls = mock_update_note.call_args_list
+    assert len(calls) == 2
+    assert calls[0].kwargs["message_ts"] == "live_ts_123"
+    assert calls[1].kwargs["message_ts"] == "conclusion_ts_456"
 
 

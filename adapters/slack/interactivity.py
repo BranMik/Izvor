@@ -8,7 +8,10 @@ from fastapi import BackgroundTasks, HTTPException, Request, Response
 from slack_sdk.errors import SlackApiError
 from starlette.requests import ClientDisconnect
 
-from agents.thread_notes_agent import get_thread_note_content
+from agents.thread_notes_agent import (
+    get_thread_conclusion_content,
+    get_thread_note_content,
+)
 from core.config import AGENTS_CONFIG
 from core.models import OrchestrationMode
 from core.slack_security import verify_slack_signature
@@ -56,9 +59,11 @@ async def _handle_scribe_download(
     channel_id: str,
     thread_ts: str,
     content: str,
+    filename_prefix: str = "scribe_notes",
+    title_prefix: str = "Live Discussion Scribe Notes",
 ) -> None:
     """
-    Delivers Live Discussion Scribe notes privately to the requesting user:
+    Delivers notes privately to the requesting user:
     1. Sends an ephemeral confirmation in the thread visible only to user.
     2. Uploads the .txt file directly to the user's private DM channel.
     """
@@ -77,13 +82,13 @@ async def _handle_scribe_download(
 
         # 3. Upload .txt file to user DM
         clean_ts = thread_ts.replace(".", "_") if thread_ts else "notes"
-        filename = f"scribe_notes_{clean_ts}.txt"
+        filename = f"{filename_prefix}_{clean_ts}.txt"
         await upload_text_file_to_slack(
             channel_id=dm_channel_id,
             content=content,
             filename=filename,
-            title=f"Live Discussion Scribe Notes ({thread_ts})",
-            initial_comment="Here are your requested Live Discussion Scribe notes as a .txt file:",
+            title=f"{title_prefix} ({thread_ts})",
+            initial_comment=f"Here are your requested {title_prefix} as a .txt file:",
         )
     except Exception as e:  # noqa: BLE001 - Interactivity action handler isolates download delivery failure
         logger.error(f"[INTERACTIVITY] Error delivering scribe download to {user_id}: {e}")
@@ -162,7 +167,7 @@ async def handle_slack_interactivity(request: Request, background_tasks: Backgro
 
         for action in actions:
             action_id = action.get("action_id", "")
-            if action_id == "download_scribe_notes_txt":
+            if action_id in ("download_scribe_notes_txt", "download_conclusion_notes_txt"):
                 should_publish_home = False
                 val = action.get("value", "")
                 channel_id = ""
@@ -178,11 +183,20 @@ async def handle_slack_interactivity(request: Request, background_tasks: Backgro
                         or ""
                     )
 
-                notes_text = (
-                    get_thread_note_content(channel_id, thread_ts)
-                    if channel_id and thread_ts
-                    else None
-                )
+                is_conclusion = action_id == "download_conclusion_notes_txt"
+                if is_conclusion:
+                    notes_text = (
+                        get_thread_conclusion_content(channel_id, thread_ts)
+                        if channel_id and thread_ts
+                        else None
+                    )
+                else:
+                    notes_text = (
+                        get_thread_note_content(channel_id, thread_ts)
+                        if channel_id and thread_ts
+                        else None
+                    )
+
                 if not notes_text:
                     msg = payload.get("message", {})
                     blocks = msg.get("blocks", [])
@@ -193,7 +207,8 @@ async def handle_slack_interactivity(request: Request, background_tasks: Backgro
                     if not notes_text:
                         notes_text = msg.get("text", "")
                 if not notes_text:
-                    notes_text = "*(No Live Discussion Scribe notes recorded for this thread)*"
+                    fallback_label = "Discussion Conclusion" if is_conclusion else "Live Discussion Scribe"
+                    notes_text = f"*(No {fallback_label} notes recorded for this thread)*"
 
                 if user_id:
                     background_tasks.add_task(
@@ -202,6 +217,8 @@ async def handle_slack_interactivity(request: Request, background_tasks: Backgro
                         channel_id=channel_id,
                         thread_ts=thread_ts,
                         content=notes_text,
+                        filename_prefix="conclusion_notes" if is_conclusion else "scribe_notes",
+                        title_prefix="Discussion Conclusion" if is_conclusion else "Live Discussion Scribe Notes",
                     )
             elif action_id == "resume_sequence_action":
                 should_publish_home = False

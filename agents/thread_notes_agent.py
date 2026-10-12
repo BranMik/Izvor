@@ -4,11 +4,14 @@ import time
 from typing import Any
 
 from core.config import get_thread_notes_model
+from pipeline.discussion_scribe import discussion_scribe
 from services.slack_client import (
     fetch_thread_history,
     post_thread_note,
+    unpin_thread_note,
     update_thread_note,
 )
+from services.thread_notes_writer import save_thread_notes_to_disk
 
 from .usage_agent import record_thread_tokens, trigger_usage_update
 
@@ -19,6 +22,15 @@ THREAD_NOTE_MSG_MAP: dict[tuple[str, str], str] = {}
 
 # Map thread identifier (channel_id, thread_ts) -> latest_notes_text
 THREAD_NOTE_TEXT_MAP: dict[tuple[str, str], str] = {}
+
+# Map thread identifier (channel_id, thread_ts) -> conclusion_message_ts
+THREAD_CONCLUSION_MSG_MAP: dict[tuple[str, str], str] = {}
+
+# Map thread identifier (channel_id, thread_ts) -> latest_conclusion_text
+THREAD_CONCLUSION_TEXT_MAP: dict[tuple[str, str], str] = {}
+
+# Track whether live note is currently pinned
+THREAD_LIVE_PINNED_MAP: dict[tuple[str, str], bool] = {}
 
 # Per-thread locks to ensure sequential note updates without race conditions
 THREAD_LOCKS: dict[tuple[str, str], asyncio.Lock] = {}
@@ -65,6 +77,26 @@ def set_thread_note_content(channel_id: str, thread_ts: str, content: str) -> No
     THREAD_NOTE_TEXT_MAP[(channel_id, thread_ts)] = content
 
 
+def get_thread_conclusion_note(channel_id: str, thread_ts: str) -> str | None:
+    """Returns the message_ts of the conclusion note associated with a thread."""
+    return THREAD_CONCLUSION_MSG_MAP.get((channel_id, thread_ts))
+
+
+def set_thread_conclusion_note(channel_id: str, thread_ts: str, message_ts: str) -> None:
+    """Stores the message_ts of the conclusion note associated with a thread."""
+    THREAD_CONCLUSION_MSG_MAP[(channel_id, thread_ts)] = str(message_ts)
+
+
+def get_thread_conclusion_content(channel_id: str, thread_ts: str) -> str | None:
+    """Returns the latest conclusion notes text associated with a thread."""
+    return THREAD_CONCLUSION_TEXT_MAP.get((channel_id, thread_ts))
+
+
+def set_thread_conclusion_content(channel_id: str, thread_ts: str, content: str) -> None:
+    """Stores the latest conclusion notes text associated with a thread."""
+    THREAD_CONCLUSION_TEXT_MAP[(channel_id, thread_ts)] = content
+
+
 def build_scribe_note_blocks(
     formatted_text: str, channel_id: str, thread_ts: str
 ) -> list[dict[str, Any]]:
@@ -72,7 +104,6 @@ def build_scribe_note_blocks(
     Constructs Slack Block Kit blocks for Live Discussion Scribe message,
     including a section with the notes and an action button to download as .txt.
     """
-    # Slack section block text limit is 3000 characters
     section_text = (
         formatted_text
         if len(formatted_text) <= 2900
@@ -105,11 +136,53 @@ def build_scribe_note_blocks(
     ]
 
 
+def build_conclusion_note_blocks(
+    formatted_text: str, channel_id: str, thread_ts: str
+) -> list[dict[str, Any]]:
+    """
+    Constructs Slack Block Kit blocks for Discussion Conclusion message,
+    including a section with the conclusion and an action button to download as .txt.
+    """
+    section_text = (
+        formatted_text
+        if len(formatted_text) <= 2900
+        else formatted_text[:2890] + "\n_...[truncated]_"
+    )
+    return [
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": section_text,
+            },
+        },
+        {
+            "type": "actions",
+            "block_id": "conclusion_actions_block",
+            "elements": [
+                {
+                    "type": "button",
+                    "text": {
+                        "type": "plain_text",
+                        "text": "📥 Download Conclusion (.txt)",
+                        "emoji": True,
+                    },
+                    "action_id": "download_conclusion_notes_txt",
+                    "value": f"{channel_id}:{thread_ts}",
+                }
+            ],
+        },
+    ]
+
+
 def clear_thread_note(channel_id: str, thread_ts: str) -> None:
-    """Removes live note tracking and cancels any running/pending tasks for a thread."""
+    """Removes live and conclusion note tracking and cancels any running/pending tasks for a thread."""
     thread_key = (channel_id, thread_ts)
     THREAD_NOTE_MSG_MAP.pop(thread_key, None)
     THREAD_NOTE_TEXT_MAP.pop(thread_key, None)
+    THREAD_CONCLUSION_MSG_MAP.pop(thread_key, None)
+    THREAD_CONCLUSION_TEXT_MAP.pop(thread_key, None)
+    THREAD_LIVE_PINNED_MAP.pop(thread_key, None)
     THREAD_LOCKS.pop(thread_key, None)
     _PENDING_UPDATES.pop(thread_key, None)
     _PENDING_COMPLETED.pop(thread_key, None)
@@ -125,6 +198,9 @@ def reset_thread_notes() -> None:
             task.cancel()
     THREAD_NOTE_MSG_MAP.clear()
     THREAD_NOTE_TEXT_MAP.clear()
+    THREAD_CONCLUSION_MSG_MAP.clear()
+    THREAD_CONCLUSION_TEXT_MAP.clear()
+    THREAD_LIVE_PINNED_MAP.clear()
     THREAD_LOCKS.clear()
     _RUNNING_TASKS.clear()
     _PENDING_UPDATES.clear()
@@ -138,9 +214,6 @@ try:
     thread_state_manager.register_reset_hook(reset_thread_notes)
 except (ImportError, AttributeError, TypeError) as _e:
     logger.debug(f"[THREAD NOTES] Could not register thread_state hooks: {_e}")
-
-
-from pipeline.discussion_scribe import discussion_scribe
 
 
 async def generate_thread_notes(
@@ -184,6 +257,44 @@ async def generate_thread_notes(
     return cleaned_content, token_stats
 
 
+async def generate_conclusion_notes(
+    history: list[dict[str, str]],
+    thread_language: str = "English",
+    scribe_max_words: int | None = None,
+    scribe_min_words: int | None = None,
+) -> tuple[str, dict[str, int]]:
+    """
+    Generates comprehensive Conclusion Notes analyzing problem statement,
+    consensus, opposing viewpoints, and agent arguments via DiscussionScribe.
+    Returns (slack_mrkdwn_content, token_usage_dict).
+    """
+    conclusion, tokens = await discussion_scribe.generate_conclusion(
+        history,
+        thread_language=thread_language,
+        scribe_max_words=scribe_max_words,
+        scribe_min_words=scribe_min_words,
+    )
+    raw_content = conclusion.raw_markdown or ""
+
+    cleaned_content = raw_content.strip()
+    if cleaned_content.startswith("```markdown"):
+        cleaned_content = cleaned_content[len("```markdown") :].strip()
+    elif cleaned_content.startswith("```"):
+        cleaned_content = cleaned_content[len("```") :].strip()
+    if cleaned_content.endswith("```"):
+        cleaned_content = cleaned_content[:-3].strip()
+
+    prompt_tokens = tokens.get("prompt_tokens", 0)
+    completion_tokens = tokens.get("completion_tokens", 0)
+    total_tokens = prompt_tokens + completion_tokens
+    token_stats = {
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens": total_tokens,
+    }
+
+    return cleaned_content, token_stats
+
 
 async def update_notes_for_thread(
     channel_id: str,
@@ -192,9 +303,12 @@ async def update_notes_for_thread(
     bot_user_id: str | None = None,
 ) -> dict[str, Any]:
     """
-    Asynchronously creates or updates the single live in-thread Strategic Synthesis note message for the specified thread.
+    Asynchronously creates or updates the live in-thread Strategic Synthesis note message,
+    and upon discussion completion unpins the live note, generates a dialectical Conclusion note,
+    pins the conclusion note, and persists both notes to resources/thread_notes/.
     """
     lock = get_thread_lock(channel_id, thread_ts)
+    thread_key = (channel_id, thread_ts)
 
     from orchestration.agent_settings import is_scribe_enabled
     if not is_scribe_enabled():
@@ -210,7 +324,7 @@ async def update_notes_for_thread(
         )
 
         try:
-            # 1. Fetch current conversation history (excludes previous scribe notes)
+            # 1. Fetch current conversation history (excludes previous scribe/conclusion notes)
             history = await fetch_thread_history(
                 channel_id=channel_id,
                 thread_ts=thread_ts,
@@ -228,8 +342,14 @@ async def update_notes_for_thread(
             thread_language = thread_state_manager.get_language(channel_id, thread_ts) or "English"
             scribe_max_words = thread_state_manager.get_scribe_max_words(channel_id, thread_ts)
             scribe_min_words = thread_state_manager.get_scribe_min_words(channel_id, thread_ts)
+            initial_prompt = thread_state_manager.get_initial_prompt(channel_id, thread_ts)
+            if not initial_prompt:
+                for h in history:
+                    if h.get("role") == "user":
+                        initial_prompt = h.get("content")
+                        break
 
-            # 2. Generate updated structured synthesis notes with mistral-small-latest
+            # 2. Generate updated live synthesis notes
             notes_content, token_stats = await generate_thread_notes(
                 history,
                 is_completed=is_completed,
@@ -260,6 +380,7 @@ async def update_notes_for_thread(
                 note_ts = post_res.get("ts")
                 if note_ts:
                     set_thread_note(channel_id, thread_ts, note_ts)
+                    THREAD_LIVE_PINNED_MAP[thread_key] = True
                     logger.info(
                         f"[THREAD NOTES] Created and pinned live synthesis note {note_ts} for thread {thread_ts}"
                     )
@@ -274,14 +395,87 @@ async def update_notes_for_thread(
                     f"[THREAD NOTES] Updated live synthesis note {note_ts} in thread {thread_ts}"
                 )
 
+            conclusion_ts = None
+            formatted_conclusion_text = None
+
+            # 4. If conversation rounds have concluded, unpin live note, generate conclusion note, pin it, and persist
+            if is_completed:
+                # Unpin Live Scribe Note
+                if note_ts and THREAD_LIVE_PINNED_MAP.get(thread_key, True):
+                    await unpin_thread_note(channel_id, note_ts)
+                    THREAD_LIVE_PINNED_MAP[thread_key] = False
+                    logger.info(
+                        f"[THREAD NOTES] Unpinned live note {note_ts} upon completion for thread {thread_ts}"
+                    )
+
+                # Generate dedicated Conclusion Note
+                conc_content, conc_tokens = await generate_conclusion_notes(
+                    history,
+                    thread_language=thread_language,
+                    scribe_max_words=scribe_max_words,
+                    scribe_min_words=scribe_min_words,
+                )
+                token_stats["prompt_tokens"] += conc_tokens.get("prompt_tokens", 0)
+                token_stats["completion_tokens"] += conc_tokens.get("completion_tokens", 0)
+                token_stats["total_tokens"] += conc_tokens.get("total_tokens", 0)
+
+                conc_footer = f"\n\n_Completed: {timestamp_str} | Conclusion tokens: {conc_tokens['total_tokens']}_"
+                formatted_conclusion_text = f"{conc_content.strip()}{conc_footer}"
+                set_thread_conclusion_content(channel_id, thread_ts, formatted_conclusion_text)
+                conc_blocks = build_conclusion_note_blocks(formatted_conclusion_text, channel_id, thread_ts)
+
+                # Post or update in-place Conclusion Note
+                conclusion_ts = get_thread_conclusion_note(channel_id, thread_ts)
+                if not conclusion_ts:
+                    post_conc_res = await post_thread_note(
+                        channel_id=channel_id,
+                        thread_ts=thread_ts,
+                        text=formatted_conclusion_text,
+                        pin=True,
+                        username="Discussion Conclusion",
+                        icon_emoji=":scales:",
+                        blocks=conc_blocks,
+                    )
+                    conclusion_ts = post_conc_res.get("ts")
+                    if conclusion_ts:
+                        set_thread_conclusion_note(channel_id, thread_ts, conclusion_ts)
+                        logger.info(
+                            f"[THREAD NOTES] Created and pinned conclusion note {conclusion_ts} for thread {thread_ts}"
+                        )
+                else:
+                    await update_thread_note(
+                        channel_id=channel_id,
+                        message_ts=conclusion_ts,
+                        text=formatted_conclusion_text,
+                        blocks=conc_blocks,
+                    )
+                    logger.info(
+                        f"[THREAD NOTES] Updated conclusion note {conclusion_ts} in thread {thread_ts}"
+                    )
+
+                # 5. Persist both notes to resources/thread_notes/
+                try:
+                    save_thread_notes_to_disk(
+                        channel_id=channel_id,
+                        thread_ts=thread_ts,
+                        initial_prompt=initial_prompt,
+                        live_notes_text=formatted_text,
+                        conclusion_text=formatted_conclusion_text,
+                    )
+                except Exception as disk_err:
+                    logger.warning(
+                        f"[THREAD NOTES] Failed saving thread notes to disk: {disk_err}"
+                    )
+
             duration = time.time() - start_time
             thread_notes_model = get_thread_notes_model()
 
-            # 4. Mandatory Log: Tokens spent and latency
+            # Mandatory Log: Tokens spent and latency
             logger.info(
                 f"[THREAD NOTES] 📊 Live Note Update Completed | "
                 f"Thread: {thread_ts} (Channel: {channel_id}) | "
                 f"Note TS: {note_ts} | "
+                f"Conclusion TS: {conclusion_ts} | "
                 f"Model: {thread_notes_model} | "
                 f"Tokens: Prompt={token_stats['prompt_tokens']}, "
                 f"Completion={token_stats['completion_tokens']}, "
@@ -309,6 +503,7 @@ async def update_notes_for_thread(
             return {
                 "ok": True,
                 "note_ts": note_ts,
+                "conclusion_ts": conclusion_ts,
                 "token_stats": token_stats,
                 "duration": duration,
             }
