@@ -50,8 +50,8 @@ python -m e2e_testing_harness.runner --live-slack --channel C0123456789 --hybrid
 | **12** | Debate Control | Multi-Round Debate Cycling | `/rounds 2` |
 | **13** | Skills: Web Research | Live Web Search & Citation | `[MarketAndCompetitionResearchExpert]` |
 | **14** | Skills: Codebase Inspection | Directory Exploration & Source Inspection | `[LegalAdvisor]` |
-| **15** | Skills: Doc Authoring | Document Drafting in `resources/e2e_testing/` | `[ROIStrategist]` |
-| **16** | Skills: Doc Reader | Document Reading from `resources/e2e_testing/` | `[Security Architect]` |
+| **15** | Skills: Doc Authoring | Document Drafting in `agents_resources/` | `[ROIStrategist]` |
+| **16** | Skills: Doc Reader | Document Reading from `agents_resources/` | `[Security Architect]` |
 | **17** | Skills: Governance | Unauthorized Skill Access Rejection | `[Visionary]` (No tools allowed) |
 | **18** | Dynamic Permissions | Granular Agent Skill Grant | `/grant_skill web_research [Security Architect]` |
 | **19** | Dynamic Permissions | Thread-Global Skill Grant | `/grant_for_all web_research` |
@@ -292,35 +292,35 @@ python -m e2e_testing_harness.runner --live-slack --channel C0123456789 --hybrid
 
 ---
 
-### TC-14: Skills: Document Authoring in `resources/e2e_testing/` (`document_authoring`)
+### TC-14: Skills: Document Authoring in `agents_resources/` (`document_authoring`)
 - **Category**: Model Context Protocol (MCP) Skills
-- **Objective**: Verify that `ROIStrategist` or `MarketAndCompetitionResearchExpert` can create or overwrite non-code documents in the local `resources/e2e_testing/` sandbox.
+- **Objective**: Verify that `ROIStrategist` or `MarketAndCompetitionResearchExpert` can create or overwrite non-code documents in the local `agents_resources/` sandbox.
 - **Preconditions**: `ROIStrategist` has `document_authoring` skill (`write_document`).
 - **Slack Input Prompt**:
   ```text
-  @BotName [ROIStrategist] Draft a 3-point business case for reducing LLM token spend and save it as a document named 'resources/e2e_testing/llm_cost_reduction_plan.md'.
+  @BotName [ROIStrategist] Draft a 3-point business case for reducing LLM token spend and save it as a document named 'agents_resources/llm_cost_reduction_plan.md'.
   ```
 - **Expected Behaviour**:
-  1. The agent invokes `write_document(rel_path="resources/e2e_testing/llm_cost_reduction_plan.md", content=...)`.
-  2. The file is created locally inside the sandboxed `resources/e2e_testing/` directory.
-  3. The agent confirms in the Slack thread that the document has been authored and saved to `resources/e2e_testing/llm_cost_reduction_plan.md`.
-- **Pass Criteria**: File exists in `resources/e2e_testing/` with structured Markdown content.
+  1. The agent invokes `write_document(rel_path="agents_resources/llm_cost_reduction_plan.md", content=...)`.
+  2. The file is created locally inside the sandboxed `agents_resources/` directory.
+  3. The agent confirms in the Slack thread that the document has been authored and saved to `agents_resources/llm_cost_reduction_plan.md`.
+- **Pass Criteria**: File exists in `agents_resources/` with structured Markdown content.
 
 ---
 
 ### TC-15: Skills: Document Reader (`document_reader`)
 - **Category**: Model Context Protocol (MCP) Skills & Local Document Ingestion
-- **Objective**: Verify that an agent with `document_reader` can read files located in the `resources/e2e_testing/` folder.
-- **Preconditions**: File `resources/e2e_testing/sys_spec.txt` exists on disk with system throughput and latency metrics.
+- **Objective**: Verify that an agent with `document_reader` can read files located in the `agents_resources/` folder.
+- **Preconditions**: File `agents_resources/sys_spec.txt` exists on disk with system throughput and latency metrics.
 - **Slack Input Prompt**:
   ```text
-  @BotName [Security Architect] /read_file resources/e2e_testing/sys_spec.txt What is the throughput specified in this file?
+  @BotName [Security Architect] /read_file agents_resources/sys_spec.txt What is the throughput specified in this file?
   ```
 - **Expected Behaviour**:
   1. Security Architect requests `document_reader` via `load_skill`.
-  2. Security Architect calls `read_document(rel_path="resources/e2e_testing/sys_spec.txt")`.
+  2. Security Architect calls `read_document(rel_path="agents_resources/sys_spec.txt")`.
   3. Security Architect parses the file and answers with the target throughput (`5000 rps`).
-- **Pass Criteria**: Security Architect accurately cites `5000 rps` from `resources/e2e_testing/sys_spec.txt`.
+- **Pass Criteria**: Security Architect accurately cites `5000 rps` from `agents_resources/sys_spec.txt`.
 
 ---
 
@@ -570,8 +570,8 @@ When executing these tests in your Slack workspace, copy this table to track res
 | TC-11 | Multi-Round Debate (`/rounds 2`) | | | | |
 | TC-12 | Web Research Skill | | | | |
 | TC-13 | Codebase Inspection Skill | | | | |
-| TC-14 | Document Authoring (`resources/e2e_testing/`) | | | | |
-| TC-15 | Document Reader (`resources/e2e_testing/sys_spec.txt`) | | | | |
+| TC-14 | Document Authoring (`agents_resources/`) | | | | |
+| TC-15 | Document Reader (`agents_resources/sys_spec.txt`) | | | | |
 | TC-16 | Unauthorized Tool Rejection | | | | |
 | TC-17 | Granular Skill Grant (`/grant_skill web_research [Security Architect]`) | | | | |
 | TC-18 | Thread-Global Skill Grant (`/grant_skill_for_all`) | | | | |

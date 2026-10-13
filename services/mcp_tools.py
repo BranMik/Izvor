@@ -20,38 +20,40 @@ WORKSPACE_DIR = (
     else PROJECT_ROOT
 )
 
-# Resources directory sandboxed for non-code document reading & authoring
-RESOURCES_DIR = (WORKSPACE_DIR / "resources").resolve()
-RESOURCES_DIR.mkdir(parents=True, exist_ok=True)
+# Agents resources directory sandboxed for non-code document reading & authoring
+AGENTS_RESOURCES_DIR = (WORKSPACE_DIR / "agents_resources").resolve()
+AGENTS_RESOURCES_DIR.mkdir(parents=True, exist_ok=True)
+SYSTEM_RESOURCES_DIR = (WORKSPACE_DIR / "system_resources").resolve()
+SYSTEM_RESOURCES_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def _resolve_resource_path(rel_path: str) -> Path:
     """
-    Ensures the requested document path stays strictly within the 'resources/' directory
+    Ensures the requested document path stays strictly within the 'agents_resources/' directory
     to prevent sandbox escape.
-    Automatically normalizes paths by stripping any leading 'resources/' or 'resources\\' prefix
-    so that both 'report.txt' and 'resources/report.txt' resolve safely into RESOURCES_DIR.
+    Automatically normalizes paths by stripping any leading 'agents_resources/' or 'agents_resources\\' prefix
+    so that both 'report.txt' and 'agents_resources/report.txt' resolve safely into AGENTS_RESOURCES_DIR.
     """
     clean_path = str(rel_path or "").strip().replace("\\", "/")
-    if clean_path.lower().startswith("resources/"):
-        clean_path = clean_path[len("resources/"):].lstrip("/")
-    elif clean_path.lower() == "resources" or not clean_path:
+    if clean_path.lower().startswith("agents_resources/"):
+        clean_path = clean_path[len("agents_resources/"):].lstrip("/")
+    elif clean_path.lower() == "agents_resources" or not clean_path:
         clean_path = "."
 
-    target = (RESOURCES_DIR / clean_path).resolve()
-    if not target.is_relative_to(RESOURCES_DIR):
+    target = (AGENTS_RESOURCES_DIR / clean_path).resolve()
+    if not target.is_relative_to(AGENTS_RESOURCES_DIR):
         raise PermissionError(
-            f"Access denied: Path '{rel_path}' is outside resources directory '{RESOURCES_DIR}'."
+            f"Access denied: Path '{rel_path}' is outside agents_resources directory '{AGENTS_RESOURCES_DIR}'."
         )
     return target
 
 
 def find_resource_file(filename_or_rel_path: str) -> Path | None:
     """
-    Searches for a document within RESOURCES_DIR.
+    Searches for a document within AGENTS_RESOURCES_DIR.
     1. Direct resolution via _resolve_resource_path
-    2. Case-insensitive exact match in RESOURCES_DIR root
-    3. Case-insensitive recursive match across all subdirectories of RESOURCES_DIR
+    2. Case-insensitive exact match in AGENTS_RESOURCES_DIR root
+    3. Case-insensitive recursive match across all subdirectories of AGENTS_RESOURCES_DIR
     """
     if not filename_or_rel_path:
         return None
@@ -67,11 +69,11 @@ def find_resource_file(filename_or_rel_path: str) -> Path | None:
         return None
 
     try:
-        if RESOURCES_DIR.exists():
-            for item in RESOURCES_DIR.iterdir():
+        if AGENTS_RESOURCES_DIR.exists():
+            for item in AGENTS_RESOURCES_DIR.iterdir():
                 if item.is_file() and item.name.lower() == clean_name:
                     return item
-            for item in RESOURCES_DIR.rglob("*"):
+            for item in AGENTS_RESOURCES_DIR.rglob("*"):
                 if item.is_file() and item.name.lower() == clean_name:
                     return item
     except OSError as e:
@@ -83,7 +85,7 @@ def find_resource_file(filename_or_rel_path: str) -> Path | None:
 
 def list_documents(rel_path: str = ".") -> str:
     """
-    Lists the contents of a directory inside the resources/ directory.
+    Lists the contents of a directory inside the agents_resources/ directory.
     """
     try:
         path = _resolve_resource_path(rel_path)
@@ -114,8 +116,8 @@ def list_documents(rel_path: str = ".") -> str:
 
 def read_document(rel_path: str) -> str:
     """
-    Reads the content of a text or PDF document inside the resources/ directory.
-    resources/ is the default working and search directory even if omitted in rel_path.
+    Reads the content of a text or PDF document inside the agents_resources/ directory.
+    agents_resources/ is the default working and search directory even if omitted in rel_path.
     """
     from orchestration.system_settings import (
         get_max_file_size_bytes,
@@ -132,7 +134,7 @@ def read_document(rel_path: str) -> str:
             if fallback and fallback.exists() and fallback.is_file():
                 path = fallback
             elif not path.exists():
-                return json.dumps({"error": f"Document '{rel_path}' does not exist in resources."})
+                return json.dumps({"error": f"Document '{rel_path}' does not exist in agents_resources."})
             elif not path.is_file():
                 return json.dumps({"error": f"Resource path '{rel_path}' is not a file."})
 
@@ -172,7 +174,7 @@ def read_document(rel_path: str) -> str:
     except PermissionError as e:
         return json.dumps({"error": str(e)})
     except FileNotFoundError:
-        return json.dumps({"error": f"Document '{rel_path}' does not exist in resources."})
+        return json.dumps({"error": f"Document '{rel_path}' does not exist in agents_resources."})
     except IsADirectoryError:
         return json.dumps({"error": f"Resource path '{rel_path}' is a directory, not a file."})
     except UnicodeError as e:
@@ -185,7 +187,7 @@ def read_document(rel_path: str) -> str:
 
 def write_document(rel_path: str, content: str) -> str:
     """
-    Writes or overwrites content to a text document inside the resources/ directory.
+    Writes or overwrites content to a text document inside the agents_resources/ directory.
     """
     try:
         from orchestration.system_settings import is_path_write_blocked

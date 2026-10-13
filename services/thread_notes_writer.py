@@ -1,7 +1,7 @@
 """
 Thread Notes Disk Persistence Service for Izvor.
 
-Saves finalized Live Scribe Notes and Conclusion Notes to resources/thread_notes/.
+Saves finalized Live Scribe Notes and Conclusion Notes to agents_resources/thread_notes/.
 Filename convention:
   <prompt_slug>_<ts5>_live_notes.md
   <prompt_slug>_<ts5>_conclusion.md
@@ -22,7 +22,7 @@ from services.flat_history_recorder import is_test_thread
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_THREAD_NOTES_DIR = Path(__file__).resolve().parent.parent / "resources" / "thread_notes"
+DEFAULT_THREAD_NOTES_DIR = Path(__file__).resolve().parent.parent / "agents_resources" / "thread_notes"
 THREAD_NOTES_DIR = DEFAULT_THREAD_NOTES_DIR
 
 
@@ -94,7 +94,7 @@ def save_thread_notes_to_disk(
     force: bool = False,
 ) -> dict[str, str]:
     """
-    Atomically writes the live notes and/or conclusion notes to resources/thread_notes/.
+    Atomically writes the live notes and/or conclusion notes to agents_resources/thread_notes/.
     If called repeatedly on thread re-engagement, safely updates the existing files.
     """
     # Skip file creation during automated test harness runs unless forced or redirected

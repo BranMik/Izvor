@@ -58,13 +58,13 @@ def test_mcp_list_documents():
 def test_mcp_document_traversal_prevention():
     from services.mcp_tools import read_document, write_document
 
-    # Attempt to read outside resources/
+    # Attempt to read outside agents_resources/
     read_res = read_document("../main.py")
     res_json = json.loads(read_res)
     assert "error" in res_json
     assert "Access denied" in res_json["error"]
 
-    # Attempt to write outside resources/
+    # Attempt to write outside agents_resources/
     write_res = write_document("../leak.txt", "danger")
     write_json = json.loads(write_res)
     assert "error" in write_json
@@ -90,9 +90,9 @@ def test_mcp_execute_tool_document_dispatch():
     assert "contents" in json.loads(list_res)
 
     # Clean up test artifacts
-    from services.mcp_tools import RESOURCES_DIR
+    from services.mcp_tools import AGENTS_RESOURCES_DIR
     for fname in ("scratch_doc.txt", "dispatch_test.txt"):
-        fpath = RESOURCES_DIR / fname
+        fpath = AGENTS_RESOURCES_DIR / fname
         if fpath.exists():
             fpath.unlink()
 
@@ -102,10 +102,10 @@ def test_mcp_read_pdf_document():
 
     import pypdf
 
-    from services.mcp_tools import RESOURCES_DIR, read_document
+    from services.mcp_tools import AGENTS_RESOURCES_DIR, read_document
 
     pdf_filename = "test_sample.pdf"
-    pdf_path = RESOURCES_DIR / pdf_filename
+    pdf_path = AGENTS_RESOURCES_DIR / pdf_filename
 
     # Create a real 2-page PDF
     writer = pypdf.PdfWriter()
@@ -143,9 +143,9 @@ def test_mcp_read_pdf_document():
 
 
 def test_mcp_read_pdf_corrupted():
-    from services.mcp_tools import RESOURCES_DIR, read_document
+    from services.mcp_tools import AGENTS_RESOURCES_DIR, read_document
 
-    bad_pdf = RESOURCES_DIR / "corrupt.pdf"
+    bad_pdf = AGENTS_RESOURCES_DIR / "corrupt.pdf"
     bad_pdf.write_bytes(b"not a valid pdf data stream")
 
     try:
@@ -159,29 +159,29 @@ def test_mcp_read_pdf_corrupted():
 
 
 def test_mcp_resource_path_normalization_and_prefix_stripping():
-    from services.mcp_tools import RESOURCES_DIR, _resolve_resource_path
+    from services.mcp_tools import AGENTS_RESOURCES_DIR, _resolve_resource_path
 
     # Naked filename
     p1 = _resolve_resource_path("doc.txt")
-    assert p1 == (RESOURCES_DIR / "doc.txt").resolve()
+    assert p1 == (AGENTS_RESOURCES_DIR / "doc.txt").resolve()
 
-    # With resources/ prefix
-    p2 = _resolve_resource_path("resources/doc.txt")
-    assert p2 == (RESOURCES_DIR / "doc.txt").resolve()
+    # With agents_resources/ prefix
+    p2 = _resolve_resource_path("agents_resources/doc.txt")
+    assert p2 == (AGENTS_RESOURCES_DIR / "doc.txt").resolve()
 
-    # With resources\ prefix
-    p3 = _resolve_resource_path("resources\\doc.txt")
-    assert p3 == (RESOURCES_DIR / "doc.txt").resolve()
+    # With agents_resources\ prefix
+    p3 = _resolve_resource_path("agents_resources\\doc.txt")
+    assert p3 == (AGENTS_RESOURCES_DIR / "doc.txt").resolve()
 
-    # Bare "resources"
-    p4 = _resolve_resource_path("resources")
-    assert p4 == RESOURCES_DIR.resolve()
+    # Bare "agents_resources"
+    p4 = _resolve_resource_path("agents_resources")
+    assert p4 == AGENTS_RESOURCES_DIR.resolve()
 
 
 def test_mcp_read_document_search_in_resources_subfolder_and_case_insensitive():
-    from services.mcp_tools import RESOURCES_DIR, read_document
+    from services.mcp_tools import AGENTS_RESOURCES_DIR, read_document
 
-    sub_dir = RESOURCES_DIR / "subfolder"
+    sub_dir = AGENTS_RESOURCES_DIR / "subfolder"
     sub_dir.mkdir(parents=True, exist_ok=True)
     nested_file = sub_dir / "Nested_Report.txt"
     nested_file.write_text("Found nested document content", encoding="utf-8")
@@ -195,8 +195,8 @@ def test_mcp_read_document_search_in_resources_subfolder_and_case_insensitive():
         res2 = json.loads(read_document("nested_report.txt"))
         assert "Found nested document content" in res2.get("content", "")
 
-        # 3. Read with 'resources/' prefix
-        res3 = json.loads(read_document("resources/subfolder/Nested_Report.txt"))
+        # 3. Read with 'agents_resources/' prefix
+        res3 = json.loads(read_document("agents_resources/subfolder/Nested_Report.txt"))
         assert "Found nested document content" in res3.get("content", "")
     finally:
         if nested_file.exists():
@@ -206,13 +206,13 @@ def test_mcp_read_document_search_in_resources_subfolder_and_case_insensitive():
 
 
 def test_mcp_read_file_fallback_to_resources():
-    from services.mcp_tools import RESOURCES_DIR, read_document
+    from services.mcp_tools import AGENTS_RESOURCES_DIR, read_document
 
-    res_only_file = RESOURCES_DIR / "resource_only.txt"
+    res_only_file = AGENTS_RESOURCES_DIR / "resource_only.txt"
     res_only_file.write_text("Hello from resources folder fallback", encoding="utf-8")
 
     try:
-        # read_document should find resource_only.txt via resources/ fallback
+        # read_document should find resource_only.txt via fallback
         res = json.loads(read_document("resource_only.txt"))
         assert "content" in res
         assert "Hello from resources folder fallback" in res["content"]
@@ -222,12 +222,12 @@ def test_mcp_read_file_fallback_to_resources():
 
 
 def test_mcp_write_document_normalizes_resources_prefix():
-    from services.mcp_tools import RESOURCES_DIR, write_document
+    from services.mcp_tools import AGENTS_RESOURCES_DIR, write_document
 
-    test_file = RESOURCES_DIR / "normalized_write.txt"
+    test_file = AGENTS_RESOURCES_DIR / "normalized_write.txt"
     try:
-        # Write specifying "resources/normalized_write.txt"
-        res = json.loads(write_document("resources/normalized_write.txt", "Content via resources prefix"))
+        # Write specifying "agents_resources/normalized_write.txt"
+        res = json.loads(write_document("agents_resources/normalized_write.txt", "Content via resources prefix"))
         assert res.get("success") is True
         assert test_file.exists()
         assert test_file.read_text(encoding="utf-8") == "Content via resources prefix"
@@ -243,6 +243,8 @@ def test_mcp_write_file_blocks_protected_default_files():
         ".env",
         ".env.local",
         ".git/hooks/pre-commit",
+        "system_resources",
+        "system_resources/agy/plan.md",
         "data/settings/agent_settings.json",
         "data/settings/app_settings.json",
     ]
@@ -288,7 +290,7 @@ def test_mcp_write_document_blocks_blacklisted_path(monkeypatch):
     monkeypatch.setattr(
         system_settings_manager,
         "get_workspace_write_blacklist_additional",
-        lambda: ["resources/secret_doc.txt"],
+        lambda: ["agents_resources/secret_doc.txt"],
     )
 
     res = json.loads(write_document("secret_doc.txt", "confidential"))
@@ -340,7 +342,7 @@ def test_mcp_execute_tool_agent_authorization():
     # Sceptic has no skills configured -> write_document must be denied
     denied_res = execute_mcp_tool(
         "write_document",
-        {"rel_path": "resources/unauthorized_test.txt", "content": "test"},
+        {"rel_path": "agents_resources/unauthorized_test.txt", "content": "test"},
         agent_name="agent-10003",
     )
     denied_json = json.loads(denied_res)
@@ -367,4 +369,15 @@ def test_mcp_execute_tool_agent_authorization():
     assert "contents" in tech_json
 
 
+def test_mcp_system_resources_boundary_enforcement():
+    from services.mcp_tools import read_document, write_document
 
+    # Attempt to read inside system_resources via relative path traversal
+    res_read = json.loads(read_document("../system_resources/agy/README.md"))
+    assert "error" in res_read
+    assert "Access denied" in res_read["error"]
+
+    # Attempt to write inside system_resources via relative path traversal
+    res_write = json.loads(write_document("../system_resources/tamper.txt", "evil"))
+    assert "error" in res_write
+    assert "Permission denied" in res_write["error"] or "Access denied" in res_write["error"]

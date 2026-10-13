@@ -55,7 +55,7 @@ def test_sequential_hash_chaining(temp_audit_dir):
         event_type="TOOL_EXECUTE_FILE_WRITE",
         actor={"type": "agent", "id": "agent-10001"},
         action="write_document",
-        target="resources/report.txt",
+        target="agents_resources/report.txt",
         details={"bytes_written": 128},
     )
 
@@ -219,16 +219,23 @@ def test_app_integrity_validator_integration(temp_audit_dir):
 
 def test_sandbox_audit_write_protection():
     """Verifies that system_settings blocks tool writes targeting the audit directory."""
-    # is_path_write_blocked should return True for any audit path
+    # is_path_write_blocked should return True for any audit path or system_resources
     assert is_path_write_blocked("audit") is True
     assert is_path_write_blocked("audit/audit_2026_10.jsonl") is True
     assert is_path_write_blocked("audit/backups/snapshot.jsonl") is True
+    assert is_path_write_blocked("system_resources") is True
+    assert is_path_write_blocked("system_resources/audit/tamper.txt") is True
 
-    # write_document should reject writing into audit
+    # write_document should reject writing into audit or system_resources
     res_str = write_document("audit/tamper.txt", "malicious_content")
     res_dict = json.loads(res_str)
     assert "error" in res_dict
     assert "Permission denied" in res_dict["error"]
+
+    res_sys = write_document("system_resources/audit/tamper.txt", "malicious_content")
+    res_sys_dict = json.loads(res_sys)
+    assert "error" in res_sys_dict
+    assert "Permission denied" in res_sys_dict["error"]
 
 
 def test_send_admin_audit_alert_mock(monkeypatch):

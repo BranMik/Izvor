@@ -17,6 +17,7 @@ DEFAULT_PROTECTED_WRITE_PATHS: list[str] = [
     ".env",
     ".git",
     "audit",
+    "system_resources",
     "data/settings/agent_settings.json",
     "data/settings/app_settings.json",
     "data/settings/system_settings.json",

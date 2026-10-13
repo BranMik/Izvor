@@ -546,7 +546,7 @@ class HybridInterceptor:
             )
         elif needs_file_read and has_tool_results:
             base_text = (
-                f"According to 'resources/e2e_testing/sys_spec.txt', the system throughput is specified at 5000 rps "
+                f"According to 'agents_resources/sys_spec.txt', the system throughput is specified at 5000 rps "
                 f"with latency target <50ms under peak load.{nomination_tag}"
             )
         elif needs_web_search and has_tool_results:
@@ -571,7 +571,7 @@ class HybridInterceptor:
             )
         elif needs_doc_authoring and has_tool_results:
             base_text = (
-                f"I have drafted the 3-point business case and successfully saved it to 'resources/e2e_testing/llm_cost_reduction_plan.md'. "
+                f"I have drafted the 3-point business case and successfully saved it to 'agents_resources/llm_cost_reduction_plan.md'. "
                 f"The document details prompt caching, tier optimization, and governance thresholds.{nomination_tag}"
             )
         else:

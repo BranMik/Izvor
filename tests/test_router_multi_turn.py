@@ -682,7 +682,7 @@ async def test_process_and_respond_history_limit_subsequent_bot_rounds(monkeypat
         {"role": "user", "content": "What now?"},
         {
             "role": "assistant",
-            "content": "[CaiLogics Visionary]: Visionary response. /[agent-10011]",
+            "content": "[Visionary]: Visionary response. /[agent-10011]",
         },
     ]
 
@@ -731,9 +731,9 @@ async def test_process_and_respond_history_limit_subsequent_bot_rounds(monkeypat
     assert captured_messages[3] == {"role": "user", "content": "Message 3"}
     assert captured_messages[4] == {"role": "user", "content": "What now?"}
     assert captured_messages[5]["role"] == "assistant"
-    assert "[CaiLogics Visionary]" in captured_messages[5]["content"]
+    assert "[Visionary]" in captured_messages[5]["content"]
     assert captured_messages[6]["role"] == "user"
-    assert "Legal Advisor" in captured_messages[6]["content"]
+    assert "You have been called to speak as" in captured_messages[6]["content"]
 
 
 @pytest.mark.anyio

@@ -232,6 +232,8 @@ class SlackProtocolClient:
         text: str,
         username: str | None = None,
         icon_url: str | None = None,
+        blocks: list[dict[str, Any]] | None = None,
+        **kwargs: Any,
     ) -> dict[str, Any]:
         real_result = None
         if self.live_mode and SLACK_BOT_TOKEN and SLACK_BOT_TOKEN != "xoxb-your-bot-user-oauth-token":
@@ -242,6 +244,8 @@ class SlackProtocolClient:
                     text=text,
                     username=username or "Agent",
                     icon_url=icon_url,
+                    blocks=blocks,
+                    **kwargs,
                 )
             except Exception as e:  # noqa: BLE001 - Live Slack dispatch error boundary
                 logger.error(f"[LIVE SLACK] Failed to post agent response: {e}")
