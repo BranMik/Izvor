@@ -49,7 +49,10 @@ venv/
 .venv/
 ENV/
 flat-histories/*
-resources/*
+system_resources/*
+agents_resources/*
+!system_resources/.gitkeep
+!agents_resources/.gitkeep
 e2e_testing_harness/.test_run_counter
 
 # IDE / Editor

@@ -84,8 +84,8 @@ async def tc_02_multi_persona(client: SlackProtocolClient) -> ScenarioResult:
     msgs = client.bus.get_messages_for_thread(channel, actual_thread)
     speakers = [m.get("username") for m in msgs]
     passed = (
-        "Security Architect" in speakers
-        and "Legal Advisor" in speakers
+        any(s in ("SecurityArchitect", "Security Architect") for s in speakers)
+        and any(s in ("LegalAdvisor", "Legal Advisor") for s in speakers)
         and len(speakers) >= 2
     )
     return ScenarioResult(
@@ -421,7 +421,7 @@ async def tc_13_codebase_inspection(client: SlackProtocolClient) -> ScenarioResu
 async def tc_14_document_authoring(client: SlackProtocolClient) -> ScenarioResult:
     channel = client.get_channel("C_TEST_14")
     thread_ts = client.get_thread_ts()
-    prompt = "/[ROIStrategist] Draft a 3-point business case and save it as a document named resources/e2e_testing/llm_cost_reduction_plan.md."
+    prompt = "/[ROIStrategist] Draft a 3-point business case and save it as a document named agents_resources/llm_cost_reduction_plan.md."
     await client.send_mention(prompt, channel_id=channel, thread_ts=thread_ts)
 
     actual_thread = thread_ts or (
@@ -439,7 +439,7 @@ async def tc_14_document_authoring(client: SlackProtocolClient) -> ScenarioResul
         "TC-14",
         "Document Authoring Skill",
         passed,
-        "Document authoring executed in resources/e2e_testing/.",
+        "Document authoring executed in agents_resources/.",
     )
 
 
@@ -448,7 +448,7 @@ async def tc_15_document_reader_attachment(
 ) -> ScenarioResult:
     channel = client.get_channel("C_TEST_15")
     thread_ts = client.get_thread_ts()
-    prompt = "/[Security Architect] /read_document resources/e2e_testing/sys_spec.txt What is the throughput specified in this file?"
+    prompt = "/[Security Architect] /read_document agents_resources/sys_spec.txt What is the throughput specified in this file?"
     await client.send_mention(prompt, channel_id=channel, thread_ts=thread_ts)
 
     actual_thread = (
@@ -472,7 +472,7 @@ async def tc_15_document_reader_attachment(
         "TC-15",
         "Document Reader & Attachment",
         passed,
-        f"Document sys_spec.txt parsed from resources/e2e_testing/ (found throughput metrics: {passed}).",
+        f"Document sys_spec.txt parsed from agents_resources/ (found throughput metrics: {passed}).",
     )
 
 

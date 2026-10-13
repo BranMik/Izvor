@@ -665,7 +665,7 @@ async def test_process_and_respond_with_max_words(monkeypatch):
     res = await process_and_respond(
         channel_id=channel_id,
         thread_ts=thread_ts,
-        raw_text="/[agent-10011] /[agent-10008] /max_words [40:int] Explain Kubernetes ingress architecture",
+        raw_text="/[agent-10011] /[agent-10008] /max_words [40:int] Explain network ingress architecture",
         is_bot_trigger=False,
     )
 
@@ -687,7 +687,7 @@ async def test_process_and_respond_with_max_words(monkeypatch):
     # User message had the /max_words command stripped cleanly
     user_msg = captured_messages[0][-1]["content"]
     assert "/max_words" not in user_msg
-    assert "Explain Kubernetes ingress architecture" in user_msg
+    assert "Explain network ingress architecture" in user_msg
 
 
 @pytest.mark.anyio
@@ -736,7 +736,7 @@ async def test_process_and_respond_with_min_words(monkeypatch):
     res = await process_and_respond(
         channel_id=channel_id,
         thread_ts=thread_ts,
-        raw_text="/[agent-10011] /[agent-10008] /min_words [80:int] Explain Kubernetes ingress architecture",
+        raw_text="/[agent-10011] /[agent-10008] /min_words [80:int] Explain network ingress architecture",
         is_bot_trigger=False,
     )
 
@@ -758,7 +758,7 @@ async def test_process_and_respond_with_min_words(monkeypatch):
     # User message had the /min_words command stripped cleanly
     user_msg = captured_messages[0][-1]["content"]
     assert "/min_words" not in user_msg
-    assert "Explain Kubernetes ingress architecture" in user_msg
+    assert "Explain network ingress architecture" in user_msg
 
 
 @pytest.mark.anyio

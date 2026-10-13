@@ -97,26 +97,26 @@ def test_resolve_target_file():
 
 
 def test_resolve_target_file_resources_fallback_and_slack_precedence():
-    from services.mcp_tools import RESOURCES_DIR
+    from services.mcp_tools import AGENTS_RESOURCES_DIR
 
     test_filename = "precedence_test_doc.txt"
-    res_file = RESOURCES_DIR / test_filename
-    res_file.write_text("Content in resources folder", encoding="utf-8")
+    res_file = AGENTS_RESOURCES_DIR / test_filename
+    res_file.write_text("Content in agents_resources folder", encoding="utf-8")
 
     try:
-        # 1. When file is ONLY in resources/ (available_files is empty)
+        # 1. When file is ONLY in agents_resources/ (available_files is empty)
         matched_res = resolve_target_file([], test_filename)
         assert matched_res is not None
         assert matched_res.get("is_resource_file") is True
         assert matched_res.get("name") == test_filename
 
-        # 2. Case-insensitive match in resources/
+        # 2. Case-insensitive match in agents_resources/
         matched_ci = resolve_target_file([], test_filename.upper())
         assert matched_ci is not None
         assert matched_ci.get("is_resource_file") is True
 
-        # 3. PRECEDENCE RULE: File exists in BOTH Slack attachments (available_files) AND resources/
-        # Attached Slack file MUST take precedence over resources folder!
+        # 3. PRECEDENCE RULE: File exists in BOTH Slack attachments (available_files) AND agents_resources/
+        # Attached Slack file MUST take precedence over agents_resources folder!
         slack_files = [
             {
                 "id": "SLACK_F123",
@@ -241,7 +241,7 @@ def test_build_llm_messages_required_skills_missing_notice():
     msgs = build_llm_messages(
         system_prompt="You are Visionary.",
         effective_history=[],
-        prompt="Write a report to resources/report.md",
+        prompt="Write a report to agents_resources/report.md",
         is_bot_trigger=False,
         agent_key="agent-10001",
         agent_cfg={"username": "agent-10001", "skills": []},
@@ -391,13 +391,13 @@ async def test_file_context_lifecycle_in_process_and_respond():
 @pytest.mark.anyio
 async def test_resource_file_resolution_in_validation_stage():
     from orchestration.turn_pipeline import TurnContext, TurnPipeline
-    from services.mcp_tools import RESOURCES_DIR
+    from services.mcp_tools import AGENTS_RESOURCES_DIR
 
     channel_id = "C_RES_STAGE_TEST"
     thread_ts = "1700000000.9999"
 
     doc_filename = "server_resource_doc.txt"
-    res_file = RESOURCES_DIR / doc_filename
+    res_file = AGENTS_RESOURCES_DIR / doc_filename
     res_file.write_text("Unique local server resource document text", encoding="utf-8")
 
     try:

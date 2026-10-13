@@ -697,6 +697,17 @@ class AgentSettingsManager:
                 }
                 for k, v in self.agents_config.items()
             },
+            "system_agents": {
+                k: {
+                    "username": v.get("username", k),
+                    "model": v.get("model", ""),
+                    "displayname": v.get("displayname", k),
+                    "icon_url": v.get("icon_url", ""),
+                    "is_short_output": bool(v.get("is_short_output", False)),
+                    "skills": list(v.get("skills", [])),
+                }
+                for k, v in self.system_agents_config.items()
+            },
             "orchestrator": {
                 "fast_model": self.get_orchestrator_fast_model(),
                 "reasoning_model": self.get_orchestrator_reasoning_model(),
