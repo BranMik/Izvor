@@ -30,6 +30,7 @@ def temp_audit_dir(tmp_path: Path):
     test_dir = tmp_path / "audit"
     test_dir.mkdir(parents=True, exist_ok=True)
     logger = AuditLogger(audit_dir=test_dir)
+    logger.invalidate_cache()
     return test_dir, logger
 
 

@@ -60,6 +60,11 @@ To satisfy Slack’s strict 3-second webhook timeout:
 - The HTTP handler acknowledges the webhook immediately (`HTTP 200 OK`).
 - The multi-agent debate is scheduled as an unawaited background task using `asyncio.create_task(process_and_respond(...))`.
 
+### 5. Amplification Defense & Sliding-Window Rate Limiting
+To protect against denial-of-service attempts or audit-log disk exhaustion attacks:
+- Failed signature verifications (`AUTH_FAILURE`) are throttled using a 60-second sliding-window burst limiter.
+- Up to 5 discrete failure events are logged per client within each 60-second window, after which subsequent attempts are suppressed and emitted as an aggregated summary event.
+
 ---
 
 ## ⚙️ FastAPI Lifespan Background Services

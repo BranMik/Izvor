@@ -189,10 +189,14 @@ async def execute_llm_with_retry(
             # 2. Unmasking Phase
             if is_strict and turn_token_mapping and hasattr(res, "choices") and res.choices:
                 first_choice = res.choices[0]
-                if hasattr(first_choice, "message") and hasattr(first_choice.message, "content"):
-                    if isinstance(first_choice.message.content, str):
+                if hasattr(first_choice, "message"):
+                    if hasattr(first_choice.message, "content") and isinstance(first_choice.message.content, str):
                         unmasked_content = pii_masker.unmask(first_choice.message.content, turn_token_mapping)
                         first_choice.message.content = unmasked_content
+                    if hasattr(first_choice.message, "tool_calls") and first_choice.message.tool_calls:
+                        for tc in first_choice.message.tool_calls:
+                            if hasattr(tc, "function") and hasattr(tc.function, "arguments") and isinstance(tc.function.arguments, str):
+                                tc.function.arguments = pii_masker.unmask(tc.function.arguments, turn_token_mapping)
 
             return res
 

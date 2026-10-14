@@ -1,3 +1,4 @@
+import copy
 import json
 import logging
 import os
@@ -41,6 +42,7 @@ class AppSettingsManager:
         self.scribe_enabled: bool = True
         self.weekly_pricing_update_enabled: bool = True
         self.workspace_context: str = ""
+        self._raw_data: dict[str, Any] = {}
 
         self._last_loaded_mtime: float = 0.0
 
@@ -64,6 +66,7 @@ class AppSettingsManager:
             with open(target_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
 
+            self._raw_data = copy.deepcopy(data)
             self.thread_skill_expiration_time = float(data.get("thread_skill_expiration_time", 12.0))
             self.circuit_breaker_enabled = bool(data.get("circuit_breaker_enabled", True))
             self.circuit_breaker_threshold_usd = float(data.get("circuit_breaker_threshold_usd", 0.0))
@@ -80,6 +83,7 @@ class AppSettingsManager:
                 try:
                     with open(self.default_backup_file, "r", encoding="utf-8") as bf:
                         data = json.load(bf)
+                    self._raw_data = copy.deepcopy(data)
                     self.thread_skill_expiration_time = float(data.get("thread_skill_expiration_time", 12.0))
                     self.circuit_breaker_enabled = bool(data.get("circuit_breaker_enabled", True))
                     self.circuit_breaker_threshold_usd = float(data.get("circuit_breaker_threshold_usd", 0.0))
@@ -95,7 +99,8 @@ class AppSettingsManager:
         target_file = self.active_settings_file
         target_file.parent.mkdir(parents=True, exist_ok=True)
 
-        payload = {
+        payload = copy.deepcopy(self._raw_data) if hasattr(self, "_raw_data") and isinstance(self._raw_data, dict) else {}
+        payload.update({
             "thread_skill_expiration_time": self.thread_skill_expiration_time,
             "circuit_breaker_enabled": self.circuit_breaker_enabled,
             "circuit_breaker_threshold_usd": self.circuit_breaker_threshold_usd,
@@ -103,16 +108,26 @@ class AppSettingsManager:
             "scribe_enabled": self.scribe_enabled,
             "weekly_pricing_update_enabled": self.weekly_pricing_update_enabled,
             "workspace_context": self.workspace_context,
-        }
+        })
 
-        tmp_file = target_file.with_suffix(".tmp")
+        tmp_filename = f"{target_file.name}.tmp_{os.getpid()}_{int(time.time() * 1000)}"
+        tmp_file = target_file.parent / tmp_filename
         try:
             with open(tmp_file, "w", encoding="utf-8") as f:
                 json.dump(payload, f, indent=2)
                 f.flush()
                 os.fsync(f.fileno())
-            os.replace(tmp_file, target_file)
+            for attempt in range(10):
+                try:
+                    os.replace(tmp_file, target_file)
+                    break
+                except (PermissionError, OSError) as pe:
+                    if attempt < 9:
+                        time.sleep(0.02 * (attempt + 1))
+                    else:
+                        raise pe
             self._last_loaded_mtime = target_file.stat().st_mtime
+            self._raw_data = copy.deepcopy(payload)
 
             # Update backup if needed
             self._maybe_update_backup(payload)
@@ -130,10 +145,21 @@ class AppSettingsManager:
             backup = self.default_backup_file
             if not backup.exists() or (now - backup.stat().st_mtime > BACKUP_INTERVAL_SECONDS):
                 backup.parent.mkdir(parents=True, exist_ok=True)
-                tmp_b = backup.with_suffix(".tmp")
+                tmp_b_name = f"{backup.name}.tmp_{os.getpid()}_{int(time.time() * 1000)}"
+                tmp_b = backup.parent / tmp_b_name
                 with open(tmp_b, "w", encoding="utf-8") as f:
                     json.dump(payload, f, indent=2)
-                os.replace(tmp_b, backup)
+                    f.flush()
+                    os.fsync(f.fileno())
+                for attempt in range(10):
+                    try:
+                        os.replace(tmp_b, backup)
+                        break
+                    except (PermissionError, OSError) as pe:
+                        if attempt < 9:
+                            time.sleep(0.02 * (attempt + 1))
+                        else:
+                            raise pe
                 logger.info("[APP_SETTINGS] Updated emergency backup.")
         except (OSError, TypeError, ValueError) as e:
             logger.warning(f"[APP_SETTINGS] Backup update failed: {e}")

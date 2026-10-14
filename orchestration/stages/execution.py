@@ -39,6 +39,21 @@ def _is_explicit_meta_provider(model: str | None) -> bool:
     return m.startswith("meta/") or m.startswith("custom_meta/")
 
 
+def _unmask_argument_values(val: Any, mapping: dict[str, str]) -> Any:
+    """Recursively unmasks string argument values if any PII token mappings exist."""
+    if not mapping or val is None:
+        return val
+    from services.rag.pii_masker import pii_masker
+    if isinstance(val, str):
+        return pii_masker.unmask(val, mapping)
+    elif isinstance(val, dict):
+        return {k: _unmask_argument_values(v, mapping) for k, v in val.items()}
+    elif isinstance(val, list):
+        return [_unmask_argument_values(item, mapping) for item in val]
+    return val
+
+
+
 class ExecutionStage:
     def __init__(self, pipeline: Any):
         self.pipeline = pipeline
@@ -195,10 +210,13 @@ class ExecutionStage:
 
                     for tool_call in tool_calls:
                         fn_name = tool_call.function.name
-                        fn_args = (
+                        raw_args = (
                             json.loads(tool_call.function.arguments)
                             if isinstance(tool_call.function.arguments, str)
                             else tool_call.function.arguments
+                        )
+                        fn_args = _unmask_argument_values(
+                            raw_args, getattr(ctx, "turn_token_mapping", {})
                         )
                         if fn_name == "load_skill":
                             tool_result = skill_registry.execute_tool(
