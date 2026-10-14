@@ -10,6 +10,7 @@ import pytest
 from orchestration.agent_settings import settings_manager
 from prompts import build_agent_prompt
 from skills import (
+    ALL_INTERNAL_SKILLS,
     LOAD_SKILL_SCHEMA,
     skill_registry,
 )
@@ -92,7 +93,9 @@ def test_load_skill_schema():
 
 
 def test_execute_load_skill_valid():
-    raw_res = skill_registry.execute_tool("load_skill", {"skill_name": "web_research"})
+    raw_res = skill_registry.execute_tool(
+        "load_skill", {"skill_name": "web_research"}, authorized_skills=["web_research"]
+    )
     data = json.loads(raw_res)
 
     assert data["status"] == "loaded"
@@ -142,7 +145,9 @@ def test_execute_load_skill_invalid():
 def test_execute_delegated_mcp_tool():
     with patch("skills.loader.execute_mcp_tool") as mock_exec:
         mock_exec.return_value = json.dumps({"contents": []})
-        res = skill_registry.execute_tool("list_documents", {"rel_path": "."})
+        res = skill_registry.execute_tool(
+            "list_documents", {"rel_path": "."}, authorized_skills=ALL_INTERNAL_SKILLS
+        )
         assert "contents" in res
         mock_exec.assert_called_once_with("list_documents", {"rel_path": "."}, agent_name="")
 
@@ -173,6 +178,14 @@ def test_execute_tool_authorization_enforcement():
     zero_data = json.loads(zero_res)
     assert "Permission denied: Agent is not authorized to execute tool 'read_document'" in zero_data["error"]
     assert "Permitted tools: none" in zero_data["error"]
+
+    # Default None authorized_skills: fails closed!
+    default_none_res = skill_registry.execute_tool(
+        "read_document", {"file_path": "test.txt"}
+    )
+    default_none_data = json.loads(default_none_res)
+    assert "Permission denied: Agent is not authorized to execute tool 'read_document'" in default_none_data["error"]
+    assert "Permitted tools: none" in default_none_data["error"]
 
 
 

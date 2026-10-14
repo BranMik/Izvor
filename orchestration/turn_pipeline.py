@@ -128,6 +128,7 @@ class TurnContext:
     intermediate_msg_ts: str | None = None
     slack_res: dict[str, Any] | None = None
     is_completed: bool = False
+    turn_token_mapping: dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self):
         self.thread_key = (self.channel_id, self.thread_ts)

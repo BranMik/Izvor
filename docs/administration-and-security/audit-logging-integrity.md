@@ -68,3 +68,17 @@ If any violation occurs (e.g., an unauthorized edit or corrupted disk sector), [
 • Computed Hash: e12c44...
 • Action: Immediate administrative audit inspection required.
 ```
+
+---
+
+## ⚡ Performance & Amplification Defense
+
+### 1. In-Memory Tail Caching & Reverse Seek
+- **Tail Caching**: `AuditLogger` maintains in-memory tracking of the current sequence number and latest cryptographic entry hash (`_cached_last_state`), enabling $O(1)$ sequential appends without disk re-reading.
+- **Cold Boot Reverse Seek**: When initializing on an existing audit partition, `get_last_state()` inspects the end of the partition file via reverse byte seek rather than parsing all preceding records into RAM.
+
+### 2. Amplification Defense & Sliding-Window Burst Suppression
+- Incoming unverified Slack requests encountering HMAC signature mismatches generate `AUTH_FAILURE` audit records.
+- To prevent audit log exhaustion attacks or disk flooding, [`core/slack_security.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/core/slack_security.py) implements a 60-second sliding-window burst limiter.
+- Up to 5 discrete failure events are logged per client IP within each 60-second window; subsequent failures are counted and logged as an aggregated summary event upon window expiration.
+

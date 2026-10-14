@@ -33,12 +33,14 @@ from services.rag.sync_engine import rag_sync_engine
 from services.slack_client import publish_app_home
 
 from orchestration.system_settings import system_settings_manager
+from core.logging_filters import setup_credential_redaction_filters
 
 # Configure logging format
 dynamic_log_level = getattr(logging, system_settings_manager.get_log_level(), logging.INFO)
 logging.basicConfig(
     level=dynamic_log_level, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 )
+setup_credential_redaction_filters()
 logger = logging.getLogger("CaiLogicsBackend")
 
 BASE_DIR = Path(__file__).resolve().parent

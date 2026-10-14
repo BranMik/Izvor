@@ -31,20 +31,15 @@ def isolate_audit_logger_for_tests(tmp_path):
     
     # Hijack the singleton's directories
     old_dir = audit_logger.audit_dir
-    old_backup = audit_logger.backup_dir
-    old_manifest = audit_logger.manifest_file
     
     audit_logger.audit_dir = test_audit_dir
-    audit_logger.backup_dir = test_audit_dir / "backups"
-    audit_logger.manifest_file = test_audit_dir / "manifest.sha256"
-    audit_logger._ensure_dirs()
+    audit_logger.invalidate_cache()
     
     yield
     
     # Restore (optional, but good practice)
     audit_logger.audit_dir = old_dir
-    audit_logger.backup_dir = old_backup
-    audit_logger.manifest_file = old_manifest
+    audit_logger.invalidate_cache()
 
 
 @pytest.fixture(autouse=True)

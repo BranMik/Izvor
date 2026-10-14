@@ -1,3 +1,4 @@
+import copy
 import fnmatch
 import json
 import logging
@@ -58,6 +59,7 @@ class SystemSettingsManager:
         self.tool_call_loop_timeout_seconds: float = 60.0
         self._debate_turn_pacing_manually_set: bool = False
         self._slack_post_pause_manually_set: bool = False
+        self._raw_data: dict[str, Any] = {}
 
         self.rag_config: dict[str, Any] = {
             "max_chunk_chars": 3500,
@@ -109,6 +111,7 @@ class SystemSettingsManager:
             with open(target_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
 
+            self._raw_data = copy.deepcopy(data)
             self.default_fast_model = (
                 str(data.get("default_fast_model", "gemini/gemini-3.8-flash")).strip()
                 or "gemini/gemini-3.8-flash"
@@ -139,6 +142,7 @@ class SystemSettingsManager:
                 try:
                     with open(self.default_backup_file, "r", encoding="utf-8") as bf:
                         data = json.load(bf)
+                    self._raw_data = copy.deepcopy(data)
                     self.default_fast_model = (
                         str(data.get("default_fast_model", "gemini/gemini-3.8-flash")).strip()
                         or "gemini/gemini-3.8-flash"
@@ -168,7 +172,8 @@ class SystemSettingsManager:
         target_file = self.active_settings_file
         target_file.parent.mkdir(parents=True, exist_ok=True)
 
-        payload = {
+        payload = copy.deepcopy(self._raw_data) if hasattr(self, "_raw_data") and isinstance(self._raw_data, dict) else {}
+        payload.update({
             "default_fast_model": self.default_fast_model,
             "default_reasoning_model": self.default_reasoning_model,
             "max_file_size_mb": self.max_file_size_mb,
@@ -184,16 +189,26 @@ class SystemSettingsManager:
             "debate_turn_pacing_seconds": self.debate_turn_pacing_seconds,
             "tool_call_loop_timeout_seconds": self.tool_call_loop_timeout_seconds,
             "slack_post_pause_seconds": self.slack_post_pause_seconds,
-        }
+        })
 
-        tmp_file = target_file.with_suffix(".tmp")
+        tmp_filename = f"{target_file.name}.tmp_{os.getpid()}_{int(time.time() * 1000)}"
+        tmp_file = target_file.parent / tmp_filename
         try:
             with open(tmp_file, "w", encoding="utf-8") as f:
                 json.dump(payload, f, indent=2)
                 f.flush()
                 os.fsync(f.fileno())
-            os.replace(tmp_file, target_file)
+            for attempt in range(10):
+                try:
+                    os.replace(tmp_file, target_file)
+                    break
+                except (PermissionError, OSError) as pe:
+                    if attempt < 9:
+                        time.sleep(0.02 * (attempt + 1))
+                    else:
+                        raise pe
             self._last_loaded_mtime = target_file.stat().st_mtime
+            self._raw_data = copy.deepcopy(payload)
 
             # Update backup if needed
             self._maybe_update_backup(payload)
@@ -211,10 +226,21 @@ class SystemSettingsManager:
             backup = self.default_backup_file
             if not backup.exists() or (now - backup.stat().st_mtime > BACKUP_INTERVAL_SECONDS):
                 backup.parent.mkdir(parents=True, exist_ok=True)
-                tmp_b = backup.with_suffix(".tmp")
+                tmp_b_name = f"{backup.name}.tmp_{os.getpid()}_{int(time.time() * 1000)}"
+                tmp_b = backup.parent / tmp_b_name
                 with open(tmp_b, "w", encoding="utf-8") as f:
                     json.dump(payload, f, indent=2)
-                os.replace(tmp_b, backup)
+                    f.flush()
+                    os.fsync(f.fileno())
+                for attempt in range(10):
+                    try:
+                        os.replace(tmp_b, backup)
+                        break
+                    except (PermissionError, OSError) as pe:
+                        if attempt < 9:
+                            time.sleep(0.02 * (attempt + 1))
+                        else:
+                            raise pe
                 logger.info("[SYSTEM_SETTINGS] Updated emergency backup.")
         except (OSError, TypeError, ValueError) as e:
             logger.warning(f"[SYSTEM_SETTINGS] Backup update failed: {e}")

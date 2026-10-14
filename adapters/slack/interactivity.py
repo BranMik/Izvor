@@ -688,7 +688,9 @@ async def handle_slack_interactivity(request: Request, background_tasks: Backgro
                 )
             elif action_id in ("bulk_disable_all", "bulk_disable_optional"):
                 for key in AGENTS_CONFIG:
-                    set_agent_enabled(key, False)
+                    set_agent_enabled(key, False, save=False)
+                from orchestration.agent_settings import settings_manager
+                settings_manager.save()
                 log_audit_event(
                     event_type="ADMIN_CONFIG_CHANGE",
                     actor={"type": "slack_admin", "id": user_id or "unknown"},

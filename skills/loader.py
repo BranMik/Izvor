@@ -18,6 +18,9 @@ logger = logging.getLogger(__name__)
 
 SKILLS_DIR = Path(__file__).parent
 
+# Sentinel constant to allow internal/system unrestricted tool execution
+ALL_INTERNAL_SKILLS = "__ALL_INTERNAL_SKILLS__"
+
 # Function schema for autonomous progressive disclosure
 LOAD_SKILL_SCHEMA = {
     "type": "function",
@@ -596,26 +599,38 @@ class SkillRegistry:
         self,
         tool_name: str,
         arguments: dict[str, Any],
-        authorized_skills: list[str] | None = None,
+        authorized_skills: list[str] | str | None = None,
         expired_skills: list[str] | None = None,
         ttl_hours: float | None = None,
         agent_name: str = "",
     ) -> str:
         """
-        Dispatches tool execution.
+        Dispatches tool execution with fail-closed authorization.
+        If authorized_skills is None, defaults to [] (fail-closed, rejecting non-global tools).
+        Internal unrestricted callers must explicitly pass ALL_INTERNAL_SKILLS.
         If tool is 'load_skill', enforces authorization against authorized_skills and
         returns the skill's SKILL.md guidelines.
-        Otherwise delegates to services.mcp_tools.execute_mcp_tool.
+        Otherwise delegates to custom tool handlers or services.mcp_tools.execute_mcp_tool.
         """
+        is_internal = (
+            authorized_skills == ALL_INTERNAL_SKILLS
+            or (isinstance(authorized_skills, (list, tuple, set)) and ALL_INTERNAL_SKILLS in authorized_skills)
+        )
+        effective_authorized_skills: list[str] = (
+            [s.name for s in self._skills.values()]
+            if is_internal
+            else (list(authorized_skills) if authorized_skills is not None else [])
+        )
+
         if tool_name == "load_skill":
             skill_name = arguments.get("skill_name", "").strip()
             target_skill = self.get(skill_name)
             is_globally_allowed = bool(target_skill and target_skill.is_global)
 
             if (
-                authorized_skills is not None
-                and skill_name not in authorized_skills
+                not is_internal
                 and not is_globally_allowed
+                and skill_name not in effective_authorized_skills
             ):
                 from services.audit_logger import log_audit_event
 
@@ -642,13 +657,13 @@ class SkillRegistry:
                             )
                         }
                     )
-                allowed_str = ", ".join(f"'{s}'" for s in authorized_skills) or "none"
+                allowed_str = ", ".join(f"'{s}'" for s in effective_authorized_skills) or "none"
                 log_audit_event(
                     event_type="SECURITY_POLICY_VIOLATION",
                     actor={"type": "agent", "id": agent_name or "unknown_agent"},
                     action="load_skill",
                     target=f"skill:{skill_name}",
-                    details={"reason": "Agent not authorized for skill", "authorized_skills": authorized_skills},
+                    details={"reason": "Agent not authorized for skill", "authorized_skills": effective_authorized_skills},
                     severity="CRITICAL",
                     status="BLOCKED",
                 )
@@ -696,16 +711,25 @@ class SkillRegistry:
                 indent=2,
             )
 
-        # For any other tool, verify authorization against authorized_skills if provided
-        if authorized_skills is not None:
+        # For any other tool, verify authorization against authorized/global skills (fail-closed)
+        if not is_internal:
             permitted_tools: set[str] = set()
-            for s_name in authorized_skills:
+            for s_name in effective_authorized_skills:
                 s_def = self.get(s_name)
                 if s_def:
                     permitted_tools.update(s_def.tools)
+                    for schema in s_def.custom_tool_schemas:
+                        fn = schema.get("function", {}).get("name")
+                        if fn:
+                            permitted_tools.add(fn)
             for s_def in self._skills.values():
                 if s_def.is_global:
                     permitted_tools.update(s_def.tools)
+                    for schema in s_def.custom_tool_schemas:
+                        fn = schema.get("function", {}).get("name")
+                        if fn:
+                            permitted_tools.add(fn)
+
             if tool_name not in permitted_tools:
                 allowed_tools_str = (
                     ", ".join(f"'{t}'" for t in sorted(permitted_tools)) or "none"
@@ -735,7 +759,6 @@ class SkillRegistry:
                         )
                     }
                 )
-
 
         # Check if any skill registered a custom tool handler
         for s_def in self._skills.values():

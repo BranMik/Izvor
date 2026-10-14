@@ -107,25 +107,38 @@ class AuditLogger:
                 cls._instance._initialized = False
             return cls._instance
 
+    @property
+    def audit_dir(self) -> Path:
+        return self._audit_dir
+
+    @audit_dir.setter
+    def audit_dir(self, val: Path) -> None:
+        self._audit_dir = Path(val)
+        self.backup_dir = self._audit_dir / "backups"
+        self.manifest_file = self._audit_dir / "manifest.sha256"
+        self._cached_last_state = None
+        self._ensure_dirs()
+
     def __init__(self, audit_dir: Path | None = None) -> None:
         if getattr(self, "_initialized", False):
-            if audit_dir and audit_dir != self.audit_dir:
+            if audit_dir is not None:
                 self.audit_dir = audit_dir
-                self.backup_dir = self.audit_dir / "backups"
-                self.manifest_file = self.audit_dir / "manifest.sha256"
-                self._ensure_dirs()
             return
 
+        self._write_lock = threading.RLock()
+        self._cached_last_state: tuple[int, str] | None = None
         self.audit_dir = audit_dir or DEFAULT_AUDIT_DIR
-        self.backup_dir = self.audit_dir / "backups"
-        self.manifest_file = self.audit_dir / "manifest.sha256"
-        self._write_lock = threading.Lock()
-        self._ensure_dirs()
         self._initialized = True
 
+    def invalidate_cache(self) -> None:
+        """Invalidates cached sequence and hash state, forcing file scan on next read."""
+        with self._write_lock:
+            self._cached_last_state = None
+
     def _ensure_dirs(self) -> None:
-        self.audit_dir.mkdir(parents=True, exist_ok=True)
-        self.backup_dir.mkdir(parents=True, exist_ok=True)
+        if hasattr(self, "_audit_dir"):
+            self._audit_dir.mkdir(parents=True, exist_ok=True)
+            self.backup_dir.mkdir(parents=True, exist_ok=True)
 
     def get_month_file_path(self, dt: datetime.datetime | None = None) -> Path:
         """Returns the monthly partitioned file path: audit/audit_YYYY_MM.jsonl."""
@@ -143,27 +156,43 @@ class AuditLogger:
 
     def get_last_state(self) -> tuple[int, str]:
         """
-        Scans existing audit files to determine the highest sequence ID and last entry_hash.
+        Determines the highest sequence ID and last entry_hash.
+        Uses in-memory cache if available; otherwise performs an efficient reverse seek
+        on the newest monthly audit file to avoid loading the entire file into memory.
         If no logs exist, returns (0, GENESIS_HASH).
         """
-        sorted_files = self._get_sorted_audit_files()
-        if not sorted_files:
-            return 0, GENESIS_HASH
+        with self._write_lock:
+            if self._cached_last_state is not None:
+                return self._cached_last_state
 
-        # Inspect newest file from the end
-        for file_path in reversed(sorted_files):
-            try:
-                with open(file_path, "r", encoding="utf-8") as f:
-                    lines = [line.strip() for line in f if line.strip()]
-                    if lines:
-                        last_line = lines[-1]
-                        record = json.loads(last_line)
-                        return int(record["seq"]), str(record["entry_hash"])
-            except Exception as e:
-                logger.error(f"[AUDIT] Failed to read last state from {file_path.name}: {e}")
-                continue
+            sorted_files = self._get_sorted_audit_files()
+            if not sorted_files:
+                self._cached_last_state = (0, GENESIS_HASH)
+                return self._cached_last_state
 
-        return 0, GENESIS_HASH
+            # Inspect newest file from the end
+            for file_path in reversed(sorted_files):
+                try:
+                    size = file_path.stat().st_size
+                    if size == 0:
+                        continue
+                    with open(file_path, "rb") as f:
+                        # Read last chunk up to 8192 bytes
+                        chunk_size = min(size, 8192)
+                        f.seek(size - chunk_size)
+                        chunk = f.read(chunk_size).decode("utf-8", errors="replace")
+                        lines = [line.strip() for line in chunk.splitlines() if line.strip()]
+                        if lines:
+                            last_line = lines[-1]
+                            record = json.loads(last_line)
+                            self._cached_last_state = (int(record["seq"]), str(record["entry_hash"]))
+                            return self._cached_last_state
+                except Exception as e:
+                    logger.error(f"[AUDIT] Failed to read last state from {file_path.name}: {e}")
+                    continue
+
+            self._cached_last_state = (0, GENESIS_HASH)
+            return self._cached_last_state
 
     def log_event(
         self,
@@ -214,6 +243,8 @@ class AuditLogger:
                 with open(target_file, "a", encoding="utf-8") as f:
                     f.write(line_str)
                     f.flush()
+
+                self._cached_last_state = (record.seq, record.entry_hash)
 
                 logger.info(
                     f"[AUDIT] Seq {record.seq} ({record.event_type}) recorded by {actor_dict.get('id')} -> {target_file.name}"

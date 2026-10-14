@@ -1,3 +1,4 @@
+import copy
 import json
 import logging
 import os
@@ -113,6 +114,7 @@ class AgentSettingsManager:
         self.backup_error_reason: str | None = None
         self._last_loaded_mtime: float = 0.0
         self._last_workflow_mtime: float = 0.0
+        self._raw_data: dict[str, Any] = {}
 
         if auto_load:
             self.load()
@@ -220,7 +222,17 @@ class AgentSettingsManager:
         try:
             with open(tmp_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2)
-            os.replace(tmp_path, target_path)
+                f.flush()
+                os.fsync(f.fileno())
+            for attempt in range(10):
+                try:
+                    os.replace(tmp_path, target_path)
+                    break
+                except (PermissionError, OSError) as pe:
+                    if attempt < 9:
+                        time.sleep(0.02 * (attempt + 1))
+                    else:
+                        raise pe
         except Exception:
             if tmp_path.exists():
                 try:
@@ -409,6 +421,7 @@ class AgentSettingsManager:
             logger.error(f"[SETTINGS] Payload from {source_name} is not a valid JSON object.")
             return False
 
+        self._raw_data = copy.deepcopy(data)
         data = AppIntegrityValidator.run_all_checks(data, personas_dir=PERSONAS_DIR)
         
         raw_agents = data.get("agents", {})
@@ -680,42 +693,62 @@ class AgentSettingsManager:
         Saves current enabled debate agents, agent configurations, circuit breaker,
         and workflow reference to active JSON.
         Does NOT embed workflow details (chains), keeping workflow files as SSOT.
+        Losslessly preserves unrecognized keys and agent attributes.
         Resets emergency backup mode once active file is successfully saved.
         """
         wf_ref = self.workflow_config or self.active_workflow_id
-        data = {
-            "workflow_config": wf_ref,
-            "enabled_agents": sorted(self.enabled_agents),
-            "agents": {
-                k: {
-                    "username": v.get("username", k),
-                    "model": v.get("model", ""),
-                    "displayname": v.get("displayname", k),
-                    "icon_url": v.get("icon_url", ""),
-                    "is_short_output": bool(v.get("is_short_output", False)),
-                    "skills": list(v.get("skills", [])),
-                }
-                for k, v in self.agents_config.items()
-            },
-            "system_agents": {
-                k: {
-                    "username": v.get("username", k),
-                    "model": v.get("model", ""),
-                    "displayname": v.get("displayname", k),
-                    "icon_url": v.get("icon_url", ""),
-                    "is_short_output": bool(v.get("is_short_output", False)),
-                    "skills": list(v.get("skills", [])),
-                }
-                for k, v in self.system_agents_config.items()
-            },
-            "orchestrator": {
-                "fast_model": self.get_orchestrator_fast_model(),
-                "reasoning_model": self.get_orchestrator_reasoning_model(),
-                "username": self.orchestrator_config.get("username", "Orchestrator"),
-                "displayname": self.orchestrator_config.get("displayname", "Orchestrator"),
-                "icon_url": self.orchestrator_config.get("icon_url", "static/image_30.png"),
-            },
-        }
+        data = copy.deepcopy(self._raw_data) if hasattr(self, "_raw_data") and isinstance(self._raw_data, dict) else {}
+        data["workflow_config"] = wf_ref
+        data["enabled_agents"] = sorted(self.enabled_agents)
+
+        # Losslessly update agents
+        if "agents" not in data or not isinstance(data["agents"], dict):
+            data["agents"] = {}
+        for k, v in self.agents_config.items():
+            existing_agent = data["agents"].get(k, {}) if isinstance(data["agents"].get(k), dict) else {}
+            existing_agent.update({
+                "username": v.get("username", k),
+                "model": v.get("model", ""),
+                "displayname": v.get("displayname", k),
+                "icon_url": v.get("icon_url", ""),
+                "is_short_output": bool(v.get("is_short_output", False)),
+                "skills": list(v.get("skills", [])),
+            })
+            data["agents"][k] = existing_agent
+        for k in list(data["agents"].keys()):
+            if k not in self.agents_config:
+                del data["agents"][k]
+
+        # Losslessly update system_agents
+        if "system_agents" not in data or not isinstance(data["system_agents"], dict):
+            data["system_agents"] = {}
+        for k, v in self.system_agents_config.items():
+            existing_sys = data["system_agents"].get(k, {}) if isinstance(data["system_agents"].get(k), dict) else {}
+            existing_sys.update({
+                "username": v.get("username", k),
+                "model": v.get("model", ""),
+                "displayname": v.get("displayname", k),
+                "icon_url": v.get("icon_url", ""),
+                "is_short_output": bool(v.get("is_short_output", False)),
+                "skills": list(v.get("skills", [])),
+            })
+            data["system_agents"][k] = existing_sys
+        for k in list(data["system_agents"].keys()):
+            if k not in self.system_agents_config:
+                del data["system_agents"][k]
+
+        # Losslessly update orchestrator
+        if "orchestrator" not in data or not isinstance(data["orchestrator"], dict):
+            data["orchestrator"] = {}
+        data["orchestrator"].update({
+            "fast_model": self.get_orchestrator_fast_model(),
+            "reasoning_model": self.get_orchestrator_reasoning_model(),
+            "username": self.orchestrator_config.get("username", "Orchestrator"),
+            "displayname": self.orchestrator_config.get("displayname", "Orchestrator"),
+            "icon_url": self.orchestrator_config.get("icon_url", "static/image_30.png"),
+        })
+
+        self._raw_data = copy.deepcopy(data)
 
         def do_save():
             with self._save_lock:
@@ -934,7 +967,7 @@ class AgentSettingsManager:
     def get_enabled_agents(self) -> set[str]:
         return set(self.enabled_agents)
 
-    def set_agent_enabled(self, agent_key: str, enabled: bool) -> bool:
+    def set_agent_enabled(self, agent_key: str, enabled: bool, save: bool = True) -> bool:
         if agent_key not in self.agents_config:
             logger.warning(f"[SETTINGS] Unknown agent key '{agent_key}'.")
             return False
@@ -943,7 +976,8 @@ class AgentSettingsManager:
             self.enabled_agents.add(agent_key)
         else:
             self.enabled_agents.discard(agent_key)
-        self.save()
+        if save:
+            self.save()
         logger.info(f"[SETTINGS] Set agent '{agent_key}' enabled={enabled}. Total enabled: {len(self.enabled_agents)}")
         return True
 
@@ -1164,8 +1198,8 @@ def get_enabled_agents() -> set[str]:
     return settings_manager.get_enabled_agents()
 
 
-def set_agent_enabled(agent_key: str, enabled: bool) -> bool:
-    return settings_manager.set_agent_enabled(agent_key, enabled)
+def set_agent_enabled(agent_key: str, enabled: bool, save: bool = True) -> bool:
+    return settings_manager.set_agent_enabled(agent_key, enabled, save=save)
 
 
 def toggle_agent(agent_key: str) -> bool:

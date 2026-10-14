@@ -173,6 +173,7 @@ def test_skill_registry_loads_knowledge_base_rag():
     result = registry.execute_tool(
         "search_knowledge_rag",
         {"query": "coding standards", "scope": "all", "max_results": 2},
+        authorized_skills=["knowledge_base_rag"],
     )
     assert isinstance(result, str)
 
@@ -180,6 +181,7 @@ def test_skill_registry_loads_knowledge_base_rag():
     result_agent = registry.execute_tool(
         "search_knowledge_rag",
         {"query": "AI in delivery", "scope": "all", "max_results": 2},
+        authorized_skills=["knowledge_base_rag"],
         agent_name="agent-10011",
     )
     assert isinstance(result_agent, str)

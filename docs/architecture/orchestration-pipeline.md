@@ -42,8 +42,9 @@ The pipeline operates on a shared state object ([`SessionContext`](file:///c:/Us
 - **Responsibilities**:
   1. **LiteLLM Provider Invocation**: Dispatches prompt context to the configured LLM provider (OpenRouter, Anthropic, OpenAI, etc.).
   2. **Exponential Backoff & Retries**: Utilizes [`core/llm_utils.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/core/llm_utils.py) to automatically handle rate limits (HTTP 429), server errors (5xx), and transient network disconnects with jittered backoff.
-  3. **Tool Calling Loop**: If the model issues a tool call (e.g., `web_research`, `document_reader`, MCP filesystem tool):
-     - Executes the tool inside the safe confinement boundary.
+  3. **Tool Calling Loop & Fail-Closed Authorization**:
+     - Executes tools strictly within authorized boundaries: `skill_registry.execute_tool` operates **fail-closed** (unauthorized or default-none callers are blocked and logged).
+     - **PII & Secret Unmasking**: Tool call arguments generated with pseudonym placeholders (e.g., `<EMAIL_0>`) are unmasked back to real values via `pii_masker.unmask()` before reaching execution handlers.
      - Feeds the tool output back into the conversation context.
      - Enforces `tool_call_loop_timeout_seconds` (default: 60s in [`data/settings/system_settings.json`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/data/settings/system_settings.json)) to prevent runaway execution loops.
 
