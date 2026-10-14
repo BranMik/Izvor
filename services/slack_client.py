@@ -1,6 +1,8 @@
+import asyncio
 import logging
 import re
 import time
+import urllib.parse
 from pathlib import Path
 from typing import Any
 
@@ -754,6 +756,23 @@ def sanitize_slack_download_filename(file_name: str, prefix_len: int = 6) -> str
     return f"{short_uuid}_{clean_stem}{clean_suffix}"
 
 
+def _extract_pdf_pages(raw_bytes: bytes) -> str:
+    """Helper to synchronously parse PDF pages; executed in a background thread."""
+    import io
+    import pypdf
+
+    pdf_stream = io.BytesIO(raw_bytes)
+    reader = pypdf.PdfReader(pdf_stream)
+    pages_text = []
+    for idx, page in enumerate(reader.pages):
+        page_text = (page.extract_text() or "").strip()
+        if page_text:
+            pages_text.append(f"--- Page {idx + 1} ---\n{page_text}")
+        else:
+            pages_text.append(f"--- Page {idx + 1} ---\n[No extractable text]")
+    return "\n\n".join(pages_text) if pages_text else "[Empty PDF document]"
+
+
 async def download_slack_file(
     file_info: dict[str, Any], max_chars: int = 50000
 ) -> dict[str, Any]:
@@ -796,6 +815,32 @@ async def download_slack_file(
             "error": "No download URL available for this file.",
         }
 
+    # Verify origin hostname belongs to allowed Slack domains before attaching sensitive Bearer token
+    parsed_url = urllib.parse.urlsplit(url)
+    hostname = (parsed_url.hostname or "").lower()
+    allowed_hosts = {
+        "files.slack.com",
+        "files-edu.slack.com",
+        "slack-files.com",
+    }
+    is_slack_host = (
+        hostname in allowed_hosts
+        or hostname.endswith(".slack.com")
+        or hostname.endswith(".slack-files.com")
+    )
+    if not is_slack_host:
+        logger.warning(
+            f"[SLACK FILE] Blocked file download attempt to non-Slack domain: {hostname}"
+        )
+        return {
+            "ok": False,
+            "file_name": file_name,
+            "content": "",
+            "truncated": False,
+            "size": file_size,
+            "error": f"Security violation: File download URL domain '{hostname}' is not a recognized Slack domain.",
+        }
+
     if not SLACK_BOT_TOKEN or SLACK_BOT_TOKEN == "xoxb-your-bot-user-oauth-token":
         return {
             "ok": True,
@@ -808,28 +853,34 @@ async def download_slack_file(
 
     headers = {"Authorization": f"Bearer {SLACK_BOT_TOKEN}"}
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.get(url, headers=headers, follow_redirects=True)
-            if resp.status_code != 200:
-                return {
-                    "ok": False,
-                    "file_name": file_name,
-                    "content": "",
-                    "truncated": False,
-                    "size": file_size,
-                    "error": f"Slack file download failed with HTTP status {resp.status_code}",
-                }
+        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+            async with client.stream("GET", url, headers=headers) as resp:
+                if resp.status_code != 200:
+                    return {
+                        "ok": False,
+                        "file_name": file_name,
+                        "content": "",
+                        "truncated": False,
+                        "size": file_size,
+                        "error": f"Slack file download failed with HTTP status {resp.status_code}",
+                    }
 
-            raw_bytes = resp.content
-            if len(raw_bytes) > max_size_bytes:
-                return {
-                    "ok": False,
-                    "file_name": file_name,
-                    "content": "",
-                    "truncated": False,
-                    "size": len(raw_bytes),
-                    "error": f"File '{file_name}' ({len(raw_bytes)} bytes) exceeds maximum allowed size of {max_size_mb:.1f} MB.",
-                }
+                chunks = []
+                total_bytes = 0
+                async for chunk in resp.aiter_bytes(chunk_size=65536):
+                    total_bytes += len(chunk)
+                    if total_bytes > max_size_bytes:
+                        return {
+                            "ok": False,
+                            "file_name": file_name,
+                            "content": "",
+                            "truncated": False,
+                            "size": total_bytes,
+                            "error": f"File '{file_name}' ({total_bytes} bytes) exceeds maximum allowed size of {max_size_mb:.1f} MB.",
+                        }
+                    chunks.append(chunk)
+
+                raw_bytes = b"".join(chunks)
 
             # Cache local copy to workspace safely
             try:
@@ -850,26 +901,7 @@ async def download_slack_file(
 
             if file_name.lower().endswith(".pdf"):
                 try:
-                    import io
-
-                    import pypdf
-
-                    pdf_stream = io.BytesIO(raw_bytes)
-                    reader = pypdf.PdfReader(pdf_stream)
-                    pages_text = []
-                    for idx, page in enumerate(reader.pages):
-                        page_text = (page.extract_text() or "").strip()
-                        if page_text:
-                            pages_text.append(f"--- Page {idx + 1} ---\n{page_text}")
-                        else:
-                            pages_text.append(
-                                f"--- Page {idx + 1} ---\n[No extractable text]"
-                            )
-                    text_content = (
-                        "\n\n".join(pages_text)
-                        if pages_text
-                        else "[Empty PDF document]"
-                    )
+                    text_content = await asyncio.to_thread(_extract_pdf_pages, raw_bytes)
                 except Exception as pdf_err:  # noqa: BLE001 - PDF parsing error boundary falls back cleanly
                     logger.warning(
                         f"[SLACK FILE] Could not parse PDF attachment {file_name}: {pdf_err}"

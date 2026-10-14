@@ -57,6 +57,7 @@ class SystemSettingsManager:
         self.debate_turn_pacing_seconds: float = 3.0
         self.slack_post_pause_seconds: float = 2.0
         self.tool_call_loop_timeout_seconds: float = 60.0
+        self.guardrail_fail_mode: str = "open"
         self._debate_turn_pacing_manually_set: bool = False
         self._slack_post_pause_manually_set: bool = False
         self._raw_data: dict[str, Any] = {}
@@ -133,6 +134,8 @@ class SystemSettingsManager:
             self.debate_turn_pacing_seconds = float(data.get("debate_turn_pacing_seconds", 3.0))
             self.slack_post_pause_seconds = float(data.get("slack_post_pause_seconds", 2.0))
             self.tool_call_loop_timeout_seconds = float(data.get("tool_call_loop_timeout_seconds", 60.0))
+            raw_gfm = str(data.get("guardrail_fail_mode", "open")).strip().lower()
+            self.guardrail_fail_mode = raw_gfm if raw_gfm in ("open", "closed") else "open"
 
             self._last_loaded_mtime = mtime
             logger.debug(f"[SYSTEM_SETTINGS] Loaded settings from {target_file}")
@@ -164,6 +167,8 @@ class SystemSettingsManager:
                     self.debate_turn_pacing_seconds = float(data.get("debate_turn_pacing_seconds", 3.0))
                     self.slack_post_pause_seconds = float(data.get("slack_post_pause_seconds", 2.0))
                     self.tool_call_loop_timeout_seconds = float(data.get("tool_call_loop_timeout_seconds", 60.0))
+                    raw_gfm = str(data.get("guardrail_fail_mode", "open")).strip().lower()
+                    self.guardrail_fail_mode = raw_gfm if raw_gfm in ("open", "closed") else "open"
                     logger.warning("[SYSTEM_SETTINGS] Recovered settings from backup.")
                 except (OSError, json.JSONDecodeError, TypeError, ValueError) as be:
                     logger.error(f"[SYSTEM_SETTINGS] Failed to read backup: {be}")
@@ -189,6 +194,7 @@ class SystemSettingsManager:
             "debate_turn_pacing_seconds": self.debate_turn_pacing_seconds,
             "tool_call_loop_timeout_seconds": self.tool_call_loop_timeout_seconds,
             "slack_post_pause_seconds": self.slack_post_pause_seconds,
+            "guardrail_fail_mode": self.guardrail_fail_mode,
         })
 
         tmp_filename = f"{target_file.name}.tmp_{os.getpid()}_{int(time.time() * 1000)}"
@@ -465,6 +471,18 @@ class SystemSettingsManager:
 
         return False
 
+    def get_guardrail_fail_mode(self) -> str:
+        self.load()
+        return self.guardrail_fail_mode
+
+    def set_guardrail_fail_mode(self, mode: str, save: bool = True) -> None:
+        clean_mode = str(mode).strip().lower()
+        if clean_mode not in ("open", "closed"):
+            raise ValueError(f"Invalid guardrail fail mode '{mode}'. Must be 'open' or 'closed'.")
+        self.guardrail_fail_mode = clean_mode
+        if save:
+            self.save()
+
 
 system_settings_manager = SystemSettingsManager()
 
@@ -566,6 +584,14 @@ def get_tool_call_loop_timeout_seconds() -> float:
 
 def set_tool_call_loop_timeout_seconds(seconds: float, save: bool = True) -> None:
     system_settings_manager.set_tool_call_loop_timeout_seconds(seconds, save=save)
+
+
+def get_guardrail_fail_mode() -> str:
+    return system_settings_manager.get_guardrail_fail_mode()
+
+
+def set_guardrail_fail_mode(mode: str, save: bool = True) -> None:
+    system_settings_manager.set_guardrail_fail_mode(mode, save=save)
 
 
 

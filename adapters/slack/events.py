@@ -42,8 +42,20 @@ class EventDeduplicationCache(dict):
         expired = [k for k, v in self.items() if now - v > self.ttl_seconds]
         for k in expired:
             super().pop(k, None)
-        if len(self) > self.maxsize:
-            super().clear()
+        if len(self) >= self.maxsize:
+            num_to_evict = max(1, int(len(self) * 0.2))
+            sorted_keys = sorted(self.keys(), key=lambda k: self[k])
+            evicted_keys = sorted_keys[:num_to_evict]
+            for k in evicted_keys:
+                super().pop(k, None)
+            try:
+                with get_db_transaction(immediate=True) as conn:
+                    conn.executemany(
+                        "DELETE FROM event_dedup WHERE event_id = ?",
+                        [(self._format_key(k),) for k in evicted_keys],
+                    )
+            except Exception:
+                pass
         # Evict from SQLite table event_dedup
         cutoff = now - self.ttl_seconds
         try:
@@ -85,6 +97,20 @@ class EventDeduplicationCache(dict):
                 )
         except Exception:
             pass
+        if len(self) > self.maxsize:
+            num_to_evict = max(1, int(len(self) * 0.2))
+            sorted_keys = sorted(self.keys(), key=lambda k: self[k])
+            evicted_keys = sorted_keys[:num_to_evict]
+            for k in evicted_keys:
+                super().pop(k, None)
+            try:
+                with get_db_transaction(immediate=True) as conn:
+                    conn.executemany(
+                        "DELETE FROM event_dedup WHERE event_id = ?",
+                        [(self._format_key(k),) for k in evicted_keys],
+                    )
+            except Exception:
+                pass
 
     def clear(self) -> None:
         super().clear()
