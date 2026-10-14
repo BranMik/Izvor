@@ -10,6 +10,7 @@ from fastapi import BackgroundTasks, HTTPException, Request, Response
 from slack_sdk.errors import SlackApiError
 from starlette.requests import ClientDisconnect
 
+from core.database import get_connection, get_db_transaction
 from core.slack_security import verify_slack_signature
 from orchestration.agent_router import process_and_respond
 from orchestration.thread_state import thread_state_manager
@@ -22,14 +23,19 @@ logger = logging.getLogger("CaiLogicsBackend.SlackEvents")
 
 class EventDeduplicationCache(dict):
     """
-    Time-to-live (TTL) bounded in-memory cache for request deduplication.
-    Automatically evicts expired entries older than ttl_seconds upon access.
+    Time-to-live (TTL) bounded cache for Slack event deduplication.
+    Backed by SQLite table `event_dedup` with in-memory caching for zero latency.
     """
 
     def __init__(self, ttl_seconds: float = 600.0, maxsize: int = 2000):
         super().__init__()
         self.ttl_seconds = ttl_seconds
         self.maxsize = maxsize
+
+    def _format_key(self, key: Any) -> str:
+        if isinstance(key, (tuple, list)):
+            return f"{key[0]}:{key[1]}"
+        return str(key)
 
     def _evict_expired(self) -> None:
         now = time.time()
@@ -38,17 +44,68 @@ class EventDeduplicationCache(dict):
             super().pop(k, None)
         if len(self) > self.maxsize:
             super().clear()
+        # Evict from SQLite table event_dedup
+        cutoff = now - self.ttl_seconds
+        try:
+            with get_db_transaction(immediate=True) as conn:
+                conn.execute("DELETE FROM event_dedup WHERE received_at < ?", (cutoff,))
+        except Exception:
+            pass
 
     def __contains__(self, key: Any) -> bool:
         self._evict_expired()
-        return super().__contains__(key)
+        if super().__contains__(key):
+            return True
+        event_id = self._format_key(key)
+        try:
+            cutoff = time.time() - self.ttl_seconds
+            with get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT received_at FROM event_dedup WHERE event_id = ? AND received_at >= ?",
+                    (event_id, cutoff),
+                )
+                row = cursor.fetchone()
+                if row:
+                    super().__setitem__(key, float(row["received_at"]))
+                    return True
+        except Exception:
+            pass
+        return False
 
     def __setitem__(self, key: Any, value: float) -> None:
         self._evict_expired()
         super().__setitem__(key, value)
+        event_id = self._format_key(key)
+        try:
+            with get_db_transaction(immediate=True) as conn:
+                conn.execute(
+                    "INSERT OR REPLACE INTO event_dedup (event_id, received_at) VALUES (?, ?)",
+                    (event_id, float(value)),
+                )
+        except Exception:
+            pass
+
+    def clear(self) -> None:
+        super().clear()
+        try:
+            with get_db_transaction(immediate=True) as conn:
+                conn.execute("DELETE FROM event_dedup")
+        except Exception:
+            pass
+
+    def pop(self, key: Any, default: Any = None) -> Any:
+        val = super().pop(key, default)
+        event_id = self._format_key(key)
+        try:
+            with get_db_transaction(immediate=True) as conn:
+                conn.execute("DELETE FROM event_dedup WHERE event_id = ?", (event_id,))
+        except Exception:
+            pass
+        return val
 
 
-# Global in-memory cache for request deduplication
+# Global cache for request deduplication
 PROCESSED_EVENTS: EventDeduplicationCache = EventDeduplicationCache(ttl_seconds=600.0, maxsize=2000)
 
 _FALLBACK_SLASH_RE = re.compile(

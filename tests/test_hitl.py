@@ -95,10 +95,9 @@ def test_hitl_expiration_ttl():
         fn_name="reboot_system",
         fn_args={},
         initiator_user_id="U_ADMIN",
+        ttl_seconds=-1.0,
     )
 
-    # Artificially age the request past expiry
-    req.expires_at = time.time() - 1.0
     assert req.is_expired()
 
     # Expired request cannot be retrieved

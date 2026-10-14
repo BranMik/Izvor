@@ -379,6 +379,10 @@ def test_agent_settings_file_structure_and_dynamic_load():
         assert len(mgr.fixed_chain) > 0
         assert "agent-10001" in mgr.fixed_chain
         assert "agent-10008" in mgr.fixed_chain
+    elif data["workflow_config"] == "default_review_flow":
+        assert mgr.get_orchestration_mode() == OrchestrationMode.FIXED.value
+        assert len(mgr.fixed_chain) > 0
+        assert "agent-10001" in mgr.fixed_chain
     else:
         assert mgr.get_orchestration_mode() == OrchestrationMode.SANDWICH.value
         assert len(mgr.sandwich_start_chain) > 0 or len(mgr.sandwich_end_chain) > 0

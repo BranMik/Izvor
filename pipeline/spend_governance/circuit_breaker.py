@@ -1,22 +1,32 @@
+import time
 from datetime import datetime, timezone
 import logging
 
+from core.database import get_connection, get_db_transaction
 from core.domain import SpendMetrics
 from services.pricing_service import get_model_pricing
 
 logger = logging.getLogger(__name__)
 
 
+def _parse_session_id(session_id: str) -> tuple[str, str]:
+    if ":" in session_id:
+        c, t = session_id.split(":", 1)
+        return c, t
+    return session_id, ""
+
+
 class SpendGovernance:
     """
     Service for real-time token accounting, monetary cost calculation,
     daily spend tracking, and circuit-breaker budget enforcement.
+    Persists all token usage and costs to SQLite spend_ledger.
     """
 
     def __init__(self, default_threshold_usd: float = 1.0, default_daily_budget_usd: float = 10.0):
         self.default_threshold_usd = default_threshold_usd
         self.default_daily_budget_usd = default_daily_budget_usd
-        # Map session_id -> {model: {"prompt": int, "completion": int}}
+        # In-memory working cache for active execution turns
         self._session_tokens: dict[str, dict[str, dict[str, int]]] = {}
         self._daily_spend_usd: float = 0.0
         self._daily_spend_date: str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -25,7 +35,7 @@ class SpendGovernance:
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         if self._daily_spend_date != today:
             logger.info(
-                f"[SPEND GOVERNANCE] New day rollover ({today} vs {self._daily_spend_date}). Resetting daily spend."
+                f"[SPEND GOVERNANCE] New day rollover ({today} vs {self._daily_spend_date}). Resetting daily spend cache."
             )
             self._daily_spend_date = today
             self._daily_spend_usd = 0.0
@@ -37,7 +47,7 @@ class SpendGovernance:
         prompt_tokens: int,
         completion_tokens: int,
     ) -> None:
-        """Records token usage for a model within a session and accumulates daily spend."""
+        """Records token usage for a model within a session, accumulates daily spend, and writes to SQLite ledger."""
         if session_id not in self._session_tokens:
             self._session_tokens[session_id] = {}
         if model_name not in self._session_tokens[session_id]:
@@ -62,20 +72,104 @@ class SpendGovernance:
         delta_cost = (prompt_tokens * p_rate + completion_tokens * c_rate) / 1_000_000.0
         self._daily_spend_usd += delta_cost
 
+        # Persist to SQLite spend_ledger
+        channel_id, thread_ts = _parse_session_id(session_id)
+        now_ts = time.time()
+        try:
+            with get_db_transaction(immediate=True) as conn:
+                conn.execute(
+                    """
+                    INSERT INTO spend_ledger (channel_id, thread_ts, model_name, prompt_tokens, completion_tokens, cost_usd, timestamp)
+                    VALUES (?, ?, ?, ?, ?, ?, ?);
+                    """,
+                    (channel_id, thread_ts, model_name, prompt_tokens, completion_tokens, delta_cost, now_ts),
+                )
+        except Exception as e:
+            logger.error(f"[SPEND GOVERNANCE] Failed persisting spend ledger entry: {e}")
+
     def get_daily_spend(self) -> float:
-        """Returns the current accumulated spend for today in USD."""
+        """Returns the current accumulated spend for today in USD from SQLite spend_ledger."""
+        now = datetime.now(timezone.utc)
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+
+        try:
+            with get_connection() as conn:
+                row = conn.execute(
+                    "SELECT COALESCE(SUM(cost_usd), 0.0) AS daily_cost FROM spend_ledger WHERE timestamp >= ?;",
+                    (today_start,),
+                ).fetchone()
+                if row:
+                    return round(float(row["daily_cost"]), 6)
+        except Exception as e:
+            logger.error(f"[SPEND GOVERNANCE] Failed querying daily spend from SQLite: {e}")
+
+        # Fallback to in-memory tracker
         self._check_daily_rollover()
         return round(self._daily_spend_usd, 6)
 
     def reset_daily_spend(self) -> None:
         """Manually resets the daily spend ledger."""
+        now = datetime.now(timezone.utc)
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+
+        try:
+            with get_db_transaction(immediate=True) as conn:
+                conn.execute("DELETE FROM spend_ledger WHERE timestamp >= ?;", (today_start,))
+        except Exception as e:
+            logger.error(f"[SPEND GOVERNANCE] Failed resetting daily spend in SQLite: {e}")
+
         self._daily_spend_usd = 0.0
         self._daily_spend_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
     def calculate_spend(self, session_id: str) -> SpendMetrics:
         """
-        Calculates total tokens and monetary cost in USD for a given session.
+        Calculates total tokens and monetary cost in USD for a given session from SQLite spend_ledger.
         """
+        channel_id, thread_ts = _parse_session_id(session_id)
+
+        try:
+            with get_connection() as conn:
+                rows = conn.execute(
+                    """
+                    SELECT model_name, SUM(prompt_tokens) AS p, SUM(completion_tokens) AS c, SUM(cost_usd) AS cost
+                    FROM spend_ledger
+                    WHERE channel_id = ? AND thread_ts = ?
+                    GROUP BY model_name;
+                    """,
+                    (channel_id, thread_ts),
+                ).fetchall()
+
+                if rows:
+                    total_prompt = 0
+                    total_completion = 0
+                    total_cost = 0.0
+                    cost_by_model: dict[str, float] = {}
+                    tokens_by_model: dict[str, dict[str, int]] = {}
+
+                    for r in rows:
+                        m_name = r["model_name"]
+                        p_toks = int(r["p"])
+                        c_toks = int(r["c"])
+                        c_cost = float(r["cost"])
+
+                        total_prompt += p_toks
+                        total_completion += c_toks
+                        total_cost += c_cost
+                        cost_by_model[m_name] = c_cost
+                        tokens_by_model[m_name] = {"prompt": p_toks, "completion": c_toks}
+
+                    return SpendMetrics(
+                        session_id=session_id,
+                        total_prompt_tokens=total_prompt,
+                        total_completion_tokens=total_completion,
+                        total_cost_usd=round(total_cost, 6),
+                        cost_by_model=cost_by_model,
+                        tokens_by_model=tokens_by_model,
+                    )
+        except Exception as e:
+            logger.error(f"[SPEND GOVERNANCE] Failed querying session spend from SQLite: {e}")
+
+        # In-memory fallback
         data = self._session_tokens.get(session_id, {})
         total_prompt = 0
         total_completion = 0
@@ -129,17 +223,17 @@ class SpendGovernance:
             return False, 0.0, 0.0
 
         # 1. Check daily budget threshold
-        self._check_daily_rollover()
+        daily_spend = self.get_daily_spend()
         daily_limit = (
             daily_budget_usd
             if daily_budget_usd is not None
             else self.default_daily_budget_usd
         )
-        if daily_limit > 0 and self._daily_spend_usd >= daily_limit:
+        if daily_limit > 0 and daily_spend >= daily_limit:
             logger.warning(
-                f"[SPEND GOVERNANCE] Daily budget exceeded: ${self._daily_spend_usd:.4f} >= ${daily_limit:.4f} USD."
+                f"[SPEND GOVERNANCE] Daily budget exceeded: ${daily_spend:.4f} >= ${daily_limit:.4f} USD."
             )
-            return True, round(self._daily_spend_usd, 6), daily_limit
+            return True, daily_spend, daily_limit
 
         # 2. Check per-session threshold
         limit = threshold_usd if threshold_usd is not None else self.default_threshold_usd
@@ -152,13 +246,28 @@ class SpendGovernance:
         return is_tripped, cost, limit
 
     def clear_session(self, session_id: str) -> None:
-        """Clears memory for a completed session."""
+        """Clears memory and database ledger for a completed session."""
         self._session_tokens.pop(session_id, None)
+        channel_id, thread_ts = _parse_session_id(session_id)
+        try:
+            with get_db_transaction(immediate=True) as conn:
+                conn.execute(
+                    "DELETE FROM spend_ledger WHERE channel_id = ? AND thread_ts = ?;",
+                    (channel_id, thread_ts),
+                )
+        except Exception as e:
+            logger.debug(f"[SPEND GOVERNANCE] Could not clear session in SQLite: {e}")
 
     def clear_all_sessions(self) -> None:
-        """Clears memory for all active sessions."""
+        """Clears memory and database ledger for all sessions."""
         self._session_tokens.clear()
+        try:
+            with get_db_transaction(immediate=True) as conn:
+                conn.execute("DELETE FROM spend_ledger;")
+        except Exception as e:
+            logger.debug(f"[SPEND GOVERNANCE] Could not clear all sessions in SQLite: {e}")
 
 
 # Global default instance
 spend_governance = SpendGovernance()
+
