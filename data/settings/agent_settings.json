@@ -1,5 +1,5 @@
 {
-  "workflow_config": "default_sandwich",
+  "workflow_config": "default_review_flow",
   "enabled_agents": [
     "agent-10001",
     "agent-10002",

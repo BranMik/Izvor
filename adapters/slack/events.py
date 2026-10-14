@@ -258,6 +258,7 @@ async def handle_slack_events(request: Request, background_tasks: BackgroundTask
                             bot_user_id=bot_user_id,
                             is_bot_trigger=False,
                             run_internal_loop=True,
+                            user_id=event.get("user"),
                         )
                     )
                 else:

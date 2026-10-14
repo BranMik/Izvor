@@ -245,6 +245,7 @@ async def test_main_interactivity_workflow_actions(monkeypatch):
     mock_publish = AsyncMock(return_value={"ok": True})
     monkeypatch.setattr("adapters.slack.interactivity.publish_app_home", mock_publish)
     monkeypatch.setattr("adapters.slack.interactivity.verify_slack_signature", lambda body, headers: True)
+    monkeypatch.setattr("adapters.slack.interactivity.is_slack_admin", lambda user_id: True)
 
     # 1. Save new workflow preset via block action
     save_payload = {

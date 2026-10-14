@@ -12,7 +12,7 @@ from agents.thread_notes_agent import (
     get_thread_conclusion_content,
     get_thread_note_content,
 )
-from core.config import AGENTS_CONFIG
+from core.config import AGENTS_CONFIG, is_slack_admin
 from core.models import OrchestrationMode
 from core.slack_security import verify_slack_signature
 from orchestration.agent_settings import (
@@ -167,6 +167,37 @@ async def handle_slack_interactivity(request: Request, background_tasks: Backgro
 
         for action in actions:
             action_id = action.get("action_id", "")
+            
+            # Non-admin actions that any user can trigger
+            if action_id not in (
+                "download_scribe_notes_txt",
+                "download_conclusion_notes_txt",
+                "resume_sequence_action",
+                "hitl_approve_tool",
+                "hitl_deny_tool",
+            ):
+                if not is_slack_admin(user_id):
+                    logger.warning(
+                        f"[INTERACTIVITY] Unauthorized non-admin user {user_id} attempted admin action '{action_id}'."
+                    )
+                    log_audit_event(
+                        event_type="ADMIN_ACTION_DENIED",
+                        actor={"type": "slack_user", "id": user_id or "unknown"},
+                        action=action_id,
+                        target="system_configuration",
+                        details={"attempted_action": action_id},
+                        severity="CRITICAL",
+                    )
+                    channel_id = payload.get("channel", {}).get("id") or ""
+                    if channel_id and user_id:
+                        background_tasks.add_task(
+                            slack_async_client.chat_postEphemeral,
+                            channel=channel_id,
+                            user=user_id,
+                            text="⚠️ *Permission Denied:* Administrative privileges are required to modify system settings.",
+                        )
+                    return Response(status_code=403)
+
             if action_id in ("download_scribe_notes_txt", "download_conclusion_notes_txt"):
                 should_publish_home = False
                 val = action.get("value", "")
@@ -683,13 +714,62 @@ async def handle_slack_interactivity(request: Request, background_tasks: Backgro
 
             elif action_id == "hitl_approve_tool":
                 val = action.get("value", "")
-                if ":" in val:
+                from services.hitl import approve_hitl_request, get_pending_request, mark_tool_approved
+
+                req = get_pending_request(val)
+                if req:
+                    if user_id != req.initiator_user_id and not is_slack_admin(user_id):
+                        logger.warning(f"[HITL] User {user_id} unauthorized to approve request {val}.")
+                        log_audit_event(
+                            event_type="HITL_UNAUTHORIZED_ATTEMPT",
+                            actor={"type": "slack_user", "id": user_id or "unknown"},
+                            action="hitl_approve_tool",
+                            target=f"{req.channel_id}:{req.thread_ts}:{req.fn_name}",
+                            details={"initiator": req.initiator_user_id},
+                            severity="CRITICAL",
+                        )
+                        channel_id = req.channel_id or payload.get("channel", {}).get("id") or ""
+                        if channel_id and user_id:
+                            background_tasks.add_task(
+                                slack_async_client.chat_postEphemeral,
+                                channel=channel_id,
+                                user=user_id,
+                                text="⚠️ *Permission Denied:* Only the thread initiator or a workspace admin can approve this action.",
+                            )
+                        return Response(status_code=403)
+
+                    approved_req = approve_hitl_request(val)
+                    if approved_req:
+                        log_audit_event(
+                            event_type="HITL_APPROVED",
+                            actor={"type": "slack_user", "id": user_id or "unknown"},
+                            action="hitl_approve_tool",
+                            target=f"{approved_req.channel_id}:{approved_req.thread_ts}:{approved_req.fn_name}",
+                            details={"agent": approved_req.agent_name, "skill": approved_req.skill_name, "args": approved_req.fn_args},
+                            severity="HIGH",
+                        )
+                        msg = payload.get("message", {})
+                        if msg and msg.get("ts"):
+                            background_tasks.add_task(
+                                slack_async_client.chat_update,
+                                channel=approved_req.channel_id,
+                                ts=msg["ts"],
+                                text=f"✅ Approved execution of `{approved_req.fn_name}` by <@{user_id}>. Please reply to the thread to resume the agent.",
+                                blocks=[],
+                            )
+                elif ":" in val:
                     parts = val.split(":", 2)
                     if len(parts) == 3:
                         c_id, t_ts, f_name = parts
-                        from services.hitl import mark_tool_approved
                         mark_tool_approved(c_id, t_ts, f_name)
-                        
+                        log_audit_event(
+                            event_type="HITL_APPROVED",
+                            actor={"type": "slack_user", "id": user_id or "unknown"},
+                            action="hitl_approve_tool",
+                            target=f"{c_id}:{t_ts}:{f_name}",
+                            details={"legacy": True},
+                            severity="HIGH",
+                        )
                         msg = payload.get("message", {})
                         if msg and msg.get("ts"):
                             background_tasks.add_task(
@@ -697,14 +777,65 @@ async def handle_slack_interactivity(request: Request, background_tasks: Backgro
                                 channel=c_id,
                                 ts=msg["ts"],
                                 text=f"✅ Approved execution of `{f_name}` by <@{user_id}>. Please reply to the thread to resume the agent.",
-                                blocks=[]
+                                blocks=[],
                             )
             elif action_id == "hitl_deny_tool":
                 val = action.get("value", "")
-                if ":" in val:
+                from services.hitl import deny_hitl_request, get_pending_request
+
+                req = get_pending_request(val)
+                if req:
+                    if user_id != req.initiator_user_id and not is_slack_admin(user_id):
+                        logger.warning(f"[HITL] User {user_id} unauthorized to deny request {val}.")
+                        log_audit_event(
+                            event_type="HITL_UNAUTHORIZED_ATTEMPT",
+                            actor={"type": "slack_user", "id": user_id or "unknown"},
+                            action="hitl_deny_tool",
+                            target=f"{req.channel_id}:{req.thread_ts}:{req.fn_name}",
+                            details={"initiator": req.initiator_user_id},
+                            severity="CRITICAL",
+                        )
+                        channel_id = req.channel_id or payload.get("channel", {}).get("id") or ""
+                        if channel_id and user_id:
+                            background_tasks.add_task(
+                                slack_async_client.chat_postEphemeral,
+                                channel=channel_id,
+                                user=user_id,
+                                text="⚠️ *Permission Denied:* Only the thread initiator or a workspace admin can deny this action.",
+                            )
+                        return Response(status_code=403)
+
+                    denied_req = deny_hitl_request(val)
+                    if denied_req:
+                        log_audit_event(
+                            event_type="HITL_DENIED",
+                            actor={"type": "slack_user", "id": user_id or "unknown"},
+                            action="hitl_deny_tool",
+                            target=f"{denied_req.channel_id}:{denied_req.thread_ts}:{denied_req.fn_name}",
+                            details={"agent": denied_req.agent_name, "skill": denied_req.skill_name, "args": denied_req.fn_args},
+                            severity="HIGH",
+                        )
+                        msg = payload.get("message", {})
+                        if msg and msg.get("ts"):
+                            background_tasks.add_task(
+                                slack_async_client.chat_update,
+                                channel=denied_req.channel_id,
+                                ts=msg["ts"],
+                                text=f"❌ Denied execution of `{denied_req.fn_name}` by <@{user_id}>. Please reply to the thread to inform the agent.",
+                                blocks=[],
+                            )
+                elif ":" in val:
                     parts = val.split(":", 2)
                     if len(parts) == 3:
                         c_id, t_ts, f_name = parts
+                        log_audit_event(
+                            event_type="HITL_DENIED",
+                            actor={"type": "slack_user", "id": user_id or "unknown"},
+                            action="hitl_deny_tool",
+                            target=f"{c_id}:{t_ts}:{f_name}",
+                            details={"legacy": True},
+                            severity="HIGH",
+                        )
                         msg = payload.get("message", {})
                         if msg and msg.get("ts"):
                             background_tasks.add_task(
@@ -712,19 +843,26 @@ async def handle_slack_interactivity(request: Request, background_tasks: Backgro
                                 channel=c_id,
                                 ts=msg["ts"],
                                 text=f"❌ Denied execution of `{f_name}` by <@{user_id}>. Please reply to the thread to inform the agent.",
-                                blocks=[]
+                                blocks=[],
                             )
             elif action_id == "open_edit_workspace_context_modal":
                 should_publish_home = False
-                from core.config import ADMIN_SLACK_USER_ID
                 from orchestration.app_settings import get_workspace_context
                 from services.slack_home_views import build_edit_workspace_context_modal
 
-                is_admin = bool(not ADMIN_SLACK_USER_ID or (user_id and user_id.strip() == ADMIN_SLACK_USER_ID))
-                if not is_admin:
+                if not is_slack_admin(user_id):
                     logger.warning(
                         f"[INTERACTIVITY] Non-admin user {user_id} attempted to open workspace context edit modal."
                     )
+                    log_audit_event(
+                        event_type="ADMIN_ACTION_DENIED",
+                        actor={"type": "slack_user", "id": user_id or "unknown"},
+                        action="open_edit_workspace_context_modal",
+                        target="workspace_context",
+                        details={"user_id": user_id},
+                        severity="CRITICAL",
+                    )
+                    return Response(status_code=403)
                 else:
                     trigger_id = payload.get("trigger_id")
                     if trigger_id:
@@ -750,14 +888,20 @@ async def handle_slack_interactivity(request: Request, background_tasks: Backgro
             if not user_id and isinstance(payload.get("view"), dict):
                 user_id = payload.get("view", {}).get("user", {}).get("id")
 
-            from core.config import ADMIN_SLACK_USER_ID
             from orchestration.app_settings import set_workspace_context
             from starlette.responses import JSONResponse
 
-            is_admin = bool(not ADMIN_SLACK_USER_ID or (user_id and user_id.strip() == ADMIN_SLACK_USER_ID))
-            if not is_admin:
+            if not is_slack_admin(user_id):
                 logger.warning(
                     f"[INTERACTIVITY] Non-admin user {user_id} attempted to submit workspace context."
+                )
+                log_audit_event(
+                    event_type="ADMIN_ACTION_DENIED",
+                    actor={"type": "slack_user", "id": user_id or "unknown"},
+                    action="submit_workspace_context_modal",
+                    target="workspace_context",
+                    details={"user_id": user_id},
+                    severity="CRITICAL",
                 )
                 return Response(status_code=403)
 

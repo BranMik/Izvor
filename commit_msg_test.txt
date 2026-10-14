@@ -1,9 +1,0 @@
-test(regression): fix pre-existing stale test assertions
-
-- Updated test_resolve_agent_name to expect 2 matches for [Strategist] since both ROIStrategist and ProductStrategist exist.
-- Updated test_duplicate_names_warn to check duplicate usernames instead of names, matching actual logging format.
-- Updated test_agent_settings_file_structure_and_dynamic_load to use correct agent_settings.json path inside data/settings/
-
-Generated with Antigravity
-
-Co-Authored-By: Gemini 3.1 Pro (High)

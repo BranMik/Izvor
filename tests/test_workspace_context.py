@@ -120,7 +120,7 @@ async def test_interactivity_open_modal_and_submit(monkeypatch):
     req.headers = {}
     bg = BackgroundTasks()
     res = await handle_slack_interactivity(req, bg)
-    assert res.status_code == 200
+    assert res.status_code == 403
     mock_views_open.assert_not_called()
 
     # 2. Admin clicks open_edit_workspace_context_modal

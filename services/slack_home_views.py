@@ -21,7 +21,7 @@ def build_app_home_view(
     Live Discussion Scribe toggle, emergency backup warning if active settings file is unreadable,
     and Workspace Baseline Context.
     """
-    from core.config import ADMIN_SLACK_USER_ID
+    from core.config import is_slack_admin
     from orchestration.agent_settings import (
         get_active_workflow_id,
         get_backup_error_reason,
@@ -44,7 +44,7 @@ def build_app_home_view(
     sync_settings_if_modified()
     expiry_hours = get_thread_skill_expiration_time()
     ws_ctx = get_workspace_context()
-    is_admin = bool(not ADMIN_SLACK_USER_ID or (user_id and user_id.strip() == ADMIN_SLACK_USER_ID))
+    is_admin = is_slack_admin(user_id)
 
     if enabled_agents is None:
         enabled_agents = get_enabled_agents()

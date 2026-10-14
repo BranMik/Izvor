@@ -37,6 +37,10 @@ def patch_slack_calls(monkeypatch):
     monkeypatch.setattr("adapters.slack.interactivity.verify_slack_signature", lambda body, headers: True)
     monkeypatch.setattr("adapters.slack.events.publish_app_home", AsyncMock(return_value={"ok": True}))
     monkeypatch.setattr("adapters.slack.interactivity.publish_app_home", AsyncMock(return_value={"ok": True}))
+    monkeypatch.setattr(
+        "adapters.slack.interactivity.is_slack_admin",
+        lambda user_id: True,
+    )
 
 
 def test_slack_events_deduplication():
