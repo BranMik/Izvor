@@ -316,8 +316,9 @@ class TurnPipeline:
             try:
                 from core.config import is_internal_revisor_enabled
                 if is_internal_revisor_enabled():
+                    from core.task_utils import safe_create_task
                     from orchestration.revisor_service import run_internal_revisor
-                    asyncio.create_task(run_internal_revisor(ctx))
+                    safe_create_task(run_internal_revisor(ctx), name=f"internal_revisor_{ctx.thread_key}")
             except Exception as e:
                 logger.error(f"[REVISOR] Failed to dispatch internal revisor: {e}")
                 

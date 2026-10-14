@@ -127,10 +127,9 @@ async def lifespan(app: FastAPI):
         if not audit_status["valid"]:
             # Combined alert: secret mismatch caused chain verification failure
             err_msg = "; ".join(audit_status["errors"])
-            logger.critical(
-                f"[SECURITY STARTUP] Audit chain verification failed with secret mismatch: {err_msg}"
-            )
-            asyncio.create_task(
+            from core.task_utils import safe_create_task
+
+            safe_create_task(
                 send_admin_audit_alert(
                     title=f"Startup Audit Integrity Alert: Secret Mismatch ({status})",
                     message="Server startup detected that AUDIT_HMAC_SECRET does not match the key used for existing audit logs, causing verification failure.",
@@ -141,10 +140,13 @@ async def lifespan(app: FastAPI):
                         "Last Seq": str(hmac_check.get("last_seq", 0)),
                         "Errors": err_msg[:500],
                     },
-                )
+                ),
+                name="startup_audit_alert_secret_mismatch_failure",
             )
         else:
-            asyncio.create_task(
+            from core.task_utils import safe_create_task
+
+            safe_create_task(
                 send_admin_audit_alert(
                     title=f"AUDIT_HMAC_SECRET Discrepancy ({status})",
                     message="Server startup detected that AUDIT_HMAC_SECRET does not match the key used for existing audit logs.",
@@ -154,17 +156,21 @@ async def lifespan(app: FastAPI):
                         "Last File": hmac_check.get("last_file") or "N/A",
                         "Last Seq": str(hmac_check.get("last_seq", 0)),
                     },
-                )
+                ),
+                name="startup_audit_alert_discrepancy",
             )
     elif not audit_status["valid"]:
         err_msg = "; ".join(audit_status["errors"])
         logger.critical(f"[SECURITY STARTUP] Audit log integrity violation detected: {err_msg}")
-        asyncio.create_task(
+        from core.task_utils import safe_create_task
+
+        safe_create_task(
             send_admin_audit_alert(
                 title="Startup Audit Log Integrity Violation",
                 message="Application startup detected corruption or tampering in non-repudiable audit logs.",
                 details={"Violations": err_msg, "Files": ", ".join(audit_status["scanned_files"])},
-            )
+            ),
+            name="startup_audit_alert_integrity_violation",
         )
 
     loop_task = asyncio.create_task(keep_loop_alive()) if sys.platform == "win32" else None

@@ -5,6 +5,7 @@ from pathlib import Path
 
 from core.config import PROJECT_ROOT
 from services.audit_logger import log_audit_event
+from services.security.guardrail import GuardrailService, guardrail_service
 
 logger = logging.getLogger(__name__)
 
@@ -54,3 +55,11 @@ def scan_output_for_secrets(text: str, user_id: str = "agent") -> str | None:
             return rule_name
             
     return None
+
+__all__ = [
+    "GuardrailService",
+    "guardrail_service",
+    "scan_output_for_secrets",
+    "MAIN_PATTERNS",
+    "load_additional_patterns",
+]

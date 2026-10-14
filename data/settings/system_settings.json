@@ -20,5 +20,6 @@
   "internal_revisor_enabled": true,
   "debate_turn_pacing_seconds": 3.0,
   "tool_call_loop_timeout_seconds": 60.0,
-  "slack_post_pause_seconds": 2.0
+  "slack_post_pause_seconds": 2.0,
+  "guardrail_fail_mode": "open"
 }
