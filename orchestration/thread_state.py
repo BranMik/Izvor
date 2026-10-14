@@ -48,6 +48,25 @@ class ThreadStateManager:
         self._cleanup_hooks: list[Any] = []
         self._reset_hooks: list[Any] = []
 
+        def _spend_cleanup(c_id: str, t_ts: str) -> None:
+            try:
+                from pipeline.spend_governance import spend_governance
+
+                spend_governance.clear_session(f"{c_id}:{t_ts}")
+            except Exception:  # noqa: BLE001
+                pass
+
+        def _spend_reset() -> None:
+            try:
+                from pipeline.spend_governance import spend_governance
+
+                spend_governance.clear_all_sessions()
+            except Exception:  # noqa: BLE001
+                pass
+
+        self.register_cleanup_hook(_spend_cleanup)
+        self.register_reset_hook(_spend_reset)
+
     @property
     def ttl_seconds(self) -> float:
         return float(os.getenv("THREAD_STATE_TTL_SECONDS", "3600.0"))

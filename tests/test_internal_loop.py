@@ -158,4 +158,5 @@ async def test_process_and_respond_with_run_internal_loop(monkeypatch):
         raw_text="Hello [agent-10001]",
         bot_user_id=None,
         icon_url=None,
+        user_id=None,
     )

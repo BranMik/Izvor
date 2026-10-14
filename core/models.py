@@ -338,11 +338,13 @@ class CircuitBreakerConfig:
 
     enabled: bool = False
     threshold_usd: float = 1.0
+    daily_budget_usd: float = 10.0
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "enabled": self.enabled,
             "threshold_usd": self.threshold_usd,
+            "daily_budget_usd": self.daily_budget_usd,
         }
 
 

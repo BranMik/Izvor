@@ -47,6 +47,7 @@ async def process_and_respond(
     is_bot_trigger: bool = False,
     run_internal_loop: bool = False,
     in_memory_history: list[dict[str, Any]] | None = None,
+    user_id: str | None = None,
 ) -> dict[str, Any]:
     """
     Main background handler: parses prompt, builds conversation history,
@@ -77,12 +78,14 @@ async def process_and_respond(
             raw_text=raw_text,
             bot_user_id=bot_user_id,
             icon_url=icon_url,
+            user_id=user_id,
         )
 
     ctx = TurnContext(
         channel_id=channel_id,
         thread_ts=thread_ts,
         raw_text=raw_text,
+        user_id=user_id,
         bot_user_id=bot_user_id,
         icon_url=icon_url,
         is_bot_trigger=is_bot_trigger,
@@ -109,6 +112,7 @@ async def orchestrate_discussion(
     bot_user_id: str | None = None,
     icon_url: str | None = None,
     max_turns: int | None = None,
+    user_id: str | None = None,
 ) -> dict[str, Any]:
     """
     Internal multi-agent discussion loop:
@@ -148,6 +152,7 @@ async def orchestrate_discussion(
             is_bot_trigger=False,
             run_internal_loop=False,
             in_memory_history=accumulated_history,
+            user_id=user_id,
         )
 
         last_res = turn_res
@@ -210,6 +215,7 @@ async def orchestrate_discussion(
                 is_bot_trigger=True,
                 run_internal_loop=False,
                 in_memory_history=accumulated_history,
+                user_id=user_id,
             )
             last_res = turn_res
 

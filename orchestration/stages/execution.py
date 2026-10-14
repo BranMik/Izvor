@@ -31,6 +31,14 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _is_explicit_meta_provider(model: str | None) -> bool:
+    """Returns True only if the model explicitly targets a Meta custom provider endpoint."""
+    if not model:
+        return False
+    m = str(model).lower().strip()
+    return m.startswith("meta/") or m.startswith("custom_meta/")
+
+
 class ExecutionStage:
     def __init__(self, pipeline: Any):
         self.pipeline = pipeline
@@ -95,10 +103,7 @@ class ExecutionStage:
             active_tools = [LOAD_SKILL_SCHEMA]
             completion_kwargs["tools"] = active_tools
             completion_kwargs["tool_choice"] = "auto"
-        if any(
-            keyword in ctx.agent_cfg["model"].lower()
-            for keyword in ["muse", "llama", "meta"]
-        ):
+        if _is_explicit_meta_provider(ctx.agent_cfg.get("model")):
             if os.getenv("META_API_KEY"):
                 completion_kwargs["api_key"] = os.getenv("META_API_KEY")
             if os.getenv("META_API_BASE"):
@@ -234,10 +239,11 @@ class ExecutionStage:
                             
                             if skill_def and skill_def.requires_human_ITL:
                                 from services.hitl import consume_tool_approval, request_human_approval
-                                if not consume_tool_approval(ctx.channel_id, ctx.thread_ts, fn_name):
+                                if not consume_tool_approval(ctx.channel_id, ctx.thread_ts, fn_name, fn_args):
                                     await request_human_approval(
                                         ctx.channel_id, ctx.thread_ts, ctx.agent_key,
-                                        skill_def.name, fn_name, fn_args
+                                        skill_def.name, fn_name, fn_args,
+                                        initiator_user_id=ctx.user_id,
                                     )
                                     tool_result_str = f"<untrusted_file_content>\nTOOL EXECUTION PAUSED: Tool '{fn_name}' requires human approval. I have sent an approval request to the Slack thread. End your turn now and do NOT retry calling this tool until the human approves it.\n</untrusted_file_content>"
                                     ctx.messages.append({
@@ -295,10 +301,7 @@ class ExecutionStage:
                         "tool_choice": "auto",
                         "num_retries": 2,
                     }
-                    if any(
-                        keyword in ctx.agent_cfg["model"].lower()
-                        for keyword in ["muse", "llama", "meta"]
-                    ):
+                    if _is_explicit_meta_provider(ctx.agent_cfg.get("model")):
                         if os.getenv("META_API_KEY"):
                             follow_up_kwargs["api_key"] = os.getenv("META_API_KEY")
                         if os.getenv("META_API_BASE"):

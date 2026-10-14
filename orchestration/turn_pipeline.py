@@ -67,6 +67,7 @@ class TurnContext:
     channel_id: str
     thread_ts: str
     raw_text: str
+    user_id: str | None = None
     bot_user_id: str | None = None
     icon_url: str | None = None
     is_bot_trigger: bool = False

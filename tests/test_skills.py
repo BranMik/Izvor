@@ -187,3 +187,44 @@ def test_spend_governance_ledger_and_circuit_breaker():
         tripped, cost, _ = gov.is_budget_exceeded(session_id, threshold_usd=0.05)
         assert tripped
         assert cost == pytest.approx(0.09, rel=1e-3)
+
+
+def test_spend_governance_daily_budget_and_session_clearing():
+    gov = SpendGovernance(default_threshold_usd=5.0, default_daily_budget_usd=0.10)
+    session_1 = "sess-alpha"
+    session_2 = "sess-beta"
+
+    with patch("pipeline.spend_governance.circuit_breaker.get_model_pricing") as mock_pricing:
+        mock_pricing.return_value = {
+            "input_price_per_1m": 1.0,
+            "output_price_per_1m": 2.0,
+        }
+
+        # 30,000 prompt, 20,000 completion = $0.07 in session 1
+        gov.record_usage(session_1, "mock-model", 30_000, 20_000)
+        assert gov.get_daily_spend() == pytest.approx(0.07, rel=1e-3)
+
+        # Neither session nor daily exceeded yet
+        tripped, _, _ = gov.is_budget_exceeded(session_1, threshold_usd=5.0, daily_budget_usd=0.10)
+        assert not tripped
+
+        # 20,000 prompt, 10,000 completion = $0.04 in session 2 (Daily total = $0.11)
+        gov.record_usage(session_2, "mock-model", 20_000, 10_000)
+        assert gov.get_daily_spend() == pytest.approx(0.11, rel=1e-3)
+
+        # Session 2 cost is only $0.04, but daily budget ($0.10) is exceeded!
+        tripped, cost, limit = gov.is_budget_exceeded(session_2, threshold_usd=5.0, daily_budget_usd=0.10)
+        assert tripped
+        assert cost == pytest.approx(0.11, rel=1e-3)
+        assert limit == 0.10
+
+        # Test session eviction
+        assert session_1 in gov._session_tokens
+        gov.clear_session(session_1)
+        assert session_1 not in gov._session_tokens
+        assert session_2 in gov._session_tokens
+
+        # Test clear all sessions
+        gov.clear_all_sessions()
+        assert len(gov._session_tokens) == 0
+

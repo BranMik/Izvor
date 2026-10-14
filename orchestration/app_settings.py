@@ -35,8 +35,9 @@ class AppSettingsManager:
         self.default_backup_file = backup_file or APP_BACKUP_FILE
 
         self.thread_skill_expiration_time: float = 12.0
-        self.circuit_breaker_enabled: bool = False
+        self.circuit_breaker_enabled: bool = True
         self.circuit_breaker_threshold_usd: float = 0.0
+        self.daily_budget_usd: float = 10.0
         self.scribe_enabled: bool = True
         self.weekly_pricing_update_enabled: bool = True
         self.workspace_context: str = ""
@@ -64,8 +65,9 @@ class AppSettingsManager:
                 data = json.load(f)
 
             self.thread_skill_expiration_time = float(data.get("thread_skill_expiration_time", 12.0))
-            self.circuit_breaker_enabled = bool(data.get("circuit_breaker_enabled", False))
+            self.circuit_breaker_enabled = bool(data.get("circuit_breaker_enabled", True))
             self.circuit_breaker_threshold_usd = float(data.get("circuit_breaker_threshold_usd", 0.0))
+            self.daily_budget_usd = float(data.get("daily_budget_usd", 10.0))
             self.scribe_enabled = bool(data.get("scribe_enabled", True))
             self.weekly_pricing_update_enabled = bool(data.get("weekly_pricing_update_enabled", True))
             self.workspace_context = str(data.get("workspace_context", "")).strip()[:1000]
@@ -79,8 +81,9 @@ class AppSettingsManager:
                     with open(self.default_backup_file, "r", encoding="utf-8") as bf:
                         data = json.load(bf)
                     self.thread_skill_expiration_time = float(data.get("thread_skill_expiration_time", 12.0))
-                    self.circuit_breaker_enabled = bool(data.get("circuit_breaker_enabled", False))
+                    self.circuit_breaker_enabled = bool(data.get("circuit_breaker_enabled", True))
                     self.circuit_breaker_threshold_usd = float(data.get("circuit_breaker_threshold_usd", 0.0))
+                    self.daily_budget_usd = float(data.get("daily_budget_usd", 10.0))
                     self.scribe_enabled = bool(data.get("scribe_enabled", True))
                     self.weekly_pricing_update_enabled = bool(data.get("weekly_pricing_update_enabled", True))
                     self.workspace_context = str(data.get("workspace_context", "")).strip()[:1000]
@@ -96,6 +99,7 @@ class AppSettingsManager:
             "thread_skill_expiration_time": self.thread_skill_expiration_time,
             "circuit_breaker_enabled": self.circuit_breaker_enabled,
             "circuit_breaker_threshold_usd": self.circuit_breaker_threshold_usd,
+            "daily_budget_usd": self.daily_budget_usd,
             "scribe_enabled": self.scribe_enabled,
             "weekly_pricing_update_enabled": self.weekly_pricing_update_enabled,
             "workspace_context": self.workspace_context,
@@ -170,11 +174,25 @@ class AppSettingsManager:
         except (ValueError, TypeError) as e:
             logger.error(f"[APP_SETTINGS] Invalid circuit-breaker threshold '{val}': {e}")
 
+    def get_daily_budget_usd(self) -> float:
+        self.load()
+        return float(self.daily_budget_usd)
+
+    def set_daily_budget_usd(self, val: float, save: bool = True) -> None:
+        try:
+            self.daily_budget_usd = max(float(val), 0.0)
+            if save:
+                self.save()
+            logger.info(f"[APP_SETTINGS] Set daily_budget_usd to ${self.daily_budget_usd:.2f} USD.")
+        except (ValueError, TypeError) as e:
+            logger.error(f"[APP_SETTINGS] Invalid daily_budget_usd '{val}': {e}")
+
     def get_circuit_breaker_config(self) -> CircuitBreakerConfig:
         self.load()
         return CircuitBreakerConfig(
             enabled=self.circuit_breaker_enabled,
             threshold_usd=self.circuit_breaker_threshold_usd,
+            daily_budget_usd=self.daily_budget_usd,
         )
 
     # --- Live Discussion Scribe ---
@@ -272,5 +290,13 @@ def is_weekly_pricing_update_enabled() -> bool:
 
 def set_weekly_pricing_update_enabled(enabled: bool, save: bool = True) -> None:
     app_settings_manager.set_weekly_pricing_update_enabled(enabled, save=save)
+
+
+def get_daily_budget_usd() -> float:
+    return app_settings_manager.get_daily_budget_usd()
+
+
+def set_daily_budget_usd(val: float, save: bool = True) -> None:
+    app_settings_manager.set_daily_budget_usd(val, save=save)
 
 

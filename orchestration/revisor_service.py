@@ -2,11 +2,12 @@ import logging
 from typing import Any
 import litellm
 
-from orchestration.turn_pipeline import TurnContext
+from core.config import SYSTEM_AGENTS_CONFIG, get_system_agent_model
 from core.llm_utils import execute_llm_with_retry
-from services.slack_client import post_agent_response
-from prompts.builder import build_agent_prompt
 from orchestration.thread_state import thread_state_manager
+from orchestration.turn_pipeline import TurnContext
+from prompts.builder import build_agent_prompt
+from services.slack_client import post_agent_response
 
 logger = logging.getLogger(__name__)
 
@@ -35,9 +36,6 @@ async def run_internal_revisor(ctx: TurnContext):
         current_msg = f"[{ctx.agent_cfg.get('username', ctx.agent_key)}]: {ctx.final_text}"
         
         # Check if RAG/documents were used in the current turn
-        # If so, we can optionally append the file_context. 
-        # Per user request, subsequent agents are checked only against initial prompt, 
-        # but the agent using retrieval gets checked against the context.
         rag_used = any(s in ctx.skills_used for s in ["knowledge_base_rag", "document_reader"])
         context_block = ""
         if rag_used and ctx.file_context:
@@ -56,8 +54,10 @@ async def run_internal_revisor(ctx: TurnContext):
             {"role": "user", "content": user_content}
         ]
         
+        model = get_system_agent_model("InternalRevisor", fallback="mistral/mistral-small-latest")
+        
         kwargs = {
-            "model": "mistral/mistral-small-latest",
+            "model": model,
             "messages": messages,
             "temperature": 0.0
         }
@@ -70,6 +70,32 @@ async def run_internal_revisor(ctx: TurnContext):
             thread_key=ctx.thread_key,
             allow_503_immediate_retry=False
         )
+
+        # Record spend & token metrics for InternalRevisor
+        if res and hasattr(res, "usage") and res.usage:
+            prompt_tokens = int(getattr(res.usage, "prompt_tokens", 0) or 0)
+            completion_tokens = int(getattr(res.usage, "completion_tokens", 0) or 0)
+            if prompt_tokens > 0 or completion_tokens > 0:
+                try:
+                    from agents.usage_agent import record_thread_tokens, trigger_usage_update
+                    from pipeline.spend_governance import spend_governance
+
+                    record_thread_tokens(
+                        channel_id=ctx.channel_id,
+                        thread_ts=ctx.thread_ts,
+                        model_name=model,
+                        prompt_tokens=prompt_tokens,
+                        completion_tokens=completion_tokens,
+                    )
+                    spend_governance.record_usage(
+                        session_id=f"{ctx.channel_id}:{ctx.thread_ts}",
+                        model_name=model,
+                        prompt_tokens=prompt_tokens,
+                        completion_tokens=completion_tokens,
+                    )
+                    trigger_usage_update(channel_id=ctx.channel_id, thread_ts=ctx.thread_ts)
+                except Exception as ex:  # noqa: BLE001
+                    logger.debug(f"[REVISOR] Could not record token usage for InternalRevisor: {ex}")
         
         # 5. Check response and post if hallucination detected
         if res and hasattr(res, "choices") and res.choices:
@@ -78,12 +104,15 @@ async def run_internal_revisor(ctx: TurnContext):
             # The prompt says: "If NO hallucinations are found, simply output "NO_HALLUCINATION"."
             if output != "NO_HALLUCINATION" and "ATTENTION:" in output:
                 logger.warning(f"[REVISOR] Hallucination detected! Posting to Slack.")
+                sys_cfg = SYSTEM_AGENTS_CONFIG.get("InternalRevisor", {})
+                display_name = sys_cfg.get("displayname") or "Internal Revisor"
+                icon_url = sys_cfg.get("icon_url") or "static/image_99.png"
                 await post_agent_response(
                     channel_id=ctx.channel_id,
                     thread_ts=ctx.thread_ts,
                     text=output,
-                    username="Internal Revisor",
-                    icon_url="static/image_99.png"
+                    username=display_name,
+                    icon_url=icon_url
                 )
             else:
                 logger.info("[REVISOR] No hallucinations detected.")

@@ -285,6 +285,27 @@ def log_audit_event(
     )
 
 
+def get_audit_trail(audit_dir: Path | None = None, limit: int = 50) -> list[dict[str, Any]]:
+    """Reads the last N audit log records from the monthly jsonl files."""
+    base_dir = audit_dir or audit_logger.audit_dir
+    if not base_dir.exists():
+        return []
+    sorted_files = sorted(list(base_dir.glob("audit_*.jsonl")), key=lambda p: p.name)
+    records: list[dict[str, Any]] = []
+    for file_path in reversed(sorted_files):
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                lines = [line.strip() for line in f if line.strip()]
+                for line in reversed(lines):
+                    records.append(json.loads(line))
+                    if len(records) >= limit:
+                        return records
+        except Exception as e:
+            logger.debug(f"[AUDIT] Error reading audit records from {file_path}: {e}")
+            continue
+    return records
+
+
 # ---------------------------------------------------------------------------
 # HMAC Secret Continuity & Verification Engine
 # ---------------------------------------------------------------------------

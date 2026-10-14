@@ -4,6 +4,7 @@ import shutil
 import pytest
 
 import orchestration.agent_settings as agent_settings_mod
+import orchestration.app_settings as app_settings_mod
 import services.pricing_service as pricing_service_mod
 from orchestration.agent_settings import (
     BACKUP_FILE as REAL_BACKUP_FILE,
@@ -102,3 +103,55 @@ def isolate_agent_settings_for_tests(tmp_path, monkeypatch):
     settings_manager.fixed_chain.extend(orig_fixed)
     settings_manager.agents_config.clear()
     settings_manager.agents_config.update(orig_agents_config)
+
+
+@pytest.fixture(autouse=True)
+def isolate_app_settings_for_tests(tmp_path, monkeypatch):
+    """
+    Prevents tests from modifying or overwriting production data/settings/app_settings.json.
+    Each test gets an isolated copy in tmp_path.
+    """
+    from orchestration.app_settings import (
+        APP_BACKUP_FILE as REAL_APP_BACKUP_FILE,
+        APP_SETTINGS_FILE as REAL_APP_SETTINGS_FILE,
+        app_settings_manager,
+    )
+
+    temp_app_settings = tmp_path / "app_settings.json"
+    temp_app_backup = tmp_path / "app_settings_backup.json"
+
+    if REAL_APP_SETTINGS_FILE.exists():
+        shutil.copy2(REAL_APP_SETTINGS_FILE, temp_app_settings)
+    if REAL_APP_BACKUP_FILE.exists():
+        shutil.copy2(REAL_APP_BACKUP_FILE, temp_app_backup)
+
+    monkeypatch.setattr(app_settings_mod, "APP_SETTINGS_FILE", temp_app_settings)
+    monkeypatch.setattr(app_settings_mod, "APP_BACKUP_FILE", temp_app_backup)
+
+    # Save original in-memory state
+    orig_expiration = app_settings_manager.thread_skill_expiration_time
+    orig_cb_enabled = app_settings_manager.circuit_breaker_enabled
+    orig_cb_threshold = app_settings_manager.circuit_breaker_threshold_usd
+    orig_daily_budget = app_settings_manager.daily_budget_usd
+    orig_scribe_enabled = app_settings_manager.scribe_enabled
+    orig_weekly_pricing = app_settings_manager.weekly_pricing_update_enabled
+    orig_workspace_context = app_settings_manager.workspace_context
+
+    orig_default_settings_file = app_settings_manager.default_settings_file
+    orig_default_backup_file = app_settings_manager.default_backup_file
+    app_settings_manager.default_settings_file = temp_app_settings
+    app_settings_manager.default_backup_file = temp_app_backup
+
+    yield
+
+    # Restore in-memory state
+    app_settings_manager.thread_skill_expiration_time = orig_expiration
+    app_settings_manager.circuit_breaker_enabled = orig_cb_enabled
+    app_settings_manager.circuit_breaker_threshold_usd = orig_cb_threshold
+    app_settings_manager.daily_budget_usd = orig_daily_budget
+    app_settings_manager.scribe_enabled = orig_scribe_enabled
+    app_settings_manager.weekly_pricing_update_enabled = orig_weekly_pricing
+    app_settings_manager.workspace_context = orig_workspace_context
+    app_settings_manager.default_settings_file = orig_default_settings_file
+    app_settings_manager.default_backup_file = orig_default_backup_file
+

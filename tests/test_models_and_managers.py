@@ -92,7 +92,7 @@ def test_agent_settings_manager():
 
         # Defaults
         assert "agent-10001" in mgr.get_enabled_agents()
-        assert mgr.is_circuit_breaker_enabled() is False
+        assert mgr.is_circuit_breaker_enabled() is True
         assert mgr.get_orchestration_mode() == "fixed"
 
         # Toggle all agents freely (no locked agents)
@@ -118,6 +118,8 @@ def test_agent_settings_manager():
         }
 
         # Circuit breaker settings
+        mgr.set_circuit_breaker_enabled(False)
+        assert mgr.is_circuit_breaker_enabled() is False
         mgr.set_circuit_breaker_enabled(True)
         mgr.set_circuit_breaker_threshold(3.75)
         assert mgr.is_circuit_breaker_enabled() is True
