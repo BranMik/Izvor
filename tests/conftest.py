@@ -155,3 +155,26 @@ def isolate_app_settings_for_tests(tmp_path, monkeypatch):
     app_settings_manager.default_settings_file = orig_default_settings_file
     app_settings_manager.default_backup_file = orig_default_backup_file
 
+
+@pytest.fixture(autouse=True)
+def isolate_database_for_tests(tmp_path, monkeypatch):
+    """
+    Bulletproof SQLite database isolation for tests.
+    Each test gets a dedicated temporary SQLite database initialized with all schemas and WAL pragmas.
+    """
+    import core.database as db_mod
+    from core.database import db_manager, init_db
+
+    test_db_path = tmp_path / "test_izvor.db"
+    monkeypatch.setenv("IZVOR_DB_PATH", str(test_db_path))
+    monkeypatch.setattr(db_mod, "DEFAULT_DB_PATH", test_db_path)
+    old_custom_path = db_manager._custom_db_path
+    db_manager._custom_db_path = test_db_path
+
+    init_db(test_db_path)
+
+    yield
+
+    db_manager._custom_db_path = old_custom_path
+
+

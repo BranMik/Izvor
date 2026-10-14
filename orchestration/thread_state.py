@@ -4,6 +4,7 @@ import os
 import time
 from typing import Any
 
+from core.database import get_connection, get_db_transaction
 from core.models import FileContext
 from orchestration.state import (
     DiscussionStateStore,
@@ -76,7 +77,16 @@ class ThreadStateManager:
         return int(os.getenv("MAX_TRACKED_THREADS", "500"))
 
     def _touch(self, channel_id: str, thread_ts: str) -> None:
-        self.thread_last_activity[(channel_id, thread_ts)] = time.time()
+        now = time.time()
+        self.thread_last_activity[(channel_id, thread_ts)] = now
+        try:
+            with get_db_transaction(immediate=True) as conn:
+                conn.execute(
+                    "UPDATE thread_sessions SET last_activity = ? WHERE channel_id = ? AND thread_ts = ?",
+                    (now, channel_id, thread_ts),
+                )
+        except Exception:
+            pass
         if len(self.thread_last_activity) > self.max_tracked_threads:
             self.cleanup_expired_threads(self.ttl_seconds)
 
@@ -84,7 +94,23 @@ class ThreadStateManager:
         self._touch(channel_id, thread_ts)
 
     def get_last_activity(self, channel_id: str, thread_ts: str) -> float | None:
-        return self.thread_last_activity.get((channel_id, thread_ts))
+        if (channel_id, thread_ts) in self.thread_last_activity:
+            return self.thread_last_activity[(channel_id, thread_ts)]
+        try:
+            with get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT last_activity FROM thread_sessions WHERE channel_id = ? AND thread_ts = ?",
+                    (channel_id, thread_ts),
+                )
+                row = cursor.fetchone()
+                if row:
+                    act = float(row["last_activity"])
+                    self.thread_last_activity[(channel_id, thread_ts)] = act
+                    return act
+        except Exception:
+            pass
+        return None
 
     # --- ThreadContextStore Delegation ---
     def get_history_limit(self, channel_id: str, thread_ts: str) -> dict[str, int] | None:
@@ -469,6 +495,18 @@ class ThreadStateManager:
             if not self.is_discussion_active(channel_id, thread_ts):
                 self.cleanup_thread(channel_id, thread_ts)
                 evicted_count += 1
+
+        # Purge from SQLite thread_sessions & thread_context for any inactive threads exceeding TTL
+        cutoff = now - ttl_seconds
+        try:
+            with get_db_transaction(immediate=True) as conn:
+                conn.execute("DELETE FROM thread_sessions WHERE last_activity < ?", (cutoff,))
+                conn.execute(
+                    "DELETE FROM thread_context WHERE (channel_id, thread_ts) NOT IN "
+                    "(SELECT channel_id, thread_ts FROM thread_sessions)"
+                )
+        except Exception as e:
+            logger.debug(f"[THREAD STATE] SQLite cleanup error: {e}")
 
         if evicted_count > 0:
             logger.info(f"[THREAD STATE] Pruned {evicted_count} inactive thread state(s) exceeding TTL ({ttl_seconds}s)")
