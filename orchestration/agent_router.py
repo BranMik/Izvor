@@ -12,7 +12,7 @@ from agents import (
     trigger_thread_notes_update,
     trigger_usage_update,
 )
-from core.config import MAX_DISCUSSION_TURNS
+from core.config import MAX_DISCUSSION_TURNS, get_max_discussion_turns
 from core.llm_utils import execute_llm_with_retry
 from orchestration.thread_state import thread_state_manager
 from services.slack_client import (
@@ -119,8 +119,11 @@ async def orchestrate_discussion(
     Orchestrates the entire multi-agent discussion chain in-memory without relying on
     Slack Events API webhook bounce-backs.
     """
+    turn_ceiling = get_max_discussion_turns()
     if max_turns is None:
-        max_turns = MAX_DISCUSSION_TURNS
+        max_turns = turn_ceiling
+    else:
+        max_turns = min(max_turns, turn_ceiling)
 
     thread_key = (channel_id, thread_ts)
     logger.info(
@@ -179,8 +182,11 @@ async def orchestrate_discussion(
         # 3. Subsequent turns
         active_rounds = thread_state_manager.get_rounds(channel_id, thread_ts)
         round_seq = thread_state_manager.get_round_sequence(channel_id, thread_ts)
-        expected_turns = (active_rounds + 1) * max(1, len(round_seq) or 6)
-        max_turns = max(max_turns, expected_turns)
+        if active_rounds > 0:
+            expected_turns = (active_rounds + 1) * max(1, len(round_seq) or 6)
+            max_turns = min(get_max_discussion_turns(), expected_turns)
+        else:
+            max_turns = min(max_turns, get_max_discussion_turns())
 
         for turn in range(2, max_turns + 1):
             if thread_state_manager.is_stopped(channel_id, thread_ts):

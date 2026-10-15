@@ -114,17 +114,18 @@ def build_llm_messages(
     if force_termination:
         orchestration_block = (
             "\n\nCRITICAL CONSTRAINT: You are the last agent requested to speak in this turn. "
-            "Do NOT nominate any other agent to speak next. Do NOT include any bracketed agent key (like [Agent_Name]) "
+            "Do NOT nominate any other agent to speak next. Do NOT include any bracketed agent tag (like /[Agent_Name]) "
             "at the end of your response. Simply answer the question/summarize and finish your response."
         )
     elif next_designated_agent:
         orchestration_block = (
-            f"\n\nDESIGNATED NEXT AGENT: At the very end of your response, nominate [{next_designated_agent}] as the next agent to speak."
+            f"\n\nDESIGNATED NEXT AGENT: At the very end of your response, nominate /[{next_designated_agent}] as the next agent to speak."
         )
     elif remaining_agents:
+        formatted_agents = ", ".join(f"/[{a}]" for a in remaining_agents)
         orchestration_block = (
-            f"\n\nAVAILABLE AGENTS WHO HAVE NOT SPOKEN YET (nominate the next agent at the very end in [AGENT_KEY] format):\n"
-            f"{', '.join(remaining_agents)}"
+            f"\n\nAVAILABLE AGENTS WHO HAVE NOT SPOKEN YET (nominate the next agent at the very end in /[AGENT_KEY] format):\n"
+            f"{formatted_agents}"
         )
 
     lang_directive = ""

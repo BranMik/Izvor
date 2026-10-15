@@ -16,6 +16,7 @@ from core.config import (
     USAGE_CHANNEL_NAME,
     resolve_avatar_url,
 )
+from core.slack_security import sanitize_slack_broadcast_mentions
 
 logger = logging.getLogger(__name__)
 
@@ -119,6 +120,8 @@ async def post_agent_response(
             logger.warning(f"[SECURITY] Message blocked by guardrail rule: {matched_rule}")
             text = f"⚠️ *Message blocked by security policy.* (Rule: {matched_rule})"
 
+        text = sanitize_slack_broadcast_mentions(text)
+
         await slack_rate_limiter.acquire()
         response = await slack_async_client.chat_postMessage(
             channel=channel_id,
@@ -127,6 +130,8 @@ async def post_agent_response(
             blocks=blocks,
             username=username,
             icon_url=final_icon_url,
+            unfurl_links=False,
+            unfurl_media=False,
         )
         return response.data
     except SlackApiError as e:
@@ -277,7 +282,8 @@ async def fetch_thread_history(
 
 
 def _sanitize_and_truncate_slack_text(text: str, max_chars: int = 3800) -> str:
-    """Ensures Slack message text never exceeds Slack API limits (4000 characters)."""
+    """Ensures Slack message text neutralizes broadcast mentions and never exceeds Slack API limits (4000 characters)."""
+    text = sanitize_slack_broadcast_mentions(text)
     if len(text) <= max_chars:
         return text
     truncated = text[:max_chars]
@@ -323,6 +329,8 @@ async def post_thread_note(
             "text": text,
             "username": username,
             "icon_emoji": icon_emoji,
+            "unfurl_links": False,
+            "unfurl_media": False,
         }
         if blocks:
             kwargs["blocks"] = blocks
@@ -430,6 +438,8 @@ async def update_thread_note(
             "channel": channel_id,
             "ts": message_ts,
             "text": text,
+            "unfurl_links": False,
+            "unfurl_media": False,
         }
         if blocks:
             kwargs["blocks"] = blocks
@@ -612,6 +622,8 @@ async def post_usage_message(
             text=text,
             username=username,
             icon_emoji=icon_emoji,
+            unfurl_links=False,
+            unfurl_media=False,
         )
         msg_ts = response.get("ts")
         logger.info(
@@ -1031,7 +1043,13 @@ async def post_message_to_slack(
     if not SLACK_BOT_TOKEN or SLACK_BOT_TOKEN == "xoxb-your-bot-user-oauth-token":
         return {"ok": True, "mock": True}
     try:
-        kwargs = {"channel": channel_id, "text": text}
+        text = sanitize_slack_broadcast_mentions(text)
+        kwargs = {
+            "channel": channel_id,
+            "text": text,
+            "unfurl_links": False,
+            "unfurl_media": False,
+        }
         if thread_ts:
             kwargs["thread_ts"] = thread_ts
         if username:

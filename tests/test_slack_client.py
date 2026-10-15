@@ -183,3 +183,44 @@ async def test_fetch_thread_files_pagination(monkeypatch):
     assert "doc1.txt" in file_names
     assert "doc2.txt" in file_names
 
+
+def test_sanitize_slack_broadcast_mentions():
+    """Verifies that Slack broadcast mentions are neutralized to safe plain text."""
+    from core.slack_security import sanitize_slack_broadcast_mentions
+
+    assert sanitize_slack_broadcast_mentions("Hello <!channel>, please review.") == "Hello @channel, please review."
+    assert sanitize_slack_broadcast_mentions("Alert <!here> and <!everyone>!") == "Alert @here and @everyone!"
+    assert sanitize_slack_broadcast_mentions("Normal user <@U12345> stay intact.") == "Normal user <@U12345> stay intact."
+    assert sanitize_slack_broadcast_mentions("") == ""
+    assert sanitize_slack_broadcast_mentions(None) is None
+
+
+@pytest.mark.anyio
+async def test_post_agent_response_unfurl_and_sanitize(monkeypatch):
+    """Verifies post_agent_response sanitizes broadcast mentions and disables unfurling."""
+    from services import slack_client
+
+    monkeypatch.setattr(slack_client, "SLACK_BOT_TOKEN", "xoxb-valid-test-token")
+    from unittest.mock import MagicMock
+    captured_kwargs = {}
+
+    async def mock_post(**kwargs):
+        captured_kwargs.update(kwargs)
+        return MagicMock(data={"ok": True, "ts": "123.456"})
+
+    monkeypatch.setattr(slack_client.slack_async_client, "chat_postMessage", mock_post)
+
+    res = await slack_client.post_agent_response(
+        channel_id="C_TEST",
+        thread_ts="123.456",
+        text="Attention <!channel>! Check https://example.com",
+        username="TestAgent",
+    )
+
+    assert res["ok"] is True
+    assert captured_kwargs["unfurl_links"] is False
+    assert captured_kwargs["unfurl_media"] is False
+    assert "<!channel>" not in captured_kwargs["text"]
+    assert "@channel" in captured_kwargs["text"]
+
+

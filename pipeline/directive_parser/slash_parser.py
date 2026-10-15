@@ -15,6 +15,36 @@ def clean_spaces(text: str) -> str:
     return re.sub(r"[ \t]+", " ", text).strip()
 
 
+def remove_command_span(text: str, start: int, end: int) -> str:
+    """
+    Removes a command span [start, end] from text while strictly preserving
+    surrounding prompt formatting, line breaks, code block indentation, and YAML spacing.
+    """
+    before = text[:start]
+    after = text[end:]
+
+    # If the command was on its own line, consume the trailing newline
+    if (not before or before.endswith("\n")) and after.startswith("\n"):
+        return before + after[1:]
+    if before.endswith("\n") and (not after or after.startswith("\n")):
+        return before[:-1] + after
+
+    # Collapse double spaces created at excision boundary on the same line
+    if before.endswith(" ") and after.startswith(" "):
+        after = after.lstrip(" ")
+    elif before and after and not before.endswith(("\n", " ", "\t")) and not after.startswith(("\n", " ", "\t")):
+        return before + " " + after
+
+    res = before + after
+    if not res.strip():
+        return ""
+    if res.startswith(" "):
+        res = res.lstrip(" ")
+    if res.endswith(" "):
+        res = res.rstrip(" ")
+    return res
+
+
 def parse_terminal_flag(slash_cmd: str, text: str) -> tuple[bool, str]:
     """
     Detects if raw_text contains an explicit terminal/stop command.
@@ -23,26 +53,30 @@ def parse_terminal_flag(slash_cmd: str, text: str) -> tuple[bool, str]:
     if not text:
         return False, ""
 
-    pattern = re.compile(rf"(?:^|\s){re.escape(slash_cmd)}(?=[\s!.,;?]|$)", re.IGNORECASE)
+    pattern = re.compile(rf"(?:^|[\r\n\s]){re.escape(slash_cmd)}(?=[\s!.,;?]|$)", re.IGNORECASE)
     match = pattern.search(text)
     if match:
-        cleaned = pattern.sub(" ", text)
-        return True, clean_spaces(cleaned)
+        cleaned = remove_command_span(text, match.start(), match.end())
+        return True, cleaned
     return False, text
 
 
 def parse_int_or_off(
-    slash_cmd: str, text: str, min_val: int | None = None
+    slash_cmd: str,
+    text: str,
+    min_val: int | None = None,
+    max_val: int | None = None,
 ) -> tuple[bool, int | str | None, str]:
     """
     Extracts an integer value, bracketed integer [5:int], or 'off' from a slash command.
+    Enforces min_val and max_val bounds when specified.
     Returns (matched: bool, value: int | str | None, cleaned_text: str).
     """
     if not text:
         return False, None, ""
 
     pattern = re.compile(
-        rf"(?:^|\s){re.escape(slash_cmd)}\s*[:=]?\s*(?:\[?(\d+)(?::(?:int|integer))?\]?|(off)\b)",
+        rf"(?:^|[\r\n\s]){re.escape(slash_cmd)}\s*[:=]?\s*(?:\[?(\d+)(?::(?:int|integer))?\]?|(off)\b)",
         re.IGNORECASE,
     )
     match = pattern.search(text)
@@ -51,17 +85,22 @@ def parse_int_or_off(
             val: int | str | None = "off"
         else:
             raw_int = int(match.group(1))
-            val = max(min_val, raw_int) if min_val is not None else raw_int
-        cleaned = pattern.sub(" ", text)
-        return True, val, clean_spaces(cleaned)
+            val = raw_int
+            if min_val is not None:
+                val = max(min_val, val)
+            if max_val is not None:
+                val = min(max_val, val)
+        cleaned = remove_command_span(text, match.start(), match.end())
+        return True, val, cleaned
 
     # Fallback: check if command was specified without arguments (e.g. /rounds)
     bare_pattern = re.compile(
-        rf"(?:^|\s){re.escape(slash_cmd)}(?=[\s:=]|$)", re.IGNORECASE
+        rf"(?:^|[\r\n\s]){re.escape(slash_cmd)}(?=[\s:=]|$)", re.IGNORECASE
     )
-    if bare_pattern.search(text):
-        cleaned = bare_pattern.sub(" ", text)
-        return True, None, clean_spaces(cleaned)
+    bare_match = bare_pattern.search(text)
+    if bare_match:
+        cleaned = remove_command_span(text, bare_match.start(), bare_match.end())
+        return True, None, cleaned
 
     return False, None, text
 
@@ -71,33 +110,32 @@ def parse_agent_list(
 ) -> tuple[bool, list[str], bool, str]:
     """
     Extracts agent keys from text for commands like /exclude or /include,
-    supporting /<cmd> /[Agent1] /[Agent2]... or /<cmd> off.
+    supporting /<cmd> [Agent1] [Agent2]... or /<cmd> off.
+    Strictly whitespace-separated, deterministic instruction parsing.
     Returns (matched: bool, agents: list[str], is_off: bool, cleaned_text: str).
     """
     if not text:
         return False, [], False, ""
 
     off_pattern = re.compile(
-        rf"(?:^|\s){re.escape(slash_cmd)}\s*[:=]?\s*off\b", re.IGNORECASE
+        rf"(?:^|[\r\n\s]){re.escape(slash_cmd)}\s*[:=]?\s*off\b", re.IGNORECASE
     )
     cleaned_text = text
     is_off = False
     matched_cmd = False
 
-    if off_pattern.search(cleaned_text):
+    off_match = off_pattern.search(cleaned_text)
+    if off_match:
         is_off = True
         matched_cmd = True
-        cleaned_text = off_pattern.sub(" ", cleaned_text)
-        return True, [], is_off, clean_spaces(cleaned_text)
+        cleaned_text = remove_command_span(cleaned_text, off_match.start(), off_match.end())
+        return True, [], is_off, cleaned_text
 
-    token_pattern = re.compile(
-        r"(\s*(?:,|and|&)?\s*)(/?\[[^\]]+\]|[a-zA-Z0-9_]+)", re.IGNORECASE
-    )
     agents: list[str] = []
 
     while True:
         cmd_match = re.search(
-            rf"(?:^|\s){re.escape(slash_cmd)}\s*[:=]?", cleaned_text, re.IGNORECASE
+            rf"(?:^|[\r\n\s]){re.escape(slash_cmd)}(?=[\s:=]|$)", cleaned_text, re.IGNORECASE
         )
         if not cmd_match:
             break
@@ -105,32 +143,47 @@ def parse_agent_list(
         matched_cmd = True
         start_idx = cmd_match.start()
         curr_idx = cmd_match.end()
+
+        # Consume optional : or = and spaces immediately following slash_cmd
+        delim_match = re.match(r"[ \t]*[:=]?[ \t]*", cleaned_text[curr_idx:])
+        if delim_match:
+            curr_idx += delim_match.end()
+
         matched_tokens_span_end = curr_idx
         remainder = cleaned_text[curr_idx:]
 
         offset = 0
-        while True:
-            t_match = token_pattern.match(remainder[offset:])
+        while offset < len(remainder):
+            if offset > 0:
+                ws_match = re.match(r"[ \t]+", remainder[offset:])
+                if not ws_match:
+                    break
+                ws_len = ws_match.end()
+            else:
+                ws_len = 0
+
+            t_match = re.match(r"(/?\[[^\]\r\n]+\]|[a-zA-Z0-9_\-]+)", remainder[offset + ws_len:])
             if not t_match:
                 break
-            _, token = t_match.groups()
-            resolved = entity_resolver.resolve_agent_name(token)
+
+            token = t_match.group(1)
+            clean_token = token.strip("/[]")
+            resolved = entity_resolver.resolve_agent_name(clean_token) or entity_resolver.resolve_agent_name(token)
             if resolved:
                 if resolved not in agents:
                     agents.append(resolved)
-                offset += len(t_match.group(0))
+                offset += ws_len + t_match.end()
                 matched_tokens_span_end = curr_idx + offset
             elif (token.startswith("[") and token.endswith("]")) or (token.startswith("/[") and token.endswith("]")):
-                offset += len(t_match.group(0))
+                offset += ws_len + t_match.end()
                 matched_tokens_span_end = curr_idx + offset
             else:
+                # Word does not resolve to an agent. Stop argument parsing.
                 break
 
-        cleaned_text = (
-            cleaned_text[:start_idx] + " " + cleaned_text[matched_tokens_span_end:]
-        )
+        cleaned_text = remove_command_span(cleaned_text, start_idx, matched_tokens_span_end)
 
-    return matched_cmd, agents, is_off, clean_spaces(cleaned_text)
+    return matched_cmd, agents, is_off, cleaned_text
 
 
 def parse_file_target(
@@ -146,7 +199,7 @@ def parse_file_target(
         return False, None, ""
 
     cmd_pattern = re.compile(
-        rf"(?:^|\s){re.escape(slash_cmd)}(?:\s*[:=]\s*(\S+)|\s+\[([^\]]+)\]|\s+\(([^)]+)\)|\s+([\w\-.]+\.[a-zA-Z0-9]+))?",
+        rf"(?:^|[\r\n\s]){re.escape(slash_cmd)}(?:\s*[:=]\s*(\S+)|\s+\[([^\]]+)\]|\s+\(([^)]+)\)|\s+([\w\-.]+\.[a-zA-Z0-9]+))?",
         re.IGNORECASE,
     )
 
@@ -154,8 +207,8 @@ def parse_file_target(
     if match:
         target = next((g for g in match.groups() if g is not None), None)
         target_filename = target.strip("[]():,; \t") if target else None
-        cleaned = cmd_pattern.sub(" ", text)
-        return True, target_filename, clean_spaces(cleaned)
+        cleaned = remove_command_span(text, match.start(), match.end())
+        return True, target_filename, cleaned
 
     # Check available files by name match in text
     if available_files:
@@ -176,15 +229,15 @@ def parse_token(slash_cmd: str, text: str) -> tuple[bool, str | None, str]:
         return False, None, ""
 
     pattern = re.compile(
-        rf"(?:^|\s){re.escape(slash_cmd)}(?![-_])\s*[:=]?\s*(?:/?\[?([a-zA-Z0-9_-]+)\]?|all\b)?",
+        rf"(?:^|[\r\n\s]){re.escape(slash_cmd)}(?![-_])\s*[:=]?\s*(?:/?\[?([a-zA-Z0-9_-]+)\]?|all\b)?",
         re.IGNORECASE,
     )
     match = pattern.search(text)
     if match:
         raw_target = match.group(1) or "all"
         target = raw_target.strip().lower()
-        cleaned = pattern.sub(" ", text)
-        return True, target, clean_spaces(cleaned)
+        cleaned = remove_command_span(text, match.start(), match.end())
+        return True, target, cleaned
 
     return False, None, text
 
@@ -194,33 +247,48 @@ def parse_grant_skill(
 ) -> tuple[bool, str, list[str], str]:
     """
     Extracts skill name and agent targets for /grant_skill <skill> /[Agent1] /[Agent2].
+    Strictly whitespace-separated, deterministic instruction parsing.
     Returns (matched: bool, skill_name: str, agents_list: list[str], cleaned_text: str).
     """
     if not text:
         return False, "", [], ""
 
     cmd_match = re.search(
-        rf"(?:^|\s){re.escape(slash_cmd)}(?=[\s:=]|$)", text, re.IGNORECASE
+        rf"(?:^|[\r\n\s]){re.escape(slash_cmd)}(?=[\s:=]|$)", text, re.IGNORECASE
     )
     if not cmd_match:
         return False, "", [], text
 
     start_idx = cmd_match.start()
     curr_idx = cmd_match.end()
+
+    delim_match = re.match(r"[ \t]*[:=]?[ \t]*", text[curr_idx:])
+    if delim_match:
+        curr_idx += delim_match.end()
+
+    matched_tokens_span_end = curr_idx
     remainder = text[curr_idx:]
 
-    token_pattern = re.compile(
-        r"(\s*(?:,|and|&)?\s*)(/?\[[^\]]+\]|<@[A-Za-z0-9_]+>|@[a-zA-Z0-9_-]+|[a-zA-Z0-9_-]+)",
-        re.IGNORECASE,
-    )
     offset = 0
     tokens: list[str] = []
 
-    while True:
-        t_match = token_pattern.match(remainder[offset:])
+    while offset < len(remainder):
+        if offset > 0:
+            ws_match = re.match(r"[ \t]+", remainder[offset:])
+            if not ws_match:
+                break
+            ws_len = ws_match.end()
+        else:
+            ws_len = 0
+
+        t_match = re.match(
+            r"(/?\[[^\]\r\n]+\]|<@[A-Za-z0-9_]+>|@[a-zA-Z0-9_-]+|[a-zA-Z0-9_-]+)",
+            remainder[offset + ws_len:],
+        )
         if not t_match:
             break
-        _, raw_token = t_match.groups()
+
+        raw_token = t_match.group(1)
         token_clean = raw_token.strip("/[]@<>\t ")
         is_bracketed = (
             (raw_token.startswith("[") or raw_token.startswith("/[")) and raw_token.endswith("]") or raw_token.startswith(("@", "<@"))
@@ -228,20 +296,21 @@ def parse_grant_skill(
 
         if not tokens:
             tokens.append(token_clean)
-            offset += len(t_match.group(0))
+            offset += ws_len + t_match.end()
+            matched_tokens_span_end = curr_idx + offset
         else:
             is_agent = bool(entity_resolver.resolve_candidates(token_clean))
             if is_agent or is_bracketed or len(tokens) == 1:
                 tokens.append(token_clean)
-                offset += len(t_match.group(0))
+                offset += ws_len + t_match.end()
+                matched_tokens_span_end = curr_idx + offset
             else:
                 break
 
-    matched_tokens_span_end = curr_idx + offset
     skill_name = tokens[0] if tokens else ""
     agents_list = tokens[1:] if len(tokens) > 1 else []
-    cleaned_text = text[:start_idx] + " " + text[matched_tokens_span_end:]
-    return True, skill_name, agents_list, clean_spaces(cleaned_text)
+    cleaned_text = remove_command_span(text, start_idx, matched_tokens_span_end)
+    return True, skill_name, agents_list, cleaned_text
 
 
 def parse_list(
@@ -249,34 +318,50 @@ def parse_list(
 ) -> tuple[bool, list[str], str]:
     """
     Extracts a list of items for commands like /grant_skill_for_all [skill1] [skill2] or /revoke_skill_for_all.
+    Strictly whitespace-separated, deterministic instruction parsing.
     Returns (matched: bool, items_list: list[str], cleaned_text: str).
     """
     if not text:
         return False, [], ""
 
     cmd_match = re.search(
-        rf"(?:^|\s){re.escape(slash_cmd)}(?=[\s:=]|$)", text, re.IGNORECASE
+        rf"(?:^|[\r\n\s]){re.escape(slash_cmd)}(?=[\s:=]|$)", text, re.IGNORECASE
     )
     if not cmd_match:
         return False, [], text
 
     start_idx = cmd_match.start()
     curr_idx = cmd_match.end()
+
+    delim_match = re.match(r"[ \t]*[:=]?[ \t]*", text[curr_idx:])
+    if delim_match:
+        curr_idx += delim_match.end()
+
+    matched_tokens_span_end = curr_idx
     remainder = text[curr_idx:]
 
-    token_pattern = re.compile(
-        r"(\s*(?:,|and|&)?\s*)(/?\[[^\]]+\]|[a-zA-Z0-9_-]+)", re.IGNORECASE
-    )
     offset = 0
     items_list: list[str] = []
 
-    while True:
-        t_match = token_pattern.match(remainder[offset:])
+    while offset < len(remainder):
+        if offset > 0:
+            ws_match = re.match(r"[ \t]+", remainder[offset:])
+            if not ws_match:
+                break
+            ws_len = ws_match.end()
+        else:
+            ws_len = 0
+
+        t_match = re.match(
+            r"(/?\[[^\]\r\n]+\]|[a-zA-Z0-9_-]+)",
+            remainder[offset + ws_len:],
+        )
         if not t_match:
             break
-        _, raw_token = t_match.groups()
+
+        raw_token = t_match.group(1)
         token_clean = raw_token.strip("/[]")
-        rem_after_token = remainder[offset + len(t_match.group(0)):].strip()
+        rem_after_token = remainder[offset + ws_len + t_match.end():].strip()
         is_known = known_items and (
             token_clean.lower() in known_items or token_clean.lower() == "all"
         )
@@ -284,19 +369,20 @@ def parse_list(
 
         if is_known or (offset == 0 and is_last_token):
             items_list.append(token_clean)
-            offset += len(t_match.group(0))
+            offset += ws_len + t_match.end()
+            matched_tokens_span_end = curr_idx + offset
         else:
             break
 
-    matched_tokens_span_end = curr_idx + offset
-    cleaned_text = text[:start_idx] + " " + text[matched_tokens_span_end:]
-    return True, items_list, clean_spaces(cleaned_text)
+    cleaned_text = remove_command_span(text, start_idx, matched_tokens_span_end)
+    return True, items_list, cleaned_text
 
 
 def strip_all_slash_commands(text: str) -> str:
     """
     Dynamically strips all registered slash commands and their arguments
-    from raw text using triggers from the skill registry.
+    from raw text using triggers from the skill registry while preserving
+    prompt indentation and formatting.
     """
     if not text:
         return ""
@@ -327,11 +413,11 @@ def strip_all_slash_commands(text: str) -> str:
             _, _, cleaned = parse_list(trigger, cleaned)
         else:
             pattern = re.compile(
-                rf"(?:^|\s){re.escape(trigger)}(?=[\s:=]|$)(?:\s*[:=]?\s*[^\s/]+)?",
+                rf"(?:^|[\r\n\s]){re.escape(trigger)}(?=[\s:=]|$)(?:\s*[:=]?\s*[^\s/]+)?",
                 re.IGNORECASE,
             )
-            cleaned = clean_spaces(pattern.sub(" ", cleaned))
+            m = pattern.search(cleaned)
+            if m:
+                cleaned = remove_command_span(cleaned, m.start(), m.end())
 
-    return clean_spaces(cleaned)
-
-
+    return cleaned

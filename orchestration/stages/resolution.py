@@ -193,15 +193,8 @@ class ResolutionStage:
                 )
                 await self.pipeline._sleep(pause_secs)
 
-                trig_notes = self.pipeline._get_hook(
-                    "trigger_thread_notes_update", trigger_thread_notes_update
-                )
-                trig_notes(
-                    channel_id=ctx.channel_id,
-                    thread_ts=ctx.thread_ts,
-                    is_completed=True,
-                    bot_user_id=ctx.bot_user_id,
-                )
+                # Note: trigger_thread_notes_update is intentionally suppressed here
+                # to prevent burning further LLM tokens when the budget is exceeded.
 
                 trig_usage = self.pipeline._get_hook(
                     "trigger_usage_update", trigger_usage_update

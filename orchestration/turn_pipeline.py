@@ -328,6 +328,18 @@ class TurnPipeline:
             logger.info(
                 f"[ROUTER] Task cancelled for thread {ctx.thread_key} (agent {ctx.agent_key}, gen {ctx.my_generation}). Aborting cleanly."
             )
+            if ctx.total_prompt_tokens > 0 or ctx.total_completion_tokens > 0:
+                record_tokens_fn = self._get_hook(
+                    "record_thread_tokens", record_thread_tokens
+                )
+                if record_tokens_fn:
+                    record_tokens_fn(
+                        channel_id=ctx.channel_id,
+                        thread_ts=ctx.thread_ts,
+                        model_name=ctx.agent_cfg.get("model", "") if ctx.agent_cfg else "",
+                        prompt_tokens=ctx.total_prompt_tokens,
+                        completion_tokens=ctx.total_completion_tokens,
+                    )
             return {"ok": False, "cancelled": True, "reason": "cancelled"}
         except Exception as e:  # noqa: BLE001 - Pipeline error boundary catches unexpected stage errors and delegates to handle_error
             return await self.post_record_stage.handle_error(ctx, e)

@@ -15,15 +15,18 @@ from typing import Any
 from core.config import AGENTS_CONFIG
 from core.models import OrchestrationMode
 from pipeline.directive_parser.slash_parser import strip_all_slash_commands
-from pipeline.entity_resolver import entity_resolver
+from pipeline.entity_resolver import (
+    NOMINATION_TAG_REGEX,
+    TAG_REGEX,
+    entity_resolver,
+    format_nomination_tag,
+)
 from pipeline.orchestrator import SandwichOrchestrator
 
 from .agent_settings import settings_manager
 from .thread_state import thread_state_manager
 
 logger = logging.getLogger(__name__)
-
-TAG_REGEX = re.compile(r"/\[\s*([^\]\r\n]+?)\s*\]")
 
 
 def resolve_target_file(

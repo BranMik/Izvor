@@ -147,9 +147,22 @@ class DirectiveParser:
                         actions.append(ActionDirective(name=skill_def.name, params={}))
 
                 elif arg_type in ("int", "integer", "int_or_off"):
-                    min_val = 1 if "words" in skill_def.name else None
+                    min_val: int | None = None
+                    max_val: int | None = None
+                    s_name = skill_def.name.lower()
+                    if "round" in s_name:
+                        min_val, max_val = 1, 5
+                    elif "max_words" in s_name:
+                        min_val, max_val = 10, 2000
+                    elif "min_words" in s_name:
+                        min_val, max_val = 1, 1000
+                    elif "history" in s_name:
+                        min_val, max_val = 1, 50
+                    elif "words" in s_name:
+                        min_val = 1
+
                     matched, val, text_cleaned = parse_int_or_off(
-                        slash_cmd, text_cleaned, min_val=min_val
+                        slash_cmd, text_cleaned, min_val=min_val, max_val=max_val
                     )
                     if matched:
                         if skill_def.scope == "prompt_modifier":

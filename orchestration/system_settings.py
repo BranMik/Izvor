@@ -58,6 +58,7 @@ class SystemSettingsManager:
         self.slack_post_pause_seconds: float = 2.0
         self.tool_call_loop_timeout_seconds: float = 60.0
         self.guardrail_fail_mode: str = "open"
+        self.max_discussion_turns: int = 20
         self._debate_turn_pacing_manually_set: bool = False
         self._slack_post_pause_manually_set: bool = False
         self._raw_data: dict[str, Any] = {}
@@ -136,6 +137,7 @@ class SystemSettingsManager:
             self.tool_call_loop_timeout_seconds = float(data.get("tool_call_loop_timeout_seconds", 60.0))
             raw_gfm = str(data.get("guardrail_fail_mode", "open")).strip().lower()
             self.guardrail_fail_mode = raw_gfm if raw_gfm in ("open", "closed") else "open"
+            self.max_discussion_turns = int(data.get("max_discussion_turns", 20))
 
             self._last_loaded_mtime = mtime
             logger.debug(f"[SYSTEM_SETTINGS] Loaded settings from {target_file}")
@@ -169,6 +171,7 @@ class SystemSettingsManager:
                     self.tool_call_loop_timeout_seconds = float(data.get("tool_call_loop_timeout_seconds", 60.0))
                     raw_gfm = str(data.get("guardrail_fail_mode", "open")).strip().lower()
                     self.guardrail_fail_mode = raw_gfm if raw_gfm in ("open", "closed") else "open"
+                    self.max_discussion_turns = int(data.get("max_discussion_turns", 20))
                     logger.warning("[SYSTEM_SETTINGS] Recovered settings from backup.")
                 except (OSError, json.JSONDecodeError, TypeError, ValueError) as be:
                     logger.error(f"[SYSTEM_SETTINGS] Failed to read backup: {be}")
@@ -195,6 +198,7 @@ class SystemSettingsManager:
             "tool_call_loop_timeout_seconds": self.tool_call_loop_timeout_seconds,
             "slack_post_pause_seconds": self.slack_post_pause_seconds,
             "guardrail_fail_mode": self.guardrail_fail_mode,
+            "max_discussion_turns": self.max_discussion_turns,
         })
 
         tmp_filename = f"{target_file.name}.tmp_{os.getpid()}_{int(time.time() * 1000)}"
@@ -387,6 +391,16 @@ class SystemSettingsManager:
         if save:
             self.save()
         logger.info(f"[SYSTEM_SETTINGS] Set tool_call_loop_timeout_seconds to {self.tool_call_loop_timeout_seconds}.")
+
+    def get_max_discussion_turns(self) -> int:
+        self.load()
+        return self.max_discussion_turns
+
+    def set_max_discussion_turns(self, val: int, save: bool = True) -> None:
+        self.max_discussion_turns = max(1, int(val))
+        if save:
+            self.save()
+        logger.info(f"[SYSTEM_SETTINGS] Set max_discussion_turns to {self.max_discussion_turns}.")
 
     def is_path_write_blocked(
         self,
@@ -592,6 +606,14 @@ def get_guardrail_fail_mode() -> str:
 
 def set_guardrail_fail_mode(mode: str, save: bool = True) -> None:
     system_settings_manager.set_guardrail_fail_mode(mode, save=save)
+
+
+def get_max_discussion_turns() -> int:
+    return system_settings_manager.get_max_discussion_turns()
+
+
+def set_max_discussion_turns(val: int, save: bool = True) -> None:
+    system_settings_manager.set_max_discussion_turns(val, save=save)
 
 
 

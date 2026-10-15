@@ -87,6 +87,18 @@ class PostRecordStage:
             logger.info(
                 f"[ROUTER] Thread {ctx.thread_key} turn was superseded before pacing delay. Aborting."
             )
+            if ctx.total_prompt_tokens > 0 or ctx.total_completion_tokens > 0:
+                record_tokens_fn = self.pipeline._get_hook(
+                    "record_thread_tokens", record_thread_tokens
+                )
+                if record_tokens_fn:
+                    record_tokens_fn(
+                        channel_id=ctx.channel_id,
+                        thread_ts=ctx.thread_ts,
+                        model_name=ctx.agent_cfg.get("model", "") if ctx.agent_cfg else "",
+                        prompt_tokens=ctx.total_prompt_tokens,
+                        completion_tokens=ctx.total_completion_tokens,
+                    )
             return {"ok": False, "cancelled": True, "reason": "superseded"}
 
         if thread_state_manager.is_stopped(ctx.channel_id, ctx.thread_ts):
@@ -144,17 +156,17 @@ class PostRecordStage:
                 if ctx.next_designated_agent:
                     next_tag = ctx.next_designated_agent
                     ctx.final_text = (
-                        f"(No text response generated) [{next_tag}] next"
+                        f"(No text response generated) /[{next_tag}] next"
                     )
                 elif ctx.eligible_remaining_agents:
                     next_tag = ctx.eligible_remaining_agents[0]
                     ctx.final_text = (
-                        f"(No text response generated) [{next_tag}] next"
+                        f"(No text response generated) /[{next_tag}] next"
                     )
                 elif retries:
                     next_tag = retries[0]
                     ctx.final_text = (
-                        f"(No text response generated) [{next_tag}] next"
+                        f"(No text response generated) /[{next_tag}] next"
                     )
                 else:
                     ctx.final_text = "(No text response generated)"
@@ -234,6 +246,18 @@ class PostRecordStage:
             logger.info(
                 f"[ROUTER] Thread {ctx.thread_key} turn was superseded after pacing delay. Aborting post."
             )
+            if ctx.total_prompt_tokens > 0 or ctx.total_completion_tokens > 0:
+                record_tokens_fn = self.pipeline._get_hook(
+                    "record_thread_tokens", record_thread_tokens
+                )
+                if record_tokens_fn:
+                    record_tokens_fn(
+                        channel_id=ctx.channel_id,
+                        thread_ts=ctx.thread_ts,
+                        model_name=ctx.agent_cfg.get("model", "") if ctx.agent_cfg else "",
+                        prompt_tokens=ctx.total_prompt_tokens,
+                        completion_tokens=ctx.total_completion_tokens,
+                    )
             return {"ok": False, "cancelled": True, "reason": "superseded"}
 
         resolved_turn_icon = ctx.icon_url or ctx.agent_cfg.get("icon_url")
@@ -531,8 +555,8 @@ class PostRecordStage:
             channel_id=ctx.channel_id,
             thread_ts=ctx.thread_ts,
             model_name=ctx.agent_cfg.get("model", ""),
-            prompt_tokens=0,
-            completion_tokens=0,
+            prompt_tokens=ctx.total_prompt_tokens,
+            completion_tokens=ctx.total_completion_tokens,
         )
 
         trig_notes = self.pipeline._get_hook(
