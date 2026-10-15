@@ -38,8 +38,6 @@ class ResolutionStage:
 
 
 
-    async def _sleep(self, seconds: float):
-        raise NotImplementedError
 
     async def stage_resolve_agent_and_governance(
         self, ctx: TurnContext

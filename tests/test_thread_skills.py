@@ -16,6 +16,22 @@ from core.registry import get_skill_registry
 skill_registry = get_skill_registry()
 
 
+@pytest.fixture(autouse=True)
+def clean_background_worker_tasks():
+    from agents.thread_notes_agent import _RUNNING_TASKS
+    from agents.usage_agent import thread_usage_tracker
+
+    yield
+    for task in list(_RUNNING_TASKS.values()):
+        if not task.done():
+            task.cancel()
+    _RUNNING_TASKS.clear()
+    for task in list(thread_usage_tracker.running_usage_tasks.values()):
+        if not task.done():
+            task.cancel()
+    thread_usage_tracker.running_usage_tasks.clear()
+
+
 def test_thread_skills_manager_grant_and_active():
     with tempfile.TemporaryDirectory() as tmp_dir:
         storage_file = Path(tmp_dir) / "thread_skills.json"

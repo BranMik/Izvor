@@ -18,7 +18,7 @@ from pipeline.directive_parser import is_stop_command
 from pipeline.entity_resolver import entity_resolver
 from services.slack_client import publish_app_home
 
-logger = logging.getLogger("CaiLogicsBackend.SlackEvents")
+logger = logging.getLogger("IzvorBackend.SlackEvents")
 
 
 class EventDeduplicationCache(dict):
@@ -279,7 +279,7 @@ async def handle_slack_events(request: Request, background_tasks: BackgroundTask
 
                 is_app_name_mention = bool(
                     (bot_user_id and f"<@{bot_user_id}>" in raw_text)
-                    or re.search(r"@?CaiLogics\b", raw_text, re.IGNORECASE)
+                    or re.search(r"@?(?:Izvor|CaiLogics)\b", raw_text, re.IGNORECASE)
                     or re.search(r"@app_mention\b", raw_text, re.IGNORECASE)
                 )
 

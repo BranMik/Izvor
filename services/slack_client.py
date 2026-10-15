@@ -601,7 +601,7 @@ async def get_or_create_usage_channel() -> str | None:
 async def post_usage_message(
     channel_id: str,
     text: str,
-    username: str = "CaiLogics Usage Analyst",
+    username: str = "Izvor Usage Analyst",
     icon_emoji: str = ":bar_chart:",
 ) -> dict[str, Any]:
     """

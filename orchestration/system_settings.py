@@ -8,6 +8,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+from core.config import is_test_environment
+
 logger = logging.getLogger(__name__)
 
 SYSTEM_SETTINGS_FILE = Path(__file__).parent.parent / "data" / "settings" / "system_settings.json"
@@ -362,7 +364,7 @@ class SystemSettingsManager:
     # --- Pacing & Execution Timeout Settings ---
     def get_debate_turn_pacing_seconds(self) -> float:
         self.load()
-        if "pytest" in sys.modules and not self._debate_turn_pacing_manually_set:
+        if is_test_environment() and not self._debate_turn_pacing_manually_set:
             return 0.01
         return self.debate_turn_pacing_seconds
 
@@ -375,7 +377,7 @@ class SystemSettingsManager:
 
     def get_slack_post_pause_seconds(self) -> float:
         self.load()
-        if "pytest" in sys.modules and not self._slack_post_pause_manually_set:
+        if is_test_environment() and not self._slack_post_pause_manually_set:
             return 0.01
         return self.slack_post_pause_seconds
 

@@ -22,7 +22,7 @@ def test_rate_limiter_token_consumption_and_refill():
     async def _run():
         limiter = SlackRateLimiter(rate=5.0, capacity=2.0)
         # Simulate production environment: real token and remove "pytest" from sys.modules check
-        with patch("services.rate_limiter.SLACK_BOT_TOKEN", "xoxb-real-production-token-123"), patch("sys.modules", {}):
+        with patch("services.rate_limiter.SLACK_BOT_TOKEN", "xoxb-real-production-token-123"), patch("services.rate_limiter.is_test_environment", return_value=False):
             # Initially tokens = 2.0
             assert limiter.tokens == 2.0
 
@@ -46,7 +46,7 @@ def test_rate_limiter_token_consumption_and_refill():
 def test_rate_limiter_concurrency():
     async def _run():
         limiter = SlackRateLimiter(rate=10.0, capacity=5.0)
-        with patch("services.rate_limiter.SLACK_BOT_TOKEN", "xoxb-real-production-token-123"), patch("sys.modules", {}):
+        with patch("services.rate_limiter.SLACK_BOT_TOKEN", "xoxb-real-production-token-123"), patch("services.rate_limiter.is_test_environment", return_value=False):
             # Launch 5 tasks concurrently
                 tasks = [limiter.acquire() for _ in range(5)]
                 await asyncio.gather(*tasks)

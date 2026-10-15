@@ -55,6 +55,20 @@ def is_slack_admin(user_id: str | None) -> bool:
     u = str(user_id).strip()
     return bool(u and u in get_admin_slack_user_ids())
 
+
+def is_test_environment() -> bool:
+    """
+    Determines if the application is currently running inside an automated test suite.
+    Checks explicit environment flags (IZVOR_ENV=test/testing, PYTEST_CURRENT_TEST),
+    and safely falls back to inspecting loaded test runner modules.
+    """
+    env_mode = os.getenv("IZVOR_ENV", "").strip().lower()
+    if env_mode in ("test", "testing"):
+        return True
+    if os.getenv("PYTEST_CURRENT_TEST"):
+        return True
+    return "pytest" in sys.modules
+
 # MCP workspace directory: defaults to project root (one directory above 'core' and 'services')
 _raw_workspace = os.getenv("MCP_WORKSPACE_DIR", "").strip()
 if _raw_workspace and _raw_workspace != ".":

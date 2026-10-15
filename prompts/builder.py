@@ -39,6 +39,18 @@ def _load_short_output_agents() -> set[str]:
 SHORT_OUTPUT_AGENTS: set[str] = _load_short_output_agents()
 
 
+def is_short_output_agent(agent_key: str) -> bool:
+    """Checks whether an agent is configured with is_short_output: true dynamically from SSOT."""
+    try:
+        from orchestration.agent_settings import settings_manager
+        agent_cfg = settings_manager.get_agent(agent_key)
+        if agent_cfg and agent_cfg.get("is_short_output") is True:
+            return True
+    except Exception as e:
+        logger.debug(f"[PROMPT BUILDER] Dynamic short output check fallback: {e}")
+    return agent_key in SHORT_OUTPUT_AGENTS
+
+
 def _load_system_agents() -> set[str]:
     """Loads agent keys configured as system agents from agent_settings.json metadata."""
     settings_path = PROMPTS_DIR.parent / "data" / "settings" / "agent_settings.json"
@@ -74,24 +86,30 @@ SYSTEM_AGENTS: set[str] = _load_system_agents()
 
 def is_system_agent(agent_key: str) -> bool:
     """Checks whether an agent is configured as a system agent via metadata or settings."""
+    try:
+        from orchestration.agent_settings import settings_manager
+        if settings_manager.is_system_agent(agent_key):
+            return True
+        agent_cfg = settings_manager.get_agent(agent_key)
+        if agent_cfg and agent_cfg.get("is_system_agent") is True:
+            return True
+    except Exception as e:
+        logger.debug(f"[PROMPT BUILDER] Dynamic system agent check fallback: {e}")
+
     if agent_key in SYSTEM_AGENTS:
         return True
 
     # Runtime fallback lookup against core.config.SYSTEM_AGENTS_CONFIG
     try:
-        import sys
-
-        core_cfg = sys.modules.get("core.config")
-        if core_cfg and hasattr(core_cfg, "SYSTEM_AGENTS_CONFIG"):
-            sys_cfg = getattr(core_cfg, "SYSTEM_AGENTS_CONFIG", {})
-            if agent_key in sys_cfg:
-                return True
-            for k, entry in sys_cfg.items():
-                if isinstance(entry, dict):
-                    if entry.get("agent_key") == agent_key:
-                        return True
-                    if k == agent_key and entry.get("is_system_agent") is True:
-                        return True
+        from core.config import SYSTEM_AGENTS_CONFIG
+        if agent_key in SYSTEM_AGENTS_CONFIG:
+            return True
+        for k, entry in SYSTEM_AGENTS_CONFIG.items():
+            if isinstance(entry, dict):
+                if entry.get("agent_key") == agent_key:
+                    return True
+                if k == agent_key and entry.get("is_system_agent") is True:
+                    return True
     except (ImportError, AttributeError, KeyError, TypeError) as e:
         logger.debug(f"[PROMPT BUILDER] Runtime system agent lookup skipped: {e}")
 
@@ -164,7 +182,7 @@ def build_agent_prompt(
             f"OUTPUT & LENGTH CONSTRAINTS:\n\n"
             f"{word_constraints}"
         )
-    elif agent_key in SHORT_OUTPUT_AGENTS:
+    elif is_short_output_agent(agent_key):
         output_constraints = _read_prompt_file(SHARED_DIR / "output_constraints_100w.md")
     else:
         output_constraints = _read_prompt_file(SHARED_DIR / "output_constraints.md")

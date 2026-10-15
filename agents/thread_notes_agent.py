@@ -593,24 +593,25 @@ def trigger_thread_notes_update(
         )
         return existing_task
 
+    coro = _notes_worker(
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        is_completed=is_completed,
+        bot_user_id=bot_user_id,
+    )
     try:
-        task = asyncio.create_task(
-            _notes_worker(
-                channel_id=channel_id,
-                thread_ts=thread_ts,
-                is_completed=is_completed,
-                bot_user_id=bot_user_id,
-            )
-        )
+        task = asyncio.create_task(coro)
         _RUNNING_TASKS[thread_key] = task
         _PENDING_UPDATES[thread_key] = False
         return task
     except RuntimeError as e:
+        coro.close()
         logger.error(
             f"[THREAD NOTES] Runtime error dispatching background notes update task: {e}"
         )
         return None
     except Exception as e:  # noqa: BLE001 - Background task dispatcher error boundary
+        coro.close()
         logger.error(
             f"[THREAD NOTES] Failed to dispatch background notes update task: {e}"
         )

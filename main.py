@@ -41,7 +41,7 @@ logging.basicConfig(
     level=dynamic_log_level, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 )
 setup_credential_redaction_filters()
-logger = logging.getLogger("CaiLogicsBackend")
+logger = logging.getLogger("IzvorBackend")
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -190,7 +190,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="CaiLogics Multi-Agent Slack Hub",
+    title="Izvor Multi-Agent Slack Hub",
     description="Multi-agent orchestration platform integrating Slack Events API, LiteLLM, and MCP tools.",
     version="1.0.0",
     lifespan=lifespan,
@@ -205,11 +205,10 @@ app.include_router(slack_router, prefix="/slack")
 @app.get("/")
 @app.get("/health")
 async def health_check():
-    """Basic health check endpoint."""
+    """Basic public health check endpoint."""
     return {
         "status": "healthy",
-        "service": "CaiLogics Multi-Agent Hub",
-        "agents": list(AGENTS_CONFIG.keys()),
+        "service": "Izvor Multi-Agent Hub",
     }
 
 
@@ -276,6 +275,16 @@ def verify_admin_basic_auth(
         status="SUCCESS",
     )
     return credentials.username
+
+
+@app.get("/api/health", dependencies=[Depends(verify_admin_basic_auth)])
+async def admin_health_check():
+    """Admin health check endpoint exposing registered agent catalog."""
+    return {
+        "status": "healthy",
+        "service": "Izvor Multi-Agent Hub",
+        "agents": list(AGENTS_CONFIG.keys()),
+    }
 
 
 @app.get("/api/skills", dependencies=[Depends(verify_admin_basic_auth)])

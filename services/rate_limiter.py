@@ -1,8 +1,7 @@
 import asyncio
-import sys
 import time
 
-from core.config import SLACK_BOT_TOKEN
+from core.config import SLACK_BOT_TOKEN, is_test_environment
 
 
 class SlackRateLimiter:
@@ -27,7 +26,7 @@ class SlackRateLimiter:
 
     async def acquire(self) -> None:
         if (
-            "pytest" in sys.modules
+            is_test_environment()
             or not SLACK_BOT_TOKEN
             or SLACK_BOT_TOKEN == "xoxb-your-bot-user-oauth-token"
         ):

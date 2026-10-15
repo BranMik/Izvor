@@ -51,7 +51,7 @@ from services.slack_client import (
 )
 from services.audit_logger import log_audit_event
 
-logger = logging.getLogger("CaiLogicsBackend.SlackInteractivity")
+logger = logging.getLogger("IzvorBackend.SlackInteractivity")
 
 
 async def _handle_scribe_download(

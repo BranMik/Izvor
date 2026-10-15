@@ -368,7 +368,7 @@ class ThreadUsageTracker:
                     post_res = await post_usage_message(
                         channel_id=usage_ch_id,
                         text=formatted_text,
-                        username="CaiLogics Usage Analyst",
+                        username="Izvor Usage Analyst",
                         icon_emoji=":bar_chart:",
                     )
                     new_msg_ts = post_res.get("ts")
@@ -459,23 +459,24 @@ class ThreadUsageTracker:
             )
             return existing_task
 
+        coro = self._usage_worker(
+            channel_id=channel_id,
+            thread_ts=thread_ts,
+            is_completed=is_completed,
+        )
         try:
-            task = asyncio.create_task(
-                self._usage_worker(
-                    channel_id=channel_id,
-                    thread_ts=thread_ts,
-                    is_completed=is_completed,
-                )
-            )
+            task = asyncio.create_task(coro)
             self.running_usage_tasks[thread_key] = task
             self.pending_usage_updates[thread_key] = False
             return task
         except RuntimeError as e:
+            coro.close()
             logger.error(
                 f"[USAGE AGENT] Runtime error dispatching background usage update task: {e}"
             )
             return None
         except Exception as e:  # noqa: BLE001 - Background task dispatcher error boundary
+            coro.close()
             logger.error(
                 f"[USAGE AGENT] Failed to dispatch background usage update task: {e}"
             )
@@ -484,6 +485,7 @@ class ThreadUsageTracker:
 
 # Default singleton instance
 usage_tracker = ThreadUsageTracker()
+thread_usage_tracker = usage_tracker
 
 # Module-level variable mapping for backward compatibility
 THREAD_USAGE_DATA = usage_tracker.thread_usage_data

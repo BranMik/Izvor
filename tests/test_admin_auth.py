@@ -12,18 +12,27 @@ def client():
 
 
 def test_health_check_unauthenticated(client):
-    """GET / and GET /health should remain public without authentication."""
+    """GET / and GET /health should remain public without authentication and without leaking agent lists."""
     r_root = client.get("/")
     assert r_root.status_code == 200
     assert r_root.json()["status"] == "healthy"
+    assert r_root.json()["service"] == "Izvor Multi-Agent Hub"
+    assert "agents" not in r_root.json()
 
     r_health = client.get("/health")
     assert r_health.status_code == 200
     assert r_health.json()["status"] == "healthy"
+    assert r_health.json()["service"] == "Izvor Multi-Agent Hub"
+    assert "agents" not in r_health.json()
 
 
 def test_api_endpoints_reject_unauthenticated(client):
     """Admin /api/* endpoints must reject requests missing Authorization header."""
+    r_health = client.get("/api/health")
+    assert r_health.status_code == 401
+    assert "WWW-Authenticate" in r_health.headers
+    assert r_health.headers["WWW-Authenticate"] == "Basic"
+
     r_skills = client.get("/api/skills")
     assert r_skills.status_code == 401
     assert "WWW-Authenticate" in r_skills.headers
@@ -31,6 +40,7 @@ def test_api_endpoints_reject_unauthenticated(client):
 
     r_status = client.get("/api/rag/status")
     assert r_status.status_code == 401
+    assert "WWW-Authenticate" in r_status.headers
     assert r_status.headers["WWW-Authenticate"] == "Basic"
 
     r_reconcile = client.post("/api/rag/reconcile")
@@ -62,6 +72,13 @@ def test_api_endpoints_accept_valid_credentials(client, monkeypatch):
 
     good_creds = base64.b64encode(f"{test_user}:{test_pass}".encode()).decode("ascii")
     headers = {"Authorization": f"Basic {good_creds}"}
+
+    r_health = client.get("/api/health", headers=headers)
+    assert r_health.status_code == 200
+    assert r_health.json()["status"] == "healthy"
+    assert r_health.json()["service"] == "Izvor Multi-Agent Hub"
+    assert "agents" in r_health.json()
+    assert isinstance(r_health.json()["agents"], list)
 
     r_skills = client.get("/api/skills", headers=headers)
     assert r_skills.status_code == 200
