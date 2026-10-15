@@ -152,7 +152,7 @@ def test_build_llm_messages_file_context_authorized_vs_unauthorized():
         prompt="Objasni ovaj kod.",
         is_bot_trigger=False,
         agent_key="agent-10001",
-        agent_cfg={"username": "agent-10001"},
+        agent_cfg={"username": "agent-10001", "skills": ["document_authoring"]},
         file_context=file_context,
     )
     user_turn = msgs_authorized[-1]["content"]
@@ -166,7 +166,7 @@ def test_build_llm_messages_file_context_authorized_vs_unauthorized():
         prompt="Objasni ovaj kod.",
         is_bot_trigger=False,
         agent_key="agent-10011",
-        agent_cfg={"username": "agent-10011"},
+        agent_cfg={"username": "agent-10011", "skills": ["document_authoring"]},
         file_context=file_context,
     )
     user_turn_unauth = msgs_unauthorized[-1]["content"]
@@ -189,7 +189,7 @@ def test_build_llm_messages_file_context_all_authorized():
         prompt="",
         is_bot_trigger=True,
         agent_key="agent-10008",
-        agent_cfg={"username": "OpAiTerra SecurityArchitect"},
+        agent_cfg={"username": "OpAiTerra SecurityArchitect", "skills": ["document_authoring"]},
         file_context=file_context,
     )
     assert msgs[-1]["role"] == "user"

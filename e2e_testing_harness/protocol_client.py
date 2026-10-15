@@ -123,7 +123,7 @@ class SlackProtocolClient:
             base_url="http://test",
         )
         self.client = self.async_client
-        self._msg_ts_counter = 1700000000.0
+        self._msg_ts_counter = time.time() + 1000.0
 
     def set_active_scenario(self, scenario_tag: str, scenario_name: str) -> None:
         """Prepares metadata for the upcoming test scenario."""

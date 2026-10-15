@@ -103,11 +103,13 @@ class ActionDirective:
 
     name: str
     params: dict[str, Any] = field(default_factory=dict)
+    origin: str = "slash"
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "name": self.name,
             "params": self.params,
+            "origin": self.origin,
         }
 
     @classmethod
@@ -115,6 +117,7 @@ class ActionDirective:
         return cls(
             name=data.get("name", ""),
             params=dict(data.get("params") or {}),
+            origin=data.get("origin", "slash"),
         )
 
 
@@ -446,4 +449,44 @@ class WorkflowPreset:
             sandwich_config=sandwich_config,
             fixed_config=fixed_config,
         )
+
+
+DEFAULT_WORKFLOWS: list[WorkflowPreset] = [
+    WorkflowPreset(
+        id="default_review_flow",
+        name="Default Review Workflow",
+        mode=OrchestrationMode.FIXED.value,
+        description="[DO NOT DELETE OR MODIFY - SYSTEM DEFAULT] Standard review flow applied when no explicit agent is tagged.",
+        fixed_config={
+            "chain": [
+                "agent-10001",
+                "agent-10002",
+                "agent-10003",
+                "agent-10015",
+            ]
+        },
+        sandwich_config={},
+    ),
+    WorkflowPreset(
+        id="default_sandwich",
+        name="Default Sandwich Review",
+        mode=OrchestrationMode.SANDWICH.value,
+        description="[DO NOT DELETE OR MODIFY - SYSTEM DEFAULT] Standard multi-agent panel with kickoff and concluding wrap-up.",
+        sandwich_config={
+            "start_chain": [
+                "agent-10005",
+                "agent-10001",
+                "agent-10007",
+                "agent-10003",
+                "agent-10002",
+            ],
+            "end_chain": [
+                "agent-10008",
+                "agent-10003",
+                "agent-10015",
+            ],
+        },
+        fixed_config={"chain": []},
+    ),
+]
 

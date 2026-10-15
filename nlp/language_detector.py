@@ -203,22 +203,45 @@ async def detect_language_llm(
 
     selected_model = model or get_language_detector_model()
     logger.info(
-        f"[LANGUAGE DETECTOR] Starting LLM language detection for text: '{clean_text[:80]}' "
-        f"(model={selected_model})"
+        f"[LANGUAGE DETECTOR] Starting LLM language detection ({len(clean_text)} chars, model={selected_model})"
     )
 
     try:
-        from starlette.concurrency import run_in_threadpool
+        from core.llm_utils import execute_llm_with_retry
+        import litellm
 
-        def _call():
-            return _sync_llm_classify(clean_text, model=selected_model, default=default)
+        messages = [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": clean_text},
+        ]
 
-        detected = await asyncio.wait_for(
-            run_in_threadpool(_call),
+        resp = await asyncio.wait_for(
+            execute_llm_with_retry(
+                litellm.completion,
+                kwargs={"model": selected_model, "messages": messages, "num_retries": 1},
+                agent_key="language_detector",
+                thread_key=("system", "language_detector"),
+                max_attempts=2,
+            ),
             timeout=timeout_seconds,
         )
+
+        if not resp or not hasattr(resp, "choices") or not resp.choices:
+            return default
+
+        msg = resp.choices[0].message
+        content = getattr(msg, "content", None)
+        if not content:
+            reasoning = getattr(msg, "reasoning_content", None)
+            if reasoning:
+                extracted = _extract_language_from_content(reasoning, default="")
+                if extracted:
+                    return extracted
+            return default
+
+        detected = _extract_language_from_content(content, default=default)
         logger.info(
-            f"[LANGUAGE DETECTOR LLM] Classified text '{clean_text[:60]}' -> {detected} (via {selected_model})"
+            f"[LANGUAGE DETECTOR LLM] Classified text ({len(clean_text)} chars) -> {detected} (via {selected_model})"
         )
         return detected or default
     except Exception as e:  # noqa: BLE001 - Language detection error boundary falls back to default language

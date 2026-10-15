@@ -128,12 +128,16 @@ class ResolutionStage:
             current_cost = cost_info.get("grand_total_cost_usd", 0.0)
             threshold = get_circuit_breaker_threshold()
             session_id = f"{ctx.channel_id}:{ctx.thread_ts}"
+            from orchestration.app_settings import get_daily_budget_usd
+
+            daily_budget = get_daily_budget_usd()
             tripped, current_cost, threshold = (
                 spend_governance.is_budget_exceeded(
                     session_id=session_id,
                     threshold_usd=threshold,
                     enabled=True,
                     current_cost_usd=current_cost,
+                    daily_budget_usd=daily_budget,
                 )
             )
             if tripped:

@@ -75,8 +75,9 @@ class AgentSettingsManager:
             self._agents_config = {}
             self._system_agents_config = {}
             self._orchestrator_config = {}
-            app_set_file = self.default_settings_file.parent / "app_settings.json"
-            sys_set_file = self.default_settings_file.parent / "system_settings.json"
+            target_dir = Path(settings_file).parent if settings_file is not None else self.default_settings_file.parent
+            app_set_file = target_dir / "app_settings.json"
+            sys_set_file = target_dir / "system_settings.json"
             self.app_settings = AppSettingsManager(settings_file=app_set_file, auto_load=True)
             self.system_settings = SystemSettingsManager(settings_file=sys_set_file, auto_load=True)
             self._orchestrator_config.update({

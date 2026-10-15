@@ -87,15 +87,35 @@ class ThreadUsageTracker:
             logger.error(f"[USAGE AGENT] Error loading thread usage store: {e}")
 
     def save(self) -> None:
-        """Saves thread usage data dictionary to JSON store file."""
+        """Saves thread usage data dictionary to JSON store file atomically."""
         try:
             self.store_file.parent.mkdir(parents=True, exist_ok=True)
             serializable = {
                 f"{k[0]}:{k[1]}": v for k, v in self.thread_usage_data.items()
             }
-            self.store_file.write_text(
-                json.dumps(serializable, indent=2), encoding="utf-8"
+            content = json.dumps(serializable, indent=2)
+
+            import os
+            import tempfile
+
+            tmp_fd, tmp_path = tempfile.mkstemp(
+                dir=str(self.store_file.parent),
+                prefix=f"{self.store_file.stem}_",
+                suffix=".tmp",
             )
+            try:
+                with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
+                    f.write(content)
+                    f.flush()
+                    os.fsync(f.fileno())
+                os.replace(tmp_path, self.store_file)
+            except OSError:
+                if os.path.exists(tmp_path):
+                    try:
+                        os.remove(tmp_path)
+                    except OSError:
+                        pass
+                raise
         except (OSError, TypeError, ValueError) as e:
             logger.error(f"[USAGE AGENT] Error saving thread usage data: {e}")
 

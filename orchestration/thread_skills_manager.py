@@ -163,18 +163,37 @@ class ThreadSkillsManager:
         ttl = self.get_ttl_seconds()
         exp_ts = now + ttl
 
+        if self.storage_file == THREAD_SKILLS_FILE:
+            try:
+                with get_db_transaction(immediate=True) as conn:
+                    for s in merged_skills:
+                        conn.execute(
+                            """
+                            INSERT OR REPLACE INTO thread_skills (channel_id, thread_ts, agent_id, skill_name, granted_at, expires_at)
+                            VALUES (?, ?, '*', ?, ?, ?);
+                            """,
+                            (channel_id, thread_ts, s, now, exp_ts),
+                        )
+            except Exception as e:
+                logger.error(f"[THREAD_SKILLS] SQLite grant_skills failed: {e}")
+
         try:
-            with get_db_transaction(immediate=True) as conn:
-                for s in merged_skills:
-                    conn.execute(
-                        """
-                        INSERT OR REPLACE INTO thread_skills (channel_id, thread_ts, agent_id, skill_name, granted_at, expires_at)
-                        VALUES (?, ?, '*', ?, ?, ?);
-                        """,
-                        (channel_id, thread_ts, s, now, exp_ts),
-                    )
-        except Exception as e:
-            logger.error(f"[THREAD_SKILLS] SQLite grant_skills failed: {e}")
+            from services.audit_logger import log_audit_event, AuditActor
+
+            log_audit_event(
+                event_type="THREAD_SKILL_GRANTED",
+                actor=AuditActor(type="system", id="thread_skills_manager"),
+                action="grant_skills",
+                target=f"{channel_id}:{thread_ts}",
+                details={
+                    "skills": clean_skills,
+                    "agent_id": "*",
+                    "ttl_hours": ttl / 3600.0,
+                    "expires_at": exp_ts,
+                },
+            )
+        except Exception as ae:
+            logger.debug(f"[THREAD_SKILLS] Audit event emission error: {ae}")
 
         logger.info(
             f"[THREAD_SKILLS] Granted skills {clean_skills} to thread {key}. "
@@ -221,18 +240,37 @@ class ThreadSkillsManager:
         ttl = self.get_ttl_seconds()
         exp_ts = now + ttl
 
+        if self.storage_file == THREAD_SKILLS_FILE:
+            try:
+                with get_db_transaction(immediate=True) as conn:
+                    for ag_clean in result:
+                        conn.execute(
+                            """
+                            INSERT OR REPLACE INTO thread_skills (channel_id, thread_ts, agent_id, skill_name, granted_at, expires_at)
+                            VALUES (?, ?, ?, ?, ?, ?);
+                            """,
+                            (channel_id, thread_ts, ag_clean, clean_skill, now, exp_ts),
+                        )
+            except Exception as e:
+                logger.error(f"[THREAD_SKILLS] SQLite grant_agent_skills failed: {e}")
+
         try:
-            with get_db_transaction(immediate=True) as conn:
-                for ag_clean in result:
-                    conn.execute(
-                        """
-                        INSERT OR REPLACE INTO thread_skills (channel_id, thread_ts, agent_id, skill_name, granted_at, expires_at)
-                        VALUES (?, ?, ?, ?, ?, ?);
-                        """,
-                        (channel_id, thread_ts, ag_clean, clean_skill, now, exp_ts),
-                    )
-        except Exception as e:
-            logger.error(f"[THREAD_SKILLS] SQLite grant_agent_skills failed: {e}")
+            from services.audit_logger import log_audit_event, AuditActor
+
+            log_audit_event(
+                event_type="THREAD_SKILL_GRANTED",
+                actor=AuditActor(type="system", id="thread_skills_manager"),
+                action="grant_agent_skills",
+                target=f"{channel_id}:{thread_ts}",
+                details={
+                    "skill": clean_skill,
+                    "agents": list(result.keys()),
+                    "ttl_hours": ttl / 3600.0,
+                    "expires_at": exp_ts,
+                },
+            )
+        except Exception as ae:
+            logger.debug(f"[THREAD_SKILLS] Audit event emission error: {ae}")
 
         logger.info(
             f"[THREAD_SKILLS] Granted skill '{clean_skill}' to agents {list(result.keys())} in thread {key}. "
@@ -245,7 +283,25 @@ class ThreadSkillsManager:
     ) -> list[str]:
         """
         Returns list of skills currently active (unexpired) for a specific agent in this thread.
+        Authoritative lookup from SQLite thread_skills with in-memory JSON fallback.
         """
+        now = time.time()
+        if self.storage_file == THREAD_SKILLS_FILE:
+            try:
+                with get_connection() as conn:
+                    rows = conn.execute(
+                        """
+                        SELECT skill_name FROM thread_skills
+                        WHERE channel_id = ? AND thread_ts = ? AND agent_id = ? AND expires_at > ?
+                        ORDER BY rowid ASC;
+                        """,
+                        (channel_id, thread_ts, agent_key, now),
+                    ).fetchall()
+                    if rows is not None and len(rows) > 0:
+                        return [r["skill_name"] for r in rows]
+            except Exception as e:
+                logger.debug(f"[THREAD_SKILLS] SQLite get_active_agent_skills fallback: {e}")
+
         self.load()
         key = self._thread_key(channel_id, thread_ts)
         entry = self._threads.get(key)
@@ -258,7 +314,6 @@ class ThreadSkillsManager:
             return []
 
         granted_at = ag_entry.get("granted_at", 0.0)
-        now = time.time()
         ttl = self.get_ttl_seconds()
 
         if now - granted_at <= ttl:
@@ -270,7 +325,28 @@ class ThreadSkillsManager:
     ) -> dict[str, list[str]]:
         """
         Returns mapping of {agent_key: [active_skills]} for all agents with active grants in this thread.
+        Authoritative lookup from SQLite thread_skills with in-memory JSON fallback.
         """
+        now = time.time()
+        if self.storage_file == THREAD_SKILLS_FILE:
+            try:
+                with get_connection() as conn:
+                    rows = conn.execute(
+                        """
+                        SELECT agent_id, skill_name FROM thread_skills
+                        WHERE channel_id = ? AND thread_ts = ? AND agent_id != '*' AND expires_at > ?
+                        ORDER BY rowid ASC;
+                        """,
+                        (channel_id, thread_ts, now),
+                    ).fetchall()
+                    if rows is not None and len(rows) > 0:
+                        active_map: dict[str, list[str]] = {}
+                        for r in rows:
+                            active_map.setdefault(r["agent_id"], []).append(r["skill_name"])
+                        return active_map
+            except Exception as e:
+                logger.debug(f"[THREAD_SKILLS] SQLite get_all_active_agent_skills fallback: {e}")
+
         self.load()
         key = self._thread_key(channel_id, thread_ts)
         entry = self._threads.get(key)
@@ -278,7 +354,6 @@ class ThreadSkillsManager:
             return {}
 
         agent_skills = entry.get("agent_skills", {})
-        now = time.time()
         ttl = self.get_ttl_seconds()
         active_map: dict[str, list[str]] = {}
 
@@ -339,24 +414,41 @@ class ThreadSkillsManager:
         key = self._thread_key(channel_id, thread_ts)
 
         # SQLite delete sync
+        if self.storage_file == THREAD_SKILLS_FILE:
+            try:
+                with get_db_transaction(immediate=True) as conn:
+                    if agent_key is not None:
+                        if not skills or any(s.lower() == "all" for s in skills):
+                            conn.execute("DELETE FROM thread_skills WHERE channel_id = ? AND thread_ts = ? AND agent_id = ?;", (channel_id, thread_ts, agent_key))
+                        else:
+                            clean_to_remove_list = [s.strip() for s in skills if isinstance(s, str)]
+                            placeholders = ",".join("?" for _ in clean_to_remove_list)
+                            conn.execute(f"DELETE FROM thread_skills WHERE channel_id = ? AND thread_ts = ? AND agent_id = ? AND skill_name IN ({placeholders});", [channel_id, thread_ts, agent_key, *clean_to_remove_list])
+                    else:
+                        if not skills or any(s.lower() == "all" for s in skills):
+                            conn.execute("DELETE FROM thread_skills WHERE channel_id = ? AND thread_ts = ?;", (channel_id, thread_ts))
+                        else:
+                            clean_to_remove_list = [s.strip() for s in skills if isinstance(s, str)]
+                            placeholders = ",".join("?" for _ in clean_to_remove_list)
+                            conn.execute(f"DELETE FROM thread_skills WHERE channel_id = ? AND thread_ts = ? AND skill_name IN ({placeholders});", [channel_id, thread_ts, *clean_to_remove_list])
+            except Exception as e:
+                logger.error(f"[THREAD_SKILLS] SQLite revoke_skills failed: {e}")
+
         try:
-            with get_db_transaction(immediate=True) as conn:
-                if agent_key is not None:
-                    if not skills or any(s.lower() == "all" for s in skills):
-                        conn.execute("DELETE FROM thread_skills WHERE channel_id = ? AND thread_ts = ? AND agent_id = ?;", (channel_id, thread_ts, agent_key))
-                    else:
-                        clean_to_remove_list = [s.strip() for s in skills if isinstance(s, str)]
-                        placeholders = ",".join("?" for _ in clean_to_remove_list)
-                        conn.execute(f"DELETE FROM thread_skills WHERE channel_id = ? AND thread_ts = ? AND agent_id = ? AND skill_name IN ({placeholders});", [channel_id, thread_ts, agent_key, *clean_to_remove_list])
-                else:
-                    if not skills or any(s.lower() == "all" for s in skills):
-                        conn.execute("DELETE FROM thread_skills WHERE channel_id = ? AND thread_ts = ?;", (channel_id, thread_ts))
-                    else:
-                        clean_to_remove_list = [s.strip() for s in skills if isinstance(s, str)]
-                        placeholders = ",".join("?" for _ in clean_to_remove_list)
-                        conn.execute(f"DELETE FROM thread_skills WHERE channel_id = ? AND thread_ts = ? AND skill_name IN ({placeholders});", [channel_id, thread_ts, *clean_to_remove_list])
-        except Exception as e:
-            logger.error(f"[THREAD_SKILLS] SQLite revoke_skills failed: {e}")
+            from services.audit_logger import log_audit_event, AuditActor
+
+            log_audit_event(
+                event_type="THREAD_SKILL_REVOKED",
+                actor=AuditActor(type="system", id="thread_skills_manager"),
+                action="revoke_skills",
+                target=f"{channel_id}:{thread_ts}",
+                details={
+                    "skills": skills,
+                    "agent_key": agent_key,
+                },
+            )
+        except Exception as ae:
+            logger.debug(f"[THREAD_SKILLS] Audit event emission error: {ae}")
 
         if key not in self._threads:
             return []
@@ -403,7 +495,25 @@ class ThreadSkillsManager:
     def get_active_skills(self, channel_id: str, thread_ts: str) -> list[str]:
         """
         Returns list of skills currently active (unexpired) in the specified thread.
+        Authoritative lookup from SQLite thread_skills with in-memory JSON fallback.
         """
+        now = time.time()
+        if self.storage_file == THREAD_SKILLS_FILE:
+            try:
+                with get_connection() as conn:
+                    rows = conn.execute(
+                        """
+                        SELECT skill_name FROM thread_skills
+                        WHERE channel_id = ? AND thread_ts = ? AND agent_id = '*' AND expires_at > ?
+                        ORDER BY rowid ASC;
+                        """,
+                        (channel_id, thread_ts, now),
+                    ).fetchall()
+                    if rows is not None and len(rows) > 0:
+                        return [r["skill_name"] for r in rows]
+            except Exception as e:
+                logger.debug(f"[THREAD_SKILLS] SQLite get_active_skills fallback: {e}")
+
         self.load()
         key = self._thread_key(channel_id, thread_ts)
         entry = self._threads.get(key)
@@ -411,7 +521,6 @@ class ThreadSkillsManager:
             return []
 
         granted_at = entry.get("granted_at", 0.0)
-        now = time.time()
         ttl = self.get_ttl_seconds()
 
         if now - granted_at <= ttl:

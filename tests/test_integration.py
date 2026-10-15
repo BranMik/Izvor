@@ -41,6 +41,9 @@ def patch_slack_calls(monkeypatch):
         "adapters.slack.interactivity.is_slack_admin",
         lambda user_id: True,
     )
+    yield
+    set_circuit_breaker_enabled(True)
+    set_circuit_breaker_threshold(1.50)
 
 
 def test_slack_events_deduplication():

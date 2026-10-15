@@ -209,6 +209,8 @@ async def test_slack_client_note_api_calls(monkeypatch):
         text="📋 *Live Notes*",
         username="Live Discussion Scribe",
         icon_emoji=":memo:",
+        unfurl_links=False,
+        unfurl_media=False,
     )
     mock_pin.assert_awaited_once_with(channel="C12345", timestamp="1700000000.888")
 
@@ -222,6 +224,8 @@ async def test_slack_client_note_api_calls(monkeypatch):
         channel="C12345",
         ts="1700000000.888",
         text="📋 *Updated Live Notes*",
+        unfurl_links=False,
+        unfurl_media=False,
     )
 
 
