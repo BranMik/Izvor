@@ -9,7 +9,9 @@
     "default_top_k": 3,
     "embedding_model": "gemini/gemini-embedding-001",
     "embedding_dim": 3072,
-    "embedding_batch_size": 32
+    "embedding_batch_size": 32,
+    "pii_masking": "AT_RETRIEVAL",
+    "guardrail_threshold": 0.85
   },
   "_comment_workspace_write_blacklist_additional": "Automatic hardcoded protection blocks writes to .env, .git, data/settings/agent_settings.json, data/settings/app_settings.json, and data/settings/system_settings.json. Add any additional relative workspace paths or file patterns here to prevent unauthorized modifications.",
   "workspace_write_blacklist_additional": [],

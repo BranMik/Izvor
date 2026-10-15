@@ -71,6 +71,8 @@ class SystemSettingsManager:
             "embedding_model": "gemini/gemini-embedding-001",
             "embedding_dim": 3072,
             "embedding_batch_size": 32,
+            "pii_masking": "AT_RETRIEVAL",
+            "guardrail_threshold": 0.85,
         }
 
         self._last_loaded_mtime: float = 0.0
@@ -94,10 +96,12 @@ class SystemSettingsManager:
                 "max_chunk_chars": int(_get_val(["max_chunk_chars", "MAX_CHUNK_CHARS"], 3500)),
                 "chunk_overlap_chars": int(_get_val(["chunk_overlap_chars", "CHUNK_OVERLAP_CHARS"], 300)),
                 "min_chunk_chars": int(_get_val(["min_chunk_chars", "MIN_CHUNK_CHARS"], 80)),
-                "default_top_k": int(_get_val(["default_top_k", "DEFAULT_TOP_K", "set_default_top_k", "SET_DEFAULT_TOP_K"], 6)),
+                "default_top_k": int(_get_val(["default_top_k", "DEFAULT_TOP_K", "set_default_top_k", "SET_DEFAULT_TOP_K", "top_k", "TOP_K"], 6)),
                 "embedding_model": str(_get_val(["embedding_model", "EMBEDDING_MODEL"], "gemini/gemini-embedding-001")),
                 "embedding_dim": int(_get_val(["embedding_dim", "EMBEDDING_DIM"], 3072)),
                 "embedding_batch_size": int(_get_val(["embedding_batch_size", "EMBEDDING_BATCH_SIZE"], 32)),
+                "pii_masking": str(_get_val(["pii_masking", "PII_MASKING"], "AT_RETRIEVAL")),
+                "guardrail_threshold": float(_get_val(["guardrail_threshold", "GUARDRAIL_THRESHOLD"], 0.85)),
             }
 
     def load(self) -> None:

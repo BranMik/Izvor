@@ -772,12 +772,7 @@ class AgentSettingsManager:
                 except (OSError, TypeError, ValueError) as e:
                     logger.error(f"[SETTINGS] Error saving agent settings: {e}")
 
-        try:
-            import asyncio
-            loop = asyncio.get_running_loop()
-            loop.run_in_executor(None, do_save)
-        except RuntimeError:
-            do_save()
+        do_save()
 
     def sync_if_modified(self) -> bool:
         """

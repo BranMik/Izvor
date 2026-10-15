@@ -71,7 +71,7 @@ class SyncReconciliationEngine:
                     if chunks:
                         texts = [c.text for c in chunks]
                         vectors = await self.embedder.get_embeddings(texts)
-                        self.vector_store.insert_chunks(chunks, vectors)
+                        self.vector_store.insert_chunks(chunks, vectors, rebuild_index=False)
                         chunk_ids = [c.chunk_id for c in chunks]
                     else:
                         chunk_ids = []
@@ -95,7 +95,7 @@ class SyncReconciliationEngine:
                     if chunks:
                         texts = [c.text for c in chunks]
                         vectors = await self.embedder.get_embeddings(texts)
-                        self.vector_store.insert_chunks(chunks, vectors)
+                        self.vector_store.insert_chunks(chunks, vectors, rebuild_index=False)
                         chunk_ids = [c.chunk_id for c in chunks]
                     else:
                         chunk_ids = []
@@ -112,8 +112,9 @@ class SyncReconciliationEngine:
                 except Exception as e:
                     logger.error(f"[RAG Sync] Error indexing new file {rel_doc_id}: {e}")
 
-            # Persist updated manifest to disk
+            # Rebuild FTS index once per sync batch and persist updated manifest to disk
             if stats["new"] > 0 or stats["modified"] > 0 or stats["deleted"] > 0:
+                self.vector_store.rebuild_fts_index()
                 self.manifest_manager.save()
 
             logger.info(

@@ -12,6 +12,8 @@ LANCEDB_DIR = (CACHE_DIR / "lancedb").resolve()
 MANIFEST_PATH = (CACHE_DIR / "file_manifest.json").resolve()
 SYSTEM_SETTINGS_PATH = (BASE_DIR / "data" / "settings" / "system_settings.json").resolve()
 
+from orchestration.system_settings import system_settings_manager
+
 logger = logging.getLogger(__name__)
 
 # Key aliases for user-friendly configuration
@@ -22,16 +24,11 @@ _RAG_KEY_ALIASES: dict[str, str] = {
 
 
 def load_rag_settings_from_file() -> dict[str, Any]:
-    """Reads the 'rag' section from data/system_settings.json."""
-    if not SYSTEM_SETTINGS_PATH.exists():
-        return {}
+    """Reads the 'rag' section via SystemSettingsManager SSOT."""
     try:
-        with open(SYSTEM_SETTINGS_PATH, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            rag = data.get("rag")
-            return rag if isinstance(rag, dict) else {}
+        return system_settings_manager.get_rag_config()
     except Exception as e:
-        logger.debug(f"[RAG Config] Could not read system_settings.json: {e}")
+        logger.debug(f"[RAG Config] Could not read rag settings from system_settings_manager: {e}")
         return {}
 
 
@@ -39,7 +36,7 @@ def get_rag_setting(key: str, default: Any = None) -> Any:
     """
     Reads RAG setting with precedence:
     1. Environment variable (e.g. RAG_MAX_CHUNK_CHARS)
-    2. 'rag' section in data/system_settings.json
+    2. 'rag' section via SystemSettingsManager SSOT
     3. Fallback default
     """
     env_key = f"RAG_{key.upper()}"
@@ -52,20 +49,17 @@ def get_rag_setting(key: str, default: Any = None) -> Any:
                 pass
         return env_val
 
-    # Read from data/system_settings.json
-    rag_data = load_rag_settings_from_file()
-    key_lower = key.lower()
-    resolved_key = _RAG_KEY_ALIASES.get(key_lower, key_lower)
-    for k, v in rag_data.items():
-        if k.lower() == resolved_key or k.lower() == key_lower:
-            if isinstance(default, int) and v is not None:
-                try:
-                    return int(v)
-                except (ValueError, TypeError):
-                    pass
-            return v
-
-    return default
+    try:
+        val = system_settings_manager.get_rag_setting(key, default)
+        if isinstance(default, int) and val is not None:
+            try:
+                return int(val)
+            except (ValueError, TypeError):
+                pass
+        return val
+    except Exception as e:
+        logger.debug(f"[RAG Config] Error getting rag setting '{key}' from manager: {e}")
+        return default
 
 
 # Table and search configuration

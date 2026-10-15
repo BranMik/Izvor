@@ -4,6 +4,8 @@ Stage 5: Nomination enforcement, token accounting, Slack dispatch, and centraliz
 
 from __future__ import annotations
 
+import asyncio
+import inspect
 import logging
 import random
 import re
@@ -26,7 +28,11 @@ from nlp.message_builder import markdown_to_slack
 from orchestration.agent_settings import settings_manager
 from orchestration.nomination import enforce_valid_nomination, get_initial_agents
 from orchestration.thread_state import thread_state_manager
-from services.flat_history_recorder import record_flat_history
+from pipeline.entity_resolver import NOMINATION_TAG_REGEX, format_nomination
+from services.flat_history_recorder import (
+    async_record_flat_history,
+    record_flat_history,
+)
 from services.slack_client import (
     post_agent_response,
     update_slack_message,
@@ -48,8 +54,8 @@ def apply_mechanical_word_limit(text: str, max_words: int) -> str:
     cutoff = max_words + 50
     # Match any trailing nomination tag at the end: e.g. "... /[agent-10007]" or "... /[agent-10007] next"
     trailing_tag_pattern = re.compile(
-        r"(?:\n+|\s+)\s*(/\[[^\]\r\n]+\](?:\s+next)?\s*[.!?]?)\s*$",
-        re.IGNORECASE,
+        r"(?:\n+|\s+)\s*(/\[\s*[^\]\r\n]+?\s*\](?:\s+next)?\s*[.!?]?)\s*$",
+        re.IGNORECASE | re.UNICODE,
     )
     match = trailing_tag_pattern.search(text)
     trailing_tag = ""
@@ -374,16 +380,26 @@ class PostRecordStage:
                 )
 
             record_flat_fn = self.pipeline._get_hook(
-                "record_flat_history", record_flat_history
+                "async_record_flat_history",
+                self.pipeline._get_hook("record_flat_history", async_record_flat_history),
             )
             if record_flat_fn:
-                record_flat_fn(
-                    channel_id=ctx.channel_id,
-                    thread_ts=ctx.thread_ts,
-                    initial_prompt=initial_prompt,
-                    messages=history_to_record,
-                    bot_user_id=ctx.bot_user_id,
-                )
+                if inspect.iscoroutinefunction(record_flat_fn):
+                    await record_flat_fn(
+                        channel_id=ctx.channel_id,
+                        thread_ts=ctx.thread_ts,
+                        initial_prompt=initial_prompt,
+                        messages=history_to_record,
+                        bot_user_id=ctx.bot_user_id,
+                    )
+                else:
+                    record_flat_fn(
+                        channel_id=ctx.channel_id,
+                        thread_ts=ctx.thread_ts,
+                        initial_prompt=initial_prompt,
+                        messages=history_to_record,
+                        bot_user_id=ctx.bot_user_id,
+                    )
         except Exception:
             logger.exception(
                 f"[ROUTER] Failed to record flat history for thread {ctx.thread_key}"

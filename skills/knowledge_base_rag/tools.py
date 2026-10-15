@@ -36,7 +36,9 @@ SEARCH_KNOWLEDGE_RAG_SCHEMA = {
                 },
                 "max_results": {
                     "type": "integer",
-                    "description": f"Maximum number of excerpts to return (default: {DEFAULT_TOP_K}).",
+                    "description": f"Maximum number of excerpts to return (1-10, default: {DEFAULT_TOP_K}).",
+                    "minimum": 1,
+                    "maximum": 10,
                     "default": DEFAULT_TOP_K,
                 },
             },
@@ -67,7 +69,12 @@ def execute_search_knowledge_rag(arguments: dict[str, Any], agent_name: str = ""
     """Executes search_knowledge_rag with given arguments."""
     query = arguments.get("query", "")
     scope = arguments.get("scope", "all")
-    max_results = arguments.get("max_results", DEFAULT_TOP_K)
+    raw_max_results = arguments.get("max_results", DEFAULT_TOP_K)
+    try:
+        max_results = int(raw_max_results)
+    except (ValueError, TypeError):
+        max_results = DEFAULT_TOP_K
+    max_results = max(1, min(10, max_results))
 
     try:
         result = _run_coroutine_sync(
