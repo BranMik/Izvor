@@ -121,7 +121,7 @@ async def test_circuit_breaker_triggers_when_threshold_exceeded(monkeypatch):
         posted_messages[0]["text"]
         == "EXPENSE LIMIT REACHED FOR THE THREAD. ENDING CALLS"
     )
-    assert notes_updated is True
+    assert notes_updated is False  # Suppressed to avoid burning LLM tokens after breaker trip
     assert usage_updated is True
     assert thread_key in thread_state_manager.remaining_agents_map
     assert thread_state_manager.remaining_agents_map[thread_key] == ["agent-10008"]

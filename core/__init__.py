@@ -52,7 +52,10 @@ from .models import (
     ModelPricing,
     OrchestrationMode,
 )
-from .slack_security import verify_slack_signature
+from .slack_security import (
+    sanitize_slack_broadcast_mentions,
+    verify_slack_signature,
+)
 
 __all__ = [
     "AGENTS_CONFIG",
@@ -63,6 +66,7 @@ __all__ = [
     "TOOL_INTERMEDIATE_UPDATE_DELAY_SECONDS",
     "USAGE_CHANNEL_ID",
     "USAGE_CHANNEL_NAME",
+    "sanitize_slack_broadcast_mentions",
     "get_default_fast_model",
     "get_default_reasoning_model",
     "get_intent_extractor_model",

@@ -4,8 +4,15 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# Matches /[TagName] but avoids matching token count brackets like [150/50] or URLs
-TAG_REGEX = re.compile(r"/\[\s*([a-zA-Z0-9_\- ]+?)\s*\]")
+# Canonical unicode-safe tag regex: matches /[TagName] with unicode support
+NOMINATION_TAG_REGEX = re.compile(r"/\[\s*([^\]\r\n]+?)\s*\]", re.UNICODE)
+TAG_REGEX = NOMINATION_TAG_REGEX
+
+
+def format_nomination_tag(agent_key: str) -> str:
+    """Formats an agent key into canonical nomination tag format: /[AGENT_KEY]."""
+    clean = agent_key.strip().strip("/[]")
+    return f"/[{clean}]"
 
 
 class EntityResolver:

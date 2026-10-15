@@ -310,8 +310,16 @@ def get_language_detector_model() -> str:
     return get_orchestrator_fast_model()
 
 
-# Discussion and Tool Update Limits (configurable via environment variables)
-MAX_DISCUSSION_TURNS = int(os.getenv("MAX_DISCUSSION_TURNS", "20"))
+def get_max_discussion_turns() -> int:
+    """Returns max discussion turns from system_settings.json (SSOT)."""
+    try:
+        from orchestration.system_settings import get_max_discussion_turns as _get_val
+        return _get_val()
+    except Exception:
+        return 20
+
+
+MAX_DISCUSSION_TURNS = get_max_discussion_turns()
 TOOL_INTERMEDIATE_UPDATE_DELAY_SECONDS = float(
     os.getenv("TOOL_INTERMEDIATE_UPDATE_DELAY_SECONDS", "5.0")
 )

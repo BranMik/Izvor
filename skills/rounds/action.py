@@ -34,7 +34,7 @@ async def run(ctx: Any, params: dict[str, Any] | None = None) -> dict[str, Any] 
     else:
         num_rounds = 1 if is_next_round else 2
 
-    num_rounds = max(1, num_rounds)
+    num_rounds = min(5, max(1, num_rounds))
 
     logger.info(
         f"[ROUNDS ACTION] Setting {num_rounds} round(s) for thread {channel_id}:{thread_ts} "

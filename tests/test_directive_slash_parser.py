@@ -131,9 +131,9 @@ def test_exclude_slash_command_single_and_multi():
     assert is_off is False
     assert text == "Plan the sprint"
 
-    # Comma-separated syntax
+    # Multi-agent whitespace-separated syntax
     matched, exc, is_off, text = parse_agent_list(
-        "/exclude", "/exclude [agent-10011], [agent-10002] Plan the sprint"
+        "/exclude", "/exclude [agent-10011] [agent-10002] Plan the sprint"
     )
     assert exc == ["agent-10011", "agent-10002"]
     assert is_off is False
@@ -256,3 +256,28 @@ def test_strip_all_slash_commands():
     assert "[agent-10002]" not in cleaned
     assert "[agent-10011]" in cleaned
     assert "What should we refactor?" in cleaned
+
+
+@pytest.mark.anyio
+async def test_directive_numeric_clamps():
+    """Verifies that numeric bounds (rounds <= 5, max_words <= 2000, history <= 50) are strictly enforced."""
+    parser = DirectiveParser()
+    raw = "/rounds 100 /max_words 99999 /history 99 Check bounds"
+    directives = await parser.parse(raw)
+
+    assert directives.max_words == 2000
+    assert directives.history_limit == 50
+    rounds_action = next(a for a in directives.actions if a.name == "rounds")
+    assert rounds_action.params["rounds"] == 5
+
+
+def test_slash_command_preserves_prompt_indentation():
+    """Verifies that removing slash commands preserves code block indentation and line breaks."""
+    raw = "/rounds 3\ndef process_data(items):\n    result = []\n    for item in items:\n        result.append(item * 2)\n    return result"
+    from pipeline.directive_parser.slash_parser import parse_int_or_off
+
+    matched, val, cleaned = parse_int_or_off("/rounds", raw, min_val=1, max_val=5)
+    assert matched is True
+    assert val == 3
+    assert cleaned == "def process_data(items):\n    result = []\n    for item in items:\n        result.append(item * 2)\n    return result"
+

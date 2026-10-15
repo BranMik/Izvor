@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 import litellm
 from starlette.concurrency import run_in_threadpool
 
+from agents import record_thread_tokens
 from core.config import TOOL_INTERMEDIATE_UPDATE_DELAY_SECONDS
 from orchestration.system_settings import get_tool_call_loop_timeout_seconds
 from core.llm_utils import execute_llm_with_retry
@@ -157,6 +158,18 @@ class ExecutionStage:
             logger.info(
                 f"[ROUTER] Thread {ctx.thread_key} turn was superseded after LLM call. Aborting."
             )
+            if ctx.total_prompt_tokens > 0 or ctx.total_completion_tokens > 0:
+                record_tokens_fn = self.pipeline._get_hook(
+                    "record_thread_tokens", record_thread_tokens
+                )
+                if record_tokens_fn:
+                    record_tokens_fn(
+                        channel_id=ctx.channel_id,
+                        thread_ts=ctx.thread_ts,
+                        model_name=ctx.agent_cfg.get("model", "") if ctx.agent_cfg else "",
+                        prompt_tokens=ctx.total_prompt_tokens,
+                        completion_tokens=ctx.total_completion_tokens,
+                    )
             return {"ok": False, "cancelled": True, "reason": "superseded"}
 
         response_message = response.choices[0].message
@@ -210,11 +223,24 @@ class ExecutionStage:
 
                     for tool_call in tool_calls:
                         fn_name = tool_call.function.name
-                        raw_args = (
-                            json.loads(tool_call.function.arguments)
-                            if isinstance(tool_call.function.arguments, str)
-                            else tool_call.function.arguments
-                        )
+                        try:
+                            raw_args = (
+                                json.loads(tool_call.function.arguments)
+                                if isinstance(tool_call.function.arguments, str)
+                                else tool_call.function.arguments
+                            )
+                        except (json.JSONDecodeError, TypeError) as decode_err:
+                            logger.warning(
+                                f"[TOOL CALL] Malformed JSON in arguments for {fn_name}: {decode_err}"
+                            )
+                            tool_result_str = f"<untrusted_file_content>\nTOOL EXECUTION ERROR: Invalid JSON arguments: {decode_err}\n</untrusted_file_content>"
+                            ctx.messages.append({
+                                "role": "tool",
+                                "tool_call_id": tool_call.id,
+                                "name": fn_name,
+                                "content": tool_result_str,
+                            })
+                            continue
                         fn_args = _unmask_argument_values(
                             raw_args, getattr(ctx, "turn_token_mapping", {})
                         )
@@ -310,6 +336,18 @@ class ExecutionStage:
                         logger.info(
                             f"[ROUTER] Thread {ctx.thread_key} turn was superseded during tool execution. Aborting."
                         )
+                        if ctx.total_prompt_tokens > 0 or ctx.total_completion_tokens > 0:
+                            record_tokens_fn = self.pipeline._get_hook(
+                                "record_thread_tokens", record_thread_tokens
+                            )
+                            if record_tokens_fn:
+                                record_tokens_fn(
+                                    channel_id=ctx.channel_id,
+                                    thread_ts=ctx.thread_ts,
+                                    model_name=ctx.agent_cfg.get("model", "") if ctx.agent_cfg else "",
+                                    prompt_tokens=ctx.total_prompt_tokens,
+                                    completion_tokens=ctx.total_completion_tokens,
+                                )
                         return {"ok": False, "cancelled": True, "reason": "superseded"}
 
                     follow_up_kwargs: dict[str, Any] = {
@@ -335,6 +373,18 @@ class ExecutionStage:
                         allow_503_immediate_retry=allow_503_immediate,
                     )
                     if follow_up is None and ctx.is_superseded():
+                        if ctx.total_prompt_tokens > 0 or ctx.total_completion_tokens > 0:
+                            record_tokens_fn = self.pipeline._get_hook(
+                                "record_thread_tokens", record_thread_tokens
+                            )
+                            if record_tokens_fn:
+                                record_tokens_fn(
+                                    channel_id=ctx.channel_id,
+                                    thread_ts=ctx.thread_ts,
+                                    model_name=ctx.agent_cfg.get("model", "") if ctx.agent_cfg else "",
+                                    prompt_tokens=ctx.total_prompt_tokens,
+                                    completion_tokens=ctx.total_completion_tokens,
+                                )
                         return {"ok": False, "cancelled": True, "reason": "superseded"}
 
                     ctx.add_usage(follow_up)
@@ -349,7 +399,7 @@ class ExecutionStage:
                 )
                 if loop_res is not None:
                     return loop_res
-                ctx.final_text = response_message.content
+                ctx.final_text = response_message.content or ctx.final_text or ""
             except asyncio.TimeoutError:
                 logger.warning(
                     f"[ROUTER] Tool calling loop timed out after {timeout_secs}s for {ctx.agent_key}."
@@ -364,6 +414,6 @@ class ExecutionStage:
                 if not delay_task.done():
                     delay_task.cancel()
         else:
-            ctx.final_text = response_message.content
+            ctx.final_text = response_message.content or ""
 
         return None

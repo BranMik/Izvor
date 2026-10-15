@@ -2,6 +2,7 @@ import hashlib
 import hmac
 import logging
 import os
+import re
 import threading
 import time
 from typing import Any
@@ -133,5 +134,19 @@ def verify_slack_signature(body_bytes: bytes, headers: dict) -> bool:
         _record_auth_failure_audit(client_ip or "unverified_client")
 
     return is_valid
+
+
+_BROADCAST_MENTION_PATTERN = re.compile(r"<!(channel|here|everyone)>", re.IGNORECASE)
+
+
+def sanitize_slack_broadcast_mentions(text: str) -> str:
+    """
+    Neutralizes broadcast mentions (<!channel>, <!here>, <!everyone>) in outgoing
+    text by converting them to safe plain text (@channel, @here, @everyone).
+    Prevents LLM outputs or automated messages from pinging entire workspaces or channels.
+    """
+    if not text:
+        return text
+    return _BROADCAST_MENTION_PATTERN.sub(r"@\1", text)
 
 
