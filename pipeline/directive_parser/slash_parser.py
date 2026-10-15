@@ -300,7 +300,10 @@ def parse_grant_skill(
             matched_tokens_span_end = curr_idx + offset
         else:
             is_agent = bool(entity_resolver.resolve_agent_name(token_clean))
-            if is_bracketed or is_agent or (len(tokens) == 1 and token_clean.lower() not in ("and", "&", "to", "for", "with", "please")):
+            is_first_agent = len(tokens) == 1 and token_clean.lower() not in (
+                "and", "&", "to", "for", "with", "please"
+            )
+            if is_bracketed or is_agent or is_first_agent:
                 tokens.append(token_clean)
                 offset += ws_len + t_match.end()
                 matched_tokens_span_end = curr_idx + offset

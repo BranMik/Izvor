@@ -69,11 +69,20 @@ class VectorStore:
             except Exception as e:
                 logger.debug(f"[RAG VectorStore] FTS index creation skipped (e.g. empty table): {e}")
 
+    def rebuild_fts_index(self) -> None:
+        """Explicitly recreates or updates the BM25 full-text index on the table."""
+        table = self.get_or_create_table()
+        self._ensure_fts_index(table)
+
     def insert_chunks(
-        self, chunks: list[DocumentChunk], vectors: list[list[float]]
+        self,
+        chunks: list[DocumentChunk],
+        vectors: list[list[float]],
+        rebuild_index: bool = True,
     ) -> None:
         """
         Inserts new chunks and their corresponding embedding vectors into LanceDB.
+        If rebuild_index is False, index rebuilding is deferred to caller (e.g. batch ingestion).
         """
         if not chunks or not vectors or len(chunks) != len(vectors):
             return
@@ -97,8 +106,9 @@ class VectorStore:
             )
 
         table.add(rows)
-        # Update FTS index after additions
-        self._ensure_fts_index(table)
+        # Update FTS index after additions if requested
+        if rebuild_index:
+            self._ensure_fts_index(table)
         logger.info(f"[RAG VectorStore] Successfully inserted {len(rows)} chunk(s) into '{TABLE_NAME}'")
 
     def delete_by_doc_id(self, doc_id: str) -> None:

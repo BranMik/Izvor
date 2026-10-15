@@ -16,9 +16,11 @@ from core.config import AGENTS_CONFIG
 from core.models import OrchestrationMode
 from pipeline.directive_parser.slash_parser import strip_all_slash_commands
 from pipeline.entity_resolver import (
+    NOMINATION_TAG_RE,
     NOMINATION_TAG_REGEX,
     TAG_REGEX,
     entity_resolver,
+    format_nomination,
     format_nomination_tag,
 )
 from pipeline.orchestrator import SandwichOrchestrator
@@ -289,9 +291,9 @@ def enforce_valid_nomination(
             if last_key == designated_next_agent:
                 return text
             start, end = last_match.span()
-            return text[:start] + f"/[{designated_next_agent}]" + text[end:]
+            return text[:start] + format_nomination(designated_next_agent) + text[end:]
         else:
-            return f"{text.strip()}\n\n/[{designated_next_agent}]"
+            return f"{text.strip()}\n\n{format_nomination(designated_next_agent)}"
 
     if remaining:
         valid_nomination = None
@@ -314,13 +316,13 @@ def enforce_valid_nomination(
                 f"Correcting nomination tag to [{fallback_agent}]."
             )
             start, end = last_match.span()
-            return text[:start] + f"/[{fallback_agent}]" + text[end:]
+            return text[:start] + format_nomination(fallback_agent) + text[end:]
         else:
             logger.warning(
                 f"[ORCHESTRATOR] Agent {current_agent_key} omitted nomination tag while {len(remaining)} agent(s) remain: {remaining}. "
                 f"Appending [{fallback_agent}]."
             )
-            return f"{text.strip()}\n\n/[{fallback_agent}]"
+            return f"{text.strip()}\n\n{format_nomination(fallback_agent)}"
     else:
         retries_list = pending_retries or []
         if retries_list:
@@ -342,11 +344,11 @@ def enforce_valid_nomination(
                     f"[ORCHESTRATOR] Correcting nomination to pending rate-limit retry agent [{fallback_retry}]."
                 )
                 start, end = last_match.span()
-                return text[:start] + f"/[{fallback_retry}]" + text[end:]
+                return text[:start] + format_nomination(fallback_retry) + text[end:]
             else:
                 logger.info(
                     f"[ORCHESTRATOR] Appending pending rate-limit retry agent [{fallback_retry}]."
                 )
-                return f"{text.strip()}\n\n/[{fallback_retry}]"
+                return f"{text.strip()}\n\n{format_nomination(fallback_retry)}"
         else:
             return strip_all_nominations(text)

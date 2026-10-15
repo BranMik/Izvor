@@ -52,9 +52,17 @@ class ResolutionStage:
             logger.error(
                 f"[ROUTER] Agent '{ctx.agent_key}' not found in configuration."
             )
-            next_candidate = thread_state_manager.pop_remaining_agent(
-                ctx.channel_id, ctx.thread_ts
-            )
+            next_candidate = None
+            while True:
+                candidate = thread_state_manager.pop_remaining_agent(
+                    ctx.channel_id, ctx.thread_ts
+                )
+                if not candidate:
+                    break
+                if candidate in agents_map and candidate != ctx.agent_key:
+                    next_candidate = candidate
+                    break
+
             if not next_candidate:
                 mode = settings_manager.get_orchestration_mode()
                 if mode == OrchestrationMode.SANDWICH:
@@ -63,7 +71,7 @@ class ResolutionStage:
                         for k in settings_manager.get_sandwich_config().get(
                             "end_chain", []
                         )
-                        if k in agents_map
+                        if k in agents_map and k != ctx.agent_key
                     ]
                     if end_chain:
                         next_candidate = end_chain[0]

@@ -6,13 +6,17 @@ logger = logging.getLogger(__name__)
 
 # Canonical unicode-safe tag regex: matches /[TagName] with unicode support
 NOMINATION_TAG_REGEX = re.compile(r"/\[\s*([^\]\r\n]+?)\s*\]", re.UNICODE)
+NOMINATION_TAG_RE = NOMINATION_TAG_REGEX
 TAG_REGEX = NOMINATION_TAG_REGEX
 
 
-def format_nomination_tag(agent_key: str) -> str:
+def format_nomination(agent_key: str) -> str:
     """Formats an agent key into canonical nomination tag format: /[AGENT_KEY]."""
     clean = agent_key.strip().strip("/[]")
     return f"/[{clean}]"
+
+
+format_nomination_tag = format_nomination
 
 
 class EntityResolver:
