@@ -5,12 +5,13 @@ import sys
 from typing import Any
 
 from starlette.concurrency import run_in_threadpool
+from core.config import is_test_environment
 
 logger = logging.getLogger(__name__)
 
 # Pacing and retry configuration
 LLM_MAX_RETRIES = 3
-LLM_RETRY_BACKOFF_BASE = 0.01 if "pytest" in sys.modules else 1.5
+LLM_RETRY_BACKOFF_BASE = 0.01 if is_test_environment() else 1.5
 
 
 def is_anthropic_model(model: str | None) -> bool:

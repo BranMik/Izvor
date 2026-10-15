@@ -84,8 +84,6 @@ class PostRecordStage:
 
 
 
-    async def _sleep(self, seconds: float):
-        raise NotImplementedError
 
     async def stage_post_and_record(self, ctx: TurnContext) -> dict[str, Any]:
         """Stage 5: Nomination enforcement, token accounting, Slack posting, and notifications."""

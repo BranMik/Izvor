@@ -161,13 +161,8 @@ def parse_agent_and_prompt(
                 first_agent = remaining.pop(0)
                 return first_agent, cleaned_text, False
         elif mode == OrchestrationMode.SANDWICH:
-            sandwich_cfg = settings_manager.get_sandwich_config()
-            if sandwich_cfg.get("start_chain"):
-                first_agent = remaining.pop(0)
-                return first_agent, cleaned_text, False
-            else:
-                first_agent = remaining.pop(0)
-                return first_agent, cleaned_text, False
+            first_agent = remaining.pop(0)
+            return first_agent, cleaned_text, False
 
         # If no designated chain, select randomly from remaining pool
         first_agent = random.choice(remaining)

@@ -158,7 +158,7 @@ def build_app_home_view(
                 "type": "header",
                 "text": {
                     "type": "plain_text",
-                    "text": "────────🤖 CaiLogics Multi-Agent Panel Control Hub────────\n",
+                    "text": "────────🤖 Izvor Multi-Agent Panel Control Hub────────\n",
                     "emoji": True,
                 },
             },
@@ -167,7 +167,7 @@ def build_app_home_view(
                 "text": {
                     "type": "mrkdwn",
                     "text": (
-                        "*Welcome to CaiLogics Control Hub!*\n"
+                        "*Welcome to Izvor Control Hub!*\n"
                         "Manage debate agents and spend limits (circuit-breaker) here.\n\n"
                         "💡 *Note:* Disabled agents can still be directly invoked by tagging (e.g. `[agent-10011]`)."
                     ),
@@ -905,7 +905,7 @@ def build_app_home_view(
             "elements": [
                 {
                     "type": "mrkdwn",
-                    "text": "⚡ _CaiLogics Multi-Agent Platform • Changes take effect immediately for all new discussions._",
+                    "text": "⚡ _Izvor Multi-Agent Platform • Changes take effect immediately for all new discussions._",
                 }
             ],
         }

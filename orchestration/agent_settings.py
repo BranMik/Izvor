@@ -983,6 +983,19 @@ class AgentSettingsManager:
         self.set_agent_enabled(agent_key, new_state)
         return agent_key in self.enabled_agents
 
+    def get_agent(self, agent_key: str) -> dict[str, Any] | None:
+        """Returns the configuration dict for a specific agent key, or None if not found."""
+        return self.agents_config.get(agent_key)
+
+    def is_system_agent(self, agent_key: str) -> bool:
+        """Checks whether the agent is configured as a system agent in settings."""
+        if agent_key in self.system_agents_config:
+            return True
+        agent_cfg = self.agents_config.get(agent_key)
+        if isinstance(agent_cfg, dict) and agent_cfg.get("is_system_agent") is True:
+            return True
+        return False
+
     def get_agent_skills(self, agent_key: str) -> list[str]:
         """Returns the list of equipped skills for an agent."""
         cfg = self.agents_config.get(agent_key)

@@ -20,6 +20,7 @@ import hmac
 import json
 import logging
 import os
+import sys
 import threading
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -744,7 +745,7 @@ def cli_main() -> None:
             print(f"Computed:     {continuity['computed_hash']}")
         print("================================================\n")
         if not continuity["matches"]:
-            exit(1)
+            sys.exit(1)
         return
 
     if args.snapshot:

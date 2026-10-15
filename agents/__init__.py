@@ -1,5 +1,5 @@
 """
-agents package - Special purpose background and support agents for CaiLogics Slack Platform.
+agents package - Special purpose background and support agents for Izvor Slack Platform.
 """
 
 from .thread_notes_agent import (
