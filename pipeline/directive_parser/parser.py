@@ -153,11 +153,11 @@ class DirectiveParser:
                     if "round" in s_name:
                         min_val, max_val = 1, 5
                     elif "max_words" in s_name:
-                        min_val, max_val = 10, 2000
+                        min_val, max_val = 1, 2000
                     elif "min_words" in s_name:
                         min_val, max_val = 1, 1000
                     elif "history" in s_name:
-                        min_val, max_val = 1, 50
+                        min_val, max_val = 0, 50
                     elif "words" in s_name:
                         min_val = 1
 
@@ -435,12 +435,17 @@ class DirectiveParser:
                     if isinstance(act, dict)
                     else getattr(act, "params", {})
                 )
+                act_origin = (
+                    act.get("origin", "inferred")
+                    if isinstance(act, dict)
+                    else getattr(act, "origin", "inferred")
+                )
                 if (
                     act_name
                     and act_name != "stop_discussion"
                     and not any(a.name == act_name for a in actions)
                 ):
-                    actions.append(ActionDirective(name=act_name, params=act_params))
+                    actions.append(ActionDirective(name=act_name, params=act_params, origin=act_origin))
 
         return ParsedDirectives(
             cleaned_prompt=text_cleaned.strip(),

@@ -5,7 +5,7 @@ import re
 import tempfile
 from pathlib import Path
 
-from core.models import OrchestrationMode, WorkflowPreset
+from core.models import DEFAULT_WORKFLOWS, OrchestrationMode, WorkflowPreset
 
 logger = logging.getLogger(__name__)
 
@@ -38,41 +38,9 @@ class WorkflowManager:
             if existing:
                 return
 
-            default_presets = [
-                WorkflowPreset(
-                    id="default_review_flow",
-                    name="Default Review Workflow",
-                    mode=OrchestrationMode.SANDWICH.value,
-                    description="[DO NOT DELETE OR MODIFY - SYSTEM DEFAULT] Standard review flow applied when no explicit agent is tagged.",
-                    sandwich_config={
-                        "start_chain": ["agent-10001", "agent-10002"],
-                        "end_chain": ["agent-10008"],
-                    },
-                    fixed_config={"chain": []},
-                ),
-                WorkflowPreset(
-                    id="default_sandwich",
-                    name="Default Sandwich Review",
-                    mode=OrchestrationMode.SANDWICH.value,
-                    description="[DO NOT DELETE OR MODIFY - SYSTEM DEFAULT] Standard multi-agent panel with kickoff and concluding wrap-up.",
-                    sandwich_config={
-                        "start_chain": [
-                            "agent-10005",
-                            "agent-10001",
-                            "agent-10007",
-                            "agent-10003",
-                            "agent-10002",
-                            "agent-10008",
-                        ],
-                        "end_chain": ["agent-10008", "agent-10003"],
-                    },
-                    fixed_config={"chain": []},
-                ),
-            ]
-
-            for preset in default_presets:
+            for preset in DEFAULT_WORKFLOWS:
                 self.save_preset(preset)
-            logger.info(f"[WORKFLOW] Seeded {len(default_presets)} default workflows in {self.workflows_dir}")
+            logger.info(f"[WORKFLOW] Seeded {len(DEFAULT_WORKFLOWS)} default workflows in {self.workflows_dir}")
         except OSError:
             logger.exception("[WORKFLOW] Failed to seed default workflows")
 

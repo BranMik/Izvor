@@ -230,14 +230,17 @@ async def test_circuit_breaker_allows_normal_response_when_disabled(monkeypatch)
         "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
     )
 
-    res = await process_and_respond(
-        channel_id=channel_id,
-        thread_ts=thread_ts,
-        raw_text="[agent-10001] Normal query",
-        is_bot_trigger=False,
-    )
+    try:
+        res = await process_and_respond(
+            channel_id=channel_id,
+            thread_ts=thread_ts,
+            raw_text="[agent-10001] Normal query",
+            is_bot_trigger=False,
+        )
 
-    assert res.get("ok") is True
-    assert res.get("circuit_breaker_triggered") is not True
-    assert len(posted_messages) == 1
-    assert "Normal response despite high cost" in posted_messages[0]["text"]
+        assert res.get("ok") is True
+        assert res.get("circuit_breaker_triggered") is not True
+        assert len(posted_messages) == 1
+        assert "Normal response despite high cost" in posted_messages[0]["text"]
+    finally:
+        set_circuit_breaker_enabled(True)

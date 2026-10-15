@@ -412,10 +412,10 @@ def test_workflow_config_switching_and_fallback(tmp_path: Path):
     assert mgr.get_orchestration_mode() == OrchestrationMode.FIXED.value
     assert mgr.fixed_chain == ["agent-10011", "agent-10008"]
 
-    # Point to nonexistent workflow -> should fallback to default_sandwich without crashing
+    # Point to nonexistent workflow -> should fallback to default_review_flow without crashing
     mgr.set_workflow_config("nonexistent_workflow_xyz")
-    assert mgr.get_orchestration_mode() == OrchestrationMode.SANDWICH.value
-    assert "agent-10001" in mgr.sandwich_start_chain
+    assert mgr.get_orchestration_mode() == OrchestrationMode.FIXED.value
+    assert "agent-10001" in mgr.fixed_chain
 
 
 def test_chain_mutation_persists_to_workflow_file(tmp_path: Path):

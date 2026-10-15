@@ -184,7 +184,9 @@ def build_agent_prompt(
                     formatted_inst = sk.instructions.replace("{value}", str(mod_v))
                     custom_directives.append(formatted_inst)
                 elif mod_v:
-                    custom_directives.append(f"### DIRECTIVE: {mod_k.replace('_', ' ').upper()}\n{mod_v}")
+                    logger.warning(
+                        f"[PROMPT BUILDER] Ignoring unverified prompt modifier key '{mod_k}' (not a registered skill with instructions)"
+                    )
         except (ImportError, AttributeError, KeyError, TypeError, ValueError) as e:
             logger.debug(f"[PROMPT BUILDER] Error formatting custom modifiers: {e}")
 

@@ -221,45 +221,14 @@ class AppIntegrityValidator:
         """
         # Import inside method to avoid circular imports if any
         from orchestration.workflow_manager import WorkflowManager
-        from core.models import OrchestrationMode, WorkflowPreset
+        from core.models import DEFAULT_WORKFLOWS, WorkflowPreset
 
-        expected_defaults = [
-            WorkflowPreset(
-                id="default_review_flow",
-                name="Default Review Workflow",
-                mode=OrchestrationMode.FIXED.value,
-                description="[DO NOT DELETE OR MODIFY - SYSTEM DEFAULT] Standard review flow applied when no explicit agent is tagged.",
-                sandwich_config={"start_chain": [], "end_chain": []},
-                fixed_config={
-                    "chain": [
-                        "agent-10001",
-                        "agent-10002",
-                        "agent-10003",
-                        "agent-10015",
-                    ]
-                },
-            ),
-            WorkflowPreset(
-                id="default_sandwich",
-                name="Default Sandwich Review",
-                mode=OrchestrationMode.SANDWICH.value,
-                description="[DO NOT DELETE OR MODIFY - SYSTEM DEFAULT] Standard multi-agent panel with kickoff and concluding wrap-up.",
-                sandwich_config={
-                    "start_chain": [
-                        "agent-10005",
-                        "agent-10001",
-                        "agent-10007",
-                        "agent-10003",
-                        "agent-10002",
-                    ],
-                    "end_chain": ["agent-10008", "agent-10003", "agent-10015"],
-                },
-                fixed_config={"chain": []},
-            ),
-        ]
+        expected_defaults = DEFAULT_WORKFLOWS
 
         if not workflows_dir.exists():
             workflows_dir.mkdir(parents=True, exist_ok=True)
+
+        wm = WorkflowManager(workflows_dir=workflows_dir, auto_seed=False)
 
         for expected in expected_defaults:
             wf_file = workflows_dir / f"{expected.id}.json"
@@ -293,9 +262,8 @@ class AppIntegrityValidator:
 
             if needs_restore:
                 try:
-                    with open(wf_file, "w", encoding="utf-8") as f:
-                        json.dump(expected.to_dict(), f, indent=2)
-                except OSError as e:
+                    wm.save_preset(expected)
+                except Exception as e:
                     logger.error(
                         "[INTEGRITY] Failed to restore workflow '%s': %s",
                         expected.id,

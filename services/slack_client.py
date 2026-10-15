@@ -269,7 +269,7 @@ async def fetch_thread_history(
                 )
             else:
                 formatted_history.append({"role": "user", "content": clean_text})
-                short_history_logging.append({"role": "user", "content": clean_text})
+                short_history_logging.append({"role": "user", "content": f"{clean_text[:20]}..."})
 
         logger.info(f"\n short_history:\n {short_history_logging}")
         return formatted_history

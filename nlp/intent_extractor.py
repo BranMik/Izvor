@@ -141,14 +141,23 @@ class IntentExtractor:
                     if v is not None:
                         modifiers[k] = v
 
+            from core.registry import get_skill_registry
+            skill_registry = get_skill_registry()
+            allowed_inferred_skills = {
+                s.name for s in skill_registry.get_auto_detect_skills()
+            } | {"exclude_agents"}
+
             # 2. Actions from structured "actions" list
             raw_actions = parsed.get("actions")
             if isinstance(raw_actions, list):
                 for act in raw_actions:
                     if isinstance(act, dict) and act.get("name"):
                         act_name = str(act["name"]).strip()
-                        # stop_discussion and rounds are strictly deterministic slash commands, never inferred by LLM
-                        if act_name in ("stop_discussion", "rounds"):
+                        # Strictly allowlist inferred actions: only auto_detect skills (never grant/revoke/rounds/stop)
+                        if act_name not in allowed_inferred_skills:
+                            logger.warning(
+                                f"[INTENT EXTRACTOR] Dropping disallowed inferred action '{act_name}' (not an auto-detect skill)"
+                            )
                             continue
                         act_params = dict(act.get("params") or {})
                         if act_name == "exclude_agents":
@@ -160,11 +169,11 @@ class IntentExtractor:
                                     if res and res not in resolved_agents:
                                         resolved_agents.append(res)
                                 act_params["agents"] = resolved_agents
-                        actions.append(ActionDirective(name=act_name, params=act_params))
+                        actions.append(
+                            ActionDirective(name=act_name, params=act_params, origin="inferred")
+                        )
 
             # 3. Dynamic file handler resolution
-            from core.registry import get_skill_registry
-            skill_registry = get_skill_registry()
 
             file_skill = skill_registry.get_file_handler_skill()
             if file_skill:
@@ -210,7 +219,7 @@ class IntentExtractor:
             for ag in tagged:
                 resolved = entity_resolver.resolve_agent_name(ag)
                 if resolved:
-                    actions.append(ActionDirective(name=resolved, params={}))
+                    actions.append(ActionDirective(name=resolved, params={}, origin="inferred"))
         except Exception as e:
             logger.warning(f"[INTENT EXTRACTOR] Deterministic fallback error: {e}")
             

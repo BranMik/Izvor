@@ -62,10 +62,8 @@ def build_llm_messages(
         size = file_context.get("size", 0)
 
         is_agent_authorized = authorized_agents is None or agent_key in authorized_agents
-        agent_skills = agent_cfg.get("skills")
-        has_skill = True
-        if required_skill and agent_skills is not None:
-            has_skill = required_skill in agent_skills
+        agent_skills = agent_cfg.get("skills") or []
+        has_skill = (required_skill in agent_skills) if required_skill else True
 
         if not is_agent_authorized:
             file_block = (
@@ -84,30 +82,32 @@ def build_llm_messages(
                 f"--- [END OF NOTICE] ---"
             )
         else:
+            from core.security_utils import wrap_untrusted_content
+
+            wrapped_content = wrap_untrusted_content(content)
             file_block = (
                 f"\n\n--- [ATTACHED SLACK FILE: {file_name} ({size} bytes)] ---\n"
-                f"{content}\n"
+                f"{wrapped_content}\n"
                 f"--- [END OF ATTACHED FILE] ---"
             )
 
     # Check for any required or inferred skills that this agent lacks
     skill_notice_block = ""
     if required_skills:
-        agent_skills = agent_cfg.get("skills")
-        if agent_skills is not None:
-            missing = [s for s in required_skills if s not in agent_skills]
-            if file_block and required_skill and required_skill in missing:
-                missing = [s for s in missing if s != required_skill]
-            if missing:
-                missing_str = ", ".join(f"'{s}'" for s in missing)
-                skill_notice_block = (
-                    f"\n\n--- [PERMISSION RESTRICTED: MISSING REQUIRED SKILL(S)] ---\n"
-                    f"The requested task requires or infers the following skill(s): {missing_str}, "
-                    f"but you ({agent_display}) do not have permission or this skill assigned.\n"
-                    f"You must explicitly state to the user that you do not have permission / the required skill(s) ({missing_str}) "
-                    f"to perform this action. Do NOT report that the file or resource was not found.\n"
-                    f"--- [END OF NOTICE] ---"
-                )
+        agent_skills = agent_cfg.get("skills") or []
+        missing = [s for s in required_skills if s not in agent_skills]
+        if file_block and required_skill and required_skill in missing:
+            missing = [s for s in missing if s != required_skill]
+        if missing:
+            missing_str = ", ".join(f"'{s}'" for s in missing)
+            skill_notice_block = (
+                f"\n\n--- [PERMISSION RESTRICTED: MISSING REQUIRED SKILL(S)] ---\n"
+                f"The requested task requires or infers the following skill(s): {missing_str}, "
+                f"but you ({agent_display}) do not have permission or this skill assigned.\n"
+                f"You must explicitly state to the user that you do not have permission / the required skill(s) ({missing_str}) "
+                f"to perform this action. Do NOT report that the file or resource was not found.\n"
+                f"--- [END OF NOTICE] ---"
+            )
 
     # Dynamic orchestration directive
     orchestration_block = ""

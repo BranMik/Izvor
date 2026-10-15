@@ -65,6 +65,11 @@ class GuardrailService:
             try:
                 log_audit_event(
                     event_type="GUARDRAIL_FAIL_CLOSED_BLOCKED",
+                    actor={"type": "system", "id": "guardrail_service"},
+                    action="evaluate_prompt_injection",
+                    target="guardrail_table",
+                    severity="CRITICAL",
+                    status="BLOCKED",
                     details={
                         "reason": reason,
                         "text_snippet": text[:100],
@@ -81,6 +86,11 @@ class GuardrailService:
             try:
                 log_audit_event(
                     event_type="GUARDRAIL_DEGRADED_OPEN",
+                    actor={"type": "system", "id": "guardrail_service"},
+                    action="evaluate_prompt_injection",
+                    target="guardrail_table",
+                    severity="WARNING",
+                    status="DEGRADED",
                     details={
                         "reason": reason,
                         "text_snippet": text[:100],

@@ -115,7 +115,7 @@ def test_deterministic_directive_in_message_builder():
     )
     last_content = msgs[-1]["content"]
     assert "[agent-10002]" in last_content
-    assert "nominate [agent-10002] as the next agent to speak" in last_content
+    assert "nominate /[agent-10002] as the next agent to speak" in last_content
 
     # 2. When force_termination is True
     msgs_term = build_llm_messages(

@@ -105,7 +105,7 @@ class ValidationStage:
 
             # Process /grant_skill_for_all action
             grant_act = next((a for a in ctx.actions if a.name in ("grant_skill_for_all", "grant_for_all")), None)
-            if grant_act:
+            if grant_act and getattr(grant_act, "origin", "slash") == "slash":
                 from orchestration.app_settings import app_settings_manager
                 from orchestration.thread_skills_manager import thread_skills_manager
                 from core.registry import get_skill_registry
@@ -146,7 +146,7 @@ class ValidationStage:
 
             # Process /grant_skill action
             grant_skill_act = next((a for a in ctx.actions if a.name == "grant_skill"), None)
-            if grant_skill_act:
+            if grant_skill_act and getattr(grant_skill_act, "origin", "slash") == "slash":
                 from orchestration.app_settings import app_settings_manager
                 from orchestration.thread_skills_manager import thread_skills_manager
                 from core.registry import get_skill_registry
@@ -227,7 +227,7 @@ class ValidationStage:
 
             # Process /revoke_skill_for_all action
             revoke_act = next((a for a in ctx.actions if a.name in ("revoke_skill_for_all", "revoke_for_all")), None)
-            if revoke_act:
+            if revoke_act and getattr(revoke_act, "origin", "slash") == "slash":
                 from orchestration.thread_skills_manager import thread_skills_manager
 
                 skills_to_revoke = revoke_act.params.get("skills", [])
@@ -270,6 +270,12 @@ class ValidationStage:
                 for act in ctx.actions:
                     sk = skill_registry.get(act.name)
                     if sk and sk.action_handler:
+                        # Privileged actions (auto_detect == False) must originate from slash command
+                        if sk.triggers.get("auto_detect", True) is False and getattr(act, "origin", "slash") != "slash":
+                            logger.warning(
+                                f"[VALIDATION] Refusing to execute privileged action '{act.name}' because origin is '{getattr(act, 'origin', 'unknown')}'"
+                            )
+                            continue
                         act_res = await sk.action_handler(ctx, act.params)
                         if act_res and isinstance(act_res, dict) and act_res.get("halted"):
                             return act_res

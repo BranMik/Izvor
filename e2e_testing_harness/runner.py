@@ -144,10 +144,12 @@ class E2ETestRunner:
 
     async def run_scenario(self, scenario: Scenario) -> ScenarioResult:
         # Reset runtime state between tests
+        from adapters.slack.events import PROCESSED_EVENTS
+        PROCESSED_EVENTS.clear()
         self.client.bus.clear()
         reset_enabled_agents()
-        set_circuit_breaker_enabled(False)
-        set_circuit_breaker_threshold(1.50)
+        set_circuit_breaker_enabled(False, save=False)
+        set_circuit_breaker_threshold(1.50, save=False)
         thread_state_manager.reset_all()
 
         start = time.time()
@@ -209,39 +211,42 @@ class E2ETestRunner:
             patch("agents.thread_notes_agent.fetch_thread_history", self.client.mock_fetch_thread_history),
         ])
 
-        with ExitStack() as stack:
-            for p in patches:
-                stack.enter_context(p)
+        try:
+            with ExitStack() as stack:
+                for p in patches:
+                    stack.enter_context(p)
 
-            try:
-                res = await scenario.run_fn(self.client)
-                res.duration_seconds = time.time() - start
-            except Exception as e:  # noqa: BLE001 - Test runner must catch all scenario exceptions to record failure without crashing
-                res = ScenarioResult(
-                    id=scenario.id,
-                    name=scenario.name,
-                    passed=False,
-                    details=f"Exception raised during execution: {e}",
-                    duration_seconds=time.time() - start,
-                )
-
-            # In live mode, allow any active background scribe task to finish before posting completion card
-            if self.client.live_mode:
                 try:
-                    from agents.thread_notes_agent import _RUNNING_TASKS
-                    target_thread = self.client.current_thread_ts
-                    if target_thread:
-                        target_key = (self.client.get_channel(), target_thread)
-                        bg_task = _RUNNING_TASKS.get(target_key)
-                        if bg_task and not bg_task.done():
-                            await asyncio.wait_for(asyncio.shield(bg_task), timeout=8.0)
-                except (TimeoutError, asyncio.CancelledError):
-                    logger.debug("Background scribe task timed out or was cancelled during scenario completion.")
-                except Exception as e:  # noqa: BLE001 - Resilient cleanup of background task
-                    logger.warning("Unexpected error awaiting background scribe task: %s", e)
-                await self.client.finish_live_scenario(res)
+                    res = await scenario.run_fn(self.client)
+                    res.duration_seconds = time.time() - start
+                except Exception as e:  # noqa: BLE001 - Test runner must catch all scenario exceptions to record failure without crashing
+                    res = ScenarioResult(
+                        id=scenario.id,
+                        name=scenario.name,
+                        passed=False,
+                        details=f"Exception raised during execution: {e}",
+                        duration_seconds=time.time() - start,
+                    )
 
-            return res
+                # In live mode, allow any active background scribe task to finish before posting completion card
+                if self.client.live_mode:
+                    try:
+                        from agents.thread_notes_agent import _RUNNING_TASKS
+                        target_thread = self.client.current_thread_ts
+                        if target_thread:
+                            target_key = (self.client.get_channel(), target_thread)
+                            bg_task = _RUNNING_TASKS.get(target_key)
+                            if bg_task and not bg_task.done():
+                                await asyncio.wait_for(asyncio.shield(bg_task), timeout=8.0)
+                    except (TimeoutError, asyncio.CancelledError):
+                        logger.debug("Background scribe task timed out or was cancelled during scenario completion.")
+                    except Exception as e:  # noqa: BLE001 - Resilient cleanup of background task
+                        logger.warning("Unexpected error awaiting background scribe task: %s", e)
+                    await self.client.finish_live_scenario(res)
+
+                return res
+        finally:
+            set_circuit_breaker_enabled(True, save=False)
 
     async def run_all(self, filter_id: str | None = None) -> list[ScenarioResult]:
         scenarios = ALL_SCENARIOS

@@ -693,8 +693,8 @@ async def tc_23_circuit_breaker(client: SlackProtocolClient) -> ScenarioResult:
     channel = client.get_channel("C_TEST_23")
     thread_ts = client.get_thread_ts()
     try:
-        set_circuit_breaker_enabled(True)
-        set_circuit_breaker_threshold(0.00001)
+        set_circuit_breaker_enabled(True, save=False)
+        set_circuit_breaker_threshold(0.00001, save=False)
 
         # Trigger turn that exceeds $0.00001
         prompt = (
@@ -716,8 +716,8 @@ async def tc_23_circuit_breaker(client: SlackProtocolClient) -> ScenarioResult:
             "Circuit breaker tripped and calls halted.",
         )
     finally:
-        set_circuit_breaker_enabled(False)
-        set_circuit_breaker_threshold(1.50)
+        set_circuit_breaker_enabled(True, save=False)
+        set_circuit_breaker_threshold(1.50, save=False)
 
 
 async def tc_24_usage_channel(client: SlackProtocolClient) -> ScenarioResult:
