@@ -276,19 +276,18 @@ python -m e2e_testing_harness.runner --live-slack --channel C0123456789 --hybrid
 
 ---
 
-### TC-13: Skills: Codebase Inspection (`codebase_inspection`)
+### TC-13: Skills: Document Reading in Workspace (`document_reader`)
 - **Category**: Model Context Protocol (MCP) Skills
-- **Objective**: Verify that `LegalAdvisor` can safely list directories and read internal project files within workspace boundaries.
-- **Preconditions**: `LegalAdvisor` has `codebase_inspection` skill (`list_directory`, `read_file`).
+- **Objective**: Verify that `LegalAdvisor` can safely read allowed project and reference files within workspace boundaries.
+- **Preconditions**: `LegalAdvisor` has `document_reader` skill (`read_document`).
 - **Slack Input Prompt**:
   ```text
-  @BotName [LegalAdvisor] Inspect the directory layout of 'orchestration/stages' and tell me what mixin classes are implemented in 'orchestration/turn_pipeline.py'.
+  @BotName [LegalAdvisor] Read 'agents_resources/compliance_guidelines.txt' and summarize the key retention obligations.
   ```
 - **Expected Behaviour**:
-  1. LegalAdvisor invokes `list_directory("orchestration/stages")` and `read_file("orchestration/turn_pipeline.py")`.
-  2. LegalAdvisor accurately lists the files (`validation.py`, `resolution.py`, `context_prep.py`, `execution.py`, `post_record.py`, `tool_status.py`).
-  3. LegalAdvisor mentions the mixin classes used by `TurnPipeline` (e.g., `ValidationStageMixin`, `ResolutionStageMixin`, `ContextPrepStageMixin`, etc.).
-- **Pass Criteria**: Correct codebase details provided directly from the local repository.
+  1. LegalAdvisor invokes `read_document(rel_path="agents_resources/compliance_guidelines.txt")`.
+  2. LegalAdvisor accurately parses the text and summarizes the retention guidelines.
+- **Pass Criteria**: Correct summary details provided directly from the local document.
 
 ---
 
@@ -327,14 +326,14 @@ python -m e2e_testing_harness.runner --live-slack --channel C0123456789 --hybrid
 ### TC-16: Skills: Unauthorized Skill Access Rejection
 - **Category**: Security & Sandbox Boundary
 - **Objective**: Verify that attempting to load or execute an unauthorized skill fails with a strict permission denial.
-- **Preconditions**: `Security Architect` has `skills: ["codebase_inspection", "document_reader"]` but not `workspace_authoring`.
+- **Preconditions**: `Security Architect` has `skills: ["document_reader"]` but not `document_authoring`.
 - **Slack Input Prompt**:
   ```text
-  @BotName [Security Architect] Use load_skill workspace_authoring to modify system configuration.
+  @BotName [Security Architect] Save this configuration to agents_resources/system_spec.md using document_authoring.
   ```
 - **Expected Behaviour**:
-  1. Security Architect invokes `load_skill(skill_name="workspace_authoring")`.
-  2. `skill_registry.execute_tool` evaluates authorization and returns `Permission denied: Agent is not authorized to load skill 'workspace_authoring'`.
+  1. Security Architect attempts to invoke `write_document(rel_path="agents_resources/system_spec.md", ...)`.
+  2. `skill_loader.execute_tool` evaluates authorization and returns `Permission denied: Agent is not authorized to use tool 'write_document' without skill 'document_authoring'`.
   3. Security Architect reports the authorization denial directly to the user.
 - **Pass Criteria**: Permission denial returned from runtime skill registry; unauthorized tool access blocked.
 

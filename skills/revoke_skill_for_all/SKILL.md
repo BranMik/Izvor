@@ -7,6 +7,7 @@ triggers:
   slash:
     - /revoke_skill_for_all
     - /revoke-skill-for-all
+    - /revoke_for_all
   arg_type: list
   param_name: skills
   auto_detect: false

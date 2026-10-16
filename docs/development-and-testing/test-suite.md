@@ -24,7 +24,7 @@ tests/
 ├── test_intent_extractor.py           # NLP conversational directive detection
 ├── test_mcp.py                        # MCP tool sandbox & directory traversal guards
 ├── test_model_catalog.py              # Provider resolution & default model loaders
-├── test_nomination.py                 # Peer bracket nomination parsing & entity routing
+├── test_nomination_enforcement.py      # Peer bracket nomination parsing & entity routing
 ├── test_phase_p0_gates.py             # Phase P0 sanity and security gates
 ├── test_phase_p1_privilege_boundaries.py # Phase P1 directive origin & privilege boundaries
 ├── test_phase_p2_reliability.py       # Phase P2 unicode diacritics & candidate fallbacks

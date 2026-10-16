@@ -18,7 +18,7 @@ graph LR
     end
 ```
 
-Every audit file is organized monthly (e.g., `audit/audit_2026_10.jsonl`). Each line is a self-contained JSON object bound cryptographically to its predecessor.
+Every audit file is organized monthly (e.g., `data/audit/audit_2026_10.jsonl`). Each line is a self-contained JSON object bound cryptographically to its predecessor.
 
 ---
 
@@ -26,10 +26,10 @@ Every audit file is organized monthly (e.g., `audit/audit_2026_10.jsonl`). Each 
 
 ### 1. Sequential Hash Binding
 Each record contains:
-- `sequence_number`: Monotonically increasing 64-bit integer.
+- `seq`: Monotonically increasing 64-bit integer sequence number.
 - `prev_hash`: The cryptographic SHA-256 hash of the immediately preceding log line. For the first record of a log file, `prev_hash` is initialized with a known genesis seed.
-- `current_hash`: Calculated as:
-  $$\text{current\_hash} = \text{SHA-256}(\text{prev\_hash} + \text{canonical\_json\_payload})$$
+- `entry_hash`: Calculated as:
+  $$\text{entry\_hash} = \text{SHA-256}(\text{prev\_hash} + \text{canonical\_json\_payload})$$
 
 ### 2. HMAC Key Continuity
 When `AUDIT_HMAC_SECRET` is configured:

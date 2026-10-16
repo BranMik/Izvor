@@ -58,6 +58,14 @@ In addition to the debate roster, Izvor runs dedicated system-level agents:
 ### 4. Scribe (`Scribe`)
 - **Role**: Synthesizes end-of-discussion agreements, action items, and generates downloadable flat markdown exports.
 
+### 5. Internal Revisor (`InternalRevisor`)
+- **Role**: Inline validation agent evaluating candidate responses against user constraints and directives prior to dispatch, breaking endless tag loops and ensuring format fidelity.
+- **Service**: Implemented in [`orchestration/revisor_service.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/orchestration/revisor_service.py).
+
+### 6. Thread Notes Agent (`Thread_Notes_Agent`)
+- **Role**: Asynchronous background synthesis agent generating and pinning live strategic synthesis notes and final dialectical conclusion notes to discussion threads.
+- **Implementation**: Managed in [`agents/thread_notes_agent.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/agents/thread_notes_agent.py).
+
 ---
 
 ## 📝 Prompt Composition Engine

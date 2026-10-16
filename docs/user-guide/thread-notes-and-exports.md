@@ -33,11 +33,11 @@ await run_in_threadpool(record_flat_history, channel_id, thread_ts, turn_data)
 This ensures disk writes never introduce jitter or latency into the Slack event dispatcher.
 
 ### 2. Storage Location & Naming
-Transcripts are persisted in the `flat-histories/` directory using slugified names:
+Transcripts are persisted in the `flat-histories/` directory using prompt slugs and thread timestamps:
 ```
-flat-histories/<channel_prefix>_<thread_timestamp>.md
+flat-histories/<prompt_prefix_10>_<thread_ts_10>.md
 ```
-*Example*: `flat-histories/eng_architecture_1790455185.md`
+*Example*: `flat-histories/we_are_cons_1790455185.md` (or `flat-histories/we_are_cons_1790455185_54321.md` if disambiguating collisions).
 
 ### 3. File Format Structure
 ```markdown
@@ -53,7 +53,7 @@ Adopting Postgres JSONB unifies our storage topology and simplifies transactiona
 
 ---
 
-## [2026-10-08 10:14:12 UTC] Pragmatist (Model: mistral/mistral-large-latest)
+## [2026-10-08 10:14:12 UTC] Scope Optimizer (Model: mistral/mistral-large-latest)
 While attractive, high-frequency session writes cause table bloat and vacuum strain in Postgres...
 ```
 

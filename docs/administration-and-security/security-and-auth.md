@@ -114,4 +114,4 @@ To prevent prompt-injected agents from causing disruption or social engineering 
 To safeguard host infrastructure:
 - **Sandboxed File Operations**: Agent-accessible file tools operate strictly within `agents_resources/` and are forbidden from escaping to `system_resources/` or root project directories.
 - **Protected Write Paths**: Core directories (`core/`, `orchestration/`, `data/settings/`, `audit/`) are registered in `DEFAULT_PROTECTED_WRITE_PATHS` and locked against runtime modification by LLM tool calls.
-- **Fail-Closed Tool Authorization**: [`SkillRegistry`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/skills/registry.py) blocks unauthorized tool calls by default.
+- **Fail-Closed Tool Authorization**: [`SkillLoader`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/skills/loader.py) blocks unauthorized tool calls by default.

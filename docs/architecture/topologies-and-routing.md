@@ -11,12 +11,12 @@ Izvor supports two primary orchestration topologies configured via [`core/models
 ```mermaid
 graph TD
     subgraph Sandwich Mode
-        Start[Start Chain: e.g. Visionary, Pragmatist] --> Middle[Middle Pool: Free Debate / Dynamic Nomination]
+        Start[Start Chain: e.g. Visionary, Tactician] --> Middle[Middle Pool: Free Debate / Dynamic Nomination]
         Middle --> End[End Chain: e.g. Scribe / Synthesizer]
     end
 
     subgraph Fixed Mode
-        Step1[Agent 1: Visionary] --> Step2[Agent 2: Pragmatist]
+        Step1[Agent 1: Visionary] --> Step2[Agent 2: Tactician]
         Step2 --> Step3[Agent 3: Skeptic]
         Step3 --> Step4[Agent 4: Scribe]
     end
@@ -24,7 +24,7 @@ graph TD
 
 ### 1. Sandwich Mode (`OrchestrationMode.SANDWICH`)
 Sandwich mode is designed for exploratory discussions requiring both divergent ideation and convergent synthesis:
-- **Start Chain**: A predetermined sequence of opening personas (e.g., `["Visionary", "Pragmatist"]`) that unpack the problem from strategic and practical viewpoints.
+- **Start Chain**: A predetermined sequence of opening personas (e.g., `["Visionary", "Tactician"]`) that unpack the problem from strategic and practical viewpoints.
 - **Middle Pool**: Once the start chain finishes, the floor opens to other enabled personas. Speakers can either be dynamically nominated by peers or picked from an unassigned pool.
 - **End Chain**: When the middle pool round limits are reached, the discussion automatically routes to closing personas (e.g., `["Scribe"]` or `["Revisor"]`) to synthesize consensus and action items.
 - **Collapsed Sequential Pop**: In `ResolutionStage`, candidate agents are popped sequentially from the session's active remaining queue in SQLite, smoothly transitioning between sandwich tiers.
@@ -46,7 +46,7 @@ Personas include slash-bracketed tags in their response text:
 ```markdown
 I see substantial scalability concerns with this database schema.
 What do you think of this, /[Security Architect]?
-Could /[Pragmatist] or /[Tehnički Vođa] evaluate the migration effort?
+Could /[Tactician] or /[Tehnički Vođa] evaluate the migration effort?
 ```
 
 ### Extraction & Resolution

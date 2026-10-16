@@ -64,7 +64,7 @@ The pipeline operates on a centralized state container: [`TurnContext`](file:///
      - If tool execution finishes within 5 seconds, no intermediate progress indicator is posted, preventing UI spam.
      - If tool execution runs longer than 5 seconds, an intermediate status message is posted (e.g. `_🔍 *Visionary* is searching the web..._`), later updated in-place via `chat.update` with the final response.
   3. **Tool Loop & Fail-Closed Authorization**:
-     - Dispatches authorized tool calls through [`SkillRegistry`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/skills/registry.py). Unregistered or unauthorized tool executions fail closed.
+     - Dispatches authorized tool calls through [`SkillLoader`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/skills/loader.py). Unregistered or unauthorized tool executions fail closed.
      - **PII Unmasking**: Reverses tokenized synthetic values (`<EMAIL_0>`) back into original values using `pii_masker.unmask()` before passing arguments to tools.
      - **JSON Error Resilience**: Handles malformed LLM tool argument strings (`json.loads` failures) by returning error feedback directly into the conversation turn rather than crashing.
      - **Execution Timeout Guard**: Constrains iterations with `tool_call_loop_timeout_seconds` (default: 60s) to eliminate infinite tool loops.
@@ -72,9 +72,9 @@ The pipeline operates on a centralized state container: [`TurnContext`](file:///
 ### Stage 5: Post-Record & Metrics (`post_record.py`)
 - **File**: [`orchestration/stages/post_record.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/orchestration/stages/post_record.py)
 - **Responsibilities**:
-  1. **Nomination Extraction**: Parses agent output for unicode-safe peer nomination tags (e.g. `[Pragmatist]`, `[Security Architect]`, or diacritics like `[Tehnički Vođa]`) using `NOMINATION_TAG_RE`.
+  1. **Nomination Extraction**: Parses agent output for unicode-safe peer nomination tags (e.g. `[Scope Optimizer]`, `[Security Architect]`, or diacritics like `[Tehnički Vođa]`) using `NOMINATION_TAG_RE`.
   2. **Slack Thread Dispatch**: Posts the synthesized response to the Slack thread under the persona's bot profile, or updates the existing intermediate message.
-  3. **Token Accounting & Pricing**: Computes prompt and completion token usage, updating thread metrics via [`calculate_thread_costs`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/agents/token_tracker.py).
+  3. **Token Accounting & Pricing**: Computes prompt and completion token usage, updating thread metrics via [`calculate_thread_costs`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/agents/usage_agent.py).
   4. **Off-Thread Flat History Archival**: Invokes [`async_record_flat_history`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/services/flat_history_recorder.py) using Starlette's `run_in_threadpool` to append the completed turn to disk without blocking the asyncio event loop.
   5. **Thread State Transition**: Updates the active turn count, speaker history, and remaining agent queue in [`ThreadStateManager`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/orchestration/thread_state.py).
 
