@@ -6,11 +6,12 @@ This document provides complete technical specifications for the HTTP endpoints 
 
 ## 🔒 Authentication
 
-- **Public Endpoints** (`/`, `/health`): Require no authentication.
+- **Public Endpoints** (`/`, `/health`): Require no authentication. Hardened to return minimal status without exposing internal agent identifiers or configuration topology.
 - **Administrative Endpoints** (`/api/*`): Require **HTTP Basic Authentication**.
-  - Username: Set by `ADMIN_USERNAME` (default: `admin`).
-  - Password: Set by `ADMIN_PASSWORD` in `.env`.
-  - Pass credentials in the standard `Authorization: Basic <base64>` header.
+  - Username: Set by `ADMIN_USERNAME` in environment/.env (default: `admin`).
+  - Password: Set by `ADMIN_PASSWORD` in environment/.env.
+  - Pass credentials in standard `Authorization: Basic <base64>` header.
+  - Validated using `secrets.compare_digest` to defend against timing attacks. Emits structured non-repudiable audit events (`AUTH_SUCCESS`, `AUTH_FAILURE`).
 
 ---
 
@@ -18,25 +19,39 @@ This document provides complete technical specifications for the HTTP endpoints 
 
 | Method | Endpoint | Access Level | Description |
 |---|---|---|---|
-| `GET` | `/` | Public | Service health check and active personas list. |
-| `GET` | `/health` | Public | Service health check and active personas list. |
+| `GET` | `/` | Public | Lightweight health check status. |
+| `GET` | `/health` | Public | Lightweight health check status. |
+| `GET` | `/api/health` | Admin | Authenticated health check exposing active registered persona keys. |
 | `GET` | `/api/skills` | Admin | Returns all registered dynamic skills, descriptions, and schemas. |
 | `GET` | `/api/rag/status` | Admin | Returns RAG manifest status and total indexed documents. |
 | `POST` | `/api/rag/reconcile` | Admin | Triggers an immediate on-demand reconciliation of `rag_knowledge/`. |
-| `GET` | `/api/audit/status` | Admin | Returns cryptographic integrity and hash chain verification diagnostics. |
+| `GET` | `/api/audit/status` | Admin | Returns cryptographic integrity and HMAC hash chain verification diagnostics. |
 
 ---
 
 ## 📑 Detailed Endpoint Specifications
 
-### 1. Health Check
+### 1. Public Health Check
 - **Endpoint**: `GET /` or `GET /health`
 - **Authentication**: None
 - **Response** (`200 OK`):
 ```json
 {
   "status": "healthy",
-  "service": "CaiLogics Multi-Agent Hub",
+  "service": "Izvor Multi-Agent Hub"
+}
+```
+
+---
+
+### 2. Authenticated Admin Health Check
+- **Endpoint**: `GET /api/health`
+- **Authentication**: Admin Basic Auth
+- **Response** (`200 OK`):
+```json
+{
+  "status": "healthy",
+  "service": "Izvor Multi-Agent Hub",
   "agents": [
     "Visionary",
     "Innovator",
@@ -60,7 +75,7 @@ This document provides complete technical specifications for the HTTP endpoints 
 
 ---
 
-### 2. Registered Skills Catalog
+### 3. Registered Skills Catalog
 - **Endpoint**: `GET /api/skills`
 - **Authentication**: Admin Basic Auth
 - **Response** (`200 OK`):
@@ -95,7 +110,7 @@ This document provides complete technical specifications for the HTTP endpoints 
 
 ---
 
-### 3. RAG Knowledge Status
+### 4. RAG Knowledge Status
 - **Endpoint**: `GET /api/rag/status`
 - **Authentication**: Admin Basic Auth
 - **Response** (`200 OK`):
@@ -115,7 +130,7 @@ This document provides complete technical specifications for the HTTP endpoints 
 
 ---
 
-### 4. Trigger RAG Reconciliation
+### 5. Trigger RAG Reconciliation
 - **Endpoint**: `POST /api/rag/reconcile`
 - **Authentication**: Admin Basic Auth
 - **Audit Event**: Emits `RAG_RECONCILE_TRIGGERED` event with `WARNING` severity.
@@ -134,7 +149,7 @@ This document provides complete technical specifications for the HTTP endpoints 
 
 ---
 
-### 5. Audit Log Cryptographic Integrity Status
+### 6. Audit Log Cryptographic Integrity Status
 - **Endpoint**: `GET /api/audit/status`
 - **Authentication**: Admin Basic Auth
 - **Response** (`200 OK`):
@@ -157,8 +172,11 @@ This document provides complete technical specifications for the HTTP endpoints 
 ## 💻 cURL Examples
 
 ```bash
-# Query health check
+# Public health check
 curl http://localhost:8000/health
+
+# Authenticated admin health check
+curl -u admin:YourAdminPassword http://localhost:8000/api/health
 
 # Query registered skills (authenticated)
 curl -u admin:YourAdminPassword http://localhost:8000/api/skills

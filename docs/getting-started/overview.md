@@ -1,6 +1,6 @@
 # Izvor Platform Overview
 
-**Izvor** is an asynchronous multi-agent deliberation platform that connects Slack workspaces to specialized LLM personas using [LiteLLM](https://github.com/BerriAI/litellm) and [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) tools.
+**Izvor** is an asynchronous multi-agent deliberation platform that connects Slack workspaces to specialized LLM personas using [LiteLLM](https://github.com/BerriAI/litellm), standard library SQLite persistence, and [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) tools.
 
 ---
 
@@ -19,33 +19,32 @@ graph TD
     User([Slack User]) -->|Mentions / Slash Directives| SlackAPI[Slack Platform]
     SlackAPI -->|HTTP POST /slack/events| FastAPIApp[FastAPI Server in main.py]
 
-    subgraph Core Pipeline
+    subgraph Ingress & Deduplication
         FastAPIApp --> Signature[Slack Signature Verification]
-        Signature --> EventDedup[Event Deduplication & Generation Check]
-        EventDedup --> DirectiveParser[Directive & Tag Parser]
-        DirectiveParser --> TurnPipeline[Turn Execution Pipeline]
+        Signature --> EventDedup[SQLite Event Deduplication & Generation Check]
     end
 
-    subgraph Orchestration Layer
-        TurnPipeline --> AgentSettings[AgentSettingsManager - SSOT]
-        TurnPipeline --> ThreadState[ThreadStateManager - TTL Eviction]
-        TurnPipeline --> Topology[SandwichOrchestrator - Sandwich / Fixed]
-        TurnPipeline --> EntityResolver[Entity Resolver - Persona Matching]
+    subgraph 5-Stage Orchestration Pipeline
+        EventDedup --> Stage1[Stage 1: Validation & Directives]
+        Stage1 --> Stage2[Stage 2: Resolution & Spend Governance]
+        Stage2 --> Stage3[Stage 3: Context Preparation & Prompt Building]
+        Stage3 --> Stage4[Stage 4: Execution & Tool Calling Loop]
+        Stage4 --> Stage5[Stage 5: Post-Record, Metrics & Flat History]
     end
 
-    subgraph Tooling & Governance
-        TurnPipeline --> MCPTools[Safe MCP Workspace & Web Tools]
-        TurnPipeline --> InPlaceStatus[5s Delayed Progress & In-Place Edit]
-        TurnPipeline --> SpendGov[Spend Governance & Circuit Breakers]
-        TurnPipeline --> PricingService[Pricing Research Agent & 7-Day Cache]
+    subgraph Hybrid Persistence & Governance
+        Stage2 --> SpendGov[Spend Governance: Thread & Daily Budget Caps]
+        Stage2 --> SQLiteDB[(SQLite State Engine: data/izvor.db)]
+        Stage4 --> InPlaceStatus[5s Delayed Progress & In-Place Edit]
+        Stage5 --> AsyncFlatHistory[Off-Event-Loop Flat History Archival]
     end
 
     subgraph LLM Layer
-        TurnPipeline --> LiteLLM[LiteLLM Provider Router]
+        Stage4 --> LiteLLM[LiteLLM Provider Router]
         LiteLLM --> Models[OpenRouter / Anthropic / OpenAI / Gemini / Mistral]
     end
 
-    TurnPipeline -->|Final In-Place Edit / Dispatch| SlackAPI
+    Stage5 -->|Final In-Place Edit / Dispatch| SlackAPI
 ```
 
 ---
@@ -53,13 +52,14 @@ graph TD
 ## ✨ Key Architectural Pillars
 
 ### 1. Multi-Persona Discussion Topologies
-Izvor does not rely on rigid turn-taking. It supports 2 types of Workflow:
+Izvor does not rely on rigid turn-taking. It supports 2 distinct workflow topologies:
 - **🥪 Sandwich Mode**: Starts with designated initial thinkers (*Start Chain*), transitions through an open debate or peer-nominated pool (*Middle Pool*), and concludes with an authoritative synthesis by designated closers (*End Chain*).
 - **🎯 Fixed Mode**: Executes an ordered, sequential chain of personas defined by the operator or preset.
-- **Dynamic Peer Nomination**: Personas naturally pass the baton by referencing peers using bracket notation (e.g., `[Security Architect]`, `[Pragmatist]`), parsed automatically by the [`EntityResolver`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/pipeline/entity_resolver).
+- **Dynamic Peer Nomination**: Personas pass the baton using unicode-safe tags (e.g., `/[Security Architect]`, `/[Pragmatist]`, or `/[Tehnički Vođa]`), parsed automatically by the [`EntityResolver`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/pipeline/entity_resolver/resolver.py).
 
-### 2. Thread State & Memory Safety
-- **Bounded In-Memory State**: Managed by [`ThreadStateManager`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/orchestration/thread_state.py). Inactive threads are evicted after an idle TTL via background pruning ([`periodic_thread_state_cleanup`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/main.py#L55-L69)).
+### 2. Thread State & Memory Safety (Hybrid In-Memory + SQLite)
+- **Fast Runtime Layer**: Managed by [`ThreadStateManager`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/orchestration/thread_state.py). Inactive threads are evicted after an idle TTL via background pruning ([`periodic_thread_state_cleanup`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/main.py)).
+- **ACID SQLite Persistence**: All thread sessions, contexts, spending ledgers, HITL approvals, and skill grants reside in `data/izvor.db` using WAL mode.
 - **Generation-Based Superseding**: If a human user replies to an ongoing deliberation, the thread generation counter increments. Obsolete background agent turns detect generation divergence and gracefully abort without race conditions.
 
 ### 3. Asynchronous Tool Execution & Non-Blocking Slack UX
@@ -68,13 +68,13 @@ Izvor does not rely on rigid turn-taking. It supports 2 types of Workflow:
 - **In-Place Message Editing**: When tool output resolves, the placeholder is edited in-place with the final response, avoiding cluttered Slack threads.
 
 ### 4. Spend Governance & Model Pricing
-- **Autonomous Token & Cost Tracking**: Detailed prompt and completion tokens are recorded for each turn via [`services/pricing_service.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/services/pricing_service.py).
+- **Autonomous Token & Cost Tracking**: Detailed prompt and completion tokens are recorded in SQLite `spend_ledger` for each turn via [`services/pricing_service.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/services/pricing_service.py).
 - **Disk-Backed 7-Day Pricing Cache**: An autonomous pricing agent dynamically checks official model provider pricing tables, caching per-token rates in `data/pricing/model_pricing_cache.json`.
-- **Circuit Breaker**: When cumulative thread expense exceeds configured USD thresholds, the debate is safely paused, and a spend warning is posted.
+- **Two-Tiered Circuit Breakers**: Protects against runaway costs with both per-thread thresholds (`circuit_breaker_threshold_usd`) and global daily workspace caps (`daily_budget_usd`).
 
 ### 5. Interactive Slack App Home & Administrative SSOT
-- **Live Configuration**: Slack workspace admins can configure debate workflows, agent rosters, circuit breaker thresholds, and topologies directly in the Slack App Home tab ([`services/slack_home_views.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/services/slack_home_views.py)).
-- **Resilient Persistence**: Changes are committed atomically to `data/settings/agent_settings.json` and `data/settings/app_settings.json`, backed by automated 7-day emergency failover archives.
+- **Live Configuration**: Slack workspace admins (`is_slack_admin(user_id)`) can configure debate workflows, agent rosters, circuit breaker thresholds, and topologies directly in the Slack App Home tab ([`services/slack_home_views.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/services/slack_home_views.py)).
+- **Resilient Persistence**: Changes are committed atomically to `data/settings/agent_settings.json` and `data/settings/app_settings.json`, backed by automated rolling backups in `data/backups/`.
 
 ### 6. Non-Repudiable Cryptographic Audit Logging
 - Every administrative action, security event, and RAG synchronization is recorded in a cryptographically chained, HMAC-verified JSONL audit log ([`services/audit_logger.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/services/audit_logger.py)).

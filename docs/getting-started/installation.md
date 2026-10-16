@@ -49,6 +49,7 @@ Izvor utilizes:
 - `litellm` for universal multi-provider LLM routing.
 - `httpx` for asynchronous HTTP calls and MCP client adapters.
 - `pydantic` for data validation.
+- Standard library `sqlite3` for zero-infrastructure WAL state persistence.
 
 ---
 
@@ -57,13 +58,13 @@ Izvor utilizes:
 Create a `.env` file in the project root by copying [`.env.example`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/.env.example):
 
 ### Configuration Variables Breakdown
-Configure .env file with the following variables.
 Refer to [`core/config.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/core/config.py) for the full definitions:
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
 | `SLACK_BOT_TOKEN` | **Yes** | `None` | Bot user OAuth token (`xoxb-...`) with write/read scopes. |
 | `SLACK_SIGNING_SECRET` | **Yes** | `None` | Slack signing secret for validating HMAC-SHA256 signatures. |
+| `ADMIN_SLACK_USER_IDS` | Recommended | `""` | Comma-delimited list of Slack User IDs authorized for App Home admin actions. |
 | `OPENROUTER_API_KEY` | Optional | `None` | API key for OpenRouter (recommended universal router). |
 | `OPENAI_API_KEY` | Optional | `None` | API key for OpenAI direct access. |
 | `ANTHROPIC_API_KEY` | Optional | `None` | API key for Anthropic direct access. |
@@ -73,6 +74,7 @@ Refer to [`core/config.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/co
 | `ADMIN_PASSWORD` | **Yes** (for API) | `None` | HTTP Basic Auth password for protected endpoints. |
 | `AUDIT_HMAC_SECRET` | Optional | `None` | Secret key used for signing non-repudiable audit logs. |
 | `PORT` | No | `8000` | HTTP port on which FastAPI listens. |
+| `IZVOR_DB_PATH` | No | `data/izvor.db` | Path to persistent SQLite state database. |
 | `MCP_WORKSPACE_DIR` | No | `.` | Root directory to which MCP filesystem tools are confined. |
 
 > [!WARNING]
@@ -100,7 +102,7 @@ System operational parameters and guardrails are configured in [`data/settings/s
 
 ### Development Mode
 
-Run the server with Uvicorn auto-reloading:
+Run the server with Uvicorn:
 
 ```bash
 uvicorn main:app --host 0.0.0.0 --port 8000 --reload
@@ -122,9 +124,13 @@ Expected JSON response:
 ```json
 {
   "status": "healthy",
-  "service": "CaiLogics Multi-Agent Hub",
-  "agents": ["Visionary", "Pragmatist", "Skeptic", "Innovator", "LegalAdvisor", "Security Architect", "Revisor", "Creative Advisor", "Scribe"]
+  "service": "Izvor Multi-Agent Hub"
 }
+```
+
+To view the active agent catalog, use the authenticated administrative endpoint:
+```bash
+curl -u admin:YourAdminPassword http://localhost:8000/api/health
 ```
 
 ---

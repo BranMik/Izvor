@@ -53,7 +53,7 @@ In addition to the debate roster, Izvor runs dedicated system-level agents:
 
 ### 3. Usage Reporter Agent (`Usage_Agent`)
 - **Prompt**: [`prompts/system_agents/Usage_Agent.md`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/prompts/system_agents/Usage_Agent.md)
-- **Role**: Posts token consumption and spend summaries to the dedicated usage channel (`#cailogics-usage`).
+- **Role**: Posts token consumption and spend summaries to the dedicated usage channel (configured via `USAGE_CHANNEL_NAME`, default `cailogics-usage` or `#izvor-usage`).
 
 ### 4. Scribe (`Scribe`)
 - **Role**: Synthesizes end-of-discussion agreements, action items, and generates downloadable flat markdown exports.
@@ -62,9 +62,10 @@ In addition to the debate roster, Izvor runs dedicated system-level agents:
 
 ## 📝 Prompt Composition Engine
 
-Personas' effective system prompts are assembled dynamically during **Stage 2: Context Preparation** ([`orchestration/stages/context_prep.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/orchestration/stages/context_prep.py)):
+Personas' effective system prompts are assembled dynamically during **Stage 3: Context Preparation** ([`orchestration/stages/context_prep.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/orchestration/stages/context_prep.py)) using [`prompts/builder.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/prompts/builder.py):
 
-1. **Base System Prompt**: Loaded from [`prompts/`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/prompts).
+1. **Base System Prompt**: Loaded from [`prompts/`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/prompts) or dynamic `AgentSettingsManager` overrides.
 2. **Behavioral Guidelines**: Rules prohibiting self-repetition, requiring peer engagement, and enforcing civil intellectual tension.
-3. **Word Constraints**: If `is_short_output: true` or if a directive (`[max_words: N]`, `[min_words: N]`) is active, instructions are injected into the context.
-4. **Active Tools & Skills**: Schemas of granted tools (e.g. search, document reader) are appended to the LiteLLM tool definition payload.
+3. **Word Constraints**: If `is_short_output: true` or if a directive (`[max_words: N]`, `[min_words: N]`) is active, instructions are clamped (`max_words ≤ 2000`) and injected into the prompt.
+4. **File Attachments**: Any thread-attached files are safely sanitized and wrapped with `<untrusted_file_content>` delimiters.
+5. **Active Tools & Skills**: Schemas of granted tools (e.g. search, document reader) are queried from [`ThreadSkillsManager`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/orchestration/thread_skills_manager.py) and appended to the LiteLLM tool definition payload.
