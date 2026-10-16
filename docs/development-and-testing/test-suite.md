@@ -6,7 +6,7 @@ This document details the test suites, testing practices, and quality assurance 
 
 ## 🧪 Test Suite Overview
 
-Izvor features an extensive test suite consisting of **54+ automated test files** and over 200 unit and integration tests.
+Izvor features an extensive test suite consisting of **60+ automated test files** and **579 passed automated unit, integration, and security tests**.
 
 ```
 tests/
@@ -18,17 +18,24 @@ tests/
 ├── test_code_hygiene.py               # Code hygiene, dangling imports, formatting
 ├── test_directive_slash_parser.py     # Regex directive extraction & slash commands
 ├── test_document_parser.py            # PDF, text & markdown document reading
+├── test_domain_state_stores.py        # SQLite discussion & context domain stores
 ├── test_flat_history.py               # Markdown thread transcript recording
 ├── test_integrity_checks.py           # Startup and periodic integrity verification
 ├── test_intent_extractor.py           # NLP conversational directive detection
 ├── test_mcp.py                        # MCP tool sandbox & directory traversal guards
 ├── test_model_catalog.py              # Provider resolution & default model loaders
 ├── test_nomination.py                 # Peer bracket nomination parsing & entity routing
+├── test_phase_p0_gates.py             # Phase P0 sanity and security gates
+├── test_phase_p1_privilege_boundaries.py # Phase P1 directive origin & privilege boundaries
+├── test_phase_p2_reliability.py       # Phase P2 unicode diacritics & candidate fallbacks
+├── test_phase_p3_modernization.py     # Phase P3 pipeline DI & thread cleanup
 ├── test_pricing_service.py            # Pricing agent research & 7-day disk cache
 ├── test_router_circuit_breaker.py     # Spend thresholds & debate cutoffs
 ├── test_router_single_turn.py         # End-to-end single-turn agent execution
 ├── test_router_multi_turn.py          # End-to-end multi-round deliberations
+├── test_slack_admin_auth.py           # Slack App Home server-side admin check tests
 ├── test_slack_client.py               # Slack WebClient mock interactions
+├── test_sqlite_engine.py              # SQLite WAL mode, pragmas & concurrent transactions
 ├── test_tool_loop_and_updates.py      # 5s delayed progress indicator & in-place edits
 └── test_turn_pipeline_di.py           # 5-stage pipeline dependency injection isolation
 ```
@@ -37,29 +44,39 @@ tests/
 
 ## 🏃 Running the Tests
 
-### 1. Run the Full Test Suite
+### 1. Windows Protocol (Mandatory Non-Interactive & Unbuffered)
+On Windows platforms, always prefix shell and test execution with `cmd /c` and run pytest unbuffered (`-u`) to ensure processes exit cleanly:
+
+```bash
+cmd /c .venv\Scripts\python.exe -u -m pytest -v
+```
+
+### 2. Linux / macOS
 ```bash
 pytest -v
 ```
 
-### 2. Run with Coverage
+### 3. Run with Coverage
 ```bash
-pytest --cov=. --cov-report=term-missing
+cmd /c .venv\Scripts\python.exe -u -m pytest --cov=. --cov-report=term-missing
 ```
 
-### 3. Run Specific Subsystems
+### 4. Run Specific Subsystems
 ```bash
 # Run security & authentication tests
-pytest tests/test_security.py tests/test_admin_auth.py tests/test_integrity_checks.py -v
+cmd /c .venv\Scripts\python.exe -u -m pytest -v tests/test_admin_auth.py tests/test_phase_p1_privilege_boundaries.py tests/test_integrity_checks.py
 
-# Run orchestration & pipeline tests
-pytest tests/test_turn_pipeline_di.py tests/test_orchestration_chains.py -v
+# Run SQLite state engine & domain store tests
+cmd /c .venv\Scripts\python.exe -u -m pytest -v tests/test_sqlite_engine.py tests/test_domain_state_stores.py
+
+# Run orchestration & 5-stage pipeline tests
+cmd /c .venv\Scripts\python.exe -u -m pytest -v tests/test_turn_pipeline_di.py tests/test_phase_p3_modernization.py
 
 # Run pricing & spend governance tests
-pytest tests/test_pricing_service.py tests/test_router_circuit_breaker.py -v
+cmd /c .venv\Scripts\python.exe -u -m pytest -v tests/test_pricing_service.py tests/test_router_circuit_breaker.py
 
 # Run code hygiene checks
-pytest tests/test_code_hygiene.py -v
+cmd /c .venv\Scripts\python.exe -u -m pytest -v tests/test_code_hygiene.py
 ```
 
 ---
@@ -68,4 +85,5 @@ pytest tests/test_code_hygiene.py -v
 
 1. **Deterministic Mocking**: Real LLM API calls and Slack HTTP calls must never be executed in standard unit tests. Use mocked LiteLLM responses and `conftest.py` stubs.
 2. **Generation Divergence Tests**: Concurrency tests must verify that incrementing thread generation aborts ongoing background tasks without dangling coroutines.
-3. **Hygiene Asserts**: All new files must conform to [`test_code_hygiene.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/tests/test_code_hygiene.py) standards, preventing debug print statements and dead imports.
+3. **Clean Fixture Teardown**: Async tests using `ThreadStateManager` or SQLite connections must cleanly close background worker coroutines and reset database connections upon teardown to prevent unhandled runtime warnings.
+4. **Hygiene Asserts**: All source files must conform to [`test_code_hygiene.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/tests/test_code_hygiene.py) standards, preventing debug print statements, broken links, and dead imports.

@@ -1,6 +1,6 @@
 # Spend Governance & Pricing Engine
 
-This document details how **Izvor** monitors LLM token usage, calculates real-time inference expenses across multiple providers, and enforces budget circuit breakers.
+This document details how **Izvor** monitors LLM token usage, calculates real-time inference expenses across multiple providers, logs transactions to SQLite, and enforces two-tiered budget circuit breakers.
 
 ---
 
@@ -10,10 +10,11 @@ Izvor orchestrates multiple LLM personas across providers such as OpenRouter, Op
 
 ```mermaid
 graph TD
-    Turn[Completed Agent Turn] --> Usage[Extract Token Counts: Prompt & Completion]
+    Turn[Completed Agent Turn] --> PostRecord[Stage 5: Post-Record & Accounting]
+    PostRecord --> Usage[Extract Token Counts: Prompt & Completion]
     Usage --> PricingService[PricingService (services/pricing_service.py)]
     
-    subgraph Pricing Service Architecture
+    subgraph Pricing Cache & Researcher
         PricingService --> CacheCheck{Cache < 7 Days?}
         CacheCheck -->|Yes| DiskCache[Read data/pricing/model_pricing_cache.json]
         CacheCheck -->|No / Miss| Researcher[Autonomous Pricing Researcher Agent]
@@ -22,15 +23,22 @@ graph TD
     end
     
     PricingService --> ComputeUSD[Compute Exact USD Cost for Turn]
-    ComputeUSD --> Accumulator[Add to Thread Cumulative Spend]
-    Accumulator --> CircuitBreaker{Exceeds Threshold?}
-    CircuitBreaker -->|Yes| TripBreaker[Halt Debate & Post Warning in Thread]
-    CircuitBreaker -->|No| Proceed[Proceed to Next Turn]
+    ComputeUSD --> SQLiteLedger[(SQLite spend_ledger)]
+    SQLiteLedger --> DailyAccumulator[Update Daily Spend USD]
+    
+    subgraph Pre-Turn Resolution Check (Stage 2)
+        NextTurn[Incoming Turn] --> ResolutionStage[Stage 2: ResolutionStage]
+        ResolutionStage --> CBCheck{Circuit Breaker Enabled?}
+        CBCheck -->|Yes| Evaluate{Thread Spend >= Threshold OR Today Spend >= Daily Budget?}
+        Evaluate -->|Yes| TripBreaker[Halt Debate, Log Audit Event & Post Slack Alert]
+        Evaluate -->|No| Proceed[Proceed to Turn Execution]
+        CBCheck -->|No| Proceed
+    end
 ```
 
 ---
 
-## 🤖 The Autonomous Pricing Researcher Agent
+## 🤖 Autonomous Pricing Researcher Agent
 
 Unlike static cost tables that go out of date as providers adjust their prices, Izvor features an autonomous pricing researcher agent:
 
@@ -42,36 +50,49 @@ Unlike static cost tables that go out of date as providers adjust their prices, 
 
 ---
 
-## 📊 Token & Cost Tracking Per Turn
+## 📊 Transactional Ledger (`spend_ledger`)
+
+All token usage and USD costs are written immediately to the SQLite database (`data/izvor.db`) in table `spend_ledger`:
+
+```sql
+CREATE TABLE IF NOT EXISTS spend_ledger (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    channel_id TEXT NOT NULL,
+    thread_ts TEXT NOT NULL,
+    model_name TEXT NOT NULL,
+    prompt_tokens INTEGER NOT NULL,
+    completion_tokens INTEGER NOT NULL,
+    cost_usd REAL NOT NULL,
+    timestamp REAL NOT NULL
+);
+```
 
 After each completed agent turn, [`orchestration/stages/post_record.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/orchestration/stages/post_record.py) records:
 - **`prompt_tokens`**: Input tokens processed by the LLM.
 - **`completion_tokens`**: Output tokens generated in the reply.
 - **`model_name`**: The exact model identifier invoked.
-- **`turn_cost_usd`**: Calculated using:
-  $$\text{Cost} = \left(\text{Prompt Tokens} \times \text{Rate}_{\text{prompt}}\right) + \left(\text{Completion Tokens} \times \text{Rate}_{\text{completion}}\right)$$
-- **Cumulative Metrics**: Stored in [`SpendMetrics`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/core/domain.py) on the thread's session context.
+- **`cost_usd`**: Calculated using:
+  $$\text{Cost} = \frac{\text{Prompt Tokens} \times \text{Rate}_{\text{prompt}} + \text{Completion Tokens} \times \text{Rate}_{\text{completion}}}{1{,}000{,}000}$$
 
 ---
 
-## ⚡ Circuit Breaker Protection
+## ⚡ Two-Tiered Circuit Breaker Protection
 
-To safeguard budgets, Izvor includes an automated circuit breaker:
+To safeguard budgets, Izvor enforces both thread-level and daily workspace-level spending limits:
 
-### 1. Configuration
-Admins configure circuit breaker rules globally or via Slack App Home:
-- **`circuit_breaker_enabled`**: Boolean toggle.
-- **`max_thread_spend_usd`**: Maximum allowed USD cost per thread (e.g., `$1.50`).
+### 1. Configuration Parameters
+Managed in `data/settings/app_settings.json` and configurable dynamically via Slack App Home:
+- **`circuit_breaker_enabled`**: `true` (Enabled by default).
+- **`circuit_breaker_threshold_usd`**: Maximum allowed USD cost per individual thread (e.g., `$1.50`).
+- **`daily_budget_usd`**: Global cap on total workspace spending across all threads within a 24-hour UTC window (e.g., `$10.00`).
 
-### 2. Tripping the Breaker
-Before starting any new turn, [`orchestration/stages/validation.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/orchestration/stages/validation.py) evaluates:
-```python
-if thread_spend.total_cost_usd >= circuit_breaker_threshold:
-    raise CircuitBreakerTrippedException(...)
-```
-
-When tripped:
-- Further LLM calls in the thread are immediately halted.
-- A notification block is posted to the Slack thread informing participants:
-  > *⚠️ Spend Circuit Breaker Triggered: This thread has reached its configured budget limit ($1.50). Further automated debate turns are paused.*
-- Admins can raise the limit or resume deliberation directly via Slack App Home.
+### 2. Pre-Turn Gatekeeping in Stage 2 (`ResolutionStage`)
+Before allocating compute or dispatching to an LLM, [`orchestration/stages/resolution.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/orchestration/stages/resolution.py) invokes `spend_governance.is_budget_exceeded()`:
+1. Queries the SQLite `spend_ledger` for thread cumulative spend.
+2. Queries the SQLite `spend_ledger` for today's UTC aggregate spend (`timestamp >= midnight_utc`).
+3. If either threshold is breached:
+   - Emits a structured audit log event (`CIRCUIT_BREAKER_TRIGGERED`).
+   - Posts a warning block to the Slack thread informing participants:
+     > *⚠️ EXPENSE LIMIT REACHED FOR THE THREAD. ENDING CALLS*
+     > *(or: Daily workspace budget of $10.00 exceeded)*
+   - Terminates the turn immediately without dispatching an LLM call.
