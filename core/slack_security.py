@@ -12,18 +12,66 @@ logger = logging.getLogger(__name__)
 # Sliding window rate-limiting for AUTH_FAILURE audit logs to prevent disk/log flooding
 _AUTH_FAILURE_WINDOW_SECONDS = 60.0
 _AUTH_FAILURE_BURST_LIMIT = 5
+_GLOBAL_AUTH_FAILURE_BURST_LIMIT = 25
+_MAX_TRACKER_ENTRIES = 1000
 _auth_failure_lock = threading.Lock()
 # Mapping of client_key -> {"window_start": float, "logged_count": int, "suppressed_count": int}
 _auth_failure_tracker: dict[str, dict[str, Any]] = {}
+_global_burst_window_start: float = 0.0
+_global_burst_count: int = 0
+
+
+def _extract_client_ip(headers: dict) -> str:
+    """
+    Extracts client IP from headers safely.
+    Only trusts proxy headers (X-Forwarded-For, X-Real-IP) if TRUST_PROXY_HEADERS is explicitly enabled.
+    """
+    trust_proxy = os.getenv("TRUST_PROXY_HEADERS", "false").lower() in ("1", "true", "yes")
+    if not trust_proxy:
+        return "direct_client"
+
+    client_ip = (
+        headers.get("x-forwarded-for")
+        or headers.get("X-Forwarded-For")
+        or headers.get("x-real-ip")
+        or headers.get("X-Real-IP")
+        or ""
+    )
+    if client_ip and "," in client_ip:
+        client_ip = client_ip.split(",")[0].strip()
+    return client_ip.strip() if client_ip else "direct_client"
 
 
 def _record_auth_failure_audit(client_id: str) -> None:
-    """Logs an AUTH_FAILURE audit event with sliding-window burst suppression."""
+    """Logs an AUTH_FAILURE audit event with sliding-window burst suppression and bounded tracker."""
+    global _global_burst_window_start, _global_burst_count
     now = time.time()
     should_log = False
     summary_to_log: int | None = None
 
     with _auth_failure_lock:
+        if now - _global_burst_window_start >= _AUTH_FAILURE_WINDOW_SECONDS:
+            _global_burst_window_start = now
+            _global_burst_count = 0
+
+        # Periodic cleanup of expired entries
+        expired_keys = [
+            k
+            for k, v in _auth_failure_tracker.items()
+            if now - v.get("window_start", 0.0) >= _AUTH_FAILURE_WINDOW_SECONDS
+        ]
+        for k in expired_keys:
+            if k != client_id:
+                _auth_failure_tracker.pop(k, None)
+
+        # Cap tracker capacity
+        while len(_auth_failure_tracker) >= _MAX_TRACKER_ENTRIES and client_id not in _auth_failure_tracker:
+            oldest_key = min(
+                _auth_failure_tracker.keys(),
+                key=lambda k: _auth_failure_tracker[k].get("window_start", 0.0),
+            )
+            _auth_failure_tracker.pop(oldest_key, None)
+
         state = _auth_failure_tracker.get(client_id)
         if not state or (now - state["window_start"]) >= _AUTH_FAILURE_WINDOW_SECONDS:
             if state and state.get("suppressed_count", 0) > 0:
@@ -33,11 +81,17 @@ def _record_auth_failure_audit(client_id: str) -> None:
                 "logged_count": 1,
                 "suppressed_count": 0,
             }
-            should_log = True
+            if _global_burst_count < _GLOBAL_AUTH_FAILURE_BURST_LIMIT:
+                _global_burst_count += 1
+                should_log = True
         else:
             if state["logged_count"] < _AUTH_FAILURE_BURST_LIMIT:
                 state["logged_count"] += 1
-                should_log = True
+                if _global_burst_count < _GLOBAL_AUTH_FAILURE_BURST_LIMIT:
+                    _global_burst_count += 1
+                    should_log = True
+                else:
+                    state["suppressed_count"] += 1
             else:
                 state["suppressed_count"] += 1
 
@@ -124,14 +178,8 @@ def verify_slack_signature(body_bytes: bytes, headers: dict) -> bool:
     is_valid = hmac.compare_digest(my_signature, slack_signature)
     if not is_valid:
         logger.error("Slack signature verification failed!")
-        client_ip = (
-            headers.get("x-forwarded-for", "")
-            or headers.get("x-real-ip", "")
-            or "unverified_client"
-        )
-        if "," in client_ip:
-            client_ip = client_ip.split(",")[0].strip()
-        _record_auth_failure_audit(client_ip or "unverified_client")
+        client_ip = _extract_client_ip(headers)
+        _record_auth_failure_audit(client_ip)
 
     return is_valid
 

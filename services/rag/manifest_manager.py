@@ -94,10 +94,12 @@ class ManifestManager:
         return dict(self._manifest)
 
     def diff_filesystem(
-        self, root_dir: Path = RAG_KNOWLEDGE_DIR
+        self, root_dir: Path = RAG_KNOWLEDGE_DIR, use_mtime_fastpath: bool = True
     ) -> dict[str, Any]:
         """
         Scans root_dir and compares with current manifest.
+        If use_mtime_fastpath is True and recorded mtime matches current mtime,
+        marks document as unchanged without re-reading or computing SHA-256.
         Returns:
             {
                 "new": [(rel_doc_id, full_path, agent_id, sha256, mtime), ...],
@@ -136,6 +138,18 @@ class ManifestManager:
             try:
                 stat = path.stat()
                 mtime = stat.st_mtime
+            except OSError as e:
+                logger.error(f"[RAG Manifest] Could not stat file {path}: {e}")
+                continue
+
+            existing_record = self._manifest.get(rel_doc_id)
+            if existing_record and use_mtime_fastpath:
+                recorded_mtime = float(existing_record.get("mtime", 0.0))
+                if abs(recorded_mtime - mtime) < 1e-3:
+                    diff["unchanged"].append(rel_doc_id)
+                    continue
+
+            try:
                 current_sha = compute_sha256(path)
             except OSError as e:
                 logger.error(f"[RAG Manifest] Could not read file {path}: {e}")
@@ -144,7 +158,6 @@ class ManifestManager:
             if rel_doc_id not in self._manifest:
                 diff["new"].append((rel_doc_id, path, agent_id, current_sha, mtime))
             else:
-                existing_record = self._manifest[rel_doc_id]
                 if existing_record.get("sha256") != current_sha:
                     diff["modified"].append(
                         (

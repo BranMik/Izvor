@@ -149,12 +149,14 @@ def save_thread_notes_to_disk(
 
 def _atomic_write_file(target_path: Path, content: str) -> bool:
     """Helper to perform atomic file replacement via temporary file."""
+    tmp_path_obj: Path | None = None
     try:
         tmp_fd, tmp_path = tempfile.mkstemp(
             dir=str(target_path.parent),
             prefix=f"{target_path.stem}_",
             suffix=".tmp",
         )
+        tmp_path_obj = Path(tmp_path)
         with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
             f.write(content)
             f.flush()
@@ -163,5 +165,10 @@ def _atomic_write_file(target_path: Path, content: str) -> bool:
         logger.info(f"[THREAD NOTES WRITER] Saved note to {target_path}")
         return True
     except Exception as e:
+        if tmp_path_obj is not None:
+            try:
+                tmp_path_obj.unlink(missing_ok=True)
+            except OSError:
+                pass
         logger.error(f"[THREAD NOTES WRITER] Failed to atomically write {target_path}: {e}")
         return False

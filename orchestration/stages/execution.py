@@ -56,9 +56,64 @@ def _unmask_argument_values(val: Any, mapping: dict[str, str]) -> Any:
 
 
 class ExecutionStage:
+    """Provides stage 4 LLM execution and tool calling loops for TurnPipeline."""
+
     def __init__(self, pipeline: Any):
         self.pipeline = pipeline
-    """Provides stage 4 LLM execution and tool calling loops for TurnPipeline."""
+
+    def _is_mid_turn_budget_exceeded(self, ctx: TurnContext) -> bool:
+        """
+        Calculates thread cost plus current turn's accumulated token usage,
+        and checks if the circuit breaker limit or daily budget is exceeded.
+        """
+        from orchestration.agent_settings import (
+            get_circuit_breaker_threshold,
+            is_circuit_breaker_enabled,
+        )
+
+        if not is_circuit_breaker_enabled():
+            return False
+
+        try:
+            from agents.usage_agent import calculate_thread_costs
+            from orchestration.app_settings import get_daily_budget_usd
+            from pipeline.spend_governance import spend_governance
+            from services.pricing_service import pricing_service
+
+            model = ctx.agent_cfg.get("model", "") if ctx.agent_cfg else ""
+            prompt_tokens = getattr(ctx, "total_prompt_tokens", 0) or 0
+            completion_tokens = getattr(ctx, "total_completion_tokens", 0) or 0
+
+            incremental_cost = 0.0
+            if model and (prompt_tokens > 0 or completion_tokens > 0):
+                pricing = pricing_service.get_pricing(model)
+                input_rate = float(pricing.get("input_cost_per_token", 0.0) or 0.0)
+                output_rate = float(pricing.get("output_cost_per_token", 0.0) or 0.0)
+                incremental_cost = (prompt_tokens * input_rate) + (completion_tokens * output_rate)
+
+            calc_costs_fn = self.pipeline._get_hook(
+                "calculate_thread_costs", calculate_thread_costs
+            )
+            cost_info = calc_costs_fn(ctx.channel_id, ctx.thread_ts)
+            current_cost = (
+                float(cost_info.get("grand_total_cost_usd", 0.0) or 0.0)
+                + incremental_cost
+            )
+            threshold = get_circuit_breaker_threshold()
+            session_id = f"{ctx.channel_id}:{ctx.thread_ts}"
+            daily_budget = get_daily_budget_usd()
+
+            tripped, _, _ = spend_governance.is_budget_exceeded(
+                session_id=session_id,
+                threshold_usd=threshold,
+                enabled=True,
+                current_cost_usd=current_cost,
+                daily_budget_usd=daily_budget,
+            )
+            return bool(tripped)
+        except Exception as e:
+            logger.debug(f"[EXECUTION] Error checking mid-turn budget: {e}")
+            return False
 
 
 
@@ -310,15 +365,25 @@ class ExecutionStage:
                                         ctx.skills_used.append(s_name)
                                     break
                             
-                            tool_result = await asyncio.to_thread(
-                                skill_registry.execute_tool,
-                                fn_name,
-                                fn_args,
-                                authorized_skills=agent_skills,
-                                expired_skills=expired_thread_skills,
-                                ttl_hours=thread_ttl_hours,
-                                agent_name=ctx.agent_key,
-                            )
+                            if hasattr(skill_registry, "execute_tool_async"):
+                                tool_result = await skill_registry.execute_tool_async(
+                                    fn_name,
+                                    fn_args,
+                                    authorized_skills=agent_skills,
+                                    expired_skills=expired_thread_skills,
+                                    ttl_hours=thread_ttl_hours,
+                                    agent_name=ctx.agent_key,
+                                )
+                            else:
+                                tool_result = await asyncio.to_thread(
+                                    skill_registry.execute_tool,
+                                    fn_name,
+                                    fn_args,
+                                    authorized_skills=agent_skills,
+                                    expired_skills=expired_thread_skills,
+                                    ttl_hours=thread_ttl_hours,
+                                    agent_name=ctx.agent_key,
+                                )
                         # Track skill used
                         if fn_name == "load_skill":
                             s_name = fn_args.get("skill_name", "").strip()
@@ -401,6 +466,16 @@ class ExecutionStage:
                     ctx.add_usage(follow_up)
                     response_message = follow_up.choices[0].message
                     tool_calls = getattr(response_message, "tool_calls", None)
+
+                    if tool_calls and self._is_mid_turn_budget_exceeded(ctx):
+                        logger.warning(
+                            f"[CIRCUIT BREAKER] Mid-turn tool calling budget exceeded for thread {ctx.thread_key} during iteration {iteration}. Halting tool loop."
+                        )
+                        ctx.final_text = (
+                            response_message.content
+                            or "⚠️ _Thread cost safety limit reached during tool execution. Turn paused._"
+                        )
+                        break
 
                 return None
 

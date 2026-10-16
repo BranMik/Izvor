@@ -28,6 +28,8 @@ from typing import Any
 
 from core.config import PROJECT_ROOT
 
+from contextlib import contextmanager
+
 logger = logging.getLogger(__name__)
 
 # Default directory paths
@@ -40,6 +42,49 @@ GENESIS_HASH = "0" * 64
 
 # Secret HMAC key from environment (optional defense against offline recalculation)
 AUDIT_HMAC_SECRET = os.getenv("AUDIT_HMAC_SECRET", "").encode("utf-8")
+
+
+@contextmanager
+def _cross_process_file_lock(lock_path: Path):
+    """
+    Cross-process file lock using msvcrt on Windows and fcntl on POSIX.
+    Ensures safe serialization across multiple processes or CLI tools.
+    """
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    lock_file = open(lock_path, "a+b")
+    try:
+        if sys.platform == "win32":
+            import msvcrt
+
+            lock_file.seek(0, os.SEEK_END)
+            if lock_file.tell() == 0:
+                lock_file.write(b"\x00")
+                lock_file.flush()
+            lock_file.seek(0)
+            msvcrt.locking(lock_file.fileno(), msvcrt.LK_LOCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        yield lock_file
+    finally:
+        try:
+            if sys.platform == "win32":
+                import msvcrt
+
+                lock_file.seek(0)
+                msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+        except Exception:
+            pass
+        finally:
+            try:
+                lock_file.close()
+            except Exception:
+                pass
 
 
 @dataclass
@@ -118,6 +163,7 @@ class AuditLogger:
         self.backup_dir = self._audit_dir / "backups"
         self.manifest_file = self._audit_dir / "manifest.sha256"
         self._cached_last_state = None
+        self._cached_file_size = 0
         self._ensure_dirs()
 
     def __init__(self, audit_dir: Path | None = None) -> None:
@@ -128,6 +174,7 @@ class AuditLogger:
 
         self._write_lock = threading.RLock()
         self._cached_last_state: tuple[int, str] | None = None
+        self._cached_file_size: int = 0
         self.audit_dir = audit_dir or DEFAULT_AUDIT_DIR
         self._initialized = True
 
@@ -135,6 +182,7 @@ class AuditLogger:
         """Invalidates cached sequence and hash state, forcing file scan on next read."""
         with self._write_lock:
             self._cached_last_state = None
+            self._cached_file_size = 0
 
     def _ensure_dirs(self) -> None:
         if hasattr(self, "_audit_dir"):
@@ -203,6 +251,7 @@ class AuditLogger:
 
             sorted_files = self._get_sorted_audit_files()
             if not sorted_files:
+                self._cached_file_size = 0
                 self._cached_last_state = (0, GENESIS_HASH)
                 return self._cached_last_state
 
@@ -212,12 +261,14 @@ class AuditLogger:
                     last_line = self._read_last_nonempty_line(file_path)
                     if last_line:
                         record = json.loads(last_line)
+                        self._cached_file_size = file_path.stat().st_size
                         self._cached_last_state = (int(record["seq"]), str(record["entry_hash"]))
                         return self._cached_last_state
                 except Exception as e:
                     logger.error(f"[AUDIT] Failed to read last state from {file_path.name}: {e}")
                     continue
 
+            self._cached_file_size = 0
             self._cached_last_state = (0, GENESIS_HASH)
             return self._cached_last_state
 
@@ -234,7 +285,7 @@ class AuditLogger:
     ) -> dict[str, Any]:
         """
         Records an audit event with cryptographic hash chaining.
-        Thread-safe, append-only, and synchronous.
+        Thread-safe, append-only, cross-process locked, and synchronous.
         """
         now = timestamp or datetime.datetime.now(datetime.timezone.utc)
         iso_timestamp = now.isoformat()
@@ -243,7 +294,13 @@ class AuditLogger:
         actor_dict = asdict(actor) if isinstance(actor, AuditActor) else dict(actor)
         clean_details = details or {}
 
-        with self._write_lock:
+        with self._write_lock, _cross_process_file_lock(self.audit_dir / ".audit.lock"):
+            if target_file.exists():
+                curr_size = target_file.stat().st_size
+                if curr_size != self._cached_file_size:
+                    self._cached_last_state = None
+                    self._cached_file_size = curr_size
+
             last_seq, last_hash = self.get_last_state()
             current_seq = last_seq + 1
             prev_hash = last_hash
@@ -270,6 +327,7 @@ class AuditLogger:
                 f.write(line_str)
                 f.flush()
 
+            self._cached_file_size = target_file.stat().st_size
             self._cached_last_state = (record.seq, record.entry_hash)
 
             logger.info(

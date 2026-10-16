@@ -65,6 +65,32 @@ def _run_coroutine_sync(coro: Any) -> Any:
         return asyncio.run(coro)
 
 
+async def async_execute_search_knowledge_rag(arguments: dict[str, Any], agent_name: str = "") -> str:
+    """Asynchronously executes search_knowledge_rag directly on active event loop."""
+    query = arguments.get("query", "")
+    scope = arguments.get("scope", "all")
+    raw_max_results = arguments.get("max_results", DEFAULT_TOP_K)
+    try:
+        max_results = int(raw_max_results)
+    except (ValueError, TypeError):
+        max_results = DEFAULT_TOP_K
+    max_results = max(1, min(10, max_results))
+
+    try:
+        result = await rag_service.search(
+            query=query,
+            agent_name=agent_name,
+            scope=scope,
+            max_results=max_results,
+        )
+        from core.security_utils import wrap_untrusted_content
+
+        return wrap_untrusted_content(result)
+    except Exception as e:
+        logger.error(f"[search_knowledge_rag] Async tool execution failed: {e}")
+        return f"Error executing knowledge search: {e}"
+
+
 def execute_search_knowledge_rag(arguments: dict[str, Any], agent_name: str = "") -> str:
     """Executes search_knowledge_rag with given arguments."""
     query = arguments.get("query", "")
@@ -86,11 +112,14 @@ def execute_search_knowledge_rag(arguments: dict[str, Any], agent_name: str = ""
             )
         )
         from core.security_utils import wrap_untrusted_content
+
         return wrap_untrusted_content(result)
     except Exception as e:
         logger.error(f"[search_knowledge_rag] Tool execution failed: {e}")
         return f"Error executing knowledge search: {e}"
 
+
+execute_search_knowledge_rag._async_fn = async_execute_search_knowledge_rag
 
 # Tool execution dispatch mapping
 TOOL_HANDLERS = {

@@ -11,6 +11,7 @@ from slack_sdk.web.async_client import AsyncWebClient
 
 from core.config import (
     MCP_WORKSPACE_DIR,
+    PROJECT_ROOT,
     SLACK_BOT_TOKEN,
     USAGE_CHANNEL_ID,
     USAGE_CHANNEL_NAME,
@@ -161,7 +162,7 @@ async def post_system_message(
     Posts a system warning/notice message to a Slack thread using the System Agent persona.
     """
     default_username = "Panel System"
-    default_icon = "static/v2/avatar_47.png"
+    default_icon = "static/image_99.png"
 
     try:
         from core.config import SYSTEM_AGENT_AVATAR, SYSTEM_AGENT_USERNAME
@@ -1167,4 +1168,40 @@ async def upload_text_file_to_slack(
     except Exception as e:  # noqa: BLE001 - File upload boundary returns error dict
         logger.error(f"[SLACK FILE] Error uploading file: {e}")
         return {"ok": False, "error": str(e)}
+
+
+def cleanup_old_downloads(max_age_seconds: float = 86400.0) -> int:
+    """
+    Cleans up cached downloaded Slack files older than max_age_seconds (default 24h).
+    Checks both MCP_WORKSPACE_DIR / 'downloads' and PROJECT_ROOT / 'data' / 'downloads'.
+    Returns the count of evicted files.
+    """
+    now = time.time()
+    evicted_count = 0
+    candidate_dirs = [
+        (MCP_WORKSPACE_DIR / "downloads").resolve(),
+        (PROJECT_ROOT / "data" / "downloads").resolve(),
+    ]
+    seen_dirs: set[Path] = set()
+    for d in candidate_dirs:
+        if d in seen_dirs or not d.exists() or not d.is_dir():
+            continue
+        seen_dirs.add(d)
+        try:
+            for item in d.iterdir():
+                if item.is_file():
+                    try:
+                        mtime = item.stat().st_mtime
+                        if (now - mtime) > max_age_seconds:
+                            item.unlink(missing_ok=True)
+                            evicted_count += 1
+                    except Exception as e:
+                        logger.debug(f"[CLEANUP] Failed to prune downloaded file {item}: {e}")
+        except Exception as e:
+            logger.debug(f"[CLEANUP] Error inspecting downloads directory {d}: {e}")
+
+    if evicted_count > 0:
+        logger.info(f"[CLEANUP] Pruned {evicted_count} downloaded file(s) older than {max_age_seconds}s")
+    return evicted_count
+
 

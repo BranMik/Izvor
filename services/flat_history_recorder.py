@@ -114,11 +114,13 @@ def get_flat_history_filepath(
     """
     Returns the target Path for a thread's flat history file.
     If a file for this thread_ts already exists in flat-histories/, re-uses it (1 thread = 1 file).
+    Disambiguates filename collisions between same-second threads using thread_ts suffix.
     """
     FLAT_HISTORIES_DIR.mkdir(parents=True, exist_ok=True)
-    clean_ts = re.sub(r"[^\w]", "", str(thread_ts))[:10]
+    all_digits = re.sub(r"[^\w]", "", str(thread_ts))
+    clean_ts = all_digits[:10]
     if clean_ts:
-        existing = list(FLAT_HISTORIES_DIR.glob(f"*_{clean_ts}.md"))
+        existing = list(FLAT_HISTORIES_DIR.glob(f"*_{clean_ts}*.md"))
         for f in existing:
             try:
                 content = f.read_text(encoding="utf-8", errors="ignore")
@@ -126,11 +128,20 @@ def get_flat_history_filepath(
                     return f
             except OSError as e:
                 logger.debug(f"[FLAT HISTORY] Could not read file {f}: {e}")
-        if existing:
-            return existing[0]
 
     filename = generate_flat_history_filename(prompt or "thread", thread_ts)
-    return FLAT_HISTORIES_DIR / filename
+    candidate_path = FLAT_HISTORIES_DIR / filename
+    if candidate_path.exists():
+        try:
+            content = candidate_path.read_text(encoding="utf-8", errors="ignore")
+            if f"**Thread TS:** `{thread_ts}`" not in content:
+                suffix = all_digits[-5:] if len(all_digits) >= 5 else "alt"
+                filename = f"{candidate_path.stem}_{suffix}.md"
+                candidate_path = FLAT_HISTORIES_DIR / filename
+        except OSError:
+            pass
+
+    return candidate_path
 
 
 def format_messages_to_markdown(
