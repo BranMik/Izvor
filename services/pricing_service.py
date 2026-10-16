@@ -17,14 +17,12 @@ from core.llm_utils import execute_llm_with_retry
 
 from .web_tools import fetch_web_page, web_search
 
+from core.paths import BASELINE_PRICES_FILE, PRICING_CACHE_FILE
+
 logger = logging.getLogger(__name__)
 
-# Model pricing cache file
-PRICING_CACHE_FILE = Path(__file__).parent.parent / "data" / "pricing" / "model_pricing_cache.json"
-
-# Baseline model pricing configuration file
-BASELINE_PRICES_FILE = Path(__file__).parent.parent / "data" / "pricing" / "baseline_prices.json"
-BASELINE_CONFIG_FILE = BASELINE_PRICES_FILE  # Backward-compatible alias
+# Baseline model pricing alias
+BASELINE_CONFIG_FILE = BASELINE_PRICES_FILE
 
 # Cache TTL: 7 days in seconds
 CACHE_TTL_SECONDS = 7 * 24 * 3600

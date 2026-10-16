@@ -18,11 +18,12 @@ import time
 from pathlib import Path
 from typing import Any
 
+from core.paths import THREAD_NOTES_DIR
 from services.flat_history_recorder import is_test_thread
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_THREAD_NOTES_DIR = Path(__file__).resolve().parent.parent / "agents_resources" / "thread_notes"
+DEFAULT_THREAD_NOTES_DIR = THREAD_NOTES_DIR
 THREAD_NOTES_DIR = DEFAULT_THREAD_NOTES_DIR
 
 

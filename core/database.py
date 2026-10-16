@@ -12,9 +12,11 @@ import sqlite3
 import threading
 from typing import Any
 
+from core.paths import DB_PATH
+
 logger = logging.getLogger(__name__)
 
-DEFAULT_DB_PATH = Path(__file__).parent.parent / "data" / "izvor.db"
+DEFAULT_DB_PATH = DB_PATH
 
 SCHEMA_STATEMENTS = [
     # 1. Thread Sessions (Discussion state, scheduling, remaining agents, turns)

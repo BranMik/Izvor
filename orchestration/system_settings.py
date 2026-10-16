@@ -9,11 +9,10 @@ from pathlib import Path
 from typing import Any
 
 from core.config import is_test_environment
+from core.paths import SYSTEM_BACKUP_FILE, SYSTEM_SETTINGS_FILE
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_SETTINGS_FILE = Path(__file__).parent.parent / "data" / "settings" / "system_settings.json"
-SYSTEM_BACKUP_FILE = Path(__file__).parent.parent / "data" / "backups" / "system_settings_backup.json"
 BACKUP_INTERVAL_SECONDS = 7 * 86400
 
 DEFAULT_PROTECTED_WRITE_PATHS: list[str] = [
