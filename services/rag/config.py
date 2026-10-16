@@ -64,7 +64,7 @@ def get_rag_setting(key: str, default: Any = None) -> Any:
 
 # Table and search configuration
 TABLE_NAME = "agent_knowledge"
-DEFAULT_TOP_K = int(get_rag_setting("default_top_k", 3))
+DEFAULT_TOP_K = int(get_rag_setting("default_top_k", 6))
 
 # PII masking configuration ("AT_RETRIEVAL", "AT_INGESTION", "NONE")
 VALID_PII_MASKING_MODES = {"AT_RETRIEVAL", "AT_INGESTION", "NONE"}
@@ -85,9 +85,9 @@ EMBEDDING_DIM = int(get_rag_setting("embedding_dim", 3072))
 EMBEDDING_BATCH_SIZE = int(get_rag_setting("embedding_batch_size", 32))
 
 # Semantic chunking configuration
-MAX_CHUNK_CHARS = int(get_rag_setting("max_chunk_chars", 1500))
+MAX_CHUNK_CHARS = int(get_rag_setting("max_chunk_chars", 3500))
 CHUNK_OVERLAP_CHARS = int(get_rag_setting("chunk_overlap_chars", 300))
-MIN_CHUNK_CHARS = int(get_rag_setting("min_chunk_chars", 200))
+MIN_CHUNK_CHARS = int(get_rag_setting("min_chunk_chars", 80))
 
 # Supported document extensions
 SUPPORTED_EXTENSIONS = {".md", ".markdown", ".txt", ".pdf"}

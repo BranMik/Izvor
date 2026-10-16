@@ -664,7 +664,12 @@ async def send_admin_audit_alert(
     Sends an urgent security alert in English directly to the administrator's Slack DM
     using ADMIN_SLACK_USER_ID, with fallback to SLACK_TEST_CHANNEL_ID.
     """
-    from core.config import ADMIN_SLACK_USER_ID, SLACK_BOT_TOKEN, SLACK_TEST_CHANNEL_ID
+    from core.config import (
+        ADMIN_SLACK_USER_ID,
+        SLACK_BOT_TOKEN,
+        SLACK_TEST_CHANNEL_ID,
+        get_admin_slack_user_ids,
+    )
     from services.slack_client import open_dm_channel, post_agent_response
 
     if not SLACK_BOT_TOKEN or SLACK_BOT_TOKEN == "xoxb-your-bot-user-oauth-token":
@@ -672,11 +677,13 @@ async def send_admin_audit_alert(
         return True
 
     target_channel = None
-    if ADMIN_SLACK_USER_ID:
+    admin_ids = get_admin_slack_user_ids()
+    admin_id = next(iter(admin_ids), ADMIN_SLACK_USER_ID)
+    if admin_id:
         try:
-            target_channel = await open_dm_channel(ADMIN_SLACK_USER_ID)
+            target_channel = await open_dm_channel(admin_id)
         except Exception as e:
-            logger.error(f"[AUDIT] Failed to open DM with admin {ADMIN_SLACK_USER_ID}: {e}")
+            logger.error(f"[AUDIT] Failed to open DM with admin {admin_id}: {e}")
 
     if not target_channel:
         target_channel = SLACK_TEST_CHANNEL_ID

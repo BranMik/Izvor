@@ -189,6 +189,7 @@ async def detect_language_llm(
     model: str | None = None,
     timeout_seconds: float = 6.0,
     default: str = "English",
+    thread_key: tuple[str, str] | None = None,
 ) -> str:
     """
     Asynchronously classifies the natural language of input text using an LLM.
@@ -220,7 +221,7 @@ async def detect_language_llm(
                 litellm.completion,
                 kwargs={"model": selected_model, "messages": messages, "num_retries": 1},
                 agent_key="language_detector",
-                thread_key=("system", "language_detector"),
+                thread_key=thread_key or ("system", "language_detector"),
                 max_attempts=2,
             ),
             timeout=timeout_seconds,
@@ -228,6 +229,22 @@ async def detect_language_llm(
 
         if not resp or not hasattr(resp, "choices") or not resp.choices:
             return default
+
+        if resp and getattr(resp, "usage", None) and thread_key and thread_key != ("system", "language_detector"):
+            try:
+                from agents.usage_agent import record_thread_tokens
+                p_tok = getattr(resp.usage, "prompt_tokens", 0) or 0
+                c_tok = getattr(resp.usage, "completion_tokens", 0) or 0
+                if p_tok or c_tok:
+                    record_thread_tokens(
+                        channel_id=thread_key[0],
+                        thread_ts=thread_key[1],
+                        model=selected_model,
+                        prompt_tokens=p_tok,
+                        completion_tokens=c_tok,
+                    )
+            except Exception as ue:
+                logger.debug(f"[LANGUAGE DETECTOR] Error recording token spend: {ue}")
 
         msg = resp.choices[0].message
         content = getattr(msg, "content", None)

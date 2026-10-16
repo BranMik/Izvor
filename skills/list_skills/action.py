@@ -63,6 +63,22 @@ async def run(ctx: Any, params: dict[str, Any] | None = None) -> dict[str, Any] 
         )
         if content:
             formatted_msg = content
+
+        if llm_resp and getattr(llm_resp, "usage", None) and channel_id and thread_ts:
+            try:
+                from agents.usage_agent import record_thread_tokens
+                p_tok = getattr(llm_resp.usage, "prompt_tokens", 0) or 0
+                c_tok = getattr(llm_resp.usage, "completion_tokens", 0) or 0
+                if p_tok or c_tok:
+                    record_thread_tokens(
+                        channel_id=channel_id,
+                        thread_ts=thread_ts,
+                        model=system_model,
+                        prompt_tokens=p_tok,
+                        completion_tokens=c_tok,
+                    )
+            except Exception as ue:
+                logger.debug(f"[LIST SKILLS] Error recording token spend: {ue}")
     except Exception as e:  # noqa: BLE001 - Skill presentation fallback to raw directory text on LLM failure
         logger.warning(f"[LIST SKILLS] LLM presentation fallback to direct text: {e}")
         formatted_msg = skills_directory_text

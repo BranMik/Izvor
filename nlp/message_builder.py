@@ -3,12 +3,44 @@ from typing import Any
 
 
 def markdown_to_slack(text: str) -> str:
+    if not text or not isinstance(text, str):
+        return text
+
+    # Stash fenced code blocks (```...```) to protect syntax inside them
+    fenced_blocks: list[str] = []
+
+    def _stash_fenced(match: re.Match[str]) -> str:
+        idx = len(fenced_blocks)
+        fenced_blocks.append(match.group(0))
+        return f"\x00FENCED_BLOCK_{idx}\x00"
+
+    text = re.sub(r"```[\s\S]*?```", _stash_fenced, text)
+
+    # Stash inline code spans (`...`) to protect syntax inside them
+    inline_spans: list[str] = []
+
+    def _stash_inline(match: re.Match[str]) -> str:
+        idx = len(inline_spans)
+        inline_spans.append(match.group(0))
+        return f"\x00INLINE_SPAN_{idx}\x00"
+
+    text = re.sub(r"`[^`\n]+`", _stash_inline, text)
+
     # Bold: **tekst** -> *tekst*
     text = re.sub(r"\*\*(.*?)\*\*", r"*\1*", text)
     # Headings: ### Naslov -> *Naslov*
     text = re.sub(r"^#{1,6}\s*(.+)$", r"*\1*", text, flags=re.MULTILINE)
     # Links: [label](url) -> <url|label>
     text = re.sub(r"\[(.*?)\]\((.*?)\)", r"<\2|\1>", text)
+
+    # Restore inline code spans
+    for i, span in enumerate(inline_spans):
+        text = text.replace(f"\x00INLINE_SPAN_{i}\x00", span)
+
+    # Restore fenced code blocks
+    for i, block in enumerate(fenced_blocks):
+        text = text.replace(f"\x00FENCED_BLOCK_{i}\x00", block)
+
     return text
 
 

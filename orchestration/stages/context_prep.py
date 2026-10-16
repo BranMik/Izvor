@@ -125,6 +125,22 @@ class ContextPrepStage:
 
         active_max_words = thread_state_manager.get_max_words(ctx.channel_id, ctx.thread_ts)
         active_min_words = thread_state_manager.get_min_words(ctx.channel_id, ctx.thread_ts)
+        persisted_mods = thread_state_manager.get_format_modifiers(ctx.channel_id, ctx.thread_ts)
+        effective_modifiers: dict[str, Any] = {}
+        if isinstance(persisted_mods, dict):
+            effective_modifiers.update(persisted_mods)
+        elif isinstance(persisted_mods, (list, set, tuple)):
+            for m in persisted_mods:
+                effective_modifiers[str(m)] = True
+
+        if isinstance(ctx.modifiers, dict):
+            effective_modifiers.update(ctx.modifiers)
+        elif isinstance(ctx.modifiers, (list, set, tuple)):
+            for m in ctx.modifiers:
+                effective_modifiers[str(m)] = True
+
+        ctx.modifiers = effective_modifiers
+
         if active_max_words is not None or active_min_words is not None or ctx.modifiers or extra_skills:
             logger.info(
                 f"[ROUTER] Applying active prompt modifiers (min_words={active_min_words}, max_words={active_max_words}, modifiers={ctx.modifiers}, extra_skills={extra_skills}) for agent {ctx.agent_key}."

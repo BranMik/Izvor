@@ -65,11 +65,20 @@ class ThreadSkillsManager:
             self._cleanup_expired()
 
     def _cleanup_expired(self) -> None:
+        now = time.time()
+        ttl = self.get_ttl_seconds()
+
+        if self.storage_file == THREAD_SKILLS_FILE:
+            try:
+                with get_db_transaction(immediate=True) as conn:
+                    # Clean up rows whose expiration plus 24h grace period has passed
+                    conn.execute("DELETE FROM thread_skills WHERE expires_at + 86400.0 < ?;", (now,))
+            except Exception as e:
+                logger.error(f"[THREAD_SKILLS] SQLite _cleanup_expired failed: {e}")
+
         if not self._threads:
             return
 
-        now = time.time()
-        ttl = self.get_ttl_seconds()
         modified = False
         threads_to_delete = []
 
@@ -531,6 +540,23 @@ class ThreadSkillsManager:
         """
         Returns list of skills that were granted to this thread but are now expired.
         """
+        now = time.time()
+        if self.storage_file == THREAD_SKILLS_FILE:
+            try:
+                with get_connection() as conn:
+                    rows = conn.execute(
+                        """
+                        SELECT skill_name FROM thread_skills
+                        WHERE channel_id = ? AND thread_ts = ? AND agent_id = '*' AND expires_at <= ?
+                        ORDER BY rowid ASC;
+                        """,
+                        (channel_id, thread_ts, now),
+                    ).fetchall()
+                    if rows is not None and len(rows) > 0:
+                        return [r["skill_name"] for r in rows]
+            except Exception as e:
+                logger.debug(f"[THREAD_SKILLS] SQLite get_expired_skills fallback: {e}")
+
         self.load()
         key = self._thread_key(channel_id, thread_ts)
         entry = self._threads.get(key)
@@ -538,34 +564,113 @@ class ThreadSkillsManager:
             return []
 
         granted_at = entry.get("granted_at", 0.0)
-        now = time.time()
         ttl = self.get_ttl_seconds()
 
         if now - granted_at > ttl:
             return list(entry.get("skills", []))
         return []
 
-    def get_expiration_status(self, channel_id: str, thread_ts: str) -> dict[str, Any]:
+    def get_expired_agent_skills(self, channel_id: str, thread_ts: str, agent_key: str) -> list[str]:
         """
-        Returns status dictionary for thread skills:
-        {"has_skills": bool, "active": bool, "skills": list, "seconds_remaining": float, "granted_at": float}
+        Returns list of skills that were granted to a specific agent in this thread but are now expired.
         """
+        now = time.time()
+        if self.storage_file == THREAD_SKILLS_FILE:
+            try:
+                with get_connection() as conn:
+                    rows = conn.execute(
+                        """
+                        SELECT skill_name FROM thread_skills
+                        WHERE channel_id = ? AND thread_ts = ? AND agent_id = ? AND expires_at <= ?
+                        ORDER BY rowid ASC;
+                        """,
+                        (channel_id, thread_ts, agent_key, now),
+                    ).fetchall()
+                    if rows is not None and len(rows) > 0:
+                        return [r["skill_name"] for r in rows]
+            except Exception as e:
+                logger.debug(f"[THREAD_SKILLS] SQLite get_expired_agent_skills fallback: {e}")
+
         self.load()
         key = self._thread_key(channel_id, thread_ts)
         entry = self._threads.get(key)
         if not entry:
-            return {"has_skills": False, "active": False, "skills": [], "seconds_remaining": 0.0}
+            return []
 
-        granted_at = entry.get("granted_at", 0.0)
+        agent_skills = entry.get("agent_skills", {})
+        ag_entry = agent_skills.get(agent_key)
+        if not ag_entry:
+            return []
+
+        granted_at = ag_entry.get("granted_at", 0.0)
+        ttl = self.get_ttl_seconds()
+
+        if now - granted_at > ttl:
+            return list(ag_entry.get("skills", []))
+        return []
+
+    def get_expiration_status(
+        self, channel_id: str, thread_ts: str, agent_key: str | None = None
+    ) -> dict[str, Any]:
+        """
+        Returns status dictionary for thread skills:
+        {"has_skills": bool, "active": bool, "skills": list, "seconds_remaining": float, "granted_at": float}
+        """
         now = time.time()
+        if self.storage_file == THREAD_SKILLS_FILE:
+            try:
+                target_agent = agent_key if agent_key is not None else "*"
+                with get_connection() as conn:
+                    rows = conn.execute(
+                        """
+                        SELECT skill_name, granted_at, expires_at FROM thread_skills
+                        WHERE channel_id = ? AND thread_ts = ? AND agent_id = ?
+                        ORDER BY expires_at DESC;
+                        """,
+                        (channel_id, thread_ts, target_agent),
+                    ).fetchall()
+                    if rows:
+                        active_skills = [r["skill_name"] for r in rows if r["expires_at"] > now]
+                        all_skills = [r["skill_name"] for r in rows]
+                        max_expires_at = rows[0]["expires_at"]
+                        min_granted_at = min(r["granted_at"] for r in rows)
+                        remaining = max(0.0, max_expires_at - now)
+                        is_active = len(active_skills) > 0
+                        return {
+                            "has_skills": len(all_skills) > 0,
+                            "active": is_active,
+                            "skills": active_skills if is_active else all_skills,
+                            "seconds_remaining": remaining,
+                            "granted_at": min_granted_at,
+                        }
+            except Exception as e:
+                logger.debug(f"[THREAD_SKILLS] SQLite get_expiration_status fallback: {e}")
+
+        self.load()
+        key = self._thread_key(channel_id, thread_ts)
+        entry = self._threads.get(key)
+        if not entry:
+            return {"has_skills": False, "active": False, "skills": [], "seconds_remaining": 0.0, "granted_at": 0.0}
+
+        if agent_key is not None:
+            agent_skills = entry.get("agent_skills", {})
+            ag_entry = agent_skills.get(agent_key)
+            if not ag_entry:
+                return {"has_skills": False, "active": False, "skills": [], "seconds_remaining": 0.0, "granted_at": 0.0}
+            granted_at = ag_entry.get("granted_at", 0.0)
+            skills = list(ag_entry.get("skills", []))
+        else:
+            granted_at = entry.get("granted_at", 0.0)
+            skills = list(entry.get("skills", []))
+
         ttl = self.get_ttl_seconds()
         remaining = max(0.0, (granted_at + ttl) - now)
         is_active = (now - granted_at <= ttl)
 
         return {
-            "has_skills": True,
+            "has_skills": bool(skills),
             "active": is_active,
-            "skills": list(entry.get("skills", [])),
+            "skills": skills,
             "seconds_remaining": remaining,
             "granted_at": granted_at,
         }
