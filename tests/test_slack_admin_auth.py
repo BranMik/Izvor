@@ -13,37 +13,31 @@ client = TestClient(app)
 
 
 def test_is_slack_admin_config_resolution(monkeypatch):
-    """Test resolution of admin user IDs from ADMIN_SLACK_USER_ID, SLACK_ADMIN_USER_ID, and ADMIN_SLACK_USER_IDS env vars."""
+    """Test resolution of admin user IDs from SLACK_ADMIN_USER_IDS env var."""
     # 1. Fail-closed when no env vars configured
-    monkeypatch.setattr("core.config.ADMIN_SLACK_USER_ID", "")
-    monkeypatch.delenv("ADMIN_SLACK_USER_ID", raising=False)
-    monkeypatch.delenv("SLACK_ADMIN_USER_ID", raising=False)
-    monkeypatch.delenv("ADMIN_SLACK_USER_IDS", raising=False)
+    monkeypatch.delenv("SLACK_ADMIN_USER_IDS", raising=False)
     assert get_admin_slack_user_ids() == set()
     assert is_slack_admin("U_ANY") is False
     assert is_slack_admin(None) is False
     assert is_slack_admin("") is False
 
-    # 2. Single admin via ADMIN_SLACK_USER_ID or SLACK_ADMIN_USER_ID
-    monkeypatch.setenv("ADMIN_SLACK_USER_ID", "U_CHIEF_ADMIN")
+    # 2. Single admin via SLACK_ADMIN_USER_IDS
+    monkeypatch.setenv("SLACK_ADMIN_USER_IDS", "U_CHIEF_ADMIN")
+    assert get_admin_slack_user_ids() == {"U_CHIEF_ADMIN"}
     assert is_slack_admin("U_CHIEF_ADMIN") is True
     assert is_slack_admin("U_RANDOM") is False
 
-    # 3. Multiple admins via ADMIN_SLACK_USER_IDS comma-separated
-    monkeypatch.setenv("ADMIN_SLACK_USER_IDS", "U_ADMIN_A, U_ADMIN_B,  U_ADMIN_C ")
+    # 3. Multiple admins via SLACK_ADMIN_USER_IDS comma-separated
+    monkeypatch.setenv("SLACK_ADMIN_USER_IDS", "U_ADMIN_A, U_ADMIN_B,  U_ADMIN_C ")
     admin_ids = get_admin_slack_user_ids()
-    assert "U_CHIEF_ADMIN" in admin_ids
-    assert "U_ADMIN_A" in admin_ids
-    assert "U_ADMIN_B" in admin_ids
-    assert "U_ADMIN_C" in admin_ids
+    assert admin_ids == {"U_ADMIN_A", "U_ADMIN_B", "U_ADMIN_C"}
     assert is_slack_admin("U_ADMIN_B") is True
     assert is_slack_admin("U_REGULAR") is False
 
 
 def test_non_admin_blocked_from_system_actions(monkeypatch):
     """Test that non-admin users receive 403 Forbidden and audit event on admin Block Kit actions."""
-    monkeypatch.setattr("core.config.ADMIN_SLACK_USER_ID", "U_REAL_ADMIN")
-    monkeypatch.setenv("ADMIN_SLACK_USER_ID", "U_REAL_ADMIN")
+    monkeypatch.setenv("SLACK_ADMIN_USER_IDS", "U_REAL_ADMIN")
     monkeypatch.setattr("adapters.slack.interactivity.verify_slack_signature", lambda body, headers: True)
     mock_ephemeral = AsyncMock(return_value={"ok": True})
     monkeypatch.setattr("adapters.slack.interactivity.slack_async_client.chat_postEphemeral", mock_ephemeral)
@@ -83,8 +77,7 @@ def test_non_admin_blocked_from_system_actions(monkeypatch):
 
 def test_admin_allowed_system_actions(monkeypatch):
     """Test that configured admin users successfully perform settings actions."""
-    monkeypatch.setattr("core.config.ADMIN_SLACK_USER_ID", "U_REAL_ADMIN")
-    monkeypatch.setenv("ADMIN_SLACK_USER_ID", "U_REAL_ADMIN")
+    monkeypatch.setenv("SLACK_ADMIN_USER_IDS", "U_REAL_ADMIN")
     monkeypatch.setattr("adapters.slack.interactivity.verify_slack_signature", lambda body, headers: True)
     monkeypatch.setattr("adapters.slack.interactivity.publish_app_home", AsyncMock(return_value={"ok": True}))
 
@@ -108,8 +101,7 @@ def test_admin_allowed_system_actions(monkeypatch):
 
 def test_non_admin_blocked_from_workspace_modal(monkeypatch):
     """Test that modal submission and opening is restricted to admins."""
-    monkeypatch.setattr("core.config.ADMIN_SLACK_USER_ID", "U_LEGIT_ADMIN")
-    monkeypatch.setenv("ADMIN_SLACK_USER_ID", "U_LEGIT_ADMIN")
+    monkeypatch.setenv("SLACK_ADMIN_USER_IDS", "U_LEGIT_ADMIN")
     monkeypatch.setattr("adapters.slack.interactivity.verify_slack_signature", lambda body, headers: True)
 
     # 1. Open modal attempt by non-admin

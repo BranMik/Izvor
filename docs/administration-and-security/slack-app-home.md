@@ -29,7 +29,7 @@ graph TD
 ## 🛡️ Strict Server-Side Access Control
 
 To prevent unauthorized workspace members from tampering with agent settings, model selections, or budget circuit breakers:
-- **`is_slack_admin(user_id)` Gate**: Defined in [`core/config.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/core/config.py), resolving authorized admin IDs from `ADMIN_SLACK_USER_IDS` or `ADMIN_SLACK_USER_ID` in `.env`.
+- **`is_slack_admin(user_id)` Gate**: Defined in [`core/config.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/core/config.py), resolving authorized admin IDs from `SLACK_ADMIN_USER_IDS` in `.env`.
 - **Zero Client Trust**: All interactive actions dispatched to [`adapters/slack/interactivity.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/adapters/slack/interactivity.py) (toggling personas, switching workflows, updating budget limits, approving HITL requests, or triggering restores) verify `is_slack_admin(user_id)` server-side.
 - **Fail-Closed**: Non-admin users are strictly blocked from triggering administrative mutations, and all unauthorized attempts trigger `AUTH_FAILURE` audit logs.
 

@@ -243,7 +243,7 @@ def test_send_admin_audit_alert_mock(monkeypatch):
     """Verifies send_admin_audit_alert handles mock and dispatch cleanly."""
     import asyncio
 
-    monkeypatch.setenv("ADMIN_SLACK_USER_ID", "U_ADMIN_TEST")
+    monkeypatch.setenv("SLACK_ADMIN_USER_IDS", "U_ADMIN_TEST")
     monkeypatch.setenv("SLACK_BOT_TOKEN", "xoxb-your-bot-user-oauth-token")
 
     success = asyncio.run(
