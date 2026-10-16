@@ -103,15 +103,15 @@ def parse_agent_and_prompt(
     Returns (agent_key, cleaned_prompt, was_explicit_target)
     """
     thread_key = (channel_id, thread_ts)
-    if thread_key not in thread_state_manager.remaining_agents_map:
+    if not thread_state_manager.has_remaining_agents_key(channel_id, thread_ts):
         stored_seq = thread_state_manager.get_round_sequence(channel_id, thread_ts)
         init_seq = list(stored_seq) if stored_seq else get_initial_agents()
         logger.info(
             f"[ORCHESTRATOR] INITIALIZING new remaining agents list for thread_key: {thread_key}: {init_seq}"
         )
-        thread_state_manager.remaining_agents_map[thread_key] = init_seq
+        thread_state_manager.set_remaining_agents(channel_id, thread_ts, init_seq)
 
-    remaining = thread_state_manager.remaining_agents_map[thread_key]
+    remaining = thread_state_manager.get_remaining_agents(channel_id, thread_ts)
     logger.info(
         f"[ORCHESTRATOR] Current remaining agents for thread_key {thread_key}: {remaining}"
     )
@@ -146,12 +146,14 @@ def parse_agent_and_prompt(
         prompt = re.sub(r"^\*+|\*+$", "", prompt).strip()
         if matched_key in remaining:
             remaining.remove(matched_key)
+            thread_state_manager.set_remaining_agents(channel_id, thread_ts, remaining)
         return matched_key, prompt, True
 
     if remaining:
         stored_seq = thread_state_manager.get_round_sequence(channel_id, thread_ts)
         if stored_seq and remaining[0] in stored_seq:
             first_agent = remaining.pop(0)
+            thread_state_manager.set_remaining_agents(channel_id, thread_ts, remaining)
             return first_agent, cleaned_text, False
 
         mode = settings_manager.get_orchestration_mode()
@@ -159,14 +161,17 @@ def parse_agent_and_prompt(
             fixed_cfg = settings_manager.get_fixed_config()
             if fixed_cfg.get("chain"):
                 first_agent = remaining.pop(0)
+                thread_state_manager.set_remaining_agents(channel_id, thread_ts, remaining)
                 return first_agent, cleaned_text, False
         elif mode == OrchestrationMode.SANDWICH:
             first_agent = remaining.pop(0)
+            thread_state_manager.set_remaining_agents(channel_id, thread_ts, remaining)
             return first_agent, cleaned_text, False
 
         # If no designated chain, select randomly from remaining pool
         first_agent = random.choice(remaining)
         remaining.remove(first_agent)
+        thread_state_manager.set_remaining_agents(channel_id, thread_ts, remaining)
         return first_agent, cleaned_text, False
 
     return None, cleaned_text, False

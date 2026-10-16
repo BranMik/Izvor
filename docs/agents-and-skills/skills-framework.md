@@ -31,17 +31,95 @@ graph TD
 
 ---
 
+## 🧠 The Two Inference Layers in Izvor
+
+A critical architectural distinction in Izvor is that **"inference" occurs at two completely separate layers**:
+
+```mermaid
+graph TD
+    UserMsg["Slack User Message"] --> L1["Layer 1: Orchestrator Pre-Inference (IntentExtractor)"]
+    
+    subgraph Layer 1: Orchestrator Ingress
+        L1 --> L1Check{"triggers.auto_detect == True?"}
+        L1Check -->|Yes| InferredAct["ActionDirective (origin='inferred')"]
+        L1Check -->|No| DropInference["Ignore Conversational Chatter (Slash Only)"]
+        SlashCmd["User Slash Command: /web_research"] --> SlashAct["ActionDirective (origin='slash')"]
+    end
+
+    InferredAct --> ContextPrep["Stage 3: ContextPrepStage"]
+    SlashAct --> ContextPrep
+    DropInference --> ContextPrep
+
+    subgraph Layer 2: Agent Execution
+        ContextPrep --> AuthCheck{"Is Skill in Agent's effective_skills?"}
+        AuthCheck -->|Yes| Catalog["Inject into Agent's Skills Catalog (load_skill)"]
+        AuthCheck -->|No| NoAccess["Omit / Mark Permission Restricted"]
+        Catalog --> AgentTurn["Agent LLM Execution Turn"]
+        AgentTurn --> ToolCall["Agent calls load_skill / custom tool autonomously"]
+    end
+```
+
+### The Separation of Concerns:
+1. **`triggers.auto_detect` ONLY governs Layer 1 (Orchestrator Pre-Inference):**
+   - It controls whether free-form user chatter in Slack can automatically pre-arm or infer an `ActionDirective`.
+   - **Default is `false` (fail-closed / secure-by-default).**
+   - It **does NOT** stop an agent from using an authorized tool during Layer 2.
+2. **Layer 2 (Agent Function Calling) is governed by permissions:**
+   - As long as a skill is authorized for an agent (via `agent_settings.json` or `/grant_skill`), the agent can autonomously invoke `load_skill` and execute its tools, even if `auto_detect: false`.
+
+---
+
+## 📜 Complete `SKILL.md` Manifest Specification
+
+Every skill is defined by a `SKILL.md` file located in `skills/<skill_name>/SKILL.md`. The file consists of a YAML frontmatter header followed by Markdown operational instructions/guidelines.
+
+### 1. Top-Level Frontmatter Properties
+
+| Property | Type | Default | What It Does | Where It Applies | Where It Does NOT Apply |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| `name` | `string` | Directory name | Unique technical identifier for the skill (e.g., `web_research`). | Everywhere (Registry, Directives, Tool calls). | N/A |
+| `display_name` | `string` | Capitalized name | User-facing display name in Slack messages and UI directory. | Slack formatted messages and directory listings. | Internal code routing. |
+| `description` | `string` | `""` | Description of what the skill does. | Injected into agent Skills Catalogs and `IntentExtractor` prompt. | Tool argument validation. |
+| `scope` | `string` | `"agent"` | Architectural domain of the skill (`agent`, `orchestrator`, or `prompt_modifier`). | Determines pipeline execution path. See Scope Matrix below. | Does not restrict tool parameter types. |
+| `tools` | `list[str]` | `[]` | List of tool names exposed by this skill (implemented in `tools.py`). | Agent function-calling loop and sandbox authorization. | Orchestrator actions (`action.py`). |
+| `requires_human_ITL` | `boolean` | `false` | Human-in-the-Loop gate. If `true`, tool execution pauses and sends a confirmation button to Slack. | Layer 2 tool execution in `execution.py`. | Orchestrator pipeline actions or Layer 1 parsing. |
+| `global` (or `all_agents`) | `boolean` | `false` | If `true`, automatically available to all agents across all threads without needing `/grant_skill`. | Agent authorization checks in `loader.py`. | Does not bypass `requires_human_ITL`. |
+| `handles_files` | `boolean` | `false` | Marks this skill as the designated file content processor for attached Slack files. | File attachment routing in `DirectiveParser` & `ContextPrepStage`. | Pure text prompts without attachments. |
+| `extraction_rule` | `string` | `""` | Natural language rule instructing the micro-LLM how to recognize and extract this skill. | Micro-LLM system prompt in `IntentExtractor`. | Deterministic slash command parsing. |
+
+---
+
+### 2. `triggers` Object Properties
+
+The `triggers:` dictionary configures how the skill is detected from user input in Slack.
+
+| Property | Type | Default | What It Does | Where It Applies | Where It Does NOT Apply |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| `auto_detect` | `boolean` | **`false`** | **Orchestrator Pre-Inference Toggle.** When `true`, allows the micro-LLM `IntentExtractor` to infer this skill from natural user conversation (`origin="inferred"`). | **Layer 1 only:** `IntentExtractor` prompt & `ValidationStage` privilege checks. | **Layer 2:** Does NOT restrict agents from calling authorized tools via `load_skill`. |
+| `slash` | `list[str]` | `[]` | List of slash command aliases (e.g. `["/web_research", "/webresearch"]`). | Deterministic slash parser in `DirectiveParser` (`origin="slash"`). | Natural language prompts without slash prefixes. |
+| `arg_type` | `string` | `"string"` | Parser strategy for extracting arguments following the slash command. Supported: `terminal_flag`, `int`, `int_or_off`, `agent_list`, `token`, `grant_skill`, `list`, `file_target`, `none`. | `DirectiveParser` parameter extraction. | Agent LLM internal reasoning. |
+| `param_name` | `string` | `None` | Parameter key under which parsed argument is stored in `ActionDirective.params`. | Parameter dictionary construction in `DirectiveParser`. | Unparameterized flag skills. |
+| `terminal` | `boolean` | `false` | If `true`, halts debate immediately upon detection (e.g. `/stop`). | Short-circuit stop check in `DirectiveParser` & Slack event adapter. | Non-terminal conversational skills. |
+
+---
+
+### 3. Scope Matrix (`scope`)
+
+| Scope | Executed By | Handler File | Storage in TurnContext | Agent Catalog Injection |
+| :--- | :--- | :--- | :--- | :--- |
+| **`agent`** | Debate Agent LLM | `tools.py` | `ctx.actions` (`ActionDirective`) | **Yes** (Listed under `AVAILABLE SKILLS` via `load_skill`) |
+| **`orchestrator`** | Turn Pipeline Stage | `action.py` | `ctx.actions` (`ActionDirective`) | **No** (Hidden from agents; run by pipeline) |
+| **`prompt_modifier`** | System Prompt Builder | Markdown body | `ctx.modifiers` (Key-value dict) | **No** (Directly alters agent prompt constraints) |
+
+---
+
 ## 🔍 Discovery & Registration Lifecycle
 
 ### 1. Skill Discovery ([`skills/loader.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/skills/loader.py))
 During application boot, the loader scans the [`skills/`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/skills) root directory. Every subdirectory containing a valid `SKILL.md` file is evaluated.
 
 ### 2. Manifest & Schema Parsing
-The loader extracts:
-- `name`: Unique skill identifier (e.g., `web_research`).
-- `display_name`: Human-readable label for Slack UI.
-- `description`: Explanatory text injected into LLM system prompts or tool definitions.
-- `parameters`: JSON schema specifying expected input arguments.
+The loader extracts all top-level and trigger metadata, validates required fields, registers custom tools from `tools.py`, and checks for action handlers in `action.py`.
 
 ### 3. Registry Storage ([`core/registry.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/core/registry.py))
 Valid skills are registered into the global `SkillRegistry`. They can be queried via the administrative REST endpoint (`GET /api/skills`) or listed inside Slack via `/list_skills` or `[list_skills]`.

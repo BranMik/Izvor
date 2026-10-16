@@ -27,10 +27,17 @@ class EventDeduplicationCache(dict):
     Backed by SQLite table `event_dedup` with in-memory caching for zero latency.
     """
 
-    def __init__(self, ttl_seconds: float = 600.0, maxsize: int = 2000):
+    def __init__(
+        self,
+        ttl_seconds: float = 600.0,
+        maxsize: int = 2000,
+        db_evict_interval: float = 60.0,
+    ):
         super().__init__()
         self.ttl_seconds = ttl_seconds
         self.maxsize = maxsize
+        self.db_evict_interval = db_evict_interval
+        self._last_db_evict: float = 0.0
 
     def _format_key(self, key: Any) -> str:
         if isinstance(key, (tuple, list)):
@@ -56,13 +63,16 @@ class EventDeduplicationCache(dict):
                     )
             except Exception:
                 pass
-        # Evict from SQLite table event_dedup
-        cutoff = now - self.ttl_seconds
-        try:
-            with get_db_transaction(immediate=True) as conn:
-                conn.execute("DELETE FROM event_dedup WHERE received_at < ?", (cutoff,))
-        except Exception:
-            pass
+
+        # Evict from SQLite table event_dedup only periodically or when exceeding maxsize
+        if (now - self._last_db_evict >= self.db_evict_interval) or len(self) >= self.maxsize:
+            self._last_db_evict = now
+            cutoff = now - self.ttl_seconds
+            try:
+                with get_db_transaction(immediate=True) as conn:
+                    conn.execute("DELETE FROM event_dedup WHERE received_at < ?", (cutoff,))
+            except Exception:
+                pass
 
     def __contains__(self, key: Any) -> bool:
         self._evict_expired()

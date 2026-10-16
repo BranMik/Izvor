@@ -75,15 +75,26 @@ class EntityResolver:
         if not norm_cleaned:
             return []
 
+        norm_stripped = (
+            norm_cleaned[3:]
+            if norm_cleaned.startswith("the") and len(norm_cleaned) > 3
+            else None
+        )
+
         for key, cfg in agents.items():
-            if norm_cleaned == self.normalize(key):
+            norm_k = self.normalize(key)
+            if norm_cleaned == norm_k or (norm_stripped and norm_stripped == norm_k):
                 return [key]
             username = cfg.get("username", "")
-            if username and norm_cleaned == self.normalize(username):
-                return [key]
+            if username:
+                norm_u = self.normalize(username)
+                if norm_cleaned == norm_u or (norm_stripped and norm_stripped == norm_u):
+                    return [key]
             displayname = cfg.get("displayname", "")
-            if displayname and norm_cleaned == self.normalize(displayname):
-                return [key]
+            if displayname:
+                norm_d = self.normalize(displayname)
+                if norm_cleaned == norm_d or (norm_stripped and norm_stripped == norm_d):
+                    return [key]
 
         # 3. Word-level prefix match (e.g. "Vis" -> "agent-10001", "Arch" -> "Security Architect" & "Security Architect")
         word_matches = []
@@ -95,7 +106,7 @@ class EntityResolver:
             displayname = cfg.get("displayname")
             if displayname:
                 words.extend(re.findall(r"[A-Z]?[a-z0-9]+", displayname))
-            if any(w.lower().startswith(norm_cleaned) for w in words if w):
+            if any(w.lower().startswith(norm_cleaned) or (norm_stripped and w.lower().startswith(norm_stripped)) for w in words if w):
                 word_matches.append(key)
         if word_matches:
             return list(dict.fromkeys(word_matches))
@@ -103,12 +114,19 @@ class EntityResolver:
         # 4. Substring/role match against key or username
         matches = []
         for key, cfg in agents.items():
-            if norm_cleaned in self.normalize(key) or (
-                cfg.get("displayname") and norm_cleaned in self.normalize(cfg["displayname"])
-            ) or (
-                cfg.get("username") and norm_cleaned in self.normalize(cfg["username"])
-            ):
-                matches.append(key)
+            target_strs = [self.normalize(key)]
+            if cfg.get("displayname"):
+                target_strs.append(self.normalize(cfg["displayname"]))
+            if cfg.get("username"):
+                target_strs.append(self.normalize(cfg["username"]))
+            for ts in target_strs:
+                if (
+                    norm_cleaned in ts
+                    or ts in norm_cleaned
+                    or (norm_stripped and (norm_stripped in ts or ts in norm_stripped))
+                ):
+                    matches.append(key)
+                    break
 
         return list(dict.fromkeys(matches))
 

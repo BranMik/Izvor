@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import sys
@@ -104,6 +105,112 @@ async def _safe_publish_home(user_id: str) -> None:
         logger.error(f"[INTERACTIVITY] Failed to publish App Home for {user_id}: {e}")
 
 
+
+async def _execute_and_resume_hitl_approval(req: Any, user_id: str) -> None:
+    """Executes the pre-approved HITL tool deterministically in background and resumes the calling agent."""
+    from orchestration.agent_settings import settings_manager
+    from orchestration.thread_skills_manager import thread_skills_manager
+    from orchestration.thread_state import thread_state_manager
+    from orchestration.turn_pipeline import TurnContext, TurnPipeline
+    from services.slack_client import slack_async_client
+    from skills.loader import skill_registry
+
+    channel_id = req.channel_id
+    thread_ts = req.thread_ts
+    agent_name = req.agent_name
+    fn_name = req.fn_name
+    fn_args = req.fn_args
+
+    logger.info(
+        f"[HITL] Auto-executing approved tool '{fn_name}' for agent '{agent_name}' in {(channel_id, thread_ts)}"
+    )
+
+    # 1. Resolve agent skills + thread-granted skills
+    agents_map = settings_manager.agents_config or AGENTS_CONFIG
+    agent_cfg = agents_map.get(agent_name, {})
+    agent_skills = list(agent_cfg.get("skills", []))
+    thread_skills = thread_skills_manager.get_active_skills(channel_id, thread_ts)
+    expired_skills = thread_skills_manager.get_expired_skills(channel_id, thread_ts)
+    ttl_hours = thread_skills_manager.get_ttl_seconds() / 3600.0
+    effective_skills = list(set(agent_skills + thread_skills))
+
+    # 2. Execute tool deterministically
+    try:
+        tool_result = await asyncio.to_thread(
+            skill_registry.execute_tool,
+            fn_name,
+            fn_args,
+            authorized_skills=effective_skills,
+            expired_skills=expired_skills,
+            ttl_hours=ttl_hours,
+            agent_name=agent_name,
+        )
+    except Exception as e:  # noqa: BLE001 - Resilient tool execution error capture
+        logger.error(f"[HITL] Error executing tool '{fn_name}': {e}", exc_info=True)
+        tool_result = f"Error executing tool '{fn_name}': {e}"
+
+    # 3. Post tool execution result to Slack thread so all participants have visibility
+    display_res = str(tool_result)
+    if len(display_res) > 2000:
+        display_res = display_res[:2000] + "\n... [truncated]"
+
+    try:
+        await slack_async_client.chat_postMessage(
+            channel=channel_id,
+            thread_ts=thread_ts,
+            text=f"🛠️ *Tool `{fn_name}` executed following approval by <@{user_id}>:*\n```{display_res}```",
+        )
+    except Exception as e:  # noqa: BLE001 - Slack notification delivery boundary
+        logger.error(f"[HITL] Failed to post tool result to Slack: {e}")
+
+    # 4. Resume the calling agent with the result context
+    resume_prompt = (
+        f"[{agent_name}] Tool '{fn_name}' execution was approved by <@{user_id}>.\n"
+        f"Tool Result:\n{tool_result}\n\n"
+        f"Please analyze this result and provide your response to continue the discussion."
+    )
+    ctx = TurnContext(
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        raw_text=resume_prompt,
+        user_id=user_id,
+        is_bot_trigger=True,
+        was_explicit_target=True,
+    )
+    pipeline = TurnPipeline()
+    thread_state_manager.dispatch_discussion_task(channel_id, thread_ts, pipeline.run(ctx))
+
+
+async def _resume_hitl_denial(req: Any, user_id: str) -> None:
+    """Notifies the calling agent that the requested tool was denied by human supervisor and resumes discussion."""
+    from orchestration.thread_state import thread_state_manager
+    from orchestration.turn_pipeline import TurnContext, TurnPipeline
+
+    channel_id = req.channel_id
+    thread_ts = req.thread_ts
+    agent_name = req.agent_name
+    fn_name = req.fn_name
+
+    logger.info(
+        f"[HITL] Resuming discussion with denial notification for agent '{agent_name}' in {(channel_id, thread_ts)}"
+    )
+
+    resume_prompt = (
+        f"[{agent_name}] Tool '{fn_name}' execution was denied by supervisor <@{user_id}>.\n"
+        f"Please proceed with the discussion without calling or waiting for this tool."
+    )
+    ctx = TurnContext(
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        raw_text=resume_prompt,
+        user_id=user_id,
+        is_bot_trigger=True,
+        was_explicit_target=True,
+    )
+    pipeline = TurnPipeline()
+    thread_state_manager.dispatch_discussion_task(channel_id, thread_ts, pipeline.run(ctx))
+
+
 async def handle_slack_interactivity(request: Request, background_tasks: BackgroundTasks) -> Any:
     """
     Handles Slack Block Kit interactivity (radio button toggles, buttons, etc.) from the App Home page.
@@ -172,7 +279,6 @@ async def handle_slack_interactivity(request: Request, background_tasks: Backgro
             if action_id not in (
                 "download_scribe_notes_txt",
                 "download_conclusion_notes_txt",
-                "resume_sequence_action",
                 "hitl_approve_tool",
                 "hitl_deny_tool",
             ):
@@ -262,11 +368,17 @@ async def handle_slack_interactivity(request: Request, background_tasks: Backgro
 
                 if channel_id and thread_ts:
                     from pipeline.spend_governance import spend_governance
-                    from orchestration.agent_settings import get_circuit_breaker_threshold
+                    from orchestration.app_settings import (
+                        get_circuit_breaker_threshold,
+                        is_circuit_breaker_enabled,
+                        get_daily_budget_usd,
+                    )
                     import sys
                     
                     session_id = f"{channel_id}:{thread_ts}"
                     threshold = get_circuit_breaker_threshold()
+                    cb_enabled = is_circuit_breaker_enabled()
+                    daily_budget = get_daily_budget_usd()
                     calc_costs_fn = getattr(sys.modules.get("agents"), "calculate_thread_costs", None)
                     current_cost = 0.0
                     if calc_costs_fn:
@@ -276,7 +388,8 @@ async def handle_slack_interactivity(request: Request, background_tasks: Backgro
                     tripped, _, _ = spend_governance.is_budget_exceeded(
                         session_id=session_id,
                         threshold_usd=threshold,
-                        enabled=True,
+                        enabled=cb_enabled,
+                        daily_budget_usd=daily_budget,
                         current_cost_usd=current_cost,
                     )
                     
@@ -298,18 +411,29 @@ async def handle_slack_interactivity(request: Request, background_tasks: Backgro
                                 text=f"✅ Sequence resumed by <@{user_id}>.",
                                 blocks=[]
                             )
-                        from orchestration.turn_pipeline import TurnContext, TurnPipeline
+                        log_audit_event(
+                            event_type="SEQUENCE_RESUMED",
+                            actor={"type": "slack_admin", "id": user_id or "unknown"},
+                            action="resume_sequence_action",
+                            target=f"{channel_id}:{thread_ts}",
+                            details={"channel_id": channel_id, "thread_ts": thread_ts, "resumed_by": user_id},
+                            severity="INFO",
+                        )
+                        from orchestration.agent_router import orchestrate_discussion
                         from orchestration.thread_state import thread_state_manager
-                        
-                        ctx = TurnContext(
+
+                        remaining = thread_state_manager.get_remaining_agents(channel_id, thread_ts)
+                        next_agent = remaining[0] if remaining else None
+                        resume_prompt = f"/[{next_agent}]" if next_agent else ""
+
+                        task_coro = orchestrate_discussion(
                             channel_id=channel_id,
                             thread_ts=thread_ts,
-                            raw_text="",
-                            is_bot_trigger=True,
-                            was_explicit_target=False,
+                            raw_text=resume_prompt,
+                            user_id=user_id,
+                            bot_user_id=None,
                         )
-                        pipeline = TurnPipeline()
-                        thread_state_manager.dispatch_discussion_task(channel_id, thread_ts, pipeline.run(ctx))
+                        thread_state_manager.dispatch_discussion_task(channel_id, thread_ts, task_coro)
             elif action_id == "toggle_circuit_breaker_radio":
                 selected_option = action.get("selected_option", {})
                 val = selected_option.get("value", "")
@@ -756,10 +880,29 @@ async def handle_slack_interactivity(request: Request, background_tasks: Backgro
                                 slack_async_client.chat_update,
                                 channel=approved_req.channel_id,
                                 ts=msg["ts"],
-                                text=f"✅ Approved execution of `{approved_req.fn_name}` by <@{user_id}>. Please reply to the thread to resume the agent.",
+                                text=f"✅ Approved execution of `{approved_req.fn_name}` by <@{user_id}>. Executing tool and resuming agent...",
                                 blocks=[],
                             )
+                        # TKT-705: Deterministic execution and auto-resume calling agent
+                        background_tasks.add_task(
+                            _execute_and_resume_hitl_approval,
+                            req=approved_req,
+                            user_id=user_id,
+                        )
                 elif ":" in val:
+                    # TKT-705: Enforce admin authorization on legacy colon bypass
+                    if not is_slack_admin(user_id):
+                        logger.warning(f"[HITL] Non-admin user {user_id} attempted legacy approval without token.")
+                        channel_id = payload.get("channel", {}).get("id") or ""
+                        if channel_id and user_id:
+                            background_tasks.add_task(
+                                slack_async_client.chat_postEphemeral,
+                                channel=channel_id,
+                                user=user_id,
+                                text="⚠️ *Permission Denied:* Administrative privileges are required for legacy manual approval.",
+                            )
+                        return Response(status_code=403)
+
                     parts = val.split(":", 2)
                     if len(parts) == 3:
                         c_id, t_ts, f_name = parts
@@ -823,10 +966,29 @@ async def handle_slack_interactivity(request: Request, background_tasks: Backgro
                                 slack_async_client.chat_update,
                                 channel=denied_req.channel_id,
                                 ts=msg["ts"],
-                                text=f"❌ Denied execution of `{denied_req.fn_name}` by <@{user_id}>. Please reply to the thread to inform the agent.",
+                                text=f"❌ Denied execution of `{denied_req.fn_name}` by <@{user_id}>. Resuming agent...",
                                 blocks=[],
                             )
+                        # TKT-705: Auto-resume calling agent with denial notification
+                        background_tasks.add_task(
+                            _resume_hitl_denial,
+                            req=denied_req,
+                            user_id=user_id,
+                        )
                 elif ":" in val:
+                    # TKT-705: Enforce admin authorization on legacy colon bypass
+                    if not is_slack_admin(user_id):
+                        logger.warning(f"[HITL] Non-admin user {user_id} attempted legacy denial without token.")
+                        channel_id = payload.get("channel", {}).get("id") or ""
+                        if channel_id and user_id:
+                            background_tasks.add_task(
+                                slack_async_client.chat_postEphemeral,
+                                channel=channel_id,
+                                user=user_id,
+                                text="⚠️ *Permission Denied:* Administrative privileges are required for legacy manual denial.",
+                            )
+                        return Response(status_code=403)
+
                     parts = val.split(":", 2)
                     if len(parts) == 3:
                         c_id, t_ts, f_name = parts

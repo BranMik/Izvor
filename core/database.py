@@ -9,6 +9,7 @@ import logging
 import os
 from pathlib import Path
 import sqlite3
+import threading
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -124,6 +125,11 @@ class DatabaseManager:
 
     def __init__(self, db_path: Path | None = None) -> None:
         self._custom_db_path = db_path
+        self._init_lock = threading.RLock()
+        self._initialized_paths: set[Path] = set()
+        self._local = threading.local()
+        self._all_conns: list[sqlite3.Connection] = []
+        self._conns_lock = threading.Lock()
 
     @property
     def db_path(self) -> Path:
@@ -133,6 +139,22 @@ class DatabaseManager:
         if env_path:
             return Path(env_path)
         return DEFAULT_DB_PATH
+
+    def _ensure_schema_initialized(self, conn: sqlite3.Connection, target_path: Path) -> None:
+        """Idempotently executes SCHEMA_STATEMENTS once per database file path."""
+        resolved = target_path.resolve()
+        if resolved in self._initialized_paths:
+            return
+
+        with self._init_lock:
+            if resolved in self._initialized_paths:
+                return
+            for stmt in SCHEMA_STATEMENTS:
+                stmt_clean = stmt.strip()
+                if stmt_clean:
+                    conn.execute(stmt_clean)
+            self._initialized_paths.add(resolved)
+            logger.info(f"[DATABASE] Idempotently auto-initialized SQLite schema at {resolved} (WAL mode).")
 
     def create_connection(self) -> sqlite3.Connection:
         """Creates a new sqlite3 connection configured with WAL and performance pragmas."""
@@ -152,24 +174,55 @@ class DatabaseManager:
         conn.execute("PRAGMA synchronous = NORMAL;")
         conn.execute("PRAGMA busy_timeout = 5000;")
         conn.execute("PRAGMA foreign_keys = ON;")
+        self._ensure_schema_initialized(conn, target_path)
         return conn
+
+    def _get_cached_connection(self) -> sqlite3.Connection:
+        target_path = self.db_path.resolve()
+        conns = getattr(self._local, "conns", None)
+        if conns is None:
+            conns = {}
+            self._local.conns = conns
+
+        conn = conns.get(target_path)
+        if conn is not None:
+            try:
+                conn.execute("SELECT 1;")
+                return conn
+            except Exception:
+                conns.pop(target_path, None)
+
+        conn = self.create_connection()
+        conns[target_path] = conn
+        with self._conns_lock:
+            self._all_conns.append(conn)
+        return conn
+
+    def close_all_connections(self) -> None:
+        """Closes all cached SQLite connections across all threads and clears connection state."""
+        with self._conns_lock:
+            for conn in self._all_conns:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+            self._all_conns.clear()
+        if hasattr(self._local, "conns"):
+            self._local.conns.clear()
 
     @contextmanager
     def get_connection(self) -> Generator[sqlite3.Connection, None, None]:
-        """Context manager yielding a thread-safe connection, closing it upon exit."""
-        conn = self.create_connection()
-        try:
-            yield conn
-        finally:
-            conn.close()
+        """Context manager yielding a thread-safe cached connection."""
+        conn = self._get_cached_connection()
+        yield conn
 
     @contextmanager
     def transaction(self, immediate: bool = True) -> Generator[sqlite3.Connection, None, None]:
         """
-        Context manager for atomic write transactions.
+        Context manager for atomic write transactions on the cached connection.
         Uses BEGIN IMMEDIATE by default to prevent writer lock escalation deadlocks.
         """
-        conn = self.create_connection()
+        conn = self._get_cached_connection()
         try:
             if immediate:
                 conn.execute("BEGIN IMMEDIATE;")
@@ -183,8 +236,6 @@ class DatabaseManager:
             except Exception as rollback_err:
                 logger.debug(f"[DATABASE] Rollback failed or unneeded: {rollback_err}")
             raise
-        finally:
-            conn.close()
 
     def init_db(self, db_path: Path | None = None) -> None:
         """Initializes all database tables and indices idempotently."""
@@ -196,6 +247,7 @@ class DatabaseManager:
                 stmt_clean = stmt.strip()
                 if stmt_clean:
                     conn.execute(stmt_clean)
+        self._initialized_paths.add(self.db_path.resolve())
         logger.info(f"[DATABASE] SQLite database initialized at {self.db_path} (WAL mode).")
 
 
@@ -213,3 +265,7 @@ def get_db_transaction(immediate: bool = True) -> Generator[sqlite3.Connection, 
 
 def init_db(db_path: Path | None = None) -> None:
     db_manager.init_db(db_path=db_path)
+
+
+def close_all_connections() -> None:
+    db_manager.close_all_connections()

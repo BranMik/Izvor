@@ -166,6 +166,20 @@ class ThreadUsageTracker:
         entry["last_updated"] = time.time()
         self.save()
 
+        # Wire into SQLite spend_ledger via spend_governance
+        try:
+            from pipeline.spend_governance import spend_governance
+
+            session_id = f"{channel_id}:{thread_ts}"
+            spend_governance.record_usage(
+                session_id=session_id,
+                model_name=model_name or "unknown",
+                prompt_tokens=int(prompt_tokens),
+                completion_tokens=int(completion_tokens),
+            )
+        except Exception as e:
+            logger.debug(f"[USAGE AGENT] Spend governance recording failed: {e}")
+
         logger.info(
             f"[USAGE AGENT] Recorded tokens for thread {thread_ts} | Model: {model_name} | "
             f"New Prompt={prompt_tokens}, Completion={completion_tokens} | "

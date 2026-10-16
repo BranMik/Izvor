@@ -376,12 +376,16 @@ TOOL_DISPATCHER: dict[str, Any] = {
 }
 
 
-def is_agent_authorized_for_tool(agent_name: str, tool_name: str) -> bool:
+def is_agent_authorized_for_tool(
+    agent_name: str | None,
+    tool_name: str,
+    authorized_skills: list[str] | set[str] | None = None,
+) -> bool:
     """
     Validates whether an agent has authorization to execute the requested tool.
     Internal or system callers (empty, 'system', 'orchestrator') bypass this check.
-    For debate agents, verifies that the tool belongs to one of their configured skills
-    or is exposed by a global skill.
+    For debate agents, verifies that the tool belongs to one of their configured skills,
+    a dynamically granted thread skill, or is exposed by a global skill.
     """
     if not agent_name or agent_name.lower() in ("system", "orchestrator", "panel system"):
         return True
@@ -395,15 +399,16 @@ def is_agent_authorized_for_tool(agent_name: str, tool_name: str) -> bool:
             if getattr(s_def, "is_global", False) and tool_name in getattr(s_def, "tools", []):
                 return True
 
-        # 2. Check agent's assigned skills
+        # 2. Check agent's assigned skills (combining static config with authorized thread skills)
         from orchestration.agent_settings import get_agent_skills
 
-        agent_skills = get_agent_skills(agent_name)
-        if not agent_skills:
+        static_skills = get_agent_skills(agent_name) or []
+        combined_skills = set(static_skills) | set(authorized_skills or [])
+        if not combined_skills:
             return False
 
         permitted_tools: set[str] = set()
-        for s_name in agent_skills:
+        for s_name in combined_skills:
             s_def = skill_registry.get(s_name)
             if s_def and hasattr(s_def, "tools"):
                 permitted_tools.update(s_def.tools)
@@ -418,6 +423,7 @@ def execute_mcp_tool(
     tool_name: str,
     arguments: dict[str, Any] | None = None,
     agent_name: str = "",
+    authorized_skills: list[str] | set[str] | None = None,
 ) -> str:
     """
     Executes a requested native MCP tool via dispatcher dictionary and returns the JSON string result.
@@ -425,7 +431,7 @@ def execute_mcp_tool(
     """
     logger.info(f"Executing MCP tool: {tool_name} with args: {arguments} (agent: {agent_name})")
 
-    if agent_name and not is_agent_authorized_for_tool(agent_name, tool_name):
+    if agent_name and not is_agent_authorized_for_tool(agent_name, tool_name, authorized_skills=authorized_skills):
         logger.warning(
             f"[MCP] Access denied: Agent '{agent_name}' is not authorized to execute tool '{tool_name}'."
         )

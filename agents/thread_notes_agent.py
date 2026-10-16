@@ -41,6 +41,19 @@ _PENDING_UPDATES: dict[tuple[str, str], bool] = {}
 _PENDING_COMPLETED: dict[tuple[str, str], bool] = {}
 
 
+def _sanitize_note_text(text: str, persona_name: str = "Live Discussion Scribe") -> str:
+    """Scans and sanitizes note text for leaked credentials and neutralizes broadcast mentions."""
+    from core.slack_security import sanitize_slack_broadcast_mentions
+    from services.security import scan_output_for_secrets
+
+    matched_rule = scan_output_for_secrets(text, user_id=persona_name)
+    if matched_rule:
+        logger.warning(f"[SECURITY] Scribe note blocked by guardrail rule: {matched_rule}")
+        return f"⚠️ *Note content redacted by security policy.* (Rule: {matched_rule})"
+    return sanitize_slack_broadcast_mentions(text)
+
+
+
 def get_thread_lock(channel_id: str, thread_ts: str) -> asyncio.Lock:
     """Returns or creates an asyncio.Lock for a specific thread."""
     thread_key = (channel_id, thread_ts)
@@ -362,6 +375,7 @@ async def update_notes_for_thread(
             timestamp_str = time.strftime("%H:%M:%S")
             footer = f"\n\n_Last updated: {timestamp_str} | Scribe tokens: {token_stats['total_tokens']}_"
             formatted_text = f"{notes_content.strip()}{footer}"
+            formatted_text = _sanitize_note_text(formatted_text, "Live Discussion Scribe")
             set_thread_note_content(channel_id, thread_ts, formatted_text)
             blocks = build_scribe_note_blocks(formatted_text, channel_id, thread_ts)
 
@@ -421,6 +435,7 @@ async def update_notes_for_thread(
 
                 conc_footer = f"\n\n_Completed: {timestamp_str} | Conclusion tokens: {conc_tokens['total_tokens']}_"
                 formatted_conclusion_text = f"{conc_content.strip()}{conc_footer}"
+                formatted_conclusion_text = _sanitize_note_text(formatted_conclusion_text, "Discussion Conclusion")
                 set_thread_conclusion_content(channel_id, thread_ts, formatted_conclusion_text)
                 conc_blocks = build_conclusion_note_blocks(formatted_conclusion_text, channel_id, thread_ts)
 

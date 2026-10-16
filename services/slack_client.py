@@ -114,11 +114,19 @@ async def post_agent_response(
             f"[SLACK] chat_postMessage channel={channel_id} thread_ts={thread_ts} as '{username}' icon_url='{final_icon_url}'"
         )
 
+        from core.slack_security import sanitize_slack_blocks
         from services.security import scan_output_for_secrets
+
         matched_rule = scan_output_for_secrets(text, user_id=username)
+        if blocks:
+            blocks, matched_rule_blocks = sanitize_slack_blocks(blocks, user_id=username)
+            if matched_rule_blocks:
+                matched_rule = matched_rule or matched_rule_blocks
+
         if matched_rule:
             logger.warning(f"[SECURITY] Message blocked by guardrail rule: {matched_rule}")
             text = f"⚠️ *Message blocked by security policy.* (Rule: {matched_rule})"
+            blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": text}}]
 
         text = sanitize_slack_broadcast_mentions(text)
 
@@ -316,11 +324,19 @@ async def post_thread_note(
         return {"ok": True, "ts": mock_ts, "mock": True, "blocks": blocks}
 
     try:
+        from core.slack_security import sanitize_slack_blocks
         from services.security import scan_output_for_secrets
+
         matched_rule = scan_output_for_secrets(text, user_id=username)
+        if blocks:
+            blocks, matched_rule_blocks = sanitize_slack_blocks(blocks, user_id=username)
+            if matched_rule_blocks:
+                matched_rule = matched_rule or matched_rule_blocks
+
         if matched_rule:
             logger.warning(f"[SECURITY] Note blocked by guardrail rule: {matched_rule}")
             text = f"⚠️ *Note blocked by security policy.* (Rule: {matched_rule})"
+            blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": text}}]
 
         await slack_rate_limiter.acquire()
         kwargs: dict[str, Any] = {
@@ -427,11 +443,19 @@ async def update_thread_note(
         return {"ok": True, "ts": message_ts, "mock": True, "blocks": blocks}
 
     try:
+        from core.slack_security import sanitize_slack_blocks
         from services.security import scan_output_for_secrets
+
         matched_rule = scan_output_for_secrets(text, user_id="system_update")
+        if blocks:
+            blocks, matched_rule_blocks = sanitize_slack_blocks(blocks, user_id="system_update")
+            if matched_rule_blocks:
+                matched_rule = matched_rule or matched_rule_blocks
+
         if matched_rule:
             logger.warning(f"[SECURITY] Update blocked by guardrail rule: {matched_rule}")
             text = f"⚠️ *Update blocked by security policy.* (Rule: {matched_rule})"
+            blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": text}}]
 
         await slack_rate_limiter.acquire()
         kwargs: dict[str, Any] = {

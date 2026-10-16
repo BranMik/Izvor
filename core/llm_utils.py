@@ -146,6 +146,7 @@ async def execute_llm_with_retry(
     max_attempts: int = LLM_MAX_RETRIES,
     run_in_threadpool_fn=None,
     allow_503_immediate_retry: bool = True,
+    turn_token_mapping: dict[str, str] | None = None,
 ) -> Any:
     """
     Executes an LLM call natively or via runner with automatic retries and exponential backoff.
@@ -158,7 +159,7 @@ async def execute_llm_with_retry(
     import copy
 
     is_strict = is_strict_privacy_mode_enabled()
-    turn_token_mapping: dict[str, str] = {}
+    active_mapping: dict[str, str] = turn_token_mapping if turn_token_mapping is not None else {}
     
     # 1. Masking Phase
     if is_strict and "messages" in kwargs:
@@ -166,9 +167,21 @@ async def execute_llm_with_retry(
         kwargs = copy.deepcopy(kwargs)
         for msg in kwargs.get("messages", []):
             if "content" in msg and isinstance(msg["content"], str):
-                masked_content, mapping = pii_masker.mask(msg["content"])
+                masked_content, mapping = pii_masker.mask(msg["content"], existing_mapping=active_mapping)
                 msg["content"] = masked_content
-                turn_token_mapping.update(mapping)
+                active_mapping.update(mapping)
+            if "tool_calls" in msg and isinstance(msg["tool_calls"], list):
+                for tc in msg["tool_calls"]:
+                    fn = tc.get("function") if isinstance(tc, dict) else getattr(tc, "function", None)
+                    if fn:
+                        args = fn.get("arguments") if isinstance(fn, dict) else getattr(fn, "arguments", None)
+                        if isinstance(args, str):
+                            masked_args, mapping = pii_masker.mask(args, existing_mapping=active_mapping)
+                            if isinstance(fn, dict):
+                                fn["arguments"] = masked_args
+                            else:
+                                fn.arguments = masked_args
+                            active_mapping.update(mapping)
 
     logger.debug(f"[LLM] Prepared prompt for {agent_key}: {kwargs.get('messages', [])}")
 
@@ -188,16 +201,19 @@ async def execute_llm_with_retry(
             res = await _invoke_llm(func, kwargs, runner=run_in_threadpool_fn)
             
             # 2. Unmasking Phase
-            if is_strict and turn_token_mapping and hasattr(res, "choices") and res.choices:
+            if is_strict and active_mapping and hasattr(res, "choices") and res.choices:
                 first_choice = res.choices[0]
                 if hasattr(first_choice, "message"):
                     if hasattr(first_choice.message, "content") and isinstance(first_choice.message.content, str):
-                        unmasked_content = pii_masker.unmask(first_choice.message.content, turn_token_mapping)
+                        unmasked_content = pii_masker.unmask(first_choice.message.content, active_mapping)
                         first_choice.message.content = unmasked_content
                     if hasattr(first_choice.message, "tool_calls") and first_choice.message.tool_calls:
                         for tc in first_choice.message.tool_calls:
                             if hasattr(tc, "function") and hasattr(tc.function, "arguments") and isinstance(tc.function.arguments, str):
-                                tc.function.arguments = pii_masker.unmask(tc.function.arguments, turn_token_mapping)
+                                tc.function.arguments = pii_masker.unmask(tc.function.arguments, active_mapping)
+
+            if turn_token_mapping is not None:
+                turn_token_mapping.update(active_mapping)
 
             return res
 

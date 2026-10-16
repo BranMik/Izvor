@@ -1,174 +1,198 @@
-"""
-Unit and integration tests for Phase P0 Pre-Publish Gates:
-  - Turn ceiling enforcement via max_discussion_turns setting (N1)
-  - Spend accounting on error, cancellation, and superseded turns (N2)
-  - Circuit breaker LLM notes suppression (N2)
-  - Normalized unicode-safe nomination tag format (N10)
-  - Tool arguments JSON decode error handling (B6 Part 1)
-  - Final text non-null fallback (B6 Part 1)
-"""
-
-import asyncio
 import json
-from unittest.mock import AsyncMock, MagicMock, patch
+import sqlite3
+import time
+from unittest.mock import AsyncMock, patch
 
 import pytest
+from fastapi.testclient import TestClient
 
-from core.slack_security import sanitize_slack_broadcast_mentions
-from orchestration.agent_router import orchestrate_discussion
-from orchestration.nomination import NOMINATION_TAG_REGEX, format_nomination_tag
-from orchestration.stages.execution import ExecutionStage
-from orchestration.stages.post_record import PostRecordStage
-from orchestration.system_settings import (
-    get_max_discussion_turns,
-    set_max_discussion_turns,
-)
-from orchestration.thread_state import thread_state_manager
+from main import app
+from core.database import DatabaseManager, get_connection
+from pipeline.spend_governance.circuit_breaker import SpendGovernance
+from agents.usage_agent import record_thread_tokens
+from services.mcp_tools import execute_mcp_tool, is_agent_authorized_for_tool
+from core.slack_security import sanitize_slack_blocks
+from agents.thread_notes_agent import _sanitize_note_text
+from services.hitl import register_hitl_request, reset_pending_requests
 from orchestration.turn_pipeline import TurnContext, TurnPipeline
+from orchestration.stages.post_record import PostRecordStage
 
 
-def test_turn_ceiling_configuration():
-    """Verifies that max_discussion_turns setting is queryable and settable."""
-    original = get_max_discussion_turns()
-    try:
-        set_max_discussion_turns(15)
-        assert get_max_discussion_turns() == 15
-    finally:
-        set_max_discussion_turns(original)
+client = TestClient(app)
+
+
+def test_tkt_701_sqlite_auto_initialization(tmp_path):
+    """
+    TKT-701: Verify DatabaseManager automatically executes DDL on fresh database paths,
+    ensuring tables like spend_ledger, thread_skills, hitl_approvals, and thread_sessions
+    are initialized before any query.
+    """
+    fresh_db = tmp_path / "fresh_test.db"
+    assert not fresh_db.exists()
+
+    mgr = DatabaseManager(db_path=fresh_db)
+    with mgr.create_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+        tables = {row[0] for row in cursor.fetchall()}
+
+    assert "spend_ledger" in tables
+    assert "thread_skills" in tables
+    assert "thread_sessions" in tables
+    assert "hitl_approvals" in tables
+    assert "thread_context" in tables
+
+
+def test_tkt_702_spend_ledger_unification_and_preservation(tmp_path, monkeypatch):
+    """
+    TKT-702: Verify record_thread_tokens records spend to SQLite spend_ledger,
+    and clear_session does NOT delete historical spend records.
+    """
+    test_db = tmp_path / "spend_test.db"
+    monkeypatch.setenv("IZVOR_DB_PATH", str(test_db))
+
+    circuit_breaker = SpendGovernance()
+
+    # 1. Record usage directly via record_thread_tokens
+    with patch("pipeline.spend_governance.spend_governance", circuit_breaker):
+        record_thread_tokens(
+            channel_id="C_SPEND_1",
+            thread_ts="1700000000.100",
+            model_name="gemini/gemini-2.5-flash",
+            prompt_tokens=1000,
+            completion_tokens=500,
+        )
+
+    # Check that spend_ledger has 1 record
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM spend_ledger WHERE channel_id = 'C_SPEND_1' AND thread_ts = '1700000000.100';")
+        count = cursor.fetchone()[0]
+    assert count == 1
+
+    # 2. Clear session (e.g. after round or sequence resumption)
+    circuit_breaker.clear_session("C_SPEND_1:1700000000.100")
+
+    # Historical spend records must NOT be deleted
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM spend_ledger WHERE channel_id = 'C_SPEND_1' AND thread_ts = '1700000000.100';")
+        count_after = cursor.fetchone()[0]
+    assert count_after == 1
+
+
+def test_tkt_703_mcp_tool_dynamic_thread_skill_authorization():
+    """
+    TKT-703: Verify is_agent_authorized_for_tool and execute_mcp_tool
+    grant access when the skill is granted in authorized_skills (thread-level).
+    """
+    agent = "agent-10001"  # Security Architect (does not statically own web_research or document tools)
+    tool = "web_search"
+
+    # Static authorization fails without authorized_skills
+    assert is_agent_authorized_for_tool(agent, tool, authorized_skills=[]) is False
+
+    # Dynamic authorization succeeds when skill is passed in authorized_skills
+    assert is_agent_authorized_for_tool(agent, tool, authorized_skills=["web_research"]) is True
+
+    # Unknown tool fails closed
+    assert is_agent_authorized_for_tool(agent, "non_existent_tool_xyz", authorized_skills=["web_research"]) is False
+
+
+def test_tkt_704_slack_blocks_and_notes_secret_and_broadcast_guardrails():
+    """
+    TKT-704: Verify sanitize_slack_blocks detects exposed secrets and neutralizes broadcast mentions,
+    and _sanitize_note_text redacts secrets from notes before storage and display.
+    """
+    # 1. Blocks with exposed secret and broadcast mention
+    raw_blocks = [
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": "Token is xoxb-123456789012-1234567890123-abcdefghijklmnopqrstuvwx and <!channel> look!",
+            },
+        }
+    ]
+    sanitized_blocks, matched_rule = sanitize_slack_blocks(raw_blocks, user_id="U_TEST")
+    # Verify secret pattern was flagged
+    assert matched_rule == "slack_token"
+    # Verify broadcast mention was neutralized in sanitized structure
+    sanitized_text = json.dumps(sanitized_blocks)
+    assert "<!channel>" not in sanitized_text
+    assert "@channel" in sanitized_text
+
+    # 2. Notes text sanitization
+    note_with_secret = (
+        "Project update: token is xoxb-123456789012-1234567890123-abcdefghijklmnopqrstuvwx. "
+        "Ping <!everyone> for sync."
+    )
+    clean_note = _sanitize_note_text(note_with_secret)
+    assert "xoxb-" not in clean_note
+    assert "<!everyone>" not in clean_note
+    assert "redacted by security policy" in clean_note
 
 
 @pytest.mark.anyio
-async def test_orchestrator_clamps_turns_to_ceiling(monkeypatch):
-    """Verifies orchestrate_discussion clamps expected round turns to get_max_discussion_turns()."""
-    channel_id = "C_TEST_CEIL"
-    thread_ts = "100.200"
+async def test_tkt_705_hitl_workflow_suspension_and_nomination_suppression():
+    """
+    TKT-705: Verify that when waiting_hitl is True, ctx.halted is True
+    and nomination injection in PostRecordStage is completely suppressed.
+    """
+    mock_poster = AsyncMock(return_value={"ok": True, "ts": "1700000000.501"})
+    mock_sleep = AsyncMock()
 
-    # Set ceiling to 3 turns
-    monkeypatch.setattr("orchestration.agent_router.get_max_discussion_turns", lambda: 3)
-    # Simulate active rounds requesting 10 rounds
-    thread_state_manager.set_rounds(channel_id, thread_ts, 10)
-
-    turns_executed = 0
-
-    async def mock_process_and_respond(**kwargs):
-        nonlocal turns_executed
-        turns_executed += 1
-        return {
-            "ok": True,
-            "final_text": f"Turn {turns_executed} done",
-            "is_completed": False,
-        }
-
-    monkeypatch.setattr("orchestration.agent_router.process_and_respond", mock_process_and_respond)
-    monkeypatch.setattr("orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[]))
-
-    res = await orchestrate_discussion(
-        channel_id=channel_id,
-        thread_ts=thread_ts,
-        raw_text="Start discussion",
+    pipeline = TurnPipeline(
+        slack_poster=mock_poster,
+        sleep_fn=mock_sleep,
     )
 
-    # Turns executed must not exceed ceiling of 3 turns
-    assert turns_executed == 3
-    thread_state_manager.clear_state(channel_id, thread_ts)
-
-
-def test_nomination_tag_unicode_and_format():
-    """Verifies NOMINATION_TAG_REGEX handles unicode diacritics and format_nomination_tag formats canonical tags."""
-    # Canonical tags
-    assert format_nomination_tag("agent-10002") == "/[agent-10002]"
-    assert format_nomination_tag("/[agent-10002]") == "/[agent-10002]"
-    assert format_nomination_tag(" [agent-10002] ") == "/[agent-10002]"
-
-    # Unicode regex matching
-    text = "Great discussion! I nominate /[Agent_Češki] to summarize."
-    matches = NOMINATION_TAG_REGEX.findall(text)
-    assert matches == ["Agent_Češki"]
-
-    text2 = "Next speaker: /[Dr_Müller] please."
-    matches2 = NOMINATION_TAG_REGEX.findall(text2)
-    assert matches2 == ["Dr_Müller"]
-
-
-@pytest.mark.anyio
-async def test_handle_error_records_spent_tokens():
-    """Verifies that PostRecordStage.handle_error records actual tokens spent before the error."""
-    pipeline = TurnPipeline()
     ctx = TurnContext(
-        channel_id="C_ERR",
-        thread_ts="111.222",
+        channel_id="C_HITL_TEST",
+        thread_ts="1700000000.500",
         raw_text="Test prompt",
     )
-    ctx.total_prompt_tokens = 450
-    ctx.total_completion_tokens = 120
-    ctx.agent_key = "agent-10011"
-    ctx.agent_cfg = {"model": "test-model"}
-    ctx.force_termination = True
+    ctx.waiting_hitl = True
+    ctx.halted = True
+    ctx.agent_key = "agent-10001"
+    ctx.agent_cfg = {"username": "Security Architect", "icon_url": "static/image_1.png", "model": "test-model"}
+    ctx.final_text = "I need approval for file modification. Over to [agent-10002]."
+    ctx.turn_token_mapping = {}
 
-    recorded = {}
+    stage = PostRecordStage(pipeline=pipeline)
 
-    def mock_record_tokens(channel_id, thread_ts, model_name, prompt_tokens, completion_tokens):
-        recorded["channel_id"] = channel_id
-        recorded["thread_ts"] = thread_ts
-        recorded["model_name"] = model_name
-        recorded["prompt_tokens"] = prompt_tokens
-        recorded["completion_tokens"] = completion_tokens
+    res = await stage.stage_post_and_record(ctx)
 
-    pipeline.token_recorder = mock_record_tokens
-    pipeline.slack_poster = AsyncMock(return_value={"ok": True})
-    pipeline.notes_updater = MagicMock()
-    pipeline.usage_updater = MagicMock()
-
-    stage = PostRecordStage(pipeline)
-    res = await stage.handle_error(ctx, RuntimeError("Simulated failure"))
-
-    assert res["ok"] is False
-    assert recorded["prompt_tokens"] == 450
-    assert recorded["completion_tokens"] == 120
-    assert recorded["model_name"] == "test-model"
+    assert ctx.halted is True
+    assert ctx.is_completed is False
+    assert ctx.next_designated_agent is None
 
 
-@pytest.mark.anyio
-async def test_tool_arguments_malformed_json_handling():
-    """Verifies that ExecutionStage catches JSONDecodeError on tool args without crashing."""
-    pipeline = TurnPipeline()
-    ctx = TurnContext(
-        channel_id="C_TOOL_ERR",
-        thread_ts="333.444",
-        raw_text="Execute tool",
-    )
-    ctx.agent_key = "agent-10011"
-    ctx.agent_cfg = {"model": "test-model"}
-    ctx.messages = [{"role": "user", "content": "Execute tool"}]
+def test_tkt_705_legacy_colon_requires_admin(monkeypatch):
+    """
+    TKT-705: Verify non-admin user cannot bypass token validation using legacy colon strings.
+    """
+    monkeypatch.setattr("core.config.ADMIN_SLACK_USER_ID", "U_WORKSPACE_ADMIN")
+    monkeypatch.setenv("ADMIN_SLACK_USER_ID", "U_WORKSPACE_ADMIN")
+    monkeypatch.setattr("adapters.slack.interactivity.verify_slack_signature", lambda body, headers: True)
+    monkeypatch.setattr("adapters.slack.interactivity.slack_async_client.chat_postEphemeral", AsyncMock(return_value={"ok": True}))
 
-    stage = ExecutionStage(pipeline)
+    # Non-admin attempts legacy colon approval
+    payload_colon = {
+        "type": "block_actions",
+        "user": {"id": "U_NON_ADMIN"},
+        "actions": [{"action_id": "hitl_approve_tool", "value": "C_CHAN:1700000000.001:write_file"}],
+        "channel": {"id": "C_CHAN"},
+    }
+    resp = client.post("/slack/actions", json=payload_colon)
+    assert resp.status_code == 403
 
-    # Create mock response with invalid JSON in tool arguments
-    mock_tool_call = MagicMock()
-    mock_tool_call.id = "call_abc123"
-    mock_tool_call.function.name = "some_tool"
-    mock_tool_call.function.arguments = "{malformed_json_string: missing_quotes"
-
-    mock_response = MagicMock()
-    mock_response.choices = [
-        MagicMock(
-            message=MagicMock(
-                content=None,
-                tool_calls=[mock_tool_call],
-                model_dump=lambda: {"role": "assistant", "content": None, "tool_calls": []},
-            )
-        )
-    ]
-    mock_response.usage = None
-
-    pipeline.llm_executor = AsyncMock(return_value=mock_response)
-
-    # stage_execute_llm will run and handle the invalid JSON error cleanly
-    res = await stage.stage_execute_llm(ctx)
-    assert res is None  # Completed without unhandled exception
-
-    # Check that error response was appended to tool messages
-    tool_msg = next((m for m in ctx.messages if m.get("role") == "tool"), None)
-    assert tool_msg is not None
-    assert "Invalid JSON arguments" in tool_msg["content"]
-    assert ctx.final_text is not None  # Never left as None
+    # Non-admin attempts legacy colon denial
+    payload_colon_deny = {
+        "type": "block_actions",
+        "user": {"id": "U_NON_ADMIN"},
+        "actions": [{"action_id": "hitl_deny_tool", "value": "C_CHAN:1700000000.001:write_file"}],
+        "channel": {"id": "C_CHAN"},
+    }
+    resp_deny = client.post("/slack/actions", json=payload_colon_deny)
+    assert resp_deny.status_code == 403

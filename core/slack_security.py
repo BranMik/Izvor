@@ -150,3 +150,40 @@ def sanitize_slack_broadcast_mentions(text: str) -> str:
     return _BROADCAST_MENTION_PATTERN.sub(r"@\1", text)
 
 
+def sanitize_slack_blocks(
+    blocks: list[dict[str, Any]] | None,
+    user_id: str = "system",
+) -> tuple[list[dict[str, Any]] | None, str | None]:
+    """
+    Recursively scans and sanitizes Block Kit blocks for sensitive data / leaked secrets
+    and neutralizes broadcast mentions (<!channel>, etc.).
+    Returns: (sanitized_blocks, matched_secret_rule_name_or_None).
+    """
+    if not blocks:
+        return blocks, None
+
+    import copy
+    from services.security import scan_output_for_secrets
+
+    blocks_copy = copy.deepcopy(blocks)
+    matched_rule: str | None = None
+
+    def _walk_and_sanitize(obj: Any) -> Any:
+        nonlocal matched_rule
+        if isinstance(obj, str):
+            if matched_rule is None:
+                rule = scan_output_for_secrets(obj, user_id=user_id)
+                if rule:
+                    matched_rule = rule
+            return sanitize_slack_broadcast_mentions(obj)
+        elif isinstance(obj, dict):
+            return {k: _walk_and_sanitize(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [_walk_and_sanitize(item) for item in obj]
+        return obj
+
+    sanitized = _walk_and_sanitize(blocks_copy)
+    return sanitized, matched_rule
+
+
+

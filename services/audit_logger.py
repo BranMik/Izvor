@@ -155,6 +155,41 @@ class AuditLogger:
         files.sort(key=lambda p: p.name)
         return files
 
+    def _read_last_nonempty_line(self, file_path: Path) -> str | None:
+        """
+        Reads the last non-empty line of a file using an exponential reverse seek buffer.
+        Begins with an 8KB chunk and doubles until a complete line is captured or the
+        entire file is read. This guarantees that large audit records exceeding 8KB
+        do not fail JSON parsing or reset the hash chain.
+        """
+        if not file_path.exists():
+            return None
+        size = file_path.stat().st_size
+        if size == 0:
+            return None
+
+        chunk_size = 8192
+        with open(file_path, "rb") as f:
+            while True:
+                actual_chunk = min(size, chunk_size)
+                f.seek(size - actual_chunk)
+                data = f.read(actual_chunk)
+
+                lines = [line.strip() for line in data.split(b"\n") if line.strip()]
+                if not lines:
+                    if actual_chunk >= size:
+                        return None
+                    chunk_size *= 2
+                    continue
+
+                if actual_chunk >= size:
+                    return lines[-1].decode("utf-8", errors="replace")
+
+                if len(lines) >= 2 or (len(lines) == 1 and data.startswith(b"\n")):
+                    return lines[-1].decode("utf-8", errors="replace")
+
+                chunk_size *= 2
+
     def get_last_state(self) -> tuple[int, str]:
         """
         Determines the highest sequence ID and last entry_hash.
@@ -174,20 +209,11 @@ class AuditLogger:
             # Inspect newest file from the end
             for file_path in reversed(sorted_files):
                 try:
-                    size = file_path.stat().st_size
-                    if size == 0:
-                        continue
-                    with open(file_path, "rb") as f:
-                        # Read last chunk up to 8192 bytes
-                        chunk_size = min(size, 8192)
-                        f.seek(size - chunk_size)
-                        chunk = f.read(chunk_size).decode("utf-8", errors="replace")
-                        lines = [line.strip() for line in chunk.splitlines() if line.strip()]
-                        if lines:
-                            last_line = lines[-1]
-                            record = json.loads(last_line)
-                            self._cached_last_state = (int(record["seq"]), str(record["entry_hash"]))
-                            return self._cached_last_state
+                    last_line = self._read_last_nonempty_line(file_path)
+                    if last_line:
+                        record = json.loads(last_line)
+                        self._cached_last_state = (int(record["seq"]), str(record["entry_hash"]))
+                        return self._cached_last_state
                 except Exception as e:
                     logger.error(f"[AUDIT] Failed to read last state from {file_path.name}: {e}")
                     continue
@@ -208,7 +234,7 @@ class AuditLogger:
     ) -> dict[str, Any]:
         """
         Records an audit event with cryptographic hash chaining.
-        Thread-safe and append-only.
+        Thread-safe, append-only, and synchronous.
         """
         now = timestamp or datetime.datetime.now(datetime.timezone.utc)
         iso_timestamp = now.isoformat()
@@ -217,48 +243,39 @@ class AuditLogger:
         actor_dict = asdict(actor) if isinstance(actor, AuditActor) else dict(actor)
         clean_details = details or {}
 
-        def do_log():
-            with self._write_lock:
-                last_seq, last_hash = self.get_last_state()
-                current_seq = last_seq + 1
-                prev_hash = last_hash
+        with self._write_lock:
+            last_seq, last_hash = self.get_last_state()
+            current_seq = last_seq + 1
+            prev_hash = last_hash
 
-                record = AuditRecord(
-                    seq=current_seq,
-                    timestamp=iso_timestamp,
-                    event_type=event_type,
-                    severity=severity,
-                    actor=actor_dict,
-                    action=action,
-                    target=target,
-                    details=clean_details,
-                    status=status,
-                    prev_hash=prev_hash,
-                )
+            record = AuditRecord(
+                seq=current_seq,
+                timestamp=iso_timestamp,
+                event_type=event_type,
+                severity=severity,
+                actor=actor_dict,
+                action=action,
+                target=target,
+                details=clean_details,
+                status=status,
+                prev_hash=prev_hash,
+            )
 
-                canonical = canonical_serialize(record.to_canonical_dict())
-                record.entry_hash = compute_entry_hash(prev_hash, canonical)
+            canonical = canonical_serialize(record.to_canonical_dict())
+            record.entry_hash = compute_entry_hash(prev_hash, canonical)
 
-                # Append atomic line to monthly audit file
-                line_str = json.dumps(asdict(record), ensure_ascii=False) + "\n"
-                with open(target_file, "a", encoding="utf-8") as f:
-                    f.write(line_str)
-                    f.flush()
+            # Append atomic line to monthly audit file
+            line_str = json.dumps(asdict(record), ensure_ascii=False) + "\n"
+            with open(target_file, "a", encoding="utf-8") as f:
+                f.write(line_str)
+                f.flush()
 
-                self._cached_last_state = (record.seq, record.entry_hash)
+            self._cached_last_state = (record.seq, record.entry_hash)
 
-                logger.info(
-                    f"[AUDIT] Seq {record.seq} ({record.event_type}) recorded by {actor_dict.get('id')} -> {target_file.name}"
-                )
-                return asdict(record)
-
-        try:
-            import asyncio
-            loop = asyncio.get_running_loop()
-            loop.run_in_executor(None, do_log)
-            return {}
-        except RuntimeError:
-            return do_log()
+            logger.info(
+                f"[AUDIT] Seq {record.seq} ({record.event_type}) recorded by {actor_dict.get('id')} -> {target_file.name}"
+            )
+            return asdict(record)
 
     def create_snapshot(self) -> Path | None:
         """

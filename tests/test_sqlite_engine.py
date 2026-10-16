@@ -96,9 +96,10 @@ def test_spend_ledger_persistence_and_daily_aggregation(tmp_path, monkeypatch):
     assert spend_metrics_2.total_prompt_tokens == 1500
     assert cb2.get_daily_spend() == total_spend_1
 
-    # Clear session
+    # Clear session (clears in-memory session cache while preserving append-only spend ledger)
     cb2.clear_session(session_id)
-    assert cb2.calculate_spend(session_id).total_prompt_tokens == 0
+    assert session_id not in cb2._session_tokens
+    assert cb2.get_daily_spend() == total_spend_1
 
 
 def test_hitl_atomic_approval_consumption(tmp_path, monkeypatch):
@@ -241,3 +242,18 @@ def test_event_deduplication_cache_sqlite():
     cache2.clear()
     cache3 = EventDeduplicationCache(ttl_seconds=10.0)
     assert key not in cache3
+
+
+def test_empty_remaining_agents_persisted_and_reloaded_from_sqlite():
+    """Verifies that an exhausted/empty remaining_agents list persists in SQLite and reloads as [] rather than falling back."""
+    channel_id = "C_EMPTY_TEST"
+    thread_ts = "1700000099.9999"
+
+    store1 = DiscussionStateStore()
+    store1.set_remaining_agents(channel_id, thread_ts, [])
+
+    # Verify that in a fresh store instance, has_remaining_agents_key is True and returns []
+    store2 = DiscussionStateStore()
+    assert store2.has_remaining_agents_key(channel_id, thread_ts) is True
+    assert store2.get_remaining_agents(channel_id, thread_ts, default=["fallback"]) == []
+

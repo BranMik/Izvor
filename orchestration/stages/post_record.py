@@ -28,7 +28,11 @@ from nlp.message_builder import markdown_to_slack
 from orchestration.agent_settings import settings_manager
 from orchestration.nomination import enforce_valid_nomination, get_initial_agents
 from orchestration.thread_state import thread_state_manager
-from pipeline.entity_resolver import NOMINATION_TAG_REGEX, format_nomination
+from pipeline.entity_resolver import (
+    NOMINATION_TAG_REGEX,
+    entity_resolver,
+    format_nomination,
+)
 from services.flat_history_recorder import (
     async_record_flat_history,
     record_flat_history,
@@ -42,6 +46,19 @@ if TYPE_CHECKING:
     from orchestration.turn_pipeline import TurnContext
 
 logger = logging.getLogger(__name__)
+
+
+def _extract_resolved_nomination_keys(text: str) -> list[str]:
+    """
+    Extracts all bracketed nomination tags from text and resolves each tag to its
+    canonical agent key (e.g. 'The Visionary' -> 'agent-10003').
+    """
+    raw_tags = re.findall(r"/\[\s*([^\]\r\n]+?)\s*\]", text)
+    resolved: list[str] = []
+    for tag in raw_tags:
+        canonical = entity_resolver.resolve_agent_name(tag)
+        resolved.append(canonical if canonical else tag.strip())
+    return resolved
 
 
 def apply_mechanical_word_limit(text: str, max_words: int) -> str:
@@ -196,23 +213,25 @@ class PostRecordStage:
                 ctx.final_text = apply_mechanical_word_limit(ctx.final_text, active_max_words)
 
             ctx.final_text = markdown_to_slack(ctx.final_text)
-            ctx.final_text = enforce_valid_nomination(
-                ctx.final_text,
-                ctx.agent_key,
-                []
-                if ctx.force_termination
-                else ctx.eligible_remaining_agents,
-                ctx.force_termination,
-                pending_retries=retries,
-                designated_next_agent=ctx.next_designated_agent,
-            )
+            if not getattr(ctx, "waiting_hitl", False):
+                ctx.final_text = enforce_valid_nomination(
+                    ctx.final_text,
+                    ctx.agent_key,
+                    []
+                    if ctx.force_termination
+                    else ctx.eligible_remaining_agents,
+                    ctx.force_termination,
+                    pending_retries=retries,
+                    designated_next_agent=ctx.next_designated_agent,
+                )
 
         retries = thread_state_manager.get_retry_queue(
             ctx.channel_id, ctx.thread_ts
         )
+        resolved_tags = _extract_resolved_nomination_keys(ctx.final_text)
         if not ctx.remaining and retries:
             for r_agent in list(retries):
-                if f"[{r_agent}]" in ctx.final_text:
+                if r_agent in resolved_tags or f"[{r_agent}]" in ctx.final_text:
                     thread_state_manager.pop_retry_agent(
                         ctx.channel_id, ctx.thread_ts, r_agent
                     )
@@ -234,9 +253,7 @@ class PostRecordStage:
             ctx.final_text = f"{ctx.final_text}\n\nSkills used: {skills_str}\n\n{token_footer}"
         else:
             ctx.final_text = f"{ctx.final_text}\n\n{token_footer}"
-        ctx.generated_tags = re.findall(
-            r"/\[\s*([^\]\r\n]+?)\s*\]", ctx.final_text
-        )
+        ctx.generated_tags = resolved_tags
         logger.info(
             f"[ROUTER] Agent {ctx.agent_key} generated tag(s): {ctx.generated_tags}. Full text length: {len(ctx.final_text)}"
         )
@@ -295,14 +312,15 @@ class PostRecordStage:
             else:
                 posted_ts = ctx.intermediate_msg_ts
         else:
+            resolved_username = ctx.agent_cfg.get("username", ctx.agent_key) if ctx.agent_cfg else ctx.agent_key
             logger.info(
-                f"[SLACK] Posting agent response to channel {ctx.channel_id}, thread_ts {ctx.thread_ts} as {ctx.agent_cfg['username']} (icon: {resolved_turn_icon})"
+                f"[SLACK] Posting agent response to channel {ctx.channel_id}, thread_ts {ctx.thread_ts} as {resolved_username} (icon: {resolved_turn_icon})"
             )
             slack_res = await post_resp_fn(
                 channel_id=ctx.channel_id,
                 thread_ts=ctx.thread_ts,
                 text=ctx.final_text,
-                username=ctx.agent_cfg["username"],
+                username=resolved_username,
                 icon_url=resolved_turn_icon,
             )
             posted_ts = slack_res.get("ts") if isinstance(slack_res, dict) else None
@@ -317,17 +335,22 @@ class PostRecordStage:
         has_pending_retries = thread_state_manager.has_pending_retries(
             ctx.channel_id, ctx.thread_ts
         )
-        agents_map = settings_manager.agents_config or AGENTS_CONFIG
-        has_nominated_next = any(tag in agents_map for tag in ctx.generated_tags)
-        ctx.is_completed = bool(
-            ctx.force_termination
-            or (
-                not ctx.remaining
-                and not has_pending_retries
-                and not has_nominated_next
+        if getattr(ctx, "waiting_hitl", False):
+            has_nominated_next = False
+            ctx.is_completed = False
+            ctx.halted = True
+        else:
+            known_agents = set(AGENTS_CONFIG.keys()) | set(settings_manager.get_enabled_agents())
+            has_nominated_next = any(tag in known_agents for tag in ctx.generated_tags)
+            ctx.is_completed = bool(
+                ctx.force_termination
+                or (
+                    not ctx.remaining
+                    and not has_pending_retries
+                    and not has_nominated_next
+                )
+                or (thread_state_manager.is_stopped(ctx.channel_id, ctx.thread_ts))
             )
-            or (thread_state_manager.is_stopped(ctx.channel_id, ctx.thread_ts))
-        )
 
         record_tokens_fn = self.pipeline._get_hook(
             "record_thread_tokens", record_thread_tokens
@@ -411,6 +434,8 @@ class PostRecordStage:
 
         if isinstance(slack_res, dict):
             slack_res["is_completed"] = ctx.is_completed
+            slack_res["halted"] = getattr(ctx, "halted", False)
+            slack_res["waiting_hitl"] = getattr(ctx, "waiting_hitl", False)
             slack_res["final_text"] = ctx.final_text
             slack_res["username"] = ctx.agent_cfg["username"]
             slack_res["displayname"] = ctx.agent_cfg.get("displayname", ctx.agent_cfg["username"])

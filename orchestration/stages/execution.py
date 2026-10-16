@@ -143,6 +143,7 @@ class ExecutionStage:
             is_superseded_fn=ctx.is_superseded,
             run_in_threadpool_fn=custom_runner,
             allow_503_immediate_retry=allow_503_immediate,
+            turn_token_mapping=ctx.turn_token_mapping,
         )
 
         if response is None and ctx.is_superseded():
@@ -289,16 +290,25 @@ class ExecutionStage:
                                         skill_def.name, fn_name, fn_args,
                                         initiator_user_id=ctx.user_id,
                                     )
-                                    tool_result_str = f"<untrusted_file_content>\nTOOL EXECUTION PAUSED: Tool '{fn_name}' requires human approval. I have sent an approval request to the Slack thread. End your turn now and do NOT retry calling this tool until the human approves it.\n</untrusted_file_content>"
+                                    tool_result_str = (
+                                        f"<untrusted_file_content>\n"
+                                        f"TOOL EXECUTION PAUSED: Tool '{fn_name}' requires human approval. "
+                                        f"An approval request has been sent to the Slack thread. "
+                                        f"Your turn is paused now. Explain briefly what approval is required and end your message without nominating other agents. "
+                                        f"Do NOT retry calling this tool until approval is granted."
+                                        f"\n</untrusted_file_content>"
+                                    )
                                     ctx.messages.append({
                                         "role": "tool",
                                         "tool_call_id": tool_call.id,
                                         "name": fn_name,
                                         "content": tool_result_str,
                                     })
+                                    ctx.halted = True
+                                    ctx.waiting_hitl = True
                                     if s_name and s_name not in ctx.skills_used:
                                         ctx.skills_used.append(s_name)
-                                    continue
+                                    break
                             
                             tool_result = await asyncio.to_thread(
                                 skill_registry.execute_tool,
@@ -371,6 +381,7 @@ class ExecutionStage:
                         is_superseded_fn=ctx.is_superseded,
                         run_in_threadpool_fn=custom_runner,
                         allow_503_immediate_retry=allow_503_immediate,
+                        turn_token_mapping=ctx.turn_token_mapping,
                     )
                     if follow_up is None and ctx.is_superseded():
                         if ctx.total_prompt_tokens > 0 or ctx.total_completion_tokens > 0:

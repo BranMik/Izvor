@@ -104,6 +104,10 @@ async def periodic_audit_integrity_guard():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Ensure SQLite schema and WAL mode are initialized before any queries execute
+    from core.database import init_db
+    init_db()
+
     if not ADMIN_PASSWORD:
         logger.warning(
             "[SECURITY] ADMIN_PASSWORD is not configured in environment/.env. "

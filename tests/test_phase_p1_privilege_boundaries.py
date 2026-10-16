@@ -194,6 +194,81 @@ async def test_validation_stage_blocks_inferred_non_auto_detect_skill():
         mock_handler.assert_not_called()
 
 
+@pytest.mark.anyio
+async def test_validation_stage_blocks_inferred_when_auto_detect_omitted():
+    """Inferred invocation of a skill with omitted auto_detect is blocked (defaults to False / fail-closed)."""
+    pipeline = TurnPipeline()
+    stage = pipeline.validation_stage
+    mock_handler = AsyncMock()
+    mock_skill = MagicMock()
+    mock_skill.name = "default_gated_skill"
+    mock_skill.triggers = {}  # auto_detect omitted!
+    mock_skill.action_handler = mock_handler
+
+    ctx = TurnContext(
+        channel_id="C_TEST_P1",
+        thread_ts="123.456",
+        raw_text="run default gated skill",
+        is_bot_trigger=True,
+        actions=[ActionDirective(name="default_gated_skill", params={}, origin="inferred")],
+    )
+
+    with patch("core.registry.get_skill_registry") as mock_get_reg:
+        mock_reg = MagicMock()
+        mock_reg.get.return_value = mock_skill
+        mock_get_reg.return_value = mock_reg
+
+        await stage.stage_validate_and_parse(ctx)
+        mock_handler.assert_not_called()
+
+
+def test_skill_registry_auto_detect_defaults_to_false(tmp_path):
+    """SkillRegistry.get_auto_detect_skills excludes skills where auto_detect is omitted."""
+    from skills.loader import SkillRegistry, SkillDefinition
+
+    registry = SkillRegistry(root_dir=tmp_path)
+    skill_with_default = SkillDefinition(
+        name="omitted_autodetect",
+        display_name="Omitted AutoDetect",
+        description="Skill without auto_detect",
+        tools=[],
+        instructions="",
+        skill_dir=Path("."),
+        triggers={},  # auto_detect omitted
+    )
+    skill_with_true = SkillDefinition(
+        name="explicit_true",
+        display_name="Explicit True",
+        description="Skill with auto_detect: True",
+        tools=[],
+        instructions="",
+        skill_dir=Path("."),
+        triggers={"auto_detect": True},
+    )
+    skill_with_false = SkillDefinition(
+        name="explicit_false",
+        display_name="Explicit False",
+        description="Skill with auto_detect: False",
+        tools=[],
+        instructions="",
+        skill_dir=Path("."),
+        triggers={"auto_detect": False},
+    )
+
+    registry._skills = {
+        "omitted_autodetect": skill_with_default,
+        "explicit_true": skill_with_true,
+        "explicit_false": skill_with_false,
+    }
+
+    auto_skills = registry.get_auto_detect_skills()
+    auto_names = [s.name for s in auto_skills]
+
+    assert "explicit_true" in auto_names
+    assert "omitted_autodetect" not in auto_names
+    assert "explicit_false" not in auto_names
+
+
 # ---------------------------------------------------------------------------
 # 3. Intent Extractor Strict Allowlisting (N3)
 # ---------------------------------------------------------------------------
@@ -521,3 +596,100 @@ async def test_guardrail_handle_failure_passes_valid_audit_parameters():
             assert kwargs["status"] == "BLOCKED"
         finally:
             set_guardrail_fail_mode("open", save=False)
+
+
+# ---------------------------------------------------------------------------
+# 13. Resume Sequence Action Interactivity Security & Execution (TKT-711)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_resume_sequence_action_rejects_non_admin(monkeypatch):
+    """resume_sequence_action rejects non-admin users with 403 and ADMIN_ACTION_DENIED audit log."""
+    from adapters.slack.interactivity import handle_slack_interactivity
+    from starlette.background import BackgroundTasks
+    from starlette.requests import Request
+
+    monkeypatch.setattr("adapters.slack.interactivity.verify_slack_signature", lambda body, headers: True)
+    monkeypatch.setattr("adapters.slack.interactivity.is_slack_admin", lambda uid: False)
+
+    logged_events = []
+    def mock_log(**kwargs):
+        logged_events.append(kwargs)
+        return kwargs
+    monkeypatch.setattr("adapters.slack.interactivity.log_audit_event", mock_log)
+
+    payload = {
+        "type": "block_actions",
+        "user": {"id": "U_REGULAR_USER"},
+        "actions": [{"action_id": "resume_sequence_action"}],
+        "channel": {"id": "C_TEST"},
+        "container": {"thread_ts": "1700000001.0001"},
+    }
+
+    async def mock_receive():
+        return {"type": "http.request", "body": json.dumps(payload).encode("utf-8")}
+
+    scope = {
+        "type": "http",
+        "method": "POST",
+        "headers": [(b"content-type", b"application/json")],
+    }
+    request = Request(scope, mock_receive)
+    bg_tasks = BackgroundTasks()
+
+    resp = await handle_slack_interactivity(request, bg_tasks)
+    assert resp.status_code == 403
+    assert any(e.get("event_type") == "ADMIN_ACTION_DENIED" for e in logged_events)
+
+
+@pytest.mark.anyio
+async def test_resume_sequence_action_succeeds_for_admin(monkeypatch):
+    """resume_sequence_action allows admin, checks spend governance dynamically, and dispatches discussion."""
+    from adapters.slack.interactivity import handle_slack_interactivity
+    from starlette.background import BackgroundTasks
+    from starlette.requests import Request
+
+    monkeypatch.setattr("adapters.slack.interactivity.verify_slack_signature", lambda body, headers: True)
+    monkeypatch.setattr("adapters.slack.interactivity.is_slack_admin", lambda uid: True)
+    monkeypatch.setattr("orchestration.app_settings.is_circuit_breaker_enabled", lambda: False)
+    monkeypatch.setattr("orchestration.app_settings.get_circuit_breaker_threshold", lambda: 0.0)
+    monkeypatch.setattr("orchestration.app_settings.get_daily_budget_usd", lambda: 50.0)
+
+    logged_events = []
+    def mock_log(**kwargs):
+        logged_events.append(kwargs)
+        return kwargs
+    monkeypatch.setattr("adapters.slack.interactivity.log_audit_event", mock_log)
+
+    dispatched = []
+    def mock_dispatch(cid, ts, coro):
+        dispatched.append((cid, ts, coro))
+    monkeypatch.setattr("orchestration.thread_state.thread_state_manager.dispatch_discussion_task", mock_dispatch)
+
+    payload = {
+        "type": "block_actions",
+        "user": {"id": "U_ADMIN_USER"},
+        "actions": [{"action_id": "resume_sequence_action"}],
+        "channel": {"id": "C_TEST"},
+        "container": {"thread_ts": "1700000001.0001"},
+        "message": {"ts": "1700000001.0002"},
+    }
+
+    async def mock_receive():
+        return {"type": "http.request", "body": json.dumps(payload).encode("utf-8")}
+
+    scope = {
+        "type": "http",
+        "method": "POST",
+        "headers": [(b"content-type", b"application/json")],
+    }
+    request = Request(scope, mock_receive)
+    bg_tasks = BackgroundTasks()
+
+    resp = await handle_slack_interactivity(request, bg_tasks)
+    assert resp.status_code == 200
+    assert any(e.get("event_type") == "SEQUENCE_RESUMED" for e in logged_events)
+    assert len(dispatched) == 1
+    assert dispatched[0][0] == "C_TEST"
+    assert dispatched[0][1] == "1700000001.0001"
+

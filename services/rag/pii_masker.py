@@ -164,18 +164,30 @@ class PIIMasker:
         """True if any masking is configured."""
         return self.mode in {"AT_INGESTION", "AT_RETRIEVAL"}
 
-    def mask(self, text: str) -> tuple[str, dict[str, str]]:
+    def mask(
+        self,
+        text: str,
+        existing_mapping: dict[str, str] | None = None,
+    ) -> tuple[str, dict[str, str]]:
         """
         Masks secrets, credentials, and PII in the given text.
         Applies deterministic pattern scrubbers first, followed by Presidio NER (if installed).
         Returns a tuple of (masked_text, token_mapping).
+        Accepts optional existing_mapping to continue indexing without token collisions.
         """
         if not text or not isinstance(text, str):
-            return text or "", {}
+            return text or "", dict(existing_mapping or {})
 
         masked_text = text
-        token_mapping: dict[str, str] = {}
+        token_mapping: dict[str, str] = dict(existing_mapping or {})
         counts: dict[str, int] = {}
+
+        if existing_mapping:
+            for token_key in existing_mapping:
+                m = re.match(r"^<([A-Za-z0-9_]+)_(\d+)>$", token_key)
+                if m:
+                    base_type, idx_str = m.group(1), m.group(2)
+                    counts[base_type] = max(counts.get(base_type, 0), int(idx_str) + 1)
 
         def get_replacer(base_token: str):
             base_token_bare = base_token.strip("<>")
