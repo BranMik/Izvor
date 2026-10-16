@@ -39,12 +39,18 @@ You can paste the following YAML/JSON manifest directly into the Slack App creat
       "bot": [
         "app_mentions:read",
         "channels:history",
+        "channels:manage",
+        "channels:read",
         "chat:write",
         "chat:write.customize",
         "files:read",
+        "files:write",
         "groups:history",
+        "groups:read",
         "im:history",
-        "mpim:history"
+        "im:write",
+        "mpim:history",
+        "pins:write"
       ]
     }
   },
@@ -52,6 +58,7 @@ You can paste the following YAML/JSON manifest directly into the Slack App creat
     "event_subscriptions": {
       "request_url": "https://<your-domain>/slack/events",
       "bot_events": [
+        "app_home_opened",
         "app_mention",
         "message.channels",
         "message.groups",
@@ -83,12 +90,18 @@ If setting up scopes manually under **OAuth & Permissions**:
 |---|---|
 | `app_mentions:read` | Allows Izvor to detect when the bot is directly mentioned (`@Izvor`) to initiate debates. |
 | `channels:history` | Reads thread context and discussion history in public channels. |
+| `channels:manage` | Manages channels for dedicated discussion threads or exports. |
+| `channels:read` | Inspects channel metadata and membership. |
 | `groups:history` | Reads thread context and discussion history in private channels. |
+| `groups:read` | Inspects private channel metadata. |
 | `im:history` | Reads direct message conversations with the bot. |
+| `im:write` | Initiates direct message conversations (e.g., admin notifications, approval alerts). |
 | `mpim:history` | Reads group direct messages. |
 | `chat:write` | Posts replies, warnings, summaries, and debate turns. |
-| `chat:write.customize` | Enables posting messages under individual persona names and custom avatars (e.g., *Visionary*, *Pragmatist*, *Skeptic*). |
+| `chat:write.customize` | Enables posting messages under individual persona names and custom avatars (e.g., *Visionary*, *Tactician*, *Skeptic*). |
 | `files:read` | Inspects and processes attached files (PDFs, Markdown, text) using the document reader skill. |
+| `files:write` | Uploads generated flat discussion exports and reports directly to Slack threads. |
+| `pins:write` | Pins live synthesis notes and conclusion notes to discussion threads. |
 
 ---
 
@@ -103,6 +116,7 @@ If setting up scopes manually under **OAuth & Permissions**:
   ```
 - Slack will immediately send an HTTP POST with a `challenge` parameter. Izvor's [`adapters/slack/events.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/adapters/slack/events.py) automatically validates the signature and responds with the challenge value.
 - Under **Subscribe to bot events**, ensure the following events are added:
+  - `app_home_opened`
   - `app_mention`
   - `message.channels`
   - `message.groups`

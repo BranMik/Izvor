@@ -64,7 +64,7 @@ Refer to [`core/config.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/co
 |---|---|---|---|
 | `SLACK_BOT_TOKEN` | **Yes** | `None` | Bot user OAuth token (`xoxb-...`) with write/read scopes. |
 | `SLACK_SIGNING_SECRET` | **Yes** | `None` | Slack signing secret for validating HMAC-SHA256 signatures. |
-| `ADMIN_SLACK_USER_IDS` | Recommended | `""` | Comma-delimited list of Slack User IDs authorized for App Home admin actions. |
+| `ADMIN_SLACK_USER_IDS` / `ADMIN_SLACK_USER_ID` | Recommended | `""` | Comma-delimited list or single Slack User ID authorized for App Home admin actions. |
 | `OPENROUTER_API_KEY` | Optional | `None` | API key for OpenRouter (recommended universal router). |
 | `OPENAI_API_KEY` | Optional | `None` | API key for OpenAI direct access. |
 | `ANTHROPIC_API_KEY` | Optional | `None` | API key for Anthropic direct access. |

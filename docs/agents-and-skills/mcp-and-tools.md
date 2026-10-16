@@ -52,7 +52,7 @@ Configured in [`orchestration/system_settings.py`](file:///c:/Users/Hp/Documents
 - `data/settings/system_settings.json`
 
 ### 3. Fail-Closed Authorization
-[`SkillRegistry`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/skills/registry.py) executes tools under a strict fail-closed contract. If an agent calls a tool that has not been explicitly granted in its configuration or active thread skills, the invocation is immediately aborted and logged.
+[`SkillLoader`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/skills/loader.py) executes tools under a strict fail-closed contract. If an agent calls a tool that has not been explicitly granted in its configuration or active thread skills, the invocation is immediately aborted and logged.
 
 ---
 

@@ -7,6 +7,7 @@ triggers:
   slash:
     - /grant_skill_for_all
     - /grant-skill-for-all
+    - /grant_for_all
   arg_type: list
   param_name: skills
   auto_detect: false

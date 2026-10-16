@@ -20,7 +20,7 @@ Trigger a deliberation by mentioning the bot and stating a question, design dile
 
 Once mentioned:
 1. Izvor's Orchestrator evaluates the query.
-2. The initial personas (e.g., *Visionary* and *Pragmatist* in Sandwich mode) enter the thread.
+2. The initial personas (e.g., *Visionary* and *Tactician* in Sandwich mode) enter the thread.
 3. Each persona posts using its dedicated avatar and display name.
 
 ---
@@ -33,14 +33,14 @@ sequenceDiagram
     actor User as Human User
     participant Slack as Slack Thread
     participant Visionary as Visionary Persona
-    participant Pragmatist as Pragmatist Persona
+    participant Tactician as Tactician Persona
     participant Security as Security Architect
 
     User->>Slack: @Izvor Should we adopt GraphQL or REST for our new public API?
     Slack->>Visionary: Triggers Start Chain
-    Visionary-->>Slack: Discusses developer velocity and asks [Pragmatist] about operational complexity.
-    Slack->>Pragmatist: Resolves Nomination
-    Pragmatist-->>Slack: Highlights caching hurdles and asks [Security Architect] about query depth exploits.
+    Visionary-->>Slack: Discusses developer velocity and asks [Tactician] about operational complexity.
+    Slack->>Tactician: Resolves Nomination
+    Tactician-->>Slack: Highlights caching hurdles and asks [Security Architect] about query depth exploits.
     Slack->>Security: Resolves Nomination
     Security-->>Slack: Analyzes DoS surface and proposes schema introspection guards.
 ```

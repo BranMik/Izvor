@@ -7,6 +7,7 @@ triggers:
   slash:
     - /list_skills
     - /list-skills
+    - /skills
   arg_type: none
   auto_detect: false
 requires_human_ITL: false

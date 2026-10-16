@@ -281,3 +281,41 @@ def test_slash_command_preserves_prompt_indentation():
     assert val == 3
     assert cleaned == "def process_data(items):\n    result = []\n    for item in items:\n        result.append(item * 2)\n    return result"
 
+
+@pytest.mark.anyio
+async def test_documented_shorthand_slash_commands_parse_correctly():
+    """Verifies that all documented shorthand slash aliases parse identically to full names."""
+    parser = DirectiveParser()
+
+    # /max 120
+    res = await parser.parse("/max 120 Analyze architecture")
+    assert res.max_words == 120
+    assert "Analyze architecture" in res.cleaned_prompt
+
+    # /min 45
+    res = await parser.parse("/min 45 Detail the security posture")
+    assert res.min_words == 45
+    assert "Detail the security posture" in res.cleaned_prompt
+
+    # /grant_for_all web_research
+    res = await parser.parse("/grant_for_all web_research Research the competitors")
+    grant_actions = [a for a in res.actions if a.name == "grant_skill_for_all"]
+    assert len(grant_actions) == 1
+    assert "web_research" in grant_actions[0].params.get("skills", [])
+
+    # /revoke_for_all web_research
+    res = await parser.parse("/revoke_for_all web_research Keep offline")
+    revoke_all_actions = [a for a in res.actions if a.name == "revoke_skill_for_all"]
+    assert len(revoke_all_actions) == 1
+    assert "web_research" in revoke_all_actions[0].params.get("skills", [])
+
+    # /revoke max_words
+    res = await parser.parse("/revoke max_words No limit now")
+    assert res.revoke_target == "max_words"
+
+    # /skills
+    res = await parser.parse("/skills")
+    list_skills_actions = [a for a in res.actions if a.name == "list_skills"]
+    assert len(list_skills_actions) == 1
+
+

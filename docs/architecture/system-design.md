@@ -80,7 +80,7 @@ Izvor uses the modern async context manager lifespan pattern in [`main.py`](file
 
 ### 1. Database Schema Initialization
 - **File**: [`core/database.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/core/database.py)
-- **Behavior**: Initializes `data/izvor.db` with WAL journal mode, 5000ms busy timeout, and verifies schema tables: `thread_sessions`, `thread_context`, `spend_ledger`, `hitl_approvals`, `thread_skills`, and `event_dedup`.
+- **Behavior**: Initializes `data/izvor.db` (configurable via `IZVOR_DB_PATH`) with WAL journal mode, 5000ms busy timeout, and verifies schema tables: `thread_sessions`, `thread_context`, `spend_ledger`, `hitl_approvals`, `thread_skills`, and `event_dedup`.
 
 ### 2. Windows Event Loop Heartbeat (`keep_loop_alive`)
 - **File**: [`main.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/main.py)

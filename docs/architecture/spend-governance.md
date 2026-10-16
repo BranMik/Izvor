@@ -52,7 +52,7 @@ Unlike static cost tables that go out of date as providers adjust their prices, 
 
 ## 📊 Transactional Ledger (`spend_ledger`)
 
-All token usage and USD costs are written immediately to the SQLite database (`data/izvor.db`) in table `spend_ledger`:
+All token usage and USD costs are written immediately to the SQLite database (`data/izvor.db`, configurable via `IZVOR_DB_PATH`) in table `spend_ledger`:
 
 ```sql
 CREATE TABLE IF NOT EXISTS spend_ledger (
@@ -96,3 +96,6 @@ Before allocating compute or dispatching to an LLM, [`orchestration/stages/resol
      > *⚠️ EXPENSE LIMIT REACHED FOR THE THREAD. ENDING CALLS*
      > *(or: Daily workspace budget of $10.00 exceeded)*
    - Terminates the turn immediately without dispatching an LLM call.
+
+### 3. Intra-Turn Tool-Loop Governance in Stage 4 (`ExecutionStage`)
+To prevent multi-step tool iterations from exceeding budgets mid-turn, [`orchestration/stages/execution.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/orchestration/stages/execution.py) calculates incremental token spend after each tool invocation. If the circuit breaker threshold or daily budget is breached during execution, the loop halts gracefully before the next LLM call.

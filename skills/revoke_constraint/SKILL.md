@@ -7,6 +7,7 @@ triggers:
   slash:
     - /revoke_constraint
     - /revoke-constraint
+    - /revoke
   arg_type: token
   param_name: target
   auto_detect: false

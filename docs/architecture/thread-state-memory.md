@@ -45,7 +45,7 @@ The SQLite state engine is initialized on startup in write-ahead logging (`WAL`)
 | `thread_sessions` | Tracks thread lifecycle (`active`, `paused`, `completed`), remaining agent queue, current turn number, custom debate topologies, and round sequences. | [`DiscussionStateStore`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/orchestration/state/discussion_store.py) |
 | `thread_context` | Persists word limits (`min_words`, `max_words`), history limits, detected thread language, included/excluded agents, and attached file contexts. | [`ThreadContextStore`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/orchestration/state/context_store.py) |
 | `spend_ledger` | Append-only financial ledger recording prompt tokens, completion tokens, and dollar cost per model invocation. | [`SpendGovernance`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/pipeline/spend_governance/circuit_breaker.py) |
-| `hitl_approvals` | Stores pending, approved, denied, or consumed Human-In-The-Loop approval requests with cryptographic parameter hashing. | [`HITLService`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/skills/hitl.py) |
+| `hitl_approvals` | Stores pending, approved, denied, or consumed Human-In-The-Loop approval requests with cryptographic parameter hashing. | [`HITLService`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/services/hitl.py) |
 | `thread_skills` | Thread-scoped dynamic skill grants (`skill_name`, `agent_id`, `expires_at`). | [`ThreadSkillsManager`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/orchestration/thread_skills_manager.py) |
 | `event_dedup` | Persists event IDs and receipt timestamps for idempotent Slack webhook retries. | [`EventDeduplicationCache`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/adapters/slack/events.py) |
 
@@ -95,7 +95,8 @@ Izvor enforces a two-layer bounded memory strategy:
 - When capacity is exceeded, the least recently active threads (LRU) are evicted opportunistically upon inserting new state.
 - Because durable state resides in SQLite, evicting an in-memory thread does not destroy historical context; if a message arrives later for an evicted thread, its state is lazily reloaded from SQLite.
 
-### 2. Scheduled Inactive TTL Pruning
+### 2. Scheduled Inactive TTL Pruning & Task-Based Retention
 - **Background Worker**: Clean-up task in `main.py` wakes up every 10 minutes (600s).
-- **TTL Window**: Threads with no incoming messages or agent turns for more than 2 hours are pruned from the in-memory cache.
+- **TTL Window & Liveness Check**: Threads with no incoming messages or agent turns for more than 2 hours are evaluated. Liveness is decoupled from the remaining agents queue: if an `asyncio.Task` is actively executing (`task and not task.done()`), eviction is skipped.
+- **Unified RAM & SQLite Purge**: For threads past TTL without active running tasks, in-memory context is freed and corresponding expired rows are safely deleted from SQLite `thread_sessions` and `thread_context`.
 - **Persistent Archival**: Before any thread state is evicted, its final transcript is permanently written to the disk-backed flat history store in `flat-histories/` via [`services/flat_history_recorder.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/services/flat_history_recorder.py).

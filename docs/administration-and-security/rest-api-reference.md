@@ -53,22 +53,22 @@ This document provides complete technical specifications for the HTTP endpoints 
   "status": "healthy",
   "service": "Izvor Multi-Agent Hub",
   "agents": [
-    "Visionary",
-    "Innovator",
-    "Sceptic",
-    "CompliancePrivacyAndGovernanceOfficer",
-    "ScopeOptimizer",
-    "ROIStrategist",
-    "UserAdvocate",
-    "SecurityArchitect",
-    "MarketAndCompetitionResearchExpert",
-    "SalesAdvisor",
-    "LegalAdvisor",
-    "ProductStrategist",
-    "RiskAuditor",
-    "Tactician",
-    "Revisor",
-    "CreativeAdvisor"
+    "agent-10001",
+    "agent-10002",
+    "agent-10003",
+    "agent-10004",
+    "agent-10005",
+    "agent-10006",
+    "agent-10007",
+    "agent-10008",
+    "agent-10009",
+    "agent-10010",
+    "agent-10011",
+    "agent-10012",
+    "agent-10013",
+    "agent-10014",
+    "agent-10015",
+    "agent-10016"
   ]
 }
 ```

@@ -59,12 +59,8 @@ def is_slack_admin(user_id: str | None) -> bool:
 def is_test_environment() -> bool:
     """
     Determines if the application is currently running inside an automated test suite.
-    Checks explicit environment flags (IZVOR_ENV=test/testing, PYTEST_CURRENT_TEST),
-    and safely falls back to inspecting loaded test runner modules.
+    Checks PYTEST_CURRENT_TEST and safely falls back to inspecting loaded test runner modules.
     """
-    env_mode = os.getenv("IZVOR_ENV", "").strip().lower()
-    if env_mode in ("test", "testing"):
-        return True
     if os.getenv("PYTEST_CURRENT_TEST"):
         return True
     return "pytest" in sys.modules

@@ -1,7 +1,9 @@
 import ast
+import re
 import subprocess
 import sys
 from pathlib import Path
+
 
 
 def test_python_ast_compilation_and_hygiene():
@@ -74,3 +76,51 @@ def test_python_ast_compilation_and_hygiene():
             )
     except FileNotFoundError:
         pass
+
+
+def test_all_docs_markdown_file_links_exist_on_disk():
+    """
+    Scans all Markdown documentation files under docs/ and verifies that every
+    local file link (file:///... and relative file references) resolves
+    to an existing file on disk.
+    """
+    root_dir = Path(__file__).resolve().parent.parent
+    docs_dir = root_dir / "docs"
+    assert docs_dir.exists(), "docs/ directory does not exist!"
+
+    md_files = list(docs_dir.rglob("*.md"))
+    assert len(md_files) > 0, "No markdown files found under docs/!"
+
+    link_pattern = re.compile(
+        r"\[.*?\]\((file:///[^#\s\)]+|[^:\s\)]+\.(?:md|py|json|sql|txt|sh|csv|yaml|yml))(?:#[^)]*)?\)"
+    )
+
+    broken_links = []
+    links_checked = 0
+
+    for doc_file in md_files:
+        content = doc_file.read_text(encoding="utf-8")
+        for match in link_pattern.finditer(content):
+            target = match.group(1).strip()
+            if target.startswith(("http://", "https://", "mailto:")):
+                continue
+
+            links_checked += 1
+            if target.startswith("file:///"):
+                raw_path = target[8:]
+                if re.match(r"^[a-zA-Z]:/", raw_path):
+                    target_path = Path(raw_path)
+                else:
+                    target_path = root_dir / raw_path.lstrip("/")
+            else:
+                target_path = (doc_file.parent / target).resolve()
+
+            if not target_path.exists():
+                broken_links.append(f"{doc_file.relative_to(root_dir)} -> {target}")
+
+    assert not broken_links, (
+        f"Found {len(broken_links)} broken file link(s) in documentation:\n"
+        + "\n".join(broken_links)
+    )
+    assert links_checked > 0, "No markdown file links were checked!"
+
