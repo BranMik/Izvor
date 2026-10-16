@@ -56,7 +56,7 @@ def test_models_serialization():
     )
     d = fc.to_dict()
     assert d["file_name"] == "app.py"
-    assert d["authorized_agents"] == {"agent-10001"}
+    assert d["authorized_agents"] == ["agent-10001"]
     fc_restored = FileContext.from_dict(d)
     assert fc_restored.file_name == "app.py"
     assert fc_restored.authorized_agents == {"agent-10001"}
@@ -270,6 +270,9 @@ def test_thread_state_manager_eviction():
     # Set state on active thread
     mgr.set_remaining_agents(channel, ts_active, ["agent-10001"])
     assert mgr.is_discussion_active(channel, ts_active) is True
+    task_mock = MagicMock()
+    task_mock.done.return_value = False
+    mgr.set_active_task(channel, ts_active, task_mock)
 
     # Simulate time passing by artificially backdating timestamps
     mgr.thread_last_activity[(channel, ts_inactive)] = 1000.0
@@ -288,7 +291,8 @@ def test_thread_state_manager_eviction():
     assert mgr.get_remaining_agents(channel, ts_active) == ["agent-10001"]
     assert (channel, ts_active) in mgr.thread_last_activity
 
-    # Clean active thread and ensure it can be evicted once inactive
+    # Clean active thread and ensure it can be evicted once task is completed
+    task_mock.done.return_value = True
     mgr.clear_remaining_agents(channel, ts_active)
     assert mgr.is_discussion_active(channel, ts_active) is False
     pruned_2 = mgr.cleanup_expired_threads(ttl_seconds=60.0)

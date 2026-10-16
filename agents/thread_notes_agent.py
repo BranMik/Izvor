@@ -318,7 +318,7 @@ async def update_notes_for_thread(
     """
     Asynchronously creates or updates the live in-thread Strategic Synthesis note message,
     and upon discussion completion unpins the live note, generates a dialectical Conclusion note,
-    pins the conclusion note, and persists both notes to resources/thread_notes/.
+    pins the conclusion note, and persists both notes to agents_resources/thread_notes/.
     """
     lock = get_thread_lock(channel_id, thread_ts)
     thread_key = (channel_id, thread_ts)
@@ -468,7 +468,7 @@ async def update_notes_for_thread(
                         f"[THREAD NOTES] Updated conclusion note {conclusion_ts} in thread {thread_ts}"
                     )
 
-                # 5. Persist both notes to resources/thread_notes/
+                # 5. Persist both notes to agents_resources/thread_notes/
                 try:
                     save_thread_notes_to_disk(
                         channel_id=channel_id,

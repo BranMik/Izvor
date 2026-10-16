@@ -26,17 +26,19 @@ class FileContext:
             "content": self.content,
             "size": self.size,
             "truncated": self.truncated,
-            "authorized_agents": self.authorized_agents,
+            "authorized_agents": sorted(self.authorized_agents) if self.authorized_agents is not None else None,
         }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "FileContext":
+        raw_auth = data.get("authorized_agents")
+        auth_set = set(raw_auth) if raw_auth is not None else None
         return cls(
             file_name=data.get("file_name", "unknown"),
             content=data.get("content", ""),
             size=data.get("size", 0),
             truncated=data.get("truncated", False),
-            authorized_agents=data.get("authorized_agents"),
+            authorized_agents=auth_set,
         )
 
 

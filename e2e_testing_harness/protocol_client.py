@@ -185,7 +185,7 @@ class SlackProtocolClient:
                 channel=self.live_channel_id,
                 text=text,
                 username="E2E Test Runner",
-                icon_url=resolve_avatar_url("static/v2/avatar_47.png"),
+                icon_url=resolve_avatar_url("static/image_99.png"),
             )
             if res and res.get("ok"):
                 self.current_thread_ts = str(res.get("ts"))
@@ -215,7 +215,7 @@ class SlackProtocolClient:
                 thread_ts=self.current_thread_ts,
                 text=text,
                 username="E2E Test Runner",
-                icon_url=resolve_avatar_url("static/v2/avatar_47.png"),
+                icon_url=resolve_avatar_url("static/image_99.png"),
             )
         except Exception as e:  # noqa: BLE001 - Live Slack scenario completion card boundary
             logger.error(f"[LIVE SLACK] Error posting scenario completion: {e}")

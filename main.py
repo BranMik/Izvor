@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -57,14 +58,18 @@ async def keep_loop_alive():
 
 async def periodic_thread_state_cleanup():
     """
-    Periodically purges inactive expired thread states to prevent unbounded memory growth.
+    Periodically purges inactive expired thread states to prevent unbounded memory growth
+    and purges expired cached downloaded Slack files.
     """
+    from services.slack_client import cleanup_old_downloads
+
     while True:
         try:
             await asyncio.sleep(600)  # clean every 10 minutes
             cleaned = thread_state_manager.cleanup_expired_threads()
             if cleaned > 0:
                 logger.info(f"[CLEANUP] Pruned {cleaned} inactive thread state(s)")
+            await asyncio.to_thread(cleanup_old_downloads)
         except asyncio.CancelledError:
             break
         except Exception:
@@ -73,7 +78,7 @@ async def periodic_thread_state_cleanup():
 
 async def periodic_audit_integrity_guard():
     """
-    Periodically validates the active month's audit log integrity.
+    Periodically validates the active month's audit log integrity in a worker thread.
     If tampering or chain corruption is detected, dispatches an urgent admin alert.
     """
     from core.integrity_checks import AppIntegrityValidator
@@ -82,7 +87,7 @@ async def periodic_audit_integrity_guard():
     while True:
         try:
             await asyncio.sleep(43200)  # check every 12 hours
-            res = AppIntegrityValidator.check_audit_log_integrity()
+            res = await asyncio.to_thread(AppIntegrityValidator.check_audit_log_integrity)
             hmac_check = res.get("hmac_continuity", {})
             if hmac_check and not hmac_check.get("matches", True):
                 logger.warning(
@@ -107,6 +112,20 @@ async def lifespan(app: FastAPI):
     # Ensure SQLite schema and WAL mode are initialized before any queries execute
     from core.database import init_db
     init_db()
+
+    # Check worker concurrency
+    concurrency_env = os.getenv("WEB_CONCURRENCY") or os.getenv("GUNICORN_WORKERS") or os.getenv("UVICORN_WORKERS") or "1"
+    try:
+        workers = int(concurrency_env)
+    except ValueError:
+        workers = 1
+    if workers > 1:
+        logger.critical(
+            f"[CONCURRENCY] Worker concurrency is set to {workers} (via WEB_CONCURRENCY / UVICORN_WORKERS). "
+            "Izvor relies on in-memory asyncio.Task coordination, local thread state, "
+            "and single-worker background queues. Running multiple worker processes will cause race "
+            "conditions, duplicated agent turns, and split thread states. A single worker is required."
+        )
 
     if not ADMIN_PASSWORD:
         logger.warning(

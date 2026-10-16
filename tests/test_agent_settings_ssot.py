@@ -59,7 +59,7 @@ def test_agent_settings_ssot_loading():
                 "fast_model": "gemini/gemini-3.8-flash",
                 "reasoning_model": "mistral/mistral-large-latest",
                 "username": "Orchestrator",
-                "icon_url": "static/image_30.png",
+                "icon_url": "static/image_99.png",
             },
         }
         with open(settings_file, "w", encoding="utf-8") as f:
@@ -316,7 +316,7 @@ def test_dynamic_config_getter_resolution():
             "fast_model": "gemini/gemini-3.8-flash",
             "reasoning_model": "mistral/mistral-large-latest",
             "username": "Orchestrator",
-            "icon_url": "static/image_30.png",
+            "icon_url": "static/image_99.png",
         }
         assert core.config.get_orchestrator_fast_model() == "gemini/gemini-3.8-flash"
         assert core.config.get_orchestrator_reasoning_model() == "mistral/mistral-large-latest"

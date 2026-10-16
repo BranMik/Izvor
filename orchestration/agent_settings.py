@@ -84,7 +84,7 @@ class AgentSettingsManager:
                 "fast_model": self.system_settings.get_default_fast_model(),
                 "reasoning_model": self.system_settings.get_default_reasoning_model(),
                 "username": "Orchestrator",
-                "icon_url": "static/image_30.png",
+                "icon_url": "static/image_99.png",
             })
         else:
             # Global default instance bound to core.config
@@ -98,7 +98,7 @@ class AgentSettingsManager:
                 "fast_model": self.system_settings.get_default_fast_model(),
                 "reasoning_model": self.system_settings.get_default_reasoning_model(),
                 "username": "Orchestrator",
-                "icon_url": "static/image_30.png",
+                "icon_url": "static/image_99.png",
             })
         self.enabled_agents: set[str] = set()
 
@@ -478,14 +478,14 @@ class AgentSettingsManager:
                 "reasoning_model": str(raw_orch.get("reasoning_model", default_reasoning)).strip(),
                 "username": str(raw_orch.get("username", "Orchestrator")).strip(),
                 "displayname": str(raw_orch.get("displayname", "Orchestrator")).strip(),
-                "icon_url": str(raw_orch.get("icon_url", "static/image_30.png")).strip(),
+                "icon_url": str(raw_orch.get("icon_url", "static/image_99.png")).strip(),
             })
         else:
             self.orchestrator_config.update({
                 "fast_model": default_fast,
                 "reasoning_model": default_reasoning,
                 "username": "Orchestrator",
-                "icon_url": "static/image_30.png",
+                "icon_url": "static/image_99.png",
             })
 
         # Parse system agents (legacy or secondary entries)
@@ -746,7 +746,7 @@ class AgentSettingsManager:
             "reasoning_model": self.get_orchestrator_reasoning_model(),
             "username": self.orchestrator_config.get("username", "Orchestrator"),
             "displayname": self.orchestrator_config.get("displayname", "Orchestrator"),
-            "icon_url": self.orchestrator_config.get("icon_url", "static/image_30.png"),
+            "icon_url": self.orchestrator_config.get("icon_url", "static/image_99.png"),
         })
 
         self._raw_data = copy.deepcopy(data)

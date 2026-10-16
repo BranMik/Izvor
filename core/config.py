@@ -106,7 +106,7 @@ def resolve_avatar_url(icon_url: str | None) -> str | None:
 
 # Default system agent persona for warnings and moderation
 SYSTEM_AGENT_USERNAME = os.getenv("SYSTEM_AGENT_USERNAME", "Panel System")
-SYSTEM_AGENT_AVATAR = os.getenv("SYSTEM_AGENT_AVATAR", "static/v2/avatar_47.png")
+SYSTEM_AGENT_AVATAR = os.getenv("SYSTEM_AGENT_AVATAR", "static/image_99.png")
 
 # Usage channel configuration
 USAGE_CHANNEL_NAME = os.getenv("USAGE_CHANNEL_NAME", "cailogics-usage")

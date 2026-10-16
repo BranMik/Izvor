@@ -41,7 +41,7 @@ class SyncReconciliationEngine:
             logger.info(f"[RAG Sync] Starting knowledge reconciliation for {self.knowledge_dir}...")
             stats = {"new": 0, "modified": 0, "deleted": 0, "unchanged": 0}
 
-            diff = self.manifest_manager.diff_filesystem(self.knowledge_dir)
+            diff = await asyncio.to_thread(self.manifest_manager.diff_filesystem, self.knowledge_dir)
             stats["unchanged"] = len(diff["unchanged"])
 
             # 1. Process deletions
@@ -114,8 +114,8 @@ class SyncReconciliationEngine:
 
             # Rebuild FTS index once per sync batch and persist updated manifest to disk
             if stats["new"] > 0 or stats["modified"] > 0 or stats["deleted"] > 0:
-                self.vector_store.rebuild_fts_index()
-                self.manifest_manager.save()
+                await asyncio.to_thread(self.vector_store.rebuild_fts_index)
+                await asyncio.to_thread(self.manifest_manager.save)
 
             logger.info(
                 f"[RAG Sync] Reconciliation completed: "

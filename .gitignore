@@ -68,7 +68,10 @@ Thumbs.db
 
 # Runtime cache and usage storage
 data/thread_usage_data.json
+data/thread/thread_usage_data.json
 data/model_pricing_cache.json
+data/pricing/model_pricing_cache.json
+data/state/
 data/.rag_cache/
 data/*.db*
 *.db

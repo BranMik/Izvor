@@ -783,6 +783,110 @@ class SkillRegistry:
             authorized_skills=list(effective_authorized_skills),
         )
 
+    async def execute_tool_async(
+        self,
+        tool_name: str,
+        arguments: dict[str, Any],
+        authorized_skills: list[str] | str | None = None,
+        expired_skills: list[str] | None = None,
+        ttl_hours: float | None = None,
+        agent_name: str = "",
+    ) -> str:
+        """
+        Asynchronously dispatches tool execution.
+        Enforces authorization; if the handler is an async coroutine function
+        or exposes an `_async_fn` attribute, awaits it directly on the running event loop;
+        otherwise offloads the synchronous handler/MCP execution to `asyncio.to_thread`.
+        """
+        import asyncio
+        import inspect
+
+        target_handler: Any = None
+        for s_def in self._skills.values():
+            if tool_name in s_def.tool_handlers:
+                target_handler = s_def.tool_handlers[tool_name]
+                break
+
+        if target_handler is not None and (
+            inspect.iscoroutinefunction(target_handler)
+            or hasattr(target_handler, "_async_fn")
+        ):
+            is_internal = (
+                authorized_skills == ALL_INTERNAL_SKILLS
+                or (isinstance(authorized_skills, (list, tuple, set)) and ALL_INTERNAL_SKILLS in authorized_skills)
+            )
+            effective_authorized_skills: list[str] = (
+                [s.name for s in self._skills.values()]
+                if is_internal
+                else (list(authorized_skills) if authorized_skills is not None else [])
+            )
+            if not is_internal:
+                permitted_tools: set[str] = set()
+                for s_name in effective_authorized_skills:
+                    s_def = self.get(s_name)
+                    if s_def:
+                        permitted_tools.update(s_def.tools)
+                        for schema in s_def.custom_tool_schemas:
+                            fn = schema.get("function", {}).get("name")
+                            if fn:
+                                permitted_tools.add(fn)
+                for s_def in self._skills.values():
+                    if s_def.is_global:
+                        permitted_tools.update(s_def.tools)
+                        for schema in s_def.custom_tool_schemas:
+                            fn = schema.get("function", {}).get("name")
+                            if fn:
+                                permitted_tools.add(fn)
+
+                if tool_name not in permitted_tools:
+                    allowed_tools_str = (
+                        ", ".join(f"'{t}'" for t in sorted(permitted_tools)) or "none"
+                    )
+                    from services.audit_logger import log_audit_event
+
+                    log_audit_event(
+                        event_type="SECURITY_POLICY_VIOLATION",
+                        actor={"type": "agent", "id": agent_name or "unknown_agent"},
+                        action="execute_tool",
+                        target=f"tool:{tool_name}",
+                        details={
+                            "reason": "Agent not authorized for tool",
+                            "permitted_tools": sorted(permitted_tools),
+                        },
+                        severity="CRITICAL",
+                        status="BLOCKED",
+                    )
+                    return json.dumps(
+                        {
+                            "error": (
+                                f"Permission denied: Agent is not authorized to execute tool '{tool_name}'. "
+                                f"Permitted tools: {allowed_tools_str}. "
+                                f"CRITICAL INSTRUCTION: You do NOT have permission to execute tool '{tool_name}'. "
+                                f"You must explicitly state to the user that you do not have permission to execute this tool. "
+                                f"Do NOT report that the file or resource was not found."
+                            )
+                        }
+                    )
+
+            async_fn = getattr(target_handler, "_async_fn", target_handler)
+            sig = inspect.signature(async_fn)
+            kwargs = {"agent_name": agent_name} if "agent_name" in sig.parameters else {}
+            try:
+                return await async_fn(arguments, **kwargs)
+            except Exception as e:
+                logger.error(f"[SKILLS] Async custom tool handler error for '{tool_name}': {e}")
+                return json.dumps({"error": f"Tool execution failed: {e}"})
+
+        return await asyncio.to_thread(
+            self.execute_tool,
+            tool_name,
+            arguments,
+            authorized_skills=authorized_skills,
+            expired_skills=expired_skills,
+            ttl_hours=ttl_hours,
+            agent_name=agent_name,
+        )
+
 
 # Global singleton registry instance
 skill_registry = SkillRegistry()

@@ -175,8 +175,12 @@ class PinnedIPTransport(httpx.HTTPTransport):
 
     def __init__(self, pinned_ip: str, **kwargs):
         super().__init__(**kwargs)
-        if hasattr(self, "_pool") and hasattr(self._pool, "_network_backend"):
-            self._pool._network_backend = PinnedIPBackend(pinned_ip)
+        if not (hasattr(self, "_pool") and hasattr(self._pool, "_network_backend")):
+            raise RuntimeError(
+                "PinnedIPTransport cannot bind PinnedIPBackend: httpx HTTPTransport internal "
+                "_pool._network_backend attribute is missing. Refusing to proceed without IP pinning."
+            )
+        self._pool._network_backend = PinnedIPBackend(pinned_ip)
 
 BLOCKED_HOSTNAMES = {
     "localhost",

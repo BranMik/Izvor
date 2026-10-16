@@ -2,8 +2,10 @@ import asyncio
 import inspect
 import json
 import logging
+import os
 import re
 import sys
+import tempfile
 import time
 from pathlib import Path
 from typing import Any
@@ -214,6 +216,8 @@ class PricingService:
         self.default_cache_file = cache_file or PRICING_CACHE_FILE
         self.baseline_pricing = dict(BASELINE_MODEL_PRICING)
         self.default_fallback = dict(DEFAULT_FALLBACK_PRICING)
+        self._mem_cache: dict[str, dict[str, Any]] | None = None
+        self._mem_cache_key: tuple[str, float] | None = None
 
     @property
     def active_cache_file(self) -> Path:
@@ -225,25 +229,45 @@ class PricingService:
         return self.default_cache_file
 
     def load_cache(self) -> dict[str, dict[str, Any]]:
-        """Loads cached pricing data from JSON file."""
+        """Loads cached pricing data from JSON file with mtime-based memory cache."""
         target = self.active_cache_file
         if not target.exists():
+            self._mem_cache = None
+            self._mem_cache_key = None
             return {}
         try:
+            mtime = target.stat().st_mtime
+            current_key = (str(target), mtime)
+            if self._mem_cache is not None and self._mem_cache_key == current_key:
+                return dict(self._mem_cache)
+
             data = json.loads(target.read_text(encoding="utf-8"))
-            return data if isinstance(data, dict) else {}
+            if isinstance(data, dict):
+                self._mem_cache = data
+                self._mem_cache_key = current_key
+                return dict(data)
+            return {}
         except (OSError, json.JSONDecodeError, UnicodeError, ValueError) as e:
             logger.warning(f"[PRICING] Failed to read {target.name}: {e}")
             return {}
 
     def save_cache(self, data: dict[str, dict[str, Any]]) -> None:
-        """Saves pricing data dictionary to JSON cache file."""
+        """Saves pricing data dictionary to JSON cache file atomically."""
         target = self.active_cache_file
         try:
             target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(
-                json.dumps(data, indent=2), encoding="utf-8"
+            tmp_fd, tmp_path = tempfile.mkstemp(
+                dir=str(target.parent),
+                prefix=f"{target.stem}_",
+                suffix=".tmp",
             )
+            with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
+                f.write(json.dumps(data, indent=2))
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, target)
+            self._mem_cache = data
+            self._mem_cache_key = (str(target), target.stat().st_mtime)
             logger.info(
                 f"[PRICING] Successfully saved pricing cache to {target.name}"
             )

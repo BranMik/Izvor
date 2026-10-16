@@ -76,6 +76,19 @@ class ThreadStateManager:
     def max_tracked_threads(self) -> int:
         return int(os.getenv("MAX_TRACKED_THREADS", "500"))
 
+    def _check_capacity(self) -> None:
+        if len(self.thread_last_activity) > self.max_tracked_threads:
+            self.cleanup_expired_threads(self.ttl_seconds)
+            if len(self.thread_last_activity) > self.max_tracked_threads:
+                sorted_threads = sorted(self.thread_last_activity.items(), key=lambda item: item[1])
+                for (c_id, t_ts), _ in sorted_threads:
+                    if len(self.thread_last_activity) <= self.max_tracked_threads:
+                        break
+                    task = self.get_active_task(c_id, t_ts)
+                    if task and not task.done():
+                        continue
+                    self.cleanup_thread(c_id, t_ts)
+
     def _touch(self, channel_id: str, thread_ts: str) -> None:
         now = time.time()
         self.thread_last_activity[(channel_id, thread_ts)] = now
@@ -87,8 +100,7 @@ class ThreadStateManager:
                 )
         except Exception:
             pass
-        if len(self.thread_last_activity) > self.max_tracked_threads:
-            self.cleanup_expired_threads(self.ttl_seconds)
+        self._check_capacity()
 
     def touch(self, channel_id: str, thread_ts: str) -> None:
         self._touch(channel_id, thread_ts)
@@ -489,22 +501,42 @@ class ThreadStateManager:
         for k in done_keys:
             self.active_thread_tasks.pop(k, None)
 
-        # Prune inactive threads exceeding TTL
+        # Prune inactive threads exceeding TTL (only skip if task is currently running)
         candidates = [key for key, last_time in list(self.thread_last_activity.items()) if (now - last_time) > ttl_seconds]
         for channel_id, thread_ts in candidates:
-            if not self.is_discussion_active(channel_id, thread_ts):
-                self.cleanup_thread(channel_id, thread_ts)
-                evicted_count += 1
+            task = self.get_active_task(channel_id, thread_ts)
+            if task and not task.done():
+                continue
+            self.cleanup_thread(channel_id, thread_ts)
+            evicted_count += 1
 
         # Purge from SQLite thread_sessions & thread_context for any inactive threads exceeding TTL
+        # Only delete threads that do not have an active in-memory task running
         cutoff = now - ttl_seconds
+        active_running_keys = {
+            (c_id, t_ts)
+            for (c_id, t_ts), task in list(self.active_thread_tasks.items())
+            if task and not task.done()
+        }
         try:
             with get_db_transaction(immediate=True) as conn:
-                conn.execute("DELETE FROM thread_sessions WHERE last_activity < ?", (cutoff,))
-                conn.execute(
-                    "DELETE FROM thread_context WHERE (channel_id, thread_ts) NOT IN "
-                    "(SELECT channel_id, thread_ts FROM thread_sessions)"
-                )
+                cursor = conn.cursor()
+                cursor.execute("SELECT channel_id, thread_ts FROM thread_sessions WHERE last_activity < ?", (cutoff,))
+                expired_rows = cursor.fetchall()
+                to_delete = [
+                    (row[0], row[1])
+                    for row in expired_rows
+                    if (row[0], row[1]) not in active_running_keys
+                ]
+                if to_delete:
+                    cursor.executemany(
+                        "DELETE FROM thread_sessions WHERE channel_id = ? AND thread_ts = ?",
+                        to_delete,
+                    )
+                    conn.execute(
+                        "DELETE FROM thread_context WHERE (channel_id, thread_ts) NOT IN "
+                        "(SELECT channel_id, thread_ts FROM thread_sessions)"
+                    )
         except Exception as e:
             logger.debug(f"[THREAD STATE] SQLite cleanup error: {e}")
 
