@@ -170,6 +170,43 @@ def isolate_database_for_tests(tmp_path, monkeypatch):
 
     yield
 
+    db_manager.close_all_connections()
     db_manager._custom_db_path = old_custom_path
+
+
+@pytest.fixture(autouse=True)
+def isolate_thread_state_files_for_tests(tmp_path, monkeypatch):
+    """
+    Prevents tests from modifying or overwriting data/thread/thread_skills.json
+    and data/thread/thread_usage_data.json.
+    """
+    import agents.usage_agent as usage_mod
+    import orchestration.thread_skills_manager as thread_skills_mod
+    from orchestration.thread_skills_manager import thread_skills_manager
+
+    temp_skills_file = tmp_path / "thread_skills.json"
+    temp_skills_file.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(thread_skills_mod, "THREAD_SKILLS_FILE", temp_skills_file)
+    old_skills_storage = thread_skills_manager.storage_file
+    thread_skills_manager.storage_file = temp_skills_file
+    thread_skills_manager._threads.clear()
+
+    temp_usage_file = tmp_path / "thread_usage_data.json"
+    temp_usage_file.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(usage_mod, "USAGE_STORE_FILE", temp_usage_file)
+    from agents.usage_agent import usage_tracker
+    old_usage_storage = usage_tracker.store_file
+    usage_tracker.store_file = temp_usage_file
+    old_usage_data = dict(usage_tracker.thread_usage_data)
+    usage_tracker.thread_usage_data.clear()
+
+    yield
+
+    thread_skills_manager.storage_file = old_skills_storage
+    thread_skills_manager._threads.clear()
+    usage_tracker.store_file = old_usage_storage
+    usage_tracker.thread_usage_data.clear()
+    usage_tracker.thread_usage_data.update(old_usage_data)
+
 
 

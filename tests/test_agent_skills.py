@@ -149,7 +149,11 @@ def test_execute_delegated_mcp_tool():
             "list_documents", {"rel_path": "."}, authorized_skills=ALL_INTERNAL_SKILLS
         )
         assert "contents" in res
-        mock_exec.assert_called_once_with("list_documents", {"rel_path": "."}, agent_name="")
+        mock_exec.assert_called_once()
+        args, kwargs = mock_exec.call_args
+        assert args == ("list_documents", {"rel_path": "."})
+        assert kwargs.get("agent_name") == ""
+        assert set(kwargs.get("authorized_skills", [])) == {s.name for s in skill_registry._skills.values()}
 
 
 def test_execute_tool_authorization_enforcement():

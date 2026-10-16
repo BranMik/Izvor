@@ -195,28 +195,42 @@ def consume_tool_approval(
     thread_ts: str,
     fn_name: str,
     fn_args: dict[str, Any] | None = None,
+    allow_fn_level_match: bool = False,
 ) -> bool:
     """
     Checks and consumes a single-use approval for the given tool and arguments atomically.
     Returns True if an unexpired approval existed and was consumed; False otherwise.
+    Removes wildcard empty_hash matching unless explicitly permitted.
     """
     _prune_expired()
     now = time.time()
     args_hash = compute_args_hash(fn_args)
     empty_hash = compute_args_hash({})
 
+    allow_empty = allow_fn_level_match or (fn_args is None)
+
     try:
         with get_db_transaction(immediate=True) as conn:
-            row = conn.execute(
-                """
+            if allow_empty:
+                query = """
                 SELECT request_id FROM hitl_approvals
                 WHERE channel_id = ? AND thread_ts = ? AND fn_name = ?
                   AND (args_hash = ? OR args_hash = ?)
                   AND status = 'APPROVED' AND expires_at > ?
                 LIMIT 1;
-                """,
-                (channel_id, thread_ts, fn_name, args_hash, empty_hash, now),
-            ).fetchone()
+                """
+                params = (channel_id, thread_ts, fn_name, args_hash, empty_hash, now)
+            else:
+                query = """
+                SELECT request_id FROM hitl_approvals
+                WHERE channel_id = ? AND thread_ts = ? AND fn_name = ?
+                  AND args_hash = ?
+                  AND status = 'APPROVED' AND expires_at > ?
+                LIMIT 1;
+                """
+                params = (channel_id, thread_ts, fn_name, args_hash, now)
+
+            row = conn.execute(query, params).fetchone()
 
             if row:
                 req_id = row["request_id"]
@@ -226,7 +240,8 @@ def consume_tool_approval(
                 )
                 # Clear from memory token cache as well
                 APPROVED_TOKENS.pop((channel_id, thread_ts, fn_name, args_hash), None)
-                APPROVED_TOKENS.pop((channel_id, thread_ts, fn_name, empty_hash), None)
+                if allow_empty:
+                    APPROVED_TOKENS.pop((channel_id, thread_ts, fn_name, empty_hash), None)
                 return True
     except Exception as e:
         logger.error(f"[HITL] SQLite consume_tool_approval failed: {e}")
@@ -238,11 +253,12 @@ def consume_tool_approval(
         if time.time() <= exp:
             return True
 
-    empty_key = (channel_id, thread_ts, fn_name, empty_hash)
-    if empty_key in APPROVED_TOKENS:
-        exp = APPROVED_TOKENS.pop(empty_key)
-        if time.time() <= exp:
-            return True
+    if allow_empty:
+        empty_key = (channel_id, thread_ts, fn_name, empty_hash)
+        if empty_key in APPROVED_TOKENS:
+            exp = APPROVED_TOKENS.pop(empty_key)
+            if time.time() <= exp:
+                return True
 
     return False
 

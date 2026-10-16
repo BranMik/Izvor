@@ -149,7 +149,9 @@ class SkillRegistry:
         
         triggers = meta.get("triggers") or {}
         if isinstance(triggers, dict) and "auto_detect" not in triggers:
-            logger.warning(f"[SKILLS] Validation warning in {file_path}: missing required field 'auto_detect' in triggers")
+            logger.warning(
+                f"[SKILLS] Validation warning in {file_path}: missing field 'auto_detect' in triggers (defaulting to False - privileged/slash-only)"
+            )
 
         name = str(meta.get("name", file_path.parent.name)).strip()
         display_name = str(
@@ -305,11 +307,11 @@ class SkillRegistry:
         return None
 
     def get_auto_detect_skills(self) -> list[SkillDefinition]:
-        """Returns all skills where auto_detect is not False (default True for all skills)."""
+        """Returns all skills where auto_detect is True (defaults to False if omitted)."""
         return [
             s
             for s in self._skills.values()
-            if s.triggers.get("auto_detect", True) is not False
+            if s.triggers.get("auto_detect", False) is True
         ]
 
     def build_extractor_catalog_prompt(self) -> str:
@@ -774,7 +776,12 @@ class SkillRegistry:
                     logger.error(f"[SKILLS] Custom tool handler error for '{tool_name}': {e}")
                     return json.dumps({"error": f"Tool execution failed: {e}"})
 
-        return execute_mcp_tool(tool_name, arguments, agent_name=agent_name)
+        return execute_mcp_tool(
+            tool_name,
+            arguments,
+            agent_name=agent_name,
+            authorized_skills=list(effective_authorized_skills),
+        )
 
 
 # Global singleton registry instance

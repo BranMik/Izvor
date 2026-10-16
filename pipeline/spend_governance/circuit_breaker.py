@@ -43,11 +43,14 @@ class SpendGovernance:
     def record_usage(
         self,
         session_id: str,
-        model_name: str,
-        prompt_tokens: int,
-        completion_tokens: int,
+        model_name: str = "",
+        prompt_tokens: int = 0,
+        completion_tokens: int = 0,
+        model: str | None = None,
     ) -> None:
         """Records token usage for a model within a session, accumulates daily spend, and writes to SQLite ledger."""
+        if not model_name and model:
+            model_name = model
         if session_id not in self._session_tokens:
             self._session_tokens[session_id] = {}
         if model_name not in self._session_tokens[session_id]:
@@ -246,26 +249,12 @@ class SpendGovernance:
         return is_tripped, cost, limit
 
     def clear_session(self, session_id: str) -> None:
-        """Clears memory and database ledger for a completed session."""
+        """Clears in-memory active session cache for a completed session, preserving historical spend_ledger."""
         self._session_tokens.pop(session_id, None)
-        channel_id, thread_ts = _parse_session_id(session_id)
-        try:
-            with get_db_transaction(immediate=True) as conn:
-                conn.execute(
-                    "DELETE FROM spend_ledger WHERE channel_id = ? AND thread_ts = ?;",
-                    (channel_id, thread_ts),
-                )
-        except Exception as e:
-            logger.debug(f"[SPEND GOVERNANCE] Could not clear session in SQLite: {e}")
 
     def clear_all_sessions(self) -> None:
-        """Clears memory and database ledger for all sessions."""
+        """Clears in-memory session caches for all sessions, preserving historical spend_ledger."""
         self._session_tokens.clear()
-        try:
-            with get_db_transaction(immediate=True) as conn:
-                conn.execute("DELETE FROM spend_ledger;")
-        except Exception as e:
-            logger.debug(f"[SPEND GOVERNANCE] Could not clear all sessions in SQLite: {e}")
 
 
 # Global default instance

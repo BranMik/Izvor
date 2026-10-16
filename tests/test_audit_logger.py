@@ -346,3 +346,62 @@ def test_hmac_continuity_secret_removed(temp_audit_dir, monkeypatch):
     assert res["status"] == "SECRET_REMOVED"
     assert "AUDIT_HMAC_SECRET is not set" in res["message"]
 
+
+def test_audit_logger_last_record_exceeding_8kb_preserves_chain(temp_audit_dir):
+    """Verifies that audit records exceeding 8KB do not corrupt reverse seeking or reset the hash chain."""
+    test_dir, logger = temp_audit_dir
+
+    large_content = "X" * 16000  # 16KB record
+    rec1 = logger.log_event(
+        event_type="LARGE_RECORD_EVENT",
+        actor={"type": "system", "id": "sys"},
+        action="large_dump",
+        target="audit_system",
+        details={"blob": large_content},
+    )
+    assert rec1["seq"] == 1
+    assert len(json.dumps(rec1)) > 16000
+
+    # Invalidate in-memory cache to force reverse seek from disk
+    logger.invalidate_cache()
+    last_seq, last_hash = logger.get_last_state()
+
+    assert last_seq == 1
+    assert last_hash == rec1["entry_hash"]
+    assert last_hash != GENESIS_HASH
+
+    # Subsequent record chains correctly
+    rec2 = logger.log_event(
+        event_type="FOLLOW_UP_EVENT",
+        actor={"type": "system", "id": "sys"},
+        action="next_step",
+        target="audit_system",
+        details={"status": "ok"},
+    )
+    assert rec2["seq"] == 2
+    assert rec2["prev_hash"] == rec1["entry_hash"]
+
+    # Verify overall integrity
+    integrity = verify_audit_log_integrity(audit_dir=test_dir)
+    assert integrity.valid is True
+    assert integrity.total_records == 2
+
+
+@pytest.mark.anyio
+async def test_audit_logger_log_event_synchronous_return_in_async_context(temp_audit_dir):
+    """Verifies that log_event synchronously writes and returns the record dict when an event loop is active."""
+    test_dir, logger = temp_audit_dir
+
+    rec = logger.log_event(
+        event_type="ASYNC_CALL_EVENT",
+        actor={"type": "user", "id": "U123"},
+        action="async_action",
+        target="test",
+        details={"async": True},
+    )
+    assert isinstance(rec, dict)
+    assert rec.get("seq") == 1
+    assert rec.get("event_type") == "ASYNC_CALL_EVENT"
+    assert rec.get("entry_hash") is not None
+
+

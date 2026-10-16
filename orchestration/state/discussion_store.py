@@ -38,9 +38,8 @@ class DiscussionStateStore:
                 row = cursor.fetchone()
                 if row:
                     if key not in self.remaining_agents_map:
-                        rem = json.loads(row["remaining_agents"])
-                        if rem:
-                            self.remaining_agents_map[key] = rem
+                        if row["remaining_agents"] is not None:
+                            self.remaining_agents_map[key] = json.loads(row["remaining_agents"])
                     if row["custom_flow"] and key not in self.custom_flow_threads:
                         self.custom_flow_threads.add(key)
                     if row["stop_requested"] and key not in self.stop_requested_threads:
