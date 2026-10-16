@@ -14,13 +14,14 @@ from typing import Any
 
 from dotenv import load_dotenv
 
+from core.paths import AGENT_SETTINGS_FILE, PROJECT_ROOT, SYSTEM_SETTINGS_FILE
+
 # Load environment variables from .env file (looked up in project root or current dir)
-env_path = Path(__file__).parent.parent / ".env"
+env_path = PROJECT_ROOT / ".env"
 if not env_path.exists():
     env_path = Path(__file__).parent / ".env"
 load_dotenv(dotenv_path=env_path)
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
 logger = logging.getLogger(__name__)
 
 SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN", "")
@@ -116,7 +117,7 @@ ORCHESTRATOR_CONFIG: dict[str, Any] = {}
 
 def _load_default_models_from_ssot() -> tuple[str, str]:
     """Loads default_fast_model and default_reasoning_model from data/settings/system_settings.json SSOT."""
-    settings_file = PROJECT_ROOT / "data" / "settings" / "system_settings.json"
+    settings_file = SYSTEM_SETTINGS_FILE
     fast_default = "gemini/gemini-3.8-flash"
     reasoning_default = "mistral/mistral-large-latest"
     if not settings_file.exists():
@@ -152,7 +153,7 @@ def get_default_reasoning_model() -> str:
 
 def _load_system_agents_from_ssot() -> dict[str, dict[str, Any]]:
     """Loads system_agents mapping directly from data/settings/agent_settings.json SSOT."""
-    settings_file = PROJECT_ROOT / "data" / "settings" / "agent_settings.json"
+    settings_file = AGENT_SETTINGS_FILE
     if not settings_file.exists():
         return {}
     try:
@@ -170,7 +171,7 @@ def _load_system_agents_from_ssot() -> dict[str, dict[str, Any]]:
 
 def _load_agents_from_ssot() -> dict[str, dict[str, Any]]:
     """Loads agents mapping directly from data/settings/agent_settings.json SSOT."""
-    settings_file = PROJECT_ROOT / "data" / "settings" / "agent_settings.json"
+    settings_file = AGENT_SETTINGS_FILE
     if not settings_file.exists():
         return {}
     try:
@@ -215,7 +216,7 @@ def get_system_agent_model(name: str, fallback: str = "") -> str:
 
 def _load_orchestrator_from_ssot() -> dict[str, Any]:
     """Loads orchestrator mapping directly from data/settings/agent_settings.json SSOT."""
-    settings_file = PROJECT_ROOT / "data" / "settings" / "agent_settings.json"
+    settings_file = AGENT_SETTINGS_FILE
     if not settings_file.exists():
         return {}
     try:
@@ -336,7 +337,7 @@ TOOL_INTERMEDIATE_UPDATE_DELAY_SECONDS = float(
 
 def is_internal_revisor_enabled() -> bool:
     """Checks if InternalRevisor is enabled in data/settings/system_settings.json."""
-    settings_file = PROJECT_ROOT / "data" / "settings" / "system_settings.json"
+    settings_file = SYSTEM_SETTINGS_FILE
     if not settings_file.exists():
         return True
     try:

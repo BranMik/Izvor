@@ -18,9 +18,11 @@ import time
 from pathlib import Path
 from typing import Any
 
+from core.paths import FLAT_HISTORIES_DIR
+
 logger = logging.getLogger(__name__)
 
-DEFAULT_FLAT_HISTORIES_DIR = Path(__file__).resolve().parent.parent / "flat-histories"
+DEFAULT_FLAT_HISTORIES_DIR = FLAT_HISTORIES_DIR
 FLAT_HISTORIES_DIR = DEFAULT_FLAT_HISTORIES_DIR
 
 # Known prefixes and indicators for automated test channels and threads

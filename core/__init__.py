@@ -26,6 +26,13 @@ from .domain import (
     SpendMetrics,
     Turn,
 )
+from .paths import (
+    DATA_DIR,
+    DB_PATH,
+    PROJECT_ROOT,
+    SETTINGS_DIR,
+    THREAD_DATA_DIR,
+)
 from .llm_utils import (
     LLM_MAX_RETRIES,
     LLM_RETRY_BACKOFF_BASE,
@@ -83,6 +90,8 @@ __all__ = [
     "ActionDirective",
     "AttachmentType",
     "CircuitBreakerConfig",
+    "DATA_DIR",
+    "DB_PATH",
     "DiscussionBrief",
     "ExtractedIntent",
     "FileContext",
@@ -90,8 +99,11 @@ __all__ = [
     "MediaAttachment",
     "ModelPricing",
     "OrchestrationMode",
+    "PROJECT_ROOT",
+    "SETTINGS_DIR",
     "SessionContext",
     "SpendMetrics",
+    "THREAD_DATA_DIR",
     "Turn",
     "classify_agent_error",
     "execute_llm_with_retry",

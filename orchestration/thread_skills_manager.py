@@ -6,11 +6,10 @@ import time
 from typing import Any
 
 from core.database import get_connection, get_db_transaction
+from core.paths import THREAD_SKILLS_FILE
 from orchestration.app_settings import app_settings_manager
 
 logger = logging.getLogger(__name__)
-
-THREAD_SKILLS_FILE = Path(__file__).parent.parent / "data" / "thread" / "thread_skills.json"
 
 
 class ThreadSkillsManager:

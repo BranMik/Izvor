@@ -20,12 +20,13 @@ from orchestration.system_settings import SystemSettingsManager, system_settings
 from prompts import build_agent_prompt
 from core.integrity_checks import AppIntegrityValidator
 
-logger = logging.getLogger(__name__)
+from core.paths import (
+    AGENT_BACKUP_FILE as BACKUP_FILE,
+    AGENT_SETTINGS_FILE as SETTINGS_FILE,
+    PERSONAS_DIR,
+)
 
-# Paths to settings and emergency backup files
-SETTINGS_FILE = Path(__file__).parent.parent / "data" / "settings" / "agent_settings.json"
-BACKUP_FILE = Path(__file__).parent.parent / "data" / "backups" / "agent_settings_backup.json"
-PERSONAS_DIR = Path(__file__).parent.parent / "prompts" / "personas"
+logger = logging.getLogger(__name__)
 
 # Mandatory locked agents (empty by default now that lock system is removed)
 LOCKED_AGENTS: set[str] = set()

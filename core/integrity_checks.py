@@ -12,11 +12,13 @@ import re
 from pathlib import Path
 from typing import Any
 
+from core.paths import PERSONAS_DIR, WORKFLOWS_DIR
+
 logger = logging.getLogger(__name__)
 
 # Default paths — can be overridden per-check via kwargs
-_DEFAULT_PERSONAS_DIR = Path(__file__).resolve().parent.parent / "prompts" / "personas"
-_DEFAULT_WORKFLOWS_DIR = Path(__file__).resolve().parent.parent / "data" / "workflows"
+_DEFAULT_PERSONAS_DIR = PERSONAS_DIR
+_DEFAULT_WORKFLOWS_DIR = WORKFLOWS_DIR
 
 
 class AppIntegrityValidator:

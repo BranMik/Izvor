@@ -26,14 +26,14 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-from core.config import PROJECT_ROOT
+from core.paths import AUDIT_DIR, PROJECT_ROOT
 
 from contextlib import contextmanager
 
 logger = logging.getLogger(__name__)
 
 # Default directory paths
-DEFAULT_AUDIT_DIR = PROJECT_ROOT / "audit"
+DEFAULT_AUDIT_DIR = AUDIT_DIR
 DEFAULT_BACKUP_DIR = DEFAULT_AUDIT_DIR / "backups"
 DEFAULT_MANIFEST_FILE = DEFAULT_AUDIT_DIR / "manifest.sha256"
 

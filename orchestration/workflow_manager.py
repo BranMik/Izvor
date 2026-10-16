@@ -6,10 +6,9 @@ import tempfile
 from pathlib import Path
 
 from core.models import DEFAULT_WORKFLOWS, OrchestrationMode, WorkflowPreset
+from core.paths import WORKFLOWS_DIR
 
 logger = logging.getLogger(__name__)
-
-WORKFLOWS_DIR = Path(__file__).parent.parent / "data" / "workflows"
 
 
 def slugify(name: str) -> str:

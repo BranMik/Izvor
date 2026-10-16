@@ -13,17 +13,18 @@ from typing import Any
 
 from dotenv import dotenv_values
 
+from core.paths import MODEL_PROVIDER_CATALOG_FILE, PROJECT_ROOT
+
 logger = logging.getLogger(__name__)
 
 # Path to the provider catalog JSON configuration file in data/
-MODEL_PROVIDER_CATALOG_FILE = Path(__file__).resolve().parent.parent / "data" / "pricing" / "model_provider_catalog.json"
 PROVIDER_CATALOG_FILE = MODEL_PROVIDER_CATALOG_FILE
 
 
 def load_provider_catalog(catalog_path: Path | str | None = None) -> dict[str, dict[str, Any]]:
     """
     Loads provider and model definitions from the configuration JSON file in the data folder.
-    Defaults to data/model_provider_catalog.json.
+    Defaults to data/pricing/model_provider_catalog.json.
     """
     target_path = Path(catalog_path) if catalog_path else PROVIDER_CATALOG_FILE
     if not target_path.exists():
@@ -47,10 +48,10 @@ PROVIDER_CATALOG: dict[str, dict[str, Any]] = load_provider_catalog()
 
 def _get_project_env_path() -> Path:
     """Resolves path to .env file."""
-    root_env = Path(__file__).resolve().parent.parent / ".env"
+    root_env = PROJECT_ROOT / ".env"
     if root_env.exists():
         return root_env
-    core_env = Path(__file__).resolve().parent / ".env"
+    core_env = PROJECT_ROOT / "core" / ".env"
     return core_env
 
 

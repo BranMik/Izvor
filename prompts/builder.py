@@ -4,11 +4,15 @@ from functools import cache
 from pathlib import Path
 from typing import Any
 
+from core.paths import (
+    AGENT_SETTINGS_FILE,
+    PERSONAS_DIR,
+    PROMPTS_DIR,
+    SYSTEM_AGENTS_DIR,
+)
+
 logger = logging.getLogger(__name__)
 
-PROMPTS_DIR = Path(__file__).resolve().parent
-PERSONAS_DIR = PROMPTS_DIR / "personas"
-SYSTEM_AGENTS_DIR = PROMPTS_DIR / "system_agents"
 SHARED_DIR = PROMPTS_DIR / "shared"
 
 
@@ -21,7 +25,7 @@ def _read_prompt_file(path: Path) -> str:
 
 def _load_short_output_agents() -> set[str]:
     """Loads agent keys configured with is_short_output: true from agent_settings.json."""
-    settings_path = PROMPTS_DIR.parent / "data" / "settings" / "agent_settings.json"
+    settings_path = AGENT_SETTINGS_FILE
     if settings_path.exists():
         try:
             with open(settings_path, "r", encoding="utf-8") as f:
@@ -53,7 +57,7 @@ def is_short_output_agent(agent_key: str) -> bool:
 
 def _load_system_agents() -> set[str]:
     """Loads agent keys configured as system agents from agent_settings.json metadata."""
-    settings_path = PROMPTS_DIR.parent / "data" / "settings" / "agent_settings.json"
+    settings_path = AGENT_SETTINGS_FILE
     system_keys: set[str] = set()
     system_keys.add("orchestrator")
     system_keys.add("Orchestrator")
