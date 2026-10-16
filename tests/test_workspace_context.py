@@ -52,7 +52,7 @@ def test_workspace_context_injected_into_agent_prompt():
 
 
 def test_build_app_home_view_admin_vs_non_admin(monkeypatch):
-    monkeypatch.setattr("core.config.ADMIN_SLACK_USER_ID", "U_ADMIN_ONLY")
+    monkeypatch.setenv("SLACK_ADMIN_USER_IDS", "U_ADMIN_ONLY")
     set_workspace_context("Enterprise global rules")
 
     # 1. Non-admin user view
@@ -101,7 +101,7 @@ async def test_interactivity_open_modal_and_submit(monkeypatch):
     from adapters.slack.interactivity import handle_slack_interactivity
     from fastapi import BackgroundTasks, Request
 
-    monkeypatch.setattr("core.config.ADMIN_SLACK_USER_ID", "U_ADMIN_123")
+    monkeypatch.setenv("SLACK_ADMIN_USER_IDS", "U_ADMIN_123")
     monkeypatch.setattr("adapters.slack.interactivity.verify_slack_signature", lambda *args, **kwargs: True)
 
     mock_views_open = AsyncMock()

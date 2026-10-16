@@ -172,8 +172,7 @@ def test_tkt_705_legacy_colon_requires_admin(monkeypatch):
     """
     TKT-705: Verify non-admin user cannot bypass token validation using legacy colon strings.
     """
-    monkeypatch.setattr("core.config.ADMIN_SLACK_USER_ID", "U_WORKSPACE_ADMIN")
-    monkeypatch.setenv("ADMIN_SLACK_USER_ID", "U_WORKSPACE_ADMIN")
+    monkeypatch.setenv("SLACK_ADMIN_USER_IDS", "U_WORKSPACE_ADMIN")
     monkeypatch.setattr("adapters.slack.interactivity.verify_slack_signature", lambda body, headers: True)
     monkeypatch.setattr("adapters.slack.interactivity.slack_async_client.chat_postEphemeral", AsyncMock(return_value={"ok": True}))
 

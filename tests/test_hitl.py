@@ -112,8 +112,7 @@ def test_hitl_expiration_ttl():
 
 def test_hitl_slack_interactivity_authorization(monkeypatch):
     """Test Slack Block Kit approval/denial authorization: only initiator or admin can approve/deny."""
-    monkeypatch.setattr("core.config.ADMIN_SLACK_USER_ID", "U_WORKSPACE_ADMIN")
-    monkeypatch.setenv("ADMIN_SLACK_USER_ID", "U_WORKSPACE_ADMIN")
+    monkeypatch.setenv("SLACK_ADMIN_USER_IDS", "U_WORKSPACE_ADMIN")
     monkeypatch.setattr("adapters.slack.interactivity.verify_slack_signature", lambda body, headers: True)
     monkeypatch.setattr("adapters.slack.interactivity.slack_async_client.chat_postEphemeral", AsyncMock(return_value={"ok": True}))
     monkeypatch.setattr("adapters.slack.interactivity.slack_async_client.chat_update", AsyncMock(return_value={"ok": True}))

@@ -719,11 +719,10 @@ async def send_admin_audit_alert(
     details: dict[str, Any] | None = None,
 ) -> bool:
     """
-    Sends an urgent security alert in English directly to the administrator's Slack DM
-    using ADMIN_SLACK_USER_ID, with fallback to SLACK_TEST_CHANNEL_ID.
+    Sends an urgent security alert in English directly to an administrator's Slack DM
+    using SLACK_ADMIN_USER_IDS, with fallback to SLACK_TEST_CHANNEL_ID.
     """
     from core.config import (
-        ADMIN_SLACK_USER_ID,
         SLACK_BOT_TOKEN,
         SLACK_TEST_CHANNEL_ID,
         get_admin_slack_user_ids,
@@ -736,7 +735,7 @@ async def send_admin_audit_alert(
 
     target_channel = None
     admin_ids = get_admin_slack_user_ids()
-    admin_id = next(iter(admin_ids), ADMIN_SLACK_USER_ID)
+    admin_id = next(iter(admin_ids), None)
     if admin_id:
         try:
             target_channel = await open_dm_channel(admin_id)

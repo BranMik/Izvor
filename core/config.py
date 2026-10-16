@@ -27,23 +27,14 @@ logger = logging.getLogger(__name__)
 SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN", "")
 SLACK_SIGNING_SECRET = os.getenv("SLACK_SIGNING_SECRET", "")
 SLACK_TEST_CHANNEL_ID = os.getenv("SLACK_TEST_CHANNEL_ID", "").strip()
-ADMIN_SLACK_USER_ID = os.getenv("ADMIN_SLACK_USER_ID", "").strip()
 
 
 def get_admin_slack_user_ids() -> set[str]:
     """Returns the set of authorized Slack Admin User IDs from environment configuration."""
-    ids: set[str] = set()
-    raw_list = os.getenv("ADMIN_SLACK_USER_IDS", "").strip()
-    if raw_list:
-        ids.update(x.strip() for x in raw_list.split(",") if x.strip())
-    single = (
-        os.getenv("ADMIN_SLACK_USER_ID", "").strip()
-        or os.getenv("SLACK_ADMIN_USER_ID", "").strip()
-        or ADMIN_SLACK_USER_ID
-    )
-    if single:
-        ids.add(single)
-    return ids
+    raw = os.getenv("SLACK_ADMIN_USER_IDS", "").strip()
+    if not raw:
+        return set()
+    return {x.strip() for x in raw.split(",") if x.strip()}
 
 
 def is_slack_admin(user_id: str | None) -> bool:
