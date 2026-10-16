@@ -356,17 +356,29 @@ class ThreadContextStore:
         self.thread_included_agents.pop((channel_id, thread_ts), None)
         self._sync_to_db(channel_id, thread_ts)
 
-    def get_format_modifiers(self, channel_id: str, thread_ts: str) -> dict[str, Any]:
-        """Returns custom format modifiers dictionary for this thread."""
+    def get_format_modifiers(self, channel_id: str, thread_ts: str) -> list[str]:
+        """Returns custom format modifiers list for this thread."""
         self._ensure_loaded(channel_id, thread_ts)
-        return dict(self.thread_format_modifiers.get((channel_id, thread_ts), {}))
+        val = self.thread_format_modifiers.get((channel_id, thread_ts))
+        if isinstance(val, (list, tuple, set)):
+            return list(val)
+        if isinstance(val, dict):
+            return list(val.keys())
+        return []
 
     def set_format_modifiers(
-        self, channel_id: str, thread_ts: str, modifiers: dict[str, Any]
+        self, channel_id: str, thread_ts: str, modifiers: Any
     ) -> None:
         """Sets custom format modifiers for this thread."""
         key = (channel_id, thread_ts)
-        self.thread_format_modifiers[key] = dict(modifiers)
+        if isinstance(modifiers, (list, tuple, set)):
+            self.thread_format_modifiers[key] = list(modifiers)
+        elif isinstance(modifiers, dict):
+            self.thread_format_modifiers[key] = list(modifiers.keys())
+        elif modifiers:
+            self.thread_format_modifiers[key] = [str(modifiers)]
+        else:
+            self.thread_format_modifiers[key] = []
         self._loaded_threads.add(key)
         self._sync_to_db(channel_id, thread_ts)
 

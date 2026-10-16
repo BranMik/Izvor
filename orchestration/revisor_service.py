@@ -35,11 +35,22 @@ async def run_internal_revisor(ctx: TurnContext):
         prev_msg = assistant_msgs[-1].get("content", "") if len(assistant_msgs) >= 1 else ""
         current_msg = f"[{ctx.agent_cfg.get('username', ctx.agent_key)}]: {ctx.final_text}"
         
-        # Check if RAG/documents were used in the current turn
+        # Check if RAG/documents or tools were used in the current turn
         rag_used = any(s in ctx.skills_used for s in ["knowledge_base_rag", "document_reader"])
         context_block = ""
+        retrieved_parts = []
         if rag_used and ctx.file_context:
-            context_block = f"\n\nRETRIEVED CONTEXT FROM SKILLS:\n{ctx.file_context}"
+            retrieved_parts.append(f"DOCUMENT/RAG CONTEXT:\n{ctx.file_context}")
+
+        for msg in (getattr(ctx, "messages", None) or []):
+            if isinstance(msg, dict) and msg.get("role") == "tool":
+                tool_name = msg.get("name") or "tool"
+                tool_content = msg.get("content", "")
+                if tool_content:
+                    retrieved_parts.append(f"TOOL OUTPUT [{tool_name}]:\n{tool_content}")
+
+        if retrieved_parts:
+            context_block = "\n\nRETRIEVED CONTEXT FROM SKILLS / TOOLS:\n" + "\n\n".join(retrieved_parts)
             
         sys_prompt = build_agent_prompt("InternalRevisor")
         

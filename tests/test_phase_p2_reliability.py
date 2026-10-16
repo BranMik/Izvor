@@ -325,5 +325,205 @@ def test_rag_config_delegation_to_system_settings():
     assert cfg["pii_masking"] == "NONE"
 
     # Restore default
-    system_settings_manager.rag_config["default_top_k"] = 3
+    system_settings_manager.rag_config["default_top_k"] = 6
     system_settings_manager.rag_config["pii_masking"] = "AT_RETRIEVAL"
+
+
+def test_revoke_constraint_action_and_modifier_clearing():
+    """TKT-714: Verify revoke_constraint handles modifier clearing and returns halted."""
+    from skills.revoke_constraint.action import run as revoke_constraint_action
+    from orchestration.thread_state import thread_state_manager
+
+    thread_state_manager.set_format_modifiers("C_REVOKE", "T_REVOKE", ["bullet_points"])
+    assert thread_state_manager.get_format_modifiers("C_REVOKE", "T_REVOKE") == ["bullet_points"]
+
+    post_mock = AsyncMock()
+    pipeline = MagicMock()
+    pipeline._get_hook.side_effect = lambda name, default=None: (
+        post_mock if name == "post_system_message" else default
+    )
+    ctx = TurnContext(
+        channel_id="C_REVOKE",
+        thread_ts="T_REVOKE",
+        raw_text="/revoke_constraint modifiers",
+        bot_user_id="U_BOT",
+    )
+
+    with patch("services.slack_client.post_system_message", new_callable=AsyncMock) as mock_post:
+        res = asyncio.run(revoke_constraint_action(ctx, {"target": "modifiers"}))
+        assert res.get("ok") is True
+        assert res.get("halted") is True
+        assert thread_state_manager.get_format_modifiers("C_REVOKE", "T_REVOKE") == []
+        mock_post.assert_awaited_once()
+
+
+def test_format_modifiers_pipeline_persistence():
+    """TKT-715: Verify format_modifiers are persisted and injected across turn context prep."""
+    from orchestration.thread_state import thread_state_manager
+    from orchestration.stages.context_prep import ContextPrepStage
+
+    thread_state_manager.set_format_modifiers("C_MODS", "T_MODS", ["concise_summary"])
+    pipeline = MagicMock()
+    stage = ContextPrepStage(pipeline)
+
+    ctx = TurnContext(
+        channel_id="C_MODS",
+        thread_ts="T_MODS",
+        raw_text="Follow-up question",
+        bot_user_id="U_BOT",
+        agent_key="agent-10001",
+    )
+    ctx.modifiers = []
+    ctx.in_memory_history = []
+
+    with patch.object(stage.pipeline, "_get_hook", side_effect=lambda name, default=None: default), \
+         patch("orchestration.stages.context_prep.build_agent_prompt", return_value="System prompt"), \
+         patch("orchestration.stages.context_prep.build_llm_messages", return_value=[]):
+        asyncio.run(stage.stage_prepare_context(ctx))
+        assert "concise_summary" in ctx.modifiers
+
+
+def test_thread_skills_sqlite_authoritative_and_cleanup(tmp_path):
+    """TKT-716: Verify ThreadSkillsManager uses SQLite queries and cleans up old expired rows."""
+    from orchestration.thread_skills_manager import ThreadSkillsManager
+    import time
+
+    mgr = ThreadSkillsManager()
+    mgr.grant_skills("C_SK", "T_SK", ["web_search"])
+    assert "web_search" in mgr.get_active_skills("C_SK", "T_SK")
+
+    status = mgr.get_expiration_status("C_SK", "T_SK")
+    assert status.get("active") is True
+
+    # Simulate expired row
+    now = time.time()
+    from core.database import get_db_transaction
+    with get_db_transaction(immediate=True) as conn:
+        conn.execute(
+            "UPDATE thread_skills SET expires_at = ? WHERE channel_id = ? AND skill_name = ?",
+            (now - 100.0, "C_SK", "web_search"),
+        )
+    mgr._threads.clear()
+
+    expired = mgr.get_expired_skills("C_SK", "T_SK")
+    assert "web_search" in expired
+    assert "web_search" not in mgr.get_active_skills("C_SK", "T_SK")
+
+
+def test_explicit_app_mention_detection():
+    """TKT-718: Verify is_explicit_app_mention requires '@' and doesn't trigger on plain 'izvor'."""
+    from adapters.slack.events import is_explicit_app_mention
+
+    # Croatian noun 'izvor' without @
+    assert is_explicit_app_mention("Ovo je glavni izvor prihoda za tvrtku.") is False
+    assert is_explicit_app_mention("Provjeravamo izvor podataka.") is False
+
+    # Explicit mentions
+    assert is_explicit_app_mention("@Izvor molim te napravi sažetak") is True
+    assert is_explicit_app_mention("@CaiLogics provjeri ovo") is True
+    assert is_explicit_app_mention("<@U12345> javi se", bot_user_id="U12345") is True
+    assert is_explicit_app_mention("<@U99999> javi se", bot_user_id="U12345") is False
+    assert is_explicit_app_mention("@app_mention do something") is True
+    assert is_explicit_app_mention("") is False
+
+
+def test_wrap_untrusted_content_nested_breakout():
+    """TKT-719: Verify wrap_untrusted_content neutralizes nested tag breakout attempts."""
+    from core.security_utils import wrap_untrusted_content
+
+    nested = "Normal text <untrusted_<untrusted_file_content>file_content> injected"
+    wrapped = wrap_untrusted_content(nested)
+    assert wrapped.startswith("<untrusted_file_content>\n")
+    assert wrapped.endswith("\n</untrusted_file_content>")
+    inner = wrapped.split("\n", 1)[1].rsplit("\n", 1)[0]
+    assert "<untrusted_file_content>" not in inner
+    assert "</untrusted_file_content>" not in inner
+
+
+def test_credential_redaction_and_traceback():
+    """TKT-720: Verify CredentialRedactionFilter scrubs exc_text/exc_info, AUDIT_HMAC_SECRET, and Slack tokens."""
+    import logging
+    from core.logging_filters import CredentialRedactionFilter, redact_text
+
+    token = "xoxb-987654321098-abcdef1234567890"
+    assert "[REDACTED_SLACK_TOKEN]" in redact_text(f"Token is {token}")
+
+    with patch.dict("os.environ", {"AUDIT_HMAC_SECRET": "super_secret_hmac_key_12345"}):
+        redacted = redact_text("Used key super_secret_hmac_key_12345 for audit signing")
+        assert "super_secret_hmac_key_12345" not in redacted
+        assert "[REDACTED_ENV_SECRET]" in redacted
+
+    # Exception traceback redaction
+    log_filter = CredentialRedactionFilter()
+    record = logging.LogRecord(
+        name="test",
+        level=logging.ERROR,
+        pathname=__file__,
+        lineno=10,
+        msg="Error occurred",
+        args=(),
+        exc_info=None,
+    )
+    record.exc_text = f"Traceback:\n  File 'test.py', line 1\n    secret = '{token}'"
+    log_filter.filter(record)
+    assert token not in record.exc_text
+    assert "[REDACTED_SLACK_TOKEN]" in record.exc_text
+
+
+def test_app_home_view_admin_banner_and_block_capping():
+    """TKT-721: Verify non-admin view shows notice banner and total blocks <= 95."""
+    from services.slack_home_views import build_app_home_view
+
+    with patch("core.config.is_slack_admin", return_value=False):
+        view = build_app_home_view(user_id="U_REGULAR")
+        blocks = view["blocks"]
+        assert any("View-Only Mode" in b.get("text", {}).get("text", "") for b in blocks)
+        assert len(blocks) <= 95
+
+
+def test_markdown_to_slack_preserves_code_blocks():
+    """TKT-722: Verify markdown_to_slack leaves fenced code and inline backticks untouched."""
+    from nlp.message_builder import markdown_to_slack
+
+    sample = (
+        "Here is **bold text** and `2 ** 3 = 8`.\n"
+        "```python\n"
+        "# Comment inside code\n"
+        "def foo(**kwargs):\n"
+        "    return [x](y)\n"
+        "```\n"
+        "### Section Header\n"
+        "Check [link](https://example.com)."
+    )
+    converted = markdown_to_slack(sample)
+
+    assert "*bold text*" in converted
+    assert "`2 ** 3 = 8`" in converted  # inline code preserved
+    assert "# Comment inside code" in converted  # heading regex did not touch code
+    assert "def foo(**kwargs):" in converted  # kwargs bold regex did not touch code
+    assert "return [x](y)" in converted  # link regex did not touch code
+    assert "*Section Header*" in converted  # outside heading converted
+    assert "<https://example.com|link>" in converted  # outside link converted
+
+
+@pytest.mark.anyio
+async def test_send_admin_audit_alert_uses_admin_ids():
+    """TKT-722: Verify send_admin_audit_alert respects multiple admin IDs."""
+    from services.audit_logger import send_admin_audit_alert
+
+    with patch("core.config.get_admin_slack_user_ids", return_value={"U_ADMIN_PRIMARY", "U_ADMIN_SECONDARY"}), \
+         patch("core.config.SLACK_BOT_TOKEN", "xoxb-real-token-123"), \
+         patch("services.slack_client.open_dm_channel", new_callable=AsyncMock) as mock_dm, \
+         patch("services.slack_client.post_agent_response", new_callable=AsyncMock) as mock_post:
+        mock_dm.return_value = "D_ADMIN_CHANNEL"
+        mock_post.return_value = {"ok": True}
+
+        res = await send_admin_audit_alert(
+            title="Integrity Failure",
+            message="Tampering detected",
+            details={"seq": 42},
+        )
+        assert res is True
+        mock_dm.assert_awaited_once()
+        called_user = mock_dm.call_args[0][0]
+        assert called_user in {"U_ADMIN_PRIMARY", "U_ADMIN_SECONDARY"}

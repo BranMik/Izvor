@@ -22,7 +22,7 @@ _CREDENTIAL_PATTERNS: list[tuple[re.Pattern, str]] = [
     ),
     # Slack Bot / User / App / Refresh tokens
     (
-        re.compile(r"\bxox[baprs]-[0-9]{10,13}-[0-9]{10,13}-[a-zA-Z0-9]{24,34}\b"),
+        re.compile(r"\bxox[baprs]-[0-9a-zA-Z-]{10,}\b"),
         "[REDACTED_SLACK_TOKEN]",
     ),
     # OpenAI & generic sk- tokens
@@ -58,7 +58,7 @@ _CREDENTIAL_PATTERNS: list[tuple[re.Pattern, str]] = [
     # Common secret assignments: password=..., api_key=..., client_secret=...
     (
         re.compile(
-            r"(?i)\b([A-Za-z0-9_]*(?:password|passwd|secret|api_key|access_token|client_secret|auth_token))\s*([:=])\s*['\"]?([^\s'\"]{6,})['\"]?"
+            r"(?i)\b([A-Za-z0-9_]*(?:password|passwd|secret|api_key|access_token|client_secret|auth_token))\s*([:=])\s*['\"]?(?!\[REDACTED_)([^\s'\"]{6,})['\"]?"
         ),
         r"\1\2 [REDACTED_SECRET]",
     ),
@@ -85,6 +85,7 @@ def redact_text(text: str) -> str:
         os.getenv("GEMINI_API_KEY"),
         os.getenv("MISTRAL_API_KEY"),
         os.getenv("GROQ_API_KEY"),
+        os.getenv("AUDIT_HMAC_SECRET"),
     ]
     for secret in env_secrets:
         if secret and len(secret) > 5 and secret in sanitized:
@@ -109,7 +110,8 @@ def _sanitize_obj(obj: Any) -> Any:
 class CredentialRedactionFilter(logging.Filter):
     """
     Logging filter that intercepts log records and scrubs any API tokens,
-    Slack secrets, passwords, and private keys from the message and arguments.
+    Slack secrets, passwords, and private keys from the message, arguments,
+    and exception tracebacks.
     """
 
     def filter(self, record: logging.LogRecord) -> bool:
@@ -117,6 +119,15 @@ class CredentialRedactionFilter(logging.Filter):
             record.msg = redact_text(record.msg)
         if record.args:
             record.args = _sanitize_obj(record.args)
+        if record.exc_info and not record.exc_text:
+            try:
+                record.exc_text = redact_text(logging.Formatter().formatException(record.exc_info))
+            except Exception:
+                pass
+        elif record.exc_text:
+            record.exc_text = redact_text(record.exc_text)
+        if getattr(record, "stack_text", None):
+            record.stack_text = redact_text(record.stack_text)
         return True
 
 

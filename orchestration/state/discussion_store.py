@@ -307,7 +307,7 @@ class DiscussionStateStore:
         if key not in self.thread_initial_prompts and prompt:
             self.thread_initial_prompts[key] = prompt
             self._sync_to_db(channel_id, thread_ts)
-            logger.info(f"[DISCUSSION STORE] Stored initial prompt for {key}: {prompt[:50]}")
+            logger.info(f"[DISCUSSION STORE] Stored initial prompt for {key} (length: {len(prompt)})")
 
     def clear_initial_prompt(self, channel_id: str, thread_ts: str) -> None:
         """Clears the stored initial user prompt for this thread."""

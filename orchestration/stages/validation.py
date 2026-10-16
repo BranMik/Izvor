@@ -45,7 +45,15 @@ class ValidationStage:
         post_sys_msg = self.pipeline._get_hook("post_system_message", post_system_message)
 
         if not ctx.is_bot_trigger:
-            directives = await directive_parser.parse(ctx.raw_text)
+            fetch_files_fn = self.pipeline._get_hook(
+                "fetch_thread_files", fetch_thread_files
+            )
+            ctx.thread_files = await fetch_files_fn(
+                ctx.channel_id, ctx.thread_ts
+            )
+            directives = await directive_parser.parse(
+                ctx.raw_text, available_files=ctx.thread_files
+            )
             ctx.actions = directives.actions
             ctx.modifiers = directives.modifiers
             ctx.attachments = directives.attachments
@@ -76,32 +84,6 @@ class ValidationStage:
                 return {"ok": True, "halted": True, "action": "stop_discussion"}
 
             thread_state_manager.clear_stop(ctx.channel_id, ctx.thread_ts)
-            fetch_files_fn = self.pipeline._get_hook(
-                "fetch_thread_files", fetch_thread_files
-            )
-            ctx.thread_files = await fetch_files_fn(
-                ctx.channel_id, ctx.thread_ts
-            )
-            if ctx.thread_files:
-                directives = await directive_parser.parse(
-                    ctx.raw_text, available_files=ctx.thread_files
-                )
-                ctx.actions = directives.actions
-                ctx.modifiers = directives.modifiers
-                ctx.attachments = directives.attachments
-                ctx.history_limit = directives.history_limit
-                ctx.max_words_limit = directives.max_words
-                ctx.min_words_limit = directives.min_words
-                ctx.scribe_max_words_limit = directives.scribe_max_words
-                ctx.scribe_min_words_limit = directives.scribe_min_words
-                ctx.excluded_agents = directives.excluded_agents
-                ctx.included_agents = directives.included_agents
-                ctx.exclude_off = directives.exclude_off
-                ctx.include_off = directives.include_off
-                ctx.revoke_target = directives.revoke_target
-                ctx.is_file_req = directives.is_file_req
-                ctx.target_filename = directives.target_filename
-                ctx.raw_text_cleaned = directives.cleaned_prompt
 
             # Process /grant_skill_for_all action
             grant_act = next((a for a in ctx.actions if a.name in ("grant_skill_for_all", "grant_for_all")), None)
@@ -283,7 +265,7 @@ class ValidationStage:
                 logger.error(f"[VALIDATION] Error executing skill action handler: {e}")
 
             # Process /revoke_constraint action
-            if ctx.revoke_target:
+            if ctx.revoke_target and not any(a.name == "revoke_constraint" for a in (ctx.actions or [])):
                 target = ctx.revoke_target.lower()
                 if target in ("all", "everything"):
                     thread_state_manager.revoke_all(ctx.channel_id, ctx.thread_ts)
@@ -309,8 +291,11 @@ class ValidationStage:
                 elif target in ("language", "lang"):
                     thread_state_manager.clear_language(ctx.channel_id, ctx.thread_ts)
                     msg = "🗑️ *Revoked language lock*: Thread language cleared."
+                elif target in ("modifiers", "modifier"):
+                    thread_state_manager.clear_format_modifiers(ctx.channel_id, ctx.thread_ts)
+                    msg = "🗑️ *Revoked constraint*: `format_modifiers` cleared for this thread."
                 else:
-                    msg = f"⚠️ *Unknown Revoke Target*: `{target}`. Available: `max_words`, `min_words`, `scribe_max_words`, `scribe_min_words`, `exclude`, `include`, `language`, `all`."
+                    msg = f"⚠️ *Unknown Revoke Target*: `{target}`. Available: `max_words`, `min_words`, `scribe_max_words`, `scribe_min_words`, `exclude`, `include`, `language`, `modifiers`, `all`."
                 await post_sys_msg(channel_id=ctx.channel_id, thread_ts=ctx.thread_ts, text=msg)
                 return {"ok": True, "halted": True, "action": "revoke_constraint"}
 
@@ -355,6 +340,17 @@ class ValidationStage:
                 for ag in ctx.included_agents:
                     thread_state_manager.add_included_agent(ctx.channel_id, ctx.thread_ts, ag)
 
+            # Persist custom format modifiers into thread state
+            custom_mods = {
+                k: v
+                for k, v in (ctx.modifiers or {}).items()
+                if k not in ("max_words", "min_words", "history", "file_use", "target_file", "excluded_agents")
+            }
+            if custom_mods and not ctx.is_bot_trigger:
+                existing_mods = thread_state_manager.get_format_modifiers(ctx.channel_id, ctx.thread_ts)
+                existing_mods.update(custom_mods)
+                thread_state_manager.set_format_modifiers(ctx.channel_id, ctx.thread_ts, existing_mods)
+
             # If user message only contained directive toggles and no discussion prompt, halt cleanly
             is_pure_toggle = bool(
                 (
@@ -381,7 +377,7 @@ class ValidationStage:
                     pure_user_text = clean_system_and_tags(raw_candidate)
                     if pure_user_text:
                         logger.info(
-                            f"[ROUTER] Inferring language for thread {ctx.thread_key} from user prompt: '{pure_user_text[:80]}'"
+                            f"[ROUTER] Inferring language for thread {ctx.thread_key} from user prompt (len: {len(pure_user_text)})"
                         )
                         current_lang = await detect_language_llm(pure_user_text)
                         thread_state_manager.set_language(ctx.channel_id, ctx.thread_ts, current_lang)

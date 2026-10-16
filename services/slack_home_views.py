@@ -1,5 +1,6 @@
 import hashlib
 import logging
+import os
 from typing import Any
 
 from core.config import AGENTS_CONFIG
@@ -41,10 +42,30 @@ def build_app_home_view(
     )
     from orchestration.workflow_manager import list_workflows
 
+    from core.model_catalog import (
+        _get_project_env_path,
+        get_available_models,
+        load_provider_catalog,
+    )
+    from dotenv import dotenv_values
+
     sync_settings_if_modified()
     expiry_hours = get_thread_skill_expiration_time()
     ws_ctx = get_workspace_context()
     is_admin = is_slack_admin(user_id)
+
+    # Preload catalog and env once for all agent dropdowns to avoid repeated disk reads
+    cached_catalog = load_provider_catalog()
+    cached_env: dict[str, Any] = {}
+    env_file = _get_project_env_path()
+    if env_file.exists():
+        try:
+            cached_env.update(dotenv_values(env_file))
+        except Exception:
+            pass
+    for k, v in os.environ.items():
+        if k not in cached_env or not cached_env[k]:
+            cached_env[k] = v
 
     if enabled_agents is None:
         enabled_agents = get_enabled_agents()
@@ -92,6 +113,24 @@ def build_app_home_view(
     active_count = len(enabled_agents)
 
     blocks: list[dict[str, Any]] = []
+
+    # Non-admin notice banner
+    if user_id is not None and not is_admin:
+        blocks.extend(
+            [
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": (
+                            "🔒 *View-Only Mode*: You are viewing this panel in read-only mode. "
+                            "Only Slack workspace administrators can modify agent states, models, and limits."
+                        ),
+                    },
+                },
+                {"type": "divider"},
+            ]
+        )
 
     # Emergency Backup Alert Banner if running from backup
     if is_running_from_backup():
@@ -823,10 +862,20 @@ def build_app_home_view(
         ]
     )
 
-    from core.model_catalog import get_available_models
-
     # Render all agents as fully toggleable items with dynamic model dropdowns
-    for key, cfg in AGENTS_CONFIG.items():
+    for i, (key, cfg) in enumerate(AGENTS_CONFIG.items()):
+        if len(blocks) >= 92:
+            blocks.append(
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": "⚠️ _Additional agents omitted to stay within Slack block limits._",
+                    },
+                }
+            )
+            break
+
         username = cfg.get("username", key)
         model = cfg.get("model", "")
         is_on = key in enabled_agents
@@ -871,8 +920,12 @@ def build_app_home_view(
             }
         )
 
-        # Dynamic model selection dropdown based on .env API keys
-        option_groups, initial_opt = get_available_models(current_model=model)
+        # Dynamic model selection dropdown based on cached .env API keys & catalog
+        option_groups, initial_opt = get_available_models(
+            current_model=model,
+            env_dict=cached_env,
+            catalog=cached_catalog,
+        )
         model_block_id = (
             f"agent_model_block_{key}_{model.replace('/', '_').replace('.', '_')}"
         )
@@ -897,7 +950,23 @@ def build_app_home_view(
         if initial_opt:
             model_section["accessory"]["initial_option"] = initial_opt
         blocks.append(model_section)
-        blocks.append({"type": "divider"})
+        if i < len(AGENTS_CONFIG) - 1 and len(blocks) < 92:
+            blocks.append({"type": "divider"})
+
+    # Ensure total block count never exceeds 95 (Slack hard limit is 100 blocks per view)
+    if len(blocks) > 95:
+        blocks = blocks[:94]
+        blocks.append(
+            {
+                "type": "context",
+                "elements": [
+                    {
+                        "type": "mrkdwn",
+                        "text": "⚠️ _Remaining configuration items truncated to stay within Slack view limits._",
+                    }
+                ],
+            }
+        )
 
     blocks.append(
         {

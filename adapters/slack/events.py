@@ -185,6 +185,23 @@ async def _safe_publish_home(user_id: str) -> None:
         logger.error(f"[WEBHOOK] Error publishing app home on open: {e}")
 
 
+def is_explicit_app_mention(raw_text: str, bot_user_id: str | None = None) -> bool:
+    """
+    Checks if raw_text contains an explicit mention of the app.
+    Requires an explicit '@' prefix (@Izvor, @CaiLogics, @app_mention)
+    or Slack user mention format (<@bot_user_id>) so common nouns
+    (like Croatian 'izvor') do not trigger false mentions.
+    """
+    if not raw_text:
+        return False
+    if bot_user_id and f"<@{bot_user_id}>" in raw_text:
+        return True
+    return bool(
+        re.search(r"@(?:Izvor|CaiLogics)\b", raw_text, re.IGNORECASE)
+        or re.search(r"@app_mention\b", raw_text, re.IGNORECASE)
+    )
+
+
 async def handle_slack_events(request: Request, background_tasks: BackgroundTasks) -> Any:
     """
     Primary Webhook handler receiving Events API payloads from Slack.
@@ -287,11 +304,7 @@ async def handle_slack_events(request: Request, background_tasks: BackgroundTask
                         has_tag = True
                         break
 
-                is_app_name_mention = bool(
-                    (bot_user_id and f"<@{bot_user_id}>" in raw_text)
-                    or re.search(r"@?(?:Izvor|CaiLogics)\b", raw_text, re.IGNORECASE)
-                    or re.search(r"@app_mention\b", raw_text, re.IGNORECASE)
-                )
+                is_app_name_mention = is_explicit_app_mention(raw_text, bot_user_id)
 
                 is_mention_or_dm = (
                     (event_type == "app_mention")
@@ -326,7 +339,7 @@ async def handle_slack_events(request: Request, background_tasks: BackgroundTask
                     should_process = True
                     if thread_state_manager.is_discussion_active(channel_id, thread_ts):
                         logger.info(
-                            f"[WEBHOOK] Ongoing discussion in thread {thread_ts} detected. Interrupting discussion for new query: {raw_text[:50]}"
+                            f"[WEBHOOK] Ongoing discussion in thread {thread_ts} detected. Interrupting discussion for new query (len: {len(raw_text)})"
                         )
                         thread_state_manager.interrupt_discussion(channel_id, thread_ts)
                 else:

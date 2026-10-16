@@ -6,5 +6,8 @@ def wrap_untrusted_content(text: str) -> str:
     if not text:
         return ""
     # Strip any existing tags to prevent injection of closing tags or boundary breakouts
-    clean_text = re.sub(r"<\s*/?\s*untrusted_file_content[^>]*>", "", str(text), flags=re.IGNORECASE)
+    clean_text = str(text)
+    pattern = re.compile(r"<\s*/?\s*untrusted_file_content[^>]*>", re.IGNORECASE)
+    while pattern.search(clean_text):
+        clean_text = pattern.sub("", clean_text)
     return f"<untrusted_file_content>\n{clean_text}\n</untrusted_file_content>"

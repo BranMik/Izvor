@@ -81,6 +81,7 @@ class IntentExtractor:
         text: str,
         available_files: list[dict[str, Any]] | None = None,
         timeout_seconds: float = 15.0,
+        thread_key: tuple[str, str] | None = None,
     ) -> ExtractedIntent:
         """
         Calls extractor model to parse structured constraints (max_words, history, file_use, target_file, excluded_agents).
@@ -115,7 +116,7 @@ class IntentExtractor:
                         "num_retries": 1,
                     },
                     agent_key="intent_extractor",
-                    thread_key=("system", "intent_extractor"),
+                    thread_key=thread_key or ("system", "intent_extractor"),
                     max_attempts=2,
                 ),
                 timeout=timeout_seconds,
@@ -123,6 +124,22 @@ class IntentExtractor:
 
             if not resp or not getattr(resp, "choices", None):
                 return default_intent
+
+            if resp and getattr(resp, "usage", None) and thread_key and thread_key != ("system", "intent_extractor"):
+                try:
+                    from agents.usage_agent import record_thread_tokens
+                    p_tok = getattr(resp.usage, "prompt_tokens", 0) or 0
+                    c_tok = getattr(resp.usage, "completion_tokens", 0) or 0
+                    if p_tok or c_tok:
+                        record_thread_tokens(
+                            channel_id=thread_key[0],
+                            thread_ts=thread_key[1],
+                            model=self.model,
+                            prompt_tokens=p_tok,
+                            completion_tokens=c_tok,
+                        )
+                except Exception as ue:
+                    logger.debug(f"[INTENT EXTRACTOR] Error recording token spend: {ue}")
 
             content = resp.choices[0].message.content
             if not content:
@@ -211,19 +228,8 @@ class IntentExtractor:
             return self._deterministic_fallback(text)
 
     def _deterministic_fallback(self, text: str) -> ExtractedIntent:
-        """Deterministic regex fallback for explicitly tagged agents when LLM times out."""
-        actions = []
-        try:
-            from pipeline.entity_resolver import entity_resolver
-            tagged = entity_resolver.extract_tagged_agents(text)
-            for ag in tagged:
-                resolved = entity_resolver.resolve_agent_name(ag)
-                if resolved:
-                    actions.append(ActionDirective(name=resolved, params={}, origin="inferred"))
-        except Exception as e:
-            logger.warning(f"[INTENT EXTRACTOR] Deterministic fallback error: {e}")
-            
-        return ExtractedIntent(actions=actions, modifiers={})
+        """Deterministic fallback when LLM times out or extraction fails."""
+        return ExtractedIntent(actions=[], modifiers={})
 
 
 # Default singleton instance

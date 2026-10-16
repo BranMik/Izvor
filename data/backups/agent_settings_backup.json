@@ -171,6 +171,16 @@
       ]
     }
   },
+  "system_agents": {
+    "InternalRevisor": {
+      "username": "InternalRevisor",
+      "model": "mistral/mistral-small-latest",
+      "displayname": "Internal Revisor",
+      "icon_url": "static/image_99.png",
+      "is_short_output": true,
+      "skills": []
+    }
+  },
   "orchestrator": {
     "fast_model": "gemini/gemini-3.8-flash",
     "reasoning_model": "mistral/mistral-large-latest",
