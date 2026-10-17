@@ -16,12 +16,6 @@ from orchestration.system_settings import system_settings_manager
 
 logger = logging.getLogger(__name__)
 
-# Key aliases for user-friendly configuration
-_RAG_KEY_ALIASES: dict[str, str] = {
-    "set_default_top_k": "default_top_k",
-    "top_k": "default_top_k",
-}
-
 
 def load_rag_settings_from_file() -> dict[str, Any]:
     """Reads the 'rag' section via SystemSettingsManager SSOT."""

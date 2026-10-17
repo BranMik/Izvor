@@ -1,6 +1,6 @@
 {
   "Google Gemini": {
-    "env_keys": ["GEMINI_API_KEY", "GOOGLE_API_KEY"],
+    "env_keys": ["GEMINI_API_KEY"],
     "models": [
       "gemini/gemini-3.8-flash",
       "gemini/gemini-3.8-flash-cyber",
@@ -55,7 +55,7 @@
     ]
   },
   "Together AI": {
-    "env_keys": ["TOGETHERAI_API_KEY", "TOGETHER_API_KEY"],
+    "env_keys": ["TOGETHER_API_KEY"],
     "models": [
       "together_ai/deepseek-ai/DeepSeek-V4-Pro",
       "together_ai/deepseek-ai/DeepSeek-V4-Flash",

@@ -121,7 +121,6 @@ def test_system_settings_rag_section_persistence():
         assert mgr2.get_rag_setting("max_chunk_chars") == 4000
         assert mgr2.get_rag_setting("chunk_overlap_chars") == 400
         assert mgr2.get_rag_setting("default_top_k") == 8
-        assert mgr2.get_rag_setting("SET_DEFAULT_TOP_K") == 8  # Case-insensitive alias
 
 
 def test_system_settings_backup_resilience():

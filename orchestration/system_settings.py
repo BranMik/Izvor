@@ -34,11 +34,6 @@ class SystemSettingsManager:
     - workspace_write_blacklist_additional (list[str])
     """
 
-    _RAG_KEY_ALIASES: dict[str, str] = {
-        "set_default_top_k": "default_top_k",
-        "top_k": "default_top_k",
-    }
-
     def __init__(
         self,
         settings_file: Path | None = None,
@@ -87,22 +82,20 @@ class SystemSettingsManager:
 
     def _parse_rag_section(self, rag_data: Any) -> None:
         if isinstance(rag_data, dict):
-            def _get_val(keys: list[str], default: Any) -> Any:
-                for k in keys:
-                    if k in rag_data and rag_data[k] is not None:
-                        return rag_data[k]
-                return default
+            def _get(key: str, default: Any) -> Any:
+                val = rag_data.get(key)
+                return default if val is None else val
 
             self.rag_config = {
-                "max_chunk_chars": int(_get_val(["max_chunk_chars", "MAX_CHUNK_CHARS"], 3500)),
-                "chunk_overlap_chars": int(_get_val(["chunk_overlap_chars", "CHUNK_OVERLAP_CHARS"], 300)),
-                "min_chunk_chars": int(_get_val(["min_chunk_chars", "MIN_CHUNK_CHARS"], 80)),
-                "default_top_k": int(_get_val(["default_top_k", "DEFAULT_TOP_K", "set_default_top_k", "SET_DEFAULT_TOP_K", "top_k", "TOP_K"], 6)),
-                "embedding_model": str(_get_val(["embedding_model", "EMBEDDING_MODEL"], "gemini/gemini-embedding-001")),
-                "embedding_dim": int(_get_val(["embedding_dim", "EMBEDDING_DIM"], 3072)),
-                "embedding_batch_size": int(_get_val(["embedding_batch_size", "EMBEDDING_BATCH_SIZE"], 32)),
-                "pii_masking": str(_get_val(["pii_masking", "PII_MASKING"], "AT_RETRIEVAL")),
-                "guardrail_threshold": float(_get_val(["guardrail_threshold", "GUARDRAIL_THRESHOLD"], 0.85)),
+                "max_chunk_chars": int(_get("max_chunk_chars", 3500)),
+                "chunk_overlap_chars": int(_get("chunk_overlap_chars", 300)),
+                "min_chunk_chars": int(_get("min_chunk_chars", 80)),
+                "default_top_k": int(_get("default_top_k", 6)),
+                "embedding_model": str(_get("embedding_model", "gemini/gemini-embedding-001")),
+                "embedding_dim": int(_get("embedding_dim", 3072)),
+                "embedding_batch_size": int(_get("embedding_batch_size", 32)),
+                "pii_masking": str(_get("pii_masking", "AT_RETRIEVAL")),
+                "guardrail_threshold": float(_get("guardrail_threshold", 0.85)),
             }
 
     def load(self) -> None:
@@ -309,12 +302,7 @@ class SystemSettingsManager:
 
     def get_rag_setting(self, key: str, default: Any = None) -> Any:
         self.load()
-        key_lower = key.lower()
-        resolved_key = self._RAG_KEY_ALIASES.get(key_lower, key_lower)
-        for k, v in self.rag_config.items():
-            if k.lower() == resolved_key:
-                return v
-        return default
+        return self.rag_config.get(key, default)
 
     def set_rag_setting(self, key: str, value: Any, save: bool = True) -> None:
         self.load()
