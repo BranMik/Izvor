@@ -114,14 +114,14 @@ async def lifespan(app: FastAPI):
     init_db()
 
     # Check worker concurrency
-    concurrency_env = os.getenv("WEB_CONCURRENCY") or os.getenv("GUNICORN_WORKERS") or os.getenv("UVICORN_WORKERS") or "1"
+    concurrency_env = os.getenv("WEB_CONCURRENCY", "1")
     try:
         workers = int(concurrency_env)
     except ValueError:
         workers = 1
     if workers > 1:
         logger.critical(
-            f"[CONCURRENCY] Worker concurrency is set to {workers} (via WEB_CONCURRENCY / UVICORN_WORKERS). "
+            f"[CONCURRENCY] Worker concurrency is set to {workers} (via WEB_CONCURRENCY). "
             "Izvor relies on in-memory asyncio.Task coordination, local thread state, "
             "and single-worker background queues. Running multiple worker processes will cause race "
             "conditions, duplicated agent turns, and split thread states. A single worker is required."

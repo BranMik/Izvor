@@ -55,11 +55,7 @@ def is_test_thread(
         logger.debug(f"[FLAT HISTORY] Failed to resolve directory paths: {e}")
 
     # 1. Check explicit test execution environment flags
-    if (
-        os.getenv("E2E_TESTING") == "1"
-        or os.getenv("IS_E2E_TEST") == "1"
-        or os.getenv("DISABLE_FLAT_HISTORY") == "1"
-    ):
+    if os.getenv("E2E_TESTING") == "1" or os.getenv("DISABLE_FLAT_HISTORY") == "1":
         return True
 
     # 2. Check if running under pytest and targeting the real project directory

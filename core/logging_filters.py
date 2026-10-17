@@ -78,13 +78,14 @@ def redact_text(text: str) -> str:
     env_secrets = [
         os.getenv("SLACK_BOT_TOKEN"),
         os.getenv("SLACK_SIGNING_SECRET"),
-        os.getenv("SLACK_USER_TOKEN"),
         os.getenv("ADMIN_PASSWORD"),
         os.getenv("OPENAI_API_KEY"),
         os.getenv("ANTHROPIC_API_KEY"),
         os.getenv("GEMINI_API_KEY"),
         os.getenv("MISTRAL_API_KEY"),
         os.getenv("GROQ_API_KEY"),
+        os.getenv("META_API_KEY"),
+        os.getenv("DEEPSEEK_API_KEY"),
         os.getenv("AUDIT_HMAC_SECRET"),
     ]
     for secret in env_secrets:
