@@ -890,7 +890,13 @@ async def download_slack_file(
 
     headers = {"Authorization": f"Bearer {SLACK_BOT_TOKEN}"}
     try:
-        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+        from orchestration.system_settings import get_slack_file_download_timeout_seconds
+        download_timeout = get_slack_file_download_timeout_seconds()
+    except Exception:
+        download_timeout = 30.0
+
+    try:
+        async with httpx.AsyncClient(timeout=download_timeout, follow_redirects=True) as client:
             async with client.stream("GET", url, headers=headers) as resp:
                 if resp.status_code != 200:
                     return {

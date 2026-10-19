@@ -13,6 +13,45 @@ from bs4 import BeautifulSoup
 
 logger = logging.getLogger(__name__)
 
+
+def _get_web_settings():
+    try:
+        from orchestration.system_settings import system_settings_manager
+        return system_settings_manager
+    except Exception:
+        return None
+
+
+def get_web_user_agent() -> str:
+    mgr = _get_web_settings()
+    return mgr.get_web_fetch_user_agent() if mgr else USER_AGENT
+
+
+def get_web_search_endpoint() -> str:
+    mgr = _get_web_settings()
+    return mgr.get_web_search_endpoint() if mgr else "https://html.duckduckgo.com/html/"
+
+
+def get_web_search_timeout() -> float:
+    mgr = _get_web_settings()
+    return mgr.get_web_search_timeout_seconds() if mgr else 10.0
+
+
+def get_web_fetch_timeout() -> float:
+    mgr = _get_web_settings()
+    return mgr.get_web_fetch_timeout_seconds() if mgr else 12.0
+
+
+def get_web_security_limits() -> dict[str, int]:
+    mgr = _get_web_settings()
+    return mgr.get_web_security() if mgr else {
+        "max_url_length": 2048,
+        "max_query_length": 1024,
+        "max_redirects": 5,
+        "max_body_bytes": 2097152,
+    }
+
+
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -33,14 +72,14 @@ def _web_search_inner(query: str, max_results: int = 5) -> str:
 
     # Strategy 1: DuckDuckGo HTML Endpoint (Fast, reliable, zero-auth)
     try:
-        url = "https://html.duckduckgo.com/html/"
+        url = get_web_search_endpoint()
         headers = {
-            "User-Agent": USER_AGENT,
+            "User-Agent": get_web_user_agent(),
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             "Accept-Language": "en-US,en;q=0.5",
         }
         data = {"q": cleaned_query}
-        with httpx.Client(timeout=10.0, follow_redirects=True) as client:
+        with httpx.Client(timeout=get_web_search_timeout(), follow_redirects=True) as client:
             response = client.post(url, data=data, headers=headers)
 
         if response.status_code == 200:
@@ -259,11 +298,13 @@ def validate_url_security(url: str) -> tuple[bool, str, str | None, str | None]:
     else:
         cleaned_url = url.strip()
 
-    if len(cleaned_url) > MAX_URL_LENGTH:
+    sec_limits = get_web_security_limits()
+    max_url_len = sec_limits.get("max_url_length", MAX_URL_LENGTH)
+    if len(cleaned_url) > max_url_len:
         return (
             False,
             cleaned_url,
-            f"URL length ({len(cleaned_url)}) exceeds maximum permitted limit of {MAX_URL_LENGTH} characters.",
+            f"URL length ({len(cleaned_url)}) exceeds maximum permitted limit of {max_url_len} characters.",
             None,
         )
 
@@ -284,11 +325,12 @@ def validate_url_security(url: str) -> tuple[bool, str, str | None, str | None]:
 
     # Validate query string
     if parsed.query:
-        if len(parsed.query) > MAX_QUERY_LENGTH:
+        max_query_len = sec_limits.get("max_query_length", MAX_QUERY_LENGTH)
+        if len(parsed.query) > max_query_len:
             return (
                 False,
                 cleaned_url,
-                f"Query string length ({len(parsed.query)}) exceeds maximum permitted limit of {MAX_QUERY_LENGTH} characters.",
+                f"Query string length ({len(parsed.query)}) exceeds maximum permitted limit of {max_query_len} characters.",
                 None,
             )
 
@@ -378,10 +420,14 @@ def _fetch_web_page_inner(url: str, max_chars: int = 4000) -> str:
         )
 
     max_chars = max(500, min(int(max_chars), 15000))
+    sec_limits = get_web_security_limits()
+    max_redirects = sec_limits.get("max_redirects", MAX_REDIRECTS)
+    max_body_bytes = sec_limits.get("max_body_bytes", MAX_BODY_BYTES)
+    fetch_timeout = get_web_fetch_timeout()
 
     try:
         headers = {
-            "User-Agent": USER_AGENT,
+            "User-Agent": get_web_user_agent(),
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             "Accept-Language": "en-US,en;q=0.5",
         }
@@ -391,15 +437,15 @@ def _fetch_web_page_inner(url: str, max_chars: int = 4000) -> str:
 
         while True:
             transport = PinnedIPTransport(current_ip) if current_ip else None
-            with httpx.Client(transport=transport, timeout=12.0, follow_redirects=False) as client:
+            with httpx.Client(transport=transport, timeout=fetch_timeout, follow_redirects=False) as client:
                 with client.stream("GET", current_url, headers=headers) as response:
                     # Check for redirect (3xx status code with Location header)
                     if (300 <= response.status_code < 400) and response.headers.get("location"):
                         redirect_count += 1
-                        if redirect_count > MAX_REDIRECTS:
+                        if redirect_count > max_redirects:
                             return json.dumps(
                                 {
-                                    "error": f"Security violation: Exceeded maximum allowed redirects ({MAX_REDIRECTS}).",
+                                    "error": f"Security violation: Exceeded maximum allowed redirects ({max_redirects}).",
                                     "url": cleaned_url,
                                 }
                             )
@@ -457,10 +503,10 @@ def _fetch_web_page_inner(url: str, max_chars: int = 4000) -> str:
                     total_bytes = 0
                     for chunk in response.iter_bytes(chunk_size=65536):
                         total_bytes += len(chunk)
-                        if total_bytes > MAX_BODY_BYTES:
+                        if total_bytes > max_body_bytes:
                             return json.dumps(
                                 {
-                                    "error": f"Response body exceeded maximum permitted limit of {MAX_BODY_BYTES} bytes (2 MB).",
+                                    "error": f"Response body exceeded maximum permitted limit of {max_body_bytes} bytes.",
                                     "url": current_url,
                                 }
                             )

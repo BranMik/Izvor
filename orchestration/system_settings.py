@@ -55,6 +55,39 @@ class SystemSettingsManager:
         self.tool_call_loop_timeout_seconds: float = 60.0
         self.guardrail_fail_mode: str = "open"
         self.max_discussion_turns: int = 20
+        self.max_tool_iterations: int = 3
+        self.tool_call_num_retries: int = 2
+        self.word_limit_grace_buffer: int = 50
+        self.guardrail_embedding_cache_size: int = 500
+        self.thread_cleanup_interval_seconds: float = 600.0
+        self.audit_integrity_check_interval_seconds: float = 43200.0
+        self.pricing_cache_ttl_days: int = 7
+        self.slack_file_download_timeout_seconds: float = 30.0
+        self.web_search_timeout_seconds: float = 10.0
+        self.web_fetch_timeout_seconds: float = 12.0
+        self.db_busy_timeout_seconds: float = 5.0
+        self.llm_max_retries: int = 3
+        self.llm_retry_backoff_base: float = 1.5
+        self.slack_rate_limit_per_second: float = 10.0
+        self.slack_rate_limit_burst: float = 15.0
+        self.pricing_benchmark_url: str = "https://artificialanalysis.ai/models"
+        self.web_search_endpoint: str = "https://html.duckduckgo.com/html/"
+        self.web_fetch_user_agent: str = (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+        )
+        self.web_security: dict[str, int] = {
+            "max_url_length": 2048,
+            "max_query_length": 1024,
+            "max_redirects": 5,
+            "max_body_bytes": 2097152,
+        }
+        self.security_burst_limits: dict[str, Any] = {
+            "auth_failure_window_seconds": 60.0,
+            "auth_failure_burst_limit": 5,
+            "global_auth_failure_burst_limit": 25,
+            "max_tracker_entries": 1000,
+        }
         self._debate_turn_pacing_manually_set: bool = False
         self._slack_post_pause_manually_set: bool = False
         self._raw_data: dict[str, Any] = {}
@@ -136,6 +169,41 @@ class SystemSettingsManager:
             raw_gfm = str(data.get("guardrail_fail_mode", "open")).strip().lower()
             self.guardrail_fail_mode = raw_gfm if raw_gfm in ("open", "closed") else "open"
             self.max_discussion_turns = int(data.get("max_discussion_turns", 20))
+            self.max_tool_iterations = int(data.get("max_tool_iterations", 3))
+            self.tool_call_num_retries = int(data.get("tool_call_num_retries", 2))
+            self.word_limit_grace_buffer = int(data.get("word_limit_grace_buffer", 50))
+            self.guardrail_embedding_cache_size = int(data.get("guardrail_embedding_cache_size", 500))
+            self.thread_cleanup_interval_seconds = float(data.get("thread_cleanup_interval_seconds", 600.0))
+            self.audit_integrity_check_interval_seconds = float(data.get("audit_integrity_check_interval_seconds", 43200.0))
+            self.pricing_cache_ttl_days = int(data.get("pricing_cache_ttl_days", 7))
+            self.slack_file_download_timeout_seconds = float(data.get("slack_file_download_timeout_seconds", 30.0))
+            self.web_search_timeout_seconds = float(data.get("web_search_timeout_seconds", 10.0))
+            self.web_fetch_timeout_seconds = float(data.get("web_fetch_timeout_seconds", 12.0))
+            self.db_busy_timeout_seconds = float(data.get("db_busy_timeout_seconds", 5.0))
+            self.llm_max_retries = int(data.get("llm_max_retries", 3))
+            self.llm_retry_backoff_base = float(data.get("llm_retry_backoff_base", 1.5))
+            self.slack_rate_limit_per_second = float(data.get("slack_rate_limit_per_second", 10.0))
+            self.slack_rate_limit_burst = float(data.get("slack_rate_limit_burst", 15.0))
+            self.pricing_benchmark_url = str(data.get("pricing_benchmark_url", "https://artificialanalysis.ai/models")).strip() or "https://artificialanalysis.ai/models"
+            self.web_search_endpoint = str(data.get("web_search_endpoint", "https://html.duckduckgo.com/html/")).strip() or "https://html.duckduckgo.com/html/"
+            self.web_fetch_user_agent = str(data.get("web_fetch_user_agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")).strip()
+
+            raw_ws = data.get("web_security", {})
+            if isinstance(raw_ws, dict):
+                self.web_security = {
+                    "max_url_length": int(raw_ws.get("max_url_length", 2048)),
+                    "max_query_length": int(raw_ws.get("max_query_length", 1024)),
+                    "max_redirects": int(raw_ws.get("max_redirects", 5)),
+                    "max_body_bytes": int(raw_ws.get("max_body_bytes", 2097152)),
+                }
+            raw_sbl = data.get("security_burst_limits", {})
+            if isinstance(raw_sbl, dict):
+                self.security_burst_limits = {
+                    "auth_failure_window_seconds": float(raw_sbl.get("auth_failure_window_seconds", 60.0)),
+                    "auth_failure_burst_limit": int(raw_sbl.get("auth_failure_burst_limit", 5)),
+                    "global_auth_failure_burst_limit": int(raw_sbl.get("global_auth_failure_burst_limit", 25)),
+                    "max_tracker_entries": int(raw_sbl.get("max_tracker_entries", 1000)),
+                }
 
             self._last_loaded_mtime = mtime
             logger.debug(f"[SYSTEM_SETTINGS] Loaded settings from {target_file}")
@@ -170,6 +238,41 @@ class SystemSettingsManager:
                     raw_gfm = str(data.get("guardrail_fail_mode", "open")).strip().lower()
                     self.guardrail_fail_mode = raw_gfm if raw_gfm in ("open", "closed") else "open"
                     self.max_discussion_turns = int(data.get("max_discussion_turns", 20))
+                    self.max_tool_iterations = int(data.get("max_tool_iterations", 3))
+                    self.tool_call_num_retries = int(data.get("tool_call_num_retries", 2))
+                    self.word_limit_grace_buffer = int(data.get("word_limit_grace_buffer", 50))
+                    self.guardrail_embedding_cache_size = int(data.get("guardrail_embedding_cache_size", 500))
+                    self.thread_cleanup_interval_seconds = float(data.get("thread_cleanup_interval_seconds", 600.0))
+                    self.audit_integrity_check_interval_seconds = float(data.get("audit_integrity_check_interval_seconds", 43200.0))
+                    self.pricing_cache_ttl_days = int(data.get("pricing_cache_ttl_days", 7))
+                    self.slack_file_download_timeout_seconds = float(data.get("slack_file_download_timeout_seconds", 30.0))
+                    self.web_search_timeout_seconds = float(data.get("web_search_timeout_seconds", 10.0))
+                    self.web_fetch_timeout_seconds = float(data.get("web_fetch_timeout_seconds", 12.0))
+                    self.db_busy_timeout_seconds = float(data.get("db_busy_timeout_seconds", 5.0))
+                    self.llm_max_retries = int(data.get("llm_max_retries", 3))
+                    self.llm_retry_backoff_base = float(data.get("llm_retry_backoff_base", 1.5))
+                    self.slack_rate_limit_per_second = float(data.get("slack_rate_limit_per_second", 10.0))
+                    self.slack_rate_limit_burst = float(data.get("slack_rate_limit_burst", 15.0))
+                    self.pricing_benchmark_url = str(data.get("pricing_benchmark_url", "https://artificialanalysis.ai/models")).strip() or "https://artificialanalysis.ai/models"
+                    self.web_search_endpoint = str(data.get("web_search_endpoint", "https://html.duckduckgo.com/html/")).strip() or "https://html.duckduckgo.com/html/"
+                    self.web_fetch_user_agent = str(data.get("web_fetch_user_agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")).strip()
+
+                    raw_ws = data.get("web_security", {})
+                    if isinstance(raw_ws, dict):
+                        self.web_security = {
+                            "max_url_length": int(raw_ws.get("max_url_length", 2048)),
+                            "max_query_length": int(raw_ws.get("max_query_length", 1024)),
+                            "max_redirects": int(raw_ws.get("max_redirects", 5)),
+                            "max_body_bytes": int(raw_ws.get("max_body_bytes", 2097152)),
+                        }
+                    raw_sbl = data.get("security_burst_limits", {})
+                    if isinstance(raw_sbl, dict):
+                        self.security_burst_limits = {
+                            "auth_failure_window_seconds": float(raw_sbl.get("auth_failure_window_seconds", 60.0)),
+                            "auth_failure_burst_limit": int(raw_sbl.get("auth_failure_burst_limit", 5)),
+                            "global_auth_failure_burst_limit": int(raw_sbl.get("global_auth_failure_burst_limit", 25)),
+                            "max_tracker_entries": int(raw_sbl.get("max_tracker_entries", 1000)),
+                        }
                     logger.warning("[SYSTEM_SETTINGS] Recovered settings from backup.")
                 except (OSError, json.JSONDecodeError, TypeError, ValueError) as be:
                     logger.error(f"[SYSTEM_SETTINGS] Failed to read backup: {be}")
@@ -197,6 +300,26 @@ class SystemSettingsManager:
             "slack_post_pause_seconds": self.slack_post_pause_seconds,
             "guardrail_fail_mode": self.guardrail_fail_mode,
             "max_discussion_turns": self.max_discussion_turns,
+            "max_tool_iterations": self.max_tool_iterations,
+            "tool_call_num_retries": self.tool_call_num_retries,
+            "word_limit_grace_buffer": self.word_limit_grace_buffer,
+            "guardrail_embedding_cache_size": self.guardrail_embedding_cache_size,
+            "thread_cleanup_interval_seconds": self.thread_cleanup_interval_seconds,
+            "audit_integrity_check_interval_seconds": self.audit_integrity_check_interval_seconds,
+            "pricing_cache_ttl_days": self.pricing_cache_ttl_days,
+            "slack_file_download_timeout_seconds": self.slack_file_download_timeout_seconds,
+            "web_search_timeout_seconds": self.web_search_timeout_seconds,
+            "web_fetch_timeout_seconds": self.web_fetch_timeout_seconds,
+            "db_busy_timeout_seconds": self.db_busy_timeout_seconds,
+            "llm_max_retries": self.llm_max_retries,
+            "llm_retry_backoff_base": self.llm_retry_backoff_base,
+            "slack_rate_limit_per_second": self.slack_rate_limit_per_second,
+            "slack_rate_limit_burst": self.slack_rate_limit_burst,
+            "pricing_benchmark_url": self.pricing_benchmark_url,
+            "web_search_endpoint": self.web_search_endpoint,
+            "web_fetch_user_agent": self.web_fetch_user_agent,
+            "web_security": self.web_security,
+            "security_burst_limits": self.security_burst_limits,
         })
 
         tmp_filename = f"{target_file.name}.tmp_{os.getpid()}_{int(time.time() * 1000)}"
@@ -490,6 +613,89 @@ class SystemSettingsManager:
         if save:
             self.save()
 
+    def get_max_tool_iterations(self) -> int:
+        self.load()
+        return int(self.max_tool_iterations)
+
+    def get_tool_call_num_retries(self) -> int:
+        self.load()
+        return int(self.tool_call_num_retries)
+
+    def get_word_limit_grace_buffer(self) -> int:
+        self.load()
+        return int(self.word_limit_grace_buffer)
+
+    def get_guardrail_embedding_cache_size(self) -> int:
+        self.load()
+        return int(self.guardrail_embedding_cache_size)
+
+    def get_thread_cleanup_interval_seconds(self) -> float:
+        self.load()
+        return float(self.thread_cleanup_interval_seconds)
+
+    def get_audit_integrity_check_interval_seconds(self) -> float:
+        self.load()
+        return float(self.audit_integrity_check_interval_seconds)
+
+    def get_pricing_cache_ttl_days(self) -> int:
+        self.load()
+        return int(self.pricing_cache_ttl_days)
+
+    def get_pricing_cache_ttl_seconds(self) -> int:
+        return self.get_pricing_cache_ttl_days() * 86400
+
+    def get_slack_file_download_timeout_seconds(self) -> float:
+        self.load()
+        return float(self.slack_file_download_timeout_seconds)
+
+    def get_web_search_timeout_seconds(self) -> float:
+        self.load()
+        return float(self.web_search_timeout_seconds)
+
+    def get_web_fetch_timeout_seconds(self) -> float:
+        self.load()
+        return float(self.web_fetch_timeout_seconds)
+
+    def get_db_busy_timeout_seconds(self) -> float:
+        self.load()
+        return float(self.db_busy_timeout_seconds)
+
+    def get_llm_max_retries(self) -> int:
+        self.load()
+        return int(self.llm_max_retries)
+
+    def get_llm_retry_backoff_base(self) -> float:
+        self.load()
+        return float(self.llm_retry_backoff_base)
+
+    def get_slack_rate_limit_per_second(self) -> float:
+        self.load()
+        return float(self.slack_rate_limit_per_second)
+
+    def get_slack_rate_limit_burst(self) -> float:
+        self.load()
+        return float(self.slack_rate_limit_burst)
+
+    def get_pricing_benchmark_url(self) -> str:
+        self.load()
+        return str(self.pricing_benchmark_url)
+
+    def get_web_search_endpoint(self) -> str:
+        self.load()
+        return str(self.web_search_endpoint)
+
+    def get_web_fetch_user_agent(self) -> str:
+        self.load()
+        return str(self.web_fetch_user_agent)
+
+    def get_web_security(self) -> dict[str, int]:
+        self.load()
+        return dict(self.web_security)
+
+    def get_security_burst_limits(self) -> dict[str, Any]:
+        self.load()
+        return dict(self.security_burst_limits)
+
 
 system_settings_manager = SystemSettingsManager()
 
@@ -607,6 +813,91 @@ def get_max_discussion_turns() -> int:
 
 def set_max_discussion_turns(val: int, save: bool = True) -> None:
     system_settings_manager.set_max_discussion_turns(val, save=save)
+
+
+def get_max_tool_iterations() -> int:
+    return system_settings_manager.get_max_tool_iterations()
+
+
+def get_tool_call_num_retries() -> int:
+    return system_settings_manager.get_tool_call_num_retries()
+
+
+def get_word_limit_grace_buffer() -> int:
+    return system_settings_manager.get_word_limit_grace_buffer()
+
+
+def get_guardrail_embedding_cache_size() -> int:
+    return system_settings_manager.get_guardrail_embedding_cache_size()
+
+
+def get_thread_cleanup_interval_seconds() -> float:
+    return system_settings_manager.get_thread_cleanup_interval_seconds()
+
+
+def get_audit_integrity_check_interval_seconds() -> float:
+    return system_settings_manager.get_audit_integrity_check_interval_seconds()
+
+
+def get_pricing_cache_ttl_days() -> int:
+    return system_settings_manager.get_pricing_cache_ttl_days()
+
+
+def get_pricing_cache_ttl_seconds() -> int:
+    return system_settings_manager.get_pricing_cache_ttl_seconds()
+
+
+def get_slack_file_download_timeout_seconds() -> float:
+    return system_settings_manager.get_slack_file_download_timeout_seconds()
+
+
+def get_web_search_timeout_seconds() -> float:
+    return system_settings_manager.get_web_search_timeout_seconds()
+
+
+def get_web_fetch_timeout_seconds() -> float:
+    return system_settings_manager.get_web_fetch_timeout_seconds()
+
+
+def get_db_busy_timeout_seconds() -> float:
+    return system_settings_manager.get_db_busy_timeout_seconds()
+
+
+def get_llm_max_retries() -> int:
+    return system_settings_manager.get_llm_max_retries()
+
+
+def get_llm_retry_backoff_base() -> float:
+    return system_settings_manager.get_llm_retry_backoff_base()
+
+
+def get_slack_rate_limit_per_second() -> float:
+    return system_settings_manager.get_slack_rate_limit_per_second()
+
+
+def get_slack_rate_limit_burst() -> float:
+    return system_settings_manager.get_slack_rate_limit_burst()
+
+
+def get_pricing_benchmark_url() -> str:
+    return system_settings_manager.get_pricing_benchmark_url()
+
+
+def get_web_search_endpoint() -> str:
+    return system_settings_manager.get_web_search_endpoint()
+
+
+def get_web_fetch_user_agent() -> str:
+    return system_settings_manager.get_web_fetch_user_agent()
+
+
+def get_web_security() -> dict[str, int]:
+    return system_settings_manager.get_web_security()
+
+
+def get_security_burst_limits() -> dict[str, Any]:
+    return system_settings_manager.get_security_burst_limits()
+
 
 
 

@@ -119,6 +119,14 @@ SCHEMA_STATEMENTS = [
 ]
 
 
+def _get_db_busy_timeout() -> float:
+    try:
+        from orchestration.system_settings import get_db_busy_timeout_seconds
+        return get_db_busy_timeout_seconds()
+    except Exception:
+        return 5.0
+
+
 class DatabaseManager:
     """
     Manages connections and schema for Izvor's embedded SQLite database.
@@ -163,9 +171,10 @@ class DatabaseManager:
         target_path = self.db_path
         target_path.parent.mkdir(parents=True, exist_ok=True)
 
+        busy_timeout = _get_db_busy_timeout()
         conn = sqlite3.connect(
             str(target_path),
-            timeout=5.0,
+            timeout=busy_timeout,
             check_same_thread=False,
             isolation_level=None,  # Autocommit mode by default; manual transactions with BEGIN
         )
@@ -174,7 +183,7 @@ class DatabaseManager:
         # Concurrency & Durability Pragmas
         conn.execute("PRAGMA journal_mode = WAL;")
         conn.execute("PRAGMA synchronous = NORMAL;")
-        conn.execute("PRAGMA busy_timeout = 5000;")
+        conn.execute(f"PRAGMA busy_timeout = {int(busy_timeout * 1000)};")
         conn.execute("PRAGMA foreign_keys = ON;")
         self._ensure_schema_initialized(conn, target_path)
         return conn

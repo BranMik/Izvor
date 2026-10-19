@@ -17,7 +17,10 @@ from starlette.concurrency import run_in_threadpool
 
 from agents import record_thread_tokens
 from core.config import TOOL_INTERMEDIATE_UPDATE_DELAY_SECONDS
-from orchestration.system_settings import get_tool_call_loop_timeout_seconds
+from orchestration.system_settings import (
+    get_tool_call_loop_timeout_seconds,
+    system_settings_manager,
+)
 from core.llm_utils import execute_llm_with_retry
 from orchestration.agent_settings import settings_manager
 from orchestration.stages.tool_status import _build_tool_status_text
@@ -233,7 +236,9 @@ class ExecutionStage:
 
         if tool_calls:
             exec_mcp_fn = self.pipeline._get_hook("execute_mcp_tool", None)
-            max_tool_iterations = 3
+            max_tool_iterations = self.pipeline._get_hook(
+                "MAX_TOOL_ITERATIONS", system_settings_manager.get_max_tool_iterations()
+            )
             iteration = 0
             timeout_secs = self.pipeline._get_hook(
                 "TOOL_CALL_LOOP_TIMEOUT_SECONDS", get_tool_call_loop_timeout_seconds()
@@ -430,7 +435,7 @@ class ExecutionStage:
                         "messages": ctx.messages,
                         "tools": active_tools,
                         "tool_choice": "auto",
-                        "num_retries": 2,
+                        "num_retries": system_settings_manager.get_tool_call_num_retries(),
                     }
                     if _is_explicit_meta_provider(ctx.agent_cfg.get("model")):
                         if os.getenv("META_API_KEY"):

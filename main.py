@@ -44,7 +44,9 @@ logging.basicConfig(
 setup_credential_redaction_filters()
 logger = logging.getLogger("IzvorBackend")
 
-BASE_DIR = Path(__file__).resolve().parent
+from core.paths import PROJECT_ROOT
+
+BASE_DIR = PROJECT_ROOT
 
 
 async def keep_loop_alive():
@@ -65,7 +67,7 @@ async def periodic_thread_state_cleanup():
 
     while True:
         try:
-            await asyncio.sleep(600)  # clean every 10 minutes
+            await asyncio.sleep(system_settings_manager.get_thread_cleanup_interval_seconds())
             cleaned = thread_state_manager.cleanup_expired_threads()
             if cleaned > 0:
                 logger.info(f"[CLEANUP] Pruned {cleaned} inactive thread state(s)")
@@ -86,7 +88,7 @@ async def periodic_audit_integrity_guard():
 
     while True:
         try:
-            await asyncio.sleep(43200)  # check every 12 hours
+            await asyncio.sleep(system_settings_manager.get_audit_integrity_check_interval_seconds())
             res = await asyncio.to_thread(AppIntegrityValidator.check_audit_log_integrity)
             hmac_check = res.get("hmac_continuity", {})
             if hmac_check and not hmac_check.get("matches", True):

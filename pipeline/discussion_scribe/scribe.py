@@ -8,9 +8,11 @@ import litellm
 from core.config import get_thread_notes_model
 from core.domain import DiscussionBrief, DiscussionConclusion, Turn
 
+from prompts.builder import load_system_prompt
+
 logger = logging.getLogger(__name__)
 
-SCRIBE_DEFAULT_PROMPT = """You are an objective, executive-level discussion scribe and strategic synthesizer.
+_DEFAULT_SCRIBE_PROMPT_FALLBACK = """You are an objective, executive-level discussion scribe and strategic synthesizer.
 Your responsibility is to analyze the multi-agent discussion transcript and produce structured strategic live notes.
 
 Strict Formatting Rules:
@@ -24,7 +26,7 @@ Strict Formatting Rules:
 4. Keep the content dense, objective, and strictly within the requested word ceiling.
 """
 
-SCRIBE_CONCLUSION_PROMPT = """You are an objective, executive-level strategic synthesizer and dialectical analyst.
+_DEFAULT_CONCLUSION_PROMPT_FALLBACK = """You are an objective, executive-level strategic synthesizer and dialectical analyst.
 Your responsibility is to analyze the multi-agent discussion transcript and produce the final, comprehensive Conclusion Note.
 
 Strict Formatting Rules:
@@ -48,6 +50,9 @@ Part 2: *Conclusion and Argumentation*
 3. Objective & Balanced: Never suppress minority or dissenting viewpoints. Ensure minority arguments are represented with equal rigor as majority consensus.
 4. Keep formatting clean, scannable, and dense with high information value.
 """
+
+SCRIBE_DEFAULT_PROMPT = load_system_prompt("Discussion_Scribe_Live", fallback=_DEFAULT_SCRIBE_PROMPT_FALLBACK)
+SCRIBE_CONCLUSION_PROMPT = load_system_prompt("Discussion_Scribe_Conclusion", fallback=_DEFAULT_CONCLUSION_PROMPT_FALLBACK)
 
 
 class DiscussionScribe:

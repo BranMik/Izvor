@@ -4,13 +4,19 @@ import os
 from pathlib import Path
 from typing import Any
 
-# Base project paths
-BASE_DIR = Path(__file__).resolve().parent.parent.parent
-RAG_KNOWLEDGE_DIR = (BASE_DIR / "rag_knowledge").resolve()
-CACHE_DIR = (BASE_DIR / "data" / ".rag_cache").resolve()
-LANCEDB_DIR = (CACHE_DIR / "lancedb").resolve()
-MANIFEST_PATH = (CACHE_DIR / "file_manifest.json").resolve()
-SYSTEM_SETTINGS_PATH = (BASE_DIR / "data" / "settings" / "system_settings.json").resolve()
+from core.paths import (
+    LANCEDB_DIR,
+    MANIFEST_PATH,
+    PROJECT_ROOT,
+    RAG_CACHE_DIR,
+    RAG_KNOWLEDGE_DIR,
+    SYSTEM_SETTINGS_FILE,
+)
+
+# Canonical project & RAG paths from core.paths SSOT
+BASE_DIR = PROJECT_ROOT
+CACHE_DIR = RAG_CACHE_DIR
+SYSTEM_SETTINGS_PATH = SYSTEM_SETTINGS_FILE
 
 from orchestration.system_settings import system_settings_manager
 

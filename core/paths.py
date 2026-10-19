@@ -56,6 +56,12 @@ FLAT_HISTORIES_DIR = Path(os.getenv("IZVOR_HISTORIES_DIR", PROJECT_ROOT / "flat-
 THREAD_SKILLS_FILE = THREAD_DATA_DIR / "thread_skills.json"
 USAGE_STORE_FILE = THREAD_DATA_DIR / "thread_usage_data.json"
 
+# RAG Knowledge & Vector Cache
+RAG_KNOWLEDGE_DIR = Path(os.getenv("IZVOR_RAG_KNOWLEDGE_DIR", PROJECT_ROOT / "rag_knowledge"))
+RAG_CACHE_DIR = Path(os.getenv("IZVOR_RAG_CACHE_DIR", DATA_DIR / ".rag_cache"))
+LANCEDB_DIR = Path(os.getenv("IZVOR_LANCEDB_DIR", RAG_CACHE_DIR / "lancedb"))
+MANIFEST_PATH = Path(os.getenv("IZVOR_RAG_MANIFEST_PATH", RAG_CACHE_DIR / "file_manifest.json"))
+
 __all__ = [
     "AGENT_BACKUP_FILE",
     "AGENT_SETTINGS_FILE",
@@ -69,12 +75,16 @@ __all__ = [
     "DB_PATH",
     "DOWNLOADS_DIR",
     "FLAT_HISTORIES_DIR",
+    "LANCEDB_DIR",
+    "MANIFEST_PATH",
     "MODEL_PROVIDER_CATALOG_FILE",
     "PERSONAS_DIR",
     "PRICING_CACHE_FILE",
     "PRICING_DIR",
     "PROJECT_ROOT",
     "PROMPTS_DIR",
+    "RAG_CACHE_DIR",
+    "RAG_KNOWLEDGE_DIR",
     "SETTINGS_DIR",
     "SYSTEM_AGENTS_DIR",
     "SYSTEM_BACKUP_FILE",

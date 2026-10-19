@@ -31,11 +31,14 @@ async def run(ctx: Any, params: dict[str, Any] | None = None) -> dict[str, Any] 
     formatted_msg = skills_directory_text
 
     try:
-        sys_prompt = (
+        from prompts.builder import load_system_prompt
+
+        _default_sys_prompt_fallback = (
             "You are the Panel System. Present the following application skills and authorized agents directory "
             "clearly, neatly, and accurately to the user in Slack markdown format. Preserve the list of skills and "
             "the authorized agents for each skill without omitting or inventing any."
         )
+        sys_prompt = load_system_prompt("List_Skills", fallback=_default_sys_prompt_fallback)
         user_msg = (
             f"Here is the current platform skills directory:\n\n{skills_directory_text}\n\n"
             f"Please present this directory to the user."

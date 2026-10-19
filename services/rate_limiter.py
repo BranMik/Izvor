@@ -4,6 +4,17 @@ import time
 from core.config import SLACK_BOT_TOKEN, is_test_environment
 
 
+def _get_rate_limiter_defaults() -> tuple[float, float]:
+    try:
+        from orchestration.system_settings import system_settings_manager
+        return (
+            system_settings_manager.get_slack_rate_limit_per_second(),
+            system_settings_manager.get_slack_rate_limit_burst(),
+        )
+    except Exception:
+        return 10.0, 15.0
+
+
 class SlackRateLimiter:
     """
     Asynchronous token bucket rate limiter for outbound Slack API calls.
@@ -11,10 +22,11 @@ class SlackRateLimiter:
     Completely bypassed in test environments or when running with mock tokens.
     """
 
-    def __init__(self, rate: float = 10.0, capacity: float = 15.0):
-        self.rate = rate
-        self.capacity = capacity
-        self.tokens = capacity
+    def __init__(self, rate: float | None = None, capacity: float | None = None):
+        def_rate, def_capacity = _get_rate_limiter_defaults()
+        self.rate = float(rate if rate is not None else def_rate)
+        self.capacity = float(capacity if capacity is not None else def_capacity)
+        self.tokens = self.capacity
         self.last_refill = time.monotonic()
         self._lock: asyncio.Lock | None = None
 

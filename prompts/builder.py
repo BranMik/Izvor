@@ -23,6 +23,19 @@ def _read_prompt_file(path: Path) -> str:
     return path.read_text(encoding="utf-8").strip()
 
 
+@cache
+def load_system_prompt(name: str, fallback: str = "") -> str:
+    """Loads a system agent prompt markdown file from SYSTEM_AGENTS_DIR with caching and fallback."""
+    file_path = SYSTEM_AGENTS_DIR / f"{name}.md"
+    if file_path.exists():
+        try:
+            return file_path.read_text(encoding="utf-8").strip()
+        except Exception as e:
+            logger.warning(f"Error reading prompt file {file_path}: {e}")
+    return fallback.strip()
+
+
+
 def _load_short_output_agents() -> set[str]:
     """Loads agent keys configured with is_short_output: true from agent_settings.json."""
     settings_path = AGENT_SETTINGS_FILE

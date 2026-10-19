@@ -8,7 +8,17 @@ from services.rag.embeddings import embedding_service
 logger = logging.getLogger(__name__)
 
 _EMBEDDING_LRU_CACHE: OrderedDict[str, list[float]] = OrderedDict()
-_MAX_EMBEDDING_CACHE_SIZE = 500
+
+
+def _get_max_embedding_cache_size() -> int:
+    try:
+        from orchestration.system_settings import get_guardrail_embedding_cache_size
+        return get_guardrail_embedding_cache_size()
+    except Exception:
+        return 500
+
+
+_MAX_EMBEDDING_CACHE_SIZE = _get_max_embedding_cache_size()
 
 
 def _search_lance_table(table, query_vector: list[float]):
@@ -49,7 +59,7 @@ class GuardrailService:
 
         vector = vectors[0]
         _EMBEDDING_LRU_CACHE[text] = vector
-        if len(_EMBEDDING_LRU_CACHE) > _MAX_EMBEDDING_CACHE_SIZE:
+        if len(_EMBEDDING_LRU_CACHE) > _get_max_embedding_cache_size():
             _EMBEDDING_LRU_CACHE.popitem(last=False)
         return vector
 

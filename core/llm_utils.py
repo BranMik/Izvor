@@ -10,8 +10,26 @@ from core.config import is_test_environment
 logger = logging.getLogger(__name__)
 
 # Pacing and retry configuration
-LLM_MAX_RETRIES = 3
-LLM_RETRY_BACKOFF_BASE = 0.01 if is_test_environment() else 1.5
+def get_llm_max_retries() -> int:
+    try:
+        from orchestration.system_settings import get_llm_max_retries
+        return get_llm_max_retries()
+    except Exception:
+        return 3
+
+
+def get_llm_retry_backoff_base() -> float:
+    if is_test_environment():
+        return 0.01
+    try:
+        from orchestration.system_settings import get_llm_retry_backoff_base
+        return get_llm_retry_backoff_base()
+    except Exception:
+        return 1.5
+
+
+LLM_MAX_RETRIES = get_llm_max_retries()
+LLM_RETRY_BACKOFF_BASE = get_llm_retry_backoff_base()
 
 
 def is_anthropic_model(model: str | None) -> bool:
@@ -225,7 +243,7 @@ async def execute_llm_with_retry(
                 f"[LLM] Attempt {attempt}/{max_attempts} timed out for {agent_key}: {exc}"
             )
             if attempt < max_attempts:
-                await asyncio.sleep(LLM_RETRY_BACKOFF_BASE * attempt)
+                await asyncio.sleep(get_llm_retry_backoff_base() * attempt)
             else:
                 raise last_error
         except Exception as exc:
@@ -240,7 +258,7 @@ async def execute_llm_with_retry(
                 raise
 
             if attempt < max_attempts:
-                await asyncio.sleep(LLM_RETRY_BACKOFF_BASE * attempt)
+                await asyncio.sleep(get_llm_retry_backoff_base() * attempt)
             else:
                 raise last_error
 
