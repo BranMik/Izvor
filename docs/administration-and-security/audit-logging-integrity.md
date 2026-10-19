@@ -18,7 +18,7 @@ graph LR
     end
 ```
 
-Every audit file is organized monthly (e.g., `data/audit/audit_2026_10.jsonl`). Each line is a self-contained JSON object bound cryptographically to its predecessor.
+Every audit file is organized monthly (e.g., `audit/audit_2026_10.jsonl`). Each line is a self-contained JSON object bound cryptographically to its predecessor.
 
 ---
 
@@ -58,15 +58,91 @@ During server boot in [`main.py`](file:///c:/Users/Hp/Documents/agy2-projects/Iz
 
 ## 🚨 Emergency Alerts on Integrity Breaches
 
-If any violation occurs (e.g., an unauthorized edit or corrupted disk sector), [`send_admin_audit_alert`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/services/audit_logger.py) formats and posts a high-priority incident notice to the administrative Slack channel:
+If any cryptographic or hash continuity violation occurs (e.g., an unauthorized edit, truncated records, or a missing/mismatched secret key), [`send_admin_audit_alert()`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/services/audit_logger.py#L716-L775) formats and dispatches a high-priority incident notice.
 
+### 1. Alert Routing & Delivery Hierarchy
+Audit alerts follow a strict three-tier routing strategy:
+1. **Primary Delivery (Direct Message via Slack)**:
+   - Izvor resolves the designated administrator via `SLACK_ADMIN_USER_IDS` and invokes `open_dm_channel()`.
+   - The security alert is delivered as a private, high-visibility 1-on-1 direct message directly to the administrator.
+2. **Fallback Delivery (`SLACK_TEST_CHANNEL_ID` / `#bot-testing`)**:
+   - If `SLACK_ADMIN_USER_IDS` is unset or empty, or if Slack's `conversations.open` API fails to open an administrative DM, the alert automatically falls back to `SLACK_TEST_CHANNEL_ID` (the `#bot-testing` channel) so that breach notices are never lost.
+3. **Application Logs & Admin Dashboard**:
+   - Every breach triggers a `logger.critical()` entry (e.g., `[SECURITY STARTUP]` or `[SECURITY GUARD]`).
+   - The `/admin` web interface status reflects the failure upon subsequent checks.
+
+### 2. Exact Slack Message Layout
+Alerts sent to Slack are posted by the `Security Audit Guard` persona and follow this exact structure:
+
+```text
+🚨 *[SECURITY CRITICAL] Periodic Audit Guard Integrity Breach*
+Periodic scan identified corruption or tampering in the active audit trail.
+• *Violations:* `Hash mismatch at sequence #142 in audit_2026_10.jsonl`
+• *Files:* `audit/audit_2026_10.jsonl`
+👉 _Action Required: Run `python -m services.audit_logger --verify` for forensic diagnostics._
 ```
-🚨 *CRITICAL SECURITY ALERT: Audit Chain Tampering Detected*
-------------------------------------------------------------
-• Violation: Hash mismatch at sequence #142 in audit_2026_10.jsonl
-• Expected Hash: 4f8a9b...
-• Computed Hash: e12c44...
-• Action: Immediate administrative audit inspection required.
+
+### 3. Differentiating Production Alerts vs. Test Payloads
+Because test suites and live scenarios both interact with Slack channels during integration testing, use the following matrix to identify real production breach alerts:
+
+| Alert Category | Title / Identifier | Payload Characteristics | Origin | Action Required |
+|:---|:---|:---|:---|:---|
+| **Production Breach** | `Periodic Audit Guard Integrity Breach` | Contains verified `Violations` and corrupted `Files` paths | [`main.py:L101`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/main.py#L101) (periodic 12h guard) | **CRITICAL**: Immediate forensic inspection and snapshot comparison. |
+| **Production Breach** | `Startup Audit Integrity Alert: Secret Mismatch (...)` | Contains `Status`, `Warning`, `Last File`, `Last Seq`, and `Errors` | [`main.py:L158`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/main.py#L158) (startup boot check) | **CRITICAL**: Confirm `AUDIT_HMAC_SECRET` rotation or restore audit logs. |
+| **Production Warning** | `AUDIT_HMAC_SECRET Discrepancy (...)` | Contains `Status`, `Warning`, `Last File`, and `Last Seq` | [`main.py:L175`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/main.py#L175) (startup boot check) | **HIGH**: Key mismatch detected between historic records and runtime environment. |
+| **Production Breach** | `Startup Audit Log Integrity Violation` | Contains `Violations` list and `Files` | [`main.py:L193`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/main.py#L193) (startup boot check) | **CRITICAL**: Immediate disk inspection and chain repair. |
+| **Synthetic Test** | `Test Security Breach` | Message: `This is an automated test alert in English.` Details: `line: 42`, `file: audit_2026_10.jsonl` | [`tests/test_audit_logger.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/tests/test_audit_logger.py#L251) | None (mock test artifact; isolated by `monkeypatch`). |
+| **E2E Scenario** | `E2E Test Runner` scenarios | Contains scenario markers like `E2E-101`, test persona names, and simulation tags | [`e2e_testing_harness/test_e2e_suite.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/e2e_testing_harness/test_e2e_suite.py) | None (automated E2E verification traffic in `#bot-testing`). |
+
+---
+
+## 🔍 Forensic CLI Verification & Diagnostics
+
+When an alert fires or during compliance auditing, administrators can run the built-in audit CLI directly:
+
+### 1. Integrity Verification (`--verify`)
+Scans all monthly JSONL files in the audit directory, checking hash chaining, monotonically increasing sequence numbers, and HMAC signatures:
+
+```bash
+python -m services.audit_logger --verify
+```
+
+**Expected Healthy Output:**
+```text
+=== Izvor Audit Log Integrity Verification ===
+Scanned Files:    audit_2026_10.jsonl
+Total Records:    1520
+Last Seq Number:  1520
+Last Entry Hash:  a8b79f2c140938...
+HMAC Key Status:  MATCH (AUDIT_HMAC_SECRET valid across all records)
+
+[VERIFIED] All cryptographic audit chains are fully intact. No tampering detected.
+```
+
+To restrict verification to a specific month:
+```bash
+python -m services.audit_logger --verify --month 2026-10
+```
+
+### 2. Secret Key Continuity Check (`--check-secret`)
+Validates whether the runtime `AUDIT_HMAC_SECRET` matches the key used to sign the latest record in the log file:
+
+```bash
+python -m services.audit_logger --check-secret
+```
+
+### 3. Log Statistics Overview (`--stats`)
+Displays log directory sizing, event counts, latest sequence number, and partition file breakdown:
+
+```bash
+python -m services.audit_logger --stats
+```
+
+### 4. Create Archival Snapshot (`--snapshot`)
+Generates an immutable `.tar.gz` snapshot of the active audit trail and updates the SHA-256 manifest:
+
+```bash
+python -m services.audit_logger --snapshot
 ```
 
 ---
