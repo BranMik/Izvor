@@ -38,14 +38,14 @@ graph TD
 
 ## 🗄️ SQLite State Schema Reference
 
-The SQLite state engine is initialized on startup in write-ahead logging (`WAL`) mode with `busy_timeout = 5000ms`, `synchronous = NORMAL`, and `foreign_keys = ON`:
+The SQLite state engine is initialized on startup in write-ahead logging (`WAL`) mode with `busy_timeout = 30000ms` (30.0s, managed via `db_busy_timeout_seconds` in `system_settings.json`), `synchronous = NORMAL`, and `foreign_keys = ON`:
 
 | Table | Purpose | Managed By |
 |---|---|---|
 | `thread_sessions` | Tracks thread lifecycle (`active`, `paused`, `completed`), remaining agent queue, current turn number, custom debate topologies, and round sequences. | [`DiscussionStateStore`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/orchestration/state/discussion_store.py) |
 | `thread_context` | Persists word limits (`min_words`, `max_words`), history limits, detected thread language, included/excluded agents, and attached file contexts. | [`ThreadContextStore`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/orchestration/state/context_store.py) |
 | `spend_ledger` | Append-only financial ledger recording prompt tokens, completion tokens, and dollar cost per model invocation. | [`SpendGovernance`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/pipeline/spend_governance/circuit_breaker.py) |
-| `hitl_approvals` | Stores pending, approved, denied, or consumed Human-In-The-Loop approval requests with cryptographic parameter hashing. | [`HITLService`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/services/hitl.py) |
+| `hitl_approvals` | Stores pending, approved, denied, or consumed Human-In-The-Loop approval requests with cryptographic parameter hashing. | [`services.hitl`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/services/hitl.py) |
 | `thread_skills` | Thread-scoped dynamic skill grants (`skill_name`, `agent_id`, `expires_at`). | [`ThreadSkillsManager`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/orchestration/thread_skills_manager.py) |
 | `event_dedup` | Persists event IDs and receipt timestamps for idempotent Slack webhook retries. | [`EventDeduplicationCache`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/adapters/slack/events.py) |
 
@@ -96,7 +96,7 @@ Izvor enforces a two-layer bounded memory strategy:
 - Because durable state resides in SQLite, evicting an in-memory thread does not destroy historical context; if a message arrives later for an evicted thread, its state is lazily reloaded from SQLite.
 
 ### 2. Scheduled Inactive TTL Pruning & Task-Based Retention
-- **Background Worker**: Clean-up task in `main.py` wakes up every 10 minutes (600s).
-- **TTL Window & Liveness Check**: Threads with no incoming messages or agent turns for more than 2 hours are evaluated. Liveness is decoupled from the remaining agents queue: if an `asyncio.Task` is actively executing (`task and not task.done()`), eviction is skipped.
+- **Background Worker**: Clean-up task in `main.py` wakes up periodically (default 3600s / 1 hour, configured via `thread_cleanup_interval_seconds` in system settings).
+- **TTL Window & Liveness Check**: Threads with no incoming messages or agent turns for more than 1 hour (`THREAD_STATE_TTL_SECONDS = 3600.0`) are evaluated. Liveness is decoupled from the remaining agents queue: if an `asyncio.Task` is actively executing (`task and not task.done()`), eviction is skipped.
 - **Unified RAM & SQLite Purge**: For threads past TTL without active running tasks, in-memory context is freed and corresponding expired rows are safely deleted from SQLite `thread_sessions` and `thread_context`.
-- **Persistent Archival**: Before any thread state is evicted, its final transcript is permanently written to the disk-backed flat history store in `flat-histories/` via [`services/flat_history_recorder.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/services/flat_history_recorder.py).
+- **Persistent Archival**: Before any thread state is evicted, its final transcript is permanently written to the disk-backed flat history store in `system_resources/agy/flat_history/` via [`services/flat_history_recorder.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/services/flat_history_recorder.py).

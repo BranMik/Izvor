@@ -6,7 +6,7 @@ This document details the test suites, testing practices, and quality assurance 
 
 ## 🧪 Test Suite Overview
 
-Izvor features an extensive test suite consisting of **60+ automated test files** and **579 passed automated unit, integration, and security tests**.
+Izvor features an extensive test suite consisting of **68 automated test files** and **633 passed automated unit, integration, and security tests**.
 
 ```
 tests/

@@ -521,10 +521,10 @@ async def get_channel_name(channel_id: str) -> str:
 
 async def get_or_create_usage_channel() -> str | None:
     """
-    Resolves the ID of the 'cailogics-usage' channel.
+    Resolves the ID of the 'izvor-usage' channel.
     1. Checks USAGE_CHANNEL_ID env/config if specified.
     2. Checks in-memory cached channel ID.
-    3. Searches workspace channels for 'cailogics-usage' (or USAGE_CHANNEL_NAME).
+    3. Searches workspace channels for 'izvor-usage' (or USAGE_CHANNEL_NAME).
     4. If not found, automatically creates the channel and joins it.
     """
     global _RESOLVED_USAGE_CHANNEL_ID

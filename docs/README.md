@@ -24,7 +24,7 @@ docs/
 ├── agents-and-skills/                     # Personas, Prompts & Tools
 │   ├── personas-catalog.md                # Persona Roster, Prompt Construction & Personas SSOT
 │   ├── skills-framework.md                # Dynamic Skills Engine, Grant/Revoke & Injection
-│   ├── built-in-skills-reference.md       # Complete Manual of 18 Built-in Skills & Directives
+│   ├── built-in-skills-reference.md       # Complete Manual of 20 Built-in Skills & Directives
 │   └── mcp-and-tools.md                   # MCP Workspace Isolation & 5s In-Place Indicators
 ├── administration-and-security/           # Security, Operations & Governance
 │   ├── slack-app-home.md                  # App Home UI Configuration, Settings SSOT & Backups
@@ -37,7 +37,7 @@ docs/
 │   └── thread-notes-and-exports.md        # Flat Histories, Scribe Summaries & Exports
 └── development-and-testing/               # Developer Guide & Testing
     ├── e2e-testing-harness.md             # Hybrid Interceptor, Protocol Client & Scenarios
-    ├── test-suite.md                      # Running the 54+ Test Suites, Hygiene & Mocks
+    ├── test-suite.md                      # Running the 68 Test Suites (633 Tests), Hygiene & Mocks
     └── contributing.md                    # Engineering Guidelines, Policies & Code Standards
 ```
 

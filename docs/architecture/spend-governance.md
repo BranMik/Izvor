@@ -95,7 +95,14 @@ Before allocating compute or dispatching to an LLM, [`orchestration/stages/resol
    - Posts a warning block to the Slack thread informing participants:
      > *⚠️ EXPENSE LIMIT REACHED FOR THE THREAD. ENDING CALLS*
      > *(or: Daily workspace budget of $10.00 exceeded)*
+   - Attaches an interactive Block Kit button: `"Continue Sequence"` (`action_id: "resume_sequence_action"`).
    - Terminates the turn immediately without dispatching an LLM call.
 
-### 3. Intra-Turn Tool-Loop Governance in Stage 4 (`ExecutionStage`)
+### 3. Administrative Override & Resume Action
+When a deliberation is paused by the circuit breaker, authorized workspace administrators can manually override and resume:
+- Handled by [`adapters/slack/interactivity.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/adapters/slack/interactivity.py) upon receiving the `resume_sequence_action` payload.
+- Verifies that the clicking user has Slack workspace admin privileges (`is_admin: true`). Non-admin attempts are rejected with an ephemeral warning.
+- Upon admin confirmation, updates the thread state to active, unblocks the remaining sequence, and dispatches the next agent turn.
+
+### 4. Intra-Turn Tool-Loop Governance in Stage 4 (`ExecutionStage`)
 To prevent multi-step tool iterations from exceeding budgets mid-turn, [`orchestration/stages/execution.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/orchestration/stages/execution.py) calculates incremental token spend after each tool invocation. If the circuit breaker threshold or daily budget is breached during execution, the loop halts gracefully before the next LLM call.

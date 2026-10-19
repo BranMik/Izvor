@@ -1,6 +1,6 @@
 # Built-in Skills & Directives Reference
 
-This document provides a complete reference guide for all **18 built-in skills and directives** supported by **Izvor**, including their slash command syntax, parameter constraints, and security privilege requirements.
+This document provides a complete reference guide for all **20 built-in skills and directives** supported by **Izvor**, including their slash command syntax, parameter constraints, and security privilege requirements.
 
 ---
 
@@ -15,6 +15,8 @@ This document provides a complete reference guide for all **18 built-in skills a
 | [`min_words`](#min_words) | Constraint | Enforces a minimum response word count for debate personas. | `/min_words 100` | `[min_words: 100]` | Standard |
 | [`max_words`](#max_words) | Constraint | Enforces a maximum response word count (clamped $\le 2000$). | `/max_words 250` | `[max_words: 250]` | Standard |
 | [`rounds`](#rounds) | Constraint | Sets the number of debate rounds in Sandwich mode (clamped 1–5). | `/rounds 3` | `[rounds: 3]` | **Slash Origin Only** |
+| [`first`](#first) | Directive | Designates the opening speaker while preserving normal workflow chain progression. | `/first Agent` | `[first: Agent]` | Standard |
+| [`open_debate`](#open_debate) | Directive | Designates opening speaker and runs open debate with dynamic peer nominations (bypassing fixed chains). | `/open_debate Agent` | `[open_debate: Agent]` | Standard |
 | [`stop_discussion`](#stop_discussion) | Directive | Immediately halts automated agent debate turns in the thread. | `/stop` | `[stop_discussion]` or `[stop]` | Standard |
 | [`scribe_min_words`](#scribe_min_words) | Constraint | Sets a minimum word count specifically for the Scribe closing synthesis. | `/scribe_min_words 300` | `[scribe_min_words: 300]` | Standard |
 | [`scribe_max_words`](#scribe_max_words) | Constraint | Sets a maximum word count specifically for the Scribe closing synthesis. | `/scribe_max_words 600` | `[scribe_max_words: 600]` | Standard |
@@ -60,7 +62,20 @@ This document provides a complete reference guide for all **18 built-in skills a
 - **Bounds**: Clamped between `1` and `5` rounds. System enforces a global maximum limit of `MAX_DISCUSSION_TURNS = 20`.
 - **Privilege Boundary**: Must have `origin: "slash"` (cannot be activated by inferred conversational text).
 
+### `first`
+- **Location**: [`skills/first/SKILL.md`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/skills/first/SKILL.md)
+- **Trigger**: `/first <Agent>` or `[first: <Agent>]`
+- **Description**: Sets the specified agent as the initial speaker to start the panel discussion, after which the debate continues in its normal workflow chain order.
+- **Input Parameters**: `{"first_agent": "agent_token"}` (supports bracketed `[Agent Name]` or plain `AgentName`).
+
+### `open_debate`
+- **Location**: [`skills/open_debate/SKILL.md`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/skills/open_debate/SKILL.md)
+- **Triggers**: `/open_debate <Agent>`, `/open-debate <Agent>`, `/opendebate <Agent>`, or `[open_debate: <Agent>]`
+- **Description**: Designates the specified agent as the opening speaker and bypasses fixed start/end workflow chains. All agents participate in an open dynamic debate (up to 3 rounds) where each speaker nominates the next peer.
+- **Input Parameters**: `{"first_agent": "agent_token"}` (supports bracketed `[Agent Name]` or plain `AgentName`).
+
 ### `grant_skill_for_all` & `revoke_skill_for_all`
 - **Locations**: [`skills/grant_skill_for_all/SKILL.md`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/skills/grant_skill_for_all/SKILL.md), [`skills/revoke_skill_for_all/SKILL.md`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/skills/revoke_skill_for_all/SKILL.md)
 - **Privilege Boundary**: Must have `origin: "slash"`. Any inferred attempt fails closed with a warning.
 - **Persistence**: Writes grants to SQLite table `thread_skills` and emits audit events (`THREAD_SKILL_GRANTED`, `THREAD_SKILL_REVOKED`).
+

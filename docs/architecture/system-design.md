@@ -80,7 +80,7 @@ Izvor uses the modern async context manager lifespan pattern in [`main.py`](file
 
 ### 1. Database Schema Initialization
 - **File**: [`core/database.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/core/database.py)
-- **Behavior**: Initializes `data/izvor.db` (configurable via `IZVOR_DB_PATH`) with WAL journal mode, 5000ms busy timeout, and verifies schema tables: `thread_sessions`, `thread_context`, `spend_ledger`, `hitl_approvals`, `thread_skills`, and `event_dedup`.
+- **Behavior**: Initializes `data/izvor.db` (configurable via `IZVOR_DB_PATH`) with WAL journal mode, 30,000ms (30.0s) busy timeout (managed via `db_busy_timeout_seconds` in system settings), and verifies schema tables: `thread_sessions`, `thread_context`, `spend_ledger`, `hitl_approvals`, `thread_skills`, and `event_dedup`.
 
 ### 2. Windows Event Loop Heartbeat (`keep_loop_alive`)
 - **File**: [`main.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/main.py)
@@ -88,12 +88,12 @@ Izvor uses the modern async context manager lifespan pattern in [`main.py`](file
 
 ### 3. Periodic Thread State Cleanup (`periodic_thread_state_cleanup`)
 - **File**: [`main.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/main.py)
-- **Schedule**: Every 10 minutes (600 seconds).
+- **Schedule**: Dynamically loaded from `thread_cleanup_interval_seconds` in `system_settings.json` (default: 3600 seconds / 1 hour).
 - **Behavior**: Calls [`thread_state_manager.cleanup_expired_threads()`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/orchestration/thread_state.py). Frees in-memory session contexts that have exceeded their idle time-to-live (TTL).
 
 ### 4. Audit Log Integrity Guard (`periodic_audit_integrity_guard`)
 - **File**: [`main.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/main.py)
-- **Schedule**: Every 12 hours.
+- **Schedule**: Dynamically loaded from `audit_integrity_check_interval_seconds` in `system_settings.json` (default: 3600 seconds / 1 hour).
 - **Behavior**: Executes [`AppIntegrityValidator.check_audit_log_integrity()`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/core/integrity_checks.py). Verifies hash continuity across active and historical audit files. If a discrepancy or HMAC secret mismatch is found, a high-severity alert is dispatched to the admin Slack channel.
 
 ### 5. Model Pricing Cache Warmup (`warm_up_pricing_cache`)
@@ -118,7 +118,7 @@ Izvor/
 ├── pipeline/                   # Modular pipeline subsystems (entity resolver, scribe, spend governance)
 ├── prompts/                    # Persona system prompts and system agent prompt templates
 ├── services/                   # Slack API client, pricing service, audit logger, MCP tools, RAG
-├── skills/                     # 18 dynamic skills, tool definitions, and skill registry
-├── tests/                      # Unit, integration, security, and regression test suites (579+ tests)
+├── skills/                     # 20 dynamic skills, tool definitions, and skill registry
+├── tests/                      # Unit, integration, security, and regression test suites (68 files, 633+ tests)
 └── e2e_testing_harness/        # Behavioral testing suite, scenario runners, and synthetic Slack mock
 ```

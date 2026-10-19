@@ -35,6 +35,21 @@ Fixed mode executes an immutable, sequential chain of personas:
 - Peer nomination tags are ignored or deferred until the sequence completes.
 - Ideal for structured code reviews, policy audits, or formal sign-offs.
 
+### 3. Open Debate Mode (`/open_debate`)
+Initiated via `/open_debate <Agent>` (or `/open-debate`, `/opendebate`):
+- Designates the specified agent as the opening speaker and bypasses fixed start/end chains.
+- All enabled personas participate in dynamic peer-to-peer nomination across up to 3 debate rounds, converging naturally or halting upon user `/stop`.
+
+---
+
+## 🎯 Direct Agent Invocations vs. Broadcast Panel Debates
+
+### Single-Turn Deterministic Direct Tagging
+When a user explicitly tags a specific agent persona in their prompt (e.g., `/[Security Architect] what are the risks here?` or `/[Tactician] estimate the timeline`), the orchestration engine recognizes a targeted single-agent query:
+- In [`ValidationStage`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/orchestration/stages/validation.py), the tagged persona is resolved into `ctx.agent_key`, `ctx.remaining = []`, and `ctx.custom_flow = True`.
+- The pipeline executes solely that persona for a single, focused turn.
+- It halts cleanly without triggering sequential cascades, multi-turn panel debates, or Scribe synthesis.
+
 ---
 
 ## 🏷️ Dynamic Peer Nomination & Unicode Tags
@@ -46,7 +61,7 @@ Personas include slash-bracketed tags in their response text:
 ```markdown
 I see substantial scalability concerns with this database schema.
 What do you think of this, /[Security Architect]?
-Could /[Tactician] or /[Tehnički Vođa] evaluate the migration effort?
+Could /[Tactician] or /[Product Strategist] evaluate the migration effort?
 ```
 
 ### Extraction & Resolution

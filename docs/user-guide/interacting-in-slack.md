@@ -13,15 +13,27 @@ Invite `@Izvor` to any public or private channel:
 ```
 
 ### 2. Mention to Initiate
+
+#### A. Multi-Agent Panel Debate
 Trigger a deliberation by mentioning the bot and stating a question, design dilemma, or review request:
 ```
 @Izvor We are considering migrating our session store from Redis to Postgres row-level JSONB. What are the engineering tradeoffs, security considerations, and cost impacts?
 ```
-
 Once mentioned:
 1. Izvor's Orchestrator evaluates the query.
 2. The initial personas (e.g., *Visionary* and *Tactician* in Sandwich mode) enter the thread.
 3. Each persona posts using its dedicated avatar and display name.
+
+#### B. Direct Single-Agent Query (Single-Turn Execution)
+If you need an answer strictly from a single specialist without kicking off a full multi-turn debate cascade:
+```
+@Izvor /[Security Architect] What are the encryption requirements for storing PII under GDPR?
+```
+When an agent is directly tagged with `/[Persona Name]`, Izvor sets the remaining agent queue to empty and executes **only** that persona's turn. It answers directly and halts without escalating to other personas.
+
+#### C. Custom Opening Speaker or Open Debate
+- `/first Visionary <prompt>` — Designates the opening speaker, after which normal workflow chains continue.
+- `/open_debate Visionary <prompt>` — Designates the opening speaker and runs a dynamic peer-nominated debate across up to 3 rounds.
 
 ---
 

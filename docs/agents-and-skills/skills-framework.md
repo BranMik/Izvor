@@ -97,7 +97,7 @@ The `triggers:` dictionary configures how the skill is detected from user input 
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | `auto_detect` | `boolean` | **`false`** | **Orchestrator Pre-Inference Toggle.** When `true`, allows the micro-LLM `IntentExtractor` to infer this skill from natural user conversation (`origin="inferred"`). | **Layer 1 only:** `IntentExtractor` prompt & `ValidationStage` privilege checks. | **Layer 2:** Does NOT restrict agents from calling authorized tools via `load_skill`. |
 | `slash` | `list[str]` | `[]` | List of slash command aliases (e.g. `["/web_research", "/webresearch"]`). | Deterministic slash parser in `DirectiveParser` (`origin="slash"`). | Natural language prompts without slash prefixes. |
-| `arg_type` | `string` | `"string"` | Parser strategy for extracting arguments following the slash command. Supported: `terminal_flag`, `int`, `int_or_off`, `agent_list`, `token`, `grant_skill`, `list`, `file_target`, `none`. | `DirectiveParser` parameter extraction. | Agent LLM internal reasoning. |
+| `arg_type` | `string` | `"string"` | Parser strategy for extracting arguments following the slash command. Supported: `terminal_flag`, `int`, `int_or_off`, `agent_list`, `token`, `agent_token`, `grant_skill`, `list`, `file_target`, `none`. | `DirectiveParser` parameter extraction. | Agent LLM internal reasoning. |
 | `param_name` | `string` | `None` | Parameter key under which parsed argument is stored in `ActionDirective.params`. | Parameter dictionary construction in `DirectiveParser`. | Unparameterized flag skills. |
 | `terminal` | `boolean` | `false` | If `true`, halts debate immediately upon detection (e.g. `/stop`). | Short-circuit stop check in `DirectiveParser` & Slack event adapter. | Non-terminal conversational skills. |
 
@@ -139,9 +139,8 @@ Users can grant skills on the fly within an active thread using slash syntax or 
 - `/grant_skill_for_all web_research` (or `[grant_all: web_research]`)
 
 ### 3. Runtime Revocation
-- `/revoke_skill web_research from Visionary` (or `[revoke: web_research from Visionary]`)
-- `/revoke_skill_for_all web_research` (or `[revoke_all: web_research]`)
-- `[revoke_constraint: max_words]` -> Clears active word limit constraints.
+- `/revoke_skill_for_all web_research` (or `[revoke_all: web_research]`) — Revokes the tool thread-wide from all participating personas.
+- `[revoke_constraint: max_words]` — Clears active word limit constraints.
 
 ### 4. Privilege Boundary Enforcement
 - **Origin Boundary**: Directives inferred heuristically from free-form user chatter (`origin: "inferred"`) are strictly prohibited from granting or revoking skills (`grant_skill_for_all`, `revoke_skill_for_all`).

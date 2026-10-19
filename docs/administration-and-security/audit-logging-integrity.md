@@ -51,7 +51,7 @@ During server boot in [`main.py`](file:///c:/Users/Hp/Documents/agy2-projects/Iz
 
 ### 2. Scheduled Background Guard (`periodic_audit_integrity_guard`)
 - Configured in [`main.py:L71-L100`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/main.py#L71-L100).
-- Runs automatically every **12 hours** (43,200 seconds).
+- Runs periodically (default: **1 hour** / 3600 seconds, dynamically loaded from `audit_integrity_check_interval_seconds` in `system_settings.json`).
 - Validates that logs written during runtime remain unaltered and undamaged on disk.
 
 ---
@@ -87,7 +87,8 @@ Because test suites and live scenarios both interact with Slack channels during 
 
 | Alert Category | Title / Identifier | Payload Characteristics | Origin | Action Required |
 |:---|:---|:---|:---|:---|
-| **Production Breach** | `Periodic Audit Guard Integrity Breach` | Contains verified `Violations` and corrupted `Files` paths | [`main.py:L101`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/main.py#L101) (periodic 12h guard) | **CRITICAL**: Immediate forensic inspection and snapshot comparison. |
+| **Production Breach** | `Periodic Audit Guard Integrity Breach` | Contains verified `Violations` and corrupted `Files` paths | [`main.py:L101`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/main.py#L101) (periodic integrity guard) | **CRITICAL**: Immediate forensic inspection and snapshot comparison. |
+| **Security Alert** | `SECURITY_ALERT` | Semantic prompt injection / adversarial jailbreak detection record with vector distance | [`services/security/guardrail.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/services/security/guardrail.py) | **HIGH**: Review user prompt and threat actor profile. |
 | **Production Breach** | `Startup Audit Integrity Alert: Secret Mismatch (...)` | Contains `Status`, `Warning`, `Last File`, `Last Seq`, and `Errors` | [`main.py:L158`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/main.py#L158) (startup boot check) | **CRITICAL**: Confirm `AUDIT_HMAC_SECRET` rotation or restore audit logs. |
 | **Production Warning** | `AUDIT_HMAC_SECRET Discrepancy (...)` | Contains `Status`, `Warning`, `Last File`, and `Last Seq` | [`main.py:L175`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/main.py#L175) (startup boot check) | **HIGH**: Key mismatch detected between historic records and runtime environment. |
 | **Production Breach** | `Startup Audit Log Integrity Violation` | Contains `Violations` list and `Files` | [`main.py:L193`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/main.py#L193) (startup boot check) | **CRITICAL**: Immediate disk inspection and chain repair. |
