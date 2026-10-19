@@ -21,6 +21,7 @@ from core.config import AGENTS_CONFIG
 from orchestration.system_settings import (
     get_debate_turn_pacing_seconds,
     get_slack_post_pause_seconds,
+    get_word_limit_grace_buffer,
 )
 from core.llm_utils import classify_agent_error
 from core.models import OrchestrationMode
@@ -61,14 +62,15 @@ def _extract_resolved_nomination_keys(text: str) -> list[str]:
     return resolved
 
 
-def apply_mechanical_word_limit(text: str, max_words: int) -> str:
+def apply_mechanical_word_limit(text: str, max_words: int, grace_buffer: int | None = None) -> str:
     """
-    Mechanically truncates response text to (max_words + 50) words if it exceeds that threshold.
+    Mechanically truncates response text to (max_words + grace_buffer) words if it exceeds that threshold.
     Preserves trailing nomination tags (e.g. [agent-10007]) so the debate chain is not disrupted.
     """
     if not text:
         return text
-    cutoff = max_words + 50
+    buffer_val = grace_buffer if grace_buffer is not None else get_word_limit_grace_buffer()
+    cutoff = max_words + buffer_val
     # Match any trailing nomination tag at the end: e.g. "... /[agent-10007]" or "... /[agent-10007] next"
     trailing_tag_pattern = re.compile(
         r"(?:\n+|\s+)\s*(/\[\s*[^\]\r\n]+?\s*\](?:\s+next)?\s*[.!?]?)\s*$",

@@ -47,7 +47,9 @@ LANGUAGE_NAME_MAP: Final[dict[str, str]] = {
     "portugalski": "Portuguese",
 }
 
-SYSTEM_PROMPT: Final[str] = (
+from prompts.builder import load_system_prompt
+
+_DEFAULT_SYSTEM_PROMPT_FALLBACK: str = (
     "You are an ultra-fast, accurate language classifier. "
     "Identify the primary natural language of the user's message. "
     "Output ONLY the canonical language name in English as a single word (e.g. Croatian, Bosnian, Serbian, English, German, Spanish, French, Italian). "
@@ -55,6 +57,8 @@ SYSTEM_PROMPT: Final[str] = (
     "If the message is predominantly non-English but contains English technical terms, library/app names, or buzzwords, identify the surrounding natural language (e.g. Croatian), NOT English. "
     "Only output English if the natural text itself is in English, or if it is purely code/data with no human language."
 )
+
+SYSTEM_PROMPT: Final[str] = load_system_prompt("Language_Detector", fallback=_DEFAULT_SYSTEM_PROMPT_FALLBACK)
 
 
 def normalize_language_name(name: str) -> str:

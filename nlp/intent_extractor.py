@@ -11,9 +11,11 @@ from core.models import ActionDirective, ExtractedIntent
 from pipeline.directive_parser import is_stop_command
 from pipeline.entity_resolver import entity_resolver
 
+from prompts.builder import load_system_prompt
+
 logger = logging.getLogger(__name__)
 
-EXTRACTOR_SYSTEM_PROMPT = """You are a precise, language-agnostic intent, directive, and parameter extractor for an AI multi-agent Slack platform.
+_DEFAULT_EXTRACTOR_PROMPT_FALLBACK = """You are a precise, language-agnostic intent, directive, and parameter extractor for an AI multi-agent Slack platform.
 Analyze the user's message and extract any requested constraints, directives, or action triggers:
 
 1. "modifiers": Formatting, word count limits, or context constraints requested by the user (key-value pairs).
@@ -28,6 +30,8 @@ Respond ONLY with a valid JSON object matching this schema:
     { "name": "<skill_or_action_name>", "params": { ... } }
   ]
 }"""
+
+EXTRACTOR_SYSTEM_PROMPT = load_system_prompt("Intent_Extractor", fallback=_DEFAULT_EXTRACTOR_PROMPT_FALLBACK)
 
 
 class IntentExtractor:

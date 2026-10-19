@@ -24,8 +24,24 @@ logger = logging.getLogger(__name__)
 # Baseline model pricing alias
 BASELINE_CONFIG_FILE = BASELINE_PRICES_FILE
 
-# Cache TTL: 7 days in seconds
-CACHE_TTL_SECONDS = 7 * 24 * 3600
+def get_pricing_cache_ttl_seconds() -> int:
+    try:
+        from orchestration.system_settings import get_pricing_cache_ttl_seconds
+        return get_pricing_cache_ttl_seconds()
+    except Exception:
+        return 7 * 24 * 3600
+
+
+def get_pricing_benchmark_url() -> str:
+    try:
+        from orchestration.system_settings import get_pricing_benchmark_url
+        return get_pricing_benchmark_url()
+    except Exception:
+        return "https://artificialanalysis.ai/models"
+
+
+# Cache TTL: 7 days default in seconds (from system_settings SSOT)
+CACHE_TTL_SECONDS = get_pricing_cache_ttl_seconds()
 
 # LiteLLM tool schemas for the pricing research agent
 PRICING_TOOL_SCHEMAS = [
@@ -102,7 +118,7 @@ DEFAULT_FALLBACK_PRICING: dict[str, Any] = {
     "output_price_per_1m": 3.00,
     "currency": "USD",
     "source": "Artificial Analysis Benchmarks",
-    "source_url": "https://artificialanalysis.ai/models",
+    "source_url": get_pricing_benchmark_url(),
 }
 
 
@@ -284,7 +300,7 @@ class PricingService:
             res = dict(cache[norm])
             if not res.get("source_url"):
                 res["source_url"] = baseline.get(
-                    "source_url", "https://artificialanalysis.ai/models"
+                    "source_url", get_pricing_benchmark_url()
                 )
             return res
         res = dict(baseline)
@@ -393,7 +409,7 @@ class PricingService:
 
             in_price = float(data.get("input_price_per_1m", baseline["input_price_per_1m"]))
             out_price = float(data.get("output_price_per_1m", baseline["output_price_per_1m"]))
-            source_url = data.get("source_url") or baseline.get("source_url", "https://artificialanalysis.ai/models")
+            source_url = data.get("source_url") or baseline.get("source_url", get_pricing_benchmark_url())
 
             return {
                 "input_price_per_1m": in_price,
@@ -438,7 +454,7 @@ class PricingService:
             input_price = in_val if in_val is not None else baseline["input_price_per_1m"]
             output_price = out_val if out_val is not None else baseline["output_price_per_1m"]
             source = "Web Search Fallback" if (in_val or out_val) else baseline["source"]
-            source_url = baseline.get("source_url", "https://artificialanalysis.ai/models")
+            source_url = baseline.get("source_url", get_pricing_benchmark_url())
 
             url_match = re.search(r"https?://[^\s)\]\"'>]+", search_raw)
             if url_match:
@@ -500,19 +516,20 @@ class PricingService:
                 if not cached_entry.get("source_url"):
                     baseline = get_baseline_for_model(model_name)
                     cached_entry["source_url"] = baseline.get(
-                        "source_url", "https://artificialanalysis.ai/models"
+                        "source_url", get_pricing_benchmark_url()
                     )
                 return cached_entry
 
-            # If weekly updates are turned ON, enforce the 7-day TTL check
-            if weekly_update_enabled and has_price and age < CACHE_TTL_SECONDS:
+            # If weekly updates are turned ON, enforce the dynamic TTL check
+            effective_ttl = get_pricing_cache_ttl_seconds()
+            if weekly_update_enabled and has_price and age < effective_ttl:
                 logger.debug(
-                    f"[PRICING] Using cached pricing for '{norm}' (age: {age / 86400:.1f} days / 7-day TTL)"
+                    f"[PRICING] Using cached pricing for '{norm}' (age: {age / 86400:.1f} days / {effective_ttl / 86400:.1f}-day TTL)"
                 )
                 if not cached_entry.get("source_url"):
                     baseline = get_baseline_for_model(model_name)
                     cached_entry["source_url"] = baseline.get(
-                        "source_url", "https://artificialanalysis.ai/models"
+                        "source_url", get_pricing_benchmark_url()
                     )
                 return cached_entry
 
