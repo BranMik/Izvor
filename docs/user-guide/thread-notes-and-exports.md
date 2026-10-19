@@ -19,6 +19,12 @@ When a deliberation is initiated, progresses, or reaches its configured round li
   - **Action Items & Owners**: Assigned follow-ups and immediate next steps.
 - The conclusion note is formatted with high-contrast Slack Block Kit headers and can be pinned to the thread for executive review.
 
+### 3. Thread Notes Disk Persistence ([`services/thread_notes_writer.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/services/thread_notes_writer.py))
+In addition to posting inside Slack, thread notes are automatically saved to disk in `agents_resources/thread_notes/`:
+- **Live Notes**: `<prompt_slug>_<ts5>_live_notes.md`
+- **Conclusion Notes**: `<prompt_slug>_<ts5>_conclusion.md`
+*(where `<ts5>` represents the last 5 digits of the thread timestamp, preventing accidental filename collisions even if identical prompts are initiated)*.
+
 ---
 
 ## 📁 Asynchronous Flat History Markdown Archival

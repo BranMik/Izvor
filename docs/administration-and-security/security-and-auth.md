@@ -115,3 +115,40 @@ To safeguard host infrastructure:
 - **Sandboxed File Operations**: Agent-accessible file tools operate strictly within `agents_resources/` and are forbidden from escaping to `system_resources/` or root project directories.
 - **Protected Write Paths**: Core directories (`core/`, `orchestration/`, `data/settings/`, `audit/`) are registered in `DEFAULT_PROTECTED_WRITE_PATHS` and locked against runtime modification by LLM tool calls.
 - **Fail-Closed Tool Authorization**: [`SkillLoader`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/skills/loader.py) blocks unauthorized tool calls by default.
+
+---
+
+## 🔍 Log Credential Sanitization & Data Protection
+
+### Credential Redaction Logging Filter
+To eliminate accidental leakage of enterprise secrets and tokens in application logs:
+- **Implementation**: [`core/logging_filters.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/core/logging_filters.py) registers `CredentialRedactionFilter` on Python's root logger during application startup.
+- **Redacted Patterns**: Automatically detects and replaces sensitive credentials with safe synthetic tokens:
+  - Slack Bot & App Tokens (`xoxb-[a-zA-Z0-9-]+`, `xapp-[a-zA-Z0-9-]+`, `xoxp-[a-zA-Z0-9-]+`)
+  - OpenAI API Keys (`sk-[a-zA-Z0-9_-]{20,}`)
+  - Anthropic, Google, and Mistral API keys
+  - RSA/EC Private Keys (`-----BEGIN.*PRIVATE KEY-----`)
+- **Protection**: Ensures sensitive API credentials never appear in console outputs, file handlers, or exported diagnostics.
+
+---
+
+## 🛡️ Semantic Prompt Injection & Jailbreak Guardrail
+
+Izvor deploys an active semantic guardrail engine in [`services/security/guardrail.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/services/security/guardrail.py) to detect adversarial jailbreaks and system prompt extraction attacks before model dispatch:
+
+1. **LanceDB Vector Signatures**: Incoming user prompts are embedded and evaluated against a pre-indexed vector store (`guardrail_signatures`) containing known adversarial injection patterns.
+2. **Cosine Similarity Evaluation**: If semantic similarity exceeds the safety threshold (default: `0.85`), the prompt is flagged as hostile.
+3. **Audit Event Dispatch**: Emits a `SECURITY_ALERT` audit record capturing the prompt hash, detected vector distance, and requesting Slack user identity.
+4. **Configurable Fail-Mode (`guardrail_fail_mode`)**:
+   - `"open"` (Default): If embedding calculation or vector database lookup encounters an operational timeout or failure, logs an audit warning and permits the turn to proceed.
+   - `"closed"`: If vector lookup fails, the pipeline fails closed, immediately terminating the turn and notifying the user that security checks could not be completed.
+
+---
+
+## 🚦 Denial of Service (DoS) Defense & Audit Rate-Limiting
+
+To defend against log-flooding attacks aimed at exhausting host disk space or corrupting SQLite databases:
+- **Implementation**: Managed in [`core/slack_security.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/core/slack_security.py).
+- **Sliding-Window Throttling**: Failed authentication attempts (`AUTH_FAILURE`) are monitored over rolling 60-second windows.
+- **Thresholds**: Maximum 5 discrete failure audit logs per client IP/context, with a global workspace ceiling of 25 failure records per window.
+- **Suppression & Aggregation**: Subsequent attacks within the window are suppressed and emitted as a consolidated summary event, neutralizing disk-filling attempts.

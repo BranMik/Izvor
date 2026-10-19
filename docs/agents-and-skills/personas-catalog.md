@@ -53,7 +53,7 @@ In addition to the debate roster, Izvor runs dedicated system-level agents:
 
 ### 3. Usage Reporter Agent (`Usage_Agent`)
 - **Prompt**: [`prompts/system_agents/Usage_Agent.md`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/prompts/system_agents/Usage_Agent.md)
-- **Role**: Posts token consumption and spend summaries to the dedicated usage channel (configured via `USAGE_CHANNEL_NAME`, default `cailogics-usage` or `#izvor-usage`).
+- **Role**: Posts token consumption and spend summaries to the dedicated usage channel (configured via `USAGE_CHANNEL_NAME`, default `#izvor-usage` or `izvor-usage`).
 
 ### 4. Scribe (`Scribe`)
 - **Role**: Synthesizes end-of-discussion agreements, action items, and generates downloadable flat markdown exports.

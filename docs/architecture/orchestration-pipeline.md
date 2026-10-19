@@ -72,7 +72,7 @@ The pipeline operates on a centralized state container: [`TurnContext`](file:///
 ### Stage 5: Post-Record & Metrics (`post_record.py`)
 - **File**: [`orchestration/stages/post_record.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/orchestration/stages/post_record.py)
 - **Responsibilities**:
-  1. **Nomination Extraction**: Parses agent output for unicode-safe peer nomination tags (e.g. `[Scope Optimizer]`, `[Security Architect]`, or diacritics like `[Tehnički Vođa]`) using `NOMINATION_TAG_RE`.
+  1. **Nomination Extraction**: Parses agent output for unicode-safe peer nomination tags (e.g. `[Scope Optimizer]`, `[Security Architect]`, or `[Tactician]`) using `NOMINATION_TAG_RE`.
   2. **Slack Thread Dispatch**: Posts the synthesized response to the Slack thread under the persona's bot profile, or updates the existing intermediate message.
   3. **Token Accounting & Pricing**: Computes prompt and completion token usage, updating thread metrics via [`calculate_thread_costs`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/agents/usage_agent.py).
   4. **Off-Thread Flat History Archival**: Invokes [`async_record_flat_history`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/services/flat_history_recorder.py) using Starlette's `run_in_threadpool` to append the completed turn to disk without blocking the asyncio event loop.

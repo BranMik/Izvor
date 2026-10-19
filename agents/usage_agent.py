@@ -14,6 +14,7 @@ from services.slack_client import (
     update_usage_message,
 )
 
+from core.config import USAGE_CHANNEL_NAME
 from core.paths import USAGE_STORE_FILE
 
 logger = logging.getLogger(__name__)
@@ -30,7 +31,7 @@ def parse_thread_creation_time(thread_ts: str) -> str:
 
 
 class ThreadUsageTracker:
-    """Tracks token consumption, monetary expenses, and live summary card updates in #cailogics-usage."""
+    """Tracks token consumption, monetary expenses, and live summary card updates in #izvor-usage."""
 
     def __init__(self, store_file: Path | None = None):
         self.store_file = store_file or USAGE_STORE_FILE
@@ -350,7 +351,7 @@ class ThreadUsageTracker:
     ) -> dict[str, Any]:
         """
         Asynchronously creates or updates the single dedicated usage report message
-        inside the 'cailogics-usage' channel for the specified thread.
+        inside the usage channel for the specified thread.
         """
         thread_key = (channel_id, thread_ts)
         lock = self.get_lock(channel_id, thread_ts)
@@ -364,7 +365,7 @@ class ThreadUsageTracker:
                 usage_ch_id = await get_or_create_usage_channel()
                 if not usage_ch_id:
                     logger.error(
-                        "[USAGE AGENT] Could not resolve or create 'cailogics-usage' channel. Aborting usage update."
+                        f"[USAGE AGENT] Could not resolve or create '{USAGE_CHANNEL_NAME}' channel. Aborting usage update."
                     )
                     return {"ok": False, "error": "Usage channel not available"}
 

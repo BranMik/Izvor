@@ -21,6 +21,9 @@ This document provides complete technical specifications for the HTTP endpoints 
 |---|---|---|---|
 | `GET` | `/` | Public | Lightweight health check status. |
 | `GET` | `/health` | Public | Lightweight health check status. |
+| `POST` | `/slack/events` | Slack HMAC | Inbound Slack Events API webhook (app mentions, thread replies, URL verification challenge). |
+| `POST` | `/slack/actions` | Slack HMAC | Inbound Slack interactive shortcuts and action handlers. |
+| `POST` | `/slack/interactivity` | Slack HMAC | Inbound Slack Block Kit actions, App Home configuration modals, and HITL approvals. |
 | `GET` | `/api/health` | Admin | Authenticated health check exposing active registered persona keys. |
 | `GET` | `/api/skills` | Admin | Returns all registered dynamic skills, descriptions, and schemas. |
 | `GET` | `/api/rag/status` | Admin | Returns RAG manifest status and total indexed documents. |
@@ -166,6 +169,22 @@ This document provides complete technical specifications for the HTTP endpoints 
   }
 }
 ```
+
+---
+
+### 7. Slack Inbound Webhooks
+- **Endpoints**:
+  - `POST /slack/events`: Primary Events API endpoint. Handles Slack URL verification challenges (`url_verification`), app mentions, and conversational thread message events.
+  - `POST /slack/actions`: Handles Slack message shortcut actions and interactive component triggers.
+  - `POST /slack/interactivity`: Handles Block Kit button clicks (HITL approvals, circuit breaker "Continue Sequence" actions) and App Home modal views (`view_submission`).
+- **Authentication**: Slack HMAC-SHA256 signature verification via headers `X-Slack-Request-Timestamp` and `X-Slack-Signature`.
+- **Response** (`200 OK`):
+```json
+{
+  "status": "ok"
+}
+```
+*(or challenge response `{"challenge": "..."}` during initial URL verification)*.
 
 ---
 

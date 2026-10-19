@@ -18,6 +18,9 @@ Control verbosity and prevent runaway token expenditure. `max_words` is strictly
 | `/scribe_max_words 400` | `[scribe_max_words: 400]` | $10 \le N \le 2000$ | Restricts only the final Scribe synthesis word count. |
 | `/scribe_min_words 200` | `[scribe_min_words: 200]` | $1 \le N \le 1000$ | Ensures the final Scribe synthesis has at least $N$ words. |
 
+> [!NOTE]
+> **Word Limit Grace Buffer**: To prevent cutting off concluding thoughts mid-sentence, the post-generation truncation filter applies a configurable `word_limit_grace_buffer` (default: 50 words, managed in system settings). Truncation only occurs if the response exceeds `max_words + word_limit_grace_buffer`.
+
 *Examples:*
 ```
 /max 120 Evaluate using Stripe vs. Adyen for international multi-currency processing.
@@ -41,13 +44,15 @@ Control how many debate cycles take place before synthesis, and slice conversati
 
 ---
 
-### 3. Agent Inclusion & Exclusion
-Selectively invite or dismiss personas from a thread:
+### 3. Agent Inclusion, Exclusion & Speaker Selection
+Selectively invite personas, dismiss personas, designate the opening speaker, or trigger an open dynamic debate:
 
 | Slash Command | Bracket Directive Syntax | Effect |
 |---|---|---|
 | `/include SecurityArchitect, LegalAdvisor` | `[include: SecurityArchitect, LegalAdvisor]` | Adds specific personas to the active debate pool. |
 | `/exclude Sceptic` | `[exclude: Sceptic]` | Excludes a persona from participating in this thread. |
+| `/first Visionary` | `[first: Visionary]` | Designates the opening speaker, continuing in normal workflow order. |
+| `/open_debate Visionary` | `[open_debate: Visionary]` | Designates opening speaker and runs an open debate without fixed start/end chains. |
 
 ---
 
@@ -58,12 +63,11 @@ Grant or revoke tool capabilities dynamically in an active thread:
 |---|---|---|
 | `/grant_skill web_research to Visionary` | `[grant: web_research to Visionary]` | Standard |
 | `/grant_skill_for_all web_research` (or `/grant_for_all`) | `[grant_all: web_research]` | **Slash Origin Only** |
-| `/revoke_skill web_research from Visionary` | `[revoke: web_research from Visionary]` | Standard |
 | `/revoke_skill_for_all web_research` (or `/revoke_for_all`) | `[revoke_all: web_research]` | **Slash Origin Only** |
 | `/revoke_constraint max_words` (or `/revoke max_words`) | `[revoke_constraint: max_words]` | Standard |
 
 > [!CAUTION]
-> Global grants (`/grant_skill_for_all`) and revocations (`/revoke_skill_for_all`) are high-privilege operations persisted to SQLite `thread_skills` and audited. Inferred directives (`origin: "inferred"`) are strictly blocked from triggering them.
+> Global grants (`/grant_skill_for_all`) and revocations (`/revoke_skill_for_all`) are high-privilege operations persisted to SQLite `thread_skills` and audited. Inferred directives (`origin: "inferred"`) are strictly blocked from triggering them. Tool revocation operates thread-wide across all participating personas.
 
 ---
 
