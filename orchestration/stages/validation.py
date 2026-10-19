@@ -463,8 +463,85 @@ class ValidationStage:
             effective_excluded = set(thread_state_manager.get_excluded_agents(ctx.channel_id, ctx.thread_ts))
             effective_included = list(thread_state_manager.get_included_agents(ctx.channel_id, ctx.thread_ts))
 
+            first_act = next((a for a in ctx.actions if a.name == "first"), None)
+            open_debate_act = next((a for a in ctx.actions if a.name == "open_debate"), None)
             tagged = entity_resolver.extract_tagged_agents(ctx.raw_text_cleaned)
-            if tagged:
+
+            if first_act:
+                target_name = directives.first_agent or first_act.params.get("first_agent")
+                if not target_name:
+                    msg = "⚠️ *Missing Agent*: Please specify an agent to start the debate.\n_Example: `/first [AgentName]` or `/first AgentName`_"
+                    await post_sys_msg(channel_id=ctx.channel_id, thread_ts=ctx.thread_ts, text=msg)
+                    return {"ok": True, "halted": True, "action": "first"}
+
+                resolved_first = entity_resolver.resolve_agent_name(target_name)
+                if not resolved_first:
+                    msg = f"⚠️ *Unrecognized Agent*: Agent '{target_name}' could not be matched to any active agent.\n_Please check the agent name or use a valid agent._"
+                    await post_sys_msg(channel_id=ctx.channel_id, thread_ts=ctx.thread_ts, text=msg)
+                    return {"ok": False, "halted": True, "reason": "unrecognized_agent", "action": "first"}
+
+                if resolved_first in effective_excluded:
+                    msg = f"⚠️ *Agent Excluded*: Agent '{resolved_first}' is excluded from this thread and cannot start the debate."
+                    await post_sys_msg(channel_id=ctx.channel_id, thread_ts=ctx.thread_ts, text=msg)
+                    return {"ok": True, "halted": True, "reason": "agent_excluded", "action": "first"}
+
+                ctx.agent_key = resolved_first
+                ctx.prompt = ctx.raw_text_cleaned
+                ctx.was_explicit_target = True
+                thread_state_manager.clear_custom_flow(ctx.channel_id, ctx.thread_ts)
+                thread_state_manager.set_open_debate(ctx.channel_id, ctx.thread_ts, False)
+                ctx.is_open_debate = False
+
+                initial_pool = get_initial_agents()
+                remaining_pool = [
+                    a for a in initial_pool
+                    if a != ctx.agent_key and a not in effective_excluded
+                ]
+                for inc in effective_included:
+                    if inc not in remaining_pool and inc != ctx.agent_key:
+                        remaining_pool.append(inc)
+                thread_state_manager.set_remaining_agents(
+                    ctx.channel_id, ctx.thread_ts, remaining_pool
+                )
+
+            elif open_debate_act:
+                target_name = directives.open_debate_agent or open_debate_act.params.get("first_agent")
+                if not target_name:
+                    msg = "⚠️ *Missing Agent*: Please specify an agent to start the open debate.\n_Example: `/open_debate [AgentName]` or `/open_debate AgentName`_"
+                    await post_sys_msg(channel_id=ctx.channel_id, thread_ts=ctx.thread_ts, text=msg)
+                    return {"ok": True, "halted": True, "action": "open_debate"}
+
+                resolved_open = entity_resolver.resolve_agent_name(target_name)
+                if not resolved_open:
+                    msg = f"⚠️ *Unrecognized Agent*: Agent '{target_name}' could not be matched to any active agent.\n_Please check the agent name or use a valid agent._"
+                    await post_sys_msg(channel_id=ctx.channel_id, thread_ts=ctx.thread_ts, text=msg)
+                    return {"ok": False, "halted": True, "reason": "unrecognized_agent", "action": "open_debate"}
+
+                if resolved_open in effective_excluded:
+                    msg = f"⚠️ *Agent Excluded*: Agent '{resolved_open}' is excluded from this thread and cannot start the debate."
+                    await post_sys_msg(channel_id=ctx.channel_id, thread_ts=ctx.thread_ts, text=msg)
+                    return {"ok": True, "halted": True, "reason": "agent_excluded", "action": "open_debate"}
+
+                ctx.agent_key = resolved_open
+                ctx.prompt = ctx.raw_text_cleaned
+                ctx.was_explicit_target = True
+                thread_state_manager.clear_custom_flow(ctx.channel_id, ctx.thread_ts)
+                thread_state_manager.set_open_debate(ctx.channel_id, ctx.thread_ts, True)
+                ctx.is_open_debate = True
+
+                all_agents = get_initial_agents()
+                remaining_pool = [
+                    a for a in all_agents
+                    if a != ctx.agent_key and a not in effective_excluded
+                ]
+                for inc in effective_included:
+                    if inc not in remaining_pool and inc != ctx.agent_key:
+                        remaining_pool.append(inc)
+                thread_state_manager.set_remaining_agents(
+                    ctx.channel_id, ctx.thread_ts, remaining_pool
+                )
+
+            elif tagged:
                 if effective_excluded:
                     tagged = [a for a in tagged if a not in effective_excluded]
                 for inc in effective_included:
@@ -474,35 +551,15 @@ class ValidationStage:
                 if tagged:
                     ctx.agent_key = tagged[0]
                     remaining_tagged = [a for a in tagged if a != ctx.agent_key]
-                    is_nomination_requested = bool(
-                        re.search(
-                            r"\b(?:nominate|nominating|nomination|start\s+us\s+off|who\s+speaks\s+next|challenge\s+or\s+validate|kick\s+off|lead\s+the\s+debate|nominiraj|nominirajte|nominacija|započni|zapocni)\b",
-                            ctx.raw_text_cleaned,
-                            re.IGNORECASE,
-                        )
+                    thread_state_manager.set_remaining_agents(
+                        ctx.channel_id, ctx.thread_ts, remaining_tagged
                     )
-                    if len(tagged) == 1 and is_nomination_requested:
-                        thread_state_manager.clear_custom_flow(ctx.channel_id, ctx.thread_ts)
-                        initial_pool = get_initial_agents()
-                        remaining_pool = [
-                            a for a in initial_pool
-                            if a != ctx.agent_key and a not in effective_excluded
-                        ]
-                        for inc in effective_included:
-                            if inc not in remaining_pool and inc != ctx.agent_key:
-                                remaining_pool.append(inc)
-                        thread_state_manager.set_remaining_agents(
-                            ctx.channel_id, ctx.thread_ts, remaining_pool
-                        )
-                        ctx.was_explicit_target = True
-                    else:
-                        thread_state_manager.set_remaining_agents(
-                            ctx.channel_id, ctx.thread_ts, remaining_tagged
-                        )
-                        thread_state_manager.set_custom_flow(
-                            ctx.channel_id, ctx.thread_ts, True
-                        )
-                        ctx.was_explicit_target = True
+                    thread_state_manager.set_custom_flow(
+                        ctx.channel_id, ctx.thread_ts, True
+                    )
+                    thread_state_manager.set_open_debate(ctx.channel_id, ctx.thread_ts, False)
+                    ctx.is_open_debate = False
+                    ctx.was_explicit_target = True
                 else:
                     logger.warning(
                         f"[ROUTER] All tagged agents in thread {ctx.thread_key} were excluded. Halting turn."
@@ -520,6 +577,8 @@ class ValidationStage:
                     }
             else:
                 thread_state_manager.clear_custom_flow(ctx.channel_id, ctx.thread_ts)
+                thread_state_manager.set_open_debate(ctx.channel_id, ctx.thread_ts, False)
+                ctx.is_open_debate = False
                 curr_remaining = thread_state_manager.get_remaining_agents(
                     ctx.channel_id, ctx.thread_ts, default=get_initial_agents()
                 )
@@ -557,7 +616,7 @@ class ValidationStage:
                         }
 
             # Save and maintain round sequence for multi-round debate topologies
-            if tagged:
+            if tagged and not (first_act or open_debate_act):
                 current_seq = [ctx.agent_key] + [a for a in tagged if a != ctx.agent_key]
             elif ctx.agent_key:
                 current_seq = [ctx.agent_key] + thread_state_manager.get_remaining_agents(ctx.channel_id, ctx.thread_ts)
@@ -718,6 +777,9 @@ class ValidationStage:
             ctx.was_explicit_target = was_explicit_target
             ctx.thread_language = (
                 thread_state_manager.get_language(ctx.channel_id, ctx.thread_ts) or "English"
+            )
+            ctx.is_open_debate = thread_state_manager.is_open_debate(
+                ctx.channel_id, ctx.thread_ts
             )
 
         if not ctx.agent_key:

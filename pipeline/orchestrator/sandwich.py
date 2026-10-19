@@ -61,6 +61,7 @@ class SandwichOrchestrator:
         self,
         remaining_pool: list[str],
         is_custom_flow: bool = False,
+        is_open_debate: bool = False,
     ) -> tuple[str | None, list[str]]:
         """
         Determines the designated next agent and eligible remaining agents for prompt injection
@@ -69,6 +70,10 @@ class SandwichOrchestrator:
         """
         if not remaining_pool:
             return None, []
+
+        if is_open_debate:
+            designated = remaining_pool[0] if len(remaining_pool) == 1 else None
+            return designated, list(remaining_pool)
 
         if is_custom_flow or self.mode == OrchestrationMode.FIXED:
             return remaining_pool[0], [remaining_pool[0]]

@@ -26,9 +26,9 @@ def markdown_to_slack(text: str) -> str:
 
     text = re.sub(r"`[^`\n]+`", _stash_inline, text)
 
-    # Bold: **tekst** -> *tekst*
+    # Bold: **text** -> *text*
     text = re.sub(r"\*\*(.*?)\*\*", r"*\1*", text)
-    # Headings: ### Naslov -> *Naslov*
+    # Headings: ### Title -> *Title*
     text = re.sub(r"^#{1,6}\s*(.+)$", r"*\1*", text, flags=re.MULTILINE)
     # Links: [label](url) -> <url|label>
     text = re.sub(r"\[(.*?)\]\((.*?)\)", r"<\2|\1>", text)

@@ -519,7 +519,10 @@ class HybridInterceptor:
 
         # Check if this prompt warrants a nomination (e.g. Sandwich middle pool, or asked to nominate)
         warrants_nomination = (
-            "nominate" in user_prompt_str.lower()
+            "/first" in user_prompt_str.lower()
+            or "/open_debate" in user_prompt_str.lower()
+            or "/open-debate" in user_prompt_str.lower()
+            or "nominate" in user_prompt_str.lower()
             or "[innovator]" in user_prompt_str.lower()
             or "who speaks next" in user_prompt_str.lower()
         )

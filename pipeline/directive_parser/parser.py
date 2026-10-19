@@ -11,6 +11,7 @@ from .slash_parser import (
     parse_grant_skill,
     parse_int_or_off,
     parse_list,
+    parse_single_agent_directive,
     parse_terminal_flag,
     parse_token,
 )
@@ -51,6 +52,8 @@ class ParsedDirectives:
     exclude_off: bool = False
     include_off: bool = False
     revoke_target: str | None = None
+    first_agent: str | None = None
+    open_debate_agent: str | None = None
     is_file_req: bool = False
     target_filename: str | None = None
     is_stop: bool = False
@@ -71,6 +74,8 @@ class ParsedDirectives:
             "exclude_off": self.exclude_off,
             "include_off": self.include_off,
             "revoke_target": self.revoke_target,
+            "first_agent": self.first_agent,
+            "open_debate_agent": self.open_debate_agent,
             "is_file_req": self.is_file_req,
             "target_filename": self.target_filename,
             "is_stop": self.is_stop,
@@ -119,6 +124,8 @@ class DirectiveParser:
         revoke_target: str | None = None
         is_file_req: bool = False
         target_filename: str | None = None
+        first_agent: str | None = None
+        open_debate_agent: str | None = None
 
         # 2. Dynamic deterministic slash command extraction driven by SkillRegistry
         try:
@@ -215,6 +222,23 @@ class DirectiveParser:
                         elif skill_def.name == "include_agents":
                             included = list(agents_list)
                             include_off = is_off
+
+                elif arg_type == "agent_token":
+                    matched, agent_target, text_cleaned = parse_single_agent_directive(
+                        slash_cmd, text_cleaned
+                    )
+                    if matched:
+                        p_name = param_name or "first_agent"
+                        actions.append(
+                            ActionDirective(
+                                name=skill_def.name,
+                                params={p_name: agent_target} if agent_target else {},
+                            )
+                        )
+                        if skill_def.name == "first":
+                            first_agent = agent_target
+                        elif skill_def.name == "open_debate":
+                            open_debate_agent = agent_target
 
                 elif (
                     arg_type in ("file_target", "file")
@@ -461,6 +485,8 @@ class DirectiveParser:
             exclude_off=exclude_off,
             include_off=include_off,
             revoke_target=revoke_target,
+            first_agent=first_agent,
+            open_debate_agent=open_debate_agent,
             is_file_req=is_file_req,
             target_filename=target_filename,
             is_stop=False,

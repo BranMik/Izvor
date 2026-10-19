@@ -161,6 +161,9 @@ class ContextPrepStage:
         ctx.is_custom_flow = thread_state_manager.is_custom_flow(
             ctx.channel_id, ctx.thread_ts
         )
+        ctx.is_open_debate = thread_state_manager.is_open_debate(
+            ctx.channel_id, ctx.thread_ts
+        )
 
         active_rounds = thread_state_manager.get_rounds(ctx.channel_id, ctx.thread_ts)
         ctx.force_termination = bool(
@@ -198,7 +201,9 @@ class ContextPrepStage:
                 ctx.next_designated_agent,
                 ctx.eligible_remaining_agents,
             ) = orchestrator.get_phase_info(
-                ctx.remaining, is_custom_flow=ctx.is_custom_flow
+                ctx.remaining,
+                is_custom_flow=ctx.is_custom_flow,
+                is_open_debate=ctx.is_open_debate,
             )
         elif not ctx.force_termination and not ctx.remaining and active_rounds > 1:
             round_seq = thread_state_manager.get_round_sequence(
