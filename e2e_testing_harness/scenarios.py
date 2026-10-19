@@ -96,7 +96,7 @@ async def tc_02_multi_persona(client: SlackProtocolClient) -> ScenarioResult:
 async def tc_03_autonomous_nomination(client: SlackProtocolClient) -> ScenarioResult:
     channel = client.get_channel("C_TEST_03")
     thread_ts = client.get_thread_ts()
-    prompt = "Should we replace our relational schema with a vector-native graph DB? /[Innovator], start us off and nominate who speaks next."
+    prompt = "/first [Innovator] Should we replace our relational schema with a vector-native graph DB?"
     await client.send_mention(prompt, channel_id=channel, thread_ts=thread_ts)
 
     actual_thread = thread_ts or (

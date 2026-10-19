@@ -354,6 +354,16 @@ class ThreadStateManager:
     def clear_custom_flow(self, channel_id: str, thread_ts: str) -> None:
         self.discussion.clear_custom_flow(channel_id, thread_ts)
 
+    def is_open_debate(self, channel_id: str, thread_ts: str) -> bool:
+        return self.discussion.is_open_debate(channel_id, thread_ts)
+
+    def set_open_debate(self, channel_id: str, thread_ts: str, is_open: bool = True) -> None:
+        self._touch(channel_id, thread_ts)
+        self.discussion.set_open_debate(channel_id, thread_ts, is_open)
+
+    def clear_open_debate(self, channel_id: str, thread_ts: str) -> None:
+        self.discussion.clear_open_debate(channel_id, thread_ts)
+
     def is_stopped(self, channel_id: str, thread_ts: str) -> bool:
         return self.discussion.is_stopped(channel_id, thread_ts)
 

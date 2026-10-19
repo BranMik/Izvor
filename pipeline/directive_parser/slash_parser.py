@@ -242,6 +242,65 @@ def parse_token(slash_cmd: str, text: str) -> tuple[bool, str | None, str]:
     return False, None, text
 
 
+def parse_single_agent_directive(
+    slash_cmd: str, text: str
+) -> tuple[bool, str | None, str]:
+    """
+    Extracts a single agent target for commands like /first [Agent] or /open_debate [Agent].
+    Supports /cmd [Agent], /cmd /[Agent], /cmd: [Agent], /cmd: Agent, /cmd Agent.
+    Returns (matched: bool, agent: str | None, cleaned_text: str).
+    """
+    if not text:
+        return False, None, ""
+
+    cmd_match = re.search(
+        rf"(?:^|[\r\n\s]){re.escape(slash_cmd)}(?=[\s:=]|$)", text, re.IGNORECASE
+    )
+    if not cmd_match:
+        return False, None, text
+
+    start_idx = cmd_match.start()
+    curr_idx = cmd_match.end()
+
+    delim_match = re.match(r"[ \t]*[:=]?[ \t]*", text[curr_idx:])
+    has_explicit_delim = bool(
+        delim_match and (":" in delim_match.group(0) or "=" in delim_match.group(0))
+    )
+    if delim_match:
+        curr_idx += delim_match.end()
+
+    remainder = text[curr_idx:]
+    t_match = re.match(
+        r"(/?\[[^\]\r\n]+\]|<@[A-Za-z0-9_]+>|@[a-zA-Z0-9_-]+|[a-zA-Z0-9_\-]+)",
+        remainder,
+    )
+
+    if not t_match:
+        cleaned_text = remove_command_span(text, start_idx, curr_idx)
+        return True, None, cleaned_text
+
+    raw_token = t_match.group(1)
+    clean_token = raw_token.strip("/[]@<> \t")
+    is_bracketed = (
+        (raw_token.startswith("[") or raw_token.startswith("/["))
+        and raw_token.endswith("]")
+    ) or raw_token.startswith(("@", "<@"))
+
+    resolved = entity_resolver.resolve_agent_name(
+        clean_token
+    ) or entity_resolver.resolve_agent_name(raw_token)
+
+    if resolved or is_bracketed or has_explicit_delim:
+        matched_span_end = curr_idx + t_match.end()
+        target = resolved or clean_token
+        cleaned_text = remove_command_span(text, start_idx, matched_span_end)
+        return True, target, cleaned_text
+
+    # The token is an ordinary word not intended as an agent target
+    cleaned_text = remove_command_span(text, start_idx, cmd_match.end())
+    return True, None, cleaned_text
+
+
 def parse_grant_skill(
     slash_cmd: str, text: str
 ) -> tuple[bool, str, list[str], str]:
@@ -406,6 +465,8 @@ def strip_all_slash_commands(text: str) -> str:
             _, _, cleaned = parse_int_or_off(trigger, cleaned)
         elif arg_type == "agent_list":
             _, _, _, cleaned = parse_agent_list(trigger, cleaned)
+        elif arg_type == "agent_token":
+            _, _, cleaned = parse_single_agent_directive(trigger, cleaned)
         elif arg_type == "file_target":
             _, _, cleaned = parse_file_target(trigger, cleaned)
         elif arg_type == "terminal_flag" or skill_def.is_terminal:

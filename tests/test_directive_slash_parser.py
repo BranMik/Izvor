@@ -319,3 +319,36 @@ async def test_documented_shorthand_slash_commands_parse_correctly():
     assert len(list_skills_actions) == 1
 
 
+@pytest.mark.anyio
+async def test_first_and_open_debate_directive_parsing():
+    """Verifies that /first and /open_debate skills parse agent tokens and clean prompt correctly."""
+    parser = DirectiveParser()
+
+    # /first [agent-10001]
+    res = await parser.parse("/first [agent-10001] Start the debate")
+    assert res.first_agent == "agent-10001"
+    assert res.cleaned_prompt == "Start the debate"
+    first_actions = [a for a in res.actions if a.name == "first"]
+    assert len(first_actions) == 1
+    assert first_actions[0].params.get("first_agent") == "agent-10001"
+
+    # /first: Vis
+    res = await parser.parse("/first: Vis What is your view?")
+    assert res.first_agent == "agent-10001"
+    assert res.cleaned_prompt == "What is your view?"
+
+    # /open_debate [agent-10008]
+    res = await parser.parse("/open_debate [agent-10008] Let's discuss freely")
+    assert res.open_debate_agent == "agent-10008"
+    assert res.cleaned_prompt == "Let's discuss freely"
+    open_actions = [a for a in res.actions if a.name == "open_debate"]
+    assert len(open_actions) == 1
+    assert open_actions[0].params.get("first_agent") == "agent-10008"
+
+    # /open-debate alias
+    res = await parser.parse("/open-debate [Arch] Let's begin")
+    assert res.open_debate_agent == "agent-10008"
+    assert res.cleaned_prompt == "Let's begin"
+
+
+

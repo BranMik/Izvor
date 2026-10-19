@@ -110,6 +110,7 @@ class TurnContext:
     agent_cfg: dict[str, Any] = field(default_factory=dict)
     remaining: list[str] = field(default_factory=list)
     is_custom_flow: bool = False
+    is_open_debate: bool = False
     force_termination: bool = False
     eligible_remaining_agents: list[str] = field(default_factory=list)
     next_designated_agent: str | None = None

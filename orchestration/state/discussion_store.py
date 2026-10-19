@@ -16,6 +16,7 @@ class DiscussionStateStore:
         self.remaining_agents_map: dict[tuple[str, str], list[str]] = {}
         self.active_thread_tasks: dict[tuple[str, str], asyncio.Task] = {}
         self.custom_flow_threads: set[tuple[str, str]] = set()
+        self.open_debate_threads: set[tuple[str, str]] = set()
         self.stop_requested_threads: set[tuple[str, str]] = set()
         self.thread_rounds: dict[tuple[str, str], int] = {}
         self.thread_round_sequences: dict[tuple[str, str], list[str]] = {}
@@ -232,6 +233,26 @@ class DiscussionStateStore:
         self.custom_flow_threads.discard((channel_id, thread_ts))
         self._sync_to_db(channel_id, thread_ts)
 
+    def is_open_debate(self, channel_id: str, thread_ts: str) -> bool:
+        """Checks if this thread is running an open debate without fixed start/end chains."""
+        self._ensure_loaded(channel_id, thread_ts)
+        return (channel_id, thread_ts) in self.open_debate_threads
+
+    def set_open_debate(
+        self, channel_id: str, thread_ts: str, is_open: bool = True
+    ) -> None:
+        """Enables or disables open debate mode for this thread."""
+        thread_key = (channel_id, thread_ts)
+        self._loaded_threads.add(thread_key)
+        if is_open:
+            self.open_debate_threads.add(thread_key)
+        else:
+            self.open_debate_threads.discard(thread_key)
+
+    def clear_open_debate(self, channel_id: str, thread_ts: str) -> None:
+        """Clears open debate flag for this thread."""
+        self.open_debate_threads.discard((channel_id, thread_ts))
+
     def is_stopped(self, channel_id: str, thread_ts: str) -> bool:
         """Checks if stop has been requested for this thread."""
         self._ensure_loaded(channel_id, thread_ts)
@@ -326,6 +347,7 @@ class DiscussionStateStore:
         """Purges discussion state for this thread."""
         self.clear_remaining_agents(channel_id, thread_ts)
         self.clear_custom_flow(channel_id, thread_ts)
+        self.clear_open_debate(channel_id, thread_ts)
         self.clear_stop(channel_id, thread_ts)
         self.cancel_active_task(channel_id, thread_ts)
         self.clear_rounds(channel_id, thread_ts)
@@ -346,6 +368,7 @@ class DiscussionStateStore:
         self.remaining_agents_map.clear()
         self.active_thread_tasks.clear()
         self.custom_flow_threads.clear()
+        self.open_debate_threads.clear()
         self.stop_requested_threads.clear()
         self.thread_rounds.clear()
         self.thread_round_sequences.clear()
