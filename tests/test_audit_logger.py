@@ -245,6 +245,7 @@ def test_send_admin_audit_alert_mock(monkeypatch):
 
     monkeypatch.setenv("SLACK_ADMIN_USER_IDS", "U_ADMIN_TEST")
     monkeypatch.setenv("SLACK_BOT_TOKEN", "xoxb-your-bot-user-oauth-token")
+    monkeypatch.setattr("core.config.SLACK_BOT_TOKEN", "xoxb-your-bot-user-oauth-token")
 
     success = asyncio.run(
         send_admin_audit_alert(
