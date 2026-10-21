@@ -197,6 +197,11 @@ class ContextPrepStage:
         ctx.next_designated_agent = None
         ctx.eligible_remaining_agents = list(ctx.remaining)
         if not ctx.force_termination and ctx.remaining:
+            from orchestration.system_settings import get_rebuttal_agent
+
+            rebuttal_agent_key = get_rebuttal_agent()
+            standby_set = {rebuttal_agent_key} if rebuttal_agent_key else set()
+
             orchestrator = SandwichOrchestrator(
                 mode=mode,
                 start_chain=get_sandwich_config().get("start_chain", []),
@@ -205,6 +210,7 @@ class ContextPrepStage:
                     "chain", []
                 ),
                 agents_map=settings_manager.agents_config or AGENTS_CONFIG,
+                standby_agents=standby_set,
             )
             (
                 ctx.next_designated_agent,
@@ -213,6 +219,7 @@ class ContextPrepStage:
                 ctx.remaining,
                 is_custom_flow=ctx.is_custom_flow,
                 is_open_debate=ctx.is_open_debate,
+                current_speaker=ctx.agent_key,
             )
         elif not ctx.force_termination and not ctx.remaining and active_rounds > 1:
             round_seq = thread_state_manager.get_round_sequence(

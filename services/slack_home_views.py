@@ -14,6 +14,7 @@ def build_app_home_view(
     circuit_breaker_config: dict[str, Any] | None = None,
     scribe_enabled: bool | None = None,
     weekly_pricing_update_enabled: bool | None = None,
+    convergence_fast_forward_enabled: bool | None = None,
     user_id: str | None = None,
 ) -> dict[str, Any]:
     """
@@ -34,6 +35,7 @@ def build_app_home_view(
         is_running_from_backup,
         is_scribe_enabled,
         is_weekly_pricing_update_enabled,
+        is_convergence_fast_forward_enabled,
         sync_settings_if_modified,
     )
     from orchestration.app_settings import (
@@ -79,6 +81,13 @@ def build_app_home_view(
         scribe_on = bool(scribe_enabled)
 
     scribe_status_str = "🟢 *Enabled (ON)*" if scribe_on else "🔴 *Disabled (OFF)*"
+
+    if convergence_fast_forward_enabled is None:
+        ff_on = is_convergence_fast_forward_enabled()
+    else:
+        ff_on = bool(convergence_fast_forward_enabled)
+
+    ff_status_str = "🟢 *Enabled (ON)*" if ff_on else "🔴 *Disabled (OFF)*"
 
     if weekly_pricing_update_enabled is None:
         weekly_pricing_on = is_weekly_pricing_update_enabled()
@@ -374,6 +383,41 @@ def build_app_home_view(
                             "emoji": True,
                         },
                         "value": "scribe:on" if scribe_on else "scribe:off",
+                    },
+                },
+            },
+            {"type": "divider"},
+            {
+                "type": "section",
+                "block_id": f"convergence_ff_toggle_section_{'on' if ff_on else 'off'}",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": (
+                        f"\n *────────⚡ Consensus Convergence Fast-Forward:────────* \n"
+                        f"Status: {ff_status_str}\n"
+                        f"_When ON, consecutive consensus signals trigger the Challenger → Rebuttal stress-test and fast-forward to closing if the consensus holds._"
+                    ),
+                },
+                "accessory": {
+                    "type": "radio_buttons",
+                    "action_id": "toggle_convergence_fast_forward_radio",
+                    "options": [
+                        {
+                            "text": {"type": "plain_text", "text": "🟢 ON", "emoji": True},
+                            "value": "convergence_ff:on",
+                        },
+                        {
+                            "text": {"type": "plain_text", "text": "🔴 OFF", "emoji": True},
+                            "value": "convergence_ff:off",
+                        },
+                    ],
+                    "initial_option": {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "🟢 ON" if ff_on else "🔴 OFF",
+                            "emoji": True,
+                        },
+                        "value": "convergence_ff:on" if ff_on else "convergence_ff:off",
                     },
                 },
             },

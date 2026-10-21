@@ -25,6 +25,7 @@ from services.slack_client import (
 from .turn_pipeline import TurnContext, TurnPipeline
 
 __all__ = [
+    "_apply_convergence_stress_test_or_fast_forward",
     "orchestrate_discussion",
     "post_system_message",
     "process_and_respond",
@@ -36,6 +37,118 @@ logger = logging.getLogger(__name__)
 # Turn off verbose LiteLLM logging unless debugging
 litellm.suppress_debug_info = True
 litellm.drop_params = True
+
+
+def _apply_convergence_stress_test_or_fast_forward(
+    channel_id: str,
+    thread_ts: str,
+    spoken_agents: set[str],
+    consecutive_convergence_count: int,
+    last_speaker: str,
+    last_turn_converged: bool,
+) -> tuple[list[str], int]:
+    """
+    Evaluates post-turn convergence state and returns (updated_remaining_agents, updated_consecutive_count).
+    """
+    from orchestration.app_settings import is_convergence_fast_forward_enabled
+
+    if thread_state_manager.is_custom_flow(channel_id, thread_ts) or not is_convergence_fast_forward_enabled():
+        return thread_state_manager.get_remaining_agents(channel_id, thread_ts), 0
+
+    from orchestration.agent_settings import get_sandwich_config
+    from orchestration.system_settings import (
+        get_challenger_agents,
+        get_convergence_consecutive_threshold,
+        get_rebuttal_agent,
+    )
+
+    if last_turn_converged:
+        consecutive_convergence_count += 1
+    else:
+        consecutive_convergence_count = 0
+
+    challenger_candidates = get_challenger_agents()
+    rebuttal_key = get_rebuttal_agent()
+    threshold = get_convergence_consecutive_threshold()
+    sandwich_cfg = get_sandwich_config()
+    end_chain = sandwich_cfg.get("end_chain", [])
+    remaining = thread_state_manager.get_remaining_agents(channel_id, thread_ts)
+
+    # Step 1: When last_speaker == rebuttal_key — Evaluating RebuttalAdvocate's Verdict
+    if rebuttal_key and last_speaker == rebuttal_key:
+        if last_turn_converged:
+            # Verdict A — Consensus Defended/Patched: truncate remaining_agents to end_chain
+            new_queue = [e for e in end_chain if e in remaining or e not in spoken_agents]
+            if not new_queue and end_chain:
+                new_queue = list(end_chain)
+            thread_state_manager.set_remaining_agents(channel_id, thread_ts, new_queue)
+            logger.info(
+                f"[CONVERGENCE_FF] Verdict A reached by RebuttalAdvocate ({rebuttal_key}). Fast-forwarding to end chain: {new_queue}"
+            )
+            return new_queue, consecutive_convergence_count
+        else:
+            # Verdict B — RebuttalAdvocate Agrees with Sceptic That Consensus Failed:
+            # Do NOT truncate remaining_agents! Reset count = 0 and normal dialectic continues.
+            logger.info(
+                f"[CONVERGENCE_FF] Verdict B reached by RebuttalAdvocate ({rebuttal_key}). Fast-forward cancelled, normal dialectic continues."
+            )
+            return remaining, 0
+
+    # If last speaker was one of the challengers, ensure rebuttal_key is queued next if not already spoken
+    if last_speaker in challenger_candidates:
+        if rebuttal_key and rebuttal_key not in spoken_agents:
+            if not remaining or remaining[0] != rebuttal_key:
+                preserved_tail = [a for a in remaining if a != rebuttal_key]
+                new_queue = [rebuttal_key] + preserved_tail
+                thread_state_manager.set_remaining_agents(channel_id, thread_ts, new_queue)
+                return new_queue, consecutive_convergence_count
+        return remaining, consecutive_convergence_count
+
+    # Step 2: When consecutive_convergence_count >= threshold
+    if consecutive_convergence_count >= threshold:
+        # Case A — No Challenger in challenger_candidates has spoken yet
+        if spoken_agents.isdisjoint(challenger_candidates):
+            chosen_challenger = next(
+                (c for c in challenger_candidates if c in remaining),
+                challenger_candidates[0] if challenger_candidates else None,
+            )
+            if chosen_challenger:
+                preserved_tail = [
+                    a for a in remaining if a not in (chosen_challenger, rebuttal_key)
+                ]
+                new_queue = (
+                    [chosen_challenger]
+                    + ([rebuttal_key] if rebuttal_key else [])
+                    + preserved_tail
+                )
+                thread_state_manager.set_remaining_agents(channel_id, thread_ts, new_queue)
+                logger.info(
+                    f"[CONVERGENCE_FF] Consecutive threshold ({threshold}) met. Stress testing with {chosen_challenger} -> {rebuttal_key}"
+                )
+                return new_queue, 0
+
+        # Case B — A Challenger HAS already spoken earlier in the round, and rebuttal_key has NOT spoken yet
+        if rebuttal_key and rebuttal_key not in spoken_agents:
+            preserved_tail = [a for a in remaining if a != rebuttal_key]
+            new_queue = ([rebuttal_key] if rebuttal_key else []) + preserved_tail
+            thread_state_manager.set_remaining_agents(channel_id, thread_ts, new_queue)
+            logger.info(
+                f"[CONVERGENCE_FF] Consecutive threshold ({threshold}) met. Injecting rebuttal {rebuttal_key}"
+            )
+            return new_queue, 0
+
+        # Case C — Both a Challenger and rebuttal_key have ALREADY spoken earlier in the round
+        new_queue = [e for e in end_chain if e in remaining or e not in spoken_agents]
+        if not new_queue and end_chain:
+            new_queue = list(end_chain)
+        thread_state_manager.set_remaining_agents(channel_id, thread_ts, new_queue)
+        logger.info(
+            f"[CONVERGENCE_FF] Consecutive threshold ({threshold}) met after stress test cycle. Fast-forwarding directly to end chain: {new_queue}"
+        )
+        return new_queue, consecutive_convergence_count
+
+    return remaining, consecutive_convergence_count
+
 
 
 async def process_and_respond(
@@ -147,6 +260,10 @@ async def orchestrate_discussion(
         if not accumulated_history or accumulated_history[-1].get("role") != "user" or accumulated_history[-1].get("content") != raw_text:
             accumulated_history.append({"role": "user", "content": raw_text})
 
+        spoken_agents: set[str] = set()
+        consecutive_convergence_count = 0
+        next_target_override: str | None = None
+
         # 2. Run first turn with user prompt
         turn_res = await process_and_respond(
             channel_id=channel_id,
@@ -161,6 +278,16 @@ async def orchestrate_discussion(
         )
 
         last_res = turn_res
+        if "agent_key" in turn_res and turn_res["agent_key"]:
+            spoken_agents.add(turn_res["agent_key"])
+
+        if turn_res.get("clarification_question"):
+            logger.info(
+                f"[ORCHESTRATOR] Clarification requested by {turn_res.get('agent_key')} in thread {thread_key}. Suspending thread."
+            )
+            thread_state_manager.suspend_thread(channel_id, thread_ts)
+            return turn_res
+
         if (
             turn_res.get("halted")
             or turn_res.get("cancelled")
@@ -289,6 +416,20 @@ async def orchestrate_discussion(
         else:
             max_turns = min(max_turns, get_max_discussion_turns())
 
+        prev_queue = list(thread_state_manager.get_remaining_agents(channel_id, thread_ts))
+        updated_queue, consecutive_convergence_count = _apply_convergence_stress_test_or_fast_forward(
+            channel_id=channel_id,
+            thread_ts=thread_ts,
+            spoken_agents=spoken_agents,
+            consecutive_convergence_count=consecutive_convergence_count,
+            last_speaker=turn_res.get("agent_key", ""),
+            last_turn_converged=bool(turn_res.get("convergence_signaled", False)),
+        )
+        if updated_queue != prev_queue and updated_queue:
+            next_target_override = updated_queue[0]
+        else:
+            next_target_override = None
+
         for turn in range(2, max_turns + 1):
             if thread_state_manager.is_stopped(channel_id, thread_ts):
                 logger.info(
@@ -323,8 +464,20 @@ async def orchestrate_discussion(
                 run_internal_loop=False,
                 in_memory_history=accumulated_history,
                 user_id=user_id,
+                target_agent_override=next_target_override,
             )
+            next_target_override = None
             last_res = turn_res
+
+            if "agent_key" in turn_res and turn_res["agent_key"]:
+                spoken_agents.add(turn_res["agent_key"])
+
+            if turn_res.get("clarification_question"):
+                logger.info(
+                    f"[ORCHESTRATOR] Clarification requested in thread {thread_key}. Suspending thread."
+                )
+                thread_state_manager.suspend_thread(channel_id, thread_ts)
+                break
 
             if (
                 turn_res.get("halted")
@@ -352,6 +505,20 @@ async def orchestrate_discussion(
                         "content": f"[Internal Revisor Warning]: {turn_res['revisor_warning']}",
                     }
                 )
+
+            prev_queue = list(thread_state_manager.get_remaining_agents(channel_id, thread_ts))
+            updated_queue, consecutive_convergence_count = _apply_convergence_stress_test_or_fast_forward(
+                channel_id=channel_id,
+                thread_ts=thread_ts,
+                spoken_agents=spoken_agents,
+                consecutive_convergence_count=consecutive_convergence_count,
+                last_speaker=turn_res.get("agent_key", ""),
+                last_turn_converged=bool(turn_res.get("convergence_signaled", False)),
+            )
+            if updated_queue != prev_queue and updated_queue:
+                next_target_override = updated_queue[0]
+            else:
+                next_target_override = None
 
         try:
             from services.flat_history_recorder import record_flat_history
@@ -426,6 +593,29 @@ async def continue_discussion_from_turn_result(
     else:
         max_turns = min(max_turns or get_max_discussion_turns(), get_max_discussion_turns())
 
+    spoken_agents: set[str] = set()
+    if "agent_key" in turn_res and turn_res["agent_key"]:
+        spoken_agents.add(turn_res["agent_key"])
+
+    if turn_res.get("clarification_question"):
+        logger.info(
+            f"[ORCHESTRATOR] Clarification requested in thread {thread_key}. Suspending thread."
+        )
+        thread_state_manager.suspend_thread(channel_id, thread_ts)
+        return turn_res
+
+    consecutive_convergence_count = 0
+    prev_queue = list(thread_state_manager.get_remaining_agents(channel_id, thread_ts))
+    updated_queue, consecutive_convergence_count = _apply_convergence_stress_test_or_fast_forward(
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        spoken_agents=spoken_agents,
+        consecutive_convergence_count=consecutive_convergence_count,
+        last_speaker=turn_res.get("agent_key", ""),
+        last_turn_converged=bool(turn_res.get("convergence_signaled", False)),
+    )
+    next_target_override = updated_queue[0] if (updated_queue != prev_queue and updated_queue) else None
+
     last_res = turn_res
     turn_num = 2
     while turn_num <= max_turns:
@@ -456,7 +646,19 @@ async def continue_discussion_from_turn_result(
             run_internal_loop=False,
             in_memory_history=accumulated_history,
             user_id=user_id,
+            target_agent_override=next_target_override,
         )
+        next_target_override = None
+
+        if "agent_key" in last_res and last_res["agent_key"]:
+            spoken_agents.add(last_res["agent_key"])
+
+        if last_res.get("clarification_question"):
+            logger.info(
+                f"[ORCHESTRATOR] Clarification requested in thread {thread_key}. Suspending thread."
+            )
+            thread_state_manager.suspend_thread(channel_id, thread_ts)
+            break
 
         if (
             last_res.get("halted")
@@ -481,6 +683,21 @@ async def continue_discussion_from_turn_result(
                     "content": f"[Internal Revisor Warning]: {last_res['revisor_warning']}",
                 }
             )
+
+        prev_queue = list(thread_state_manager.get_remaining_agents(channel_id, thread_ts))
+        updated_queue, consecutive_convergence_count = _apply_convergence_stress_test_or_fast_forward(
+            channel_id=channel_id,
+            thread_ts=thread_ts,
+            spoken_agents=spoken_agents,
+            consecutive_convergence_count=consecutive_convergence_count,
+            last_speaker=last_res.get("agent_key", ""),
+            last_turn_converged=bool(last_res.get("convergence_signaled", False)),
+        )
+        if updated_queue != prev_queue and updated_queue:
+            next_target_override = updated_queue[0]
+        else:
+            next_target_override = None
+
         turn_num += 1
 
     try:

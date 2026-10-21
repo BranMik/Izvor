@@ -64,28 +64,31 @@ def test_enforce_valid_nomination_with_control_plane_override():
     assert "/[agent-10002]" in result or "[agent-10002]" in result
 
 
-def test_dialectical_stress_test_topology_and_persona():
-    assert is_dialectical_stress_test_enabled()
-    cfg = get_dialectical_stress_test_config()
-    assert cfg["challenger_agent"] == "agent-10017"
+def test_rebuttal_advocate_persona_and_standby_topology():
+    from orchestration.system_settings import get_challenger_agents, get_rebuttal_agent
+
+    assert get_rebuttal_agent() == "agent-10017"
+    assert "agent-10003" in get_challenger_agents()
 
     from prompts import build_agent_prompt
 
     prompt = build_agent_prompt("agent-10017")
-    assert "Devil's Advocate" in prompt
-    assert "Adversarial Stress-Tester" in prompt
+    assert "Rebuttal & Defense Advocate" in prompt
+    assert "VERDICT A" in prompt.upper()
+    assert "VERDICT B" in prompt.upper()
 
     orchestrator = SandwichOrchestrator(
         start_chain=["agent-10001"],
         end_chain=["agent-10006"],
+        standby_agents={"agent-10017"},
     )
     all_available = ["agent-10001", "agent-10002", "agent-10017", "agent-10006"]
     seq = orchestrator.build_initial_sequence(all_available)
 
-    # Start with agent-10001, end with agent-10006, agent-10017 placed before agent-10006
+    # agent-10017 is a standby agent, so it is excluded from the initial sequence
+    assert "agent-10017" not in seq
     assert seq[0] == "agent-10001"
     assert seq[-1] == "agent-10006"
-    assert seq[-2] == "agent-10017"
 
 
 def test_discussion_scribe_structured_fields_extraction():

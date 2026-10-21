@@ -39,6 +39,7 @@ class AppSettingsManager:
         self.circuit_breaker_threshold_usd: float = 0.0
         self.daily_budget_usd: float = 10.0
         self.scribe_enabled: bool = True
+        self.convergence_fast_forward_enabled: bool = True
         self.weekly_pricing_update_enabled: bool = True
         self.workspace_context: str = ""
         self._raw_data: dict[str, Any] = {}
@@ -71,6 +72,7 @@ class AppSettingsManager:
             self.circuit_breaker_threshold_usd = float(data.get("circuit_breaker_threshold_usd", 0.0))
             self.daily_budget_usd = float(data.get("daily_budget_usd", 10.0))
             self.scribe_enabled = bool(data.get("scribe_enabled", True))
+            self.convergence_fast_forward_enabled = bool(data.get("convergence_fast_forward_enabled", True))
             self.weekly_pricing_update_enabled = bool(data.get("weekly_pricing_update_enabled", True))
             self.workspace_context = str(data.get("workspace_context", "")).strip()[:1000]
 
@@ -88,6 +90,7 @@ class AppSettingsManager:
                     self.circuit_breaker_threshold_usd = float(data.get("circuit_breaker_threshold_usd", 0.0))
                     self.daily_budget_usd = float(data.get("daily_budget_usd", 10.0))
                     self.scribe_enabled = bool(data.get("scribe_enabled", True))
+                    self.convergence_fast_forward_enabled = bool(data.get("convergence_fast_forward_enabled", True))
                     self.weekly_pricing_update_enabled = bool(data.get("weekly_pricing_update_enabled", True))
                     self.workspace_context = str(data.get("workspace_context", "")).strip()[:1000]
                     logger.warning("[APP_SETTINGS] Recovered settings from backup.")
@@ -105,6 +108,7 @@ class AppSettingsManager:
             "circuit_breaker_threshold_usd": self.circuit_breaker_threshold_usd,
             "daily_budget_usd": self.daily_budget_usd,
             "scribe_enabled": self.scribe_enabled,
+            "convergence_fast_forward_enabled": self.convergence_fast_forward_enabled,
             "weekly_pricing_update_enabled": self.weekly_pricing_update_enabled,
             "workspace_context": self.workspace_context,
         })
@@ -242,6 +246,17 @@ class AppSettingsManager:
             self.save()
         logger.info(f"[APP_SETTINGS] Set weekly_pricing_update_enabled to {self.weekly_pricing_update_enabled}.")
 
+    # --- Consensus Convergence Fast-Forward ---
+    def is_convergence_fast_forward_enabled(self) -> bool:
+        self.load()
+        return bool(self.convergence_fast_forward_enabled)
+
+    def set_convergence_fast_forward_enabled(self, enabled: bool, save: bool = True) -> None:
+        self.convergence_fast_forward_enabled = bool(enabled)
+        if save:
+            self.save()
+        logger.info(f"[APP_SETTINGS] Set convergence_fast_forward_enabled to {self.convergence_fast_forward_enabled}.")
+
 
     # --- Workspace Baseline Context ---
     def get_workspace_context(self) -> str:
@@ -323,5 +338,13 @@ def get_daily_budget_usd() -> float:
 
 def set_daily_budget_usd(val: float, save: bool = True) -> None:
     app_settings_manager.set_daily_budget_usd(val, save=save)
+
+
+def is_convergence_fast_forward_enabled() -> bool:
+    return app_settings_manager.is_convergence_fast_forward_enabled()
+
+
+def set_convergence_fast_forward_enabled(enabled: bool, save: bool = True) -> None:
+    app_settings_manager.set_convergence_fast_forward_enabled(enabled, save=save)
 
 

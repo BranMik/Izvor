@@ -36,6 +36,7 @@ from orchestration.agent_settings import (
     set_sandwich_config,
     set_scribe_enabled,
     set_weekly_pricing_update_enabled,
+    set_convergence_fast_forward_enabled,
     sync_settings_if_modified,
     toggle_agent,
 )
@@ -500,6 +501,19 @@ async def handle_slack_interactivity(request: Request, background_tasks: Backgro
                     actor={"type": "slack_admin", "id": user_id or "unknown"},
                     action="toggle_weekly_pricing_update",
                     target="pricing_service.weekly_update",
+                    details={"enabled": is_on},
+                    severity="CRITICAL",
+                )
+            elif action_id == "toggle_convergence_fast_forward_radio":
+                selected_option = action.get("selected_option", {})
+                val = selected_option.get("value", "")
+                is_on = (val == "convergence_ff:on")
+                set_convergence_fast_forward_enabled(is_on)
+                log_audit_event(
+                    event_type="ADMIN_CONFIG_CHANGE",
+                    actor={"type": "slack_admin", "id": user_id or "unknown"},
+                    action="toggle_convergence_fast_forward",
+                    target="convergence_fast_forward.enabled",
                     details={"enabled": is_on},
                     severity="CRITICAL",
                 )
