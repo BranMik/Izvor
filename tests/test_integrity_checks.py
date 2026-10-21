@@ -277,3 +277,135 @@ class TestRunAllChecks:
         )
         # BadAgent removed by ID check, agent-10002 removed by missing prompt
         assert list(result["agents"].keys()) == ["agent-10001"]
+
+
+# ---------------------------------------------------------------------------
+# 8. check_special_roles
+# ---------------------------------------------------------------------------
+
+class TestSpecialRoles:
+    def test_valid_special_roles_pass(self, caplog):
+        payload = _make_payload("agent-10001", "agent-10002", "agent-10003")
+        payload["agents"]["agent-10001"]["special_role"] = "CHALLENGER"
+        payload["agents"]["agent-10002"]["special_role"] = "REBUTTAL"
+        payload["agents"]["agent-10003"]["special_role"] = "NONE"
+        AppIntegrityValidator.check_special_roles(payload)
+        assert "INTEGRITY" not in caplog.text
+
+    def test_missing_special_role_warns(self, caplog):
+        payload = _make_payload("agent-10001")
+        # Missing special_role
+        AppIntegrityValidator.check_special_roles(payload)
+        assert "missing or invalid special_role" in caplog.text
+
+    def test_invalid_special_role_warns(self, caplog):
+        payload = _make_payload("agent-10001")
+        payload["agents"]["agent-10001"]["special_role"] = "SUPERVISOR"
+        AppIntegrityValidator.check_special_roles(payload)
+        assert "missing or invalid special_role" in caplog.text
+
+    def test_multiple_rebuttal_agents_warn(self, caplog):
+        payload = _make_payload("agent-10001", "agent-10002", "agent-10003")
+        payload["agents"]["agent-10001"]["special_role"] = "CHALLENGER"
+        payload["agents"]["agent-10002"]["special_role"] = "REBUTTAL"
+        payload["agents"]["agent-10003"]["special_role"] = "REBUTTAL"
+        AppIntegrityValidator.check_special_roles(payload)
+        assert "Multiple agents" in caplog.text and "special_role 'REBUTTAL'" in caplog.text
+
+    def test_zero_challenger_agents_warn(self, caplog):
+        payload = _make_payload("agent-10001", "agent-10002")
+        payload["agents"]["agent-10001"]["special_role"] = "NONE"
+        payload["agents"]["agent-10002"]["special_role"] = "REBUTTAL"
+        AppIntegrityValidator.check_special_roles(payload)
+        assert "Zero agents configured with special_role 'CHALLENGER'" in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# 9. check_required_settings_keys
+# ---------------------------------------------------------------------------
+
+class TestRequiredSettingsKeys:
+    def test_all_keys_present_no_warning(self, caplog):
+        payload = {
+            "workflow_config": "default_sandwich",
+            "enabled_agents": ["agent-10001"],
+            "agents": {
+                "agent-10001": {
+                    "username": "agent-10001",
+                    "displayname": "Agent 1",
+                    "model": "provider/model",
+                }
+            },
+            "orchestrator": {},
+        }
+        AppIntegrityValidator.check_required_settings_keys(payload)
+        assert "is missing from agent_settings" not in caplog.text
+
+    def test_missing_keys_warn(self, caplog):
+        payload = {"agents": {}}
+        AppIntegrityValidator.check_required_settings_keys(payload)
+        assert "Required top-level setting" in caplog.text
+        assert "is missing from agent_settings" in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# 10. check_system_settings_integrity
+# ---------------------------------------------------------------------------
+
+class TestSystemSettingsIntegrity:
+    def test_strips_deprecated_roles_and_saves(self, tmp_path):
+        settings_file = tmp_path / "system_settings.json"
+        data = {
+            "orchestration_mode": "sandwich",
+            "challenger_agents": ["agent-10002"],
+            "rebuttal_agent": "agent-10017",
+            "system_prompt": "Hello",
+        }
+        settings_file.write_text(json.dumps(data), encoding="utf-8")
+
+        cleaned = AppIntegrityValidator.check_system_settings_integrity(data, settings_path=settings_file)
+        assert "challenger_agents" not in cleaned
+        assert "rebuttal_agent" not in cleaned
+        assert cleaned["orchestration_mode"] == "sandwich"
+
+        # Check saved file on disk
+        saved = json.loads(settings_file.read_text(encoding="utf-8"))
+        assert "challenger_agents" not in saved
+        assert "rebuttal_agent" not in saved
+
+
+# ---------------------------------------------------------------------------
+# 11. check_default_workflows_integrity fallback
+# ---------------------------------------------------------------------------
+
+class TestDefaultWorkflowsIntegrity:
+    def test_restores_from_backup_dir(self, tmp_path):
+        wf_dir = tmp_path / "workflows"
+        backup_dir = tmp_path / "backups" / "workflows"
+        wf_dir.mkdir(parents=True, exist_ok=True)
+        backup_dir.mkdir(parents=True, exist_ok=True)
+
+        # Write canonical backup
+        (backup_dir / "default_sandwich.json").write_text(
+            json.dumps({"id": "default_sandwich", "name": "Backup Sandwich"}),
+            encoding="utf-8"
+        )
+
+        payload = {"agents": {"agent-1": {}, "agent-2": {}}}
+        AppIntegrityValidator.check_default_workflows_integrity(payload, workflows_dir=wf_dir, backup_dir=backup_dir)
+
+        restored = json.loads((wf_dir / "default_sandwich.json").read_text(encoding="utf-8"))
+        assert restored["name"] == "Backup Sandwich"
+
+    def test_falls_back_to_dynamic_when_no_backup(self, tmp_path):
+        wf_dir = tmp_path / "workflows"
+        backup_dir = tmp_path / "non_existent_backups"
+        wf_dir.mkdir(parents=True, exist_ok=True)
+
+        payload = {"agents": {"agent-10001": {}, "agent-10002": {}}}
+        AppIntegrityValidator.check_default_workflows_integrity(payload, workflows_dir=wf_dir, backup_dir=backup_dir)
+
+        assert (wf_dir / "default_sandwich.json").exists()
+        assert (wf_dir / "default_review_flow.json").exists()
+        assert (wf_dir / "parallel_dialectic_flow.json").exists()
+

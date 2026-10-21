@@ -26,7 +26,8 @@
       "displayname": "Visionary",
       "icon_url": "static/image_43.png",
       "is_short_output": false,
-      "skills": []
+      "skills": [],
+      "special_role": "NONE"
     },
     "agent-10002": {
       "username": "Innovator",
@@ -34,7 +35,8 @@
       "displayname": "Innovator",
       "icon_url": "static/image_02.png",
       "is_short_output": false,
-      "skills": []
+      "skills": [],
+      "special_role": "CHALLENGER"
     },
     "agent-10003": {
       "username": "Sceptic",
@@ -42,7 +44,8 @@
       "displayname": "Sceptic",
       "icon_url": "static/image_03.png",
       "is_short_output": false,
-      "skills": []
+      "skills": [],
+      "special_role": "CHALLENGER"
     },
     "agent-10004": {
       "username": "CompliancePrivacyAndGovernanceOfficer",
@@ -50,7 +53,8 @@
       "displayname": "Compliance, Privacy And Governance Officer",
       "icon_url": "static/image_15.png",
       "is_short_output": true,
-      "skills": []
+      "skills": [],
+      "special_role": "NONE"
     },
     "agent-10005": {
       "username": "ScopeOptimizer",
@@ -58,7 +62,8 @@
       "displayname": "Scope Optimizer",
       "icon_url": "static/image_24.png",
       "is_short_output": true,
-      "skills": []
+      "skills": [],
+      "special_role": "NONE"
     },
     "agent-10006": {
       "username": "ROIStrategist",
@@ -70,7 +75,8 @@
         "document_authoring",
         "document_reader",
         "knowledge_base_rag"
-      ]
+      ],
+      "special_role": "NONE"
     },
     "agent-10007": {
       "username": "UserAdvocate",
@@ -78,7 +84,8 @@
       "displayname": "User Advocate",
       "icon_url": "static/image_10.png",
       "is_short_output": false,
-      "skills": []
+      "skills": [],
+      "special_role": "NONE"
     },
     "agent-10008": {
       "username": "SecurityArchitect",
@@ -89,7 +96,8 @@
       "skills": [
         "document_reader",
         "knowledge_base_rag"
-      ]
+      ],
+      "special_role": "NONE"
     },
     "agent-10009": {
       "username": "MarketAndCompetitionResearchExpert",
@@ -99,7 +107,8 @@
       "is_short_output": false,
       "skills": [
         "web_research"
-      ]
+      ],
+      "special_role": "NONE"
     },
     "agent-10010": {
       "username": "SalesAdvisor",
@@ -110,7 +119,8 @@
       "skills": [
         "knowledge_base_rag",
         "web_research"
-      ]
+      ],
+      "special_role": "NONE"
     },
     "agent-10011": {
       "username": "LegalAdvisor",
@@ -121,7 +131,8 @@
       "skills": [
         "knowledge_base_rag",
         "web_research"
-      ]
+      ],
+      "special_role": "NONE"
     },
     "agent-10012": {
       "username": "ProductStrategist",
@@ -129,7 +140,8 @@
       "displayname": "Product Strategist",
       "icon_url": "static/image_08.png",
       "is_short_output": false,
-      "skills": []
+      "skills": [],
+      "special_role": "NONE"
     },
     "agent-10013": {
       "username": "RiskAuditor",
@@ -137,7 +149,8 @@
       "displayname": "Risk Auditor",
       "icon_url": "static/image_17.png",
       "is_short_output": false,
-      "skills": []
+      "skills": [],
+      "special_role": "NONE"
     },
     "agent-10014": {
       "username": "Tactician",
@@ -145,7 +158,8 @@
       "displayname": "Tactician",
       "icon_url": "static/image_22.png",
       "is_short_output": false,
-      "skills": []
+      "skills": [],
+      "special_role": "NONE"
     },
     "agent-10015": {
       "username": "Revisor",
@@ -156,7 +170,8 @@
       "skills": [
         "web_research",
         "knowledge_base_rag"
-      ]
+      ],
+      "special_role": "NONE"
     },
     "agent-10016": {
       "username": "CreativeAdvisor",
@@ -169,7 +184,8 @@
         "document_reader",
         "knowledge_base_rag",
         "web_research"
-      ]
+      ],
+      "special_role": "NONE"
     },
     "agent-10017": {
       "username": "RebuttalAdvocate",
@@ -180,7 +196,8 @@
       "skills": [
         "document_reader",
         "knowledge_base_rag"
-      ]
+      ],
+      "special_role": "REBUTTAL"
     }
   },
   "system_agents": {

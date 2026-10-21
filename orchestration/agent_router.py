@@ -55,11 +55,14 @@ def _apply_convergence_stress_test_or_fast_forward(
     if thread_state_manager.is_custom_flow(channel_id, thread_ts) or not is_convergence_fast_forward_enabled():
         return thread_state_manager.get_remaining_agents(channel_id, thread_ts), 0
 
-    from orchestration.agent_settings import get_sandwich_config
-    from orchestration.system_settings import (
+    from orchestration.agent_settings import (
         get_challenger_agents,
-        get_convergence_consecutive_threshold,
         get_rebuttal_agent,
+        get_sandwich_config,
+        settings_manager,
+    )
+    from orchestration.system_settings import (
+        get_convergence_consecutive_threshold,
     )
 
     if last_turn_converged:
@@ -69,12 +72,13 @@ def _apply_convergence_stress_test_or_fast_forward(
 
     challenger_candidates = get_challenger_agents()
     rebuttal_key = get_rebuttal_agent()
+    rebuttal_name = (settings_manager.get_agent(rebuttal_key) or {}).get("displayname") or "Rebuttal Agent"
     threshold = get_convergence_consecutive_threshold()
     sandwich_cfg = get_sandwich_config()
     end_chain = sandwich_cfg.get("end_chain", [])
     remaining = thread_state_manager.get_remaining_agents(channel_id, thread_ts)
 
-    # Step 1: When last_speaker == rebuttal_key — Evaluating RebuttalAdvocate's Verdict
+    # Step 1: When last_speaker == rebuttal_key — Evaluating Rebuttal Verdict
     if rebuttal_key and last_speaker == rebuttal_key:
         if last_turn_converged:
             # Verdict A — Consensus Defended/Patched: truncate remaining_agents to end_chain
@@ -83,14 +87,14 @@ def _apply_convergence_stress_test_or_fast_forward(
                 new_queue = list(end_chain)
             thread_state_manager.set_remaining_agents(channel_id, thread_ts, new_queue)
             logger.info(
-                f"[CONVERGENCE_FF] Verdict A reached by RebuttalAdvocate ({rebuttal_key}). Fast-forwarding to end chain: {new_queue}"
+                f"[CONVERGENCE_FF] Verdict A reached by {rebuttal_name} ({rebuttal_key}). Fast-forwarding to end chain: {new_queue}"
             )
             return new_queue, consecutive_convergence_count
         else:
-            # Verdict B — RebuttalAdvocate Agrees with Sceptic That Consensus Failed:
+            # Verdict B — Rebuttal Agent Agrees That Consensus Failed:
             # Do NOT truncate remaining_agents! Reset count = 0 and normal dialectic continues.
             logger.info(
-                f"[CONVERGENCE_FF] Verdict B reached by RebuttalAdvocate ({rebuttal_key}). Fast-forward cancelled, normal dialectic continues."
+                f"[CONVERGENCE_FF] Verdict B reached by {rebuttal_name} ({rebuttal_key}). Fast-forward cancelled, normal dialectic continues."
             )
             return remaining, 0
 

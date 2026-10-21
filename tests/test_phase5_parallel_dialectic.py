@@ -9,7 +9,12 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from core.models import DEFAULT_WORKFLOWS, OrchestrationMode, WorkflowPreset
+from core.models import (
+    REQUIRED_DEFAULT_WORKFLOW_IDS,
+    OrchestrationMode,
+    WorkflowPreset,
+    build_dynamic_default_workflows,
+)
 from orchestration.agent_settings import (
     get_orchestration_mode,
     set_orchestration_mode,
@@ -23,8 +28,12 @@ def test_orchestration_mode_scatter_gather_and_parallel_dialectic():
     assert OrchestrationMode.PARALLEL_DIALECTIC.value == "scatter_gather"
     assert OrchestrationMode.SCATTER_GATHER == OrchestrationMode.PARALLEL_DIALECTIC
 
-    # Verify parallel dialectic flow preset exists in DEFAULT_WORKFLOWS
-    flow_presets = [wf for wf in DEFAULT_WORKFLOWS if wf.id == "parallel_dialectic_flow"]
+    # Verify parallel dialectic flow preset exists in default workflows
+    assert "parallel_dialectic_flow" in REQUIRED_DEFAULT_WORKFLOW_IDS
+    defaults = build_dynamic_default_workflows([
+        "agent-10001", "agent-10002", "agent-10003", "agent-10004", "agent-10005", "agent-10006"
+    ])
+    flow_presets = [wf for wf in defaults if wf.id == "parallel_dialectic_flow"]
     assert len(flow_presets) == 1
     preset = flow_presets[0]
     assert preset.mode == "scatter_gather"

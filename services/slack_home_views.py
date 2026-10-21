@@ -4,9 +4,33 @@ import os
 from typing import Any
 
 from core.config import AGENTS_CONFIG
-from core.models import OrchestrationMode
+from core.models import OrchestrationMode, REQUIRED_DEFAULT_WORKFLOW_IDS
 
 logger = logging.getLogger(__name__)
+
+
+def _get_example_agent_id(agents_cfg: dict[str, Any] | None = None) -> str:
+    """Returns an example agent ID from configured agents, or 'agent-id' as fallback."""
+    cfg = agents_cfg or AGENTS_CONFIG
+    if cfg:
+        return next(iter(cfg.keys()))
+    return "agent-id"
+
+
+def _get_example_agent_names(agents_cfg: dict[str, Any] | None = None, count: int = 2) -> str:
+    """Returns comma-separated example agent displaynames from configured agents."""
+    cfg = agents_cfg or AGENTS_CONFIG
+    names: list[str] = []
+    for k, v in (cfg or {}).items():
+        if isinstance(v, dict):
+            disp = v.get("displayname") or v.get("username")
+            if disp and disp not in names:
+                names.append(disp)
+        if len(names) >= count:
+            break
+    if not names:
+        return "Agent1, Agent2" if count > 1 else "Agent1"
+    return ", ".join(names)
 
 
 def build_app_home_view(
@@ -217,7 +241,7 @@ def build_app_home_view(
                     "text": (
                         "*Welcome to Izvor Control Hub!*\n"
                         "Manage debate agents and spend limits (circuit-breaker) here.\n\n"
-                        "💡 *Note:* Disabled agents can still be directly invoked by tagging (e.g. `[agent-10011]`)."
+                        f"💡 *Note:* Disabled agents can still be directly invoked by tagging (e.g. `[{_get_example_agent_id(AGENTS_CONFIG)}]`)."
                     ),
                 },
             },
@@ -680,7 +704,7 @@ def build_app_home_view(
             },
         }
 
-    is_default_wf = active_wf_id in ("default_review_flow", "default_sandwich", "parallel_dialectic_flow")
+    is_default_wf = active_wf_id in REQUIRED_DEFAULT_WORKFLOW_IDS
 
     # Mode-specific chain configuration UI
     if orch_mode in (OrchestrationMode.SANDWICH, OrchestrationMode.SANDWICH.value):
@@ -717,7 +741,7 @@ def build_app_home_view(
                         "initial_value": start_chain_str,
                         "placeholder": {
                             "type": "plain_text",
-                            "text": "e.g. Visionary, Innovator (comma-separated)",
+                            "text": f"e.g. {_get_example_agent_names(AGENTS_CONFIG, count=2)} (comma-separated)",
                         },
                     },
                     "label": {
@@ -736,7 +760,7 @@ def build_app_home_view(
                         "initial_value": end_chain_str,
                         "placeholder": {
                             "type": "plain_text",
-                            "text": "e.g. Security Architect (comma-separated)",
+                            "text": f"e.g. {_get_example_agent_names(AGENTS_CONFIG, count=1)} (comma-separated)",
                         },
                     },
                     "label": {
@@ -805,7 +829,7 @@ def build_app_home_view(
                         "initial_value": start_chain_str,
                         "placeholder": {
                             "type": "plain_text",
-                            "text": "e.g. Visionary, Innovator (comma-separated)",
+                            "text": f"e.g. {_get_example_agent_names(AGENTS_CONFIG, count=2)} (comma-separated)",
                         },
                     },
                     "label": {
@@ -824,7 +848,7 @@ def build_app_home_view(
                         "initial_value": end_chain_str,
                         "placeholder": {
                             "type": "plain_text",
-                            "text": "e.g. Security Architect (comma-separated)",
+                            "text": f"e.g. {_get_example_agent_names(AGENTS_CONFIG, count=1)} (comma-separated)",
                         },
                     },
                     "label": {
@@ -893,7 +917,7 @@ def build_app_home_view(
                         "initial_value": fixed_chain_str,
                         "placeholder": {
                             "type": "plain_text",
-                            "text": "e.g. LegalAdvisor, Innovator, Security Architect (comma-separated)",
+                            "text": f"e.g. {_get_example_agent_names(AGENTS_CONFIG, count=3)} (comma-separated)",
                         },
                     },
                     "label": {
@@ -928,7 +952,7 @@ def build_app_home_view(
                     ],
                 },
             ])
-    if active_wf_id not in ("default_review_flow", "default_sandwich"):
+    if not is_default_wf:
         blocks.extend(
             [
                 {

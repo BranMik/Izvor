@@ -12,6 +12,14 @@ class OrchestrationMode(str, Enum):
     PARALLEL_DIALECTIC = "scatter_gather"
 
 
+class AgentSpecialRole(str, Enum):
+    """Supported special roles for agents in dialectical stress test workflows."""
+
+    NONE = "NONE"
+    CHALLENGER = "CHALLENGER"
+    REBUTTAL = "REBUTTAL"
+
+
 @dataclass
 class FileContext:
     """Represents file attachment content and authorization metadata for a thread turn."""
@@ -470,57 +478,62 @@ class WorkflowPreset:
         )
 
 
-DEFAULT_WORKFLOWS: list[WorkflowPreset] = [
-    WorkflowPreset(
-        id="default_review_flow",
-        name="Default Review Workflow",
-        mode=OrchestrationMode.FIXED.value,
-        description="[DO NOT DELETE OR MODIFY - SYSTEM DEFAULT] Standard review flow applied when no explicit agent is tagged.",
-        fixed_config={
-            "chain": [
-                "agent-10001",
-                "agent-10002",
-                "agent-10003",
-                "agent-10015",
-            ]
-        },
-        sandwich_config={},
-    ),
-    WorkflowPreset(
-        id="default_sandwich",
-        name="Default Sandwich Review",
-        mode=OrchestrationMode.SANDWICH.value,
-        description="[DO NOT DELETE OR MODIFY - SYSTEM DEFAULT] Standard multi-agent panel with kickoff and concluding wrap-up.",
-        sandwich_config={
-            "start_chain": [
-                "agent-10005",
-                "agent-10001",
-                "agent-10007",
-                "agent-10003",
-                "agent-10002",
-            ],
-            "end_chain": [
-                "agent-10008",
-                "agent-10003",
-                "agent-10015",
-            ],
-        },
-        fixed_config={"chain": []},
-    ),
-    WorkflowPreset(
-        id="parallel_dialectic_flow",
-        name="Parallel Dialectic (Scatter-Gather)",
-        mode=OrchestrationMode.SCATTER_GATHER.value,
-        description="Concurrent parallel exploration where specialist agents investigate the anchor problem simultaneously without sequential anchoring bias, followed by dialectical synthesis.",
-        sandwich_config={
-            "start_chain": [
-                "agent-10001",
-            ],
-            "end_chain": [
-                "agent-10006",
-            ],
-        },
-        fixed_config={"chain": []},
-    ),
-]
+REQUIRED_DEFAULT_WORKFLOW_IDS: tuple[str, ...] = (
+    "default_review_flow",
+    "default_sandwich",
+    "parallel_dialectic_flow",
+)
+
+
+def build_dynamic_default_workflows(agent_ids: list[str]) -> list[WorkflowPreset]:
+    """
+    Dynamically constructs canonical default workflow presets from available agent IDs.
+    Guarantees that default presets are never statically bound to hardcoded agent IDs.
+    """
+    agents = list(agent_ids)
+    if not agents:
+        fixed_chain: list[str] = []
+        sw_start: list[str] = []
+        sw_end: list[str] = []
+        pd_start: list[str] = []
+        pd_end: list[str] = []
+    else:
+        fixed_chain = agents[:4] if len(agents) >= 4 else list(agents)
+        sw_start = agents[:min(5, len(agents))]
+        sw_end = list(reversed(agents[-min(3, len(agents)):])) if len(agents) > 1 else list(agents)
+        pd_start = [agents[0]]
+        pd_end = [agents[-1]] if len(agents) > 1 else [agents[0]]
+
+    return [
+        WorkflowPreset(
+            id="default_review_flow",
+            name="Default Review Workflow",
+            mode=OrchestrationMode.FIXED.value,
+            description="[DO NOT DELETE OR MODIFY - SYSTEM DEFAULT] Standard review flow applied when no explicit agent is tagged.",
+            fixed_config={"chain": fixed_chain},
+            sandwich_config={},
+        ),
+        WorkflowPreset(
+            id="default_sandwich",
+            name="Default Sandwich Review",
+            mode=OrchestrationMode.SANDWICH.value,
+            description="[DO NOT DELETE OR MODIFY - SYSTEM DEFAULT] Standard multi-agent panel with kickoff and concluding wrap-up.",
+            sandwich_config={
+                "start_chain": sw_start,
+                "end_chain": sw_end,
+            },
+            fixed_config={"chain": []},
+        ),
+        WorkflowPreset(
+            id="parallel_dialectic_flow",
+            name="Parallel Dialectic (Scatter-Gather)",
+            mode=OrchestrationMode.SCATTER_GATHER.value,
+            description="Concurrent parallel exploration where specialist agents investigate the anchor problem simultaneously without sequential anchoring bias, followed by dialectical synthesis.",
+            sandwich_config={
+                "start_chain": pd_start,
+                "end_chain": pd_end,
+            },
+            fixed_config={"chain": []},
+        ),
+    ]
 

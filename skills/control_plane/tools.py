@@ -19,8 +19,7 @@ def build_control_plane_tool_schemas(
             "agent_name": {
                 "type": "string",
                 "description": (
-                    "The username or key of the next agent (e.g. 'agent-10002', "
-                    "'Architect', 'RebuttalAdvocate', 'ScopeOptimizer')."
+                    "The username, display name, or key of the next agent from the active panel."
                 ),
             },
             "rationale": {

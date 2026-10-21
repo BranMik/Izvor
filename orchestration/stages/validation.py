@@ -31,6 +31,24 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _get_example_agent_display(default: str = "Agent") -> str:
+    """Returns an example agent display/username from configured agents."""
+    for cfg in AGENTS_CONFIG.values():
+        if isinstance(cfg, dict):
+            name = cfg.get("displayname") or cfg.get("username")
+            if name:
+                return name
+    return default
+
+
+def _get_example_agent_keys(count: int = 3) -> str:
+    """Returns comma-separated quoted example agent IDs."""
+    keys = list(AGENTS_CONFIG.keys())[:count]
+    if not keys:
+        return "'agent-id'"
+    return ", ".join(f"'{k}'" for k in keys)
+
+
 class ValidationStage:
     def __init__(self, pipeline: Any):
         self.pipeline = pipeline
@@ -140,10 +158,11 @@ class ValidationStage:
                 if not requested_skill and grant_skill_act.params.get("skills"):
                     requested_skill = grant_skill_act.params["skills"][0]
 
+                example_ag = _get_example_agent_display("Security Architect")
                 if not requested_skill and not requested_agents:
                     msg = (
                         "⚠️ *Missing Parameters*: Please specify a skill and at least one agent.\n"
-                        "_Example: `/grant_skill web_research Security Architect` or `/grant_skill [web_research] [Security Architect]`_"
+                        f"_Example: `/grant_skill web_research {example_ag}` or `/grant_skill [web_research] [{example_ag}]`_"
                     )
                     await post_sys_msg(channel_id=ctx.channel_id, thread_ts=ctx.thread_ts, text=msg)
                     return {"ok": True, "halted": True, "action": "grant_skill"}
@@ -151,7 +170,7 @@ class ValidationStage:
                 if not requested_skill:
                     msg = (
                         "⚠️ *Missing Skill*: Please specify a skill to grant.\n"
-                        "_Example: `/grant_skill web_research Security Architect`_"
+                        f"_Example: `/grant_skill web_research {example_ag}`_"
                     )
                     await post_sys_msg(channel_id=ctx.channel_id, thread_ts=ctx.thread_ts, text=msg)
                     return {"ok": True, "halted": True, "action": "grant_skill"}
@@ -159,7 +178,7 @@ class ValidationStage:
                 if not requested_agents:
                     msg = (
                         f"⚠️ *Missing Agent*: Please specify at least one agent to grant `{requested_skill}` to.\n"
-                        f"_Example: `/grant_skill {requested_skill} Security Architect`_"
+                        f"_Example: `/grant_skill {requested_skill} {example_ag}`_"
                     )
                     await post_sys_msg(channel_id=ctx.channel_id, thread_ts=ctx.thread_ts, text=msg)
                     return {"ok": True, "halted": True, "action": "grant_skill"}
@@ -450,8 +469,9 @@ class ValidationStage:
                     lines.append(
                         f"Tag '{clean_tag}' could not be matched to any active agent."
                     )
+                example_keys = _get_example_agent_keys(3)
                 lines.append(
-                    "\nPlease check the agent name or tag a valid agent (e.g. 'agent-10001', 'agent-10011', 'agent-10002') to proceed."
+                    f"\nPlease check the agent name or tag a valid agent (e.g. {example_keys}) to proceed."
                 )
                 warning_msg = "\n".join(lines)
 

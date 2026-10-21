@@ -18,6 +18,7 @@ DATA_DIR = Path(os.getenv("IZVOR_DATA_DIR", PROJECT_ROOT / "data"))
 SETTINGS_DIR = Path(os.getenv("IZVOR_SETTINGS_DIR", DATA_DIR / "settings"))
 BACKUPS_DIR = Path(os.getenv("IZVOR_BACKUPS_DIR", DATA_DIR / "backups"))
 WORKFLOWS_DIR = Path(os.getenv("IZVOR_WORKFLOWS_DIR", DATA_DIR / "workflows"))
+WORKFLOWS_BACKUP_DIR = Path(os.getenv("IZVOR_WORKFLOWS_BACKUP_DIR", BACKUPS_DIR / "workflows"))
 PRICING_DIR = Path(os.getenv("IZVOR_PRICING_DIR", DATA_DIR / "pricing"))
 THREAD_DATA_DIR = Path(os.getenv("IZVOR_THREAD_DATA_DIR", DATA_DIR / "thread"))
 AUDIT_DIR = Path(os.getenv("IZVOR_AUDIT_DIR", PROJECT_ROOT / "audit"))
@@ -94,5 +95,6 @@ __all__ = [
     "THREAD_NOTES_DIR",
     "THREAD_SKILLS_FILE",
     "USAGE_STORE_FILE",
+    "WORKFLOWS_BACKUP_DIR",
     "WORKFLOWS_DIR",
 ]

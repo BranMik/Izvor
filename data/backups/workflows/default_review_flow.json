@@ -1,0 +1,14 @@
+{
+  "id": "default_review_flow",
+  "name": "Default Review Workflow",
+  "mode": "fixed",
+  "description": "[DO NOT DELETE OR MODIFY - SYSTEM DEFAULT] Standard review flow applied when no explicit agent is tagged.",
+  "fixed_config": {
+    "chain": [
+      "agent-10001",
+      "agent-10002",
+      "agent-10003",
+      "agent-10015"
+    ]
+  }
+}

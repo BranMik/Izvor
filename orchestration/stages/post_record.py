@@ -251,8 +251,7 @@ class PostRecordStage:
             formatted = self.workspace_adapter.format_outbound_text(ctx.final_text)
             if isinstance(formatted, str):
                 ctx.final_text = formatted
-            from orchestration.agent_settings import get_sandwich_config
-            from orchestration.system_settings import get_rebuttal_agent
+            from orchestration.agent_settings import get_rebuttal_agent, get_sandwich_config
 
             rebuttal_k = get_rebuttal_agent()
             if ctx.agent_key == rebuttal_k and (

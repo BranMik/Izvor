@@ -96,10 +96,8 @@ class SandwichOrchestrator:
 
         rebuttal: list[str] = []
         try:
-            from orchestration.system_settings import (
-                get_rebuttal_agent,
-                is_dialectical_stress_test_enabled,
-            )
+            from orchestration.agent_settings import get_rebuttal_agent
+            from orchestration.system_settings import is_dialectical_stress_test_enabled
 
             if is_dialectical_stress_test_enabled():
                 r_agent = get_rebuttal_agent()
@@ -145,7 +143,7 @@ class SandwichOrchestrator:
 
         rebuttal_key: str | None = None
         try:
-            from orchestration.system_settings import get_rebuttal_agent
+            from orchestration.agent_settings import get_rebuttal_agent
 
             rebuttal_key = get_rebuttal_agent()
         except Exception:

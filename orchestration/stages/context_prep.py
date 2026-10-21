@@ -197,7 +197,7 @@ class ContextPrepStage:
         ctx.next_designated_agent = None
         ctx.eligible_remaining_agents = list(ctx.remaining)
         if not ctx.force_termination and ctx.remaining:
-            from orchestration.system_settings import get_rebuttal_agent
+            from orchestration.agent_settings import get_rebuttal_agent
 
             rebuttal_agent_key = get_rebuttal_agent()
             standby_set = {rebuttal_agent_key} if rebuttal_agent_key else set()
