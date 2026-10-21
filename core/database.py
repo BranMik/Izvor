@@ -147,6 +147,34 @@ SCHEMA_STATEMENTS = [
     );
     """,
     "CREATE INDEX IF NOT EXISTS idx_notes_state_updated ON thread_notes_state(updated_at);",
+
+    # 9. Turn Checkpoints (Durable Checkpointing for HITL & Circuit Breaker)
+    """
+    CREATE TABLE IF NOT EXISTS turn_checkpoints (
+        checkpoint_id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        channel_id TEXT NOT NULL,
+        thread_ts TEXT NOT NULL,
+        agent_key TEXT NOT NULL,
+        pause_reason TEXT NOT NULL,
+        hitl_request_id TEXT,
+        messages_json TEXT NOT NULL,
+        pending_tool_call_json TEXT,
+        active_tools_json TEXT,
+        skills_used_json TEXT,
+        token_mapping_json TEXT,
+        accumulated_history_json TEXT,
+        prompt_tokens INTEGER DEFAULT 0,
+        completion_tokens INTEGER DEFAULT 0,
+        status TEXT NOT NULL,
+        created_at REAL NOT NULL,
+        expires_at REAL NOT NULL
+    );
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_turn_checkpoints_session ON turn_checkpoints(session_id);",
+    "CREATE INDEX IF NOT EXISTS idx_turn_checkpoints_hitl ON turn_checkpoints(hitl_request_id);",
+    "CREATE INDEX IF NOT EXISTS idx_turn_checkpoints_thread ON turn_checkpoints(channel_id, thread_ts);",
+    "CREATE INDEX IF NOT EXISTS idx_turn_checkpoints_expiry ON turn_checkpoints(expires_at);",
 ]
 
 

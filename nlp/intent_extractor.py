@@ -20,9 +20,11 @@ Analyze the user's message and extract any requested constraints, directives, or
 
 1. "modifiers": Formatting, word count limits, or context constraints requested by the user (key-value pairs).
 2. "actions": Operations, tools, or directives requested by the user.
+3. "language": The language of the user's message (e.g. "Croatian", "English", "German", "Spanish", etc.).
 
 Respond ONLY with a valid JSON object matching this schema:
 {
+  "language": "<detected_language_name_or_code>",
   "modifiers": {
     "<modifier_name>": <value>
   },
@@ -210,13 +212,20 @@ class IntentExtractor:
                 if file_acts and target_file and not file_acts[0].params.get("target_file"):
                     file_acts[0].params["target_file"] = target_file
 
+            detected_lang = parsed.get("language")
+            if detected_lang and isinstance(detected_lang, str):
+                detected_lang = detected_lang.strip() or None
+            else:
+                detected_lang = None
+
             logger.info(
-                f"[INTENT EXTRACTOR] Extracted: modifiers={modifiers}, actions={[a.name for a in actions]}"
+                f"[INTENT EXTRACTOR] Extracted: language={detected_lang}, modifiers={modifiers}, actions={[a.name for a in actions]}"
             )
 
             return ExtractedIntent(
                 actions=actions,
                 modifiers=modifiers,
+                detected_language=detected_lang,
             )
 
         except (TimeoutError, asyncio.TimeoutError):

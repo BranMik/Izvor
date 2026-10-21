@@ -160,3 +160,49 @@ class SpendMetrics:
     cost_by_model: dict[str, float] = field(default_factory=dict)
     tokens_by_model: dict[str, dict[str, int]] = field(default_factory=dict)
     circuit_breaker_tripped: bool = False
+
+
+@dataclass
+class TurnCheckpoint:
+    """Represents a durable checkpoint of an in-flight agent turn paused for HITL approval or circuit breaker."""
+
+    checkpoint_id: str
+    session_id: str
+    channel_id: str
+    thread_ts: str
+    agent_key: str
+    pause_reason: str  # "hitl" | "circuit_breaker"
+    messages: list[dict[str, Any]] = field(default_factory=list)
+    pending_tool_call: dict[str, Any] | None = None
+    active_tools: list[dict[str, Any]] = field(default_factory=list)
+    skills_used: list[str] = field(default_factory=list)
+    token_mapping: dict[str, Any] = field(default_factory=dict)
+    accumulated_history: list[dict[str, Any]] = field(default_factory=list)
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    status: str = "ACTIVE"  # "ACTIVE" | "RESUMED" | "ABANDONED" | "EXPIRED"
+    hitl_request_id: str | None = None
+    created_at: float = field(default_factory=time.time)
+    expires_at: float = field(default_factory=lambda: time.time() + 86400.0)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "checkpoint_id": self.checkpoint_id,
+            "session_id": self.session_id,
+            "channel_id": self.channel_id,
+            "thread_ts": self.thread_ts,
+            "agent_key": self.agent_key,
+            "pause_reason": self.pause_reason,
+            "hitl_request_id": self.hitl_request_id,
+            "messages": self.messages,
+            "pending_tool_call": self.pending_tool_call,
+            "active_tools": self.active_tools,
+            "skills_used": self.skills_used,
+            "token_mapping": self.token_mapping,
+            "accumulated_history": self.accumulated_history,
+            "prompt_tokens": self.prompt_tokens,
+            "completion_tokens": self.completion_tokens,
+            "status": self.status,
+            "created_at": self.created_at,
+            "expires_at": self.expires_at,
+        }

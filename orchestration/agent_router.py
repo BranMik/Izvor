@@ -178,6 +178,13 @@ async def orchestrate_discussion(
                     "content": f"[{agent_name}]: {turn_res['final_text']}",
                 }
             )
+        if turn_res.get("revisor_warning"):
+            accumulated_history.append(
+                {
+                    "role": "system",
+                    "content": f"[Internal Revisor Warning]: {turn_res['revisor_warning']}",
+                }
+            )
 
         # 3. Subsequent turns
         active_rounds = thread_state_manager.get_rounds(channel_id, thread_ts)
@@ -244,6 +251,13 @@ async def orchestrate_discussion(
                         "content": f"[{agent_name}]: {turn_res['final_text']}",
                     }
                 )
+            if turn_res.get("revisor_warning"):
+                accumulated_history.append(
+                    {
+                        "role": "system",
+                        "content": f"[Internal Revisor Warning]: {turn_res['revisor_warning']}",
+                    }
+                )
 
         try:
             from services.flat_history_recorder import record_flat_history
@@ -268,3 +282,125 @@ async def orchestrate_discussion(
     finally:
         if current_task and thread_state_manager.get_active_task(channel_id, thread_ts) == current_task:
             thread_state_manager.clear_active_task(channel_id, thread_ts, current_task)
+
+
+async def continue_discussion_from_turn_result(
+    channel_id: str,
+    thread_ts: str,
+    turn_res: dict[str, Any],
+    bot_user_id: str | None = None,
+    icon_url: str | None = None,
+    max_turns: int | None = None,
+    user_id: str | None = None,
+    accumulated_history: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """
+    Continues multi-agent discussion loop after a turn finishes (e.g. following HITL approval resumption).
+    Drives remaining agents until round completion or termination.
+    """
+    thread_key = (channel_id, thread_ts)
+    if turn_res.get("halted") or turn_res.get("cancelled") or turn_res.get("is_completed"):
+        return turn_res
+
+    if accumulated_history is None:
+        initial_history = await fetch_thread_history(
+            channel_id, thread_ts, bot_user_id=bot_user_id
+        )
+        accumulated_history = list(initial_history)
+
+    if "final_text" in turn_res:
+        agent_name = turn_res.get("displayname", turn_res.get("username", "Unknown Agent"))
+        accumulated_history.append(
+            {
+                "role": "assistant",
+                "content": f"[{agent_name}]: {turn_res['final_text']}",
+            }
+        )
+    if turn_res.get("revisor_warning"):
+        accumulated_history.append(
+            {
+                "role": "system",
+                "content": f"[Internal Revisor Warning]: {turn_res['revisor_warning']}",
+            }
+        )
+
+    active_rounds = thread_state_manager.get_rounds(channel_id, thread_ts)
+    round_seq = thread_state_manager.get_round_sequence(channel_id, thread_ts)
+    if active_rounds > 0:
+        expected_turns = (active_rounds + 1) * max(1, len(round_seq) or 6)
+        max_turns = min(get_max_discussion_turns(), expected_turns)
+    else:
+        max_turns = min(max_turns or get_max_discussion_turns(), get_max_discussion_turns())
+
+    last_res = turn_res
+    turn_num = 2
+    while turn_num <= max_turns:
+        if thread_state_manager.is_stopped(channel_id, thread_ts):
+            logger.info(
+                f"[ORCHESTRATOR] Thread {thread_key} stop detected. Terminating loop."
+            )
+            thread_state_manager.clear_state(channel_id, thread_ts)
+            break
+
+        if last_res.get("is_completed"):
+            break
+
+        current_prompt = last_res.get("final_text", "")
+        if not current_prompt:
+            break
+
+        logger.info(
+            f"[ORCHESTRATOR] Executing continued internal turn {turn_num} for thread {thread_key}"
+        )
+        last_res = await process_and_respond(
+            channel_id=channel_id,
+            thread_ts=thread_ts,
+            raw_text=current_prompt,
+            bot_user_id=bot_user_id,
+            icon_url=icon_url,
+            is_bot_trigger=True,
+            run_internal_loop=False,
+            in_memory_history=accumulated_history,
+            user_id=user_id,
+        )
+
+        if (
+            last_res.get("halted")
+            or last_res.get("cancelled")
+            or last_res.get("is_completed")
+            or (not last_res.get("ok", True) and not last_res.get("final_text"))
+        ):
+            break
+
+        if "final_text" in last_res:
+            agent_name = last_res.get("displayname", last_res.get("username", "Unknown Agent"))
+            accumulated_history.append(
+                {
+                    "role": "assistant",
+                    "content": f"[{agent_name}]: {last_res['final_text']}",
+                }
+            )
+        if last_res.get("revisor_warning"):
+            accumulated_history.append(
+                {
+                    "role": "system",
+                    "content": f"[Internal Revisor Warning]: {last_res['revisor_warning']}",
+                }
+            )
+        turn_num += 1
+
+    try:
+        from services.flat_history_recorder import record_flat_history
+
+        init_p = thread_state_manager.get_initial_prompt(channel_id, thread_ts) or ""
+        record_flat_history(
+            channel_id=channel_id,
+            thread_ts=thread_ts,
+            initial_prompt=init_p,
+            messages=accumulated_history,
+            bot_user_id=bot_user_id,
+        )
+    except Exception as e:
+        logger.debug(f"[ORCHESTRATOR] Flat history sync exception in continue_discussion: {e}")
+
+    return last_res

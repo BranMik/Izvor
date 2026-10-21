@@ -164,27 +164,51 @@ async def _execute_and_resume_hitl_approval(req: Any, user_id: str) -> None:
         logger.error(f"[HITL] Failed to post tool result to Slack: {e}")
 
     # 4. Resume the calling agent with the result context
-    resume_prompt = (
-        f"[{agent_name}] Tool '{fn_name}' execution was approved by <@{user_id}>.\n"
-        f"Tool Result:\n{tool_result}\n\n"
-        f"Please analyze this result and provide your response to continue the discussion."
-    )
-    ctx = TurnContext(
-        channel_id=channel_id,
-        thread_ts=thread_ts,
-        raw_text=resume_prompt,
-        user_id=user_id,
-        is_bot_trigger=True,
-        was_explicit_target=True,
-    )
+    from services.turn_checkpoint_store import turn_checkpoint_store
+    from orchestration.agent_router import continue_discussion_from_turn_result
+
+    chk = turn_checkpoint_store.get_by_hitl_request_id(req.request_id)
+    if not chk:
+        chk = turn_checkpoint_store.get_latest_active_by_thread(channel_id, thread_ts)
+
     pipeline = TurnPipeline()
-    thread_state_manager.dispatch_discussion_task(channel_id, thread_ts, pipeline.run(ctx))
+    if chk and chk.status == "ACTIVE":
+        async def _run_resumption():
+            turn_res = await pipeline.resume_from_checkpoint(
+                checkpoint=chk,
+                tool_result=tool_result,
+                user_id=user_id,
+            )
+            await continue_discussion_from_turn_result(
+                channel_id=channel_id,
+                thread_ts=thread_ts,
+                turn_res=turn_res,
+                user_id=user_id,
+            )
+
+        thread_state_manager.dispatch_discussion_task(channel_id, thread_ts, _run_resumption())
+    else:
+        resume_prompt = (
+            f"[{agent_name}] Tool '{fn_name}' execution was approved by <@{user_id}>.\n"
+            f"Tool Result:\n{tool_result}\n\n"
+            f"Please analyze this result and provide your response to continue the discussion."
+        )
+        ctx = TurnContext(
+            channel_id=channel_id,
+            thread_ts=thread_ts,
+            raw_text=resume_prompt,
+            user_id=user_id,
+            is_bot_trigger=True,
+            was_explicit_target=True,
+        )
+        thread_state_manager.dispatch_discussion_task(channel_id, thread_ts, pipeline.run(ctx))
 
 
 async def _resume_hitl_denial(req: Any, user_id: str) -> None:
     """Notifies the calling agent that the requested tool was denied by human supervisor and resumes discussion."""
     from orchestration.thread_state import thread_state_manager
     from orchestration.turn_pipeline import TurnContext, TurnPipeline
+    from services.turn_checkpoint_store import turn_checkpoint_store
 
     channel_id = req.channel_id
     thread_ts = req.thread_ts
@@ -194,6 +218,10 @@ async def _resume_hitl_denial(req: Any, user_id: str) -> None:
     logger.info(
         f"[HITL] Resuming discussion with denial notification for agent '{agent_name}' in {(channel_id, thread_ts)}"
     )
+
+    chk = turn_checkpoint_store.get_by_hitl_request_id(req.request_id)
+    if chk:
+        turn_checkpoint_store.mark_abandoned(chk.checkpoint_id)
 
     resume_prompt = (
         f"[{agent_name}] Tool '{fn_name}' execution was denied by supervisor <@{user_id}>.\n"

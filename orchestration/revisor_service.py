@@ -22,7 +22,7 @@ async def run_internal_revisor(ctx: TurnContext):
         turn_count = len(assistant_msgs) + 1  # include the current turn
         
         if turn_count % 2 != 0:
-            return  # Only run on multiples of 2
+            return None  # Only run on multiples of 2
             
         logger.info(f"[REVISOR] Triggering InternalRevisor on turn {turn_count}")
         
@@ -125,8 +125,11 @@ async def run_internal_revisor(ctx: TurnContext):
                     username=display_name,
                     icon_url=icon_url
                 )
+                return output
             else:
                 logger.info("[REVISOR] No hallucinations detected.")
+                return None
                 
     except Exception as e:
         logger.exception(f"[REVISOR] Error executing InternalRevisor: {e}")
+        return None
