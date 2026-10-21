@@ -172,7 +172,13 @@ class PostRecordStage:
             active_rounds = thread_state_manager.get_rounds(
                 ctx.channel_id, ctx.thread_ts
             )
-            if active_rounds > 1:
+            if thread_state_manager.is_consensus_reached(ctx.channel_id, ctx.thread_ts):
+                thread_state_manager.clear_rounds(ctx.channel_id, ctx.thread_ts)
+                ctx.force_termination = True
+                logger.info(
+                    f"[ROUTER] Consensus convergence reached for thread {ctx.thread_key}. Concluding discussion and clearing rounds."
+                )
+            elif active_rounds > 1:
                 thread_state_manager.decrement_rounds(
                     ctx.channel_id, ctx.thread_ts
                 )
@@ -245,6 +251,20 @@ class PostRecordStage:
             formatted = self.workspace_adapter.format_outbound_text(ctx.final_text)
             if isinstance(formatted, str):
                 ctx.final_text = formatted
+            from orchestration.agent_settings import get_sandwich_config
+            from orchestration.system_settings import get_rebuttal_agent
+
+            rebuttal_k = get_rebuttal_agent()
+            if ctx.agent_key == rebuttal_k and (
+                getattr(ctx, "control_plane_consensus_signaled", False)
+                or getattr(ctx, "convergence_signaled", False)
+            ):
+                sandwich_cfg = get_sandwich_config()
+                end_chain = sandwich_cfg.get("end_chain", [])
+                if end_chain:
+                    ctx.next_designated_agent = end_chain[0]
+                    ctx.eligible_remaining_agents = list(end_chain)
+
             if not getattr(ctx, "waiting_hitl", False) and not getattr(ctx, "control_plane_clarification_requested", False):
                 ctx.final_text = enforce_valid_nomination(
                     ctx.final_text,
@@ -472,6 +492,13 @@ class PostRecordStage:
             slack_res["agent_key"] = ctx.agent_key
             slack_res["icon_url"] = resolved_turn_icon
             slack_res["generated_tags"] = ctx.generated_tags
+            slack_res["convergence_signaled"] = bool(
+                getattr(ctx, "control_plane_consensus_signaled", False)
+                or getattr(ctx, "convergence_signaled", False)
+            )
+            slack_res["clarification_question"] = getattr(
+                ctx, "control_plane_clarification_question", None
+            ) or getattr(ctx, "clarification_question", None)
 
         logger.info(
             f"[{time.time()}] <<< END process_and_respond for thread_ts: {ctx.thread_ts} (Total: {time.time() - ctx.start_time:.2f}s) <<<\n"

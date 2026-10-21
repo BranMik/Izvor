@@ -375,6 +375,11 @@ class ExecutionStage:
                                 }
                                 for s_schema in skill_def.get_tool_schemas():
                                     s_name = s_schema.get("function", {}).get("name")
+                                    if s_name == "signal_consensus_convergence":
+                                        from orchestration.app_settings import is_convergence_fast_forward_enabled
+
+                                        if not is_convergence_fast_forward_enabled():
+                                            continue
                                     if s_name:
                                         if s_name not in existing_names:
                                             active_tools.append(s_schema)

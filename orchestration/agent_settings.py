@@ -526,6 +526,9 @@ class AgentSettingsManager:
         if "scribe_enabled" in data:
             self.set_scribe_enabled(bool(data.get("scribe_enabled", True)), save=False)
 
+        if "convergence_fast_forward_enabled" in data:
+            self.set_convergence_fast_forward_enabled(bool(data.get("convergence_fast_forward_enabled", True)), save=False)
+
         # Parse active workflow reference ("workflow_config" primary, "active_workflow_id" fallback)
         raw_wf = data.get("workflow_config") or data.get("active_workflow_id")
         if isinstance(raw_wf, str):
@@ -953,6 +956,12 @@ class AgentSettingsManager:
     def set_weekly_pricing_update_enabled(self, enabled: bool, save: bool = True) -> None:
         self.app_settings.set_weekly_pricing_update_enabled(enabled, save=save)
 
+    def is_convergence_fast_forward_enabled(self) -> bool:
+        return self.app_settings.is_convergence_fast_forward_enabled()
+
+    def set_convergence_fast_forward_enabled(self, enabled: bool, save: bool = True) -> None:
+        self.app_settings.set_convergence_fast_forward_enabled(enabled, save=save)
+
     def reset(self, save: bool = True) -> None:
         """Resets all registered agents to enabled state and resets orchestration mode to sandwich default."""
         self.enabled_agents.clear()
@@ -1192,6 +1201,14 @@ def is_weekly_pricing_update_enabled() -> bool:
 
 def set_weekly_pricing_update_enabled(enabled: bool, save: bool = True) -> None:
     settings_manager.set_weekly_pricing_update_enabled(enabled, save=save)
+
+
+def is_convergence_fast_forward_enabled() -> bool:
+    return settings_manager.is_convergence_fast_forward_enabled()
+
+
+def set_convergence_fast_forward_enabled(enabled: bool, save: bool = True) -> None:
+    settings_manager.set_convergence_fast_forward_enabled(enabled, save=save)
 
 
 def save_enabled_agents() -> None:

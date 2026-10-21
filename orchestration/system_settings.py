@@ -88,10 +88,15 @@ class SystemSettingsManager:
             "global_auth_failure_burst_limit": 25,
             "max_tracker_entries": 1000,
         }
+        self.convergence_consecutive_threshold: int = 2
+        self.challenger_agents: list[str] = ["agent-10003", "agent-10002"]
+        self.rebuttal_agent: str = "agent-10017"
         self.dialectical_stress_test: dict[str, Any] = {
             "enabled": True,
-            "challenger_agent": "agent-10017",
-            "rebuttal_agent": "agent-10001",
+            "challenger_agents": ["agent-10003", "agent-10002"],
+            "challenger_agent": "agent-10003",
+            "rebuttal_agent": "agent-10017",
+            "consecutive_threshold": 2,
             "max_stress_rounds": 1,
         }
         self._debate_turn_pacing_manually_set: bool = False
@@ -210,12 +215,29 @@ class SystemSettingsManager:
                     "global_auth_failure_burst_limit": int(raw_sbl.get("global_auth_failure_burst_limit", 25)),
                     "max_tracker_entries": int(raw_sbl.get("max_tracker_entries", 1000)),
                 }
+            self.convergence_consecutive_threshold = int(
+                data.get("convergence_consecutive_threshold", 2)
+            )
+            raw_challengers = data.get("challenger_agents")
+            if isinstance(raw_challengers, list):
+                self.challenger_agents = [str(c) for c in raw_challengers if str(c).strip()]
+            else:
+                self.challenger_agents = ["agent-10003", "agent-10002"]
+            self.rebuttal_agent = str(data.get("rebuttal_agent", "agent-10017"))
+
             raw_dst = data.get("dialectical_stress_test", {})
             if isinstance(raw_dst, dict):
+                dst_challengers = raw_dst.get("challenger_agents", self.challenger_agents)
+                if not isinstance(dst_challengers, list):
+                    dst_challengers = self.challenger_agents
+                c_single = str(raw_dst.get("challenger_agent", dst_challengers[0] if dst_challengers else "agent-10003"))
+                r_agent = str(raw_dst.get("rebuttal_agent", self.rebuttal_agent))
                 self.dialectical_stress_test = {
                     "enabled": bool(raw_dst.get("enabled", True)),
-                    "challenger_agent": str(raw_dst.get("challenger_agent", "agent-10017")),
-                    "rebuttal_agent": str(raw_dst.get("rebuttal_agent", "agent-10001")),
+                    "challenger_agents": [str(c) for c in dst_challengers],
+                    "challenger_agent": c_single,
+                    "rebuttal_agent": r_agent,
+                    "consecutive_threshold": int(raw_dst.get("consecutive_threshold", self.convergence_consecutive_threshold)),
                     "max_stress_rounds": int(raw_dst.get("max_stress_rounds", 1)),
                 }
 
@@ -334,6 +356,10 @@ class SystemSettingsManager:
             "web_fetch_user_agent": self.web_fetch_user_agent,
             "web_security": self.web_security,
             "security_burst_limits": self.security_burst_limits,
+            "convergence_consecutive_threshold": self.convergence_consecutive_threshold,
+            "challenger_agents": self.challenger_agents,
+            "rebuttal_agent": self.rebuttal_agent,
+            "dialectical_stress_test": self.dialectical_stress_test,
         })
 
         tmp_filename = f"{target_file.name}.tmp_{os.getpid()}_{int(time.time() * 1000)}"
@@ -710,6 +736,42 @@ class SystemSettingsManager:
         self.load()
         return dict(self.security_burst_limits)
 
+    def get_convergence_consecutive_threshold(self) -> int:
+        self.load()
+        return int(self.convergence_consecutive_threshold)
+
+    def set_convergence_consecutive_threshold(self, val: int, save: bool = True) -> None:
+        self.convergence_consecutive_threshold = max(1, int(val))
+        if save:
+            self.save()
+        logger.info(f"[SYSTEM_SETTINGS] Set convergence_consecutive_threshold to {self.convergence_consecutive_threshold}.")
+
+    def get_challenger_agents(self) -> list[str]:
+        self.load()
+        return list(self.challenger_agents)
+
+    def set_challenger_agents(self, agents: list[str], save: bool = True) -> None:
+        self.challenger_agents = [str(a).strip() for a in agents if str(a).strip()]
+        self.dialectical_stress_test["challenger_agents"] = list(self.challenger_agents)
+        if self.challenger_agents:
+            self.dialectical_stress_test["challenger_agent"] = self.challenger_agents[0]
+        if save:
+            self.save()
+        logger.info(f"[SYSTEM_SETTINGS] Set challenger_agents to {self.challenger_agents}.")
+
+    def get_rebuttal_agent(self) -> str:
+        self.load()
+        return str(self.rebuttal_agent)
+
+    def set_rebuttal_agent(self, agent: str, save: bool = True) -> None:
+        clean = str(agent).strip()
+        if clean:
+            self.rebuttal_agent = clean
+            self.dialectical_stress_test["rebuttal_agent"] = clean
+            if save:
+                self.save()
+            logger.info(f"[SYSTEM_SETTINGS] Set rebuttal_agent to '{self.rebuttal_agent}'.")
+
 
 system_settings_manager = SystemSettingsManager()
 
@@ -921,6 +983,30 @@ def get_dialectical_stress_test_config() -> dict[str, Any]:
 def is_dialectical_stress_test_enabled() -> bool:
     system_settings_manager.load()
     return bool(system_settings_manager.dialectical_stress_test.get("enabled", True))
+
+
+def get_convergence_consecutive_threshold() -> int:
+    return system_settings_manager.get_convergence_consecutive_threshold()
+
+
+def set_convergence_consecutive_threshold(val: int, save: bool = True) -> None:
+    system_settings_manager.set_convergence_consecutive_threshold(val, save=save)
+
+
+def get_challenger_agents() -> list[str]:
+    return system_settings_manager.get_challenger_agents()
+
+
+def set_challenger_agents(agents: list[str], save: bool = True) -> None:
+    system_settings_manager.set_challenger_agents(agents, save=save)
+
+
+def get_rebuttal_agent() -> str:
+    return system_settings_manager.get_rebuttal_agent()
+
+
+def set_rebuttal_agent(agent: str, save: bool = True) -> None:
+    system_settings_manager.set_rebuttal_agent(agent, save=save)
 
 
 

@@ -31,6 +31,7 @@ class SandwichOrchestrator:
         end_chain: list[str] | None = None,
         fixed_chain: list[str] | None = None,
         agents_map: dict[str, dict[str, Any]] | None = None,
+        standby_agents: set[str] | None = None,
     ):
         mode_val = mode.value if isinstance(mode, OrchestrationMode) else str(mode)
         self.mode = mode_val.lower()
@@ -38,6 +39,7 @@ class SandwichOrchestrator:
         self.end_chain = list(end_chain or [])
         self.fixed_chain = list(fixed_chain or [])
         self.agents_map = agents_map or {}
+        self.standby_agents = set(standby_agents or [])
 
     def build_initial_sequence(
         self,
@@ -57,45 +59,22 @@ class SandwichOrchestrator:
                 return [a for a in self.fixed_chain if a in valid_available]
             return valid_available
 
-        # Sandwich Mode: start_chain -> middle_pool -> [dialectical_stress_test] -> end_chain
+        # Sandwich Mode: start_chain -> middle_pool -> end_chain
         start = [a for a in self.start_chain if a in valid_available]
         end = [a for a in self.end_chain if a in valid_available]
 
         start_set = set(start)
         end_set = set(end)
+        standby_set = set(self.standby_agents)
 
-        stress_agents: list[str] = []
-        try:
-            from orchestration.system_settings import (
-                get_dialectical_stress_test_config,
-                is_dialectical_stress_test_enabled,
-            )
-
-            if is_dialectical_stress_test_enabled():
-                stress_cfg = get_dialectical_stress_test_config()
-                c_agent = stress_cfg.get("challenger_agent", "agent-10017")
-                r_agent = stress_cfg.get("rebuttal_agent", "agent-10001")
-                for a in (c_agent, r_agent):
-                    if (
-                        a
-                        and a in valid_available
-                        and a not in start_set
-                        and a not in end_set
-                        and a not in stress_agents
-                    ):
-                        stress_agents.append(a)
-        except Exception as e:
-            logger.debug(f"[ORCHESTRATOR] Stress test config check: {e}")
-
-        stress_set = set(stress_agents)
         middle = [
             a
             for a in valid_available
-            if a not in start_set and a not in end_set and a not in stress_set
+            if a not in start_set and a not in end_set and a not in standby_set
         ]
 
-        # Combine into complete remaining sequence
-        return start + middle + stress_agents + end
+        # Combine into complete remaining sequence (standby agents enter dynamically via stress-test)
+        return start + middle + end
 
     def build_dialectic_plan(
         self,
@@ -118,23 +97,20 @@ class SandwichOrchestrator:
         rebuttal: list[str] = []
         try:
             from orchestration.system_settings import (
-                get_dialectical_stress_test_config,
+                get_rebuttal_agent,
                 is_dialectical_stress_test_enabled,
             )
 
             if is_dialectical_stress_test_enabled():
-                stress_cfg = get_dialectical_stress_test_config()
-                c_agent = stress_cfg.get("challenger_agent", "agent-10017")
-                r_agent = stress_cfg.get("rebuttal_agent", "agent-10001")
-                for a in (c_agent, r_agent):
-                    if (
-                        a
-                        and a in valid_available
-                        and a not in framing_set
-                        and a not in closing_set
-                        and a not in rebuttal
-                    ):
-                        rebuttal.append(a)
+                r_agent = get_rebuttal_agent()
+                if (
+                    r_agent
+                    and r_agent in valid_available
+                    and r_agent not in framing_set
+                    and r_agent not in closing_set
+                    and r_agent not in rebuttal
+                ):
+                    rebuttal.append(r_agent)
         except Exception as e:
             logger.debug(f"[ORCHESTRATOR] Stress test config in dialectic plan: {e}")
 
@@ -157,6 +133,7 @@ class SandwichOrchestrator:
         remaining_pool: list[str],
         is_custom_flow: bool = False,
         is_open_debate: bool = False,
+        current_speaker: str | None = None,
     ) -> tuple[str | None, list[str]]:
         """
         Determines the designated next agent and eligible remaining agents for prompt injection
@@ -165,6 +142,23 @@ class SandwichOrchestrator:
         """
         if not remaining_pool:
             return None, []
+
+        rebuttal_key: str | None = None
+        try:
+            from orchestration.system_settings import get_rebuttal_agent
+
+            rebuttal_key = get_rebuttal_agent()
+        except Exception:
+            pass
+
+        standby_set = set(self.standby_agents)
+        if rebuttal_key:
+            standby_set.add(rebuttal_key)
+
+        # 1. Handoff Enforcement Between Challenger and RebuttalAdvocate (TKT-823)
+        # When remaining_pool begins with rebuttal_key (Challenger is currently speaking and rebuttal_key is at remaining_pool[0])
+        if remaining_pool and ((rebuttal_key and remaining_pool[0] == rebuttal_key) or remaining_pool[0] in standby_set):
+            return remaining_pool[0], [remaining_pool[0]]
 
         if is_open_debate:
             designated = remaining_pool[0] if len(remaining_pool) == 1 else None
@@ -175,10 +169,21 @@ class SandwichOrchestrator:
 
         start_set = set(self.start_chain)
         end_set = set(self.end_chain)
+
+        # 2. When RebuttalAdvocate is currently speaking and middle pool specialists remain:
+        # Allow nominating any remaining middle-pool specialist (Verdict B) or closing chain (Verdict A)
+        if current_speaker and (current_speaker in standby_set or current_speaker == rebuttal_key):
+            remaining_middle = [
+                k for k in remaining_pool if k not in start_set and k not in end_set and k not in standby_set
+            ]
+            if remaining_middle:
+                eligible = list(remaining_middle) + (self.end_chain[:1] if self.end_chain else [])
+                return None, eligible
+
         middle_pool_set = {
-            k for k in self.agents_map if k not in start_set and k not in end_set
+            k for k in self.agents_map if k not in start_set and k not in end_set and k not in standby_set
         } if self.agents_map else {
-            k for k in remaining_pool if k not in start_set and k not in end_set
+            k for k in remaining_pool if k not in start_set and k not in end_set and k not in standby_set
         }
 
         remaining_middle = [k for k in remaining_pool if k in middle_pool_set]

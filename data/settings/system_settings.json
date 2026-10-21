@@ -53,10 +53,21 @@
     "global_auth_failure_burst_limit": 25,
     "max_tracker_entries": 1000
   },
+  "convergence_consecutive_threshold": 2,
+  "challenger_agents": [
+    "agent-10003",
+    "agent-10002"
+  ],
+  "rebuttal_agent": "agent-10017",
   "dialectical_stress_test": {
     "enabled": true,
-    "challenger_agent": "agent-10017",
-    "rebuttal_agent": "agent-10001",
+    "challenger_agents": [
+      "agent-10003",
+      "agent-10002"
+    ],
+    "challenger_agent": "agent-10003",
+    "rebuttal_agent": "agent-10017",
+    "consecutive_threshold": 2,
     "max_stress_rounds": 1
   }
 }

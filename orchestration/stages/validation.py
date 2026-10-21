@@ -560,7 +560,7 @@ class ValidationStage:
                     ctx.channel_id, ctx.thread_ts, remaining_pool
                 )
 
-            elif tagged:
+            elif tagged and not getattr(ctx, "target_agent_override", None):
                 if effective_excluded:
                     tagged = [a for a in tagged if a not in effective_excluded]
                 for inc in effective_included:
@@ -601,6 +601,9 @@ class ValidationStage:
                 curr_remaining = thread_state_manager.get_remaining_agents(
                     ctx.channel_id, ctx.thread_ts, default=get_initial_agents()
                 )
+                if getattr(ctx, "target_agent_override", None) and curr_remaining:
+                    if ctx.agent_key in curr_remaining:
+                        curr_remaining.remove(ctx.agent_key)
                 if effective_excluded:
                     curr_remaining = [
                         a for a in curr_remaining if a not in effective_excluded
