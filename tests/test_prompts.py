@@ -1,5 +1,7 @@
-from core.config import AGENTS_CONFIG
+from orchestration.agent_settings import get_agents_config
 from prompts.builder import SHORT_OUTPUT_AGENTS, build_agent_prompt
+
+AGENTS_CONFIG = get_agents_config()
 
 
 def test_all_agents_configured():

@@ -69,9 +69,15 @@ _SECRET_PATTERNS: list[tuple[re.Pattern, str]] = [
         ),
         r"\1\2 <REDACTED_SECRET>",
     ),
-    # Standalone 32-64 char hex hashes/tokens (MD5/SHA/API keys)
+    # Hex hashes/tokens preceded by secret/token/hash context (avoiding bare commit SHAs or digests)
     (
-        re.compile(r"\b[a-f0-9]{32,64}\b", re.IGNORECASE),
+        re.compile(
+            r"(?i)\b([A-Za-z0-9_]*(?:token|secret|hash|salt|seed))\s*([:=])\s*['\"]?([a-f0-9]{32,64})['\"]?"
+        ),
+        r"\1\2 <TOKEN_HASH>",
+    ),
+    (
+        re.compile(r"(?i)\b(?:sk[_-]|key[_-]|token[_-]|secret[_-])[a-f0-9]{24,64}\b"),
         "<TOKEN_HASH>",
     ),
 ]
@@ -195,17 +201,18 @@ class PIIMasker:
             def replacer(match: re.Match) -> str:
                 original = match.group(0)
                 
-                if base_token == r"\1\2 <REDACTED_SECRET>" and len(match.groups()) == 3:
+                if base_token in (r"\1\2 <REDACTED_SECRET>", r"\1\2 <TOKEN_HASH>") and len(match.groups()) == 3:
                     prefix = match.group(1) + match.group(2) + " "
                     secret_val = match.group(3)
-                    
+                    token_name = "TOKEN_HASH" if "TOKEN_HASH" in base_token else "REDACTED_SECRET"
+
                     for t, v in token_mapping.items():
-                        if v == secret_val and t.startswith("<REDACTED_SECRET_"):
+                        if v == secret_val and t.startswith(f"<{token_name}_"):
                             return prefix + t
-                            
-                    idx = counts.get("REDACTED_SECRET", 0)
-                    counts["REDACTED_SECRET"] = idx + 1
-                    token_key = f"<REDACTED_SECRET_{idx}>"
+
+                    idx = counts.get(token_name, 0)
+                    counts[token_name] = idx + 1
+                    token_key = f"<{token_name}_{idx}>"
                     token_mapping[token_key] = secret_val
                     return prefix + token_key
                 
@@ -275,17 +282,30 @@ class PIIMasker:
 
         return masked_text, token_mapping
 
+    async def async_mask(
+        self, text: str, existing_mapping: dict[str, str] | None = None
+    ) -> tuple[str, dict[str, str]]:
+        """
+        Asynchronously masks PII in text by offloading Presidio CPU-bound NER to a worker thread.
+        """
+        import asyncio
+
+        self._init_presidio_if_available()
+        if self._presidio_analyzer is not None:
+            return await asyncio.to_thread(self.mask, text, existing_mapping)
+        return self.mask(text, existing_mapping)
+
     def unmask(self, text: str, token_mapping: dict[str, str]) -> str:
         """
-        Restores tokenized PII back to original values in the text.
+        Restores tokenized PII back to original values in the text using a single-pass compiled regex.
         """
         if not text or not token_mapping:
             return text
-            
-        unmasked = text
-        for token, original in token_mapping.items():
-            unmasked = unmasked.replace(token, original)
-        return unmasked
+
+        pattern = re.compile(
+            "|".join(re.escape(k) for k in sorted(token_mapping.keys(), key=len, reverse=True))
+        )
+        return pattern.sub(lambda m: token_mapping[m.group(0)], text)
 
 
 # Global singleton instance

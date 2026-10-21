@@ -2,7 +2,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from core.config import AGENTS_CONFIG
+from orchestration.agent_settings import get_agents_config
+AGENTS_CONFIG = get_agents_config()
 from core.llm_utils import (
     classify_agent_error,
     execute_llm_with_retry,

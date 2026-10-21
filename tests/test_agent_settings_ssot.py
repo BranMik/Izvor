@@ -72,8 +72,8 @@ def test_agent_settings_ssot_loading():
         )
 
         assert mgr.is_running_from_backup is False
-        assert mgr.is_circuit_breaker_enabled() is True
-        assert mgr.get_circuit_breaker_threshold() == 2.50
+        assert mgr.app_settings.is_circuit_breaker_enabled() is True
+        assert mgr.app_settings.get_circuit_breaker_threshold() == 2.50
         assert "agent-10001" in mgr.agents_config
         assert mgr.agents_config["agent-10001"]["model"] == "gemini/gemini-3.8-flash"
         assert mgr.agents_config["agent-10001"]["icon_url"] == "static/avatar_25.png"
@@ -170,7 +170,7 @@ def test_emergency_backup_failover_non_destructive():
         assert mgr.backup_error_reason is not None
         assert "Unreadable/corrupted JSON" in mgr.backup_error_reason
         assert "agent-10001" in mgr.agents_config
-        assert mgr.is_circuit_breaker_enabled() is True
+        assert mgr.app_settings.is_circuit_breaker_enabled() is True
 
         # Non-destructive check: active file MUST still contain corrupted content untouched
         with open(settings_file, "r", encoding="utf-8") as f:
@@ -383,7 +383,8 @@ async def test_turn_pipeline_propagates_agent_avatar_icon():
     # Stage 5: post to Slack and verify icon_url passed
     mock_post = AsyncMock(return_value={"ok": True, "ts": "12345.9999"})
     pipeline.slack_poster = mock_post
-    with patch("services.slack_client.post_agent_response", mock_post), \
+    with patch("adapters.slack.workspace_adapter.post_agent_response", mock_post), \
+         patch("services.slack_client.post_agent_response", mock_post), \
          patch("orchestration.agent_router.post_agent_response", mock_post), \
          patch("orchestration.agent_router.trigger_thread_notes_update"), \
          patch("orchestration.agent_router.trigger_usage_update"), \
@@ -399,7 +400,7 @@ async def test_turn_pipeline_propagates_agent_avatar_icon():
 
 
 def test_scribe_settings_toggle_and_app_home_view():
-    from orchestration.agent_settings import is_scribe_enabled, set_scribe_enabled
+    from orchestration.app_settings import is_scribe_enabled, set_scribe_enabled
     from services.slack_client import build_app_home_view
 
     # Test toggling scribe in settings manager
@@ -438,7 +439,7 @@ def test_scribe_settings_toggle_and_app_home_view():
 
 
 def test_weekly_pricing_settings_toggle_and_app_home_view():
-    from orchestration.agent_settings import (
+    from orchestration.app_settings import (
         is_weekly_pricing_update_enabled,
         set_weekly_pricing_update_enabled,
     )

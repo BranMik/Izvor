@@ -17,16 +17,23 @@ SHARED_DIR = PROMPTS_DIR / "shared"
 
 
 @cache
-def _read_prompt_file(path: Path) -> str:
+def _read_prompt_file_cached(path_str: str, mtime_ns: int) -> str:
+    path = Path(path_str)
     if not path.exists():
         raise FileNotFoundError(f"Prompt file not found: {path}")
     return path.read_text(encoding="utf-8").strip()
 
 
+def _read_prompt_file(path: Path) -> str:
+    if not path.exists():
+        raise FileNotFoundError(f"Prompt file not found: {path}")
+    mtime_ns = path.stat().st_mtime_ns
+    return _read_prompt_file_cached(str(path.resolve()), mtime_ns)
+
+
 @cache
-def load_system_prompt(name: str, fallback: str = "") -> str:
-    """Loads a system agent prompt markdown file from SYSTEM_AGENTS_DIR with caching and fallback."""
-    file_path = SYSTEM_AGENTS_DIR / f"{name}.md"
+def _load_system_prompt_cached(path_str: str, mtime_ns: int, fallback: str) -> str:
+    file_path = Path(path_str)
     if file_path.exists():
         try:
             return file_path.read_text(encoding="utf-8").strip()
@@ -35,25 +42,65 @@ def load_system_prompt(name: str, fallback: str = "") -> str:
     return fallback.strip()
 
 
+def load_system_prompt(name: str, fallback: str = "") -> str:
+    """Loads a system agent prompt markdown file from SYSTEM_AGENTS_DIR with caching and fallback."""
+    file_path = SYSTEM_AGENTS_DIR / f"{name}.md"
+    if file_path.exists():
+        mtime_ns = file_path.stat().st_mtime_ns
+        return _load_system_prompt_cached(str(file_path.resolve()), mtime_ns, fallback)
+    return fallback.strip()
 
-def _load_short_output_agents() -> set[str]:
-    """Loads agent keys configured with is_short_output: true from agent_settings.json."""
-    settings_path = AGENT_SETTINGS_FILE
-    if settings_path.exists():
-        try:
-            with open(settings_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
+
+def get_short_output_agents() -> set[str]:
+    """Dynamically returns agent keys configured with is_short_output: true from settings_manager."""
+    try:
+        from orchestration.agent_settings import settings_manager
+        cfg = settings_manager.get_agents_config()
+        if cfg:
             return {
-                k for k, v in data.get("agents", {}).items()
+                k for k, v in cfg.items()
                 if isinstance(v, dict) and v.get("is_short_output") is True
             }
-        except (OSError, json.JSONDecodeError, UnicodeError, AttributeError, ValueError) as e:
-            logger.debug(f"[PROMPT BUILDER] Short output settings error: {e}")
+        if hasattr(settings_manager, "_raw_data") and settings_manager._raw_data:
+            raw_agents = settings_manager._raw_data.get("agents", {})
+            if isinstance(raw_agents, dict):
+                return {
+                    k for k, v in raw_agents.items()
+                    if isinstance(v, dict) and v.get("is_short_output") is True
+                }
+    except Exception as e:
+        logger.debug(f"[PROMPT BUILDER] Error retrieving short output agents: {e}")
     return set()
 
 
-# Agents restricted to a concise 100 words hard limit (loaded from agent_settings.json)
-SHORT_OUTPUT_AGENTS: set[str] = _load_short_output_agents()
+class _DynamicAgentSet(set):
+    """Dynamically resolves agents from settings_manager while providing a set interface."""
+
+    def __init__(self, fetcher: Any):
+        super().__init__()
+        self._fetcher = fetcher
+
+    def _sync(self) -> None:
+        fetched = self._fetcher()
+        if fetched:
+            super().clear()
+            super().update(fetched)
+
+    def __contains__(self, item: Any) -> bool:
+        self._sync()
+        return super().__contains__(item)
+
+    def __len__(self) -> int:
+        self._sync()
+        return super().__len__()
+
+    def __iter__(self) -> Any:
+        self._sync()
+        return super().__iter__()
+
+
+# Dynamic sets preserving backward compatibility without import-time disk reads
+SHORT_OUTPUT_AGENTS: set[str] = _DynamicAgentSet(get_short_output_agents)
 
 
 def is_short_output_agent(agent_key: str) -> bool:
@@ -63,46 +110,42 @@ def is_short_output_agent(agent_key: str) -> bool:
         agent_cfg = settings_manager.get_agent(agent_key)
         if agent_cfg and agent_cfg.get("is_short_output") is True:
             return True
+        cfg = settings_manager.get_agents_config().get(agent_key)
+        if cfg and cfg.get("is_short_output") is True:
+            return True
+        if hasattr(settings_manager, "_raw_data") and settings_manager._raw_data:
+            raw_a = settings_manager._raw_data.get("agents", {}).get(agent_key, {})
+            if isinstance(raw_a, dict) and raw_a.get("is_short_output") is True:
+                return True
     except Exception as e:
         logger.debug(f"[PROMPT BUILDER] Dynamic short output check fallback: {e}")
     return agent_key in SHORT_OUTPUT_AGENTS
 
 
-def _load_system_agents() -> set[str]:
-    """Loads agent keys configured as system agents from agent_settings.json metadata."""
-    settings_path = AGENT_SETTINGS_FILE
-    system_keys: set[str] = set()
-    system_keys.add("orchestrator")
-    system_keys.add("Orchestrator")
-    if settings_path.exists():
-        try:
-            with open(settings_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            if "orchestrator" in data:
-                orch = data["orchestrator"]
-                if isinstance(orch, dict) and orch.get("username"):
-                    system_keys.add(str(orch["username"]))
-            for sys_k, sys_v in data.get("system_agents", {}).items():
-                if isinstance(sys_v, dict):
-                    system_keys.add(sys_k)
-                    if sys_v.get("agent_key"):
-                        system_keys.add(str(sys_v["agent_key"]))
-                elif isinstance(sys_k, str):
-                    system_keys.add(sys_k)
-            for k, v in data.get("agents", {}).items():
-                if isinstance(v, dict) and v.get("is_system_agent") is True:
-                    system_keys.add(k)
-        except (OSError, json.JSONDecodeError, UnicodeError, AttributeError, ValueError) as e:
-            logger.debug(f"[PROMPT BUILDER] System agents settings error: {e}")
+def get_system_agents() -> set[str]:
+    """Dynamically queries system agents from settings_manager / core.config."""
+    system_keys: set[str] = {"orchestrator", "Orchestrator"}
+    try:
+        from orchestration.agent_settings import settings_manager
+        for k, v in settings_manager.system_agents_config.items():
+            system_keys.add(k)
+            if isinstance(v, dict) and v.get("agent_key"):
+                system_keys.add(str(v["agent_key"]))
+        for k, v in settings_manager.get_agents_config().items():
+            if isinstance(v, dict) and v.get("is_system_agent") is True:
+                system_keys.add(k)
+    except Exception as e:
+        logger.debug(f"[PROMPT BUILDER] Error loading system agents: {e}")
     return system_keys
 
 
-# System agents with self-contained prompts (loaded from agent_settings.json metadata)
-SYSTEM_AGENTS: set[str] = _load_system_agents()
+SYSTEM_AGENTS: set[str] = _DynamicAgentSet(get_system_agents)
 
 
 def is_system_agent(agent_key: str) -> bool:
     """Checks whether an agent is configured as a system agent via metadata or settings."""
+    if agent_key in ("orchestrator", "Orchestrator"):
+        return True
     try:
         from orchestration.agent_settings import settings_manager
         if settings_manager.is_system_agent(agent_key):
@@ -257,10 +300,13 @@ def build_agent_prompt(
         effective_skills = skills
         if effective_skills is None:
             try:
-                from core.config import AGENTS_CONFIG
-                effective_skills = AGENTS_CONFIG.get(agent_key, {}).get("skills", [])
+                from orchestration.agent_settings import get_agents_config
+
+                effective_skills = get_agents_config().get(agent_key, {}).get("skills", [])
             except (ImportError, AttributeError, KeyError, TypeError):
-                effective_skills = []
+                from core.config import AGENTS_CONFIG
+
+                effective_skills = AGENTS_CONFIG.get(agent_key, {}).get("skills", [])
 
         # Only inject catalog for skills this agent is authorized to load
         catalog_prompt = skill_registry.get_skills_catalog_prompt(allowed_skills=effective_skills)

@@ -27,7 +27,7 @@ from core.security_utils import wrap_untrusted_content
 from orchestration.turn_pipeline import TurnContext, TurnPipeline
 from orchestration.thread_skills_manager import thread_skills_manager
 from orchestration.workflow_manager import WorkflowManager
-from core.integrity_checks import AppIntegrityValidator
+from orchestration.integrity_checks import AppIntegrityValidator
 from services.security.guardrail import GuardrailService
 from orchestration.system_settings import set_guardrail_fail_mode
 from orchestration.app_settings import is_circuit_breaker_enabled

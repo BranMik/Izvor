@@ -27,11 +27,15 @@ logger = logging.getLogger(__name__)
 
 
 class ContextPrepStage:
-    def __init__(self, pipeline: Any):
-        self.pipeline = pipeline
     """Provides stage 3 context preparation and prompt construction for TurnPipeline."""
 
-
+    def __init__(self, deps: Any):
+        if hasattr(deps, "deps"):
+            self.deps = deps.deps
+            self.pipeline = deps
+        else:
+            self.deps = deps
+            self.pipeline = deps
 
     async def stage_prepare_context(
         self, ctx: TurnContext
@@ -43,9 +47,7 @@ class ContextPrepStage:
                 f"[ROUTER] Using in-memory history with {len(history)} messages."
             )
         else:
-            fetch_hist_fn = self.pipeline._get_hook(
-                "fetch_thread_history", fetch_thread_history
-            )
+            fetch_hist_fn = getattr(self.deps, "history_fetcher", None) or fetch_thread_history
             history = await fetch_hist_fn(
                 ctx.channel_id, ctx.thread_ts, bot_user_id=ctx.bot_user_id
             )

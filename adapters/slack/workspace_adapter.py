@@ -30,33 +30,20 @@ class SlackWorkspaceAdapter:
         post_agent_fn: Callable[..., Any] | None = None,
         update_msg_fn: Callable[..., Any] | None = None,
         post_system_fn: Callable[..., Any] | None = None,
-        hook_resolver: Callable[[str, Any], Any] | None = None,
     ) -> None:
         self._post_agent_fn = post_agent_fn
         self._update_msg_fn = update_msg_fn
         self._post_system_fn = post_system_fn
-        self._hook_resolver = hook_resolver
 
     def _resolve_post_fn(self) -> Callable[..., Any]:
-        if self._post_agent_fn is not None:
-            return self._post_agent_fn
-        if self._hook_resolver is not None:
-            return self._hook_resolver("post_agent_response", post_agent_response)
-        return post_agent_response
+        return self._post_agent_fn or post_agent_response
 
     def _resolve_update_fn(self) -> Callable[..., Any]:
-        if self._update_msg_fn is not None:
-            return self._update_msg_fn
-        if self._hook_resolver is not None:
-            return self._hook_resolver("update_slack_message", update_slack_message)
-        return update_slack_message
+        return self._update_msg_fn or update_slack_message
 
     def _resolve_system_fn(self) -> Callable[..., Any]:
-        if self._post_system_fn is not None:
-            return self._post_system_fn
-        if self._hook_resolver is not None:
-            return self._hook_resolver("post_system_message", post_system_message)
-        return post_system_message
+        return self._post_system_fn or post_system_message
+
 
     def format_outbound_text(self, markdown_text: str) -> str:
         """Translates standard markdown to Slack mrkdwn formatting."""

@@ -102,10 +102,65 @@ SYSTEM_AGENT_AVATAR = os.getenv("SYSTEM_AGENT_AVATAR", "static/image_99.png")
 USAGE_CHANNEL_NAME = os.getenv("USAGE_CHANNEL_NAME", "izvor-usage")
 USAGE_CHANNEL_ID = os.getenv("USAGE_CHANNEL_ID", "")
 
-# Shared in-memory configuration maps (populated by AgentSettingsManager from data/agent_settings.json)
-AGENTS_CONFIG: dict[str, dict[str, Any]] = {}
-SYSTEM_AGENTS_CONFIG: dict[str, dict[str, Any]] = {}
-ORCHESTRATOR_CONFIG: dict[str, Any] = {}
+
+def _load_system_agents_from_ssot() -> dict[str, dict[str, Any]]:
+    """Loads system_agents mapping directly from data/settings/agent_settings.json SSOT."""
+    settings_file = AGENT_SETTINGS_FILE
+    if not settings_file.exists():
+        return {}
+    try:
+        import json
+
+        with open(settings_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        raw = data.get("system_agents", {})
+        if isinstance(raw, dict):
+            return {k: v for k, v in raw.items() if isinstance(v, dict)}
+    except (OSError, json.JSONDecodeError, UnicodeError, AttributeError, ValueError) as e:
+        logger.debug(f"[CONFIG] System agent settings load error: {e}")
+    return {}
+
+
+def _load_agents_from_ssot() -> dict[str, dict[str, Any]]:
+    """Loads agents mapping directly from data/settings/agent_settings.json SSOT."""
+    settings_file = AGENT_SETTINGS_FILE
+    if not settings_file.exists():
+        return {}
+    try:
+        import json
+
+        with open(settings_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        raw = data.get("agents", {})
+        if isinstance(raw, dict):
+            return {k: v for k, v in raw.items() if isinstance(v, dict)}
+    except (OSError, json.JSONDecodeError, UnicodeError, AttributeError, ValueError) as e:
+        logger.debug(f"[CONFIG] Agent settings load error: {e}")
+    return {}
+
+
+def _load_orchestrator_from_ssot() -> dict[str, Any]:
+    """Loads orchestrator mapping directly from data/settings/agent_settings.json SSOT."""
+    settings_file = AGENT_SETTINGS_FILE
+    if not settings_file.exists():
+        return {}
+    try:
+        import json
+
+        with open(settings_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        raw = data.get("orchestrator", {})
+        if isinstance(raw, dict):
+            return dict(raw)
+    except (OSError, json.JSONDecodeError, UnicodeError, AttributeError, ValueError) as e:
+        logger.debug(f"[CONFIG] Orchestrator settings load error: {e}")
+    return {}
+
+
+# Shared in-memory configuration maps (populated from data/agent_settings.json SSOT)
+AGENTS_CONFIG: dict[str, dict[str, Any]] = _load_agents_from_ssot()
+SYSTEM_AGENTS_CONFIG: dict[str, dict[str, Any]] = _load_system_agents_from_ssot()
+ORCHESTRATOR_CONFIG: dict[str, Any] = _load_orchestrator_from_ssot()
 
 
 def _load_default_models_from_ssot() -> tuple[str, str]:
@@ -144,42 +199,6 @@ def get_default_reasoning_model() -> str:
     return DEFAULT_REASONING_MODEL
 
 
-def _load_system_agents_from_ssot() -> dict[str, dict[str, Any]]:
-    """Loads system_agents mapping directly from data/settings/agent_settings.json SSOT."""
-    settings_file = AGENT_SETTINGS_FILE
-    if not settings_file.exists():
-        return {}
-    try:
-        import json
-
-        with open(settings_file, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        raw = data.get("system_agents", {})
-        if isinstance(raw, dict):
-            return {k: v for k, v in raw.items() if isinstance(v, dict)}
-    except (OSError, json.JSONDecodeError, UnicodeError, AttributeError, ValueError) as e:
-        logger.debug(f"[CONFIG] System agent settings load error: {e}")
-    return {}
-
-
-def _load_agents_from_ssot() -> dict[str, dict[str, Any]]:
-    """Loads agents mapping directly from data/settings/agent_settings.json SSOT."""
-    settings_file = AGENT_SETTINGS_FILE
-    if not settings_file.exists():
-        return {}
-    try:
-        import json
-
-        with open(settings_file, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        raw = data.get("agents", {})
-        if isinstance(raw, dict):
-            return {k: v for k, v in raw.items() if isinstance(v, dict)}
-    except (OSError, json.JSONDecodeError, UnicodeError, AttributeError, ValueError) as e:
-        logger.debug(f"[CONFIG] Agent settings load error: {e}")
-    return {}
-
-
 def get_system_agent_model(name: str, fallback: str = "") -> str:
     """
     Retrieves the configured LLM model for a system agent from SSOT (data/agent_settings.json).
@@ -205,24 +224,6 @@ def get_system_agent_model(name: str, fallback: str = "") -> str:
             return str(entry["model"]).strip()
 
     return fallback or get_orchestrator_fast_model()
-
-
-def _load_orchestrator_from_ssot() -> dict[str, Any]:
-    """Loads orchestrator mapping directly from data/settings/agent_settings.json SSOT."""
-    settings_file = AGENT_SETTINGS_FILE
-    if not settings_file.exists():
-        return {}
-    try:
-        import json
-
-        with open(settings_file, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        raw = data.get("orchestrator", {})
-        if isinstance(raw, dict):
-            return dict(raw)
-    except (OSError, json.JSONDecodeError, UnicodeError, AttributeError, ValueError) as e:
-        logger.debug(f"[CONFIG] Orchestrator settings load error: {e}")
-    return {}
 
 
 def get_orchestrator_fast_model(fallback: str | None = None) -> str:

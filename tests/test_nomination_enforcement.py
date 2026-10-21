@@ -42,17 +42,10 @@ async def test_display_name_nomination_preserves_round_and_pops_retry(monkeypatc
     ctx.eligible_remaining_agents = []
     ctx.final_text = "I nominate /[The Sceptic] to share critical thoughts."
 
-    # Mock pipeline and post_agent_response
-    mock_pipeline = MagicMock()
-    mock_pipeline._get_hook = MagicMock(side_effect=lambda name, default=None: default)
-    mock_pipeline._sleep = AsyncMock()
-
+    # Pipeline and post_agent_response
+    mock_post = AsyncMock(return_value={"ts": "1700000088.9999"})
+    mock_pipeline = TurnPipeline(sleep_fn=AsyncMock(), slack_poster=mock_post)
     stage = PostRecordStage(mock_pipeline)
-
-    monkeypatch.setattr(
-        "orchestration.stages.post_record.post_agent_response",
-        AsyncMock(return_value={"ts": "1700000088.9999"}),
-    )
     monkeypatch.setattr(
         "orchestration.stages.post_record.trigger_usage_update",
         MagicMock(),

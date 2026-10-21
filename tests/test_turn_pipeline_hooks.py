@@ -41,12 +41,11 @@ def test_custom_tool_executor_cannot_bypass_authorization():
     assert is_agent_authorized_for_tool(ctx.agent_key, "write_document", authorized_skills=[]) is False
 
     # Execute tool via stage
-    exec_mcp_fn = pipeline._get_hook("execute_mcp_tool")
+    exec_mcp_fn = pipeline.deps.tool_executor
     assert exec_mcp_fn is mock_executor
 
 
 def test_tool_executor_injected_via_di():
     mock_executor = MagicMock(return_value='{"success": true}')
     pipeline = TurnPipeline(tool_executor=mock_executor)
-    hook = pipeline._get_hook("execute_mcp_tool")
-    assert hook is mock_executor
+    assert pipeline.deps.tool_executor is mock_executor

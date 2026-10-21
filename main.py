@@ -83,7 +83,7 @@ async def periodic_audit_integrity_guard():
     Periodically validates the active month's audit log integrity in a worker thread.
     If tampering or chain corruption is detected, dispatches an urgent admin alert.
     """
-    from core.integrity_checks import AppIntegrityValidator
+    from orchestration.integrity_checks import AppIntegrityValidator
     from services.audit_logger import send_admin_audit_alert
 
     while True:
@@ -107,6 +107,28 @@ async def periodic_audit_integrity_guard():
             break
         except Exception:
             logger.exception("[SECURITY GUARD] Error during periodic audit integrity check")
+
+
+async def periodic_retention_prune():
+    """
+    Periodically prunes expired database records (checkpoints, traces, event deduplication, etc.)
+    every 24 hours.
+    """
+    from services.retention_service import prune_expired_records
+
+    try:
+        await asyncio.to_thread(prune_expired_records)
+    except Exception:
+        logger.exception("[RETENTION] Error during startup retention prune")
+
+    while True:
+        try:
+            await asyncio.sleep(86400)
+            await asyncio.to_thread(prune_expired_records)
+        except asyncio.CancelledError:
+            break
+        except Exception:
+            logger.exception("[RETENTION] Error during periodic retention prune")
 
 
 @asynccontextmanager
@@ -142,7 +164,7 @@ async def lifespan(app: FastAPI):
     logger.info(f"[STARTUP] Loaded {len(enabled)} enabled debate agents from persistent storage.")
 
     # Run startup audit log integrity and HMAC key continuity check
-    from core.integrity_checks import AppIntegrityValidator
+    from orchestration.integrity_checks import AppIntegrityValidator
     from services.audit_logger import send_admin_audit_alert
 
     audit_status = AppIntegrityValidator.check_audit_log_integrity()
@@ -206,6 +228,7 @@ async def lifespan(app: FastAPI):
     warmup_task = asyncio.create_task(warm_up_pricing_cache())
     cleanup_task = asyncio.create_task(periodic_thread_state_cleanup())
     audit_guard_task = asyncio.create_task(periodic_audit_integrity_guard())
+    retention_task = asyncio.create_task(periodic_retention_prune())
     rag_sync_task = asyncio.create_task(rag_sync_engine.reconcile())
     try:
         yield
@@ -215,6 +238,7 @@ async def lifespan(app: FastAPI):
         warmup_task.cancel()
         cleanup_task.cancel()
         audit_guard_task.cancel()
+        retention_task.cancel()
         rag_sync_task.cancel()
 
 
@@ -369,7 +393,7 @@ async def trigger_rag_reconciliation(admin_user: str = Depends(verify_admin_basi
 @app.get("/api/audit/status", dependencies=[Depends(verify_admin_basic_auth)])
 async def get_audit_status():
     """Returns non-repudiable audit log cryptographic integrity status and statistics."""
-    from core.integrity_checks import AppIntegrityValidator
+    from orchestration.integrity_checks import AppIntegrityValidator
 
     return AppIntegrityValidator.check_audit_log_integrity()
 

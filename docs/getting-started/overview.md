@@ -54,8 +54,11 @@ graph TD
 ### 1. Multi-Persona Discussion Topologies
 Izvor does not rely on rigid turn-taking. It supports distinct workflow topologies:
 - **🥪 Sandwich Mode**: Starts with designated initial thinkers (*Start Chain*), transitions through an open debate or peer-nominated pool (*Middle Pool*), and concludes with an authoritative synthesis by designated closers (*End Chain*).
+- **⚡ Parallel Dialectic (Scatter-Gather)**: Specialist agents explore concurrently in isolated `asyncio.TaskGroup` branches with zero anchor bias, followed by dialectical synthesis by the designated closing agent.
 - **🎯 Fixed Mode**: Executes an ordered, sequential chain of personas defined by the operator or preset.
 - **⚡ Open Debate Mode (`/open_debate`)**: Designates an initial speaker and runs an open debate without fixed start/end chains.
+- **📝 Live Discussion Scribe**: Live synthesis and real-time pinned summary generation in discussion threads.
+- **⚡ Consensus Convergence Fast-Forward**: Early consensus detection and stress-testing (Challenger → Rebuttal) to fast-forward resolved deliberations.
 - **Dynamic Peer Nomination**: Personas pass the baton using unicode-safe tags (e.g., `/[Security Architect]`, `/[Scope Optimizer]`, or `/[Tactician]`), parsed automatically by the [`EntityResolver`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/pipeline/entity_resolver/resolver.py).
 
 ### 2. Thread State & Memory Safety (Hybrid In-Memory + SQLite)
@@ -79,7 +82,7 @@ Izvor does not rely on rigid turn-taking. It supports distinct workflow topologi
 
 ### 6. Non-Repudiable Cryptographic Audit Logging
 - Every administrative action, security event, and RAG synchronization is recorded in a cryptographically chained, HMAC-verified JSONL audit log ([`services/audit_logger.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/services/audit_logger.py)).
-- Continuous integrity scans ([`core/integrity_checks.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/core/integrity_checks.py)) detect any tampering or key mismatch, instantly dispatching high-priority admin alerts.
+- Continuous integrity scans ([`orchestration/integrity_checks.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/orchestration/integrity_checks.py)) detect any tampering or key mismatch, instantly dispatching high-priority admin alerts.
 
 ---
 

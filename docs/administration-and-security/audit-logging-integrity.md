@@ -43,7 +43,7 @@ When `AUDIT_HMAC_SECRET` is configured:
 To detect tampering, file truncation, or key discrepancies immediately, Izvor runs two validation layers:
 
 ### 1. Startup Verification
-During server boot in [`main.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/main.py#L112-L166), [`AppIntegrityValidator.check_audit_log_integrity()`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/core/integrity_checks.py) scans all historical and active audit files:
+During server boot in [`main.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/main.py#L112-L166), [`AppIntegrityValidator.check_audit_log_integrity()`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/orchestration/integrity_checks.py) scans all historical and active audit files:
 - Verifies line-by-line hash continuity.
 - Verifies sequence number monotonicity (no missing or skipped lines).
 - Confirms HMAC secret continuity.

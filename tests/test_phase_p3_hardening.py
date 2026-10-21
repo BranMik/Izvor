@@ -18,8 +18,9 @@ from services.rag.manifest_manager import ManifestManager
 from services.slack_client import cleanup_old_downloads
 from services.thread_notes_writer import _atomic_write_file
 from services.web_tools import PinnedIPTransport
-from skills.knowledge_base_rag.tools import async_execute_search_knowledge_rag, execute_search_knowledge_rag
+from skills.knowledge_base_rag.tools import TOOL_HANDLERS, async_execute_search_knowledge_rag
 from skills.loader import ALL_INTERNAL_SKILLS, SkillDefinition, SkillRegistry
+
 
 
 # =========================================================================
@@ -191,10 +192,12 @@ def test_tkt_726_skill_registry_execute_tool_async():
         assert "Permission denied" in unauth_res
 
         # Test RAG async tool handler
-        assert hasattr(execute_search_knowledge_rag, "_async_fn")
-        assert execute_search_knowledge_rag._async_fn is async_execute_search_knowledge_rag
+        import inspect
+        assert TOOL_HANDLERS["search_knowledge_rag"] is async_execute_search_knowledge_rag
+        assert inspect.iscoroutinefunction(TOOL_HANDLERS["search_knowledge_rag"])
 
     asyncio.run(_test())
+
 
 
 # =========================================================================

@@ -8,6 +8,9 @@ convergence stress-testing, and flat-history synchronization.
 from __future__ import annotations
 
 import asyncio
+import copy
+from dataclasses import dataclass
+import inspect
 import logging
 from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
@@ -15,9 +18,17 @@ from core.config import get_max_discussion_turns
 from core.models import OrchestrationMode
 from orchestration import agent_settings
 from orchestration.thread_state import thread_state_manager
+from pipeline.spend_governance.circuit_breaker import spend_governance
 from services.slack_client import fetch_thread_history
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class ScatterBranchResult:
+    agent_key: str
+    response: dict[str, Any] | None
+    error: Exception | None = None
 
 
 def get_orchestration_mode() -> str:
@@ -172,34 +183,75 @@ class DiscussionLoop:
                             f"[ORCHESTRATOR] Entering Parallel Scatter Phase for {thread_key}: running {scatter_agents} concurrently."
                         )
 
-                        async def _run_scatter_branch(agent_k: str) -> dict[str, Any]:
-                            branch_history = list(accumulated_history)
-                            return await self.turn_executor(
-                                channel_id=channel_id,
-                                thread_ts=thread_ts,
-                                raw_text=initial_raw_text,
-                                bot_user_id=bot_user_id,
-                                icon_url=icon_url,
-                                is_bot_trigger=True,
-                                run_internal_loop=False,
-                                in_memory_history=branch_history,
-                                user_id=user_id,
-                                target_agent_override=agent_k,
+                        async def _run_scatter_branch(agent_k: str) -> ScatterBranchResult:
+                            reservation_key = f"{channel_id}:{thread_ts}:{agent_k}"
+                            spend_governance.reserve_budget(
+                                session_id=f"{channel_id}:{thread_ts}",
+                                reservation_id=reservation_key,
+                                estimated_usd=0.05,
                             )
+                            try:
+                                branch_history = copy.deepcopy(accumulated_history)
+                                branch_kwargs = {
+                                    "channel_id": channel_id,
+                                    "thread_ts": thread_ts,
+                                    "raw_text": initial_raw_text,
+                                    "bot_user_id": bot_user_id,
+                                    "icon_url": icon_url,
+                                    "is_bot_trigger": True,
+                                    "run_internal_loop": False,
+                                    "in_memory_history": branch_history,
+                                    "user_id": user_id,
+                                    "target_agent_override": agent_k,
+                                }
+                                executor_sig = inspect.signature(self.turn_executor)
+                                if (
+                                    "isolated_branch" in executor_sig.parameters
+                                    or any(p.kind == inspect.Parameter.VAR_KEYWORD for p in executor_sig.parameters.values())
+                                ):
+                                    branch_kwargs["isolated_branch"] = True
 
-                        scatter_results = await asyncio.gather(
-                            *[_run_scatter_branch(a) for a in scatter_agents],
-                            return_exceptions=False,
-                        )
+                                res = await self.turn_executor(**branch_kwargs)
+                                return ScatterBranchResult(agent_key=agent_k, response=res, error=None)
+                            except Exception as exc:
+                                logger.warning(
+                                    f"[ORCHESTRATOR] Scatter branch {agent_k} failed: {exc}",
+                                    exc_info=True,
+                                )
+                                return ScatterBranchResult(agent_key=agent_k, response=None, error=exc)
+                            finally:
+                                spend_governance.release_reservation(
+                                    session_id=f"{channel_id}:{thread_ts}",
+                                    reservation_id=reservation_key,
+                                )
 
+                        branch_tasks: list[asyncio.Task[ScatterBranchResult]] = []
+                        async with asyncio.TaskGroup() as tg:
+                            for a in scatter_agents:
+                                branch_tasks.append(tg.create_task(_run_scatter_branch(a)))
+
+                        scatter_results: list[ScatterBranchResult] = [t.result() for t in branch_tasks]
+
+                        # Single deterministic post-gather reducer
                         for s_res in scatter_results:
-                            if isinstance(s_res, dict) and "final_text" in s_res:
-                                s_name = s_res.get("displayname", s_res.get("username", "Unknown Agent"))
+                            if (
+                                s_res.response
+                                and isinstance(s_res.response, dict)
+                                and "final_text" in s_res.response
+                            ):
+                                s_name = s_res.response.get(
+                                    "displayname", s_res.response.get("username", "Unknown Agent")
+                                )
                                 accumulated_history.append({
                                     "role": "assistant",
-                                    "content": f"[{s_name}]: {s_res['final_text']}",
+                                    "content": f"[{s_name}]: {s_res.response['final_text']}",
                                 })
-                            last_res = s_res
+                                spoken_agents.add(s_res.agent_key)
+                                last_res = s_res.response
+                            elif s_res.error:
+                                logger.warning(
+                                    f"[ORCHESTRATOR] Scatter branch {s_res.agent_key} error noted: {s_res.error}"
+                                )
 
                         remaining_after = [a for a in remaining if a not in scatter_agents]
                         thread_state_manager.set_remaining_agents(channel_id, thread_ts, remaining_after)

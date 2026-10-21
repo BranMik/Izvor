@@ -65,19 +65,53 @@ def classify_agent_error(e: Exception) -> str:
     - 'model_not_found': Model does not exist or unknown model identifier.
     - 'general_error': Any other unexpected runtime exception.
     """
-    if isinstance(e, litellm.exceptions.RateLimitError):
-        return "rate_limit"
-    if isinstance(e, litellm.exceptions.ServiceUnavailableError) or isinstance(e, litellm.exceptions.Timeout):
-        return "service_unavailable"
-    if isinstance(e, litellm.exceptions.AuthenticationError):
-        return "api_key_not_found"
-    if isinstance(e, litellm.exceptions.NotFoundError):
-        return "model_not_found"
-        
+    # 1. Type inspection against litellm.exceptions
+    try:
+        if isinstance(e, litellm.exceptions.RateLimitError):
+            return "rate_limit"
+        if isinstance(
+            e,
+            (
+                litellm.exceptions.ServiceUnavailableError,
+                litellm.exceptions.Timeout,
+                litellm.exceptions.InternalServerError,
+                litellm.exceptions.APIConnectionError,
+            ),
+        ):
+            return "service_unavailable"
+        if isinstance(
+            e,
+            (
+                litellm.exceptions.AuthenticationError,
+                litellm.exceptions.PermissionDeniedError,
+            ),
+        ):
+            return "api_key_not_found"
+        if isinstance(e, litellm.exceptions.NotFoundError):
+            return "model_not_found"
+    except (AttributeError, TypeError):
+        pass
+
+    # 2. HTTP status code inspection
+    status_code = (
+        getattr(e, "status_code", None)
+        or getattr(e, "http_status", None)
+        or getattr(getattr(e, "response", None), "status_code", None)
+    )
+    if isinstance(status_code, int):
+        if status_code == 429:
+            return "rate_limit"
+        if status_code in (500, 502, 503, 504, 529):
+            return "service_unavailable"
+        if status_code in (401, 403):
+            return "api_key_not_found"
+        if status_code == 404:
+            return "model_not_found"
+
     error_str = str(e).lower()
     error_type = type(e).__name__.lower()
 
-    # Fallback string matching for wrapped exceptions
+    # 3. Fallback string matching for wrapped exceptions
     if (
         "rate_limit" in error_str
         or "ratelimit" in error_str
@@ -184,7 +218,7 @@ async def execute_llm_with_retry(
         kwargs = copy.deepcopy(kwargs)
         for msg in kwargs.get("messages", []):
             if "content" in msg and isinstance(msg["content"], str):
-                masked_content, mapping = pii_masker.mask(msg["content"], existing_mapping=active_mapping)
+                masked_content, mapping = await pii_masker.async_mask(msg["content"], existing_mapping=active_mapping)
                 msg["content"] = masked_content
                 active_mapping.update(mapping)
             if "tool_calls" in msg and isinstance(msg["tool_calls"], list):
@@ -193,7 +227,7 @@ async def execute_llm_with_retry(
                     if fn:
                         args = fn.get("arguments") if isinstance(fn, dict) else getattr(fn, "arguments", None)
                         if isinstance(args, str):
-                            masked_args, mapping = pii_masker.mask(args, existing_mapping=active_mapping)
+                            masked_args, mapping = await pii_masker.async_mask(args, existing_mapping=active_mapping)
                             if isinstance(fn, dict):
                                 fn["arguments"] = masked_args
                             else:

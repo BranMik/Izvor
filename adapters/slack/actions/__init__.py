@@ -1,0 +1,99 @@
+"""
+Slack interactivity action handlers package.
+Divided into HITL actions, agent panel actions, and workflow/governance actions.
+"""
+
+from typing import Any
+
+from adapters.slack.actions.agent_actions import (
+    _deny_non_admin_action,
+    _handle_bulk_disable,
+    _handle_bulk_enable_all,
+    _handle_restore_from_backup,
+    _handle_select_agent_model,
+    _handle_toggle_agent,
+    _handle_toggle_agent_radio,
+)
+from adapters.slack.actions.hitl_actions import (
+    _execute_and_resume_hitl_approval,
+    _handle_hitl_approve_tool,
+    _handle_hitl_deny_tool,
+    _resume_hitl_denial,
+)
+from adapters.slack.actions.workflow_actions import (
+    _handle_clear_fixed_chain_button,
+    _handle_clear_sandwich_chains_button,
+    _handle_delete_workflow_preset_button,
+    _handle_download_scribe_notes,
+    _handle_load_workflow_preset_button,
+    _handle_open_edit_workspace_context_modal,
+    _handle_resume_sequence,
+    _handle_save_circuit_breaker_threshold_button,
+    _handle_save_fixed_chain_button,
+    _handle_save_sandwich_chains_button,
+    _handle_save_workflow_preset_button,
+    _handle_scribe_download,
+    _handle_select_orchestration_mode,
+    _handle_select_workflow_preset,
+    _handle_set_circuit_breaker_preset,
+    _handle_set_circuit_breaker_threshold_input,
+    _handle_set_end_chain_input,
+    _handle_set_fixed_chain_input,
+    _handle_set_start_chain_input,
+    _handle_set_thread_skill_expiry_preset,
+    _handle_toggle_circuit_breaker,
+    _handle_toggle_convergence_ff,
+    _handle_toggle_scribe,
+    _handle_toggle_weekly_pricing,
+    _validate_chain_agent_keys,
+)
+
+__all__ = [
+    "_deny_non_admin_action",
+    "_execute_and_resume_hitl_approval",
+    "_handle_bulk_disable",
+    "_handle_bulk_enable_all",
+    "_handle_clear_fixed_chain_button",
+    "_handle_clear_sandwich_chains_button",
+    "_handle_delete_workflow_preset_button",
+    "_handle_download_scribe_notes",
+    "_handle_hitl_approve_tool",
+    "_handle_hitl_deny_tool",
+    "_handle_load_workflow_preset_button",
+    "_handle_open_edit_workspace_context_modal",
+    "_handle_restore_from_backup",
+    "_handle_resume_sequence",
+    "_handle_save_circuit_breaker_threshold_button",
+    "_handle_save_fixed_chain_button",
+    "_handle_save_sandwich_chains_button",
+    "_handle_save_workflow_preset_button",
+    "_handle_scribe_download",
+    "_handle_select_agent_model",
+    "_handle_select_orchestration_mode",
+    "_handle_select_workflow_preset",
+    "_handle_set_circuit_breaker_preset",
+    "_handle_set_circuit_breaker_threshold_input",
+    "_handle_set_end_chain_input",
+    "_handle_set_fixed_chain_input",
+    "_handle_set_start_chain_input",
+    "_handle_set_thread_skill_expiry_preset",
+    "_handle_toggle_agent",
+    "_handle_toggle_agent_radio",
+    "_handle_toggle_circuit_breaker",
+    "_handle_toggle_convergence_ff",
+    "_handle_toggle_scribe",
+    "_handle_toggle_weekly_pricing",
+    "_resume_hitl_denial",
+    "_validate_chain_agent_keys",
+    "get_interactivity_attr",
+]
+
+
+def get_interactivity_attr(name: str, fallback: Any) -> Any:
+    """Dynamically resolves attributes from adapters.slack.interactivity if patched."""
+    import sys
+
+    asi = sys.modules.get("adapters.slack.interactivity")
+    if asi is not None and hasattr(asi, name):
+        return getattr(asi, name)
+    return fallback

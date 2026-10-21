@@ -40,6 +40,24 @@ litellm.suppress_debug_info = True
 litellm.drop_params = True
 
 
+_ORIG_POST_AGENT = post_agent_response
+_ORIG_POST_SYS = post_system_message
+_ORIG_FETCH_HIST = fetch_thread_history
+_ORIG_FETCH_FILES = fetch_thread_files
+
+
+def _get_dynamic_dep(name: str, original_func: Any) -> Any:
+    current_router_val = getattr(sys.modules.get(__name__), name, None)
+    if current_router_val is not None and current_router_val is not original_func:
+        return current_router_val
+    client_mod = sys.modules.get("services.slack_client")
+    if client_mod is not None:
+        current_client_val = getattr(client_mod, name, None)
+        if current_client_val is not None and current_client_val is not original_func:
+            return current_client_val
+    return current_router_val or original_func
+
+
 def _apply_convergence_stress_test_or_fast_forward(
     channel_id: str,
     thread_ts: str,
@@ -167,6 +185,7 @@ async def process_and_respond(
     in_memory_history: list[dict[str, Any]] | None = None,
     user_id: str | None = None,
     target_agent_override: str | None = None,
+    isolated_branch: bool = False,
 ) -> dict[str, Any]:
     """
     Main background handler: parses prompt, builds conversation history,
@@ -242,18 +261,27 @@ async def process_and_respond(
         is_bot_trigger=is_bot_trigger,
         in_memory_history=in_memory_history,
         target_agent_override=target_agent_override,
+        isolated_branch=isolated_branch,
     )
+    slack_poster_fn = _get_dynamic_dep("post_agent_response", _ORIG_POST_AGENT)
+    post_sys_fn = _get_dynamic_dep("post_system_message", _ORIG_POST_SYS)
+    fetch_hist_fn = _get_dynamic_dep("fetch_thread_history", _ORIG_FETCH_HIST)
+    fetch_files_fn = _get_dynamic_dep("fetch_thread_files", _ORIG_FETCH_FILES)
+    run_threadpool_fn = getattr(sys.modules.get(__name__), "run_in_threadpool", run_in_threadpool)
+    sleep_fn = getattr(sys.modules.get(__name__).asyncio, "sleep", None)
+
     pipeline = TurnPipeline(
-        hooks={"run_in_threadpool": run_in_threadpool},
+        hooks={"run_in_threadpool": run_threadpool_fn},
         llm_executor=execute_llm_with_retry,
-        slack_poster=post_agent_response,
-        post_system_message_fn=post_system_message,
-        history_fetcher=fetch_thread_history,
-        files_fetcher=fetch_thread_files,
+        slack_poster=slack_poster_fn,
+        post_system_message_fn=post_sys_fn,
+        history_fetcher=fetch_hist_fn,
+        files_fetcher=fetch_files_fn,
         token_recorder=record_thread_tokens,
         notes_updater=trigger_thread_notes_update,
         usage_updater=trigger_usage_update,
         calc_costs_fn=calculate_thread_costs,
+        sleep_fn=sleep_fn,
     )
     return await pipeline.run(ctx)
 

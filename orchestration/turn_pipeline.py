@@ -15,7 +15,7 @@ import asyncio
 import logging
 import sys
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from agents import (
@@ -32,6 +32,7 @@ from orchestration.protocols import (
     HistoryFetcher,
     LLMExecutor,
     NotesUpdater,
+    PipelineDeps,
     SlackMessageUpdater,
     SlackPoster,
     SleepFunction,
@@ -65,9 +66,9 @@ from services.slack_client import (
 logger = logging.getLogger(__name__)
 
 
-@dataclass
-class TurnContext:
-    """Encapsulates all runtime state and metadata for a single agent turn execution."""
+@dataclass(frozen=True)
+class TurnInput:
+    """Immutable input parameters capturing the trigger of a single agent turn."""
 
     channel_id: str
     thread_ts: str
@@ -76,90 +77,396 @@ class TurnContext:
     bot_user_id: str | None = None
     icon_url: str | None = None
     is_bot_trigger: bool = False
-    in_memory_history: list[dict[str, Any]] | None = None
-
-    # Lifecycle state
-    thread_key: tuple[str, str] = field(init=False)
-    start_time: float = field(init=False)
+    in_memory_history: tuple[dict[str, Any], ...] | None = None
+    target_agent_override: str | None = None
+    isolated_branch: bool = False
     my_generation: int = 0
-    current_task: asyncio.Task | None = None
+    start_time: float = field(default_factory=time.time)
 
-    # Unified directives & skills
-    actions: list[ActionDirective] = field(default_factory=list)
-    modifiers: dict[str, Any] = field(default_factory=dict)
-    attachments: list[MediaAttachment] = field(default_factory=list)
 
-    # Parsed directives & flags (legacy mirrors)
-    raw_text_cleaned: str = ""
-    history_limit: int | None = None
-    max_words_limit: int | str | None = None
-    min_words_limit: int | str | None = None
-    scribe_max_words_limit: int | str | None = None
-    scribe_min_words_limit: int | str | None = None
-    excluded_agents: list[str] = field(default_factory=list)
-    included_agents: list[str] = field(default_factory=list)
-    exclude_off: bool = False
-    include_off: bool = False
-    revoke_target: str | None = None
-    is_file_req: bool = False
-    target_filename: str | None = None
-    thread_files: list[dict[str, Any]] = field(default_factory=list)
+@dataclass
+class TurnControlPlane:
+    """Control plane consensus, nomination, and clarification state."""
 
-    # Resolved routing
-    agent_key: str = ""
-    prompt: str = ""
-    was_explicit_target: bool = False
-    agent_cfg: dict[str, Any] = field(default_factory=dict)
-    remaining: list[str] = field(default_factory=list)
-    is_custom_flow: bool = False
-    is_open_debate: bool = False
-    force_termination: bool = False
-    eligible_remaining_agents: list[str] = field(default_factory=list)
-    next_designated_agent: str | None = None
+    consensus_signaled: bool = False
+    consensus_summary: str | None = None
+    nomination: str | None = None
+    nomination_rationale: str | None = None
+    clarification_requested: bool = False
+    clarification_question: str | None = None
+    convergence_summary: str | None = None
 
-    # LLM & Conversation Context
-    effective_history: list[dict[str, Any]] = field(default_factory=list)
-    full_history: list[dict[str, Any]] = field(default_factory=list)
-    system_prompt: str = ""
-    file_context: dict[str, Any] | None = None
-    thread_language: str = "English"
-    messages: list[dict[str, Any]] = field(default_factory=list)
 
-    # Token accounting & Response
+@dataclass
+class TurnOutput:
+    """Execution output, token accounting, and dispatch artifacts for a turn."""
+
+    final_text: str = ""
     total_prompt_tokens: int = 0
     total_completion_tokens: int = 0
-    final_text: str = ""
     skills_used: list[str] = field(default_factory=list)
     generated_tags: list[str] = field(default_factory=list)
-    intermediate_msg_ts: str | None = None
     slack_res: dict[str, Any] | None = None
     is_completed: bool = False
-    turn_token_mapping: dict[str, str] = field(default_factory=dict)
-    session_id: str = ""
-    session: Any = None
-    checkpoint_id: str | None = None
-    revisor_warning: str | None = None
-    structured_nomination: str | None = None
-    clarification_question: str | None = None
-    convergence_signaled: bool = False
-    convergence_summary: str | None = None
     halted: bool = False
     waiting_hitl: bool = False
-    target_agent_override: str | None = None
+    checkpoint_id: str | None = None
+    revisor_warning: str | None = None
 
-    def __post_init__(self):
-        self.thread_key = (self.channel_id, self.thread_ts)
-        self.start_time = time.time()
-        self.raw_text_cleaned = self.raw_text
-        if not self.session_id:
-            self.session_id = f"{self.channel_id}:{self.thread_ts}"
+
+class TurnContext:
+    """Encapsulates all runtime state, directives, and metadata for a single agent turn execution."""
+
+    def __init__(
+        self,
+        channel_id: str | None = None,
+        thread_ts: str | None = None,
+        raw_text: str = "",
+        user_id: str | None = None,
+        bot_user_id: str | None = None,
+        icon_url: str | None = None,
+        is_bot_trigger: bool = False,
+        in_memory_history: list[dict[str, Any]] | tuple[dict[str, Any], ...] | None = None,
+        target_agent_override: str | None = None,
+        isolated_branch: bool = False,
+        my_generation: int = 0,
+        start_time: float | None = None,
+        inp: TurnInput | None = None,
+        control_plane: TurnControlPlane | None = None,
+        out: TurnOutput | None = None,
+        **kwargs: Any,
+    ):
+        if inp is not None:
+            self.inp = inp
+        else:
+            if channel_id is None or thread_ts is None:
+                raise ValueError("TurnContext requires channel_id and thread_ts or TurnInput.")
+            hist_tuple = tuple(in_memory_history) if in_memory_history is not None else None
+            self.inp = TurnInput(
+                channel_id=channel_id,
+                thread_ts=thread_ts,
+                raw_text=raw_text,
+                user_id=user_id,
+                bot_user_id=bot_user_id,
+                icon_url=icon_url,
+                is_bot_trigger=is_bot_trigger,
+                in_memory_history=hist_tuple,
+                target_agent_override=target_agent_override,
+                isolated_branch=isolated_branch,
+                my_generation=my_generation,
+                start_time=start_time or time.time(),
+            )
+
+        self.control_plane: TurnControlPlane = control_plane or TurnControlPlane()
+        self.out: TurnOutput = out or TurnOutput()
+
+        # Lifecycle state
+        self.thread_key = (self.inp.channel_id, self.inp.thread_ts)
+        self.start_time = self.inp.start_time
+        self.my_generation = self.inp.my_generation
+        self.current_task: asyncio.Task | None = kwargs.get("current_task")
+
+        # Directives & Skills
+        self.actions: list[ActionDirective] = list(kwargs.get("actions", []))
+        self.modifiers: dict[str, Any] = dict(kwargs.get("modifiers", {}))
+        self.attachments: list[MediaAttachment] = list(kwargs.get("attachments", []))
+        self.raw_text_cleaned: str = kwargs.get("raw_text_cleaned", self.inp.raw_text)
+        self.history_limit: int | None = kwargs.get("history_limit")
+        self.excluded_agents: list[str] = list(kwargs.get("excluded_agents", []))
+        self.included_agents: list[str] = list(kwargs.get("included_agents", []))
+        self.thread_files: list[dict[str, Any]] = list(kwargs.get("thread_files", []))
+
+        # Resolved routing
+        self.agent_key: str = kwargs.get("agent_key", "")
+        self.prompt: str = kwargs.get("prompt", "")
+        self.was_explicit_target: bool = kwargs.get("was_explicit_target", False)
+        self.agent_cfg: dict[str, Any] = dict(kwargs.get("agent_cfg", {}))
+        self.remaining: list[str] = list(kwargs.get("remaining", []))
+        self.is_custom_flow: bool = kwargs.get("is_custom_flow", False)
+        self.is_open_debate: bool = kwargs.get("is_open_debate", False)
+        self.force_termination: bool = kwargs.get("force_termination", False)
+        self.eligible_remaining_agents: list[str] = list(kwargs.get("eligible_remaining_agents", []))
+        self.next_designated_agent: str | None = kwargs.get("next_designated_agent")
+        self.target_agent_override: str | None = kwargs.get("target_agent_override", self.inp.target_agent_override)
+
+        # LLM & Conversation Context
+        self.effective_history: list[dict[str, Any]] = list(kwargs.get("effective_history", []))
+        self.full_history: list[dict[str, Any]] = list(kwargs.get("full_history", []))
+        self.system_prompt: str = kwargs.get("system_prompt", "")
+        self.file_context: dict[str, Any] | None = kwargs.get("file_context")
+        self.thread_language: str = kwargs.get("thread_language", "English")
+        self.messages: list[dict[str, Any]] = list(kwargs.get("messages", []))
+        self.turn_token_mapping: dict[str, str] = dict(kwargs.get("turn_token_mapping", {}))
+        self.intermediate_msg_ts: str | None = kwargs.get("intermediate_msg_ts")
+
+        # Explicitly declared typed fields previously monkeypatched (C13)
+        self.episodic_summary: str | None = kwargs.get("episodic_summary")
+        self.shared_round_evidence: str = kwargs.get("shared_round_evidence", "")
+        self.authorized_skills: list[str] = list(kwargs.get("authorized_skills", []))
+
+        # Session
+        self.session_id: str = kwargs.get("session_id", f"{self.inp.channel_id}:{self.inp.thread_ts}")
+        self.session: Any = kwargs.get("session")
         if self.session is None:
             from core.domain import SessionContext
 
+            in_mem = list(self.inp.in_memory_history) if self.inp.in_memory_history else None
             self.session = SessionContext.from_thread(
-                self.channel_id, self.thread_ts, self.in_memory_history
+                self.inp.channel_id, self.inp.thread_ts, in_mem
             )
 
+    # Input properties
+    @property
+    def channel_id(self) -> str:
+        return getattr(self, "_channel_id_override", self.inp.channel_id)
+
+    @channel_id.setter
+    def channel_id(self, val: str) -> None:
+        self._channel_id_override = val
+
+    @property
+    def thread_ts(self) -> str:
+        return getattr(self, "_thread_ts_override", self.inp.thread_ts)
+
+    @thread_ts.setter
+    def thread_ts(self, val: str) -> None:
+        self._thread_ts_override = val
+
+    @property
+    def raw_text(self) -> str:
+        return getattr(self, "_raw_text_override", self.inp.raw_text)
+
+    @raw_text.setter
+    def raw_text(self, val: str) -> None:
+        self._raw_text_override = val
+
+    @property
+    def user_id(self) -> str | None:
+        return getattr(self, "_user_id_override", self.inp.user_id)
+
+    @user_id.setter
+    def user_id(self, val: str | None) -> None:
+        self._user_id_override = val
+
+    @property
+    def bot_user_id(self) -> str | None:
+        return getattr(self, "_bot_user_id_override", self.inp.bot_user_id)
+
+    @bot_user_id.setter
+    def bot_user_id(self, val: str | None) -> None:
+        self._bot_user_id_override = val
+
+    @property
+    def icon_url(self) -> str | None:
+        return getattr(self, "_icon_url_override", self.inp.icon_url)
+
+    @icon_url.setter
+    def icon_url(self, val: str | None) -> None:
+        self._icon_url_override = val
+
+    @property
+    def is_bot_trigger(self) -> bool:
+        return getattr(self, "_is_bot_trigger_override", self.inp.is_bot_trigger)
+
+    @is_bot_trigger.setter
+    def is_bot_trigger(self, val: bool) -> None:
+        self._is_bot_trigger_override = val
+
+    @property
+    def in_memory_history(self) -> list[dict[str, Any]] | None:
+        if hasattr(self, "_in_memory_history_override"):
+            return self._in_memory_history_override
+        return list(self.inp.in_memory_history) if self.inp.in_memory_history is not None else None
+
+    @in_memory_history.setter
+    def in_memory_history(self, val: list[dict[str, Any]] | None) -> None:
+        self._in_memory_history_override = list(val) if val is not None else None
+
+    @property
+    def isolated_branch(self) -> bool:
+        return getattr(self, "_isolated_branch_override", self.inp.isolated_branch)
+
+    @isolated_branch.setter
+    def isolated_branch(self, val: bool) -> None:
+        self._isolated_branch_override = val
+
+    @property
+    def consensus_signaled(self) -> bool:
+        return self.control_plane.consensus_signaled
+
+    @consensus_signaled.setter
+    def consensus_signaled(self, val: bool) -> None:
+        self.control_plane.consensus_signaled = val
+
+    @property
+    def is_file_req(self) -> bool:
+        return getattr(self, "_is_file_req", False)
+
+    @is_file_req.setter
+    def is_file_req(self, val: bool) -> None:
+        self._is_file_req = val
+
+    @property
+    def target_filename(self) -> str | None:
+        return getattr(self, "_target_filename", None)
+
+    @target_filename.setter
+    def target_filename(self, val: str | None) -> None:
+        self._target_filename = val
+
+    # Output properties
+    @property
+    def final_text(self) -> str:
+        return self.out.final_text
+
+    @final_text.setter
+    def final_text(self, val: str):
+        self.out.final_text = val
+
+    @property
+    def total_prompt_tokens(self) -> int:
+        return self.out.total_prompt_tokens
+
+    @total_prompt_tokens.setter
+    def total_prompt_tokens(self, val: int):
+        self.out.total_prompt_tokens = val
+
+    @property
+    def total_completion_tokens(self) -> int:
+        return self.out.total_completion_tokens
+
+    @total_completion_tokens.setter
+    def total_completion_tokens(self, val: int):
+        self.out.total_completion_tokens = val
+
+    @property
+    def skills_used(self) -> list[str]:
+        return self.out.skills_used
+
+    @skills_used.setter
+    def skills_used(self, val: list[str]):
+        self.out.skills_used = val
+
+    @property
+    def generated_tags(self) -> list[str]:
+        return self.out.generated_tags
+
+    @generated_tags.setter
+    def generated_tags(self, val: list[str]):
+        self.out.generated_tags = val
+
+    @property
+    def slack_res(self) -> dict[str, Any] | None:
+        return self.out.slack_res
+
+    @slack_res.setter
+    def slack_res(self, val: dict[str, Any] | None):
+        self.out.slack_res = val
+
+    @property
+    def is_completed(self) -> bool:
+        return self.out.is_completed
+
+    @is_completed.setter
+    def is_completed(self, val: bool):
+        self.out.is_completed = val
+
+    @property
+    def halted(self) -> bool:
+        return self.out.halted
+
+    @halted.setter
+    def halted(self, val: bool):
+        self.out.halted = val
+
+    @property
+    def waiting_hitl(self) -> bool:
+        return self.out.waiting_hitl
+
+    @waiting_hitl.setter
+    def waiting_hitl(self, val: bool):
+        self.out.waiting_hitl = val
+
+    @property
+    def checkpoint_id(self) -> str | None:
+        return self.out.checkpoint_id
+
+    @checkpoint_id.setter
+    def checkpoint_id(self, val: str | None):
+        self.out.checkpoint_id = val
+
+    @property
+    def revisor_warning(self) -> str | None:
+        return self.out.revisor_warning
+
+    @revisor_warning.setter
+    def revisor_warning(self, val: str | None):
+        self.out.revisor_warning = val
+
+    # Control plane properties
+    @property
+    def clarification_question(self) -> str | None:
+        return self.control_plane.clarification_question
+
+    @clarification_question.setter
+    def clarification_question(self, val: str | None):
+        self.control_plane.clarification_question = val
+
+    @property
+    def convergence_summary(self) -> str | None:
+        return self.control_plane.convergence_summary
+
+    @convergence_summary.setter
+    def convergence_summary(self, val: str | None):
+        self.control_plane.convergence_summary = val
+
+    @property
+    def control_plane_nomination(self) -> str | None:
+        return self.control_plane.nomination
+
+    @control_plane_nomination.setter
+    def control_plane_nomination(self, val: str | None):
+        self.control_plane.nomination = val
+
+    @property
+    def control_plane_rationale(self) -> str | None:
+        return self.control_plane.nomination_rationale
+
+    @control_plane_rationale.setter
+    def control_plane_rationale(self, val: str | None):
+        self.control_plane.nomination_rationale = val
+
+    @property
+    def control_plane_clarification_requested(self) -> bool:
+        return self.control_plane.clarification_requested
+
+    @control_plane_clarification_requested.setter
+    def control_plane_clarification_requested(self, val: bool):
+        self.control_plane.clarification_requested = val
+
+    @property
+    def control_plane_clarification_question(self) -> str | None:
+        return self.control_plane.clarification_question
+
+    @control_plane_clarification_question.setter
+    def control_plane_clarification_question(self, val: str | None):
+        self.control_plane.clarification_question = val
+
+    @property
+    def control_plane_consensus_signaled(self) -> bool:
+        return self.control_plane.consensus_signaled
+
+    @control_plane_consensus_signaled.setter
+    def control_plane_consensus_signaled(self, val: bool):
+        self.control_plane.consensus_signaled = val
+
+    @property
+    def control_plane_consensus_summary(self) -> str | None:
+        return self.control_plane.consensus_summary
+
+    @control_plane_consensus_summary.setter
+    def control_plane_consensus_summary(self, val: str | None):
+        self.control_plane.consensus_summary = val
 
     def is_superseded(self) -> bool:
         """Determines if this turn was superseded by a newer query or task cancellation."""
@@ -176,11 +483,11 @@ class TurnContext:
         if not usage:
             return
         if isinstance(usage, dict):
-            self.total_prompt_tokens += usage.get("prompt_tokens", 0) or 0
-            self.total_completion_tokens += usage.get("completion_tokens", 0) or 0
+            self.out.total_prompt_tokens += usage.get("prompt_tokens", 0) or 0
+            self.out.total_completion_tokens += usage.get("completion_tokens", 0) or 0
         else:
-            self.total_prompt_tokens += getattr(usage, "prompt_tokens", 0) or 0
-            self.total_completion_tokens += getattr(usage, "completion_tokens", 0) or 0
+            self.out.total_prompt_tokens += getattr(usage, "prompt_tokens", 0) or 0
+            self.out.total_completion_tokens += getattr(usage, "completion_tokens", 0) or 0
 
 
 class TurnPipeline:
@@ -195,50 +502,13 @@ class TurnPipeline:
 
     def __init__(
         self,
+        deps: PipelineDeps | None = None,
         hooks: dict[str, Any] | None = None,
-        *,
-        tool_executor: ToolExecutor | None = None,
-        llm_executor: LLMExecutor | None = None,
-        slack_poster: SlackPoster | None = None,
-        history_fetcher: HistoryFetcher | None = None,
-        files_fetcher: FilesFetcher | None = None,
-        token_recorder: TokenRecorder | None = None,
-        notes_updater: NotesUpdater | None = None,
-        usage_updater: UsageUpdater | None = None,
-        sleep_fn: SleepFunction | None = None,
-        post_system_message_fn: SystemMessagePoster | None = None,
-        update_message_fn: SlackMessageUpdater | None = None,
-        calc_costs_fn: CostCalculator | None = None,
-        workspace_adapter: WorkspaceAdapter | None = None,
+        **overrides: Any,
     ):
-        self._hooks: dict[str, Any] = hooks or {}
+        from orchestration.protocols import resolve_pipeline_deps
 
-        # Explicit Dependency Injection
-        self.tool_executor = tool_executor
-        self.llm_executor = llm_executor
-        self.slack_poster = slack_poster
-        self.history_fetcher = history_fetcher
-        self.files_fetcher = files_fetcher
-        self.token_recorder = token_recorder
-        self.notes_updater = notes_updater
-        self.usage_updater = usage_updater
-        self.sleep_fn = sleep_fn
-        self.post_system_message_fn = post_system_message_fn
-        self.update_message_fn = update_message_fn
-        self.calc_costs_fn = calc_costs_fn
-
-        # Workspace Adapter Port (Hexagonal Architecture)
-        if workspace_adapter is not None:
-            self.workspace_adapter = workspace_adapter
-        else:
-            from adapters.slack.workspace_adapter import SlackWorkspaceAdapter
-
-            self.workspace_adapter = SlackWorkspaceAdapter(
-                post_agent_fn=self.slack_poster,
-                update_msg_fn=self.update_message_fn,
-                post_system_fn=self.post_system_message_fn,
-                hook_resolver=self._get_hook,
-            )
+        self.deps = resolve_pipeline_deps(deps, hooks, **overrides)
 
         # Initialize the composed stage instances
         self.validation_stage = ValidationStage(self)
@@ -247,69 +517,24 @@ class TurnPipeline:
         self.execution_stage = ExecutionStage(self)
         self.post_record_stage = PostRecordStage(self)
 
-    def _get_hook(self, name: str, default: Any = None) -> Any:
-        """Dynamically retrieves a function or constant from injected deps, hooks, or default."""
-        # 1. Injected dependencies take highest priority
-        di_map = {
-            "execute_mcp_tool": self.tool_executor,
-            "execute_llm_with_retry": self.llm_executor,
-            "post_agent_response": self.slack_poster,
-            "fetch_thread_history": self.history_fetcher,
-            "fetch_thread_files": self.files_fetcher,
-            "record_thread_tokens": self.token_recorder,
-            "trigger_thread_notes_update": self.notes_updater,
-            "trigger_usage_update": self.usage_updater,
-            "post_system_message": self.post_system_message_fn,
-            "update_slack_message": self.update_message_fn,
-            "update_agent_message": self.update_message_fn,
-            "calculate_thread_costs": self.calc_costs_fn,
-        }
-        if name in di_map and di_map[name] is not None:
-            return di_map[name]
-
-        # 2. Hooks dictionary passed to constructor (supports both upper and lowercase keys)
-        if name in self._hooks and self._hooks[name] is not None:
-            return self._hooks[name]
-        alt_name = name.lower() if name.isupper() else name.upper()
-        if alt_name in self._hooks and self._hooks[alt_name] is not None:
-            return self._hooks[alt_name]
-
-        # 3. Default fallback if provided
-        if default is not None:
-            return default
-
-        # 4. Default canonical service implementations
-        fallback_map = {
-            "execute_llm_with_retry": execute_llm_with_retry,
-            "post_agent_response": post_agent_response,
-            "fetch_thread_history": fetch_thread_history,
-            "fetch_thread_files": fetch_thread_files,
-            "record_thread_tokens": record_thread_tokens,
-            "trigger_thread_notes_update": trigger_thread_notes_update,
-            "trigger_usage_update": trigger_usage_update,
-            "post_system_message": post_system_message,
-            "update_slack_message": update_slack_message,
-            "update_agent_message": update_slack_message,
-            "calculate_thread_costs": calculate_thread_costs,
-            "record_flat_history": record_flat_history,
-            "async_record_flat_history": async_record_flat_history,
-        }
-        return fallback_map.get(name, None)
+    def __setattr__(self, name: str, value: Any) -> None:
+        super().__setattr__(name, value)
+        if hasattr(self, "deps") and hasattr(self.deps, name):
+            new_deps = replace(self.deps, **{name: value})
+            if name == "slack_poster" and hasattr(new_deps.workspace_adapter, "_post_agent_fn"):
+                new_deps.workspace_adapter._post_agent_fn = value
+            elif name == "update_message_fn" and hasattr(new_deps.workspace_adapter, "_update_msg_fn"):
+                new_deps.workspace_adapter._update_msg_fn = value
+            elif name == "post_system_message_fn" and hasattr(new_deps.workspace_adapter, "_post_system_fn"):
+                new_deps.workspace_adapter._post_system_fn = value
+            object.__setattr__(self, "deps", new_deps)
 
     async def _sleep(self, seconds: float):
-        """Asynchronous sleep respecting injected sleep_fn or hooks."""
-        if self.sleep_fn is not None:
-            await self.sleep_fn(seconds)
-            return
-        custom_sleep = self._hooks.get("asyncio_sleep") or self._hooks.get("time_sleep")
-        if custom_sleep is not None:
-            import inspect
-            if inspect.iscoroutinefunction(custom_sleep):
-                await custom_sleep(seconds)
-            else:
-                custom_sleep(seconds)
-            return
-        await asyncio.sleep(seconds)
+        """Asynchronous sleep respecting injected sleep_fn."""
+        if seconds > 0:
+            sleep_func = self.deps.sleep_fn or asyncio.sleep
+            await sleep_func(seconds)
+
 
     async def run(self, ctx: TurnContext) -> dict[str, Any]:
         """Runs the entire turn execution lifecycle."""
@@ -325,7 +550,7 @@ class TurnPipeline:
 
         ctx.my_generation = thread_state_manager.get_generation(ctx.channel_id, ctx.thread_ts)
         ctx.current_task = asyncio.current_task()
-        if ctx.current_task:
+        if ctx.current_task and not ctx.isolated_branch:
             thread_state_manager.set_active_task(ctx.channel_id, ctx.thread_ts, ctx.current_task)
 
         try:
@@ -431,9 +656,7 @@ class TurnPipeline:
                 f"[ROUTER] Task cancelled for thread {ctx.thread_key} (agent {ctx.agent_key}, gen {ctx.my_generation}). Aborting cleanly."
             )
             if ctx.total_prompt_tokens > 0 or ctx.total_completion_tokens > 0:
-                record_tokens_fn = self._get_hook(
-                    "record_thread_tokens", record_thread_tokens
-                )
+                record_tokens_fn = getattr(self.deps, "token_recorder", None) or record_thread_tokens
                 if record_tokens_fn:
                     record_tokens_fn(
                         channel_id=ctx.channel_id,
@@ -529,8 +752,9 @@ class TurnPipeline:
                     "content": tool_result_str,
                 })
 
-        exec_retry_fn = self._get_hook("execute_llm_with_retry", execute_llm_with_retry)
+        exec_retry_fn = self.deps.llm_executor or execute_llm_with_retry
         follow_up_kwargs: dict[str, Any] = {
+
             "model": ctx.agent_cfg.get("model", ""),
             "messages": ctx.messages,
             "tools": active_tools if active_tools else None,
@@ -576,4 +800,12 @@ class TurnPipeline:
         return slack_res
 
 
-__all__ = ["TurnContext", "TurnPipeline", "_build_tool_status_text"]
+__all__ = [
+    "TurnContext",
+    "TurnControlPlane",
+    "TurnInput",
+    "TurnOutput",
+    "TurnPipeline",
+    "_build_tool_status_text",
+]
+

@@ -1,4 +1,5 @@
 import logging
+import re
 import time
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,26 @@ RAG_SCHEMA = pa.schema([
     pa.field("vector", pa.list_(pa.float32(), EMBEDDING_DIM)),  # Embedding vector
     pa.field("updated_at", pa.float64()),
 ])
+
+_SAFE_ID_RE = re.compile(r"^[A-Za-z0-9._:/ '-]{1,256}$")
+
+
+def _sql_literal(val: str) -> str:
+    """
+    Validates and sanitizes a string literal for safe interpolation into LanceDB/DataFusion SQL expressions.
+    Rejects control characters / NUL bytes and values that do not match _SAFE_ID_RE.
+    Escapes single quotes by doubling them.
+    Returns the enclosed string with single quotes, e.g. 'clean_value'.
+    """
+    if not isinstance(val, str):
+        raise ValueError(f"Expected string literal, got {type(val).__name__}")
+    if "\x00" in val or any(ord(c) < 32 for c in val):
+        raise ValueError("Control characters and NUL bytes are not permitted in SQL literals.")
+    clean = val.strip()
+    if not _SAFE_ID_RE.match(clean):
+        raise ValueError(f"Identifier '{val}' contains unsafe characters.")
+    escaped = clean.replace("'", "''")
+    return f"'{escaped}'"
 
 
 class VectorStore:
@@ -115,9 +136,8 @@ class VectorStore:
         """Deletes all chunks associated with a specific doc_id."""
         table = self.get_or_create_table()
         try:
-            # Escape single quotes in doc_id
-            safe_doc_id = doc_id.replace("'", "''")
-            table.delete(f"doc_id = '{safe_doc_id}'")
+            safe_doc_id = _sql_literal(doc_id)
+            table.delete(f"doc_id = {safe_doc_id}")
             logger.info(f"[RAG VectorStore] Deleted chunks for doc_id='{doc_id}'")
         except Exception as e:
             logger.error(f"[RAG VectorStore] Failed to delete chunks for doc_id='{doc_id}': {e}")
@@ -128,7 +148,7 @@ class VectorStore:
             return
         table = self.get_or_create_table()
         try:
-            id_list_str = ", ".join(f"'{cid}'" for cid in chunk_ids)
+            id_list_str = ", ".join(_sql_literal(cid) for cid in chunk_ids)
             table.delete(f"chunk_id IN ({id_list_str})")
             logger.info(f"[RAG VectorStore] Deleted {len(chunk_ids)} chunk(s) by ID")
         except Exception as e:
@@ -152,11 +172,11 @@ class VectorStore:
 
         # Build agent scoping filter
         if scope == "self" and agent_name:
-            safe_agent = agent_name.replace("'", "''")
-            where_filter = f"agent_id = '{safe_agent}'"
+            safe_agent = _sql_literal(agent_name)
+            where_filter = f"agent_id = {safe_agent}"
         elif agent_name:
-            safe_agent = agent_name.replace("'", "''")
-            where_filter = f"agent_id IN ('{safe_agent}', 'shared')"
+            safe_agent = _sql_literal(agent_name)
+            where_filter = f"agent_id IN ({safe_agent}, 'shared')"
         else:
             where_filter = "agent_id = 'shared'"
 
