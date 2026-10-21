@@ -21,9 +21,14 @@ from orchestration.agent_settings import (
     is_circuit_breaker_enabled,
     settings_manager,
 )
+from orchestration.protocols import WorkspaceAdapter
 from orchestration.thread_state import thread_state_manager
 from pipeline.spend_governance import spend_governance
-from services.slack_client import post_agent_response, post_system_message
+from services.slack_client import (
+    post_agent_response,
+    post_system_message,
+    update_slack_message,
+)
 
 if TYPE_CHECKING:
     from orchestration.turn_pipeline import TurnContext
@@ -32,9 +37,36 @@ logger = logging.getLogger(__name__)
 
 
 class ResolutionStage:
+    """Provides stage 2 agent resolution and spend governance for TurnPipeline."""
+
     def __init__(self, pipeline: Any):
         self.pipeline = pipeline
-    """Provides stage 2 agent resolution and spend governance for TurnPipeline."""
+
+    @property
+    def workspace_adapter(self) -> WorkspaceAdapter:
+        adapter = getattr(self.pipeline, "workspace_adapter", None)
+        from adapters.slack.workspace_adapter import (
+            InMemoryWorkspaceAdapter,
+            SlackWorkspaceAdapter,
+        )
+
+        if isinstance(adapter, (SlackWorkspaceAdapter, InMemoryWorkspaceAdapter)):
+            return adapter
+
+        hook_resolver = getattr(self.pipeline, "_get_hook", None)
+        return SlackWorkspaceAdapter(
+            hook_resolver=hook_resolver,
+            post_agent_fn=lambda **kw: (
+                hook_resolver("post_agent_response", post_agent_response)
+                if hook_resolver
+                else post_agent_response
+            )(**kw),
+            update_msg_fn=lambda **kw: (
+                hook_resolver("update_slack_message", update_slack_message)
+                if hook_resolver
+                else update_slack_message
+            )(**kw),
+        )
 
 
 
@@ -170,27 +202,11 @@ class ResolutionStage:
                     "EXPENSE LIMIT REACHED FOR THE THREAD. ENDING CALLS"
                 )
 
-                post_resp_fn = self.pipeline._get_hook(
-                    "post_agent_response", post_agent_response
+                session_id = getattr(ctx, "session_id", f"{ctx.channel_id}:{ctx.thread_ts}")
+                blocks = self.workspace_adapter.build_budget_halt_blocks(
+                    circuit_breaker_msg, session_id
                 )
-                blocks = [
-                    {
-                        "type": "section",
-                        "text": {"type": "mrkdwn", "text": circuit_breaker_msg}
-                    },
-                    {
-                        "type": "actions",
-                        "elements": [
-                            {
-                                "type": "button",
-                                "text": {"type": "plain_text", "text": "Continue Sequence"},
-                                "action_id": "resume_sequence_action",
-                                "style": "primary"
-                            }
-                        ]
-                    }
-                ]
-                slack_res = await post_resp_fn(
+                slack_res = await self.workspace_adapter.post_agent_turn(
                     channel_id=ctx.channel_id,
                     thread_ts=ctx.thread_ts,
                     text=circuit_breaker_msg,

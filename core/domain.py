@@ -40,19 +40,56 @@ class Turn:
 class SessionContext:
     """
     Platform-agnostic representation of an ongoing multi-agent discussion session.
-    Completely decoupled from Slack primitives like channel_id or thread_ts.
+    Decoupled from specific chat platforms while retaining channel_id and thread_ts metadata.
     """
 
     session_id: str
+    channel_id: str = ""
+    thread_ts: str = ""
     history: list[Turn] = field(default_factory=list)
     active_exclusions: list[str] = field(default_factory=list)
     max_words: int | None = None
     min_words: int | None = None
     history_limit: int | None = None
     budget_limit_usd: float | None = None
+    language: str = "English"
     metadata: dict[str, Any] = field(default_factory=dict)
 
-    def add_turn(self, role: Literal["user", "assistant", "system"], content: str, speaker: str = "User", token_usage: dict[str, int] | None = None) -> Turn:
+    @classmethod
+    def from_thread(
+        cls,
+        channel_id: str,
+        thread_ts: str,
+        raw_history: list[dict[str, Any]] | None = None,
+    ) -> "SessionContext":
+        session_id = f"{channel_id}:{thread_ts}"
+        history_turns: list[Turn] = []
+        if raw_history:
+            for item in raw_history:
+                if isinstance(item, Turn):
+                    history_turns.append(item)
+                elif isinstance(item, dict):
+                    history_turns.append(Turn.from_dict(item))
+        return cls(
+            session_id=session_id,
+            channel_id=channel_id,
+            thread_ts=thread_ts,
+            history=history_turns,
+        )
+
+    def to_llm_history(self) -> list[dict[str, str]]:
+        return [
+            {"role": t.role, "content": t.content}
+            for t in self.history
+        ]
+
+    def add_turn(
+        self,
+        role: Literal["user", "assistant", "system"],
+        content: str,
+        speaker: str = "User",
+        token_usage: dict[str, int] | None = None,
+    ) -> Turn:
         turn = Turn(
             role=role,
             content=content,
@@ -61,6 +98,7 @@ class SessionContext:
         )
         self.history.append(turn)
         return turn
+
 
 
 @dataclass

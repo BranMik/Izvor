@@ -62,9 +62,84 @@ def get_thread_lock(channel_id: str, thread_ts: str) -> asyncio.Lock:
     return THREAD_LOCKS[thread_key]
 
 
+def _load_notes_state_from_db(channel_id: str, thread_ts: str) -> None:
+    """Loads thread notes metadata from SQLite thread_notes_state into L1 memory cache on cache miss."""
+    thread_key = (channel_id, thread_ts)
+    try:
+        from core.database import get_connection
+
+        with get_connection() as conn:
+            row = conn.execute(
+                """
+                SELECT live_note_ts, live_note_content, conclusion_note_ts, conclusion_note_content, is_live_pinned
+                FROM thread_notes_state
+                WHERE channel_id = ? AND thread_ts = ?;
+                """,
+                (channel_id, thread_ts),
+            ).fetchone()
+            if row:
+                if row["live_note_ts"] is not None:
+                    THREAD_NOTE_MSG_MAP[thread_key] = str(row["live_note_ts"])
+                if row["live_note_content"] is not None:
+                    THREAD_NOTE_TEXT_MAP[thread_key] = str(row["live_note_content"])
+                if row["conclusion_note_ts"] is not None:
+                    THREAD_CONCLUSION_MSG_MAP[thread_key] = str(row["conclusion_note_ts"])
+                if row["conclusion_note_content"] is not None:
+                    THREAD_CONCLUSION_TEXT_MAP[thread_key] = str(row["conclusion_note_content"])
+                THREAD_LIVE_PINNED_MAP[thread_key] = bool(row["is_live_pinned"])
+    except Exception as e:
+        logger.debug(f"[THREAD NOTES] Failed loading notes state from SQLite: {e}")
+
+
+def _sync_notes_state_to_db(channel_id: str, thread_ts: str) -> None:
+    """Persists current in-memory notes state for a thread to SQLite thread_notes_state."""
+    thread_key = (channel_id, thread_ts)
+    live_ts = THREAD_NOTE_MSG_MAP.get(thread_key)
+    live_content = THREAD_NOTE_TEXT_MAP.get(thread_key)
+    conclusion_ts = THREAD_CONCLUSION_MSG_MAP.get(thread_key)
+    conclusion_content = THREAD_CONCLUSION_TEXT_MAP.get(thread_key)
+    is_live_pinned = int(bool(THREAD_LIVE_PINNED_MAP.get(thread_key, False)))
+    now = time.time()
+
+    try:
+        from core.database import get_db_transaction
+
+        with get_db_transaction(immediate=True) as conn:
+            conn.execute(
+                """
+                INSERT INTO thread_notes_state (
+                    channel_id, thread_ts, live_note_ts, live_note_content,
+                    conclusion_note_ts, conclusion_note_content, is_live_pinned, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(channel_id, thread_ts) DO UPDATE SET
+                    live_note_ts = excluded.live_note_ts,
+                    live_note_content = excluded.live_note_content,
+                    conclusion_note_ts = excluded.conclusion_note_ts,
+                    conclusion_note_content = excluded.conclusion_note_content,
+                    is_live_pinned = excluded.is_live_pinned,
+                    updated_at = excluded.updated_at;
+                """,
+                (
+                    channel_id,
+                    thread_ts,
+                    live_ts,
+                    live_content,
+                    conclusion_ts,
+                    conclusion_content,
+                    is_live_pinned,
+                    now,
+                ),
+            )
+    except Exception as e:
+        logger.debug(f"[THREAD NOTES] Failed syncing notes state to SQLite: {e}")
+
+
 def get_thread_note(channel_id: str, thread_ts: str) -> str | None:
     """Returns the message_ts of the live note associated with a thread."""
-    val = THREAD_NOTE_MSG_MAP.get((channel_id, thread_ts))
+    thread_key = (channel_id, thread_ts)
+    if thread_key not in THREAD_NOTE_MSG_MAP:
+        _load_notes_state_from_db(channel_id, thread_ts)
+    val = THREAD_NOTE_MSG_MAP.get(thread_key)
     if isinstance(val, dict):
         return val.get("note_ts") or val.get("synthesis_ts") or val.get("agents_ts")
     return val
@@ -78,36 +153,49 @@ def set_thread_note(channel_id: str, thread_ts: str, message_ts: str | dict[str,
         THREAD_NOTE_MSG_MAP[thread_key] = str(ts)
     else:
         THREAD_NOTE_MSG_MAP[thread_key] = str(message_ts)
+    _sync_notes_state_to_db(channel_id, thread_ts)
 
 
 def get_thread_note_content(channel_id: str, thread_ts: str) -> str | None:
     """Returns the latest strategic synthesis notes text associated with a thread."""
-    return THREAD_NOTE_TEXT_MAP.get((channel_id, thread_ts))
+    thread_key = (channel_id, thread_ts)
+    if thread_key not in THREAD_NOTE_TEXT_MAP:
+        _load_notes_state_from_db(channel_id, thread_ts)
+    return THREAD_NOTE_TEXT_MAP.get(thread_key)
 
 
 def set_thread_note_content(channel_id: str, thread_ts: str, content: str) -> None:
     """Stores the latest strategic synthesis notes text associated with a thread."""
     THREAD_NOTE_TEXT_MAP[(channel_id, thread_ts)] = content
+    _sync_notes_state_to_db(channel_id, thread_ts)
 
 
 def get_thread_conclusion_note(channel_id: str, thread_ts: str) -> str | None:
     """Returns the message_ts of the conclusion note associated with a thread."""
-    return THREAD_CONCLUSION_MSG_MAP.get((channel_id, thread_ts))
+    thread_key = (channel_id, thread_ts)
+    if thread_key not in THREAD_CONCLUSION_MSG_MAP:
+        _load_notes_state_from_db(channel_id, thread_ts)
+    return THREAD_CONCLUSION_MSG_MAP.get(thread_key)
 
 
 def set_thread_conclusion_note(channel_id: str, thread_ts: str, message_ts: str) -> None:
     """Stores the message_ts of the conclusion note associated with a thread."""
     THREAD_CONCLUSION_MSG_MAP[(channel_id, thread_ts)] = str(message_ts)
+    _sync_notes_state_to_db(channel_id, thread_ts)
 
 
 def get_thread_conclusion_content(channel_id: str, thread_ts: str) -> str | None:
     """Returns the latest conclusion notes text associated with a thread."""
-    return THREAD_CONCLUSION_TEXT_MAP.get((channel_id, thread_ts))
+    thread_key = (channel_id, thread_ts)
+    if thread_key not in THREAD_CONCLUSION_TEXT_MAP:
+        _load_notes_state_from_db(channel_id, thread_ts)
+    return THREAD_CONCLUSION_TEXT_MAP.get(thread_key)
 
 
 def set_thread_conclusion_content(channel_id: str, thread_ts: str, content: str) -> None:
     """Stores the latest conclusion notes text associated with a thread."""
     THREAD_CONCLUSION_TEXT_MAP[(channel_id, thread_ts)] = content
+    _sync_notes_state_to_db(channel_id, thread_ts)
 
 
 def build_scribe_note_blocks(
@@ -202,6 +290,16 @@ def clear_thread_note(channel_id: str, thread_ts: str) -> None:
     task = _RUNNING_TASKS.pop(thread_key, None)
     if task and not task.done():
         task.cancel()
+    try:
+        from core.database import get_db_transaction
+
+        with get_db_transaction(immediate=True) as conn:
+            conn.execute(
+                "DELETE FROM thread_notes_state WHERE channel_id = ? AND thread_ts = ?;",
+                (channel_id, thread_ts),
+            )
+    except Exception as e:
+        logger.debug(f"[THREAD NOTES] Failed deleting notes state from SQLite: {e}")
 
 
 def reset_thread_notes() -> None:
@@ -218,6 +316,13 @@ def reset_thread_notes() -> None:
     _RUNNING_TASKS.clear()
     _PENDING_UPDATES.clear()
     _PENDING_COMPLETED.clear()
+    try:
+        from core.database import get_db_transaction
+
+        with get_db_transaction(immediate=True) as conn:
+            conn.execute("DELETE FROM thread_notes_state;")
+    except Exception as e:
+        logger.debug(f"[THREAD NOTES] Failed clearing SQLite thread_notes_state on reset: {e}")
 
 
 try:
@@ -395,6 +500,7 @@ async def update_notes_for_thread(
                 if note_ts:
                     set_thread_note(channel_id, thread_ts, note_ts)
                     THREAD_LIVE_PINNED_MAP[thread_key] = True
+                    _sync_notes_state_to_db(channel_id, thread_ts)
                     logger.info(
                         f"[THREAD NOTES] Created and pinned live synthesis note {note_ts} for thread {thread_ts}"
                     )
@@ -418,6 +524,7 @@ async def update_notes_for_thread(
                 if note_ts and THREAD_LIVE_PINNED_MAP.get(thread_key, True):
                     await unpin_thread_note(channel_id, note_ts)
                     THREAD_LIVE_PINNED_MAP[thread_key] = False
+                    _sync_notes_state_to_db(channel_id, thread_ts)
                     logger.info(
                         f"[THREAD NOTES] Unpinned live note {note_ts} upon completion for thread {thread_ts}"
                     )

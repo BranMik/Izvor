@@ -116,7 +116,39 @@ SCHEMA_STATEMENTS = [
     );
     """,
     "CREATE INDEX IF NOT EXISTS idx_event_dedup_time ON event_dedup(received_at);",
+
+    # 7. Thread Usage Metadata (Replaces per-turn thread_usage_data.json fsync writes)
+    """
+    CREATE TABLE IF NOT EXISTS thread_usage_meta (
+        channel_id TEXT NOT NULL,
+        thread_ts TEXT NOT NULL,
+        channel_name TEXT NOT NULL,
+        created_at_str TEXT NOT NULL,
+        usage_msg_ts TEXT,
+        is_completed INTEGER NOT NULL DEFAULT 0,
+        last_updated REAL NOT NULL,
+        PRIMARY KEY (channel_id, thread_ts)
+    );
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_usage_meta_updated ON thread_usage_meta(last_updated);",
+
+    # 8. Thread Notes & Conclusion State (Persists Scribe note pointers across server restarts)
+    """
+    CREATE TABLE IF NOT EXISTS thread_notes_state (
+        channel_id TEXT NOT NULL,
+        thread_ts TEXT NOT NULL,
+        live_note_ts TEXT,
+        live_note_content TEXT,
+        conclusion_note_ts TEXT,
+        conclusion_note_content TEXT,
+        is_live_pinned INTEGER NOT NULL DEFAULT 0,
+        updated_at REAL NOT NULL,
+        PRIMARY KEY (channel_id, thread_ts)
+    );
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_notes_state_updated ON thread_notes_state(updated_at);",
 ]
+
 
 
 def _get_db_busy_timeout() -> float:

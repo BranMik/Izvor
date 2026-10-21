@@ -190,3 +190,53 @@ def test_thread_state_manager_facade_composition():
     assert mgr.get_retry_queue(channel_id, thread_ts) == []
     assert mgr.get_language(channel_id, thread_ts) is None
     assert (channel_id, thread_ts) not in mgr.thread_last_activity
+
+
+def test_atomic_queue_pop_and_remove_methods():
+    mgr = ThreadStateManager()
+    channel_id = "C_ATOMIC"
+    thread_ts = "1700000005.0005"
+
+    mgr.set_remaining_agents(channel_id, thread_ts, ["A1", "A2", "A3"])
+    assert mgr.remove_remaining_agent(channel_id, thread_ts, "A2") is True
+    assert mgr.get_remaining_agents(channel_id, thread_ts) == ["A1", "A3"]
+    assert mgr.remove_remaining_agent(channel_id, thread_ts, "NONEXISTENT") is False
+
+    popped_random = mgr.pop_random_remaining_agent(channel_id, thread_ts)
+    assert popped_random in ("A1", "A3")
+    remaining = mgr.get_remaining_agents(channel_id, thread_ts)
+    assert len(remaining) == 1
+    assert popped_random not in remaining
+
+    popped_last = mgr.pop_random_remaining_agent(channel_id, thread_ts)
+    assert len(mgr.get_remaining_agents(channel_id, thread_ts)) == 0
+    assert mgr.pop_random_remaining_agent(channel_id, thread_ts) is None
+
+
+def test_session_context_hydration_in_turn_context():
+    from core.domain import SessionContext, Turn
+    from orchestration.turn_pipeline import TurnContext
+
+    raw_history = [
+        {"role": "user", "content": "Hello world", "speaker": "User"},
+        {"role": "assistant", "content": "Hi there", "speaker": "Agent1"},
+    ]
+    session = SessionContext.from_thread("C_SESS", "123.456", raw_history)
+    assert session.session_id == "C_SESS:123.456"
+    assert len(session.history) == 2
+    assert isinstance(session.history[0], Turn)
+    assert session.to_llm_history() == [
+        {"role": "user", "content": "Hello world"},
+        {"role": "assistant", "content": "Hi there"},
+    ]
+
+    ctx = TurnContext(
+        channel_id="C_SESS",
+        thread_ts="123.456",
+        raw_text="Test prompt",
+        in_memory_history=raw_history,
+    )
+    assert ctx.session_id == "C_SESS:123.456"
+    assert isinstance(ctx.session, SessionContext)
+    assert len(ctx.session.history) == 2
+

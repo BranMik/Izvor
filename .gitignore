@@ -75,6 +75,7 @@ data/*.db*
 *.db-shm
 thread_usage_data.json
 model_pricing_cache.json
+*.migrated
 
 # Audit logs (runtime files preserved locally, not tracked in git)
 audit/*

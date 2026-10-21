@@ -193,7 +193,7 @@ async def test_discussion_scribe_mechanical_word_limit():
     mock_resp.choices = [mock_choice]
     mock_resp.usage = MagicMock(prompt_tokens=100, completion_tokens=150)
 
-    with patch("pipeline.discussion_scribe.scribe.litellm.completion", return_value=mock_resp):
+    with patch("pipeline.discussion_scribe.scribe.litellm.acompletion", return_value=mock_resp):
         # scribe_max_words = 40 -> cutoff is 40 + 50 = 90 words
         brief, tokens = await discussion_scribe.generate_brief(
             history=history,

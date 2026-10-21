@@ -38,6 +38,7 @@ from orchestration.protocols import (
     SystemMessagePoster,
     TokenRecorder,
     UsageUpdater,
+    WorkspaceAdapter,
 )
 from orchestration.stages import (
     ContextPrepStage,
@@ -133,11 +134,22 @@ class TurnContext:
     slack_res: dict[str, Any] | None = None
     is_completed: bool = False
     turn_token_mapping: dict[str, str] = field(default_factory=dict)
+    session_id: str = ""
+    session: Any = None
 
     def __post_init__(self):
         self.thread_key = (self.channel_id, self.thread_ts)
         self.start_time = time.time()
         self.raw_text_cleaned = self.raw_text
+        if not self.session_id:
+            self.session_id = f"{self.channel_id}:{self.thread_ts}"
+        if self.session is None:
+            from core.domain import SessionContext
+
+            self.session = SessionContext.from_thread(
+                self.channel_id, self.thread_ts, self.in_memory_history
+            )
+
 
     def is_superseded(self) -> bool:
         """Determines if this turn was superseded by a newer query or task cancellation."""
@@ -187,6 +199,7 @@ class TurnPipeline:
         post_system_message_fn: SystemMessagePoster | None = None,
         update_message_fn: SlackMessageUpdater | None = None,
         calc_costs_fn: CostCalculator | None = None,
+        workspace_adapter: WorkspaceAdapter | None = None,
     ):
         self._router_module = router_module
         self._hooks: dict[str, Any] = hooks or {}
@@ -204,6 +217,19 @@ class TurnPipeline:
         self.update_message_fn = update_message_fn
         self.calc_costs_fn = calc_costs_fn
 
+        # Workspace Adapter Port (Hexagonal Architecture)
+        if workspace_adapter is not None:
+            self.workspace_adapter = workspace_adapter
+        else:
+            from adapters.slack.workspace_adapter import SlackWorkspaceAdapter
+
+            self.workspace_adapter = SlackWorkspaceAdapter(
+                post_agent_fn=self.slack_poster,
+                update_msg_fn=self.update_message_fn,
+                post_system_fn=self.post_system_message_fn,
+                hook_resolver=self._get_hook,
+            )
+
         # Initialize the composed stage instances
         self.validation_stage = ValidationStage(self)
         self.resolution_stage = ResolutionStage(self)
@@ -215,7 +241,10 @@ class TurnPipeline:
     def router(self):
         if self._router_module is not None:
             return self._router_module
-        return sys.modules.get("orchestration.agent_router")
+        from orchestration import agent_router
+
+        return agent_router
+
 
     def _get_hook(self, name: str, default: Any = None) -> Any:
         """Dynamically retrieves a function or constant from injected deps, hooks, router module, or default."""

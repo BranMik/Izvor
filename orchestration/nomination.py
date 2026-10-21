@@ -145,33 +145,22 @@ def parse_agent_and_prompt(
         prompt = prompt.strip()
         prompt = re.sub(r"^\*+|\*+$", "", prompt).strip()
         if matched_key in remaining:
-            remaining.remove(matched_key)
-            thread_state_manager.set_remaining_agents(channel_id, thread_ts, remaining)
+            thread_state_manager.remove_remaining_agent(channel_id, thread_ts, matched_key)
         return matched_key, prompt, True
 
     if remaining:
         stored_seq = thread_state_manager.get_round_sequence(channel_id, thread_ts)
         if stored_seq and remaining[0] in stored_seq:
-            first_agent = remaining.pop(0)
-            thread_state_manager.set_remaining_agents(channel_id, thread_ts, remaining)
+            first_agent = thread_state_manager.pop_remaining_agent(channel_id, thread_ts)
             return first_agent, cleaned_text, False
 
         mode = settings_manager.get_orchestration_mode()
-        if mode == OrchestrationMode.FIXED:
-            fixed_cfg = settings_manager.get_fixed_config()
-            if fixed_cfg.get("chain"):
-                first_agent = remaining.pop(0)
-                thread_state_manager.set_remaining_agents(channel_id, thread_ts, remaining)
-                return first_agent, cleaned_text, False
-        elif mode == OrchestrationMode.SANDWICH:
-            first_agent = remaining.pop(0)
-            thread_state_manager.set_remaining_agents(channel_id, thread_ts, remaining)
+        if mode in (OrchestrationMode.FIXED, OrchestrationMode.SANDWICH):
+            first_agent = thread_state_manager.pop_remaining_agent(channel_id, thread_ts)
             return first_agent, cleaned_text, False
 
         # If no designated chain, select randomly from remaining pool
-        first_agent = random.choice(remaining)
-        remaining.remove(first_agent)
-        thread_state_manager.set_remaining_agents(channel_id, thread_ts, remaining)
+        first_agent = thread_state_manager.pop_random_remaining_agent(channel_id, thread_ts)
         return first_agent, cleaned_text, False
 
     return None, cleaned_text, False

@@ -153,3 +153,48 @@ def test_stop_does_not_cancel_thread_skills():
         # Thread skills still intact!
         assert mgr.get_active_skills(channel_id, thread_ts) == ["web_research"]
         thread_state_manager.clear_stop(channel_id, thread_ts)
+
+
+def test_thread_skills_legacy_migration(tmp_path, monkeypatch):
+    import orchestration.thread_skills_manager as tsm_mod
+    from core.database import get_connection
+
+    legacy_file = tmp_path / "legacy_skills.json"
+    now = time.time()
+    legacy_data = {
+        "threads": {
+            "C_MIGRATE:1726000000.999999": {
+                "skills": ["web_research", "pdf_reader"],
+                "granted_at": now,
+                "agent_skills": {
+                    "agent-10001": {
+                        "skills": ["secret_scanner"],
+                        "granted_at": now,
+                    }
+                },
+            }
+        }
+    }
+    legacy_file.write_text(json.dumps(legacy_data), encoding="utf-8")
+
+    monkeypatch.setattr(tsm_mod, "THREAD_SKILLS_FILE", legacy_file)
+    mgr = ThreadSkillsManager(storage_file=legacy_file, auto_load=True)
+
+    # File should be migrated and renamed
+    assert not legacy_file.exists()
+    assert legacy_file.with_suffix(".json.migrated").exists()
+
+    # Query SQLite directly to verify insertion
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT agent_id, skill_name FROM thread_skills WHERE channel_id = ? AND thread_ts = ? ORDER BY skill_name ASC;",
+            ("C_MIGRATE", "1726000000.999999"),
+        ).fetchall()
+        assert len(rows) == 3
+        # Global skills
+        global_skills = [r["skill_name"] for r in rows if r["agent_id"] == "*"]
+        assert global_skills == ["pdf_reader", "web_research"]
+        # Agent skill
+        agent_skills = [r["skill_name"] for r in rows if r["agent_id"] == "agent-10001"]
+        assert agent_skills == ["secret_scanner"]
+

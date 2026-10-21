@@ -192,29 +192,30 @@ class AgentSettingsManager:
     def weekly_pricing_update_enabled(self, val: bool) -> None:
         self.app_settings.set_weekly_pricing_update_enabled(val, save=False)
 
+    def configure_paths(
+        self,
+        settings_file: Path | str | None = None,
+        backup_file: Path | str | None = None,
+    ) -> None:
+        if settings_file is not None:
+            self.default_settings_file = Path(settings_file)
+            self._custom_settings_file = True
+        if backup_file is not None:
+            self.default_backup_file = Path(backup_file)
+            self._custom_backup_file = True
+
     @property
     def active_settings_file(self) -> Path:
         if self._custom_settings_file:
             return self.default_settings_file
-        router_mod = sys.modules.get("agent_router") or sys.modules.get("orchestration.agent_router")
-        if router_mod and hasattr(router_mod, "SETTINGS_FILE"):
-            return Path(router_mod.SETTINGS_FILE)
-        agent_settings_mod = sys.modules.get("agent_settings") or sys.modules.get("orchestration.agent_settings")
-        if agent_settings_mod and hasattr(agent_settings_mod, "SETTINGS_FILE"):
-            return Path(agent_settings_mod.SETTINGS_FILE)
-        return self.default_settings_file
+        return Path(SETTINGS_FILE)
 
     @property
     def active_backup_file(self) -> Path:
         if self._custom_backup_file:
             return self.default_backup_file
-        router_mod = sys.modules.get("agent_router") or sys.modules.get("orchestration.agent_router")
-        if router_mod and hasattr(router_mod, "BACKUP_FILE"):
-            return Path(router_mod.BACKUP_FILE)
-        agent_settings_mod = sys.modules.get("agent_settings") or sys.modules.get("orchestration.agent_settings")
-        if agent_settings_mod and hasattr(agent_settings_mod, "BACKUP_FILE"):
-            return Path(agent_settings_mod.BACKUP_FILE)
-        return self.default_backup_file
+        return Path(BACKUP_FILE)
+
 
     def _atomic_write_json(self, target_path: Path, data: dict[str, Any]) -> None:
         """Writes JSON payload atomically to a temporary file before renaming."""

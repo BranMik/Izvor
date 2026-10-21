@@ -56,7 +56,7 @@ async def test_generate_thread_notes_calls_mistral_model():
         {"role": "assistant", "content": "[agent-10008]: Use PostgreSQL with connection pooling."},
     ]
 
-    with patch("pipeline.discussion_scribe.scribe.litellm.completion", return_value=mock_resp) as mock_litellm:
+    with patch("pipeline.discussion_scribe.scribe.litellm.acompletion", return_value=mock_resp) as mock_litellm:
         content, token_stats = await generate_thread_notes(history, is_completed=False)
 
         assert mock_litellm.called
@@ -453,5 +453,60 @@ async def test_update_notes_for_thread_reengagement_updates_existing_notes(monke
     assert len(calls) == 2
     assert calls[0].kwargs["message_ts"] == "live_ts_123"
     assert calls[1].kwargs["message_ts"] == "conclusion_ts_456"
+
+
+def test_thread_notes_sqlite_persistence_and_cache_reload():
+    from core.database import get_connection
+    from agents.thread_notes_agent import (
+        THREAD_CONCLUSION_MSG_MAP,
+        THREAD_CONCLUSION_TEXT_MAP,
+        THREAD_NOTE_MSG_MAP,
+        THREAD_NOTE_TEXT_MAP,
+        get_thread_conclusion_content,
+        get_thread_conclusion_note,
+        get_thread_note,
+        get_thread_note_content,
+        set_thread_conclusion_content,
+        set_thread_conclusion_note,
+        set_thread_note,
+        set_thread_note_content,
+    )
+
+    channel_id = "C_SQLITE_NOTES"
+    thread_ts = "1700000000.777"
+
+    set_thread_note(channel_id, thread_ts, "live_ts_999")
+    set_thread_note_content(channel_id, thread_ts, "Live synthesis content")
+    set_thread_conclusion_note(channel_id, thread_ts, "conc_ts_888")
+    set_thread_conclusion_content(channel_id, thread_ts, "Conclusion content")
+
+    # Verify directly in SQLite
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM thread_notes_state WHERE channel_id = ? AND thread_ts = ?;",
+            (channel_id, thread_ts),
+        ).fetchone()
+        assert row is not None
+        assert row["live_note_ts"] == "live_ts_999"
+        assert row["live_note_content"] == "Live synthesis content"
+        assert row["conclusion_note_ts"] == "conc_ts_888"
+        assert row["conclusion_note_content"] == "Conclusion content"
+
+    # Simulate process restart by clearing all L1 in-memory caches
+    THREAD_NOTE_MSG_MAP.clear()
+    THREAD_NOTE_TEXT_MAP.clear()
+    THREAD_CONCLUSION_MSG_MAP.clear()
+    THREAD_CONCLUSION_TEXT_MAP.clear()
+
+    # Querying getters should reload from SQLite into L1
+    assert get_thread_note(channel_id, thread_ts) == "live_ts_999"
+    assert get_thread_note_content(channel_id, thread_ts) == "Live synthesis content"
+    assert get_thread_conclusion_note(channel_id, thread_ts) == "conc_ts_888"
+    assert get_thread_conclusion_content(channel_id, thread_ts) == "Conclusion content"
+
+    # L1 cache should now be repopulated
+    assert (channel_id, thread_ts) in THREAD_NOTE_MSG_MAP
+    assert (channel_id, thread_ts) in THREAD_CONCLUSION_MSG_MAP
+
 
 

@@ -142,17 +142,16 @@ def is_high_demand_503_error(e: Exception) -> bool:
 
 
 async def _invoke_llm(func: Any, kwargs: dict[str, Any], runner: Any = None) -> Any:
-    """Invokes LLM completion natively if coroutine, via runner if provided, or via threadpool if synchronous."""
+    """Invokes LLM completion natively if coroutine, via runner if provided, or directly."""
     if runner is not None:
         return await runner(func, **kwargs)
     if inspect.iscoroutinefunction(func):
         return await func(**kwargs)
-    if getattr(func, "__name__", "") == "completion" and not hasattr(func, "assert_called"):
-        return await run_in_threadpool(func, **kwargs)
     res = func(**kwargs)
     if asyncio.iscoroutine(res):
         return await res
     return res
+
 
 
 async def execute_llm_with_retry(

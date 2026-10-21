@@ -63,6 +63,15 @@ class ContextPrepStage:
             history = list(history) + [{"role": "user", "content": ctx.raw_text}]
 
         ctx.full_history = list(history)
+        from core.domain import Turn
+        ctx.session.history = [
+            Turn.from_dict(m) if isinstance(m, dict) else m
+            for m in ctx.full_history
+        ]
+        ctx.session.active_exclusions = list(ctx.excluded_agents)
+        ctx.session.history_limit = ctx.history_limit
+        ctx.session.language = ctx.thread_language
+
 
         if not ctx.is_bot_trigger:
             if history and history[-1]["role"] == "user":

@@ -28,6 +28,7 @@ from core.models import OrchestrationMode
 from nlp.message_builder import markdown_to_slack
 from orchestration.agent_settings import settings_manager
 from orchestration.nomination import enforce_valid_nomination, get_initial_agents
+from orchestration.protocols import WorkspaceAdapter
 from orchestration.thread_state import thread_state_manager
 from pipeline.entity_resolver import (
     NOMINATION_TAG_REGEX,
@@ -97,9 +98,36 @@ def apply_mechanical_word_limit(text: str, max_words: int, grace_buffer: int | N
 
 
 class PostRecordStage:
+    """Provides stage 5 dispatch, token accounting, and error handling for TurnPipeline."""
+
     def __init__(self, pipeline: Any):
         self.pipeline = pipeline
-    """Provides stage 5 dispatch, token accounting, and error handling for TurnPipeline."""
+
+    @property
+    def workspace_adapter(self) -> WorkspaceAdapter:
+        adapter = getattr(self.pipeline, "workspace_adapter", None)
+        from adapters.slack.workspace_adapter import (
+            InMemoryWorkspaceAdapter,
+            SlackWorkspaceAdapter,
+        )
+
+        if isinstance(adapter, (SlackWorkspaceAdapter, InMemoryWorkspaceAdapter)):
+            return adapter
+
+        hook_resolver = getattr(self.pipeline, "_get_hook", None)
+        return SlackWorkspaceAdapter(
+            hook_resolver=hook_resolver,
+            post_agent_fn=lambda **kw: (
+                hook_resolver("post_agent_response", post_agent_response)
+                if hook_resolver
+                else post_agent_response
+            )(**kw),
+            update_msg_fn=lambda **kw: (
+                hook_resolver("update_slack_message", update_slack_message)
+                if hook_resolver
+                else update_slack_message
+            )(**kw),
+        )
 
 
 
@@ -214,7 +242,9 @@ class PostRecordStage:
             if active_max_words is not None:
                 ctx.final_text = apply_mechanical_word_limit(ctx.final_text, active_max_words)
 
-            ctx.final_text = markdown_to_slack(ctx.final_text)
+            formatted = self.workspace_adapter.format_outbound_text(ctx.final_text)
+            if isinstance(formatted, str):
+                ctx.final_text = formatted
             if not getattr(ctx, "waiting_hitl", False):
                 ctx.final_text = enforce_valid_nomination(
                     ctx.final_text,
@@ -284,26 +314,20 @@ class PostRecordStage:
             return {"ok": False, "cancelled": True, "reason": "superseded"}
 
         resolved_turn_icon = ctx.icon_url or ctx.agent_cfg.get("icon_url")
-        update_msg_fn = self.pipeline._get_hook(
-            "update_slack_message", update_slack_message
-        )
-        post_resp_fn = self.pipeline._get_hook(
-            "post_agent_response", post_agent_response
-        )
         if ctx.intermediate_msg_ts:
             logger.info(
-                f"[SLACK] Updating in-place intermediate message {ctx.intermediate_msg_ts} with final text for {ctx.agent_cfg['username']}"
+                f"[WORKSPACE] Updating in-place intermediate message {ctx.intermediate_msg_ts} with final text for {ctx.agent_cfg['username']}"
             )
-            slack_res = await update_msg_fn(
+            slack_res = await self.workspace_adapter.update_agent_turn(
                 channel_id=ctx.channel_id,
-                ts=ctx.intermediate_msg_ts,
+                message_ts=ctx.intermediate_msg_ts,
                 text=ctx.final_text,
             )
             if isinstance(slack_res, dict) and not slack_res.get("ok"):
                 logger.warning(
-                    f"[SLACK] In-place update failed ({slack_res.get('error')}), falling back to post_agent_response."
+                    f"[WORKSPACE] In-place update failed ({slack_res.get('error')}), falling back to post_agent_turn."
                 )
-                slack_res = await post_resp_fn(
+                slack_res = await self.workspace_adapter.post_agent_turn(
                     channel_id=ctx.channel_id,
                     thread_ts=ctx.thread_ts,
                     text=ctx.final_text,
@@ -316,9 +340,9 @@ class PostRecordStage:
         else:
             resolved_username = ctx.agent_cfg.get("username", ctx.agent_key) if ctx.agent_cfg else ctx.agent_key
             logger.info(
-                f"[SLACK] Posting agent response to channel {ctx.channel_id}, thread_ts {ctx.thread_ts} as {resolved_username} (icon: {resolved_turn_icon})"
+                f"[WORKSPACE] Posting agent response to channel {ctx.channel_id}, thread_ts {ctx.thread_ts} as {resolved_username} (icon: {resolved_turn_icon})"
             )
-            slack_res = await post_resp_fn(
+            slack_res = await self.workspace_adapter.post_agent_turn(
                 channel_id=ctx.channel_id,
                 thread_ts=ctx.thread_ts,
                 text=ctx.final_text,
@@ -327,7 +351,7 @@ class PostRecordStage:
             )
             posted_ts = slack_res.get("ts") if isinstance(slack_res, dict) else None
         ctx.slack_res = slack_res
-        logger.info(f"[SLACK] Successfully posted message! Received ts: {posted_ts}")
+        logger.info(f"[WORKSPACE] Successfully posted message! Received ts: {posted_ts}")
 
         pause_secs = self.pipeline._get_hook(
             "SLACK_POST_PAUSE_SECONDS", get_slack_post_pause_seconds()

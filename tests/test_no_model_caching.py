@@ -125,7 +125,7 @@ async def test_thread_notes_omits_cache_control_and_logs(caplog):
     mock_resp.usage = MagicMock(prompt_tokens=100, completion_tokens=50)
 
     with caplog.at_level(logging.INFO), \
-         patch("litellm.completion", return_value=mock_resp) as mock_completion:
+         patch("litellm.acompletion", return_value=mock_resp) as mock_completion:
 
         notes, stats = await generate_thread_notes(
             history=[{"role": "user", "content": "Hello"}],
