@@ -48,6 +48,7 @@ async def process_and_respond(
     run_internal_loop: bool = False,
     in_memory_history: list[dict[str, Any]] | None = None,
     user_id: str | None = None,
+    target_agent_override: str | None = None,
 ) -> dict[str, Any]:
     """
     Main background handler: parses prompt, builds conversation history,
@@ -90,6 +91,7 @@ async def process_and_respond(
         icon_url=icon_url,
         is_bot_trigger=is_bot_trigger,
         in_memory_history=in_memory_history,
+        target_agent_override=target_agent_override,
     )
     pipeline = TurnPipeline(
         router_module=sys.modules[__name__],
@@ -185,6 +187,98 @@ async def orchestrate_discussion(
                     "content": f"[Internal Revisor Warning]: {turn_res['revisor_warning']}",
                 }
             )
+
+        # Check for Parallel Dialectical Topology (Scatter-Gather) (TKT-811 & TKT-812)
+        from core.models import OrchestrationMode
+        from orchestration.agent_settings import get_orchestration_mode, get_sandwich_config
+
+        active_mode = get_orchestration_mode()
+        if active_mode in (OrchestrationMode.SCATTER_GATHER, "scatter_gather"):
+            remaining = thread_state_manager.get_remaining_agents(channel_id, thread_ts)
+            sandwich_cfg = get_sandwich_config()
+            end_chain = sandwich_cfg.get("end_chain", [])
+            scatter_agents = [a for a in remaining if a not in end_chain]
+
+            if scatter_agents:
+                logger.info(
+                    f"[ORCHESTRATOR] Entering Parallel Scatter Phase for {thread_key}: running {scatter_agents} concurrently."
+                )
+
+                async def _run_scatter_branch(agent_k: str) -> dict[str, Any]:
+                    # Zero-anchor isolated history snapshot
+                    branch_history = list(accumulated_history)
+                    return await process_and_respond(
+                        channel_id=channel_id,
+                        thread_ts=thread_ts,
+                        raw_text=raw_text,
+                        bot_user_id=bot_user_id,
+                        icon_url=icon_url,
+                        is_bot_trigger=True,
+                        run_internal_loop=False,
+                        in_memory_history=branch_history,
+                        user_id=user_id,
+                        target_agent_override=agent_k,
+                    )
+
+                scatter_results = await asyncio.gather(
+                    *[_run_scatter_branch(a) for a in scatter_agents],
+                    return_exceptions=False,
+                )
+
+                for s_res in scatter_results:
+                    if isinstance(s_res, dict) and "final_text" in s_res:
+                        s_name = s_res.get("displayname", s_res.get("username", "Unknown Agent"))
+                        accumulated_history.append({
+                            "role": "assistant",
+                            "content": f"[{s_name}]: {s_res['final_text']}",
+                        })
+                    last_res = s_res
+
+                remaining_after = [a for a in remaining if a not in scatter_agents]
+                thread_state_manager.set_remaining_agents(channel_id, thread_ts, remaining_after)
+
+                # Gather & Synthesis Phase
+                if remaining_after and not thread_state_manager.is_stopped(channel_id, thread_ts):
+                    gather_agent = remaining_after[0]
+                    logger.info(
+                        f"[ORCHESTRATOR] Entering Parallel Gather Phase with synthesis agent {gather_agent}."
+                    )
+                    gather_res = await process_and_respond(
+                        channel_id=channel_id,
+                        thread_ts=thread_ts,
+                        raw_text="Synthesize the parallel specialist perspectives into a reconciled conclusion.",
+                        bot_user_id=bot_user_id,
+                        icon_url=icon_url,
+                        is_bot_trigger=True,
+                        run_internal_loop=False,
+                        in_memory_history=accumulated_history,
+                        user_id=user_id,
+                        target_agent_override=gather_agent,
+                    )
+                    last_res = gather_res
+                    if isinstance(gather_res, dict) and "final_text" in gather_res:
+                        g_name = gather_res.get("displayname", gather_res.get("username", "Unknown Agent"))
+                        accumulated_history.append({
+                            "role": "assistant",
+                            "content": f"[{g_name}]: {gather_res['final_text']}",
+                        })
+
+                # Discussion completed
+                try:
+                    from services.flat_history_recorder import record_flat_history
+
+                    init_p = thread_state_manager.get_initial_prompt(channel_id, thread_ts) or raw_text
+                    record_flat_history(
+                        channel_id=channel_id,
+                        thread_ts=thread_ts,
+                        initial_prompt=init_p,
+                        messages=accumulated_history,
+                        bot_user_id=bot_user_id,
+                    )
+                except Exception as e:
+                    logger.debug(f"[ORCHESTRATOR] Flat history sync exception: {e}")
+
+                return last_res
 
         # 3. Subsequent turns
         active_rounds = thread_state_manager.get_rounds(channel_id, thread_ts)

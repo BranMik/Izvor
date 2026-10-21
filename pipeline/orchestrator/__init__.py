@@ -1,3 +1,3 @@
-from .sandwich import SandwichOrchestrator
+from .sandwich import DialecticExecutionPlan, SandwichOrchestrator
 
-__all__ = ["SandwichOrchestrator"]
+__all__ = ["DialecticExecutionPlan", "SandwichOrchestrator"]

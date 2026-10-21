@@ -477,7 +477,7 @@ def build_app_home_view(
 
     wf_options = []
     for wf in workflows:
-        icon = "🥪" if wf.mode == OrchestrationMode.SANDWICH.value else "🎯"
+        icon = "🥪" if wf.mode == OrchestrationMode.SANDWICH.value else ("⚡" if wf.mode == OrchestrationMode.SCATTER_GATHER.value else "🎯")
         label = f"{icon} {wf.name}"
         if len(label) > 75:
             label = label[:72] + "..."
@@ -505,7 +505,8 @@ def build_app_home_view(
     if active_wf_id:
         for wf in workflows:
             if wf.id == active_wf_id:
-                active_wf_name = f"{'🥪' if wf.mode == OrchestrationMode.SANDWICH.value else '🎯'} {wf.name}"
+                active_icon = "🥪" if wf.mode == OrchestrationMode.SANDWICH.value else ("⚡" if wf.mode == OrchestrationMode.SCATTER_GATHER.value else "🎯")
+                active_wf_name = f"{active_icon} {wf.name}"
                 break
 
     preset_select_element: dict[str, Any] = {
@@ -582,14 +583,20 @@ def build_app_home_view(
                     "type": "mrkdwn",
                     "text": (
                         f"\n *────────🔀 Discussion Orchestration Mode:────────* \n"
-                        f"Current mode: *{'🥪 Sandwich Chain (Start ➔ Middle ➔ End)' if orch_mode == OrchestrationMode.SANDWICH else '🎯 Fixed Sequence'}*"
+                        f"Current mode: *{'🥪 Sandwich Chain (Start ➔ Middle ➔ End)' if (orch_mode == OrchestrationMode.SANDWICH or orch_mode == OrchestrationMode.SANDWICH.value) else ('⚡ Parallel Dialectic (Scatter-Gather)' if (orch_mode == OrchestrationMode.SCATTER_GATHER or orch_mode == OrchestrationMode.SCATTER_GATHER.value) else '🎯 Fixed Sequence')}*"
                     ),
                 },
             }
         ]
     )
 
-    if not (active_wf_id in ("default_review_flow", "default_sandwich")):
+    if not (active_wf_id in ("default_review_flow", "default_sandwich", "parallel_dialectic_flow")):
+        initial_label = "🥪 Sandwich Flow"
+        if orch_mode in (OrchestrationMode.SCATTER_GATHER, OrchestrationMode.SCATTER_GATHER.value):
+            initial_label = "⚡ Parallel Dialectic"
+        elif orch_mode in (OrchestrationMode.FIXED, OrchestrationMode.FIXED.value):
+            initial_label = "🎯 Fixed Sequence"
+
         blocks[-1]["accessory"] = {
             "type": "radio_buttons",
             "action_id": "select_orchestration_mode",
@@ -605,6 +612,14 @@ def build_app_home_view(
                 {
                     "text": {
                         "type": "plain_text",
+                        "text": "⚡ Parallel Dialectic",
+                        "emoji": True,
+                    },
+                    "value": f"mode:{OrchestrationMode.SCATTER_GATHER.value}",
+                },
+                {
+                    "text": {
+                        "type": "plain_text",
                         "text": "🎯 Fixed Sequence",
                         "emoji": True,
                     },
@@ -614,19 +629,17 @@ def build_app_home_view(
             "initial_option": {
                 "text": {
                     "type": "plain_text",
-                    "text": "🥪 Sandwich Flow"
-                    if orch_mode == OrchestrationMode.SANDWICH
-                    else "🎯 Fixed Sequence",
+                    "text": initial_label,
                     "emoji": True,
                 },
-                "value": f"mode:{orch_mode}",
+                "value": f"mode:{orch_mode if isinstance(orch_mode, str) else orch_mode.value}",
             },
         }
 
-    is_default_wf = active_wf_id in ("default_review_flow", "default_sandwich")
+    is_default_wf = active_wf_id in ("default_review_flow", "default_sandwich", "parallel_dialectic_flow")
 
     # Mode-specific chain configuration UI
-    if orch_mode == OrchestrationMode.SANDWICH:
+    if orch_mode in (OrchestrationMode.SANDWICH, OrchestrationMode.SANDWICH.value):
         blocks.extend(
             [
                 {
@@ -707,6 +720,94 @@ def build_app_home_view(
                             "text": {
                                 "type": "plain_text",
                                 "text": "🗑️ Clear chains (Flexible)",
+                                "emoji": True,
+                            },
+                            "action_id": "clear_sandwich_chains_button",
+                        },
+                    ],
+                },
+            ])
+    elif orch_mode in (OrchestrationMode.SCATTER_GATHER, OrchestrationMode.SCATTER_GATHER.value):
+        blocks.extend(
+            [
+                {
+                    "type": "context",
+                    "elements": [
+                        {
+                            "type": "mrkdwn",
+                            "text": "ℹ️ *Parallel Dialectic Flow:* Specialist agents explore simultaneously in parallel with zero-anchor isolation snapshots, followed by dialectical synthesis via the closing agent.",
+                        }
+                    ],
+                }
+            ]
+        )
+        if is_default_wf:
+            blocks.append({
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"🚫 *Editing Disabled for System Defaults*\n*🚩 Parallel Specialists:* {start_chain_str or 'None'}\n*🏁 Synthesis Agent:* {end_chain_str or 'None'}",
+                },
+            })
+        else:
+            blocks.extend([
+                {
+                    "type": "input",
+                    "block_id": f"sandwich_start_chain_block_{start_hash}",
+                    "dispatch_action": True,
+                    "element": {
+                        "type": "plain_text_input",
+                        "action_id": "set_start_chain_input",
+                        "initial_value": start_chain_str,
+                        "placeholder": {
+                            "type": "plain_text",
+                            "text": "e.g. Visionary, Innovator (comma-separated)",
+                        },
+                    },
+                    "label": {
+                        "type": "plain_text",
+                        "text": "🚩 Parallel Specialists:",
+                        "emoji": True,
+                    },
+                },
+                {
+                    "type": "input",
+                    "block_id": f"sandwich_end_chain_block_{end_hash}",
+                    "dispatch_action": True,
+                    "element": {
+                        "type": "plain_text_input",
+                        "action_id": "set_end_chain_input",
+                        "initial_value": end_chain_str,
+                        "placeholder": {
+                            "type": "plain_text",
+                            "text": "e.g. Security Architect (comma-separated)",
+                        },
+                    },
+                    "label": {
+                        "type": "plain_text",
+                        "text": "🏁 Synthesis Agent:",
+                        "emoji": True,
+                    },
+                },
+                {
+                    "type": "actions",
+                    "block_id": f"sandwich_chain_actions_{start_hash}_{end_hash}",
+                    "elements": [
+                        {
+                            "type": "button",
+                            "text": {
+                                "type": "plain_text",
+                                "text": "💾 Save Parallel chains",
+                                "emoji": True,
+                            },
+                            "action_id": "save_sandwich_chains_button",
+                            "style": "primary",
+                        },
+                        {
+                            "type": "button",
+                            "text": {
+                                "type": "plain_text",
+                                "text": "🗑️ Clear chains",
                                 "emoji": True,
                             },
                             "action_id": "clear_sandwich_chains_button",

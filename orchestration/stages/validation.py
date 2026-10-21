@@ -467,9 +467,14 @@ class ValidationStage:
                     "unrecognized_tags": unrecognized_tags,
                 }
 
-            agent_key, prompt, was_explicit_target = parse_agent_and_prompt(
-                ctx.raw_text_cleaned, ctx.channel_id, ctx.thread_ts
-            )
+            if getattr(ctx, "target_agent_override", None):
+                agent_key = ctx.target_agent_override
+                prompt = ctx.raw_text_cleaned
+                was_explicit_target = True
+            else:
+                agent_key, prompt, was_explicit_target = parse_agent_and_prompt(
+                    ctx.raw_text_cleaned, ctx.channel_id, ctx.thread_ts
+                )
             ctx.agent_key = agent_key
             ctx.prompt = prompt
             ctx.was_explicit_target = was_explicit_target

@@ -8,6 +8,8 @@ class OrchestrationMode(str, Enum):
 
     SANDWICH = "sandwich"
     FIXED = "fixed"
+    SCATTER_GATHER = "scatter_gather"
+    PARALLEL_DIALECTIC = "scatter_gather"
 
 
 @dataclass
@@ -438,9 +440,15 @@ class WorkflowPreset:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "WorkflowPreset":
         raw_mode = str(data.get("mode", OrchestrationMode.SANDWICH.value)).strip().lower()
+        valid_modes = (
+            OrchestrationMode.SANDWICH.value,
+            OrchestrationMode.FIXED.value,
+            OrchestrationMode.SCATTER_GATHER.value,
+            "scatter_gather",
+        )
         mode = (
             raw_mode
-            if raw_mode in (OrchestrationMode.SANDWICH.value, OrchestrationMode.FIXED.value)
+            if raw_mode in valid_modes
             else OrchestrationMode.SANDWICH.value
         )
         if mode == OrchestrationMode.FIXED.value:
@@ -495,6 +503,21 @@ DEFAULT_WORKFLOWS: list[WorkflowPreset] = [
                 "agent-10008",
                 "agent-10003",
                 "agent-10015",
+            ],
+        },
+        fixed_config={"chain": []},
+    ),
+    WorkflowPreset(
+        id="parallel_dialectic_flow",
+        name="Parallel Dialectic (Scatter-Gather)",
+        mode=OrchestrationMode.SCATTER_GATHER.value,
+        description="Concurrent parallel exploration where specialist agents investigate the anchor problem simultaneously without sequential anchoring bias, followed by dialectical synthesis.",
+        sandwich_config={
+            "start_chain": [
+                "agent-10001",
+            ],
+            "end_chain": [
+                "agent-10006",
             ],
         },
         fixed_config={"chain": []},
