@@ -395,6 +395,21 @@ class PricingService:
                 "updated_at": time.time(),
                 "updated_at_str": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()),
             }
+
+        try:
+            from pipeline.spend_governance import spend_governance
+
+            usage = getattr(resp, "usage", None)
+            if usage:
+                spend_governance.record_usage(
+                    session_id=f"system:pricing:{model_name}",
+                    model_name=get_pricing_agent_model(),
+                    prompt_tokens=getattr(usage, "prompt_tokens", 0) or 0,
+                    completion_tokens=getattr(usage, "completion_tokens", 0) or 0,
+                )
+        except Exception as e:
+            logger.debug(f"[PRICING] Failed to record spend ledger: {e}")
+
         resp_msg = resp.choices[0].message
         tool_calls = getattr(resp_msg, "tool_calls", None)
 
@@ -458,6 +473,21 @@ class PricingService:
                     "updated_at": time.time(),
                     "updated_at_str": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()),
                 }
+
+            try:
+                from pipeline.spend_governance import spend_governance
+
+                usage_final = getattr(final_resp, "usage", None)
+                if usage_final:
+                    spend_governance.record_usage(
+                        session_id=f"system:pricing:{model_name}",
+                        model_name=get_pricing_agent_model(),
+                        prompt_tokens=getattr(usage_final, "prompt_tokens", 0) or 0,
+                        completion_tokens=getattr(usage_final, "completion_tokens", 0) or 0,
+                    )
+            except Exception as e:
+                logger.debug(f"[PRICING] Failed to record spend ledger: {e}")
+
             final_text = final_resp.choices[0].message.content
 
             cleaned = re.sub(r"^```json\s*", "", final_text.strip(), flags=re.IGNORECASE)

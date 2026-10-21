@@ -453,7 +453,7 @@ async def test_process_and_respond_503_high_demand_second_query_retries_and_term
 async def test_execute_llm_with_retry_503_selective_bypass():
     call_count = 0
 
-    def mock_503_llm():
+    def mock_503_llm(*args, **kwargs):
         nonlocal call_count
         call_count += 1
         raise RuntimeError("503 Service Unavailable: overloaded")
@@ -485,7 +485,7 @@ async def test_execute_llm_with_retry_503_selective_bypass():
     # 3. For non-503 errors with allow_503_immediate_retry=False: STILL retries 3 times as standard!
     call_count = 0
 
-    def mock_network_error():
+    def mock_network_error(*args, **kwargs):
         nonlocal call_count
         call_count += 1
         raise ConnectionResetError("Connection reset by peer")

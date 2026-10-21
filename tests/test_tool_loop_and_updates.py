@@ -134,7 +134,7 @@ async def test_delayed_intermediate_status_and_inplace_update():
     ctx.agent_cfg = {
         "model": "openrouter/auto",
         "username": "agent-10001",
-        "skills": ["web_tools"],
+        "skills": ["web_research"],
     }
 
     res = await pipeline.execution_stage.stage_execute_llm(ctx)

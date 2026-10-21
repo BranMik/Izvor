@@ -43,7 +43,7 @@ async def test_anthropic_agent_omits_cache_control(caplog):
     mock_resp.usage = MagicMock(prompt_tokens=200, completion_tokens=100)
 
     with caplog.at_level(logging.INFO), \
-         patch("litellm.completion", return_value=mock_resp) as mock_completion, \
+         patch("litellm.acompletion", AsyncMock(return_value=mock_resp)) as mock_completion, \
          patch("orchestration.agent_router.post_agent_response", return_value={"ok": True, "ts": "123.456"}), \
          patch("orchestration.agent_router.fetch_thread_history", return_value=[
              {"role": "user", "content": "Prior message 1"},
@@ -89,7 +89,7 @@ async def test_openai_agent_emits_no_cache_logs(caplog):
     mock_resp.usage.prompt_tokens_details = MagicMock(cached_tokens=1024)
 
     with caplog.at_level(logging.INFO), \
-         patch("litellm.completion", return_value=mock_resp) as mock_completion, \
+         patch("litellm.acompletion", AsyncMock(return_value=mock_resp)) as mock_completion, \
          patch("orchestration.agent_router.post_agent_response", return_value={"ok": True, "ts": "123.456"}), \
          patch("orchestration.agent_router.fetch_thread_history", return_value=[]), \
          patch("orchestration.agent_router.fetch_thread_files", return_value=[]), \

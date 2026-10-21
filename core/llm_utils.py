@@ -202,6 +202,9 @@ async def execute_llm_with_retry(
 
     logger.debug(f"[LLM] Prepared prompt for {agent_key}: {kwargs.get('messages', [])}")
 
+    # Enforce single retry layer: prevent underlying LiteLLM from retrying internally
+    kwargs.setdefault("num_retries", 0)
+
     last_error: Exception | None = None
     for attempt in range(1, max_attempts + 1):
         if is_superseded_fn and is_superseded_fn():

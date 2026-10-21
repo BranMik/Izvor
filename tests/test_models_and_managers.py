@@ -1,7 +1,7 @@
 import json
 import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -455,7 +455,7 @@ async def test_intent_extractor_class():
         )
     ]
 
-    with patch("nlp.intent_extractor.litellm.completion", return_value=mock_resp):
+    with patch("nlp.intent_extractor.litellm.acompletion", AsyncMock(return_value=mock_resp)):
         intent = await extractor.extract_intent("keep it to 75 words using last 2 messages")
         assert isinstance(intent, ExtractedIntent)
         assert intent.max_words == 75

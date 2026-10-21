@@ -382,7 +382,9 @@ async def test_turn_pipeline_propagates_agent_avatar_icon():
 
     # Stage 5: post to Slack and verify icon_url passed
     mock_post = AsyncMock(return_value={"ok": True, "ts": "12345.9999"})
-    with patch("orchestration.agent_router.post_agent_response", mock_post), \
+    pipeline.slack_poster = mock_post
+    with patch("services.slack_client.post_agent_response", mock_post), \
+         patch("orchestration.agent_router.post_agent_response", mock_post), \
          patch("orchestration.agent_router.trigger_thread_notes_update"), \
          patch("orchestration.agent_router.trigger_usage_update"), \
          patch("orchestration.agent_router.record_thread_tokens"):

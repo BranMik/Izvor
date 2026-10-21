@@ -12,6 +12,8 @@ import logging
 import re
 from typing import Final
 
+import litellm
+
 from core.config import get_language_detector_model
 
 logger = logging.getLogger(__name__)
@@ -151,41 +153,39 @@ def _clean_slack_tags(text: str) -> str:
     return clean_system_and_tags(text)
 
 
-def _sync_llm_classify(
-    text: str, model: str | None = None, default: str = "English"
-) -> str:
-    """Synchronous execution of LLM language classification."""
-    clean_text = _clean_slack_tags(text)
-    if _is_empty_or_pure_code(clean_text):
-        return default
-
-    selected_model = model or get_language_detector_model()
-    messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": clean_text},
-    ]
-
-    import litellm
-
-    resp = litellm.completion(
-        model=selected_model,
-        messages=messages,
-        num_retries=1,
-    )
-    msg = resp.choices[0].message
-    content = getattr(msg, "content", None)
-    if not content:
-        reasoning = getattr(msg, "reasoning_content", None)
-        if reasoning:
-            extracted = _extract_language_from_content(reasoning, default="")
-            if extracted:
-                return extracted
-        finish_reason = getattr(resp.choices[0], "finish_reason", "unknown")
-        logger.warning(
-            f"[LANGUAGE DETECTOR] Model {selected_model} returned empty content (finish_reason={finish_reason}). Defaulting to {default}."
-        )
-        return default
-    return _extract_language_from_content(content, default=default)
+def _heuristic_detect(text: str, default: str = "English") -> str:
+    """Fast deterministic heuristic classification for synchronous callers without LLM."""
+    if "¿" in text or "¡" in text:
+        return "Spanish"
+    lower = text.lower()
+    # Distinctive South Slavic characters
+    if any(ch in lower for ch in "čćžšđ"):
+        return "Croatian"
+    words = set(re.findall(r"\b[^\W\d_]+\b", lower, flags=re.UNICODE))
+    croatian_words = {
+        "je", "da", "ne", "se", "za", "na", "u", "koji", "koja", "koje",
+        "kako", "što", "sto", "nije", "sam", "smo", "ste", "su", "ali",
+        "ili", "može", "moze", "kratki", "rijeci", "rijec", "ovaj", "ova",
+        "ovo", "sustav", "funkcionira", "vise", "više", "puno", "upit"
+    }
+    if len(words & croatian_words) >= 2:
+        return "Croatian"
+    german_words = {"und", "der", "die", "das", "ist", "nicht", "für", "mit", "eine", "einer", "wie"}
+    if len(words & german_words) >= 2:
+        return "German"
+    spanish_words = {
+        "el", "la", "los", "las", "por", "para", "como", "cómo", "está", "esta",
+        "pero", "de", "y", "en", "esto", "que", "es", "una", "un"
+    }
+    if len(words & spanish_words) >= 2:
+        return "Spanish"
+    french_words = {"le", "la", "les", "des", "pour", "dans", "avec", "est", "sont", "comment", "ce", "cette"}
+    if len(words & french_words) >= 2:
+        return "French"
+    italian_words = {"il", "lo", "la", "gli", "per", "con", "sono", "anche", "come", "questo"}
+    if len(words & italian_words) >= 2:
+        return "Italian"
+    return default
 
 
 async def detect_language_llm(
@@ -222,7 +222,7 @@ async def detect_language_llm(
 
         resp = await asyncio.wait_for(
             execute_llm_with_retry(
-                litellm.completion,
+                litellm.acompletion,
                 kwargs={"model": selected_model, "messages": messages, "num_retries": 1},
                 agent_key="language_detector",
                 thread_key=thread_key or ("system", "language_detector"),
@@ -276,10 +276,15 @@ def detect_language(
     text: str, default: str = "English", model: str | None = None
 ) -> str:
     """
-    Synchronous entry point for language detection via LLM.
+    Synchronous entry point for language detection using fast heuristic classification.
     """
     try:
-        return _sync_llm_classify(text, model=model, default=default)
+        if is_system_message(text):
+            return default
+        clean_text = _clean_slack_tags(text)
+        if _is_empty_or_pure_code(clean_text):
+            return default
+        return _heuristic_detect(clean_text, default=default)
     except Exception as e:  # noqa: BLE001 - Language detection error boundary falls back to default language
         logger.warning(
             f"[LANGUAGE DETECTOR] Sync classification failed ({e}). Defaulting to {default}."

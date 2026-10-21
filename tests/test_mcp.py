@@ -1,5 +1,6 @@
 import json
 
+from core.domain import SYSTEM_PRINCIPAL
 from services.mcp_tools import list_documents, read_document, write_document
 
 
@@ -77,16 +78,17 @@ def test_mcp_execute_tool_document_dispatch():
     # Write document via execute_mcp_tool
     write_res = execute_mcp_tool(
         "write_document",
-        {"rel_path": "dispatch_test.txt", "content": "Dispatched document content"}
+        {"rel_path": "dispatch_test.txt", "content": "Dispatched document content"},
+        agent_name=SYSTEM_PRINCIPAL,
     )
     assert "success" in json.loads(write_res)
 
     # Read document via execute_mcp_tool
-    read_res = execute_mcp_tool("read_document", {"rel_path": "dispatch_test.txt"})
+    read_res = execute_mcp_tool("read_document", {"rel_path": "dispatch_test.txt"}, agent_name=SYSTEM_PRINCIPAL)
     assert json.loads(read_res).get("content") == "Dispatched document content"
 
     # List documents via execute_mcp_tool
-    list_res = execute_mcp_tool("list_documents", {"rel_path": "."})
+    list_res = execute_mcp_tool("list_documents", {"rel_path": "."}, agent_name=SYSTEM_PRINCIPAL)
     assert "contents" in json.loads(list_res)
 
     # Clean up test artifacts
@@ -178,7 +180,7 @@ def test_mcp_resource_path_normalization_and_prefix_stripping():
     assert p4 == AGENTS_RESOURCES_DIR.resolve()
 
 
-def test_mcp_read_document_search_in_resources_subfolder_and_case_insensitive():
+def test_mcp_read_document_exact_path_and_no_fuzzy_subdirectory_fallback():
     from services.mcp_tools import AGENTS_RESOURCES_DIR, read_document
 
     sub_dir = AGENTS_RESOURCES_DIR / "subfolder"
@@ -187,15 +189,16 @@ def test_mcp_read_document_search_in_resources_subfolder_and_case_insensitive():
     nested_file.write_text("Found nested document content", encoding="utf-8")
 
     try:
-        # 1. Search with exact name without folder
+        # 1. Search without folder path must fail (fuzzy fallback removed for TKT-913)
         res1 = json.loads(read_document("Nested_Report.txt"))
-        assert "Found nested document content" in res1.get("content", "")
+        assert "error" in res1
+        assert "does not exist in agents_resources" in res1["error"]
 
-        # 2. Search case-insensitively
-        res2 = json.loads(read_document("nested_report.txt"))
+        # 2. Exact relative path with subfolder must succeed
+        res2 = json.loads(read_document("subfolder/Nested_Report.txt"))
         assert "Found nested document content" in res2.get("content", "")
 
-        # 3. Read with 'agents_resources/' prefix
+        # 3. Read with 'agents_resources/' prefix and subfolder must succeed
         res3 = json.loads(read_document("agents_resources/subfolder/Nested_Report.txt"))
         assert "Found nested document content" in res3.get("content", "")
     finally:
@@ -320,7 +323,7 @@ def test_mcp_execute_tool_unknown_and_invalid_args(monkeypatch):
     from services.mcp_tools import TOOL_DISPATCHER, execute_mcp_tool
 
     # Unknown tool
-    unknown_res = execute_mcp_tool("non_existent_tool_xyz", {"foo": "bar"})
+    unknown_res = execute_mcp_tool("non_existent_tool_xyz", {"foo": "bar"}, agent_name=SYSTEM_PRINCIPAL)
     unknown_json = json.loads(unknown_res)
     assert "error" in unknown_json
     assert "Unknown tool: non_existent_tool_xyz" in unknown_json["error"]
@@ -330,7 +333,7 @@ def test_mcp_execute_tool_unknown_and_invalid_args(monkeypatch):
         raise RuntimeError("Boom")
 
     monkeypatch.setitem(TOOL_DISPATCHER, "faulty_tool", _failing_handler)
-    error_res = execute_mcp_tool("faulty_tool", {})
+    error_res = execute_mcp_tool("faulty_tool", {}, agent_name=SYSTEM_PRINCIPAL)
     error_json = json.loads(error_res)
     assert "error" in error_json
     assert "Tool execution error: Boom" in error_json["error"]
@@ -350,14 +353,24 @@ def test_mcp_execute_tool_agent_authorization():
     assert "Permission denied" in denied_json["error"]
     assert "agent-10003" in denied_json["error"]
 
-    # System or empty agent_name must be allowed
+    # SYSTEM_PRINCIPAL must be allowed
     sys_res = execute_mcp_tool(
+        "list_documents",
+        {"rel_path": "."},
+        agent_name=SYSTEM_PRINCIPAL,
+    )
+    sys_json = json.loads(sys_res)
+    assert "contents" in sys_json
+
+    # String "system" must NOT bypass authorization (fail closed)
+    str_sys_res = execute_mcp_tool(
         "list_documents",
         {"rel_path": "."},
         agent_name="system",
     )
-    sys_json = json.loads(sys_res)
-    assert "contents" in sys_json
+    str_sys_json = json.loads(str_sys_res)
+    assert "error" in str_sys_json
+    assert "Permission denied" in str_sys_json["error"]
 
     # SecurityArchitect has document_reader skill -> list_documents must be allowed
     tech_res = execute_mcp_tool(

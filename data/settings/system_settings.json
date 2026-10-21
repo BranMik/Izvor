@@ -45,7 +45,14 @@
     "max_url_length": 2048,
     "max_query_length": 1024,
     "max_redirects": 5,
-    "max_body_bytes": 2097152
+    "max_body_bytes": 2097152,
+    "allowed_ports": [
+      80,
+      443
+    ],
+    "allowed_domains": [],
+    "strip_query_on_untrusted_domains": false,
+    "max_fetches_per_turn": 10
   },
   "security_burst_limits": {
     "auth_failure_window_seconds": 60.0,
@@ -58,5 +65,6 @@
     "enabled": true,
     "consecutive_threshold": 2,
     "max_stress_rounds": 1
-  }
+  },
+  "max_write_bytes": 1048576
 }

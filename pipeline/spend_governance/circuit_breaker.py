@@ -222,10 +222,7 @@ class SpendGovernance:
         Checks if session cost or daily aggregated spend has reached or exceeded the monetary budget threshold.
         Returns: `(is_exceeded, current_cost_usd, threshold_usd)`.
         """
-        if not enabled:
-            return False, 0.0, 0.0
-
-        # 1. Check daily budget threshold
+        # 1. Check daily budget threshold (always enforced, independent of per-thread breaker)
         daily_spend = self.get_daily_spend()
         daily_limit = (
             daily_budget_usd
@@ -237,6 +234,9 @@ class SpendGovernance:
                 f"[SPEND GOVERNANCE] Daily budget exceeded: ${daily_spend:.4f} >= ${daily_limit:.4f} USD."
             )
             return True, daily_spend, daily_limit
+
+        if not enabled:
+            return False, 0.0, 0.0
 
         # 2. Check per-session threshold
         limit = threshold_usd if threshold_usd is not None else self.default_threshold_usd

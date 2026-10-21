@@ -80,6 +80,11 @@ async def test_circuit_breaker_triggers_when_threshold_exceeded(monkeypatch):
         llm_called = True
         raise RuntimeError("LLM should not be called when circuit-breaker is triggered")
 
+    async def mock_execute_llm(func, *args, **kwargs):
+        nonlocal llm_called
+        llm_called = True
+        raise RuntimeError("LLM should not be called when circuit-breaker is triggered")
+
     notes_updated = False
 
     def mock_trigger_notes(channel_id, thread_ts, is_completed=False, **kwargs):
@@ -99,6 +104,9 @@ async def test_circuit_breaker_triggers_when_threshold_exceeded(monkeypatch):
     )
     monkeypatch.setattr(
         "orchestration.agent_router.run_in_threadpool", mock_run_in_threadpool
+    )
+    monkeypatch.setattr(
+        "orchestration.agent_router.execute_llm_with_retry", mock_execute_llm
     )
     monkeypatch.setattr(
         "orchestration.agent_router.trigger_thread_notes_update", mock_trigger_notes
@@ -155,6 +163,9 @@ async def test_circuit_breaker_allows_normal_response_when_below_threshold(
     async def mock_run_in_threadpool(func, *args, **kwargs):
         return mock_response
 
+    async def mock_execute_llm(func, *args, **kwargs):
+        return mock_response
+
     posted_messages = []
 
     async def mock_post_agent_response(
@@ -168,6 +179,9 @@ async def test_circuit_breaker_allows_normal_response_when_below_threshold(
     )
     monkeypatch.setattr(
         "orchestration.agent_router.run_in_threadpool", mock_run_in_threadpool
+    )
+    monkeypatch.setattr(
+        "orchestration.agent_router.execute_llm_with_retry", mock_execute_llm
     )
     monkeypatch.setattr(
         "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
@@ -212,6 +226,9 @@ async def test_circuit_breaker_allows_normal_response_when_disabled(monkeypatch)
     async def mock_run_in_threadpool(func, *args, **kwargs):
         return mock_response
 
+    async def mock_execute_llm(func, *args, **kwargs):
+        return mock_response
+
     posted_messages = []
 
     async def mock_post_agent_response(
@@ -225,6 +242,9 @@ async def test_circuit_breaker_allows_normal_response_when_disabled(monkeypatch)
     )
     monkeypatch.setattr(
         "orchestration.agent_router.run_in_threadpool", mock_run_in_threadpool
+    )
+    monkeypatch.setattr(
+        "orchestration.agent_router.execute_llm_with_retry", mock_execute_llm
     )
     monkeypatch.setattr(
         "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
