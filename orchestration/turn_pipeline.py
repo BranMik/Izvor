@@ -144,6 +144,7 @@ class TurnContext:
     convergence_summary: str | None = None
     halted: bool = False
     waiting_hitl: bool = False
+    target_agent_override: str | None = None
 
     def __post_init__(self):
         self.thread_key = (self.channel_id, self.thread_ts)

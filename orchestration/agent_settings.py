@@ -310,9 +310,10 @@ class AgentSettingsManager:
         if not preset and fallback_data and (fallback_data.get("sandwich_config") or fallback_data.get("fixed_config")):
             logger.info("[SETTINGS] Using legacy embedded workflow configuration from payload.")
             raw_mode = str(fallback_data.get("orchestration_mode", OrchestrationMode.SANDWICH.value)).strip().lower()
+            valid_modes = {m.value for m in OrchestrationMode}
             self.orchestration_mode = (
                 raw_mode
-                if raw_mode in (OrchestrationMode.SANDWICH.value, OrchestrationMode.FIXED.value)
+                if raw_mode in valid_modes
                 else OrchestrationMode.SANDWICH.value
             )
             raw_sandwich = fallback_data.get("sandwich_config", {})
@@ -816,7 +817,11 @@ class AgentSettingsManager:
     ) -> None:
         mode_val = mode.value if isinstance(mode, OrchestrationMode) else str(mode)
         mode_clean = mode_val.strip().lower()
-        if mode_clean in (OrchestrationMode.SANDWICH.value, OrchestrationMode.FIXED.value):
+        if mode_clean in (
+            OrchestrationMode.SANDWICH.value,
+            OrchestrationMode.FIXED.value,
+            OrchestrationMode.SCATTER_GATHER.value,
+        ):
             self.orchestration_mode = mode_clean
             if save:
                 self.save()
