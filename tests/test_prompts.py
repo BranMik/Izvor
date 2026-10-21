@@ -3,7 +3,7 @@ from prompts.builder import SHORT_OUTPUT_AGENTS, build_agent_prompt
 
 
 def test_all_agents_configured():
-    assert len(AGENTS_CONFIG) == 16
+    assert len(AGENTS_CONFIG) == 17
 
 
 def test_visionary_prompt_structure():
@@ -27,7 +27,7 @@ def test_sales_advisor_prompt_structure():
 
 
 def test_all_agents_contain_shared_skills():
-    assert len(AGENTS_CONFIG) == 16
+    assert len(AGENTS_CONFIG) == 17
     assert len(SHORT_OUTPUT_AGENTS) == 4
 
     for key in AGENTS_CONFIG:

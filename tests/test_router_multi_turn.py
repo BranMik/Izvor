@@ -157,7 +157,7 @@ async def test_scenario_3_no_agent_tagged_default_flow(monkeypatch):
 
     # Default starts with Visionary and initializes all panel agents
     assert thread_key not in thread_state_manager.custom_flow_threads
-    assert len(thread_state_manager.remaining_agents_map[thread_key]) == 15
+    assert len(thread_state_manager.remaining_agents_map[thread_key]) == 16
     assert "/[agent-10003]" in posted_messages[0]
 
     # Step 2: Intermediate agent (Monitoring Specialist) tries to prematurely nominate SecurityArchitect
@@ -458,7 +458,7 @@ def test_settings_persistence(tmp_path, monkeypatch):
     assert "agent-10001" in loaded
     assert "agent-10003" in loaded
     assert "agent-10008" in loaded
-    assert len(loaded) == 14
+    assert len(loaded) == 15
     assert is_circuit_breaker_enabled() is True
     assert get_circuit_breaker_threshold() == 3.50
 

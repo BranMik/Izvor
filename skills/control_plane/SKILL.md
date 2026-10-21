@@ -2,7 +2,7 @@
 name: control_plane
 display_name: Discussion Control Plane
 description: Explicit structured tools for speaker nomination, user clarification requests, and consensus convergence signaling.
-scope: agent
+scope: orchestrator
 global: true
 triggers:
   auto_detect: false
