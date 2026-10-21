@@ -55,6 +55,120 @@ SCRIBE_DEFAULT_PROMPT = load_system_prompt("Discussion_Scribe_Live", fallback=_D
 SCRIBE_CONCLUSION_PROMPT = load_system_prompt("Discussion_Scribe_Conclusion", fallback=_DEFAULT_CONCLUSION_PROMPT_FALLBACK)
 
 
+def _extract_brief_fields(raw_text: str) -> dict[str, Any]:
+    """Extracts structured domain fields from raw markdown brief."""
+    objective = ""
+    perspectives: list[str] = []
+    consensus = ""
+    risks: list[str] = []
+    action_items: list[str] = []
+
+    current_section = None
+    lines = raw_text.splitlines()
+    for line in lines:
+        l_str = line.strip()
+        lower = l_str.lower()
+        is_header = l_str.startswith(("#", "**", "Part", "part", "PART")) or (l_str.endswith(":") and len(l_str) < 60)
+        if is_header:
+            if "objective" in lower or "problem statement" in lower:
+                current_section = "objective"
+                continue
+            elif "consensus" in lower and "perspective" not in lower:
+                current_section = "consensus"
+                continue
+            elif "perspective" in lower:
+                current_section = "perspectives"
+                continue
+            elif "risk" in lower or "trade-off" in lower or "open question" in lower:
+                current_section = "risks"
+                continue
+            elif "action item" in lower or "next step" in lower:
+                current_section = "action_items"
+                continue
+            elif l_str.startswith("#"):
+                current_section = None
+                continue
+
+        if not l_str:
+            continue
+
+        if current_section == "objective":
+            objective += f" {l_str}"
+        elif current_section == "perspectives":
+            if l_str.startswith(("-", "*", "•")):
+                perspectives.append(l_str.lstrip("-*• "))
+            elif "consensus" in lower:
+                consensus += f" {l_str}"
+            else:
+                perspectives.append(l_str)
+        elif current_section == "consensus":
+            consensus += f" {l_str}"
+        elif current_section == "risks":
+            if l_str.startswith(("-", "*", "•")):
+                risks.append(l_str.lstrip("-*• "))
+            else:
+                risks.append(l_str)
+        elif current_section == "action_items":
+            if l_str.startswith(("-", "*", "•", "1.", "2.", "3.", "4.", "5.")):
+                action_items.append(l_str.lstrip("-*• 0123456789."))
+            else:
+                action_items.append(l_str)
+
+    return {
+        "objective": objective.strip(),
+        "perspectives": perspectives,
+        "consensus": consensus.strip(),
+        "risks": risks,
+        "action_items": action_items,
+    }
+
+
+def _extract_conclusion_fields(raw_text: str) -> dict[str, Any]:
+    """Extracts structured domain fields from raw markdown conclusion."""
+    problem_statement = ""
+    consensus = ""
+    opposing_conclusions: list[dict[str, Any]] = []
+
+    current_section = None
+    lines = raw_text.splitlines()
+    for line in lines:
+        l_str = line.strip()
+        lower = l_str.lower()
+        is_header = l_str.startswith(("#", "**", "Part", "part", "PART")) or (l_str.endswith(":") and len(l_str) < 60)
+        if is_header:
+            if "problem statement" in lower:
+                current_section = "problem"
+                continue
+            elif "consensus" in lower:
+                current_section = "consensus"
+                continue
+            elif "opposing" in lower or "divergent" in lower:
+                current_section = "opposing"
+                continue
+            elif l_str.startswith("#"):
+                current_section = None
+                continue
+
+        if not l_str:
+            continue
+
+        if current_section == "problem":
+            problem_statement += f" {l_str}"
+        elif current_section == "consensus":
+            consensus += f" {l_str}"
+        elif current_section == "opposing":
+            if l_str.startswith(("-", "*", "•")):
+                opposing_conclusions.append({"text": l_str.lstrip("-*• ")})
+            else:
+                opposing_conclusions.append({"text": l_str})
+
+    return {
+        "problem_statement": problem_statement.strip(),
+        "consensus": consensus.strip(),
+        "opposing_conclusions": opposing_conclusions,
+    }
+
+
 class DiscussionScribe:
     """
     Platform-agnostic discussion scribe service that analyzes conversations
@@ -211,7 +325,13 @@ class DiscussionScribe:
                 "completion_tokens": getattr(usage, "completion_tokens", 0) if usage else 0,
             }
 
+            extracted_fields = _extract_brief_fields(raw_text)
             brief = DiscussionBrief(
+                objective=extracted_fields.get("objective", ""),
+                perspectives=extracted_fields.get("perspectives", []),
+                consensus=extracted_fields.get("consensus", ""),
+                risks=extracted_fields.get("risks", []),
+                action_items=extracted_fields.get("action_items", []),
                 is_completed=is_completed,
                 raw_markdown=raw_text.strip(),
                 language=thread_language,
@@ -326,7 +446,11 @@ class DiscussionScribe:
                 "completion_tokens": getattr(usage, "completion_tokens", 0) if usage else 0,
             }
 
+            extracted_fields = _extract_conclusion_fields(raw_text)
             conclusion = DiscussionConclusion(
+                problem_statement=extracted_fields.get("problem_statement", ""),
+                consensus=extracted_fields.get("consensus", ""),
+                opposing_conclusions=extracted_fields.get("opposing_conclusions", []),
                 raw_markdown=raw_text.strip(),
                 is_completed=True,
                 language=thread_language,

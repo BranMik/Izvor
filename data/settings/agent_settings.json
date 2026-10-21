@@ -16,7 +16,8 @@
     "agent-10013",
     "agent-10014",
     "agent-10015",
-    "agent-10016"
+    "agent-10016",
+    "agent-10017"
   ],
   "agents": {
     "agent-10001": {
@@ -168,6 +169,17 @@
         "document_reader",
         "knowledge_base_rag",
         "web_research"
+      ]
+    },
+    "agent-10017": {
+      "username": "DevilsAdvocate",
+      "model": "mistral/mistral-large-latest",
+      "displayname": "Devil's Advocate",
+      "icon_url": "static/image_03.png",
+      "is_short_output": false,
+      "skills": [
+        "web_research",
+        "knowledge_base_rag"
       ]
     }
   },

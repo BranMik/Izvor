@@ -52,5 +52,11 @@
     "auth_failure_burst_limit": 5,
     "global_auth_failure_burst_limit": 25,
     "max_tracker_entries": 1000
+  },
+  "dialectical_stress_test": {
+    "enabled": true,
+    "challenger_agent": "agent-10017",
+    "rebuttal_agent": "agent-10001",
+    "max_stress_rounds": 1
   }
 }

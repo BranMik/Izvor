@@ -88,6 +88,12 @@ class SystemSettingsManager:
             "global_auth_failure_burst_limit": 25,
             "max_tracker_entries": 1000,
         }
+        self.dialectical_stress_test: dict[str, Any] = {
+            "enabled": True,
+            "challenger_agent": "agent-10017",
+            "rebuttal_agent": "agent-10001",
+            "max_stress_rounds": 1,
+        }
         self._debate_turn_pacing_manually_set: bool = False
         self._slack_post_pause_manually_set: bool = False
         self._raw_data: dict[str, Any] = {}
@@ -203,6 +209,14 @@ class SystemSettingsManager:
                     "auth_failure_burst_limit": int(raw_sbl.get("auth_failure_burst_limit", 5)),
                     "global_auth_failure_burst_limit": int(raw_sbl.get("global_auth_failure_burst_limit", 25)),
                     "max_tracker_entries": int(raw_sbl.get("max_tracker_entries", 1000)),
+                }
+            raw_dst = data.get("dialectical_stress_test", {})
+            if isinstance(raw_dst, dict):
+                self.dialectical_stress_test = {
+                    "enabled": bool(raw_dst.get("enabled", True)),
+                    "challenger_agent": str(raw_dst.get("challenger_agent", "agent-10017")),
+                    "rebuttal_agent": str(raw_dst.get("rebuttal_agent", "agent-10001")),
+                    "max_stress_rounds": int(raw_dst.get("max_stress_rounds", 1)),
                 }
 
             self._last_loaded_mtime = mtime
@@ -897,6 +911,16 @@ def get_web_security() -> dict[str, int]:
 
 def get_security_burst_limits() -> dict[str, Any]:
     return system_settings_manager.get_security_burst_limits()
+
+
+def get_dialectical_stress_test_config() -> dict[str, Any]:
+    system_settings_manager.load()
+    return dict(system_settings_manager.dialectical_stress_test)
+
+
+def is_dialectical_stress_test_enabled() -> bool:
+    system_settings_manager.load()
+    return bool(system_settings_manager.dialectical_stress_test.get("enabled", True))
 
 
 

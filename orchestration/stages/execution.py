@@ -459,6 +459,21 @@ class ExecutionStage:
                             if s_name not in ctx.skills_used:
                                 ctx.skills_used.append(s_name)
 
+                        # Handle explicit control plane tools
+                        if fn_name == "nominate_next_speaker":
+                            nom_agent = fn_args.get("agent_name")
+                            if nom_agent:
+                                ctx.control_plane_nomination = str(nom_agent).strip()
+                                ctx.control_plane_rationale = str(fn_args.get("rationale", "")).strip()
+                        elif fn_name == "request_user_clarification":
+                            ctx.control_plane_clarification_requested = True
+                            ctx.control_plane_clarification_question = str(fn_args.get("question", "")).strip()
+                            ctx.halted = True
+                        elif fn_name == "signal_consensus_convergence":
+                            ctx.control_plane_consensus_signaled = True
+                            ctx.control_plane_consensus_summary = str(fn_args.get("summary_of_agreement", "")).strip()
+                            thread_state_manager.set_consensus_reached(ctx.channel_id, ctx.thread_ts, True)
+
                         if isinstance(tool_result, str):
                             tool_result_str = f"<untrusted_file_content>\n{tool_result}\n</untrusted_file_content>"
                         else:
