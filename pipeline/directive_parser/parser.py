@@ -57,12 +57,14 @@ class ParsedDirectives:
     is_file_req: bool = False
     target_filename: str | None = None
     is_stop: bool = False
+    detected_language: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "cleaned_prompt": self.cleaned_prompt,
             "actions": [a.to_dict() for a in self.actions],
             "modifiers": dict(self.modifiers),
+            "detected_language": self.detected_language,
             "attachments": [att.to_dict() for att in self.attachments],
             "max_words": self.max_words,
             "min_words": self.min_words,
@@ -384,6 +386,7 @@ class DirectiveParser:
             should_skip_intent_extractor,
         )
 
+        detected_language = None
         if (
             not has_exclusive_cmd
             and not should_skip_intent_extractor(raw_text=raw_text)
@@ -392,6 +395,7 @@ class DirectiveParser:
             intent: ExtractedIntent = await extract_user_intent(
                 text_cleaned, available_files=available_files
             )
+            detected_language = getattr(intent, "detected_language", None)
             intent_dict = intent.to_dict() if hasattr(intent, "to_dict") else intent
 
             # Smart merge: slash commands take absolute priority over LLM inferences
@@ -490,6 +494,7 @@ class DirectiveParser:
             is_file_req=is_file_req,
             target_filename=target_filename,
             is_stop=False,
+            detected_language=detected_language,
         )
 
 

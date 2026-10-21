@@ -118,6 +118,45 @@ class ExecutionStage:
             logger.debug(f"[EXECUTION] Error checking mid-turn budget: {e}")
             return False
 
+    def _save_execution_checkpoint(
+        self,
+        ctx: TurnContext,
+        pause_reason: str,
+        active_tools: list[dict[str, Any]] | None = None,
+        pending_tool_call: dict[str, Any] | None = None,
+        hitl_request_id: str | None = None,
+    ) -> str:
+        import json
+        import uuid
+        from core.domain import TurnCheckpoint
+        from services.turn_checkpoint_store import turn_checkpoint_store
+
+        chk_id = str(uuid.uuid4())
+        try:
+            chk = TurnCheckpoint(
+                checkpoint_id=chk_id,
+                session_id=getattr(ctx, "session_id", f"{ctx.channel_id}:{ctx.thread_ts}"),
+                channel_id=ctx.channel_id,
+                thread_ts=ctx.thread_ts,
+                agent_key=ctx.agent_key,
+                pause_reason=pause_reason,
+                hitl_request_id=hitl_request_id,
+                messages=ctx.messages or [],
+                pending_tool_call=pending_tool_call,
+                active_tools=active_tools or [],
+                skills_used=ctx.skills_used or [],
+                token_mapping=ctx.turn_token_mapping or {},
+                accumulated_history=ctx.in_memory_history or [],
+                prompt_tokens=ctx.total_prompt_tokens,
+                completion_tokens=ctx.total_completion_tokens,
+            )
+            turn_checkpoint_store.save_checkpoint(chk)
+            ctx.checkpoint_id = chk_id
+            return chk_id
+        except Exception as e:
+            logger.error(f"[EXECUTION] Failed to save {pause_reason} checkpoint: {e}")
+            return ""
+
 
 
     async def stage_execute_llm(self, ctx: TurnContext) -> dict[str, Any] | None:
@@ -345,7 +384,7 @@ class ExecutionStage:
                             if skill_def and skill_def.requires_human_ITL:
                                 from services.hitl import consume_tool_approval, request_human_approval
                                 if not consume_tool_approval(ctx.channel_id, ctx.thread_ts, fn_name, fn_args):
-                                    await request_human_approval(
+                                    req_id = await request_human_approval(
                                         ctx.channel_id, ctx.thread_ts, ctx.agent_key,
                                         skill_def.name, fn_name, fn_args,
                                         initiator_user_id=ctx.user_id,
@@ -366,6 +405,17 @@ class ExecutionStage:
                                     })
                                     ctx.halted = True
                                     ctx.waiting_hitl = True
+                                    self._save_execution_checkpoint(
+                                        ctx=ctx,
+                                        pause_reason="hitl",
+                                        active_tools=active_tools,
+                                        pending_tool_call={
+                                            "id": getattr(tool_call, "id", None),
+                                            "name": fn_name,
+                                            "args": fn_args,
+                                        },
+                                        hitl_request_id=req_id,
+                                    )
                                     if s_name and s_name not in ctx.skills_used:
                                         ctx.skills_used.append(s_name)
                                     break
@@ -475,6 +525,11 @@ class ExecutionStage:
                     if tool_calls and self._is_mid_turn_budget_exceeded(ctx):
                         logger.warning(
                             f"[CIRCUIT BREAKER] Mid-turn tool calling budget exceeded for thread {ctx.thread_key} during iteration {iteration}. Halting tool loop."
+                        )
+                        self._save_execution_checkpoint(
+                            ctx=ctx,
+                            pause_reason="circuit_breaker",
+                            active_tools=active_tools,
                         )
                         ctx.final_text = (
                             response_message.content

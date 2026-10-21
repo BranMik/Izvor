@@ -136,6 +136,14 @@ class TurnContext:
     turn_token_mapping: dict[str, str] = field(default_factory=dict)
     session_id: str = ""
     session: Any = None
+    checkpoint_id: str | None = None
+    revisor_warning: str | None = None
+    structured_nomination: str | None = None
+    clarification_question: str | None = None
+    convergence_signaled: bool = False
+    convergence_summary: str | None = None
+    halted: bool = False
+    waiting_hitl: bool = False
 
     def __post_init__(self):
         self.thread_key = (self.channel_id, self.thread_ts)
@@ -344,18 +352,21 @@ class TurnPipeline:
 
             # Stage 5: Format response, enforce nominations, post to Slack, and audit
             slack_res = await self.post_record_stage.stage_post_and_record(ctx)
-            
-            # --- Phase 2: CASCADING HALLUCINATION PREVENTION ---
-            # Trigger InternalRevisor asynchronously if applicable
+
+            # --- Phase 2: CASCADING HALLUCINATION PREVENTION (TKT-820) ---
             try:
                 from core.config import is_internal_revisor_enabled
                 if is_internal_revisor_enabled():
-                    from core.task_utils import safe_create_task
                     from orchestration.revisor_service import run_internal_revisor
-                    safe_create_task(run_internal_revisor(ctx), name=f"internal_revisor_{ctx.thread_key}")
+                    warning = await asyncio.wait_for(run_internal_revisor(ctx), timeout=3.5)
+                    if warning and isinstance(slack_res, dict):
+                        slack_res["revisor_warning"] = warning
+                        ctx.revisor_warning = warning
+            except asyncio.TimeoutError:
+                logger.warning(f"[REVISOR] InternalRevisor barrier timed out after 3.5s on {ctx.thread_key}")
             except Exception as e:
-                logger.error(f"[REVISOR] Failed to dispatch internal revisor: {e}")
-                
+                logger.error(f"[REVISOR] Failed to execute internal revisor: {e}")
+
             return slack_res
 
         except asyncio.CancelledError:
@@ -384,6 +395,126 @@ class TurnPipeline:
                 and (ctx.in_memory_history is None or ctx.is_completed)
             ):
                 thread_state_manager.clear_active_task(ctx.channel_id, ctx.thread_ts, ctx.current_task)
+
+    async def resume_from_checkpoint(
+        self,
+        checkpoint: Any,
+        tool_result: Any | None = None,
+        user_id: str | None = None,
+    ) -> dict[str, Any]:
+        """
+        Resumes an in-flight agent turn from a durable TurnCheckpoint (TKT-810).
+        Restores TurnContext, injects tool response with exact tool_call_id, executes LLM follow-up
+        completion, runs Stage 5 post & record, and marks the checkpoint as RESUMED.
+        """
+        import json
+        import os
+        import litellm
+        from core.config import AGENTS_CONFIG
+        from core.llm_utils import execute_llm_with_retry
+        from orchestration.stages.execution import _is_explicit_meta_provider
+        from orchestration.agent_settings import settings_manager
+        from orchestration.system_settings import system_settings_manager
+        from services.turn_checkpoint_store import turn_checkpoint_store
+
+        if isinstance(checkpoint, str):
+            chk = turn_checkpoint_store.get_checkpoint(checkpoint)
+            if not chk:
+                raise ValueError(f"TurnCheckpoint '{checkpoint}' not found.")
+        else:
+            chk = checkpoint
+
+        ctx = TurnContext(
+            channel_id=chk.channel_id,
+            thread_ts=chk.thread_ts,
+            raw_text="",
+            user_id=user_id,
+            is_bot_trigger=True,
+            in_memory_history=list(chk.accumulated_history or []),
+        )
+        ctx.session_id = chk.session_id
+        ctx.agent_key = chk.agent_key
+        ctx.messages = list(chk.messages or [])
+        ctx.turn_token_mapping = dict(chk.token_mapping or {})
+        ctx.skills_used = list(chk.skills_used or [])
+        ctx.total_prompt_tokens = chk.prompt_tokens
+        ctx.total_completion_tokens = chk.completion_tokens
+        ctx.checkpoint_id = chk.checkpoint_id
+
+        agents_map = settings_manager.agents_config or AGENTS_CONFIG
+        ctx.agent_cfg = dict(agents_map.get(ctx.agent_key, {}))
+
+        active_tools = list(chk.active_tools or [])
+        pending_tool = chk.pending_tool_call
+
+        if tool_result is not None and pending_tool:
+            tool_call_id = pending_tool.get("id") or "call_resumed"
+            fn_name = pending_tool.get("name") or "tool"
+            tool_result_str = (
+                f"<untrusted_file_content>\n{tool_result}\n</untrusted_file_content>"
+                if isinstance(tool_result, str)
+                else str(tool_result)
+            )
+
+            replaced = False
+            for m in reversed(ctx.messages):
+                if isinstance(m, dict) and m.get("role") == "tool" and m.get("tool_call_id") == tool_call_id:
+                    m["content"] = tool_result_str
+                    replaced = True
+                    break
+            if not replaced:
+                ctx.messages.append({
+                    "role": "tool",
+                    "tool_call_id": tool_call_id,
+                    "name": fn_name,
+                    "content": tool_result_str,
+                })
+
+        exec_retry_fn = self._get_hook("execute_llm_with_retry", execute_llm_with_retry)
+        follow_up_kwargs: dict[str, Any] = {
+            "model": ctx.agent_cfg.get("model", ""),
+            "messages": ctx.messages,
+            "tools": active_tools if active_tools else None,
+            "tool_choice": "auto" if active_tools else None,
+            "num_retries": system_settings_manager.get_tool_call_num_retries(),
+        }
+        if _is_explicit_meta_provider(ctx.agent_cfg.get("model")):
+            if os.getenv("META_API_KEY"):
+                follow_up_kwargs["api_key"] = os.getenv("META_API_KEY")
+            if os.getenv("META_API_BASE"):
+                follow_up_kwargs["api_base"] = os.getenv("META_API_BASE")
+
+        follow_up = await exec_retry_fn(
+            litellm.acompletion,
+            follow_up_kwargs,
+            agent_key=f"{ctx.agent_key} resumed",
+            thread_key=ctx.thread_key,
+            is_superseded_fn=ctx.is_superseded,
+            turn_token_mapping=ctx.turn_token_mapping,
+        )
+        if follow_up is not None:
+            ctx.add_usage(follow_up)
+            if hasattr(follow_up, "choices") and follow_up.choices:
+                response_message = follow_up.choices[0].message
+                ctx.final_text = response_message.content or ""
+
+        slack_res = await self.post_record_stage.stage_post_and_record(ctx)
+
+        try:
+            from core.config import is_internal_revisor_enabled
+            if is_internal_revisor_enabled():
+                from orchestration.revisor_service import run_internal_revisor
+                warning = await asyncio.wait_for(run_internal_revisor(ctx), timeout=3.5)
+                if warning and isinstance(slack_res, dict):
+                    slack_res["revisor_warning"] = warning
+                    ctx.revisor_warning = warning
+        except asyncio.TimeoutError:
+            logger.warning(f"[REVISOR] InternalRevisor barrier timed out after 3.5s on {ctx.thread_key}")
+        except Exception as e:
+            logger.error(f"[REVISOR] Failed to execute internal revisor: {e}")
+
+        turn_checkpoint_store.mark_resumed(chk.checkpoint_id)
+        return slack_res
 
 
 __all__ = ["TurnContext", "TurnPipeline", "_build_tool_status_text"]

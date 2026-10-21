@@ -130,6 +130,7 @@ class ExtractedIntent:
     actions: list[ActionDirective] = field(default_factory=list)
     modifiers: dict[str, Any] = field(default_factory=dict)
     attachments: list[MediaAttachment] = field(default_factory=list)
+    detected_language: str | None = None
 
     def __init__(
         self,
@@ -142,11 +143,13 @@ class ExtractedIntent:
         file_use: bool = False,
         target_file: str | None = None,
         excluded_agents: list[str] | None = None,
+        detected_language: str | None = None,
         **extra_modifiers: Any,
     ):
         self.actions = list(actions or [])
         self.modifiers = dict(modifiers or {})
         self.attachments = list(attachments or [])
+        self.detected_language = detected_language
 
         if max_words is not None:
             self.max_words = max_words
@@ -293,6 +296,7 @@ class ExtractedIntent:
             "actions": [a.to_dict() for a in self.actions],
             "modifiers": dict(self.modifiers),
             "attachments": [att.to_dict() for att in self.attachments],
+            "detected_language": self.detected_language,
             # Legacy fields mirrored for backward serialization compatibility
             "max_words": self.max_words,
             "min_words": self.min_words,
@@ -318,7 +322,12 @@ class ExtractedIntent:
             for att in raw_attachments
         ]
 
-        intent = cls(actions=actions, modifiers=modifiers, attachments=attachments)
+        intent = cls(
+            actions=actions,
+            modifiers=modifiers,
+            attachments=attachments,
+            detected_language=data.get("detected_language") or data.get("language"),
+        )
 
         # Handle legacy input keys if actions/modifiers weren't explicitly supplied
         if "max_words" in data and data["max_words"] is not None:

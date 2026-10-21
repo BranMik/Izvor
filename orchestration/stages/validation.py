@@ -371,19 +371,33 @@ class ValidationStage:
             # Lock language for this thread on first human prompt or preserve existing
             current_lang = thread_state_manager.get_language(ctx.channel_id, ctx.thread_ts)
             if not current_lang:
-                raw_candidate = ctx.raw_text_cleaned or ctx.raw_text
-                # Never infer or lock language from system warnings, runner banners, or slash commands
-                if not is_system_message(raw_candidate) and not (raw_candidate.strip().startswith("/") and not raw_candidate.strip().startswith("/[")):
-                    pure_user_text = clean_system_and_tags(raw_candidate)
-                    if pure_user_text:
-                        logger.info(
-                            f"[ROUTER] Inferring language for thread {ctx.thread_key} from user prompt (len: {len(pure_user_text)})"
-                        )
-                        current_lang = await detect_language_llm(pure_user_text)
-                        thread_state_manager.set_language(ctx.channel_id, ctx.thread_ts, current_lang)
-                        logger.info(
-                            f"[ROUTER] Locked thread language for {ctx.thread_key}: {current_lang}"
-                        )
+                detected_lang = getattr(directives, "detected_language", None)
+                if detected_lang and isinstance(detected_lang, str):
+                    d_lower = detected_lang.lower().strip()
+                    if d_lower.startswith("hr") or "croat" in d_lower:
+                        current_lang = "Croatian"
+                    elif d_lower.startswith("en") or "engl" in d_lower:
+                        current_lang = "English"
+                    else:
+                        current_lang = detected_lang.capitalize()
+                    thread_state_manager.set_language(ctx.channel_id, ctx.thread_ts, current_lang)
+                    logger.info(
+                        f"[ROUTER] Locked thread language from unified intent extractor for {ctx.thread_key}: {current_lang}"
+                    )
+                else:
+                    raw_candidate = ctx.raw_text_cleaned or ctx.raw_text
+                    # Never infer or lock language from system warnings, runner banners, or slash commands
+                    if not is_system_message(raw_candidate) and not (raw_candidate.strip().startswith("/") and not raw_candidate.strip().startswith("/[")):
+                        pure_user_text = clean_system_and_tags(raw_candidate)
+                        if pure_user_text:
+                            logger.info(
+                                f"[ROUTER] Inferring language for thread {ctx.thread_key} from user prompt (len: {len(pure_user_text)})"
+                            )
+                            current_lang = await detect_language_llm(pure_user_text)
+                            thread_state_manager.set_language(ctx.channel_id, ctx.thread_ts, current_lang)
+                            logger.info(
+                                f"[ROUTER] Locked thread language for {ctx.thread_key}: {current_lang}"
+                            )
             ctx.thread_language = current_lang or "English"
 
             ambiguous_tags = entity_resolver.detect_ambiguous_tags(

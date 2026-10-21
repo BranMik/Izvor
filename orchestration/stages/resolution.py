@@ -203,6 +203,30 @@ class ResolutionStage:
                 )
 
                 session_id = getattr(ctx, "session_id", f"{ctx.channel_id}:{ctx.thread_ts}")
+                try:
+                    import json
+                    import uuid
+                    from core.domain import TurnCheckpoint
+                    from services.turn_checkpoint_store import turn_checkpoint_store
+
+                    chk_id = str(uuid.uuid4())
+                    chk = TurnCheckpoint(
+                        checkpoint_id=chk_id,
+                        session_id=session_id,
+                        channel_id=ctx.channel_id,
+                        thread_ts=ctx.thread_ts,
+                        agent_key=ctx.agent_key,
+                        pause_reason="circuit_breaker",
+                        messages=ctx.messages or [],
+                        accumulated_history=ctx.in_memory_history or [],
+                        prompt_tokens=ctx.total_prompt_tokens,
+                        completion_tokens=ctx.total_completion_tokens,
+                    )
+                    turn_checkpoint_store.save_checkpoint(chk)
+                    ctx.checkpoint_id = chk_id
+                except Exception as ex:
+                    logger.debug(f"[RESOLUTION] Failed to save circuit breaker checkpoint: {ex}")
+
                 blocks = self.workspace_adapter.build_budget_halt_blocks(
                     circuit_breaker_msg, session_id
                 )

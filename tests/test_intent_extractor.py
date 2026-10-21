@@ -301,3 +301,46 @@ async def test_sandwich_exclusion_and_bot_turn_not_stopped(monkeypatch):
     assert res_2.get("halted") is not True
     assert len(posted_messages) == 2
 
+
+@pytest.mark.anyio
+async def test_validation_stage_locks_language_from_unified_intent_extractor(monkeypatch):
+    """Verifies TKT-821: Stage 1 locks language directly from unified intent extraction without extra LLM call."""
+    from unittest.mock import AsyncMock
+    from orchestration.stages.validation import ValidationStage
+    from orchestration.thread_state import thread_state_manager
+    from orchestration.turn_pipeline import TurnContext, TurnPipeline
+    from pipeline.directive_parser.parser import ParsedDirectives
+
+    channel_id = "C_LANG_TEST"
+    thread_ts = "12345.6789"
+    thread_state_manager.clear_state(channel_id, thread_ts)
+
+    ctx = TurnContext(
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        raw_text="Molim vas objasnite detalje projekta na hrvatskom jeziku.",
+        is_bot_trigger=False,
+    )
+
+    detect_llm_called = False
+
+    async def mock_detect_llm(text):
+        nonlocal detect_llm_called
+        detect_llm_called = True
+        return "hr"
+
+    monkeypatch.setattr("orchestration.stages.validation.detect_language_llm", mock_detect_llm)
+    monkeypatch.setattr(
+        "orchestration.stages.validation.directive_parser.parse",
+        AsyncMock(return_value=ParsedDirectives(cleaned_prompt=ctx.raw_text, detected_language="hr")),
+    )
+
+    pipeline = TurnPipeline()
+    validation_stage = ValidationStage(pipeline)
+
+    res = await validation_stage.stage_validate_and_parse(ctx)
+    assert res is None  # no halt
+    assert ctx.thread_language == "Croatian"
+    assert thread_state_manager.get_language(channel_id, thread_ts) == "Croatian"
+    assert not detect_llm_called, "detect_language_llm should NOT be called when intent extractor detected language"
+
