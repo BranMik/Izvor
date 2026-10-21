@@ -57,6 +57,8 @@ def build_llm_messages(
     next_designated_agent: str | None = None,
     thread_language: str = "English",
     required_skills: list[str] | None = None,
+    episodic_summary: str | None = None,
+    shared_round_evidence: str | None = None,
 ) -> list[dict[str, Any]]:
     """
     Constructs a normalized, provider-safe message sequence for LiteLLM.
@@ -69,8 +71,21 @@ def build_llm_messages(
        which is strictly required by Anthropic (Claude), Mistral, and Google Gemini APIs.
     5. Injects on-demand attached file content if present and if the current agent is authorized.
     6. Injects explicit permission notices if an agent lacks authorization or required skills.
+    7. Injects Tier-1 episodic thread summary and Tier-2 shared round evidence before the sliding window turns.
     """
     conversation: list[dict[str, Any]] = []
+
+    # Format Tier-1 episodic summary and Tier-2 shared round evidence
+    memory_blocks: list[str] = []
+    if episodic_summary and episodic_summary.strip():
+        memory_blocks.append(
+            f"<episodic_thread_summary>\n{episodic_summary.strip()}\n</episodic_thread_summary>"
+        )
+    if shared_round_evidence and shared_round_evidence.strip():
+        memory_blocks.append(
+            f"<shared_round_evidence>\n{shared_round_evidence.strip()}\n</shared_round_evidence>"
+        )
+    memory_prefix = "\n\n".join(memory_blocks)
 
     # Check authorization and skill requirements for attached file
     file_block = ""
@@ -169,12 +184,39 @@ def build_llm_messages(
 
     if not is_bot_trigger:
         if effective_history:
+            if memory_prefix:
+                conversation.append(
+                    {
+                        "role": "user",
+                        "content": f"Context from earlier in this discussion thread:\n\n{memory_prefix}",
+                    }
+                )
+                conversation.append(
+                    {
+                        "role": "assistant",
+                        "content": "Understood. I will take this earlier thread summary and verified evidence into account alongside the conversation history.",
+                    }
+                )
             conversation.extend(effective_history)
         lang_part = f"\n\n{lang_directive}" if lang_directive else ""
-        user_prompt = f"{prompt}{lang_part}{file_block}{skill_notice_block}{orchestration_block}"
+        mem_part = f"{memory_prefix}\n\n" if memory_prefix and not effective_history else ""
+        user_prompt = f"{mem_part}{prompt}{lang_part}{file_block}{skill_notice_block}{orchestration_block}"
         conversation.append({"role": "user", "content": user_prompt})
     else:
         if effective_history:
+            if memory_prefix:
+                conversation.append(
+                    {
+                        "role": "user",
+                        "content": f"Context from earlier in this discussion thread:\n\n{memory_prefix}",
+                    }
+                )
+                conversation.append(
+                    {
+                        "role": "assistant",
+                        "content": "Understood. I will take this earlier thread summary and verified evidence into account alongside the conversation history.",
+                    }
+                )
             conversation.extend(effective_history)
             persona_name = agent_cfg.get("displayname", agent_cfg.get("username", agent_key))
             lang_part = f" {lang_directive}" if lang_directive else ""
@@ -192,8 +234,10 @@ def build_llm_messages(
             )
         else:
             lang_part = f"\n\n{lang_directive}" if lang_directive else ""
-            user_prompt = f"{prompt}{lang_part}{file_block}{skill_notice_block}{orchestration_block}"
+            mem_part = f"{memory_prefix}\n\n" if memory_prefix else ""
+            user_prompt = f"{mem_part}{prompt}{lang_part}{file_block}{skill_notice_block}{orchestration_block}"
             conversation.append({"role": "user", "content": user_prompt})
+
 
     # Ensure the first conversational message has role 'user' (for strict APIs like Anthropic/Gemini)
     if conversation and conversation[0]["role"] != "user":
