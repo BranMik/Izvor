@@ -37,8 +37,6 @@ BACKUP_INTERVAL_SECONDS = 7 * 86400
 
 # Default untagged workflow configuration: Sandwich mode
 DEFAULT_WORKFLOW_ID = "default_review_flow"
-DEFAULT_SANDWICH_START_CHAIN = ["agent-10001", "agent-10002"]
-DEFAULT_SANDWICH_END_CHAIN = ["agent-10008"]
 
 
 class AgentSettingsManager:
@@ -105,8 +103,8 @@ class AgentSettingsManager:
 
         # Orchestration flow mode and chains
         self.orchestration_mode: str = OrchestrationMode.SANDWICH.value
-        self.sandwich_start_chain: list[str] = list(DEFAULT_SANDWICH_START_CHAIN)
-        self.sandwich_end_chain: list[str] = list(DEFAULT_SANDWICH_END_CHAIN)
+        self.sandwich_start_chain: list[str] = []
+        self.sandwich_end_chain: list[str] = []
         self.fixed_chain: list[str] = []
         self.workflow_config: str | None = DEFAULT_WORKFLOW_ID
         self.active_workflow_id: str | None = DEFAULT_WORKFLOW_ID
@@ -369,13 +367,31 @@ class AgentSettingsManager:
                 except OSError as e:
                     logger.debug(f"[SETTINGS] Error checking workflow mtime: {e}")
         else:
-            # Complete fallback default when no preset is active (Visionary -> Innovator -> ... -> Security Architect)
+            # Complete fallback default when no preset is active
             self.active_workflow_id = DEFAULT_WORKFLOW_ID
             self.workflow_config = DEFAULT_WORKFLOW_ID
             self.orchestration_mode = OrchestrationMode.SANDWICH.value
-            self.sandwich_start_chain = list(DEFAULT_SANDWICH_START_CHAIN)
-            self.sandwich_end_chain = list(DEFAULT_SANDWICH_END_CHAIN)
+            sw_start, sw_end = self._get_dynamic_fallback_chains()
+            self.sandwich_start_chain = sw_start
+            self.sandwich_end_chain = sw_end
             self.fixed_chain = []
+
+    def _get_dynamic_fallback_chains(self) -> tuple[list[str], list[str]]:
+        """
+        Derives fallback start_chain and end_chain dynamically from enabled agents
+        when no workflow preset can be loaded. Logs a WARNING.
+        """
+        logger.warning(
+            "[SETTINGS] No active workflow preset loaded. Deriving dynamic fallback chains from enabled agents."
+        )
+        available = [a for a in sorted(self.enabled_agents) if a in self.agents_config]
+        if not available:
+            available = sorted(self.agents_config.keys())
+        if not available:
+            return [], []
+        start_chain = available[:min(2, len(available))]
+        end_chain = [available[-1]] if len(available) > 1 else list(start_chain)
+        return start_chain, end_chain
 
     def persist_active_workflow(self) -> None:
         """Persists current mode and chains to the active workflow JSON file."""
@@ -459,6 +475,7 @@ class AgentSettingsManager:
                     "icon_url": cfg["icon_url"].strip(),
                     "is_short_output": is_short,
                     "skills": skills,
+                    "special_role": str(cfg.get("special_role", "NONE")).strip().upper() if str(cfg.get("special_role", "")).strip().upper() in ("NONE", "CHALLENGER", "REBUTTAL") else "NONE",
                     "system_prompt": build_agent_prompt(key, skills=skills),
                 }
 
@@ -720,6 +737,7 @@ class AgentSettingsManager:
                 "icon_url": v.get("icon_url", ""),
                 "is_short_output": bool(v.get("is_short_output", False)),
                 "skills": list(v.get("skills", [])),
+                "special_role": v.get("special_role", "NONE"),
             })
             data["agents"][k] = existing_agent
         for k in list(data["agents"].keys()):
@@ -967,14 +985,78 @@ class AgentSettingsManager:
         self.enabled_agents.clear()
         self.enabled_agents.update(self.agents_config.keys())
         self.orchestration_mode = OrchestrationMode.SANDWICH.value
-        self.sandwich_start_chain = list(DEFAULT_SANDWICH_START_CHAIN)
-        self.sandwich_end_chain = list(DEFAULT_SANDWICH_END_CHAIN)
+        sw_start, sw_end = self._get_dynamic_fallback_chains()
+        self.sandwich_start_chain = sw_start
+        self.sandwich_end_chain = sw_end
         self.fixed_chain = []
         self.workflow_config = DEFAULT_WORKFLOW_ID
         self.active_workflow_id = DEFAULT_WORKFLOW_ID
         if save:
             self.save()
         logger.info(f"[SETTINGS] Reset all {len(self.enabled_agents)} agents to ENABLED and mode to default review sandwich.")
+
+    def get_challenger_agents(self) -> list[str]:
+        """
+        Returns list of agent keys configured with special_role == 'CHALLENGER'
+        among registered agents, maintaining prioritized order.
+        """
+        challengers = [
+            k for k, v in self.agents_config.items()
+            if isinstance(v, dict) and v.get("special_role") == "CHALLENGER"
+        ]
+        return challengers
+
+    def set_challenger_agents(self, agents: list[str], save: bool = True) -> None:
+        """
+        Sets special_role to 'CHALLENGER' for specified agent keys, resetting any
+        other agents with 'CHALLENGER' to 'NONE'.
+        """
+        target_set = set(agents)
+        for k, v in self.agents_config.items():
+            if not isinstance(v, dict):
+                continue
+            if k in target_set:
+                v["special_role"] = "CHALLENGER"
+            elif v.get("special_role") == "CHALLENGER":
+                v["special_role"] = "NONE"
+        if save:
+            self.save()
+        logger.info(f"[SETTINGS] Updated challenger agents: {agents}")
+
+    def get_rebuttal_agent(self) -> str:
+        """
+        Returns the agent key configured with special_role == 'REBUTTAL'.
+        If multiple exist, logs a warning and returns the first available.
+        If none exist, returns an empty string.
+        """
+        rebuttals = [
+            k for k, v in self.agents_config.items()
+            if isinstance(v, dict) and v.get("special_role") == "REBUTTAL"
+        ]
+        if not rebuttals:
+            return ""
+        if len(rebuttals) > 1:
+            logger.warning(
+                f"[SETTINGS] Multiple agents ({rebuttals}) configured with special_role 'REBUTTAL'. "
+                f"Using the first available: {rebuttals[0]}."
+            )
+        return rebuttals[0]
+
+    def set_rebuttal_agent(self, agent_key: str, save: bool = True) -> None:
+        """
+        Sets special_role to 'REBUTTAL' for the specified agent key, resetting any
+        other agents with 'REBUTTAL' to 'NONE'.
+        """
+        for k, v in self.agents_config.items():
+            if not isinstance(v, dict):
+                continue
+            if k == agent_key:
+                v["special_role"] = "REBUTTAL"
+            elif v.get("special_role") == "REBUTTAL":
+                v["special_role"] = "NONE"
+        if save:
+            self.save()
+        logger.info(f"[SETTINGS] Updated rebuttal agent: {agent_key}")
 
     def get_enabled_agents(self) -> set[str]:
         return set(self.enabled_agents)
@@ -1293,4 +1375,24 @@ def set_orchestrator_fast_model(model: str, save: bool = True) -> bool:
 
 def set_orchestrator_reasoning_model(model: str, save: bool = True) -> bool:
     return settings_manager.set_orchestrator_reasoning_model(model, save=save)
+
+
+agent_settings_manager = settings_manager
+
+
+def get_challenger_agents() -> list[str]:
+    return settings_manager.get_challenger_agents()
+
+
+def set_challenger_agents(agents: list[str], save: bool = True) -> None:
+    settings_manager.set_challenger_agents(agents, save=save)
+
+
+def get_rebuttal_agent() -> str:
+    return settings_manager.get_rebuttal_agent()
+
+
+def set_rebuttal_agent(agent: str, save: bool = True) -> None:
+    settings_manager.set_rebuttal_agent(agent, save=save)
+
 

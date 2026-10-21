@@ -76,8 +76,8 @@ def test_consecutive_convergence_triggers_challenger_rebuttal_stress_test():
             last_turn_converged=True,
         )
 
-        assert new_queue[0] == "agent-10003"  # chosen challenger
-        assert new_queue[1] == "agent-10017"  # rebuttal advocate
+        assert new_queue[0] in get_challenger_agents()  # chosen challenger
+        assert new_queue[1] == get_rebuttal_agent()  # rebuttal advocate
         assert "agent-10005" in new_queue
         assert "agent-10006" in new_queue
 

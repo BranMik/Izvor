@@ -22,7 +22,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from core.models import ActionDirective, DEFAULT_WORKFLOWS
+from core.models import ActionDirective, REQUIRED_DEFAULT_WORKFLOW_IDS, build_dynamic_default_workflows
 from core.security_utils import wrap_untrusted_content
 from orchestration.turn_pipeline import TurnContext, TurnPipeline
 from orchestration.thread_skills_manager import thread_skills_manager
@@ -452,26 +452,30 @@ async def test_slack_client_short_history_truncation():
 # ---------------------------------------------------------------------------
 
 def test_default_workflows_ssot_integrity():
-    """DEFAULT_WORKFLOWS in core.models contains standard default presets."""
-    preset_ids = [p.id for p in DEFAULT_WORKFLOWS]
+    """REQUIRED_DEFAULT_WORKFLOW_IDS and build_dynamic_default_workflows in core.models provide standard default presets."""
+    assert "default_review_flow" in REQUIRED_DEFAULT_WORKFLOW_IDS
+    assert "default_sandwich" in REQUIRED_DEFAULT_WORKFLOW_IDS
+    assert "parallel_dialectic_flow" in REQUIRED_DEFAULT_WORKFLOW_IDS
+    defaults = build_dynamic_default_workflows(["agent-10001", "agent-10002"])
+    preset_ids = [p.id for p in defaults]
     assert "default_review_flow" in preset_ids
     assert "default_sandwich" in preset_ids
+    assert "parallel_dialectic_flow" in preset_ids
 
 
 def test_integrity_checks_uses_ssot_defaults(tmp_path):
-    """AppIntegrityValidator.check_default_workflows_integrity restores missing presets using DEFAULT_WORKFLOWS."""
+    """AppIntegrityValidator.check_default_workflows_integrity restores missing presets using backups or dynamic defaults."""
     wf_dir = tmp_path / "workflows"
     wf_dir.mkdir(parents=True, exist_ok=True)
-    payload = {"agents": {}}
+    payload = {"agents": {"agent-1": {}, "agent-2": {}}}
 
     AppIntegrityValidator.check_default_workflows_integrity(payload, wf_dir)
 
-    for expected in DEFAULT_WORKFLOWS:
-        wf_file = wf_dir / f"{expected.id}.json"
+    for wf_id in REQUIRED_DEFAULT_WORKFLOW_IDS:
+        wf_file = wf_dir / f"{wf_id}.json"
         assert wf_file.exists()
         disk_data = json.loads(wf_file.read_text(encoding="utf-8"))
-        assert disk_data["id"] == expected.id
-        assert disk_data["name"] == expected.name
+        assert disk_data["id"] == wf_id
 
 
 # ---------------------------------------------------------------------------

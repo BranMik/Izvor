@@ -3,10 +3,11 @@ import logging
 import os
 import re
 import tempfile
+import shutil
 from pathlib import Path
 
-from core.models import DEFAULT_WORKFLOWS, OrchestrationMode, WorkflowPreset
-from core.paths import WORKFLOWS_DIR
+from core.models import OrchestrationMode, WorkflowPreset, build_dynamic_default_workflows
+from core.paths import WORKFLOWS_BACKUP_DIR, WORKFLOWS_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -37,9 +38,29 @@ class WorkflowManager:
             if existing:
                 return
 
-            for preset in DEFAULT_WORKFLOWS:
-                self.save_preset(preset)
-            logger.info(f"[WORKFLOW] Seeded {len(DEFAULT_WORKFLOWS)} default workflows in {self.workflows_dir}")
+            logger.warning("[WORKFLOW] No workflow presets found in %s. Seeding default workflows.", self.workflows_dir)
+            seeded_count = 0
+
+            if WORKFLOWS_BACKUP_DIR.exists():
+                backup_files = list(WORKFLOWS_BACKUP_DIR.glob("*.json"))
+                for bf in backup_files:
+                    dst = self.workflows_dir / bf.name
+                    try:
+                        shutil.copy2(bf, dst)
+                        seeded_count += 1
+                    except Exception as e:
+                        logger.warning("[WORKFLOW] Failed to copy backup workflow %s: %s", bf, e)
+
+            if seeded_count == 0:
+                from core.config import AGENTS_CONFIG
+                agent_ids = list(AGENTS_CONFIG.keys())
+                dynamic_presets = build_dynamic_default_workflows(agent_ids)
+                for preset in dynamic_presets:
+                    self.save_preset(preset)
+                    seeded_count += 1
+                logger.info(f"[WORKFLOW] Dynamically seeded {seeded_count} default workflows in {self.workflows_dir}")
+            else:
+                logger.info(f"[WORKFLOW] Restored {seeded_count} default workflows from backup in {self.workflows_dir}")
         except OSError:
             logger.exception("[WORKFLOW] Failed to seed default workflows")
 

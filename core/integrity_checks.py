@@ -9,16 +9,18 @@ additional checks as the system evolves.
 import json
 import logging
 import re
+import shutil
 from pathlib import Path
 from typing import Any
 
-from core.paths import PERSONAS_DIR, WORKFLOWS_DIR
+from core.paths import PERSONAS_DIR, WORKFLOWS_BACKUP_DIR, WORKFLOWS_DIR
 
 logger = logging.getLogger(__name__)
 
 # Default paths — can be overridden per-check via kwargs
 _DEFAULT_PERSONAS_DIR = PERSONAS_DIR
 _DEFAULT_WORKFLOWS_DIR = WORKFLOWS_DIR
+_DEFAULT_WORKFLOWS_BACKUP_DIR = WORKFLOWS_BACKUP_DIR
 
 
 class AppIntegrityValidator:
@@ -44,6 +46,7 @@ class AppIntegrityValidator:
         *,
         personas_dir: Path | None = None,
         workflows_dir: Path | None = None,
+        backups_dir: Path | None = None,
     ) -> dict:
         """
         Runs all registered integrity checks on the initial state/payload.
@@ -53,18 +56,108 @@ class AppIntegrityValidator:
             payload: The raw parsed agent_settings dict.
             personas_dir: Override for the personas directory (testing).
             workflows_dir: Override for the workflows directory (testing).
+            backups_dir: Override for the workflows backup directory (testing).
         """
         p_dir = personas_dir or _DEFAULT_PERSONAS_DIR
         w_dir = workflows_dir or _DEFAULT_WORKFLOWS_DIR
+        b_dir = backups_dir or _DEFAULT_WORKFLOWS_BACKUP_DIR
 
+        payload = cls.check_required_settings_keys(payload)
+        payload = cls.check_special_roles(payload)
         payload = cls.check_agent_id_format(payload)
         payload = cls.check_duplicate_agent_names(payload)
         payload = cls.check_missing_prompt_files(payload, p_dir)
         payload = cls.check_workflow_references(payload, w_dir)
-        payload = cls.check_default_workflows_integrity(payload, w_dir)
+        payload = cls.check_default_workflows_integrity(payload, w_dir, backups_dir=b_dir)
         payload = cls.check_active_workflow_exists(payload, w_dir)
         payload = cls.check_orphaned_persona_files(payload, p_dir)
         payload = cls.check_model_strings(payload)
+        return payload
+
+    # ------------------------------------------------------------------
+    # 0a. Required settings keys
+    # ------------------------------------------------------------------
+    @classmethod
+    def check_required_settings_keys(cls, payload: dict) -> dict:
+        """
+        Validates that required top-level settings keys and required per-agent fields exist.
+        Logs WARNING if any required key is missing.
+        """
+        if not isinstance(payload, dict):
+            logger.warning("[INTEGRITY] Agent settings payload is not a dictionary.")
+            return payload
+
+        required_top = ("workflow_config", "enabled_agents", "agents", "orchestrator")
+        for key in required_top:
+            if key not in payload:
+                logger.warning(
+                    "[INTEGRITY] Required top-level setting '%s' is missing from agent_settings.", key
+                )
+
+        agents = payload.get("agents")
+        if isinstance(agents, dict):
+            required_agent_fields = ("username", "displayname", "model")
+            for aid, acfg in agents.items():
+                if isinstance(acfg, dict):
+                    for field in required_agent_fields:
+                        if not acfg.get(field):
+                            logger.warning(
+                                "[INTEGRITY] Agent '%s' is missing required field '%s'.", aid, field
+                            )
+        return payload
+
+    # ------------------------------------------------------------------
+    # 0b. Agent special roles
+    # ------------------------------------------------------------------
+    @classmethod
+    def check_special_roles(cls, payload: dict) -> dict:
+        """
+        Validates that every agent has a valid special_role ('NONE', 'CHALLENGER', 'REBUTTAL').
+        Normalizes missing/invalid roles to 'NONE' with a WARNING.
+        Logs WARNING if zero CHALLENGER or zero REBUTTAL agents exist,
+        or if multiple REBUTTAL agents exist (noting only the first available will be used).
+        """
+        agents = payload.get("agents")
+        if not isinstance(agents, dict):
+            return payload
+
+        valid_roles = {"NONE", "CHALLENGER", "REBUTTAL"}
+        challengers: list[str] = []
+        rebuttals: list[str] = []
+
+        for aid, acfg in agents.items():
+            if not isinstance(acfg, dict):
+                continue
+            role = acfg.get("special_role")
+            if not role or role not in valid_roles:
+                logger.warning(
+                    "[INTEGRITY] Agent '%s' has missing or invalid special_role '%s'. Normalizing to 'NONE'.",
+                    aid,
+                    role,
+                )
+                acfg["special_role"] = "NONE"
+                role = "NONE"
+
+            if role == "CHALLENGER":
+                challengers.append(aid)
+            elif role == "REBUTTAL":
+                rebuttals.append(aid)
+
+        if not challengers:
+            logger.warning(
+                "[INTEGRITY] Zero agents configured with special_role 'CHALLENGER'. Dialectical stress testing will not activate."
+            )
+        if not rebuttals:
+            logger.warning(
+                "[INTEGRITY] Zero agents configured with special_role 'REBUTTAL'. Dialectical stress testing will not activate."
+            )
+        elif len(rebuttals) > 1:
+            logger.warning(
+                "[INTEGRITY] Multiple agents (%s) configured with special_role 'REBUTTAL'. Only the first available agent (%s) will be used.",
+                rebuttals,
+                rebuttals[0],
+            )
+
         return payload
 
     # ------------------------------------------------------------------
@@ -215,64 +308,152 @@ class AppIntegrityValidator:
     # ------------------------------------------------------------------
     @classmethod
     def check_default_workflows_integrity(
-        cls, payload: dict, workflows_dir: Path
+        cls,
+        payload: dict,
+        workflows_dir: Path,
+        backups_dir: Path | None = None,
+        backup_dir: Path | None = None,
     ) -> dict:
         """
-        Validates that the required default workflows exist and have not been altered.
-        If they are missing or altered, recreates them from the system defaults.
+        Validates that the required default workflows exist and are valid JSON.
+        If missing or corrupted:
+          1. Attempts restoration from backups_dir (WORKFLOWS_BACKUP_DIR).
+          2. If backup is also absent or invalid, dynamically builds and saves presets
+             using build_dynamic_default_workflows() based on active agents.
         """
-        # Import inside method to avoid circular imports if any
+        from core.models import REQUIRED_DEFAULT_WORKFLOW_IDS, build_dynamic_default_workflows
         from orchestration.workflow_manager import WorkflowManager
-        from core.models import DEFAULT_WORKFLOWS, WorkflowPreset
-
-        expected_defaults = DEFAULT_WORKFLOWS
 
         if not workflows_dir.exists():
             workflows_dir.mkdir(parents=True, exist_ok=True)
 
+        b_dir = backups_dir or backup_dir or _DEFAULT_WORKFLOWS_BACKUP_DIR
         wm = WorkflowManager(workflows_dir=workflows_dir, auto_seed=False)
 
-        for expected in expected_defaults:
-            wf_file = workflows_dir / f"{expected.id}.json"
+        for wf_id in REQUIRED_DEFAULT_WORKFLOW_IDS:
+            wf_file = workflows_dir / f"{wf_id}.json"
             needs_restore = False
 
             if not wf_file.exists():
                 logger.warning(
-                    "[INTEGRITY] Default workflow '%s' is missing. Restoring from backup.",
-                    expected.id,
+                    "[INTEGRITY] Default workflow '%s' is missing in %s. Attempting restore from backup.",
+                    wf_id,
+                    workflows_dir,
                 )
                 needs_restore = True
             else:
                 try:
                     with open(wf_file, "r", encoding="utf-8") as f:
                         disk_data = json.load(f)
-
-                    # Compare serialized forms
-                    expected_data = expected.to_dict()
-                    if disk_data != expected_data:
+                    if not isinstance(disk_data, dict) or not disk_data.get("id"):
                         logger.warning(
-                            "[INTEGRITY] Default workflow '%s' was altered. Restoring from backup.",
-                            expected.id,
+                            "[INTEGRITY] Default workflow '%s' is invalid or corrupted. Attempting restore from backup.",
+                            wf_id,
                         )
                         needs_restore = True
                 except (OSError, json.JSONDecodeError):
                     logger.warning(
-                        "[INTEGRITY] Default workflow '%s' is corrupted. Restoring from backup.",
-                        expected.id,
+                        "[INTEGRITY] Default workflow '%s' is unreadable. Attempting restore from backup.",
+                        wf_id,
                     )
                     needs_restore = True
 
             if needs_restore:
-                try:
-                    wm.save_preset(expected)
-                except Exception as e:
-                    logger.error(
-                        "[INTEGRITY] Failed to restore workflow '%s': %s",
-                        expected.id,
-                        e,
+                restored = False
+                backup_file = b_dir / f"{wf_id}.json"
+                if backup_file.exists():
+                    try:
+                        with open(backup_file, "r", encoding="utf-8") as bf:
+                            b_data = json.load(bf)
+                        if isinstance(b_data, dict) and b_data.get("id") == wf_id:
+                            shutil.copy2(backup_file, wf_file)
+                            logger.info(
+                                "[INTEGRITY] Restored default workflow '%s' from backup at %s.",
+                                wf_id,
+                                backup_file,
+                            )
+                            restored = True
+                    except Exception as ex:
+                        logger.warning(
+                            "[INTEGRITY] Could not restore workflow '%s' from backup file %s: %s",
+                            wf_id,
+                            backup_file,
+                            ex,
+                        )
+
+                if not restored:
+                    logger.warning(
+                        "[INTEGRITY] Backup for default workflow '%s' not available. Dynamically generating from agent settings.",
+                        wf_id,
                     )
+                    agent_keys = list(payload.get("agents", {}).keys())
+                    dyn_presets = build_dynamic_default_workflows(agent_keys)
+                    for preset in dyn_presets:
+                        if preset.id == wf_id:
+                            try:
+                                wm.save_preset(preset)
+                                logger.info(
+                                    "[INTEGRITY] Dynamically generated and saved default workflow '%s'.",
+                                    wf_id,
+                                )
+                            except Exception as e:
+                                logger.error(
+                                    "[INTEGRITY] Failed to save dynamic workflow '%s': %s",
+                                    wf_id,
+                                    e,
+                                )
+                            break
 
         return payload
+
+    # ------------------------------------------------------------------
+    # 5b. System settings integrity
+    # ------------------------------------------------------------------
+    @classmethod
+    def check_system_settings_integrity(cls, data: dict, settings_path: Path | None = None) -> dict:
+        """
+        Validates that required system settings keys exist in system_settings.json.
+        Logs WARNING for any missing required key.
+        If deprecated challenger_agents or rebuttal_agent exist, strips them and saves.
+        """
+        if not isinstance(data, dict):
+            logger.warning("[INTEGRITY] System settings payload is not a dictionary.")
+            return data
+
+        # Check and strip deprecated keys
+        modified = False
+        for deprecated_key in ("challenger_agents", "rebuttal_agent"):
+            if deprecated_key in data:
+                logger.warning(
+                    "[INTEGRITY] Deprecated key '%s' found in system_settings.json. Stripping key (special roles belong in agent_settings).",
+                    deprecated_key,
+                )
+                del data[deprecated_key]
+                modified = True
+
+        if modified and settings_path:
+            try:
+                settings_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+                logger.info("[INTEGRITY] Cleaned system_settings.json written to %s", settings_path)
+            except Exception as e:
+                logger.error("[INTEGRITY] Failed to write cleaned system_settings: %s", e)
+
+        required_keys = (
+            "default_fast_model",
+            "default_reasoning_model",
+            "max_discussion_turns",
+            "max_tool_iterations",
+            "strict_privacy_mode_enabled",
+            "convergence_consecutive_threshold",
+            "dialectical_stress_test",
+            "debate_turn_pacing_seconds",
+        )
+        for k in required_keys:
+            if k not in data:
+                logger.warning(
+                    "[INTEGRITY] Required system setting '%s' is missing from system_settings.json.", k
+                )
+        return data
 
     # ------------------------------------------------------------------
     # 6. Active workflow validation — fallback to default
