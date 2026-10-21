@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import os
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -69,55 +70,220 @@ class ThreadUsageTracker:
         self.pending_usage_updates.clear()
         self.pending_usage_completed.clear()
 
-    def load(self) -> None:
-        """Loads persistent thread usage data from JSON store file."""
-        self.thread_usage_data.clear()
+    def _migrate_legacy_json_once(self) -> None:
+        """One-time migration: imports legacy thread_usage_data.json into SQLite thread_usage_meta & spend_ledger."""
         if not self.store_file.exists():
             return
         try:
-            raw = json.loads(self.store_file.read_text(encoding="utf-8"))
-            for k_str, data in raw.items():
-                if ":" in k_str:
+            raw_text = self.store_file.read_text(encoding="utf-8")
+            if not raw_text.strip() or raw_text.strip() == "{}":
+                return
+            raw = json.loads(raw_text)
+            from core.database import get_db_transaction
+            from pipeline.spend_governance import spend_governance
+
+            tokens_to_record: list[tuple[str, str, int, int]] = []
+            with get_db_transaction(immediate=True) as conn:
+                for k_str, data in raw.items():
+                    if ":" not in k_str or not isinstance(data, dict):
+                        continue
                     parts = k_str.split(":", 1)
-                    self.thread_usage_data[(parts[0], parts[1])] = data
+                    c_id, t_ts = parts[0], parts[1]
+                    conn.execute(
+                        """
+                        INSERT INTO thread_usage_meta (channel_id, thread_ts, channel_name, created_at_str, usage_msg_ts, is_completed, last_updated)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT(channel_id, thread_ts) DO UPDATE SET
+                            channel_name = excluded.channel_name,
+                            created_at_str = excluded.created_at_str,
+                            usage_msg_ts = excluded.usage_msg_ts,
+                            is_completed = excluded.is_completed,
+                            last_updated = excluded.last_updated;
+                        """,
+                        (
+                            c_id,
+                            t_ts,
+                            data.get("channel_name", f"#{c_id}"),
+                            data.get("created_at_str", parse_thread_creation_time(t_ts)),
+                            data.get("usage_msg_ts"),
+                            int(bool(data.get("is_completed", False))),
+                            data.get("last_updated", time.time()),
+                        ),
+                    )
+                    models = data.get("models", {})
+                    if models:
+                        check_row = conn.execute(
+                            "SELECT COUNT(*) as cnt FROM spend_ledger WHERE channel_id = ? AND thread_ts = ?;",
+                            (c_id, t_ts),
+                        ).fetchone()
+                        if check_row and check_row["cnt"] == 0:
+                            for m_name, m_info in models.items():
+                                p_tok = int(m_info.get("prompt_tokens", 0))
+                                c_tok = int(m_info.get("completion_tokens", 0))
+                                if p_tok > 0 or c_tok > 0:
+                                    tokens_to_record.append((f"{c_id}:{t_ts}", m_name, p_tok, c_tok))
+
+            for sess_id, m_name, p_tok, c_tok in tokens_to_record:
+                spend_governance.record_usage(
+                    session_id=sess_id,
+                    model_name=m_name,
+                    prompt_tokens=p_tok,
+                    completion_tokens=c_tok,
+                )
+
+            migrated_path = self.store_file.with_suffix(".json.migrated")
+            try:
+                self.store_file.replace(migrated_path)
+                logger.info(
+                    f"[USAGE AGENT] Successfully migrated legacy {self.store_file.name} to SQLite and renamed to {migrated_path.name}"
+                )
+            except OSError:
+                pass
+        except Exception as e:
+            logger.debug(f"[USAGE AGENT] Failed migrating legacy thread usage store: {e}")
+
+    def _load_thread_from_db(self, channel_id: str, thread_ts: str) -> dict[str, Any] | None:
+        """Loads a single thread's metadata from SQLite thread_usage_meta into L1 cache."""
+        thread_key = (channel_id, thread_ts)
+        try:
+            from core.database import get_connection
+
+            with get_connection() as conn:
+                row = conn.execute(
+                    """
+                    SELECT channel_id, thread_ts, channel_name, created_at_str, usage_msg_ts, is_completed, last_updated
+                    FROM thread_usage_meta
+                    WHERE channel_id = ? AND thread_ts = ?;
+                    """,
+                    (channel_id, thread_ts),
+                ).fetchone()
+                if row:
+                    entry = {
+                        "channel_id": row["channel_id"],
+                        "channel_name": row["channel_name"],
+                        "thread_ts": row["thread_ts"],
+                        "created_at_str": row["created_at_str"],
+                        "usage_msg_ts": row["usage_msg_ts"],
+                        "models": {},
+                        "is_completed": bool(row["is_completed"]),
+                        "last_updated": float(row["last_updated"]),
+                    }
+                    self.thread_usage_data[thread_key] = entry
+                    return entry
+        except Exception as e:
+            logger.debug(f"[USAGE AGENT] Failed loading thread metadata from SQLite: {e}")
+        return None
+
+    def _sync_meta_to_db(self, channel_id: str, thread_ts: str) -> None:
+        """Persists metadata changes for a specific thread to SQLite thread_usage_meta."""
+        thread_key = (channel_id, thread_ts)
+        entry = self.thread_usage_data.get(thread_key)
+        if not entry:
+            return
+        try:
+            from core.database import get_db_transaction
+
+            with get_db_transaction(immediate=True) as conn:
+                conn.execute(
+                    """
+                    INSERT INTO thread_usage_meta (channel_id, thread_ts, channel_name, created_at_str, usage_msg_ts, is_completed, last_updated)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(channel_id, thread_ts) DO UPDATE SET
+                        channel_name = excluded.channel_name,
+                        created_at_str = excluded.created_at_str,
+                        usage_msg_ts = excluded.usage_msg_ts,
+                        is_completed = excluded.is_completed,
+                        last_updated = excluded.last_updated;
+                    """,
+                    (
+                        channel_id,
+                        thread_ts,
+                        entry.get("channel_name", f"#{channel_id}"),
+                        entry.get("created_at_str", parse_thread_creation_time(thread_ts)),
+                        entry.get("usage_msg_ts"),
+                        int(bool(entry.get("is_completed", False))),
+                        entry.get("last_updated", time.time()),
+                    ),
+                )
+        except Exception as e:
+            logger.debug(f"[USAGE AGENT] Failed syncing metadata to SQLite: {e}")
+
+    def load(self) -> None:
+        """Loads persistent thread usage metadata from SQLite thread_usage_meta into L1 cache."""
+        self.thread_usage_data.clear()
+        self._migrate_legacy_json_once()
+        try:
+            from core.database import get_connection
+
+            with get_connection() as conn:
+                rows = conn.execute(
+                    """
+                    SELECT channel_id, thread_ts, channel_name, created_at_str, usage_msg_ts, is_completed, last_updated
+                    FROM thread_usage_meta;
+                    """
+                ).fetchall()
+                for row in rows:
+                    k = (row["channel_id"], row["thread_ts"])
+                    self.thread_usage_data[k] = {
+                        "channel_id": row["channel_id"],
+                        "channel_name": row["channel_name"],
+                        "thread_ts": row["thread_ts"],
+                        "created_at_str": row["created_at_str"],
+                        "usage_msg_ts": row["usage_msg_ts"],
+                        "models": {},
+                        "is_completed": bool(row["is_completed"]),
+                        "last_updated": float(row["last_updated"]),
+                    }
             logger.info(
-                f"[USAGE AGENT] Loaded usage tracking for {len(self.thread_usage_data)} threads from {self.store_file.name}"
+                f"[USAGE AGENT] Loaded usage tracking for {len(self.thread_usage_data)} threads from SQLite"
             )
-        except (OSError, json.JSONDecodeError, UnicodeError, ValueError) as e:
-            logger.error(f"[USAGE AGENT] Error loading thread usage store: {e}")
+        except Exception as e:
+            logger.debug(f"[USAGE AGENT] Error loading thread usage store from SQLite: {e}")
 
     def save(self) -> None:
-        """Saves thread usage data dictionary to JSON store file atomically."""
+        """Persists thread usage data to SQLite thread_usage_meta."""
         try:
-            self.store_file.parent.mkdir(parents=True, exist_ok=True)
-            serializable = {
-                f"{k[0]}:{k[1]}": v for k, v in self.thread_usage_data.items()
-            }
-            content = json.dumps(serializable, indent=2)
+            from core.database import get_db_transaction
 
-            import os
-            import tempfile
+            with get_db_transaction(immediate=True) as conn:
+                for (channel_id, thread_ts), entry in list(self.thread_usage_data.items()):
+                    conn.execute(
+                        """
+                        INSERT INTO thread_usage_meta (channel_id, thread_ts, channel_name, created_at_str, usage_msg_ts, is_completed, last_updated)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT(channel_id, thread_ts) DO UPDATE SET
+                            channel_name = excluded.channel_name,
+                            created_at_str = excluded.created_at_str,
+                            usage_msg_ts = excluded.usage_msg_ts,
+                            is_completed = excluded.is_completed,
+                            last_updated = excluded.last_updated;
+                        """,
+                        (
+                            channel_id,
+                            thread_ts,
+                            entry.get("channel_name", f"#{channel_id}"),
+                            entry.get("created_at_str", parse_thread_creation_time(thread_ts)),
+                            entry.get("usage_msg_ts"),
+                            int(bool(entry.get("is_completed", False))),
+                            entry.get("last_updated", time.time()),
+                        ),
+                    )
+        except Exception as e:
+            logger.debug(f"[USAGE AGENT] Error saving thread usage data to SQLite: {e}")
 
-            tmp_fd, tmp_path = tempfile.mkstemp(
-                dir=str(self.store_file.parent),
-                prefix=f"{self.store_file.stem}_",
-                suffix=".tmp",
-            )
+        # If a custom store_file is specified (e.g. in isolated tests), write atomically to it
+        if self.store_file != USAGE_STORE_FILE:
             try:
-                with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
-                    f.write(content)
-                    f.flush()
-                    os.fsync(f.fileno())
-                os.replace(tmp_path, self.store_file)
-            except OSError:
-                if os.path.exists(tmp_path):
-                    try:
-                        os.remove(tmp_path)
-                    except OSError:
-                        pass
-                raise
-        except (OSError, TypeError, ValueError) as e:
-            logger.error(f"[USAGE AGENT] Error saving thread usage data: {e}")
+                raw_data = {
+                    f"{c_id}:{t_ts}": entry
+                    for (c_id, t_ts), entry in self.thread_usage_data.items()
+                }
+                self.store_file.parent.mkdir(parents=True, exist_ok=True)
+                temp_file = self.store_file.with_name(f"{self.store_file.name}.tmp.{os.getpid()}")
+                temp_file.write_text(json.dumps(raw_data, indent=2), encoding="utf-8")
+                temp_file.replace(self.store_file)
+            except Exception as e:
+                logger.debug(f"[USAGE AGENT] Error saving thread usage data to custom file: {e}")
 
     def record_tokens(
         self,
@@ -130,9 +296,13 @@ class ThreadUsageTracker:
     ) -> dict[str, Any]:
         """
         Accumulates input and output tokens for a specific model within a thread.
-        Thread-safe and persists to thread_usage_data.json.
+        Thread-safe, updates L1 cache, writes to spend_governance (SQLite spend_ledger),
+        and upserts to SQLite thread_usage_meta.
         """
         thread_key = (channel_id, thread_ts)
+        if thread_key not in self.thread_usage_data:
+            self._load_thread_from_db(channel_id, thread_ts)
+
         if thread_key not in self.thread_usage_data:
             created_at_str = parse_thread_creation_time(thread_ts)
             self.thread_usage_data[thread_key] = {
@@ -164,7 +334,6 @@ class ThreadUsageTracker:
         m_stats["total_tokens"] = m_stats["prompt_tokens"] + m_stats["completion_tokens"]
 
         entry["last_updated"] = time.time()
-        self.save()
 
         # Wire into SQLite spend_ledger via spend_governance
         try:
@@ -180,6 +349,8 @@ class ThreadUsageTracker:
         except Exception as e:
             logger.debug(f"[USAGE AGENT] Spend governance recording failed: {e}")
 
+        self._sync_meta_to_db(channel_id, thread_ts)
+
         logger.info(
             f"[USAGE AGENT] Recorded tokens for thread {thread_ts} | Model: {model_name} | "
             f"New Prompt={prompt_tokens}, Completion={completion_tokens} | "
@@ -190,10 +361,35 @@ class ThreadUsageTracker:
     def calculate_thread_costs(self, channel_id: str, thread_ts: str) -> dict[str, Any]:
         """
         Computes exact monetary costs per model and grand totals for a given thread.
+        Queries SQLite spend_ledger via spend_governance with metadata from L1 cache / SQLite.
         """
         thread_key = (channel_id, thread_ts)
-        entry = self.thread_usage_data.get(thread_key, {})
-        models_data = entry.get("models", {})
+        entry = self.thread_usage_data.get(thread_key)
+        if entry is None:
+            entry = self._load_thread_from_db(channel_id, thread_ts) or {}
+
+        session_id = f"{channel_id}:{thread_ts}"
+        models_tokens: dict[str, dict[str, int]] = {}
+
+        try:
+            from pipeline.spend_governance import spend_governance
+
+            metrics = spend_governance.calculate_spend(session_id)
+            if metrics.tokens_by_model:
+                models_tokens = {
+                    m: {
+                        "prompt_tokens": tok.get("prompt", 0),
+                        "completion_tokens": tok.get("completion", 0),
+                        "total_tokens": tok.get("prompt", 0) + tok.get("completion", 0),
+                    }
+                    for m, tok in metrics.tokens_by_model.items()
+                }
+        except Exception as e:
+            logger.debug(f"[USAGE AGENT] Failed querying spend metrics: {e}")
+
+        # Fallback to in-memory entry["models"] if spend_ledger is empty or unpopulated
+        if not models_tokens and "models" in entry:
+            models_tokens = entry.get("models", {})
 
         models_breakdown = {}
         grand_prompt_tokens = 0
@@ -201,18 +397,37 @@ class ThreadUsageTracker:
         grand_total_tokens = 0
         grand_total_cost_usd = 0.0
 
-        for model_name, stats in models_data.items():
+        for model_name, stats in models_tokens.items():
             p_tokens = stats.get("prompt_tokens", 0)
             c_tokens = stats.get("completion_tokens", 0)
             t_tokens = stats.get("total_tokens", p_tokens + c_tokens)
 
             pricing = get_model_pricing(model_name)
-            in_rate_1m = pricing.get("input_price_per_1m", 1.0)
-            out_rate_1m = pricing.get("output_price_per_1m", 3.0)
+            in_rate_1m = (
+                pricing.input_price_per_1m
+                if hasattr(pricing, "input_price_per_1m")
+                else pricing.get("input_price_per_1m", 1.0)
+            )
+            out_rate_1m = (
+                pricing.output_price_per_1m
+                if hasattr(pricing, "output_price_per_1m")
+                else pricing.get("output_price_per_1m", 3.0)
+            )
 
             in_cost = (p_tokens / 1_000_000.0) * in_rate_1m
             out_cost = (c_tokens / 1_000_000.0) * out_rate_1m
             model_total_cost = in_cost + out_cost
+
+            source = (
+                pricing.source
+                if hasattr(pricing, "source")
+                else pricing.get("source", "Pricing Cache")
+            )
+            source_url = (
+                pricing.source_url
+                if hasattr(pricing, "source_url")
+                else pricing.get("source_url", "")
+            )
 
             models_breakdown[model_name] = {
                 "prompt_tokens": p_tokens,
@@ -223,8 +438,8 @@ class ThreadUsageTracker:
                 "input_cost_usd": in_cost,
                 "output_cost_usd": out_cost,
                 "total_cost_usd": model_total_cost,
-                "source": pricing.get("source", "Pricing Cache"),
-                "source_url": pricing.get("source_url", ""),
+                "source": source,
+                "source_url": source_url,
             }
 
             grand_prompt_tokens += p_tokens
@@ -267,9 +482,11 @@ class ThreadUsageTracker:
             ch_name = await get_channel_name(channel_id)
             if thread_key in self.thread_usage_data:
                 self.thread_usage_data[thread_key]["channel_name"] = ch_name
+                self._sync_meta_to_db(channel_id, thread_ts)
 
         if thread_key in self.thread_usage_data and is_completed:
             self.thread_usage_data[thread_key]["is_completed"] = True
+            self._sync_meta_to_db(channel_id, thread_ts)
 
         cost_data = self.calculate_thread_costs(channel_id, thread_ts)
         created_at = cost_data["created_at_str"]
@@ -388,7 +605,7 @@ class ThreadUsageTracker:
                     new_msg_ts = post_res.get("ts")
                     if new_msg_ts:
                         entry["usage_msg_ts"] = new_msg_ts
-                        self.save()
+                        self._sync_meta_to_db(channel_id, thread_ts)
                         logger.info(
                             f"[USAGE AGENT] Created new usage report message {new_msg_ts} in channel {usage_ch_id} for thread {thread_ts}"
                         )

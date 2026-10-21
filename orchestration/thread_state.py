@@ -310,6 +310,15 @@ class ThreadStateManager:
         self._touch(channel_id, thread_ts)
         return self.discussion.pop_remaining_agent(channel_id, thread_ts, agent_key)
 
+    def remove_remaining_agent(self, channel_id: str, thread_ts: str, agent_key: str) -> bool:
+        self._touch(channel_id, thread_ts)
+        return self.discussion.remove_remaining_agent(channel_id, thread_ts, agent_key)
+
+    def pop_random_remaining_agent(self, channel_id: str, thread_ts: str) -> str | None:
+        self._touch(channel_id, thread_ts)
+        return self.discussion.pop_random_remaining_agent(channel_id, thread_ts)
+
+
     def has_remaining_agents_key(self, channel_id: str, thread_ts: str) -> bool:
         return self.discussion.has_remaining_agents_key(channel_id, thread_ts)
 

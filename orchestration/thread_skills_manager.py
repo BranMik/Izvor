@@ -35,7 +35,79 @@ class ThreadSkillsManager:
     def _thread_key(self, channel_id: str, thread_ts: str) -> str:
         return f"{channel_id}:{thread_ts}"
 
+    def migrate_legacy_json_if_present(self) -> None:
+        """
+        One-time migration: imports active thread skill grants from legacy thread_skills.json
+        into SQLite thread_skills table and renames legacy file to thread_skills.json.migrated.
+        """
+        if not self.storage_file.exists():
+            return
+
+        try:
+            raw_text = self.storage_file.read_text(encoding="utf-8")
+            if not raw_text.strip() or raw_text.strip() == "{}":
+                return
+            data = json.loads(raw_text)
+            threads = data.get("threads", {})
+            if not threads:
+                return
+
+            now = time.time()
+            ttl = self.get_ttl_seconds()
+
+            with get_db_transaction(immediate=True) as conn:
+                for key, entry in threads.items():
+                    if ":" not in key or not isinstance(entry, dict):
+                        continue
+                    channel_id, thread_ts = key.split(":", 1)
+
+                    # Global thread skills
+                    granted_at = float(entry.get("granted_at", 0.0))
+                    skills = entry.get("skills", [])
+                    if skills and now - granted_at <= ttl + 86400.0:
+                        exp_ts = granted_at + ttl
+                        for s in skills:
+                            conn.execute(
+                                """
+                                INSERT OR REPLACE INTO thread_skills (channel_id, thread_ts, agent_id, skill_name, granted_at, expires_at)
+                                VALUES (?, ?, '*', ?, ?, ?);
+                                """,
+                                (channel_id, thread_ts, s, granted_at, exp_ts),
+                            )
+
+                    # Agent specific skills
+                    agent_skills = entry.get("agent_skills", {})
+                    for ag_id, ag_entry in agent_skills.items():
+                        ag_granted = float(ag_entry.get("granted_at", 0.0))
+                        ag_s_list = ag_entry.get("skills", [])
+                        if ag_s_list and now - ag_granted <= ttl + 86400.0:
+                            ag_exp = ag_granted + ttl
+                            for s in ag_s_list:
+                                conn.execute(
+                                    """
+                                    INSERT OR REPLACE INTO thread_skills (channel_id, thread_ts, agent_id, skill_name, granted_at, expires_at)
+                                    VALUES (?, ?, ?, ?, ?, ?);
+                                    """,
+                                    (channel_id, thread_ts, ag_id, s, ag_granted, ag_exp),
+                                )
+
+            migrated_path = self.storage_file.with_suffix(".json.migrated")
+            try:
+                self.storage_file.replace(migrated_path)
+                logger.info(
+                    f"[THREAD_SKILLS] Successfully migrated legacy {self.storage_file.name} to SQLite and renamed to {migrated_path.name}"
+                )
+            except OSError:
+                pass
+        except Exception as e:
+            logger.debug(f"[THREAD_SKILLS] Error migrating legacy thread skills JSON: {e}")
+
     def load(self) -> None:
+        if self.storage_file == THREAD_SKILLS_FILE:
+            self.migrate_legacy_json_if_present()
+            self._maybe_run_cleanup()
+            return
+
         if not self.storage_file.exists():
             self._threads = {}
             return
@@ -116,6 +188,13 @@ class ThreadSkillsManager:
             self.save()
 
     def save(self) -> None:
+        """
+        Persists thread skills to disk. For production runtime (THREAD_SKILLS_FILE),
+        SQLite is the sole authoritative storage, eliminating runtime file fsync.
+        """
+        if self.storage_file == THREAD_SKILLS_FILE:
+            return
+
         self.storage_file.parent.mkdir(parents=True, exist_ok=True)
         tmp_file = self.storage_file.with_suffix(".tmp")
         payload = {"threads": self._threads}

@@ -157,7 +157,35 @@ class DiscussionStateStore:
             agents.remove(agent_key)
             self._sync_to_db(channel_id, thread_ts)
             return agent_key
-        return None
+    def remove_remaining_agent(
+        self, channel_id: str, thread_ts: str, agent_key: str
+    ) -> bool:
+        """Removes a specific agent from the remaining agents list and syncs to DB."""
+        self._ensure_loaded(channel_id, thread_ts)
+        thread_key = (channel_id, thread_ts)
+        agents = self.remaining_agents_map.get(thread_key, [])
+        if agent_key in agents:
+            agents.remove(agent_key)
+            self._sync_to_db(channel_id, thread_ts)
+            return True
+        return False
+
+    def pop_random_remaining_agent(
+        self, channel_id: str, thread_ts: str
+    ) -> str | None:
+        """Pops a random agent from remaining agents list and syncs to DB."""
+        self._ensure_loaded(channel_id, thread_ts)
+        thread_key = (channel_id, thread_ts)
+        agents = self.remaining_agents_map.get(thread_key, [])
+        if not agents:
+            return None
+        import random
+
+        chosen = random.choice(agents)
+        agents.remove(chosen)
+        self._sync_to_db(channel_id, thread_ts)
+        return chosen
+
 
     def has_remaining_agents_key(self, channel_id: str, thread_ts: str) -> bool:
         """Checks if remaining_agents_map explicitly has an entry for this thread."""

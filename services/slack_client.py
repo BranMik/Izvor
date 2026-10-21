@@ -1104,8 +1104,9 @@ async def update_slack_message(
     channel_id: str,
     ts: str,
     text: str,
+    blocks: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    return await update_thread_note(channel_id=channel_id, message_ts=ts, text=text)
+    return await update_thread_note(channel_id=channel_id, message_ts=ts, text=text, blocks=blocks)
 
 
 async def read_slack_file_text(

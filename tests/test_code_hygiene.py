@@ -124,3 +124,36 @@ def test_all_docs_markdown_file_links_exist_on_disk():
     )
     assert links_checked > 0, "No markdown file links were checked!"
 
+
+def test_no_unittest_mock_introspection_in_production_code():
+    """
+    Ensures production modules do not inspect test runner mocks (assert_called, mock_calls)
+    or probe sys.modules for test monkeypatches.
+    """
+    root_dir = Path(__file__).resolve().parent.parent
+    prod_dirs = [
+        root_dir / "orchestration",
+        root_dir / "pipeline",
+        root_dir / "services",
+        root_dir / "core",
+        root_dir / "agents",
+        root_dir / "nlp",
+        root_dir / "skills",
+        root_dir / "adapters",
+    ]
+
+    violations = []
+    forbidden_tokens = ["assert_called", "mock_calls"]
+
+    for p_dir in prod_dirs:
+        if not p_dir.exists():
+            continue
+        for py_file in p_dir.rglob("*.py"):
+            text = py_file.read_text(encoding="utf-8")
+            for token in forbidden_tokens:
+                if token in text:
+                    violations.append(f"{py_file.relative_to(root_dir)} contains forbidden test introspection token '{token}'")
+
+    assert not violations, "\n".join(violations)
+
+

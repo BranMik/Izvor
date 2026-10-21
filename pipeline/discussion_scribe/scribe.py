@@ -61,9 +61,15 @@ class DiscussionScribe:
     and produces structured synthesis briefs.
     """
 
-    def __init__(self, model: str | None = None, system_prompt: str | None = None):
+    def __init__(
+        self,
+        model: str | None = None,
+        system_prompt: str | None = None,
+        completion_fn: Any = None,
+    ):
         self._custom_model = model
         self.system_prompt = system_prompt or SCRIBE_DEFAULT_PROMPT
+        self._completion_fn = completion_fn
 
     @property
     def model(self) -> str:
@@ -72,6 +78,19 @@ class DiscussionScribe:
     @model.setter
     def model(self, val: str | None) -> None:
         self._custom_model = val
+
+    async def _invoke_llm(
+        self, messages: list[dict[str, str]], max_tokens: int
+    ) -> Any:
+        completion_fn = self._completion_fn or litellm.acompletion
+        res = completion_fn(
+            model=self.model,
+            messages=messages,
+            max_tokens=max_tokens,
+            num_retries=2,
+        )
+        return await res if asyncio.iscoroutine(res) else res
+
 
     async def generate_brief(
         self,
@@ -171,22 +190,7 @@ class DiscussionScribe:
 
         start_time = time.time()
         try:
-            if hasattr(litellm.completion, "assert_called") or hasattr(litellm.completion, "mock_calls"):
-                res = litellm.completion(
-                    model=self.model,
-                    messages=formatted_messages,
-                    max_tokens=max_tokens,
-                    num_retries=2,
-                )
-                resp = await res if asyncio.iscoroutine(res) else res
-            else:
-                res = litellm.acompletion(
-                    model=self.model,
-                    messages=formatted_messages,
-                    max_tokens=max_tokens,
-                    num_retries=2,
-                )
-                resp = await res if asyncio.iscoroutine(res) else res
+            resp = await self._invoke_llm(formatted_messages, max_tokens)
             raw_text = resp.choices[0].message.content or ""
             if scribe_max_words is not None:
                 try:
@@ -300,23 +304,7 @@ class DiscussionScribe:
 
         start_time = time.time()
         try:
-            if hasattr(litellm.completion, "assert_called") or hasattr(litellm.completion, "mock_calls"):
-                res = litellm.completion(
-                    model=self.model,
-                    messages=formatted_messages,
-                    max_tokens=max_tokens,
-                    num_retries=2,
-                )
-                resp = await res if asyncio.iscoroutine(res) else res
-            else:
-                res = litellm.acompletion(
-                    model=self.model,
-                    messages=formatted_messages,
-                    max_tokens=max_tokens,
-                    num_retries=2,
-                )
-                resp = await res if asyncio.iscoroutine(res) else res
-
+            resp = await self._invoke_llm(formatted_messages, max_tokens)
             raw_text = resp.choices[0].message.content or ""
             if scribe_max_words is not None:
                 try:

@@ -127,6 +127,44 @@ class CostCalculator(Protocol):
     ) -> dict[str, Any]: ...
 
 
+@runtime_checkable
+class WorkspaceAdapter(Protocol):
+    """Hexagonal port decoupling core orchestration stages from chat-platform primitives."""
+
+    def format_outbound_text(self, markdown_text: str) -> str: ...
+
+    def build_budget_halt_blocks(
+        self, message_text: str, session_id: str
+    ) -> list[dict[str, Any]]: ...
+
+    async def post_agent_turn(
+        self,
+        channel_id: str,
+        thread_ts: str,
+        text: str,
+        username: str,
+        icon_url: str | None = None,
+        blocks: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]: ...
+
+    async def update_agent_turn(
+        self,
+        channel_id: str,
+        message_ts: str,
+        text: str,
+        blocks: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]: ...
+
+    async def post_system_notice(
+        self,
+        channel_id: str,
+        thread_ts: str,
+        text: str,
+        username: str | None = None,
+        icon_url: str | None = None,
+    ) -> dict[str, Any]: ...
+
+
 __all__ = [
     "CostCalculator",
     "FilesFetcher",
@@ -139,4 +177,6 @@ __all__ = [
     "SystemMessagePoster",
     "TokenRecorder",
     "UsageUpdater",
+    "WorkspaceAdapter",
 ]
+
