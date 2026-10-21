@@ -10,16 +10,20 @@ from slack_sdk.errors import SlackApiError
 from slack_sdk.web.async_client import AsyncWebClient
 
 from core.config import (
-    MCP_WORKSPACE_DIR,
     PROJECT_ROOT,
     SLACK_BOT_TOKEN,
     USAGE_CHANNEL_ID,
     USAGE_CHANNEL_NAME,
     resolve_avatar_url,
 )
+from core.paths import DOWNLOADS_DIR
 from core.slack_security import sanitize_slack_broadcast_mentions
 
+# Backward-compatible alias for workspace downloads resolution
+MCP_WORKSPACE_DIR: Path = PROJECT_ROOT
+
 logger = logging.getLogger(__name__)
+
 
 # Initialize async web client
 slack_async_client = AsyncWebClient(token=SLACK_BOT_TOKEN)
@@ -774,12 +778,27 @@ async def fetch_thread_files(
         return []
 
 
+SAFE_DOWNLOAD_EXTENSIONS: frozenset[str] = frozenset({
+    ".txt",
+    ".md",
+    ".pdf",
+    ".csv",
+    ".json",
+    ".yaml",
+    ".yml",
+    ".xml",
+    ".html",
+    ".log",
+})
+
+
 def sanitize_slack_download_filename(file_name: str, prefix_len: int = 6) -> str:
     """
     Sanitizes untrusted filenames from Slack attachments:
     - Extracts base name, stripping any path traversal characters (../)
     - Sanitizes characters in filename stem and extension
     - Prepends a short UUID prefix to avoid collisions and overwrites
+    - Neutralizes non-safe or executable extensions (.py, .sh, .bat, etc.) by appending .txt
     """
     import uuid
 
@@ -789,6 +808,9 @@ def sanitize_slack_download_filename(file_name: str, prefix_len: int = 6) -> str
 
     clean_stem = re.sub(r"[^\w\-]", "_", stem).strip("._") or "file"
     clean_suffix = re.sub(r"[^\w\.]", "", suffix)
+    if clean_suffix.lower() not in SAFE_DOWNLOAD_EXTENSIONS:
+        clean_suffix = f"{clean_suffix}.txt"
+
     short_uuid = uuid.uuid4().hex[:prefix_len]
     return f"{short_uuid}_{clean_stem}{clean_suffix}"
 
@@ -927,7 +949,7 @@ async def download_slack_file(
 
             # Cache local copy to workspace safely
             try:
-                downloads_dir = (MCP_WORKSPACE_DIR / "downloads").resolve()
+                downloads_dir = DOWNLOADS_DIR.resolve()
                 downloads_dir.mkdir(parents=True, exist_ok=True)
                 safe_name = sanitize_slack_download_filename(file_name, prefix_len=6)
                 file_path = (downloads_dir / safe_name).resolve()

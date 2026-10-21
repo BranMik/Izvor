@@ -158,10 +158,11 @@ async def test_pricing_agent_omits_cache_control_and_logs(caplog):
     mock_resp.usage = MagicMock(prompt_tokens=80, completion_tokens=40)
 
     with caplog.at_level(logging.INFO), \
-         patch("litellm.completion", return_value=mock_resp) as mock_completion:
+         patch("litellm.acompletion", new_callable=AsyncMock, return_value=mock_resp) as mock_completion:
 
         res = await pricing_service.fetch_pricing_with_agent("test-model")
-        assert res["input_price_per_1m"] == 1.0
+
+        assert res["input_price_per_1m"] == 15.0
         kwargs = mock_completion.call_args.kwargs
         messages = kwargs["messages"]
         assert not _has_cache_control(messages)

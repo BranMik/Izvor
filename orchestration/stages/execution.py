@@ -345,17 +345,7 @@ class ExecutionStage:
                             raw_args, getattr(ctx, "turn_token_mapping", {})
                         )
                         cached_evidence = None
-                        if thread_state_manager.evidence.is_cacheable_tool(fn_name):
-                            cached_evidence = thread_state_manager.evidence.get_evidence(
-                                ctx.channel_id, ctx.thread_ts, fn_name, fn_args
-                            )
-
-                        if cached_evidence is not None:
-                            tool_result = cached_evidence.result
-                            logger.info(
-                                f"[EVIDENCE] Reusing cached round evidence for tool '{fn_name}' from agent {cached_evidence.agent_key} in {ctx.channel_id}:{ctx.thread_ts}"
-                            )
-                        elif fn_name == "load_skill":
+                        if fn_name == "load_skill":
                             tool_result = skill_registry.execute_tool(
                                 fn_name,
                                 fn_args,
@@ -394,50 +384,10 @@ class ExecutionStage:
                             else:
                                 tool_result = await asyncio.to_thread(exec_mcp_fn, fn_name, fn_args, **kwargs)
                         else:
-                            s_name = skill_registry.find_skill_for_tool(fn_name)
-                            skill_def = skill_registry.get(s_name) if s_name else None
-                            
-                            if skill_def and skill_def.requires_human_ITL:
-                                from services.hitl import consume_tool_approval, request_human_approval
-                                if not consume_tool_approval(ctx.channel_id, ctx.thread_ts, fn_name, fn_args):
-                                    req_id = await request_human_approval(
-                                        ctx.channel_id, ctx.thread_ts, ctx.agent_key,
-                                        skill_def.name, fn_name, fn_args,
-                                        initiator_user_id=ctx.user_id,
-                                    )
-                                    tool_result_str = (
-                                        f"<untrusted_file_content>\n"
-                                        f"TOOL EXECUTION PAUSED: Tool '{fn_name}' requires human approval. "
-                                        f"An approval request has been sent to the Slack thread. "
-                                        f"Your turn is paused now. Explain briefly what approval is required and end your message without nominating other agents. "
-                                        f"Do NOT retry calling this tool until approval is granted."
-                                        f"\n</untrusted_file_content>"
-                                    )
-                                    ctx.messages.append({
-                                        "role": "tool",
-                                        "tool_call_id": tool_call.id,
-                                        "name": fn_name,
-                                        "content": tool_result_str,
-                                    })
-                                    ctx.halted = True
-                                    ctx.waiting_hitl = True
-                                    self._save_execution_checkpoint(
-                                        ctx=ctx,
-                                        pause_reason="hitl",
-                                        active_tools=active_tools,
-                                        pending_tool_call={
-                                            "id": getattr(tool_call, "id", None),
-                                            "name": fn_name,
-                                            "args": fn_args,
-                                        },
-                                        hitl_request_id=req_id,
-                                    )
-                                    if s_name and s_name not in ctx.skills_used:
-                                        ctx.skills_used.append(s_name)
-                                    break
-                            
-                            if hasattr(skill_registry, "execute_tool_async"):
-                                tool_result = await skill_registry.execute_tool_async(
+                            # 1. First verify tool authorization before cache or execution
+                            from services.mcp_tools import is_agent_authorized_for_tool
+                            if not is_agent_authorized_for_tool(ctx.agent_key, fn_name, authorized_skills=agent_skills, skill_registry=skill_registry):
+                                tool_result = skill_registry.execute_tool(
                                     fn_name,
                                     fn_args,
                                     authorized_skills=agent_skills,
@@ -446,15 +396,102 @@ class ExecutionStage:
                                     agent_name=ctx.agent_key,
                                 )
                             else:
-                                tool_result = await asyncio.to_thread(
-                                    skill_registry.execute_tool,
-                                    fn_name,
-                                    fn_args,
-                                    authorized_skills=agent_skills,
-                                    expired_skills=expired_thread_skills,
-                                    ttl_hours=thread_ttl_hours,
-                                    agent_name=ctx.agent_key,
-                                )
+                                s_name = skill_registry.find_skill_for_tool(fn_name)
+                                skill_def = skill_registry.get(s_name) if s_name else None
+
+                                # 2. Next check HITL approval
+                                if skill_def and skill_def.requires_human_ITL:
+                                    from services.hitl import consume_tool_approval, request_human_approval
+                                    if not consume_tool_approval(ctx.channel_id, ctx.thread_ts, fn_name, fn_args):
+                                        req_id = await request_human_approval(
+                                            ctx.channel_id, ctx.thread_ts, ctx.agent_key,
+                                            skill_def.name, fn_name, fn_args,
+                                            initiator_user_id=ctx.user_id,
+                                        )
+                                        tool_result_str = (
+                                            f"<untrusted_file_content>\n"
+                                            f"TOOL EXECUTION PAUSED: Tool '{fn_name}' requires human approval. "
+                                            f"An approval request has been sent to the Slack thread. "
+                                            f"Your turn is paused now. Explain briefly what approval is required and end your message without nominating other agents. "
+                                            f"Do NOT retry calling this tool until approval is granted."
+                                            f"\n</untrusted_file_content>"
+                                        )
+                                        ctx.messages.append({
+                                            "role": "tool",
+                                            "tool_call_id": tool_call.id,
+                                            "name": fn_name,
+                                            "content": tool_result_str,
+                                        })
+                                        ctx.halted = True
+                                        ctx.waiting_hitl = True
+
+                                        # TKT-904: Synthesize responses for remaining sibling tool calls in batch
+                                        responded_ids = {
+                                            m.get("tool_call_id") for m in ctx.messages if m.get("role") == "tool"
+                                        }
+                                        for sibling_tc in tool_calls:
+                                            sibling_id = getattr(sibling_tc, "id", None)
+                                            if sibling_id and sibling_id not in responded_ids:
+                                                sibling_fn = getattr(sibling_tc.function, "name", "tool")
+                                                ctx.messages.append({
+                                                    "role": "tool",
+                                                    "tool_call_id": sibling_id,
+                                                    "name": sibling_fn,
+                                                    "content": (
+                                                        "<untrusted_file_content>\n"
+                                                        f"TOOL EXECUTION DEFERRED: Sibling tool '{sibling_fn}' "
+                                                        f"was not executed because turn paused for human approval on '{fn_name}'."
+                                                        "\n</untrusted_file_content>"
+                                                    ),
+                                                })
+                                                responded_ids.add(sibling_id)
+
+                                        self._save_execution_checkpoint(
+                                            ctx=ctx,
+                                            pause_reason="hitl",
+                                            active_tools=active_tools,
+                                            pending_tool_call={
+                                                "id": getattr(tool_call, "id", None),
+                                                "name": fn_name,
+                                                "args": fn_args,
+                                            },
+                                            hitl_request_id=req_id,
+                                        )
+                                        if s_name and s_name not in ctx.skills_used:
+                                            ctx.skills_used.append(s_name)
+                                        break
+
+                                # 3. Only check evidence cache after Authorization and HITL pass
+                                if thread_state_manager.evidence.is_cacheable_tool(fn_name):
+                                    cached_evidence = thread_state_manager.evidence.get_evidence(
+                                        ctx.channel_id, ctx.thread_ts, fn_name, fn_args, agent_key=ctx.agent_key
+                                    )
+
+                                if cached_evidence is not None:
+                                    tool_result = cached_evidence.result
+                                    logger.info(
+                                        f"[EVIDENCE] Reusing cached round evidence for tool '{fn_name}' from agent {cached_evidence.agent_key} in {ctx.channel_id}:{ctx.thread_ts}"
+                                    )
+                                else:
+                                    if hasattr(skill_registry, "execute_tool_async"):
+                                        tool_result = await skill_registry.execute_tool_async(
+                                            fn_name,
+                                            fn_args,
+                                            authorized_skills=agent_skills,
+                                            expired_skills=expired_thread_skills,
+                                            ttl_hours=thread_ttl_hours,
+                                            agent_name=ctx.agent_key,
+                                        )
+                                    else:
+                                        tool_result = await asyncio.to_thread(
+                                            skill_registry.execute_tool,
+                                            fn_name,
+                                            fn_args,
+                                            authorized_skills=agent_skills,
+                                            expired_skills=expired_thread_skills,
+                                            ttl_hours=thread_ttl_hours,
+                                            agent_name=ctx.agent_key,
+                                        )
                         # Track skill used
                         if fn_name == "load_skill":
                             s_name = fn_args.get("skill_name", "").strip()
@@ -485,14 +522,16 @@ class ExecutionStage:
                             tool_result_str = tool_result
 
                         if cached_evidence is None and not getattr(ctx, "halted", False):
-                            thread_state_manager.add_round_evidence(
-                                channel_id=ctx.channel_id,
-                                thread_ts=ctx.thread_ts,
-                                tool_name=fn_name,
-                                arguments=fn_args,
-                                result=tool_result if isinstance(tool_result, str) else str(tool_result),
-                                agent_key=ctx.agent_key,
-                            )
+                            res_str = tool_result if isinstance(tool_result, str) else str(tool_result)
+                            if not (res_str.strip().lower().startswith("permission denied") or '"error":' in res_str):
+                                thread_state_manager.add_round_evidence(
+                                    channel_id=ctx.channel_id,
+                                    thread_ts=ctx.thread_ts,
+                                    tool_name=fn_name,
+                                    arguments=fn_args,
+                                    result=res_str,
+                                    agent_key=ctx.agent_key,
+                                )
 
                         ctx.messages.append(
                             {

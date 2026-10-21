@@ -187,6 +187,38 @@ async def process_and_respond(
                 thread_state_manager.request_stop(channel_id, thread_ts)
                 return {"status": "blocked_by_guardrail"}
         except Exception as e:
+            from orchestration.system_settings import get_guardrail_fail_mode
+            fail_mode = get_guardrail_fail_mode()
+            if fail_mode == "closed":
+                logger.critical(
+                    f"[GUARDRAIL] Check threw exception in fail-closed mode, halting turn: {e}"
+                )
+                try:
+                    from services.audit_logger import log_audit_event
+                    log_audit_event(
+                        event_type="GUARDRAIL_FAIL_CLOSED_BLOCKED",
+                        actor={"type": "user", "id": user_id or "unknown"},
+                        action="evaluate_prompt_injection",
+                        target=channel_id,
+                        severity="CRITICAL",
+                        status="BLOCKED",
+                        details={
+                            "channel_id": channel_id,
+                            "thread_ts": thread_ts,
+                            "error": str(e),
+                            "fail_mode": "closed",
+                        },
+                    )
+                except Exception as ae:
+                    logger.error(f"[GUARDRAIL] Failed to emit fail-closed audit event: {ae}")
+
+                await post_system_message(
+                    channel_id=channel_id,
+                    thread_ts=thread_ts,
+                    text="⚠️ *Security Guardrail Error*\nGuardrail verification failed in fail-closed mode. This request has been blocked.",
+                )
+                thread_state_manager.request_stop(channel_id, thread_ts)
+                return {"status": "blocked_by_guardrail"}
             logger.error(f"[GUARDRAIL] Check failed, allowing request: {e}")
 
     if run_internal_loop:

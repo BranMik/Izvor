@@ -109,15 +109,34 @@ def load_baseline_pricing(config_path: Path | str | None = None) -> dict[str, di
     return {}
 
 
+MIN_VALID_PRICE_PER_1M: float = 0.005
+MAX_VALID_PRICE_PER_1M: float = 500.0
+
+
+def _is_valid_price_pair(in_price: Any, out_price: Any) -> bool:
+    """Validates that both input and output prices per 1M tokens fall within acceptable sanity bounds."""
+    try:
+        if in_price is None or out_price is None:
+            return False
+        inp = float(in_price)
+        outp = float(out_price)
+        return (
+            MIN_VALID_PRICE_PER_1M <= inp <= MAX_VALID_PRICE_PER_1M
+            and MIN_VALID_PRICE_PER_1M <= outp <= MAX_VALID_PRICE_PER_1M
+        )
+    except (TypeError, ValueError):
+        return False
+
+
 # Industry baseline fallback pricing (USD per 1,000,000 tokens) loaded from JSON config
 BASELINE_MODEL_PRICING: dict[str, dict[str, Any]] = load_baseline_pricing()
 
-# Generic fallback for any unknown model
+# Conservative high-tier safety fallback (fail expensive) for unknown models
 DEFAULT_FALLBACK_PRICING: dict[str, Any] = {
-    "input_price_per_1m": 1.00,
-    "output_price_per_1m": 3.00,
+    "input_price_per_1m": 15.00,
+    "output_price_per_1m": 75.00,
     "currency": "USD",
-    "source": "Artificial Analysis Benchmarks",
+    "source": "High-Tier Safety Fallback",
     "source_url": get_pricing_benchmark_url(),
 }
 
@@ -147,7 +166,7 @@ def _extract_pricing_from_search_text(
         try:
             v_in = float(slash_match.group(1))
             v_out = float(slash_match.group(2))
-            if 0.005 <= v_in <= 250.0 and 0.005 <= v_out <= 250.0:
+            if _is_valid_price_pair(v_in, v_out):
                 return v_in, v_out
         except (ValueError, IndexError):
             pass
@@ -161,7 +180,7 @@ def _extract_pricing_from_search_text(
     if in_after_kw:
         try:
             val = float(in_after_kw.group(1))
-            if 0.005 <= val <= 250.0:
+            if MIN_VALID_PRICE_PER_1M <= val <= MAX_VALID_PRICE_PER_1M:
                 input_price = val
         except (ValueError, IndexError):
             pass
@@ -174,7 +193,7 @@ def _extract_pricing_from_search_text(
     if out_after_kw:
         try:
             val = float(out_after_kw.group(1))
-            if 0.005 <= val <= 250.0:
+            if MIN_VALID_PRICE_PER_1M <= val <= MAX_VALID_PRICE_PER_1M:
                 output_price = val
         except (ValueError, IndexError):
             pass
@@ -189,7 +208,7 @@ def _extract_pricing_from_search_text(
         if in_before_kw:
             try:
                 val = float(in_before_kw.group(1))
-                if 0.005 <= val <= 250.0:
+                if MIN_VALID_PRICE_PER_1M <= val <= MAX_VALID_PRICE_PER_1M:
                     input_price = val
             except (ValueError, IndexError):
                 pass
@@ -203,7 +222,7 @@ def _extract_pricing_from_search_text(
         if out_before_kw:
             try:
                 val = float(out_before_kw.group(1))
-                if 0.005 <= val <= 250.0:
+                if MIN_VALID_PRICE_PER_1M <= val <= MAX_VALID_PRICE_PER_1M:
                     output_price = val
             except (ValueError, IndexError):
                 pass
@@ -212,14 +231,52 @@ def _extract_pricing_from_search_text(
 
 
 def get_baseline_for_model(model_name: str) -> dict[str, Any]:
-    """Returns baseline fallback pricing for a given model identifier."""
+    """
+    Returns baseline fallback pricing for a given model identifier.
+    Priority order:
+    1. Exact / substring match in data/baseline_prices.json (validated)
+    2. litellm.model_cost community registry
+    3. DEFAULT_FALLBACK_PRICING ($15.00/$75.00 per 1M)
+    """
     norm = _normalize_model_name(model_name)
     if norm in BASELINE_MODEL_PRICING:
-        return dict(BASELINE_MODEL_PRICING[norm])
+        base = BASELINE_MODEL_PRICING[norm]
+        if _is_valid_price_pair(base.get("input_price_per_1m"), base.get("output_price_per_1m")):
+            return dict(base)
+
     for key, p in BASELINE_MODEL_PRICING.items():
         if key in norm or norm in key:
-            return dict(p)
+            if _is_valid_price_pair(p.get("input_price_per_1m"), p.get("output_price_per_1m")):
+                return dict(p)
+
+    # Primary registry lookup: litellm.model_cost
+    try:
+        model_cost = getattr(litellm, "model_cost", {}) or {}
+        provider_stripped = norm.split("/", 1)[-1] if "/" in norm else norm
+        matched_info = (
+            model_cost.get(model_name)
+            or model_cost.get(norm)
+            or model_cost.get(provider_stripped)
+        )
+        if matched_info and isinstance(matched_info, dict):
+            in_cpt = matched_info.get("input_cost_per_token")
+            out_cpt = matched_info.get("output_cost_per_token")
+            if in_cpt is not None and out_cpt is not None:
+                in_1m = round(float(in_cpt) * 1_000_000, 4)
+                out_1m = round(float(out_cpt) * 1_000_000, 4)
+                if _is_valid_price_pair(in_1m, out_1m):
+                    return {
+                        "input_price_per_1m": in_1m,
+                        "output_price_per_1m": out_1m,
+                        "currency": "USD",
+                        "source": "LiteLLM Community Registry",
+                        "source_url": "https://github.com/BerriAI/litellm",
+                    }
+    except Exception as e:
+        logger.debug(f"[PRICING] litellm.model_cost lookup failed for {model_name}: {e}")
+
     return dict(DEFAULT_FALLBACK_PRICING)
+
 
 
 class PricingService:
@@ -321,7 +378,7 @@ class PricingService:
         ]
 
         resp = await execute_llm_with_retry(
-            func=litellm.completion,
+            func=litellm.acompletion,
             kwargs={
                 "model": get_pricing_agent_model(),
                 "messages": messages,
@@ -385,7 +442,7 @@ class PricingService:
                 )
 
             final_resp = await execute_llm_with_retry(
-                func=litellm.completion,
+                func=litellm.acompletion,
                 kwargs={
                     "model": get_pricing_agent_model(),
                     "messages": messages,
@@ -409,6 +466,14 @@ class PricingService:
 
             in_price = float(data.get("input_price_per_1m", baseline["input_price_per_1m"]))
             out_price = float(data.get("output_price_per_1m", baseline["output_price_per_1m"]))
+            if not _is_valid_price_pair(in_price, out_price):
+                logger.warning(
+                    f"[PRICING] Agent returned out-of-bounds pricing for '{model_name}': "
+                    f"in={in_price}, out={out_price}. Falling back to baseline."
+                )
+                in_price = float(baseline["input_price_per_1m"])
+                out_price = float(baseline["output_price_per_1m"])
+
             source_url = data.get("source_url") or baseline.get("source_url", get_pricing_benchmark_url())
 
             return {
@@ -420,6 +485,7 @@ class PricingService:
                 "updated_at": time.time(),
                 "updated_at_str": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()),
             }
+
 
         # If no tool calls, return baseline
         return {

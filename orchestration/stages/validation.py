@@ -49,6 +49,61 @@ def _get_example_agent_keys(count: int = 3) -> str:
     return ", ".join(f"'{k}'" for k in keys)
 
 
+async def _require_directive_admin(
+    ctx: TurnContext,
+    directive_name: str,
+    post_sys_msg: Any,
+    details: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    """
+    Enforces that only authorized Slack Workspace Administrators can execute
+    privileged directives (e.g. granting/revoking thread skills or constraints).
+    Logs audit events and emits system error messages on unauthorized attempts.
+    """
+    from core.config import is_slack_admin
+    from services.audit_logger import log_audit_event
+
+    user_id = getattr(ctx, "user_id", None)
+    if not is_slack_admin(user_id):
+        logger.warning(
+            f"[VALIDATION] Non-admin user '{user_id}' attempted to execute privileged directive '/{directive_name}'"
+        )
+        try:
+            log_audit_event(
+                event_type="UNAUTHORIZED_DIRECTIVE_ATTEMPT",
+                actor={"type": "slack_user", "id": user_id or "unknown"},
+                action=directive_name,
+                target=f"{ctx.channel_id}:{ctx.thread_ts}",
+                details=details or {},
+                severity="CRITICAL",
+                status="BLOCKED",
+            )
+        except Exception as ae:
+            logger.error(f"[VALIDATION] Failed to emit audit event for unauthorized directive: {ae}")
+
+        await post_sys_msg(
+            channel_id=ctx.channel_id,
+            thread_ts=ctx.thread_ts,
+            text=f"⛔ *Permission Denied*: Only workspace administrators can execute `/{directive_name}`.",
+        )
+        return {"ok": False, "halted": True, "action": directive_name, "reason": "unauthorized"}
+
+    try:
+        log_audit_event(
+            event_type="ADMIN_DIRECTIVE_EXECUTED",
+            actor={"type": "slack_admin", "id": user_id},
+            action=directive_name,
+            target=f"{ctx.channel_id}:{ctx.thread_ts}",
+            details=details or {},
+            severity="WARNING",
+            status="SUCCESS",
+        )
+    except Exception as ae:
+        logger.error(f"[VALIDATION] Failed to emit admin directive audit event: {ae}")
+
+    return None
+
+
 class ValidationStage:
     def __init__(self, pipeline: Any):
         self.pipeline = pipeline
@@ -106,6 +161,15 @@ class ValidationStage:
             # Process /grant_skill_for_all action
             grant_act = next((a for a in ctx.actions if a.name in ("grant_skill_for_all", "grant_for_all")), None)
             if grant_act and getattr(grant_act, "origin", "slash") == "slash":
+                admin_check = await _require_directive_admin(
+                    ctx,
+                    directive_name="grant_skill_for_all",
+                    post_sys_msg=post_sys_msg,
+                    details={"skills": grant_act.params.get("skills", [])},
+                )
+                if admin_check:
+                    return admin_check
+
                 from orchestration.app_settings import app_settings_manager
                 from orchestration.thread_skills_manager import thread_skills_manager
                 from core.registry import get_skill_registry
@@ -147,6 +211,15 @@ class ValidationStage:
             # Process /grant_skill action
             grant_skill_act = next((a for a in ctx.actions if a.name == "grant_skill"), None)
             if grant_skill_act and getattr(grant_skill_act, "origin", "slash") == "slash":
+                admin_check = await _require_directive_admin(
+                    ctx,
+                    directive_name="grant_skill",
+                    post_sys_msg=post_sys_msg,
+                    details=grant_skill_act.params or {},
+                )
+                if admin_check:
+                    return admin_check
+
                 from orchestration.app_settings import app_settings_manager
                 from orchestration.thread_skills_manager import thread_skills_manager
                 from core.registry import get_skill_registry
@@ -229,6 +302,15 @@ class ValidationStage:
             # Process /revoke_skill_for_all action
             revoke_act = next((a for a in ctx.actions if a.name in ("revoke_skill_for_all", "revoke_for_all")), None)
             if revoke_act and getattr(revoke_act, "origin", "slash") == "slash":
+                admin_check = await _require_directive_admin(
+                    ctx,
+                    directive_name="revoke_skill_for_all",
+                    post_sys_msg=post_sys_msg,
+                    details={"skills": revoke_act.params.get("skills", [])},
+                )
+                if admin_check:
+                    return admin_check
+
                 from orchestration.thread_skills_manager import thread_skills_manager
 
                 skills_to_revoke = revoke_act.params.get("skills", [])
@@ -277,6 +359,15 @@ class ValidationStage:
                                 f"[VALIDATION] Refusing to execute privileged action '{act.name}' because origin is '{getattr(act, 'origin', 'unknown')}'"
                             )
                             continue
+                        if act.name == "revoke_constraint":
+                            admin_check = await _require_directive_admin(
+                                ctx,
+                                directive_name="revoke_constraint",
+                                post_sys_msg=post_sys_msg,
+                                details=act.params or {},
+                            )
+                            if admin_check:
+                                return admin_check
                         act_res = await sk.action_handler(ctx, act.params)
                         if act_res and isinstance(act_res, dict) and act_res.get("halted"):
                             return act_res
@@ -285,6 +376,15 @@ class ValidationStage:
 
             # Process /revoke_constraint action
             if ctx.revoke_target and not any(a.name == "revoke_constraint" for a in (ctx.actions or [])):
+                admin_check = await _require_directive_admin(
+                    ctx,
+                    directive_name="revoke_constraint",
+                    post_sys_msg=post_sys_msg,
+                    details={"target": ctx.revoke_target},
+                )
+                if admin_check:
+                    return admin_check
+
                 target = ctx.revoke_target.lower()
                 if target in ("all", "everything"):
                     thread_state_manager.revoke_all(ctx.channel_id, ctx.thread_ts)
@@ -319,42 +419,63 @@ class ValidationStage:
                 return {"ok": True, "halted": True, "action": "revoke_constraint"}
 
             # Update persistent word limits and off toggles
+            from core.config import is_slack_admin
+            is_admin = is_slack_admin(getattr(ctx, "user_id", None))
+
             if ctx.max_words_limit == "off":
-                thread_state_manager.clear_max_words(ctx.channel_id, ctx.thread_ts)
+                if is_admin:
+                    thread_state_manager.clear_max_words(ctx.channel_id, ctx.thread_ts)
+                else:
+                    logger.warning(f"[VALIDATION] Non-admin '{ctx.user_id}' attempted to turn off max_words")
             elif ctx.max_words_limit is not None and isinstance(ctx.max_words_limit, int):
                 thread_state_manager.set_max_words(
                     ctx.channel_id, ctx.thread_ts, ctx.max_words_limit
                 )
 
             if ctx.min_words_limit == "off":
-                thread_state_manager.clear_min_words(ctx.channel_id, ctx.thread_ts)
+                if is_admin:
+                    thread_state_manager.clear_min_words(ctx.channel_id, ctx.thread_ts)
+                else:
+                    logger.warning(f"[VALIDATION] Non-admin '{ctx.user_id}' attempted to turn off min_words")
             elif ctx.min_words_limit is not None and isinstance(ctx.min_words_limit, int):
                 thread_state_manager.set_min_words(
                     ctx.channel_id, ctx.thread_ts, ctx.min_words_limit
                 )
 
             if ctx.scribe_max_words_limit == "off":
-                thread_state_manager.clear_scribe_max_words(ctx.channel_id, ctx.thread_ts)
+                if is_admin:
+                    thread_state_manager.clear_scribe_max_words(ctx.channel_id, ctx.thread_ts)
+                else:
+                    logger.warning(f"[VALIDATION] Non-admin '{ctx.user_id}' attempted to turn off scribe_max_words")
             elif ctx.scribe_max_words_limit is not None and isinstance(ctx.scribe_max_words_limit, int):
                 thread_state_manager.set_scribe_max_words(
                     ctx.channel_id, ctx.thread_ts, ctx.scribe_max_words_limit
                 )
 
             if ctx.scribe_min_words_limit == "off":
-                thread_state_manager.clear_scribe_min_words(ctx.channel_id, ctx.thread_ts)
+                if is_admin:
+                    thread_state_manager.clear_scribe_min_words(ctx.channel_id, ctx.thread_ts)
+                else:
+                    logger.warning(f"[VALIDATION] Non-admin '{ctx.user_id}' attempted to turn off scribe_min_words")
             elif ctx.scribe_min_words_limit is not None and isinstance(ctx.scribe_min_words_limit, int):
                 thread_state_manager.set_scribe_min_words(
                     ctx.channel_id, ctx.thread_ts, ctx.scribe_min_words_limit
                 )
 
             if ctx.exclude_off:
-                thread_state_manager.clear_excluded_agents(ctx.channel_id, ctx.thread_ts)
+                if is_admin:
+                    thread_state_manager.clear_excluded_agents(ctx.channel_id, ctx.thread_ts)
+                else:
+                    logger.warning(f"[VALIDATION] Non-admin '{ctx.user_id}' attempted to turn off agent exclusions")
             elif ctx.excluded_agents:
                 for ag in ctx.excluded_agents:
                     thread_state_manager.add_excluded_agent(ctx.channel_id, ctx.thread_ts, ag)
 
             if ctx.include_off:
-                thread_state_manager.clear_included_agents(ctx.channel_id, ctx.thread_ts)
+                if is_admin:
+                    thread_state_manager.clear_included_agents(ctx.channel_id, ctx.thread_ts)
+                else:
+                    logger.warning(f"[VALIDATION] Non-admin '{ctx.user_id}' attempted to turn off agent inclusions")
             elif ctx.included_agents:
                 for ag in ctx.included_agents:
                     thread_state_manager.add_included_agent(ctx.channel_id, ctx.thread_ts, ag)

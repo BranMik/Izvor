@@ -1,15 +1,19 @@
 import json
 import time
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from core.config import get_pricing_agent_model
 import services.pricing_service as pricing_module
 from services.pricing_service import (
+    DEFAULT_FALLBACK_PRICING,
+    MAX_VALID_PRICE_PER_1M,
+    MIN_VALID_PRICE_PER_1M,
     PRICING_TOOL_SCHEMAS,
     _extract_pricing_from_search_text,
+    _is_valid_price_pair,
     fetch_pricing_from_web,
     fetch_pricing_with_agent,
     get_baseline_for_model,
@@ -63,10 +67,39 @@ def test_get_baseline_for_model():
     assert mistral_base["output_price_per_1m"] == 6.00
     assert "https://mistral.ai" in mistral_base["source_url"]
 
+    # TKT-907: Unknown models fail-expensive with 15.00 / 75.00
     unknown_base = get_baseline_for_model("custom/unknown-model-xyz")
-    assert unknown_base["input_price_per_1m"] > 0
-    assert unknown_base["output_price_per_1m"] > 0
+    assert unknown_base["input_price_per_1m"] == 15.00
+    assert unknown_base["output_price_per_1m"] == 75.00
     assert "source_url" in unknown_base
+
+
+def test_get_baseline_from_litellm_model_cost(monkeypatch):
+    """TKT-907: If not in baseline JSON, query litellm.model_cost community registry."""
+    import litellm
+    mock_cost = {
+        "special-unlisted-model": {
+            "input_cost_per_token": 0.000003,   # $3.00 / 1M
+            "output_cost_per_token": 0.000015,  # $15.00 / 1M
+        }
+    }
+    monkeypatch.setattr(litellm, "model_cost", mock_cost)
+
+    res = get_baseline_for_model("special-unlisted-model")
+    assert res["input_price_per_1m"] == 3.00
+    assert res["output_price_per_1m"] == 15.00
+    assert "LiteLLM Community Registry" in res["source"]
+
+
+def test_pricing_bounds_validation():
+    """TKT-907: Verify bounds validation between MIN and MAX valid prices."""
+    assert _is_valid_price_pair(0.75, 3.75) is True
+    assert _is_valid_price_pair(MIN_VALID_PRICE_PER_1M, MAX_VALID_PRICE_PER_1M) is True
+    # Below min or above max
+    assert _is_valid_price_pair(0.001, 3.75) is False
+    assert _is_valid_price_pair(0.75, 600.0) is False
+    assert _is_valid_price_pair(None, 3.75) is False
+    assert _is_valid_price_pair("invalid", 3.75) is False
 
 
 def test_pricing_tool_schemas():
@@ -144,7 +177,7 @@ async def test_fetch_pricing_with_agent_success():
         }
     )
 
-    with patch("litellm.completion", side_effect=[first_response, second_response]) as mock_completion, \
+    with patch("litellm.acompletion", new_callable=AsyncMock, side_effect=[first_response, second_response]) as mock_completion, \
          patch("services.pricing_service.web_search", return_value=mock_search_json) as mock_search:
 
         res = await fetch_pricing_with_agent("gemini/gemini-3.8-flash")
@@ -167,6 +200,7 @@ async def test_fetch_pricing_with_agent_success():
             query="gemini-3.8-flash API pricing per 1M tokens",
             max_results=3,
         )
+
 
 
 @pytest.mark.anyio
