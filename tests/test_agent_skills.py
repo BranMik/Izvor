@@ -175,13 +175,14 @@ def test_execute_tool_authorization_enforcement():
     assert "Permission denied: Agent is not authorized to execute tool 'read_document'" in denied_data["error"]
     assert "'web_search'" in denied_data["error"]
 
-    # Zero skills agent: no tools authorized at all
+    # Zero skills agent: no non-global tools authorized
     zero_res = skill_registry.execute_tool(
         "read_document", {"file_path": "test.txt"}, authorized_skills=[]
     )
     zero_data = json.loads(zero_res)
     assert "Permission denied: Agent is not authorized to execute tool 'read_document'" in zero_data["error"]
-    assert "Permitted tools: none" in zero_data["error"]
+    permitted_part = zero_data["error"].split("Permitted tools:")[1].split(". CRITICAL INSTRUCTION:")[0]
+    assert "read_document" not in permitted_part
 
     # Default None authorized_skills: fails closed!
     default_none_res = skill_registry.execute_tool(
@@ -189,7 +190,8 @@ def test_execute_tool_authorization_enforcement():
     )
     default_none_data = json.loads(default_none_res)
     assert "Permission denied: Agent is not authorized to execute tool 'read_document'" in default_none_data["error"]
-    assert "Permitted tools: none" in default_none_data["error"]
+    permitted_part_none = default_none_data["error"].split("Permitted tools:")[1].split(". CRITICAL INSTRUCTION:")[0]
+    assert "read_document" not in permitted_part_none
 
 
 
