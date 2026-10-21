@@ -514,6 +514,13 @@ class ThreadStateManager:
             except Exception as e:  # noqa: BLE001 - Error boundary isolates individual hook failure from global reset
                 logger.debug(f"[THREAD STATE] Error executing reset hook: {e}")
 
+    def set_consensus_reached(self, channel_id: str, thread_ts: str, reached: bool = True) -> None:
+        self._touch(channel_id, thread_ts)
+        self.discussion.set_consensus_reached(channel_id, thread_ts, reached)
+
+    def is_consensus_reached(self, channel_id: str, thread_ts: str) -> bool:
+        return self.discussion.is_consensus_reached(channel_id, thread_ts)
+
     def get_round_evidence(self, channel_id: str, thread_ts: str) -> list[Any]:
         """Returns all shared evidence items recorded for this thread."""
         return self.evidence.get_round_evidence(channel_id, thread_ts)

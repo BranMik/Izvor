@@ -21,6 +21,7 @@ class DiscussionStateStore:
         self.thread_rounds: dict[tuple[str, str], int] = {}
         self.thread_round_sequences: dict[tuple[str, str], list[str]] = {}
         self.thread_initial_prompts: dict[tuple[str, str], str] = {}
+        self.consensus_reached_threads: set[tuple[str, str]] = set()
         self._loaded_threads: set[tuple[str, str]] = set()
 
     def _ensure_loaded(self, channel_id: str, thread_ts: str) -> None:
@@ -371,6 +372,16 @@ class DiscussionStateStore:
             return True
         return bool(self.get_remaining_agents(channel_id, thread_ts))
 
+    def set_consensus_reached(self, channel_id: str, thread_ts: str, reached: bool = True) -> None:
+        key = (channel_id, thread_ts)
+        if reached:
+            self.consensus_reached_threads.add(key)
+        else:
+            self.consensus_reached_threads.discard(key)
+
+    def is_consensus_reached(self, channel_id: str, thread_ts: str) -> bool:
+        return (channel_id, thread_ts) in self.consensus_reached_threads
+
     def clear_thread(self, channel_id: str, thread_ts: str) -> None:
         """Purges discussion state for this thread."""
         self.clear_remaining_agents(channel_id, thread_ts)
@@ -381,6 +392,7 @@ class DiscussionStateStore:
         self.clear_rounds(channel_id, thread_ts)
         self.clear_round_sequence(channel_id, thread_ts)
         self.clear_initial_prompt(channel_id, thread_ts)
+        self.set_consensus_reached(channel_id, thread_ts, False)
         self._loaded_threads.discard((channel_id, thread_ts))
         try:
             with get_db_transaction(immediate=True) as conn:
@@ -401,6 +413,7 @@ class DiscussionStateStore:
         self.thread_rounds.clear()
         self.thread_round_sequences.clear()
         self.thread_initial_prompts.clear()
+        self.consensus_reached_threads.clear()
         self._loaded_threads.clear()
         try:
             with get_db_transaction(immediate=True) as conn:

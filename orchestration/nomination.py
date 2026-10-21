@@ -262,10 +262,22 @@ def enforce_valid_nomination(
     force_termination: bool,
     pending_retries: list[str] | None = None,
     designated_next_agent: str | None = None,
+    control_plane_nomination: str | None = None,
 ) -> str:
     """Ensures that the agent's response nominates a valid agent according to panel flow rules."""
     if force_termination:
         return strip_all_nominations(text)
+
+    # Precedence: Explicit control plane nomination tool call
+    if control_plane_nomination:
+        resolved_cp = entity_resolver.resolve_agent_name(control_plane_nomination) or control_plane_nomination
+        target = designated_next_agent if designated_next_agent else (resolved_cp if resolved_cp in remaining else (remaining[0] if remaining else None))
+        if target:
+            stripped = strip_all_nominations(text)
+            logger.info(
+                f"[CONTROL PLANE] Enforcing explicit tool nomination for '{target}' from agent {current_agent_key}"
+            )
+            return f"{stripped.strip()}\n\n{format_nomination(target)}"
 
     agent_tag_matches = []
     for match in TAG_REGEX.finditer(text):

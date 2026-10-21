@@ -46,16 +46,45 @@ class SandwichOrchestrator:
                 return [a for a in self.fixed_chain if a in valid_available]
             return valid_available
 
-        # Sandwich Mode: start_chain -> middle_pool -> end_chain
+        # Sandwich Mode: start_chain -> middle_pool -> [dialectical_stress_test] -> end_chain
         start = [a for a in self.start_chain if a in valid_available]
         end = [a for a in self.end_chain if a in valid_available]
 
         start_set = set(start)
         end_set = set(end)
-        middle = [a for a in valid_available if a not in start_set and a not in end_set]
+
+        stress_agents: list[str] = []
+        try:
+            from orchestration.system_settings import (
+                get_dialectical_stress_test_config,
+                is_dialectical_stress_test_enabled,
+            )
+
+            if is_dialectical_stress_test_enabled():
+                stress_cfg = get_dialectical_stress_test_config()
+                c_agent = stress_cfg.get("challenger_agent", "agent-10017")
+                r_agent = stress_cfg.get("rebuttal_agent", "agent-10001")
+                for a in (c_agent, r_agent):
+                    if (
+                        a
+                        and a in valid_available
+                        and a not in start_set
+                        and a not in end_set
+                        and a not in stress_agents
+                    ):
+                        stress_agents.append(a)
+        except Exception as e:
+            logger.debug(f"[ORCHESTRATOR] Stress test config check: {e}")
+
+        stress_set = set(stress_agents)
+        middle = [
+            a
+            for a in valid_available
+            if a not in start_set and a not in end_set and a not in stress_set
+        ]
 
         # Combine into complete remaining sequence
-        return start + middle + end
+        return start + middle + stress_agents + end
 
     def get_phase_info(
         self,

@@ -245,7 +245,7 @@ class PostRecordStage:
             formatted = self.workspace_adapter.format_outbound_text(ctx.final_text)
             if isinstance(formatted, str):
                 ctx.final_text = formatted
-            if not getattr(ctx, "waiting_hitl", False):
+            if not getattr(ctx, "waiting_hitl", False) and not getattr(ctx, "control_plane_clarification_requested", False):
                 ctx.final_text = enforce_valid_nomination(
                     ctx.final_text,
                     ctx.agent_key,
@@ -255,7 +255,11 @@ class PostRecordStage:
                     ctx.force_termination,
                     pending_retries=retries,
                     designated_next_agent=ctx.next_designated_agent,
+                    control_plane_nomination=getattr(ctx, "control_plane_nomination", None),
                 )
+            elif getattr(ctx, "control_plane_clarification_requested", False):
+                from orchestration.nomination import strip_all_nominations
+                ctx.final_text = strip_all_nominations(ctx.final_text)
 
         retries = thread_state_manager.get_retry_queue(
             ctx.channel_id, ctx.thread_ts

@@ -175,6 +175,27 @@ SCHEMA_STATEMENTS = [
     "CREATE INDEX IF NOT EXISTS idx_turn_checkpoints_hitl ON turn_checkpoints(hitl_request_id);",
     "CREATE INDEX IF NOT EXISTS idx_turn_checkpoints_thread ON turn_checkpoints(channel_id, thread_ts);",
     "CREATE INDEX IF NOT EXISTS idx_turn_checkpoints_expiry ON turn_checkpoints(expires_at);",
+
+    # 10. Turn Traces (Execution observability spans across stages)
+    """
+    CREATE TABLE IF NOT EXISTS turn_traces (
+        trace_id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        channel_id TEXT NOT NULL,
+        thread_ts TEXT NOT NULL,
+        agent_key TEXT NOT NULL,
+        stage_name TEXT NOT NULL,
+        duration_ms REAL NOT NULL,
+        prompt_tokens INTEGER DEFAULT 0,
+        completion_tokens INTEGER DEFAULT 0,
+        tools_called TEXT DEFAULT '[]',
+        status TEXT NOT NULL,
+        error_message TEXT,
+        created_at REAL NOT NULL
+    );
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_turn_traces_session ON turn_traces(session_id);",
+    "CREATE INDEX IF NOT EXISTS idx_turn_traces_created ON turn_traces(created_at);",
 ]
 
 

@@ -330,28 +330,86 @@ class TurnPipeline:
             thread_state_manager.set_active_task(ctx.channel_id, ctx.thread_ts, ctx.current_task)
 
         try:
+            from services.telemetry import record_turn_trace
+
             # Stage 1: Validate input, parse directives & resolve candidate agents
+            t0 = time.time()
             halt = await self.validation_stage.stage_validate_and_parse(ctx)
+            record_turn_trace(
+                session_id=getattr(ctx, "session_id", f"{ctx.channel_id}:{ctx.thread_ts}"),
+                channel_id=ctx.channel_id,
+                thread_ts=ctx.thread_ts,
+                agent_key=ctx.agent_key or "unknown",
+                stage_name="validation",
+                duration_ms=(time.time() - t0) * 1000.0,
+                status="HALTED" if halt else "SUCCESS",
+            )
             if halt:
                 return halt
 
             # Stage 2: Resolve agent config & spend governance (circuit breaker)
+            t0 = time.time()
             halt = await self.resolution_stage.stage_resolve_agent_and_governance(ctx)
+            record_turn_trace(
+                session_id=getattr(ctx, "session_id", f"{ctx.channel_id}:{ctx.thread_ts}"),
+                channel_id=ctx.channel_id,
+                thread_ts=ctx.thread_ts,
+                agent_key=ctx.agent_key or "unknown",
+                stage_name="resolution",
+                duration_ms=(time.time() - t0) * 1000.0,
+                status="HALTED" if halt else "SUCCESS",
+            )
             if halt:
                 return halt
 
             # Stage 3: Prepare conversation context, history slicing & prompt assembly
+            t0 = time.time()
             halt = await self.context_prep_stage.stage_prepare_context(ctx)
+            record_turn_trace(
+                session_id=getattr(ctx, "session_id", f"{ctx.channel_id}:{ctx.thread_ts}"),
+                channel_id=ctx.channel_id,
+                thread_ts=ctx.thread_ts,
+                agent_key=ctx.agent_key or "unknown",
+                stage_name="context_prep",
+                duration_ms=(time.time() - t0) * 1000.0,
+                status="HALTED" if halt else "SUCCESS",
+            )
             if halt:
                 return halt
 
             # Stage 4: Execute LLM turn and handle any tool calls
+            t0 = time.time()
             halt = await self.execution_stage.stage_execute_llm(ctx)
+            record_turn_trace(
+                session_id=getattr(ctx, "session_id", f"{ctx.channel_id}:{ctx.thread_ts}"),
+                channel_id=ctx.channel_id,
+                thread_ts=ctx.thread_ts,
+                agent_key=ctx.agent_key or "unknown",
+                stage_name="execution",
+                duration_ms=(time.time() - t0) * 1000.0,
+                prompt_tokens=ctx.total_prompt_tokens,
+                completion_tokens=ctx.total_completion_tokens,
+                tools_called=ctx.skills_used,
+                status="HALTED" if halt else "SUCCESS",
+            )
             if halt:
                 return halt
 
             # Stage 5: Format response, enforce nominations, post to Slack, and audit
+            t0 = time.time()
             slack_res = await self.post_record_stage.stage_post_and_record(ctx)
+            record_turn_trace(
+                session_id=getattr(ctx, "session_id", f"{ctx.channel_id}:{ctx.thread_ts}"),
+                channel_id=ctx.channel_id,
+                thread_ts=ctx.thread_ts,
+                agent_key=ctx.agent_key or "unknown",
+                stage_name="post_record",
+                duration_ms=(time.time() - t0) * 1000.0,
+                prompt_tokens=ctx.total_prompt_tokens,
+                completion_tokens=ctx.total_completion_tokens,
+                tools_called=ctx.skills_used,
+                status="SUCCESS" if isinstance(slack_res, dict) and slack_res.get("ok", True) else "FAILED",
+            )
 
             # --- Phase 2: CASCADING HALLUCINATION PREVENTION (TKT-820) ---
             try:
