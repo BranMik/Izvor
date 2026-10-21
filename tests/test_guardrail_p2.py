@@ -92,3 +92,60 @@ async def test_guardrail_async_threadpool_offloading():
         assert is_blocked is True  # Distance 0.05 -> Similarity 0.95 >= 0.85
         # Verify search was offloaded to asyncio.to_thread
         spy_to_thread.assert_called_once()
+
+
+@pytest.mark.anyio
+async def test_agent_router_guardrail_exception_fail_closed():
+    """TKT-905: Unexpected exception in guardrail_service halts turn and emits audit event in closed mode."""
+    from orchestration.agent_router import process_and_respond
+    from orchestration.system_settings import set_guardrail_fail_mode
+
+    set_guardrail_fail_mode("closed", save=False)
+
+    with (
+        patch("services.security.guardrail.guardrail_service.is_prompt_injection", side_effect=RuntimeError("lance_db_corrupted")),
+        patch("services.audit_logger.log_audit_event") as mock_audit,
+        patch("orchestration.agent_router.post_system_message", new_callable=AsyncMock) as mock_post_sys,
+        patch("orchestration.thread_state.thread_state_manager.request_stop") as mock_stop,
+    ):
+        res = await process_and_respond(
+            channel_id="C_GUARDRAIL",
+            thread_ts="11111.0001",
+            raw_text="Hello bot",
+            user_id="U_TESTER",
+        )
+
+        assert res == {"status": "blocked_by_guardrail"}
+        mock_audit.assert_called_once()
+        assert mock_audit.call_args[1]["event_type"] == "GUARDRAIL_FAIL_CLOSED_BLOCKED"
+        assert mock_audit.call_args[1]["severity"] == "CRITICAL"
+        assert mock_audit.call_args[1]["status"] == "BLOCKED"
+        mock_post_sys.assert_called_once()
+        mock_stop.assert_called_once_with("C_GUARDRAIL", "11111.0001")
+
+
+@pytest.mark.anyio
+async def test_agent_router_guardrail_exception_fail_open():
+    """TKT-905: Unexpected exception in guardrail_service allows turn in open mode."""
+    from orchestration.agent_router import process_and_respond
+    from orchestration.system_settings import set_guardrail_fail_mode
+
+    set_guardrail_fail_mode("open", save=False)
+
+    with (
+        patch("services.security.guardrail.guardrail_service.is_prompt_injection", side_effect=RuntimeError("lance_db_corrupted")),
+        patch("services.audit_logger.log_audit_event") as mock_audit,
+        patch("orchestration.agent_router.orchestrate_discussion", new_callable=AsyncMock) as mock_orch,
+    ):
+        mock_orch.return_value = {"ok": True}
+        res = await process_and_respond(
+            channel_id="C_GUARDRAIL",
+            thread_ts="11111.0001",
+            raw_text="Hello bot",
+            user_id="U_TESTER",
+            run_internal_loop=True,
+        )
+
+        assert res == {"ok": True}
+        mock_audit.assert_not_called()
+

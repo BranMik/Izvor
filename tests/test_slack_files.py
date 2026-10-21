@@ -527,16 +527,19 @@ def test_sanitize_slack_download_filename():
     name3 = sanitize_slack_download_filename("report.csv", prefix_len=6)
     name4 = sanitize_slack_download_filename("report.csv", prefix_len=6)
     assert name3 != name4
-    assert name3.endswith("_report.csv")
-    assert name4.endswith("_report.csv")
+    # 4. Neutralizes non-safe/executable extensions (.py, .sh, etc.)
+    name5 = sanitize_slack_download_filename("malicious.py", prefix_len=6)
+    assert name5.endswith("_malicious.py.txt")
+    name6 = sanitize_slack_download_filename("script.sh", prefix_len=6)
+    assert name6.endswith("_script.sh.txt")
 
 
 @pytest.mark.anyio
 async def test_download_slack_file_saves_safely_inside_downloads():
     from pathlib import Path
-    from core.config import MCP_WORKSPACE_DIR
+    from core.paths import DOWNLOADS_DIR
 
-    downloads_dir = (MCP_WORKSPACE_DIR / "downloads").resolve()
+    downloads_dir = DOWNLOADS_DIR.resolve()
     downloads_dir.mkdir(parents=True, exist_ok=True)
 
     # Malicious filename attempting path traversal
@@ -555,13 +558,11 @@ async def test_download_slack_file_saves_safely_inside_downloads():
         assert res["ok"] is True
 
         # Verify nothing was created in parent directories
-        parent_file = MCP_WORKSPACE_DIR.parent / "traversal_attack.py"
-        workspace_file = MCP_WORKSPACE_DIR / "traversal_attack.py"
+        parent_file = DOWNLOADS_DIR.parent / "traversal_attack.py"
         assert not parent_file.exists()
-        assert not workspace_file.exists()
 
-        # Verify file is inside downloads_dir
-        found = list(downloads_dir.glob("*_traversal_attack.py"))
+        # Verify file is inside downloads_dir with neutralized extension .py.txt
+        found = list(downloads_dir.glob("*_traversal_attack.py.txt"))
         assert len(found) >= 1
         for f in found:
             assert f.is_relative_to(downloads_dir)

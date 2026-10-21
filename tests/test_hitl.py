@@ -160,3 +160,48 @@ def test_hitl_slack_interactivity_authorization(monkeypatch):
         consume_tool_approval("C_SLACK_HITL", "1700000000.004", "execute_migration", {"target": "db_v2"})
         is True
     )
+
+
+def test_hitl_atomic_status_transition():
+    """TKT-908: Verify atomic status transitions in SQLite prevent double approvals/denials."""
+    req = register_hitl_request(
+        channel_id="C_ATOMIC",
+        thread_ts="1700000000.010",
+        fn_name="drop_table",
+        fn_args={"table": "users"},
+        initiator_user_id="U_ADMIN",
+    )
+
+    # First approve succeeds
+    app1 = approve_hitl_request(req.request_id)
+    assert app1 is not None
+    assert app1.status == "APPROVED"
+
+    # Second approve fails (already approved, not PENDING)
+    app2 = approve_hitl_request(req.request_id)
+    assert app2 is None
+
+    # Deny on approved request fails (not PENDING)
+    den = deny_hitl_request(req.request_id)
+    assert den is None
+
+
+def test_hitl_slack_action_expired_or_handled_notice(monkeypatch):
+    """TKT-908: Post ephemeral warning when approval/denial action references non-existent or handled request."""
+    mock_ephemeral = AsyncMock(return_value={"ok": True})
+    monkeypatch.setattr("adapters.slack.interactivity.verify_slack_signature", lambda body, headers: True)
+    monkeypatch.setattr("adapters.slack.interactivity.slack_async_client.chat_postEphemeral", mock_ephemeral)
+
+    payload_missing = {
+        "type": "block_actions",
+        "user": {"id": "U_ANY_USER"},
+        "actions": [{"action_id": "hitl_approve_tool", "value": "non-existent-or-expired-id"}],
+        "channel": {"id": "C_SLACK_HITL"},
+    }
+    resp = client.post("/slack/actions", json=payload_missing)
+    assert resp.status_code == 200
+
+    time.sleep(0.05)
+    mock_ephemeral.assert_called_once()
+    assert "Request Expired or Handled" in mock_ephemeral.call_args[1]["text"]
+

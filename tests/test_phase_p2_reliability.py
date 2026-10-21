@@ -346,12 +346,18 @@ def test_revoke_constraint_action_and_modifier_clearing():
         channel_id="C_REVOKE",
         thread_ts="T_REVOKE",
         raw_text="/revoke_constraint modifiers",
+        user_id="U_ADMIN",
         bot_user_id="U_BOT",
     )
 
-    with patch("services.slack_client.post_system_message", new_callable=AsyncMock) as mock_post:
+    with (
+        patch("core.config.is_slack_admin", return_value=True),
+        patch("services.slack_client.post_system_message", new_callable=AsyncMock) as mock_post,
+    ):
+
         res = asyncio.run(revoke_constraint_action(ctx, {"target": "modifiers"}))
         assert res.get("ok") is True
+
         assert res.get("halted") is True
         assert thread_state_manager.get_format_modifiers("C_REVOKE", "T_REVOKE") == []
         mock_post.assert_awaited_once()

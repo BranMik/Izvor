@@ -491,6 +491,8 @@ class TurnPipeline:
             is_bot_trigger=True,
             in_memory_history=list(chk.accumulated_history or []),
         )
+        ctx.my_generation = thread_state_manager.get_generation(ctx.channel_id, ctx.thread_ts)
+        ctx.current_task = asyncio.current_task()
         ctx.session_id = chk.session_id
         ctx.agent_key = chk.agent_key
         ctx.messages = list(chk.messages or [])

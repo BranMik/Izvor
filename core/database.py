@@ -226,10 +226,7 @@ class DatabaseManager:
     def db_path(self) -> Path:
         if self._custom_db_path is not None:
             return self._custom_db_path
-        env_path = os.getenv("IZVOR_DB_PATH")
-        if env_path:
-            return Path(env_path)
-        return DEFAULT_DB_PATH
+        return DB_PATH
 
     def _ensure_schema_initialized(self, conn: sqlite3.Connection, target_path: Path) -> None:
         """Idempotently executes SCHEMA_STATEMENTS once per database file path."""

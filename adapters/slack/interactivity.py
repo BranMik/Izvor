@@ -882,7 +882,7 @@ async def handle_slack_interactivity(request: Request, background_tasks: Backgro
 
             elif action_id == "hitl_approve_tool":
                 val = action.get("value", "")
-                from services.hitl import approve_hitl_request, get_pending_request, mark_tool_approved
+                from services.hitl import approve_hitl_request, get_pending_request
 
                 req = get_pending_request(val)
                 if req:
@@ -931,41 +931,15 @@ async def handle_slack_interactivity(request: Request, background_tasks: Backgro
                             req=approved_req,
                             user_id=user_id,
                         )
-                elif ":" in val:
-                    # TKT-705: Enforce admin authorization on legacy colon bypass
-                    if not is_slack_admin(user_id):
-                        logger.warning(f"[HITL] Non-admin user {user_id} attempted legacy approval without token.")
-                        channel_id = payload.get("channel", {}).get("id") or ""
-                        if channel_id and user_id:
-                            background_tasks.add_task(
-                                slack_async_client.chat_postEphemeral,
-                                channel=channel_id,
-                                user=user_id,
-                                text="⚠️ *Permission Denied:* Administrative privileges are required for legacy manual approval.",
-                            )
-                        return Response(status_code=403)
-
-                    parts = val.split(":", 2)
-                    if len(parts) == 3:
-                        c_id, t_ts, f_name = parts
-                        mark_tool_approved(c_id, t_ts, f_name)
-                        log_audit_event(
-                            event_type="HITL_APPROVED",
-                            actor={"type": "slack_user", "id": user_id or "unknown"},
-                            action="hitl_approve_tool",
-                            target=f"{c_id}:{t_ts}:{f_name}",
-                            details={"legacy": True},
-                            severity="HIGH",
+                else:
+                    channel_id = payload.get("channel", {}).get("id") or ""
+                    if channel_id and user_id:
+                        background_tasks.add_task(
+                            slack_async_client.chat_postEphemeral,
+                            channel=channel_id,
+                            user=user_id,
+                            text="⚠️ *Request Expired or Handled:* This approval request is either invalid, already processed, or has expired.",
                         )
-                        msg = payload.get("message", {})
-                        if msg and msg.get("ts"):
-                            background_tasks.add_task(
-                                slack_async_client.chat_update,
-                                channel=c_id,
-                                ts=msg["ts"],
-                                text=f"✅ Approved execution of `{f_name}` by <@{user_id}>. Please reply to the thread to resume the agent.",
-                                blocks=[],
-                            )
             elif action_id == "hitl_deny_tool":
                 val = action.get("value", "")
                 from services.hitl import deny_hitl_request, get_pending_request
@@ -1017,40 +991,16 @@ async def handle_slack_interactivity(request: Request, background_tasks: Backgro
                             req=denied_req,
                             user_id=user_id,
                         )
-                elif ":" in val:
-                    # TKT-705: Enforce admin authorization on legacy colon bypass
-                    if not is_slack_admin(user_id):
-                        logger.warning(f"[HITL] Non-admin user {user_id} attempted legacy denial without token.")
-                        channel_id = payload.get("channel", {}).get("id") or ""
-                        if channel_id and user_id:
-                            background_tasks.add_task(
-                                slack_async_client.chat_postEphemeral,
-                                channel=channel_id,
-                                user=user_id,
-                                text="⚠️ *Permission Denied:* Administrative privileges are required for legacy manual denial.",
-                            )
-                        return Response(status_code=403)
-
-                    parts = val.split(":", 2)
-                    if len(parts) == 3:
-                        c_id, t_ts, f_name = parts
-                        log_audit_event(
-                            event_type="HITL_DENIED",
-                            actor={"type": "slack_user", "id": user_id or "unknown"},
-                            action="hitl_deny_tool",
-                            target=f"{c_id}:{t_ts}:{f_name}",
-                            details={"legacy": True},
-                            severity="HIGH",
+                else:
+                    channel_id = payload.get("channel", {}).get("id") or ""
+                    if channel_id and user_id:
+                        background_tasks.add_task(
+                            slack_async_client.chat_postEphemeral,
+                            channel=channel_id,
+                            user=user_id,
+                            text="⚠️ *Request Expired or Handled:* This denial request is either invalid, already processed, or has expired.",
                         )
-                        msg = payload.get("message", {})
-                        if msg and msg.get("ts"):
-                            background_tasks.add_task(
-                                slack_async_client.chat_update,
-                                channel=c_id,
-                                ts=msg["ts"],
-                                text=f"❌ Denied execution of `{f_name}` by <@{user_id}>. Please reply to the thread to inform the agent.",
-                                blocks=[],
-                            )
+
             elif action_id == "open_edit_workspace_context_modal":
                 should_publish_home = False
                 from orchestration.app_settings import get_workspace_context

@@ -122,33 +122,38 @@ def get_pending_request(request_id: str) -> PendingHITLRequest | None:
 
 
 def approve_hitl_request(request_id: str) -> PendingHITLRequest | None:
-    """Marks a pending HITL request as approved, storing a single-use token in SQLite and memory."""
+    """Marks a pending HITL request as approved atomically, storing a single-use token in SQLite and memory."""
     _prune_expired()
     now = time.time()
     req: PendingHITLRequest | None = None
 
     try:
         with get_db_transaction(immediate=True) as conn:
-            row = conn.execute(
-                "SELECT * FROM hitl_approvals WHERE request_id = ? AND expires_at > ?;",
+            cursor = conn.execute(
+                """
+                UPDATE hitl_approvals
+                SET status = 'APPROVED'
+                WHERE request_id = ? AND status = 'PENDING' AND expires_at > ?;
+                """,
                 (request_id, now),
-            ).fetchone()
-            if row:
-                conn.execute(
-                    "UPDATE hitl_approvals SET status = 'APPROVED' WHERE request_id = ?;",
+            )
+            if cursor.rowcount > 0:
+                row = conn.execute(
+                    "SELECT * FROM hitl_approvals WHERE request_id = ?;",
                     (request_id,),
-                )
-                req = _row_to_request(row)
-                req.status = "APPROVED"
+                ).fetchone()
+                if row:
+                    req = _row_to_request(row)
     except Exception as e:
         logger.error(f"[HITL] SQLite approve_hitl_request failed: {e}")
 
     # Synchronize memory fallback
-    mem_req = PENDING_REQUESTS.pop(request_id, None)
-    if mem_req and not mem_req.is_expired():
+    mem_req = PENDING_REQUESTS.get(request_id)
+    if mem_req and not mem_req.is_expired() and mem_req.status == "PENDING":
+        PENDING_REQUESTS.pop(request_id, None)
+        mem_req.status = "APPROVED"
         key = (mem_req.channel_id, mem_req.thread_ts, mem_req.fn_name, mem_req.args_hash)
         APPROVED_TOKENS[key] = mem_req.expires_at
-        mem_req.status = "APPROVED"
         if req is None:
             req = mem_req
 
@@ -160,29 +165,34 @@ def approve_hitl_request(request_id: str) -> PendingHITLRequest | None:
 
 
 def deny_hitl_request(request_id: str) -> PendingHITLRequest | None:
-    """Denies and purges a pending HITL request."""
+    """Denies a pending HITL request atomically."""
     _prune_expired()
     now = time.time()
     req: PendingHITLRequest | None = None
 
     try:
         with get_db_transaction(immediate=True) as conn:
-            row = conn.execute(
-                "SELECT * FROM hitl_approvals WHERE request_id = ? AND expires_at > ?;",
+            cursor = conn.execute(
+                """
+                UPDATE hitl_approvals
+                SET status = 'DENIED'
+                WHERE request_id = ? AND status = 'PENDING' AND expires_at > ?;
+                """,
                 (request_id, now),
-            ).fetchone()
-            if row:
-                conn.execute(
-                    "UPDATE hitl_approvals SET status = 'DENIED' WHERE request_id = ?;",
+            )
+            if cursor.rowcount > 0:
+                row = conn.execute(
+                    "SELECT * FROM hitl_approvals WHERE request_id = ?;",
                     (request_id,),
-                )
-                req = _row_to_request(row)
-                req.status = "DENIED"
+                ).fetchone()
+                if row:
+                    req = _row_to_request(row)
     except Exception as e:
         logger.error(f"[HITL] SQLite deny_hitl_request failed: {e}")
 
-    mem_req = PENDING_REQUESTS.pop(request_id, None)
-    if mem_req:
+    mem_req = PENDING_REQUESTS.get(request_id)
+    if mem_req and not mem_req.is_expired() and mem_req.status == "PENDING":
+        PENDING_REQUESTS.pop(request_id, None)
         mem_req.status = "DENIED"
         if req is None:
             req = mem_req
@@ -195,54 +205,38 @@ def consume_tool_approval(
     thread_ts: str,
     fn_name: str,
     fn_args: dict[str, Any] | None = None,
-    allow_fn_level_match: bool = False,
 ) -> bool:
     """
     Checks and consumes a single-use approval for the given tool and arguments atomically.
     Returns True if an unexpired approval existed and was consumed; False otherwise.
-    Removes wildcard empty_hash matching unless explicitly permitted.
+    Wildcard function-level approvals without argument hash matching are rejected.
     """
     _prune_expired()
     now = time.time()
     args_hash = compute_args_hash(fn_args)
-    empty_hash = compute_args_hash({})
-
-    allow_empty = allow_fn_level_match or (fn_args is None)
 
     try:
         with get_db_transaction(immediate=True) as conn:
-            if allow_empty:
-                query = """
-                SELECT request_id FROM hitl_approvals
-                WHERE channel_id = ? AND thread_ts = ? AND fn_name = ?
-                  AND (args_hash = ? OR args_hash = ?)
-                  AND status = 'APPROVED' AND expires_at > ?
-                LIMIT 1;
+            row = conn.execute(
                 """
-                params = (channel_id, thread_ts, fn_name, args_hash, empty_hash, now)
-            else:
-                query = """
                 SELECT request_id FROM hitl_approvals
                 WHERE channel_id = ? AND thread_ts = ? AND fn_name = ?
                   AND args_hash = ?
                   AND status = 'APPROVED' AND expires_at > ?
                 LIMIT 1;
-                """
-                params = (channel_id, thread_ts, fn_name, args_hash, now)
-
-            row = conn.execute(query, params).fetchone()
+                """,
+                (channel_id, thread_ts, fn_name, args_hash, now),
+            ).fetchone()
 
             if row:
                 req_id = row["request_id"]
-                conn.execute(
-                    "UPDATE hitl_approvals SET status = 'CONSUMED' WHERE request_id = ?;",
+                cur = conn.execute(
+                    "UPDATE hitl_approvals SET status = 'CONSUMED' WHERE request_id = ? AND status = 'APPROVED';",
                     (req_id,),
                 )
-                # Clear from memory token cache as well
-                APPROVED_TOKENS.pop((channel_id, thread_ts, fn_name, args_hash), None)
-                if allow_empty:
-                    APPROVED_TOKENS.pop((channel_id, thread_ts, fn_name, empty_hash), None)
-                return True
+                if cur.rowcount > 0:
+                    APPROVED_TOKENS.pop((channel_id, thread_ts, fn_name, args_hash), None)
+                    return True
     except Exception as e:
         logger.error(f"[HITL] SQLite consume_tool_approval failed: {e}")
 
@@ -253,14 +247,8 @@ def consume_tool_approval(
         if time.time() <= exp:
             return True
 
-    if allow_empty:
-        empty_key = (channel_id, thread_ts, fn_name, empty_hash)
-        if empty_key in APPROVED_TOKENS:
-            exp = APPROVED_TOKENS.pop(empty_key)
-            if time.time() <= exp:
-                return True
-
     return False
+
 
 
 def mark_tool_approved(

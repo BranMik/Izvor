@@ -106,7 +106,7 @@ async def test_validation_stage_blocks_inferred_grant_skill_for_all():
 
 @pytest.mark.anyio
 async def test_validation_stage_allows_slash_grant_skill_for_all():
-    """Slash grant_skill_for_all is allowed at validation stage for valid agent skills."""
+    """Slash grant_skill_for_all is allowed at validation stage for valid agent skills when requested by admin."""
     mock_post = AsyncMock()
     mock_fetch = AsyncMock(return_value=[])
     pipeline = TurnPipeline(post_system_message_fn=mock_post, files_fetcher=mock_fetch)
@@ -115,15 +115,21 @@ async def test_validation_stage_allows_slash_grant_skill_for_all():
         channel_id="C_TEST_P1",
         thread_ts="123.456",
         raw_text="/grant_skill_for_all web_research",
+        user_id="U_ADMIN",
         is_bot_trigger=False,
     )
 
-    with patch.object(thread_skills_manager, "grant_skills", return_value=(["web_research"], 1234567.0)) as mock_grant:
+    with (
+        patch("core.config.is_slack_admin", return_value=True),
+        patch.object(thread_skills_manager, "grant_skills", return_value=(["web_research"], 1234567.0)) as mock_grant,
+    ):
+
         res = await stage.stage_validate_and_parse(ctx)
         mock_grant.assert_called_once()
         assert res is not None
         assert res.get("action") == "grant_skill_for_all"
         assert res.get("halted") is True
+
 
 
 @pytest.mark.anyio

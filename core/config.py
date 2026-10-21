@@ -14,13 +14,15 @@ from typing import Any
 
 from dotenv import load_dotenv
 
+# Ensure .env is loaded before importing configuration paths
+_env_path = Path(__file__).resolve().parent.parent / ".env"
+if _env_path.exists():
+    load_dotenv(dotenv_path=_env_path)
+else:
+    load_dotenv()
+
 from core.paths import AGENT_SETTINGS_FILE, PROJECT_ROOT, SYSTEM_SETTINGS_FILE
 
-# Load environment variables from .env file (looked up in project root or current dir)
-env_path = PROJECT_ROOT / ".env"
-if not env_path.exists():
-    env_path = Path(__file__).parent / ".env"
-load_dotenv(dotenv_path=env_path)
 
 logger = logging.getLogger(__name__)
 

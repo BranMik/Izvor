@@ -4,14 +4,16 @@ from pathlib import Path
 from typing import Any
 
 from core.config import MCP_WORKSPACE_DIR
+from core.paths import (
+    AGENTS_RESOURCES_DIR as CANONICAL_AGENTS_RESOURCES_DIR,
+    PROJECT_ROOT,
+    SYSTEM_RESOURCES_DIR as CANONICAL_SYSTEM_RESOURCES_DIR,
+)
 
 from .web_tools import fetch_web_page, web_search
 
 logger = logging.getLogger(__name__)
 
-
-# Project root directory: one level above the 'services' folder where mcp_tools.py resides
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 # Workspace root directory defaults to PROJECT_ROOT
 WORKSPACE_DIR = (
@@ -20,11 +22,17 @@ WORKSPACE_DIR = (
     else PROJECT_ROOT
 )
 
-# Agents resources directory sandboxed for non-code document reading & authoring
-AGENTS_RESOURCES_DIR = (WORKSPACE_DIR / "agents_resources").resolve()
-AGENTS_RESOURCES_DIR.mkdir(parents=True, exist_ok=True)
-SYSTEM_RESOURCES_DIR = (WORKSPACE_DIR / "system_resources").resolve()
-SYSTEM_RESOURCES_DIR.mkdir(parents=True, exist_ok=True)
+# Agents and system resources directories (no import-time mkdir side effects)
+AGENTS_RESOURCES_DIR = (
+    (WORKSPACE_DIR / "agents_resources").resolve()
+    if WORKSPACE_DIR != PROJECT_ROOT
+    else CANONICAL_AGENTS_RESOURCES_DIR
+)
+SYSTEM_RESOURCES_DIR = (
+    (WORKSPACE_DIR / "system_resources").resolve()
+    if WORKSPACE_DIR != PROJECT_ROOT
+    else CANONICAL_SYSTEM_RESOURCES_DIR
+)
 
 
 def _resolve_resource_path(rel_path: str) -> Path:
@@ -380,6 +388,7 @@ def is_agent_authorized_for_tool(
     agent_name: str | None,
     tool_name: str,
     authorized_skills: list[str] | set[str] | None = None,
+    skill_registry: Any = None,
 ) -> bool:
     """
     Validates whether an agent has authorization to execute the requested tool.
@@ -391,8 +400,9 @@ def is_agent_authorized_for_tool(
         return True
 
     try:
-        from core.registry import get_skill_registry
-        skill_registry = get_skill_registry()
+        if skill_registry is None:
+            from core.registry import get_skill_registry
+            skill_registry = get_skill_registry()
 
         # 1. Check if tool is global across all skills
         for s_def in skill_registry.list_skills():
@@ -412,6 +422,11 @@ def is_agent_authorized_for_tool(
             s_def = skill_registry.get(s_name)
             if s_def and hasattr(s_def, "tools"):
                 permitted_tools.update(s_def.tools)
+            if s_def and hasattr(s_def, "custom_tool_schemas"):
+                for schema in s_def.custom_tool_schemas:
+                    fn = schema.get("function", {}).get("name")
+                    if fn:
+                        permitted_tools.add(fn)
 
         return tool_name in permitted_tools
     except Exception as e:

@@ -168,30 +168,36 @@ async def test_tkt_705_hitl_workflow_suspension_and_nomination_suppression():
     assert ctx.next_designated_agent is None
 
 
-def test_tkt_705_legacy_colon_requires_admin(monkeypatch):
+def test_tkt_908_legacy_colon_format_rejected(monkeypatch):
     """
-    TKT-705: Verify non-admin user cannot bypass token validation using legacy colon strings.
+    TKT-908: Verify legacy colon format bypass has been removed and triggers invalid/expired notice.
     """
-    monkeypatch.setenv("SLACK_ADMIN_USER_IDS", "U_WORKSPACE_ADMIN")
+    mock_ephemeral = AsyncMock(return_value={"ok": True})
     monkeypatch.setattr("adapters.slack.interactivity.verify_slack_signature", lambda body, headers: True)
-    monkeypatch.setattr("adapters.slack.interactivity.slack_async_client.chat_postEphemeral", AsyncMock(return_value={"ok": True}))
+    monkeypatch.setattr("adapters.slack.interactivity.slack_async_client.chat_postEphemeral", mock_ephemeral)
 
-    # Non-admin attempts legacy colon approval
+    # Legacy colon approval attempt is treated as invalid/expired request
     payload_colon = {
         "type": "block_actions",
-        "user": {"id": "U_NON_ADMIN"},
+        "user": {"id": "U_USER"},
         "actions": [{"action_id": "hitl_approve_tool", "value": "C_CHAN:1700000000.001:write_file"}],
         "channel": {"id": "C_CHAN"},
     }
     resp = client.post("/slack/actions", json=payload_colon)
-    assert resp.status_code == 403
+    assert resp.status_code == 200
+    mock_ephemeral.assert_called()
+    assert "Request Expired or Handled" in mock_ephemeral.call_args[1]["text"]
 
-    # Non-admin attempts legacy colon denial
+    mock_ephemeral.reset_mock()
+    # Legacy colon denial attempt is treated as invalid/expired request
     payload_colon_deny = {
         "type": "block_actions",
-        "user": {"id": "U_NON_ADMIN"},
+        "user": {"id": "U_USER"},
         "actions": [{"action_id": "hitl_deny_tool", "value": "C_CHAN:1700000000.001:write_file"}],
         "channel": {"id": "C_CHAN"},
     }
     resp_deny = client.post("/slack/actions", json=payload_colon_deny)
-    assert resp_deny.status_code == 403
+    assert resp_deny.status_code == 200
+    mock_ephemeral.assert_called()
+    assert "Request Expired or Handled" in mock_ephemeral.call_args[1]["text"]
+

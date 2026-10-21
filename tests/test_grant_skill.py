@@ -81,6 +81,11 @@ async def test_directive_parser_grant_skill_trailing_text_ignored():
 # ---------------------------------------------------------------------------
 
 
+@pytest.fixture(autouse=True)
+def configure_admin_env(monkeypatch):
+    monkeypatch.setenv("SLACK_ADMIN_USER_IDS", "U_ADMIN")
+
+
 @pytest.mark.anyio
 async def test_grant_skill_for_all_unconditionally_halts():
     pipeline = TurnPipeline()
@@ -94,6 +99,7 @@ async def test_grant_skill_for_all_unconditionally_halts():
     ctx = TurnContext(
         channel_id=channel_id,
         thread_ts=thread_ts,
+        user_id="U_ADMIN",
         raw_text="/grant_skill_for_all web_research Now discuss everything",
     )
     directives = await directive_parser.parse(ctx.raw_text)
@@ -120,6 +126,7 @@ async def test_grant_skill_for_all_halts_on_bot_mention():
     ctx = TurnContext(
         channel_id=channel_id,
         thread_ts=thread_ts,
+        user_id="U_ADMIN",
         raw_text="<@U0812345> /grant_skill_for_all web_research",
     )
     directives = await directive_parser.parse(ctx.raw_text)
@@ -145,6 +152,7 @@ async def test_grant_skill_unconditionally_halts():
     ctx = TurnContext(
         channel_id=channel_id,
         thread_ts=thread_ts,
+        user_id="U_ADMIN",
         raw_text="/grant_skill web_research SecurityArchitect And continue debate",
     )
     directives = await directive_parser.parse(ctx.raw_text)
@@ -174,6 +182,7 @@ async def test_grant_skill_missing_params():
     ctx = TurnContext(
         channel_id="C_TEST",
         thread_ts="1726000000.4",
+        user_id="U_ADMIN",
         raw_text="/grant_skill",
     )
     directives = await directive_parser.parse(ctx.raw_text)
@@ -194,6 +203,7 @@ async def test_grant_skill_missing_agent():
     ctx = TurnContext(
         channel_id="C_TEST",
         thread_ts="1726000000.5",
+        user_id="U_ADMIN",
         raw_text="/grant_skill web_research",
     )
     directives = await directive_parser.parse(ctx.raw_text)
@@ -214,6 +224,7 @@ async def test_grant_skill_unknown_skill():
     ctx = TurnContext(
         channel_id="C_TEST",
         thread_ts="1726000000.6",
+        user_id="U_ADMIN",
         raw_text="/grant_skill nonexistent_skill SecurityArchitect",
     )
     directives = await directive_parser.parse(ctx.raw_text)
@@ -233,6 +244,7 @@ async def test_grant_skill_unknown_agent():
     ctx = TurnContext(
         channel_id="C_TEST",
         thread_ts="1726000000.7",
+        user_id="U_ADMIN",
         raw_text="/grant_skill web_research FakeAgentName",
     )
     directives = await directive_parser.parse(ctx.raw_text)
@@ -241,6 +253,118 @@ async def test_grant_skill_unknown_agent():
     res = await pipeline.validation_stage.stage_validate_and_parse(ctx)
     assert res.get("halted") is True
     assert "Unknown agent(s)" in post_mock.call_args.kwargs["text"]
+
+
+@pytest.mark.anyio
+async def test_grant_skill_for_all_non_admin_denied():
+    pipeline = TurnPipeline()
+    post_mock = AsyncMock()
+    pipeline.post_system_message_fn = post_mock
+
+    ctx = TurnContext(
+        channel_id="C_TEST",
+        thread_ts="1726000000.100",
+        user_id="U_REGULAR",
+        raw_text="/grant_skill_for_all web_research",
+    )
+    directives = await directive_parser.parse(ctx.raw_text)
+    ctx.actions = directives.actions
+
+    with patch("services.audit_logger.log_audit_event") as mock_audit:
+        res = await pipeline.validation_stage.stage_validate_and_parse(ctx)
+        assert res is not None
+        assert res.get("ok") is False
+        assert res.get("halted") is True
+        assert res.get("reason") == "unauthorized"
+        post_mock.assert_awaited_once()
+        assert "Permission Denied" in post_mock.call_args.kwargs["text"]
+
+        audit_calls = [c for c in mock_audit.call_args_list if c.kwargs.get("event_type") == "UNAUTHORIZED_DIRECTIVE_ATTEMPT"]
+        assert len(audit_calls) >= 1
+        assert audit_calls[0].kwargs["action"] == "grant_skill_for_all"
+        assert audit_calls[0].kwargs["severity"] == "CRITICAL"
+
+
+@pytest.mark.anyio
+async def test_grant_skill_non_admin_denied():
+    pipeline = TurnPipeline()
+    post_mock = AsyncMock()
+    pipeline.post_system_message_fn = post_mock
+
+    ctx = TurnContext(
+        channel_id="C_TEST",
+        thread_ts="1726000000.101",
+        user_id="U_REGULAR",
+        raw_text="/grant_skill web_research SecurityArchitect",
+    )
+    directives = await directive_parser.parse(ctx.raw_text)
+    ctx.actions = directives.actions
+
+    with patch("services.audit_logger.log_audit_event") as mock_audit:
+        res = await pipeline.validation_stage.stage_validate_and_parse(ctx)
+        assert res is not None
+        assert res.get("ok") is False
+        assert res.get("halted") is True
+        assert res.get("reason") == "unauthorized"
+        post_mock.assert_awaited_once()
+        assert "Permission Denied" in post_mock.call_args.kwargs["text"]
+        audit_calls = [c for c in mock_audit.call_args_list if c.kwargs.get("event_type") == "UNAUTHORIZED_DIRECTIVE_ATTEMPT"]
+        assert len(audit_calls) >= 1
+
+
+@pytest.mark.anyio
+async def test_revoke_skill_for_all_non_admin_denied():
+    pipeline = TurnPipeline()
+    post_mock = AsyncMock()
+    pipeline.post_system_message_fn = post_mock
+
+    ctx = TurnContext(
+        channel_id="C_TEST",
+        thread_ts="1726000000.102",
+        user_id="U_REGULAR",
+        raw_text="/revoke_skill_for_all web_research",
+    )
+    directives = await directive_parser.parse(ctx.raw_text)
+    ctx.actions = directives.actions
+
+    with patch("services.audit_logger.log_audit_event") as mock_audit:
+        res = await pipeline.validation_stage.stage_validate_and_parse(ctx)
+        assert res is not None
+        assert res.get("ok") is False
+        assert res.get("halted") is True
+        assert res.get("reason") == "unauthorized"
+        post_mock.assert_awaited_once()
+        assert "Permission Denied" in post_mock.call_args.kwargs["text"]
+        audit_calls = [c for c in mock_audit.call_args_list if c.kwargs.get("event_type") == "UNAUTHORIZED_DIRECTIVE_ATTEMPT"]
+        assert len(audit_calls) >= 1
+
+
+@pytest.mark.anyio
+async def test_revoke_constraint_non_admin_denied():
+    pipeline = TurnPipeline()
+    post_mock = AsyncMock()
+    pipeline.post_system_message_fn = post_mock
+
+    ctx = TurnContext(
+        channel_id="C_TEST",
+        thread_ts="1726000000.103",
+        user_id="U_REGULAR",
+        raw_text="/revoke_constraint max_words",
+    )
+    directives = await directive_parser.parse(ctx.raw_text)
+    ctx.actions = directives.actions
+    ctx.revoke_target = directives.revoke_target
+
+    with patch("services.audit_logger.log_audit_event") as mock_audit:
+        res = await pipeline.validation_stage.stage_validate_and_parse(ctx)
+        assert res is not None
+        assert res.get("ok") is False
+        assert res.get("halted") is True
+        assert res.get("reason") == "unauthorized"
+        post_mock.assert_awaited_once()
+        assert "Permission Denied" in post_mock.call_args.kwargs["text"]
+        audit_calls = [c for c in mock_audit.call_args_list if c.kwargs.get("event_type") == "UNAUTHORIZED_DIRECTIVE_ATTEMPT"]
+        assert len(audit_calls) >= 1
 
 
 # ---------------------------------------------------------------------------

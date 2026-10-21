@@ -15,8 +15,10 @@ from orchestration.thread_state import thread_state_manager
 
 @pytest.fixture(autouse=True)
 def setup_test_environment(monkeypatch):
+    monkeypatch.setenv("SLACK_ADMIN_USER_IDS", "U_ADMIN")
     reset_enabled_agents()
     set_orchestration_mode("sandwich")
+
     set_sandwich_config([], [])
     set_fixed_config([])
     thread_state_manager.reset_all()
@@ -316,6 +318,7 @@ async def test_revoke_skill_functionality():
         channel_id=channel,
         thread_ts=thread_ts,
         raw_text="/revoke_constraint max_words",
+        user_id="U_ADMIN",
         is_bot_trigger=False,
     )
     assert res.get("ok")
@@ -331,6 +334,7 @@ async def test_revoke_skill_functionality():
         channel_id=channel,
         thread_ts=thread_ts,
         raw_text="/revoke_constraint all",
+        user_id="U_ADMIN",
         is_bot_trigger=False,
     )
     assert res_all.get("ok")
@@ -363,6 +367,7 @@ async def test_off_toggles_execution():
         channel_id=channel,
         thread_ts=thread_ts,
         raw_text="/max_words off",
+        user_id="U_ADMIN",
         is_bot_trigger=False,
     )
     assert res.get("ok")
@@ -373,6 +378,7 @@ async def test_off_toggles_execution():
         channel_id=channel,
         thread_ts=thread_ts,
         raw_text="/exclude off",
+        user_id="U_ADMIN",
         is_bot_trigger=False,
     )
     assert res_exc.get("ok")
@@ -383,6 +389,7 @@ async def test_off_toggles_execution():
         channel_id=channel,
         thread_ts=thread_ts,
         raw_text="/include off",
+        user_id="U_ADMIN",
         is_bot_trigger=False,
     )
     assert res_inc.get("ok")
@@ -393,7 +400,9 @@ async def test_off_toggles_execution():
         channel_id=channel,
         thread_ts=thread_ts,
         raw_text="/scribe_max_words off",
+        user_id="U_ADMIN",
         is_bot_trigger=False,
     )
     assert res_sm.get("ok")
     assert thread_state_manager.get_scribe_max_words(channel, thread_ts) is None
+
