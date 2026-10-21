@@ -8,6 +8,7 @@ from core.database import get_connection, get_db_transaction
 from core.models import FileContext
 from orchestration.state import (
     DiscussionStateStore,
+    RoundEvidenceStore,
     ThreadContextStore,
     TurnRetryStateStore,
 )
@@ -22,12 +23,14 @@ class ThreadStateManager:
     - self.discussion: DiscussionStateStore (tasks, remaining agents, custom flows, stop requests)
     - self.retry: TurnRetryStateStore (rate-limit retries, 503 error backoff, generations)
     - self.context: ThreadContextStore (history limits, word limits, locked languages, file context)
+    - self.evidence: RoundEvidenceStore (shared read-only tool results per round)
     """
 
     def __init__(self) -> None:
         self.discussion = DiscussionStateStore()
         self.retry = TurnRetryStateStore()
         self.context = ThreadContextStore()
+        self.evidence = RoundEvidenceStore()
 
         # Backward-compatible dictionary references
         self.remaining_agents_map = self.discussion.remaining_agents_map
@@ -488,6 +491,7 @@ class ThreadStateManager:
         self.discussion.clear_thread(channel_id, thread_ts)
         self.retry.clear_thread(channel_id, thread_ts)
         self.context.clear_thread(channel_id, thread_ts)
+        self.evidence.clear_thread_evidence(channel_id, thread_ts)
         self.thread_last_activity.pop((channel_id, thread_ts), None)
         for hook in list(self._cleanup_hooks):
             try:
@@ -502,12 +506,43 @@ class ThreadStateManager:
         self.discussion.reset()
         self.retry.reset()
         self.context.reset()
+        self.evidence.reset_all()
         self.thread_last_activity.clear()
         for hook in list(self._reset_hooks):
             try:
                 hook()
             except Exception as e:  # noqa: BLE001 - Error boundary isolates individual hook failure from global reset
                 logger.debug(f"[THREAD STATE] Error executing reset hook: {e}")
+
+    def get_round_evidence(self, channel_id: str, thread_ts: str) -> list[Any]:
+        """Returns all shared evidence items recorded for this thread."""
+        return self.evidence.get_round_evidence(channel_id, thread_ts)
+
+    def format_round_evidence(self, channel_id: str, thread_ts: str) -> str | None:
+        """Formats the latest verified round evidence into a structured string block."""
+        return self.evidence.format_evidence_block(channel_id, thread_ts)
+
+    def add_round_evidence(
+        self,
+        channel_id: str,
+        thread_ts: str,
+        tool_name: str,
+        arguments: Any,
+        result: str,
+        agent_key: str,
+    ) -> Any:
+        """Adds verified tool execution result to the thread's round evidence store."""
+        rounds = self.get_rounds(channel_id, thread_ts)
+        return self.evidence.add_evidence(
+            channel_id=channel_id,
+            thread_ts=thread_ts,
+            tool_name=tool_name,
+            arguments=arguments,
+            result=result,
+            agent_key=agent_key,
+            round_index=rounds,
+        )
+
 
     def cleanup_expired_threads(self, ttl_seconds: float | None = None) -> int:
         if ttl_seconds is None:

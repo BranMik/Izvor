@@ -263,6 +263,27 @@ class ContextPrepStage:
             else:
                 mapped_next_designated = ctx.next_designated_agent
 
+        # Check if history is truncated (episodic summary tier 2)
+        episodic_summary = None
+        if len(ctx.full_history) > len(ctx.effective_history):
+            try:
+                from agents.thread_notes_agent import (
+                    get_thread_conclusion_content,
+                    get_thread_note_content,
+                )
+                episodic_summary = (
+                    get_thread_note_content(ctx.channel_id, ctx.thread_ts)
+                    or get_thread_conclusion_content(ctx.channel_id, ctx.thread_ts)
+                )
+            except Exception as e:
+                logger.debug(f"[CONTEXT] Failed to fetch episodic summary: {e}")
+        ctx.episodic_summary = episodic_summary
+
+        # Fetch round evidence block (round evidence scratchpad tier 3)
+        ctx.shared_round_evidence = thread_state_manager.format_round_evidence(
+            ctx.channel_id, ctx.thread_ts
+        )
+
         ctx.messages = build_llm_messages(
             system_prompt=ctx.system_prompt,
             effective_history=ctx.effective_history,
@@ -276,5 +297,7 @@ class ContextPrepStage:
             next_designated_agent=mapped_next_designated,
             thread_language=ctx.thread_language,
             required_skills=required_skills,
+            episodic_summary=ctx.episodic_summary,
+            shared_round_evidence=ctx.shared_round_evidence,
         )
         return None

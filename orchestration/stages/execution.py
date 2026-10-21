@@ -344,7 +344,18 @@ class ExecutionStage:
                         fn_args = _unmask_argument_values(
                             raw_args, getattr(ctx, "turn_token_mapping", {})
                         )
-                        if fn_name == "load_skill":
+                        cached_evidence = None
+                        if thread_state_manager.evidence.is_cacheable_tool(fn_name):
+                            cached_evidence = thread_state_manager.evidence.get_evidence(
+                                ctx.channel_id, ctx.thread_ts, fn_name, fn_args
+                            )
+
+                        if cached_evidence is not None:
+                            tool_result = cached_evidence.result
+                            logger.info(
+                                f"[EVIDENCE] Reusing cached round evidence for tool '{fn_name}' from agent {cached_evidence.agent_key} in {ctx.channel_id}:{ctx.thread_ts}"
+                            )
+                        elif fn_name == "load_skill":
                             tool_result = skill_registry.execute_tool(
                                 fn_name,
                                 fn_args,
@@ -452,6 +463,16 @@ class ExecutionStage:
                             tool_result_str = f"<untrusted_file_content>\n{tool_result}\n</untrusted_file_content>"
                         else:
                             tool_result_str = tool_result
+
+                        if cached_evidence is None and not getattr(ctx, "halted", False):
+                            thread_state_manager.add_round_evidence(
+                                channel_id=ctx.channel_id,
+                                thread_ts=ctx.thread_ts,
+                                tool_name=fn_name,
+                                arguments=fn_args,
+                                result=tool_result if isinstance(tool_result, str) else str(tool_result),
+                                agent_key=ctx.agent_key,
+                            )
 
                         ctx.messages.append(
                             {
