@@ -57,18 +57,34 @@ def resolve_target_file(
     # Fallback to local default agents_resources/ directory if target filename is requested
     if target_filename:
         try:
-            from services.mcp_tools import AGENTS_RESOURCES_DIR, find_resource_file
+            from services.mcp_tools import AGENTS_RESOURCES_DIR, _resolve_resource_path
 
-            matched_path = find_resource_file(target_filename)
-            if matched_path and matched_path.exists() and matched_path.is_file():
-                return {
-                    "id": f"resource_{matched_path.name}",
-                    "name": matched_path.name,
-                    "size": matched_path.stat().st_size,
-                    "is_resource_file": True,
-                    "rel_path": str(matched_path.relative_to(AGENTS_RESOURCES_DIR)).replace("\\", "/"),
-                }
-        except (OSError, ValueError, ImportError, AttributeError) as e:
+            try:
+                target_path = _resolve_resource_path(target_filename)
+                if target_path.exists() and target_path.is_file():
+                    return {
+                        "id": f"resource_{target_path.name}",
+                        "name": target_path.name,
+                        "size": target_path.stat().st_size,
+                        "is_resource_file": True,
+                        "rel_path": str(target_path.relative_to(AGENTS_RESOURCES_DIR)).replace("\\", "/"),
+                    }
+            except (ValueError, PermissionError):
+                pass
+
+            # Also check case-insensitive match in AGENTS_RESOURCES_DIR
+            if AGENTS_RESOURCES_DIR.exists():
+                target_lower = target_filename.lower()
+                for entry in AGENTS_RESOURCES_DIR.iterdir():
+                    if entry.is_file() and entry.name.lower() == target_lower:
+                        return {
+                            "id": f"resource_{entry.name}",
+                            "name": entry.name,
+                            "size": entry.stat().st_size,
+                            "is_resource_file": True,
+                            "rel_path": str(entry.relative_to(AGENTS_RESOURCES_DIR)).replace("\\", "/"),
+                        }
+        except (OSError, ValueError, AttributeError) as e:
             logger.debug(f"[NOMINATION] Error resolving target file from agents_resources: {e}")
 
     return None

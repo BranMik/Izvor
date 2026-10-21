@@ -614,10 +614,17 @@ class SkillRegistry:
         returns the skill's SKILL.md guidelines.
         Otherwise delegates to custom tool handlers or services.mcp_tools.execute_mcp_tool.
         """
+        from core.domain import ToolPrincipal
+
+        is_system_principal = isinstance(agent_name, ToolPrincipal) and agent_name.kind == "system"
         is_internal = (
-            authorized_skills == ALL_INTERNAL_SKILLS
+            is_system_principal
+            or authorized_skills == ALL_INTERNAL_SKILLS
             or (isinstance(authorized_skills, (list, tuple, set)) and ALL_INTERNAL_SKILLS in authorized_skills)
         )
+        actor_id = agent_name.id if hasattr(agent_name, "id") else str(agent_name or "unknown_agent")
+        actor_kind = getattr(agent_name, "kind", "agent")
+
         effective_authorized_skills: list[str] = (
             [s.name for s in self._skills.values()]
             if is_internal
@@ -644,7 +651,7 @@ class SkillRegistry:
                     )
                     log_audit_event(
                         event_type="SECURITY_POLICY_VIOLATION",
-                        actor={"type": "agent", "id": agent_name or "unknown_agent"},
+                        actor={"type": actor_kind, "id": actor_id},
                         action="load_skill",
                         target=f"skill:{skill_name}",
                         details={"reason": "Skill expired", "ttl_hours": ttl_hours},
@@ -662,7 +669,7 @@ class SkillRegistry:
                 allowed_str = ", ".join(f"'{s}'" for s in effective_authorized_skills) or "none"
                 log_audit_event(
                     event_type="SECURITY_POLICY_VIOLATION",
-                    actor={"type": "agent", "id": agent_name or "unknown_agent"},
+                    actor={"type": actor_kind, "id": actor_id},
                     action="load_skill",
                     target=f"skill:{skill_name}",
                     details={"reason": "Agent not authorized for skill", "authorized_skills": effective_authorized_skills},
@@ -694,7 +701,7 @@ class SkillRegistry:
 
             log_audit_event(
                 event_type="SKILL_LOADED",
-                actor={"type": "agent", "id": agent_name or "unknown_agent"},
+                actor={"type": actor_kind, "id": actor_id},
                 action="load_skill",
                 target=f"skill:{skill.name}",
                 details={"unlocked_tools": skill.tools},
@@ -740,7 +747,7 @@ class SkillRegistry:
 
                 log_audit_event(
                     event_type="SECURITY_POLICY_VIOLATION",
-                    actor={"type": "agent", "id": agent_name or "unknown_agent"},
+                    actor={"type": actor_kind, "id": actor_id},
                     action="execute_tool",
                     target=f"tool:{tool_name}",
                     details={
@@ -811,10 +818,17 @@ class SkillRegistry:
             inspect.iscoroutinefunction(target_handler)
             or hasattr(target_handler, "_async_fn")
         ):
+            from core.domain import ToolPrincipal
+
+            is_system_principal = isinstance(agent_name, ToolPrincipal) and agent_name.kind == "system"
             is_internal = (
-                authorized_skills == ALL_INTERNAL_SKILLS
+                is_system_principal
+                or authorized_skills == ALL_INTERNAL_SKILLS
                 or (isinstance(authorized_skills, (list, tuple, set)) and ALL_INTERNAL_SKILLS in authorized_skills)
             )
+            actor_id = agent_name.id if hasattr(agent_name, "id") else str(agent_name or "unknown_agent")
+            actor_kind = getattr(agent_name, "kind", "agent")
+
             effective_authorized_skills: list[str] = (
                 [s.name for s in self._skills.values()]
                 if is_internal
@@ -846,7 +860,7 @@ class SkillRegistry:
 
                     log_audit_event(
                         event_type="SECURITY_POLICY_VIOLATION",
-                        actor={"type": "agent", "id": agent_name or "unknown_agent"},
+                        actor={"type": actor_kind, "id": actor_id},
                         action="execute_tool",
                         target=f"tool:{tool_name}",
                         details={

@@ -310,7 +310,7 @@ def test_hmac_continuity_secret_added_to_plain_chain(temp_audit_dir, monkeypatch
     """Verifies that adding a secret when previous logs were plain SHA-256 reports SECRET_ADDED."""
     test_dir, logger = temp_audit_dir
     # Write record without HMAC secret
-    monkeypatch.setattr("services.audit_logger.AUDIT_HMAC_SECRET", None)
+    monkeypatch.setattr("services.audit_logger.get_audit_hmac_secret", lambda: b"")
 
     logger.log_event(
         event_type="ADMIN_CONFIG_CHANGE",
@@ -404,5 +404,99 @@ async def test_audit_logger_log_event_synchronous_return_in_async_context(temp_a
     assert rec.get("seq") == 1
     assert rec.get("event_type") == "ASYNC_CALL_EVENT"
     assert rec.get("entry_hash") is not None
+
+
+def test_hmac_secret_enforcement_in_non_test_environment(monkeypatch):
+    """Verifies that get_audit_hmac_secret raises RuntimeError when unset outside tests."""
+    from services.audit_logger import get_audit_hmac_secret, validate_audit_configuration
+
+    monkeypatch.setattr("services.audit_logger.AUDIT_HMAC_SECRET", b"")
+    monkeypatch.delenv("AUDIT_HMAC_SECRET", raising=False)
+    monkeypatch.setattr("core.config.is_test_environment", lambda: False)
+
+    with pytest.raises(RuntimeError, match="CRITICAL: AUDIT_HMAC_SECRET"):
+        get_audit_hmac_secret()
+
+    with pytest.raises(RuntimeError, match="CRITICAL: AUDIT_HMAC_SECRET"):
+        validate_audit_configuration()
+
+
+def test_audit_anchor_persisted_and_tail_truncation_detected(temp_audit_dir):
+    """Verifies that anchors are stored in SQLite and detect tail truncation when log entries are removed."""
+    import json
+    from core.database import db_manager
+    from services.audit_logger import log_audit_event_async
+
+    test_dir, logger = temp_audit_dir
+
+    # Log 10 events so seq 10 triggers an anchor
+    for i in range(1, 11):
+        logger.log_event(
+            event_type="BATCH_TEST_EVENT",
+            actor={"type": "system", "id": "test_actor"},
+            action=f"action_{i}",
+            target=f"target_{i}",
+            details={"index": i},
+            severity="INFO",
+        )
+
+    # Confirm anchor exists in SQLite for seq 10
+    with db_manager.get_connection() as conn:
+        row = conn.execute("SELECT seq, entry_hash FROM audit_anchors WHERE seq = 10").fetchone()
+        assert row is not None
+        assert row["seq"] == 10
+        anchored_hash = row["entry_hash"]
+
+    # Integrity verification passes before truncation
+    res_clean = verify_audit_log_integrity(audit_dir=test_dir, check_anchors=True)
+    assert res_clean.valid is True
+    assert res_clean.total_records == 10
+
+    # Simulate tail truncation: truncate audit file by removing the last 2 lines (leaving seq 1..8)
+    files = list(test_dir.glob("audit_*.jsonl"))
+    assert len(files) == 1
+    audit_file = files[0]
+    with open(audit_file, "r", encoding="utf-8") as f:
+        lines = [line for line in f if line.strip()]
+
+    assert len(lines) == 10
+    truncated_lines = lines[:8]
+    with open(audit_file, "w", encoding="utf-8") as f:
+        f.writelines(truncated_lines)
+
+    # Verification with check_anchors=False only sees intact chain for 8 records
+    res_no_anchor = verify_audit_log_integrity(audit_dir=test_dir, check_anchors=False)
+    assert res_no_anchor.valid is True
+    assert res_no_anchor.total_records == 8
+
+    # Verification with check_anchors=True MUST flag tail truncation!
+    res_truncated = verify_audit_log_integrity(audit_dir=test_dir, check_anchors=True)
+    assert res_truncated.valid is False
+    assert any("Tail truncation or anchor mismatch detected" in err for err in res_truncated.errors)
+
+
+def test_log_audit_event_async(temp_audit_dir, monkeypatch):
+    """Verifies log_audit_event_async asynchronously writes records via thread pool."""
+    import asyncio
+    from services.audit_logger import log_audit_event_async
+
+    test_dir, logger_inst = temp_audit_dir
+    monkeypatch.setattr("services.audit_logger.audit_logger", logger_inst)
+
+    async def run_async_test():
+        rec = await log_audit_event_async(
+            event_type="ASYNC_EVENT",
+            actor={"type": "system", "id": "async_sys"},
+            action="async_write",
+            target="target_res",
+            details={"foo": "bar"},
+            severity="CRITICAL",
+        )
+        assert rec["seq"] == 1
+        assert rec["severity"] == "CRITICAL"
+        assert rec["event_type"] == "ASYNC_EVENT"
+
+    asyncio.run(run_async_test())
+
 
 

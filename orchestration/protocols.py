@@ -128,6 +128,19 @@ class CostCalculator(Protocol):
 
 
 @runtime_checkable
+class ToolExecutor(Protocol):
+    """Low-level executor for a single tool call."""
+
+    def __call__(
+        self,
+        tool_name: str,
+        arguments: dict[str, Any] | None = None,
+        agent_name: Any = None,
+        authorized_skills: Any = None,
+    ) -> Any: ...
+
+
+@runtime_checkable
 class WorkspaceAdapter(Protocol):
     """Hexagonal port decoupling core orchestration stages from chat-platform primitives."""
 
@@ -176,7 +189,9 @@ __all__ = [
     "SleepFunction",
     "SystemMessagePoster",
     "TokenRecorder",
+    "ToolExecutor",
     "UsageUpdater",
     "WorkspaceAdapter",
 ]
+
 

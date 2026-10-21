@@ -157,118 +157,117 @@ class ResolutionStage:
             )
             return {"ok": False, "cancelled": True, "reason": "superseded"}
 
-        # Circuit breaker verification
-        if is_circuit_breaker_enabled():
-            calc_costs_fn = self.pipeline._get_hook(
-                "calculate_thread_costs", calculate_thread_costs
-            )
-            cost_info = calc_costs_fn(ctx.channel_id, ctx.thread_ts)
-            current_cost = cost_info.get("grand_total_cost_usd", 0.0)
-            threshold = get_circuit_breaker_threshold()
-            session_id = f"{ctx.channel_id}:{ctx.thread_ts}"
-            from orchestration.app_settings import get_daily_budget_usd
+        # Circuit breaker & daily budget verification
+        calc_costs_fn = self.pipeline._get_hook(
+            "calculate_thread_costs", calculate_thread_costs
+        )
+        cost_info = calc_costs_fn(ctx.channel_id, ctx.thread_ts)
+        current_cost = cost_info.get("grand_total_cost_usd", 0.0)
+        threshold = get_circuit_breaker_threshold()
+        session_id = f"{ctx.channel_id}:{ctx.thread_ts}"
+        from orchestration.app_settings import get_daily_budget_usd
 
-            daily_budget = get_daily_budget_usd()
-            tripped, current_cost, threshold = (
-                spend_governance.is_budget_exceeded(
+        daily_budget = get_daily_budget_usd()
+        tripped, current_cost, threshold = (
+            spend_governance.is_budget_exceeded(
+                session_id=session_id,
+                threshold_usd=threshold,
+                enabled=is_circuit_breaker_enabled(),
+                current_cost_usd=current_cost,
+                daily_budget_usd=daily_budget,
+            )
+        )
+        if tripped:
+            logger.warning(
+                f"[CIRCUIT BREAKER] Thread {ctx.thread_key} or daily budget reached/exceeded threshold (${threshold:.5f}). Interrupting response."
+            )
+            from services.audit_logger import log_audit_event
+
+            log_audit_event(
+                event_type="CIRCUIT_BREAKER_TRIGGERED",
+                actor={"type": "system", "id": "spend_governance"},
+                action="trip_circuit_breaker",
+                target=ctx.thread_key,
+                details={
+                    "channel_id": ctx.channel_id,
+                    "thread_ts": ctx.thread_ts,
+                    "current_cost_usd": current_cost,
+                    "threshold_usd": threshold,
+                },
+                severity="CRITICAL",
+                status="SUCCESS",
+            )
+            circuit_breaker_msg = (
+                "EXPENSE LIMIT REACHED FOR THE THREAD. ENDING CALLS"
+            )
+
+            session_id = getattr(ctx, "session_id", f"{ctx.channel_id}:{ctx.thread_ts}")
+            try:
+                import json
+                import uuid
+                from core.domain import TurnCheckpoint
+                from services.turn_checkpoint_store import turn_checkpoint_store
+
+                chk_id = str(uuid.uuid4())
+                chk = TurnCheckpoint(
+                    checkpoint_id=chk_id,
                     session_id=session_id,
-                    threshold_usd=threshold,
-                    enabled=True,
-                    current_cost_usd=current_cost,
-                    daily_budget_usd=daily_budget,
+                    channel_id=ctx.channel_id,
+                    thread_ts=ctx.thread_ts,
+                    agent_key=ctx.agent_key,
+                    pause_reason="circuit_breaker",
+                    messages=ctx.messages or [],
+                    accumulated_history=ctx.in_memory_history or [],
+                    prompt_tokens=ctx.total_prompt_tokens,
+                    completion_tokens=ctx.total_completion_tokens,
                 )
+                turn_checkpoint_store.save_checkpoint(chk)
+                ctx.checkpoint_id = chk_id
+            except Exception as ex:
+                logger.debug(f"[RESOLUTION] Failed to save circuit breaker checkpoint: {ex}")
+
+            blocks = self.workspace_adapter.build_budget_halt_blocks(
+                circuit_breaker_msg, session_id
             )
-            if tripped:
-                logger.warning(
-                    f"[CIRCUIT BREAKER] Thread {ctx.thread_key} cost (${current_cost:.5f}) reached or exceeded threshold (${threshold:.5f}). Interrupting response."
-                )
-                from services.audit_logger import log_audit_event
+            slack_res = await self.workspace_adapter.post_agent_turn(
+                channel_id=ctx.channel_id,
+                thread_ts=ctx.thread_ts,
+                text=circuit_breaker_msg,
+                username=ctx.agent_cfg["username"],
+                icon_url=ctx.agent_cfg.get("icon_url"),
+                blocks=blocks,
+            )
+            pause_secs = self.pipeline._get_hook(
+                "SLACK_POST_PAUSE_SECONDS", get_slack_post_pause_seconds()
+            )
+            await self.pipeline._sleep(pause_secs)
 
-                log_audit_event(
-                    event_type="CIRCUIT_BREAKER_TRIGGERED",
-                    actor={"type": "system", "id": "spend_governance"},
-                    action="trip_circuit_breaker",
-                    target=ctx.thread_key,
-                    details={
-                        "channel_id": ctx.channel_id,
-                        "thread_ts": ctx.thread_ts,
-                        "current_cost_usd": current_cost,
-                        "threshold_usd": threshold,
-                    },
-                    severity="CRITICAL",
-                    status="SUCCESS",
-                )
-                circuit_breaker_msg = (
-                    "EXPENSE LIMIT REACHED FOR THE THREAD. ENDING CALLS"
-                )
+            # Note: trigger_thread_notes_update is intentionally suppressed here
+            # to prevent burning further LLM tokens when the budget is exceeded.
 
-                session_id = getattr(ctx, "session_id", f"{ctx.channel_id}:{ctx.thread_ts}")
-                try:
-                    import json
-                    import uuid
-                    from core.domain import TurnCheckpoint
-                    from services.turn_checkpoint_store import turn_checkpoint_store
+            trig_usage = self.pipeline._get_hook(
+                "trigger_usage_update", trigger_usage_update
+            )
+            trig_usage(
+                channel_id=ctx.channel_id,
+                thread_ts=ctx.thread_ts,
+                is_completed=True,
+            )
 
-                    chk_id = str(uuid.uuid4())
-                    chk = TurnCheckpoint(
-                        checkpoint_id=chk_id,
-                        session_id=session_id,
-                        channel_id=ctx.channel_id,
-                        thread_ts=ctx.thread_ts,
-                        agent_key=ctx.agent_key,
-                        pause_reason="circuit_breaker",
-                        messages=ctx.messages or [],
-                        accumulated_history=ctx.in_memory_history or [],
-                        prompt_tokens=ctx.total_prompt_tokens,
-                        completion_tokens=ctx.total_completion_tokens,
-                    )
-                    turn_checkpoint_store.save_checkpoint(chk)
-                    ctx.checkpoint_id = chk_id
-                except Exception as ex:
-                    logger.debug(f"[RESOLUTION] Failed to save circuit breaker checkpoint: {ex}")
-
-                blocks = self.workspace_adapter.build_budget_halt_blocks(
-                    circuit_breaker_msg, session_id
-                )
-                slack_res = await self.workspace_adapter.post_agent_turn(
-                    channel_id=ctx.channel_id,
-                    thread_ts=ctx.thread_ts,
-                    text=circuit_breaker_msg,
-                    username=ctx.agent_cfg["username"],
-                    icon_url=ctx.agent_cfg.get("icon_url"),
-                    blocks=blocks,
-                )
-                pause_secs = self.pipeline._get_hook(
-                    "SLACK_POST_PAUSE_SECONDS", get_slack_post_pause_seconds()
-                )
-                await self.pipeline._sleep(pause_secs)
-
-                # Note: trigger_thread_notes_update is intentionally suppressed here
-                # to prevent burning further LLM tokens when the budget is exceeded.
-
-                trig_usage = self.pipeline._get_hook(
-                    "trigger_usage_update", trigger_usage_update
-                )
-                trig_usage(
-                    channel_id=ctx.channel_id,
-                    thread_ts=ctx.thread_ts,
-                    is_completed=True,
-                )
-
-                thread_state_manager.suspend_thread(ctx.channel_id, ctx.thread_ts)
-                if isinstance(slack_res, dict):
-                    slack_res["is_completed"] = True
-                    slack_res["final_text"] = circuit_breaker_msg
-                    slack_res["username"] = ctx.agent_cfg["username"]
-                    slack_res["agent_key"] = ctx.agent_key
-                return {
-                    "ok": True,
-                    "circuit_breaker_triggered": True,
-                    "is_completed": True,
-                    "slack_res": slack_res,
-                    "final_text": circuit_breaker_msg,
-                    "username": ctx.agent_cfg["username"],
-                    "agent_key": ctx.agent_key,
-                }
+            thread_state_manager.suspend_thread(ctx.channel_id, ctx.thread_ts)
+            if isinstance(slack_res, dict):
+                slack_res["is_completed"] = True
+                slack_res["final_text"] = circuit_breaker_msg
+                slack_res["username"] = ctx.agent_cfg["username"]
+                slack_res["agent_key"] = ctx.agent_key
+            return {
+                "ok": True,
+                "circuit_breaker_triggered": True,
+                "is_completed": True,
+                "slack_res": slack_res,
+                "final_text": circuit_breaker_msg,
+                "username": ctx.agent_cfg["username"],
+                "agent_key": ctx.agent_key,
+            }
 
         return None

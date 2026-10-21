@@ -6,9 +6,7 @@
   "fixed_config": {
     "chain": [
       "agent-10001",
-      "agent-10002",
-      "agent-10003",
-      "agent-10015"
+      "agent-10002"
     ]
   }
 }

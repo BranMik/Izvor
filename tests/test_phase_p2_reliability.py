@@ -530,6 +530,6 @@ async def test_send_admin_audit_alert_uses_admin_ids():
             details={"seq": 42},
         )
         assert res is True
-        mock_dm.assert_awaited_once()
-        called_user = mock_dm.call_args[0][0]
-        assert called_user in {"U_ADMIN_PRIMARY", "U_ADMIN_SECONDARY"}
+        assert mock_dm.await_count == 2
+        called_users = [call[0][0] for call in mock_dm.call_args_list]
+        assert called_users == sorted(["U_ADMIN_PRIMARY", "U_ADMIN_SECONDARY"])

@@ -37,6 +37,7 @@ from orchestration.protocols import (
     SleepFunction,
     SystemMessagePoster,
     TokenRecorder,
+    ToolExecutor,
     UsageUpdater,
     WorkspaceAdapter,
 )
@@ -194,9 +195,9 @@ class TurnPipeline:
 
     def __init__(
         self,
-        router_module: Any = None,
         hooks: dict[str, Any] | None = None,
         *,
+        tool_executor: ToolExecutor | None = None,
         llm_executor: LLMExecutor | None = None,
         slack_poster: SlackPoster | None = None,
         history_fetcher: HistoryFetcher | None = None,
@@ -210,10 +211,10 @@ class TurnPipeline:
         calc_costs_fn: CostCalculator | None = None,
         workspace_adapter: WorkspaceAdapter | None = None,
     ):
-        self._router_module = router_module
         self._hooks: dict[str, Any] = hooks or {}
 
         # Explicit Dependency Injection
+        self.tool_executor = tool_executor
         self.llm_executor = llm_executor
         self.slack_poster = slack_poster
         self.history_fetcher = history_fetcher
@@ -246,19 +247,11 @@ class TurnPipeline:
         self.execution_stage = ExecutionStage(self)
         self.post_record_stage = PostRecordStage(self)
 
-    @property
-    def router(self):
-        if self._router_module is not None:
-            return self._router_module
-        from orchestration import agent_router
-
-        return agent_router
-
-
     def _get_hook(self, name: str, default: Any = None) -> Any:
-        """Dynamically retrieves a function or constant from injected deps, hooks, router module, or default."""
+        """Dynamically retrieves a function or constant from injected deps, hooks, or default."""
         # 1. Injected dependencies take highest priority
         di_map = {
+            "execute_mcp_tool": self.tool_executor,
             "execute_llm_with_retry": self.llm_executor,
             "post_agent_response": self.slack_poster,
             "fetch_thread_history": self.history_fetcher,
@@ -281,15 +274,11 @@ class TurnPipeline:
         if alt_name in self._hooks and self._hooks[alt_name] is not None:
             return self._hooks[alt_name]
 
-        # 3. Router module attribute or monkeypatch (for test monkeypatch compatibility)
-        if self.router is not None and hasattr(self.router, name):
-            return getattr(self.router, name)
-
-        # 4. Default fallback if provided
+        # 3. Default fallback if provided
         if default is not None:
             return default
 
-        # 5. Default canonical service implementations
+        # 4. Default canonical service implementations
         fallback_map = {
             "execute_llm_with_retry": execute_llm_with_retry,
             "post_agent_response": post_agent_response,
@@ -308,16 +297,25 @@ class TurnPipeline:
         return fallback_map.get(name, None)
 
     async def _sleep(self, seconds: float):
-        """Asynchronous sleep respecting injected sleep_fn or router monkeypatch."""
+        """Asynchronous sleep respecting injected sleep_fn or hooks."""
         if self.sleep_fn is not None:
             await self.sleep_fn(seconds)
             return
-        r = self.router
-        sleep_fn = getattr(getattr(r, "asyncio", asyncio), "sleep", asyncio.sleep)
-        await sleep_fn(seconds)
+        custom_sleep = self._hooks.get("asyncio_sleep") or self._hooks.get("time_sleep")
+        if custom_sleep is not None:
+            import inspect
+            if inspect.iscoroutinefunction(custom_sleep):
+                await custom_sleep(seconds)
+            else:
+                custom_sleep(seconds)
+            return
+        await asyncio.sleep(seconds)
 
     async def run(self, ctx: TurnContext) -> dict[str, Any]:
         """Runs the entire turn execution lifecycle."""
+        from services.web_tools import reset_turn_web_budget
+        reset_turn_web_budget()
+
         logger.info(
             f"\n[{ctx.start_time}] >>> START process_and_respond for thread_ts: {ctx.thread_ts} <<<"
         )

@@ -114,7 +114,7 @@ class IntentExtractor:
         try:
             resp = await asyncio.wait_for(
                 execute_llm_with_retry(
-                    func=litellm.completion,
+                    func=litellm.acompletion,
                     kwargs={
                         "model": self.model,
                         "messages": messages,

@@ -3,6 +3,17 @@ from dataclasses import dataclass, field
 from typing import Any, Literal
 
 
+@dataclass(frozen=True)
+class ToolPrincipal:
+    """Represents the principal (agent or system) requesting an operation or tool execution."""
+
+    kind: Literal["agent", "system"]
+    id: str
+
+
+SYSTEM_PRINCIPAL = ToolPrincipal(kind="system", id="system")
+
+
 @dataclass
 class Turn:
     """Represents a single conversational turn by a user or an agent."""

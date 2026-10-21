@@ -376,24 +376,20 @@ class ExecutionStage:
                                             existing_names.add(s_name)
                                     elif s_schema not in active_tools:
                                         active_tools.append(s_schema)
-                        elif exec_mcp_fn is not None and exec_mcp_fn is not execute_mcp_tool:
-                            sig = inspect.signature(exec_mcp_fn)
-                            kwargs = {"agent_name": ctx.agent_key} if "agent_name" in sig.parameters else {}
-                            if inspect.iscoroutinefunction(exec_mcp_fn):
-                                tool_result = await exec_mcp_fn(fn_name, fn_args, **kwargs)
-                            else:
-                                tool_result = await asyncio.to_thread(exec_mcp_fn, fn_name, fn_args, **kwargs)
                         else:
                             # 1. First verify tool authorization before cache or execution
+                            from core.domain import ToolPrincipal
                             from services.mcp_tools import is_agent_authorized_for_tool
-                            if not is_agent_authorized_for_tool(ctx.agent_key, fn_name, authorized_skills=agent_skills, skill_registry=skill_registry):
+
+                            principal = ToolPrincipal(kind="agent", id=ctx.agent_key)
+                            if not is_agent_authorized_for_tool(principal, fn_name, authorized_skills=agent_skills, skill_registry=skill_registry):
                                 tool_result = skill_registry.execute_tool(
                                     fn_name,
                                     fn_args,
                                     authorized_skills=agent_skills,
                                     expired_skills=expired_thread_skills,
                                     ttl_hours=thread_ttl_hours,
-                                    agent_name=ctx.agent_key,
+                                    agent_name=principal,
                                 )
                             else:
                                 s_name = skill_registry.find_skill_for_tool(fn_name)
@@ -473,14 +469,26 @@ class ExecutionStage:
                                         f"[EVIDENCE] Reusing cached round evidence for tool '{fn_name}' from agent {cached_evidence.agent_key} in {ctx.channel_id}:{ctx.thread_ts}"
                                     )
                                 else:
-                                    if hasattr(skill_registry, "execute_tool_async"):
+                                    # 4. Low-level execution via custom executor hook or skill_registry
+                                    if exec_mcp_fn is not None and exec_mcp_fn is not execute_mcp_tool:
+                                        sig = inspect.signature(exec_mcp_fn)
+                                        kwargs = {}
+                                        if "agent_name" in sig.parameters:
+                                            kwargs["agent_name"] = ctx.agent_key
+                                        if "authorized_skills" in sig.parameters:
+                                            kwargs["authorized_skills"] = agent_skills
+                                        if inspect.iscoroutinefunction(exec_mcp_fn):
+                                            tool_result = await exec_mcp_fn(fn_name, fn_args, **kwargs)
+                                        else:
+                                            tool_result = await asyncio.to_thread(exec_mcp_fn, fn_name, fn_args, **kwargs)
+                                    elif hasattr(skill_registry, "execute_tool_async"):
                                         tool_result = await skill_registry.execute_tool_async(
                                             fn_name,
                                             fn_args,
                                             authorized_skills=agent_skills,
                                             expired_skills=expired_thread_skills,
                                             ttl_hours=thread_ttl_hours,
-                                            agent_name=ctx.agent_key,
+                                            agent_name=principal,
                                         )
                                     else:
                                         tool_result = await asyncio.to_thread(
@@ -490,7 +498,7 @@ class ExecutionStage:
                                             authorized_skills=agent_skills,
                                             expired_skills=expired_thread_skills,
                                             ttl_hours=thread_ttl_hours,
-                                            agent_name=ctx.agent_key,
+                                            agent_name=principal,
                                         )
                         # Track skill used
                         if fn_name == "load_skill":

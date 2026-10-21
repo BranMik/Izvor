@@ -1,4 +1,5 @@
 import asyncio
+import contextvars
 import ipaddress
 import json
 import logging
@@ -12,6 +13,29 @@ import httpx
 from bs4 import BeautifulSoup
 
 logger = logging.getLogger(__name__)
+
+_turn_web_fetch_count: contextvars.ContextVar[int] = contextvars.ContextVar("_turn_web_fetch_count", default=0)
+
+
+def reset_turn_web_budget() -> None:
+    """Resets the per-turn web fetch count."""
+    _turn_web_fetch_count.set(0)
+
+
+def check_and_increment_web_budget() -> None:
+    """
+    Verifies that the turn has not exceeded its outbound web request budget.
+    Increments the budget counter or raises a PermissionError if exceeded.
+    """
+    sec_limits = get_web_security_limits()
+    max_fetches = sec_limits.get("max_fetches_per_turn", 10)
+    current = _turn_web_fetch_count.get()
+    if current >= max_fetches:
+        raise PermissionError(
+            f"Web fetch budget exceeded: limit of {max_fetches} requests per turn reached."
+        )
+    _turn_web_fetch_count.set(current + 1)
+
 
 
 def _get_web_settings():
@@ -70,17 +94,38 @@ def _web_search_inner(query: str, max_results: int = 5) -> str:
     cleaned_query = query.strip()
     max_results = max(1, min(int(max_results), 10))
 
+    try:
+        check_and_increment_web_budget()
+    except PermissionError as pe:
+        return json.dumps({"error": str(pe), "results": []})
+
     # Strategy 1: DuckDuckGo HTML Endpoint (Fast, reliable, zero-auth)
     try:
         url = get_web_search_endpoint()
+        is_safe, cleaned_endpoint, err, resolved_ip = validate_url_security(url)
+        if not is_safe or not resolved_ip:
+            from services.audit_logger import log_audit_event
+
+            log_audit_event(
+                event_type="SSRF_BLOCKED",
+                actor={"type": "service", "id": "web_search"},
+                action="web_search",
+                target=url,
+                details={"reason": f"Search endpoint security check failed: {err}"},
+                severity="CRITICAL",
+                status="BLOCKED",
+            )
+            return json.dumps({"error": f"Security Block on search endpoint: {err}", "results": []})
+
         headers = {
             "User-Agent": get_web_user_agent(),
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             "Accept-Language": "en-US,en;q=0.5",
         }
         data = {"q": cleaned_query}
-        with httpx.Client(timeout=get_web_search_timeout(), follow_redirects=True) as client:
-            response = client.post(url, data=data, headers=headers)
+        transport = PinnedIPTransport(resolved_ip)
+        with httpx.Client(transport=transport, timeout=get_web_search_timeout(), follow_redirects=False) as client:
+            response = client.post(cleaned_endpoint, data=data, headers=headers)
 
         if response.status_code == 200:
             soup = BeautifulSoup(response.text, "html.parser")
@@ -260,24 +305,40 @@ MUTATING_PARAM_KEYS = {
 
 def is_ip_blocked(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
     """
-    Returns True if the IP address belongs to any restricted range:
-    loopback, private, link-local, multicast, reserved, unspecified, or CGNAT.
+    Return True if IP is non-global (private, loopback, link-local, CGNAT, NAT64, 6to4, Teredo, multicast, reserved).
     """
-    if (
-        ip.is_private
-        or ip.is_loopback
-        or ip.is_link_local
-        or ip.is_multicast
-        or ip.is_reserved
-        or ip.is_unspecified
-    ):
-        return True
+    if isinstance(ip, ipaddress.IPv6Address):
+        if ip.ipv4_mapped is not None and is_ip_blocked(ip.ipv4_mapped):
+            return True
+        if ip.sixtofour is not None and is_ip_blocked(ip.sixtofour):
+            return True
+        if ip.teredo is not None:
+            server_ip, client_ip = ip.teredo
+            if is_ip_blocked(server_ip) or is_ip_blocked(client_ip):
+                return True
+        # NAT64 well-known prefix 64:ff9b::/96 and local-use 64:ff9b:1::/48
+        if ip in ipaddress.IPv6Network("64:ff9b::/96") or ip in ipaddress.IPv6Network("64:ff9b:1::/48"):
+            return True
+    return not ip.is_global
 
-    if getattr(ip, "ipv4_mapped", None) and is_ip_blocked(ip.ipv4_mapped):
-        return True
 
-    # Carrier Grade NAT (RFC 6598: 100.64.0.0/10)
-    return isinstance(ip, ipaddress.IPv4Address) and ip in ipaddress.ip_network("100.64.0.0/10")
+def sanitize_outbound_url(url: str) -> str:
+    """Strips query and fragment from untrusted domains if strip_query_on_untrusted_domains is enabled."""
+    try:
+        sec_limits = get_web_security_limits()
+        if not sec_limits.get("strip_query_on_untrusted_domains", False):
+            return url
+        allowed_domains = [str(d).lower().lstrip(".") for d in sec_limits.get("allowed_domains", []) if str(d).strip()]
+        if not allowed_domains:
+            return url
+        parsed = urllib.parse.urlsplit(url)
+        host = (parsed.hostname or "").lower().strip(".")
+        if not any(host == d or host.endswith("." + d) for d in allowed_domains):
+            return urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", ""))
+        return url
+    except Exception:
+        return url
+
 
 
 def validate_url_security(url: str) -> tuple[bool, str, str | None, str | None]:
@@ -316,6 +377,15 @@ def validate_url_security(url: str) -> tuple[bool, str, str | None, str | None]:
     scheme = (parsed.scheme or "").lower()
     if scheme not in ("http", "https"):
         return False, cleaned_url, f"Scheme '{scheme}' is not allowed. Only HTTP and HTTPS are permitted.", None
+
+    # Port allowlist enforcement
+    allowed_ports = sec_limits.get("allowed_ports", [80, 443])
+    try:
+        port = parsed.port
+    except ValueError:
+        return False, cleaned_url, "Invalid port in URL.", None
+    if port is not None and port not in allowed_ports:
+        return False, cleaned_url, f"Port {port} is not allowed. Permitted ports: {allowed_ports}.", None
 
     if not parsed.netloc:
         return False, cleaned_url, "URL is missing a valid host.", None
@@ -368,6 +438,12 @@ def validate_url_security(url: str) -> tuple[bool, str, str | None, str | None]:
         if hostname_lower == suffix[1:] or hostname_lower.endswith(suffix):
             return False, cleaned_url, f"Access to internal domain '{hostname}' is blocked.", None
 
+    # Domain allowlist enforcement (if configured)
+    allowed_domains = [str(d).lower().lstrip(".") for d in sec_limits.get("allowed_domains", []) if str(d).strip()]
+    if allowed_domains:
+        if not any(hostname_lower == d or hostname_lower.endswith("." + d) for d in allowed_domains):
+            return False, cleaned_url, f"Domain '{hostname}' is not in the configured web egress allowlist.", None
+
     # Check if hostname is an IP literal
     try:
         ip = ipaddress.ip_address(hostname_lower)
@@ -419,6 +495,12 @@ def _fetch_web_page_inner(url: str, max_chars: int = 4000) -> str:
             }
         )
 
+    try:
+        check_and_increment_web_budget()
+    except PermissionError as pe:
+        return json.dumps({"error": str(pe), "url": str(url)})
+
+    cleaned_url = sanitize_outbound_url(cleaned_url)
     max_chars = max(500, min(int(max_chars), 15000))
     sec_limits = get_web_security_limits()
     max_redirects = sec_limits.get("max_redirects", MAX_REDIRECTS)

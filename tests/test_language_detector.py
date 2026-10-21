@@ -1,4 +1,4 @@
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -16,6 +16,7 @@ def _make_mock_response(content: str) -> MagicMock:
     mock_choice = MagicMock()
     mock_choice.message.content = content
     mock_resp.choices = [mock_choice]
+    mock_resp.usage = None
     return mock_resp
 
 
@@ -28,11 +29,12 @@ def test_detect_language_fallbacks():
     assert detect_language("```\ndef foo():\n    return 42\n```") == "English"
 
 
-def test_detect_language_llm_slack_tag_stripping():
+@pytest.mark.anyio
+async def test_detect_language_llm_slack_tag_stripping():
     """Ensures Slack tags like <@U0BR4EH6XMY> are stripped before calling the LLM."""
     text = "<@U0BR4EH6XMY> kratki test, do 5 rijeci"
-    with patch("litellm.completion", return_value=_make_mock_response("Croatian")) as mock_comp:
-        res = detect_language(text)
+    with patch("nlp.language_detector.litellm.acompletion", AsyncMock(return_value=_make_mock_response("Croatian"))) as mock_comp:
+        res = await detect_language_llm(text)
         assert res == "Croatian"
         # Check that the prompt sent to LLM had the Slack tag stripped
         call_kwargs = mock_comp.call_args[1]
@@ -41,25 +43,24 @@ def test_detect_language_llm_slack_tag_stripping():
         assert "kratki test, do 5 rijeci" in user_message
 
 
-def test_detect_language_mocked():
-    """Verifies that detect_language correctly invokes LLM and normalizes response."""
+def test_detect_language_heuristic():
+    """Verifies that synchronous detect_language correctly classifies via heuristic."""
     test_cases = [
-        ("What are the architectural trade-offs?", "English", "English"),
-        ("Kako funkcionira ovaj sustav?", "Croatian", "Croatian"),
-        ("kratki test, do 5 rijeci", "hrvatski", "Croatian"),
-        ("Wie funktioniert das System?", "German", "German"),
-        ("Comment ça marche?", "French", "French"),
-        ("¿Cómo funciona esto?", "Spanish", "Spanish"),
+        ("What are the architectural trade-offs?", "English"),
+        ("Kako funkcionira ovaj sustav?", "Croatian"),
+        ("kratki test, do 5 rijeci", "Croatian"),
+        ("Wie funktioniert das System und die Architektur?", "German"),
+        ("Comment ça marche pour les utilisateurs?", "French"),
+        ("¿Cómo funciona esto y la base de datos?", "Spanish"),
     ]
-    for prompt, llm_output, expected in test_cases:
-        with patch("litellm.completion", return_value=_make_mock_response(llm_output)):
-            assert detect_language(prompt) == expected
+    for prompt, expected in test_cases:
+        assert detect_language(prompt) == expected
 
 
 @pytest.mark.anyio
 async def test_detect_language_llm_mocked_success():
     text = "analiza sustava"
-    with patch("litellm.completion", return_value=_make_mock_response("Croatian")):
+    with patch("nlp.language_detector.litellm.acompletion", AsyncMock(return_value=_make_mock_response("Croatian"))):
         res = await detect_language_llm(text)
         assert res == "Croatian"
 
@@ -71,7 +72,7 @@ async def test_detect_language_llm_uses_configured_model():
 
     expected_model = get_language_detector_model()
     text = "kratki test"
-    with patch("litellm.completion", return_value=_make_mock_response("Croatian")) as mock_comp:
+    with patch("nlp.language_detector.litellm.acompletion", AsyncMock(return_value=_make_mock_response("Croatian"))) as mock_comp:
         res = await detect_language_llm(text)
         assert res == "Croatian"
         call_kwargs = mock_comp.call_args[1]
@@ -88,8 +89,9 @@ async def test_detect_language_reasoning_content_fallback():
     mock_choice.message.content = ""
     mock_choice.message.reasoning_content = "Thinking Process: The text is clearly Croatian. Answer: Croatian"
     mock_resp.choices = [mock_choice]
+    mock_resp.usage = None
 
-    with patch("litellm.completion", return_value=mock_resp):
+    with patch("nlp.language_detector.litellm.acompletion", AsyncMock(return_value=mock_resp)):
         res = await detect_language_llm("Ajmo opet, isti upit.")
         assert res == "Croatian"
 
@@ -98,7 +100,7 @@ async def test_detect_language_reasoning_content_fallback():
 async def test_detect_language_llm_fallback_on_error():
     """When LLM call fails or times out, cleanly falls back to default."""
     text = "wie geht es dir heute mein freund"
-    with patch("litellm.completion", side_effect=Exception("API connection timeout")):
+    with patch("nlp.language_detector.litellm.acompletion", side_effect=Exception("API connection timeout")):
         res = await detect_language_llm(text)
         assert res == "English"
 

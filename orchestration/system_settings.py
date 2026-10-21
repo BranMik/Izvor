@@ -76,11 +76,16 @@ class SystemSettingsManager:
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
             "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
         )
-        self.web_security: dict[str, int] = {
+        self.max_write_bytes: int = 1_048_576
+        self.web_security: dict[str, Any] = {
             "max_url_length": 2048,
             "max_query_length": 1024,
             "max_redirects": 5,
             "max_body_bytes": 2097152,
+            "allowed_ports": [80, 443],
+            "allowed_domains": [],
+            "strip_query_on_untrusted_domains": False,
+            "max_fetches_per_turn": 10,
         }
         self.security_burst_limits: dict[str, Any] = {
             "auth_failure_window_seconds": 60.0,
@@ -197,6 +202,7 @@ class SystemSettingsManager:
             self.web_search_endpoint = str(data.get("web_search_endpoint", "https://html.duckduckgo.com/html/")).strip() or "https://html.duckduckgo.com/html/"
             self.web_fetch_user_agent = str(data.get("web_fetch_user_agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")).strip()
 
+            self.max_write_bytes = int(data.get("max_write_bytes", 1_048_576))
             raw_ws = data.get("web_security", {})
             if isinstance(raw_ws, dict):
                 self.web_security = {
@@ -204,6 +210,10 @@ class SystemSettingsManager:
                     "max_query_length": int(raw_ws.get("max_query_length", 1024)),
                     "max_redirects": int(raw_ws.get("max_redirects", 5)),
                     "max_body_bytes": int(raw_ws.get("max_body_bytes", 2097152)),
+                    "allowed_ports": list(raw_ws.get("allowed_ports", [80, 443])),
+                    "allowed_domains": [str(d).lower().lstrip(".") for d in raw_ws.get("allowed_domains", []) if str(d).strip()],
+                    "strip_query_on_untrusted_domains": bool(raw_ws.get("strip_query_on_untrusted_domains", False)),
+                    "max_fetches_per_turn": int(raw_ws.get("max_fetches_per_turn", 10)),
                 }
             raw_sbl = data.get("security_burst_limits", {})
             if isinstance(raw_sbl, dict):
@@ -277,6 +287,7 @@ class SystemSettingsManager:
                     self.web_search_endpoint = str(data.get("web_search_endpoint", "https://html.duckduckgo.com/html/")).strip() or "https://html.duckduckgo.com/html/"
                     self.web_fetch_user_agent = str(data.get("web_fetch_user_agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")).strip()
 
+                    self.max_write_bytes = int(data.get("max_write_bytes", 1_048_576))
                     raw_ws = data.get("web_security", {})
                     if isinstance(raw_ws, dict):
                         self.web_security = {
@@ -284,6 +295,10 @@ class SystemSettingsManager:
                             "max_query_length": int(raw_ws.get("max_query_length", 1024)),
                             "max_redirects": int(raw_ws.get("max_redirects", 5)),
                             "max_body_bytes": int(raw_ws.get("max_body_bytes", 2097152)),
+                            "allowed_ports": list(raw_ws.get("allowed_ports", [80, 443])),
+                            "allowed_domains": [str(d).lower().lstrip(".") for d in raw_ws.get("allowed_domains", []) if str(d).strip()],
+                            "strip_query_on_untrusted_domains": bool(raw_ws.get("strip_query_on_untrusted_domains", False)),
+                            "max_fetches_per_turn": int(raw_ws.get("max_fetches_per_turn", 10)),
                         }
                     raw_sbl = data.get("security_burst_limits", {})
                     if isinstance(raw_sbl, dict):
@@ -338,6 +353,7 @@ class SystemSettingsManager:
             "pricing_benchmark_url": self.pricing_benchmark_url,
             "web_search_endpoint": self.web_search_endpoint,
             "web_fetch_user_agent": self.web_fetch_user_agent,
+            "max_write_bytes": self.max_write_bytes,
             "web_security": self.web_security,
             "security_burst_limits": self.security_burst_limits,
             "convergence_consecutive_threshold": self.convergence_consecutive_threshold,
@@ -439,6 +455,21 @@ class SystemSettingsManager:
             logger.info(f"[SYSTEM_SETTINGS] Set max_file_size_mb to {self.max_file_size_mb} MB.")
         except (ValueError, TypeError) as e:
             logger.error(f"[SYSTEM_SETTINGS] Invalid max_file_size_mb '{val}': {e}")
+
+    # --- Write Document Size Limit ---
+    def get_max_write_bytes(self) -> int:
+        self.load()
+        return int(self.max_write_bytes)
+
+    def set_max_write_bytes(self, val: int, save: bool = True) -> None:
+        try:
+            self.max_write_bytes = max(1, int(val))
+            if save:
+                self.save()
+            logger.info(f"[SYSTEM_SETTINGS] Set max_write_bytes to {self.max_write_bytes} bytes.")
+        except (ValueError, TypeError) as e:
+            logger.error(f"[SYSTEM_SETTINGS] Invalid max_write_bytes '{val}': {e}")
+
 
     # --- RAG Settings ---
     def get_rag_config(self) -> dict[str, Any]:
@@ -710,9 +741,12 @@ class SystemSettingsManager:
         self.load()
         return str(self.web_fetch_user_agent)
 
-    def get_web_security(self) -> dict[str, int]:
+    def get_web_security(self) -> dict[str, Any]:
         self.load()
         return dict(self.web_security)
+
+    def get_web_security_limits(self) -> dict[str, Any]:
+        return self.get_web_security()
 
     def get_security_burst_limits(self) -> dict[str, Any]:
         self.load()
@@ -755,6 +789,14 @@ def get_max_file_size_mb() -> float:
 
 def get_max_file_size_bytes() -> int:
     return system_settings_manager.get_max_file_size_bytes()
+
+
+def get_max_write_bytes() -> int:
+    return system_settings_manager.get_max_write_bytes()
+
+
+def set_max_write_bytes(val: int, save: bool = True) -> None:
+    system_settings_manager.set_max_write_bytes(val, save=save)
 
 
 def set_max_file_size_mb(val: float, save: bool = True) -> None:
@@ -939,8 +981,12 @@ def get_web_fetch_user_agent() -> str:
     return system_settings_manager.get_web_fetch_user_agent()
 
 
-def get_web_security() -> dict[str, int]:
+def get_web_security() -> dict[str, Any]:
     return system_settings_manager.get_web_security()
+
+
+def get_web_security_limits() -> dict[str, Any]:
+    return system_settings_manager.get_web_security_limits()
 
 
 def get_security_burst_limits() -> dict[str, Any]:

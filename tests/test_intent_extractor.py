@@ -1,5 +1,5 @@
 import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -49,7 +49,7 @@ async def test_stop_discussion_never_inferred_from_llm():
 
     from nlp.intent_extractor import intent_extractor
 
-    with patch("nlp.intent_extractor.litellm.completion", return_value=mock_resp):
+    with patch("nlp.intent_extractor.litellm.acompletion", AsyncMock(return_value=mock_resp)):
         intent = await intent_extractor.extract_intent("Cut scope ruthlessly")
         assert not intent.has_action("stop_discussion")
         assert "stop_discussion" not in [a.name for a in intent.actions]
@@ -77,7 +77,7 @@ async def test_extract_user_intent_success():
         )
     ]
 
-    with patch("nlp.intent_extractor.litellm.completion", return_value=mock_response):
+    with patch("nlp.intent_extractor.litellm.acompletion", AsyncMock(return_value=mock_response)):
         intent = await extract_user_intent(
             "Please analyze schema.sql based on last 4 messages in under 60 words and exclude LegalAdvisor",
             available_files=[{"name": "schema.sql", "id": "F123"}],
@@ -109,7 +109,7 @@ async def test_extract_user_intent_empty_text():
 
 @pytest.mark.anyio
 async def test_extract_user_intent_failure_fallback():
-    with patch("nlp.intent_extractor.litellm.completion", side_effect=Exception("API Down")):
+    with patch("nlp.intent_extractor.litellm.acompletion", side_effect=Exception("API Down")):
         intent = await extract_user_intent("some message")
         assert intent["max_words"] is None
         assert intent["min_words"] is None
@@ -143,7 +143,7 @@ async def test_directive_parser_uses_intent_extractor_for_max_words():
         )
     ]
 
-    with patch("nlp.intent_extractor.litellm.completion", return_value=mock_resp):
+    with patch("nlp.intent_extractor.litellm.acompletion", AsyncMock(return_value=mock_resp)):
         res = await directive_parser.parse("objasni baze podataka u do 5 riječi")
         assert res.max_words == 5
         assert "objasni baze podataka" in res.cleaned_prompt
@@ -178,7 +178,7 @@ async def test_directive_parser_uses_intent_extractor_for_all_directives():
         )
     ]
 
-    with patch("nlp.intent_extractor.litellm.completion", return_value=mock_resp):
+    with patch("nlp.intent_extractor.litellm.acompletion", AsyncMock(return_value=mock_resp)):
         res = await directive_parser.parse(
             "pogledaj priloženi schema.sql, uzmi zadnje 4 poruke, bez LegalAdvisora, između 30 i 100 riječi",
             available_files=[{"name": "schema.sql", "id": "F123"}],

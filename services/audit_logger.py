@@ -123,9 +123,54 @@ def canonical_serialize(data: dict[str, Any]) -> str:
 def get_audit_hmac_secret() -> bytes:
     """Returns the current HMAC secret from module global or environment."""
     val = globals().get("AUDIT_HMAC_SECRET")
-    if val is not None:
-        return val if isinstance(val, bytes) else str(val).encode("utf-8")
-    return os.getenv("AUDIT_HMAC_SECRET", "").encode("utf-8")
+    if val:
+        secret = val if isinstance(val, bytes) else str(val).encode("utf-8")
+        if secret.strip():
+            return secret
+    env_val = os.getenv("AUDIT_HMAC_SECRET", "").strip().encode("utf-8")
+    if env_val:
+        return env_val
+    from core.config import is_test_environment
+    if is_test_environment():
+        return b"test-only-default-audit-hmac-secret-32b"
+    raise RuntimeError("CRITICAL: AUDIT_HMAC_SECRET environment variable must be set in non-test environments.")
+
+
+def validate_audit_configuration() -> None:
+    """Validates that audit security settings (such as AUDIT_HMAC_SECRET) are valid at startup."""
+    get_audit_hmac_secret()
+
+
+def _persist_audit_anchor(month: str, seq: int, entry_hash: str, timestamp: str) -> None:
+    """Persists a head-hash anchor to SQLite to detect subsequent tail truncations."""
+    try:
+        from core.database import db_manager
+        with db_manager.transaction(immediate=True) as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO audit_anchors (month, seq, entry_hash, anchored_at) VALUES (?, ?, ?, ?)",
+                (month, seq, entry_hash, timestamp),
+            )
+    except Exception as e:
+        logger.error(f"[AUDIT] Failed to persist audit anchor (seq={seq}, month={month}): {e}")
+
+
+def _dispatch_critical_alert(record: AuditRecord | dict[str, Any]) -> None:
+    """Dispatches an asynchronous critical alert if an event loop is running."""
+    rec = asdict(record) if isinstance(record, AuditRecord) else dict(record)
+    try:
+        import asyncio
+        loop = asyncio.get_running_loop()
+        loop.create_task(
+            send_admin_audit_alert(
+                title=f"Security Alert: {rec.get('event_type')}",
+                message=f"Action '{rec.get('action')}' on target '{rec.get('target')}' recorded with status '{rec.get('status')}'.",
+                details=rec.get("details"),
+            )
+        )
+    except (RuntimeError, ValueError):
+        pass
+    except Exception as e:
+        logger.warning(f"[AUDIT] Failed to dispatch background critical alert: {e}")
 
 
 def compute_entry_hash(prev_hash: str, canonical_json: str, secret_key: bytes | None = None) -> str:
@@ -330,10 +375,26 @@ class AuditLogger:
             self._cached_file_size = target_file.stat().st_size
             self._cached_last_state = (record.seq, record.entry_hash)
 
+            if record.severity == "CRITICAL" or record.seq % 10 == 0:
+                month_str = now.strftime("%Y_%m")
+                _persist_audit_anchor(month_str, record.seq, record.entry_hash, record.timestamp)
+
+            if record.severity == "CRITICAL":
+                _dispatch_critical_alert(record)
+
             logger.info(
                 f"[AUDIT] Seq {record.seq} ({record.event_type}) recorded by {actor_dict.get('id')} -> {target_file.name}"
             )
             return asdict(record)
+
+    def anchor_head(self) -> None:
+        """Forces an anchor of current head state to SQLite."""
+        with self._write_lock:
+            seq, h = self.get_last_state()
+            if seq > 0:
+                now_str = datetime.datetime.now(datetime.timezone.utc).isoformat()
+                now_month = datetime.datetime.now(datetime.timezone.utc).strftime("%Y_%m")
+                _persist_audit_anchor(now_month, seq, h, now_str)
 
     def create_snapshot(self) -> Path | None:
         """
@@ -382,6 +443,29 @@ def log_audit_event(
 ) -> dict[str, Any]:
     """Helper entrypoint for emitting non-repudiable audit events."""
     return audit_logger.log_event(
+        event_type=event_type,
+        actor=actor,
+        action=action,
+        target=target,
+        details=details,
+        severity=severity,
+        status=status,
+    )
+
+
+async def log_audit_event_async(
+    event_type: str,
+    actor: AuditActor | dict[str, Any],
+    action: str,
+    target: str,
+    details: dict[str, Any] | None = None,
+    severity: str = "INFO",
+    status: str = "SUCCESS",
+) -> dict[str, Any]:
+    """Asynchronous entrypoint for emitting non-repudiable audit events via asyncio.to_thread."""
+    import asyncio
+    return await asyncio.to_thread(
+        log_audit_event,
         event_type=event_type,
         actor=actor,
         action=action,
@@ -565,6 +649,7 @@ class AuditVerificationResult:
 def verify_audit_log_integrity(
     audit_dir: Path | None = None,
     month: str | None = None,
+    check_anchors: bool = True,
 ) -> AuditVerificationResult:
     """
     Verifies the cryptographic hash chain across audit files.
@@ -573,10 +658,12 @@ def verify_audit_log_integrity(
     1. Sequence continuity (seq monotonically increasing by 1).
     2. Chain link continuity (current.prev_hash == previous.entry_hash).
     3. Content integrity (current.entry_hash == recomputed_hash).
+    4. Head anchor continuity against SQLite audit_anchors (detects tail truncation).
 
     Args:
         audit_dir: Optional override for audit directory.
         month: Optional specific month to check (e.g., '2026_10' or '2026-10').
+        check_anchors: Whether to verify tail truncation against SQLite head-hash anchors.
     """
     base_dir = audit_dir or DEFAULT_AUDIT_DIR
     if not base_dir.exists():
@@ -597,6 +684,35 @@ def verify_audit_log_integrity(
         files = sorted(list(base_dir.glob("audit_*.jsonl")), key=lambda p: p.name)
 
     if not files:
+        if check_anchors:
+            try:
+                from core.database import db_manager
+                with db_manager.get_connection() as conn:
+                    if month:
+                        clean_m = month.replace("-", "_")
+                        rows = conn.execute(
+                            "SELECT seq, entry_hash FROM audit_anchors WHERE month = ? ORDER BY seq DESC LIMIT 1",
+                            (clean_m,),
+                        ).fetchall()
+                    else:
+                        rows = conn.execute(
+                            "SELECT seq, entry_hash FROM audit_anchors ORDER BY seq DESC LIMIT 1"
+                        ).fetchall()
+                    if rows and int(rows[0]["seq"]) > 0:
+                        return AuditVerificationResult(
+                            valid=False,
+                            total_records=0,
+                            scanned_files=[],
+                            errors=[
+                                f"Tail truncation or anchor mismatch detected: SQLite anchor has seq {rows[0]['seq']}, "
+                                f"but no audit files were found."
+                            ],
+                            last_verified_seq=0,
+                            last_verified_hash=GENESIS_HASH,
+                        )
+            except Exception as e:
+                logger.warning(f"[AUDIT] Could not verify audit anchors from database: {e}")
+
         return AuditVerificationResult(
             valid=True,
             total_records=0,
@@ -702,6 +818,38 @@ def verify_audit_log_integrity(
         except Exception as e:
             errors.append(f"File '{file_path.name}', line {line_num}: Read error - {e}")
 
+    if check_anchors:
+        try:
+            from core.database import db_manager
+            with db_manager.get_connection() as conn:
+                if month:
+                    clean_m = month.replace("-", "_")
+                    rows = conn.execute(
+                        "SELECT seq, entry_hash FROM audit_anchors WHERE month = ? ORDER BY seq DESC LIMIT 1",
+                        (clean_m,),
+                    ).fetchall()
+                else:
+                    rows = conn.execute(
+                        "SELECT seq, entry_hash FROM audit_anchors ORDER BY seq DESC LIMIT 1"
+                    ).fetchall()
+                if rows:
+                    anchor_seq = int(rows[0]["seq"])
+                    anchor_hash = str(rows[0]["entry_hash"])
+                    last_verified_seq = expected_seq - 1
+                    last_verified_hash = expected_prev_hash
+                    if anchor_seq > last_verified_seq:
+                        errors.append(
+                            f"Tail truncation or anchor mismatch detected: SQLite anchor has seq {anchor_seq}, "
+                            f"but verified JSONL log only reaches seq {last_verified_seq}."
+                        )
+                    elif anchor_seq == last_verified_seq and anchor_hash != last_verified_hash:
+                        errors.append(
+                            f"Tail truncation or anchor mismatch detected: SQLite anchor at seq {anchor_seq} "
+                            f"has hash '{anchor_hash}', but verified JSONL log has hash '{last_verified_hash}'."
+                        )
+        except Exception as e:
+            logger.warning(f"[AUDIT] Could not verify audit anchors from database: {e}")
+
     is_valid = len(errors) == 0
     return AuditVerificationResult(
         valid=is_valid,
@@ -719,8 +867,8 @@ async def send_admin_audit_alert(
     details: dict[str, Any] | None = None,
 ) -> bool:
     """
-    Sends an urgent security alert in English directly to an administrator's Slack DM
-    using SLACK_ADMIN_USER_IDS, with fallback to SLACK_TEST_CHANNEL_ID.
+    Sends an urgent security alert in English directly to all administrators' Slack DMs
+    using SLACK_ADMIN_USER_IDS in deterministic sorted order, with fallback to SLACK_TEST_CHANNEL_ID.
     """
     from core.config import (
         SLACK_BOT_TOKEN,
@@ -732,22 +880,6 @@ async def send_admin_audit_alert(
     if not SLACK_BOT_TOKEN or SLACK_BOT_TOKEN == "xoxb-your-bot-user-oauth-token":
         logger.warning(f"[MOCK SLACK ALERT] {title}\n{message}\nDetails: {details}")
         return True
-
-    target_channel = None
-    admin_ids = get_admin_slack_user_ids()
-    admin_id = next(iter(admin_ids), None)
-    if admin_id:
-        try:
-            target_channel = await open_dm_channel(admin_id)
-        except Exception as e:
-            logger.error(f"[AUDIT] Failed to open DM with admin {admin_id}: {e}")
-
-    if not target_channel:
-        target_channel = SLACK_TEST_CHANNEL_ID
-
-    if not target_channel:
-        logger.warning("[AUDIT] No admin Slack target configured for security alert.")
-        return False
 
     text_parts = [
         f"🚨 *[SECURITY CRITICAL] {title}*",
@@ -761,18 +893,43 @@ async def send_admin_audit_alert(
     )
     alert_text = "\n".join(text_parts)
 
-    try:
-        await post_agent_response(
-            channel_id=target_channel,
-            thread_ts="",
-            text=alert_text,
-            username="Security Audit Guard",
-        )
-        logger.info(f"[AUDIT] Dispatched security alert DM to {target_channel}")
-        return True
-    except Exception as e:
-        logger.error(f"[AUDIT] Error dispatching security alert to Slack: {e}")
+    admin_ids = get_admin_slack_user_ids()
+    sent_any = False
+
+    for admin_id in sorted(admin_ids):
+        try:
+            target_channel = await open_dm_channel(admin_id)
+            if target_channel:
+                await post_agent_response(
+                    channel_id=target_channel,
+                    thread_ts="",
+                    text=alert_text,
+                    username="Security Audit Guard",
+                )
+                logger.info(f"[AUDIT] Dispatched security alert DM to admin {admin_id} ({target_channel})")
+                sent_any = True
+        except Exception as e:
+            logger.error(f"[AUDIT] Failed to dispatch security alert DM to admin {admin_id}: {e}")
+
+    if not sent_any:
+        target_channel = SLACK_TEST_CHANNEL_ID
+        if target_channel:
+            try:
+                await post_agent_response(
+                    channel_id=target_channel,
+                    thread_ts="",
+                    text=alert_text,
+                    username="Security Audit Guard",
+                )
+                logger.info(f"[AUDIT] Dispatched security alert to fallback channel {target_channel}")
+                sent_any = True
+            except Exception as e:
+                logger.error(f"[AUDIT] Error dispatching security alert to fallback channel: {e}")
+
+    if not sent_any:
+        logger.warning("[AUDIT] No admin Slack target configured or reached for security alert.")
         return False
+    return True
 
 
 # ---------------------------------------------------------------------------

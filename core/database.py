@@ -196,6 +196,18 @@ SCHEMA_STATEMENTS = [
     """,
     "CREATE INDEX IF NOT EXISTS idx_turn_traces_session ON turn_traces(session_id);",
     "CREATE INDEX IF NOT EXISTS idx_turn_traces_created ON turn_traces(created_at);",
+
+    # 11. Audit Anchors (Head-hash anchors for detecting JSONL log truncation)
+    """
+    CREATE TABLE IF NOT EXISTS audit_anchors (
+        month TEXT NOT NULL,
+        seq INTEGER NOT NULL,
+        entry_hash TEXT NOT NULL,
+        anchored_at TEXT NOT NULL,
+        PRIMARY KEY (month, seq)
+    );
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_audit_anchors_month_seq ON audit_anchors(month, seq);",
 ]
 
 

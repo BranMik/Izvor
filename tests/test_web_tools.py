@@ -3,15 +3,24 @@ import json
 import socket
 from unittest.mock import MagicMock, patch
 
+import pytest
 from core.security_utils import wrap_untrusted_content
 from services.mcp_tools import MCP_TOOLS_SCHEMAS, execute_mcp_tool
 from services.web_tools import (
     MAX_BODY_BYTES,
     fetch_web_page,
     is_ip_blocked,
+    reset_turn_web_budget,
     validate_url_security,
     web_search,
 )
+
+
+@pytest.fixture(autouse=True)
+def reset_web_budget_fixture():
+    reset_turn_web_budget()
+    yield
+    reset_turn_web_budget()
 
 
 def _test_loads(s):
@@ -148,20 +157,23 @@ def test_fetch_web_page_http_error():
 
 
 def test_execute_mcp_web_tools():
+    from core.domain import SYSTEM_PRINCIPAL
+
     with patch("services.mcp_tools.web_search", return_value=json.dumps({"query": "test", "results": []})) as mock_search:
-        res = execute_mcp_tool("web_search", {"query": "test", "max_results": 3})
+        res = execute_mcp_tool("web_search", {"query": "test", "max_results": 3}, agent_name=SYSTEM_PRINCIPAL)
         mock_search.assert_called_once_with(query="test", max_results=3)
         assert "results" in res
 
     with patch("services.mcp_tools.fetch_web_page", return_value=json.dumps({"url": "https://example.com", "content": "mocked"})) as mock_fetch:
-        res = execute_mcp_tool("fetch_web_page", {"url": "https://example.com", "max_chars": 1000})
+        res = execute_mcp_tool("fetch_web_page", {"url": "https://example.com", "max_chars": 1000}, agent_name=SYSTEM_PRINCIPAL)
         mock_fetch.assert_called_once_with(url="https://example.com", max_chars=1000)
         assert "mocked" in res
 
     with patch("services.mcp_tools.fetch_web_page", return_value=json.dumps({"url": "https://example.com", "content": "scraped"})) as mock_scrape:
-        res = execute_mcp_tool("web_scrape", {"url": "https://example.com"})
+        res = execute_mcp_tool("web_scrape", {"url": "https://example.com"}, agent_name=SYSTEM_PRINCIPAL)
         mock_scrape.assert_called_once_with(url="https://example.com", max_chars=4000)
         assert "scraped" in res
+
 
 
 def test_fetch_web_page_ssrf_loopback():

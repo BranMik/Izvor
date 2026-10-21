@@ -46,6 +46,20 @@ class EmbeddingService:
                     model=self.model,
                     input=batch,
                 )
+                try:
+                    from pipeline.spend_governance import spend_governance
+                    usage = getattr(response, "usage", None)
+                    p_toks = getattr(usage, "prompt_tokens", 0) or getattr(usage, "total_tokens", 0) or 0
+                    if p_toks > 0:
+                        spend_governance.record_usage(
+                            session_id="system:embeddings",
+                            model_name=self.model,
+                            prompt_tokens=p_toks,
+                            completion_tokens=0,
+                        )
+                except Exception as rec_err:
+                    logger.debug(f"[RAG Embeddings] Failed to record spend ledger: {rec_err}")
+
                 return [item["embedding"] for item in response.data]
             except Exception as e:
                 last_error = e

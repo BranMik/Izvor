@@ -115,6 +115,10 @@ async def lifespan(app: FastAPI):
     from core.database import init_db
     init_db()
 
+    # Enforce non-repudiable audit HMAC secret configuration fail-fast
+    from services.audit_logger import validate_audit_configuration
+    validate_audit_configuration()
+
     # Check worker concurrency
     concurrency_env = os.getenv("WEB_CONCURRENCY", "1")
     try:
