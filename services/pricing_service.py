@@ -639,9 +639,10 @@ class PricingService:
     async def warm_up_cache(self, models: list[str] | None = None) -> None:
         """Warms up pricing cache at server startup for all known models."""
         if models is None:
-            from core.config import AGENTS_CONFIG, get_thread_notes_model
+            from core.config import get_thread_notes_model
+            from orchestration.agent_settings import get_agents_config
 
-            models_to_check = {cfg["model"] for cfg in AGENTS_CONFIG.values()}
+            models_to_check = {cfg["model"] for cfg in get_agents_config().values() if "model" in cfg}
             thread_notes_m = get_thread_notes_model()
             if thread_notes_m:
                 models_to_check.add(thread_notes_m)

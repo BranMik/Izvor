@@ -46,18 +46,6 @@ async def test_stage_execute_llm_does_not_artificially_choke_max_tokens():
 
     leaving reasoning models (Gemini) and multilingual texts unhindered.
     """
-    pipeline = TurnPipeline()
-    ctx = TurnContext(
-        channel_id="C123",
-        thread_ts="1234.5678",
-        raw_text="Explain architecture /max_words 50",
-    )
-    ctx.thread_key = ("C123", "1234.5678")
-    ctx.agent_key = "agent-10008"
-    ctx.agent_cfg = {"model": "gpt-4o", "skills": []}
-    ctx.messages = [{"role": "user", "content": "Explain architecture"}]
-    ctx.modifiers = {"max_words": 50}
-
     mock_resp = MagicMock()
     mock_choice = MagicMock()
     mock_choice.message.content = "Short architecture summary."
@@ -71,7 +59,18 @@ async def test_stage_execute_llm_does_not_artificially_choke_max_tokens():
         captured_kwargs.update(completion_kwargs)
         return mock_resp
 
-    pipeline._hooks["execute_llm_with_retry"] = mock_exec_retry
+    pipeline = TurnPipeline(hooks={"execute_llm_with_retry": mock_exec_retry})
+    ctx = TurnContext(
+        channel_id="C123",
+        thread_ts="1234.5678",
+        raw_text="Explain architecture /max_words 50",
+    )
+    ctx.thread_key = ("C123", "1234.5678")
+    ctx.agent_key = "agent-10008"
+    ctx.agent_cfg = {"model": "gpt-4o", "skills": []}
+    ctx.messages = [{"role": "user", "content": "Explain architecture"}]
+    ctx.modifiers = {"max_words": 50}
+
     await pipeline.execution_stage.stage_execute_llm(ctx)
 
     # max_tokens should NOT be present in captured_kwargs for normal debate
@@ -89,7 +88,20 @@ async def test_stage_post_and_record_mechanical_truncation():
     thread_state_manager.set_max_words(channel, thread_ts, 50)
 
     try:
-        pipeline = TurnPipeline()
+        # Mock Slack post and sleep
+        posted_payload = {}
+
+        async def mock_post(channel_id, thread_ts, text, username, icon_url):
+            posted_payload["text"] = text
+            return {"ok": True, "ts": "1234.9999"}
+
+        pipeline = TurnPipeline(
+            hooks={
+                "post_agent_response": mock_post,
+                "DEBATE_TURN_PACING_SECONDS": 0,
+                "SLACK_POST_PAUSE_SECONDS": 0,
+            }
+        )
         ctx = TurnContext(
             channel_id=channel,
             thread_ts=thread_ts,
@@ -104,17 +116,6 @@ async def test_stage_post_and_record_mechanical_truncation():
         # 120 words followed by /[agent-10011] tag
         words = [f"word{i}" for i in range(1, 121)]
         ctx.final_text = " ".join(words) + "\n\n/[agent-10011]"
-
-        # Mock Slack post and sleep
-        posted_payload = {}
-
-        async def mock_post(channel_id, thread_ts, text, username, icon_url):
-            posted_payload["text"] = text
-            return {"ok": True, "ts": "1234.9999"}
-
-        pipeline._hooks["post_agent_response"] = mock_post
-        pipeline._hooks["DEBATE_TURN_PACING_SECONDS"] = 0
-        pipeline._hooks["SLACK_POST_PAUSE_SECONDS"] = 0
 
         res = await pipeline.post_record_stage.stage_post_and_record(ctx)
         assert res is None or res.get("ok", True)
@@ -137,7 +138,19 @@ async def test_stage_post_and_record_no_truncation_when_within_limit():
     thread_state_manager.set_max_words(channel, thread_ts, 50)
 
     try:
-        pipeline = TurnPipeline()
+        posted_payload = {}
+
+        async def mock_post(channel_id, thread_ts, text, username, icon_url):
+            posted_payload["text"] = text
+            return {"ok": True, "ts": "1234.9999"}
+
+        pipeline = TurnPipeline(
+            hooks={
+                "post_agent_response": mock_post,
+                "DEBATE_TURN_PACING_SECONDS": 0,
+                "SLACK_POST_PAUSE_SECONDS": 0,
+            }
+        )
         ctx = TurnContext(
             channel_id=channel,
             thread_ts=thread_ts,
@@ -152,16 +165,6 @@ async def test_stage_post_and_record_no_truncation_when_within_limit():
         words = [f"word{i}" for i in range(1, 60)]
         original_content = " ".join(words)
         ctx.final_text = original_content + "\n\n/[agent-10011]"
-
-        posted_payload = {}
-
-        async def mock_post(channel_id, thread_ts, text, username, icon_url):
-            posted_payload["text"] = text
-            return {"ok": True, "ts": "1234.9999"}
-
-        pipeline._hooks["post_agent_response"] = mock_post
-        pipeline._hooks["DEBATE_TURN_PACING_SECONDS"] = 0
-        pipeline._hooks["SLACK_POST_PAUSE_SECONDS"] = 0
 
         await pipeline.post_record_stage.stage_post_and_record(ctx)
 

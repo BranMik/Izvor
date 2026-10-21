@@ -15,6 +15,7 @@ from services.slack_client import (
     update_usage_message,
 )
 
+from core.async_utils import spawn_background_task
 from core.config import USAGE_CHANNEL_NAME
 from core.paths import USAGE_STORE_FILE
 
@@ -696,7 +697,7 @@ class ThreadUsageTracker:
             is_completed=is_completed,
         )
         try:
-            task = asyncio.create_task(coro)
+            task = spawn_background_task(coro, name=f"usage_update_{thread_ts}")
             self.running_usage_tasks[thread_key] = task
             self.pending_usage_updates[thread_key] = False
             return task

@@ -4,6 +4,9 @@ Discovers and parses SKILL.md files (YAML frontmatter + Markdown body)
 and binds low-level MCP execution backends.
 """
 
+import asyncio
+import concurrent.futures
+import inspect
 import json
 import logging
 from dataclasses import dataclass, field
@@ -15,6 +18,7 @@ import yaml
 from services.mcp_tools import MCP_TOOLS_SCHEMAS, execute_mcp_tool
 
 logger = logging.getLogger(__name__)
+
 
 SKILLS_DIR = Path(__file__).parent
 
@@ -774,14 +778,23 @@ class SkillRegistry:
             if tool_name in s_def.tool_handlers:
                 handler = s_def.tool_handlers[tool_name]
                 try:
-                    import inspect
                     sig = inspect.signature(handler)
-                    if "agent_name" in sig.parameters:
-                        return handler(arguments, agent_name=agent_name)
-                    return handler(arguments)
+                    kwargs = {"agent_name": agent_name} if "agent_name" in sig.parameters else {}
+                    if inspect.iscoroutinefunction(handler):
+                        try:
+                            loop = asyncio.get_running_loop()
+                        except RuntimeError:
+                            loop = None
+                        if loop and loop.is_running():
+                            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                                return pool.submit(asyncio.run, handler(arguments, **kwargs)).result()
+                        else:
+                            return asyncio.run(handler(arguments, **kwargs))
+                    return handler(arguments, **kwargs)
                 except Exception as e:
                     logger.error(f"[SKILLS] Custom tool handler error for '{tool_name}': {e}")
                     return json.dumps({"error": f"Tool execution failed: {e}"})
+
 
         return execute_mcp_tool(
             tool_name,
@@ -902,5 +915,17 @@ class SkillRegistry:
         )
 
 
+_skill_registry_instance: SkillRegistry | None = None
+
+
+def get_skill_registry() -> SkillRegistry:
+    """Returns the canonical global SkillRegistry singleton instance."""
+    global _skill_registry_instance
+    if _skill_registry_instance is None:
+        _skill_registry_instance = SkillRegistry()
+    return _skill_registry_instance
+
+
 # Global singleton registry instance
-skill_registry = SkillRegistry()
+skill_registry: SkillRegistry = get_skill_registry()
+

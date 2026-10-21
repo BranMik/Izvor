@@ -17,7 +17,19 @@ def test_find_skill_for_tool():
 @pytest.mark.anyio
 async def test_post_record_with_single_skill_used():
     """Verify Skills used rubric is placed between nomination tag and token footer."""
-    pipeline = TurnPipeline()
+    posted_payload = {}
+
+    async def mock_post(channel_id, thread_ts, text, username, icon_url):
+        posted_payload["text"] = text
+        return {"ok": True, "ts": "1234.9999"}
+
+    pipeline = TurnPipeline(
+        hooks={
+            "post_agent_response": mock_post,
+            "DEBATE_TURN_PACING_SECONDS": 0,
+            "SLACK_POST_PAUSE_SECONDS": 0,
+        }
+    )
     ctx = TurnContext(
         channel_id="C_SKILL_TEST",
         thread_ts="1234.5678",
@@ -32,16 +44,6 @@ async def test_post_record_with_single_skill_used():
     ctx.skills_used = ["knowledge_base_rag"]
     ctx.total_prompt_tokens = 500
     ctx.total_completion_tokens = 100
-
-    posted_payload = {}
-
-    async def mock_post(channel_id, thread_ts, text, username, icon_url):
-        posted_payload["text"] = text
-        return {"ok": True, "ts": "1234.9999"}
-
-    pipeline._hooks["post_agent_response"] = mock_post
-    pipeline._hooks["DEBATE_TURN_PACING_SECONDS"] = 0
-    pipeline._hooks["SLACK_POST_PAUSE_SECONDS"] = 0
 
     await pipeline.post_record_stage.stage_post_and_record(ctx)
 
@@ -58,7 +60,19 @@ async def test_post_record_with_single_skill_used():
 @pytest.mark.anyio
 async def test_post_record_with_multiple_skills_used():
     """Verify multiple skills used are formatted as comma-separated bracketed list."""
-    pipeline = TurnPipeline()
+    posted_payload = {}
+
+    async def mock_post(channel_id, thread_ts, text, username, icon_url):
+        posted_payload["text"] = text
+        return {"ok": True, "ts": "1234.9999"}
+
+    pipeline = TurnPipeline(
+        hooks={
+            "post_agent_response": mock_post,
+            "DEBATE_TURN_PACING_SECONDS": 0,
+            "SLACK_POST_PAUSE_SECONDS": 0,
+        }
+    )
     ctx = TurnContext(
         channel_id="C_SKILL_TEST",
         thread_ts="1234.5678",
@@ -74,16 +88,6 @@ async def test_post_record_with_multiple_skills_used():
     ctx.total_prompt_tokens = 600
     ctx.total_completion_tokens = 150
 
-    posted_payload = {}
-
-    async def mock_post(channel_id, thread_ts, text, username, icon_url):
-        posted_payload["text"] = text
-        return {"ok": True, "ts": "1234.9999"}
-
-    pipeline._hooks["post_agent_response"] = mock_post
-    pipeline._hooks["DEBATE_TURN_PACING_SECONDS"] = 0
-    pipeline._hooks["SLACK_POST_PAUSE_SECONDS"] = 0
-
     await pipeline.post_record_stage.stage_post_and_record(ctx)
 
     text = posted_payload["text"]
@@ -98,7 +102,19 @@ async def test_post_record_with_multiple_skills_used():
 @pytest.mark.anyio
 async def test_post_record_omits_skills_used_when_none():
     """Verify Skills used rubric is completely omitted when no skills were used."""
-    pipeline = TurnPipeline()
+    posted_payload = {}
+
+    async def mock_post(channel_id, thread_ts, text, username, icon_url):
+        posted_payload["text"] = text
+        return {"ok": True, "ts": "1234.9999"}
+
+    pipeline = TurnPipeline(
+        hooks={
+            "post_agent_response": mock_post,
+            "DEBATE_TURN_PACING_SECONDS": 0,
+            "SLACK_POST_PAUSE_SECONDS": 0,
+        }
+    )
     ctx = TurnContext(
         channel_id="C_SKILL_TEST",
         thread_ts="1234.5678",
@@ -113,16 +129,6 @@ async def test_post_record_omits_skills_used_when_none():
     ctx.skills_used = []
     ctx.total_prompt_tokens = 300
     ctx.total_completion_tokens = 50
-
-    posted_payload = {}
-
-    async def mock_post(channel_id, thread_ts, text, username, icon_url):
-        posted_payload["text"] = text
-        return {"ok": True, "ts": "1234.9999"}
-
-    pipeline._hooks["post_agent_response"] = mock_post
-    pipeline._hooks["DEBATE_TURN_PACING_SECONDS"] = 0
-    pipeline._hooks["SLACK_POST_PAUSE_SECONDS"] = 0
 
     await pipeline.post_record_stage.stage_post_and_record(ctx)
 

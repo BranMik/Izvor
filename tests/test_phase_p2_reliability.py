@@ -21,7 +21,7 @@ from orchestration.stages.post_record import (
     apply_mechanical_word_limit,
 )
 from orchestration.stages.resolution import ResolutionStage
-from orchestration.turn_pipeline import TurnContext
+from orchestration.turn_pipeline import TurnContext, TurnPipeline
 from pipeline.directive_parser.slash_parser import (
     parse_grant_skill,
     strip_all_slash_commands,
@@ -29,19 +29,15 @@ from pipeline.directive_parser.slash_parser import (
 from services.rag.config import get_rag_setting, load_rag_settings_from_file
 from skills.knowledge_base_rag.tools import (
     SEARCH_KNOWLEDGE_RAG_SCHEMA,
-    execute_search_knowledge_rag,
+    async_execute_search_knowledge_rag,
 )
 
 
 @pytest.mark.anyio
 async def test_resolution_fallback_unconfigured_loop():
     """N9: Verify resolution stage skips unconfigured popped agents and avoids KeyError."""
-    pipeline = MagicMock()
     post_sys_msg_mock = AsyncMock()
-    pipeline._get_hook.side_effect = lambda name, default=None: (
-        post_sys_msg_mock if name == "post_system_message" else default
-    )
-
+    pipeline = TurnPipeline(post_system_message_fn=post_sys_msg_mock)
     stage = ResolutionStage(pipeline)
 
     ctx = TurnContext(
@@ -56,12 +52,6 @@ async def test_resolution_fallback_unconfigured_loop():
     with patch(
         "orchestration.stages.resolution.thread_state_manager.pop_remaining_agent",
         side_effect=["missing_1", "missing_2", "agent-10002", None],
-    ), patch.object(
-        stage.pipeline,
-        "_get_hook",
-        side_effect=lambda name, default=None: (
-            post_sys_msg_mock if name == "post_system_message" else default
-        ),
     ), patch(
         "orchestration.stages.resolution.is_circuit_breaker_enabled",
         return_value=False,
@@ -81,12 +71,8 @@ async def test_resolution_fallback_unconfigured_loop():
 @pytest.mark.anyio
 async def test_resolution_fallback_all_missing_halts():
     """N9: Verify resolution stage cleanly halts when all candidates are unconfigured."""
-    pipeline = MagicMock()
     post_sys_msg_mock = AsyncMock()
-    pipeline._get_hook.side_effect = lambda name, default=None: (
-        post_sys_msg_mock if name == "post_system_message" else default
-    )
-
+    pipeline = TurnPipeline(post_system_message_fn=post_sys_msg_mock)
     stage = ResolutionStage(pipeline)
 
     ctx = TurnContext(
@@ -186,7 +172,8 @@ def test_deterministic_slash_parser_preserves_indentation_and_code():
     assert "Andrea molim te provjeri" in cleaned_grant
 
 
-def test_rag_retrieval_clamping():
+@pytest.mark.anyio
+async def test_rag_retrieval_clamping():
     """N12: Verify max_results clamping in knowledge base tool and schema."""
     # Check schema bounds
     param_schema = SEARCH_KNOWLEDGE_RAG_SCHEMA["function"]["parameters"]["properties"]["max_results"]
@@ -194,23 +181,20 @@ def test_rag_retrieval_clamping():
     assert param_schema.get("maximum") == 10
 
     # Tool execution clamps
-    with patch("skills.knowledge_base_rag.tools._run_coroutine_sync", return_value="mock results") as mock_run:
-        execute_search_knowledge_rag({"query": "architecture", "max_results": 100})
-        # Verify clamped to 10
-        coro = mock_run.call_args[0][0]
-        # Close coroutine to avoid warning
-        coro.close()
-
     with patch("skills.knowledge_base_rag.tools.rag_service.search", new_callable=AsyncMock) as mock_search:
         mock_search.return_value = "results"
-        execute_search_knowledge_rag({"query": "architecture", "max_results": 99})
+        await async_execute_search_knowledge_rag({"query": "architecture", "max_results": 100})
         assert mock_search.call_args[1]["max_results"] == 10
 
-        execute_search_knowledge_rag({"query": "architecture", "max_results": -5})
+        await async_execute_search_knowledge_rag({"query": "architecture", "max_results": 99})
+        assert mock_search.call_args[1]["max_results"] == 10
+
+        await async_execute_search_knowledge_rag({"query": "architecture", "max_results": -5})
         assert mock_search.call_args[1]["max_results"] == 1
 
-        execute_search_knowledge_rag({"query": "architecture", "max_results": "invalid"})
+        await async_execute_search_knowledge_rag({"query": "architecture", "max_results": "invalid"})
         assert mock_search.call_args[1]["max_results"] == 3
+
 
 
 def test_rag_batch_fts_reindexing():
@@ -246,13 +230,13 @@ def test_rag_batch_fts_reindexing():
 @pytest.mark.anyio
 async def test_async_flat_history_recording():
     """N15: Verify PostRecordStage calls async_record_flat_history without blocking event loop."""
-    pipeline = MagicMock()
-    pipeline._sleep = AsyncMock()
     async_flat_mock = AsyncMock()
-    pipeline._get_hook.side_effect = lambda name, default=None: (
-        async_flat_mock if name == "async_record_flat_history" else default
+    mock_post = AsyncMock(return_value={"ok": True, "ts": "1700000002.000201"})
+    pipeline = TurnPipeline(
+        flat_history_recorder=async_flat_mock,
+        sleep_fn=AsyncMock(),
+        slack_poster=mock_post,
     )
-
     stage = PostRecordStage(pipeline)
 
     ctx = TurnContext(
@@ -266,9 +250,7 @@ async def test_async_flat_history_recording():
     ctx.final_text = "Security review completed."
 
     with patch("orchestration.stages.post_record.get_debate_turn_pacing_seconds", return_value=0.0), \
-         patch("orchestration.stages.post_record.get_slack_post_pause_seconds", return_value=0.0), \
-         patch("orchestration.stages.post_record.post_agent_response", new_callable=AsyncMock) as mock_post:
-        mock_post.return_value = {"ok": True, "ts": "1700000002.000201"}
+         patch("orchestration.stages.post_record.get_slack_post_pause_seconds", return_value=0.0):
         res = await stage.stage_post_and_record(ctx)
         assert res.get("ok") is True
         async_flat_mock.assert_awaited_once()
@@ -369,7 +351,7 @@ def test_format_modifiers_pipeline_persistence():
     from orchestration.stages.context_prep import ContextPrepStage
 
     thread_state_manager.set_format_modifiers("C_MODS", "T_MODS", ["concise_summary"])
-    pipeline = MagicMock()
+    pipeline = TurnPipeline()
     stage = ContextPrepStage(pipeline)
 
     ctx = TurnContext(
@@ -382,8 +364,7 @@ def test_format_modifiers_pipeline_persistence():
     ctx.modifiers = []
     ctx.in_memory_history = []
 
-    with patch.object(stage.pipeline, "_get_hook", side_effect=lambda name, default=None: default), \
-         patch("orchestration.stages.context_prep.build_agent_prompt", return_value="System prompt"), \
+    with patch("orchestration.stages.context_prep.build_agent_prompt", return_value="System prompt"), \
          patch("orchestration.stages.context_prep.build_llm_messages", return_value=[]):
         asyncio.run(stage.stage_prepare_context(ctx))
         assert "concise_summary" in ctx.modifiers
@@ -409,7 +390,6 @@ def test_thread_skills_sqlite_authoritative_and_cleanup(tmp_path):
             "UPDATE thread_skills SET expires_at = ? WHERE channel_id = ? AND skill_name = ?",
             (now - 100.0, "C_SK", "web_search"),
         )
-    mgr._threads.clear()
 
     expired = mgr.get_expired_skills("C_SK", "T_SK")
     assert "web_search" in expired

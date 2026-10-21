@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from core.integrity_checks import AppIntegrityValidator
+from orchestration.integrity_checks import AppIntegrityValidator
 from orchestration.system_settings import is_path_write_blocked
 from services.audit_logger import (
     GENESIS_HASH,

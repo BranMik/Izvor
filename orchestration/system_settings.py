@@ -8,8 +8,11 @@ import time
 from pathlib import Path
 from typing import Any
 
+from pydantic import BaseModel, Field
+
 from core.config import is_test_environment
 from core.paths import SYSTEM_BACKUP_FILE, SYSTEM_SETTINGS_FILE
+from orchestration.settings_store import JsonSettingsStore
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +27,88 @@ DEFAULT_PROTECTED_WRITE_PATHS: list[str] = [
     "data/settings/app_settings.json",
     "data/settings/system_settings.json",
 ]
+
+
+class SystemSettingsModel(BaseModel):
+    default_fast_model: str = "gemini/gemini-3.8-flash"
+    default_reasoning_model: str = "mistral/mistral-large-latest"
+    max_file_size_mb: float = 50.0
+    rag: dict[str, Any] = Field(
+        default_factory=lambda: {
+            "max_chunk_chars": 3500,
+            "chunk_overlap_chars": 300,
+            "min_chunk_chars": 80,
+            "default_top_k": 6,
+            "embedding_model": "gemini/gemini-embedding-001",
+            "embedding_dim": 3072,
+            "embedding_batch_size": 32,
+            "pii_masking": "AT_RETRIEVAL",
+            "guardrail_threshold": 0.85,
+        }
+    )
+    workspace_write_blacklist_additional: list[str] = Field(default_factory=list)
+    strict_privacy_mode_enabled: bool = True
+    log_level: str = "INFO"
+    debate_turn_pacing_seconds: float = 3.0
+    slack_post_pause_seconds: float = 2.0
+    tool_call_loop_timeout_seconds: float = 60.0
+    guardrail_fail_mode: str = "open"
+    max_discussion_turns: int = 20
+    max_tool_iterations: int = 3
+    tool_call_num_retries: int = 2
+    word_limit_grace_buffer: int = 50
+    guardrail_embedding_cache_size: int = 500
+    thread_cleanup_interval_seconds: float = 600.0
+    audit_integrity_check_interval_seconds: float = 43200.0
+    pricing_cache_ttl_days: int = 7
+    slack_file_download_timeout_seconds: float = 30.0
+    web_search_timeout_seconds: float = 10.0
+    web_fetch_timeout_seconds: float = 12.0
+    db_busy_timeout_seconds: float = 5.0
+    llm_max_retries: int = 3
+    llm_retry_backoff_base: float = 1.5
+    slack_rate_limit_per_second: float = 10.0
+    slack_rate_limit_burst: float = 15.0
+    pricing_benchmark_url: str = "https://artificialanalysis.ai/models"
+    web_search_endpoint: str = "https://html.duckduckgo.com/html/"
+    web_fetch_user_agent: str = (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    )
+    max_write_bytes: int = 1_048_576
+    web_security: dict[str, Any] = Field(
+        default_factory=lambda: {
+            "max_url_length": 2048,
+            "max_query_length": 1024,
+            "max_redirects": 5,
+            "max_body_bytes": 2097152,
+            "allowed_ports": [80, 443],
+            "allowed_domains": [],
+            "strip_query_on_untrusted_domains": False,
+            "max_fetches_per_turn": 10,
+        }
+    )
+    security_burst_limits: dict[str, Any] = Field(
+        default_factory=lambda: {
+            "auth_failure_window_seconds": 60.0,
+            "auth_failure_burst_limit": 5,
+            "global_auth_failure_burst_limit": 25,
+            "max_tracker_entries": 1000,
+        }
+    )
+    convergence_consecutive_threshold: int = 2
+    dialectical_stress_test: dict[str, Any] = Field(
+        default_factory=lambda: {
+            "enabled": True,
+            "consecutive_threshold": 2,
+            "max_stress_rounds": 1,
+        }
+    )
+    retention_checkpoints_days: int = 7
+    retention_traces_days: int = 30
+    retention_event_dedup_days: int = 1
+
+    model_config = {"extra": "allow"}
 
 
 class SystemSettingsManager:
@@ -43,6 +128,11 @@ class SystemSettingsManager:
         self._custom_settings_file: bool = settings_file is not None
         self.default_settings_file = settings_file or SYSTEM_SETTINGS_FILE
         self.default_backup_file = backup_file or SYSTEM_BACKUP_FILE
+        self._store: JsonSettingsStore[SystemSettingsModel] = JsonSettingsStore(
+            self.default_settings_file,
+            SystemSettingsModel,
+            backup_file=self.default_backup_file,
+        )
 
         self.default_fast_model: str = "gemini/gemini-3.8-flash"
         self.default_reasoning_model: str = "mistral/mistral-large-latest"
@@ -99,6 +189,9 @@ class SystemSettingsManager:
             "consecutive_threshold": 2,
             "max_stress_rounds": 1,
         }
+        self.retention_checkpoints_days: int = 7
+        self.retention_traces_days: int = 30
+        self.retention_event_dedup_days: int = 1
         self._debate_turn_pacing_manually_set: bool = False
         self._slack_post_pause_manually_set: bool = False
         self._raw_data: dict[str, Any] = {}
@@ -142,6 +235,80 @@ class SystemSettingsManager:
                 "guardrail_threshold": float(_get("guardrail_threshold", 0.85)),
             }
 
+    def _apply_model_to_fields(self, model: SystemSettingsModel) -> None:
+        self.default_fast_model = (
+            str(model.default_fast_model).strip() or "gemini/gemini-3.8-flash"
+        )
+        self.default_reasoning_model = (
+            str(model.default_reasoning_model).strip() or "mistral/mistral-large-latest"
+        )
+        self.max_file_size_mb = float(model.max_file_size_mb)
+        self._parse_rag_section(model.rag)
+        raw_bl = model.workspace_write_blacklist_additional
+        self.workspace_write_blacklist_additional = (
+            [str(p).strip() for p in raw_bl if str(p).strip()]
+            if isinstance(raw_bl, list)
+            else []
+        )
+        self.strict_privacy_mode_enabled = bool(model.strict_privacy_mode_enabled)
+        self.log_level = str(model.log_level).strip().upper() or "INFO"
+        self.debate_turn_pacing_seconds = float(model.debate_turn_pacing_seconds)
+        self.slack_post_pause_seconds = float(model.slack_post_pause_seconds)
+        self.tool_call_loop_timeout_seconds = float(model.tool_call_loop_timeout_seconds)
+        raw_gfm = str(model.guardrail_fail_mode).strip().lower()
+        self.guardrail_fail_mode = raw_gfm if raw_gfm in ("open", "closed") else "open"
+        self.max_discussion_turns = int(model.max_discussion_turns)
+        self.max_tool_iterations = int(model.max_tool_iterations)
+        self.tool_call_num_retries = int(model.tool_call_num_retries)
+        self.word_limit_grace_buffer = int(model.word_limit_grace_buffer)
+        self.guardrail_embedding_cache_size = int(model.guardrail_embedding_cache_size)
+        self.thread_cleanup_interval_seconds = float(model.thread_cleanup_interval_seconds)
+        self.audit_integrity_check_interval_seconds = float(model.audit_integrity_check_interval_seconds)
+        self.pricing_cache_ttl_days = int(model.pricing_cache_ttl_days)
+        self.slack_file_download_timeout_seconds = float(model.slack_file_download_timeout_seconds)
+        self.web_search_timeout_seconds = float(model.web_search_timeout_seconds)
+        self.web_fetch_timeout_seconds = float(model.web_fetch_timeout_seconds)
+        self.db_busy_timeout_seconds = float(model.db_busy_timeout_seconds)
+        self.llm_max_retries = int(model.llm_max_retries)
+        self.llm_retry_backoff_base = float(model.llm_retry_backoff_base)
+        self.slack_rate_limit_per_second = float(model.slack_rate_limit_per_second)
+        self.slack_rate_limit_burst = float(model.slack_rate_limit_burst)
+        self.pricing_benchmark_url = str(model.pricing_benchmark_url).strip() or "https://artificialanalysis.ai/models"
+        self.web_search_endpoint = str(model.web_search_endpoint).strip() or "https://html.duckduckgo.com/html/"
+        self.web_fetch_user_agent = str(model.web_fetch_user_agent).strip()
+        self.max_write_bytes = int(model.max_write_bytes)
+        raw_ws = model.web_security
+        if isinstance(raw_ws, dict):
+            self.web_security = {
+                "max_url_length": int(raw_ws.get("max_url_length", 2048)),
+                "max_query_length": int(raw_ws.get("max_query_length", 1024)),
+                "max_redirects": int(raw_ws.get("max_redirects", 5)),
+                "max_body_bytes": int(raw_ws.get("max_body_bytes", 2097152)),
+                "allowed_ports": list(raw_ws.get("allowed_ports", [80, 443])),
+                "allowed_domains": [str(d).lower().lstrip(".") for d in raw_ws.get("allowed_domains", []) if str(d).strip()],
+                "strip_query_on_untrusted_domains": bool(raw_ws.get("strip_query_on_untrusted_domains", False)),
+                "max_fetches_per_turn": int(raw_ws.get("max_fetches_per_turn", 10)),
+            }
+        raw_sbl = model.security_burst_limits
+        if isinstance(raw_sbl, dict):
+            self.security_burst_limits = {
+                "auth_failure_window_seconds": float(raw_sbl.get("auth_failure_window_seconds", 60.0)),
+                "auth_failure_burst_limit": int(raw_sbl.get("auth_failure_burst_limit", 5)),
+                "global_auth_failure_burst_limit": int(raw_sbl.get("global_auth_failure_burst_limit", 25)),
+                "max_tracker_entries": int(raw_sbl.get("max_tracker_entries", 1000)),
+            }
+        self.convergence_consecutive_threshold = int(model.convergence_consecutive_threshold)
+        raw_dst = model.dialectical_stress_test
+        if isinstance(raw_dst, dict):
+            self.dialectical_stress_test = {
+                "enabled": bool(raw_dst.get("enabled", True)),
+                "consecutive_threshold": int(raw_dst.get("consecutive_threshold", self.convergence_consecutive_threshold)),
+                "max_stress_rounds": int(raw_dst.get("max_stress_rounds", 1)),
+            }
+        self.retention_checkpoints_days = int(getattr(model, "retention_checkpoints_days", 7))
+        self.retention_traces_days = int(getattr(model, "retention_traces_days", 30))
+        self.retention_event_dedup_days = int(getattr(model, "retention_event_dedup_days", 1))
+
     def load(self) -> None:
         target_file = self.active_settings_file
         if not target_file.exists():
@@ -152,165 +319,18 @@ class SystemSettingsManager:
             if mtime == self._last_loaded_mtime and self._last_loaded_mtime > 0:
                 return
 
-            with open(target_file, "r", encoding="utf-8") as f:
-                data = json.load(f)
+            model = self._store.load(force=True)
+            data = self._store.get_raw_data()
 
-            from core.integrity_checks import AppIntegrityValidator
+            from orchestration.integrity_checks import AppIntegrityValidator
             AppIntegrityValidator.check_system_settings_integrity(data)
 
             self._raw_data = copy.deepcopy(data)
-            self.default_fast_model = (
-                str(data.get("default_fast_model", "gemini/gemini-3.8-flash")).strip()
-                or "gemini/gemini-3.8-flash"
-            )
-            self.default_reasoning_model = (
-                str(data.get("default_reasoning_model", "mistral/mistral-large-latest")).strip()
-                or "mistral/mistral-large-latest"
-            )
-            self.max_file_size_mb = float(data.get("max_file_size_mb", 50.0))
-            self._parse_rag_section(data.get("rag"))
-            raw_bl = data.get("workspace_write_blacklist_additional", [])
-            self.workspace_write_blacklist_additional = (
-                [str(p).strip() for p in raw_bl if str(p).strip()]
-                if isinstance(raw_bl, list)
-                else []
-            )
-            self.strict_privacy_mode_enabled = bool(data.get("strict_privacy_mode_enabled", True))
-            self.log_level = str(data.get("log_level", "INFO")).strip().upper() or "INFO"
-            self.debate_turn_pacing_seconds = float(data.get("debate_turn_pacing_seconds", 3.0))
-            self.slack_post_pause_seconds = float(data.get("slack_post_pause_seconds", 2.0))
-            self.tool_call_loop_timeout_seconds = float(data.get("tool_call_loop_timeout_seconds", 60.0))
-            raw_gfm = str(data.get("guardrail_fail_mode", "open")).strip().lower()
-            self.guardrail_fail_mode = raw_gfm if raw_gfm in ("open", "closed") else "open"
-            self.max_discussion_turns = int(data.get("max_discussion_turns", 20))
-            self.max_tool_iterations = int(data.get("max_tool_iterations", 3))
-            self.tool_call_num_retries = int(data.get("tool_call_num_retries", 2))
-            self.word_limit_grace_buffer = int(data.get("word_limit_grace_buffer", 50))
-            self.guardrail_embedding_cache_size = int(data.get("guardrail_embedding_cache_size", 500))
-            self.thread_cleanup_interval_seconds = float(data.get("thread_cleanup_interval_seconds", 600.0))
-            self.audit_integrity_check_interval_seconds = float(data.get("audit_integrity_check_interval_seconds", 43200.0))
-            self.pricing_cache_ttl_days = int(data.get("pricing_cache_ttl_days", 7))
-            self.slack_file_download_timeout_seconds = float(data.get("slack_file_download_timeout_seconds", 30.0))
-            self.web_search_timeout_seconds = float(data.get("web_search_timeout_seconds", 10.0))
-            self.web_fetch_timeout_seconds = float(data.get("web_fetch_timeout_seconds", 12.0))
-            self.db_busy_timeout_seconds = float(data.get("db_busy_timeout_seconds", 5.0))
-            self.llm_max_retries = int(data.get("llm_max_retries", 3))
-            self.llm_retry_backoff_base = float(data.get("llm_retry_backoff_base", 1.5))
-            self.slack_rate_limit_per_second = float(data.get("slack_rate_limit_per_second", 10.0))
-            self.slack_rate_limit_burst = float(data.get("slack_rate_limit_burst", 15.0))
-            self.pricing_benchmark_url = str(data.get("pricing_benchmark_url", "https://artificialanalysis.ai/models")).strip() or "https://artificialanalysis.ai/models"
-            self.web_search_endpoint = str(data.get("web_search_endpoint", "https://html.duckduckgo.com/html/")).strip() or "https://html.duckduckgo.com/html/"
-            self.web_fetch_user_agent = str(data.get("web_fetch_user_agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")).strip()
-
-            self.max_write_bytes = int(data.get("max_write_bytes", 1_048_576))
-            raw_ws = data.get("web_security", {})
-            if isinstance(raw_ws, dict):
-                self.web_security = {
-                    "max_url_length": int(raw_ws.get("max_url_length", 2048)),
-                    "max_query_length": int(raw_ws.get("max_query_length", 1024)),
-                    "max_redirects": int(raw_ws.get("max_redirects", 5)),
-                    "max_body_bytes": int(raw_ws.get("max_body_bytes", 2097152)),
-                    "allowed_ports": list(raw_ws.get("allowed_ports", [80, 443])),
-                    "allowed_domains": [str(d).lower().lstrip(".") for d in raw_ws.get("allowed_domains", []) if str(d).strip()],
-                    "strip_query_on_untrusted_domains": bool(raw_ws.get("strip_query_on_untrusted_domains", False)),
-                    "max_fetches_per_turn": int(raw_ws.get("max_fetches_per_turn", 10)),
-                }
-            raw_sbl = data.get("security_burst_limits", {})
-            if isinstance(raw_sbl, dict):
-                self.security_burst_limits = {
-                    "auth_failure_window_seconds": float(raw_sbl.get("auth_failure_window_seconds", 60.0)),
-                    "auth_failure_burst_limit": int(raw_sbl.get("auth_failure_burst_limit", 5)),
-                    "global_auth_failure_burst_limit": int(raw_sbl.get("global_auth_failure_burst_limit", 25)),
-                    "max_tracker_entries": int(raw_sbl.get("max_tracker_entries", 1000)),
-                }
-            self.convergence_consecutive_threshold = int(
-                data.get("convergence_consecutive_threshold", 2)
-            )
-
-            raw_dst = data.get("dialectical_stress_test", {})
-            if isinstance(raw_dst, dict):
-                self.dialectical_stress_test = {
-                    "enabled": bool(raw_dst.get("enabled", True)),
-                    "consecutive_threshold": int(raw_dst.get("consecutive_threshold", self.convergence_consecutive_threshold)),
-                    "max_stress_rounds": int(raw_dst.get("max_stress_rounds", 1)),
-                }
-
+            self._apply_model_to_fields(model)
             self._last_loaded_mtime = mtime
             logger.debug(f"[SYSTEM_SETTINGS] Loaded settings from {target_file}")
-        except (OSError, json.JSONDecodeError, TypeError, ValueError) as e:
+        except Exception as e:
             logger.error(f"[SYSTEM_SETTINGS] Failed to load {target_file}: {e}")
-            if self.default_backup_file.exists():
-                try:
-                    with open(self.default_backup_file, "r", encoding="utf-8") as bf:
-                        data = json.load(bf)
-                    self._raw_data = copy.deepcopy(data)
-                    self.default_fast_model = (
-                        str(data.get("default_fast_model", "gemini/gemini-3.8-flash")).strip()
-                        or "gemini/gemini-3.8-flash"
-                    )
-                    self.default_reasoning_model = (
-                        str(data.get("default_reasoning_model", "mistral/mistral-large-latest")).strip()
-                        or "mistral/mistral-large-latest"
-                    )
-                    self.max_file_size_mb = float(data.get("max_file_size_mb", 50.0))
-                    self._parse_rag_section(data.get("rag"))
-                    raw_bl = data.get("workspace_write_blacklist_additional", [])
-                    self.workspace_write_blacklist_additional = (
-                        [str(p).strip() for p in raw_bl if str(p).strip()]
-                        if isinstance(raw_bl, list)
-                        else []
-                    )
-                    self.strict_privacy_mode_enabled = bool(data.get("strict_privacy_mode_enabled", True))
-                    self.log_level = str(data.get("log_level", "INFO")).strip().upper() or "INFO"
-                    self.debate_turn_pacing_seconds = float(data.get("debate_turn_pacing_seconds", 3.0))
-                    self.slack_post_pause_seconds = float(data.get("slack_post_pause_seconds", 2.0))
-                    self.tool_call_loop_timeout_seconds = float(data.get("tool_call_loop_timeout_seconds", 60.0))
-                    raw_gfm = str(data.get("guardrail_fail_mode", "open")).strip().lower()
-                    self.guardrail_fail_mode = raw_gfm if raw_gfm in ("open", "closed") else "open"
-                    self.max_discussion_turns = int(data.get("max_discussion_turns", 20))
-                    self.max_tool_iterations = int(data.get("max_tool_iterations", 3))
-                    self.tool_call_num_retries = int(data.get("tool_call_num_retries", 2))
-                    self.word_limit_grace_buffer = int(data.get("word_limit_grace_buffer", 50))
-                    self.guardrail_embedding_cache_size = int(data.get("guardrail_embedding_cache_size", 500))
-                    self.thread_cleanup_interval_seconds = float(data.get("thread_cleanup_interval_seconds", 600.0))
-                    self.audit_integrity_check_interval_seconds = float(data.get("audit_integrity_check_interval_seconds", 43200.0))
-                    self.pricing_cache_ttl_days = int(data.get("pricing_cache_ttl_days", 7))
-                    self.slack_file_download_timeout_seconds = float(data.get("slack_file_download_timeout_seconds", 30.0))
-                    self.web_search_timeout_seconds = float(data.get("web_search_timeout_seconds", 10.0))
-                    self.web_fetch_timeout_seconds = float(data.get("web_fetch_timeout_seconds", 12.0))
-                    self.db_busy_timeout_seconds = float(data.get("db_busy_timeout_seconds", 5.0))
-                    self.llm_max_retries = int(data.get("llm_max_retries", 3))
-                    self.llm_retry_backoff_base = float(data.get("llm_retry_backoff_base", 1.5))
-                    self.slack_rate_limit_per_second = float(data.get("slack_rate_limit_per_second", 10.0))
-                    self.slack_rate_limit_burst = float(data.get("slack_rate_limit_burst", 15.0))
-                    self.pricing_benchmark_url = str(data.get("pricing_benchmark_url", "https://artificialanalysis.ai/models")).strip() or "https://artificialanalysis.ai/models"
-                    self.web_search_endpoint = str(data.get("web_search_endpoint", "https://html.duckduckgo.com/html/")).strip() or "https://html.duckduckgo.com/html/"
-                    self.web_fetch_user_agent = str(data.get("web_fetch_user_agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")).strip()
-
-                    self.max_write_bytes = int(data.get("max_write_bytes", 1_048_576))
-                    raw_ws = data.get("web_security", {})
-                    if isinstance(raw_ws, dict):
-                        self.web_security = {
-                            "max_url_length": int(raw_ws.get("max_url_length", 2048)),
-                            "max_query_length": int(raw_ws.get("max_query_length", 1024)),
-                            "max_redirects": int(raw_ws.get("max_redirects", 5)),
-                            "max_body_bytes": int(raw_ws.get("max_body_bytes", 2097152)),
-                            "allowed_ports": list(raw_ws.get("allowed_ports", [80, 443])),
-                            "allowed_domains": [str(d).lower().lstrip(".") for d in raw_ws.get("allowed_domains", []) if str(d).strip()],
-                            "strip_query_on_untrusted_domains": bool(raw_ws.get("strip_query_on_untrusted_domains", False)),
-                            "max_fetches_per_turn": int(raw_ws.get("max_fetches_per_turn", 10)),
-                        }
-                    raw_sbl = data.get("security_burst_limits", {})
-                    if isinstance(raw_sbl, dict):
-                        self.security_burst_limits = {
-                            "auth_failure_window_seconds": float(raw_sbl.get("auth_failure_window_seconds", 60.0)),
-                            "auth_failure_burst_limit": int(raw_sbl.get("auth_failure_burst_limit", 5)),
-                            "global_auth_failure_burst_limit": int(raw_sbl.get("global_auth_failure_burst_limit", 25)),
-                            "max_tracker_entries": int(raw_sbl.get("max_tracker_entries", 1000)),
-                        }
-                    logger.warning("[SYSTEM_SETTINGS] Recovered settings from backup.")
-                except (OSError, json.JSONDecodeError, TypeError, ValueError) as be:
-                    logger.error(f"[SYSTEM_SETTINGS] Failed to read backup: {be}")
 
     def save(self) -> None:
         target_file = self.active_settings_file
@@ -358,58 +378,26 @@ class SystemSettingsManager:
             "security_burst_limits": self.security_burst_limits,
             "convergence_consecutive_threshold": self.convergence_consecutive_threshold,
             "dialectical_stress_test": self.dialectical_stress_test,
+            "retention_checkpoints_days": self.retention_checkpoints_days,
+            "retention_traces_days": self.retention_traces_days,
+            "retention_event_dedup_days": self.retention_event_dedup_days,
         })
 
-        tmp_filename = f"{target_file.name}.tmp_{os.getpid()}_{int(time.time() * 1000)}"
-        tmp_file = target_file.parent / tmp_filename
         try:
-            with open(tmp_file, "w", encoding="utf-8") as f:
-                json.dump(payload, f, indent=2)
-                f.flush()
-                os.fsync(f.fileno())
-            for attempt in range(10):
-                try:
-                    os.replace(tmp_file, target_file)
-                    break
-                except (PermissionError, OSError) as pe:
-                    if attempt < 9:
-                        time.sleep(0.02 * (attempt + 1))
-                    else:
-                        raise pe
+            self._store.save(payload)
             self._last_loaded_mtime = target_file.stat().st_mtime
             self._raw_data = copy.deepcopy(payload)
-
-            # Update backup if needed
             self._maybe_update_backup(payload)
         except (OSError, TypeError, ValueError) as e:
             logger.error(f"[SYSTEM_SETTINGS] Error saving settings to {target_file}: {e}")
-            if tmp_file.exists():
-                try:
-                    tmp_file.unlink()
-                except OSError as ue:
-                    logger.debug(f"[SYSTEM_SETTINGS] Failed to remove temp file: {ue}")
 
     def _maybe_update_backup(self, payload: dict[str, Any]) -> None:
         try:
             now = time.time()
             backup = self.default_backup_file
             if not backup.exists() or (now - backup.stat().st_mtime > BACKUP_INTERVAL_SECONDS):
-                backup.parent.mkdir(parents=True, exist_ok=True)
-                tmp_b_name = f"{backup.name}.tmp_{os.getpid()}_{int(time.time() * 1000)}"
-                tmp_b = backup.parent / tmp_b_name
-                with open(tmp_b, "w", encoding="utf-8") as f:
-                    json.dump(payload, f, indent=2)
-                    f.flush()
-                    os.fsync(f.fileno())
-                for attempt in range(10):
-                    try:
-                        os.replace(tmp_b, backup)
-                        break
-                    except (PermissionError, OSError) as pe:
-                        if attempt < 9:
-                            time.sleep(0.02 * (attempt + 1))
-                        else:
-                            raise pe
+                backup_store = JsonSettingsStore(backup, SystemSettingsModel)
+                backup_store.save(payload)
                 logger.info("[SYSTEM_SETTINGS] Updated emergency backup.")
         except (OSError, TypeError, ValueError) as e:
             logger.warning(f"[SYSTEM_SETTINGS] Backup update failed: {e}")
@@ -762,6 +750,33 @@ class SystemSettingsManager:
             self.save()
         logger.info(f"[SYSTEM_SETTINGS] Set convergence_consecutive_threshold to {self.convergence_consecutive_threshold}.")
 
+    def get_retention_checkpoints_days(self) -> int:
+        self.load()
+        return int(self.retention_checkpoints_days)
+
+    def set_retention_checkpoints_days(self, days: int, save: bool = True) -> None:
+        self.retention_checkpoints_days = max(1, int(days))
+        if save:
+            self.save()
+
+    def get_retention_traces_days(self) -> int:
+        self.load()
+        return int(self.retention_traces_days)
+
+    def set_retention_traces_days(self, days: int, save: bool = True) -> None:
+        self.retention_traces_days = max(1, int(days))
+        if save:
+            self.save()
+
+    def get_retention_event_dedup_days(self) -> int:
+        self.load()
+        return int(self.retention_event_dedup_days)
+
+    def set_retention_event_dedup_days(self, days: int, save: bool = True) -> None:
+        self.retention_event_dedup_days = max(1, int(days))
+        if save:
+            self.save()
+
     def get_challenger_agents(self) -> list[str]:
         from orchestration.agent_settings import get_challenger_agents as _get
         return _get()
@@ -1036,6 +1051,19 @@ def get_rebuttal_agent() -> str:
 def set_rebuttal_agent(agent: str, save: bool = True) -> None:
     from orchestration.agent_settings import set_rebuttal_agent as _set
     _set(agent, save=save)
+
+
+def get_retention_checkpoints_days() -> int:
+    return system_settings_manager.get_retention_checkpoints_days()
+
+
+def get_retention_traces_days() -> int:
+    return system_settings_manager.get_retention_traces_days()
+
+
+def get_retention_event_dedup_days() -> int:
+    return system_settings_manager.get_retention_event_dedup_days()
+
 
 
 

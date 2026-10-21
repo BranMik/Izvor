@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 from typing import Any
@@ -61,7 +62,8 @@ class RAGService:
 
         # Execute search in vector store
         try:
-            results = self.vector_store.search(
+            results = await asyncio.to_thread(
+                self.vector_store.search,
                 query_text=cleaned_query,
                 query_vector=query_vector,
                 agent_name=agent_name,

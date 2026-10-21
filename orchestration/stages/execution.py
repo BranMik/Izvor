@@ -61,15 +61,20 @@ def _unmask_argument_values(val: Any, mapping: dict[str, str]) -> Any:
 class ExecutionStage:
     """Provides stage 4 LLM execution and tool calling loops for TurnPipeline."""
 
-    def __init__(self, pipeline: Any):
-        self.pipeline = pipeline
+    def __init__(self, deps: Any):
+        if hasattr(deps, "deps"):
+            self.deps = deps.deps
+            self.pipeline = deps
+        else:
+            self.deps = deps
+            self.pipeline = deps
 
     def _is_mid_turn_budget_exceeded(self, ctx: TurnContext) -> bool:
         """
         Calculates thread cost plus current turn's accumulated token usage,
         and checks if the circuit breaker limit or daily budget is exceeded.
         """
-        from orchestration.agent_settings import (
+        from orchestration.app_settings import (
             get_circuit_breaker_threshold,
             is_circuit_breaker_enabled,
         )
@@ -94,9 +99,7 @@ class ExecutionStage:
                 output_rate = float(pricing.get("output_cost_per_token", 0.0) or 0.0)
                 incremental_cost = (prompt_tokens * input_rate) + (completion_tokens * output_rate)
 
-            calc_costs_fn = self.pipeline._get_hook(
-                "calculate_thread_costs", calculate_thread_costs
-            )
+            calc_costs_fn = getattr(self.deps, "calc_costs_fn", None) or calculate_thread_costs
             cost_info = calc_costs_fn(ctx.channel_id, ctx.thread_ts)
             current_cost = (
                 float(cost_info.get("grand_total_cost_usd", 0.0) or 0.0)
@@ -222,10 +225,8 @@ class ExecutionStage:
             if os.getenv("META_API_BASE"):
                 completion_kwargs["api_base"] = os.getenv("META_API_BASE")
 
-        exec_retry_fn = self.pipeline._get_hook(
-            "execute_llm_with_retry", execute_llm_with_retry
-        )
-        threadpool_fn = self.pipeline._get_hook("run_in_threadpool", None)
+        exec_retry_fn = getattr(self.deps, "llm_executor", None) or execute_llm_with_retry
+        threadpool_fn = getattr(self.deps, "run_in_threadpool_fn", None)
         custom_runner = (
             threadpool_fn
             if (threadpool_fn is not None and threadpool_fn is not run_in_threadpool)
@@ -257,9 +258,7 @@ class ExecutionStage:
                 f"[ROUTER] Thread {ctx.thread_key} turn was superseded after LLM call. Aborting."
             )
             if ctx.total_prompt_tokens > 0 or ctx.total_completion_tokens > 0:
-                record_tokens_fn = self.pipeline._get_hook(
-                    "record_thread_tokens", record_thread_tokens
-                )
+                record_tokens_fn = getattr(self.deps, "token_recorder", None) or record_thread_tokens
                 if record_tokens_fn:
                     record_tokens_fn(
                         channel_id=ctx.channel_id,
@@ -274,18 +273,17 @@ class ExecutionStage:
         tool_calls = getattr(response_message, "tool_calls", None)
 
         if tool_calls:
-            exec_mcp_fn = self.pipeline._get_hook("execute_mcp_tool", None)
-            max_tool_iterations = self.pipeline._get_hook(
-                "MAX_TOOL_ITERATIONS", system_settings_manager.get_max_tool_iterations()
-            )
+            exec_mcp_fn = getattr(self.deps, "tool_executor", None)
+            max_tool_iterations = getattr(self.deps, "max_tool_iterations", None)
+            if max_tool_iterations is None:
+                max_tool_iterations = system_settings_manager.get_max_tool_iterations()
             iteration = 0
-            timeout_secs = self.pipeline._get_hook(
-                "TOOL_CALL_LOOP_TIMEOUT_SECONDS", get_tool_call_loop_timeout_seconds()
-            )
-            intermediate_delay_secs = self.pipeline._get_hook(
-                "TOOL_INTERMEDIATE_UPDATE_DELAY_SECONDS",
-                TOOL_INTERMEDIATE_UPDATE_DELAY_SECONDS,
-            )
+            timeout_secs = getattr(self.deps, "timeout_secs", None)
+            if timeout_secs is None:
+                timeout_secs = get_tool_call_loop_timeout_seconds()
+            intermediate_delay_secs = getattr(self.deps, "intermediate_delay_secs", None)
+            if intermediate_delay_secs is None:
+                intermediate_delay_secs = TOOL_INTERMEDIATE_UPDATE_DELAY_SECONDS
 
             # Start delayed intermediate status post task
             async def _delayed_intermediate_post():
@@ -295,7 +293,7 @@ class ExecutionStage:
                         username = ctx.agent_cfg.get("username", ctx.agent_key)
                         resolved_icon = ctx.icon_url or ctx.agent_cfg.get("icon_url")
                         status_text = _build_tool_status_text(username, tool_calls)
-                        post_resp_fn = self.pipeline._get_hook("post_agent_response", post_agent_response)
+                        post_resp_fn = getattr(self.deps, "slack_poster", None) or post_agent_response
                         logger.info(
                             f"[ROUTER] Tool delay reached ({intermediate_delay_secs}s). Posting intermediate status for {username}."
                         )
@@ -555,9 +553,7 @@ class ExecutionStage:
                             f"[ROUTER] Thread {ctx.thread_key} turn was superseded during tool execution. Aborting."
                         )
                         if ctx.total_prompt_tokens > 0 or ctx.total_completion_tokens > 0:
-                            record_tokens_fn = self.pipeline._get_hook(
-                                "record_thread_tokens", record_thread_tokens
-                            )
+                            record_tokens_fn = getattr(self.deps, "token_recorder", None) or record_thread_tokens
                             if record_tokens_fn:
                                 record_tokens_fn(
                                     channel_id=ctx.channel_id,
@@ -593,9 +589,7 @@ class ExecutionStage:
                     )
                     if follow_up is None and ctx.is_superseded():
                         if ctx.total_prompt_tokens > 0 or ctx.total_completion_tokens > 0:
-                            record_tokens_fn = self.pipeline._get_hook(
-                                "record_thread_tokens", record_thread_tokens
-                            )
+                            record_tokens_fn = getattr(self.deps, "token_recorder", None) or record_thread_tokens
                             if record_tokens_fn:
                                 record_tokens_fn(
                                     channel_id=ctx.channel_id,

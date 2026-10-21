@@ -100,34 +100,105 @@ def apply_mechanical_word_limit(text: str, max_words: int, grace_buffer: int | N
 class PostRecordStage:
     """Provides stage 5 dispatch, token accounting, and error handling for TurnPipeline."""
 
-    def __init__(self, pipeline: Any):
-        self.pipeline = pipeline
+    def __init__(self, deps: Any = None, *, pipeline: Any = None):
+        target = deps if deps is not None else pipeline
+        if hasattr(target, "deps"):
+            self.deps = target.deps
+            self.pipeline = target
+        else:
+            self.deps = target
+            self.pipeline = target
 
     @property
     def workspace_adapter(self) -> WorkspaceAdapter:
-        adapter = getattr(self.pipeline, "workspace_adapter", None)
-        from adapters.slack.workspace_adapter import (
-            InMemoryWorkspaceAdapter,
-            SlackWorkspaceAdapter,
-        )
+        if hasattr(self.deps, "workspace_adapter") and self.deps.workspace_adapter is not None:
+            return self.deps.workspace_adapter
+        from adapters.slack.workspace_adapter import SlackWorkspaceAdapter
 
-        if isinstance(adapter, (SlackWorkspaceAdapter, InMemoryWorkspaceAdapter)):
-            return adapter
+        return SlackWorkspaceAdapter()
 
-        hook_resolver = getattr(self.pipeline, "_get_hook", None)
-        return SlackWorkspaceAdapter(
-            hook_resolver=hook_resolver,
-            post_agent_fn=lambda **kw: (
-                hook_resolver("post_agent_response", post_agent_response)
-                if hook_resolver
-                else post_agent_response
-            )(**kw),
-            update_msg_fn=lambda **kw: (
-                hook_resolver("update_slack_message", update_slack_message)
-                if hook_resolver
-                else update_slack_message
-            )(**kw),
-        )
+    async def _sleep(self, seconds: float) -> None:
+        sleep_fn = getattr(self.deps, "sleep_fn", None)
+        if sleep_fn is not None:
+            await sleep_fn(seconds)
+        else:
+            await asyncio.sleep(seconds)
+
+    async def _finalize_turn_bookkeeping(
+        self,
+        ctx: TurnContext,
+        is_completed: bool,
+        record_flat_history: bool = True,
+    ) -> None:
+        """Centralized helper for token recording, notes updating, usage updating, and flat history."""
+        # 1. Record tokens
+        record_tokens_fn = getattr(self.deps, "token_recorder", None) or record_thread_tokens
+        if record_tokens_fn:
+            record_tokens_fn(
+                channel_id=ctx.channel_id,
+                thread_ts=ctx.thread_ts,
+                model_name=ctx.agent_cfg.get("model", "") if ctx.agent_cfg else "",
+                prompt_tokens=ctx.total_prompt_tokens,
+                completion_tokens=ctx.total_completion_tokens,
+            )
+
+        # 2. Trigger notes update
+        trig_notes = getattr(self.deps, "notes_updater", None) or trigger_thread_notes_update
+        if trig_notes:
+            trig_notes(
+                channel_id=ctx.channel_id,
+                thread_ts=ctx.thread_ts,
+                is_completed=is_completed,
+                bot_user_id=ctx.bot_user_id,
+            )
+
+        # 3. Trigger usage update
+        trig_usage = getattr(self.deps, "usage_updater", None) or trigger_usage_update
+        if trig_usage:
+            trig_usage(
+                channel_id=ctx.channel_id,
+                thread_ts=ctx.thread_ts,
+                is_completed=is_completed,
+            )
+
+        # 4. Record flat history
+        if record_flat_history:
+            try:
+                initial_prompt = thread_state_manager.get_initial_prompt(
+                    ctx.channel_id, ctx.thread_ts
+                )
+                if not initial_prompt and not ctx.is_bot_trigger:
+                    initial_prompt = ctx.raw_text
+
+                history_to_record = list(getattr(ctx, "full_history", []))
+                if ctx.final_text:
+                    agent_name = ctx.agent_cfg.get("username", ctx.agent_key) if ctx.agent_cfg else ctx.agent_key
+                    history_to_record.append(
+                        {
+                            "role": "assistant",
+                            "content": f"[{agent_name}]: {ctx.final_text}",
+                        }
+                    )
+
+                record_flat_fn = getattr(self.deps, "flat_history_recorder", None) or async_record_flat_history
+                if record_flat_fn:
+                    if inspect.iscoroutinefunction(record_flat_fn):
+                        await record_flat_fn(
+                            channel_id=ctx.channel_id,
+                            thread_ts=ctx.thread_ts,
+                            initial_prompt=initial_prompt,
+                            messages=history_to_record,
+                            bot_user_id=ctx.bot_user_id,
+                        )
+                    else:
+                        record_flat_fn(
+                            channel_id=ctx.channel_id,
+                            thread_ts=ctx.thread_ts,
+                            initial_prompt=initial_prompt,
+                            messages=history_to_record,
+                        )
+            except Exception as e:
+                logger.warning(f"[WORKSPACE] Failed to record flat history for {ctx.thread_key}: {e}")
 
 
 
@@ -139,9 +210,7 @@ class PostRecordStage:
                 f"[ROUTER] Thread {ctx.thread_key} turn was superseded before pacing delay. Aborting."
             )
             if ctx.total_prompt_tokens > 0 or ctx.total_completion_tokens > 0:
-                record_tokens_fn = self.pipeline._get_hook(
-                    "record_thread_tokens", record_thread_tokens
-                )
+                record_tokens_fn = getattr(self.deps, "token_recorder", None) or record_thread_tokens
                 if record_tokens_fn:
                     record_tokens_fn(
                         channel_id=ctx.channel_id,
@@ -164,7 +233,8 @@ class PostRecordStage:
 
         # Check if more discussion rounds remain when active round ends
         if (
-            not ctx.remaining
+            not ctx.isolated_branch
+            and not ctx.remaining
             and not retries
             and not ctx.force_termination
             and not thread_state_manager.is_stopped(ctx.channel_id, ctx.thread_ts)
@@ -232,9 +302,7 @@ class PostRecordStage:
         else:
             # Mechanical word limit (max_words + 50 words)
             active_max_words = None
-            raw_max = ctx.modifiers.get("max_words") if ctx.modifiers else None
-            if raw_max is None:
-                raw_max = ctx.max_words_limit
+            raw_max = ctx.modifiers.get("max_words") if isinstance(ctx.modifiers, dict) else None
             if raw_max is None:
                 raw_max = thread_state_manager.get_max_words(ctx.channel_id, ctx.thread_ts)
             if raw_max is not None and str(raw_max).strip().lower() != "off":
@@ -313,19 +381,17 @@ class PostRecordStage:
             f"[ROUTER] Agent {ctx.agent_key} generated tag(s): {ctx.generated_tags}. Full text length: {len(ctx.final_text)}"
         )
 
-        pacing_secs = self.pipeline._get_hook(
-            "DEBATE_TURN_PACING_SECONDS", get_debate_turn_pacing_seconds()
-        )
-        await self.pipeline._sleep(pacing_secs)
+        pacing_secs = getattr(self.deps, "debate_turn_pacing_seconds", None)
+        if pacing_secs is None:
+            pacing_secs = get_debate_turn_pacing_seconds()
+        await self._sleep(pacing_secs)
 
         if ctx.is_superseded():
             logger.info(
                 f"[ROUTER] Thread {ctx.thread_key} turn was superseded after pacing delay. Aborting post."
             )
             if ctx.total_prompt_tokens > 0 or ctx.total_completion_tokens > 0:
-                record_tokens_fn = self.pipeline._get_hook(
-                    "record_thread_tokens", record_thread_tokens
-                )
+                record_tokens_fn = getattr(self.deps, "token_recorder", None) or record_thread_tokens
                 if record_tokens_fn:
                     record_tokens_fn(
                         channel_id=ctx.channel_id,
@@ -376,10 +442,10 @@ class PostRecordStage:
         ctx.slack_res = slack_res
         logger.info(f"[WORKSPACE] Successfully posted message! Received ts: {posted_ts}")
 
-        pause_secs = self.pipeline._get_hook(
-            "SLACK_POST_PAUSE_SECONDS", get_slack_post_pause_seconds()
-        )
-        await self.pipeline._sleep(pause_secs)
+        pause_secs = getattr(self.deps, "slack_post_pause_seconds", None)
+        if pause_secs is None:
+            pause_secs = get_slack_post_pause_seconds()
+        await self._sleep(pause_secs)
 
         has_pending_retries = thread_state_manager.has_pending_retries(
             ctx.channel_id, ctx.thread_ts
@@ -401,81 +467,11 @@ class PostRecordStage:
                 or (thread_state_manager.is_stopped(ctx.channel_id, ctx.thread_ts))
             )
 
-        record_tokens_fn = self.pipeline._get_hook(
-            "record_thread_tokens", record_thread_tokens
-        )
-        record_tokens_fn(
-            channel_id=ctx.channel_id,
-            thread_ts=ctx.thread_ts,
-            model_name=ctx.agent_cfg["model"],
-            prompt_tokens=ctx.total_prompt_tokens,
-            completion_tokens=ctx.total_completion_tokens,
+        await self._finalize_turn_bookkeeping(
+            ctx, is_completed=ctx.is_completed, record_flat_history=True
         )
 
-        trig_notes = self.pipeline._get_hook(
-            "trigger_thread_notes_update", trigger_thread_notes_update
-        )
-        trig_notes(
-            channel_id=ctx.channel_id,
-            thread_ts=ctx.thread_ts,
-            is_completed=ctx.is_completed,
-            bot_user_id=ctx.bot_user_id,
-        )
-
-        trig_usage = self.pipeline._get_hook(
-            "trigger_usage_update", trigger_usage_update
-        )
-        trig_usage(
-            channel_id=ctx.channel_id,
-            thread_ts=ctx.thread_ts,
-            is_completed=ctx.is_completed,
-        )
-
-        # Incrementally update flat history file (1 thread = 1 file in flat-histories/)
-        try:
-            initial_prompt = thread_state_manager.get_initial_prompt(
-                ctx.channel_id, ctx.thread_ts
-            )
-            if not initial_prompt and not ctx.is_bot_trigger:
-                initial_prompt = ctx.raw_text
-
-            history_to_record = list(getattr(ctx, "full_history", []))
-            if ctx.final_text:
-                agent_name = ctx.agent_cfg.get("username", ctx.agent_key)
-                history_to_record.append(
-                    {
-                        "role": "assistant",
-                        "content": f"[{agent_name}]: {ctx.final_text}",
-                    }
-                )
-
-            record_flat_fn = self.pipeline._get_hook(
-                "async_record_flat_history",
-                self.pipeline._get_hook("record_flat_history", async_record_flat_history),
-            )
-            if record_flat_fn:
-                if inspect.iscoroutinefunction(record_flat_fn):
-                    await record_flat_fn(
-                        channel_id=ctx.channel_id,
-                        thread_ts=ctx.thread_ts,
-                        initial_prompt=initial_prompt,
-                        messages=history_to_record,
-                        bot_user_id=ctx.bot_user_id,
-                    )
-                else:
-                    record_flat_fn(
-                        channel_id=ctx.channel_id,
-                        thread_ts=ctx.thread_ts,
-                        initial_prompt=initial_prompt,
-                        messages=history_to_record,
-                        bot_user_id=ctx.bot_user_id,
-                    )
-        except Exception:
-            logger.exception(
-                f"[ROUTER] Failed to record flat history for thread {ctx.thread_key}"
-            )
-
-        if ctx.is_completed:
+        if ctx.is_completed and not ctx.isolated_branch:
             logger.info(
                 f"[ROUTER] Thread {ctx.thread_key} reached termination (forced or natural). Cleaning up state."
             )
@@ -570,9 +566,10 @@ class PostRecordStage:
                             ctx.remaining.append(ctx.agent_key)
                     else:
                         ctx.remaining.append(ctx.agent_key)
-                thread_state_manager.set_remaining_agents(
-                    ctx.channel_id, ctx.thread_ts, ctx.remaining
-                )
+                if not ctx.isolated_branch:
+                    thread_state_manager.set_remaining_agents(
+                        ctx.channel_id, ctx.thread_ts, ctx.remaining
+                    )
                 other_candidates = [
                     a for a in ctx.remaining if a != ctx.agent_key
                 ]
@@ -621,9 +618,7 @@ class PostRecordStage:
         logger.info(
             f"[SLACK] Posting gracious error message to channel {ctx.channel_id}, thread_ts {ctx.thread_ts} as {ctx.agent_cfg.get('username', ctx.agent_key)}"
         )
-        post_resp_fn = self.pipeline._get_hook(
-            "post_agent_response", post_agent_response
-        )
+        post_resp_fn = getattr(self.deps, "slack_poster", None) or post_agent_response
         slack_res = await post_resp_fn(
             channel_id=ctx.channel_id,
             thread_ts=ctx.thread_ts,
@@ -632,10 +627,10 @@ class PostRecordStage:
             icon_url=ctx.agent_cfg.get("icon_url"),
         )
 
-        pause_secs = self.pipeline._get_hook(
-            "SLACK_POST_PAUSE_SECONDS", get_slack_post_pause_seconds()
-        )
-        await self.pipeline._sleep(pause_secs)
+        pause_secs = getattr(self.deps, "slack_post_pause_seconds", None)
+        if pause_secs is None:
+            pause_secs = get_slack_post_pause_seconds()
+        await self._sleep(pause_secs)
 
         ctx.is_completed = bool(
             ctx.force_termination
@@ -643,37 +638,11 @@ class PostRecordStage:
             or thread_state_manager.is_stopped(ctx.channel_id, ctx.thread_ts)
         )
 
-        record_tokens_fn = self.pipeline._get_hook(
-            "record_thread_tokens", record_thread_tokens
-        )
-        record_tokens_fn(
-            channel_id=ctx.channel_id,
-            thread_ts=ctx.thread_ts,
-            model_name=ctx.agent_cfg.get("model", ""),
-            prompt_tokens=ctx.total_prompt_tokens,
-            completion_tokens=ctx.total_completion_tokens,
+        await self._finalize_turn_bookkeeping(
+            ctx, is_completed=ctx.is_completed, record_flat_history=False
         )
 
-        trig_notes = self.pipeline._get_hook(
-            "trigger_thread_notes_update", trigger_thread_notes_update
-        )
-        trig_notes(
-            channel_id=ctx.channel_id,
-            thread_ts=ctx.thread_ts,
-            is_completed=ctx.is_completed,
-            bot_user_id=ctx.bot_user_id,
-        )
-
-        trig_usage = self.pipeline._get_hook(
-            "trigger_usage_update", trigger_usage_update
-        )
-        trig_usage(
-            channel_id=ctx.channel_id,
-            thread_ts=ctx.thread_ts,
-            is_completed=ctx.is_completed,
-        )
-
-        if ctx.is_completed:
+        if ctx.is_completed and not ctx.isolated_branch:
             thread_state_manager.clear_round_execution_state(ctx.channel_id, ctx.thread_ts)
 
         if isinstance(slack_res, dict):

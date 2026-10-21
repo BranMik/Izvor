@@ -1,0 +1,191 @@
+import logging
+from typing import Any
+
+from fastapi import BackgroundTasks, Response
+
+from orchestration.agent_settings import (
+    get_agents_config,
+    reset_enabled_agents,
+    restore_from_backup,
+    set_agent_enabled,
+    set_agent_model,
+    settings_manager,
+    toggle_agent,
+)
+from services.audit_logger import log_audit_event
+from services.slack_client import slack_async_client
+
+logger = logging.getLogger("IzvorBackend.SlackInteractivity.Agents")
+
+
+def _log_audit_event(**kwargs: Any) -> Any:
+    from adapters.slack.actions import get_interactivity_attr
+
+    fn = get_interactivity_attr("log_audit_event", log_audit_event)
+    return fn(**kwargs)
+
+
+def _get_slack_client() -> Any:
+    from adapters.slack.actions import get_interactivity_attr
+
+    return get_interactivity_attr("slack_async_client", slack_async_client)
+
+
+def _deny_non_admin_action(
+    payload: dict[str, Any],
+    user_id: str | None,
+    action_id: str,
+    background_tasks: BackgroundTasks,
+) -> None:
+    logger.warning(
+        f"[INTERACTIVITY] Unauthorized non-admin user {user_id} attempted admin action '{action_id}'."
+    )
+    _log_audit_event(
+        event_type="ADMIN_ACTION_DENIED",
+        actor={"type": "slack_user", "id": user_id or "unknown"},
+        action=action_id,
+        target="system_configuration",
+        details={"attempted_action": action_id},
+        severity="CRITICAL",
+    )
+    channel_id = payload.get("channel", {}).get("id") or ""
+    if channel_id and user_id:
+        client = _get_slack_client()
+        background_tasks.add_task(
+            client.chat_postEphemeral,
+            channel=channel_id,
+            user=user_id,
+            text="⚠️ *Permission Denied:* Administrative privileges are required to modify system settings.",
+        )
+
+
+async def _handle_select_agent_model(
+    action: dict[str, Any],
+    payload: dict[str, Any],
+    user_id: str | None,
+    background_tasks: BackgroundTasks,
+    view_state: dict[str, Any],
+) -> Response | None:
+    action_id = action.get("action_id", "")
+    selected_option = action.get("selected_option", {})
+    val = selected_option.get("value", "")
+    agent_key = action_id.split(":", 1)[1]
+    if agent_key and val:
+        logger.info(f"[INTERACTIVITY] Changing model for agent '{agent_key}' to '{val}'")
+        set_agent_model(agent_key, val)
+        _log_audit_event(
+            event_type="ADMIN_CONFIG_CHANGE",
+            actor={"type": "slack_admin", "id": user_id or "unknown"},
+            action="set_agent_model",
+            target=f"agent:{agent_key}.model",
+            details={"agent": agent_key, "model": val},
+            severity="CRITICAL",
+        )
+    return None
+
+
+async def _handle_toggle_agent_radio(
+    action: dict[str, Any],
+    payload: dict[str, Any],
+    user_id: str | None,
+    background_tasks: BackgroundTasks,
+    view_state: dict[str, Any],
+) -> Response | None:
+    selected_option = action.get("selected_option", {})
+    val = selected_option.get("value", "")
+    if ":" in val:
+        agent_key, state = val.split(":", 1)
+        set_agent_enabled(agent_key, state == "on")
+        _log_audit_event(
+            event_type="ADMIN_CONFIG_CHANGE",
+            actor={"type": "slack_admin", "id": user_id or "unknown"},
+            action="toggle_agent",
+            target=f"agent:{agent_key}.enabled",
+            details={"agent": agent_key, "enabled": state == "on"},
+            severity="CRITICAL",
+        )
+    return None
+
+
+async def _handle_toggle_agent(
+    action: dict[str, Any],
+    payload: dict[str, Any],
+    user_id: str | None,
+    background_tasks: BackgroundTasks,
+    view_state: dict[str, Any],
+) -> Response | None:
+    agent_key = action.get("value")
+    if agent_key:
+        toggle_agent(agent_key)
+        _log_audit_event(
+            event_type="ADMIN_CONFIG_CHANGE",
+            actor={"type": "slack_admin", "id": user_id or "unknown"},
+            action="toggle_agent",
+            target=f"agent:{agent_key}.enabled",
+            details={"agent": agent_key},
+            severity="CRITICAL",
+        )
+    return None
+
+
+async def _handle_bulk_enable_all(
+    action: dict[str, Any],
+    payload: dict[str, Any],
+    user_id: str | None,
+    background_tasks: BackgroundTasks,
+    view_state: dict[str, Any],
+) -> Response | None:
+    reset_enabled_agents()
+    _log_audit_event(
+        event_type="ADMIN_CONFIG_CHANGE",
+        actor={"type": "slack_admin", "id": user_id or "unknown"},
+        action="bulk_enable_all_agents",
+        target="agents.enabled",
+        details={"action": "reset_enabled_agents"},
+        severity="CRITICAL",
+    )
+    return None
+
+
+async def _handle_bulk_disable(
+    action: dict[str, Any],
+    payload: dict[str, Any],
+    user_id: str | None,
+    background_tasks: BackgroundTasks,
+    view_state: dict[str, Any],
+) -> Response | None:
+    action_id = action.get("action_id", "")
+    for key in get_agents_config():
+        set_agent_enabled(key, False, save=False)
+    settings_manager.save()
+    _log_audit_event(
+        event_type="ADMIN_CONFIG_CHANGE",
+        actor={"type": "slack_admin", "id": user_id or "unknown"},
+        action="bulk_disable_agents",
+        target="agents.enabled",
+        details={"mode": action_id},
+        severity="CRITICAL",
+    )
+    return None
+
+
+async def _handle_restore_from_backup(
+    action: dict[str, Any],
+    payload: dict[str, Any],
+    user_id: str | None,
+    background_tasks: BackgroundTasks,
+    view_state: dict[str, Any],
+) -> Response | None:
+    success = restore_from_backup()
+    logger.info(
+        f"[INTERACTIVITY] restore_from_backup invoked by user {user_id}: success={success}"
+    )
+    _log_audit_event(
+        event_type="WORKFLOW_PRESET_MUTATION",
+        actor={"type": "slack_admin", "id": user_id or "unknown"},
+        action="restore_from_backup",
+        target="agent_settings_backup",
+        details={"success": success},
+        severity="CRITICAL",
+    )
+    return None

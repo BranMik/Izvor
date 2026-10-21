@@ -24,14 +24,14 @@ def test_turn_pipeline_di_priority():
         usage_updater=mock_usage,
     )
 
-    # Injected dependencies must be returned by _get_hook
-    assert pipeline._get_hook("execute_llm_with_retry") == mock_llm
-    assert pipeline._get_hook("post_agent_response") == mock_poster
-    assert pipeline._get_hook("fetch_thread_history") == mock_history
-    assert pipeline._get_hook("fetch_thread_files") == mock_files
-    assert pipeline._get_hook("record_thread_tokens") == mock_tokens
-    assert pipeline._get_hook("trigger_thread_notes_update") == mock_notes
-    assert pipeline._get_hook("trigger_usage_update") == mock_usage
+    # Injected dependencies must be stored on pipeline.deps and passed to stages
+    assert pipeline.deps.llm_executor == mock_llm
+    assert pipeline.deps.slack_poster == mock_poster
+    assert pipeline.deps.history_fetcher == mock_history
+    assert pipeline.deps.files_fetcher == mock_files
+    assert pipeline.deps.token_recorder == mock_tokens
+    assert pipeline.deps.notes_updater == mock_notes
+    assert pipeline.deps.usage_updater == mock_usage
 
 
 @pytest.mark.anyio
@@ -46,9 +46,7 @@ async def test_turn_pipeline_custom_sleep_fn():
 def test_turn_pipeline_fallback_to_defaults():
     pipeline = TurnPipeline()
 
-    # Without router or DI, resolves canonical implementations
-    llm_fn = pipeline._get_hook("execute_llm_with_retry")
-    assert callable(llm_fn)
-
-    poster_fn = pipeline._get_hook("post_agent_response")
-    assert callable(poster_fn)
+    # Fallbacks resolve canonical implementations on pipeline.deps
+    assert callable(pipeline.deps.llm_executor)
+    assert callable(pipeline.deps.slack_poster)
+    assert callable(pipeline.deps.history_fetcher)

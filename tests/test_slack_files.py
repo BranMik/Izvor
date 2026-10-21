@@ -434,6 +434,7 @@ async def test_file_context_lifecycle_in_process_and_respond():
         patch("services.slack_client.download_slack_file", new_callable=AsyncMock, return_value={"ok": True, "file_name": "database.sql", "content": "SELECT 1;", "size": 50, "truncated": False}),
         patch("orchestration.stages.validation.download_slack_file", new_callable=AsyncMock, return_value={"ok": True, "file_name": "database.sql", "content": "SELECT 1;", "size": 50, "truncated": False}),
         patch("litellm.completion", return_value=mock_litellm_resp),
+        patch("litellm.acompletion", new_callable=AsyncMock, return_value=mock_litellm_resp),
         patch("orchestration.agent_router.asyncio.sleep", new_callable=AsyncMock),
     ):
                         # 1. User prompts with specific tag [agent-10001] and requests file reading
@@ -482,7 +483,12 @@ async def test_resource_file_resolution_in_validation_stage():
     res_file.write_text("Unique local server resource document text", encoding="utf-8")
 
     try:
-        pipeline = TurnPipeline()
+        pipeline = TurnPipeline(
+            hooks={
+                "fetch_thread_files": AsyncMock(return_value=[]),
+                "post_system_message": AsyncMock(return_value={"ok": True}),
+            }
+        )
         ctx = TurnContext(
             channel_id=channel_id,
             thread_ts=thread_ts,
@@ -490,18 +496,13 @@ async def test_resource_file_resolution_in_validation_stage():
             is_bot_trigger=False,
         )
 
-        with patch.object(pipeline, "_get_hook", side_effect=lambda name, default=None: (
-            AsyncMock(return_value=[]) if name == "fetch_thread_files" else
-            AsyncMock(return_value={"ok": True}) if name == "post_system_message" else
-            default
-        )):
-            stage_res = await pipeline.validation_stage.stage_validate_and_parse(ctx)
-            assert stage_res is None or stage_res.get("ok", True) is True
+        stage_res = await pipeline.validation_stage.stage_validate_and_parse(ctx)
+        assert stage_res is None or stage_res.get("ok", True) is True
 
-            fc = thread_state_manager.get_file_context(channel_id, thread_ts)
-            assert fc is not None
-            assert fc.get("file_name") == doc_filename
-            assert "Unique local server resource document text" in fc.get("content", "")
+        fc = thread_state_manager.get_file_context(channel_id, thread_ts)
+        assert fc is not None
+        assert fc.get("file_name") == doc_filename
+        assert "Unique local server resource document text" in fc.get("content", "")
     finally:
         if res_file.exists():
             res_file.unlink()

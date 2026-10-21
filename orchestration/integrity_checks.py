@@ -9,6 +9,7 @@ additional checks as the system evolves.
 import json
 import logging
 import re
+import copy
 import shutil
 from pathlib import Path
 from typing import Any
@@ -61,6 +62,8 @@ class AppIntegrityValidator:
         p_dir = personas_dir or _DEFAULT_PERSONAS_DIR
         w_dir = workflows_dir or _DEFAULT_WORKFLOWS_DIR
         b_dir = backups_dir or _DEFAULT_WORKFLOWS_BACKUP_DIR
+
+        payload = copy.deepcopy(payload)
 
         payload = cls.check_required_settings_keys(payload)
         payload = cls.check_special_roles(payload)

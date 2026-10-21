@@ -6,18 +6,20 @@ from orchestration import agent_router
 from orchestration.agent_router import process_and_respond
 from orchestration.agent_settings import (
     ENABLED_DEBATE_AGENTS,
-    get_circuit_breaker_threshold,
     get_enabled_agents,
-    is_circuit_breaker_enabled,
     load_enabled_agents,
     reset_enabled_agents,
     set_agent_enabled,
-    set_circuit_breaker_enabled,
-    set_circuit_breaker_threshold,
     set_fixed_config,
     set_orchestration_mode,
     set_sandwich_config,
     toggle_agent,
+)
+from orchestration.app_settings import (
+    get_circuit_breaker_threshold,
+    is_circuit_breaker_enabled,
+    set_circuit_breaker_enabled,
+    set_circuit_breaker_threshold,
 )
 from orchestration.nomination import get_initial_agents, parse_agent_and_prompt
 from orchestration.thread_state import thread_state_manager

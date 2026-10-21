@@ -5,9 +5,11 @@ from main import PROCESSED_EVENTS, app
 from orchestration.agent_settings import (
     ENABLED_DEBATE_AGENTS,
     LOCKED_AGENTS,
+    reset_enabled_agents,
+)
+from orchestration.app_settings import (
     get_circuit_breaker_threshold,
     is_circuit_breaker_enabled,
-    reset_enabled_agents,
     set_circuit_breaker_enabled,
     set_circuit_breaker_threshold,
 )
@@ -316,8 +318,8 @@ def test_slack_interactivity_radio_toggle_action(monkeypatch):
 
     response_bulk_on = client.post("/slack/actions", json=payload_bulk_on)
     assert response_bulk_on.status_code == 200
-    from core.config import AGENTS_CONFIG
-    assert len(ENABLED_DEBATE_AGENTS) == len(AGENTS_CONFIG)
+    from orchestration.agent_settings import get_agents_config
+    assert len(ENABLED_DEBATE_AGENTS) == len(get_agents_config())
 
 
 def test_user_new_query_interrupts_ongoing_discussion_webhook(monkeypatch):
@@ -641,7 +643,7 @@ def test_slack_interactivity_zero_threshold_turns_off_circuit_breaker():
 
 
 def test_slack_interactivity_scribe_toggle():
-    from orchestration.agent_settings import is_scribe_enabled, set_scribe_enabled
+    from orchestration.app_settings import is_scribe_enabled, set_scribe_enabled
 
     try:
         set_scribe_enabled(True)
@@ -679,7 +681,7 @@ def test_slack_interactivity_scribe_toggle():
 
 
 def test_slack_interactivity_weekly_pricing_toggle():
-    from orchestration.agent_settings import (
+    from orchestration.app_settings import (
         is_weekly_pricing_update_enabled,
         set_weekly_pricing_update_enabled,
     )

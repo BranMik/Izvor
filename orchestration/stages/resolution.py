@@ -4,6 +4,7 @@ Stage 2: Agent configuration lookup, fallback rotation, and circuit breaker spen
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import random
 from typing import TYPE_CHECKING, Any
@@ -16,10 +17,10 @@ from agents import (
 from core.config import AGENTS_CONFIG
 from orchestration.system_settings import get_slack_post_pause_seconds
 from core.models import OrchestrationMode
-from orchestration.agent_settings import (
+from orchestration.agent_settings import settings_manager
+from orchestration.app_settings import (
     get_circuit_breaker_threshold,
     is_circuit_breaker_enabled,
-    settings_manager,
 )
 from orchestration.protocols import WorkspaceAdapter
 from orchestration.thread_state import thread_state_manager
@@ -39,43 +40,35 @@ logger = logging.getLogger(__name__)
 class ResolutionStage:
     """Provides stage 2 agent resolution and spend governance for TurnPipeline."""
 
-    def __init__(self, pipeline: Any):
-        self.pipeline = pipeline
+    def __init__(self, deps: Any):
+        if hasattr(deps, "deps"):
+            self.deps = deps.deps
+            self.pipeline = deps
+        else:
+            self.deps = deps
+            self.pipeline = deps
+
+    async def _sleep(self, seconds: float) -> None:
+        sleep_fn = getattr(self.deps, "sleep_fn", None)
+        if sleep_fn is not None:
+            await sleep_fn(seconds)
+        else:
+            await asyncio.sleep(seconds)
 
     @property
     def workspace_adapter(self) -> WorkspaceAdapter:
-        adapter = getattr(self.pipeline, "workspace_adapter", None)
-        from adapters.slack.workspace_adapter import (
-            InMemoryWorkspaceAdapter,
-            SlackWorkspaceAdapter,
-        )
+        if hasattr(self.deps, "workspace_adapter") and self.deps.workspace_adapter is not None:
+            return self.deps.workspace_adapter
+        from adapters.slack.workspace_adapter import SlackWorkspaceAdapter
 
-        if isinstance(adapter, (SlackWorkspaceAdapter, InMemoryWorkspaceAdapter)):
-            return adapter
-
-        hook_resolver = getattr(self.pipeline, "_get_hook", None)
-        return SlackWorkspaceAdapter(
-            hook_resolver=hook_resolver,
-            post_agent_fn=lambda **kw: (
-                hook_resolver("post_agent_response", post_agent_response)
-                if hook_resolver
-                else post_agent_response
-            )(**kw),
-            update_msg_fn=lambda **kw: (
-                hook_resolver("update_slack_message", update_slack_message)
-                if hook_resolver
-                else update_slack_message
-            )(**kw),
-        )
-
-
-
+        return SlackWorkspaceAdapter()
 
     async def stage_resolve_agent_and_governance(
         self, ctx: TurnContext
     ) -> dict[str, Any] | None:
         """Stage 2: Agent config lookup, fallback rotation, and circuit breaker verification."""
-        post_sys_msg = self.pipeline._get_hook("post_system_message", post_system_message)
+        post_sys_msg = getattr(self.deps, "post_system_message_fn", None) or post_system_message
+
         agents_map = settings_manager.agents_config or AGENTS_CONFIG
 
         if ctx.agent_key not in agents_map:
@@ -158,9 +151,7 @@ class ResolutionStage:
             return {"ok": False, "cancelled": True, "reason": "superseded"}
 
         # Circuit breaker & daily budget verification
-        calc_costs_fn = self.pipeline._get_hook(
-            "calculate_thread_costs", calculate_thread_costs
-        )
+        calc_costs_fn = getattr(self.deps, "calc_costs_fn", None) or calculate_thread_costs
         cost_info = calc_costs_fn(ctx.channel_id, ctx.thread_ts)
         current_cost = cost_info.get("grand_total_cost_usd", 0.0)
         threshold = get_circuit_breaker_threshold()
@@ -237,17 +228,15 @@ class ResolutionStage:
                 icon_url=ctx.agent_cfg.get("icon_url"),
                 blocks=blocks,
             )
-            pause_secs = self.pipeline._get_hook(
-                "SLACK_POST_PAUSE_SECONDS", get_slack_post_pause_seconds()
-            )
-            await self.pipeline._sleep(pause_secs)
+            pause_secs = getattr(self.deps, "slack_post_pause_seconds", None)
+            if pause_secs is None:
+                pause_secs = get_slack_post_pause_seconds()
+            await self._sleep(pause_secs)
 
             # Note: trigger_thread_notes_update is intentionally suppressed here
             # to prevent burning further LLM tokens when the budget is exceeded.
 
-            trig_usage = self.pipeline._get_hook(
-                "trigger_usage_update", trigger_usage_update
-            )
+            trig_usage = getattr(self.deps, "usage_updater", None) or trigger_usage_update
             trig_usage(
                 channel_id=ctx.channel_id,
                 thread_ts=ctx.thread_ts,

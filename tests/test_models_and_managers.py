@@ -1,6 +1,7 @@
 import json
 import tempfile
 from pathlib import Path
+from types import MappingProxyType
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -103,8 +104,9 @@ def test_agent_settings_manager():
 
         # Defaults
         assert "agent-10001" in mgr.get_enabled_agents()
-        assert mgr.is_circuit_breaker_enabled() is True
+        assert mgr.app_settings.is_circuit_breaker_enabled() is True
         assert mgr.get_orchestration_mode() == "fixed"
+        assert isinstance(mgr.get_agents_config(), MappingProxyType)
 
         # Toggle all agents freely (no locked agents)
         assert mgr.set_agent_enabled("agent-10001", False) is True
@@ -128,19 +130,19 @@ def test_agent_settings_manager():
             "end_chain": ["agent-10008"],
         }
 
-        # Circuit breaker settings
-        mgr.set_circuit_breaker_enabled(False)
-        assert mgr.is_circuit_breaker_enabled() is False
-        mgr.set_circuit_breaker_enabled(True)
-        mgr.set_circuit_breaker_threshold(3.75)
-        assert mgr.is_circuit_breaker_enabled() is True
-        assert mgr.get_circuit_breaker_threshold() == 3.75
+        # Circuit breaker settings on app_settings
+        mgr.app_settings.set_circuit_breaker_enabled(False)
+        assert mgr.app_settings.is_circuit_breaker_enabled() is False
+        mgr.app_settings.set_circuit_breaker_enabled(True)
+        mgr.app_settings.set_circuit_breaker_threshold(3.75)
+        assert mgr.app_settings.is_circuit_breaker_enabled() is True
+        assert mgr.app_settings.get_circuit_breaker_threshold() == 3.75
 
         # Persistence reload
         mgr_reloaded = AgentSettingsManager(settings_file=settings_file)
         mgr_reloaded.load()
-        assert mgr_reloaded.is_circuit_breaker_enabled() is True
-        assert mgr_reloaded.get_circuit_breaker_threshold() == 3.75
+        assert mgr_reloaded.app_settings.is_circuit_breaker_enabled() is True
+        assert mgr_reloaded.app_settings.get_circuit_breaker_threshold() == 3.75
         assert "agent-10002" not in mgr_reloaded.get_enabled_agents()
         assert mgr_reloaded.get_orchestration_mode() == "fixed"
         assert mgr_reloaded.get_workflow_config() == "default_review_flow"

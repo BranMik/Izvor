@@ -189,11 +189,15 @@ class TurnCheckpointStore:
         return self.get_latest_checkpoint_for_thread(channel_id, thread_ts)
 
     def mark_resumed(self, checkpoint_id: str) -> bool:
-        """Updates checkpoint status to RESUMED upon successful continuation."""
+        """Updates checkpoint status to RESUMED and redacts payload upon continuation."""
         try:
             with get_db_transaction(immediate=True) as conn:
                 cur = conn.execute(
-                    "UPDATE turn_checkpoints SET status = 'RESUMED' WHERE checkpoint_id = ?;",
+                    """
+                    UPDATE turn_checkpoints
+                    SET status = 'RESUMED', messages_json = '[]', accumulated_history_json = '[]'
+                    WHERE checkpoint_id = ?;
+                    """,
                     (checkpoint_id,),
                 )
                 return cur.rowcount > 0
@@ -201,17 +205,55 @@ class TurnCheckpointStore:
             logger.debug(f"[CHECKPOINT] Failed marking resumed {checkpoint_id}: {e}")
             return False
 
-    def mark_abandoned(self, checkpoint_id: str) -> bool:
-        """Updates checkpoint status to ABANDONED (e.g. rejected or superseded)."""
+    def mark_resolved(self, checkpoint_id: str) -> bool:
+        """Updates checkpoint status to RESOLVED and redacts payload upon completion."""
         try:
             with get_db_transaction(immediate=True) as conn:
                 cur = conn.execute(
-                    "UPDATE turn_checkpoints SET status = 'ABANDONED' WHERE checkpoint_id = ?;",
+                    """
+                    UPDATE turn_checkpoints
+                    SET status = 'RESOLVED', messages_json = '[]', accumulated_history_json = '[]'
+                    WHERE checkpoint_id = ?;
+                    """,
+                    (checkpoint_id,),
+                )
+                return cur.rowcount > 0
+        except Exception as e:
+            logger.debug(f"[CHECKPOINT] Failed marking resolved {checkpoint_id}: {e}")
+            return False
+
+    def mark_abandoned(self, checkpoint_id: str) -> bool:
+        """Updates checkpoint status to ABANDONED and redacts payload."""
+        try:
+            with get_db_transaction(immediate=True) as conn:
+                cur = conn.execute(
+                    """
+                    UPDATE turn_checkpoints
+                    SET status = 'ABANDONED', messages_json = '[]', accumulated_history_json = '[]'
+                    WHERE checkpoint_id = ?;
+                    """,
                     (checkpoint_id,),
                 )
                 return cur.rowcount > 0
         except Exception as e:
             logger.debug(f"[CHECKPOINT] Failed marking abandoned {checkpoint_id}: {e}")
+            return False
+
+    def mark_expired(self, checkpoint_id: str) -> bool:
+        """Updates checkpoint status to EXPIRED and redacts payload."""
+        try:
+            with get_db_transaction(immediate=True) as conn:
+                cur = conn.execute(
+                    """
+                    UPDATE turn_checkpoints
+                    SET status = 'EXPIRED', messages_json = '[]', accumulated_history_json = '[]'
+                    WHERE checkpoint_id = ?;
+                    """,
+                    (checkpoint_id,),
+                )
+                return cur.rowcount > 0
+        except Exception as e:
+            logger.debug(f"[CHECKPOINT] Failed marking expired {checkpoint_id}: {e}")
             return False
 
     def prune_expired(self) -> int:

@@ -33,9 +33,11 @@ from .pricing_service import (
     save_pricing_cache,
     warm_up_pricing_cache,
 )
-from .slack_client import (
+from .slack_home import (
     build_app_home_view,
     build_edit_workspace_context_modal,
+)
+from .slack_client import (
     download_slack_file,
     extract_thread_files_metadata,
     fetch_thread_files,

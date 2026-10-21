@@ -3,6 +3,7 @@ import logging
 import time
 from typing import Any
 
+from core.async_utils import spawn_background_task
 from core.config import get_thread_notes_model
 from pipeline.discussion_scribe import discussion_scribe
 from services.slack_client import (
@@ -428,7 +429,7 @@ async def update_notes_for_thread(
     lock = get_thread_lock(channel_id, thread_ts)
     thread_key = (channel_id, thread_ts)
 
-    from orchestration.agent_settings import is_scribe_enabled
+    from orchestration.app_settings import is_scribe_enabled
     if not is_scribe_enabled():
         logger.info(
             f"[THREAD NOTES] Scribe is disabled in settings. Skipping update for thread {thread_ts} in channel {channel_id}."
@@ -696,7 +697,7 @@ def trigger_thread_notes_update(
     Dispatches live thread note creation/update as a non-blocking background task.
     Coalesces rapid successive triggers so only one worker runs with pending follow-up.
     """
-    from orchestration.agent_settings import is_scribe_enabled
+    from orchestration.app_settings import is_scribe_enabled
     if not is_scribe_enabled():
         logger.info(
             f"[THREAD NOTES] Scribe is disabled in settings. Skipping update for thread {thread_ts}."
@@ -722,7 +723,7 @@ def trigger_thread_notes_update(
         bot_user_id=bot_user_id,
     )
     try:
-        task = asyncio.create_task(coro)
+        task = spawn_background_task(coro, name=f"thread_notes_{thread_ts}")
         _RUNNING_TASKS[thread_key] = task
         _PENDING_UPDATES[thread_key] = False
         return task

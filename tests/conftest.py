@@ -74,8 +74,6 @@ def isolate_agent_settings_for_tests(tmp_path, monkeypatch):
 
     # Save original in-memory state
     orig_enabled = set(settings_manager.enabled_agents)
-    orig_circuit_breaker_enabled = settings_manager.circuit_breaker_enabled
-    orig_circuit_breaker_threshold_usd = settings_manager.circuit_breaker_threshold_usd
     orig_orchestration_mode = settings_manager.orchestration_mode
     orig_sandwich_start = list(settings_manager.sandwich_start_chain)
     orig_sandwich_end = list(settings_manager.sandwich_end_chain)
@@ -87,8 +85,6 @@ def isolate_agent_settings_for_tests(tmp_path, monkeypatch):
     # Restore in-memory state in-place to preserve reference identity (e.g. ENABLED_DEBATE_AGENTS)
     settings_manager.enabled_agents.clear()
     settings_manager.enabled_agents.update(orig_enabled)
-    settings_manager.circuit_breaker_enabled = orig_circuit_breaker_enabled
-    settings_manager.circuit_breaker_threshold_usd = orig_circuit_breaker_threshold_usd
     settings_manager.orchestration_mode = orig_orchestration_mode
     settings_manager.sandwich_start_chain.clear()
     settings_manager.sandwich_start_chain.extend(orig_sandwich_start)
@@ -177,19 +173,13 @@ def isolate_database_for_tests(tmp_path, monkeypatch):
 @pytest.fixture(autouse=True)
 def isolate_thread_state_files_for_tests(tmp_path, monkeypatch):
     """
-    Prevents tests from modifying or overwriting data/thread/thread_skills.json
-    and data/thread/thread_usage_data.json.
+    Prevents tests from modifying or overwriting data/thread/thread_usage_data.json
+    and ensures clean thread skills state in SQLite.
     """
     import agents.usage_agent as usage_mod
-    import orchestration.thread_skills_manager as thread_skills_mod
     from orchestration.thread_skills_manager import thread_skills_manager
 
-    temp_skills_file = tmp_path / "thread_skills.json"
-    temp_skills_file.write_text("{}", encoding="utf-8")
-    monkeypatch.setattr(thread_skills_mod, "THREAD_SKILLS_FILE", temp_skills_file)
-    old_skills_storage = thread_skills_manager.storage_file
-    thread_skills_manager.storage_file = temp_skills_file
-    thread_skills_manager._threads.clear()
+    thread_skills_manager.clear_all()
 
     temp_usage_file = tmp_path / "thread_usage_data.json"
     temp_usage_file.write_text("{}", encoding="utf-8")
@@ -202,8 +192,7 @@ def isolate_thread_state_files_for_tests(tmp_path, monkeypatch):
 
     yield
 
-    thread_skills_manager.storage_file = old_skills_storage
-    thread_skills_manager._threads.clear()
+    thread_skills_manager.clear_all()
     usage_tracker.store_file = old_usage_storage
     usage_tracker.thread_usage_data.clear()
     usage_tracker.thread_usage_data.update(old_usage_data)

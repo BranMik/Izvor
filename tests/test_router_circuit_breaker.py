@@ -5,15 +5,17 @@ import pytest
 from orchestration import agent_router
 from orchestration.agent_router import process_and_respond
 from orchestration.agent_settings import (
-    get_circuit_breaker_config,
-    get_circuit_breaker_threshold,
-    is_circuit_breaker_enabled,
     reset_enabled_agents,
-    set_circuit_breaker_enabled,
-    set_circuit_breaker_threshold,
     set_fixed_config,
     set_orchestration_mode,
     set_sandwich_config,
+)
+from orchestration.app_settings import (
+    get_circuit_breaker_config,
+    get_circuit_breaker_threshold,
+    is_circuit_breaker_enabled,
+    set_circuit_breaker_enabled,
+    set_circuit_breaker_threshold,
 )
 from orchestration.thread_state import thread_state_manager
 

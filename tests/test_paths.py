@@ -127,7 +127,7 @@ def test_circular_import_resilience():
     import core
     import core.config
     import core.database
-    import core.integrity_checks
+    import orchestration.integrity_checks
     import core.model_catalog
     import orchestration.agent_settings
     import orchestration.app_settings

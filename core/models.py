@@ -1,9 +1,9 @@
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import Enum, StrEnum
 from typing import Any
 
 
-class OrchestrationMode(str, Enum):
+class OrchestrationMode(StrEnum):
     """Supported orchestration modes for panel discussions."""
 
     SANDWICH = "sandwich"
@@ -11,8 +11,20 @@ class OrchestrationMode(str, Enum):
     SCATTER_GATHER = "scatter_gather"
     PARALLEL_DIALECTIC = "scatter_gather"
 
+    @classmethod
+    def from_value(cls, val: str | "OrchestrationMode") -> "OrchestrationMode":
+        if isinstance(val, cls):
+            return val
+        val_str = str(val or "").strip().lower()
+        if val_str in ("scatter_gather", "parallel_dialectic"):
+            return cls.SCATTER_GATHER
+        try:
+            return cls(val_str)
+        except ValueError:
+            return cls.SANDWICH
 
-class AgentSpecialRole(str, Enum):
+
+class AgentSpecialRole(StrEnum):
     """Supported special roles for agents in dialectical stress test workflows."""
 
     NONE = "NONE"
@@ -370,6 +382,14 @@ class CircuitBreakerConfig:
             "threshold_usd": self.threshold_usd,
             "daily_budget_usd": self.daily_budget_usd,
         }
+
+    def __getitem__(self, key: str) -> Any:
+        if hasattr(self, key):
+            return getattr(self, key)
+        raise KeyError(key)
+
+    def get(self, key: str, default: Any = None) -> Any:
+        return getattr(self, key, default)
 
 
 @dataclass

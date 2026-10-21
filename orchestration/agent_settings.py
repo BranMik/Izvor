@@ -7,6 +7,7 @@ import re
 import threading
 import time
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
 from core.config import (
@@ -18,7 +19,7 @@ from core.models import OrchestrationMode
 from orchestration.app_settings import AppSettingsManager, app_settings_manager
 from orchestration.system_settings import SystemSettingsManager, system_settings_manager
 from prompts import build_agent_prompt
-from core.integrity_checks import AppIntegrityValidator
+from orchestration.integrity_checks import AppIntegrityValidator
 
 from core.paths import (
     AGENT_BACKUP_FILE as BACKUP_FILE,
@@ -70,7 +71,6 @@ class AgentSettingsManager:
             self.workflow_manager = workflow_manager
 
         if settings_file is not None or backup_file is not None:
-            # Isolated dictionaries for custom instances (e.g. tests)
             self._agents_config = {}
             self._system_agents_config = {}
             self._orchestrator_config = {}
@@ -79,26 +79,19 @@ class AgentSettingsManager:
             sys_set_file = target_dir / "system_settings.json"
             self.app_settings = AppSettingsManager(settings_file=app_set_file, auto_load=True)
             self.system_settings = SystemSettingsManager(settings_file=sys_set_file, auto_load=True)
-            self._orchestrator_config.update({
-                "fast_model": self.system_settings.get_default_fast_model(),
-                "reasoning_model": self.system_settings.get_default_reasoning_model(),
-                "username": "Orchestrator",
-                "icon_url": "static/image_99.png",
-            })
         else:
-            # Global default instance bound to core.config
             self._agents_config = AGENTS_CONFIG
             self._system_agents_config = SYSTEM_AGENTS_CONFIG
             self._orchestrator_config = ORCHESTRATOR_CONFIG
             self.app_settings = app_settings_manager
             self.system_settings = system_settings_manager
-            self._orchestrator_config.clear()
-            self._orchestrator_config.update({
-                "fast_model": self.system_settings.get_default_fast_model(),
-                "reasoning_model": self.system_settings.get_default_reasoning_model(),
-                "username": "Orchestrator",
-                "icon_url": "static/image_99.png",
-            })
+
+        self._orchestrator_config.update({
+            "fast_model": self.system_settings.get_default_fast_model(),
+            "reasoning_model": self.system_settings.get_default_reasoning_model(),
+            "username": "Orchestrator",
+            "icon_url": "static/image_99.png",
+        })
         self.enabled_agents: set[str] = set()
 
         # Orchestration flow mode and chains
@@ -158,37 +151,9 @@ class AgentSettingsManager:
         else:
             self._orchestrator_config = dict(val) if isinstance(val, dict) else {}
 
-    @property
-    def circuit_breaker_enabled(self) -> bool:
-        return self.app_settings.is_circuit_breaker_enabled()
-
-    @circuit_breaker_enabled.setter
-    def circuit_breaker_enabled(self, val: bool) -> None:
-        self.app_settings.set_circuit_breaker_enabled(val, save=False)
-
-    @property
-    def circuit_breaker_threshold_usd(self) -> float:
-        return self.app_settings.get_circuit_breaker_threshold()
-
-    @circuit_breaker_threshold_usd.setter
-    def circuit_breaker_threshold_usd(self, val: float) -> None:
-        self.app_settings.set_circuit_breaker_threshold(val, save=False)
-
-    @property
-    def scribe_enabled(self) -> bool:
-        return self.app_settings.is_scribe_enabled()
-
-    @scribe_enabled.setter
-    def scribe_enabled(self, val: bool) -> None:
-        self.app_settings.set_scribe_enabled(val, save=False)
-
-    @property
-    def weekly_pricing_update_enabled(self) -> bool:
-        return self.app_settings.is_weekly_pricing_update_enabled()
-
-    @weekly_pricing_update_enabled.setter
-    def weekly_pricing_update_enabled(self, val: bool) -> None:
-        self.app_settings.set_weekly_pricing_update_enabled(val, save=False)
+    def get_agents_config(self) -> MappingProxyType[str, dict[str, Any]]:
+        """Returns a read-only view of the currently configured agents."""
+        return MappingProxyType(self._agents_config)
 
     def configure_paths(
         self,
@@ -530,21 +495,13 @@ class AgentSettingsManager:
                     if sys_entry:
                         self.system_agents_config[sys_k] = sys_entry
 
-        # Parse circuit breaker settings (backward-compatibility fallback from agent_settings.json)
         if "circuit_breaker_enabled" in data:
-            self.set_circuit_breaker_enabled(bool(data.get("circuit_breaker_enabled", False)), save=False)
-            if "circuit_breaker_threshold_usd" in data:
-                try:
-                    self.set_circuit_breaker_threshold(float(data.get("circuit_breaker_threshold_usd", 1.0)), save=False)
-                except (ValueError, TypeError):
-                    self.set_circuit_breaker_threshold(1.0, save=False)
-
-        # Parse scribe enabled setting (backward-compatibility fallback)
-        if "scribe_enabled" in data:
-            self.set_scribe_enabled(bool(data.get("scribe_enabled", True)), save=False)
-
-        if "convergence_fast_forward_enabled" in data:
-            self.set_convergence_fast_forward_enabled(bool(data.get("convergence_fast_forward_enabled", True)), save=False)
+            self.app_settings.set_circuit_breaker_enabled(bool(data.get("circuit_breaker_enabled", False)), save=False)
+        if "circuit_breaker_threshold_usd" in data:
+            try:
+                self.app_settings.set_circuit_breaker_threshold(float(data.get("circuit_breaker_threshold_usd", 0.0)), save=False)
+            except (ValueError, TypeError):
+                pass
 
         # Parse active workflow reference ("workflow_config" primary, "active_workflow_id" fallback)
         raw_wf = data.get("workflow_config") or data.get("active_workflow_id")
@@ -788,9 +745,7 @@ class AgentSettingsManager:
                         logger.debug(f"[SETTINGS] Error checking settings file mtime: {e}")
                     logger.info(
                         f"[SETTINGS] Saved settings ({len(self.enabled_agents)} enabled agents, "
-                        f"workflow_config='{wf_ref}', "
-                        f"circuit_breaker={self.circuit_breaker_enabled}, "
-                        f"threshold=${self.circuit_breaker_threshold_usd:.2f}) to {target_file.name}"
+                        f"workflow_config='{wf_ref}') to {target_file.name}"
                     )
                     self.check_and_update_backup()
                 except (OSError, TypeError, ValueError) as e:
@@ -943,42 +898,7 @@ class AgentSettingsManager:
         logger.info(f"[SETTINGS] Successfully applied workflow preset '{preset.name}' ({preset.id})")
         return True
 
-    def is_circuit_breaker_enabled(self) -> bool:
-        return self.app_settings.is_circuit_breaker_enabled()
 
-    def set_circuit_breaker_enabled(
-        self, enabled: bool, save: bool = True, reset_threshold_on_disable: bool = True
-    ) -> None:
-        self.app_settings.set_circuit_breaker_enabled(enabled, save=save)
-        if not enabled and reset_threshold_on_disable:
-            self.app_settings.set_circuit_breaker_threshold(0.0, save=save)
-
-    def get_circuit_breaker_threshold(self) -> float:
-        return self.app_settings.get_circuit_breaker_threshold()
-
-    def set_circuit_breaker_threshold(self, threshold: float, save: bool = True) -> None:
-        self.app_settings.set_circuit_breaker_threshold(threshold, save=save)
-
-    def get_circuit_breaker_config(self) -> dict[str, Any]:
-        return self.app_settings.get_circuit_breaker_config().to_dict()
-
-    def is_scribe_enabled(self) -> bool:
-        return self.app_settings.is_scribe_enabled()
-
-    def set_scribe_enabled(self, enabled: bool, save: bool = True) -> None:
-        self.app_settings.set_scribe_enabled(enabled, save=save)
-
-    def is_weekly_pricing_update_enabled(self) -> bool:
-        return self.app_settings.is_weekly_pricing_update_enabled()
-
-    def set_weekly_pricing_update_enabled(self, enabled: bool, save: bool = True) -> None:
-        self.app_settings.set_weekly_pricing_update_enabled(enabled, save=save)
-
-    def is_convergence_fast_forward_enabled(self) -> bool:
-        return self.app_settings.is_convergence_fast_forward_enabled()
-
-    def set_convergence_fast_forward_enabled(self, enabled: bool, save: bool = True) -> None:
-        self.app_settings.set_convergence_fast_forward_enabled(enabled, save=save)
 
     def reset(self, save: bool = True) -> None:
         """Resets all registered agents to enabled state and resets orchestration mode to sandwich default."""
@@ -1205,8 +1125,6 @@ settings_manager = AgentSettingsManager()
 
 # Module-level aliases
 ENABLED_DEBATE_AGENTS = settings_manager.enabled_agents
-CIRCUIT_BREAKER_ENABLED = settings_manager.circuit_breaker_enabled
-CIRCUIT_BREAKER_THRESHOLD_USD = settings_manager.circuit_breaker_threshold_usd
 
 
 def get_orchestration_mode() -> str:
@@ -1245,52 +1163,8 @@ def restore_from_backup() -> bool:
     return settings_manager.restore_from_backup()
 
 
-def is_circuit_breaker_enabled() -> bool:
-    return settings_manager.is_circuit_breaker_enabled()
-
-
-def set_circuit_breaker_enabled(
-    enabled: bool, save: bool = True, reset_threshold_on_disable: bool = True
-) -> None:
-    settings_manager.set_circuit_breaker_enabled(
-        enabled, save=save, reset_threshold_on_disable=reset_threshold_on_disable
-    )
-
-
-def get_circuit_breaker_threshold() -> float:
-    return settings_manager.get_circuit_breaker_threshold()
-
-
-def set_circuit_breaker_threshold(threshold: float, save: bool = True) -> None:
-    settings_manager.set_circuit_breaker_threshold(threshold, save=save)
-
-
-def get_circuit_breaker_config() -> dict[str, Any]:
-    return settings_manager.get_circuit_breaker_config()
-
-
-def is_scribe_enabled() -> bool:
-    return settings_manager.is_scribe_enabled()
-
-
-def set_scribe_enabled(enabled: bool, save: bool = True) -> None:
-    settings_manager.set_scribe_enabled(enabled, save=save)
-
-
-def is_weekly_pricing_update_enabled() -> bool:
-    return settings_manager.is_weekly_pricing_update_enabled()
-
-
-def set_weekly_pricing_update_enabled(enabled: bool, save: bool = True) -> None:
-    settings_manager.set_weekly_pricing_update_enabled(enabled, save=save)
-
-
-def is_convergence_fast_forward_enabled() -> bool:
-    return settings_manager.is_convergence_fast_forward_enabled()
-
-
-def set_convergence_fast_forward_enabled(enabled: bool, save: bool = True) -> None:
-    settings_manager.set_convergence_fast_forward_enabled(enabled, save=save)
+def get_agents_config() -> MappingProxyType[str, dict[str, Any]]:
+    return settings_manager.get_agents_config()
 
 
 def save_enabled_agents() -> None:
@@ -1375,9 +1249,6 @@ def set_orchestrator_fast_model(model: str, save: bool = True) -> bool:
 
 def set_orchestrator_reasoning_model(model: str, save: bool = True) -> bool:
     return settings_manager.set_orchestrator_reasoning_model(model, save=save)
-
-
-agent_settings_manager = settings_manager
 
 
 def get_challenger_agents() -> list[str]:

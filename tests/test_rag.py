@@ -277,3 +277,42 @@ def test_pii_masking_integration():
         assert "<EMAIL_0>" in result
         assert "<API_KEY_0>" in result
 
+
+def test_vector_store_sql_literal_validation():
+    from services.rag.vector_store import _sql_literal
+
+    # Safe literals
+    assert _sql_literal("agent-10011") == "'agent-10011'"
+    assert _sql_literal("LegalAdvisor/runbook.md") == "'LegalAdvisor/runbook.md'"
+    assert _sql_literal("doc_123:456") == "'doc_123:456'"
+    assert _sql_literal("doc's title") == "'doc''s title'"
+
+    # Unsafe literals must raise ValueError
+    with pytest.raises(ValueError):
+        _sql_literal("doc\x00injection")
+    with pytest.raises(ValueError):
+        _sql_literal("'; DROP TABLE agent_knowledge; --")
+    with pytest.raises(ValueError):
+        _sql_literal("line\nbreak")
+    with pytest.raises(ValueError):
+        _sql_literal("")
+    with pytest.raises(ValueError):
+        _sql_literal("a" * 300)
+
+
+@pytest.mark.anyio
+async def test_rag_service_async_search_offload():
+    mock_store = MagicMock()
+    mock_store.search.return_value = [{"doc_id": "d1", "section_header": "H1", "text": "architectural guidelines and runbook procedures"}]
+    mock_embedder = AsyncMock()
+    mock_embedder.get_embeddings.return_value = [[0.1] * 10]
+
+    service = RAGService(store=mock_store, embedder=mock_embedder)
+
+    with patch("asyncio.to_thread", side_effect=asyncio.to_thread) as mock_to_thread:
+        res = await service.search(query="test", agent_name="agent-10001")
+        assert "architectural guidelines" in res
+        assert mock_to_thread.called
+        assert mock_to_thread.call_args[0][0] == mock_store.search
+
+

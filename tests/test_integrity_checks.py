@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from core.integrity_checks import AppIntegrityValidator
+from orchestration.integrity_checks import AppIntegrityValidator
 
 
 # ---------------------------------------------------------------------------

@@ -11,6 +11,7 @@ from pathlib import Path
 import sqlite3
 import threading
 from typing import Any
+import weakref
 
 from core.paths import DB_PATH
 
@@ -210,6 +211,10 @@ SCHEMA_STATEMENTS = [
     "CREATE INDEX IF NOT EXISTS idx_audit_anchors_month_seq ON audit_anchors(month, seq);",
 ]
 
+MIGRATIONS: list[tuple[int, str, list[str]]] = [
+    (1, "baseline_schema", SCHEMA_STATEMENTS[:25]),
+    (2, "audit_anchors_and_indices", SCHEMA_STATEMENTS[25:]),
+]
 
 
 def _get_db_busy_timeout() -> float:
@@ -231,8 +236,8 @@ class DatabaseManager:
         self._init_lock = threading.RLock()
         self._initialized_paths: set[Path] = set()
         self._local = threading.local()
-        self._all_conns: list[sqlite3.Connection] = []
         self._conns_lock = threading.Lock()
+        self._thread_conns: dict[int, dict[Path, sqlite3.Connection]] = {}
 
     @property
     def db_path(self) -> Path:
@@ -240,8 +245,28 @@ class DatabaseManager:
             return self._custom_db_path
         return DB_PATH
 
+    @property
+    def _all_conns(self) -> list[sqlite3.Connection]:
+        with self._conns_lock:
+            conns: list[sqlite3.Connection] = []
+            for t_conns in self._thread_conns.values():
+                conns.extend(t_conns.values())
+            return conns
+
+    def _evict_dead_thread_connections(self) -> None:
+        """Evicts and closes SQLite connections belonging to terminated threads."""
+        active_thread_ids = {t.ident for t in threading.enumerate()}
+        dead_ids = [tid for tid in self._thread_conns if tid not in active_thread_ids]
+        for tid in dead_ids:
+            dead_conns = self._thread_conns.pop(tid, {})
+            for c in dead_conns.values():
+                try:
+                    c.close()
+                except Exception:
+                    pass
+
     def _ensure_schema_initialized(self, conn: sqlite3.Connection, target_path: Path) -> None:
-        """Idempotently executes SCHEMA_STATEMENTS once per database file path."""
+        """Idempotently executes MIGRATIONS once per database file path using PRAGMA user_version."""
         resolved = target_path.resolve()
         if resolved in self._initialized_paths:
             return
@@ -249,12 +274,21 @@ class DatabaseManager:
         with self._init_lock:
             if resolved in self._initialized_paths:
                 return
-            for stmt in SCHEMA_STATEMENTS:
-                stmt_clean = stmt.strip()
-                if stmt_clean:
-                    conn.execute(stmt_clean)
+            cursor = conn.execute("PRAGMA user_version;")
+            row = cursor.fetchone()
+            current_version = int(row[0]) if row else 0
+            for version, description, statements in MIGRATIONS:
+                if version > current_version:
+                    for stmt in statements:
+                        stmt_clean = stmt.strip()
+                        if stmt_clean:
+                            conn.execute(stmt_clean)
+                    conn.execute(f"PRAGMA user_version = {version};")
+                    logger.info(
+                        f"[DATABASE] Applied migration {version} ({description}) to {resolved}."
+                    )
             self._initialized_paths.add(resolved)
-            logger.info(f"[DATABASE] Idempotently auto-initialized SQLite schema at {resolved} (WAL mode).")
+            logger.info(f"[DATABASE] SQLite schema at {resolved} initialized up to version {MIGRATIONS[-1][0]} (WAL mode).")
 
     def create_connection(self) -> sqlite3.Connection:
         """Creates a new sqlite3 connection configured with WAL and performance pragmas."""
@@ -280,34 +314,37 @@ class DatabaseManager:
 
     def _get_cached_connection(self) -> sqlite3.Connection:
         target_path = self.db_path.resolve()
-        conns = getattr(self._local, "conns", None)
-        if conns is None:
-            conns = {}
-            self._local.conns = conns
+        tid = threading.get_ident()
+        with self._conns_lock:
+            self._evict_dead_thread_connections()
+            if tid not in self._thread_conns:
+                self._thread_conns[tid] = {}
+            thread_conns = self._thread_conns[tid]
 
-        conn = conns.get(target_path)
+        conn = thread_conns.get(target_path)
         if conn is not None:
             try:
                 conn.execute("SELECT 1;")
                 return conn
             except Exception:
-                conns.pop(target_path, None)
+                with self._conns_lock:
+                    thread_conns.pop(target_path, None)
 
         conn = self.create_connection()
-        conns[target_path] = conn
         with self._conns_lock:
-            self._all_conns.append(conn)
+            thread_conns[target_path] = conn
         return conn
 
     def close_all_connections(self) -> None:
         """Closes all cached SQLite connections across all threads and clears connection state."""
         with self._conns_lock:
-            for conn in self._all_conns:
-                try:
-                    conn.close()
-                except Exception:
-                    pass
-            self._all_conns.clear()
+            for thread_conns in self._thread_conns.values():
+                for conn in thread_conns.values():
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
+            self._thread_conns.clear()
         if hasattr(self._local, "conns"):
             self._local.conns.clear()
 
@@ -322,9 +359,14 @@ class DatabaseManager:
         """
         Context manager for atomic write transactions on the cached connection.
         Uses BEGIN IMMEDIATE by default to prevent writer lock escalation deadlocks.
+        Rejects nested or interleaved transactions on the same thread.
         """
-        conn = self._get_cached_connection()
+        if getattr(self._local, "in_transaction", False):
+            raise RuntimeError("Nested or interleaved SQLite transaction detected on the same thread.")
+        self._local.in_transaction = True
+        conn = None
         try:
+            conn = self._get_cached_connection()
             if immediate:
                 conn.execute("BEGIN IMMEDIATE;")
             else:
@@ -333,10 +375,13 @@ class DatabaseManager:
             conn.execute("COMMIT;")
         except Exception:
             try:
-                conn.execute("ROLLBACK;")
+                if conn is not None:
+                    conn.execute("ROLLBACK;")
             except Exception as rollback_err:
                 logger.debug(f"[DATABASE] Rollback failed or unneeded: {rollback_err}")
             raise
+        finally:
+            self._local.in_transaction = False
 
     def init_db(self, db_path: Path | None = None) -> None:
         """Initializes all database tables and indices idempotently."""
@@ -344,12 +389,21 @@ class DatabaseManager:
             self._custom_db_path = db_path
 
         with self.transaction(immediate=True) as conn:
-            for stmt in SCHEMA_STATEMENTS:
-                stmt_clean = stmt.strip()
-                if stmt_clean:
-                    conn.execute(stmt_clean)
+            cursor = conn.execute("PRAGMA user_version;")
+            row = cursor.fetchone()
+            current_version = int(row[0]) if row else 0
+            for version, description, statements in MIGRATIONS:
+                if version > current_version:
+                    for stmt in statements:
+                        stmt_clean = stmt.strip()
+                        if stmt_clean:
+                            conn.execute(stmt_clean)
+                    conn.execute(f"PRAGMA user_version = {version};")
+                    logger.info(
+                        f"[DATABASE] Applied migration {version} ({description}) to {self.db_path}."
+                    )
         self._initialized_paths.add(self.db_path.resolve())
-        logger.info(f"[DATABASE] SQLite database initialized at {self.db_path} (WAL mode).")
+        logger.info(f"[DATABASE] SQLite database initialized at {self.db_path} up to version {MIGRATIONS[-1][0]} (WAL mode).")
 
 
 # Global singleton database manager

@@ -6,12 +6,26 @@ import time
 from pathlib import Path
 from typing import Any
 
+from pydantic import BaseModel, Field
+
 from core.models import CircuitBreakerConfig
 from core.paths import APP_BACKUP_FILE, APP_SETTINGS_FILE
+from orchestration.settings_store import JsonSettingsStore
 
 logger = logging.getLogger(__name__)
 
 BACKUP_INTERVAL_SECONDS = 7 * 86400
+
+
+class AppSettingsModel(BaseModel):
+    thread_skill_expiration_time: float = 12.0
+    circuit_breaker_enabled: bool = True
+    circuit_breaker_threshold_usd: float = 0.0
+    daily_budget_usd: float = 10.0
+    scribe_enabled: bool = True
+    convergence_fast_forward_enabled: bool = True
+    weekly_pricing_update_enabled: bool = True
+    workspace_context: str = ""
 
 
 class AppSettingsManager:
@@ -34,6 +48,13 @@ class AppSettingsManager:
         self.default_settings_file = settings_file or APP_SETTINGS_FILE
         self.default_backup_file = backup_file or APP_BACKUP_FILE
 
+        self._store = JsonSettingsStore[AppSettingsModel](
+            settings_file=self.default_settings_file,
+            model_cls=AppSettingsModel,
+            backup_file=self.default_backup_file,
+            default_data=AppSettingsModel().model_dump(),
+        )
+
         self.thread_skill_expiration_time: float = 12.0
         self.circuit_breaker_enabled: bool = True
         self.circuit_breaker_threshold_usd: float = 0.0
@@ -43,7 +64,6 @@ class AppSettingsManager:
         self.weekly_pricing_update_enabled: bool = True
         self.workspace_context: str = ""
         self._raw_data: dict[str, Any] = {}
-
         self._last_loaded_mtime: float = 0.0
 
         if auto_load:
@@ -53,54 +73,32 @@ class AppSettingsManager:
     def active_settings_file(self) -> Path:
         return self.default_settings_file
 
-    def load(self) -> None:
+    def load(self, force: bool = False) -> None:
         target_file = self.active_settings_file
         if not target_file.exists():
             return
-
         try:
             mtime = target_file.stat().st_mtime
-            if mtime == self._last_loaded_mtime and self._last_loaded_mtime > 0:
+            if not force and mtime == self._last_loaded_mtime and self._last_loaded_mtime > 0:
                 return
-
-            with open(target_file, "r", encoding="utf-8") as f:
-                data = json.load(f)
-
-            self._raw_data = copy.deepcopy(data)
-            self.thread_skill_expiration_time = float(data.get("thread_skill_expiration_time", 12.0))
-            self.circuit_breaker_enabled = bool(data.get("circuit_breaker_enabled", True))
-            self.circuit_breaker_threshold_usd = float(data.get("circuit_breaker_threshold_usd", 0.0))
-            self.daily_budget_usd = float(data.get("daily_budget_usd", 10.0))
-            self.scribe_enabled = bool(data.get("scribe_enabled", True))
-            self.convergence_fast_forward_enabled = bool(data.get("convergence_fast_forward_enabled", True))
-            self.weekly_pricing_update_enabled = bool(data.get("weekly_pricing_update_enabled", True))
-            self.workspace_context = str(data.get("workspace_context", "")).strip()[:1000]
-
+            model = self._store.load(force=force)
+            self.thread_skill_expiration_time = float(model.thread_skill_expiration_time)
+            self.circuit_breaker_enabled = bool(model.circuit_breaker_enabled)
+            self.circuit_breaker_threshold_usd = float(model.circuit_breaker_threshold_usd)
+            self.daily_budget_usd = float(model.daily_budget_usd)
+            self.scribe_enabled = bool(model.scribe_enabled)
+            self.convergence_fast_forward_enabled = bool(model.convergence_fast_forward_enabled)
+            self.weekly_pricing_update_enabled = bool(model.weekly_pricing_update_enabled)
+            self.workspace_context = str(model.workspace_context).strip()[:1000]
+            self._raw_data = self._store.get_raw_data()
             self._last_loaded_mtime = mtime
-            logger.debug(f"[APP_SETTINGS] Loaded settings from {target_file}")
-        except (OSError, json.JSONDecodeError, TypeError, ValueError) as e:
+            logger.debug(f"[APP_SETTINGS] Loaded settings from {self.active_settings_file}")
+        except Exception as e:
             logger.error(f"[APP_SETTINGS] Failed to load {target_file}: {e}")
-            if self.default_backup_file.exists():
-                try:
-                    with open(self.default_backup_file, "r", encoding="utf-8") as bf:
-                        data = json.load(bf)
-                    self._raw_data = copy.deepcopy(data)
-                    self.thread_skill_expiration_time = float(data.get("thread_skill_expiration_time", 12.0))
-                    self.circuit_breaker_enabled = bool(data.get("circuit_breaker_enabled", True))
-                    self.circuit_breaker_threshold_usd = float(data.get("circuit_breaker_threshold_usd", 0.0))
-                    self.daily_budget_usd = float(data.get("daily_budget_usd", 10.0))
-                    self.scribe_enabled = bool(data.get("scribe_enabled", True))
-                    self.convergence_fast_forward_enabled = bool(data.get("convergence_fast_forward_enabled", True))
-                    self.weekly_pricing_update_enabled = bool(data.get("weekly_pricing_update_enabled", True))
-                    self.workspace_context = str(data.get("workspace_context", "")).strip()[:1000]
-                    logger.warning("[APP_SETTINGS] Recovered settings from backup.")
-                except (OSError, json.JSONDecodeError, TypeError, ValueError) as be:
-                    logger.error(f"[APP_SETTINGS] Failed to read backup: {be}")
 
     def save(self) -> None:
         target_file = self.active_settings_file
         target_file.parent.mkdir(parents=True, exist_ok=True)
-
         payload = copy.deepcopy(self._raw_data) if hasattr(self, "_raw_data") and isinstance(self._raw_data, dict) else {}
         payload.update({
             "thread_skill_expiration_time": self.thread_skill_expiration_time,
@@ -112,35 +110,14 @@ class AppSettingsManager:
             "weekly_pricing_update_enabled": self.weekly_pricing_update_enabled,
             "workspace_context": self.workspace_context,
         })
-
-        tmp_filename = f"{target_file.name}.tmp_{os.getpid()}_{int(time.time() * 1000)}"
-        tmp_file = target_file.parent / tmp_filename
-        try:
-            with open(tmp_file, "w", encoding="utf-8") as f:
-                json.dump(payload, f, indent=2)
-                f.flush()
-                os.fsync(f.fileno())
-            for attempt in range(10):
-                try:
-                    os.replace(tmp_file, target_file)
-                    break
-                except (PermissionError, OSError) as pe:
-                    if attempt < 9:
-                        time.sleep(0.02 * (attempt + 1))
-                    else:
-                        raise pe
-            self._last_loaded_mtime = target_file.stat().st_mtime
-            self._raw_data = copy.deepcopy(payload)
-
-            # Update backup if needed
-            self._maybe_update_backup(payload)
-        except (OSError, TypeError, ValueError) as e:
-            logger.error(f"[APP_SETTINGS] Error saving settings to {target_file}: {e}")
-            if tmp_file.exists():
-                try:
-                    tmp_file.unlink()
-                except OSError as ue:
-                    logger.debug(f"[APP_SETTINGS] Failed to remove temp file: {ue}")
+        self._store.save(payload)
+        self._raw_data = copy.deepcopy(payload)
+        if target_file.exists():
+            try:
+                self._last_loaded_mtime = target_file.stat().st_mtime
+            except OSError:
+                pass
+        self._maybe_update_backup(payload)
 
     def _maybe_update_backup(self, payload: dict[str, Any]) -> None:
         try:
@@ -186,6 +163,8 @@ class AppSettingsManager:
 
     def set_circuit_breaker_enabled(self, enabled: bool, save: bool = True) -> None:
         self.circuit_breaker_enabled = bool(enabled)
+        if not self.circuit_breaker_enabled:
+            self.circuit_breaker_threshold_usd = 0.0
         if save:
             self.save()
         logger.info(f"[APP_SETTINGS] Set circuit_breaker_enabled to {self.circuit_breaker_enabled}.")

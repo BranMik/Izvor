@@ -38,3 +38,9 @@ def safe_create_task(
 def get_active_tasks_count() -> int:
     """Returns the current number of actively tracked background tasks."""
     return len(_ACTIVE_TASKS)
+
+
+# Aliases for consistent naming across orchestration and agents
+_BACKGROUND_TASKS = _ACTIVE_TASKS
+spawn_background_task = safe_create_task
+

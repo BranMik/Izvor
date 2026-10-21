@@ -50,21 +50,6 @@ SEARCH_KNOWLEDGE_RAG_SCHEMA = {
 TOOL_SCHEMAS = [SEARCH_KNOWLEDGE_RAG_SCHEMA]
 
 
-def _run_coroutine_sync(coro: Any) -> Any:
-    """Helper to run an async coroutine synchronously from sync tool execution."""
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        loop = None
-
-    if loop and loop.is_running():
-        # Running inside an active loop (e.g. from async caller)
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-            return pool.submit(asyncio.run, coro).result()
-    else:
-        return asyncio.run(coro)
-
-
 async def async_execute_search_knowledge_rag(arguments: dict[str, Any], agent_name: str = "") -> str:
     """Asynchronously executes search_knowledge_rag directly on active event loop."""
     query = arguments.get("query", "")
@@ -91,37 +76,8 @@ async def async_execute_search_knowledge_rag(arguments: dict[str, Any], agent_na
         return f"Error executing knowledge search: {e}"
 
 
-def execute_search_knowledge_rag(arguments: dict[str, Any], agent_name: str = "") -> str:
-    """Executes search_knowledge_rag with given arguments."""
-    query = arguments.get("query", "")
-    scope = arguments.get("scope", "all")
-    raw_max_results = arguments.get("max_results", DEFAULT_TOP_K)
-    try:
-        max_results = int(raw_max_results)
-    except (ValueError, TypeError):
-        max_results = DEFAULT_TOP_K
-    max_results = max(1, min(10, max_results))
-
-    try:
-        result = _run_coroutine_sync(
-            rag_service.search(
-                query=query,
-                agent_name=agent_name,
-                scope=scope,
-                max_results=max_results,
-            )
-        )
-        from core.security_utils import wrap_untrusted_content
-
-        return wrap_untrusted_content(result)
-    except Exception as e:
-        logger.error(f"[search_knowledge_rag] Tool execution failed: {e}")
-        return f"Error executing knowledge search: {e}"
-
-
-execute_search_knowledge_rag._async_fn = async_execute_search_knowledge_rag
-
-# Tool execution dispatch mapping
+# Tool execution dispatch mapping (native async tool handler)
 TOOL_HANDLERS = {
-    "search_knowledge_rag": execute_search_knowledge_rag,
+    "search_knowledge_rag": async_execute_search_knowledge_rag,
 }
+

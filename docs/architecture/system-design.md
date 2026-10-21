@@ -94,7 +94,7 @@ Izvor uses the modern async context manager lifespan pattern in [`main.py`](file
 ### 4. Audit Log Integrity Guard (`periodic_audit_integrity_guard`)
 - **File**: [`main.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/main.py)
 - **Schedule**: Dynamically loaded from `audit_integrity_check_interval_seconds` in `system_settings.json` (default: 3600 seconds / 1 hour).
-- **Behavior**: Executes [`AppIntegrityValidator.check_audit_log_integrity()`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/core/integrity_checks.py). Verifies hash continuity across active and historical audit files. If a discrepancy or HMAC secret mismatch is found, a high-severity alert is dispatched to the admin Slack channel.
+- **Behavior**: Executes [`AppIntegrityValidator.check_audit_log_integrity()`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/orchestration/integrity_checks.py). Verifies hash continuity across active and historical audit files. If a discrepancy or HMAC secret mismatch is found, a high-severity alert is dispatched to the admin Slack channel.
 
 ### 5. Model Pricing Cache Warmup (`warm_up_pricing_cache`)
 - **File**: [`services/pricing_service.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/services/pricing_service.py)

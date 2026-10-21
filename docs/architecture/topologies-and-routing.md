@@ -35,7 +35,13 @@ Fixed mode executes an immutable, sequential chain of personas:
 - Peer nomination tags are ignored or deferred until the sequence completes.
 - Ideal for structured code reviews, policy audits, or formal sign-offs.
 
-### 3. Open Debate Mode (`/open_debate`)
+### 3. Parallel Dialectic Mode (`OrchestrationMode.SCATTER_GATHER`)
+Parallel dialectic mode executes concurrent exploration with zero anchor bias:
+- **Parallel Specialists**: Multiple specialist personas explore the topic concurrently in isolated `asyncio.TaskGroup` branches.
+- **Anchor Isolation Snapshot**: Each parallel branch receives an immutable snapshot of conversation context, guaranteeing that parallel specialists do not contaminate or bias each other's analysis.
+- **Dialectical Synthesis**: Once all parallel branches conclude, their insights are passed to the designated synthesis closing agent for integrated dialectical resolution.
+
+### 4. Open Debate Mode (`/open_debate`)
 Initiated via `/open_debate <Agent>` (or `/open-debate`, `/opendebate`):
 - Designates the specified agent as the opening speaker and bypasses fixed start/end chains.
 - All enabled personas participate in dynamic peer-to-peer nomination across up to 3 debate rounds, converging naturally or halting upon user `/stop`.
