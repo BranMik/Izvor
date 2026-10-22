@@ -7,7 +7,6 @@ import pytest
 from core.security_utils import wrap_untrusted_content
 from services.mcp_tools import MCP_TOOLS_SCHEMAS, execute_mcp_tool
 from services.web_tools import (
-    MAX_BODY_BYTES,
     fetch_web_page,
     is_ip_blocked,
     reset_turn_web_budget,

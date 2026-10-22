@@ -8,7 +8,6 @@ from __future__ import annotations
 import hashlib
 import logging
 import time
-from typing import Any
 
 from core.database import get_db_transaction
 from orchestration.system_settings import (
@@ -107,7 +106,7 @@ def prune_expired_records(
             f"hitl={pruned_counts['hitl_approvals']}, "
             f"skills={pruned_counts['thread_skills']}"
         )
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.error(f"[RETENTION] Error pruning expired records: {e}")
 
     return pruned_counts
@@ -163,7 +162,7 @@ def forget_thread(channel_id: str, thread_ts: str) -> dict[str, int]:
                         flat_history_deleted += 1
                 except OSError:
                     pass
-    except Exception as fe:
+    except OSError as fe:
         logger.debug(f"[RETENTION] Error removing flat history file for {thread_identifier}: {fe}")
     purged_counts["flat_histories"] = flat_history_deleted
 
@@ -172,7 +171,7 @@ def forget_thread(channel_id: str, thread_ts: str) -> dict[str, int]:
         from orchestration.thread_state import thread_state_manager
 
         thread_state_manager.cleanup_thread(cid, tts)
-    except Exception as se:
+    except Exception as se:  # noqa: BLE001
         logger.debug(f"[RETENTION] Error clearing thread_state_manager for {thread_identifier}: {se}")
 
     # Emit audit event
@@ -194,7 +193,7 @@ def forget_thread(channel_id: str, thread_ts: str) -> dict[str, int]:
             severity="INFO",
             status="SUCCESS",
         )
-    except Exception as ae:
+    except Exception as ae:  # noqa: BLE001
         logger.warning(f"[RETENTION] Failed logging audit event for forget_thread {thread_identifier}: {ae}")
 
     logger.info(

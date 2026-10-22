@@ -224,7 +224,7 @@ async def download_slack_file(
     try:
         from orchestration.system_settings import get_slack_file_download_timeout_seconds
         download_timeout = get_slack_file_download_timeout_seconds()
-    except Exception:
+    except Exception:  # noqa: BLE001
         download_timeout = 30.0
 
     try:
@@ -438,9 +438,9 @@ def cleanup_old_downloads(max_age_seconds: float = 86400.0) -> int:
                         if (now - mtime) > max_age_seconds:
                             item.unlink(missing_ok=True)
                             evicted_count += 1
-                    except Exception as e:
+                    except Exception as e:  # noqa: BLE001
                         logger.debug(f"[CLEANUP] Failed to prune downloaded file {item}: {e}")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.debug(f"[CLEANUP] Error inspecting downloads directory {d}: {e}")
 
     if evicted_count > 0:

@@ -1,6 +1,4 @@
 import json
-import sqlite3
-import time
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -10,10 +8,9 @@ from main import app
 from core.database import DatabaseManager, get_connection
 from pipeline.spend_governance.circuit_breaker import SpendGovernance
 from agents.usage_agent import record_thread_tokens
-from services.mcp_tools import execute_mcp_tool, is_agent_authorized_for_tool
+from services.mcp_tools import is_agent_authorized_for_tool
 from core.slack_security import sanitize_slack_blocks
 from agents.thread_notes_agent import _sanitize_note_text
-from services.hitl import register_hitl_request, reset_pending_requests
 from orchestration.turn_pipeline import TurnContext, TurnPipeline
 from orchestration.stages.post_record import PostRecordStage
 
@@ -161,7 +158,7 @@ async def test_tkt_705_hitl_workflow_suspension_and_nomination_suppression():
 
     stage = PostRecordStage(pipeline=pipeline)
 
-    res = await stage.stage_post_and_record(ctx)
+    await stage.stage_post_and_record(ctx)
 
     assert ctx.halted is True
     assert ctx.is_completed is False

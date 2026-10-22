@@ -5,14 +5,8 @@ and Observability Span Traces (PrePublish 8 Phase 4 / Epic C6 & tickets TKT-817,
 
 from __future__ import annotations
 
-import pytest
 
-from core.domain import DiscussionBrief, DiscussionConclusion
 from orchestration.nomination import enforce_valid_nomination
-from orchestration.system_settings import (
-    get_dialectical_stress_test_config,
-    is_dialectical_stress_test_enabled,
-)
 from pipeline.discussion_scribe.scribe import (
     _extract_brief_fields,
     _extract_conclusion_fields,

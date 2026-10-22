@@ -5,7 +5,6 @@ Stage 1: Input validation, directive parsing, tag checking, and candidate resolu
 from __future__ import annotations
 
 import logging
-import re
 from typing import TYPE_CHECKING, Any
 
 from core.config import AGENTS_CONFIG
@@ -28,14 +27,12 @@ from services.slack_client import (
 if TYPE_CHECKING:
     from orchestration.turn_pipeline import TurnContext
 
-logger = logging.getLogger(__name__)
-
 from orchestration.stages.directive_handlers import (
-    get_example_agent_display as _get_example_agent_display,
     get_example_agent_keys as _get_example_agent_keys,
     handle_slash_directives,
-    require_directive_admin as _require_directive_admin,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class ValidationStage:

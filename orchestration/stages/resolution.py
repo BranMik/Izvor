@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING, Any
 
 from agents import (
     calculate_thread_costs,
-    trigger_thread_notes_update,
     trigger_usage_update,
 )
 from core.config import AGENTS_CONFIG
@@ -26,9 +25,7 @@ from orchestration.protocols import WorkspaceAdapter
 from orchestration.thread_state import thread_state_manager
 from pipeline.spend_governance import spend_governance
 from services.slack_client import (
-    post_agent_response,
     post_system_message,
-    update_slack_message,
 )
 
 if TYPE_CHECKING:
@@ -194,7 +191,6 @@ class ResolutionStage:
 
             session_id = getattr(ctx, "session_id", f"{ctx.channel_id}:{ctx.thread_ts}")
             try:
-                import json
                 import uuid
                 from core.domain import TurnCheckpoint
                 from services.turn_checkpoint_store import turn_checkpoint_store
@@ -214,7 +210,7 @@ class ResolutionStage:
                 )
                 turn_checkpoint_store.save_checkpoint(chk)
                 ctx.checkpoint_id = chk_id
-            except Exception as ex:
+            except Exception as ex:  # noqa: BLE001
                 logger.debug(f"[RESOLUTION] Failed to save circuit breaker checkpoint: {ex}")
 
             blocks = self.workspace_adapter.build_budget_halt_blocks(

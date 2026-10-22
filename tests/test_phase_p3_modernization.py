@@ -3,10 +3,8 @@ Unit tests for Phase P3: Brand Consistency, Hygiene, Architecture Modernization,
 and Background Worker Warning Mitigation.
 """
 
-import asyncio
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
-import pytest
 from starlette.testclient import TestClient
 
 from core.config import is_test_environment

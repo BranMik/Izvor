@@ -1,3 +1,4 @@
+from unittest.mock import AsyncMock
 import pytest
 from fastapi.testclient import TestClient
 
@@ -24,9 +25,6 @@ async def mock_post_agent_response(*args, **kwargs):
 
 async def mock_fetch_thread_history(*args, **kwargs):
     return []
-
-
-from unittest.mock import AsyncMock
 
 
 @pytest.fixture(autouse=True)
@@ -325,7 +323,7 @@ def test_slack_interactivity_radio_toggle_action(monkeypatch):
 def test_user_new_query_interrupts_ongoing_discussion_webhook(monkeypatch):
     PROCESSED_EVENTS.clear()
     thread_key = ("C_TEST_INTERRUPT_WEBHOOK", "123456789.2001")
-    
+
     # 1. Simulate an ongoing discussion with remaining agents
     thread_state_manager.remaining_agents_map[thread_key] = ["agent-10011", "agent-10002"]
     initial_gen = thread_state_manager.thread_generations.get(thread_key, 0)
@@ -366,7 +364,7 @@ def test_user_new_query_interrupts_ongoing_discussion_webhook(monkeypatch):
 def test_user_mention_syntax_variations_webhook_interruption(monkeypatch):
     PROCESSED_EVENTS.clear()
     thread_key = ("C_TEST_INTERRUPT_SYNTAX", "123456789.3001")
-    
+
     # 1. Message with @CaiLogics Hub
     thread_state_manager.remaining_agents_map[thread_key] = ["agent-10008"]
     mock_process = AsyncMock(return_value={"ok": True})

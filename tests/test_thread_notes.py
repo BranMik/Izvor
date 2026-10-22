@@ -3,16 +3,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from agents import thread_notes_agent
 from agents.thread_notes_agent import (
-    THREAD_CONCLUSION_MSG_MAP,
-    THREAD_NOTE_MSG_MAP,
-    generate_conclusion_notes,
     generate_thread_notes,
-    get_thread_conclusion_content,
-    get_thread_conclusion_note,
     get_thread_note,
-    get_thread_note_content,
     reset_thread_notes,
     set_thread_conclusion_note,
     set_thread_note,
@@ -20,7 +13,7 @@ from agents.thread_notes_agent import (
     update_notes_for_thread,
 )
 from core.config import get_thread_notes_model
-from services.slack_client import post_thread_note, unpin_thread_note, update_thread_note
+from services.slack_client import post_thread_note, update_thread_note
 
 
 @pytest.fixture(autouse=True)

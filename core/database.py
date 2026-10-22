@@ -6,12 +6,9 @@ Provides zero-infrastructure ACID state storage using standard library sqlite3 i
 from collections.abc import Generator
 from contextlib import contextmanager
 import logging
-import os
 from pathlib import Path
 import sqlite3
 import threading
-from typing import Any
-import weakref
 
 from core.paths import DB_PATH
 
@@ -221,7 +218,7 @@ def _get_db_busy_timeout() -> float:
     try:
         from orchestration.system_settings import get_db_busy_timeout_seconds
         return get_db_busy_timeout_seconds()
-    except Exception:
+    except Exception:  # noqa: BLE001
         return 5.0
 
 
@@ -262,8 +259,8 @@ class DatabaseManager:
             for c in dead_conns.values():
                 try:
                     c.close()
-                except Exception:
-                    pass
+                except Exception as e:  # noqa: BLE001
+                    logger.debug("Error closing dead thread connection: %s", e)
 
     def _ensure_schema_initialized(self, conn: sqlite3.Connection, target_path: Path) -> None:
         """Idempotently executes MIGRATIONS once per database file path using PRAGMA user_version."""
@@ -326,7 +323,7 @@ class DatabaseManager:
             try:
                 conn.execute("SELECT 1;")
                 return conn
-            except Exception:
+            except Exception:  # noqa: BLE001
                 with self._conns_lock:
                     thread_conns.pop(target_path, None)
 
@@ -342,8 +339,8 @@ class DatabaseManager:
                 for conn in thread_conns.values():
                     try:
                         conn.close()
-                    except Exception:
-                        pass
+                    except Exception as e:  # noqa: BLE001
+                        logger.debug("Error closing connection during close_all: %s", e)
             self._thread_conns.clear()
         if hasattr(self._local, "conns"):
             self._local.conns.clear()
@@ -377,7 +374,7 @@ class DatabaseManager:
             try:
                 if conn is not None:
                     conn.execute("ROLLBACK;")
-            except Exception as rollback_err:
+            except Exception as rollback_err:  # noqa: BLE001
                 logger.debug(f"[DATABASE] Rollback failed or unneeded: {rollback_err}")
             raise
         finally:

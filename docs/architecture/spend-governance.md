@@ -1,6 +1,6 @@
 # Spend Governance & Pricing Engine
 
-This document details how **Izvor** monitors LLM token usage, calculates real-time inference expenses across multiple providers, logs transactions to SQLite, and enforces two-tiered budget circuit breakers.
+This document details how **Izvor** monitors LLM token usage, calculates real-time inference expenses across multiple providers, logs transactions to SQLite, reserves parallel branch budgets, and enforces two-tiered budget circuit breakers.
 
 ---
 
@@ -10,47 +10,55 @@ Izvor orchestrates multiple LLM personas across providers such as OpenRouter, Op
 
 ```mermaid
 graph TD
-    Turn[Completed Agent Turn] --> PostRecord[Stage 5: Post-Record & Accounting]
+    Turn[Completed Agent Turn / Embedding / Pricing Call] --> PostRecord[Token & Spend Accounting]
     PostRecord --> Usage[Extract Token Counts: Prompt & Completion]
     Usage --> PricingService[PricingService (services/pricing_service.py)]
     
-    subgraph Pricing Cache & Researcher
-        PricingService --> CacheCheck{Cache < 7 Days?}
+    subgraph Pricing Lookup & Researcher
+        PricingService --> LiteLLMCost{In litellm.model_cost?}
+        LiteLLMCost -->|Yes (Within Bounds)| ValidateBounds["Validate Bounds ($0.005 - $500.00 / 1M)"]
+        LiteLLMCost -->|No| CacheCheck{Disk Cache < 7 Days?}
         CacheCheck -->|Yes| DiskCache[Read data/pricing/model_pricing_cache.json]
         CacheCheck -->|No / Miss| Researcher[Autonomous Pricing Researcher Agent]
         Researcher --> WebQuery[Query Provider Official Rate Tables]
-        Researcher --> UpdateCache[Save Updated Rates to Disk Cache]
+        Researcher --> ValidateBounds
+        ValidateBounds -->|Out of Bounds / Offline| FailExpensive["Fail-Expensive Default ($15.00 in / $75.00 out per 1M)"]
     end
     
-    PricingService --> ComputeUSD[Compute Exact USD Cost for Turn]
+    PricingService --> ComputeUSD[Compute Exact USD Cost]
     ComputeUSD --> SQLiteLedger[(SQLite spend_ledger)]
-    SQLiteLedger --> DailyAccumulator[Update Daily Spend USD]
+    SQLiteLedger --> DailyAccumulator[Update Daily & Thread Spend USD]
     
-    subgraph Pre-Turn Resolution Check (Stage 2)
-        NextTurn[Incoming Turn] --> ResolutionStage[Stage 2: ResolutionStage]
-        ResolutionStage --> CBCheck{Circuit Breaker Enabled?}
-        CBCheck -->|Yes| Evaluate{Thread Spend >= Threshold OR Today Spend >= Daily Budget?}
-        Evaluate -->|Yes| TripBreaker[Halt Debate, Log Audit Event & Post Slack Alert]
-        Evaluate -->|No| Proceed[Proceed to Turn Execution]
+    subgraph Pre-Turn & Intra-Turn Resolution Check
+        NextTurn[Incoming Turn / Parallel Branch] --> DailyCheck{Today Spend + Reserved >= Daily Budget?}
+        DailyCheck -->|Yes (Unconditional)| TripBreaker[Halt Debate, Save Checkpoint, Log Audit & Post Alert]
+        DailyCheck -->|No| CBCheck{Thread Circuit Breaker Enabled?}
+        CBCheck -->|Yes| ThreadCheck{Thread Spend + Reserved >= Thread Threshold?}
+        ThreadCheck -->|Yes| TripBreaker
+        ThreadCheck -->|No| Proceed[Proceed to Turn Execution]
         CBCheck -->|No| Proceed
     end
 ```
 
 ---
 
-## 🤖 Autonomous Pricing Researcher Agent
+## 🤖 Multi-Tier Pricing Resolution & Fail-Expensive Guardrails
 
-Unlike static cost tables that go out of date as providers adjust their prices, Izvor features an autonomous pricing researcher agent:
+Implemented in [`services/pricing_service.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/services/pricing_service.py), Izvor resolves per-token costs through a hardened multi-tier lookup pipeline:
 
-1. **Prompt Template**: Defined in [`prompts/system_agents/Pricing_Agent.md`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/prompts/system_agents/Pricing_Agent.md).
-2. **Execution**: Dispatched by [`services/pricing_service.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/services/pricing_service.py) during application startup or when an unindexed model is encountered.
-3. **Web Research**: Utilizes web search tools to locate official provider pricing tables (per 1,000 or per 1,000,000 tokens for prompt and completion).
-4. **Caching**: Results are stored in `data/pricing/model_pricing_cache.json` with a 7-day TTL.
-5. **Hardcoded Fallbacks**: If web access is unavailable, baseline fallbacks for standard flagship models (Claude 3.5 Sonnet, GPT-4o, Gemini 1.5 Pro) are loaded safely.
+1. **Tier 1 — Primary Registry Lookup (`litellm.model_cost`)**:
+   - Queries LiteLLM's built-in `model_cost` registry first (checking both the full `provider/model` string and the normalized model slug) for immediate, zero-latency pricing.
+2. **Tier 2 — Disk Cache & Autonomous Pricing Researcher Agent**:
+   - Checks `data/pricing/model_pricing_cache.json` (TTL configured via `pricing_cache_ttl_days`, default `7` days).
+   - For unindexed models, dispatches the autonomous **Pricing Researcher Agent** ([`prompts/system_agents/Pricing_Agent.md`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/prompts/system_agents/Pricing_Agent.md)), which researches rates from `pricing_benchmark_url` (`"https://artificialanalysis.ai/models"`). Token usage incurred by the Pricing Researcher Agent itself is also recorded in the spend ledger.
+3. **Strict Price Bounds Validation (`$0.005` – `$500.00` per 1M tokens)**:
+   - Any researched or cached rate outside the sanity bounds of **`$0.005` to `$500.00` per 1,000,000 tokens** (`MIN_VALID_PRICE_PER_1M` / `MAX_VALID_PRICE_PER_1M`) is rejected to prevent poisoned web results or zero-cost bypasses.
+4. **Conservative Fail-Expensive Fallback (`$15.00` / `$75.00` per 1M)**:
+   - If a model is unknown and live research fails or returns out-of-bounds values, `PricingService` defaults to a conservative **fail-expensive** rate of **`$15.00` per 1M input tokens** and **`$75.00` per 1M output tokens**, ensuring unknown models can never silently bypass budget circuit breakers.
 
 ---
 
-## 📊 Transactional Ledger (`spend_ledger`)
+## 📊 Transactional Ledger (`spend_ledger`) & Comprehensive Tracking
 
 All token usage and USD costs are written immediately to the SQLite database (`data/izvor.db`, configurable via `IZVOR_DB_PATH`) in table `spend_ledger`:
 
@@ -67,42 +75,38 @@ CREATE TABLE IF NOT EXISTS spend_ledger (
 );
 ```
 
-After each completed agent turn, [`orchestration/stages/post_record.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/orchestration/stages/post_record.py) records:
-- **`prompt_tokens`**: Input tokens processed by the LLM.
-- **`completion_tokens`**: Output tokens generated in the reply.
-- **`model_name`**: The exact model identifier invoked.
-- **`cost_usd`**: Calculated using:
-  $$\text{Cost} = \frac{\text{Prompt Tokens} \times \text{Rate}_{\text{prompt}} + \text{Completion Tokens} \times \text{Rate}_{\text{completion}}}{1{,}000{,}000}$$
+In addition to standard persona turns recorded by [`orchestration/stages/post_record.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/orchestration/stages/post_record.py), Izvor also records spend for:
+- **RAG Embedding Calls** ([`services/rag/embeddings.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/services/rag/embeddings.py))
+- **Autonomous Pricing Researcher Calls** ([`services/pricing_service.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/services/pricing_service.py))
+
+$$\text{Cost} = \frac{\text{Prompt Tokens} \times \text{Rate}_{\text{prompt}} + \text{Completion Tokens} \times \text{Rate}_{\text{completion}}}{1{,}000{,}000}$$
 
 ---
 
-## ⚡ Two-Tiered Circuit Breaker Protection
+## ⚡ Two-Tiered Circuit Breaker & Parallel Reservation Protection
 
-To safeguard budgets, Izvor enforces both thread-level and daily workspace-level spending limits:
+Managed by [`SpendGovernance`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/pipeline/spend_governance/circuit_breaker.py) and configured via `data/settings/app_settings.json` (or Slack App Home):
+- **`daily_budget_usd`**: Global cap on total workspace spending across all threads within a 24-hour UTC window (e.g., `$10.00`). **Enforced unconditionally on every turn**, even if the per-thread `circuit_breaker_enabled` toggle is set to `false`.
+- **`circuit_breaker_enabled`**: `true` (Enabled by default; controls per-thread threshold enforcement).
+- **`circuit_breaker_threshold_usd`**: Maximum allowed USD cost per individual thread (e.g., `$1.00`).
 
-### 1. Configuration Parameters
-Managed in `data/settings/app_settings.json` and configurable dynamically via Slack App Home:
-- **`circuit_breaker_enabled`**: `true` (Enabled by default).
-- **`circuit_breaker_threshold_usd`**: Maximum allowed USD cost per individual thread (e.g., `$1.50`).
-- **`daily_budget_usd`**: Global cap on total workspace spending across all threads within a 24-hour UTC window (e.g., `$10.00`).
-
-### 2. Pre-Turn Gatekeeping in Stage 2 (`ResolutionStage`)
-Before allocating compute or dispatching to an LLM, [`orchestration/stages/resolution.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/orchestration/stages/resolution.py) invokes `spend_governance.is_budget_exceeded()`:
-1. Queries the SQLite `spend_ledger` for thread cumulative spend.
-2. Queries the SQLite `spend_ledger` for today's UTC aggregate spend (`timestamp >= midnight_utc`).
+### 1. Pre-Turn Gatekeeping in Stage 2 (`ResolutionStage`)
+Before allocating compute or dispatching to an LLM, [`orchestration/stages/resolution.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/orchestration/stages/resolution.py) invokes `spend_governance.check_circuit_breaker()`:
+1. Evaluates today's UTC aggregate spend (`timestamp >= midnight_utc`) + active in-flight reservations against `daily_budget_usd` (**unconditional**).
+2. If `circuit_breaker_enabled` is `true`, evaluates cumulative thread spend + active thread reservations against `circuit_breaker_threshold_usd`.
 3. If either threshold is breached:
    - Emits a structured audit log event (`CIRCUIT_BREAKER_TRIGGERED`).
-   - Posts a warning block to the Slack thread informing participants:
-     > *⚠️ EXPENSE LIMIT REACHED FOR THE THREAD. ENDING CALLS*
-     > *(or: Daily workspace budget of $10.00 exceeded)*
-   - Attaches an interactive Block Kit button: `"Continue Sequence"` (`action_id: "resume_sequence_action"`).
+   - Posts an interactive warning block to the Slack thread with a `"Continue Sequence"` (`action_id: "resume_sequence_action"`) button.
    - Terminates the turn immediately without dispatching an LLM call.
 
+### 2. Parallel Dialectic Budget Reservations (`reserve_budget` / `release_reservation`)
+When running `OrchestrationMode.SCATTER_GATHER` in [`DiscussionLoop`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/orchestration/discussion_loop.py), multiple specialist branches execute concurrently in an `asyncio.TaskGroup`. To prevent N parallel branches from simultaneously passing the pre-turn check and overshooting the budget:
+- Each branch calls `spend_governance.reserve_budget(thread_ts, estimated_cost_usd)` prior to LLM execution.
+- In-flight reservations are included in all thread and daily budget checks.
+- Reservations are deterministically released in a `finally` block via `spend_governance.release_reservation(reservation_id)` once actual spend is committed to `spend_ledger`.
+
 ### 3. Administrative Override & Resume Action
-When a deliberation is paused by the circuit breaker, authorized workspace administrators can manually override and resume:
-- Handled by [`adapters/slack/interactivity.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/adapters/slack/interactivity.py) upon receiving the `resume_sequence_action` payload.
-- Verifies that the clicking user has Slack workspace admin privileges (`is_admin: true`). Non-admin attempts are rejected with an ephemeral warning.
-- Upon admin confirmation, updates the thread state to active, unblocks the remaining sequence, and dispatches the next agent turn.
+When a deliberation is paused by the circuit breaker, authorized workspace administrators (`is_slack_admin`) can click `"Continue Sequence"` (`resume_sequence_action`), handled via [`adapters/slack/actions/workflow_actions.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/adapters/slack/actions/workflow_actions.py), to grant an incremental budget override and resume the paused checkpoint or remaining agent queue.
 
 ### 4. Intra-Turn Tool-Loop Governance in Stage 4 (`ExecutionStage`)
-To prevent multi-step tool iterations from exceeding budgets mid-turn, [`orchestration/stages/execution.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/orchestration/stages/execution.py) calculates incremental token spend after each tool invocation. If the circuit breaker threshold or daily budget is breached during execution, the loop halts gracefully before the next LLM call.
+To prevent multi-step tool iterations from exceeding budgets mid-turn, [`orchestration/stages/execution.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/orchestration/stages/execution.py) calculates incremental token spend after each tool invocation. If the circuit breaker threshold or daily budget is breached during execution, `ExecutionStage` saves a durable snapshot in `TurnCheckpointStore` and halts gracefully before the next LLM call.

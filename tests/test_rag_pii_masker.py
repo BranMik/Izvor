@@ -1,7 +1,7 @@
 import pytest
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
-from services.rag.pii_masker import pii_masker, PIIMasker
+from services.rag.pii_masker import PIIMasker
 from core.llm_utils import execute_llm_with_retry
 
 

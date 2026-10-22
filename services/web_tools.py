@@ -7,7 +7,6 @@ import re
 import socket
 import urllib.parse
 
-import httpcore
 from httpcore._backends.sync import SyncBackend
 import httpx
 from bs4 import BeautifulSoup
@@ -42,7 +41,7 @@ def _get_web_settings():
     try:
         from orchestration.system_settings import system_settings_manager
         return system_settings_manager
-    except Exception:
+    except Exception:  # noqa: BLE001
         return None
 
 
@@ -336,7 +335,7 @@ def sanitize_outbound_url(url: str) -> str:
         if not any(host == d or host.endswith("." + d) for d in allowed_domains):
             return urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", ""))
         return url
-    except Exception:
+    except Exception:  # noqa: BLE001
         return url
 
 

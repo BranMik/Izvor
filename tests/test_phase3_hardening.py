@@ -8,16 +8,12 @@ Dedicated test suite verifying Phase 3 Hardening & Remediation:
 
 import json
 import logging
-import os
-import tempfile
-import time
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
-import pytest
 
-from core.logging_filters import CredentialRedactionFilter, redact_text
-from core.slack_security import _record_auth_failure_audit, verify_slack_signature
+from core.logging_filters import CredentialRedactionFilter
+from core.slack_security import _record_auth_failure_audit
 from orchestration.agent_settings import AgentSettingsManager
 from orchestration.app_settings import AppSettingsManager
 from orchestration.stages.execution import _unmask_argument_values

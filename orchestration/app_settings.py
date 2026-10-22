@@ -6,7 +6,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from core.models import CircuitBreakerConfig
 from core.paths import APP_BACKUP_FILE, APP_SETTINGS_FILE
@@ -81,7 +81,9 @@ class AppSettingsManager:
             mtime = target_file.stat().st_mtime
             if not force and mtime == self._last_loaded_mtime and self._last_loaded_mtime > 0:
                 return
-            model = self._store.load(force=force)
+            self._store.settings_file = target_file
+            self._store.backup_file = self.default_backup_file
+            model = self._store.load(force=True)
             self.thread_skill_expiration_time = float(model.thread_skill_expiration_time)
             self.circuit_breaker_enabled = bool(model.circuit_breaker_enabled)
             self.circuit_breaker_threshold_usd = float(model.circuit_breaker_threshold_usd)
@@ -93,7 +95,7 @@ class AppSettingsManager:
             self._raw_data = self._store.get_raw_data()
             self._last_loaded_mtime = mtime
             logger.debug(f"[APP_SETTINGS] Loaded settings from {self.active_settings_file}")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.error(f"[APP_SETTINGS] Failed to load {target_file}: {e}")
 
     def save(self) -> None:
@@ -110,6 +112,8 @@ class AppSettingsManager:
             "weekly_pricing_update_enabled": self.weekly_pricing_update_enabled,
             "workspace_context": self.workspace_context,
         })
+        self._store.settings_file = target_file
+        self._store.backup_file = self.default_backup_file
         self._store.save(payload)
         self._raw_data = copy.deepcopy(payload)
         if target_file.exists():

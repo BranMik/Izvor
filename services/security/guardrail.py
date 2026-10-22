@@ -14,7 +14,7 @@ def _get_max_embedding_cache_size() -> int:
     try:
         from orchestration.system_settings import get_guardrail_embedding_cache_size
         return get_guardrail_embedding_cache_size()
-    except Exception:
+    except Exception:  # noqa: BLE001
         return 500
 
 
@@ -43,7 +43,7 @@ class GuardrailService:
                     self._table = db.open_table(self.table_name)
                 else:
                     logger.warning(f"Guardrail table '{self.table_name}' not found. Seeding required.")
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 logger.error(f"Failed to connect to LanceDB guardrail table: {e}")
         return self._table
 
@@ -86,7 +86,7 @@ class GuardrailService:
                         "fail_mode": "closed",
                     },
                 )
-            except Exception as ae:
+            except Exception as ae:  # noqa: BLE001
                 logger.error(f"[GUARDRAIL] Failed to emit fail-closed audit event: {ae}")
             return True
         else:
@@ -107,7 +107,7 @@ class GuardrailService:
                         "fail_mode": "open",
                     },
                 )
-            except Exception as ae:
+            except Exception as ae:  # noqa: BLE001
                 logger.error(f"[GUARDRAIL] Failed to emit fail-open audit event: {ae}")
             return False
 
@@ -143,7 +143,7 @@ class GuardrailService:
                     )
                     return True
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.error(f"Error during guardrail check: {e}")
             return self._handle_failure(str(e), text)
 

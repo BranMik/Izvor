@@ -28,15 +28,15 @@ def isolate_audit_logger_for_tests(tmp_path):
     """
     test_audit_dir = tmp_path / "audit"
     test_audit_dir.mkdir(parents=True, exist_ok=True)
-    
+
     # Hijack the singleton's directories
     old_dir = audit_logger.audit_dir
-    
+
     audit_logger.audit_dir = test_audit_dir
     audit_logger.invalidate_cache()
-    
+
     yield
-    
+
     # Restore (optional, but good practice)
     audit_logger.audit_dir = old_dir
     audit_logger.invalidate_cache()
@@ -132,6 +132,10 @@ def isolate_app_settings_for_tests(tmp_path, monkeypatch):
     orig_default_backup_file = app_settings_manager.default_backup_file
     app_settings_manager.default_settings_file = temp_app_settings
     app_settings_manager.default_backup_file = temp_app_backup
+    app_settings_manager._store.settings_file = temp_app_settings
+    app_settings_manager._store.backup_file = temp_app_backup
+    app_settings_manager._store.invalidate_cache()
+    orig_last_mtime = app_settings_manager._last_loaded_mtime
 
     yield
 
@@ -145,6 +149,10 @@ def isolate_app_settings_for_tests(tmp_path, monkeypatch):
     app_settings_manager.workspace_context = orig_workspace_context
     app_settings_manager.default_settings_file = orig_default_settings_file
     app_settings_manager.default_backup_file = orig_default_backup_file
+    app_settings_manager._last_loaded_mtime = orig_last_mtime
+    app_settings_manager._store.settings_file = orig_default_settings_file
+    app_settings_manager._store.backup_file = orig_default_backup_file
+    app_settings_manager._store.invalidate_cache()
 
 
 @pytest.fixture(autouse=True)

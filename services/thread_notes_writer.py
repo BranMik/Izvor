@@ -16,7 +16,6 @@ import re
 import tempfile
 import time
 from pathlib import Path
-from typing import Any
 
 from core.paths import THREAD_NOTES_DIR
 from services.flat_history_recorder import is_test_thread
@@ -165,7 +164,7 @@ def _atomic_write_file(target_path: Path, content: str) -> bool:
         os.replace(tmp_path, target_path)
         logger.info(f"[THREAD NOTES WRITER] Saved note to {target_path}")
         return True
-    except Exception as e:
+    except OSError as e:
         if tmp_path_obj is not None:
             try:
                 tmp_path_obj.unlink(missing_ok=True)

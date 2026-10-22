@@ -35,7 +35,7 @@ async def run(ctx: Any, params: dict[str, Any] | None = None) -> dict[str, Any] 
                 severity="CRITICAL",
                 status="BLOCKED",
             )
-        except Exception as ae:
+        except Exception as ae:  # noqa: BLE001
             logger.error(f"[REVOKE CONSTRAINT ACTION] Failed to log audit event: {ae}")
 
         if channel_id and thread_ts:

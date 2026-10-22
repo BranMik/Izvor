@@ -1,10 +1,8 @@
 import asyncio
 import os
-import sys
-import tempfile
 import time
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -19,7 +17,7 @@ from services.slack_client import cleanup_old_downloads
 from services.thread_notes_writer import _atomic_write_file
 from services.web_tools import PinnedIPTransport
 from skills.knowledge_base_rag.tools import TOOL_HANDLERS, async_execute_search_knowledge_rag
-from skills.loader import ALL_INTERNAL_SKILLS, SkillDefinition, SkillRegistry
+from skills.loader import SkillDefinition, SkillRegistry
 
 
 
@@ -221,7 +219,7 @@ def test_tkt_727_proxy_header_trust_and_auth_tracker():
         for i in range(_MAX_TRACKER_ENTRIES + 10):
             _auth_failure_tracker[f"ip_{i}"] = {"window_start": time.time(), "logged_count": 1, "suppressed_count": 0}
 
-    with patch("services.audit_logger.log_audit_event") as mock_log:
+    with patch("services.audit_logger.log_audit_event"):
         _record_auth_failure_audit("ip_new")
         with _auth_failure_lock:
             assert len(_auth_failure_tracker) <= _MAX_TRACKER_ENTRIES

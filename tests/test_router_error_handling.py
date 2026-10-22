@@ -2,8 +2,6 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from orchestration.agent_settings import get_agents_config
-AGENTS_CONFIG = get_agents_config()
 from core.llm_utils import (
     classify_agent_error,
     execute_llm_with_retry,
@@ -12,12 +10,15 @@ from core.llm_utils import (
 from orchestration import agent_router
 from orchestration.agent_router import process_and_respond
 from orchestration.agent_settings import (
+    get_agents_config,
     reset_enabled_agents,
     set_fixed_config,
     set_orchestration_mode,
     set_sandwich_config,
 )
 from orchestration.thread_state import thread_state_manager
+
+AGENTS_CONFIG = get_agents_config()
 
 
 @pytest.fixture(autouse=True)

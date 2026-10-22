@@ -284,7 +284,7 @@ class ContextPrepStage:
                     get_thread_note_content(ctx.channel_id, ctx.thread_ts)
                     or get_thread_conclusion_content(ctx.channel_id, ctx.thread_ts)
                 )
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 logger.debug(f"[CONTEXT] Failed to fetch episodic summary: {e}")
         ctx.episodic_summary = episodic_summary
 

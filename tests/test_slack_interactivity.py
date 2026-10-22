@@ -8,23 +8,18 @@ Covers:
 """
 
 import json
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from starlette.background import BackgroundTasks
 from starlette.requests import Request
 
 from adapters.slack.interactivity import (
-    _resolve_action_spec,
     _validate_chain_agent_keys,
     handle_slack_interactivity,
 )
 from orchestration.agent_settings import (
     get_fixed_config,
-    get_orchestration_mode,
-    get_sandwich_config,
-    set_fixed_config,
-    set_sandwich_config,
 )
 
 

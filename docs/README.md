@@ -17,19 +17,19 @@ docs/
 │   └── slack-app-setup.md                 # Slack API Manifest, Scopes & Webhook Setup
 ├── architecture/                          # Architecture & Core Engine
 │   ├── system-design.md                   # Event Lifecycle, FastAPI Lifespan & Heartbeats
-│   ├── orchestration-pipeline.md          # 5-Stage Turn Pipeline, DI Pattern & Loop Handlers
-│   ├── topologies-and-routing.md          # Sandwich Mode vs. Fixed Mode & Nomination
-│   ├── thread-state-memory.md             # ThreadStateManager, TTL Pruning & Superseding
+│   ├── orchestration-pipeline.md          # 5-Stage Turn Pipeline, DiscussionLoop & Checkpoints
+│   ├── topologies-and-routing.md          # Sandwich, Fixed, Parallel Dialectic & Rebuttal Gate
+│   ├── thread-state-memory.md             # 11 SQLite Tables, 3-Tier Memory & Data Retention
 │   └── spend-governance.md                # Pricing Service, Token Tracking & Circuit Breakers
 ├── agents-and-skills/                     # Personas, Prompts & Tools
-│   ├── personas-catalog.md                # Persona Roster, Prompt Construction & Personas SSOT
+│   ├── personas-catalog.md                # 17 Persona Roster, Special Roles & Prompt Construction
 │   ├── skills-framework.md                # Dynamic Skills Engine, Grant/Revoke & Injection
-│   ├── built-in-skills-reference.md       # Complete Manual of 20 Built-in Skills & Directives
-│   └── mcp-and-tools.md                   # MCP Workspace Isolation & 5s In-Place Indicators
+│   ├── built-in-skills-reference.md       # Complete Manual of 21 Built-in Skills & Directives
+│   └── mcp-and-tools.md                   # MCP Workspace Isolation, ToolPrincipal & Web Security
 ├── administration-and-security/           # Security, Operations & Governance
 │   ├── slack-app-home.md                  # App Home UI Configuration, Settings SSOT & Backups
-│   ├── security-and-auth.md               # Slack HMAC Verification & Admin Basic Auth
-│   ├── audit-logging-integrity.md         # Non-Repudiable Chained Audit Logs & Integrity Guards
+│   ├── security-and-auth.md               # Slack HMAC Verification, Admin Gates & HITL Atomicity
+│   ├── audit-logging-integrity.md         # Non-Repudiable Chained Audit Logs & SQLite Anchors
 │   └── rest-api-reference.md              # REST Endpoints (/health, /api/skills, /api/rag/*, /api/audit/*)
 ├── user-guide/                            # End-User Manual & Slack Interactions
 │   ├── interacting-in-slack.md            # Mentioning Personas, Thread Discussions & Interruption
@@ -37,7 +37,7 @@ docs/
 │   └── thread-notes-and-exports.md        # Flat Histories, Scribe Summaries & Exports
 └── development-and-testing/               # Developer Guide & Testing
     ├── e2e-testing-harness.md             # Hybrid Interceptor, Protocol Client & Scenarios
-    ├── test-suite.md                      # Running the 68 Test Suites (633 Tests), Hygiene & Mocks
+    ├── test-suite.md                      # Running the 88 Test Suites (717 Tests), Hygiene & Mocks
     └── contributing.md                    # Engineering Guidelines, Policies & Code Standards
 ```
 

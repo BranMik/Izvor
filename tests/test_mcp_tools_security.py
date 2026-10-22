@@ -1,12 +1,10 @@
 import json
-from unittest.mock import patch
 
 import pytest
 
 from core.domain import SYSTEM_PRINCIPAL, ToolPrincipal
 from services.mcp_tools import (
     is_agent_authorized_for_tool,
-    read_document,
     validate_resource_filename,
     write_document,
 )

@@ -1,11 +1,9 @@
-import json
 import logging
 from functools import cache
 from pathlib import Path
 from typing import Any
 
 from core.paths import (
-    AGENT_SETTINGS_FILE,
     PERSONAS_DIR,
     PROMPTS_DIR,
     SYSTEM_AGENTS_DIR,
@@ -37,7 +35,7 @@ def _load_system_prompt_cached(path_str: str, mtime_ns: int, fallback: str) -> s
     if file_path.exists():
         try:
             return file_path.read_text(encoding="utf-8").strip()
-        except Exception as e:
+        except (OSError, UnicodeDecodeError) as e:
             logger.warning(f"Error reading prompt file {file_path}: {e}")
     return fallback.strip()
 
@@ -68,7 +66,7 @@ def get_short_output_agents() -> set[str]:
                     k for k, v in raw_agents.items()
                     if isinstance(v, dict) and v.get("is_short_output") is True
                 }
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.debug(f"[PROMPT BUILDER] Error retrieving short output agents: {e}")
     return set()
 
@@ -117,7 +115,7 @@ def is_short_output_agent(agent_key: str) -> bool:
             raw_a = settings_manager._raw_data.get("agents", {}).get(agent_key, {})
             if isinstance(raw_a, dict) and raw_a.get("is_short_output") is True:
                 return True
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.debug(f"[PROMPT BUILDER] Dynamic short output check fallback: {e}")
     return agent_key in SHORT_OUTPUT_AGENTS
 
@@ -134,7 +132,7 @@ def get_system_agents() -> set[str]:
         for k, v in settings_manager.get_agents_config().items():
             if isinstance(v, dict) and v.get("is_system_agent") is True:
                 system_keys.add(k)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.debug(f"[PROMPT BUILDER] Error loading system agents: {e}")
     return system_keys
 
@@ -153,7 +151,7 @@ def is_system_agent(agent_key: str) -> bool:
         agent_cfg = settings_manager.get_agent(agent_key)
         if agent_cfg and agent_cfg.get("is_system_agent") is True:
             return True
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.debug(f"[PROMPT BUILDER] Dynamic system agent check fallback: {e}")
 
     if agent_key in SYSTEM_AGENTS:

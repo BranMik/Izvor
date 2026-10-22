@@ -12,7 +12,6 @@ from agents import (
     trigger_thread_notes_update,
     trigger_usage_update,
 )
-from core.config import MAX_DISCUSSION_TURNS, get_max_discussion_turns
 from core.llm_utils import execute_llm_with_retry
 from orchestration.thread_state import thread_state_manager
 from services.slack_client import (
@@ -26,6 +25,7 @@ from .turn_pipeline import TurnContext, TurnPipeline
 
 __all__ = [
     "_apply_convergence_stress_test_or_fast_forward",
+    "asyncio",
     "continue_discussion_from_turn_result",
     "orchestrate_discussion",
     "post_system_message",
@@ -206,7 +206,7 @@ async def process_and_respond(
                 )
                 thread_state_manager.request_stop(channel_id, thread_ts)
                 return {"status": "blocked_by_guardrail"}
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             from orchestration.system_settings import get_guardrail_fail_mode
             fail_mode = get_guardrail_fail_mode()
             if fail_mode == "closed":
@@ -229,7 +229,7 @@ async def process_and_respond(
                             "fail_mode": "closed",
                         },
                     )
-                except Exception as ae:
+                except Exception as ae:  # noqa: BLE001
                     logger.error(f"[GUARDRAIL] Failed to emit fail-closed audit event: {ae}")
 
                 await post_system_message(

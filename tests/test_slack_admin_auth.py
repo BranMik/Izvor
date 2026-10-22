@@ -1,8 +1,6 @@
-import json
 import time
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
-import pytest
 from fastapi.testclient import TestClient
 
 from core.config import get_admin_slack_user_ids, is_slack_admin

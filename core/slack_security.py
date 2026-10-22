@@ -20,7 +20,7 @@ def _get_security_burst_limits() -> dict[str, Any]:
     try:
         from orchestration.system_settings import system_settings_manager
         return system_settings_manager.get_security_burst_limits()
-    except Exception:
+    except Exception:  # noqa: BLE001
         return {
             "auth_failure_window_seconds": _AUTH_FAILURE_WINDOW_SECONDS,
             "auth_failure_burst_limit": _AUTH_FAILURE_BURST_LIMIT,
@@ -144,7 +144,7 @@ def _record_auth_failure_audit(client_id: str) -> None:
                 severity="CRITICAL",
                 status="FAILED",
             )
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.debug(f"[SECURITY] Failed to record auth failure audit: {e}")
 
 

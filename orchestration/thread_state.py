@@ -57,16 +57,16 @@ class ThreadStateManager:
                 from pipeline.spend_governance import spend_governance
 
                 spend_governance.clear_session(f"{c_id}:{t_ts}")
-            except Exception:  # noqa: BLE001
-                pass
+            except Exception as e:  # noqa: BLE001
+                logger.debug("Spend cleanup hook error: %s", e)
 
         def _spend_reset() -> None:
             try:
                 from pipeline.spend_governance import spend_governance
 
                 spend_governance.clear_all_sessions()
-            except Exception:  # noqa: BLE001
-                pass
+            except Exception as e:  # noqa: BLE001
+                logger.debug("Spend reset hook error: %s", e)
 
         self.register_cleanup_hook(_spend_cleanup)
         self.register_reset_hook(_spend_reset)
@@ -101,8 +101,8 @@ class ThreadStateManager:
                     "UPDATE thread_sessions SET last_activity = ? WHERE channel_id = ? AND thread_ts = ?",
                     (now, channel_id, thread_ts),
                 )
-        except Exception:
-            pass
+        except Exception as e:  # noqa: BLE001
+            logger.debug("Thread session touch DB error: %s", e)
         self._check_capacity()
 
     def touch(self, channel_id: str, thread_ts: str) -> None:
@@ -123,8 +123,8 @@ class ThreadStateManager:
                     act = float(row["last_activity"])
                     self.thread_last_activity[(channel_id, thread_ts)] = act
                     return act
-        except Exception:
-            pass
+        except Exception as e:  # noqa: BLE001
+            logger.debug("Thread session get_last_activity DB error: %s", e)
         return None
 
     # --- ThreadContextStore Delegation ---
@@ -598,7 +598,7 @@ class ThreadStateManager:
                         "DELETE FROM thread_context WHERE (channel_id, thread_ts) NOT IN "
                         "(SELECT channel_id, thread_ts FROM thread_sessions)"
                     )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.debug(f"[THREAD STATE] SQLite cleanup error: {e}")
 
         if evicted_count > 0:

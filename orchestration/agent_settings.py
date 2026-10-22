@@ -2,8 +2,6 @@ import copy
 import json
 import logging
 import os
-import sys
-import re
 import threading
 import time
 from pathlib import Path
@@ -408,7 +406,7 @@ class AgentSettingsManager:
 
         self._raw_data = copy.deepcopy(data)
         data = AppIntegrityValidator.run_all_checks(data, personas_dir=PERSONAS_DIR)
-        
+
         raw_agents = data.get("agents", {})
         if not isinstance(raw_agents, dict):
             logger.error(f"[SETTINGS] 'agents' key in {source_name} is not a dictionary after validation.")

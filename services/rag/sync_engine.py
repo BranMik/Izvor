@@ -54,7 +54,7 @@ class SyncReconciliationEngine:
                     self.manifest_manager.remove_document(rel_doc_id)
                     stats["deleted"] += 1
                     logger.info(f"[RAG Sync] Deleted {rel_doc_id} from vector store and manifest")
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001
                     logger.error(f"[RAG Sync] Error deleting {rel_doc_id}: {e}")
 
             # 2. Process modified files
@@ -85,7 +85,7 @@ class SyncReconciliationEngine:
                     )
                     stats["modified"] += 1
                     logger.info(f"[RAG Sync] Updated {rel_doc_id} ({len(chunk_ids)} chunks)")
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001
                     logger.error(f"[RAG Sync] Error updating {rel_doc_id}: {e}")
 
             # 3. Process new files
@@ -109,7 +109,7 @@ class SyncReconciliationEngine:
                     )
                     stats["new"] += 1
                     logger.info(f"[RAG Sync] Indexed new file {rel_doc_id} ({len(chunk_ids)} chunks)")
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001
                     logger.error(f"[RAG Sync] Error indexing new file {rel_doc_id}: {e}")
 
             # Rebuild FTS index once per sync batch and persist updated manifest to disk

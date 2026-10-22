@@ -1,6 +1,5 @@
 import concurrent.futures
 from pathlib import Path
-import sqlite3
 import pytest
 
 from core.database import DatabaseManager, MIGRATIONS

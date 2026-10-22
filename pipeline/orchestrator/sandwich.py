@@ -109,7 +109,7 @@ class SandwichOrchestrator:
                     and r_agent not in rebuttal
                 ):
                     rebuttal.append(r_agent)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.debug(f"[ORCHESTRATOR] Stress test config in dialectic plan: {e}")
 
         rebuttal_set = set(rebuttal)
@@ -146,8 +146,8 @@ class SandwichOrchestrator:
             from orchestration.agent_settings import get_rebuttal_agent
 
             rebuttal_key = get_rebuttal_agent()
-        except Exception:
-            pass
+        except Exception as e:  # noqa: BLE001
+            logger.debug("Failed to retrieve rebuttal agent: %s", e)
 
         standby_set = set(self.standby_agents)
         if rebuttal_key:

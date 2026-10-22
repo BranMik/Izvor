@@ -6,10 +6,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from services.rag.config import get_pii_masking_mode
-from services.rag.document_parser import DocumentChunk, DocumentParser
+from services.rag.document_parser import DocumentParser
 from services.rag.embeddings import EmbeddingService
-from services.rag.manifest_manager import ManifestManager, compute_sha256
+from services.rag.manifest_manager import ManifestManager
 from services.rag.pii_masker import PIIMasker, pii_masker
 from services.rag.service import RAGService
 from services.rag.sync_engine import SyncReconciliationEngine

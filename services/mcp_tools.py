@@ -6,7 +6,7 @@ import re
 from typing import Any
 
 from core.config import MCP_WORKSPACE_DIR
-from core.domain import ToolPrincipal, SYSTEM_PRINCIPAL
+from core.domain import ToolPrincipal
 from core.paths import (
     AGENTS_RESOURCES_DIR as CANONICAL_AGENTS_RESOURCES_DIR,
     PROJECT_ROOT,
@@ -480,7 +480,7 @@ def is_agent_authorized_for_tool(
                         permitted_tools.add(fn)
 
         return tool_name in permitted_tools
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.warning(f"[MCP] Error verifying tool authorization for agent '{agent_id}': {e}")
         return False
 
@@ -539,7 +539,7 @@ def execute_mcp_tool(
     if handler:
         try:
             return handler(raw_args)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.error(f"[MCP] Error executing tool {tool_name}: {e}")
             return json.dumps({"error": f"Tool execution error: {e}"})
     return json.dumps({"error": f"Unknown tool: {tool_name}"})

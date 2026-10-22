@@ -14,9 +14,7 @@ Unit and integration tests for Phase P1 Privilege Boundaries & Integrity Alignme
   - Guardrail _handle_failure audit event parameter completeness
 """
 
-import asyncio
 import json
-import logging
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -26,11 +24,9 @@ from core.models import ActionDirective, REQUIRED_DEFAULT_WORKFLOW_IDS, build_dy
 from core.security_utils import wrap_untrusted_content
 from orchestration.turn_pipeline import TurnContext, TurnPipeline
 from orchestration.thread_skills_manager import thread_skills_manager
-from orchestration.workflow_manager import WorkflowManager
 from orchestration.integrity_checks import AppIntegrityValidator
 from services.security.guardrail import GuardrailService
 from orchestration.system_settings import set_guardrail_fail_mode
-from orchestration.app_settings import is_circuit_breaker_enabled
 
 
 # ---------------------------------------------------------------------------

@@ -537,7 +537,6 @@ def test_sanitize_slack_download_filename():
 
 @pytest.mark.anyio
 async def test_download_slack_file_saves_safely_inside_downloads():
-    from pathlib import Path
     from core.paths import DOWNLOADS_DIR
 
     downloads_dir = DOWNLOADS_DIR.resolve()

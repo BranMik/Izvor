@@ -71,7 +71,7 @@ async def test_hitl_pause_creates_durable_turn_checkpoint(monkeypatch):
     monkeypatch.setattr("services.hitl.slack_async_client.chat_postMessage", AsyncMock(return_value={"ok": True, "ts": "11111"}))
 
     # Run execution stage
-    res = await exec_stage.stage_execute_llm(ctx)
+    await exec_stage.stage_execute_llm(ctx)
 
     assert ctx.waiting_hitl is True
     assert ctx.halted is True
@@ -273,7 +273,7 @@ async def test_hitl_pause_synthesizes_deferred_sibling_responses(monkeypatch):
     monkeypatch.setattr("orchestration.stages.execution.skill_registry", mock_skill_registry)
     monkeypatch.setattr("services.hitl.slack_async_client.chat_postMessage", AsyncMock(return_value={"ok": True, "ts": "44444"}))
 
-    res = await exec_stage.stage_execute_llm(ctx)
+    await exec_stage.stage_execute_llm(ctx)
 
     assert ctx.waiting_hitl is True
     assert ctx.halted is True

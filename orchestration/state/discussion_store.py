@@ -2,7 +2,6 @@ import asyncio
 import json
 import logging
 import time
-from typing import Any
 
 from core.database import get_connection, get_db_transaction
 
@@ -54,7 +53,7 @@ class DiscussionStateStore:
                             self.thread_round_sequences[key] = seq
                     if row["initial_prompt"] and key not in self.thread_initial_prompts:
                         self.thread_initial_prompts[key] = row["initial_prompt"]
-        except Exception as e:
+        except (json.JSONDecodeError, ValueError) as e:
             logger.debug(f"[DISCUSSION STORE] Failed to load session from DB for {key}: {e}")
 
     def _sync_to_db(self, channel_id: str, thread_ts: str) -> None:
@@ -115,7 +114,7 @@ class DiscussionStateStore:
                             now,
                         ),
                     )
-        except Exception as e:
+        except (json.JSONDecodeError, ValueError) as e:
             logger.debug(f"[DISCUSSION STORE] Failed to sync session to DB for {key}: {e}")
 
     def get_remaining_agents(
@@ -400,7 +399,7 @@ class DiscussionStateStore:
                     "DELETE FROM thread_sessions WHERE channel_id = ? AND thread_ts = ?",
                     (channel_id, thread_ts),
                 )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.debug(f"[DISCUSSION STORE] Failed to delete session from DB: {e}")
 
     def reset(self) -> None:
@@ -418,5 +417,5 @@ class DiscussionStateStore:
         try:
             with get_db_transaction(immediate=True) as conn:
                 conn.execute("DELETE FROM thread_sessions")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.debug(f"[DISCUSSION STORE] Failed to reset thread_sessions table: {e}")

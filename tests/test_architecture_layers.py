@@ -1,7 +1,6 @@
 import ast
 from pathlib import Path
 
-import pytest
 
 from core.exceptions import (
     ConfigurationError,
@@ -125,7 +124,7 @@ def test_no_await_inside_sync_db_transactions():
                                 f"{rel_path}:{child.lineno} contains 'await' inside get_db_transaction"
                             )
 
-    assert not violations, f"Concurrency violation: await inside synchronous DB transaction:\n" + "\n".join(violations)
+    assert not violations, "Concurrency violation: await inside synchronous DB transaction:\n" + "\n".join(violations)
 
 
 def test_no_bare_except_pass():
@@ -153,6 +152,6 @@ def test_no_bare_except_pass():
                     )
 
     assert not violations, (
-        f"Code hygiene violation: bare 'except:' without exception type:\n"
+        "Code hygiene violation: bare 'except:' without exception type:\n"
         + "\n".join(violations[:20])
     )

@@ -6,6 +6,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
+from core.database import get_connection, get_db_transaction
 from services.slack_client import slack_async_client, slack_rate_limiter
 
 logger = logging.getLogger(__name__)
@@ -17,7 +18,7 @@ def compute_args_hash(fn_args: dict[str, Any] | None) -> str:
     """Computes a deterministic SHA-256 hash of tool call arguments."""
     try:
         normalized = json.dumps(fn_args or {}, sort_keys=True, default=str)
-    except Exception:
+    except (json.JSONDecodeError, ValueError):
         normalized = str(fn_args or {})
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
@@ -41,8 +42,6 @@ class PendingHITLRequest:
         return time.time() > self.expires_at
 
 
-from core.database import get_connection, get_db_transaction
-
 # In-memory stores (cached / fallback)
 PENDING_REQUESTS: dict[str, PendingHITLRequest] = {}
 # Key: (channel_id, thread_ts, fn_name, args_hash) -> expires_at
@@ -52,7 +51,7 @@ APPROVED_TOKENS: dict[tuple[str, str, str, str], float] = {}
 def _row_to_request(row: Any) -> PendingHITLRequest:
     try:
         fn_args = json.loads(row["fn_args"]) if row["fn_args"] else {}
-    except Exception:
+    except (json.JSONDecodeError, ValueError):
         fn_args = {}
     return PendingHITLRequest(
         request_id=row["request_id"],
@@ -83,7 +82,7 @@ def _prune_expired() -> None:
     try:
         with get_db_transaction(immediate=True) as conn:
             conn.execute("DELETE FROM hitl_approvals WHERE expires_at < ?;", (now,))
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.debug(f"[HITL] Prune expired SQLite failed: {e}")
 
 
@@ -94,7 +93,7 @@ def reset_pending_requests() -> None:
     try:
         with get_db_transaction(immediate=True) as conn:
             conn.execute("DELETE FROM hitl_approvals;")
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.debug(f"[HITL] Reset SQLite failed: {e}")
 
 
@@ -116,7 +115,7 @@ def get_pending_request(request_id: str) -> PendingHITLRequest | None:
             ).fetchone()
             if row:
                 return _row_to_request(row)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.debug(f"[HITL] SQLite get_pending_request failed: {e}")
     return None
 
@@ -144,7 +143,7 @@ def approve_hitl_request(request_id: str) -> PendingHITLRequest | None:
                 ).fetchone()
                 if row:
                     req = _row_to_request(row)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.error(f"[HITL] SQLite approve_hitl_request failed: {e}")
 
     # Synchronize memory fallback
@@ -187,7 +186,7 @@ def deny_hitl_request(request_id: str) -> PendingHITLRequest | None:
                 ).fetchone()
                 if row:
                     req = _row_to_request(row)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.error(f"[HITL] SQLite deny_hitl_request failed: {e}")
 
     mem_req = PENDING_REQUESTS.get(request_id)
@@ -237,7 +236,7 @@ def consume_tool_approval(
                 if cur.rowcount > 0:
                     APPROVED_TOKENS.pop((channel_id, thread_ts, fn_name, args_hash), None)
                     return True
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.error(f"[HITL] SQLite consume_tool_approval failed: {e}")
 
     # Fallback to in-memory check
@@ -275,7 +274,7 @@ def mark_tool_approved(
                 """,
                 (str(uuid.uuid4()), channel_id, thread_ts, fn_name, json.dumps(fn_args or {}), args_hash, now, expires_at),
             )
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.debug(f"[HITL] SQLite mark_tool_approved failed: {e}")
 
 
@@ -334,7 +333,7 @@ def register_hitl_request(
                     now + ttl_seconds,
                 ),
             )
-    except Exception as e:
+    except (json.JSONDecodeError, ValueError) as e:
         logger.error(f"[HITL] SQLite register_hitl_request failed: {e}")
 
     return req

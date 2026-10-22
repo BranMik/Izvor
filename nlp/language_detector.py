@@ -14,7 +14,9 @@ from typing import Final
 
 import litellm
 
+
 from core.config import get_language_detector_model
+from prompts.builder import load_system_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -48,8 +50,6 @@ LANGUAGE_NAME_MAP: Final[dict[str, str]] = {
     "português": "Portuguese",
     "portugalski": "Portuguese",
 }
-
-from prompts.builder import load_system_prompt
 
 _DEFAULT_SYSTEM_PROMPT_FALLBACK: str = (
     "You are an ultra-fast, accurate language classifier. "
@@ -213,7 +213,6 @@ async def detect_language_llm(
 
     try:
         from core.llm_utils import execute_llm_with_retry
-        import litellm
 
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
@@ -247,7 +246,7 @@ async def detect_language_llm(
                         prompt_tokens=p_tok,
                         completion_tokens=c_tok,
                     )
-            except Exception as ue:
+            except Exception as ue:  # noqa: BLE001
                 logger.debug(f"[LANGUAGE DETECTOR] Error recording token spend: {ue}")
 
         msg = resp.choices[0].message

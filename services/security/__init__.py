@@ -1,7 +1,6 @@
 import json
 import logging
 import re
-from pathlib import Path
 
 from core.config import PROJECT_ROOT
 from services.audit_logger import log_audit_event
@@ -26,7 +25,7 @@ def load_additional_patterns() -> dict[str, str]:
             with open(DEFAULT_CONFIG_PATH, "r", encoding="utf-8") as f:
                 data = json.load(f)
                 return data.get("security_guardrail_patterns", {})
-        except Exception as e:
+        except (OSError, json.JSONDecodeError, ValueError) as e:
             logger.error(f"Error reading {DEFAULT_CONFIG_PATH}: {e}")
     return {}
 
@@ -40,7 +39,7 @@ def scan_output_for_secrets(text: str, user_id: str = "agent") -> str | None:
 
     patterns = dict(MAIN_PATTERNS)
     patterns.update(load_additional_patterns())
-    
+
     for rule_name, pattern in patterns.items():
         if re.search(pattern, text, re.IGNORECASE):
             log_audit_event(
@@ -53,7 +52,7 @@ def scan_output_for_secrets(text: str, user_id: str = "agent") -> str | None:
                 status="BLOCKED"
             )
             return rule_name
-            
+
     return None
 
 __all__ = [

@@ -16,9 +16,8 @@ from prompts.builder import (
     _read_prompt_file,
     is_short_output_agent,
     is_system_agent,
-    load_system_prompt,
 )
-from services.rag.pii_masker import PIIMasker, pii_masker
+from services.rag.pii_masker import PIIMasker
 
 
 def test_pii_masker_single_pass_unmask_no_recursion():
@@ -58,7 +57,7 @@ def test_pii_masker_preserves_bare_git_commits():
     assert f"Merged PR in commit {bare_commit}" in masked
 
     # Contextual occurrences must be masked
-    assert f"Server token: <TOKEN_HASH_" in masked or "Server token: " in masked
+    assert "Server token: <TOKEN_HASH_" in masked or "Server token: " in masked
     assert "TOKEN_HASH" in "".join(mapping.keys())
 
 

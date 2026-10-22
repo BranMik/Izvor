@@ -1,8 +1,6 @@
 import logging
 from core.config import SLACK_BOT_TOKEN
 
-logger = logging.getLogger("services.slack_client")
-
 from services.slack import (
     CHANNEL_NAME_CACHE,
     MCP_WORKSPACE_DIR,
@@ -39,6 +37,8 @@ from services.slack_home import (
     build_app_home_view,
     build_edit_workspace_context_modal,
 )
+
+logger = logging.getLogger("services.slack_client")
 
 __all__ = [
     "SLACK_BOT_TOKEN",

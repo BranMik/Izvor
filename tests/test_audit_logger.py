@@ -5,7 +5,6 @@ Comprehensive test suite for the non-repudiable audit logging system in Izvor.
 import datetime
 import json
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -14,10 +13,7 @@ from orchestration.system_settings import is_path_write_blocked
 from services.audit_logger import (
     GENESIS_HASH,
     AuditLogger,
-    canonical_serialize,
     check_hmac_secret_continuity,
-    compute_entry_hash,
-    log_audit_event,
     send_admin_audit_alert,
     verify_audit_log_integrity,
 )
@@ -423,9 +419,7 @@ def test_hmac_secret_enforcement_in_non_test_environment(monkeypatch):
 
 def test_audit_anchor_persisted_and_tail_truncation_detected(temp_audit_dir):
     """Verifies that anchors are stored in SQLite and detect tail truncation when log entries are removed."""
-    import json
     from core.database import db_manager
-    from services.audit_logger import log_audit_event_async
 
     test_dir, logger = temp_audit_dir
 
@@ -445,7 +439,7 @@ def test_audit_anchor_persisted_and_tail_truncation_detected(temp_audit_dir):
         row = conn.execute("SELECT seq, entry_hash FROM audit_anchors WHERE seq = 10").fetchone()
         assert row is not None
         assert row["seq"] == 10
-        anchored_hash = row["entry_hash"]
+        assert row["entry_hash"] is not None
 
     # Integrity verification passes before truncation
     res_clean = verify_audit_log_integrity(audit_dir=test_dir, check_anchors=True)

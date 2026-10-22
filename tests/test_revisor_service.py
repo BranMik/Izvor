@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 from orchestration.agent_router import continue_discussion_from_turn_result
 from orchestration.thread_state import thread_state_manager

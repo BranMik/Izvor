@@ -11,7 +11,7 @@ def _get_rate_limiter_defaults() -> tuple[float, float]:
             system_settings_manager.get_slack_rate_limit_per_second(),
             system_settings_manager.get_slack_rate_limit_burst(),
         )
-    except Exception:
+    except Exception:  # noqa: BLE001
         return 10.0, 15.0
 
 

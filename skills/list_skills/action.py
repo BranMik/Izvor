@@ -81,7 +81,7 @@ async def run(ctx: Any, params: dict[str, Any] | None = None) -> dict[str, Any] 
                         prompt_tokens=p_tok,
                         completion_tokens=c_tok,
                     )
-            except Exception as ue:
+            except Exception as ue:  # noqa: BLE001
                 logger.debug(f"[LIST SKILLS] Error recording token spend: {ue}")
     except Exception as e:  # noqa: BLE001 - Skill presentation fallback to raw directory text on LLM failure
         logger.warning(f"[LIST SKILLS] LLM presentation fallback to direct text: {e}")

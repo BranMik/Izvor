@@ -3,10 +3,8 @@ Tests for the centralized AppIntegrityValidator in core/integrity_checks.py.
 """
 
 import json
-import tempfile
 from pathlib import Path
 
-import pytest
 
 from orchestration.integrity_checks import AppIntegrityValidator
 

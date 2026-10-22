@@ -34,8 +34,6 @@ from .paths import (
     THREAD_DATA_DIR,
 )
 from .llm_utils import (
-    LLM_MAX_RETRIES,
-    LLM_RETRY_BACKOFF_BASE,
     classify_agent_error,
     execute_llm_with_retry,
     is_anthropic_model,

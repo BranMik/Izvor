@@ -1,5 +1,5 @@
 import json
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from orchestration.app_settings import (
@@ -26,7 +26,7 @@ def clean_workspace_context(tmp_path, monkeypatch):
 
 def test_get_and_set_workspace_context(tmp_path):
     assert get_workspace_context() == ""
-    
+
     test_ctx = "Acme Corp enterprise guidelines: prioritize reliability and security."
     set_workspace_context(test_ctx)
     assert get_workspace_context() == test_ctx

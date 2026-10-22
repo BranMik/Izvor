@@ -1,10 +1,6 @@
-import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
-import pytest
 
-from core.domain import Turn, SYSTEM_PRINCIPAL
-from core.models import ActionDirective
 from orchestration.turn_pipeline import TurnContext, TurnPipeline
 
 
@@ -32,10 +28,6 @@ def test_custom_tool_executor_cannot_bypass_authorization():
     tool_call.id = "tc_1"
     tool_call.function.name = "write_document"
     tool_call.function.arguments = '{"rel_path": "test.txt", "content": "bypass"}'
-
-    # In stage_execute_llm loop, execution must fail authorization before mock_executor is touched
-    from core.registry import get_skill_registry
-    skill_registry = get_skill_registry()
 
     from services.mcp_tools import is_agent_authorized_for_tool
     assert is_agent_authorized_for_tool(ctx.agent_key, "write_document", authorized_skills=[]) is False

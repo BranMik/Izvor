@@ -4,7 +4,6 @@ Verifies N9, N10, N11, N12, N15, B2, B4.
 """
 
 import asyncio
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
