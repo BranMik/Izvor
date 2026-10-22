@@ -1,7 +1,7 @@
 import ipaddress
 import json
 import socket
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -36,7 +36,6 @@ def test_is_ip_blocked_encapsulated_and_nat64():
 
 
 def test_validate_url_security_port_allowlist(monkeypatch):
-    from services.web_tools import get_web_security_limits
 
     # Mock limits with default allowed ports [80, 443]
     with patch("services.web_tools.get_web_security_limits", return_value={"allowed_ports": [80, 443]}):

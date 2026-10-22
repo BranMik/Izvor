@@ -69,7 +69,7 @@ class ThreadContextStore:
                         if isinstance(fc_data, dict) and isinstance(fc_data.get("authorized_agents"), list):
                             fc_data["authorized_agents"] = set(fc_data["authorized_agents"])
                         self.thread_active_file_context[key] = fc_data
-        except Exception as e:
+        except (json.JSONDecodeError, ValueError) as e:
             logger.debug(f"[CONTEXT STORE] Failed to load context from DB for {key}: {e}")
 
     def _sync_to_db(self, channel_id: str, thread_ts: str) -> None:
@@ -147,7 +147,7 @@ class ThreadContextStore:
                             file_ctx,
                         ),
                     )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.debug(f"[CONTEXT STORE] Failed to sync context to DB for {key}: {e}")
 
     def get_history_limit(
@@ -447,7 +447,7 @@ class ThreadContextStore:
                     "DELETE FROM thread_context WHERE channel_id = ? AND thread_ts = ?",
                     (channel_id, thread_ts),
                 )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.debug(f"[CONTEXT STORE] Failed to delete context from DB: {e}")
 
     def reset(self) -> None:
@@ -466,5 +466,5 @@ class ThreadContextStore:
         try:
             with get_db_transaction(immediate=True) as conn:
                 conn.execute("DELETE FROM thread_context")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.debug(f"[CONTEXT STORE] Failed to reset thread_context table: {e}")

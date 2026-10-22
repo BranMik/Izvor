@@ -1,6 +1,3 @@
-import asyncio
-import concurrent.futures
-import json
 import logging
 from typing import Any
 
@@ -71,7 +68,7 @@ async def async_execute_search_knowledge_rag(arguments: dict[str, Any], agent_na
         from core.security_utils import wrap_untrusted_content
 
         return wrap_untrusted_content(result)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.error(f"[search_knowledge_rag] Async tool execution failed: {e}")
         return f"Error executing knowledge search: {e}"
 

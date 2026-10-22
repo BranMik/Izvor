@@ -13,34 +13,29 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import sys
 import time
 from dataclasses import dataclass, field, replace
 from typing import Any
 
 from agents import (
-    calculate_thread_costs,
     record_thread_tokens,
     trigger_thread_notes_update,
     trigger_usage_update,
 )
-from core.llm_utils import execute_llm_with_retry
+
+__all__ = [
+    "TurnContext",
+    "TurnControlPlane",
+    "TurnInput",
+    "TurnOutput",
+    "TurnPipeline",
+    "record_thread_tokens",
+    "trigger_thread_notes_update",
+    "trigger_usage_update",
+]
 from core.models import ActionDirective, MediaAttachment
 from orchestration.protocols import (
-    CostCalculator,
-    FilesFetcher,
-    HistoryFetcher,
-    LLMExecutor,
-    NotesUpdater,
     PipelineDeps,
-    SlackMessageUpdater,
-    SlackPoster,
-    SleepFunction,
-    SystemMessagePoster,
-    TokenRecorder,
-    ToolExecutor,
-    UsageUpdater,
-    WorkspaceAdapter,
 )
 from orchestration.stages import (
     ContextPrepStage,
@@ -51,17 +46,6 @@ from orchestration.stages import (
     _build_tool_status_text,
 )
 from orchestration.thread_state import thread_state_manager
-from services.flat_history_recorder import (
-    async_record_flat_history,
-    record_flat_history,
-)
-from services.slack_client import (
-    fetch_thread_files,
-    fetch_thread_history,
-    post_agent_response,
-    post_system_message,
-    update_slack_message,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -646,7 +630,7 @@ class TurnPipeline:
                         ctx.revisor_warning = warning
             except asyncio.TimeoutError:
                 logger.warning(f"[REVISOR] InternalRevisor barrier timed out after 3.5s on {ctx.thread_key}")
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 logger.error(f"[REVISOR] Failed to execute internal revisor: {e}")
 
             return slack_res
@@ -687,7 +671,6 @@ class TurnPipeline:
         Restores TurnContext, injects tool response with exact tool_call_id, executes LLM follow-up
         completion, runs Stage 5 post & record, and marks the checkpoint as RESUMED.
         """
-        import json
         import os
         import litellm
         from core.config import AGENTS_CONFIG
@@ -793,7 +776,7 @@ class TurnPipeline:
                     ctx.revisor_warning = warning
         except asyncio.TimeoutError:
             logger.warning(f"[REVISOR] InternalRevisor barrier timed out after 3.5s on {ctx.thread_key}")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.error(f"[REVISOR] Failed to execute internal revisor: {e}")
 
         turn_checkpoint_store.mark_resumed(chk.checkpoint_id)

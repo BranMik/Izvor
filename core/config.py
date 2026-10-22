@@ -21,7 +21,7 @@ if _env_path.exists():
 else:
     load_dotenv()
 
-from core.paths import AGENT_SETTINGS_FILE, PROJECT_ROOT, SYSTEM_SETTINGS_FILE
+from core.paths import AGENT_SETTINGS_FILE, PROJECT_ROOT, SYSTEM_SETTINGS_FILE  # noqa: E402
 
 
 logger = logging.getLogger(__name__)
@@ -181,7 +181,7 @@ def _load_default_models_from_ssot() -> tuple[str, str]:
             or reasoning_default
         )
         return fast, reasoning
-    except Exception as e:
+    except (OSError, json.JSONDecodeError, ValueError) as e:
         logger.debug(f"[CONFIG] System settings default models load error: {e}")
         return fast_default, reasoning_default
 
@@ -320,7 +320,7 @@ def get_max_discussion_turns() -> int:
     try:
         from orchestration.system_settings import get_max_discussion_turns as _get_val
         return _get_val()
-    except Exception:
+    except Exception:  # noqa: BLE001
         return 20
 
 
@@ -339,7 +339,7 @@ def is_internal_revisor_enabled() -> bool:
         with open(settings_file, "r", encoding="utf-8") as f:
             data = json.load(f)
         return bool(data.get("internal_revisor_enabled", True))
-    except Exception as e:
+    except (OSError, json.JSONDecodeError, ValueError) as e:
         logger.debug(f"[CONFIG] System settings load error: {e}")
         return True
 

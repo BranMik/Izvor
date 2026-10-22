@@ -46,7 +46,7 @@ def flush_turn_traces() -> int:
                 items,
             )
         return len(items)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.debug(f"[TELEMETRY] Failed to batch flush turn traces: {e}")
         return 0
 
@@ -112,7 +112,7 @@ def clear_turn_traces(session_id: str | None = None) -> None:
                 conn.execute("DELETE FROM turn_traces WHERE session_id = ?", (session_id,))
             else:
                 conn.execute("DELETE FROM turn_traces")
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.debug(f"[TELEMETRY] Failed to clear turn traces: {e}")
 
 
@@ -148,7 +148,7 @@ def get_turn_traces(
                 tools_raw = r["tools_called"]
                 try:
                     tools = json.loads(tools_raw) if tools_raw else []
-                except Exception:
+                except Exception:  # noqa: BLE001
                     tools = []
                 traces.append({
                     "trace_id": r["trace_id"],
@@ -165,6 +165,6 @@ def get_turn_traces(
                     "error_message": r["error_message"],
                     "created_at": float(r["created_at"]),
                 })
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.debug(f"[TELEMETRY] Failed to fetch turn traces: {e}")
     return traces

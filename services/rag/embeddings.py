@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import os
 from typing import Any
 
 import litellm
@@ -57,11 +56,11 @@ class EmbeddingService:
                             prompt_tokens=p_toks,
                             completion_tokens=0,
                         )
-                except Exception as rec_err:
+                except Exception as rec_err:  # noqa: BLE001
                     logger.debug(f"[RAG Embeddings] Failed to record spend ledger: {rec_err}")
 
                 return [item["embedding"] for item in response.data]
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 last_error = e
                 logger.warning(
                     f"[RAG Embeddings] Batch embedding attempt {attempt}/{max_retries} failed: {e}"

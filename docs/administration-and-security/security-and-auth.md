@@ -1,6 +1,6 @@
 # Security & Authentication Architecture
 
-This document details the security posture, authentication protocols, privilege boundaries, and cryptographic defenses implemented across **Izvor**.
+This document details the security posture, authentication protocols, privilege boundaries, atomic HITL state transitions, and cryptographic defenses implemented across **Izvor**.
 
 ---
 
@@ -15,28 +15,28 @@ graph TD
         TimeCheck -->|No| ReplayRejection["HTTP 400: Replay Blocked"]
         TimeCheck -->|Yes| HMACCalc["HMAC-SHA256 Signature Verification"]
         HMACCalc -->|Mismatch| SigRejection["HTTP 401: Invalid Signature"]
-        HMACCalc -->|Match| IngressOK["Pass to Event Handler"]
+        HMACCalc -->|Match| IngressOK["Pass to Event / Interactivity Handler"]
     end
 
-    subgraph Administration Security
+    subgraph Administration & Interactivity Security
         AdminReq["API Request (/api/*)"] --> BasicAuth["HTTP Basic Auth Header"]
         BasicAuth --> ConstantTimeCompare{"secrets.compare_digest"}
         ConstantTimeCompare -->|Mismatch| AuthFailAudit["Log AUTH_FAILURE & HTTP 401"]
         ConstantTimeCompare -->|Match| AuthSuccessAudit["Log AUTH_SUCCESS & HTTP 200"]
-        Interactivity["Slack Interactivity Action"] --> AdminUserCheck{"is_slack_admin(user_id)?"}
-        AdminUserCheck -->|Fail| DenyAction["Fail Closed & Log Warning"]
-        AdminUserCheck -->|Pass| AllowMutation["Permit Settings Mutation"]
+        Interactivity["Slack Interactivity Payload"] --> ActionSpec["ActionSpec Whole-Payload Pre-Auth"]
+        ActionSpec -->|Unauthorized| DenyAction["Fail Closed & Log AUTH_FAILURE"]
+        ActionSpec -->|Authorized| AllowMutation["Execute Action / Atomic HITL Transition"]
     end
 
     subgraph Execution & Tool Isolation
         UserPrompt["User Prompt & Directives"] --> OriginTagger["Tag Directive Origin: 'slash' vs 'inferred'"]
-        OriginTagger --> PrivBoundary{"Privileged Skill + origin=='inferred'?"}
-        PrivBoundary -->|Yes| BlockPriv["Block Privilege Escalation"]
-        PrivBoundary -->|No| SafeExecute["Allow Tool Execution"]
-        AttachedFile["Slack Attached Files"] --> FileWrapper["Wrap in <untrusted_file_content>"]
-        FileWrapper --> SafePrompt["Inject into Prompt Builder"]
+        OriginTagger --> PrivBoundary{"Privileged Directive?"}
+        PrivBoundary -->|Yes| AdminCheck{"origin=='slash' AND is_slack_admin?"}
+        AdminCheck -->|No| BlockPriv["Block & Log UNAUTHORIZED_DIRECTIVE_ATTEMPT"]
+        AdminCheck -->|Yes| SafeExecute["Execute & Log ADMIN_DIRECTIVE_EXECUTED"]
+        PrivBoundary -->|No| SafeExecute
+        AttachedFile["Slack Attached Files"] --> ExtSanitizer["Neutralize Unsafe Extensions (.txt) & Wrap <untrusted_file_content>"]
         AgentOutput["Agent Output"] --> Sanitizer["Neutralize <!channel>, <!here>, <!everyone>"]
-        Sanitizer --> PostSlack["Post with unfurl_links=False"]
     end
 ```
 
@@ -44,7 +44,7 @@ graph TD
 
 ## 📡 Slack Ingress: HMAC-SHA256 Signature Verification
 
-Every incoming HTTP request to `/slack/events` or `/slack/interactivity` is inspected by [`core/slack_security.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/core/slack_security.py).
+Every incoming HTTP request to `/slack/events`, `/slack/actions`, or `/slack/interactivity` is inspected by [`core/slack_security.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/core/slack_security.py).
 
 ### 1. Timestamp Freshness (Anti-Replay)
 The header `X-Slack-Request-Timestamp` is compared against current system epoch time:
@@ -54,101 +54,76 @@ if abs(time.time() - int(timestamp)) > 300:
 ```
 Requests older than 5 minutes are discarded immediately to protect against recorded replay attacks.
 
-### 2. Signature Computation
-The raw request body is concatenated into the canonical format:
-$$\text{Signature Base} = \text{"v0:"} + \text{timestamp} + \text{":"} + \text{raw\_body}$$
-An HMAC-SHA256 digest is generated using `SLACK_SIGNING_SECRET`.
-
-### 3. Constant-Time Comparison
-The calculated digest is compared against `X-Slack-Signature` using `hmac.compare_digest` to eliminate timing side channels.
+### 2. Signature Computation & Constant-Time Comparison
+The raw request body is concatenated into `v0:{timestamp}:{raw_body}`, signed with `SLACK_SIGNING_SECRET` via HMAC-SHA256, and verified using `hmac.compare_digest`.
 
 ---
 
-## 🔑 Administrative API: HTTP Basic Authentication
+## 🔑 Administrative API & Interactivity Pre-Authorization
 
-Administrative operations (inspecting registered skills, viewing audit integrity diagnostics, and triggering RAG index reconciliation) are served under `/api/*` and protected by HTTP Basic Auth in [`main.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/main.py).
+### 1. HTTP Basic Auth on `/api/*`
+Administrative REST endpoints (`/api/*`) in [`main.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/main.py) require HTTP Basic Authentication validated via `secrets.compare_digest`. If `ADMIN_PASSWORD` is unset, all `/api/*` requests fail closed with HTTP 500/401.
 
-### 1. Mandatory Password Enforcement
-If `ADMIN_PASSWORD` is not configured in `.env`, the server logs a critical warning on startup. Any request attempting to access `/api/*` is immediately blocked with HTTP 500/401 to ensure the endpoint cannot default to an unauthenticated state.
+### 2. Whole-Payload `ActionSpec` Interactivity Gate
+In [`adapters/slack/interactivity.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/adapters/slack/interactivity.py), every Slack interactive `action_id` and modal `callback_id` is registered in `ACTION_REGISTRY` with an `ActionSpec(handler, admin_required=True)`. The dispatcher pre-authorizes **all** actions in an incoming payload before executing any handler, preventing partial execution of mixed payloads.
 
-### 2. Timing Attack Defense
-Authentication credentials are validated using `secrets.compare_digest`:
-```python
-is_correct_username = secrets.compare_digest(credentials.username.encode("utf8"), ADMIN_USERNAME.encode("utf8"))
-is_correct_password = secrets.compare_digest(credentials.password.encode("utf8"), ADMIN_PASSWORD.encode("utf8"))
-```
-
-### 3. Non-Repudiable Audit Logging
-Both successful logins and failed attempts emit immediate audit trail records via [`services/audit_logger.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/services/audit_logger.py):
-- `AUTH_FAILURE` records log the actor IP, target endpoint, and timestamp with severity `CRITICAL`.
-- `AUTH_SUCCESS` records capture the operator identity and session start.
+### 3. Atomic Single-Statement HITL State Transitions
+Human-in-the-Loop approvals in [`services/hitl.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/services/hitl.py) (`approve_request`, `deny_request`, `consume_approval`) use atomic single-statement SQLite `UPDATE ... WHERE request_id = ? AND status = ?` transitions with `cursor.rowcount == 1` verification. This eliminates check-then-act (TOCTOU) race conditions if two admins click Approve/Deny simultaneously, and binds approvals to a SHA-256 hash of the tool parameters (`params_hash`).
 
 ---
 
-## 🔒 Privilege Boundaries & Prompt Safety
+## 🔒 Privilege Boundaries, File Neutralization & Prompt Safety
 
-### 1. Directive Origin Tagging (`slash` vs `inferred`)
-All directive actions in [`TurnContext`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/orchestration/turn_pipeline.py) are typed as [`ActionDirective`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/core/models.py), carrying an explicit `origin` attribute:
-- **`origin: "slash"`**: Explicitly invoked by human operators via deliberate slash commands or bracketed syntax (e.g., `/grant_skill_for_all`, `[rounds: 3]`).
-- **`origin: "inferred"`**: Inferred heuristically by NLP / LLM extraction from natural conversational text.
-- **Enforcement**: Inferred directives are strictly prohibited from activating privileged operations (such as global skill grants, revocations, or system mutations). Attempts by adversarial conversational prompts to execute privileged actions fail closed and emit audit alerts.
+### 1. Dual Gate on Privileged Directives (`origin == "slash"` + `is_slack_admin`)
+All directive actions in [`TurnContext`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/orchestration/turn_pipeline.py) carry an explicit `origin` attribute (`"slash"` vs `"inferred"`). In [`orchestration/stages/directive_handlers.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/orchestration/stages/directive_handlers.py), privileged directives (`/grant_skill`, `/grant_skill_for_all`, `/revoke_skill_for_all`, `/revoke_constraint`, and disabling constraints via `=off`) require **both**:
+1. Explicit slash invocation (`origin == "slash"`).
+2. Slack Workspace Admin authorization (`is_slack_admin(ctx.user_id)`).
+Unauthorized attempts are blocked and emit an `UNAUTHORIZED_DIRECTIVE_ATTEMPT` audit event.
 
-### 2. Untrusted File Wrapping (Indirect Prompt Injection Defense)
-Content from files uploaded to Slack threads is wrapped with explicit boundary markers before injection into the prompt context:
-```xml
-<untrusted_file_content filename="report.pdf">
-... raw file content ...
-</untrusted_file_content>
-```
-System prompts instruct models to treat contents within `<untrusted_file_content>` strictly as passive reference data rather than executable operational instructions.
+### 2. Slack Upload Extension Neutralization (`SAFE_DOWNLOAD_EXTENSIONS`)
+When downloading files attached to Slack threads in [`services/slack/files.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/services/slack/files.py):
+- Only whitelisted document extensions (`.txt`, `.md`, `.csv`, `.json`, `.pdf`, `.docx`, `.xlsx`, `.pptx`) are stored with their original extension.
+- Any executable or code file extension (e.g., `.py`, `.sh`, `.exe`, `.bat`, `.js`) is automatically neutralized by appending `.txt` (e.g., `exploit.py.txt`) and stored with restrictive `0o600` file permissions.
+- Extracted file text is wrapped in `<untrusted_file_content>` tags before prompt injection.
 
-### 3. Slack Output Sanitization
-To prevent prompt-injected agents from causing disruption or social engineering in Slack channels:
-- **Link Unfurl Suppression**: Outgoing Slack messages are posted with `unfurl_links=False` and `unfurl_media=False`.
-- **Broadcast Mention Neutralization**: Output text is pre-scanned and neutralized so that tokens like `<!channel>`, `<!here>`, or `<!everyone>` are stripped or escaped before dispatch.
+### 3. Single-Pass PII Masking & Unmasking
+[`services/rag/pii_masker.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/services/rag/pii_masker.py) provides `async_mask()` (offloading regex scanning of large texts to a worker thread) and single-pass `unmask()` using a unified alternation regex. Single-pass unmasking prevents recursive token-expansion attacks where one synthetic token's original value contains another synthetic token string.
+
+### 4. LanceDB SQL Filter Validation (`_sql_literal`)
+In [`services/rag/vector_store.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/services/rag/vector_store.py), all metadata filter values passed to LanceDB `where` clauses are validated against a strict `[A-Za-z0-9_.\-/]+` allowlist in `_sql_literal()` to prevent filter-expression injection.
+
+### 5. Slack Output Sanitization
+Outgoing Slack messages are posted via [`services/slack/messages.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/services/slack/messages.py) with `unfurl_links=False` and `unfurl_media=False`, and broadcast mentions (`<!channel>`, `<!here>`, `<!everyone>`) are neutralized.
 
 ---
 
-## 🗄️ Path Traversal & Sandbox Isolation
+## 🗄️ Path Traversal, Web SSRF & Sandbox Isolation
 
-To safeguard host infrastructure:
-- **Sandboxed File Operations**: Agent-accessible file tools operate strictly within `agents_resources/` and are forbidden from escaping to `system_resources/` or root project directories.
-- **Protected Write Paths**: Core directories (`core/`, `orchestration/`, `data/settings/`, `audit/`) are registered in `DEFAULT_PROTECTED_WRITE_PATHS` and locked against runtime modification by LLM tool calls.
-- **Fail-Closed Tool Authorization**: [`SkillLoader`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/skills/loader.py) blocks unauthorized tool calls by default.
+- **Fail-Closed `ToolPrincipal`**: [`SkillLoader`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/skills/loader.py) verifies [`ToolPrincipal`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/core/domain.py) before executing any tool.
+- **Filesystem Confinement**: `validate_resource_filename` in [`services/mcp_tools.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/services/mcp_tools.py) confines operations to `agents_resources/`, blocks Windows device names (`CON`, `PRN`, `AUX`, `NUL`, `COM1–9`, `LPT1–9`) and NTFS ADS (`:`), protects `DEFAULT_PROTECTED_WRITE_PATHS`, and caps writes at `max_write_bytes` (1 MB).
+- **Outbound Web SSRF & DNS-Rebinding Protection**: [`services/web_tools.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/services/web_tools.py) uses `PinnedIPTransport` to pin resolved public IPs, blocks private IPv4/IPv6/NAT64 ranges, strips query strings on untrusted domains, and enforces a per-turn web fetch cap (`max_fetches_per_turn: 10`).
 
 ---
 
 ## 🔍 Log Credential Sanitization & Data Protection
 
-### Credential Redaction Logging Filter
-To eliminate accidental leakage of enterprise secrets and tokens in application logs:
-- **Implementation**: [`core/logging_filters.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/core/logging_filters.py) registers `CredentialRedactionFilter` on Python's root logger during application startup.
-- **Redacted Patterns**: Automatically detects and replaces sensitive credentials with safe synthetic tokens:
-  - Slack Bot & App Tokens (`xoxb-[a-zA-Z0-9-]+`, `xapp-[a-zA-Z0-9-]+`, `xoxp-[a-zA-Z0-9-]+`)
-  - OpenAI API Keys (`sk-[a-zA-Z0-9_-]{20,}`)
-  - Anthropic, Google, and Mistral API keys
-  - RSA/EC Private Keys (`-----BEGIN.*PRIVATE KEY-----`)
-- **Protection**: Ensures sensitive API credentials never appear in console outputs, file handlers, or exported diagnostics.
+[`core/logging_filters.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/core/logging_filters.py) registers `CredentialRedactionFilter` on Python's root logger during startup, automatically redacting Slack tokens (`xoxb-*`, `xapp-*`, `xoxp-*`), OpenAI/Anthropic/Gemini/Mistral API keys, and private keys before log emission.
 
 ---
 
 ## 🛡️ Semantic Prompt Injection & Jailbreak Guardrail
 
-Izvor deploys an active semantic guardrail engine in [`services/security/guardrail.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/services/security/guardrail.py) to detect adversarial jailbreaks and system prompt extraction attacks before model dispatch:
-
-1. **LanceDB Vector Signatures**: Incoming user prompts are embedded and evaluated against a pre-indexed vector store (`guardrail_signatures`) containing known adversarial injection patterns.
-2. **Cosine Similarity Evaluation**: If semantic similarity exceeds the safety threshold (default: `0.85`), the prompt is flagged as hostile.
-3. **Audit Event Dispatch**: Emits a `SECURITY_ALERT` audit record capturing the prompt hash, detected vector distance, and requesting Slack user identity.
-4. **Configurable Fail-Mode (`guardrail_fail_mode`)**:
-   - `"open"` (Default): If embedding calculation or vector database lookup encounters an operational timeout or failure, logs an audit warning and permits the turn to proceed.
-   - `"closed"`: If vector lookup fails, the pipeline fails closed, immediately terminating the turn and notifying the user that security checks could not be completed.
+[`services/security/guardrail.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/services/security/guardrail.py) evaluates incoming prompts against known adversarial injection vectors (`guardrail_signatures`):
+1. **Bounded Embedding Cache**: Caches prompt embeddings in an LRU cache (`guardrail_embedding_cache_size: 500`).
+2. **Cosine Similarity Evaluation**: Flags prompts exceeding the similarity threshold (`0.85`) and emits a `SECURITY_ALERT` audit record.
+3. **Configurable Fail-Mode (`guardrail_fail_mode`)**:
+   - `"open"` (Default): Logs a warning and allows the turn if the vector store or embedding provider is unreachable.
+   - `"closed"`: Fails closed, blocks the turn, posts a user-visible notice to Slack, and logs a critical `GUARDRAIL_FAIL_CLOSED_BLOCKED` audit event.
 
 ---
 
 ## 🚦 Denial of Service (DoS) Defense & Audit Rate-Limiting
 
-To defend against log-flooding attacks aimed at exhausting host disk space or corrupting SQLite databases:
-- **Implementation**: Managed in [`core/slack_security.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/core/slack_security.py).
-- **Sliding-Window Throttling**: Failed authentication attempts (`AUTH_FAILURE`) are monitored over rolling 60-second windows.
-- **Thresholds**: Maximum 5 discrete failure audit logs per client IP/context, with a global workspace ceiling of 25 failure records per window.
-- **Suppression & Aggregation**: Subsequent attacks within the window are suppressed and emitted as a consolidated summary event, neutralizing disk-filling attempts.
+Managed in [`core/slack_security.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/core/slack_security.py) and configured via `security_burst_limits` in `system_settings.json`:
+- **Sliding-Window Throttling**: Monitors `AUTH_FAILURE` events over a `60.0`-second window.
+- **Thresholds**: Up to `5` discrete failure events per client IP (`auth_failure_burst_limit`) and `25` globally (`global_auth_failure_burst_limit`), with tracker memory bounded at `1000` entries (`max_tracker_entries`). Excess failures are aggregated into a single summary event.

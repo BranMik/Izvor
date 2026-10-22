@@ -9,12 +9,10 @@ import orchestration.agent_settings as agent_settings_module
 from orchestration.agent_settings import (
     get_active_workflow_id,
     get_agents_config,
-    get_backup_error_reason,
     get_enabled_agents,
     get_fixed_config,
     get_orchestration_mode,
     get_sandwich_config,
-    is_running_from_backup,
     sync_settings_if_modified,
 )
 from orchestration.app_settings import (
@@ -72,8 +70,8 @@ def build_app_home_view(
     if env_file.exists():
         try:
             cached_env.update(dotenv_values(env_file))
-        except Exception:
-            pass
+        except Exception as e:  # noqa: BLE001
+            logger.debug("Failed to read project env file: %s", e)
     for k, v in os.environ.items():
         if k not in cached_env or not cached_env[k]:
             cached_env[k] = v

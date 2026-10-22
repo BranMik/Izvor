@@ -140,7 +140,7 @@ class ThreadUsageTracker:
                 )
             except OSError:
                 pass
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.debug(f"[USAGE AGENT] Failed migrating legacy thread usage store: {e}")
 
     def _load_thread_from_db(self, channel_id: str, thread_ts: str) -> dict[str, Any] | None:
@@ -171,7 +171,7 @@ class ThreadUsageTracker:
                     }
                     self.thread_usage_data[thread_key] = entry
                     return entry
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.debug(f"[USAGE AGENT] Failed loading thread metadata from SQLite: {e}")
         return None
 
@@ -206,7 +206,7 @@ class ThreadUsageTracker:
                         entry.get("last_updated", time.time()),
                     ),
                 )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.debug(f"[USAGE AGENT] Failed syncing metadata to SQLite: {e}")
 
     def load(self) -> None:
@@ -238,7 +238,7 @@ class ThreadUsageTracker:
             logger.info(
                 f"[USAGE AGENT] Loaded usage tracking for {len(self.thread_usage_data)} threads from SQLite"
             )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.debug(f"[USAGE AGENT] Error loading thread usage store from SQLite: {e}")
 
     def save(self) -> None:
@@ -269,7 +269,7 @@ class ThreadUsageTracker:
                             entry.get("last_updated", time.time()),
                         ),
                     )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.debug(f"[USAGE AGENT] Error saving thread usage data to SQLite: {e}")
 
         # If a custom store_file is specified (e.g. in isolated tests), write atomically to it
@@ -283,7 +283,7 @@ class ThreadUsageTracker:
                 temp_file = self.store_file.with_name(f"{self.store_file.name}.tmp.{os.getpid()}")
                 temp_file.write_text(json.dumps(raw_data, indent=2), encoding="utf-8")
                 temp_file.replace(self.store_file)
-            except Exception as e:
+            except (json.JSONDecodeError, ValueError) as e:
                 logger.debug(f"[USAGE AGENT] Error saving thread usage data to custom file: {e}")
 
     def record_tokens(
@@ -347,7 +347,7 @@ class ThreadUsageTracker:
                 prompt_tokens=int(prompt_tokens),
                 completion_tokens=int(completion_tokens),
             )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.debug(f"[USAGE AGENT] Spend governance recording failed: {e}")
 
         self._sync_meta_to_db(channel_id, thread_ts)
@@ -385,7 +385,7 @@ class ThreadUsageTracker:
                     }
                     for m, tok in metrics.tokens_by_model.items()
                 }
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.debug(f"[USAGE AGENT] Failed querying spend metrics: {e}")
 
         # Fallback to in-memory entry["models"] if spend_ledger is empty or unpopulated

@@ -32,7 +32,7 @@ def test_zero_await_inside_database_transactions():
         for py_file in dir_path.rglob("*.py"):
             try:
                 tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
-            except Exception as e:
+            except Exception:
                 continue
 
             for node in ast.walk(tree):

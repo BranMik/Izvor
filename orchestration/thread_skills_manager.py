@@ -38,7 +38,7 @@ class ThreadSkillsManager:
         try:
             with get_db_transaction(immediate=True) as conn:
                 conn.execute("DELETE FROM thread_skills WHERE expires_at + 86400.0 < ?;", (now,))
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.error(f"[THREAD_SKILLS] SQLite _cleanup_expired failed: {e}")
 
     def load(self) -> None:
@@ -72,7 +72,7 @@ class ThreadSkillsManager:
                         """,
                         (channel_id, thread_ts, s, now, exp_ts),
                     )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.error(f"[THREAD_SKILLS] SQLite grant_skills failed: {e}")
 
         active = self.get_active_skills(channel_id, thread_ts)
@@ -91,7 +91,7 @@ class ThreadSkillsManager:
                     "expires_at": exp_ts,
                 },
             )
-        except Exception as ae:
+        except Exception as ae:  # noqa: BLE001
             logger.debug(f"[THREAD_SKILLS] Audit event emission error: {ae}")
 
         return active, exp_ts
@@ -119,7 +119,7 @@ class ThreadSkillsManager:
                             """,
                             (channel_id, thread_ts, ag_clean, clean_skill, now, exp_ts),
                         )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.error(f"[THREAD_SKILLS] SQLite grant_agent_skills failed: {e}")
 
         active_map = self.get_all_active_agent_skills(channel_id, thread_ts)
@@ -138,7 +138,7 @@ class ThreadSkillsManager:
                     "expires_at": exp_ts,
                 },
             )
-        except Exception as ae:
+        except Exception as ae:  # noqa: BLE001
             logger.debug(f"[THREAD_SKILLS] Audit event emission error: {ae}")
 
         return active_map, exp_ts
@@ -157,7 +157,7 @@ class ThreadSkillsManager:
                 ).fetchall()
                 if rows:
                     return [r["skill_name"] for r in rows]
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.debug(f"[THREAD_SKILLS] SQLite get_active_skills error: {e}")
         return []
 
@@ -175,7 +175,7 @@ class ThreadSkillsManager:
                 ).fetchall()
                 if rows:
                     return [r["skill_name"] for r in rows]
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.debug(f"[THREAD_SKILLS] SQLite get_expired_skills error: {e}")
         return []
 
@@ -195,7 +195,7 @@ class ThreadSkillsManager:
                 ).fetchall()
                 if rows:
                     return [r["skill_name"] for r in rows]
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.debug(f"[THREAD_SKILLS] SQLite get_active_agent_skills error: {e}")
         return []
 
@@ -216,7 +216,7 @@ class ThreadSkillsManager:
                 ).fetchall()
                 for r in rows:
                     active_map.setdefault(r["agent_id"], []).append(r["skill_name"])
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.debug(f"[THREAD_SKILLS] SQLite get_all_active_agent_skills error: {e}")
         return active_map
 
@@ -245,7 +245,7 @@ class ThreadSkillsManager:
                         (channel_id, thread_ts, now),
                     ).fetchall()
                 return [r["skill_name"] for r in rows]
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.debug(f"[THREAD_SKILLS] SQLite get_expired_agent_skills error: {e}")
         return []
 
@@ -284,7 +284,7 @@ class ThreadSkillsManager:
                             f"DELETE FROM thread_skills WHERE channel_id = ? AND thread_ts = ? AND skill_name IN ({placeholders});",
                             [channel_id, thread_ts, *clean],
                         )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.error(f"[THREAD_SKILLS] SQLite revoke_skills failed: {e}")
 
         try:
@@ -297,7 +297,7 @@ class ThreadSkillsManager:
                 target=f"{channel_id}:{thread_ts}",
                 details={"skills": skills, "agent_key": agent_key},
             )
-        except Exception as ae:
+        except Exception as ae:  # noqa: BLE001
             logger.debug(f"[THREAD_SKILLS] Audit event emission error: {ae}")
 
         if agent_key is not None:
@@ -333,7 +333,7 @@ class ThreadSkillsManager:
                         "seconds_remaining": remaining,
                         "granted_at": min_granted_at,
                     }
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.debug(f"[THREAD_SKILLS] SQLite get_expiration_status error: {e}")
 
         return {
@@ -348,7 +348,7 @@ class ThreadSkillsManager:
         try:
             with get_db_transaction(immediate=True) as conn:
                 conn.execute("DELETE FROM thread_skills;")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.error(f"[THREAD_SKILLS] SQLite clear_all error: {e}")
 
     def clear_thread(self, channel_id: str, thread_ts: str) -> None:
@@ -358,7 +358,7 @@ class ThreadSkillsManager:
                     "DELETE FROM thread_skills WHERE channel_id = ? AND thread_ts = ?;",
                     (channel_id, thread_ts),
                 )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.error(f"[THREAD_SKILLS] SQLite clear_thread error: {e}")
 
 

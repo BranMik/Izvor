@@ -48,7 +48,7 @@ class WorkflowManager:
                     try:
                         shutil.copy2(bf, dst)
                         seeded_count += 1
-                    except Exception as e:
+                    except Exception as e:  # noqa: BLE001
                         logger.warning("[WORKFLOW] Failed to copy backup workflow %s: %s", bf, e)
 
             if seeded_count == 0:

@@ -90,7 +90,7 @@ class SpendGovernance:
                     """,
                     (channel_id, thread_ts, model_name, prompt_tokens, completion_tokens, delta_cost, now_ts),
                 )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.error(f"[SPEND GOVERNANCE] Failed persisting spend ledger entry: {e}")
 
     def get_daily_spend(self) -> float:
@@ -106,7 +106,7 @@ class SpendGovernance:
                 ).fetchone()
                 if row:
                     return round(float(row["daily_cost"]), 6)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.error(f"[SPEND GOVERNANCE] Failed querying daily spend from SQLite: {e}")
 
         # Fallback to in-memory tracker
@@ -121,7 +121,7 @@ class SpendGovernance:
         try:
             with get_db_transaction(immediate=True) as conn:
                 conn.execute("DELETE FROM spend_ledger WHERE timestamp >= ?;", (today_start,))
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.error(f"[SPEND GOVERNANCE] Failed resetting daily spend in SQLite: {e}")
 
         self._daily_spend_usd = 0.0
@@ -172,7 +172,7 @@ class SpendGovernance:
                         cost_by_model=cost_by_model,
                         tokens_by_model=tokens_by_model,
                     )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.error(f"[SPEND GOVERNANCE] Failed querying session spend from SQLite: {e}")
 
         # In-memory fallback

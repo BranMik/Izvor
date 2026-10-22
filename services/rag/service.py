@@ -1,7 +1,5 @@
 import asyncio
-import json
 import logging
-from typing import Any
 
 from .config import DEFAULT_TOP_K
 from .embeddings import EmbeddingService, embedding_service
@@ -18,7 +16,7 @@ def _load_citation_instructions() -> str:
 
         if CITATION_INSTRUCTIONS_PATH.exists():
             return CITATION_INSTRUCTIONS_PATH.read_text(encoding="utf-8").strip()
-    except Exception as e:
+    except (OSError, UnicodeDecodeError) as e:
         logger.debug(f"[RAG Service] Could not load citation instructions: {e}")
     return ""
 
@@ -57,7 +55,7 @@ class RAGService:
             vectors = await self.embedder.get_embeddings([cleaned_query])
             if vectors:
                 query_vector = vectors[0]
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.warning(f"[RAG Service] Failed to compute query vector: {e}. Falling back to BM25 text search.")
 
         # Execute search in vector store
@@ -70,7 +68,7 @@ class RAGService:
                 scope=scope,
                 top_k=max_results,
             )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.error(f"[RAG Service] Search execution failed: {e}")
             return f"Error executing knowledge base search: {e}"
 

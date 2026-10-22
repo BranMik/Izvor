@@ -26,7 +26,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-from core.paths import AUDIT_DIR, PROJECT_ROOT
+from core.paths import AUDIT_DIR
 
 from contextlib import contextmanager
 
@@ -78,13 +78,13 @@ def _cross_process_file_lock(lock_path: Path):
                 import fcntl
 
                 fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
-        except Exception:
-            pass
+        except Exception as e:  # noqa: BLE001
+            logger.debug("Failed to release audit file lock: %s", e)
         finally:
             try:
                 lock_file.close()
-            except Exception:
-                pass
+            except Exception as e:  # noqa: BLE001
+                logger.debug("Failed to close audit lock file descriptor: %s", e)
 
 
 @dataclass
@@ -150,7 +150,7 @@ def _persist_audit_anchor(month: str, seq: int, entry_hash: str, timestamp: str)
                 "INSERT OR REPLACE INTO audit_anchors (month, seq, entry_hash, anchored_at) VALUES (?, ?, ?, ?)",
                 (month, seq, entry_hash, timestamp),
             )
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.error(f"[AUDIT] Failed to persist audit anchor (seq={seq}, month={month}): {e}")
 
 
@@ -169,7 +169,7 @@ def _dispatch_critical_alert(record: AuditRecord | dict[str, Any]) -> None:
         )
     except (RuntimeError, ValueError):
         pass
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.warning(f"[AUDIT] Failed to dispatch background critical alert: {e}")
 
 
@@ -309,7 +309,7 @@ class AuditLogger:
                         self._cached_file_size = file_path.stat().st_size
                         self._cached_last_state = (int(record["seq"]), str(record["entry_hash"]))
                         return self._cached_last_state
-                except Exception as e:
+                except (json.JSONDecodeError, ValueError) as e:
                     logger.error(f"[AUDIT] Failed to read last state from {file_path.name}: {e}")
                     continue
 
@@ -491,7 +491,7 @@ def get_audit_trail(audit_dir: Path | None = None, limit: int = 50) -> list[dict
                     records.append(json.loads(line))
                     if len(records) >= limit:
                         return records
-        except Exception as e:
+        except (OSError, json.JSONDecodeError, ValueError) as e:
             logger.debug(f"[AUDIT] Error reading audit records from {file_path}: {e}")
             continue
     return records
@@ -539,7 +539,7 @@ def check_hmac_secret_continuity(
                     last_record_dict = json.loads(lines[-1])
                     last_file = file_path
                     break
-        except Exception as e:
+        except (OSError, json.JSONDecodeError, ValueError) as e:
             logger.error(f"[AUDIT] Failed to read record from {file_path.name}: {e}")
             continue
 
@@ -710,7 +710,7 @@ def verify_audit_log_integrity(
                             last_verified_seq=0,
                             last_verified_hash=GENESIS_HASH,
                         )
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 logger.warning(f"[AUDIT] Could not verify audit anchors from database: {e}")
 
         return AuditVerificationResult(
@@ -741,7 +741,7 @@ def verify_audit_log_integrity(
                         last_p = json.loads(p_lines[-1])
                         expected_seq = int(last_p["seq"]) + 1
                         expected_prev_hash = str(last_p["entry_hash"])
-            except Exception as e:
+            except (OSError, json.JSONDecodeError, ValueError) as e:
                 errors.append(f"Could not read previous boundary file '{prev_file.name}': {e}")
 
     for file_path in files:
@@ -815,7 +815,7 @@ def verify_audit_log_integrity(
                     expected_seq = (seq if isinstance(seq, int) else expected_seq) + 1
                     expected_prev_hash = recorded_entry_hash
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             errors.append(f"File '{file_path.name}', line {line_num}: Read error - {e}")
 
     if check_anchors:
@@ -847,7 +847,7 @@ def verify_audit_log_integrity(
                             f"Tail truncation or anchor mismatch detected: SQLite anchor at seq {anchor_seq} "
                             f"has hash '{anchor_hash}', but verified JSONL log has hash '{last_verified_hash}'."
                         )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.warning(f"[AUDIT] Could not verify audit anchors from database: {e}")
 
     is_valid = len(errors) == 0
@@ -908,7 +908,7 @@ async def send_admin_audit_alert(
                 )
                 logger.info(f"[AUDIT] Dispatched security alert DM to admin {admin_id} ({target_channel})")
                 sent_any = True
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.error(f"[AUDIT] Failed to dispatch security alert DM to admin {admin_id}: {e}")
 
     if not sent_any:
@@ -923,7 +923,7 @@ async def send_admin_audit_alert(
                 )
                 logger.info(f"[AUDIT] Dispatched security alert to fallback channel {target_channel}")
                 sent_any = True
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 logger.error(f"[AUDIT] Error dispatching security alert to fallback channel: {e}")
 
     if not sent_any:

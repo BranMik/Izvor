@@ -1,6 +1,6 @@
 import pytest
 from adapters.slack.workspace_adapter import InMemoryWorkspaceAdapter, SlackWorkspaceAdapter
-from orchestration.turn_pipeline import TurnContext, TurnPipeline
+from orchestration.turn_pipeline import TurnPipeline
 from orchestration.protocols import WorkspaceAdapter
 
 
@@ -25,6 +25,7 @@ def test_in_memory_workspace_adapter_format_and_blocks():
 async def test_turn_pipeline_with_in_memory_workspace_adapter():
     adapter = InMemoryWorkspaceAdapter()
     pipeline = TurnPipeline(workspace_adapter=adapter)
+    assert pipeline.deps.workspace_adapter is adapter
 
     # Post turn via adapter directly
     res = await adapter.post_agent_turn(

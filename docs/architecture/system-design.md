@@ -23,22 +23,24 @@ graph TD
 
     subgraph Orchestration Engine
         AsyncWorker --> AgentRouter["orchestration/agent_router.py"]
-        AgentRouter --> TurnPipeline["TurnPipeline (orchestration/turn_pipeline.py)"]
+        AgentRouter --> DiscussionLoop["DiscussionLoop (orchestration/discussion_loop.py)"]
+        DiscussionLoop --> TurnPipeline["TurnPipeline (orchestration/turn_pipeline.py)"]
         TurnPipeline --> Stages["5 Modular Pipeline Stages (orchestration/stages/)"]
     end
 
     subgraph Persistence Layer
         Stages --> DBManager["DatabaseManager (core/database.py - SQLite WAL)"]
-        DBManager --> SQLiteDB[("data/izvor.db")]
+        DBManager --> SQLiteDB[("data/izvor.db (11 Tables)")]
         Stages --> FlatHistories["services/flat_history_recorder.py (flat-histories/)"]
     end
 
     subgraph Background Services
         Lifespan["FastAPI Lifespan (main.py)"]
-        Lifespan --> DBInit["Database Schema Migration & WAL Init"]
+        Lifespan --> DBInit["Database Schema Migrations & WAL Init"]
         Lifespan --> PricingWarmup["Pricing Cache Warm-up"]
         Lifespan --> ThreadPurge["Thread State TTL Purge (Every 10m)"]
         Lifespan --> AuditGuard["Audit Log Integrity Guard (Every 12h)"]
+        Lifespan --> RetentionPrune["Data Retention Pruner (Every 24h)"]
         Lifespan --> RAGReconcile["RAG Knowledge Reconciliation"]
     end
 ```
@@ -78,9 +80,20 @@ To protect against denial-of-service attempts or audit-log disk exhaustion attac
 
 Izvor uses the modern async context manager lifespan pattern in [`main.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/main.py). During application startup and shutdown, several continuous support services are initialized:
 
-### 1. Database Schema Initialization
+### 1. Database Schema Initialization & Numbered Migrations
 - **File**: [`core/database.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/core/database.py)
-- **Behavior**: Initializes `data/izvor.db` (configurable via `IZVOR_DB_PATH`) with WAL journal mode, 30,000ms (30.0s) busy timeout (managed via `db_busy_timeout_seconds` in system settings), and verifies schema tables: `thread_sessions`, `thread_context`, `spend_ledger`, `hitl_approvals`, `thread_skills`, and `event_dedup`.
+- **Behavior**: Initializes `data/izvor.db` (configurable via `IZVOR_DB_PATH`) with WAL journal mode, 5,000ms (5.0s) busy timeout (managed via `db_busy_timeout_seconds` in system settings), dead-thread connection eviction, nested-transaction guards (`RuntimeError` on nested `transaction()` calls), and `PRAGMA user_version` numbered `MIGRATIONS` across **11 schema tables**:
+  1. `thread_sessions` (thread state & generation counters)
+  2. `thread_context` (key-value dynamic session context)
+  3. `spend_ledger` (token and USD cost ledger)
+  4. `hitl_approvals` (atomic Human-in-the-Loop approval records)
+  5. `thread_skills` (ephemeral thread-scoped skill grants)
+  6. `event_dedup` (Slack webhook event deduplication)
+  7. `thread_usage_meta` (thread cost & message metadata managed by `ThreadUsageTracker`)
+  8. `thread_notes_state` (Scribe live & conclusion note state managed by `ThreadNotesAgent`)
+  9. `turn_checkpoints` (durable mid-turn snapshots for HITL and circuit-breaker pauses)
+  10. `turn_traces` (stage-by-stage execution telemetry spans with write-behind flushing)
+  11. `audit_anchors` (cryptographic head-hash anchors for monthly JSONL audit logs)
 
 ### 2. Windows Event Loop Heartbeat (`keep_loop_alive`)
 - **File**: [`main.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/main.py)
@@ -88,19 +101,24 @@ Izvor uses the modern async context manager lifespan pattern in [`main.py`](file
 
 ### 3. Periodic Thread State Cleanup (`periodic_thread_state_cleanup`)
 - **File**: [`main.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/main.py)
-- **Schedule**: Dynamically loaded from `thread_cleanup_interval_seconds` in `system_settings.json` (default: 3600 seconds / 1 hour).
-- **Behavior**: Calls [`thread_state_manager.cleanup_expired_threads()`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/orchestration/thread_state.py). Frees in-memory session contexts that have exceeded their idle time-to-live (TTL).
+- **Schedule**: Dynamically loaded from `thread_cleanup_interval_seconds` in `system_settings.json` (default: 600.0 seconds / 10 minutes).
+- **Behavior**: Calls [`thread_state_manager.cleanup_expired_threads()`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/orchestration/thread_state.py) and `cleanup_old_downloads()`. Frees in-memory session contexts and cached file downloads that have exceeded their idle time-to-live (TTL).
 
 ### 4. Audit Log Integrity Guard (`periodic_audit_integrity_guard`)
 - **File**: [`main.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/main.py)
-- **Schedule**: Dynamically loaded from `audit_integrity_check_interval_seconds` in `system_settings.json` (default: 3600 seconds / 1 hour).
-- **Behavior**: Executes [`AppIntegrityValidator.check_audit_log_integrity()`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/orchestration/integrity_checks.py). Verifies hash continuity across active and historical audit files. If a discrepancy or HMAC secret mismatch is found, a high-severity alert is dispatched to the admin Slack channel.
+- **Schedule**: Dynamically loaded from `audit_integrity_check_interval_seconds` in `system_settings.json` (default: 43200.0 seconds / 12 hours).
+- **Behavior**: Executes [`AppIntegrityValidator.check_audit_log_integrity()`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/orchestration/integrity_checks.py). Verifies hash continuity and `audit_anchors` head-hash consistency across active and historical audit files. If a discrepancy or HMAC secret mismatch is found, a high-severity alert is dispatched to all configured Slack admins (`SLACK_ADMIN_USER_IDS`).
 
-### 5. Model Pricing Cache Warmup (`warm_up_pricing_cache`)
+### 5. Data Retention & Privacy Pruner (`periodic_retention_prune`)
+- **File**: [`services/retention_service.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/services/retention_service.py)
+- **Schedule**: Runs immediately at startup and every 24 hours (`86400` seconds).
+- **Behavior**: Executes `prune_expired_records()`, redacting sensitive `messages_json` and `pending_tool_calls_json` from resolved `turn_checkpoints` rows immediately and deleting expired rows from `turn_checkpoints` (`retention_checkpoints_days`: 7d), `turn_traces` (`retention_traces_days`: 30d), and `event_dedup` (`retention_event_dedup_days`: 1d). Also provides GDPR-compliant `forget_thread(thread_ts)` erasure.
+
+### 6. Model Pricing Cache Warmup (`warm_up_pricing_cache`)
 - **File**: [`services/pricing_service.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/services/pricing_service.py)
 - **Behavior**: Validates whether `data/pricing/model_pricing_cache.json` exists and is fresher than 7 days. If missing or expired, triggers background pricing research asynchronously without blocking server readiness.
 
-### 6. RAG Knowledge Reconciliation (`rag_sync_engine.reconcile`)
+### 7. RAG Knowledge Reconciliation (`rag_sync_engine.reconcile`)
 - **File**: [`services/rag/sync_engine.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/services/rag/sync_engine.py)
 - **Behavior**: Scans `rag_knowledge/` for new, changed, or deleted documents, updating manifest hashes and index vectors.
 
@@ -110,15 +128,21 @@ Izvor uses the modern async context manager lifespan pattern in [`main.py`](file
 
 ```
 Izvor/
-├── adapters/slack/             # Slack Webhook listeners, event routing, interactivity modals
-├── core/                       # Core configuration, models, database SQLite manager, cryptographic security
-├── orchestration/              # Main router, turn pipeline, thread state manager, nomination
-│   ├── stages/                 # Modular 5 pipeline stages (validation, resolution, context_prep, execution, post_record)
-│   └── state/                  # Domain-specific state stores (discussion_store, context_store)
+├── adapters/slack/             # Slack Webhook listeners, event routing, WorkspaceAdapter port
+│   └── actions/                # Modular Block Kit action handlers (agent_actions, hitl_actions, workflow_actions)
+├── agents/                     # System support agents (Scribe notes, Usage tracker, Pricing, Revisor)
+├── core/                       # Core configuration, domain models, SQLite manager, cryptographic security
+├── nlp/                        # Pre-flight intent & language extractor, entity & directive parsers
+├── orchestration/              # Agent router, DiscussionLoop, TurnPipeline, settings stores, integrity checks
+│   ├── stages/                 # 5 pipeline stages + directive_handlers.py & tool_status.py
+│   └── state/                  # Domain state stores (discussion_store, context_store, evidence_store)
 ├── pipeline/                   # Modular pipeline subsystems (entity resolver, scribe, spend governance)
 ├── prompts/                    # Persona system prompts and system agent prompt templates
-├── services/                   # Slack API client, pricing service, audit logger, MCP tools, RAG
-├── skills/                     # 20 dynamic skills, tool definitions, and skill registry
-├── tests/                      # Unit, integration, security, and regression test suites (68 files, 633+ tests)
+├── services/                   # Pricing, audit logger, HITL, retention, telemetry, checkpoint store, web/MCP tools
+│   ├── rag/                    # Hybrid LanceDB/BM25 RAG engine, chunker, PII masker, sync engine
+│   ├── slack/                  # Modular Slack WebClient wrapper (client_core, messages, files, views)
+│   └── slack_home/             # Modular App Home tab builders (agents_tab, workflows_tab, governance_tab)
+├── skills/                     # 21 dynamic built-in skills (including control_plane), loader & registry
+├── tests/                      # Unit, integration, security, and regression test suites (88 files, 717 tests)
 └── e2e_testing_harness/        # Behavioral testing suite, scenario runners, and synthetic Slack mock
 ```

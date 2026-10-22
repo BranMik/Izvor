@@ -123,8 +123,8 @@ class CredentialRedactionFilter(logging.Filter):
         if record.exc_info and not record.exc_text:
             try:
                 record.exc_text = redact_text(logging.Formatter().formatException(record.exc_info))
-            except Exception:
-                pass
+            except Exception:  # noqa: BLE001
+                record.exc_text = "[Failed to format exception traceback]"
         elif record.exc_text:
             record.exc_text = redact_text(record.exc_text)
         if getattr(record, "stack_text", None):

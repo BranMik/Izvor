@@ -11,7 +11,6 @@ import time
 from typing import Any, Callable
 
 from nlp.message_builder import markdown_to_slack
-from orchestration.protocols import WorkspaceAdapter
 from services.slack_client import (
     post_agent_response,
     post_system_message,

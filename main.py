@@ -3,7 +3,6 @@ import logging
 import os
 import sys
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 import secrets
 from fastapi import Depends, FastAPI, HTTPException, status
@@ -35,6 +34,7 @@ from services.slack_client import publish_app_home
 
 from orchestration.system_settings import system_settings_manager
 from core.logging_filters import setup_credential_redaction_filters
+from core.paths import PROJECT_ROOT
 
 # Configure logging format
 dynamic_log_level = getattr(logging, system_settings_manager.get_log_level(), logging.INFO)
@@ -43,8 +43,6 @@ logging.basicConfig(
 )
 setup_credential_redaction_filters()
 logger = logging.getLogger("IzvorBackend")
-
-from core.paths import PROJECT_ROOT
 
 BASE_DIR = PROJECT_ROOT
 

@@ -1,7 +1,6 @@
 import tempfile
 from pathlib import Path
 
-import pytest
 
 from services.rag.document_parser import DocumentChunk, DocumentParser
 from services.rag.text_splitter import RecursiveTextSplitter

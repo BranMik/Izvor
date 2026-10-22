@@ -1,8 +1,6 @@
 import logging
 from core.config import PROJECT_ROOT, SLACK_BOT_TOKEN
 
-logger = logging.getLogger("services.slack")
-
 from services.slack.client_core import (
     CHANNEL_NAME_CACHE,
     get_bot_user_id,
@@ -40,6 +38,8 @@ from services.slack.messages import (
     update_usage_message,
 )
 from services.slack.views import publish_app_home
+
+logger = logging.getLogger("services.slack")
 
 __all__ = [
     "SLACK_BOT_TOKEN",

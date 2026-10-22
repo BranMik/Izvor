@@ -144,7 +144,7 @@ class IntentExtractor:
                             prompt_tokens=p_tok,
                             completion_tokens=c_tok,
                         )
-                except Exception as ue:
+                except Exception as ue:  # noqa: BLE001
                     logger.debug(f"[INTENT EXTRACTOR] Error recording token spend: {ue}")
 
             content = resp.choices[0].message.content

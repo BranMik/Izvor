@@ -128,7 +128,7 @@ class TurnCheckpointStore:
                 ).fetchone()
                 if row:
                     return self._row_to_checkpoint(row)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.debug(f"[CHECKPOINT] Failed reading checkpoint {checkpoint_id}: {e}")
         return None
 
@@ -146,7 +146,7 @@ class TurnCheckpointStore:
                 ).fetchone()
                 if row:
                     return self._row_to_checkpoint(row)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.debug(f"[CHECKPOINT] Failed reading checkpoint for hitl {hitl_request_id}: {e}")
         return None
 
@@ -180,7 +180,7 @@ class TurnCheckpointStore:
                     ).fetchone()
                 if row:
                     return self._row_to_checkpoint(row)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.debug(f"[CHECKPOINT] Failed reading checkpoint for thread {channel_id}:{thread_ts}: {e}")
         return None
 
@@ -201,7 +201,7 @@ class TurnCheckpointStore:
                     (checkpoint_id,),
                 )
                 return cur.rowcount > 0
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.debug(f"[CHECKPOINT] Failed marking resumed {checkpoint_id}: {e}")
             return False
 
@@ -218,7 +218,7 @@ class TurnCheckpointStore:
                     (checkpoint_id,),
                 )
                 return cur.rowcount > 0
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.debug(f"[CHECKPOINT] Failed marking resolved {checkpoint_id}: {e}")
             return False
 
@@ -235,7 +235,7 @@ class TurnCheckpointStore:
                     (checkpoint_id,),
                 )
                 return cur.rowcount > 0
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.debug(f"[CHECKPOINT] Failed marking abandoned {checkpoint_id}: {e}")
             return False
 
@@ -252,7 +252,7 @@ class TurnCheckpointStore:
                     (checkpoint_id,),
                 )
                 return cur.rowcount > 0
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.debug(f"[CHECKPOINT] Failed marking expired {checkpoint_id}: {e}")
             return False
 
@@ -266,7 +266,7 @@ class TurnCheckpointStore:
                     (now,),
                 )
                 return cur.rowcount
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.debug(f"[CHECKPOINT] Failed pruning expired checkpoints: {e}")
             return 0
 

@@ -71,7 +71,7 @@ class VectorStore:
         db = self._get_db()
         try:
             self._table = db.open_table(TABLE_NAME)
-        except Exception:
+        except Exception:  # noqa: BLE001
             self._table = db.create_table(TABLE_NAME, schema=RAG_SCHEMA)
             self._ensure_fts_index(self._table)
 
@@ -83,11 +83,11 @@ class VectorStore:
             import lancedb.index
             table.create_index("text", config=lancedb.index.FTS(), replace=True)
             logger.info(f"[RAG VectorStore] Created BM25 FTS index on table '{TABLE_NAME}'")
-        except Exception:
+        except Exception:  # noqa: BLE001
             try:
                 table.create_fts_index("text", replace=True)
                 logger.info(f"[RAG VectorStore] Created BM25 FTS index via create_fts_index on '{TABLE_NAME}'")
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 logger.debug(f"[RAG VectorStore] FTS index creation skipped (e.g. empty table): {e}")
 
     def rebuild_fts_index(self) -> None:
@@ -139,7 +139,7 @@ class VectorStore:
             safe_doc_id = _sql_literal(doc_id)
             table.delete(f"doc_id = {safe_doc_id}")
             logger.info(f"[RAG VectorStore] Deleted chunks for doc_id='{doc_id}'")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.error(f"[RAG VectorStore] Failed to delete chunks for doc_id='{doc_id}': {e}")
 
     def delete_by_chunk_ids(self, chunk_ids: list[str]) -> None:
@@ -151,7 +151,7 @@ class VectorStore:
             id_list_str = ", ".join(_sql_literal(cid) for cid in chunk_ids)
             table.delete(f"chunk_id IN ({id_list_str})")
             logger.info(f"[RAG VectorStore] Deleted {len(chunk_ids)} chunk(s) by ID")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.error(f"[RAG VectorStore] Failed to delete chunks by IDs: {e}")
 
     def search(
@@ -188,7 +188,7 @@ class VectorStore:
                     return q.to_arrow().to_pylist()
                 elif hasattr(q, "to_pandas"):
                     return q.to_pandas().to_dict(orient="records")
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 logger.debug(f"[RAG VectorStore] Query execution error: {e}")
             return []
 
@@ -205,7 +205,7 @@ class VectorStore:
                     .limit(top_k)
                 )
                 raw_results = _execute_query(search_query)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 logger.debug(f"[RAG VectorStore] Hybrid search vector+text failed: {e}. Falling back to vector search.")
                 try:
                     search_query = (
@@ -214,7 +214,7 @@ class VectorStore:
                         .limit(top_k)
                     )
                     raw_results = _execute_query(search_query)
-                except Exception as e2:
+                except Exception as e2:  # noqa: BLE001
                     logger.warning(f"[RAG VectorStore] Vector search failed: {e2}")
 
         # Fallback to full-text search if no results or no vector
@@ -226,7 +226,7 @@ class VectorStore:
                     .limit(top_k)
                 )
                 raw_results = _execute_query(search_query)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 logger.debug(f"[RAG VectorStore] FTS search fallback failed: {e}")
 
         if not raw_results:

@@ -1,6 +1,6 @@
 # Slack App Home Administration & Settings SSOT
 
-This document details the administrative interface provided via the **Slack App Home** tab, how real-time configuration is managed, how server-side authorization is enforced, and how state persistence and backup failovers operate.
+This document details the administrative interface provided via the **Slack App Home** tab, its modular view/action architecture, how server-side authorization is enforced, and how state persistence and backup failovers operate.
 
 ---
 
@@ -8,17 +8,23 @@ This document details the administrative interface provided via the **Slack App 
 
 Izvor provides an interactive configuration dashboard embedded directly within Slack’s App Home tab. Administrators can modify the deliberation engine's behavior in real time without restarting the server or editing config files manually.
 
+The App Home view builder in [`services/slack_home_views.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/services/slack_home_views.py) delegates rendering across three modular tab builders in [`services/slack_home/`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/services/slack_home/):
+- [`services/slack_home/agents_tab.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/services/slack_home/agents_tab.py): Persona enablement, model selection, system prompt editors, skill assignments, and concise output toggles.
+- [`services/slack_home/workflows_tab.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/services/slack_home/workflows_tab.py): Orchestration topology selector, Sandwich chains, Fixed sequences, Parallel Dialectic specialists, and preset backup/restore modals.
+- [`services/slack_home/governance_tab.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/services/slack_home/governance_tab.py): Spend circuit breakers, daily budgets, Consensus Convergence Fast-Forward toggle, Scribe notes toggle, Weekly Pricing update toggle, skill expiration TTL, and Workspace Baseline Context.
+
 ```mermaid
 graph TD
     SlackUser([Slack User]) -->|Opens App Home / Interacts| SlackAPI[Slack Platform]
     SlackAPI -->|POST /slack/interactivity| InteractivityHandler["adapters/slack/interactivity.py"]
-    InteractivityHandler --> AdminGate{is_slack_admin(user_id)?}
-    AdminGate -->|No| RejectBlock[Ignore / Post Ephemeral Access Denied]
-    AdminGate -->|Yes| SettingsMgr["orchestration/agent_settings.py (SSOT)"]
+    InteractivityHandler --> ActionSpecGate{"ActionSpec Whole-Payload Pre-Auth"}
+    ActionSpecGate -->|Non-Admin on Admin Action| RejectBlock["Reject & Log AUTH_FAILURE"]
+    ActionSpecGate -->|Authorized| ActionModules["adapters/slack/actions/*"]
+    ActionModules --> SettingsMgr["AgentSettingsManager & AppSettingsManager (SSOT)"]
     
     subgraph Persistence & Durability
-        SettingsMgr --> AtomicWrite["Atomic File Write to data/settings/agent_settings.json"]
-        AtomicWrite --> EmergencyBackup["Rolling Emergency Backup (data/backups/)"]
+        SettingsMgr --> AtomicWrite["Atomic File Write via JsonSettingsStore"]
+        AtomicWrite --> EmergencyBackup["Rolling Backups (data/backups/ & data/backups/workflows/)"]
     end
     
     SettingsMgr --> RePublish["Re-render & Publish Updated App Home View"]
@@ -26,55 +32,59 @@ graph TD
 
 ---
 
-## 🛡️ Strict Server-Side Access Control
+## 🛡️ Strict Server-Side Access Control (`ActionSpec` Pre-Authorization)
 
 To prevent unauthorized workspace members from tampering with agent settings, model selections, or budget circuit breakers:
 - **`is_slack_admin(user_id)` Gate**: Defined in [`core/config.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/core/config.py), resolving authorized admin IDs from `SLACK_ADMIN_USER_IDS` in `.env`.
-- **Zero Client Trust**: All interactive actions dispatched to [`adapters/slack/interactivity.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/adapters/slack/interactivity.py) (toggling personas, switching workflows, updating budget limits, approving HITL requests, or triggering restores) verify `is_slack_admin(user_id)` server-side.
-- **Fail-Closed**: Non-admin users are strictly blocked from triggering administrative mutations, and all unauthorized attempts trigger `AUTH_FAILURE` audit logs.
+- **Whole-Payload `ActionSpec` Pre-Authorization**: [`adapters/slack/interactivity.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/adapters/slack/interactivity.py) maps every interactive `action_id` and modal `callback_id` to a declarative `ActionSpec(handler, admin_required=True)`. Before executing **any** action in a multi-action Slack payload, the dispatcher verifies authorization across all actions in the batch.
+- **Modular Action Handlers**: Validated requests are routed to specialized modules in [`adapters/slack/actions/`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/adapters/slack/actions/):
+  - [`agent_actions.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/adapters/slack/actions/agent_actions.py)
+  - [`workflow_actions.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/adapters/slack/actions/workflow_actions.py)
+  - [`hitl_actions.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/adapters/slack/actions/hitl_actions.py)
 
 ---
 
 ## 🎛️ Configurable Controls
 
-The App Home view ([`services/slack_home_views.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/services/slack_home_views.py)) organizes controls into structured blocks (strictly capped at <100 blocks to comply with Slack Block Kit limits):
+The App Home dashboard organizes controls into structured blocks (strictly capped at <100 blocks to comply with Slack Block Kit limits):
 
-### 1. Active Personas Roster
-- **Multi-Select Checkboxes**: Enable or disable any of the 16 debate personas.
-- **Model Overrides**: Assign custom LLM models per persona.
-- **Concise Output Toggles**: Toggle `is_short_output` for personas to keep their arguments brief.
+### 1. Active Personas Roster (`agents_tab.py`)
+- **Enable / Disable Toggles**: Enable or disable any of the **17 debate personas** (including `Rebuttal & Defense Advocate`).
+- **Model Overrides & Custom Prompts**: Assign custom LLM models and edit system instructions per persona.
+- **Assigned Skills & Concise Output Toggles**: Configure default persona skills and toggle `is_short_output`.
 
-### 2. Discussion Topology & Workflows
-- **Topology Selection**: Switch between **Sandwich Mode** and **Fixed Mode**.
-- **Start & End Chains**: Specify which personas open and close debates in Sandwich mode.
-- **Preset Selection**: Load curated workflow presets (e.g., Architecture Review, Product Strategy, Quick Brainstorm).
+### 2. Discussion Topology & Workflows (`workflows_tab.py`)
+- **Topology Selection**: Switch between **Sandwich Mode** (`sandwich`), **Fixed Mode** (`fixed`), and **Parallel Dialectic Mode** (`scatter_gather`).
+- **Chain & Pool Configuration**: Configure Sandwich Start/End chains, Fixed speaker order, or Parallel Dialectic specialists and closing synthesizer.
+- **Workflow Presets**: Save, load, or restore curated workflow presets in `data/backups/workflows/`.
 
-### 3. Debate Limits & Pacing
-- **Maximum Discussion Rounds**: Limit total turns before closing synthesis begins.
-- **Word Count Caps**: Set global default minimum and maximum word counts.
-
-### 4. Spend Governance & Circuit Breakers
-- **Circuit Breaker Toggle**: Turn budget limits on or off (enabled by default).
-- **Per-Thread USD Spend Limit**: Define the dollar threshold (`circuit_breaker_threshold_usd`) that triggers automatic discussion pause.
-- **Daily Workspace Budget**: Configure `daily_budget_usd` across all workspace threads.
+### 3. Governance, Scribe & Dialectical Controls (`governance_tab.py`)
+- **Consensus Convergence Fast-Forward (`fast_forward_on_convergence`)**: Toggle (`🟢 ON` / `🔴 OFF`) whether consecutive `signal_consensus_convergence` calls trigger the Challenger + RebuttalAdvocate stress-test gate to fast-forward to `end_chain`.
+- **Live Discussion Scribe (`scribe_Consolidation_enabled`)**: Toggle automated live and final Scribe synthesis notes (`ThreadNotesAgent`).
+- **Weekly Model Pricing Update (`weekly_pricing_update_enabled`)**: Toggle automatic 7-day background pricing refreshes.
+- **Thread Skill Expiration (`skill_expiration_hours`)**: Configure the default TTL in hours for dynamic `/grant_skill` grants.
+- **Workspace Baseline Context**: Edit the global organization/workspace context injected into deliberations.
+- **Spend Governance & Circuit Breakers**:
+  - **Circuit Breaker Toggle (`circuit_breaker_enabled`)**: Enable or disable per-thread USD thresholds.
+  - **Per-Thread USD Spend Limit (`circuit_breaker_threshold_usd`)**: Dollar threshold that pauses a thread.
+  - **Daily Workspace Budget (`daily_budget_usd`)**: Global 24-hour UTC spend cap (enforced unconditionally across all turns).
 
 ---
 
 ## 💾 Single Source of Truth (SSOT) & Atomic Persistence
 
-All configuration changes are handled through [`AgentSettingsManager`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/orchestration/agent_settings.py):
+Configuration persistence is managed through [`AgentSettingsManager`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/orchestration/agent_settings.py), [`AppSettingsManager`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/orchestration/app_settings.py), and [`SystemSettingsManager`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/orchestration/system_settings.py), backed by the generic [`JsonSettingsStore[T]`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/orchestration/settings_store.py):
 
 ### 1. Atomic Disk Writes
 To prevent file corruption during concurrent updates:
-- Settings are written to a temporary file (`agent_settings.json.tmp`).
+- Settings are serialized to a temporary file (`.tmp`) and flushed to disk.
 - The temporary file is atomically replaced using `os.replace`.
 
 ### 2. Rolling Backups in `data/backups/`
-Every modification triggers emergency backup checks in `data/backups/`:
+Every modification maintains rolling backups in `data/backups/` and `data/backups/workflows/`:
 - `data/backups/agent_settings_backup.json`
 - `data/backups/app_settings_backup.json`
 - `data/backups/system_settings_backup.json`
-Backups are updated on periodic intervals (7-day emergency cycle) or upon critical administrative mutations.
 
 ### 3. Non-Destructive Failover
-If `data/settings/agent_settings.json` is missing or corrupted on startup, Izvor automatically recovers by inspecting the latest valid snapshot in `data/backups/` before falling back to default factory presets.
+If a primary settings file in `data/settings/` is missing or corrupted on startup, `JsonSettingsStore` automatically recovers from the backup snapshot before falling back to validated Pydantic defaults.

@@ -1,11 +1,7 @@
 from pathlib import Path
-import tempfile
-import pytest
 
 from services.thread_notes_writer import (
-    DEFAULT_THREAD_NOTES_DIR,
     extract_ts5_suffix,
-    format_note_document,
     generate_notes_filename,
     sanitize_prompt_slug,
     save_thread_notes_to_disk,

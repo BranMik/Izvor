@@ -143,7 +143,7 @@ def build_workflows_blocks(
         ]
     )
 
-    if not (active_wf_id in ("default_review_flow", "default_sandwich", "parallel_dialectic_flow")):
+    if active_wf_id not in ("default_review_flow", "default_sandwich", "parallel_dialectic_flow"):
         initial_label = "🥪 Sandwich Flow"
         if mode_val == OrchestrationMode.SCATTER_GATHER.value:
             initial_label = "⚡ Parallel Dialectic"

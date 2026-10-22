@@ -70,7 +70,7 @@ class RoundEvidenceStore:
             try:
                 parsed = json.loads(arguments)
                 serialized = json.dumps(parsed, sort_keys=True, default=str)
-            except Exception:
+            except (json.JSONDecodeError, ValueError):
                 serialized = arguments
         elif isinstance(arguments, dict):
             serialized = json.dumps(arguments, sort_keys=True, default=str)
@@ -125,7 +125,7 @@ class RoundEvidenceStore:
                 parsed = json.loads(res_str)
                 if isinstance(parsed, dict) and ("error" in parsed or "error_code" in parsed):
                     return None
-            except Exception:
+            except (json.JSONDecodeError, ValueError):
                 if lower_res.startswith(("permission denied", "error:", "error ")):
                     return None
         if lower_res.startswith("{"):
@@ -133,8 +133,8 @@ class RoundEvidenceStore:
                 parsed = json.loads(res_str)
                 if isinstance(parsed, dict) and ("error" in parsed or "error_code" in parsed):
                     return None
-            except Exception:
-                pass
+            except (json.JSONDecodeError, ValueError) as e:
+                logger.debug("Evidence store JSON parse check bypassed: %s", e)
 
         args_dict = (
             arguments

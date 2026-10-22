@@ -1,8 +1,6 @@
-import asyncio
 import json
 import logging
 import re
-import sys
 import time
 from typing import Any
 
@@ -61,8 +59,8 @@ class EventDeduplicationCache(dict):
                         "DELETE FROM event_dedup WHERE event_id = ?",
                         [(self._format_key(k),) for k in evicted_keys],
                     )
-            except Exception:
-                pass
+            except Exception as e:  # noqa: BLE001
+                logger.debug("Event dedup batch eviction error: %s", e)
 
         # Evict from SQLite table event_dedup only periodically or when exceeding maxsize
         if (now - self._last_db_evict >= self.db_evict_interval) or len(self) >= self.maxsize:
@@ -71,8 +69,8 @@ class EventDeduplicationCache(dict):
             try:
                 with get_db_transaction(immediate=True) as conn:
                     conn.execute("DELETE FROM event_dedup WHERE received_at < ?", (cutoff,))
-            except Exception:
-                pass
+            except Exception as e:  # noqa: BLE001
+                logger.debug("Event dedup periodic eviction error: %s", e)
 
     def __contains__(self, key: Any) -> bool:
         self._evict_expired()
@@ -91,8 +89,8 @@ class EventDeduplicationCache(dict):
                 if row:
                     super().__setitem__(key, float(row["received_at"]))
                     return True
-        except Exception:
-            pass
+        except Exception as e:  # noqa: BLE001
+            logger.debug("Event dedup lookup error: %s", e)
         return False
 
     def __setitem__(self, key: Any, value: float) -> None:
@@ -105,8 +103,8 @@ class EventDeduplicationCache(dict):
                     "INSERT OR REPLACE INTO event_dedup (event_id, received_at) VALUES (?, ?)",
                     (event_id, float(value)),
                 )
-        except Exception:
-            pass
+        except Exception as e:  # noqa: BLE001
+            logger.debug("Event dedup insert error: %s", e)
         if len(self) > self.maxsize:
             num_to_evict = max(1, int(len(self) * 0.2))
             sorted_keys = sorted(self.keys(), key=lambda k: self[k])
@@ -119,16 +117,16 @@ class EventDeduplicationCache(dict):
                         "DELETE FROM event_dedup WHERE event_id = ?",
                         [(self._format_key(k),) for k in evicted_keys],
                     )
-            except Exception:
-                pass
+            except Exception as e:  # noqa: BLE001
+                logger.debug("Event dedup overflow eviction error: %s", e)
 
     def clear(self) -> None:
         super().clear()
         try:
             with get_db_transaction(immediate=True) as conn:
                 conn.execute("DELETE FROM event_dedup")
-        except Exception:
-            pass
+        except Exception as e:  # noqa: BLE001
+            logger.debug("Event dedup clear error: %s", e)
 
     def pop(self, key: Any, default: Any = None) -> Any:
         val = super().pop(key, default)
@@ -136,8 +134,8 @@ class EventDeduplicationCache(dict):
         try:
             with get_db_transaction(immediate=True) as conn:
                 conn.execute("DELETE FROM event_dedup WHERE event_id = ?", (event_id,))
-        except Exception:
-            pass
+        except Exception as e:  # noqa: BLE001
+            logger.debug("Event dedup pop error: %s", e)
         return val
 
 

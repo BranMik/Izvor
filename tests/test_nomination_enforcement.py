@@ -1,14 +1,12 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
-from core.config import AGENTS_CONFIG
 from orchestration.thread_state import thread_state_manager
 from orchestration.turn_pipeline import TurnContext, TurnPipeline
 from orchestration.stages.post_record import (
     PostRecordStage,
     _extract_resolved_nomination_keys,
 )
-from pipeline.entity_resolver import entity_resolver
 
 
 def test_extract_resolved_nomination_keys():
@@ -55,7 +53,7 @@ async def test_display_name_nomination_preserves_round_and_pops_retry(monkeypatc
         MagicMock(),
     )
 
-    res = await stage.stage_post_and_record(ctx)
+    await stage.stage_post_and_record(ctx)
 
     # 1. Retry queue for agent-10003 should have been popped
     assert thread_state_manager.has_pending_retries(channel_id, thread_ts) is False

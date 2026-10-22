@@ -8,7 +8,6 @@ import pytest
 from core.config import get_pricing_agent_model
 import services.pricing_service as pricing_module
 from services.pricing_service import (
-    DEFAULT_FALLBACK_PRICING,
     MAX_VALID_PRICE_PER_1M,
     MIN_VALID_PRICE_PER_1M,
     PRICING_TOOL_SCHEMAS,

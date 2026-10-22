@@ -25,23 +25,18 @@ from orchestration.system_settings import (
 )
 from core.llm_utils import classify_agent_error
 from core.models import OrchestrationMode
-from nlp.message_builder import markdown_to_slack
 from orchestration.agent_settings import settings_manager
 from orchestration.nomination import enforce_valid_nomination, get_initial_agents
 from orchestration.protocols import WorkspaceAdapter
 from orchestration.thread_state import thread_state_manager
 from pipeline.entity_resolver import (
-    NOMINATION_TAG_REGEX,
     entity_resolver,
-    format_nomination,
 )
 from services.flat_history_recorder import (
     async_record_flat_history,
-    record_flat_history,
 )
 from services.slack_client import (
     post_agent_response,
-    update_slack_message,
 )
 
 if TYPE_CHECKING:
@@ -197,7 +192,7 @@ class PostRecordStage:
                             initial_prompt=initial_prompt,
                             messages=history_to_record,
                         )
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 logger.warning(f"[WORKSPACE] Failed to record flat history for {ctx.thread_key}: {e}")
 
 

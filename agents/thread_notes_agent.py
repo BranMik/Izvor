@@ -88,7 +88,7 @@ def _load_notes_state_from_db(channel_id: str, thread_ts: str) -> None:
                 if row["conclusion_note_content"] is not None:
                     THREAD_CONCLUSION_TEXT_MAP[thread_key] = str(row["conclusion_note_content"])
                 THREAD_LIVE_PINNED_MAP[thread_key] = bool(row["is_live_pinned"])
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.debug(f"[THREAD NOTES] Failed loading notes state from SQLite: {e}")
 
 
@@ -131,7 +131,7 @@ def _sync_notes_state_to_db(channel_id: str, thread_ts: str) -> None:
                     now,
                 ),
             )
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.debug(f"[THREAD NOTES] Failed syncing notes state to SQLite: {e}")
 
 
@@ -299,7 +299,7 @@ def clear_thread_note(channel_id: str, thread_ts: str) -> None:
                 "DELETE FROM thread_notes_state WHERE channel_id = ? AND thread_ts = ?;",
                 (channel_id, thread_ts),
             )
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.debug(f"[THREAD NOTES] Failed deleting notes state from SQLite: {e}")
 
 
@@ -322,7 +322,7 @@ def reset_thread_notes() -> None:
 
         with get_db_transaction(immediate=True) as conn:
             conn.execute("DELETE FROM thread_notes_state;")
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.debug(f"[THREAD NOTES] Failed clearing SQLite thread_notes_state on reset: {e}")
 
 
@@ -585,7 +585,7 @@ async def update_notes_for_thread(
                         live_notes_text=formatted_text,
                         conclusion_text=formatted_conclusion_text,
                     )
-                except Exception as disk_err:
+                except Exception as disk_err:  # noqa: BLE001
                     logger.warning(
                         f"[THREAD NOTES] Failed saving thread notes to disk: {disk_err}"
                     )

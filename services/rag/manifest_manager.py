@@ -43,7 +43,7 @@ class ManifestManager:
                     self._manifest = data
                 else:
                     self._manifest = {}
-        except Exception as e:
+        except (OSError, json.JSONDecodeError, ValueError) as e:
             logger.warning(f"[RAG Manifest] Failed to read {self.manifest_path}: {e}. Initializing fresh manifest.")
             self._manifest = {}
         return self._manifest
@@ -57,7 +57,7 @@ class ManifestManager:
                 json.dump(self._manifest, f, indent=2, ensure_ascii=False)
             tmp_path.replace(self.manifest_path)
             logger.debug(f"[RAG Manifest] Saved {len(self._manifest)} document record(s) to {self.manifest_path}")
-        except Exception as e:
+        except (OSError, json.JSONDecodeError, ValueError) as e:
             logger.error(f"[RAG Manifest] Failed to persist manifest: {e}")
             if tmp_path.exists():
                 tmp_path.unlink(missing_ok=True)

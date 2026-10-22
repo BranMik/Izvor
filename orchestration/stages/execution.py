@@ -117,7 +117,7 @@ class ExecutionStage:
                 daily_budget_usd=daily_budget,
             )
             return bool(tripped)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.debug(f"[EXECUTION] Error checking mid-turn budget: {e}")
             return False
 
@@ -129,7 +129,6 @@ class ExecutionStage:
         pending_tool_call: dict[str, Any] | None = None,
         hitl_request_id: str | None = None,
     ) -> str:
-        import json
         import uuid
         from core.domain import TurnCheckpoint
         from services.turn_checkpoint_store import turn_checkpoint_store
@@ -156,7 +155,7 @@ class ExecutionStage:
             turn_checkpoint_store.save_checkpoint(chk)
             ctx.checkpoint_id = chk_id
             return chk_id
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.error(f"[EXECUTION] Failed to save {pause_reason} checkpoint: {e}")
             return ""
 

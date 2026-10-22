@@ -59,7 +59,7 @@ class JsonSettingsStore(Generic[T]):
                 self._raw_data = copy.deepcopy(data)
                 self._cached_model = self.model_cls.model_validate(data)
                 return self._cached_model
-            except Exception as e:
+            except (OSError, json.JSONDecodeError, ValueError) as e:
                 logger.error(f"[SETTINGS_STORE] Failed loading {self.settings_file}: {e}")
                 if self.backup_file and self.backup_file.exists():
                     try:
@@ -71,7 +71,7 @@ class JsonSettingsStore(Generic[T]):
                             f"[SETTINGS_STORE] Recovered settings from backup: {self.backup_file}"
                         )
                         return self._cached_model
-                    except Exception as be:
+                    except (OSError, json.JSONDecodeError, ValueError) as be:
                         logger.error(
                             f"[SETTINGS_STORE] Failed loading backup {self.backup_file}: {be}"
                         )
@@ -134,3 +134,9 @@ class JsonSettingsStore(Generic[T]):
             if not self._raw_data:
                 self.load()
             return copy.deepcopy(self._raw_data)
+
+    def invalidate_cache(self) -> None:
+        """Explicitly clears the in-memory cached model and raw dictionary."""
+        with self._lock:
+            self._cached_model = None
+            self._raw_data = {}

@@ -1,4 +1,4 @@
-# CaiLogics Slack Hub — End-to-End Behavioural Test Suite
+# Izvor Slack Hub — End-to-End Behavioural Test Suite
 
 A comprehensive manual testing guide with 27 actionable, copy-pasteable test scenarios to validate all agent personas, skills, directives, governance rules, and interactive Slack features. 
 **This entire test matrix can also be run completely automatically using the `e2e_testing_harness` hybrid regression suite.**
@@ -60,7 +60,7 @@ python -m e2e_testing_harness.runner --live-slack --channel C0123456789 --hybrid
 | **22** | Real-Time UX | Delayed Progress Indicator & In-Place Edit | Tool Calls > 5s |
 | **23** | Discussion Scribe | Live Synthesis Card & DM Download Button | Live Scribe + Download (.txt) |
 | **24** | Spend Governance | Thread Expense Circuit Breaker Tripping | App Home Settings Threshold |
-| **25** | Spend Governance | Usage Channel Live Card Audit | `#cailogics-usage` Channel |
+| **25** | Spend Governance | Usage Channel Live Card Audit | `#izvor-usage` Channel |
 | **26** | Concurrency & Safety | Interruption & Mid-Flight Superseding | Fast Double Prompt / `/stop` |
 | **27** | Language & Resolution | Language Lock & Ambiguous Tag Warning | Croatian Prompt + Ambiguous Tag |
 
@@ -403,8 +403,8 @@ python -m e2e_testing_harness.runner --live-slack --channel C0123456789 --hybrid
   1. The Panel System model responds directly and halts unconditionally without launching an agent debate loop.
   2. Displays a structured catalog of skills:
      - `web_research` (Web Search, Fetch Web Page)
-     - `codebase_inspection` (List Directory, Read File)
-     - `workspace_authoring` (Write File)
+     - `knowledge_base_rag` (Search Knowledge RAG)
+     - `control_plane` (Nominate Next Speaker, Request Clarification, Signal Convergence)
      - `document_reader` (List Documents, Read Document)
      - `document_authoring` (Write Document)
      - Control Commands (`/grant_skill`, `/grant_skill_for_all`, `/revoke_constraint`, `/revoke_skill_for_all`, `/list_skills`)
@@ -472,17 +472,17 @@ python -m e2e_testing_harness.runner --live-slack --channel C0123456789 --hybrid
 
 ---
 
-### TC-24: Usage Channel Live Card Audit (`#cailogics-usage`)
+### TC-24: Usage Channel Live Card Audit (`#izvor-usage`)
 - **Category**: Spend Governance & Observability
-- **Objective**: Verify that all prompt tokens, completion tokens, and dollar costs are tracked in real-time in the designated `#cailogics-usage` channel.
-- **Preconditions**: Bot has access to `#cailogics-usage` channel.
+- **Objective**: Verify that all prompt tokens, completion tokens, and dollar costs are tracked in real-time in the designated `#izvor-usage` channel.
+- **Preconditions**: Bot has access to `#izvor-usage` channel.
 - **Slack Input Prompt**:
   *(Run any multi-turn debate in any channel)*:
   ```text
   @BotName [Visionary] [Security Architect] How will edge computing affect microservice deployment in 2026?
   ```
-- **Verification Steps in `#cailogics-usage`**:
-  1. Navigate to the `#cailogics-usage` Slack channel.
+- **Verification Steps in `#izvor-usage`**:
+  1. Navigate to the `#izvor-usage` Slack channel.
   2. Locate the message card created for this thread.
   3. Verify the card displays:
      - Source Channel name and Thread link
@@ -491,7 +491,7 @@ python -m e2e_testing_harness.runner --live-slack --channel C0123456789 --hybrid
      - Model breakdowns (e.g., `gemini/gemini-3.8-flash`, `openai/gpt-5.6-terra`)
      - Grand Total Cost in USD (e.g., `$0.0142`)
      - Status indicator (updates to `COMPLETED` when the debate ends)
-- **Pass Criteria**: Live card exists in `#cailogics-usage` and accurately reflects accumulated token counts and USD costs.
+- **Pass Criteria**: Live card exists in `#izvor-usage` and accurately reflects accumulated token counts and USD costs.
 
 ---
 
@@ -579,6 +579,6 @@ When executing these tests in your Slack workspace, copy this table to track res
 | TC-21 | 5s Delayed Progress & In-Place Edit | | | | |
 | TC-22 | Scribe Card & DM Download Button | | | | |
 | TC-23 | Circuit Breaker Tripping (App Home Settings) | | | | |
-| TC-24 | Usage Channel Card (`#cailogics-usage`) | | | | |
+| TC-24 | Usage Channel Card (`#izvor-usage`) | | | | |
 | TC-25 | Mid-Flight Interruption & Superseding | | | | |
 | TC-27 | Default Workflow on Untagged Mention | | | | |

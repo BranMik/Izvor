@@ -9,11 +9,7 @@ Verifies:
 """
 
 import importlib
-import os
-import sys
-from pathlib import Path
 
-import pytest
 
 import core.paths as paths
 
@@ -138,7 +134,6 @@ def test_circular_import_resilience():
     import services.flat_history_recorder
     import services.pricing_service
     import services.thread_notes_writer
-    import agents.usage_agent
     import prompts.builder
 
     # Project root consistency

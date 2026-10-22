@@ -15,7 +15,6 @@ from orchestration.agent_settings import (
 )
 from orchestration.nomination import enforce_valid_nomination, get_initial_agents
 from orchestration.thread_state import thread_state_manager
-from services.slack_client import build_app_home_view
 
 
 @pytest.fixture(autouse=True)

@@ -12,7 +12,7 @@ import copy
 from dataclasses import dataclass
 import inspect
 import logging
-from typing import TYPE_CHECKING, Any, Awaitable, Callable
+from typing import Any, Awaitable, Callable
 
 from core.config import get_max_discussion_turns
 from core.models import OrchestrationMode
@@ -296,7 +296,7 @@ class DiscussionLoop:
                                 messages=accumulated_history,
                                 bot_user_id=bot_user_id,
                             )
-                        except Exception as e:
+                        except Exception as e:  # noqa: BLE001
                             logger.debug(f"[ORCHESTRATOR] Flat history sync exception: {e}")
 
                         return last_res
@@ -474,7 +474,7 @@ class DiscussionLoop:
                     messages=accumulated_history,
                     bot_user_id=bot_user_id,
                 )
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 logger.debug(f"[ORCHESTRATOR] Final flat history sync exception: {e}")
 
             if not thread_state_manager.get_remaining_agents(channel_id, thread_ts):

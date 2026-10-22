@@ -179,7 +179,7 @@ class DocumentParser:
                         )
                     )
                     chunk_idx += 1
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.error(f"[RAG Parser] Failed to parse PDF {file_path}: {e}")
 
         return chunks

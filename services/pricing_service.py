@@ -28,7 +28,7 @@ def get_pricing_cache_ttl_seconds() -> int:
     try:
         from orchestration.system_settings import get_pricing_cache_ttl_seconds
         return get_pricing_cache_ttl_seconds()
-    except Exception:
+    except Exception:  # noqa: BLE001
         return 7 * 24 * 3600
 
 
@@ -36,7 +36,7 @@ def get_pricing_benchmark_url() -> str:
     try:
         from orchestration.system_settings import get_pricing_benchmark_url
         return get_pricing_benchmark_url()
-    except Exception:
+    except Exception:  # noqa: BLE001
         return "https://artificialanalysis.ai/models"
 
 
@@ -272,7 +272,7 @@ def get_baseline_for_model(model_name: str) -> dict[str, Any]:
                         "source": "LiteLLM Community Registry",
                         "source_url": "https://github.com/BerriAI/litellm",
                     }
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.debug(f"[PRICING] litellm.model_cost lookup failed for {model_name}: {e}")
 
     return dict(DEFAULT_FALLBACK_PRICING)
@@ -407,7 +407,7 @@ class PricingService:
                     prompt_tokens=getattr(usage, "prompt_tokens", 0) or 0,
                     completion_tokens=getattr(usage, "completion_tokens", 0) or 0,
                 )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.debug(f"[PRICING] Failed to record spend ledger: {e}")
 
         resp_msg = resp.choices[0].message
@@ -485,7 +485,7 @@ class PricingService:
                         prompt_tokens=getattr(usage_final, "prompt_tokens", 0) or 0,
                         completion_tokens=getattr(usage_final, "completion_tokens", 0) or 0,
                     )
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 logger.debug(f"[PRICING] Failed to record spend ledger: {e}")
 
             final_text = final_resp.choices[0].message.content

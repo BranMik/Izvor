@@ -376,7 +376,7 @@ class AppIntegrityValidator:
                                 backup_file,
                             )
                             restored = True
-                    except Exception as ex:
+                    except (OSError, json.JSONDecodeError, ValueError) as ex:
                         logger.warning(
                             "[INTEGRITY] Could not restore workflow '%s' from backup file %s: %s",
                             wf_id,
@@ -399,7 +399,7 @@ class AppIntegrityValidator:
                                     "[INTEGRITY] Dynamically generated and saved default workflow '%s'.",
                                     wf_id,
                                 )
-                            except Exception as e:
+                            except Exception as e:  # noqa: BLE001
                                 logger.error(
                                     "[INTEGRITY] Failed to save dynamic workflow '%s': %s",
                                     wf_id,
@@ -438,7 +438,7 @@ class AppIntegrityValidator:
             try:
                 settings_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
                 logger.info("[INTEGRITY] Cleaned system_settings.json written to %s", settings_path)
-            except Exception as e:
+            except (json.JSONDecodeError, ValueError) as e:
                 logger.error("[INTEGRITY] Failed to write cleaned system_settings: %s", e)
 
         required_keys = (

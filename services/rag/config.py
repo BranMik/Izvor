@@ -1,4 +1,3 @@
-import json
 import logging
 import os
 from pathlib import Path
@@ -12,22 +11,35 @@ from core.paths import (
     RAG_KNOWLEDGE_DIR,
     SYSTEM_SETTINGS_FILE,
 )
+from orchestration.system_settings import system_settings_manager
 
 # Canonical project & RAG paths from core.paths SSOT
 BASE_DIR = PROJECT_ROOT
 CACHE_DIR = RAG_CACHE_DIR
 SYSTEM_SETTINGS_PATH = SYSTEM_SETTINGS_FILE
 
-from orchestration.system_settings import system_settings_manager
-
 logger = logging.getLogger(__name__)
+
+__all__ = [
+    "BASE_DIR",
+    "CACHE_DIR",
+    "SYSTEM_SETTINGS_PATH",
+    "LANCEDB_DIR",
+    "MANIFEST_PATH",
+    "PROJECT_ROOT",
+    "RAG_CACHE_DIR",
+    "RAG_KNOWLEDGE_DIR",
+    "SYSTEM_SETTINGS_FILE",
+    "load_rag_settings_from_file",
+    "get_rag_setting",
+]
 
 
 def load_rag_settings_from_file() -> dict[str, Any]:
     """Reads the 'rag' section via SystemSettingsManager SSOT."""
     try:
         return system_settings_manager.get_rag_config()
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.debug(f"[RAG Config] Could not read rag settings from system_settings_manager: {e}")
         return {}
 
@@ -57,7 +69,7 @@ def get_rag_setting(key: str, default: Any = None) -> Any:
             except (ValueError, TypeError):
                 pass
         return val
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.debug(f"[RAG Config] Error getting rag setting '{key}' from manager: {e}")
         return default
 

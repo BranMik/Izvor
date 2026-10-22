@@ -1,10 +1,10 @@
 import asyncio
 import inspect
 import logging
-import sys
 from typing import Any
 
-from starlette.concurrency import run_in_threadpool
+import litellm
+
 from core.config import is_test_environment
 
 logger = logging.getLogger(__name__)
@@ -14,7 +14,7 @@ def get_llm_max_retries() -> int:
     try:
         from orchestration.system_settings import get_llm_max_retries
         return get_llm_max_retries()
-    except Exception:
+    except Exception:  # noqa: BLE001
         return 3
 
 
@@ -24,7 +24,7 @@ def get_llm_retry_backoff_base() -> float:
     try:
         from orchestration.system_settings import get_llm_retry_backoff_base
         return get_llm_retry_backoff_base()
-    except Exception:
+    except Exception:  # noqa: BLE001
         return 1.5
 
 
@@ -53,8 +53,6 @@ def is_openai_model(model: str | None) -> bool:
         or "/o3" in m
     )
 
-
-import litellm
 
 def classify_agent_error(e: Exception) -> str:
     """
@@ -211,7 +209,7 @@ async def execute_llm_with_retry(
 
     is_strict = is_strict_privacy_mode_enabled()
     active_mapping: dict[str, str] = turn_token_mapping if turn_token_mapping is not None else {}
-    
+
     # 1. Masking Phase
     if is_strict and "messages" in kwargs:
         # Create a deep copy to avoid mutating the original message array referenced elsewhere
@@ -253,7 +251,7 @@ async def execute_llm_with_retry(
                     f"[LLM] Retrying LLM completion for {agent_key} (attempt {attempt}/{max_attempts})..."
                 )
             res = await _invoke_llm(func, kwargs, runner=run_in_threadpool_fn)
-            
+
             # 2. Unmasking Phase
             if is_strict and active_mapping and hasattr(res, "choices") and res.choices:
                 first_choice = res.choices[0]

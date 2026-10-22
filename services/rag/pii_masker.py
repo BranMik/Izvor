@@ -150,7 +150,7 @@ class PIIMasker:
             logger.debug(
                 "[PII Masker] Presidio not installed; using built-in high-performance regex engine."
             )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.debug(f"[PII Masker] Could not initialize Presidio: {e}")
 
     @property
@@ -197,10 +197,10 @@ class PIIMasker:
 
         def get_replacer(base_token: str):
             base_token_bare = base_token.strip("<>")
-            
+
             def replacer(match: re.Match) -> str:
                 original = match.group(0)
-                
+
                 if base_token in (r"\1\2 <REDACTED_SECRET>", r"\1\2 <TOKEN_HASH>") and len(match.groups()) == 3:
                     prefix = match.group(1) + match.group(2) + " "
                     secret_val = match.group(3)
@@ -215,18 +215,18 @@ class PIIMasker:
                     token_key = f"<{token_name}_{idx}>"
                     token_mapping[token_key] = secret_val
                     return prefix + token_key
-                
+
                 # Deduplicate exact matches
                 for t, v in token_mapping.items():
                     if v == original and t.startswith(f"<{base_token_bare}_"):
                         return t
-                
+
                 idx = counts.get(base_token_bare, 0)
                 counts[base_token_bare] = idx + 1
                 token = f"<{base_token_bare}_{idx}>"
                 token_mapping[token] = original
                 return token
-                
+
             return replacer
 
         # 1. Mask deterministic secrets and credentials
@@ -241,7 +241,6 @@ class PIIMasker:
         self._init_presidio_if_available()
         if self._presidio_analyzer and self._presidio_anonymizer:
             try:
-                from presidio_anonymizer.entities import OperatorConfig
 
                 results = self._presidio_analyzer.analyze(
                     text=masked_text,
@@ -277,7 +276,7 @@ class PIIMasker:
                         replacement = custom_anonymize(res)
                         masked_text = masked_text[:res.start] + replacement + masked_text[res.end:]
 
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 logger.debug(f"[PII Masker] Presidio NER processing error: {e}")
 
         return masked_text, token_mapping

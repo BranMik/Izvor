@@ -24,11 +24,11 @@ This document provides complete technical specifications for the HTTP endpoints 
 | `POST` | `/slack/events` | Slack HMAC | Inbound Slack Events API webhook (app mentions, thread replies, URL verification challenge). |
 | `POST` | `/slack/actions` | Slack HMAC | Inbound Slack interactive shortcuts and action handlers. |
 | `POST` | `/slack/interactivity` | Slack HMAC | Inbound Slack Block Kit actions, App Home configuration modals, and HITL approvals. |
-| `GET` | `/api/health` | Admin | Authenticated health check exposing active registered persona keys. |
-| `GET` | `/api/skills` | Admin | Returns all registered dynamic skills, descriptions, and schemas. |
+| `GET` | `/api/health` | Admin | Authenticated health check exposing active registered persona keys (17 personas). |
+| `GET` | `/api/skills` | Admin | Returns all 21 registered dynamic skills, descriptions, and schemas. |
 | `GET` | `/api/rag/status` | Admin | Returns RAG manifest status and total indexed documents. |
 | `POST` | `/api/rag/reconcile` | Admin | Triggers an immediate on-demand reconciliation of `rag_knowledge/`. |
-| `GET` | `/api/audit/status` | Admin | Returns cryptographic integrity and HMAC hash chain verification diagnostics. |
+| `GET` | `/api/audit/status` | Admin | Returns cryptographic integrity, SQLite anchor, and HMAC hash chain verification diagnostics. |
 
 ---
 
@@ -55,6 +55,7 @@ This document provides complete technical specifications for the HTTP endpoints 
 {
   "status": "healthy",
   "service": "Izvor Multi-Agent Hub",
+  "agents_count": 17,
   "agents": [
     "agent-10001",
     "agent-10002",
@@ -71,7 +72,8 @@ This document provides complete technical specifications for the HTTP endpoints 
     "agent-10013",
     "agent-10014",
     "agent-10015",
-    "agent-10016"
+    "agent-10016",
+    "agent-10017"
   ]
 }
 ```
@@ -88,18 +90,19 @@ This document provides complete technical specifications for the HTTP endpoints 
     {
       "name": "web_research",
       "display_name": "Web Research",
-      "description": "Searches the web for up-to-date benchmarks and news.",
-      "tools": ["web_research"],
+      "description": "Searches the web and fetches web page content.",
+      "tools": ["web_search", "fetch_web_page"],
       "schemas": [
         {
           "type": "function",
           "function": {
-            "name": "web_research",
-            "description": "Search DuckDuckGo or Google",
+            "name": "web_search",
+            "description": "Search DuckDuckGo for up-to-date information",
             "parameters": {
               "type": "object",
               "properties": {
-                "query": { "type": "string" }
+                "query": { "type": "string" },
+                "max_results": { "type": "integer" }
               },
               "required": ["query"]
             }

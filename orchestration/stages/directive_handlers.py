@@ -66,7 +66,7 @@ async def require_directive_admin(
                 severity="CRITICAL",
                 status="BLOCKED",
             )
-        except Exception as ae:
+        except Exception as ae:  # noqa: BLE001
             logger.error(f"[VALIDATION] Failed to emit audit event for unauthorized directive: {ae}")
 
         await post_sys_msg(
@@ -86,7 +86,7 @@ async def require_directive_admin(
             severity="WARNING",
             status="SUCCESS",
         )
-    except Exception as ae:
+    except Exception as ae:  # noqa: BLE001
         logger.error(f"[VALIDATION] Failed to emit admin directive audit event: {ae}")
 
     return None

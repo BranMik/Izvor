@@ -208,7 +208,7 @@ def test_atomic_queue_pop_and_remove_methods():
     assert len(remaining) == 1
     assert popped_random not in remaining
 
-    popped_last = mgr.pop_random_remaining_agent(channel_id, thread_ts)
+    assert mgr.pop_random_remaining_agent(channel_id, thread_ts) is not None
     assert len(mgr.get_remaining_agents(channel_id, thread_ts)) == 0
     assert mgr.pop_random_remaining_agent(channel_id, thread_ts) is None
 

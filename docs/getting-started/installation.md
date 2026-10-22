@@ -38,9 +38,15 @@ python -m venv .venv
 
 ### 3. Install Dependencies
 
+For production or runtime execution:
 ```bash
 pip install --upgrade pip
 pip install -r requirements.txt
+```
+
+For local development and running the test suite (managed via [`pyproject.toml`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/pyproject.toml) and [`requirements-dev.txt`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/requirements-dev.txt)):
+```bash
+pip install -r requirements-dev.txt
 ```
 
 Izvor utilizes:
@@ -82,7 +88,7 @@ Refer to [`core/config.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/co
 
 ### ⚙️ System Settings (`data/settings/system_settings.json`)
 
-System operational parameters, security guardrails, and timeouts are managed by [`SystemSettingsManager`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/orchestration/system_settings.py). These settings can be modified live without server restarts:
+System operational parameters, security guardrails, and timeouts are managed by [`SystemSettingsManager`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/orchestration/system_settings.py) (backed by [`JsonSettingsStore`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/orchestration/settings_store.py)). These settings can be modified live without server restarts:
 
 | Setting Key | Default | Description |
 |---|---|---|
@@ -91,29 +97,39 @@ System operational parameters, security guardrails, and timeouts are managed by 
 | `tool_call_loop_timeout_seconds` | `60.0` | Maximum wall-clock execution time for iterative tool calling loops. |
 | `slack_post_pause_seconds` | `2.0` | Brief pause before posting to Slack to allow human visual parsing. |
 | `max_file_size_mb` | `50.0` | Maximum allowable file size for uploads and workspace parsing. |
+| `max_write_bytes` | `1048576` | Hard ceiling in bytes (1 MB) for individual `write_document` workspace writes. |
 | `strict_privacy_mode_enabled` | `true` | Enforces privacy boundaries and PII masking. |
-| `guardrail_fail_mode` | `"open"` | Semantic jailbreak guardrail fallback mode (`"open"` allows turn with warning, `"closed"` blocks execution). |
-| `guardrail_embedding_cache_size` | `1000` | LRU cache capacity for prompt embedding similarity calculations. |
+| `internal_revisor_enabled` | `true` | Enables inline `InternalRevisor` quality/compliance checks at the end of agent turns. |
+| `guardrail_fail_mode` | `"open"` | Semantic jailbreak guardrail fallback mode (`"open"` allows turn with warning, `"closed"` blocks execution and logs `GUARDRAIL_FAIL_CLOSED_BLOCKED`). |
+| `guardrail_embedding_cache_size` | `500` | LRU cache capacity for prompt embedding similarity calculations. |
 | `max_discussion_turns` | `20` | Hard ceiling for total agent turns in a single thread deliberation. |
-| `max_tool_iterations` | `10` | Maximum tool execution iterations per single agent turn. |
+| `max_tool_iterations` | `3` | Maximum tool execution iterations per single agent turn. |
 | `tool_call_num_retries` | `2` | Number of retries permitted for transient tool invocation failures. |
 | `word_limit_grace_buffer` | `50` | Word count buffer above `max_words` before mechanical truncation is applied. |
-| `thread_cleanup_interval_seconds` | `3600` | Frequency in seconds for pruning idle in-memory thread states (1 hour). |
-| `audit_integrity_check_interval_seconds` | `3600` | Frequency in seconds for verifying the cryptographic hash chain of audit logs. |
+| `thread_cleanup_interval_seconds` | `600.0` | Frequency in seconds for pruning idle in-memory thread states (10 minutes). |
+| `audit_integrity_check_interval_seconds` | `43200.0` | Frequency in seconds for verifying the cryptographic hash chain of audit logs (12 hours). |
 | `pricing_cache_ttl_days` | `7` | Cache lifespan in days for LLM token pricing benchmarks. |
-| `slack_file_download_timeout_seconds` | `15.0` | Timeout in seconds for downloading attached files from Slack. |
+| `slack_file_download_timeout_seconds` | `30.0` | Timeout in seconds for downloading attached files from Slack. |
 | `web_search_timeout_seconds` | `10.0` | Timeout in seconds for outbound DuckDuckGo MCP web searches. |
-| `web_fetch_timeout_seconds` | `15.0` | Timeout in seconds for fetching web pages via MCP scraper. |
-| `db_busy_timeout_seconds` | `30.0` | SQLite lock wait timeout in seconds before raising database busy error. |
-| `llm_max_retries` | `2` | Max automatic retries for transient LiteLLM provider errors. |
+| `web_fetch_timeout_seconds` | `12.0` | Timeout in seconds for fetching web pages via MCP scraper. |
+| `db_busy_timeout_seconds` | `5.0` | SQLite lock wait timeout in seconds (5,000ms) before raising database busy error. |
+| `llm_max_retries` | `3` | Max automatic retries for transient LiteLLM provider errors. |
 | `llm_retry_backoff_base` | `1.5` | Exponential backoff multiplier base for LLM retries. |
-| `slack_rate_limit_per_second` | `1.0` | Outbound Slack API token bucket refill rate per second. |
-| `slack_rate_limit_burst` | `3.0` | Maximum burst capacity for Slack API token bucket. |
+| `slack_rate_limit_per_second` | `10.0` | Outbound Slack API token bucket refill rate per second. |
+| `slack_rate_limit_burst` | `15.0` | Maximum burst capacity for Slack API token bucket. |
 | `default_fast_model` | `"gemini/gemini-3.8-flash"` | System-level fallback model for fast routing/parsing tasks. |
 | `default_reasoning_model` | `"mistral/mistral-large-latest"` | System-level fallback model for deep deliberation tasks. |
-| `pricing_benchmark_url` | OpenRouter API URL | Endpoint for remote LLM token pricing benchmarks. |
-| `web_search_endpoint` | DuckDuckGo HTML URL | Target endpoint for outbound web searches. |
+| `pricing_benchmark_url` | `"https://artificialanalysis.ai/models"` | Endpoint for remote LLM token pricing benchmarks. |
+| `web_search_endpoint` | `"https://html.duckduckgo.com/html/"` | Target endpoint for outbound web searches. |
 | `web_fetch_user_agent` | Izvor Bot string | HTTP `User-Agent` header for outbound web fetching. |
+| `web_security` | `{...}` | Outbound web safety rules (`max_url_length: 2048`, `max_query_length: 500`, `max_redirects: 5`, `max_body_bytes: 2097152`, `allowed_ports: [80, 443]`, `allowed_domains: []`, `strip_query_on_untrusted_domains: true`, `max_fetches_per_turn: 10`). |
+| `security_burst_limits` | `{...}` | Sliding-window rate limiters for failed authentication (`auth_failure_window_seconds: 60.0`, `auth_failure_burst_limit: 5`, `global_auth_failure_burst_limit: 25`, `max_tracker_entries: 1000`). |
+| `convergence_consecutive_threshold` | `2` | Number of consecutive `signal_consensus_convergence` calls required before triggering the Challenger/Rebuttal fast-forward gate. |
+| `dialectical_stress_test` | `{...}` | Dialectical stress-test parameters (`enabled: true`, `consecutive_threshold: 2`, `max_stress_rounds: 1`). |
+| `retention_checkpoints_days` | `7` | Retention window in days before resolved `turn_checkpoints` rows are deleted. |
+| `retention_traces_days` | `30` | Retention window in days before `turn_traces` telemetry spans are deleted. |
+| `retention_event_dedup_days` | `1` | Retention window in days before `event_dedup` rows are purged. |
+| `workspace_write_blacklist_additional` | `[]` | Additional filename patterns blocked from workspace `write_document` operations. |
 | `rag` | `{...}` | Semantic chunking, LanceDB dimensions, and embedding configuration. |
 
 ---
@@ -130,7 +146,7 @@ uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 
 ### Windows Proactor Loop Notice
 
-On Windows platforms, Python's Proactor event loop can occasionally stall when no incoming HTTP sockets are active. Izvor automatically starts a background heartbeat coroutine [`keep_loop_alive`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/main.py#L46-L53) to keep the loop responsive without measurable CPU overhead.
+On Windows platforms, Python's Proactor event loop can occasionally stall when no incoming HTTP sockets are active. Izvor automatically starts a background heartbeat coroutine [`keep_loop_alive`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/main.py#L50-L57) to keep the loop responsive without measurable CPU overhead.
 
 ### Health Check Verification
 

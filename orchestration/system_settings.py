@@ -1,9 +1,6 @@
 import copy
 import fnmatch
-import json
 import logging
-import os
-import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -329,7 +326,7 @@ class SystemSettingsManager:
             self._apply_model_to_fields(model)
             self._last_loaded_mtime = mtime
             logger.debug(f"[SYSTEM_SETTINGS] Loaded settings from {target_file}")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.error(f"[SYSTEM_SETTINGS] Failed to load {target_file}: {e}")
 
     def save(self) -> None:

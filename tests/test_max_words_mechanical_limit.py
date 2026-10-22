@@ -1,5 +1,4 @@
-import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 import pytest
 
 from orchestration.turn_pipeline import TurnContext, TurnPipeline
@@ -12,10 +11,10 @@ def test_apply_mechanical_word_limit_preserves_trailing_tag():
     # 120 words followed by nomination tag
     words = [f"word{i}" for i in range(1, 121)]
     long_text = " ".join(words) + " /[agent-10007]"
-    
+
     # max_words = 50 -> cutoff is 50 + 50 = 100 words
     result = apply_mechanical_word_limit(long_text, max_words=50)
-    
+
     assert "/[agent-10007]" in result
     assert result.endswith("/[agent-10007]")
     # Extract body before tag

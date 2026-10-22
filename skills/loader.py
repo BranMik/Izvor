@@ -9,7 +9,9 @@ import concurrent.futures
 import inspect
 import json
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
+import importlib.util
 from pathlib import Path
 from typing import Any
 
@@ -49,10 +51,6 @@ LOAD_SKILL_SCHEMA = {
         },
     },
 }
-
-
-import importlib.util
-from collections.abc import Callable
 
 
 @dataclass
@@ -150,7 +148,7 @@ class SkillRegistry:
         for field_name in required_fields:
             if field_name not in meta:
                 logger.warning(f"[SKILLS] Validation warning in {file_path}: missing required field '{field_name}'")
-        
+
         triggers = meta.get("triggers") or {}
         if isinstance(triggers, dict) and "auto_detect" not in triggers:
             logger.warning(
@@ -791,7 +789,7 @@ class SkillRegistry:
                         else:
                             return asyncio.run(handler(arguments, **kwargs))
                     return handler(arguments, **kwargs)
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001
                     logger.error(f"[SKILLS] Custom tool handler error for '{tool_name}': {e}")
                     return json.dumps({"error": f"Tool execution failed: {e}"})
 
@@ -900,7 +898,7 @@ class SkillRegistry:
             kwargs = {"agent_name": agent_name} if "agent_name" in sig.parameters else {}
             try:
                 return await async_fn(arguments, **kwargs)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 logger.error(f"[SKILLS] Async custom tool handler error for '{tool_name}': {e}")
                 return json.dumps({"error": f"Tool execution failed: {e}"})
 

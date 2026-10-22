@@ -8,7 +8,6 @@ and valid nomination enforcement without unnecessary class wrapper indirection.
 from __future__ import annotations
 
 import logging
-import random
 import re
 from typing import Any
 
@@ -29,6 +28,15 @@ from .agent_settings import settings_manager
 from .thread_state import thread_state_manager
 
 logger = logging.getLogger(__name__)
+
+__all__ = [
+    "NOMINATION_TAG_RE",
+    "NOMINATION_TAG_REGEX",
+    "TAG_REGEX",
+    "entity_resolver",
+    "format_nomination",
+    "format_nomination_tag",
+]
 
 
 def resolve_target_file(
