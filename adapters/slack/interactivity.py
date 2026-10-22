@@ -312,6 +312,9 @@ async def handle_slack_interactivity(request: Request, background_tasks: Backgro
             spec = _resolve_action_spec(action_id)
             if spec.admin_required and not is_slack_admin(user_id):
                 _deny_non_admin_action(payload, user_id, action_id, background_tasks)
+                trigger_id = payload.get("trigger_id")
+                if trigger_id:
+                    return Response(status_code=200)
                 return Response(status_code=403)
             resolved_actions.append((action, spec))
 

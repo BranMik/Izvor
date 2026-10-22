@@ -98,11 +98,14 @@ def test_admin_allowed_system_actions(monkeypatch):
 
 
 def test_non_admin_blocked_from_workspace_modal(monkeypatch):
-    """Test that modal submission and opening is restricted to admins."""
+    """Test that modal submission and opening is restricted to admins with modal feedback for UI actions."""
     monkeypatch.setenv("SLACK_ADMIN_USER_IDS", "U_LEGIT_ADMIN")
     monkeypatch.setattr("adapters.slack.interactivity.verify_slack_signature", lambda body, headers: True)
+    mock_views_open = AsyncMock(return_value={"ok": True})
+    monkeypatch.setattr("adapters.slack.actions.agent_actions.slack_async_client.views_open", mock_views_open)
+    monkeypatch.setattr("services.slack.views.publish_app_home", AsyncMock(return_value={"ok": True}))
 
-    # 1. Open modal attempt by non-admin
+    # 1. Interactive action attempt by non-admin (trigger_id present -> returns 200 and pops modal)
     open_payload = {
         "type": "block_actions",
         "user": {"id": "U_NON_ADMIN"},
@@ -110,9 +113,22 @@ def test_non_admin_blocked_from_workspace_modal(monkeypatch):
         "trigger_id": "trig_123",
     }
     resp = client.post("/slack/actions", json=open_payload)
-    assert resp.status_code == 403
+    assert resp.status_code == 200
+    mock_views_open.assert_called_once()
+    modal_arg = mock_views_open.call_args.kwargs
+    assert modal_arg["trigger_id"] == "trig_123"
+    assert modal_arg["view"]["title"]["text"] == "Admin Access Required"
 
-    # 2. Submit modal attempt by non-admin
+    # 2. Headless action attempt by non-admin (no trigger_id -> returns 403 fail-closed)
+    headless_payload = {
+        "type": "block_actions",
+        "user": {"id": "U_NON_ADMIN"},
+        "actions": [{"action_id": "open_edit_workspace_context_modal"}],
+    }
+    resp_headless = client.post("/slack/actions", json=headless_payload)
+    assert resp_headless.status_code == 403
+
+    # 3. Submit modal attempt by non-admin
     submit_payload = {
         "type": "view_submission",
         "user": {"id": "U_NON_ADMIN"},
@@ -129,3 +145,40 @@ def test_non_admin_blocked_from_workspace_modal(monkeypatch):
     }
     resp_sub = client.post("/slack/actions", json=submit_payload)
     assert resp_sub.status_code == 403
+
+
+def test_workflow_dropdown_non_admin_opens_admin_required_modal(monkeypatch):
+    """Test that selecting workflow preset as non-admin opens Admin Access Required modal and logs audit event."""
+    monkeypatch.setenv("SLACK_ADMIN_USER_IDS", "U_LEGIT_ADMIN")
+    monkeypatch.setattr("adapters.slack.interactivity.verify_slack_signature", lambda body, headers: True)
+    mock_views_open = AsyncMock(return_value={"ok": True})
+    monkeypatch.setattr("adapters.slack.actions.agent_actions.slack_async_client.views_open", mock_views_open)
+    monkeypatch.setattr("services.slack.views.publish_app_home", AsyncMock(return_value={"ok": True}))
+
+    wf_payload = {
+        "type": "block_actions",
+        "user": {"id": "U0123456789"},
+        "trigger_id": "trig_wf_select_999",
+        "actions": [
+            {
+                "action_id": "select_workflow_preset",
+                "selected_option": {
+                    "value": "wf:default_sandwich",
+                    "text": {"type": "plain_text", "text": "🥪 Default Sandwich"},
+                },
+            }
+        ],
+    }
+    resp = client.post("/slack/actions", json=wf_payload)
+    assert resp.status_code == 200
+
+    mock_views_open.assert_called_once()
+    modal_call = mock_views_open.call_args.kwargs
+    assert modal_call["trigger_id"] == "trig_wf_select_999"
+    modal_view = modal_call["view"]
+    assert modal_view["title"]["text"] == "Admin Access Required"
+    # Ensure User ID is embedded in modal instructions
+    block_texts = [b["text"]["text"] for b in modal_view["blocks"] if "text" in b and isinstance(b["text"], dict)]
+    assert any("U0123456789" in t for t in block_texts)
+    assert any("Select Workflow Preset" in t for t in block_texts)
+

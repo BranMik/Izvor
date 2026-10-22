@@ -13,6 +13,7 @@ from services.slack_home.agents_tab import (
     build_panel_status_block,
 )
 from services.slack_home.governance_tab import (
+    build_admin_required_modal,
     build_edit_workspace_context_modal,
     build_governance_blocks,
     build_workspace_context_block,
@@ -284,6 +285,7 @@ def build_app_home_view(
 
 
 __all__ = [
+    "build_admin_required_modal",
     "build_app_home_view",
     "build_edit_workspace_context_modal",
     "_get_example_agent_id",
