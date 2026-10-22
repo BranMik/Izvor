@@ -19,7 +19,7 @@ from orchestration.agent_settings import (
     reset_enabled_agents,
     set_agent_model,
 )
-from services.slack_client import build_app_home_view
+from services.slack_home import build_app_home_view
 
 
 def test_get_active_providers_filters_placeholders():

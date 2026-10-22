@@ -77,7 +77,7 @@ Izvor does not rely on rigid turn-taking. It supports distinct workflow topologi
 - **Two-Tiered Circuit Breakers**: Protects against runaway costs with both per-thread thresholds (`circuit_breaker_threshold_usd`) and global daily workspace caps (`daily_budget_usd`).
 
 ### 5. Interactive Slack App Home & Administrative SSOT
-- **Live Configuration**: Slack workspace admins (`is_slack_admin(user_id)`) can configure debate workflows, agent rosters, circuit breaker thresholds, and topologies directly in the Slack App Home tab ([`services/slack_home_views.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/services/slack_home_views.py)).
+- **Live Configuration**: Slack workspace admins (`is_slack_admin(user_id)`) can configure debate workflows, agent rosters, circuit breaker thresholds, and topologies directly in the Slack App Home tab ([`services/slack_home/`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/services/slack_home/__init__.py)).
 - **Resilient Persistence**: Changes are committed atomically to `data/settings/agent_settings.json` and `data/settings/app_settings.json`, backed by automated rolling backups in `data/backups/`.
 
 ### 6. Non-Repudiable Cryptographic Audit Logging

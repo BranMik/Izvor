@@ -13,7 +13,7 @@ from agents.thread_notes_agent import (
     update_notes_for_thread,
 )
 from core.config import get_thread_notes_model
-from services.slack_client import post_thread_note, update_thread_note
+from services.slack import post_thread_note, update_thread_note
 
 
 @pytest.fixture(autouse=True)
@@ -152,8 +152,9 @@ async def test_trigger_thread_notes_update_spawns_and_coalesces_task():
 
 @pytest.mark.anyio
 async def test_slack_client_post_and_update_thread_note_mock_mode(monkeypatch):
-    from services import slack_client
+    from services import slack as slack_client
     monkeypatch.setattr(slack_client, "SLACK_BOT_TOKEN", "xoxb-your-bot-user-oauth-token")
+    monkeypatch.setattr("services.slack.client_core.SLACK_BOT_TOKEN", "xoxb-your-bot-user-oauth-token")
 
     res_post = await post_thread_note(
         channel_id="C_MOCK",
@@ -175,8 +176,9 @@ async def test_slack_client_post_and_update_thread_note_mock_mode(monkeypatch):
 
 @pytest.mark.anyio
 async def test_slack_client_note_api_calls(monkeypatch):
-    from services import slack_client
+    from services import slack as slack_client
     monkeypatch.setattr(slack_client, "SLACK_BOT_TOKEN", "xoxb-valid-test-token")
+    monkeypatch.setattr("services.slack.client_core.SLACK_BOT_TOKEN", "xoxb-valid-test-token")
 
     mock_post = AsyncMock(return_value={"ok": True, "ts": "1700000000.888"})
     mock_pin = AsyncMock(return_value={"ok": True})
@@ -277,9 +279,10 @@ async def test_router_invokes_trigger_thread_notes_update(monkeypatch):
 
 @pytest.mark.anyio
 async def test_fetch_thread_history_excludes_scribe_notes(monkeypatch):
-    from services import slack_client
+    from services import slack as slack_client
 
     monkeypatch.setattr(slack_client, "SLACK_BOT_TOKEN", "xoxb-valid-test-token")
+    monkeypatch.setattr("services.slack.client_core.SLACK_BOT_TOKEN", "xoxb-valid-test-token")
 
     fake_messages = [
         {"user": "U1", "text": "Let's debate the new API", "subtype": None},

@@ -547,7 +547,7 @@ def test_slack_interactivity_circuit_breaker_save_button_dynamic_block_id():
 
 
 def test_slack_interactivity_preset_updates_view():
-    from services.slack_client import build_app_home_view
+    from services.slack_home import build_app_home_view
 
     set_circuit_breaker_threshold(1.00)
 
@@ -599,7 +599,7 @@ def test_slack_interactivity_url_encoded_payload():
 
 
 def test_circuit_breaker_off_resets_amount_in_app_home_view():
-    from services.slack_client import build_app_home_view
+    from services.slack_home import build_app_home_view
 
     set_circuit_breaker_enabled(True)
     set_circuit_breaker_threshold(3.50)

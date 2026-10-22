@@ -14,7 +14,7 @@ from agents import (
 )
 from core.llm_utils import execute_llm_with_retry
 from orchestration.thread_state import thread_state_manager
-from services.slack_client import (
+from services.slack import (
     fetch_thread_files,
     fetch_thread_history,
     post_agent_response,
@@ -50,11 +50,11 @@ def _get_dynamic_dep(name: str, original_func: Any) -> Any:
     current_router_val = getattr(sys.modules.get(__name__), name, None)
     if current_router_val is not None and current_router_val is not original_func:
         return current_router_val
-    client_mod = sys.modules.get("services.slack_client")
-    if client_mod is not None:
-        current_client_val = getattr(client_mod, name, None)
-        if current_client_val is not None and current_client_val is not original_func:
-            return current_client_val
+    slack_mod = sys.modules.get("services.slack")
+    if slack_mod is not None:
+        current_slack_val = getattr(slack_mod, name, None)
+        if current_slack_val is not None and current_slack_val is not original_func:
+            return current_slack_val
     return current_router_val or original_func
 
 

@@ -52,7 +52,7 @@ from core.config import is_slack_admin
 from core.slack_security import verify_slack_signature
 from orchestration.agent_settings import sync_settings_if_modified
 from services.audit_logger import log_audit_event
-from services.slack_client import (
+from services.slack import (
     open_dm_channel,
     post_ephemeral_to_slack,
     publish_app_home,

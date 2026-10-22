@@ -35,7 +35,7 @@ from orchestration.workflow_manager import (
     save_workflow,
 )
 from services.audit_logger import log_audit_event
-from services.slack_client import (
+from services.slack import (
     open_dm_channel,
     post_ephemeral_to_slack,
     slack_async_client,
@@ -43,53 +43,6 @@ from services.slack_client import (
 )
 
 logger = logging.getLogger("IzvorBackend.SlackInteractivity.Workflows")
-
-
-def _log_audit_event(**kwargs: Any) -> Any:
-    from adapters.slack.actions import get_interactivity_attr
-
-    fn = get_interactivity_attr("log_audit_event", log_audit_event)
-    return fn(**kwargs)
-
-
-def _get_slack_client() -> Any:
-    from adapters.slack.actions import get_interactivity_attr
-
-    return get_interactivity_attr("slack_async_client", slack_async_client)
-
-
-async def _post_ephemeral(**kwargs: Any) -> Any:
-    from adapters.slack.actions import get_interactivity_attr
-
-    fn = get_interactivity_attr("post_ephemeral_to_slack", post_ephemeral_to_slack)
-    return await fn(**kwargs)
-
-
-async def _open_dm(user_id: str) -> Any:
-    from adapters.slack.actions import get_interactivity_attr
-
-    fn = get_interactivity_attr("open_dm_channel", open_dm_channel)
-    return await fn(user_id)
-
-
-async def _upload_text_file(**kwargs: Any) -> Any:
-    from adapters.slack.actions import get_interactivity_attr
-
-    fn = get_interactivity_attr("upload_text_file_to_slack", upload_text_file_to_slack)
-    return await fn(**kwargs)
-
-
-def _get_scribe_download_fn() -> Any:
-    from adapters.slack.actions import get_interactivity_attr
-
-    return get_interactivity_attr("_handle_scribe_download", _handle_scribe_download)
-
-
-async def _task_post_ephemeral(**kwargs: Any) -> Any:
-    from adapters.slack.actions import get_interactivity_attr
-
-    fn = get_interactivity_attr("post_ephemeral_to_slack", post_ephemeral_to_slack)
-    return await fn(**kwargs)
 
 
 def _validate_chain_agent_keys(raw_value: str) -> tuple[list[str], list[str]]:
@@ -124,17 +77,17 @@ async def _handle_scribe_download(
     """
     try:
         if channel_id and thread_ts:
-            await _post_ephemeral(
+            await post_ephemeral_to_slack(
                 channel_id=channel_id,
                 user_id=user_id,
                 text="✅ Prepared notes have been sent as a `.txt` file to your direct message (DM).",
                 thread_ts=thread_ts,
             )
 
-        dm_channel_id = await _open_dm(user_id) or user_id
+        dm_channel_id = await open_dm_channel(user_id) or user_id
         clean_ts = thread_ts.replace(".", "_") if thread_ts else "notes"
         filename = f"{filename_prefix}_{clean_ts}.txt"
-        await _upload_text_file(
+        await upload_text_file_to_slack(
             channel_id=dm_channel_id,
             content=content,
             filename=filename,
@@ -195,9 +148,8 @@ async def _handle_download_scribe_notes(
         notes_text = f"*(No {fallback_label} notes recorded for this thread)*"
 
     if user_id:
-        scribe_fn = _get_scribe_download_fn()
         background_tasks.add_task(
-            scribe_fn,
+            _handle_scribe_download,
             user_id=user_id,
             channel_id=channel_id,
             thread_ts=thread_ts,
@@ -247,7 +199,7 @@ async def _handle_resume_sequence(
 
         if tripped:
             background_tasks.add_task(
-                _task_post_ephemeral,
+                post_ephemeral_to_slack,
                 channel_id=channel_id,
                 user_id=user_id,
                 text=f"The budget limit (${threshold:.5f}) is still too low compared to current cost (${current_cost:.5f}). Please raise it first.",
@@ -256,7 +208,7 @@ async def _handle_resume_sequence(
         else:
             msg = payload.get("message", {})
             if msg and msg.get("ts"):
-                client = _get_slack_client()
+                client = slack_async_client
                 background_tasks.add_task(
                     client.chat_update,
                     channel=channel_id,
@@ -264,7 +216,7 @@ async def _handle_resume_sequence(
                     text=f"✅ Sequence resumed by <@{user_id}>.",
                     blocks=[],
                 )
-            _log_audit_event(
+            log_audit_event(
                 event_type="SEQUENCE_RESUMED",
                 actor={"type": "slack_admin", "id": user_id or "unknown"},
                 action="resume_sequence_action",
@@ -303,7 +255,7 @@ async def _handle_toggle_circuit_breaker(
     set_circuit_breaker_enabled(is_on)
     if not is_on:
         set_circuit_breaker_threshold(0.0)
-    _log_audit_event(
+    log_audit_event(
         event_type="ADMIN_CONFIG_CHANGE",
         actor={"type": "slack_admin", "id": user_id or "unknown"},
         action="toggle_circuit_breaker",
@@ -325,7 +277,7 @@ async def _handle_toggle_scribe(
     val = selected_option.get("value", "")
     is_on = val == "scribe:on"
     set_scribe_enabled(is_on)
-    _log_audit_event(
+    log_audit_event(
         event_type="ADMIN_CONFIG_CHANGE",
         actor={"type": "slack_admin", "id": user_id or "unknown"},
         action="toggle_scribe",
@@ -347,7 +299,7 @@ async def _handle_toggle_weekly_pricing(
     val = selected_option.get("value", "")
     is_on = val == "pricing_update:on"
     set_weekly_pricing_update_enabled(is_on)
-    _log_audit_event(
+    log_audit_event(
         event_type="ADMIN_CONFIG_CHANGE",
         actor={"type": "slack_admin", "id": user_id or "unknown"},
         action="toggle_weekly_pricing_update",
@@ -369,7 +321,7 @@ async def _handle_toggle_convergence_ff(
     val = selected_option.get("value", "")
     is_on = val == "convergence_ff:on"
     set_convergence_fast_forward_enabled(is_on)
-    _log_audit_event(
+    log_audit_event(
         event_type="ADMIN_CONFIG_CHANGE",
         actor={"type": "slack_admin", "id": user_id or "unknown"},
         action="toggle_convergence_fast_forward",
@@ -397,7 +349,7 @@ async def _handle_set_circuit_breaker_threshold_input(
         else:
             set_circuit_breaker_threshold(0.0)
             set_circuit_breaker_enabled(False)
-        _log_audit_event(
+        log_audit_event(
             event_type="ADMIN_CONFIG_CHANGE",
             actor={"type": "slack_admin", "id": user_id or "unknown"},
             action="set_circuit_breaker_threshold",
@@ -457,7 +409,7 @@ async def _handle_save_circuit_breaker_threshold_button(
             set_circuit_breaker_threshold(0.0)
             set_circuit_breaker_enabled(False)
 
-    _log_audit_event(
+    log_audit_event(
         event_type="ADMIN_CONFIG_CHANGE",
         actor={"type": "slack_admin", "id": user_id or "unknown"},
         action="save_circuit_breaker_threshold",
@@ -485,7 +437,7 @@ async def _handle_set_circuit_breaker_preset(
         else:
             set_circuit_breaker_threshold(0.0)
             set_circuit_breaker_enabled(False)
-        _log_audit_event(
+        log_audit_event(
             event_type="ADMIN_CONFIG_CHANGE",
             actor={"type": "slack_admin", "id": user_id or "unknown"},
             action="set_circuit_breaker_preset",
@@ -513,7 +465,7 @@ async def _handle_set_thread_skill_expiry_preset(
         val_float = float(val_str)
         if val_float > 0:
             set_thread_skill_expiration_time(val_float)
-            _log_audit_event(
+            log_audit_event(
                 event_type="ADMIN_CONFIG_CHANGE",
                 actor={"type": "slack_admin", "id": user_id or "unknown"},
                 action="set_thread_skill_expiry_preset",
@@ -539,7 +491,7 @@ async def _handle_select_workflow_preset(
         wf_id = val.split(":", 1)[1]
         if wf_id and wf_id != "none":
             apply_workflow(wf_id)
-            _log_audit_event(
+            log_audit_event(
                 event_type="WORKFLOW_PRESET_MUTATION",
                 actor={"type": "slack_admin", "id": user_id or "unknown"},
                 action="apply_workflow_preset",
@@ -570,7 +522,7 @@ async def _handle_load_workflow_preset_button(
         selected_wf_id = get_active_workflow_id()
     if selected_wf_id and selected_wf_id != "none":
         apply_workflow(selected_wf_id)
-        _log_audit_event(
+        log_audit_event(
             event_type="WORKFLOW_PRESET_MUTATION",
             actor={"type": "slack_admin", "id": user_id or "unknown"},
             action="apply_workflow_preset",
@@ -603,7 +555,7 @@ async def _handle_delete_workflow_preset_button(
         delete_workflow(selected_wf_id)
         if get_active_workflow_id() == selected_wf_id:
             set_active_workflow_id(None)
-        _log_audit_event(
+        log_audit_event(
             event_type="WORKFLOW_PRESET_MUTATION",
             actor={"type": "slack_admin", "id": user_id or "unknown"},
             action="delete_workflow_preset",
@@ -682,7 +634,7 @@ async def _handle_save_workflow_preset_button(
                 sandwich_config=get_sandwich_config(),
             )
         set_active_workflow_id(saved.id)
-        _log_audit_event(
+        log_audit_event(
             event_type="WORKFLOW_PRESET_MUTATION",
             actor={"type": "slack_admin", "id": user_id or "unknown"},
             action="save_workflow_preset",
@@ -705,7 +657,7 @@ async def _handle_select_orchestration_mode(
     if val.startswith("mode:"):
         mode = val.split(":", 1)[1]
         set_orchestration_mode(mode)
-        _log_audit_event(
+        log_audit_event(
             event_type="ADMIN_CONFIG_CHANGE",
             actor={"type": "slack_admin", "id": user_id or "unknown"},
             action="select_orchestration_mode",
@@ -741,7 +693,7 @@ async def _handle_save_sandwich_chains_button(
         )
     set_sandwich_config(start_valid, end_valid)
     persist_active_workflow()
-    _log_audit_event(
+    log_audit_event(
         event_type="ADMIN_CONFIG_CHANGE",
         actor={"type": "slack_admin", "id": user_id or "unknown"},
         action="save_sandwich_chains_button",
@@ -761,7 +713,7 @@ async def _handle_clear_sandwich_chains_button(
 ) -> Response | None:
     set_sandwich_config([], [])
     persist_active_workflow()
-    _log_audit_event(
+    log_audit_event(
         event_type="ADMIN_CONFIG_CHANGE",
         actor={"type": "slack_admin", "id": user_id or "unknown"},
         action="clear_sandwich_chains_button",
@@ -785,7 +737,7 @@ async def _handle_set_start_chain_input(
     if invalid:
         logger.warning(f"[INTERACTIVITY] Unknown agent keys rejected in start_chain: {invalid}")
     set_sandwich_config(valid, curr_sandwich.get("end_chain", []))
-    _log_audit_event(
+    log_audit_event(
         event_type="ADMIN_CONFIG_CHANGE",
         actor={"type": "slack_admin", "id": user_id or "unknown"},
         action="set_start_chain_input",
@@ -809,7 +761,7 @@ async def _handle_set_end_chain_input(
     if invalid:
         logger.warning(f"[INTERACTIVITY] Unknown agent keys rejected in end_chain: {invalid}")
     set_sandwich_config(curr_sandwich.get("start_chain", []), valid)
-    _log_audit_event(
+    log_audit_event(
         event_type="ADMIN_CONFIG_CHANGE",
         actor={"type": "slack_admin", "id": user_id or "unknown"},
         action="set_end_chain_input",
@@ -837,7 +789,7 @@ async def _handle_save_fixed_chain_button(
         logger.warning(f"[INTERACTIVITY] Unknown agent keys rejected in fixed chain: {invalid}")
     set_fixed_config(valid)
     persist_active_workflow()
-    _log_audit_event(
+    log_audit_event(
         event_type="ADMIN_CONFIG_CHANGE",
         actor={"type": "slack_admin", "id": user_id or "unknown"},
         action="save_fixed_chain_button",
@@ -857,7 +809,7 @@ async def _handle_clear_fixed_chain_button(
 ) -> Response | None:
     set_fixed_config([])
     persist_active_workflow()
-    _log_audit_event(
+    log_audit_event(
         event_type="ADMIN_CONFIG_CHANGE",
         actor={"type": "slack_admin", "id": user_id or "unknown"},
         action="clear_fixed_chain_button",
@@ -880,7 +832,7 @@ async def _handle_set_fixed_chain_input(
     if invalid:
         logger.warning(f"[INTERACTIVITY] Unknown agent keys rejected in set_fixed_chain_input: {invalid}")
     set_fixed_config(valid)
-    _log_audit_event(
+    log_audit_event(
         event_type="ADMIN_CONFIG_CHANGE",
         actor={"type": "slack_admin", "id": user_id or "unknown"},
         action="set_fixed_chain_input",

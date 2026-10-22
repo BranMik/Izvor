@@ -245,7 +245,7 @@ def resolve_pipeline_deps(
 
     from core.llm_utils import execute_llm_with_retry
     from services.mcp_tools import execute_mcp_tool
-    from services.slack_client import (
+    from services.slack import (
         download_slack_file,
         fetch_thread_files,
         fetch_thread_history,

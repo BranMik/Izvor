@@ -30,7 +30,7 @@ from orchestration.agent_settings import load_enabled_agents
 from orchestration.thread_state import thread_state_manager
 from services.pricing_service import warm_up_pricing_cache
 from services.rag.sync_engine import rag_sync_engine
-from services.slack_client import publish_app_home
+from services.slack import publish_app_home
 
 from orchestration.system_settings import system_settings_manager
 from core.logging_filters import setup_credential_redaction_filters
@@ -61,7 +61,7 @@ async def periodic_thread_state_cleanup():
     Periodically purges inactive expired thread states to prevent unbounded memory growth
     and purges expired cached downloaded Slack files.
     """
-    from services.slack_client import cleanup_old_downloads
+    from services.slack import cleanup_old_downloads
 
     while True:
         try:

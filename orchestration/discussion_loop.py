@@ -19,7 +19,7 @@ from core.models import OrchestrationMode
 from orchestration import agent_settings
 from orchestration.thread_state import thread_state_manager
 from pipeline.spend_governance.circuit_breaker import spend_governance
-from services.slack_client import fetch_thread_history
+from services.slack import fetch_thread_history
 
 logger = logging.getLogger(__name__)
 

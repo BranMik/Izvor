@@ -18,7 +18,7 @@ from orchestration.nomination import (
 from orchestration.thread_state import thread_state_manager
 from pipeline.directive_parser import directive_parser
 from pipeline.entity_resolver import entity_resolver
-from services.slack_client import (
+from services.slack import (
     download_slack_file,
     fetch_thread_files,
     post_system_message,

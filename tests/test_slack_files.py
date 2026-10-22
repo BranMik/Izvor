@@ -8,7 +8,7 @@ from orchestration.agent_router import process_and_respond
 from orchestration.nomination import resolve_target_file
 from orchestration.thread_state import thread_state_manager
 from pipeline.directive_parser import directive_parser
-from services.slack_client import download_slack_file, sanitize_slack_download_filename
+from services.slack import download_slack_file, sanitize_slack_download_filename
 
 
 @pytest.mark.anyio
@@ -261,7 +261,7 @@ async def test_download_slack_file_mock_mode():
         "url_private_download": "https://files.slack.com/files-pri/T1/sample.py",
         "size": 100,
     }
-    with patch("services.slack_client.SLACK_BOT_TOKEN", ""):
+    with patch("services.slack.SLACK_BOT_TOKEN", ""):
         res = await download_slack_file(file_info)
         assert res["ok"] is True
         assert res["file_name"] == "sample.py"
@@ -299,7 +299,7 @@ async def test_download_slack_file_http_mock():
     mock_resp = AsyncMockStreamResponse(status_code=200, content=b"def add(a, b):\n    return a + b\n")
 
     with (
-        patch("services.slack_client.SLACK_BOT_TOKEN", "xoxb-real-mock-token"),
+        patch("services.slack.SLACK_BOT_TOKEN", "xoxb-real-mock-token"),
         patch("httpx.AsyncClient.stream", return_value=mock_resp),
     ):
         res = await download_slack_file(file_info)
@@ -330,7 +330,7 @@ async def test_download_slack_file_pdf_mock():
     mock_resp = AsyncMockStreamResponse(status_code=200, content=pdf_bytes)
 
     with (
-        patch("services.slack_client.SLACK_BOT_TOKEN", "xoxb-real-mock-token"),
+        patch("services.slack.SLACK_BOT_TOKEN", "xoxb-real-mock-token"),
         patch("httpx.AsyncClient.stream", return_value=mock_resp),
     ):
         res = await download_slack_file(file_info)
@@ -347,7 +347,7 @@ async def test_download_slack_file_non_slack_domain_blocked():
         "url_private_download": "https://malicious-exfiltration.com/steal-token",
         "size": 50,
     }
-    with patch("services.slack_client.SLACK_BOT_TOKEN", "xoxb-secret-bot-token"):
+    with patch("services.slack.SLACK_BOT_TOKEN", "xoxb-secret-bot-token"):
         res = await download_slack_file(file_info)
         assert res["ok"] is False
         assert "Security violation" in res["error"]
@@ -370,7 +370,7 @@ async def test_download_slack_file_streaming_byte_cap():
         "size": 100,  # Header claimed small, but stream exceeds
     }
     with (
-        patch("services.slack_client.SLACK_BOT_TOKEN", "xoxb-real-mock-token"),
+        patch("services.slack.SLACK_BOT_TOKEN", "xoxb-real-mock-token"),
         patch("httpx.AsyncClient.stream", return_value=mock_resp),
     ):
         res = await download_slack_file(file_info)
@@ -397,7 +397,7 @@ async def test_download_slack_file_pdf_async_to_thread():
     mock_resp = AsyncMockStreamResponse(status_code=200, content=pdf_bytes)
 
     with (
-        patch("services.slack_client.SLACK_BOT_TOKEN", "xoxb-real-mock-token"),
+        patch("services.slack.SLACK_BOT_TOKEN", "xoxb-real-mock-token"),
         patch("httpx.AsyncClient.stream", return_value=mock_resp),
         patch("asyncio.to_thread", wraps=asyncio.to_thread) as spy_to_thread,
     ):
@@ -431,7 +431,7 @@ async def test_file_context_lifecycle_in_process_and_respond():
         patch("orchestration.agent_router.fetch_thread_files", new_callable=AsyncMock, return_value=mock_files),
         patch("orchestration.agent_router.fetch_thread_history", new_callable=AsyncMock, return_value=[]),
         patch("orchestration.agent_router.post_agent_response", new_callable=AsyncMock, return_value={"ok": True, "ts": "1700000000.2222"}),
-        patch("services.slack_client.download_slack_file", new_callable=AsyncMock, return_value={"ok": True, "file_name": "database.sql", "content": "SELECT 1;", "size": 50, "truncated": False}),
+        patch("services.slack.download_slack_file", new_callable=AsyncMock, return_value={"ok": True, "file_name": "database.sql", "content": "SELECT 1;", "size": 50, "truncated": False}),
         patch("orchestration.stages.validation.download_slack_file", new_callable=AsyncMock, return_value={"ok": True, "file_name": "database.sql", "content": "SELECT 1;", "size": 50, "truncated": False}),
         patch("litellm.completion", return_value=mock_litellm_resp),
         patch("litellm.acompletion", new_callable=AsyncMock, return_value=mock_litellm_resp),
@@ -551,7 +551,7 @@ async def test_download_slack_file_saves_safely_inside_downloads():
     mock_resp = AsyncMockStreamResponse(status_code=200, content=b"print('malicious injection attempt')")
 
     with (
-        patch("services.slack_client.SLACK_BOT_TOKEN", "xoxb-real-mock-token"),
+        patch("services.slack.SLACK_BOT_TOKEN", "xoxb-real-mock-token"),
         patch("httpx.AsyncClient.stream", return_value=mock_resp),
     ):
         res = await download_slack_file(file_info)

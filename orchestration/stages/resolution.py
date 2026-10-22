@@ -24,7 +24,7 @@ from orchestration.app_settings import (
 from orchestration.protocols import WorkspaceAdapter
 from orchestration.thread_state import thread_state_manager
 from pipeline.spend_governance import spend_governance
-from services.slack_client import (
+from services.slack import (
     post_system_message,
 )
 

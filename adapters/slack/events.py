@@ -14,7 +14,7 @@ from orchestration.agent_router import process_and_respond
 from orchestration.thread_state import thread_state_manager
 from pipeline.directive_parser import is_stop_command
 from pipeline.entity_resolver import entity_resolver
-from services.slack_client import publish_app_home
+from services.slack import publish_app_home
 
 logger = logging.getLogger("IzvorBackend.SlackEvents")
 

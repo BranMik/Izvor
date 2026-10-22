@@ -417,13 +417,9 @@ def cleanup_old_downloads(max_age_seconds: float = 86400.0) -> int:
     """
     now = time.time()
     evicted_count = 0
-    import sys
-    slack_client_mod = sys.modules.get("services.slack_client")
-    mcp_dir = getattr(slack_client_mod, "MCP_WORKSPACE_DIR", MCP_WORKSPACE_DIR)
-    proj_root = getattr(slack_client_mod, "PROJECT_ROOT", PROJECT_ROOT)
     candidate_dirs = [
-        (mcp_dir / "downloads").resolve(),
-        (proj_root / "data" / "downloads").resolve(),
+        (MCP_WORKSPACE_DIR / "downloads").resolve(),
+        (PROJECT_ROOT / "data" / "downloads").resolve(),
     ]
     seen_dirs: set[Path] = set()
     for d in candidate_dirs:

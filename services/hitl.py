@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from core.database import get_connection, get_db_transaction
-from services.slack_client import slack_async_client, slack_rate_limiter
+from services.slack import slack_async_client, slack_rate_limiter
 
 logger = logging.getLogger(__name__)
 

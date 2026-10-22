@@ -44,19 +44,20 @@ async def test_whole_payload_pre_authorization_blocks_mixed_actions(monkeypatch)
     before ANY action executes.
     """
     monkeypatch.setattr("adapters.slack.interactivity.verify_slack_signature", lambda body, headers: True)
+    monkeypatch.setattr("core.config.is_slack_admin", lambda uid: False)
     monkeypatch.setattr("adapters.slack.interactivity.is_slack_admin", lambda uid: False)
 
     executed_scribe = []
     monkeypatch.setattr(
-        "adapters.slack.interactivity._handle_scribe_download",
+        "adapters.slack.actions.workflow_actions._handle_scribe_download",
         lambda **kwargs: executed_scribe.append(kwargs),
     )
 
     logged_events = []
-    monkeypatch.setattr(
-        "adapters.slack.interactivity.log_audit_event",
-        lambda **kwargs: logged_events.append(kwargs),
-    )
+    record_event = lambda **kwargs: logged_events.append(kwargs)
+    monkeypatch.setattr("adapters.slack.actions.agent_actions.log_audit_event", record_event)
+    monkeypatch.setattr("adapters.slack.actions.workflow_actions.log_audit_event", record_event)
+    monkeypatch.setattr("services.audit_logger.log_audit_event", record_event)
 
     # Payload has non-admin action first, then admin action
     payload = {
@@ -89,14 +90,14 @@ async def test_whole_payload_pre_authorization_blocks_mixed_actions(monkeypatch)
 async def test_chain_mutation_rejects_unknown_agent_keys(monkeypatch):
     """Verifies that saving sandwich or fixed chains strips unknown agent IDs."""
     monkeypatch.setattr("adapters.slack.interactivity.verify_slack_signature", lambda body, headers: True)
+    monkeypatch.setattr("core.config.is_slack_admin", lambda uid: True)
     monkeypatch.setattr("adapters.slack.interactivity.is_slack_admin", lambda uid: True)
     monkeypatch.setattr("adapters.slack.interactivity.publish_app_home", AsyncMock())
 
     logged_events = []
-    monkeypatch.setattr(
-        "adapters.slack.interactivity.log_audit_event",
-        lambda **kwargs: logged_events.append(kwargs),
-    )
+    record_event = lambda **kwargs: logged_events.append(kwargs)
+    monkeypatch.setattr("adapters.slack.actions.workflow_actions.log_audit_event", record_event)
+    monkeypatch.setattr("services.audit_logger.log_audit_event", record_event)
 
     payload = {
         "type": "block_actions",
@@ -138,14 +139,14 @@ async def test_chain_mutation_rejects_unknown_agent_keys(monkeypatch):
 async def test_newly_audited_actions_emit_audit_log(monkeypatch):
     """Verifies that select_orchestration_mode and expiry preset emit ADMIN_CONFIG_CHANGE."""
     monkeypatch.setattr("adapters.slack.interactivity.verify_slack_signature", lambda body, headers: True)
+    monkeypatch.setattr("core.config.is_slack_admin", lambda uid: True)
     monkeypatch.setattr("adapters.slack.interactivity.is_slack_admin", lambda uid: True)
     monkeypatch.setattr("adapters.slack.interactivity.publish_app_home", AsyncMock())
 
     logged_events = []
-    monkeypatch.setattr(
-        "adapters.slack.interactivity.log_audit_event",
-        lambda **kwargs: logged_events.append(kwargs),
-    )
+    record_event = lambda **kwargs: logged_events.append(kwargs)
+    monkeypatch.setattr("adapters.slack.actions.workflow_actions.log_audit_event", record_event)
+    monkeypatch.setattr("services.audit_logger.log_audit_event", record_event)
 
     # 1. select_orchestration_mode
     payload_mode = {

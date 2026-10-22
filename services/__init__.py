@@ -37,7 +37,7 @@ from .slack_home import (
     build_app_home_view,
     build_edit_workspace_context_modal,
 )
-from .slack_client import (
+from .slack import (
     download_slack_file,
     extract_thread_files_metadata,
     fetch_thread_files,

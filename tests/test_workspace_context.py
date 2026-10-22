@@ -8,7 +8,7 @@ from orchestration.app_settings import (
     AppSettingsManager,
 )
 from prompts.builder import build_agent_prompt
-from services.slack_home_views import (
+from services.slack_home import (
     build_app_home_view,
     build_edit_workspace_context_modal,
 )
@@ -105,8 +105,8 @@ async def test_interactivity_open_modal_and_submit(monkeypatch):
     monkeypatch.setattr("adapters.slack.interactivity.verify_slack_signature", lambda *args, **kwargs: True)
 
     mock_views_open = AsyncMock()
-    monkeypatch.setattr("services.slack_client.slack_async_client.views_open", mock_views_open)
-    monkeypatch.setattr("adapters.slack.interactivity.slack_async_client.views_open", mock_views_open)
+    monkeypatch.setattr("services.slack.slack_async_client.views_open", mock_views_open)
+    monkeypatch.setattr("adapters.slack.actions.workflow_actions.slack_async_client.views_open", mock_views_open)
 
     # 1. Non-admin tries to click open_edit_workspace_context_modal
     non_admin_payload = {

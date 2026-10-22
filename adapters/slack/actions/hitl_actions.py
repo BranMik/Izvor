@@ -6,29 +6,9 @@ from fastapi import BackgroundTasks, Response
 
 from core.config import is_slack_admin
 from services.audit_logger import log_audit_event
-from services.slack_client import slack_async_client
+from services.slack import slack_async_client
 
 logger = logging.getLogger("IzvorBackend.SlackInteractivity.HITL")
-
-
-def _is_slack_admin(user_id: str | None) -> bool:
-    from adapters.slack.actions import get_interactivity_attr
-
-    fn = get_interactivity_attr("is_slack_admin", is_slack_admin)
-    return fn(user_id)
-
-
-def _log_audit_event(**kwargs: Any) -> Any:
-    from adapters.slack.actions import get_interactivity_attr
-
-    fn = get_interactivity_attr("log_audit_event", log_audit_event)
-    return fn(**kwargs)
-
-
-def _get_slack_client() -> Any:
-    from adapters.slack.actions import get_interactivity_attr
-
-    return get_interactivity_attr("slack_async_client", slack_async_client)
 
 
 async def _execute_and_resume_hitl_approval(req: Any, user_id: str) -> None:
@@ -79,7 +59,7 @@ async def _execute_and_resume_hitl_approval(req: Any, user_id: str) -> None:
         display_res = display_res[:2000] + "\n... [truncated]"
 
     try:
-        client = _get_slack_client()
+        client = slack_async_client
         await client.chat_postMessage(
             channel=channel_id,
             thread_ts=thread_ts,
@@ -176,9 +156,9 @@ async def _handle_hitl_approve_tool(
 
     req = get_pending_request(val)
     if req:
-        if user_id != req.initiator_user_id and not _is_slack_admin(user_id):
+        if user_id != req.initiator_user_id and not is_slack_admin(user_id):
             logger.warning(f"[HITL] User {user_id} unauthorized to approve request {val}.")
-            _log_audit_event(
+            log_audit_event(
                 event_type="HITL_UNAUTHORIZED_ATTEMPT",
                 actor={"type": "slack_user", "id": user_id or "unknown"},
                 action="hitl_approve_tool",
@@ -188,7 +168,7 @@ async def _handle_hitl_approve_tool(
             )
             channel_id = req.channel_id or payload.get("channel", {}).get("id") or ""
             if channel_id and user_id:
-                client = _get_slack_client()
+                client = slack_async_client
                 background_tasks.add_task(
                     client.chat_postEphemeral,
                     channel=channel_id,
@@ -199,7 +179,7 @@ async def _handle_hitl_approve_tool(
 
         approved_req = approve_hitl_request(val)
         if approved_req:
-            _log_audit_event(
+            log_audit_event(
                 event_type="HITL_APPROVED",
                 actor={"type": "slack_user", "id": user_id or "unknown"},
                 action="hitl_approve_tool",
@@ -209,7 +189,7 @@ async def _handle_hitl_approve_tool(
             )
             msg = payload.get("message", {})
             if msg and msg.get("ts"):
-                client = _get_slack_client()
+                client = slack_async_client
                 background_tasks.add_task(
                     client.chat_update,
                     channel=approved_req.channel_id,
@@ -225,7 +205,7 @@ async def _handle_hitl_approve_tool(
     else:
         channel_id = payload.get("channel", {}).get("id") or ""
         if channel_id and user_id:
-            client = _get_slack_client()
+            client = slack_async_client
             background_tasks.add_task(
                 client.chat_postEphemeral,
                 channel=channel_id,
@@ -247,9 +227,9 @@ async def _handle_hitl_deny_tool(
 
     req = get_pending_request(val)
     if req:
-        if user_id != req.initiator_user_id and not _is_slack_admin(user_id):
+        if user_id != req.initiator_user_id and not is_slack_admin(user_id):
             logger.warning(f"[HITL] User {user_id} unauthorized to deny request {val}.")
-            _log_audit_event(
+            log_audit_event(
                 event_type="HITL_UNAUTHORIZED_ATTEMPT",
                 actor={"type": "slack_user", "id": user_id or "unknown"},
                 action="hitl_deny_tool",
@@ -259,7 +239,7 @@ async def _handle_hitl_deny_tool(
             )
             channel_id = req.channel_id or payload.get("channel", {}).get("id") or ""
             if channel_id and user_id:
-                client = _get_slack_client()
+                client = slack_async_client
                 background_tasks.add_task(
                     client.chat_postEphemeral,
                     channel=channel_id,
@@ -270,7 +250,7 @@ async def _handle_hitl_deny_tool(
 
         denied_req = deny_hitl_request(val)
         if denied_req:
-            _log_audit_event(
+            log_audit_event(
                 event_type="HITL_DENIED",
                 actor={"type": "slack_user", "id": user_id or "unknown"},
                 action="hitl_deny_tool",
@@ -280,7 +260,7 @@ async def _handle_hitl_deny_tool(
             )
             msg = payload.get("message", {})
             if msg and msg.get("ts"):
-                client = _get_slack_client()
+                client = slack_async_client
                 background_tasks.add_task(
                     client.chat_update,
                     channel=denied_req.channel_id,
@@ -296,7 +276,7 @@ async def _handle_hitl_deny_tool(
     else:
         channel_id = payload.get("channel", {}).get("id") or ""
         if channel_id and user_id:
-            client = _get_slack_client()
+            client = slack_async_client
             background_tasks.add_task(
                 client.chat_postEphemeral,
                 channel=channel_id,

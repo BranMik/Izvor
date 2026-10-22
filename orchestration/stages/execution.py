@@ -26,8 +26,8 @@ from orchestration.agent_settings import settings_manager
 from orchestration.stages.tool_status import _build_tool_status_text
 from orchestration.thread_state import thread_state_manager
 from services.mcp_tools import execute_mcp_tool
-from services.slack_client import post_agent_response
-from skills import LOAD_SKILL_SCHEMA, skill_registry
+from services.slack import post_agent_response
+from skills.loader import LOAD_SKILL_SCHEMA, skill_registry
 
 if TYPE_CHECKING:
     from orchestration.turn_pipeline import TurnContext

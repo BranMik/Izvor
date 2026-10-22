@@ -21,7 +21,7 @@ from orchestration.workflow_manager import (
     get_workflow,
     slugify,
 )
-from services.slack_client import build_app_home_view
+from services.slack_home import build_app_home_view
 
 
 def test_workflow_preset_model():
