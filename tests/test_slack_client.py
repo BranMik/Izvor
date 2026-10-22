@@ -10,7 +10,7 @@ async def test_fetch_thread_history_filters_and_formats(monkeypatch):
     Verifies that fetch_thread_history runs real parsing, regex stripping,
     role mapping, and filtering without crashing.
     """
-    from services import slack_client
+    from services import slack as slack_client
 
     monkeypatch.setattr(slack_client, "SLACK_BOT_TOKEN", "xoxb-valid-test-token")
 
@@ -68,7 +68,7 @@ async def test_fetch_thread_history_filters_and_formats(monkeypatch):
 @pytest.mark.anyio
 async def test_fetch_thread_history_handles_slack_api_error(monkeypatch):
     """Verifies that SlackApiError is caught and returns empty list gracefully."""
-    from services import slack_client
+    from services import slack as slack_client
 
     monkeypatch.setattr(slack_client, "SLACK_BOT_TOKEN", "xoxb-valid-test-token")
 
@@ -84,7 +84,7 @@ async def test_fetch_thread_history_handles_slack_api_error(monkeypatch):
 @pytest.mark.anyio
 async def test_fetch_thread_history_handles_generic_exception(monkeypatch):
     """Verifies that any unexpected exception does not crash the calling background task."""
-    from services import slack_client
+    from services import slack as slack_client
 
     monkeypatch.setattr(slack_client, "SLACK_BOT_TOKEN", "xoxb-valid-test-token")
 
@@ -98,7 +98,7 @@ async def test_fetch_thread_history_handles_generic_exception(monkeypatch):
 @pytest.mark.anyio
 async def test_fetch_thread_history_empty_token(monkeypatch):
     """Verifies empty or dummy token immediately returns empty list without calling API."""
-    from services import slack_client
+    from services import slack as slack_client
 
     monkeypatch.setattr(slack_client, "SLACK_BOT_TOKEN", "")
     result = await slack_client.fetch_thread_history("C1", "T1")
@@ -108,7 +108,7 @@ async def test_fetch_thread_history_empty_token(monkeypatch):
 @pytest.mark.anyio
 async def test_fetch_thread_history_pagination(monkeypatch):
     """Verifies fetch_thread_history fetches multiple pages when has_more is True."""
-    from services import slack_client
+    from services import slack as slack_client
 
     monkeypatch.setattr(slack_client, "SLACK_BOT_TOKEN", "xoxb-valid-test-token")
 
@@ -149,7 +149,7 @@ async def test_fetch_thread_history_pagination(monkeypatch):
 @pytest.mark.anyio
 async def test_fetch_thread_files_pagination(monkeypatch):
     """Verifies fetch_thread_files paginates to discover file attachments across long threads."""
-    from services import slack_client
+    from services import slack as slack_client
 
     monkeypatch.setattr(slack_client, "SLACK_BOT_TOKEN", "xoxb-valid-test-token")
 
@@ -198,7 +198,7 @@ def test_sanitize_slack_broadcast_mentions():
 @pytest.mark.anyio
 async def test_post_agent_response_unfurl_and_sanitize(monkeypatch):
     """Verifies post_agent_response sanitizes broadcast mentions and disables unfurling."""
-    from services import slack_client
+    from services import slack as slack_client
 
     monkeypatch.setattr(slack_client, "SLACK_BOT_TOKEN", "xoxb-valid-test-token")
     from unittest.mock import MagicMock

@@ -29,10 +29,10 @@ def setup_test_environment(monkeypatch):
     mock_hist = AsyncMock(return_value=[])
     mock_files = AsyncMock(return_value=[])
 
-    monkeypatch.setattr("services.slack_client.post_agent_response", mock_post)
-    monkeypatch.setattr("services.slack_client.post_system_message", mock_sys)
-    monkeypatch.setattr("services.slack_client.fetch_thread_history", mock_hist)
-    monkeypatch.setattr("services.slack_client.fetch_thread_files", mock_files)
+    monkeypatch.setattr("services.slack.post_agent_response", mock_post)
+    monkeypatch.setattr("services.slack.post_system_message", mock_sys)
+    monkeypatch.setattr("services.slack.fetch_thread_history", mock_hist)
+    monkeypatch.setattr("services.slack.fetch_thread_files", mock_files)
 
     monkeypatch.setattr("orchestration.agent_router.post_agent_response", mock_post)
     monkeypatch.setattr("orchestration.agent_router.fetch_thread_history", mock_hist)
@@ -58,7 +58,7 @@ async def test_three_round_five_word_croatian_test(monkeypatch):
         posted_messages.append(text)
         return {"ok": True, "ts": f"100.{len(posted_messages)}"}
 
-    monkeypatch.setattr("services.slack_client.post_agent_response", mock_post_agent_response)
+    monkeypatch.setattr("services.slack.post_agent_response", mock_post_agent_response)
 
     # Mock language detection to return 'Croatian' for this initial text
     async def mock_detect_language_llm(text):

@@ -13,7 +13,7 @@ from services.audit_logger import AuditLogger, _cross_process_file_lock
 from services.flat_history_recorder import get_flat_history_filepath
 from services.pricing_service import PricingService
 from services.rag.manifest_manager import ManifestManager
-from services.slack_client import cleanup_old_downloads
+from services.slack import cleanup_old_downloads
 from services.thread_notes_writer import _atomic_write_file
 from services.web_tools import PinnedIPTransport
 from skills.knowledge_base_rag.tools import TOOL_HANDLERS, async_execute_search_knowledge_rag
@@ -241,7 +241,7 @@ def test_tkt_728_cleanup_old_downloads(tmp_path: Path):
     new_file = downloads_dir / "new.pdf"
     new_file.write_bytes(b"%PDF-new")
 
-    with patch("services.slack_client.MCP_WORKSPACE_DIR", tmp_path), patch("services.slack_client.PROJECT_ROOT", tmp_path):
+    with patch("services.slack.files.MCP_WORKSPACE_DIR", tmp_path), patch("services.slack.files.PROJECT_ROOT", tmp_path):
         evicted = cleanup_old_downloads(max_age_seconds=86400.0)
         assert evicted == 1
         assert not old_file.exists()

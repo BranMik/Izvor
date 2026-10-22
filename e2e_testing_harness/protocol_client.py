@@ -24,7 +24,7 @@ from typing import Any
 
 import httpx
 
-import services.slack_client as _sc
+import services.slack as _sc
 from core.config import SLACK_BOT_TOKEN, SLACK_SIGNING_SECRET, resolve_avatar_url
 from main import app
 

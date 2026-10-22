@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 async def run(ctx: Any, params: dict[str, Any] | None = None) -> dict[str, Any] | None:
     from core.config import is_slack_admin
     from orchestration.thread_state import thread_state_manager
-    from services.slack_client import post_system_message
+    from services.slack import post_system_message
 
     params = params or {}
     channel_id = getattr(ctx, "channel_id", "")

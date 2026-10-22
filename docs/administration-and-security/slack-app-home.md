@@ -8,7 +8,7 @@ This document details the administrative interface provided via the **Slack App 
 
 Izvor provides an interactive configuration dashboard embedded directly within Slack’s App Home tab. Administrators can modify the deliberation engine's behavior in real time without restarting the server or editing config files manually.
 
-The App Home view builder in [`services/slack_home_views.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/services/slack_home_views.py) delegates rendering across three modular tab builders in [`services/slack_home/`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/services/slack_home/):
+The App Home view builder in [`services/slack_home/`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/services/slack_home/__init__.py) delegates rendering across three modular tab builders in [`services/slack_home/`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/services/slack_home/):
 - [`services/slack_home/agents_tab.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/services/slack_home/agents_tab.py): Persona enablement, model selection, system prompt editors, skill assignments, and concise output toggles.
 - [`services/slack_home/workflows_tab.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/services/slack_home/workflows_tab.py): Orchestration topology selector, Sandwich chains, Fixed sequences, Parallel Dialectic specialists, and preset backup/restore modals.
 - [`services/slack_home/governance_tab.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/services/slack_home/governance_tab.py): Spend circuit breakers, daily budgets, Consensus Convergence Fast-Forward toggle, Scribe notes toggle, Weekly Pricing update toggle, skill expiration TTL, and Workspace Baseline Context.

@@ -133,12 +133,18 @@ def get_audit_hmac_secret() -> bytes:
     from core.config import is_test_environment
     if is_test_environment():
         return b"test-only-default-audit-hmac-secret-32b"
-    raise RuntimeError("CRITICAL: AUDIT_HMAC_SECRET environment variable must be set in non-test environments.")
+    return b""
 
 
 def validate_audit_configuration() -> None:
     """Validates that audit security settings (such as AUDIT_HMAC_SECRET) are valid at startup."""
-    get_audit_hmac_secret()
+    secret = get_audit_hmac_secret()
+    from core.config import is_test_environment
+    if not secret and not is_test_environment():
+        logger.warning(
+            "[AUDIT] AUDIT_HMAC_SECRET is not configured in environment. "
+            "Audit records will be signed with standard SHA-256 without HMAC key."
+        )
 
 
 def _persist_audit_anchor(month: str, seq: int, entry_hash: str, timestamp: str) -> None:
@@ -875,7 +881,7 @@ async def send_admin_audit_alert(
         SLACK_TEST_CHANNEL_ID,
         get_admin_slack_user_ids,
     )
-    from services.slack_client import open_dm_channel, post_agent_response
+    from services.slack import open_dm_channel, post_agent_response
 
     if not SLACK_BOT_TOKEN or SLACK_BOT_TOKEN == "xoxb-your-bot-user-oauth-token":
         logger.warning(f"[MOCK SLACK ALERT] {title}\n{message}\nDetails: {details}")

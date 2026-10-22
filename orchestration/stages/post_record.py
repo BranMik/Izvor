@@ -35,7 +35,7 @@ from pipeline.entity_resolver import (
 from services.flat_history_recorder import (
     async_record_flat_history,
 )
-from services.slack_client import (
+from services.slack import (
     post_agent_response,
 )
 

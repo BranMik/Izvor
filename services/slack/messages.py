@@ -21,13 +21,6 @@ from services.slack.client_core import get_slack_async_client, get_slack_bot_tok
 logger = logging.getLogger(__name__)
 
 
-def _get_logger() -> logging.Logger:
-    sc = sys.modules.get("services.slack_client")
-    if sc is not None and hasattr(sc, "logger"):
-        return getattr(sc, "logger")
-    return logger
-
-
 def _sanitize_and_truncate_slack_text(text: str, max_chars: int = 3800) -> str:
     """Ensures Slack message text neutralizes broadcast mentions and never exceeds Slack API limits (4000 characters)."""
     text = sanitize_slack_broadcast_mentions(text)
@@ -246,7 +239,7 @@ async def fetch_thread_history(
                 formatted_history.append({"role": "user", "content": clean_text})
                 short_history_logging.append({"role": "user", "content": f"{clean_text[:20]}..."})
 
-        _get_logger().info(f"\n short_history:\n {short_history_logging}")
+        logger.info(f"\n short_history:\n {short_history_logging}")
         return formatted_history
     except SlackApiError as e:
         logger.error(f"Error fetching thread history: {e.response['error']}")

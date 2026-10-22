@@ -6,7 +6,7 @@ from typing import Any
 from core.async_utils import spawn_background_task
 from core.config import get_thread_notes_model
 from pipeline.discussion_scribe import discussion_scribe
-from services.slack_client import (
+from services.slack import (
     fetch_thread_history,
     post_thread_note,
     unpin_thread_note,

@@ -402,19 +402,20 @@ async def test_audit_logger_log_event_synchronous_return_in_async_context(temp_a
     assert rec.get("entry_hash") is not None
 
 
-def test_hmac_secret_enforcement_in_non_test_environment(monkeypatch):
-    """Verifies that get_audit_hmac_secret raises RuntimeError when unset outside tests."""
+def test_hmac_secret_optional_in_non_test_environment(monkeypatch, caplog):
+    """Verifies that get_audit_hmac_secret returns b'' and validates without crashing when unset outside tests."""
     from services.audit_logger import get_audit_hmac_secret, validate_audit_configuration
 
     monkeypatch.setattr("services.audit_logger.AUDIT_HMAC_SECRET", b"")
     monkeypatch.delenv("AUDIT_HMAC_SECRET", raising=False)
     monkeypatch.setattr("core.config.is_test_environment", lambda: False)
 
-    with pytest.raises(RuntimeError, match="CRITICAL: AUDIT_HMAC_SECRET"):
-        get_audit_hmac_secret()
+    secret = get_audit_hmac_secret()
+    assert secret == b""
 
-    with pytest.raises(RuntimeError, match="CRITICAL: AUDIT_HMAC_SECRET"):
+    with caplog.at_level("WARNING"):
         validate_audit_configuration()
+    assert "AUDIT_HMAC_SECRET is not configured" in caplog.text
 
 
 def test_audit_anchor_persisted_and_tail_truncation_detected(temp_audit_dir):

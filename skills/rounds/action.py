@@ -7,12 +7,11 @@ Sets or adjusts remaining debate rounds in thread state.
 import logging
 from typing import Any
 
-from orchestration.thread_state import thread_state_manager
-
 logger = logging.getLogger(__name__)
 
 
 async def run(ctx: Any, params: dict[str, Any] | None = None) -> dict[str, Any] | None:
+    from orchestration.thread_state import thread_state_manager
     params = params or {}
     channel_id = getattr(ctx, "channel_id", "")
     thread_ts = getattr(ctx, "thread_ts", "")

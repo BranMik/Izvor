@@ -423,7 +423,7 @@ async def test_language_detector_routes_through_execute_llm_with_retry():
 @pytest.mark.anyio
 async def test_slack_client_short_history_truncation():
     """Slack client truncates user message preview to 20 chars in short_history_logging."""
-    import services.slack_client as slack_client_mod
+    from services import slack as slack_mod
 
     long_secret = "Confidential customer SSN 999-99-9999 and credit card data"
     mock_slack_resp = {
@@ -436,9 +436,9 @@ async def test_slack_client_short_history_truncation():
     mock_client = MagicMock()
     mock_client.conversations_replies = AsyncMock(return_value=mock_slack_resp)
 
-    with patch.object(slack_client_mod, "slack_async_client", mock_client), \
-         patch("services.slack_client.logger.info") as mock_info:
-        await slack_client_mod.fetch_thread_history(channel_id="C1", thread_ts="123.456")
+    with patch("services.slack.messages.get_slack_async_client", return_value=mock_client), \
+         patch("services.slack.messages.logger.info") as mock_info:
+        await slack_mod.fetch_thread_history(channel_id="C1", thread_ts="123.456")
 
         logged_strings = [str(c[0][0]) for c in mock_info.call_args_list if c[0]]
         history_logs = [s for s in logged_strings if "short_history" in s]
@@ -622,7 +622,8 @@ async def test_resume_sequence_action_rejects_non_admin(monkeypatch):
     def mock_log(**kwargs):
         logged_events.append(kwargs)
         return kwargs
-    monkeypatch.setattr("adapters.slack.interactivity.log_audit_event", mock_log)
+    monkeypatch.setattr("adapters.slack.actions.agent_actions.log_audit_event", mock_log)
+    monkeypatch.setattr("services.audit_logger.log_audit_event", mock_log)
 
     payload = {
         "type": "block_actions",
@@ -665,7 +666,8 @@ async def test_resume_sequence_action_succeeds_for_admin(monkeypatch):
     def mock_log(**kwargs):
         logged_events.append(kwargs)
         return kwargs
-    monkeypatch.setattr("adapters.slack.interactivity.log_audit_event", mock_log)
+    monkeypatch.setattr("adapters.slack.actions.workflow_actions.log_audit_event", mock_log)
+    monkeypatch.setattr("services.audit_logger.log_audit_event", mock_log)
 
     dispatched = []
     def mock_dispatch(cid, ts, coro):

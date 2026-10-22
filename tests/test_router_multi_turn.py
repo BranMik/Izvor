@@ -24,7 +24,7 @@ from orchestration.app_settings import (
 from orchestration.nomination import get_initial_agents, parse_agent_and_prompt
 from orchestration.thread_state import thread_state_manager
 from pipeline.directive_parser import is_stop_command
-from services.slack_client import build_app_home_view
+from services.slack_home import build_app_home_view
 
 
 @pytest.fixture(autouse=True)

@@ -5,25 +5,6 @@ from typing import Any
 from dotenv import dotenv_values
 
 from core.config import is_slack_admin
-import orchestration.agent_settings as agent_settings_module
-from orchestration.agent_settings import (
-    get_active_workflow_id,
-    get_agents_config,
-    get_enabled_agents,
-    get_fixed_config,
-    get_orchestration_mode,
-    get_sandwich_config,
-    sync_settings_if_modified,
-)
-from orchestration.app_settings import (
-    get_circuit_breaker_config,
-    get_thread_skill_expiration_time,
-    get_workspace_context,
-    is_convergence_fast_forward_enabled,
-    is_scribe_enabled,
-    is_weekly_pricing_update_enabled,
-)
-from orchestration.workflow_manager import list_workflows
 from services.slack_home.agents_tab import (
     _get_example_agent_id,
     _get_example_agent_names,
@@ -55,6 +36,26 @@ def build_app_home_view(
     Live Discussion Scribe toggle, emergency backup warning if active settings file is unreadable,
     and Workspace Baseline Context.
     """
+    import orchestration.agent_settings as agent_settings_module
+    from orchestration.agent_settings import (
+        get_active_workflow_id,
+        get_agents_config,
+        get_enabled_agents,
+        get_fixed_config,
+        get_orchestration_mode,
+        get_sandwich_config,
+        sync_settings_if_modified,
+    )
+    from orchestration.app_settings import (
+        get_circuit_breaker_config,
+        get_thread_skill_expiration_time,
+        get_workspace_context,
+        is_convergence_fast_forward_enabled,
+        is_scribe_enabled,
+        is_weekly_pricing_update_enabled,
+    )
+    from orchestration.workflow_manager import list_workflows
+
     sync_settings_if_modified()
     expiry_hours = get_thread_skill_expiration_time()
     ws_ctx = get_workspace_context()

@@ -11,8 +11,7 @@ from typing import Any
 
 from core.config import get_system_agent_model
 from core.llm_utils import execute_llm_with_retry
-
-from services.slack_client import post_system_message
+from services.slack import post_system_message
 
 logger = logging.getLogger(__name__)
 

@@ -1120,7 +1120,7 @@ async def test_partial_tag_routing(monkeypatch):
         "orchestration.agent_router.post_agent_response", mock_post_agent
     )
     monkeypatch.setattr(
-        "services.slack_client.post_agent_response", mock_post_agent
+        "services.slack.post_agent_response", mock_post_agent
     )
     monkeypatch.setattr(
         "orchestration.agent_router.run_in_threadpool",

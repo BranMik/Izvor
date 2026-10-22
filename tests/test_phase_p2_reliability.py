@@ -333,7 +333,7 @@ def test_revoke_constraint_action_and_modifier_clearing():
 
     with (
         patch("core.config.is_slack_admin", return_value=True),
-        patch("services.slack_client.post_system_message", new_callable=AsyncMock) as mock_post,
+        patch("services.slack.post_system_message", new_callable=AsyncMock) as mock_post,
     ):
 
         res = asyncio.run(revoke_constraint_action(ctx, {"target": "modifiers"}))
@@ -457,7 +457,7 @@ def test_credential_redaction_and_traceback():
 
 def test_app_home_view_admin_banner_and_block_capping():
     """TKT-721: Verify non-admin view shows notice banner and total blocks <= 95."""
-    from services.slack_home_views import build_app_home_view
+    from services.slack_home import build_app_home_view
 
     with patch("core.config.is_slack_admin", return_value=False):
         view = build_app_home_view(user_id="U_REGULAR")
@@ -498,8 +498,8 @@ async def test_send_admin_audit_alert_uses_admin_ids():
 
     with patch("core.config.get_admin_slack_user_ids", return_value={"U_ADMIN_PRIMARY", "U_ADMIN_SECONDARY"}), \
          patch("core.config.SLACK_BOT_TOKEN", "xoxb-real-token-123"), \
-         patch("services.slack_client.open_dm_channel", new_callable=AsyncMock) as mock_dm, \
-         patch("services.slack_client.post_agent_response", new_callable=AsyncMock) as mock_post:
+         patch("services.slack.open_dm_channel", new_callable=AsyncMock) as mock_dm, \
+         patch("services.slack.post_agent_response", new_callable=AsyncMock) as mock_post:
         mock_dm.return_value = "D_ADMIN_CHANNEL"
         mock_post.return_value = {"ok": True}
 

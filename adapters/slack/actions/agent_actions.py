@@ -13,22 +13,9 @@ from orchestration.agent_settings import (
     toggle_agent,
 )
 from services.audit_logger import log_audit_event
-from services.slack_client import slack_async_client
+from services.slack import slack_async_client
 
 logger = logging.getLogger("IzvorBackend.SlackInteractivity.Agents")
-
-
-def _log_audit_event(**kwargs: Any) -> Any:
-    from adapters.slack.actions import get_interactivity_attr
-
-    fn = get_interactivity_attr("log_audit_event", log_audit_event)
-    return fn(**kwargs)
-
-
-def _get_slack_client() -> Any:
-    from adapters.slack.actions import get_interactivity_attr
-
-    return get_interactivity_attr("slack_async_client", slack_async_client)
 
 
 def _deny_non_admin_action(
@@ -40,7 +27,7 @@ def _deny_non_admin_action(
     logger.warning(
         f"[INTERACTIVITY] Unauthorized non-admin user {user_id} attempted admin action '{action_id}'."
     )
-    _log_audit_event(
+    log_audit_event(
         event_type="ADMIN_ACTION_DENIED",
         actor={"type": "slack_user", "id": user_id or "unknown"},
         action=action_id,
@@ -50,9 +37,8 @@ def _deny_non_admin_action(
     )
     channel_id = payload.get("channel", {}).get("id") or ""
     if channel_id and user_id:
-        client = _get_slack_client()
         background_tasks.add_task(
-            client.chat_postEphemeral,
+            slack_async_client.chat_postEphemeral,
             channel=channel_id,
             user=user_id,
             text="⚠️ *Permission Denied:* Administrative privileges are required to modify system settings.",
@@ -73,7 +59,7 @@ async def _handle_select_agent_model(
     if agent_key and val:
         logger.info(f"[INTERACTIVITY] Changing model for agent '{agent_key}' to '{val}'")
         set_agent_model(agent_key, val)
-        _log_audit_event(
+        log_audit_event(
             event_type="ADMIN_CONFIG_CHANGE",
             actor={"type": "slack_admin", "id": user_id or "unknown"},
             action="set_agent_model",
@@ -96,7 +82,7 @@ async def _handle_toggle_agent_radio(
     if ":" in val:
         agent_key, state = val.split(":", 1)
         set_agent_enabled(agent_key, state == "on")
-        _log_audit_event(
+        log_audit_event(
             event_type="ADMIN_CONFIG_CHANGE",
             actor={"type": "slack_admin", "id": user_id or "unknown"},
             action="toggle_agent",
@@ -117,7 +103,7 @@ async def _handle_toggle_agent(
     agent_key = action.get("value")
     if agent_key:
         toggle_agent(agent_key)
-        _log_audit_event(
+        log_audit_event(
             event_type="ADMIN_CONFIG_CHANGE",
             actor={"type": "slack_admin", "id": user_id or "unknown"},
             action="toggle_agent",
@@ -136,7 +122,7 @@ async def _handle_bulk_enable_all(
     view_state: dict[str, Any],
 ) -> Response | None:
     reset_enabled_agents()
-    _log_audit_event(
+    log_audit_event(
         event_type="ADMIN_CONFIG_CHANGE",
         actor={"type": "slack_admin", "id": user_id or "unknown"},
         action="bulk_enable_all_agents",
@@ -158,7 +144,7 @@ async def _handle_bulk_disable(
     for key in get_agents_config():
         set_agent_enabled(key, False, save=False)
     settings_manager.save()
-    _log_audit_event(
+    log_audit_event(
         event_type="ADMIN_CONFIG_CHANGE",
         actor={"type": "slack_admin", "id": user_id or "unknown"},
         action="bulk_disable_agents",
@@ -180,7 +166,7 @@ async def _handle_restore_from_backup(
     logger.info(
         f"[INTERACTIVITY] restore_from_backup invoked by user {user_id}: success={success}"
     )
-    _log_audit_event(
+    log_audit_event(
         event_type="WORKFLOW_PRESET_MUTATION",
         actor={"type": "slack_admin", "id": user_id or "unknown"},
         action="restore_from_backup",

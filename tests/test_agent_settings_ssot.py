@@ -12,7 +12,7 @@ from core.config import (
     resolve_avatar_url,
 )
 from orchestration.agent_settings import AgentSettingsManager, settings_manager
-from services.slack_client import build_app_home_view
+from services.slack_home import build_app_home_view
 
 
 def test_relative_avatar_url_resolution():
@@ -384,7 +384,7 @@ async def test_turn_pipeline_propagates_agent_avatar_icon():
     mock_post = AsyncMock(return_value={"ok": True, "ts": "12345.9999"})
     pipeline.slack_poster = mock_post
     with patch("adapters.slack.workspace_adapter.post_agent_response", mock_post), \
-         patch("services.slack_client.post_agent_response", mock_post), \
+         patch("services.slack.post_agent_response", mock_post), \
          patch("orchestration.agent_router.post_agent_response", mock_post), \
          patch("orchestration.agent_router.trigger_thread_notes_update"), \
          patch("orchestration.agent_router.trigger_usage_update"), \
@@ -401,7 +401,7 @@ async def test_turn_pipeline_propagates_agent_avatar_icon():
 
 def test_scribe_settings_toggle_and_app_home_view():
     from orchestration.app_settings import is_scribe_enabled, set_scribe_enabled
-    from services.slack_client import build_app_home_view
+    from services.slack_home import build_app_home_view
 
     # Test toggling scribe in settings manager
     set_scribe_enabled(True)
@@ -443,7 +443,7 @@ def test_weekly_pricing_settings_toggle_and_app_home_view():
         is_weekly_pricing_update_enabled,
         set_weekly_pricing_update_enabled,
     )
-    from services.slack_client import build_app_home_view
+    from services.slack_home import build_app_home_view
 
     try:
         set_weekly_pricing_update_enabled(True)

@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from services.pricing_service import get_model_pricing
-from services.slack_client import (
+from services.slack import (
     get_channel_name,
     get_or_create_usage_channel,
     post_usage_message,

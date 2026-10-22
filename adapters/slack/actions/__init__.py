@@ -85,15 +85,4 @@ __all__ = [
     "_handle_toggle_weekly_pricing",
     "_resume_hitl_denial",
     "_validate_chain_agent_keys",
-    "get_interactivity_attr",
 ]
-
-
-def get_interactivity_attr(name: str, fallback: Any) -> Any:
-    """Dynamically resolves attributes from adapters.slack.interactivity if patched."""
-    import sys
-
-    asi = sys.modules.get("adapters.slack.interactivity")
-    if asi is not None and hasattr(asi, name):
-        return getattr(asi, name)
-    return fallback

@@ -2,14 +2,16 @@ import logging
 from typing import Any
 
 from core.model_catalog import get_available_models
-from orchestration.agent_settings import get_agents_config
-
 logger = logging.getLogger(__name__)
 
 
 def _get_example_agent_id(agents_cfg: dict[str, Any] | None = None) -> str:
     """Returns an example agent ID from configured agents, or 'agent-id' as fallback."""
-    cfg = agents_cfg or get_agents_config()
+    if agents_cfg is None:
+        from orchestration.agent_settings import get_agents_config
+        cfg = get_agents_config()
+    else:
+        cfg = agents_cfg
     if cfg:
         return next(iter(cfg.keys()))
     return "agent-id"
@@ -17,7 +19,11 @@ def _get_example_agent_id(agents_cfg: dict[str, Any] | None = None) -> str:
 
 def _get_example_agent_names(agents_cfg: dict[str, Any] | None = None, count: int = 2) -> str:
     """Returns comma-separated example agent displaynames from configured agents."""
-    cfg = agents_cfg or get_agents_config()
+    if agents_cfg is None:
+        from orchestration.agent_settings import get_agents_config
+        cfg = get_agents_config()
+    else:
+        cfg = agents_cfg
     names: list[str] = []
     for k, v in (cfg or {}).items():
         if isinstance(v, dict):

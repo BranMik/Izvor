@@ -8,7 +8,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 from orchestration.turn_pipeline import TurnContext
 from orchestration.revisor_service import run_internal_revisor
 from orchestration.thread_state import thread_state_manager
-import services.slack_client as slack_client
+import services.slack as slack_client
 
 async def mock_post_agent_response(channel_id, thread_ts, text, username, icon_url):
     print("\n" + "="*50)

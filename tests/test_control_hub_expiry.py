@@ -6,7 +6,7 @@ from orchestration.app_settings import (
     get_thread_skill_expiration_time,
     set_thread_skill_expiration_time,
 )
-from services.slack_client import build_app_home_view
+from services.slack_home import build_app_home_view
 
 
 def test_control_hub_blocks_contain_thread_skill_expiry():

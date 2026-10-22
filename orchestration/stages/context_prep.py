@@ -18,7 +18,7 @@ from orchestration.nomination import get_initial_agents
 from orchestration.thread_state import thread_state_manager
 from pipeline.orchestrator import SandwichOrchestrator
 from prompts import build_agent_prompt
-from services.slack_client import fetch_thread_history
+from services.slack import fetch_thread_history
 
 if TYPE_CHECKING:
     from orchestration.turn_pipeline import TurnContext

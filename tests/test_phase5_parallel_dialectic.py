@@ -18,7 +18,7 @@ from orchestration.agent_settings import (
     set_orchestration_mode,
 )
 from pipeline.orchestrator.sandwich import DialecticExecutionPlan, SandwichOrchestrator
-from services.slack_home_views import build_app_home_view
+from services.slack_home import build_app_home_view
 
 
 def test_orchestration_mode_scatter_gather_and_parallel_dialectic():

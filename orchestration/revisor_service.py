@@ -6,7 +6,7 @@ from core.llm_utils import execute_llm_with_retry
 from orchestration.thread_state import thread_state_manager
 from orchestration.turn_pipeline import TurnContext
 from prompts.builder import build_agent_prompt
-from services.slack_client import post_agent_response
+from services.slack import post_agent_response
 
 logger = logging.getLogger(__name__)
 
