@@ -34,6 +34,7 @@ from .pricing_service import (
     warm_up_pricing_cache,
 )
 from .slack_home import (
+    build_admin_required_modal,
     build_app_home_view,
     build_edit_workspace_context_modal,
 )
@@ -84,6 +85,7 @@ __all__ = [
     "PRICING_TOOL_SCHEMAS",
     "PricingService",
     "async_record_flat_history",
+    "build_admin_required_modal",
     "build_app_home_view",
     "build_edit_workspace_context_modal",
     "download_slack_file",

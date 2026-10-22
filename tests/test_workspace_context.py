@@ -107,8 +107,10 @@ async def test_interactivity_open_modal_and_submit(monkeypatch):
     mock_views_open = AsyncMock()
     monkeypatch.setattr("services.slack.slack_async_client.views_open", mock_views_open)
     monkeypatch.setattr("adapters.slack.actions.workflow_actions.slack_async_client.views_open", mock_views_open)
+    monkeypatch.setattr("adapters.slack.actions.agent_actions.slack_async_client.views_open", mock_views_open)
+    monkeypatch.setattr("services.slack.views.publish_app_home", AsyncMock(return_value={"ok": True}))
 
-    # 1. Non-admin tries to click open_edit_workspace_context_modal
+    # 1. Non-admin tries to click open_edit_workspace_context_modal -> returns 200 and opens Admin Access Required modal
     non_admin_payload = {
         "type": "block_actions",
         "user": {"id": "U_NON_ADMIN"},
@@ -120,10 +122,16 @@ async def test_interactivity_open_modal_and_submit(monkeypatch):
     req.headers = {}
     bg = BackgroundTasks()
     res = await handle_slack_interactivity(req, bg)
-    assert res.status_code == 403
-    mock_views_open.assert_not_called()
+    assert res.status_code == 200
+    await bg()
+    mock_views_open.assert_called_once()
+    call_kwargs_non_admin = mock_views_open.call_args.kwargs
+    assert call_kwargs_non_admin["trigger_id"] == "trig_111"
+    assert call_kwargs_non_admin["view"]["title"]["text"] == "Admin Access Required"
 
-    # 2. Admin clicks open_edit_workspace_context_modal
+    mock_views_open.reset_mock()
+
+    # 2. Admin clicks open_edit_workspace_context_modal -> returns 200 and opens Workspace Context edit modal
     admin_payload = {
         "type": "block_actions",
         "user": {"id": "U_ADMIN_123"},

@@ -35,6 +35,24 @@ def _deny_non_admin_action(
         details={"attempted_action": action_id},
         severity="CRITICAL",
     )
+
+    trigger_id = payload.get("trigger_id")
+    if trigger_id:
+        from services.slack_home import build_admin_required_modal
+
+        modal_view = build_admin_required_modal(user_id=user_id, action_id=action_id)
+        background_tasks.add_task(
+            slack_async_client.views_open,
+            trigger_id=trigger_id,
+            view=modal_view,
+        )
+
+    # Re-sync App Home for user_id to reset uncommitted client-side widgets (e.g. dropdowns, radios)
+    if user_id:
+        from services.slack.views import publish_app_home
+
+        background_tasks.add_task(publish_app_home, user_id=user_id)
+
     channel_id = payload.get("channel", {}).get("id") or ""
     if channel_id and user_id:
         background_tasks.add_task(

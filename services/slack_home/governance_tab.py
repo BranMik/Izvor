@@ -390,3 +390,59 @@ def build_edit_workspace_context_modal(current_context: str = "") -> dict[str, A
             },
         ],
     }
+
+
+def build_admin_required_modal(user_id: str | None, action_id: str = "") -> dict[str, Any]:
+    """
+    Constructs an informational Block Kit modal explaining that workspace
+    admin privileges are required for the attempted action, displaying
+    the user's Slack User ID and instructions for requesting or configuring access.
+    """
+    uid_str = user_id or "Unknown"
+    clean_action = (
+        action_id.split(":", 1)[0].replace("_", " ").title()
+        if action_id
+        else "System Configuration Change"
+    )
+
+    return {
+        "type": "modal",
+        "title": {
+            "type": "plain_text",
+            "text": "Admin Access Required",
+            "emoji": True,
+        },
+        "close": {
+            "type": "plain_text",
+            "text": "Got it",
+            "emoji": True,
+        },
+        "blocks": [
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": (
+                        "🔒 *Permission Denied: Workspace Administrator Privileges Required*\n\n"
+                        f"You attempted to perform: *{clean_action}*.\n\n"
+                        "To protect deliberation integrity, model routing, and spend limits, this setting can "
+                        "only be modified by authorized workspace administrators."
+                    ),
+                },
+            },
+            {"type": "divider"},
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": (
+                        "📋 *How to Request or Grant Access:*\n"
+                        f"• Your Slack User ID is: `{uid_str}`\n"
+                        "• Please forward this ID to your workspace administrator to request access.\n"
+                        "• Administrators can enable access by adding your User ID to `SLACK_ADMIN_USER_IDS` in the server environment (`.env`)."
+                    ),
+                },
+            },
+        ],
+    }
+
