@@ -3,29 +3,29 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from nlp.intent_extractor import extract_user_intent, should_skip_intent_extractor
+from nlp.intent_extractor import intent_extractor
 
 
 def test_should_skip_intent_extractor_rules():
     # Only /stop command triggers skip
-    assert should_skip_intent_extractor("/stop") is True
-    assert should_skip_intent_extractor("<@U123> /stop please") is True
-    assert should_skip_intent_extractor("/STOP") is True
+    assert intent_extractor.should_skip("/stop") is True
+    assert intent_extractor.should_skip("<@U123> /stop please") is True
+    assert intent_extractor.should_skip("/STOP") is True
 
     # All other prompts and command combinations do NOT skip intent extraction
-    assert should_skip_intent_extractor("/file: schema.sql") is False
-    assert should_skip_intent_extractor("/max_words 50 inspect this") is False
-    assert should_skip_intent_extractor("/history 3 inspect this") is False
-    assert should_skip_intent_extractor("/file: test.py /max_words 50") is False
-    assert should_skip_intent_extractor("/file: test.py /history 2") is False
-    assert should_skip_intent_extractor("/file: test.py /max_words 50 /history 2") is False
-    assert should_skip_intent_extractor("/max_words 50 /history 2") is False
-    assert should_skip_intent_extractor("explain how this works in 50 words") is False
-    assert should_skip_intent_extractor("/exclude [agent-10011] debate this topic in 50 words") is False
-    assert should_skip_intent_extractor("/exclude [agent-10011] /max_words 50 /history 2") is False
-    assert should_skip_intent_extractor("<@U0BR4EH6XMY> Test /max_words 5, exclude Visionary") is False
-    assert should_skip_intent_extractor("<@U0BR4EH6XMY> Test /max_words 50 /history 2, exclude Visionary") is False
-    assert should_skip_intent_extractor("Rasprava /max_words 10, bez Visionary") is False
+    assert intent_extractor.should_skip("/file: schema.sql") is False
+    assert intent_extractor.should_skip("/max_words 50 inspect this") is False
+    assert intent_extractor.should_skip("/history 3 inspect this") is False
+    assert intent_extractor.should_skip("/file: test.py /max_words 50") is False
+    assert intent_extractor.should_skip("/file: test.py /history 2") is False
+    assert intent_extractor.should_skip("/file: test.py /max_words 50 /history 2") is False
+    assert intent_extractor.should_skip("/max_words 50 /history 2") is False
+    assert intent_extractor.should_skip("explain how this works in 50 words") is False
+    assert intent_extractor.should_skip("/exclude [agent-10011] debate this topic in 50 words") is False
+    assert intent_extractor.should_skip("/exclude [agent-10011] /max_words 50 /history 2") is False
+    assert intent_extractor.should_skip("<@U0BR4EH6XMY> Test /max_words 5, exclude Visionary") is False
+    assert intent_extractor.should_skip("<@U0BR4EH6XMY> Test /max_words 50 /history 2, exclude Visionary") is False
+    assert intent_extractor.should_skip("Rasprava /max_words 10, bez Visionary") is False
 
 
 @pytest.mark.anyio
@@ -46,8 +46,6 @@ async def test_stop_discussion_never_inferred_from_llm():
             )
         )
     ]
-
-    from nlp.intent_extractor import intent_extractor
 
     with patch("nlp.intent_extractor.litellm.acompletion", AsyncMock(return_value=mock_resp)):
         intent = await intent_extractor.extract_intent("Cut scope ruthlessly")
@@ -78,47 +76,47 @@ async def test_extract_user_intent_success():
     ]
 
     with patch("nlp.intent_extractor.litellm.acompletion", AsyncMock(return_value=mock_response)):
-        intent = await extract_user_intent(
+        intent = await intent_extractor.extract_intent(
             "Please analyze schema.sql based on last 4 messages in under 60 words and exclude LegalAdvisor",
             available_files=[{"name": "schema.sql", "id": "F123"}],
         )
 
-        assert intent["max_words"] == 60
-        assert intent["history"] == 4
-        assert intent["file_use"] is True
-        assert intent["target_file"] == "schema.sql"
-        assert intent["excluded_agents"] == ["agent-10011", "agent-10002"]
-        assert intent["modifiers"]["max_words"] == 60
-        assert intent["modifiers"]["history"] == 4
-        assert any(a["name"] == "document_reader" for a in intent["actions"])
-        assert any(a["name"] == "exclude_agents" for a in intent["actions"])
+        assert intent.max_words == 60
+        assert intent.history == 4
+        assert intent.file_use is True
+        assert intent.target_file == "schema.sql"
+        assert intent.excluded_agents == ["agent-10011", "agent-10002"]
+        assert intent.modifiers["max_words"] == 60
+        assert intent.modifiers["history"] == 4
+        assert any(a.name == "document_reader" for a in intent.actions)
+        assert any(a.name == "exclude_agents" for a in intent.actions)
 
 
 @pytest.mark.anyio
 async def test_extract_user_intent_empty_text():
-    intent = await extract_user_intent("")
-    assert intent["max_words"] is None
-    assert intent["min_words"] is None
-    assert intent["history"] is None
-    assert intent["file_use"] is False
-    assert intent["target_file"] is None
-    assert intent["excluded_agents"] == []
-    assert intent["actions"] == []
-    assert intent["modifiers"] == {}
+    intent = await intent_extractor.extract_intent("")
+    assert intent.max_words is None
+    assert intent.min_words is None
+    assert intent.history is None
+    assert intent.file_use is False
+    assert intent.target_file is None
+    assert intent.excluded_agents == []
+    assert intent.actions == []
+    assert intent.modifiers == {}
 
 
 @pytest.mark.anyio
 async def test_extract_user_intent_failure_fallback():
     with patch("nlp.intent_extractor.litellm.acompletion", side_effect=Exception("API Down")):
-        intent = await extract_user_intent("some message")
-        assert intent["max_words"] is None
-        assert intent["min_words"] is None
-        assert intent["history"] is None
-        assert intent["file_use"] is False
-        assert intent["target_file"] is None
-        assert intent["excluded_agents"] == []
-        assert intent["actions"] == []
-        assert intent["modifiers"] == {}
+        intent = await intent_extractor.extract_intent("some message")
+        assert intent.max_words is None
+        assert intent.min_words is None
+        assert intent.history is None
+        assert intent.file_use is False
+        assert intent.target_file is None
+        assert intent.excluded_agents == []
+        assert intent.actions == []
+        assert intent.modifiers == {}
 
 
 @pytest.mark.anyio
@@ -249,17 +247,17 @@ async def test_sandwich_exclusion_and_bot_turn_not_stopped(monkeypatch):
     mock_choice_1.message.tool_calls = None
     mock_llm_1 = MagicMock(choices=[mock_choice_1], usage=None)
 
-    async def mock_run(func, *args, **kwargs):
-        # If litellm called for intent extractor:
-        msgs = kwargs.get("messages") or (args[2] if len(args) > 2 else [])
+    active_turn_llm = mock_llm_1
+
+    async def mock_acompletion(*args, **kwargs):
+        msgs = kwargs.get("messages") or (args[0] if args else [])
         if any("intent" in str(m.get("content", "")).lower() for m in msgs if isinstance(m, dict)):
             return mock_intent_resp
-        return mock_llm_1
+        return active_turn_llm
 
     import litellm
-    monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_run)
     monkeypatch.setattr(litellm, "completion", lambda **kwargs: mock_intent_resp)
-    monkeypatch.setattr(litellm, "acompletion", AsyncMock(return_value=mock_intent_resp))
+    monkeypatch.setattr(litellm, "acompletion", mock_acompletion)
 
     thread_key = ("C_TEST", "77777.0001")
     thread_state_manager.clear_state(thread_key[0], thread_key[1])
@@ -285,11 +283,7 @@ async def test_sandwich_exclusion_and_bot_turn_not_stopped(monkeypatch):
     mock_choice_2.message.content = "Next agent response."
     mock_choice_2.message.tool_calls = None
     mock_llm_2 = MagicMock(choices=[mock_choice_2], usage=None)
-
-    async def mock_run_2(func, *args, **kwargs):
-        return mock_llm_2
-
-    monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_run_2)
+    active_turn_llm = mock_llm_2
 
     res_2 = await process_and_respond(
         channel_id="C_TEST",
@@ -337,7 +331,7 @@ async def test_validation_stage_locks_language_from_unified_intent_extractor(mon
     )
 
     pipeline = TurnPipeline()
-    validation_stage = ValidationStage(pipeline)
+    validation_stage = ValidationStage(pipeline.deps)
 
     res = await validation_stage.stage_validate_and_parse(ctx)
     assert res is None  # no halt

@@ -21,7 +21,7 @@ from orchestration.app_settings import (
     get_circuit_breaker_threshold,
     is_circuit_breaker_enabled,
 )
-from orchestration.protocols import WorkspaceAdapter
+from orchestration.protocols import PipelineDeps, WorkspaceAdapter
 from orchestration.thread_state import thread_state_manager
 from pipeline.spend_governance import spend_governance
 from services.slack import (
@@ -37,13 +37,8 @@ logger = logging.getLogger(__name__)
 class ResolutionStage:
     """Provides stage 2 agent resolution and spend governance for TurnPipeline."""
 
-    def __init__(self, deps: Any):
-        if hasattr(deps, "deps"):
-            self.deps = deps.deps
-            self.pipeline = deps
-        else:
-            self.deps = deps
-            self.pipeline = deps
+    def __init__(self, deps: PipelineDeps):
+        self.deps = deps
 
     async def _sleep(self, seconds: float) -> None:
         sleep_fn = getattr(self.deps, "sleep_fn", None)

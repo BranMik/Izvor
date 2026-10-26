@@ -40,8 +40,8 @@ def get_pricing_benchmark_url() -> str:
         return "https://artificialanalysis.ai/models"
 
 
-# Cache TTL: 7 days default in seconds (from system_settings SSOT)
-CACHE_TTL_SECONDS = get_pricing_cache_ttl_seconds()
+# Cache TTL default in seconds
+CACHE_TTL_SECONDS = 7 * 24 * 3600
 
 # LiteLLM tool schemas for the pricing research agent
 PRICING_TOOL_SCHEMAS = [
@@ -128,6 +128,27 @@ def _is_valid_price_pair(in_price: Any, out_price: Any) -> bool:
         return False
 
 
+def _is_within_sanity_bounds(in_price: float, out_price: float, baseline: dict[str, Any]) -> bool:
+    """
+    Validates that candidate prices do not deviate wildly (< 10% or > 1000%)
+    from an established model baseline (from catalog or community registry).
+    """
+    try:
+        if baseline.get("source") == DEFAULT_FALLBACK_PRICING.get("source"):
+            return True
+        base_in = float(baseline.get("input_price_per_1m") or 0.0)
+        base_out = float(baseline.get("output_price_per_1m") or 0.0)
+        if base_in > 0:
+            if in_price < 0.1 * base_in or in_price > 10.0 * base_in:
+                return False
+        if base_out > 0:
+            if out_price < 0.1 * base_out or out_price > 10.0 * base_out:
+                return False
+        return True
+    except (TypeError, ValueError):
+        return False
+
+
 # Industry baseline fallback pricing (USD per 1,000,000 tokens) loaded from JSON config
 BASELINE_MODEL_PRICING: dict[str, dict[str, Any]] = load_baseline_pricing()
 
@@ -143,6 +164,8 @@ DEFAULT_FALLBACK_PRICING: dict[str, Any] = {
 
 def _normalize_model_name(model_name: str) -> str:
     """Normalizes model string (e.g. 'gemini/gemini-3.8-flash')."""
+    if not isinstance(model_name, str):
+        model_name = str(model_name) if model_name is not None else ""
     return model_name.strip().lower()
 
 
@@ -294,10 +317,8 @@ class PricingService:
     def active_cache_file(self) -> Path:
         if self._custom_cache_file:
             return self.default_cache_file
-        ps_mod = sys.modules.get("pricing_service") or sys.modules.get("services.pricing_service")
-        if ps_mod and hasattr(ps_mod, "PRICING_CACHE_FILE"):
-            return Path(ps_mod.PRICING_CACHE_FILE)
-        return self.default_cache_file
+        import services.pricing_service as psm
+        return Path(getattr(psm, "PRICING_CACHE_FILE", self.default_cache_file))
 
     def load_cache(self) -> dict[str, dict[str, Any]]:
         """Loads cached pricing data from JSON file with mtime-based memory cache."""
@@ -432,14 +453,15 @@ class PricingService:
                     if isinstance(tc.function.arguments, str)
                     else tc.function.arguments
                 )
+                import services.pricing_service as psm
                 if fn_name == "web_search":
-                    search_fn = getattr(sys.modules.get("pricing_service") or sys.modules.get("services.pricing_service"), "web_search", web_search)
+                    search_fn = getattr(psm, "web_search", web_search)
                     if inspect.iscoroutinefunction(search_fn):
                         res_str = await search_fn(**fn_args)
                     else:
                         res_str = await asyncio.to_thread(search_fn, **fn_args)
                 elif fn_name == "fetch_web_page":
-                    fetch_page_fn = getattr(sys.modules.get("pricing_service") or sys.modules.get("services.pricing_service"), "fetch_web_page", fetch_web_page)
+                    fetch_page_fn = getattr(psm, "fetch_web_page", fetch_web_page)
                     if inspect.iscoroutinefunction(fetch_page_fn):
                         res_str = await fetch_page_fn(**fn_args)
                     else:
@@ -496,7 +518,7 @@ class PricingService:
 
             in_price = float(data.get("input_price_per_1m", baseline["input_price_per_1m"]))
             out_price = float(data.get("output_price_per_1m", baseline["output_price_per_1m"]))
-            if not _is_valid_price_pair(in_price, out_price):
+            if not _is_valid_price_pair(in_price, out_price) or not _is_within_sanity_bounds(in_price, out_price, baseline):
                 logger.warning(
                     f"[PRICING] Agent returned out-of-bounds pricing for '{model_name}': "
                     f"in={in_price}, out={out_price}. Falling back to baseline."
@@ -528,8 +550,7 @@ class PricingService:
         """Researches pricing for a given model via agent with fallback to direct search."""
         baseline = get_baseline_for_model(model_name)
         try:
-            # Delegate to module-level fetch_pricing_with_agent to intercept test mocks
-            call_res = fetch_pricing_with_agent(model_name)
+            call_res = self.fetch_pricing_with_agent(model_name)
             return await call_res if asyncio.iscoroutine(call_res) else call_res
         except (TimeoutError, asyncio.TimeoutError) as e:
             logger.warning(f"[PRICING] Agent research timed out for '{model_name}': {e}. Trying direct search.")
@@ -541,19 +562,34 @@ class PricingService:
         # Fallback to direct web search extraction
         try:
             clean_query = re.sub(r"^[a-zA-Z0-9_-]+/", "", model_name)
-            search_fn = getattr(sys.modules.get("pricing_service") or sys.modules.get("services.pricing_service"), "web_search", web_search)
+            import services.pricing_service as psm
+            search_fn = getattr(psm, "web_search", web_search)
             if inspect.iscoroutinefunction(search_fn):
                 search_raw = await search_fn(query=f"{clean_query} api pricing tokens million official", max_results=5)
             else:
                 search_raw = await asyncio.to_thread(search_fn, query=f"{clean_query} api pricing tokens million official", max_results=5)
             in_val, out_val = _extract_pricing_from_search_text(search_raw, model_name)
-            input_price = in_val if in_val is not None else baseline["input_price_per_1m"]
-            output_price = out_val if out_val is not None else baseline["output_price_per_1m"]
-            source = "Web Search Fallback" if (in_val or out_val) else baseline["source"]
+            cand_in = in_val if in_val is not None else float(baseline["input_price_per_1m"])
+            cand_out = out_val if out_val is not None else float(baseline["output_price_per_1m"])
+
+            if (in_val is not None or out_val is not None) and _is_valid_price_pair(cand_in, cand_out) and _is_within_sanity_bounds(cand_in, cand_out, baseline):
+                input_price = cand_in
+                output_price = cand_out
+                source = "Web Search Fallback"
+            else:
+                if in_val is not None or out_val is not None:
+                    logger.warning(
+                        f"[PRICING] Direct search extracted out-of-bounds pricing for '{model_name}': "
+                        f"in={cand_in}, out={cand_out}. Falling back to baseline."
+                    )
+                input_price = float(baseline["input_price_per_1m"])
+                output_price = float(baseline["output_price_per_1m"])
+                source = baseline["source"]
+
             source_url = baseline.get("source_url", get_pricing_benchmark_url())
 
             url_match = re.search(r"https?://[^\s)\]\"'>]+", search_raw)
-            if url_match:
+            if url_match and source == "Web Search Fallback":
                 source_url = url_match.group(0)
 
             return {
@@ -629,8 +665,7 @@ class PricingService:
                     )
                 return cached_entry
 
-        call_res = fetch_pricing_from_web(model_name)
-        fresh_pricing = await call_res if asyncio.iscoroutine(call_res) else call_res
+        fresh_pricing = await self.fetch_pricing_from_web(model_name)
 
         cache[norm] = fresh_pricing
         self.save_cache(cache)
@@ -667,32 +702,5 @@ class PricingService:
 pricing_service = PricingService()
 
 
-# Backward-compatible function aliases
-def load_pricing_cache() -> dict[str, dict[str, Any]]:
-    return pricing_service.load_cache()
-
-
-def save_pricing_cache(data: dict[str, dict[str, Any]]) -> None:
-    pricing_service.save_cache(data)
-
-
 def get_model_pricing(model_name: str) -> dict[str, Any]:
     return pricing_service.get_pricing(model_name)
-
-
-async def fetch_pricing_from_web(model_name: str) -> dict[str, Any]:
-    return await pricing_service.fetch_pricing_from_web(model_name)
-
-
-async def fetch_pricing_with_agent(model_name: str) -> dict[str, Any]:
-    return await pricing_service.fetch_pricing_with_agent(model_name)
-
-
-async def refresh_model_pricing(
-    model_name: str, force: bool = False
-) -> dict[str, Any]:
-    return await pricing_service.refresh_pricing(model_name, force=force)
-
-
-async def warm_up_pricing_cache(models: list[str] | None = None) -> None:
-    await pricing_service.warm_up_cache(models=models)

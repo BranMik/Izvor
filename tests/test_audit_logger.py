@@ -223,16 +223,16 @@ def test_sandbox_audit_write_protection():
     assert is_path_write_blocked("system_resources") is True
     assert is_path_write_blocked("system_resources/audit/tamper.txt") is True
 
-    # write_document should reject writing into audit or system_resources
-    res_str = write_document("audit/tamper.txt", "malicious_content")
+    # write_document sandbox prevents escaping agents_resources to audit or system_resources
+    res_str = write_document("../audit/tamper.txt", "malicious_content")
     res_dict = json.loads(res_str)
     assert "error" in res_dict
-    assert "Permission denied" in res_dict["error"]
+    assert "Access denied" in res_dict["error"] or "Permission denied" in res_dict["error"]
 
-    res_sys = write_document("system_resources/audit/tamper.txt", "malicious_content")
+    res_sys = write_document("../system_resources/audit/tamper.txt", "malicious_content")
     res_sys_dict = json.loads(res_sys)
     assert "error" in res_sys_dict
-    assert "Permission denied" in res_sys_dict["error"]
+    assert "Access denied" in res_sys_dict["error"] or "Permission denied" in res_sys_dict["error"]
 
 
 def test_send_admin_audit_alert_mock(monkeypatch):

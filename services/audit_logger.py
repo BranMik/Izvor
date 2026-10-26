@@ -136,15 +136,35 @@ def get_audit_hmac_secret() -> bytes:
     return b""
 
 
+_main_event_loop: Any = None
+_background_audit_tasks: set[Any] = set()
+
+
+def set_main_event_loop(loop: Any) -> None:
+    """Sets the primary application event loop for cross-thread alert dispatching."""
+    global _main_event_loop
+    _main_event_loop = loop
+
+
+def get_main_event_loop() -> Any:
+    return _main_event_loop
+
+
 def validate_audit_configuration() -> None:
     """Validates that audit security settings (such as AUDIT_HMAC_SECRET) are valid at startup."""
     secret = get_audit_hmac_secret()
-    from core.config import is_test_environment
-    if not secret and not is_test_environment():
-        logger.warning(
-            "[AUDIT] AUDIT_HMAC_SECRET is not configured in environment. "
-            "Audit records will be signed with standard SHA-256 without HMAC key."
-        )
+    from core.config import is_production, is_test_environment
+
+    if not secret:
+        if is_production():
+            raise RuntimeError(
+                "[SECURITY] AUDIT_HMAC_SECRET is required in production environment but is missing or empty."
+            )
+        if not is_test_environment():
+            logger.warning(
+                "[AUDIT] AUDIT_HMAC_SECRET is not configured in environment. "
+                "Audit records will be signed with standard SHA-256 without HMAC key."
+            )
 
 
 def _persist_audit_anchor(month: str, seq: int, entry_hash: str, timestamp: str) -> None:
@@ -161,20 +181,37 @@ def _persist_audit_anchor(month: str, seq: int, entry_hash: str, timestamp: str)
 
 
 def _dispatch_critical_alert(record: AuditRecord | dict[str, Any]) -> None:
-    """Dispatches an asynchronous critical alert if an event loop is running."""
+    """
+    Dispatches an asynchronous critical alert.
+    Supports invocation from both the main async event loop and worker threads
+    (e.g., inside asyncio.to_thread) via asyncio.run_coroutine_threadsafe.
+    """
     rec = asdict(record) if isinstance(record, AuditRecord) else dict(record)
     try:
         import asyncio
-        loop = asyncio.get_running_loop()
-        loop.create_task(
-            send_admin_audit_alert(
+
+        def _make_coro():
+            return send_admin_audit_alert(
                 title=f"Security Alert: {rec.get('event_type')}",
                 message=f"Action '{rec.get('action')}' on target '{rec.get('target')}' recorded with status '{rec.get('status')}'.",
                 details=rec.get("details"),
             )
-        )
-    except (RuntimeError, ValueError):
-        pass
+
+        try:
+            current_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            current_loop = None
+
+        if current_loop and current_loop.is_running():
+            task = current_loop.create_task(_make_coro())
+            _background_audit_tasks.add(task)
+            task.add_done_callback(_background_audit_tasks.discard)
+        elif _main_event_loop and _main_event_loop.is_running():
+            fut = asyncio.run_coroutine_threadsafe(_make_coro(), _main_event_loop)
+            _background_audit_tasks.add(fut)
+            fut.add_done_callback(_background_audit_tasks.discard)
+        else:
+            logger.debug("[AUDIT] No running event loop available to dispatch critical alert.")
     except Exception as e:  # noqa: BLE001
         logger.warning(f"[AUDIT] Failed to dispatch background critical alert: {e}")
 
@@ -307,15 +344,33 @@ class AuditLogger:
                 return self._cached_last_state
 
             # Inspect newest file from the end
-            for file_path in reversed(sorted_files):
+            newest_file = sorted_files[-1]
+            last_line = self._read_last_nonempty_line(newest_file)
+            if last_line:
+                try:
+                    record = json.loads(last_line)
+                    self._cached_file_size = newest_file.stat().st_size
+                    self._cached_last_state = (int(record["seq"]), str(record["entry_hash"]))
+                    return self._cached_last_state
+                except (json.JSONDecodeError, ValueError, KeyError) as e:
+                    logger.critical(
+                        f"[AUDIT] Corruption detected in latest audit file {newest_file.name}: {e}. "
+                        "Refusing to silently fork sequence IDs from previous partition."
+                    )
+                    raise RuntimeError(
+                        f"Audit log corruption detected in latest file '{newest_file.name}': {e}. Cannot recover sequence safely."
+                    ) from e
+
+            # If newest file is empty (e.g. freshly created partition), inspect preceding partitions
+            for file_path in reversed(sorted_files[:-1]):
                 try:
                     last_line = self._read_last_nonempty_line(file_path)
                     if last_line:
                         record = json.loads(last_line)
-                        self._cached_file_size = file_path.stat().st_size
+                        self._cached_file_size = newest_file.stat().st_size
                         self._cached_last_state = (int(record["seq"]), str(record["entry_hash"]))
                         return self._cached_last_state
-                except (json.JSONDecodeError, ValueError) as e:
+                except (json.JSONDecodeError, ValueError, KeyError) as e:
                     logger.error(f"[AUDIT] Failed to read last state from {file_path.name}: {e}")
                     continue
 
@@ -377,6 +432,7 @@ class AuditLogger:
             with open(target_file, "a", encoding="utf-8") as f:
                 f.write(line_str)
                 f.flush()
+                os.fsync(f.fileno())
 
             self._cached_file_size = target_file.stat().st_size
             self._cached_last_state = (record.seq, record.entry_hash)

@@ -521,11 +521,23 @@ async def post_message_to_slack(
     username: str | None = None,
     icon_url: str | None = None,
     icon_emoji: str | None = None,
+    blocks: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     bot_token = get_slack_bot_token()
     if not bot_token or bot_token == "xoxb-your-bot-user-oauth-token":
-        return {"ok": True, "mock": True}
+        return {"ok": True, "mock": True, "ts": f"mock_msg_{int(time.time() * 1000)}.000"}
     try:
+        matched_rule = scan_output_for_secrets(text, user_id=username or "system")
+        if blocks:
+            blocks, matched_rule_blocks = sanitize_slack_blocks(blocks, user_id=username or "system")
+            if matched_rule_blocks:
+                matched_rule = matched_rule or matched_rule_blocks
+
+        if matched_rule:
+            logger.warning(f"[SECURITY] Message blocked by guardrail rule: {matched_rule}")
+            text = f"⚠️ *Message blocked by security policy.* (Rule: {matched_rule})"
+            blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": text}}]
+
         text = sanitize_slack_broadcast_mentions(text)
         kwargs: dict[str, Any] = {
             "channel": channel_id,
@@ -533,6 +545,8 @@ async def post_message_to_slack(
             "unfurl_links": False,
             "unfurl_media": False,
         }
+        if blocks:
+            kwargs["blocks"] = blocks
         if thread_ts:
             kwargs["thread_ts"] = thread_ts
         if username:

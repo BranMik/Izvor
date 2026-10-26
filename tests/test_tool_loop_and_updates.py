@@ -95,6 +95,7 @@ async def test_delayed_intermediate_status_and_inplace_update():
     mock_tool_call.function.arguments = json.dumps({"query": "AI 2026"})
 
     mock_initial_resp = MagicMock()
+    mock_initial_resp.model = "gemini/gemini-3.8-flash"
     mock_choice_1 = MagicMock()
     mock_choice_1.message.content = ""
     mock_choice_1.message.tool_calls = [mock_tool_call]
@@ -102,6 +103,7 @@ async def test_delayed_intermediate_status_and_inplace_update():
     mock_initial_resp.choices = [mock_choice_1]
 
     mock_followup_resp = MagicMock()
+    mock_followup_resp.model = "gemini/gemini-3.8-flash"
     mock_choice_2 = MagicMock()
     mock_choice_2.message.content = "Here is the final answer about AI 2026."
     mock_choice_2.message.tool_calls = None

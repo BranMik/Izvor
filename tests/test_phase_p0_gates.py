@@ -156,7 +156,7 @@ async def test_tkt_705_hitl_workflow_suspension_and_nomination_suppression():
     ctx.final_text = "I need approval for file modification. Over to [agent-10002]."
     ctx.turn_token_mapping = {}
 
-    stage = PostRecordStage(pipeline=pipeline)
+    stage = PostRecordStage(pipeline.deps)
 
     await stage.stage_post_and_record(ctx)
 

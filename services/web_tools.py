@@ -13,27 +13,39 @@ from bs4 import BeautifulSoup
 
 logger = logging.getLogger(__name__)
 
-_turn_web_fetch_count: contextvars.ContextVar[int] = contextvars.ContextVar("_turn_web_fetch_count", default=0)
+_turn_web_fetch_count: contextvars.ContextVar[list[int]] = contextvars.ContextVar(
+    "_turn_web_fetch_count", default=[0]
+)
 
 
 def reset_turn_web_budget() -> None:
     """Resets the per-turn web fetch count."""
-    _turn_web_fetch_count.set(0)
+    _turn_web_fetch_count.set([0])
+
+
+def get_turn_web_fetch_count() -> int:
+    """Returns current number of web fetches executed in this turn."""
+    holder = _turn_web_fetch_count.get()
+    return holder[0] if isinstance(holder, list) else int(holder)
 
 
 def check_and_increment_web_budget() -> None:
     """
     Verifies that the turn has not exceeded its outbound web request budget.
     Increments the budget counter or raises a PermissionError if exceeded.
+    Thread-safe across asyncio.to_thread and thread pools using a shared mutable container.
     """
     sec_limits = get_web_security_limits()
     max_fetches = sec_limits.get("max_fetches_per_turn", 10)
-    current = _turn_web_fetch_count.get()
-    if current >= max_fetches:
+    holder = _turn_web_fetch_count.get()
+    if not isinstance(holder, list):
+        holder = [0]
+        _turn_web_fetch_count.set(holder)
+    if holder[0] >= max_fetches:
         raise PermissionError(
             f"Web fetch budget exceeded: limit of {max_fetches} requests per turn reached."
         )
-    _turn_web_fetch_count.set(current + 1)
+    holder[0] += 1
 
 
 
@@ -185,18 +197,21 @@ def _web_search_inner(query: str, max_results: int = 5) -> str:
 
     # Strategy 2: ddgs library fallback
     try:
-        try:
-            from ddgs import DDGS
-        except ImportError:
-            from duckduckgo_search import DDGS
+        from ddgs import DDGS
 
+        timeout_sec = int(get_web_search_timeout())
         ddgs_results = []
-        with DDGS() as ddgs:
+        with DDGS(timeout=timeout_sec) as ddgs:
             for r in ddgs.text(cleaned_query, max_results=max_results):
+                candidate_url = r.get("href", "") or r.get("link", "") or r.get("url", "")
+                if candidate_url:
+                    is_safe, _, _, _ = validate_url_security(candidate_url)
+                    if not is_safe:
+                        continue
                 ddgs_results.append(
                     {
                         "title": r.get("title", ""),
-                        "url": r.get("href", "") or r.get("link", "") or r.get("url", ""),
+                        "url": candidate_url,
                         "snippet": r.get("body", "") or r.get("snippet", ""),
                     }
                 )

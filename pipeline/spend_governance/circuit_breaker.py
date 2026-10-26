@@ -33,6 +33,7 @@ class SpendGovernance:
         self._daily_spend_date: str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         self._lock = threading.Lock()
         self._active_reservations: dict[str, dict[str, float]] = {}
+        self._daily_reset_offset_ts: float | None = None
 
     def _check_daily_rollover(self) -> None:
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -46,14 +47,11 @@ class SpendGovernance:
     def record_usage(
         self,
         session_id: str,
-        model_name: str = "",
+        model_name: str,
         prompt_tokens: int = 0,
         completion_tokens: int = 0,
-        model: str | None = None,
     ) -> None:
         """Records token usage for a model within a session, accumulates daily spend, and writes to SQLite ledger."""
-        if not model_name and model:
-            model_name = model
         if session_id not in self._session_tokens:
             self._session_tokens[session_id] = {}
         if model_name not in self._session_tokens[session_id]:
@@ -102,7 +100,7 @@ class SpendGovernance:
             with get_connection() as conn:
                 row = conn.execute(
                     "SELECT COALESCE(SUM(cost_usd), 0.0) AS daily_cost FROM spend_ledger WHERE timestamp >= ?;",
-                    (today_start,),
+                    (max(today_start, getattr(self, "_daily_reset_offset_ts", 0.0) or 0.0),),
                 ).fetchone()
                 if row:
                     return round(float(row["daily_cost"]), 6)
@@ -119,8 +117,7 @@ class SpendGovernance:
         today_start = now.replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
 
         try:
-            with get_db_transaction(immediate=True) as conn:
-                conn.execute("DELETE FROM spend_ledger WHERE timestamp >= ?;", (today_start,))
+            self._daily_reset_offset_ts = now.timestamp()
         except Exception as e:  # noqa: BLE001
             logger.error(f"[SPEND GOVERNANCE] Failed resetting daily spend in SQLite: {e}")
 
@@ -308,7 +305,7 @@ class SpendGovernance:
         else:
             metrics = self.calculate_spend(session_id)
             cost = metrics.total_cost_usd + self.get_active_reservations_usd(session_id)
-        is_tripped = cost >= limit
+        is_tripped = limit > 0 and cost >= limit
         return is_tripped, cost, limit
 
     def clear_session(self, session_id: str) -> None:

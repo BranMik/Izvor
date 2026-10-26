@@ -168,10 +168,13 @@ def test_execute_mcp_web_tools():
         mock_fetch.assert_called_once_with(url="https://example.com", max_chars=1000)
         assert "mocked" in res
 
-    with patch("services.mcp_tools.fetch_web_page", return_value=json.dumps({"url": "https://example.com", "content": "scraped"})) as mock_scrape:
-        res = execute_mcp_tool("web_scrape", {"url": "https://example.com"}, agent_name=SYSTEM_PRINCIPAL)
-        mock_scrape.assert_called_once_with(url="https://example.com", max_chars=4000)
-        assert "scraped" in res
+    with patch("services.mcp_tools.fetch_web_page", return_value=json.dumps({"url": "https://example.com", "content": "fetched_default"})) as mock_fetch_default:
+        res = execute_mcp_tool("fetch_web_page", {"url": "https://example.com"}, agent_name=SYSTEM_PRINCIPAL)
+        mock_fetch_default.assert_called_once_with(url="https://example.com", max_chars=4000)
+        assert "fetched_default" in res
+
+    res_unknown = execute_mcp_tool("web_scrape", {"url": "https://example.com"}, agent_name=SYSTEM_PRINCIPAL)
+    assert "error" in json.loads(res_unknown)
 
 
 

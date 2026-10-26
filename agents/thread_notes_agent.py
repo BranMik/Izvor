@@ -3,7 +3,7 @@ import logging
 import time
 from typing import Any
 
-from core.async_utils import spawn_background_task
+from core.task_utils import safe_create_task
 from core.config import get_thread_notes_model
 from pipeline.discussion_scribe import discussion_scribe
 from services.slack import (
@@ -723,7 +723,7 @@ def trigger_thread_notes_update(
         bot_user_id=bot_user_id,
     )
     try:
-        task = spawn_background_task(coro, name=f"thread_notes_{thread_ts}")
+        task = safe_create_task(coro, name=f"thread_notes_{thread_ts}")
         _RUNNING_TASKS[thread_key] = task
         _PENDING_UPDATES[thread_key] = False
         return task

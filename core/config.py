@@ -59,6 +59,15 @@ def is_test_environment() -> bool:
         return True
     return "pytest" in sys.modules
 
+
+def is_production() -> bool:
+    """
+    Determines if the application is currently running in a production environment.
+    Checks ENVIRONMENT, IZVOR_ENV, and APP_ENV.
+    """
+    env = os.getenv("ENVIRONMENT", os.getenv("IZVOR_ENV", os.getenv("APP_ENV", "development"))).strip().lower()
+    return env in ("production", "prod")
+
 # MCP workspace directory: defaults to project root (one directory above 'core' and 'services')
 _raw_workspace = os.getenv("MCP_WORKSPACE_DIR", "").strip()
 if _raw_workspace and _raw_workspace != ".":
@@ -186,17 +195,30 @@ def _load_default_models_from_ssot() -> tuple[str, str]:
         return fast_default, reasoning_default
 
 
-DEFAULT_FAST_MODEL, DEFAULT_REASONING_MODEL = _load_default_models_from_ssot()
+DEFAULT_FAST_MODEL = "gemini/gemini-3.8-flash"
+DEFAULT_REASONING_MODEL = "mistral/mistral-large-latest"
 
 
 def get_default_fast_model() -> str:
-    """Returns the system-level default fast LLM model."""
-    return DEFAULT_FAST_MODEL
+    """Returns the system-level default fast LLM model dynamically from SSOT."""
+    try:
+        from orchestration.system_settings import system_settings_manager
+
+        return system_settings_manager.default_fast_model
+    except Exception:
+        fast, _ = _load_default_models_from_ssot()
+        return fast
 
 
 def get_default_reasoning_model() -> str:
-    """Returns the system-level default reasoning LLM model."""
-    return DEFAULT_REASONING_MODEL
+    """Returns the system-level default reasoning LLM model dynamically from SSOT."""
+    try:
+        from orchestration.system_settings import system_settings_manager
+
+        return system_settings_manager.default_reasoning_model
+    except Exception:
+        _, reasoning = _load_default_models_from_ssot()
+        return reasoning
 
 
 def get_system_agent_model(name: str, fallback: str = "") -> str:

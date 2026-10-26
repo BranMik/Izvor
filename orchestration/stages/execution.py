@@ -24,6 +24,7 @@ from orchestration.system_settings import (
 from core.llm_utils import execute_llm_with_retry
 from orchestration.agent_settings import settings_manager
 from orchestration.stages.tool_status import _build_tool_status_text
+from orchestration.protocols import PipelineDeps
 from orchestration.thread_state import thread_state_manager
 from services.mcp_tools import execute_mcp_tool
 from services.slack import post_agent_response
@@ -61,13 +62,8 @@ def _unmask_argument_values(val: Any, mapping: dict[str, str]) -> Any:
 class ExecutionStage:
     """Provides stage 4 LLM execution and tool calling loops for TurnPipeline."""
 
-    def __init__(self, deps: Any):
-        if hasattr(deps, "deps"):
-            self.deps = deps.deps
-            self.pipeline = deps
-        else:
-            self.deps = deps
-            self.pipeline = deps
+    def __init__(self, deps: PipelineDeps):
+        self.deps = deps
 
     def _is_mid_turn_budget_exceeded(self, ctx: TurnContext) -> bool:
         """
@@ -84,7 +80,7 @@ class ExecutionStage:
 
         try:
             from agents.usage_agent import calculate_thread_costs
-            from orchestration.app_settings import get_daily_budget_usd
+            from orchestration.app_settings import get_daily_budget_usd, is_circuit_breaker_enabled
             from pipeline.spend_governance import spend_governance
             from services.pricing_service import pricing_service
 
@@ -112,7 +108,7 @@ class ExecutionStage:
             tripped, _, _ = spend_governance.is_budget_exceeded(
                 session_id=session_id,
                 threshold_usd=threshold,
-                enabled=True,
+                enabled=is_circuit_breaker_enabled(),
                 current_cost_usd=current_cost,
                 daily_budget_usd=daily_budget,
             )
@@ -256,16 +252,6 @@ class ExecutionStage:
             logger.info(
                 f"[ROUTER] Thread {ctx.thread_key} turn was superseded after LLM call. Aborting."
             )
-            if ctx.total_prompt_tokens > 0 or ctx.total_completion_tokens > 0:
-                record_tokens_fn = getattr(self.deps, "token_recorder", None) or record_thread_tokens
-                if record_tokens_fn:
-                    record_tokens_fn(
-                        channel_id=ctx.channel_id,
-                        thread_ts=ctx.thread_ts,
-                        model_name=ctx.agent_cfg.get("model", "") if ctx.agent_cfg else "",
-                        prompt_tokens=ctx.total_prompt_tokens,
-                        completion_tokens=ctx.total_completion_tokens,
-                    )
             return {"ok": False, "cancelled": True, "reason": "superseded"}
 
         response_message = response.choices[0].message
@@ -478,18 +464,8 @@ class ExecutionStage:
                                             tool_result = await exec_mcp_fn(fn_name, fn_args, **kwargs)
                                         else:
                                             tool_result = await asyncio.to_thread(exec_mcp_fn, fn_name, fn_args, **kwargs)
-                                    elif hasattr(skill_registry, "execute_tool_async"):
-                                        tool_result = await skill_registry.execute_tool_async(
-                                            fn_name,
-                                            fn_args,
-                                            authorized_skills=agent_skills,
-                                            expired_skills=expired_thread_skills,
-                                            ttl_hours=thread_ttl_hours,
-                                            agent_name=principal,
-                                        )
                                     else:
-                                        tool_result = await asyncio.to_thread(
-                                            skill_registry.execute_tool,
+                                        tool_result = await skill_registry.execute_tool_async(
                                             fn_name,
                                             fn_args,
                                             authorized_skills=agent_skills,
@@ -551,23 +527,14 @@ class ExecutionStage:
                         logger.info(
                             f"[ROUTER] Thread {ctx.thread_key} turn was superseded during tool execution. Aborting."
                         )
-                        if ctx.total_prompt_tokens > 0 or ctx.total_completion_tokens > 0:
-                            record_tokens_fn = getattr(self.deps, "token_recorder", None) or record_thread_tokens
-                            if record_tokens_fn:
-                                record_tokens_fn(
-                                    channel_id=ctx.channel_id,
-                                    thread_ts=ctx.thread_ts,
-                                    model_name=ctx.agent_cfg.get("model", "") if ctx.agent_cfg else "",
-                                    prompt_tokens=ctx.total_prompt_tokens,
-                                    completion_tokens=ctx.total_completion_tokens,
-                                )
-                        return {"ok": False, "cancelled": True, "reason": "superseded"}
+                        raise asyncio.CancelledError(f"Thread {ctx.thread_key} turn was superseded during tool execution.")
 
+                    is_paused = bool(getattr(ctx, "waiting_hitl", False) or getattr(ctx, "halted", False))
                     follow_up_kwargs: dict[str, Any] = {
                         "model": ctx.agent_cfg["model"],
                         "messages": ctx.messages,
-                        "tools": active_tools,
-                        "tool_choice": "auto",
+                        "tools": None if is_paused else active_tools,
+                        "tool_choice": "none" if is_paused else "auto",
                         "num_retries": system_settings_manager.get_tool_call_num_retries(),
                     }
                     if _is_explicit_meta_provider(ctx.agent_cfg.get("model")):
@@ -587,21 +554,16 @@ class ExecutionStage:
                         turn_token_mapping=ctx.turn_token_mapping,
                     )
                     if follow_up is None and ctx.is_superseded():
-                        if ctx.total_prompt_tokens > 0 or ctx.total_completion_tokens > 0:
-                            record_tokens_fn = getattr(self.deps, "token_recorder", None) or record_thread_tokens
-                            if record_tokens_fn:
-                                record_tokens_fn(
-                                    channel_id=ctx.channel_id,
-                                    thread_ts=ctx.thread_ts,
-                                    model_name=ctx.agent_cfg.get("model", "") if ctx.agent_cfg else "",
-                                    prompt_tokens=ctx.total_prompt_tokens,
-                                    completion_tokens=ctx.total_completion_tokens,
-                                )
-                        return {"ok": False, "cancelled": True, "reason": "superseded"}
+                        raise asyncio.CancelledError(f"Thread {ctx.thread_key} turn was superseded during follow-up.")
 
                     ctx.add_usage(follow_up)
                     response_message = follow_up.choices[0].message
                     tool_calls = getattr(response_message, "tool_calls", None)
+
+                    if is_paused:
+                        tool_calls = None
+                        ctx.final_text = response_message.content or ctx.final_text or ""
+                        break
 
                     if tool_calls and self._is_mid_turn_budget_exceeded(ctx):
                         logger.warning(
@@ -612,10 +574,12 @@ class ExecutionStage:
                             pause_reason="circuit_breaker",
                             active_tools=active_tools,
                         )
+                        ctx.halted = True
                         ctx.final_text = (
                             response_message.content
                             or "⚠️ _Thread cost safety limit reached during tool execution. Turn paused._"
                         )
+                        tool_calls = None
                         break
 
                 return None

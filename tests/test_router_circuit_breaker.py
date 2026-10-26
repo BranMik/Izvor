@@ -39,8 +39,8 @@ def test_circuit_breaker_configuration_methods():
     assert get_circuit_breaker_threshold() == 2.75
 
     cfg = get_circuit_breaker_config()
-    assert cfg["enabled"] is True
-    assert cfg["threshold_usd"] == 2.75
+    assert cfg.enabled is True
+    assert cfg.threshold_usd == 2.75
 
     set_circuit_breaker_enabled(False)
     assert is_circuit_breaker_enabled() is False

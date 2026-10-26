@@ -35,6 +35,7 @@ def setup_test_environment(monkeypatch):
     monkeypatch.setattr("services.slack.fetch_thread_files", mock_files)
 
     monkeypatch.setattr("orchestration.agent_router.post_agent_response", mock_post)
+    monkeypatch.setattr("orchestration.agent_router.post_system_message", mock_sys)
     monkeypatch.setattr("orchestration.agent_router.fetch_thread_history", mock_hist)
     monkeypatch.setattr("orchestration.agent_router.fetch_thread_files", mock_files)
 

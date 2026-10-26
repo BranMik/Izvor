@@ -18,7 +18,6 @@ logger = logging.getLogger(__name__)
 READ_ONLY_CACHEABLE_TOOLS: frozenset[str] = frozenset({
     "web_search",
     "fetch_web_page",
-    "web_scrape",
     "list_documents",
     "read_document",
     "search_knowledge_rag",

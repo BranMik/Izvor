@@ -422,6 +422,7 @@ async def test_file_context_lifecycle_in_process_and_respond():
     ]
 
     mock_litellm_resp = MagicMock()
+    mock_litellm_resp.model = "gemini/gemini-3.8-flash"
     mock_litellm_resp.choices = [
         MagicMock(message=MagicMock(content="Database analysis done.", tool_calls=None))
     ]

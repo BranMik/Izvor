@@ -730,9 +730,6 @@ class SystemSettingsManager:
         self.load()
         return dict(self.web_security)
 
-    def get_web_security_limits(self) -> dict[str, Any]:
-        return self.get_web_security()
-
     def get_security_burst_limits(self) -> dict[str, Any]:
         self.load()
         return dict(self.security_burst_limits)
@@ -995,10 +992,6 @@ def get_web_fetch_user_agent() -> str:
 
 def get_web_security() -> dict[str, Any]:
     return system_settings_manager.get_web_security()
-
-
-def get_web_security_limits() -> dict[str, Any]:
-    return system_settings_manager.get_web_security_limits()
 
 
 def get_security_burst_limits() -> dict[str, Any]:

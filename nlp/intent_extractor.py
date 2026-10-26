@@ -69,16 +69,10 @@ class IntentExtractor:
             logger.debug(f"[INTENT EXTRACTOR] Error retrieving skill catalog prompt: {e}")
         return EXTRACTOR_SYSTEM_PROMPT
 
-    def should_skip(
-        self,
-        raw_text: str,
-        **kwargs: Any,
-    ) -> bool:
+    def should_skip(self, raw_text: str) -> bool:
         """
         Evaluates whether the LLM intent extractor should be skipped:
         Only /stop command triggers skip as True.
-        All other prompts proceed to intent extraction.
-        Legacy keyword arguments are accepted via kwargs for backward compatibility.
         """
         return is_stop_command(raw_text)
 
@@ -247,24 +241,3 @@ class IntentExtractor:
 
 # Default singleton instance
 intent_extractor = IntentExtractor()
-
-
-# Backward-compatible function aliases
-def should_skip_intent_extractor(
-    raw_text: str,
-    **kwargs: Any,
-) -> bool:
-    return intent_extractor.should_skip(raw_text=raw_text, **kwargs)
-
-
-async def extract_user_intent(
-    text: str,
-    available_files: list[dict[str, Any]] | None = None,
-    timeout_seconds: float = 15.0,
-) -> dict[str, Any]:
-    intent_obj = await intent_extractor.extract_intent(
-        text=text,
-        available_files=available_files,
-        timeout_seconds=timeout_seconds,
-    )
-    return intent_obj.to_dict()

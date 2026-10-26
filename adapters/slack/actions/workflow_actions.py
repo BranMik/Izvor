@@ -24,9 +24,11 @@ from orchestration.agent_settings import (
 )
 from orchestration.app_settings import (
     get_circuit_breaker_threshold,
+    get_daily_budget_usd,
     set_circuit_breaker_enabled,
     set_circuit_breaker_threshold,
     set_convergence_fast_forward_enabled,
+    set_daily_budget_usd,
     set_scribe_enabled,
     set_weekly_pricing_update_enabled,
 )
@@ -39,6 +41,7 @@ from services.slack import (
     open_dm_channel,
     post_ephemeral_to_slack,
     slack_async_client,
+    update_slack_message,
     upload_text_file_to_slack,
 )
 
@@ -208,10 +211,9 @@ async def _handle_resume_sequence(
         else:
             msg = payload.get("message", {})
             if msg and msg.get("ts"):
-                client = slack_async_client
                 background_tasks.add_task(
-                    client.chat_update,
-                    channel=channel_id,
+                    update_slack_message,
+                    channel_id=channel_id,
                     ts=msg["ts"],
                     text=f"✅ Sequence resumed by <@{user_id}>.",
                     blocks=[],
@@ -253,8 +255,6 @@ async def _handle_toggle_circuit_breaker(
     val = selected_option.get("value", "")
     is_on = val == "cb:on"
     set_circuit_breaker_enabled(is_on)
-    if not is_on:
-        set_circuit_breaker_threshold(0.0)
     log_audit_event(
         event_type="ADMIN_CONFIG_CHANGE",
         actor={"type": "slack_admin", "id": user_id or "unknown"},
@@ -445,6 +445,104 @@ async def _handle_set_circuit_breaker_preset(
             details={"preset_value": val_float},
             severity="CRITICAL",
         )
+    except (ValueError, TypeError):
+        pass
+    return None
+
+
+async def _handle_set_daily_budget_input(
+    action: dict[str, Any],
+    payload: dict[str, Any],
+    user_id: str | None,
+    background_tasks: BackgroundTasks,
+    view_state: dict[str, Any],
+) -> Response | None:
+    val_str = action.get("value", "")
+    try:
+        val_clean = str(val_str).strip().replace("$", "").replace(",", ".")
+        val_float = float(val_clean)
+        if val_float >= 0:
+            set_daily_budget_usd(val_float)
+            log_audit_event(
+                event_type="ADMIN_CONFIG_CHANGE",
+                actor={"type": "slack_admin", "id": user_id or "unknown"},
+                action="set_daily_budget_input",
+                target="daily_budget.usd",
+                details={"budget_input": val_clean, "parsed_budget": val_float},
+                severity="CRITICAL",
+            )
+    except (ValueError, TypeError):
+        logger.warning(f"[INTERACTIVITY] Could not parse daily budget from input: '{val_str}'")
+    return None
+
+
+async def _handle_save_daily_budget_button(
+    action: dict[str, Any],
+    payload: dict[str, Any],
+    user_id: str | None,
+    background_tasks: BackgroundTasks,
+    view_state: dict[str, Any],
+) -> Response | None:
+    val_str = None
+    if isinstance(view_state, dict):
+        for block_val in view_state.values():
+            if isinstance(block_val, dict) and "set_daily_budget_input" in block_val:
+                candidate = block_val["set_daily_budget_input"].get("value")
+                if candidate is not None and str(candidate).strip():
+                    val_str = candidate
+                    break
+        if val_str is None:
+            for block_id, block_vals in view_state.items():
+                if "daily_budget" in block_id and isinstance(block_vals, dict):
+                    val_obj = block_vals.get("set_daily_budget_input", {})
+                    if isinstance(val_obj, dict):
+                        candidate = val_obj.get("value")
+                        if candidate is not None and str(candidate).strip():
+                            val_str = candidate
+                            break
+
+    val_float = None
+    if val_str is not None and str(val_str).strip():
+        try:
+            val_clean = str(val_str).strip().replace("$", "").replace(",", ".")
+            val_float = float(val_clean)
+        except (ValueError, TypeError):
+            logger.warning(f"[INTERACTIVITY] Could not parse daily budget from button save: '{val_str}'")
+
+    if val_float is not None and val_float >= 0:
+        set_daily_budget_usd(val_float)
+        log_audit_event(
+            event_type="ADMIN_CONFIG_CHANGE",
+            actor={"type": "slack_admin", "id": user_id or "unknown"},
+            action="save_daily_budget",
+            target="daily_budget.usd",
+            details={"saved_daily_budget": val_float},
+            severity="CRITICAL",
+        )
+    return None
+
+
+async def _handle_set_daily_budget_preset(
+    action: dict[str, Any],
+    payload: dict[str, Any],
+    user_id: str | None,
+    background_tasks: BackgroundTasks,
+    view_state: dict[str, Any],
+) -> Response | None:
+    action_id = action.get("action_id", "")
+    val_str = action_id.split(":", 1)[1]
+    try:
+        val_float = float(val_str)
+        if val_float >= 0:
+            set_daily_budget_usd(val_float)
+            log_audit_event(
+                event_type="ADMIN_CONFIG_CHANGE",
+                actor={"type": "slack_admin", "id": user_id or "unknown"},
+                action="set_daily_budget_preset",
+                target="daily_budget.usd",
+                details={"preset_value": val_float},
+                severity="CRITICAL",
+            )
     except (ValueError, TypeError):
         pass
     return None

@@ -29,6 +29,7 @@ __all__ = [
     "TurnInput",
     "TurnOutput",
     "TurnPipeline",
+    "_build_tool_status_text",
     "record_thread_tokens",
     "trigger_thread_notes_update",
     "trigger_usage_update",
@@ -101,6 +102,57 @@ class TurnOutput:
 class TurnContext:
     """Encapsulates all runtime state, directives, and metadata for a single agent turn execution."""
 
+    inp: TurnInput
+    control_plane: TurnControlPlane
+    out: TurnOutput
+
+    # Lifecycle state
+    thread_key: tuple[str, str]
+    start_time: float
+    my_generation: int
+    current_task: asyncio.Task | None
+
+    # Directives & Skills
+    actions: list[ActionDirective]
+    modifiers: dict[str, Any]
+    attachments: list[MediaAttachment]
+    raw_text_cleaned: str
+    history_limit: int | None
+    excluded_agents: list[str]
+    included_agents: list[str]
+    thread_files: list[dict[str, Any]]
+
+    # Resolved routing
+    agent_key: str
+    prompt: str
+    was_explicit_target: bool
+    agent_cfg: dict[str, Any]
+    remaining: list[str]
+    is_custom_flow: bool
+    is_open_debate: bool
+    force_termination: bool
+    eligible_remaining_agents: list[str]
+    next_designated_agent: str | None
+    target_agent_override: str | None
+
+    # LLM & Conversation Context
+    effective_history: list[dict[str, Any]]
+    full_history: list[dict[str, Any]]
+    system_prompt: str
+    file_context: dict[str, Any] | None
+    thread_language: str
+    messages: list[dict[str, Any]]
+    turn_token_mapping: dict[str, str]
+    intermediate_msg_ts: str | None
+
+    # Observability & Evidence
+    episodic_summary: str | None
+    shared_round_evidence: str
+    authorized_skills: list[str]
+    token_recorder: Any
+    session_id: str
+    session: Any
+
     def __init__(
         self,
         channel_id: str | None = None,
@@ -164,7 +216,7 @@ class TurnContext:
         self.agent_key: str = kwargs.get("agent_key", "")
         self.prompt: str = kwargs.get("prompt", "")
         self.was_explicit_target: bool = kwargs.get("was_explicit_target", False)
-        self.agent_cfg: dict[str, Any] = dict(kwargs.get("agent_cfg", {}))
+        self.agent_cfg: dict[str, Any] = dict(kwargs.get("agent_cfg") or kwargs.get("agent_config") or {})
         self.remaining: list[str] = list(kwargs.get("remaining", []))
         self.is_custom_flow: bool = kwargs.get("is_custom_flow", False)
         self.is_open_debate: bool = kwargs.get("is_open_debate", False)
@@ -187,6 +239,7 @@ class TurnContext:
         self.episodic_summary: str | None = kwargs.get("episodic_summary")
         self.shared_round_evidence: str = kwargs.get("shared_round_evidence", "")
         self.authorized_skills: list[str] = list(kwargs.get("authorized_skills", []))
+        self.token_recorder: Any = kwargs.get("token_recorder")
 
         # Session
         self.session_id: str = kwargs.get("session_id", f"{self.inp.channel_id}:{self.inp.thread_ts}")
@@ -460,18 +513,41 @@ class TurnContext:
         )
 
     def add_usage(self, resp: Any):
-        """Accumulates prompt and completion token counts from an LLM response."""
+        """Accumulates prompt and completion token counts and records per-call usage delta."""
         if not resp:
             return
         usage = getattr(resp, "usage", None)
         if not usage:
             return
         if isinstance(usage, dict):
-            self.out.total_prompt_tokens += usage.get("prompt_tokens", 0) or 0
-            self.out.total_completion_tokens += usage.get("completion_tokens", 0) or 0
+            prompt_tokens = int(usage.get("prompt_tokens", 0) or 0)
+            completion_tokens = int(usage.get("completion_tokens", 0) or 0)
         else:
-            self.out.total_prompt_tokens += getattr(usage, "prompt_tokens", 0) or 0
-            self.out.total_completion_tokens += getattr(usage, "completion_tokens", 0) or 0
+            prompt_tokens = int(getattr(usage, "prompt_tokens", 0) or 0)
+            completion_tokens = int(getattr(usage, "completion_tokens", 0) or 0)
+
+        self.out.total_prompt_tokens += prompt_tokens
+        self.out.total_completion_tokens += completion_tokens
+
+        if prompt_tokens > 0 or completion_tokens > 0:
+            resp_model = getattr(resp, "model", None)
+            model_name = (
+                resp_model
+                or (self.agent_cfg.get("model", "") if self.agent_cfg else "")
+                or "unknown"
+            )
+            recorder = getattr(self, "token_recorder", None) or record_thread_tokens
+            if recorder:
+                try:
+                    recorder(
+                        channel_id=self.channel_id,
+                        thread_ts=self.thread_ts,
+                        model_name=model_name,
+                        prompt_tokens=prompt_tokens,
+                        completion_tokens=completion_tokens,
+                    )
+                except Exception as ex:  # noqa: BLE001
+                    logger.debug(f"[TURN CONTEXT] Failed to record usage delta: {ex}")
 
 
 class TurnPipeline:
@@ -495,23 +571,43 @@ class TurnPipeline:
         self.deps = resolve_pipeline_deps(deps, hooks, **overrides)
 
         # Initialize the composed stage instances
-        self.validation_stage = ValidationStage(self)
-        self.resolution_stage = ResolutionStage(self)
-        self.context_prep_stage = ContextPrepStage(self)
-        self.execution_stage = ExecutionStage(self)
-        self.post_record_stage = PostRecordStage(self)
+        self.validation_stage = ValidationStage(self.deps)
+        self.resolution_stage = ResolutionStage(self.deps)
+        self.context_prep_stage = ContextPrepStage(self.deps)
+        self.execution_stage = ExecutionStage(self.deps)
+        self.post_record_stage = PostRecordStage(self.deps)
 
     def __setattr__(self, name: str, value: Any) -> None:
         super().__setattr__(name, value)
-        if hasattr(self, "deps") and hasattr(self.deps, name):
-            new_deps = replace(self.deps, **{name: value})
-            if name == "slack_poster" and hasattr(new_deps.workspace_adapter, "_post_agent_fn"):
-                new_deps.workspace_adapter._post_agent_fn = value
-            elif name == "update_message_fn" and hasattr(new_deps.workspace_adapter, "_update_msg_fn"):
-                new_deps.workspace_adapter._update_msg_fn = value
-            elif name == "post_system_message_fn" and hasattr(new_deps.workspace_adapter, "_post_system_fn"):
-                new_deps.workspace_adapter._post_system_fn = value
-            object.__setattr__(self, "deps", new_deps)
+        if name != "deps" and hasattr(self, "deps") and self.deps is not None:
+            target_field = name
+            if name in ("post_agent_response", "post_agent_response_fn"):
+                target_field = "slack_poster"
+            elif name in ("post_system_message", "post_system_message_fn"):
+                target_field = "post_system_message_fn"
+            elif name in ("execute_llm_with_retry", "llm_executor"):
+                target_field = "llm_executor"
+            elif name in ("run_in_threadpool", "run_in_threadpool_fn"):
+                target_field = "run_in_threadpool_fn"
+            if hasattr(self.deps, target_field):
+                self.deps = replace(self.deps, **{target_field: value})
+                if target_field in ("slack_poster", "update_message_fn", "post_system_message_fn"):
+                    from adapters.slack.workspace_adapter import SlackWorkspaceAdapter
+                    self.deps = replace(self.deps, workspace_adapter=SlackWorkspaceAdapter(
+                        post_agent_fn=self.deps.slack_poster,
+                        update_msg_fn=self.deps.update_message_fn,
+                        post_system_fn=self.deps.post_system_message_fn,
+                    ))
+                for stage_name in (
+                    "validation_stage",
+                    "resolution_stage",
+                    "context_prep_stage",
+                    "execution_stage",
+                    "post_record_stage",
+                ):
+                    stage = getattr(self, stage_name, None)
+                    if stage is not None:
+                        stage.deps = self.deps
 
     async def _sleep(self, seconds: float):
         """Asynchronous sleep respecting injected sleep_fn."""
@@ -524,6 +620,8 @@ class TurnPipeline:
         """Runs the entire turn execution lifecycle."""
         from services.web_tools import reset_turn_web_budget
         reset_turn_web_budget()
+
+        ctx.token_recorder = getattr(self.deps, "token_recorder", None) or record_thread_tokens
 
         logger.info(
             f"\n[{ctx.start_time}] >>> START process_and_respond for thread_ts: {ctx.thread_ts} <<<"
@@ -639,16 +737,6 @@ class TurnPipeline:
             logger.info(
                 f"[ROUTER] Task cancelled for thread {ctx.thread_key} (agent {ctx.agent_key}, gen {ctx.my_generation}). Aborting cleanly."
             )
-            if ctx.total_prompt_tokens > 0 or ctx.total_completion_tokens > 0:
-                record_tokens_fn = getattr(self.deps, "token_recorder", None) or record_thread_tokens
-                if record_tokens_fn:
-                    record_tokens_fn(
-                        channel_id=ctx.channel_id,
-                        thread_ts=ctx.thread_ts,
-                        model_name=ctx.agent_cfg.get("model", "") if ctx.agent_cfg else "",
-                        prompt_tokens=ctx.total_prompt_tokens,
-                        completion_tokens=ctx.total_completion_tokens,
-                    )
             return {"ok": False, "cancelled": True, "reason": "cancelled"}
         except Exception as e:  # noqa: BLE001 - Pipeline error boundary catches unexpected stage errors and delegates to handle_error
             return await self.post_record_stage.handle_error(ctx, e)
@@ -705,9 +793,18 @@ class TurnPipeline:
         ctx.total_prompt_tokens = chk.prompt_tokens
         ctx.total_completion_tokens = chk.completion_tokens
         ctx.checkpoint_id = chk.checkpoint_id
+        ctx.token_recorder = getattr(self.deps, "token_recorder", None) or record_thread_tokens
 
         agents_map = settings_manager.agents_config or AGENTS_CONFIG
         ctx.agent_cfg = dict(agents_map.get(ctx.agent_key, {}))
+
+        from orchestration.thread_skills_manager import thread_skills_manager
+        from skills.loader import skill_registry
+        base_skills = list(ctx.agent_cfg.get("skills") or settings_manager.get_agent_skills(ctx.agent_key) or [])
+        global_skills = skill_registry.get_global_skills()
+        active_thread_skills = thread_skills_manager.get_active_skills(ctx.channel_id, ctx.thread_ts)
+        active_agent_skills = thread_skills_manager.get_active_agent_skills(ctx.channel_id, ctx.thread_ts, ctx.agent_key)
+        ctx.authorized_skills = list(dict.fromkeys(base_skills + global_skills + active_thread_skills + active_agent_skills))
 
         active_tools = list(chk.active_tools or [])
         pending_tool = chk.pending_tool_call
@@ -781,14 +878,4 @@ class TurnPipeline:
 
         turn_checkpoint_store.mark_resumed(chk.checkpoint_id)
         return slack_res
-
-
-__all__ = [
-    "TurnContext",
-    "TurnControlPlane",
-    "TurnInput",
-    "TurnOutput",
-    "TurnPipeline",
-    "_build_tool_status_text",
-]
 

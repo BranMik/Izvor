@@ -105,10 +105,21 @@ def _resolve_resource_path(rel_path: str) -> Path:
 
 
 
-def list_documents(rel_path: str = ".") -> str:
+def list_documents(
+    rel_path: str = ".",
+    principal: ToolPrincipal | str | None = None,
+) -> str:
     """
     Lists the contents of a directory inside the agents_resources/ directory.
+    Enforces principal authorization when principal is supplied.
     """
+    if principal is not None:
+        if not is_agent_authorized_for_tool(principal, "list_documents"):
+            actor_id = principal.id if hasattr(principal, "id") else str(principal)
+            return json.dumps({
+                "error": f"Permission denied: Principal '{actor_id}' is not authorized to list documents."
+            })
+
     try:
         path = _resolve_resource_path(rel_path)
         if not path.exists():
@@ -136,11 +147,31 @@ def list_documents(rel_path: str = ".") -> str:
         return json.dumps({"error": f"Operating system error: {e}"})
 
 
-def read_document(rel_path: str) -> str:
+def read_document(
+    rel_path: str,
+    principal: ToolPrincipal | str | None = None,
+    authorized_agents: set[str] | None = None,
+) -> str:
     """
     Reads the content of a text or PDF document inside the agents_resources/ directory.
     agents_resources/ is the default working and search directory even if omitted in rel_path.
+    Enforces principal authorization and per-file ACL checks if provided.
     """
+    if principal is not None:
+        if not is_agent_authorized_for_tool(principal, "read_document"):
+            actor_id = principal.id if hasattr(principal, "id") else str(principal)
+            return json.dumps({
+                "error": f"Permission denied: Principal '{actor_id}' is not authorized to read documents."
+            })
+
+        if authorized_agents is not None:
+            actor_id = principal.id if hasattr(principal, "id") else str(principal)
+            actor_kind = getattr(principal, "kind", "agent")
+            if actor_kind != "system" and actor_id != "system" and actor_id not in authorized_agents:
+                return json.dumps({
+                    "error": f"Permission denied: Agent '{actor_id}' is not authorized to access document '{rel_path}'."
+                })
+
     from orchestration.system_settings import (
         get_max_file_size_bytes,
         get_max_file_size_mb,
@@ -231,24 +262,8 @@ def write_document(rel_path: str, content: str) -> str:
                 "error": f"File content size ({content_bytes} bytes) exceeds maximum permitted write limit of {max_bytes} bytes."
             })
 
-        if is_path_write_blocked(rel_path, base_dir=WORKSPACE_DIR):
-            from services.audit_logger import log_audit_event
-
-            log_audit_event(
-                event_type="FILE_WRITE_BLOCKED",
-                actor={"type": "agent_tool", "id": "write_document"},
-                action="write_document",
-                target=rel_path,
-                details={"reason": "Target path matches protected path policy"},
-                severity="CRITICAL",
-                status="BLOCKED",
-            )
-            return json.dumps({
-                "error": f"Permission denied: Writing to protected path '{rel_path}' is strictly prohibited."
-            })
-
         path = _resolve_resource_path(rel_path)
-        if is_path_write_blocked(path, base_dir=WORKSPACE_DIR):
+        if is_path_write_blocked(path, base_dir=WORKSPACE_DIR) or is_path_write_blocked(rel_path, base_dir=WORKSPACE_DIR):
             from services.audit_logger import log_audit_event
 
             log_audit_event(
@@ -405,13 +420,11 @@ MCP_TOOLS_SCHEMAS = [
 
 
 TOOL_DISPATCHER: dict[str, Any] = {
-
-    "list_documents": lambda args: list_documents(args.get("rel_path", ".")),
-    "read_document": lambda args: read_document(args.get("rel_path", "")),
-    "write_document": lambda args: write_document(args.get("rel_path", ""), args.get("content", "")),
-    "web_search": lambda args: web_search(query=args.get("query", ""), max_results=args.get("max_results", 5)),
-    "fetch_web_page": lambda args: fetch_web_page(url=args.get("url", ""), max_chars=args.get("max_chars", 4000)),
-    "web_scrape": lambda args: fetch_web_page(url=args.get("url", ""), max_chars=args.get("max_chars", 4000)),
+    "list_documents": lambda args, **kw: list_documents(args.get("rel_path", "."), principal=kw.get("principal")),
+    "read_document": lambda args, **kw: read_document(args.get("rel_path", ""), principal=kw.get("principal")),
+    "write_document": lambda args, **kw: write_document(args.get("rel_path", ""), args.get("content", "")),
+    "web_search": lambda args, **kw: web_search(query=args.get("query", ""), max_results=args.get("max_results", 5)),
+    "fetch_web_page": lambda args, **kw: fetch_web_page(url=args.get("url", ""), max_chars=args.get("max_chars", 4000)),
 }
 
 
@@ -423,66 +436,32 @@ def is_agent_authorized_for_tool(
 ) -> bool:
     """
     Validates whether an agent or system principal has authorization to execute the requested tool.
-    System principal (ToolPrincipal(kind="system")) or ALL_INTERNAL_SKILLS bypass this check.
-    String agents ('agent-10001') are checked against assigned/dynamic skills.
-    Crucial: String "system" or empty strings do NOT bypass authorization.
+    Delegates directly to skills.loader.is_principal_authorized_for_tool as the single source of truth.
     """
-    from core.domain import ToolPrincipal
-    from skills.loader import ALL_INTERNAL_SKILLS
+    from skills.loader import is_principal_authorized_for_tool
 
-    if isinstance(agent_name, ToolPrincipal):
-        if agent_name.kind == "system":
-            return True
-        agent_id = (agent_name.id or "").strip()
-    elif isinstance(agent_name, str):
-        agent_id = agent_name.strip()
-    else:
-        agent_id = ""
-
-    is_internal = (
-        authorized_skills == ALL_INTERNAL_SKILLS
-        or (isinstance(authorized_skills, (list, tuple, set)) and ALL_INTERNAL_SKILLS in authorized_skills)
+    return is_principal_authorized_for_tool(
+        principal=agent_name,
+        tool_name=tool_name,
+        authorized_skills=authorized_skills,
+        skill_registry=skill_registry,
     )
-    if is_internal:
-        return True
 
-    # If no valid agent ID provided and not system principal/internal, fail closed
-    if not agent_id:
-        return False
 
-    try:
-        if skill_registry is None:
-            from core.registry import get_skill_registry
-            skill_registry = get_skill_registry()
-
-        # 1. Check if tool is global across all skills
-        for s_def in skill_registry.list_skills():
-            if getattr(s_def, "is_global", False) and tool_name in getattr(s_def, "tools", []):
-                return True
-
-        # 2. Check agent's assigned skills (combining static config with authorized thread skills)
-        from orchestration.agent_settings import get_agent_skills
-
-        static_skills = get_agent_skills(agent_id) or []
-        combined_skills = set(static_skills) | set(authorized_skills or [])
-        if not combined_skills:
-            return False
-
-        permitted_tools: set[str] = set()
-        for s_name in combined_skills:
-            s_def = skill_registry.get(s_name)
-            if s_def and hasattr(s_def, "tools"):
-                permitted_tools.update(s_def.tools)
-            if s_def and hasattr(s_def, "custom_tool_schemas"):
-                for schema in s_def.custom_tool_schemas:
-                    fn = schema.get("function", {}).get("name")
-                    if fn:
-                        permitted_tools.add(fn)
-
-        return tool_name in permitted_tools
-    except Exception as e:  # noqa: BLE001
-        logger.warning(f"[MCP] Error verifying tool authorization for agent '{agent_id}': {e}")
-        return False
+def _mask_tool_args(args_dict: dict[str, Any]) -> dict[str, Any]:
+    sensitive_keys = {"token", "secret", "password", "key", "auth", "credential", "api_key", "cookie"}
+    masked = {}
+    for k, v in args_dict.items():
+        k_str = str(k).lower()
+        if any(s in k_str for s in sensitive_keys):
+            masked[k] = "***MASKED***"
+        elif isinstance(v, str) and len(v) > 200:
+            masked[k] = f"{v[:100]}... [truncated {len(v)} chars]"
+        elif isinstance(v, dict):
+            masked[k] = _mask_tool_args(v)
+        else:
+            masked[k] = v
+    return masked
 
 
 def execute_mcp_tool(
@@ -500,7 +479,7 @@ def execute_mcp_tool(
     actor_id = agent_name.id if hasattr(agent_name, "id") else str(agent_name or "unknown")
     actor_kind = getattr(agent_name, "kind", "agent")
     logger.info(f"[Tool Call] Executing '{tool_name}' keys={list(raw_args.keys())} args_sha256={args_hash} (agent: {actor_id})")
-    logger.debug(f"[Tool Call Details] '{tool_name}' full args: {raw_args}")
+    logger.debug(f"[Tool Call Details] '{tool_name}' masked args: {_mask_tool_args(raw_args)}")
 
     if not is_agent_authorized_for_tool(agent_name, tool_name, authorized_skills=authorized_skills):
         logger.warning(
@@ -538,7 +517,13 @@ def execute_mcp_tool(
 
     if handler:
         try:
-            return handler(raw_args)
+            return handler(raw_args, principal=agent_name)
+        except TypeError:
+            try:
+                return handler(raw_args)
+            except Exception as e:  # noqa: BLE001
+                logger.error(f"[MCP] Error executing tool {tool_name}: {e}")
+                return json.dumps({"error": f"Tool execution error: {e}"})
         except Exception as e:  # noqa: BLE001
             logger.error(f"[MCP] Error executing tool {tool_name}: {e}")
             return json.dumps({"error": f"Tool execution error: {e}"})

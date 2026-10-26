@@ -129,7 +129,7 @@ def test_trigger_rag_reconciliation_audit_event(client, monkeypatch):
     assert r.json()["status"] == "reconciliation_complete"
     assert r.json()["stats"] == {"reconciled": 5}
 
-    reconcile_events = [e for e in logged_events if e.get("event_type") == "RAG_RECONCILE_TRIGGERED"]
+    reconcile_events = [e for e in logged_events if e.get("event_type") == "RAG_RECONCILE_COMPLETED"]
     assert len(reconcile_events) >= 1
     assert reconcile_events[0]["actor"]["id"] == test_user
 

@@ -15,7 +15,7 @@ from services.slack import (
     update_usage_message,
 )
 
-from core.async_utils import spawn_background_task
+from core.task_utils import safe_create_task
 from core.config import USAGE_CHANNEL_NAME
 from core.paths import USAGE_STORE_FILE
 
@@ -70,78 +70,6 @@ class ThreadUsageTracker:
         self.running_usage_tasks.clear()
         self.pending_usage_updates.clear()
         self.pending_usage_completed.clear()
-
-    def _migrate_legacy_json_once(self) -> None:
-        """One-time migration: imports legacy thread_usage_data.json into SQLite thread_usage_meta & spend_ledger."""
-        if not self.store_file.exists():
-            return
-        try:
-            raw_text = self.store_file.read_text(encoding="utf-8")
-            if not raw_text.strip() or raw_text.strip() == "{}":
-                return
-            raw = json.loads(raw_text)
-            from core.database import get_db_transaction
-            from pipeline.spend_governance import spend_governance
-
-            tokens_to_record: list[tuple[str, str, int, int]] = []
-            with get_db_transaction(immediate=True) as conn:
-                for k_str, data in raw.items():
-                    if ":" not in k_str or not isinstance(data, dict):
-                        continue
-                    parts = k_str.split(":", 1)
-                    c_id, t_ts = parts[0], parts[1]
-                    conn.execute(
-                        """
-                        INSERT INTO thread_usage_meta (channel_id, thread_ts, channel_name, created_at_str, usage_msg_ts, is_completed, last_updated)
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
-                        ON CONFLICT(channel_id, thread_ts) DO UPDATE SET
-                            channel_name = excluded.channel_name,
-                            created_at_str = excluded.created_at_str,
-                            usage_msg_ts = excluded.usage_msg_ts,
-                            is_completed = excluded.is_completed,
-                            last_updated = excluded.last_updated;
-                        """,
-                        (
-                            c_id,
-                            t_ts,
-                            data.get("channel_name", f"#{c_id}"),
-                            data.get("created_at_str", parse_thread_creation_time(t_ts)),
-                            data.get("usage_msg_ts"),
-                            int(bool(data.get("is_completed", False))),
-                            data.get("last_updated", time.time()),
-                        ),
-                    )
-                    models = data.get("models", {})
-                    if models:
-                        check_row = conn.execute(
-                            "SELECT COUNT(*) as cnt FROM spend_ledger WHERE channel_id = ? AND thread_ts = ?;",
-                            (c_id, t_ts),
-                        ).fetchone()
-                        if check_row and check_row["cnt"] == 0:
-                            for m_name, m_info in models.items():
-                                p_tok = int(m_info.get("prompt_tokens", 0))
-                                c_tok = int(m_info.get("completion_tokens", 0))
-                                if p_tok > 0 or c_tok > 0:
-                                    tokens_to_record.append((f"{c_id}:{t_ts}", m_name, p_tok, c_tok))
-
-            for sess_id, m_name, p_tok, c_tok in tokens_to_record:
-                spend_governance.record_usage(
-                    session_id=sess_id,
-                    model_name=m_name,
-                    prompt_tokens=p_tok,
-                    completion_tokens=c_tok,
-                )
-
-            migrated_path = self.store_file.with_suffix(".json.migrated")
-            try:
-                self.store_file.replace(migrated_path)
-                logger.info(
-                    f"[USAGE AGENT] Successfully migrated legacy {self.store_file.name} to SQLite and renamed to {migrated_path.name}"
-                )
-            except OSError:
-                pass
-        except Exception as e:  # noqa: BLE001
-            logger.debug(f"[USAGE AGENT] Failed migrating legacy thread usage store: {e}")
 
     def _load_thread_from_db(self, channel_id: str, thread_ts: str) -> dict[str, Any] | None:
         """Loads a single thread's metadata from SQLite thread_usage_meta into L1 cache."""
@@ -212,7 +140,6 @@ class ThreadUsageTracker:
     def load(self) -> None:
         """Loads persistent thread usage metadata from SQLite thread_usage_meta into L1 cache."""
         self.thread_usage_data.clear()
-        self._migrate_legacy_json_once()
         try:
             from core.database import get_connection
 
@@ -697,7 +624,7 @@ class ThreadUsageTracker:
             is_completed=is_completed,
         )
         try:
-            task = spawn_background_task(coro, name=f"usage_update_{thread_ts}")
+            task = safe_create_task(coro, name=f"usage_update_{thread_ts}")
             self.running_usage_tasks[thread_key] = task
             self.pending_usage_updates[thread_key] = False
             return task

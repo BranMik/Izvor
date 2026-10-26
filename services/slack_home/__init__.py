@@ -49,6 +49,7 @@ def build_app_home_view(
     )
     from orchestration.app_settings import (
         get_circuit_breaker_config,
+        get_daily_budget_usd,
         get_thread_skill_expiration_time,
         get_workspace_context,
         is_convergence_fast_forward_enabled,
@@ -59,6 +60,7 @@ def build_app_home_view(
 
     sync_settings_if_modified()
     expiry_hours = get_thread_skill_expiration_time()
+    daily_budget = get_daily_budget_usd()
     ws_ctx = get_workspace_context()
     is_admin = is_slack_admin(user_id)
     agents_cfg = get_agents_config()
@@ -114,8 +116,6 @@ def build_app_home_view(
 
     cb_enabled = bool(cb_dict.get("enabled", False))
     cb_threshold = float(cb_dict.get("threshold_usd", 0.0))
-    if not cb_enabled:
-        cb_threshold = 0.0
     cb_status_str = (
         f"🟢 *Enabled (ON)* — Limit: *${cb_threshold:.2f} USD*"
         if cb_enabled
@@ -223,6 +223,7 @@ def build_app_home_view(
             weekly_pricing_on=weekly_pricing_on,
             weekly_pricing_status_str=weekly_pricing_status_str,
             expiry_hours=expiry_hours,
+            daily_budget=daily_budget,
         )
     )
 

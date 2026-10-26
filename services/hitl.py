@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from core.database import get_connection, get_db_transaction
-from services.slack import slack_async_client, slack_rate_limiter
+from services.slack import post_message_to_slack
 
 logger = logging.getLogger(__name__)
 
@@ -42,10 +42,7 @@ class PendingHITLRequest:
         return time.time() > self.expires_at
 
 
-# In-memory stores (cached / fallback)
-PENDING_REQUESTS: dict[str, PendingHITLRequest] = {}
-# Key: (channel_id, thread_ts, fn_name, args_hash) -> expires_at
-APPROVED_TOKENS: dict[tuple[str, str, str, str], float] = {}
+
 
 
 def _row_to_request(row: Any) -> PendingHITLRequest:
@@ -71,41 +68,15 @@ def _row_to_request(row: Any) -> PendingHITLRequest:
 
 def _prune_expired() -> None:
     now = time.time()
-    expired_reqs = [r_id for r_id, req in PENDING_REQUESTS.items() if req.is_expired()]
-    for r_id in expired_reqs:
-        PENDING_REQUESTS.pop(r_id, None)
-
-    expired_tokens = [k for k, exp in APPROVED_TOKENS.items() if exp < now]
-    for k in expired_tokens:
-        APPROVED_TOKENS.pop(k, None)
-
     try:
         with get_db_transaction(immediate=True) as conn:
-            conn.execute("DELETE FROM hitl_approvals WHERE expires_at < ?;", (now,))
+            conn.execute("DELETE FROM hitl_approvals WHERE status = 'PENDING' AND expires_at < ?;", (now,))
     except Exception as e:  # noqa: BLE001
         logger.debug(f"[HITL] Prune expired SQLite failed: {e}")
 
 
-def reset_pending_requests() -> None:
-    """Clears all pending requests and approved tokens in memory and SQLite (used for testing)."""
-    PENDING_REQUESTS.clear()
-    APPROVED_TOKENS.clear()
-    try:
-        with get_db_transaction(immediate=True) as conn:
-            conn.execute("DELETE FROM hitl_approvals;")
-    except Exception as e:  # noqa: BLE001
-        logger.debug(f"[HITL] Reset SQLite failed: {e}")
-
-
 def get_pending_request(request_id: str) -> PendingHITLRequest | None:
     _prune_expired()
-    mem_req = PENDING_REQUESTS.get(request_id)
-    if mem_req:
-        if mem_req.is_expired():
-            PENDING_REQUESTS.pop(request_id, None)
-            return None
-        return mem_req
-
     now = time.time()
     try:
         with get_connection() as conn:
@@ -116,16 +87,14 @@ def get_pending_request(request_id: str) -> PendingHITLRequest | None:
             if row:
                 return _row_to_request(row)
     except Exception as e:  # noqa: BLE001
-        logger.debug(f"[HITL] SQLite get_pending_request failed: {e}")
+        logger.error(f"[HITL] SQLite get_pending_request failed: {e}")
     return None
 
 
 def approve_hitl_request(request_id: str) -> PendingHITLRequest | None:
-    """Marks a pending HITL request as approved atomically, storing a single-use token in SQLite and memory."""
+    """Marks a pending HITL request as approved atomically in SQLite."""
     _prune_expired()
     now = time.time()
-    req: PendingHITLRequest | None = None
-
     try:
         with get_db_transaction(immediate=True) as conn:
             cursor = conn.execute(
@@ -142,33 +111,16 @@ def approve_hitl_request(request_id: str) -> PendingHITLRequest | None:
                     (request_id,),
                 ).fetchone()
                 if row:
-                    req = _row_to_request(row)
+                    return _row_to_request(row)
     except Exception as e:  # noqa: BLE001
         logger.error(f"[HITL] SQLite approve_hitl_request failed: {e}")
-
-    # Synchronize memory fallback
-    mem_req = PENDING_REQUESTS.get(request_id)
-    if mem_req and not mem_req.is_expired() and mem_req.status == "PENDING":
-        PENDING_REQUESTS.pop(request_id, None)
-        mem_req.status = "APPROVED"
-        key = (mem_req.channel_id, mem_req.thread_ts, mem_req.fn_name, mem_req.args_hash)
-        APPROVED_TOKENS[key] = mem_req.expires_at
-        if req is None:
-            req = mem_req
-
-    if req is not None:
-        key = (req.channel_id, req.thread_ts, req.fn_name, req.args_hash)
-        APPROVED_TOKENS[key] = req.expires_at
-
-    return req
+    return None
 
 
 def deny_hitl_request(request_id: str) -> PendingHITLRequest | None:
-    """Denies a pending HITL request atomically."""
+    """Denies a pending HITL request atomically in SQLite."""
     _prune_expired()
     now = time.time()
-    req: PendingHITLRequest | None = None
-
     try:
         with get_db_transaction(immediate=True) as conn:
             cursor = conn.execute(
@@ -185,18 +137,10 @@ def deny_hitl_request(request_id: str) -> PendingHITLRequest | None:
                     (request_id,),
                 ).fetchone()
                 if row:
-                    req = _row_to_request(row)
+                    return _row_to_request(row)
     except Exception as e:  # noqa: BLE001
         logger.error(f"[HITL] SQLite deny_hitl_request failed: {e}")
-
-    mem_req = PENDING_REQUESTS.get(request_id)
-    if mem_req and not mem_req.is_expired() and mem_req.status == "PENDING":
-        PENDING_REQUESTS.pop(request_id, None)
-        mem_req.status = "DENIED"
-        if req is None:
-            req = mem_req
-
-    return req
+    return None
 
 
 def consume_tool_approval(
@@ -234,48 +178,11 @@ def consume_tool_approval(
                     (req_id,),
                 )
                 if cur.rowcount > 0:
-                    APPROVED_TOKENS.pop((channel_id, thread_ts, fn_name, args_hash), None)
                     return True
     except Exception as e:  # noqa: BLE001
         logger.error(f"[HITL] SQLite consume_tool_approval failed: {e}")
 
-    # Fallback to in-memory check
-    key = (channel_id, thread_ts, fn_name, args_hash)
-    if key in APPROVED_TOKENS:
-        exp = APPROVED_TOKENS.pop(key)
-        if time.time() <= exp:
-            return True
-
     return False
-
-
-
-def mark_tool_approved(
-    channel_id: str,
-    thread_ts: str,
-    fn_name: str,
-    fn_args: dict[str, Any] | None = None,
-    ttl_seconds: float = HITL_DEFAULT_TTL_SECONDS,
-) -> None:
-    """Manually marks a tool as approved (used by tests and programmatic callers)."""
-    args_hash = compute_args_hash(fn_args)
-    now = time.time()
-    expires_at = now + ttl_seconds
-    key = (channel_id, thread_ts, fn_name, args_hash)
-    APPROVED_TOKENS[key] = expires_at
-
-    try:
-        with get_db_transaction(immediate=True) as conn:
-            conn.execute(
-                """
-                INSERT OR REPLACE INTO hitl_approvals (
-                    request_id, channel_id, thread_ts, agent_name, skill_name, fn_name, fn_args, args_hash, initiator_user_id, status, created_at, expires_at
-                ) VALUES (?, ?, ?, 'System', 'Skill', ?, ?, ?, NULL, 'APPROVED', ?, ?);
-                """,
-                (str(uuid.uuid4()), channel_id, thread_ts, fn_name, json.dumps(fn_args or {}), args_hash, now, expires_at),
-            )
-    except Exception as e:  # noqa: BLE001
-        logger.debug(f"[HITL] SQLite mark_tool_approved failed: {e}")
 
 
 def register_hitl_request(
@@ -309,7 +216,6 @@ def register_hitl_request(
         expires_at=now + ttl_seconds,
         status="PENDING",
     )
-    PENDING_REQUESTS[request_id] = req
 
     try:
         with get_db_transaction(immediate=True) as conn:
@@ -333,8 +239,9 @@ def register_hitl_request(
                     now + ttl_seconds,
                 ),
             )
-    except (json.JSONDecodeError, ValueError) as e:
+    except Exception as e:
         logger.error(f"[HITL] SQLite register_hitl_request failed: {e}")
+        raise
 
     return req
 
@@ -362,7 +269,7 @@ async def request_human_approval(
         initiator_user_id=initiator_user_id,
     )
 
-    args_str = str(fn_args)[:1000]
+    args_str = str(fn_args).replace("```", "'''")[:1000]
     initiator_note = f"\n*Initiator:* <@{initiator_user_id}>" if initiator_user_id else ""
     blocks = [
         {
@@ -398,9 +305,8 @@ async def request_human_approval(
             ],
         },
     ]
-    await slack_rate_limiter.acquire()
-    await slack_async_client.chat_postMessage(
-        channel=channel_id,
+    await post_message_to_slack(
+        channel_id=channel_id,
         thread_ts=thread_ts,
         text=f"Approval required for {fn_name}",
         blocks=blocks,

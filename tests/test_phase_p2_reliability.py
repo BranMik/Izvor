@@ -37,7 +37,7 @@ async def test_resolution_fallback_unconfigured_loop():
     """N9: Verify resolution stage skips unconfigured popped agents and avoids KeyError."""
     post_sys_msg_mock = AsyncMock()
     pipeline = TurnPipeline(post_system_message_fn=post_sys_msg_mock)
-    stage = ResolutionStage(pipeline)
+    stage = ResolutionStage(pipeline.deps)
 
     ctx = TurnContext(
         channel_id="C_P2_TEST",
@@ -72,7 +72,7 @@ async def test_resolution_fallback_all_missing_halts():
     """N9: Verify resolution stage cleanly halts when all candidates are unconfigured."""
     post_sys_msg_mock = AsyncMock()
     pipeline = TurnPipeline(post_system_message_fn=post_sys_msg_mock)
-    stage = ResolutionStage(pipeline)
+    stage = ResolutionStage(pipeline.deps)
 
     ctx = TurnContext(
         channel_id="C_P2_TEST",
@@ -236,7 +236,7 @@ async def test_async_flat_history_recording():
         sleep_fn=AsyncMock(),
         slack_poster=mock_post,
     )
-    stage = PostRecordStage(pipeline)
+    stage = PostRecordStage(pipeline.deps)
 
     ctx = TurnContext(
         channel_id="C_P2_TEST",
@@ -351,7 +351,7 @@ def test_format_modifiers_pipeline_persistence():
 
     thread_state_manager.set_format_modifiers("C_MODS", "T_MODS", ["concise_summary"])
     pipeline = TurnPipeline()
-    stage = ContextPrepStage(pipeline)
+    stage = ContextPrepStage(pipeline.deps)
 
     ctx = TurnContext(
         channel_id="C_MODS",

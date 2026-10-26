@@ -65,6 +65,14 @@ def test_agent_settings_ssot_loading():
         with open(settings_file, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
 
+        app_file = Path(tmp_dir) / "app_settings.json"
+        app_data = {
+            "circuit_breaker_enabled": True,
+            "circuit_breaker_threshold_usd": 2.50,
+        }
+        with open(app_file, "w", encoding="utf-8") as f:
+            json.dump(app_data, f, indent=2)
+
         mgr = AgentSettingsManager(
             settings_file=settings_file,
             backup_file=backup_file,

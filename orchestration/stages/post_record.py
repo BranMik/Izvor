@@ -27,7 +27,7 @@ from core.llm_utils import classify_agent_error
 from core.models import OrchestrationMode
 from orchestration.agent_settings import settings_manager
 from orchestration.nomination import enforce_valid_nomination, get_initial_agents
-from orchestration.protocols import WorkspaceAdapter
+from orchestration.protocols import PipelineDeps, WorkspaceAdapter
 from orchestration.thread_state import thread_state_manager
 from pipeline.entity_resolver import (
     entity_resolver,
@@ -95,14 +95,8 @@ def apply_mechanical_word_limit(text: str, max_words: int, grace_buffer: int | N
 class PostRecordStage:
     """Provides stage 5 dispatch, token accounting, and error handling for TurnPipeline."""
 
-    def __init__(self, deps: Any = None, *, pipeline: Any = None):
-        target = deps if deps is not None else pipeline
-        if hasattr(target, "deps"):
-            self.deps = target.deps
-            self.pipeline = target
-        else:
-            self.deps = target
-            self.pipeline = target
+    def __init__(self, deps: PipelineDeps):
+        self.deps = deps
 
     @property
     def workspace_adapter(self) -> WorkspaceAdapter:
@@ -125,19 +119,8 @@ class PostRecordStage:
         is_completed: bool,
         record_flat_history: bool = True,
     ) -> None:
-        """Centralized helper for token recording, notes updating, usage updating, and flat history."""
-        # 1. Record tokens
-        record_tokens_fn = getattr(self.deps, "token_recorder", None) or record_thread_tokens
-        if record_tokens_fn:
-            record_tokens_fn(
-                channel_id=ctx.channel_id,
-                thread_ts=ctx.thread_ts,
-                model_name=ctx.agent_cfg.get("model", "") if ctx.agent_cfg else "",
-                prompt_tokens=ctx.total_prompt_tokens,
-                completion_tokens=ctx.total_completion_tokens,
-            )
-
-        # 2. Trigger notes update
+        """Centralized helper for notes updating, usage updating, and flat history."""
+        # 1. Trigger notes update
         trig_notes = getattr(self.deps, "notes_updater", None) or trigger_thread_notes_update
         if trig_notes:
             trig_notes(
@@ -191,6 +174,7 @@ class PostRecordStage:
                             thread_ts=ctx.thread_ts,
                             initial_prompt=initial_prompt,
                             messages=history_to_record,
+                            bot_user_id=ctx.bot_user_id,
                         )
             except Exception as e:  # noqa: BLE001
                 logger.warning(f"[WORKSPACE] Failed to record flat history for {ctx.thread_key}: {e}")
@@ -204,16 +188,6 @@ class PostRecordStage:
             logger.info(
                 f"[ROUTER] Thread {ctx.thread_key} turn was superseded before pacing delay. Aborting."
             )
-            if ctx.total_prompt_tokens > 0 or ctx.total_completion_tokens > 0:
-                record_tokens_fn = getattr(self.deps, "token_recorder", None) or record_thread_tokens
-                if record_tokens_fn:
-                    record_tokens_fn(
-                        channel_id=ctx.channel_id,
-                        thread_ts=ctx.thread_ts,
-                        model_name=ctx.agent_cfg.get("model", "") if ctx.agent_cfg else "",
-                        prompt_tokens=ctx.total_prompt_tokens,
-                        completion_tokens=ctx.total_completion_tokens,
-                    )
             return {"ok": False, "cancelled": True, "reason": "superseded"}
 
         if thread_state_manager.is_stopped(ctx.channel_id, ctx.thread_ts):
@@ -385,16 +359,6 @@ class PostRecordStage:
             logger.info(
                 f"[ROUTER] Thread {ctx.thread_key} turn was superseded after pacing delay. Aborting post."
             )
-            if ctx.total_prompt_tokens > 0 or ctx.total_completion_tokens > 0:
-                record_tokens_fn = getattr(self.deps, "token_recorder", None) or record_thread_tokens
-                if record_tokens_fn:
-                    record_tokens_fn(
-                        channel_id=ctx.channel_id,
-                        thread_ts=ctx.thread_ts,
-                        model_name=ctx.agent_cfg.get("model", "") if ctx.agent_cfg else "",
-                        prompt_tokens=ctx.total_prompt_tokens,
-                        completion_tokens=ctx.total_completion_tokens,
-                    )
             return {"ok": False, "cancelled": True, "reason": "superseded"}
 
         resolved_turn_icon = ctx.icon_url or ctx.agent_cfg.get("icon_url")

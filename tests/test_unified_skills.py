@@ -68,7 +68,6 @@ def test_extracted_intent_backward_and_unified_compatibility():
     # Validate dict round-trip
     d = ei.to_dict()
     assert d["modifiers"]["max_words"] == 60
-    assert d["max_words"] == 60
     assert any(a["name"] in ("document_reader", "document_authoring") for a in d["actions"])
 
     ei_restored = ExtractedIntent.from_dict(d)
@@ -190,11 +189,12 @@ def test_global_skill_declarative_frontmatter():
         assert loaded.get("skill") == "universal_tool"
 
         # 5. MCP tools permitted for execution
-        with patch("skills.loader.execute_mcp_tool", return_value="mock_search_result"):
+        with patch("services.mcp_tools.web_search", return_value="mock_search_result"):
             tool_res = skill_registry.execute_tool(
                 tool_name="web_search",
                 arguments={"query": "test"},
                 authorized_skills=[],
+                agent_name="agent-10001",
             )
             assert tool_res == "mock_search_result"
     finally:

@@ -27,7 +27,7 @@ class EventDeduplicationCache(dict):
 
     def __init__(
         self,
-        ttl_seconds: float = 600.0,
+        ttl_seconds: float = 3600.0,
         maxsize: int = 2000,
         db_evict_interval: float = 60.0,
     ):
@@ -71,6 +71,33 @@ class EventDeduplicationCache(dict):
                     conn.execute("DELETE FROM event_dedup WHERE received_at < ?", (cutoff,))
             except Exception as e:  # noqa: BLE001
                 logger.debug("Event dedup periodic eviction error: %s", e)
+
+    def claim_event(self, key: Any) -> bool:
+        """
+        Atomically claims an event in SQLite event_dedup table via INSERT OR IGNORE.
+        Returns True if the event is new (claim acquired), False if duplicate (already claimed).
+        """
+        now = time.time()
+        self._evict_expired()
+        event_id = self._format_key(key)
+
+        try:
+            with get_db_transaction(immediate=True) as conn:
+                cursor = conn.execute(
+                    "INSERT OR IGNORE INTO event_dedup (event_id, received_at) VALUES (?, ?)",
+                    (event_id, float(now)),
+                )
+                if cursor.rowcount > 0:
+                    super().__setitem__(key, float(now))
+                    return True
+                super().__setitem__(key, float(now))
+                return False
+        except Exception as e:  # noqa: BLE001
+            logger.debug("Event dedup atomic insert error: %s", e)
+            if super().__contains__(key):
+                return False
+            super().__setitem__(key, float(now))
+            return True
 
     def __contains__(self, key: Any) -> bool:
         self._evict_expired()
@@ -279,7 +306,7 @@ async def handle_slack_events(request: Request, background_tasks: BackgroundTask
 
             if channel_id and ts and raw_text:
                 now = time.time()
-                # 6b. Deduplicate Slack duplicate events
+                # 6b. Deduplicate Slack duplicate events (fast check)
                 event_key = (channel_id, ts)
                 if event_key in PROCESSED_EVENTS:
                     logger.info(
@@ -319,10 +346,14 @@ async def handle_slack_events(request: Request, background_tasks: BackgroundTask
 
                 # Check if the user message is a stop command directed at the bot
                 if is_stop_command(raw_text, is_mention_or_dm=is_mention_or_dm):
+                    if not PROCESSED_EVENTS.claim_event(event_key):
+                        logger.info(
+                            f"[WEBHOOK] Deduplicated stop command for channel {channel_id}, ts {ts} (ALREADY PROCESSED)"
+                        )
+                        return Response(status_code=200)
                     logger.info(
                         f"[WEBHOOK] Stop command received from user in channel {channel_id}, thread {thread_ts}. Stopping thread discussion."
                     )
-                    PROCESSED_EVENTS[event_key] = now
                     thread_state_manager.request_stop(channel_id, thread_ts)
                     return Response(status_code=200)
 
@@ -346,8 +377,12 @@ async def handle_slack_events(request: Request, background_tasks: BackgroundTask
                     )
 
                 if should_process:
-                    # Add to processed events list to prevent double execution
-                    PROCESSED_EVENTS[event_key] = now
+                    # Atomically claim event in processed events list to prevent double execution
+                    if not PROCESSED_EVENTS.claim_event(event_key):
+                        logger.info(
+                            f"[WEBHOOK] Deduplicated event {event_type} for channel {channel_id}, ts {ts} (ALREADY PROCESSED)"
+                        )
+                        return Response(status_code=200)
                     logger.info(
                         f"[WEBHOOK] DISPATCHING BackgroundTask for '{event_type}' - channel: {channel_id}, thread: {thread_ts}"
                     )

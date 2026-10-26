@@ -381,40 +381,36 @@ class DirectiveParser:
         )
 
         # 3. Check if micro-LLM intent extraction should run
-        from nlp.intent_extractor import (
-            extract_user_intent,
-            should_skip_intent_extractor,
-        )
+        from nlp.intent_extractor import intent_extractor
 
         detected_language = None
         if (
             not has_exclusive_cmd
-            and not should_skip_intent_extractor(raw_text=raw_text)
+            and not intent_extractor.should_skip(raw_text=raw_text)
             and text_cleaned.strip()
         ):
-            intent: ExtractedIntent = await extract_user_intent(
+            intent: ExtractedIntent = await intent_extractor.extract_intent(
                 text_cleaned, available_files=available_files
             )
             detected_language = getattr(intent, "detected_language", None)
-            intent_dict = intent.to_dict() if hasattr(intent, "to_dict") else intent
 
             # Smart merge: slash commands take absolute priority over LLM inferences
-            if max_words is None and intent_dict.get("max_words") is not None:
-                max_words = intent_dict["max_words"]
+            if max_words is None and intent.max_words is not None:
+                max_words = intent.max_words
                 modifiers["max_words"] = max_words
 
-            if min_words is None and intent_dict.get("min_words") is not None:
-                min_words = intent_dict["min_words"]
+            if min_words is None and intent.min_words is not None:
+                min_words = intent.min_words
                 modifiers["min_words"] = min_words
 
-            if history_limit is None and intent_dict.get("history") is not None:
-                history_limit = intent_dict["history"]
+            if history_limit is None and intent.history is not None:
+                history_limit = intent.history
                 modifiers["history"] = history_limit
 
-            if not is_file_req and intent_dict.get("file_use"):
+            if not is_file_req and intent.file_use:
                 is_file_req = True
-                if not target_filename and intent_dict.get("target_file"):
-                    target_filename = intent_dict["target_file"]
+                if not target_filename and intent.target_file:
+                    target_filename = intent.target_file
                 from core.registry import get_skill_registry
                 skill_registry = get_skill_registry()
 
@@ -434,7 +430,7 @@ class DirectiveParser:
             from pipeline.entity_resolver import entity_resolver
 
             tagged_in_prompt = set(entity_resolver.extract_tagged_agents(raw_text))
-            for exc in intent_dict.get("excluded_agents", []):
+            for exc in intent.excluded_agents:
                 if exc not in excluded and exc not in tagged_in_prompt:
                     excluded.append(exc)
 
@@ -446,12 +442,12 @@ class DirectiveParser:
                 )
 
             # Merge any other modifiers or actions from intent
-            llm_modifiers = intent_dict.get("modifiers") or {}
+            llm_modifiers = intent.modifiers or {}
             for mk, mv in llm_modifiers.items():
                 if mk not in modifiers:
                     modifiers[mk] = mv
 
-            llm_actions = intent_dict.get("actions") or []
+            llm_actions = intent.actions or []
             for act in llm_actions:
                 act_name = (
                     act.get("name")

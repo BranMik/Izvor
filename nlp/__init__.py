@@ -1,9 +1,7 @@
 from .intent_extractor import (
     EXTRACTOR_SYSTEM_PROMPT,
     IntentExtractor,
-    extract_user_intent,
     intent_extractor,
-    should_skip_intent_extractor,
 )
 from .language_detector import (
     clean_system_and_tags,
@@ -23,9 +21,7 @@ __all__ = [
     "clean_system_and_tags",
     "detect_language",
     "detect_language_llm",
-    "extract_user_intent",
     "intent_extractor",
     "is_system_message",
     "markdown_to_slack",
-    "should_skip_intent_extractor",
 ]

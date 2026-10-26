@@ -43,7 +43,7 @@ async def test_display_name_nomination_preserves_round_and_pops_retry(monkeypatc
     # Pipeline and post_agent_response
     mock_post = AsyncMock(return_value={"ts": "1700000088.9999"})
     mock_pipeline = TurnPipeline(sleep_fn=AsyncMock(), slack_poster=mock_post)
-    stage = PostRecordStage(mock_pipeline)
+    stage = PostRecordStage(mock_pipeline.deps)
     monkeypatch.setattr(
         "orchestration.stages.post_record.trigger_usage_update",
         MagicMock(),

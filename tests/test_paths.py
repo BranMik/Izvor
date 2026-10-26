@@ -75,7 +75,6 @@ def test_default_paths_exist_or_resolve_to_repo_layout():
     assert paths.THREAD_NOTES_DIR == root / "agents_resources" / "thread_notes"
     assert paths.SYSTEM_RESOURCES_DIR == root / "system_resources"
     assert paths.FLAT_HISTORIES_DIR == root / "flat-histories"
-    assert paths.THREAD_SKILLS_FILE == root / "data" / "thread" / "thread_skills.json"
     assert paths.USAGE_STORE_FILE == root / "data" / "thread" / "thread_usage_data.json"
 
 

@@ -13,7 +13,7 @@ from orchestration.agent_settings import (
     toggle_agent,
 )
 from services.audit_logger import log_audit_event
-from services.slack import slack_async_client
+from services.slack import post_ephemeral_to_slack, slack_async_client
 
 logger = logging.getLogger("IzvorBackend.SlackInteractivity.Agents")
 
@@ -56,9 +56,9 @@ def _deny_non_admin_action(
     channel_id = payload.get("channel", {}).get("id") or ""
     if channel_id and user_id:
         background_tasks.add_task(
-            slack_async_client.chat_postEphemeral,
-            channel=channel_id,
-            user=user_id,
+            post_ephemeral_to_slack,
+            channel_id=channel_id,
+            user_id=user_id,
             text="⚠️ *Permission Denied:* Administrative privileges are required to modify system settings.",
         )
 
