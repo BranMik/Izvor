@@ -16,6 +16,7 @@ from orchestration.agent_settings import (
 )
 from orchestration.nomination import get_initial_agents
 from orchestration.thread_state import thread_state_manager
+from orchestration.protocols import PipelineDeps
 from pipeline.orchestrator import SandwichOrchestrator
 from prompts import build_agent_prompt
 from services.slack import fetch_thread_history
@@ -29,13 +30,8 @@ logger = logging.getLogger(__name__)
 class ContextPrepStage:
     """Provides stage 3 context preparation and prompt construction for TurnPipeline."""
 
-    def __init__(self, deps: Any):
-        if hasattr(deps, "deps"):
-            self.deps = deps.deps
-            self.pipeline = deps
-        else:
-            self.deps = deps
-            self.pipeline = deps
+    def __init__(self, deps: PipelineDeps):
+        self.deps = deps
 
     async def stage_prepare_context(
         self, ctx: TurnContext
@@ -143,13 +139,11 @@ class ContextPrepStage:
         elif isinstance(persisted_mods, (list, set, tuple)):
             for m in persisted_mods:
                 effective_modifiers[str(m)] = True
-
         if isinstance(ctx.modifiers, dict):
             effective_modifiers.update(ctx.modifiers)
         elif isinstance(ctx.modifiers, (list, set, tuple)):
             for m in ctx.modifiers:
                 effective_modifiers[str(m)] = True
-
         ctx.modifiers = effective_modifiers
 
         if active_max_words is not None or active_min_words is not None or ctx.modifiers or extra_skills:
@@ -239,6 +233,8 @@ class ContextPrepStage:
                 thread_state_manager.get_language(ctx.channel_id, ctx.thread_ts)
                 or "English"
             )
+        if hasattr(ctx, "session") and ctx.session is not None:
+            ctx.session.language = ctx.thread_language
 
         # Determine any required or inferred skills for this turn
         required_skills: list[str] = []

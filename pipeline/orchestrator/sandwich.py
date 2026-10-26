@@ -1,20 +1,9 @@
-from dataclasses import dataclass, field
 import logging
 from typing import Any
 
 from core.models import OrchestrationMode
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class DialecticExecutionPlan:
-    """Execution plan for parallel dialectical scatter-gather topology."""
-
-    framing_chain: list[str] = field(default_factory=list)
-    parallel_specialists: list[str] = field(default_factory=list)
-    rebuttal_turns: list[str] = field(default_factory=list)
-    closing_chain: list[str] = field(default_factory=list)
 
 
 class SandwichOrchestrator:
@@ -75,56 +64,6 @@ class SandwichOrchestrator:
 
         # Combine into complete remaining sequence (standby agents enter dynamically via stress-test)
         return start + middle + end
-
-    def build_dialectic_plan(
-        self,
-        available_agents: list[str],
-        active_exclusions: list[str] | None = None,
-    ) -> DialecticExecutionPlan:
-        """
-        Partitions available agents into framing, parallel specialists, rebuttal, and closing chains
-        for parallel dialectical orchestration.
-        """
-        exclusions = set(active_exclusions or [])
-        valid_available = [a for a in available_agents if a not in exclusions]
-
-        framing = [a for a in self.start_chain if a in valid_available]
-        closing = [a for a in self.end_chain if a in valid_available and a not in framing]
-
-        framing_set = set(framing)
-        closing_set = set(closing)
-
-        rebuttal: list[str] = []
-        try:
-            from orchestration.agent_settings import get_rebuttal_agent
-            from orchestration.system_settings import is_dialectical_stress_test_enabled
-
-            if is_dialectical_stress_test_enabled():
-                r_agent = get_rebuttal_agent()
-                if (
-                    r_agent
-                    and r_agent in valid_available
-                    and r_agent not in framing_set
-                    and r_agent not in closing_set
-                    and r_agent not in rebuttal
-                ):
-                    rebuttal.append(r_agent)
-        except Exception as e:  # noqa: BLE001
-            logger.debug(f"[ORCHESTRATOR] Stress test config in dialectic plan: {e}")
-
-        rebuttal_set = set(rebuttal)
-        parallel = [
-            a
-            for a in valid_available
-            if a not in framing_set and a not in closing_set and a not in rebuttal_set
-        ]
-
-        return DialecticExecutionPlan(
-            framing_chain=framing,
-            parallel_specialists=parallel,
-            rebuttal_turns=rebuttal,
-            closing_chain=closing,
-        )
 
     def get_phase_info(
         self,

@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_DB_PATH = DB_PATH
 
-SCHEMA_STATEMENTS = [
+BASELINE_SCHEMA_STATEMENTS = [
     # 1. Thread Sessions (Discussion state, scheduling, remaining agents, turns)
     """
     CREATE TABLE IF NOT EXISTS thread_sessions (
@@ -194,7 +194,9 @@ SCHEMA_STATEMENTS = [
     """,
     "CREATE INDEX IF NOT EXISTS idx_turn_traces_session ON turn_traces(session_id);",
     "CREATE INDEX IF NOT EXISTS idx_turn_traces_created ON turn_traces(created_at);",
+]
 
+AUDIT_ANCHORS_STATEMENTS = [
     # 11. Audit Anchors (Head-hash anchors for detecting JSONL log truncation)
     """
     CREATE TABLE IF NOT EXISTS audit_anchors (
@@ -208,9 +210,11 @@ SCHEMA_STATEMENTS = [
     "CREATE INDEX IF NOT EXISTS idx_audit_anchors_month_seq ON audit_anchors(month, seq);",
 ]
 
+SCHEMA_STATEMENTS = BASELINE_SCHEMA_STATEMENTS + AUDIT_ANCHORS_STATEMENTS
+
 MIGRATIONS: list[tuple[int, str, list[str]]] = [
-    (1, "baseline_schema", SCHEMA_STATEMENTS[:25]),
-    (2, "audit_anchors_and_indices", SCHEMA_STATEMENTS[25:]),
+    (1, "baseline_schema", BASELINE_SCHEMA_STATEMENTS),
+    (2, "audit_anchors_and_indices", AUDIT_ANCHORS_STATEMENTS),
 ]
 
 
@@ -342,8 +346,6 @@ class DatabaseManager:
                     except Exception as e:  # noqa: BLE001
                         logger.debug("Error closing connection during close_all: %s", e)
             self._thread_conns.clear()
-        if hasattr(self._local, "conns"):
-            self._local.conns.clear()
 
     @contextmanager
     def get_connection(self) -> Generator[sqlite3.Connection, None, None]:

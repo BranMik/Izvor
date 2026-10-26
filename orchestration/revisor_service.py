@@ -88,17 +88,10 @@ async def run_internal_revisor(ctx: TurnContext):
             if prompt_tokens > 0 or completion_tokens > 0:
                 try:
                     from agents.usage_agent import record_thread_tokens, trigger_usage_update
-                    from pipeline.spend_governance import spend_governance
 
                     record_thread_tokens(
                         channel_id=ctx.channel_id,
                         thread_ts=ctx.thread_ts,
-                        model_name=model,
-                        prompt_tokens=prompt_tokens,
-                        completion_tokens=completion_tokens,
-                    )
-                    spend_governance.record_usage(
-                        session_id=f"{ctx.channel_id}:{ctx.thread_ts}",
                         model_name=model,
                         prompt_tokens=prompt_tokens,
                         completion_tokens=completion_tokens,

@@ -319,13 +319,6 @@ class ExtractedIntent:
             "modifiers": dict(self.modifiers),
             "attachments": [att.to_dict() for att in self.attachments],
             "detected_language": self.detected_language,
-            # Legacy fields mirrored for backward serialization compatibility
-            "max_words": self.max_words,
-            "min_words": self.min_words,
-            "history": self.history,
-            "file_use": self.file_use,
-            "target_file": self.target_file,
-            "excluded_agents": self.excluded_agents,
         }
 
     @classmethod
@@ -344,28 +337,12 @@ class ExtractedIntent:
             for att in raw_attachments
         ]
 
-        intent = cls(
+        return cls(
             actions=actions,
             modifiers=modifiers,
             attachments=attachments,
             detected_language=data.get("detected_language") or data.get("language"),
         )
-
-        # Handle legacy input keys if actions/modifiers weren't explicitly supplied
-        if "max_words" in data and data["max_words"] is not None:
-            intent.max_words = int(data["max_words"])
-        if "min_words" in data and data["min_words"] is not None:
-            intent.min_words = int(data["min_words"])
-        if "history" in data and data["history"] is not None:
-            intent.history = int(data["history"])
-        if "file_use" in data and bool(data["file_use"]):
-            intent.file_use = True
-        if data.get("target_file"):
-            intent.target_file = str(data["target_file"])
-        if data.get("excluded_agents"):
-            intent.excluded_agents = list(data["excluded_agents"])
-
-        return intent
 
 
 @dataclass
@@ -382,14 +359,6 @@ class CircuitBreakerConfig:
             "threshold_usd": self.threshold_usd,
             "daily_budget_usd": self.daily_budget_usd,
         }
-
-    def __getitem__(self, key: str) -> Any:
-        if hasattr(self, key):
-            return getattr(self, key)
-        raise KeyError(key)
-
-    def get(self, key: str, default: Any = None) -> Any:
-        return getattr(self, key, default)
 
 
 @dataclass

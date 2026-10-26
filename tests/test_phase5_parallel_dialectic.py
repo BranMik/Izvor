@@ -17,7 +17,7 @@ from orchestration.agent_settings import (
     get_orchestration_mode,
     set_orchestration_mode,
 )
-from pipeline.orchestrator.sandwich import DialecticExecutionPlan, SandwichOrchestrator
+from pipeline.orchestrator.sandwich import SandwichOrchestrator
 from services.slack_home import build_app_home_view
 
 
@@ -44,23 +44,6 @@ def test_orchestration_mode_scatter_gather_and_parallel_dialectic():
     reconstructed = WorkflowPreset.from_dict(p_dict)
     assert reconstructed.id == "parallel_dialectic_flow"
     assert reconstructed.mode == "scatter_gather"
-
-
-def test_build_dialectic_plan_partitions_framing_parallel_and_closing():
-    orchestrator = SandwichOrchestrator(
-        mode=OrchestrationMode.SCATTER_GATHER,
-        start_chain=["agent-10001"],
-        end_chain=["agent-10006"],
-    )
-    available = ["agent-10001", "agent-10002", "agent-10003", "agent-10017", "agent-10006"]
-    plan: DialecticExecutionPlan = orchestrator.build_dialectic_plan(available)
-
-    assert plan.framing_chain == ["agent-10001"]
-    assert plan.closing_chain == ["agent-10006"]
-    # agent-10017 should be classified into rebuttal turns
-    assert "agent-10017" in plan.rebuttal_turns
-    # remaining agents (10002, 10003) should be parallel specialists
-    assert plan.parallel_specialists == ["agent-10002", "agent-10003"]
 
 
 def test_agent_settings_supports_scatter_gather():

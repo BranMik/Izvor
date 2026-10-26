@@ -477,7 +477,7 @@ class DiscussionLoop:
             except Exception as e:  # noqa: BLE001
                 logger.debug(f"[ORCHESTRATOR] Final flat history sync exception: {e}")
 
-            if not thread_state_manager.get_remaining_agents(channel_id, thread_ts):
+            if not last_res.get("halted") and not thread_state_manager.get_remaining_agents(channel_id, thread_ts):
                 thread_state_manager.clear_round_execution_state(channel_id, thread_ts)
 
             return last_res

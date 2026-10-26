@@ -2,19 +2,21 @@ import json
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
+from core.database import get_db_transaction
 from core.domain import TurnCheckpoint
 from orchestration.stages.execution import ExecutionStage
 from orchestration.thread_state import thread_state_manager
 from orchestration.turn_pipeline import TurnContext, TurnPipeline
-from services.hitl import reset_pending_requests
 from services.turn_checkpoint_store import turn_checkpoint_store
 
 
 @pytest.fixture(autouse=True)
 def setup_teardown():
-    reset_pending_requests()
+    with get_db_transaction(immediate=True) as conn:
+        conn.execute("DELETE FROM hitl_approvals;")
     yield
-    reset_pending_requests()
+    with get_db_transaction(immediate=True) as conn:
+        conn.execute("DELETE FROM hitl_approvals;")
 
 
 @pytest.mark.anyio
@@ -55,7 +57,7 @@ async def test_hitl_pause_creates_durable_turn_checkpoint(monkeypatch):
     pipeline = TurnPipeline(
         llm_executor=AsyncMock(return_value=mock_llm_response)
     )
-    exec_stage = ExecutionStage(pipeline)
+    exec_stage = ExecutionStage(pipeline.deps)
 
     skill_def = MagicMock()
     skill_def.name = "db_admin"
@@ -68,7 +70,7 @@ async def test_hitl_pause_creates_durable_turn_checkpoint(monkeypatch):
     mock_skill_registry.is_mcp_tool.return_value = False
 
     monkeypatch.setattr("orchestration.stages.execution.skill_registry", mock_skill_registry)
-    monkeypatch.setattr("services.hitl.slack_async_client.chat_postMessage", AsyncMock(return_value={"ok": True, "ts": "11111"}))
+    monkeypatch.setattr("services.hitl.post_message_to_slack", AsyncMock(return_value={"ok": True, "ts": "11111"}))
 
     # Run execution stage
     await exec_stage.stage_execute_llm(ctx)
@@ -258,7 +260,7 @@ async def test_hitl_pause_synthesizes_deferred_sibling_responses(monkeypatch):
     pipeline = TurnPipeline(
         llm_executor=AsyncMock(return_value=mock_llm_response)
     )
-    exec_stage = ExecutionStage(pipeline)
+    exec_stage = ExecutionStage(pipeline.deps)
 
     skill_def = MagicMock()
     skill_def.name = "danger_skill"
@@ -271,7 +273,7 @@ async def test_hitl_pause_synthesizes_deferred_sibling_responses(monkeypatch):
     mock_skill_registry.is_mcp_tool.return_value = False
 
     monkeypatch.setattr("orchestration.stages.execution.skill_registry", mock_skill_registry)
-    monkeypatch.setattr("services.hitl.slack_async_client.chat_postMessage", AsyncMock(return_value={"ok": True, "ts": "44444"}))
+    monkeypatch.setattr("services.hitl.post_message_to_slack", AsyncMock(return_value={"ok": True, "ts": "44444"}))
 
     await exec_stage.stage_execute_llm(ctx)
 

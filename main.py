@@ -2,6 +2,8 @@ import asyncio
 import logging
 import os
 import sys
+import threading
+import time
 from contextlib import asynccontextmanager
 
 import secrets
@@ -28,7 +30,7 @@ from core.slack_security import verify_slack_signature
 from orchestration.agent_router import process_and_respond
 from orchestration.agent_settings import load_enabled_agents
 from orchestration.thread_state import thread_state_manager
-from services.pricing_service import warm_up_pricing_cache
+from services.pricing_service import pricing_service
 from services.rag.sync_engine import rag_sync_engine
 from services.slack import publish_app_home
 
@@ -46,6 +48,9 @@ logger = logging.getLogger("IzvorBackend")
 
 BASE_DIR = PROJECT_ROOT
 
+WIN32_HEARTBEAT_INTERVAL_SECONDS = 0.5
+RETENTION_PRUNE_INTERVAL_SECONDS = 86400.0  # 24 hours
+
 
 async def keep_loop_alive():
     """
@@ -53,7 +58,7 @@ async def keep_loop_alive():
     when there are no active incoming HTTP sockets.
     """
     while True:
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(WIN32_HEARTBEAT_INTERVAL_SECONDS)
 
 
 async def periodic_thread_state_cleanup():
@@ -121,7 +126,7 @@ async def periodic_retention_prune():
 
     while True:
         try:
-            await asyncio.sleep(86400)
+            await asyncio.sleep(RETENTION_PRUNE_INTERVAL_SECONDS)
             await asyncio.to_thread(prune_expired_records)
         except asyncio.CancelledError:
             break
@@ -222,22 +227,24 @@ async def lifespan(app: FastAPI):
             name="startup_audit_alert_integrity_violation",
         )
 
-    loop_task = asyncio.create_task(keep_loop_alive()) if sys.platform == "win32" else None
-    warmup_task = asyncio.create_task(warm_up_pricing_cache())
-    cleanup_task = asyncio.create_task(periodic_thread_state_cleanup())
-    audit_guard_task = asyncio.create_task(periodic_audit_integrity_guard())
-    retention_task = asyncio.create_task(periodic_retention_prune())
-    rag_sync_task = asyncio.create_task(rag_sync_engine.reconcile())
+    from services.audit_logger import set_main_event_loop
+    set_main_event_loop(asyncio.get_running_loop())
+
+    background_tasks: list[asyncio.Task] = []
+    if sys.platform == "win32":
+        background_tasks.append(asyncio.create_task(keep_loop_alive(), name="keep_loop_alive"))
+    background_tasks.append(asyncio.create_task(pricing_service.warm_up_cache(), name="warmup_cache"))
+    background_tasks.append(asyncio.create_task(periodic_thread_state_cleanup(), name="periodic_thread_cleanup"))
+    background_tasks.append(asyncio.create_task(periodic_audit_integrity_guard(), name="periodic_audit_guard"))
+    background_tasks.append(asyncio.create_task(periodic_retention_prune(), name="periodic_retention_prune"))
+    background_tasks.append(asyncio.create_task(rag_sync_engine.reconcile(), name="rag_sync"))
     try:
         yield
     finally:
-        if loop_task:
-            loop_task.cancel()
-        warmup_task.cancel()
-        cleanup_task.cancel()
-        audit_guard_task.cancel()
-        retention_task.cancel()
-        rag_sync_task.cancel()
+        set_main_event_loop(None)
+        for task in background_tasks:
+            task.cancel()
+        await asyncio.gather(*background_tasks, return_exceptions=True)
 
 
 app = FastAPI(
@@ -266,6 +273,11 @@ async def health_check():
 # HTTP Basic Authentication security scheme for admin endpoints
 admin_security = HTTPBasic()
 
+_basic_auth_failures_lock = threading.Lock()
+_basic_auth_failed_attempts: dict[str, list[float]] = {}
+_BASIC_AUTH_RATE_LIMIT_WINDOW = 60.0
+_BASIC_AUTH_MAX_FAILURES = 5
+
 
 def verify_admin_basic_auth(
     credentials: HTTPBasicCredentials = Depends(admin_security),
@@ -273,7 +285,7 @@ def verify_admin_basic_auth(
     """
     Verifies HTTP Basic Auth credentials against ADMIN_USERNAME and ADMIN_PASSWORD.
     Uses secrets.compare_digest to defend against timing attacks.
-    Emits non-repudiable audit events for both successful and failed attempts.
+    Applies sliding-window rate limiting on brute-force failure attempts.
     """
     from services.audit_logger import log_audit_event
 
@@ -301,6 +313,30 @@ def verify_admin_basic_auth(
     )
 
     if not (is_correct_username and is_correct_password):
+        now = time.time()
+        client_id = credentials.username or "unknown_user"
+        with _basic_auth_failures_lock:
+            attempts = _basic_auth_failed_attempts.get(client_id, [])
+            attempts = [t for t in attempts if now - t < _BASIC_AUTH_RATE_LIMIT_WINDOW]
+            attempts.append(now)
+            _basic_auth_failed_attempts[client_id] = attempts
+            is_rate_limited = len(attempts) > _BASIC_AUTH_MAX_FAILURES
+
+        if is_rate_limited:
+            log_audit_event(
+                event_type="AUTH_RATE_LIMITED",
+                actor={"type": "api_client", "id": credentials.username},
+                action="admin_basic_auth",
+                target="/api/*",
+                details={"reason": "Excessive failed basic auth attempts (throttled)", "attempts": len(attempts)},
+                severity="CRITICAL",
+                status="BLOCKED",
+            )
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Too many failed authentication attempts. Please wait before retrying.",
+            )
+
         log_audit_event(
             event_type="AUTH_FAILURE",
             actor={"type": "api_client", "id": credentials.username},
@@ -316,15 +352,9 @@ def verify_admin_basic_auth(
             headers={"WWW-Authenticate": "Basic"},
         )
 
-    log_audit_event(
-        event_type="AUTH_SUCCESS",
-        actor={"type": "admin_user", "id": credentials.username},
-        action="admin_basic_auth",
-        target="/api/*",
-        details={"status": "Authenticated successfully"},
-        severity="INFO",
-        status="SUCCESS",
-    )
+    with _basic_auth_failures_lock:
+        _basic_auth_failed_attempts.pop(credentials.username, None)
+
     return credentials.username
 
 
@@ -375,17 +405,29 @@ async def trigger_rag_reconciliation(admin_user: str = Depends(verify_admin_basi
     """Triggers an on-demand reconciliation scan of rag_knowledge/."""
     from services.audit_logger import log_audit_event
 
-    log_audit_event(
-        event_type="RAG_RECONCILE_TRIGGERED",
-        actor={"type": "admin_user", "id": admin_user},
-        action="reconcile_rag_knowledge",
-        target="rag_knowledge/",
-        details={"source": "api_endpoint"},
-        severity="WARNING",
-        status="SUCCESS",
-    )
-    stats = await rag_sync_engine.reconcile()
-    return {"status": "reconciliation_complete", "stats": stats}
+    try:
+        stats = await rag_sync_engine.reconcile()
+        log_audit_event(
+            event_type="RAG_RECONCILE_COMPLETED",
+            actor={"type": "admin_user", "id": admin_user},
+            action="reconcile_rag_knowledge",
+            target="rag_knowledge/",
+            details={"source": "api_endpoint", "stats": stats},
+            severity="INFO",
+            status="SUCCESS",
+        )
+        return {"status": "reconciliation_complete", "stats": stats}
+    except Exception as e:
+        log_audit_event(
+            event_type="RAG_RECONCILE_FAILED",
+            actor={"type": "admin_user", "id": admin_user},
+            action="reconcile_rag_knowledge",
+            target="rag_knowledge/",
+            details={"source": "api_endpoint", "error": str(e)},
+            severity="CRITICAL",
+            status="FAILED",
+        )
+        raise
 
 
 @app.get("/api/audit/status", dependencies=[Depends(verify_admin_basic_auth)])

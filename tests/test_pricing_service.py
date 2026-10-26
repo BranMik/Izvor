@@ -13,12 +13,9 @@ from services.pricing_service import (
     PRICING_TOOL_SCHEMAS,
     _extract_pricing_from_search_text,
     _is_valid_price_pair,
-    fetch_pricing_from_web,
-    fetch_pricing_with_agent,
     get_baseline_for_model,
     load_baseline_pricing,
-    refresh_model_pricing,
-    save_pricing_cache,
+    pricing_service,
 )
 
 
@@ -179,7 +176,7 @@ async def test_fetch_pricing_with_agent_success():
     with patch("litellm.acompletion", new_callable=AsyncMock, side_effect=[first_response, second_response]) as mock_completion, \
          patch("services.pricing_service.web_search", return_value=mock_search_json) as mock_search:
 
-        res = await fetch_pricing_with_agent("gemini/gemini-3.8-flash")
+        res = await pricing_service.fetch_pricing_with_agent("gemini/gemini-3.8-flash")
 
         assert res["input_price_per_1m"] == 0.75
         assert res["output_price_per_1m"] == 3.75
@@ -218,10 +215,10 @@ async def test_fetch_pricing_from_web_agent_fallback():
         }
     )
 
-    with patch("services.pricing_service.fetch_pricing_with_agent", side_effect=Exception("LiteLLM connection error")), \
+    with patch.object(pricing_service, "fetch_pricing_with_agent", side_effect=Exception("LiteLLM connection error")), \
          patch("services.pricing_service.web_search", return_value=mock_search_json):
 
-        res = await fetch_pricing_from_web("gemini/gemini-3.8-flash")
+        res = await pricing_service.fetch_pricing_from_web("gemini/gemini-3.8-flash")
         assert res["input_price_per_1m"] == 0.75
         assert res["output_price_per_1m"] == 3.75
         assert "Web Search" in res["source"]
@@ -244,10 +241,10 @@ async def test_7_day_cache_ttl(monkeypatch):
             "updated_at": now - (2 * 24 * 3600),
         }
     }
-    save_pricing_cache(cached_data)
+    pricing_service.save_cache(cached_data)
 
-    with patch("services.pricing_service.fetch_pricing_from_web") as mock_fetch:
-        pricing = await refresh_model_pricing(model, force=False)
+    with patch.object(pricing_service, "fetch_pricing_from_web") as mock_fetch:
+        pricing = await pricing_service.refresh_pricing(model, force=False)
         assert pricing["source"] == "Initial Test Cache"
         mock_fetch.assert_not_called()
 
@@ -261,7 +258,7 @@ async def test_7_day_cache_ttl(monkeypatch):
             "updated_at": now - (8 * 24 * 3600),
         }
     }
-    save_pricing_cache(stale_data)
+    pricing_service.save_cache(stale_data)
 
     mock_fresh = {
         "input_price_per_1m": 0.75,
@@ -270,8 +267,8 @@ async def test_7_day_cache_ttl(monkeypatch):
         "source": "Refreshed Web Search",
         "updated_at": now,
     }
-    with patch("services.pricing_service.fetch_pricing_from_web", return_value=mock_fresh) as mock_fetch:
-        refreshed = await refresh_model_pricing(model, force=False)
+    with patch.object(pricing_service, "fetch_pricing_from_web", return_value=mock_fresh) as mock_fetch:
+        refreshed = await pricing_service.refresh_pricing(model, force=False)
         assert refreshed["source"] == "Refreshed Web Search"
         mock_fetch.assert_called_once()
 
@@ -294,11 +291,11 @@ async def test_refresh_pricing_when_weekly_update_disabled_and_price_already_set
             "updated_at": now - (10 * 24 * 3600),  # 10 days old (> 7 days)
         }
     }
-    save_pricing_cache(cached_data)
+    pricing_service.save_cache(cached_data)
 
     with patch("orchestration.app_settings.is_weekly_pricing_update_enabled", return_value=False), \
-         patch("services.pricing_service.fetch_pricing_from_web") as mock_fetch:
-        pricing = await refresh_model_pricing(model, force=False)
+         patch.object(pricing_service, "fetch_pricing_from_web") as mock_fetch:
+        pricing = await pricing_service.refresh_pricing(model, force=False)
         assert pricing["source"] == "Cached Terra Pricing"
         assert pricing["input_price_per_1m"] == 2.0
         assert pricing["output_price_per_1m"] == 12.0
@@ -324,8 +321,8 @@ async def test_refresh_pricing_when_weekly_update_disabled_but_no_price_set():
     }
 
     with patch("orchestration.app_settings.is_weekly_pricing_update_enabled", return_value=False), \
-         patch("services.pricing_service.fetch_pricing_from_web", return_value=mock_fresh) as mock_fetch:
-        pricing = await refresh_model_pricing(model, force=False)
+         patch.object(pricing_service, "fetch_pricing_from_web", return_value=mock_fresh) as mock_fetch:
+        pricing = await pricing_service.refresh_pricing(model, force=False)
         assert pricing["source"] == "Web Search Fetched"
         assert pricing["input_price_per_1m"] == 1.50
         assert pricing["output_price_per_1m"] == 4.50
@@ -341,7 +338,7 @@ async def test_refresh_pricing_when_weekly_update_disabled_but_no_price_set():
             "updated_at": now - (1 * 24 * 3600),
         }
     }
-    save_pricing_cache(cached_data)
+    pricing_service.save_cache(cached_data)
 
     mock_fresh2 = {
         "input_price_per_1m": 1.75,
@@ -352,8 +349,8 @@ async def test_refresh_pricing_when_weekly_update_disabled_but_no_price_set():
     }
 
     with patch("orchestration.app_settings.is_weekly_pricing_update_enabled", return_value=False), \
-         patch("services.pricing_service.fetch_pricing_from_web", return_value=mock_fresh2) as mock_fetch:
-        pricing = await refresh_model_pricing(model, force=False)
+         patch.object(pricing_service, "fetch_pricing_from_web", return_value=mock_fresh2) as mock_fetch:
+        pricing = await pricing_service.refresh_pricing(model, force=False)
         assert pricing["source"] == "Web Search Second Fetch"
         assert pricing["input_price_per_1m"] == 1.75
         mock_fetch.assert_called_once()
@@ -376,7 +373,7 @@ async def test_refresh_pricing_force_overrides_disabled_weekly_update():
             "updated_at": now - (1 * 24 * 3600),
         }
     }
-    save_pricing_cache(cached_data)
+    pricing_service.save_cache(cached_data)
 
     mock_forced = {
         "input_price_per_1m": 10.0,
@@ -387,8 +384,8 @@ async def test_refresh_pricing_force_overrides_disabled_weekly_update():
     }
 
     with patch("orchestration.app_settings.is_weekly_pricing_update_enabled", return_value=False), \
-         patch("services.pricing_service.fetch_pricing_from_web", return_value=mock_forced) as mock_fetch:
-        pricing = await refresh_model_pricing(model, force=True)
+         patch.object(pricing_service, "fetch_pricing_from_web", return_value=mock_forced) as mock_fetch:
+        pricing = await pricing_service.refresh_pricing(model, force=True)
         assert pricing["source"] == "Forced Refresh"
         assert pricing["input_price_per_1m"] == 10.0
         mock_fetch.assert_called_once()

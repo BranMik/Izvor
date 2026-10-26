@@ -128,7 +128,7 @@ async def handle_slash_directives(
 
         requested_skills = grant_act.params.get("skills", [])
         if not requested_skills:
-            msg = "⚠️ *Missing Skills*: Please specify at least one skill to grant for all agents.\n_Example: `/grant_skill_for_all web_research codebase_inspection`_"
+            msg = "⚠️ *Missing Skills*: Please specify at least one skill to grant for all agents.\n_Example: `/grant_skill_for_all web_research rag`_"
             await post_sys_msg(channel_id=ctx.channel_id, thread_ts=ctx.thread_ts, text=msg)
             return {"ok": True, "halted": True, "action": "grant_skill_for_all"}
         else:

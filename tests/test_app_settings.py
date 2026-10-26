@@ -28,7 +28,7 @@ def test_app_settings_defaults():
 
         assert mgr.thread_skill_expiration_time == 12.0
         assert mgr.circuit_breaker_enabled is True
-        assert mgr.circuit_breaker_threshold_usd == 0.0
+        assert mgr.circuit_breaker_threshold_usd == 1.5
         assert mgr.daily_budget_usd == 10.0
         assert mgr.scribe_enabled is True
         assert mgr.weekly_pricing_update_enabled is True

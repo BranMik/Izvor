@@ -205,13 +205,16 @@ def verify_slack_signature(body_bytes: bytes, headers: dict) -> bool:
     return is_valid
 
 
-_BROADCAST_MENTION_PATTERN = re.compile(r"<!(channel|here|everyone)>", re.IGNORECASE)
+_BROADCAST_MENTION_PATTERN = re.compile(
+    r"<!(channel|here|everyone|subteam\^[A-Z0-9]+)(\|[^>]*)?>", re.IGNORECASE
+)
 
 
 def sanitize_slack_broadcast_mentions(text: str) -> str:
     """
-    Neutralizes broadcast mentions (<!channel>, <!here>, <!everyone>) in outgoing
-    text by converting them to safe plain text (@channel, @here, @everyone).
+    Neutralizes broadcast mentions (<!channel>, <!here>, <!everyone>, <!subteam^...>)
+    including labelled forms (<!here|here>) in outgoing text by converting them
+    to safe plain text (@channel, @here, @everyone, @subteam^...).
     Prevents LLM outputs or automated messages from pinging entire workspaces or channels.
     """
     if not text:

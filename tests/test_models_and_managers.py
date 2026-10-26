@@ -65,8 +65,8 @@ def test_models_serialization():
     # 2. ExtractedIntent
     ei = ExtractedIntent(max_words=50, history=3, file_use=True, target_file="data.csv")
     d_ei = ei.to_dict()
-    assert d_ei["max_words"] == 50
-    assert d_ei["file_use"] is True
+    assert d_ei["modifiers"]["max_words"] == 50
+    assert any(a["name"] in ("document_reader", "document_authoring") for a in d_ei["actions"])
     ei_restored = ExtractedIntent.from_dict(d_ei)
     assert ei_restored.max_words == 50
     assert ei_restored.target_file == "data.csv"
@@ -440,7 +440,7 @@ async def test_intent_extractor_class():
 
     # Skip logic
     assert extractor.should_skip("/stop") is True
-    assert extractor.should_skip("/file: code.py", is_file_cmd=True) is False
+    assert extractor.should_skip("/file: code.py") is False
 
     # Extract intent
     mock_resp = MagicMock()

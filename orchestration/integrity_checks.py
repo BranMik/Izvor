@@ -423,24 +423,6 @@ class AppIntegrityValidator:
             logger.warning("[INTEGRITY] System settings payload is not a dictionary.")
             return data
 
-        # Check and strip deprecated keys
-        modified = False
-        for deprecated_key in ("challenger_agents", "rebuttal_agent"):
-            if deprecated_key in data:
-                logger.warning(
-                    "[INTEGRITY] Deprecated key '%s' found in system_settings.json. Stripping key (special roles belong in agent_settings).",
-                    deprecated_key,
-                )
-                del data[deprecated_key]
-                modified = True
-
-        if modified and settings_path:
-            try:
-                settings_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
-                logger.info("[INTEGRITY] Cleaned system_settings.json written to %s", settings_path)
-            except (json.JSONDecodeError, ValueError) as e:
-                logger.error("[INTEGRITY] Failed to write cleaned system_settings: %s", e)
-
         required_keys = (
             "default_fast_model",
             "default_reasoning_model",
@@ -456,6 +438,20 @@ class AppIntegrityValidator:
                 logger.warning(
                     "[INTEGRITY] Required system setting '%s' is missing from system_settings.json.", k
                 )
+
+        dirty = False
+        for deprecated in ("challenger_agents", "rebuttal_agent"):
+            if deprecated in data:
+                del data[deprecated]
+                dirty = True
+
+        if dirty and settings_path is not None:
+            try:
+                Path(settings_path).write_text(json.dumps(data, indent=2), encoding="utf-8")
+                logger.info("[INTEGRITY] Stripped deprecated roles and saved system settings.")
+            except Exception as e:  # noqa: BLE001
+                logger.error("[INTEGRITY] Failed to write updated system settings: %s", e)
+
         return data
 
     # ------------------------------------------------------------------

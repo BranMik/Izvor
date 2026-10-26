@@ -228,17 +228,17 @@ def resolve_pipeline_deps(
     hooks = hooks or {}
 
     # Helper to resolve field value: overrides -> deps -> hooks -> lazy production default
-    def _get(field_name: str, alt_hook_names: list[str] | None = None, default_factory: Callable[[], Any] | None = None) -> Any:
+    def _get(field_name: str, default_factory: Callable[[], Any] | None = None) -> Any:
         if field_name in overrides and overrides[field_name] is not None:
             return overrides[field_name]
         if deps is not None and getattr(deps, field_name, None) is not None:
             return getattr(deps, field_name)
         if field_name in hooks and hooks[field_name] is not None:
             return hooks[field_name]
-        if alt_hook_names:
-            for alt in alt_hook_names:
-                if alt in hooks and hooks[alt] is not None:
-                    return hooks[alt]
+        if field_name.lower() in hooks and hooks[field_name.lower()] is not None:
+            return hooks[field_name.lower()]
+        if field_name.upper() in hooks and hooks[field_name.upper()] is not None:
+            return hooks[field_name.upper()]
         if default_factory is not None:
             return default_factory()
         return None
@@ -263,21 +263,46 @@ def resolve_pipeline_deps(
     import asyncio
     from starlette.concurrency import run_in_threadpool
 
-    llm_executor = _get("llm_executor", ["execute_llm_with_retry"], lambda: execute_llm_with_retry)
-    tool_executor = _get("tool_executor", ["execute_mcp_tool"], lambda: execute_mcp_tool)
-    history_fetcher = _get("history_fetcher", ["fetch_thread_history"], lambda: fetch_thread_history)
-    files_fetcher = _get("files_fetcher", ["fetch_thread_files"], lambda: fetch_thread_files)
-    download_file_fn = _get("download_file_fn", ["download_slack_file"], lambda: download_slack_file)
-    token_recorder = _get("token_recorder", ["record_thread_tokens"], lambda: record_thread_tokens)
-    notes_updater = _get("notes_updater", ["trigger_thread_notes_update"], lambda: trigger_thread_notes_update)
-    usage_updater = _get("usage_updater", ["trigger_usage_update"], lambda: trigger_usage_update)
-    calc_costs_fn = _get("calc_costs_fn", ["calculate_thread_costs"], lambda: calculate_thread_costs)
-    flat_history_recorder = _get("flat_history_recorder", ["record_flat_history", "async_record_flat_history"], lambda: async_record_flat_history)
-    sleep_fn = _get("sleep_fn", ["_sleep"], lambda: asyncio.sleep)
-    post_system_message_fn = _get("post_system_message_fn", ["post_system_message"], lambda: post_system_message)
-    update_message_fn = _get("update_message_fn", ["update_slack_message", "update_agent_message"], lambda: update_slack_message)
-    slack_poster = _get("slack_poster", ["post_agent_response"], lambda: post_agent_response)
-    run_in_threadpool_fn = _get("run_in_threadpool_fn", ["run_in_threadpool"], lambda: run_in_threadpool)
+    llm_executor = (
+        _get("llm_executor")
+        or _get("execute_llm_with_retry")
+        or execute_llm_with_retry
+    )
+    tool_executor = (
+        _get("tool_executor")
+        or _get("execute_mcp_tool")
+        or execute_mcp_tool
+    )
+    history_fetcher = _get("history_fetcher", default_factory=lambda: fetch_thread_history)
+    files_fetcher = _get("files_fetcher", default_factory=lambda: fetch_thread_files)
+    download_file_fn = _get("download_file_fn", default_factory=lambda: download_slack_file)
+    token_recorder = _get("token_recorder", default_factory=lambda: record_thread_tokens)
+    notes_updater = _get("notes_updater", default_factory=lambda: trigger_thread_notes_update)
+    usage_updater = _get("usage_updater", default_factory=lambda: trigger_usage_update)
+    calc_costs_fn = _get("calc_costs_fn", default_factory=lambda: calculate_thread_costs)
+    flat_history_recorder = _get("flat_history_recorder", default_factory=lambda: async_record_flat_history)
+    sleep_fn = _get("sleep_fn") or _get("asyncio_sleep") or asyncio.sleep
+    post_system_message_fn = (
+        _get("post_system_message_fn")
+        or _get("post_system_message")
+        or post_system_message
+    )
+    update_message_fn = (
+        _get("update_message_fn")
+        or _get("update_slack_message")
+        or update_slack_message
+    )
+    slack_poster = (
+        _get("slack_poster")
+        or _get("post_agent_response")
+        or _get("post_agent_response_fn")
+        or post_agent_response
+    )
+    run_in_threadpool_fn = (
+        _get("run_in_threadpool_fn")
+        or _get("run_in_threadpool")
+        or run_in_threadpool
+    )
 
     # Workspace Adapter Port (Hexagonal Architecture)
     ws_adapter = _get("workspace_adapter")
@@ -290,11 +315,19 @@ def resolve_pipeline_deps(
             post_system_fn=post_system_message_fn,
         )
 
-    debate_turn_pacing = _get("debate_turn_pacing_seconds", ["DEBATE_TURN_PACING_SECONDS"])
-    slack_post_pause = _get("slack_post_pause_seconds", ["SLACK_POST_PAUSE_SECONDS"])
-    max_tool_iters = _get("max_tool_iterations", ["MAX_TOOL_ITERATIONS", "max_tool_iterations"])
-    timeout_s = _get("timeout_secs", ["TIMEOUT_SECS", "TOOL_CALL_LOOP_TIMEOUT_SECONDS", "tool_call_loop_timeout_seconds"])
-    intermediate_delay_s = _get("intermediate_delay_secs", ["INTERMEDIATE_DELAY_SECS", "TOOL_INTERMEDIATE_UPDATE_DELAY_SECONDS", "intermediate_delay_seconds"])
+    debate_turn_pacing = _get("debate_turn_pacing_seconds") or _get("DEBATE_TURN_PACING_SECONDS")
+    slack_post_pause = _get("slack_post_pause_seconds") or _get("SLACK_POST_PAUSE_SECONDS")
+    max_tool_iters = _get("max_tool_iterations") or _get("MAX_TOOL_ITERATIONS")
+    timeout_s = (
+        _get("timeout_secs")
+        or _get("TOOL_CALL_LOOP_TIMEOUT_SECONDS")
+        or _get("timeout_seconds")
+    )
+    intermediate_delay_s = (
+        _get("intermediate_delay_secs")
+        or _get("TOOL_INTERMEDIATE_UPDATE_DELAY_SECONDS")
+        or _get("intermediate_delay_seconds")
+    )
 
     return PipelineDeps(
         llm_executor=llm_executor,

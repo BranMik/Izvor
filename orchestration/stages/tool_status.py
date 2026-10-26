@@ -37,7 +37,7 @@ def _build_tool_status_text(username: str, tool_calls: list[Any]) -> str:
         q = fn_args.get("query", "")
         query_str = f': "{q}"' if q else ""
         return f"_🔍 *{username}* is searching the web{query_str}..._"
-    elif fn_name in ("fetch_web_page", "web_scrape"):
+    elif fn_name == "fetch_web_page":
         url = fn_args.get("url", "")
         url_str = f": {url}" if url else ""
         return f"_🌐 *{username}* is fetching webpage{url_str}..._"

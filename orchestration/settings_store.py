@@ -21,6 +21,50 @@ T = TypeVar("T", bound=BaseModel)
 logger = logging.getLogger(__name__)
 
 
+def atomic_write_json(
+    file_path: Path,
+    data: dict[str, Any] | list[Any],
+    backup: bool = False,
+    backup_file: Path | None = None,
+) -> None:
+    """
+    Atomically writes JSON payload to disk using tempfile + fsync + os.replace.
+    Optionally creates or refreshes an emergency backup copy.
+    """
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+    dir_path = file_path.parent
+    fd, tmp_path_str = tempfile.mkstemp(
+        dir=dir_path,
+        prefix=f"{file_path.name}.tmp_",
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        for attempt in range(10):
+            try:
+                os.replace(tmp_path_str, file_path)
+                break
+            except (PermissionError, OSError) as pe:
+                if attempt < 9:
+                    time.sleep(0.02 * (attempt + 1))
+                else:
+                    raise pe
+        if backup and backup_file:
+            backup_file.parent.mkdir(parents=True, exist_ok=True)
+            import shutil
+
+            shutil.copyfile(file_path, backup_file)
+    except Exception:
+        if os.path.exists(tmp_path_str):
+            try:
+                os.remove(tmp_path_str)
+            except OSError:
+                pass
+        raise
+
+
 class JsonSettingsStore(Generic[T]):
     """
     Thread-safe, atomic-write JSON store backed by Pydantic models.
@@ -90,35 +134,7 @@ class JsonSettingsStore(Generic[T]):
                 validated_model = self.model_cls.model_validate(payload)
                 raw_dict = copy.deepcopy(payload)
 
-            self.settings_file.parent.mkdir(parents=True, exist_ok=True)
-            dir_path = self.settings_file.parent
-
-            # Atomic file replacement via tempfile + fsync + os.replace
-            fd, tmp_path_str = tempfile.mkstemp(
-                dir=dir_path,
-                prefix=f"{self.settings_file.name}.tmp_",
-            )
-            try:
-                with os.fdopen(fd, "w", encoding="utf-8") as f:
-                    json.dump(raw_dict, f, indent=2)
-                    f.flush()
-                    os.fsync(f.fileno())
-                for attempt in range(10):
-                    try:
-                        os.replace(tmp_path_str, self.settings_file)
-                        break
-                    except (PermissionError, OSError) as pe:
-                        if attempt < 9:
-                            time.sleep(0.02 * (attempt + 1))
-                        else:
-                            raise pe
-            except Exception:
-                if os.path.exists(tmp_path_str):
-                    try:
-                        os.remove(tmp_path_str)
-                    except OSError:
-                        pass
-                raise
+            atomic_write_json(self.settings_file, raw_dict)
 
             # Update cache in-memory immediately
             self._raw_data = copy.deepcopy(raw_dict)

@@ -207,3 +207,13 @@ def isolate_thread_state_files_for_tests(tmp_path, monkeypatch):
 
 
 
+
+
+@pytest.fixture(autouse=True)
+def mock_embedding_service_for_tests(monkeypatch):
+    from services.rag.embeddings import EmbeddingService
+    async def dummy_get_embeddings(self, texts):
+        if not texts: return []
+        return [[0.0] * 768 for _ in texts]
+    monkeypatch.setattr(EmbeddingService, 'get_embeddings', dummy_get_embeddings)
+    yield

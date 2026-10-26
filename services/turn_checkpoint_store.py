@@ -150,10 +150,6 @@ class TurnCheckpointStore:
             logger.debug(f"[CHECKPOINT] Failed reading checkpoint for hitl {hitl_request_id}: {e}")
         return None
 
-    def get_by_hitl_request_id(self, hitl_request_id: str) -> TurnCheckpoint | None:
-        """Alias for get_checkpoint_by_hitl_request."""
-        return self.get_checkpoint_by_hitl_request(hitl_request_id)
-
     def get_latest_checkpoint_for_thread(
         self, channel_id: str, thread_ts: str, status: str | None = None
     ) -> TurnCheckpoint | None:
@@ -183,10 +179,6 @@ class TurnCheckpointStore:
         except Exception as e:  # noqa: BLE001
             logger.debug(f"[CHECKPOINT] Failed reading checkpoint for thread {channel_id}:{thread_ts}: {e}")
         return None
-
-    def get_latest_active_by_thread(self, channel_id: str, thread_ts: str) -> TurnCheckpoint | None:
-        """Alias for get_latest_checkpoint_for_thread."""
-        return self.get_latest_checkpoint_for_thread(channel_id, thread_ts)
 
     def mark_resumed(self, checkpoint_id: str) -> bool:
         """Updates checkpoint status to RESUMED and redacts payload upon continuation."""

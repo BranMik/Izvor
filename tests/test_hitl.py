@@ -5,6 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from main import app
+from core.database import get_db_transaction
 from services.audit_logger import get_audit_trail
 from services.hitl import (
     approve_hitl_request,
@@ -12,7 +13,6 @@ from services.hitl import (
     deny_hitl_request,
     get_pending_request,
     register_hitl_request,
-    reset_pending_requests,
 )
 
 client = TestClient(app)
@@ -20,9 +20,11 @@ client = TestClient(app)
 
 @pytest.fixture(autouse=True)
 def clean_hitl_registry():
-    reset_pending_requests()
+    with get_db_transaction(immediate=True) as conn:
+        conn.execute("DELETE FROM hitl_approvals;")
     yield
-    reset_pending_requests()
+    with get_db_transaction(immediate=True) as conn:
+        conn.execute("DELETE FROM hitl_approvals;")
 
 
 def test_hitl_request_registration_and_hash():

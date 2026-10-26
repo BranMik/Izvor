@@ -94,7 +94,6 @@ SYSTEM_RESOURCES_DIR = _resolve_env_path("IZVOR_SYSTEM_RESOURCES_DIR", PROJECT_R
 
 # Runtime & Flat Histories
 FLAT_HISTORIES_DIR = _resolve_env_path("IZVOR_HISTORIES_DIR", PROJECT_ROOT / "flat-histories")
-THREAD_SKILLS_FILE = THREAD_DATA_DIR / "thread_skills.json"
 USAGE_STORE_FILE = THREAD_DATA_DIR / "thread_usage_data.json"
 
 # RAG Knowledge & Vector Cache
@@ -133,7 +132,6 @@ __all__ = [
     "SYSTEM_SETTINGS_FILE",
     "THREAD_DATA_DIR",
     "THREAD_NOTES_DIR",
-    "THREAD_SKILLS_FILE",
     "USAGE_STORE_FILE",
     "WORKFLOWS_BACKUP_DIR",
     "WORKFLOWS_DIR",

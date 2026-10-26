@@ -238,6 +238,15 @@ async def post_ephemeral_to_slack(
     if not bot_token or bot_token == "xoxb-your-bot-user-oauth-token":
         return {"ok": True, "mock": True}
     try:
+        from core.slack_security import sanitize_slack_broadcast_mentions
+        from services.security import scan_output_for_secrets
+
+        matched_rule = scan_output_for_secrets(text, user_id=user_id)
+        if matched_rule:
+            logger.warning(f"[SECURITY] Ephemeral message blocked by guardrail rule: {matched_rule}")
+            text = f"⚠️ *Message blocked by security policy.* (Rule: {matched_rule})"
+
+        text = sanitize_slack_broadcast_mentions(text)
         kwargs: dict[str, Any] = {
             "channel": channel_id,
             "user": user_id,

@@ -47,6 +47,7 @@ def build_governance_blocks(
     weekly_pricing_on: bool,
     weekly_pricing_status_str: str,
     expiry_hours: float,
+    daily_budget: float = 10.0,
 ) -> list[dict[str, Any]]:
     """Generates Block Kit elements for spend circuit-breaker, scribe, and TTL governance."""
     return [
@@ -156,6 +157,82 @@ def build_governance_blocks(
                     "type": "button",
                     "text": {"type": "plain_text", "text": "$5.00"},
                     "action_id": "set_circuit_breaker_preset:5.00",
+                },
+            ],
+        },
+        {"type": "divider"},
+        {
+            "type": "section",
+            "block_id": f"daily_budget_section_{daily_budget:.2f}",
+            "text": {
+                "type": "mrkdwn",
+                "text": (
+                    f"\n *────────💰 Workspace Daily Budget Cap:────────* \n"
+                    f"Current limit: *${daily_budget:.2f} USD / day*\n"
+                    f"_Global spend limit for the entire workspace. All turns pause when daily budget is reached._"
+                ),
+            },
+        },
+        {
+            "type": "input",
+            "block_id": f"daily_budget_input_block_{daily_budget:.2f}",
+            "dispatch_action": True,
+            "element": {
+                "type": "plain_text_input",
+                "action_id": "set_daily_budget_input",
+                "initial_value": f"{daily_budget:.2f}",
+                "placeholder": {
+                    "type": "plain_text",
+                    "text": "Enter daily budget in USD (e.g. 5.00, 10.00, 50.00)",
+                },
+                "dispatch_action_config": {
+                    "trigger_actions_on": ["on_enter_pressed"],
+                },
+            },
+            "label": {
+                "type": "plain_text",
+                "text": "💵 Daily workspace budget ($ USD):",
+                "emoji": True,
+            },
+        },
+        {
+            "type": "actions",
+            "block_id": f"daily_budget_actions_block_{daily_budget:.2f}",
+            "elements": [
+                {
+                    "type": "button",
+                    "text": {
+                        "type": "plain_text",
+                        "text": "💾 Save daily budget",
+                        "emoji": True,
+                    },
+                    "action_id": "save_daily_budget_button",
+                    "style": "primary",
+                },
+                {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "$5.00"},
+                    "action_id": "set_daily_budget_preset:5.00",
+                },
+                {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "$10.00"},
+                    "action_id": "set_daily_budget_preset:10.00",
+                },
+                {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "$20.00"},
+                    "action_id": "set_daily_budget_preset:20.00",
+                },
+                {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "$50.00"},
+                    "action_id": "set_daily_budget_preset:50.00",
+                },
+                {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "$100.00"},
+                    "action_id": "set_daily_budget_preset:100.00",
                 },
             ],
         },

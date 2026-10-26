@@ -26,6 +26,7 @@ from adapters.slack.actions import (
     _handle_restore_from_backup,
     _handle_resume_sequence,
     _handle_save_circuit_breaker_threshold_button,
+    _handle_save_daily_budget_button,
     _handle_save_fixed_chain_button,
     _handle_save_sandwich_chains_button,
     _handle_save_workflow_preset_button,
@@ -35,6 +36,8 @@ from adapters.slack.actions import (
     _handle_select_workflow_preset,
     _handle_set_circuit_breaker_preset,
     _handle_set_circuit_breaker_threshold_input,
+    _handle_set_daily_budget_input,
+    _handle_set_daily_budget_preset,
     _handle_set_end_chain_input,
     _handle_set_fixed_chain_input,
     _handle_set_start_chain_input,
@@ -118,6 +121,12 @@ ACTION_REGISTRY: dict[str, ActionSpec] = {
     "save_circuit_breaker_threshold_button": ActionSpec(
         handler=_handle_save_circuit_breaker_threshold_button, admin_required=True, audit_action="ADMIN_CONFIG_CHANGE", publish_home=True
     ),
+    "set_daily_budget_input": ActionSpec(
+        handler=_handle_set_daily_budget_input, admin_required=True, audit_action="ADMIN_CONFIG_CHANGE", publish_home=True
+    ),
+    "save_daily_budget_button": ActionSpec(
+        handler=_handle_save_daily_budget_button, admin_required=True, audit_action="ADMIN_CONFIG_CHANGE", publish_home=True
+    ),
     "select_workflow_preset": ActionSpec(
         handler=_handle_select_workflow_preset, admin_required=True, audit_action="ADMIN_CONFIG_CHANGE", publish_home=True
     ),
@@ -176,6 +185,15 @@ PREFIX_ACTION_REGISTRY: list[tuple[str, ActionSpec]] = [
         "set_circuit_breaker_preset:",
         ActionSpec(
             handler=_handle_set_circuit_breaker_preset,
+            admin_required=True,
+            audit_action="ADMIN_CONFIG_CHANGE",
+            publish_home=True,
+        ),
+    ),
+    (
+        "set_daily_budget_preset:",
+        ActionSpec(
+            handler=_handle_set_daily_budget_preset,
             admin_required=True,
             audit_action="ADMIN_CONFIG_CHANGE",
             publish_home=True,
@@ -322,6 +340,15 @@ async def handle_slack_interactivity(request: Request, background_tasks: Backgro
         for action, spec in resolved_actions:
             if spec.publish_home:
                 should_publish_home = True
+            if spec.audit_action:
+                log_audit_event(
+                    event_type=spec.audit_action,
+                    actor={"type": "slack_user", "id": user_id or "unknown"},
+                    action=action.get("action_id", "unknown_action"),
+                    target="slack_app_home",
+                    details={"action": action.get("action_id")},
+                    severity="INFO",
+                )
             res = spec.handler(action, payload, user_id, background_tasks, view_state)
             if asyncio.iscoroutine(res):
                 res = await res
@@ -422,6 +449,7 @@ __all__ = [
     "_handle_restore_from_backup",
     "_handle_resume_sequence",
     "_handle_save_circuit_breaker_threshold_button",
+    "_handle_save_daily_budget_button",
     "_handle_save_fixed_chain_button",
     "_handle_save_sandwich_chains_button",
     "_handle_save_workflow_preset_button",
@@ -431,6 +459,8 @@ __all__ = [
     "_handle_select_workflow_preset",
     "_handle_set_circuit_breaker_preset",
     "_handle_set_circuit_breaker_threshold_input",
+    "_handle_set_daily_budget_input",
+    "_handle_set_daily_budget_preset",
     "_handle_set_end_chain_input",
     "_handle_set_fixed_chain_input",
     "_handle_set_start_chain_input",

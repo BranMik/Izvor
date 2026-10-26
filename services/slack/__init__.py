@@ -14,7 +14,6 @@ from services.slack.client_core import (
     slack_rate_limiter,
 )
 from services.slack.files import (
-    MCP_WORKSPACE_DIR,
     SAFE_DOWNLOAD_EXTENSIONS,
     cleanup_old_downloads,
     download_slack_file,
@@ -65,7 +64,6 @@ __all__ = [
     "update_usage_message",
     "post_message_to_slack",
     "update_slack_message",
-    "MCP_WORKSPACE_DIR",
     "PROJECT_ROOT",
     "SAFE_DOWNLOAD_EXTENSIONS",
     "sanitize_slack_download_filename",

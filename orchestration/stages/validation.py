@@ -24,6 +24,8 @@ from services.slack import (
     post_system_message,
 )
 
+from orchestration.protocols import PipelineDeps
+
 if TYPE_CHECKING:
     from orchestration.turn_pipeline import TurnContext
 
@@ -38,18 +40,10 @@ logger = logging.getLogger(__name__)
 class ValidationStage:
     """Provides stage 1 validation and parsing for TurnPipeline."""
 
-    def __init__(self, deps: Any):
-        if hasattr(deps, "deps"):
-            self.deps = deps.deps
-            self.pipeline = deps
-        else:
-            self.deps = deps
-            self.pipeline = deps
+    def __init__(self, deps: PipelineDeps):
+        self.deps = deps
 
     def _get_dep(self, attr_name: str, default: Any = None) -> Any:
-        val = getattr(self.pipeline, attr_name, None)
-        if val is not None:
-            return val
         val = getattr(self.deps, attr_name, None)
         if val is not None:
             return val
@@ -426,9 +420,13 @@ class ValidationStage:
                         )
                         import json
 
+                        from core.domain import SYSTEM_PRINCIPAL
                         from services.mcp_tools import read_document
 
-                        doc_res_json = read_document(chosen_file.get("rel_path", chosen_file.get("name", "")))
+                        doc_res_json = read_document(
+                            chosen_file.get("rel_path", chosen_file.get("name", "")),
+                            principal=SYSTEM_PRINCIPAL,
+                        )
                         try:
                             doc_data = json.loads(doc_res_json)
                         except (json.JSONDecodeError, TypeError, ValueError) as e:

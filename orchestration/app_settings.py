@@ -20,7 +20,7 @@ BACKUP_INTERVAL_SECONDS = 7 * 86400
 class AppSettingsModel(BaseModel):
     thread_skill_expiration_time: float = 12.0
     circuit_breaker_enabled: bool = True
-    circuit_breaker_threshold_usd: float = 0.0
+    circuit_breaker_threshold_usd: float = 1.5
     daily_budget_usd: float = 10.0
     scribe_enabled: bool = True
     convergence_fast_forward_enabled: bool = True
@@ -57,7 +57,7 @@ class AppSettingsManager:
 
         self.thread_skill_expiration_time: float = 12.0
         self.circuit_breaker_enabled: bool = True
-        self.circuit_breaker_threshold_usd: float = 0.0
+        self.circuit_breaker_threshold_usd: float = 1.5
         self.daily_budget_usd: float = 10.0
         self.scribe_enabled: bool = True
         self.convergence_fast_forward_enabled: bool = True
@@ -167,8 +167,8 @@ class AppSettingsManager:
 
     def set_circuit_breaker_enabled(self, enabled: bool, save: bool = True) -> None:
         self.circuit_breaker_enabled = bool(enabled)
-        if not self.circuit_breaker_enabled:
-            self.circuit_breaker_threshold_usd = 0.0
+
+        # Threshold is decoupled from enabled state and preserved
         if save:
             self.save()
         logger.info(f"[APP_SETTINGS] Set circuit_breaker_enabled to {self.circuit_breaker_enabled}.")

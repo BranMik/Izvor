@@ -16,8 +16,9 @@ from core.config import (
 from core.models import OrchestrationMode
 from orchestration.app_settings import AppSettingsManager, app_settings_manager
 from orchestration.system_settings import SystemSettingsManager, system_settings_manager
-from prompts import build_agent_prompt
 from orchestration.integrity_checks import AppIntegrityValidator
+from orchestration.settings_store import atomic_write_json
+from prompts.builder import build_agent_prompt
 
 from core.paths import (
     AGENT_BACKUP_FILE as BACKUP_FILE,
@@ -179,31 +180,8 @@ class AgentSettingsManager:
 
 
     def _atomic_write_json(self, target_path: Path, data: dict[str, Any]) -> None:
-        """Writes JSON payload atomically to a temporary file before renaming."""
-        target_path.parent.mkdir(parents=True, exist_ok=True)
-        tmp_filename = f"{target_path.name}.tmp_{os.getpid()}_{int(time.time() * 1000)}"
-        tmp_path = target_path.parent / tmp_filename
-        try:
-            with open(tmp_path, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2)
-                f.flush()
-                os.fsync(f.fileno())
-            for attempt in range(10):
-                try:
-                    os.replace(tmp_path, target_path)
-                    break
-                except (PermissionError, OSError) as pe:
-                    if attempt < 9:
-                        time.sleep(0.02 * (attempt + 1))
-                    else:
-                        raise pe
-        except Exception:
-            if tmp_path.exists():
-                try:
-                    tmp_path.unlink()
-                except OSError as e:
-                    logger.debug(f"[SETTINGS] Could not remove temp file {tmp_path}: {e}")
-            raise
+        """Writes JSON payload atomically using shared atomic_write_json."""
+        atomic_write_json(target_path, data)
 
     def _validate_agent_entry(self, key: str, config: dict[str, Any]) -> bool:
         """Validates that an agent has required parameters and a matching persona file."""
@@ -396,8 +374,6 @@ class AgentSettingsManager:
             except OSError as e:
                 logger.debug(f"[SETTINGS] Error checking workflow mtime: {e}")
 
-    _persist_active_workflow = persist_active_workflow
-
     def _parse_and_validate_payload(self, data: dict[str, Any], source_name: str) -> bool:
         """Parses and validates a full agent settings payload from JSON."""
         if not isinstance(data, dict):
@@ -492,14 +468,6 @@ class AgentSettingsManager:
                         sys_entry["is_system_agent"] = bool(sys_v["is_system_agent"])
                     if sys_entry:
                         self.system_agents_config[sys_k] = sys_entry
-
-        if "circuit_breaker_enabled" in data:
-            self.app_settings.set_circuit_breaker_enabled(bool(data.get("circuit_breaker_enabled", False)), save=False)
-        if "circuit_breaker_threshold_usd" in data:
-            try:
-                self.app_settings.set_circuit_breaker_threshold(float(data.get("circuit_breaker_threshold_usd", 0.0)), save=False)
-            except (ValueError, TypeError):
-                pass
 
         # Parse active workflow reference ("workflow_config" primary, "active_workflow_id" fallback)
         raw_wf = data.get("workflow_config") or data.get("active_workflow_id")
@@ -1163,10 +1131,6 @@ def restore_from_backup() -> bool:
 
 def get_agents_config() -> MappingProxyType[str, dict[str, Any]]:
     return settings_manager.get_agents_config()
-
-
-def save_enabled_agents() -> None:
-    settings_manager.save()
 
 
 def load_enabled_agents() -> set[str]:

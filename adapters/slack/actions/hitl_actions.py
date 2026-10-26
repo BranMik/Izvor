@@ -6,7 +6,11 @@ from fastapi import BackgroundTasks, Response
 
 from core.config import is_slack_admin
 from services.audit_logger import log_audit_event
-from services.slack import slack_async_client
+from services.slack import (
+    post_ephemeral_to_slack,
+    post_message_to_slack,
+    update_slack_message,
+)
 
 logger = logging.getLogger("IzvorBackend.SlackInteractivity.HITL")
 
@@ -59,9 +63,8 @@ async def _execute_and_resume_hitl_approval(req: Any, user_id: str) -> None:
         display_res = display_res[:2000] + "\n... [truncated]"
 
     try:
-        client = slack_async_client
-        await client.chat_postMessage(
-            channel=channel_id,
+        await post_message_to_slack(
+            channel_id=channel_id,
             thread_ts=thread_ts,
             text=f"🛠️ *Tool `{fn_name}` executed following approval by <@{user_id}>:*\n```{display_res}```",
         )
@@ -69,12 +72,16 @@ async def _execute_and_resume_hitl_approval(req: Any, user_id: str) -> None:
         logger.error(f"[HITL] Failed to post tool result to Slack: {e}")
 
     # 4. Resume the calling agent with the result context
+    import json
     from services.turn_checkpoint_store import turn_checkpoint_store
     from orchestration.agent_router import continue_discussion_from_turn_result
 
-    chk = turn_checkpoint_store.get_by_hitl_request_id(req.request_id)
+    chk = turn_checkpoint_store.get_checkpoint_by_hitl_request(req.request_id)
     if not chk:
-        chk = turn_checkpoint_store.get_latest_active_by_thread(channel_id, thread_ts)
+        logger.warning(
+            f"[HITL] No checkpoint found matching request_id '{req.request_id}' in {(channel_id, thread_ts)}. "
+            f"Falling back to fresh continuation turn."
+        )
 
     pipeline = TurnPipeline()
     if chk and chk.status == "ACTIVE":
@@ -111,6 +118,8 @@ async def _execute_and_resume_hitl_approval(req: Any, user_id: str) -> None:
 
 async def _resume_hitl_denial(req: Any, user_id: str) -> None:
     """Notifies the calling agent that the requested tool was denied by human supervisor and resumes discussion."""
+    import json
+    from orchestration.agent_router import continue_discussion_from_turn_result
     from orchestration.thread_state import thread_state_manager
     from orchestration.turn_pipeline import TurnContext, TurnPipeline
     from services.turn_checkpoint_store import turn_checkpoint_store
@@ -124,24 +133,42 @@ async def _resume_hitl_denial(req: Any, user_id: str) -> None:
         f"[HITL] Resuming discussion with denial notification for agent '{agent_name}' in {(channel_id, thread_ts)}"
     )
 
-    chk = turn_checkpoint_store.get_by_hitl_request_id(req.request_id)
-    if chk:
-        turn_checkpoint_store.mark_abandoned(chk.checkpoint_id)
-
-    resume_prompt = (
-        f"[{agent_name}] Tool '{fn_name}' execution was denied by supervisor <@{user_id}>.\n"
-        f"Please proceed with the discussion without calling or waiting for this tool."
-    )
-    ctx = TurnContext(
-        channel_id=channel_id,
-        thread_ts=thread_ts,
-        raw_text=resume_prompt,
-        user_id=user_id,
-        is_bot_trigger=True,
-        was_explicit_target=True,
-    )
+    chk = turn_checkpoint_store.get_checkpoint_by_hitl_request(req.request_id)
     pipeline = TurnPipeline()
-    thread_state_manager.dispatch_discussion_task(channel_id, thread_ts, pipeline.run(ctx))
+    denial_result = json.dumps({
+        "status": "denied",
+        "error": f"Tool '{fn_name}' execution was denied by human supervisor <@{user_id}>. Proceed with analysis without calling this tool."
+    })
+
+    if chk and chk.status == "ACTIVE":
+        async def _run_denial_resumption():
+            turn_res = await pipeline.resume_from_checkpoint(
+                checkpoint=chk,
+                tool_result=denial_result,
+                user_id=user_id,
+            )
+            await continue_discussion_from_turn_result(
+                channel_id=channel_id,
+                thread_ts=thread_ts,
+                turn_res=turn_res,
+                user_id=user_id,
+            )
+
+        thread_state_manager.dispatch_discussion_task(channel_id, thread_ts, _run_denial_resumption())
+    else:
+        resume_prompt = (
+            f"[{agent_name}] Tool '{fn_name}' execution was denied by supervisor <@{user_id}>.\n"
+            f"Please proceed with the discussion without calling or waiting for this tool."
+        )
+        ctx = TurnContext(
+            channel_id=channel_id,
+            thread_ts=thread_ts,
+            raw_text=resume_prompt,
+            user_id=user_id,
+            is_bot_trigger=True,
+            was_explicit_target=True,
+        )
+        thread_state_manager.dispatch_discussion_task(channel_id, thread_ts, pipeline.run(ctx))
 
 
 async def _handle_hitl_approve_tool(
@@ -168,11 +195,10 @@ async def _handle_hitl_approve_tool(
             )
             channel_id = req.channel_id or payload.get("channel", {}).get("id") or ""
             if channel_id and user_id:
-                client = slack_async_client
                 background_tasks.add_task(
-                    client.chat_postEphemeral,
-                    channel=channel_id,
-                    user=user_id,
+                    post_ephemeral_to_slack,
+                    channel_id=channel_id,
+                    user_id=user_id,
                     text="⚠️ *Permission Denied:* Only the thread initiator or a workspace admin can approve this action.",
                 )
             return Response(status_code=403)
@@ -189,10 +215,9 @@ async def _handle_hitl_approve_tool(
             )
             msg = payload.get("message", {})
             if msg and msg.get("ts"):
-                client = slack_async_client
                 background_tasks.add_task(
-                    client.chat_update,
-                    channel=approved_req.channel_id,
+                    update_slack_message,
+                    channel_id=approved_req.channel_id,
                     ts=msg["ts"],
                     text=f"✅ Approved execution of `{approved_req.fn_name}` by <@{user_id}>. Executing tool and resuming agent...",
                     blocks=[],
@@ -205,11 +230,10 @@ async def _handle_hitl_approve_tool(
     else:
         channel_id = payload.get("channel", {}).get("id") or ""
         if channel_id and user_id:
-            client = slack_async_client
             background_tasks.add_task(
-                client.chat_postEphemeral,
-                channel=channel_id,
-                user=user_id,
+                post_ephemeral_to_slack,
+                channel_id=channel_id,
+                user_id=user_id,
                 text="⚠️ *Request Expired or Handled:* This approval request is either invalid, already processed, or has expired.",
             )
     return None
@@ -239,11 +263,10 @@ async def _handle_hitl_deny_tool(
             )
             channel_id = req.channel_id or payload.get("channel", {}).get("id") or ""
             if channel_id and user_id:
-                client = slack_async_client
                 background_tasks.add_task(
-                    client.chat_postEphemeral,
-                    channel=channel_id,
-                    user=user_id,
+                    post_ephemeral_to_slack,
+                    channel_id=channel_id,
+                    user_id=user_id,
                     text="⚠️ *Permission Denied:* Only the thread initiator or a workspace admin can deny this action.",
                 )
             return Response(status_code=403)
@@ -260,10 +283,9 @@ async def _handle_hitl_deny_tool(
             )
             msg = payload.get("message", {})
             if msg and msg.get("ts"):
-                client = slack_async_client
                 background_tasks.add_task(
-                    client.chat_update,
-                    channel=denied_req.channel_id,
+                    update_slack_message,
+                    channel_id=denied_req.channel_id,
                     ts=msg["ts"],
                     text=f"❌ Denied execution of `{denied_req.fn_name}` by <@{user_id}>. Resuming agent...",
                     blocks=[],
@@ -276,11 +298,10 @@ async def _handle_hitl_deny_tool(
     else:
         channel_id = payload.get("channel", {}).get("id") or ""
         if channel_id and user_id:
-            client = slack_async_client
             background_tasks.add_task(
-                client.chat_postEphemeral,
-                channel=channel_id,
-                user=user_id,
+                post_ephemeral_to_slack,
+                channel_id=channel_id,
+                user_id=user_id,
                 text="⚠️ *Request Expired or Handled:* This denial request is either invalid, already processed, or has expired.",
             )
     return None

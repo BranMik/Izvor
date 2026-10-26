@@ -23,9 +23,6 @@ from services.slack.client_core import get_slack_async_client, get_slack_bot_tok
 
 logger = logging.getLogger(__name__)
 
-# Backward-compatible alias for workspace downloads resolution
-MCP_WORKSPACE_DIR: Path = PROJECT_ROOT
-
 SAFE_DOWNLOAD_EXTENSIONS: frozenset[str] = frozenset({
     ".txt",
     ".md",
@@ -418,8 +415,7 @@ def cleanup_old_downloads(max_age_seconds: float = 86400.0) -> int:
     now = time.time()
     evicted_count = 0
     candidate_dirs = [
-        (MCP_WORKSPACE_DIR / "downloads").resolve(),
-        (PROJECT_ROOT / "data" / "downloads").resolve(),
+        DOWNLOADS_DIR.resolve(),
     ]
     seen_dirs: set[Path] = set()
     for d in candidate_dirs:

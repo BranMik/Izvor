@@ -236,35 +236,23 @@ def test_sqlite_persistence_and_legacy_migration(tmp_path):
         assert ledger_row["p"] == 3000
         assert ledger_row["c"] == 600
 
-    # 2. Test legacy JSON migration
-    legacy_file = tmp_path / "legacy_usage.json"
-    legacy_data = {
-        "C_LEGACY:1700000000.999999": {
-            "channel_id": "C_LEGACY",
-            "thread_ts": "1700000000.999999",
-            "channel_name": "#legacy-channel",
-            "created_at_str": "2026-01-01 10:00:00",
-            "usage_msg_ts": "legacy_msg_ts_1",
-            "is_completed": True,
-            "models": {
-                "mistral/mistral-large-latest": {
-                    "prompt_tokens": 500,
-                    "completion_tokens": 100,
-                    "total_tokens": 600,
-                }
-            },
-            "last_updated": 1700000000.0,
-        }
-    }
-    legacy_file.write_text(json.dumps(legacy_data), encoding="utf-8")
+    # 2. Test SQLite persistence and metadata synchronization
+    with get_connection() as conn:
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO thread_usage_meta (channel_id, thread_ts, channel_name, created_at_str, usage_msg_ts, is_completed, last_updated)
+            VALUES (?, ?, ?, ?, ?, ?, ?);
+            """,
+            ("C_LEGACY", "1700000000.999999", "#legacy-channel", "2026-01-01 10:00:00", "legacy_msg_ts_1", 1, 1700000000.0),
+        )
 
-    tracker = ThreadUsageTracker(store_file=legacy_file)
+    tracker = ThreadUsageTracker()
     assert ("C_LEGACY", "1700000000.999999") in tracker.thread_usage_data
     assert tracker.thread_usage_data[("C_LEGACY", "1700000000.999999")]["is_completed"] is True
 
-    # Legacy file should be migrated and renamed
-    assert not legacy_file.exists()
-    assert legacy_file.with_suffix(".json.migrated").exists()
+    # Mutate and sync to DB
+    tracker.thread_usage_data[("C_LEGACY", "1700000000.999999")]["channel_name"] = "#updated-channel"
+    tracker._sync_meta_to_db("C_LEGACY", "1700000000.999999")
 
     with get_connection() as conn:
         migrated_row = conn.execute(
@@ -272,6 +260,6 @@ def test_sqlite_persistence_and_legacy_migration(tmp_path):
             ("C_LEGACY", "1700000000.999999"),
         ).fetchone()
         assert migrated_row is not None
-        assert migrated_row["channel_name"] == "#legacy-channel"
+        assert migrated_row["channel_name"] == "#updated-channel"
         assert migrated_row["is_completed"] == 1
 

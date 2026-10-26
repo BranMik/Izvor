@@ -10,7 +10,7 @@ from agents.usage_agent import (
     record_thread_tokens,
 )
 from orchestration import agent_router
-from services import pricing_service
+from services.pricing_service import pricing_service
 
 
 @pytest.fixture(autouse=True)

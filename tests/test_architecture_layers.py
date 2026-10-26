@@ -155,3 +155,38 @@ def test_no_bare_except_pass():
         "Code hygiene violation: bare 'except:' without exception type:\n"
         + "\n".join(violations[:20])
     )
+
+
+def test_slack_client_chat_not_called_outside_allowed_modules():
+    """
+    TKT-1009: Outbound Slack chat messages (chat_postMessage, chat_update, chat_postEphemeral)
+    must always pass through sanitized wrappers in services/slack/ and never be called directly
+    on AsyncWebClient / raw client instances across orchestration, adapters, or agents.
+    """
+    violations = []
+    allowed_prefixes = (
+        Path("services") / "slack",
+        Path("tests"),
+        Path("e2e_testing_harness"),
+    )
+
+    for py_file in _get_python_source_files():
+        rel_path = py_file.relative_to(PROJECT_ROOT)
+        if any(rel_path.is_relative_to(p) for p in allowed_prefixes):
+            continue
+        try:
+            content = py_file.read_text(encoding="utf-8")
+            tree = ast.parse(content, filename=str(py_file))
+        except (SyntaxError, UnicodeDecodeError):
+            continue
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Attribute):
+                if node.attr in ("chat_postMessage", "chat_update", "chat_postEphemeral"):
+                    violations.append(f"{rel_path}:{node.lineno} directly calls {node.attr}")
+
+    assert not violations, (
+        "Security / Architecture violation: raw Slack chat_* calls outside services/slack/:\n"
+        + "\n".join(violations)
+    )
+

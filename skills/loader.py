@@ -9,6 +9,7 @@ import concurrent.futures
 import inspect
 import json
 import logging
+import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 import importlib.util
@@ -168,7 +169,7 @@ class SkillRegistry:
         raw_tools = meta.get("tools", [])
         tools = [str(t).strip() for t in raw_tools if str(t).strip()]
 
-        is_global = bool(meta.get("global", meta.get("all_agents", False)))
+        is_global = bool(meta.get("global", False))
         requires_human_ITL = bool(meta.get("requires_human_ITL", False))
 
         # Check for action.py handler
@@ -188,11 +189,11 @@ class SkillRegistry:
                     f"[SKILLS] Error loading action handler from {action_file}: {e}"
                 )
 
-        extraction_rule = str(meta.get("extraction_rule") or triggers.get("rule", "")).strip()
+        extraction_rule = str(meta.get("extraction_rule", "")).strip()
         if "{name}" in extraction_rule:
             extraction_rule = extraction_rule.replace("{name}", name)
-        handles_files = bool(meta.get("handles_files") or triggers.get("handles_files", False))
-        is_terminal = bool(meta.get("terminal") or triggers.get("terminal", False) or triggers.get("arg_type") == "terminal_flag")
+        handles_files = bool(triggers.get("handles_files", False))
+        is_terminal = bool(triggers.get("terminal", False) or triggers.get("arg_type") == "terminal_flag")
 
         # Check for tools.py handler and schemas
         custom_tool_schemas: list[dict[str, Any]] = []
@@ -287,7 +288,6 @@ class SkillRegistry:
         """Detects if raw_text contains an explicit terminal/stop command."""
         if not raw_text:
             return False
-        import re
 
         terminals = self.get_terminal_slash_triggers()
         if not terminals:
@@ -304,7 +304,7 @@ class SkillRegistry:
             if skill.handles_files:
                 return skill
         for skill in self._skills.values():
-            if "read_document" in skill.tools or "read_document" in skill.tools:
+            if "read_document" in skill.tools or "write_document" in skill.tools:
                 return skill
         return None
 
@@ -339,7 +339,6 @@ class SkillRegistry:
                 arg_type = skill.triggers.get("arg_type", "string")
                 modifiers_lines.append(f'- "{skill.name}" ({arg_type}): {desc}')
             else:
-                arg_type = skill.triggers.get("arg_type", "object")
                 actions_lines.append(f'- "{skill.name}": {desc}')
 
         if modifiers_lines:
@@ -627,10 +626,11 @@ class SkillRegistry:
         actor_id = agent_name.id if hasattr(agent_name, "id") else str(agent_name or "unknown_agent")
         actor_kind = getattr(agent_name, "kind", "agent")
 
+        normalized_auth = normalize_skills_list(authorized_skills)
         effective_authorized_skills: list[str] = (
             [s.name for s in self._skills.values()]
             if is_internal
-            else (list(authorized_skills) if authorized_skills is not None else [])
+            else normalized_auth
         )
 
         if tool_name == "load_skill":
@@ -724,22 +724,11 @@ class SkillRegistry:
 
         # For any other tool, verify authorization against authorized/global skills (fail-closed)
         if not is_internal:
-            permitted_tools: set[str] = set()
-            for s_name in effective_authorized_skills:
-                s_def = self.get(s_name)
-                if s_def:
-                    permitted_tools.update(s_def.tools)
-                    for schema in s_def.custom_tool_schemas:
-                        fn = schema.get("function", {}).get("name")
-                        if fn:
-                            permitted_tools.add(fn)
-            for s_def in self._skills.values():
-                if s_def.is_global:
-                    permitted_tools.update(s_def.tools)
-                    for schema in s_def.custom_tool_schemas:
-                        fn = schema.get("function", {}).get("name")
-                        if fn:
-                            permitted_tools.add(fn)
+            permitted_tools = get_permitted_tools_for_principal(
+                principal=agent_name,
+                authorized_skills=effective_authorized_skills,
+                skill_registry=self,
+            )
 
             if tool_name not in permitted_tools:
                 allowed_tools_str = (
@@ -793,7 +782,6 @@ class SkillRegistry:
                     logger.error(f"[SKILLS] Custom tool handler error for '{tool_name}': {e}")
                     return json.dumps({"error": f"Tool execution failed: {e}"})
 
-
         return execute_mcp_tool(
             tool_name,
             arguments,
@@ -816,9 +804,6 @@ class SkillRegistry:
         or exposes an `_async_fn` attribute, awaits it directly on the running event loop;
         otherwise offloads the synchronous handler/MCP execution to `asyncio.to_thread`.
         """
-        import asyncio
-        import inspect
-
         target_handler: Any = None
         for s_def in self._skills.values():
             if tool_name in s_def.tool_handlers:
@@ -840,28 +825,18 @@ class SkillRegistry:
             actor_id = agent_name.id if hasattr(agent_name, "id") else str(agent_name or "unknown_agent")
             actor_kind = getattr(agent_name, "kind", "agent")
 
+            normalized_auth = normalize_skills_list(authorized_skills)
             effective_authorized_skills: list[str] = (
                 [s.name for s in self._skills.values()]
                 if is_internal
-                else (list(authorized_skills) if authorized_skills is not None else [])
+                else normalized_auth
             )
             if not is_internal:
-                permitted_tools: set[str] = set()
-                for s_name in effective_authorized_skills:
-                    s_def = self.get(s_name)
-                    if s_def:
-                        permitted_tools.update(s_def.tools)
-                        for schema in s_def.custom_tool_schemas:
-                            fn = schema.get("function", {}).get("name")
-                            if fn:
-                                permitted_tools.add(fn)
-                for s_def in self._skills.values():
-                    if s_def.is_global:
-                        permitted_tools.update(s_def.tools)
-                        for schema in s_def.custom_tool_schemas:
-                            fn = schema.get("function", {}).get("name")
-                            if fn:
-                                permitted_tools.add(fn)
+                permitted_tools = get_permitted_tools_for_principal(
+                    principal=agent_name,
+                    authorized_skills=effective_authorized_skills,
+                    skill_registry=self,
+                )
 
                 if tool_name not in permitted_tools:
                     allowed_tools_str = (
@@ -911,6 +886,123 @@ class SkillRegistry:
             ttl_hours=ttl_hours,
             agent_name=agent_name,
         )
+
+
+def normalize_skills_list(skills: list[str] | set[str] | str | None) -> list[str]:
+    """Safely normalizes authorized skills, avoiding character slicing on strings."""
+    if skills is None:
+        return []
+    if isinstance(skills, str):
+        return [skills]
+    return list(skills)
+
+
+def get_permitted_tools_for_principal(
+    principal: Any,
+    authorized_skills: list[str] | set[str] | str | None = None,
+    skill_registry: Any = None,
+) -> set[str]:
+    """Returns the complete set of permitted tools for a given principal and skills."""
+    from core.domain import ToolPrincipal
+
+    if skill_registry is None:
+        skill_registry = get_skill_registry()
+
+    is_system_principal = isinstance(principal, ToolPrincipal) and principal.kind == "system"
+    is_internal = (
+        is_system_principal
+        or authorized_skills == ALL_INTERNAL_SKILLS
+        or (isinstance(authorized_skills, (list, tuple, set)) and ALL_INTERNAL_SKILLS in authorized_skills)
+    )
+
+    if is_internal:
+        all_tools: set[str] = set()
+        skills = skill_registry.list_skills() if hasattr(skill_registry, "list_skills") else list(skill_registry._skills.values())
+        for s in skills:
+            all_tools.update(getattr(s, "tools", []))
+            for schema in getattr(s, "custom_tool_schemas", []):
+                fn = schema.get("function", {}).get("name")
+                if fn:
+                    all_tools.add(fn)
+        return all_tools
+
+    if isinstance(principal, ToolPrincipal):
+        actor_id = (principal.id or "").strip()
+    elif isinstance(principal, str):
+        actor_id = principal.strip()
+    else:
+        actor_id = ""
+
+    skills_list = normalize_skills_list(authorized_skills)
+
+    static_skills: list[str] = []
+    if actor_id and actor_id != "system":
+        try:
+            from orchestration.agent_settings import get_agent_skills
+            static_skills = get_agent_skills(actor_id) or []
+        except Exception:
+            pass
+
+    combined_skills = set(static_skills) | set(skills_list)
+    permitted: set[str] = set()
+
+    for s_name in combined_skills:
+        s_def = skill_registry.get(s_name) if hasattr(skill_registry, "get") else None
+        if s_def:
+            permitted.update(getattr(s_def, "tools", []))
+            for schema in getattr(s_def, "custom_tool_schemas", []):
+                fn = schema.get("function", {}).get("name")
+                if fn:
+                    permitted.add(fn)
+
+    skills_iter = skill_registry.list_skills() if hasattr(skill_registry, "list_skills") else list(skill_registry._skills.values())
+    for s_def in skills_iter:
+        if getattr(s_def, "is_global", False):
+            permitted.update(getattr(s_def, "tools", []))
+            for schema in getattr(s_def, "custom_tool_schemas", []):
+                fn = schema.get("function", {}).get("name")
+                if fn:
+                    permitted.add(fn)
+
+    return permitted
+
+
+def is_principal_authorized_for_tool(
+    principal: Any,
+    tool_name: str,
+    authorized_skills: list[str] | set[str] | str | None = None,
+    skill_registry: Any = None,
+) -> bool:
+    """Validates whether a principal has authorization to execute a tool (fail-closed)."""
+    from core.domain import ToolPrincipal
+
+    if isinstance(principal, ToolPrincipal) and principal.kind == "system":
+        return True
+
+    is_internal = (
+        authorized_skills == ALL_INTERNAL_SKILLS
+        or (isinstance(authorized_skills, (list, tuple, set)) and ALL_INTERNAL_SKILLS in authorized_skills)
+    )
+    if is_internal:
+        return True
+
+    if isinstance(principal, ToolPrincipal):
+        actor_id = (principal.id or "").strip()
+    elif isinstance(principal, str):
+        actor_id = principal.strip()
+    else:
+        actor_id = ""
+
+    # Raw string "system" or empty string does NOT bypass authorization
+    if not actor_id or actor_id == "system":
+        return False
+
+    permitted = get_permitted_tools_for_principal(
+        principal=principal,
+        authorized_skills=authorized_skills,
+        skill_registry=skill_registry,
+    )
+    return tool_name in permitted
 
 
 _skill_registry_instance: SkillRegistry | None = None
