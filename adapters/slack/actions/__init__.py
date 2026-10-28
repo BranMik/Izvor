@@ -6,6 +6,7 @@ Divided into HITL actions, agent panel actions, and workflow/governance actions.
 from typing import Any
 
 from adapters.slack.actions.agent_actions import (
+    _deliver_admin_denial_feedback,
     _deny_non_admin_action,
     _handle_bulk_disable,
     _handle_bulk_enable_all,
@@ -13,6 +14,7 @@ from adapters.slack.actions.agent_actions import (
     _handle_select_agent_model,
     _handle_toggle_agent,
     _handle_toggle_agent_radio,
+    _safe_publish_home_task,
 )
 from adapters.slack.actions.hitl_actions import (
     _execute_and_resume_hitl_approval,
@@ -52,6 +54,7 @@ from adapters.slack.actions.workflow_actions import (
 )
 
 __all__ = [
+    "_deliver_admin_denial_feedback",
     "_deny_non_admin_action",
     "_execute_and_resume_hitl_approval",
     "_handle_bulk_disable",
@@ -90,5 +93,6 @@ __all__ = [
     "_handle_toggle_scribe",
     "_handle_toggle_weekly_pricing",
     "_resume_hitl_denial",
+    "_safe_publish_home_task",
     "_validate_chain_agent_keys",
 ]
