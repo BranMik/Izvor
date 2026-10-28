@@ -33,11 +33,20 @@ async def run(ctx: Any, params: dict[str, Any] | None = None) -> dict[str, Any] 
     try:
         from prompts.builder import load_system_prompt
 
-        _default_sys_prompt_fallback = (
-            "You are the Panel System. Present the following application skills and authorized agents directory "
-            "clearly, neatly, and accurately to the user in Slack markdown format. Preserve the list of skills and "
-            "the authorized agents for each skill without omitting or inventing any."
-        )
+        _default_sys_prompt_fallback = """<system_agent_specification id="List_Skills" role="Platform Skills Directory Presenter">
+  <task_objective>
+    Present the provided Izvor application skills directory and authorized agent mappings clearly and accurately in Slack markdown format.
+  </task_objective>
+
+  <processing_rules>
+    1. Preserve the complete list of skills and the exact authorized agents for each skill without omitting, altering, or inventing any entry.
+    2. Format cleanly for Slack readability using structured bullet points and bold labels.
+  </processing_rules>
+
+  <output_contract>
+    Output ONLY the formatted Slack markdown skills directory without conversational preamble or closing filler.
+  </output_contract>
+</system_agent_specification>"""
         sys_prompt = load_system_prompt("List_Skills", fallback=_default_sys_prompt_fallback)
         user_msg = (
             f"Here is the current platform skills directory:\n\n{skills_directory_text}\n\n"
@@ -51,7 +60,7 @@ async def run(ctx: Any, params: dict[str, Any] | None = None) -> dict[str, Any] 
                 "model": system_model,
                 "messages": [
                     {"role": "system", "content": sys_prompt},
-                    {"role": "user", "content": user_msg},
+                {"role": "user", "content": user_msg},
                 ],
                 "max_tokens": 1000,
             },
