@@ -182,3 +182,86 @@ def test_workflow_dropdown_non_admin_opens_admin_required_modal(monkeypatch):
     assert any("U0123456789" in t for t in block_texts)
     assert any("Select Workflow Preset" in t for t in block_texts)
 
+
+def test_workflow_dropdown_non_admin_expired_trigger_id_fallback_dm(monkeypatch):
+    """Test that when trigger_id expires on views.open, the server does not crash, sends a fallback DM, and re-syncs App Home."""
+    from slack_sdk.errors import SlackApiError
+
+    monkeypatch.setenv("SLACK_ADMIN_USER_IDS", "U_LEGIT_ADMIN")
+    monkeypatch.setattr("adapters.slack.interactivity.verify_slack_signature", lambda body, headers: True)
+
+    mock_resp = {"ok": False, "error": "expired_trigger_id"}
+    mock_views_open = AsyncMock(side_effect=SlackApiError(message="expired_trigger_id", response=mock_resp))
+    monkeypatch.setattr("adapters.slack.actions.agent_actions.slack_async_client.views_open", mock_views_open)
+
+    mock_open_dm = AsyncMock(return_value="D_TEST_USER_DM")
+    mock_post_msg = AsyncMock(return_value={"ok": True})
+    mock_publish_home = AsyncMock(return_value={"ok": True})
+
+    monkeypatch.setattr("adapters.slack.actions.agent_actions.open_dm_channel", mock_open_dm)
+    monkeypatch.setattr("adapters.slack.actions.agent_actions.post_message_to_slack", mock_post_msg)
+    monkeypatch.setattr("services.slack.views.publish_app_home", mock_publish_home)
+
+    wf_payload = {
+        "type": "block_actions",
+        "user": {"id": "U0123456789"},
+        "trigger_id": "trig_wf_expired_123",
+        "actions": [
+            {
+                "action_id": "select_workflow_preset",
+                "selected_option": {
+                    "value": "wf:default_sandwich",
+                    "text": {"type": "plain_text", "text": "🥪 Default Sandwich"},
+                },
+            }
+        ],
+    }
+    resp = client.post("/slack/actions", json=wf_payload)
+    assert resp.status_code == 200
+
+    # 1. views.open was attempted
+    mock_views_open.assert_called_once()
+    assert mock_views_open.call_args.kwargs["trigger_id"] == "trig_wf_expired_123"
+
+    # 2. Fallback DM was sent because modal failed with expired_trigger_id
+    mock_open_dm.assert_called_once_with("U0123456789")
+    mock_post_msg.assert_called_once()
+    dm_call_kwargs = mock_post_msg.call_args.kwargs
+    assert dm_call_kwargs["channel_id"] == "D_TEST_USER_DM"
+    assert "U0123456789" in dm_call_kwargs["text"]
+    assert "Permission Denied" in dm_call_kwargs["text"]
+    assert "Select Workflow Preset" in dm_call_kwargs["text"]
+
+    # 3. App Home view was still safely published/refreshed
+    mock_publish_home.assert_called_once_with(user_id="U0123456789")
+
+
+def test_non_admin_in_channel_action_sends_ephemeral_on_modal_failure(monkeypatch):
+    """Test that non-admin action inside a channel sends ephemeral denial if trigger_id is missing or views_open fails."""
+    monkeypatch.setenv("SLACK_ADMIN_USER_IDS", "U_LEGIT_ADMIN")
+    monkeypatch.setattr("adapters.slack.interactivity.verify_slack_signature", lambda body, headers: True)
+
+    mock_ephemeral = AsyncMock(return_value={"ok": True})
+    monkeypatch.setattr("adapters.slack.actions.agent_actions.post_ephemeral_to_slack", mock_ephemeral)
+
+    payload = {
+        "type": "block_actions",
+        "user": {"id": "U_CHANNEL_USER"},
+        "channel": {"id": "C_DEV_CHANNEL"},
+        "actions": [
+            {
+                "action_id": "toggle_circuit_breaker_radio",
+                "selected_option": {
+                    "value": "cb:off",
+                    "text": {"type": "plain_text", "text": "🔴 OFF"},
+                },
+            }
+        ],
+    }
+    resp = client.post("/slack/actions", json=payload)
+    assert resp.status_code == 403
+
+    mock_ephemeral.assert_called_once()
+    assert mock_ephemeral.call_args.kwargs["channel_id"] == "C_DEV_CHANNEL"
+    assert mock_ephemeral.call_args.kwargs["user_id"] == "U_CHANNEL_USER"
+
