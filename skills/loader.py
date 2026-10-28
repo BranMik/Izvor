@@ -590,10 +590,10 @@ class SkillRegistry:
             [
                 "",
                 "PERMISSION BOUNDARIES & USAGE RESTRICTIONS:",
-                "- You can view and reference this directory to accurately answer user questions about platform capabilities and agent assignments.",
-                "- However, you are strictly limited in skills usage. You may ONLY load and execute tools for skills specifically authorized for your role.",
-                "- If a user requests an action requiring a skill you are not authorized to use, state clearly that you do not have permission and direct them to an authorized agent.",
-                "- You must NEVER attempt to circumvent permission boundaries.",
+                "- Reference this directory to answer user inquiries regarding platform capabilities and agent skill assignments.",
+                "- Agents are strictly limited in tool usage: load and execute tools ONLY for skills explicitly authorized for the assigned agent role.",
+                "- When a user requests an action requiring an unauthorized skill, explicitly report lack of permission and direct the user to an authorized agent.",
+                "- Never attempt to circumvent permission boundaries.",
             ]
         )
         return "\n".join(lines) + "\n"

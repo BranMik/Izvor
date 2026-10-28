@@ -1,5 +1,7 @@
+from pathlib import Path
+from core.paths import PROMPTS_DIR, SYSTEM_AGENTS_DIR, PERSONAS_DIR
 from orchestration.agent_settings import get_agents_config
-from prompts.builder import SHORT_OUTPUT_AGENTS, build_agent_prompt
+from prompts.builder import SHORT_OUTPUT_AGENTS, build_agent_prompt, load_system_prompt
 
 AGENTS_CONFIG = get_agents_config()
 
@@ -10,22 +12,190 @@ def test_all_agents_configured():
 
 def test_visionary_prompt_structure():
     prompt = AGENTS_CONFIG["agent-10001"]["system_prompt"]
-    assert 'You are "The Visionary"' in prompt
+    assert '<agent_specification id="agent-10001" role="The Visionary"' in prompt
+    assert "<cognitive_objective>" in prompt
+    assert "<evaluation_lens>" in prompt
+    assert "<jurisdiction_boundaries>" in prompt
+    assert "<output_contract>" in prompt
+    assert "You are" not in prompt
     assert "OUTPUT & LENGTH CONSTRAINTS:" in prompt
+
+
+def test_cluster1_dialectical_core_xml_structure():
+    cluster1_roles = {
+        "agent-10001": "The Visionary",
+        "agent-10002": "Innovation Lead",
+        "agent-10003": "The Sceptic",
+        "agent-10017": "Rebuttal & Defense Advocate",
+    }
+    for agent_key, expected_role in cluster1_roles.items():
+        prompt = build_agent_prompt(agent_key)
+        assert f'<agent_specification id="{agent_key}" role="{expected_role}"' in prompt
+        assert "<cognitive_objective>" in prompt
+        assert "<evaluation_lens>" in prompt
+        assert "<jurisdiction_boundaries>" in prompt
+        assert "<operational_rules>" in prompt
+        assert "<output_contract>" in prompt
+        assert "You are" not in prompt
 
 
 def test_security_architect_prompt_structure():
     prompt = AGENTS_CONFIG["agent-10008"]["system_prompt"]
-    assert 'You are the "Security & Threat Defense Lead"' in prompt
+    assert '<agent_specification id="agent-10008" role="Security & Threat Defense Lead"' in prompt
+    assert "<cognitive_objective>" in prompt
+    assert "<evaluation_lens>" in prompt
+    assert "<jurisdiction_boundaries>" in prompt
+    assert "<tool_and_evidence_grounding>" in prompt
+    assert "<output_contract>" in prompt
+    assert "You are" not in prompt
     assert "security" in prompt.lower()
+
+
+def test_cluster2_governance_security_legal_risk_xml_structure():
+    cluster2_roles = {
+        "agent-10004": "Compliance, Privacy And Governance Officer",
+        "agent-10008": "Security & Threat Defense Lead",
+        "agent-10011": "Legal Advisor",
+        "agent-10013": "The Risk Auditor",
+    }
+    for agent_key, expected_role in cluster2_roles.items():
+        prompt = build_agent_prompt(agent_key)
+        assert f'<agent_specification id="{agent_key}" role="{expected_role}"' in prompt
+        assert "<cognitive_objective>" in prompt
+        assert "<evaluation_lens>" in prompt
+        assert "<jurisdiction_boundaries>" in prompt
+        assert "<operational_rules>" in prompt
+        assert "<output_contract>" in prompt
+        assert "You are" not in prompt
 
 
 def test_sales_advisor_prompt_structure():
     assert "agent-10010" in AGENTS_CONFIG
     prompt = AGENTS_CONFIG["agent-10010"]["system_prompt"]
+    assert '<agent_specification id="agent-10010" role="Sales Advisor"' in prompt
     assert "Sales Advisor" in prompt
     assert "sales" in prompt.lower()
+    assert "You are" not in prompt
     assert "Hard Limit: Your entire response must strictly NOT exceed 100 words." in prompt
+
+
+def test_cluster3_economics_market_scope_sales_xml_structure():
+    cluster3_roles = {
+        "agent-10005": "Scope & Feature Rationalization Lead",
+        "agent-10006": "ROI & Business Value Maximizer",
+        "agent-10009": "Market and Competition Research Expert",
+        "agent-10010": "Sales Advisor",
+    }
+    for agent_key, expected_role in cluster3_roles.items():
+        prompt = build_agent_prompt(agent_key)
+        assert f'<agent_specification id="{agent_key}" role="{expected_role}"' in prompt
+        assert "<cognitive_objective>" in prompt
+        assert "<evaluation_lens>" in prompt
+        assert "<jurisdiction_boundaries>" in prompt
+        assert "<operational_rules>" in prompt
+        assert "<output_contract>" in prompt
+        assert "You are" not in prompt
+
+
+def test_cluster4_product_ux_execution_revisor_creative_xml_structure():
+    cluster4_roles = {
+        "agent-10007": "Voice of the User",
+        "agent-10012": "The Product Strategist",
+        "agent-10014": "The Tactician",
+        "agent-10015": "The Revisor",
+        "agent-10016": "Creative Advisor",
+    }
+    for agent_key, expected_role in cluster4_roles.items():
+        prompt = build_agent_prompt(agent_key)
+        assert f'<agent_specification id="{agent_key}" role="{expected_role}"' in prompt
+        assert "<cognitive_objective>" in prompt
+        assert "<evaluation_lens>" in prompt
+        assert "<jurisdiction_boundaries>" in prompt
+        assert "<operational_rules>" in prompt
+        assert "<output_contract>" in prompt
+        assert "You are" not in prompt
+
+
+def test_all_17_personas_enforce_2026_xml_and_zero_you_are():
+    assert len(AGENTS_CONFIG) == 17
+    for key in AGENTS_CONFIG:
+        persona_path = PERSONAS_DIR / f"{key}.md"
+        assert persona_path.exists(), f"Missing persona file: {persona_path}"
+        persona_content = persona_path.read_text(encoding="utf-8")
+        assert f'<agent_specification id="{key}"' in persona_content
+        assert "</agent_specification>" in persona_content
+        assert "<cognitive_objective>" in persona_content
+        assert "<evaluation_lens>" in persona_content
+        assert "<jurisdiction_boundaries>" in persona_content
+        assert "IN-SCOPE:" in persona_content
+        assert "OUT-OF-SCOPE (DEFER TO SPECIALISTS):" in persona_content
+        assert "<operational_rules>" in persona_content
+        assert "<output_contract>" in persona_content
+        assert "You are" not in persona_content
+        assert "you are" not in persona_content.lower()
+        assert "YOUR PERSONALITY & TONE" not in persona_content
+
+
+def test_all_10_system_agents_enforce_2026_xml_and_zero_you_are():
+    system_agents = [
+        "Orchestrator",
+        "InternalRevisor",
+        "Discussion_Scribe_Live",
+        "Discussion_Scribe_Conclusion",
+        "Thread_Notes_Agent",
+        "Intent_Extractor",
+        "Language_Detector",
+        "List_Skills",
+        "Pricing_Agent",
+        "Usage_Agent",
+    ]
+    for agent_name in system_agents:
+        prompt = load_system_prompt(agent_name)
+        assert f'<system_agent_specification id="{agent_name}"' in prompt, f"Missing system_agent_specification tag in {agent_name}"
+        assert "</system_agent_specification>" in prompt, f"Missing closing tag in {agent_name}"
+        assert "<task_objective>" in prompt, f"Missing task_objective in {agent_name}"
+        assert "<processing_rules>" in prompt, f"Missing processing_rules in {agent_name}"
+        assert "<output_contract>" in prompt, f"Missing output_contract in {agent_name}"
+        assert "You are" not in prompt, f"Found 'You are' in {agent_name}"
+        assert "you are" not in prompt.lower(), f"Found 'you are' in {agent_name}"
+
+
+def test_all_shared_prompts_enforce_2026_xml_and_zero_you_are():
+    shared_files = {
+        "fixed_constraints.md": "<shared_platform_constraints>",
+        "output_constraints.md": "<output_and_length_constraints>",
+        "output_constraints_100w.md": "<output_and_length_constraints>",
+        "nomination_rules.md": "<speaker_nomination_protocol>",
+    }
+    shared_dir = PROMPTS_DIR / "shared"
+    for filename, expected_xml_tag in shared_files.items():
+        file_path = shared_dir / filename
+        assert file_path.exists(), f"Missing shared prompt file: {file_path}"
+        content = file_path.read_text(encoding="utf-8")
+        assert expected_xml_tag in content, f"Missing {expected_xml_tag} in {filename}"
+        assert expected_xml_tag.replace("<", "</") in content, f"Missing closing tag for {expected_xml_tag} in {filename}"
+        assert "You are" not in content, f"Found 'You are' in {filename}"
+        assert "you are" not in content.lower(), f"Found 'you are' in {filename}"
+
+
+def test_system_agents_critical_runtime_contracts():
+    revisor_prompt = load_system_prompt("InternalRevisor")
+    assert "NO_HALLUCINATION" in revisor_prompt
+    assert "ATTENTION:" in revisor_prompt
+
+    live_scribe_prompt = load_system_prompt("Discussion_Scribe_Live")
+    assert "*Core Objective & Problem Statement*" in live_scribe_prompt
+    assert "*Key Perspectives & Emerging Consensus*" in live_scribe_prompt
+    assert "*Risks, Trade-offs & Open Questions*" in live_scribe_prompt
+    assert "*Action Items & Next Steps*" in live_scribe_prompt
+
+    conclusion_scribe_prompt = load_system_prompt("Discussion_Scribe_Conclusion")
+    assert "Part 1: *Problem Statement*" in conclusion_scribe_prompt
+    assert "Part 2: *Conclusion and Argumentation*" in conclusion_scribe_prompt
+
+    thread_notes_prompt = load_system_prompt("Thread_Notes_Agent")
+    for emoji in ["📋", "🎯", "💡", "🤝", "⚠️", "🚀"]:
+        assert emoji in thread_notes_prompt
 
 
 def test_all_agents_contain_shared_skills():
@@ -132,4 +302,3 @@ def test_system_agent_detection_and_prompts():
     prompt = build_agent_prompt("Orchestrator")
     assert "OUTPUT & LENGTH CONSTRAINTS:" not in prompt
     assert "nominate the next agent" not in prompt
-

@@ -217,8 +217,6 @@ def build_agent_prompt(
     if is_system_agent(agent_key):
         return f"\n{persona_content}\n\n"
 
-
-
     effective_max = max_words
     effective_min = min_words
     if modifiers:
@@ -237,8 +235,10 @@ def build_agent_prompt(
     # All debate agents share fixed constraints, output constraints (100w or 200w), and nomination rules
     if word_constraints:
         output_constraints = (
+            f"<output_and_length_constraints>\n"
             f"OUTPUT & LENGTH CONSTRAINTS:\n\n"
-            f"{word_constraints}"
+            f"{word_constraints}\n"
+            f"</output_and_length_constraints>"
         )
     elif is_short_output_agent(agent_key):
         output_constraints = _read_prompt_file(SHARED_DIR / "output_constraints_100w.md")
