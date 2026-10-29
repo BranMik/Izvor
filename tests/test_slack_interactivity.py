@@ -108,7 +108,7 @@ async def test_chain_mutation_rejects_unknown_agent_keys(monkeypatch):
                 "values": {
                     "fixed_block": {
                         "set_fixed_chain_input": {
-                            "value": "agent-10001, invalid_agent_xyz, agent-10002"
+                            "value": "agent-10001, invalid_agent_xyz, agent-10002, agent-10003, agent-10014, agent-10012"
                         }
                     }
                 }
@@ -125,8 +125,13 @@ async def test_chain_mutation_rejects_unknown_agent_keys(monkeypatch):
     assert resp.status_code == 200
 
     cfg = get_fixed_config()
-    assert "agent-10001" in cfg["chain"]
-    assert "agent-10002" in cfg["chain"]
+    assert cfg["chain"] == [
+        "agent-10001",
+        "agent-10002",
+        "agent-10003",
+        "agent-10014",
+        "agent-10012",
+    ]
     assert "invalid_agent_xyz" not in cfg["chain"]
 
     audit_entry = next((e for e in logged_events if e.get("action") == "save_fixed_chain_button"), None)
