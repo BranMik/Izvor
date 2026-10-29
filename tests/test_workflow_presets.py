@@ -453,3 +453,31 @@ def test_chain_mutation_persists_to_workflow_file(tmp_path: Path):
     assert "workflow_config" in settings_data
     assert "fixed_config" not in settings_data
 
+def test_default_review_flow_contains_5_adversarial_agents():
+    """Verify default_review_flow is configured with 5 agents: Visionary, Innovator, Sceptic, Tactician, ProductStrategist."""
+    from orchestration.workflow_manager import get_workflow
+    from core.models import build_dynamic_default_workflows
+
+    # 1. Preset from disk
+    preset = get_workflow("default_review_flow")
+    assert preset is not None
+    assert preset.fixed_config["chain"] == [
+        "agent-10001",
+        "agent-10002",
+        "agent-10003",
+        "agent-10014",
+        "agent-10012",
+    ]
+
+    # 2. Dynamic generation with full agent roster
+    all_agents = [f"agent-{10001 + i}" for i in range(17)]
+    dyn_presets = build_dynamic_default_workflows(all_agents)
+    dyn_default = next(p for p in dyn_presets if p.id == "default_review_flow")
+    assert dyn_default.fixed_config["chain"] == [
+        "agent-10001",
+        "agent-10002",
+        "agent-10003",
+        "agent-10014",
+        "agent-10012",
+    ]
+
