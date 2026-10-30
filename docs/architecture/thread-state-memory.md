@@ -126,7 +126,7 @@ Izvor enforces multi-layered memory and disk hygiene:
 ### 2. Scheduled Inactive TTL Pruning (`periodic_thread_state_cleanup`)
 - **Background Worker**: Wakes up every **600 seconds (10 minutes)** (configured via `thread_cleanup_interval_seconds` in `system_settings.json`).
 - **TTL Window & Liveness Check**: Threads idle for more than 1 hour (`THREAD_STATE_TTL_SECONDS = 3600.0`) without an active `asyncio.Task` (`task and not task.done()`) are evicted from RAM, and expired rows in `thread_sessions` and `thread_context` are cleaned up.
-- **Persistent Archival**: Completed turn transcripts are archived to `flat-histories/` (`FLAT_HISTORIES_DIR` in [`core/paths.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/core/paths.py)) via [`services/flat_history_recorder.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/services/flat_history_recorder.py).
+- **Persistent Archival**: Completed turn transcripts are archived to `data/flat-histories/` (`FLAT_HISTORIES_DIR` in [`core/paths.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/core/paths.py)) via [`services/flat_history_recorder.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/services/flat_history_recorder.py).
 
 ### 3. Automated Database Retention & GDPR Erasure ([`services/retention_service.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/services/retention_service.py))
 - **`prune_expired_records()` (Runs at Startup & Every 24 Hours)**:
@@ -135,4 +135,4 @@ Izvor enforces multi-layered memory and disk hygiene:
   - Deletes `turn_traces` spans older than `retention_traces_days` (default: `30` days).
   - Deletes `event_dedup` entries older than `retention_event_dedup_days` (default: `1` day).
 - **`forget_thread(thread_ts)` (Right-to-Forget)**:
-  - Atomically purges all records for a given `thread_ts` across all SQLite tables (`turn_checkpoints`, `turn_traces`, `thread_notes_state`, `thread_usage_meta`, `thread_context`, `thread_sessions`, `thread_skills`, `hitl_approvals`, `spend_ledger`), evicts `RoundEvidenceStore` cache entries, deletes matching markdown files in `flat-histories/`, and logs a non-repudiable `THREAD_DATA_PURGED` audit event.
+  - Atomically purges all records for a given `thread_ts` across all SQLite tables (`turn_checkpoints`, `turn_traces`, `thread_notes_state`, `thread_usage_meta`, `thread_context`, `thread_sessions`, `thread_skills`, `hitl_approvals`, `spend_ledger`), evicts `RoundEvidenceStore` cache entries, deletes matching markdown files in `data/flat-histories/`, and logs a non-repudiable `THREAD_DATA_PURGED` audit event.

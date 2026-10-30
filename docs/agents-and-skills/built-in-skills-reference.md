@@ -10,7 +10,7 @@ This document provides a complete reference guide for all **21 built-in skills a
 |---|---|---|---|---|---|
 | [`control_plane`](#control_plane) | Global Tools | Structured orchestration tools (`nominate_next_speaker`, `request_user_clarification`, `signal_consensus_convergence`). | *(Global to all agents)* | *(Global to all agents)* | Global Built-in |
 | [`web_research`](#web_research) | Tool | Searches the live internet (`web_search`) and scrapes web pages (`fetch_web_page`) with SSRF/DNS-rebinding defenses. | `/web_research` | `[grant: web_research to Agent]` | Standard (Invoke) / **Slack Admin** (Grant) |
-| [`knowledge_base_rag`](#knowledge_base_rag) | Tool | Retrieves internal hybrid vector + BM25 knowledge (`search_knowledge_rag`) from `rag_knowledge/` (clamped 1–10). | `/knowledge_base_rag` | `[grant: knowledge_base_rag to Agent]` | Standard (Invoke) / **Slack Admin** (Grant) |
+| [`knowledge_base_rag`](#knowledge_base_rag) | Tool | Retrieves internal hybrid vector + BM25 knowledge (`search_knowledge_rag`) from `config/rag_knowledge/` (clamped 1–10). | `/knowledge_base_rag` | `[grant: knowledge_base_rag to Agent]` | Standard (Invoke) / **Slack Admin** (Grant) |
 | [`document_reader`](#document_reader) | Tool | Lists (`list_documents`) and reads (`read_document`) workspace or attached files (PDF, DOCX, XLSX, PPTX, MD, TXT). | `/document_reader` | `[grant: document_reader to Agent]` | Standard (Invoke) / **Slack Admin** (Grant) |
 | [`document_authoring`](#document_authoring) | Tool (HITL) | Writes markdown/text reports (`write_document`) to `agents_resources/` with mandatory Human-in-the-Loop approval. | `/document_authoring` | `[grant: document_authoring to Agent]` | **HITL Approval** (Execute) / **Slack Admin** (Grant) |
 | [`min_words`](#min_words) | Constraint | Enforces a minimum response word count for debate personas (`off` requires Slack Admin). | `/min_words 100` | `[min_words: 100]` | Standard (`off` = **Slack Admin**) |
@@ -51,7 +51,7 @@ This document provides a complete reference guide for all **21 built-in skills a
 ### `knowledge_base_rag`
 - **Location**: [`skills/knowledge_base_rag/SKILL.md`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/config/skills/knowledge_base_rag/SKILL.md)
 - **Tool Name**: `search_knowledge_rag(query: str, scope: str = "all", max_results: int = 6)`
-- **Description**: Performs hybrid LanceDB semantic vector search and SQLite FTS5 BM25 search with Reciprocal Rank Fusion (RRF) across `rag_knowledge/shared/` and agent-private folders (`scope`: `"all"`, `"shared"`, or `"private"`).
+- **Description**: Performs hybrid LanceDB semantic vector search and SQLite FTS5 BM25 search with Reciprocal Rank Fusion (RRF) across `config/rag_knowledge/shared/` and agent-private folders (`scope`: `"all"`, `"shared"`, or `"private"`).
 - **Result Clamping**: `max_results` is strictly clamped between `1` and `10` chunks to prevent context overflow. Cached in `RoundEvidenceStore` scoped by `agent_key`.
 
 ### `document_reader`

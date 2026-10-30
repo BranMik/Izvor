@@ -64,9 +64,9 @@ Before accessing the filesystem, `validate_resource_filename()` validates every 
 Configured in [`orchestration/system_settings.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/orchestration/system_settings.py) (and extensible via `workspace_write_blacklist_additional`), the following critical locations cannot be modified by any tool execution:
 - `.env` (environment secrets and API tokens)
 - `.git/` (version control repository integrity)
-- `audit/` (tamper-evident audit logs and backups)
+- `data/audit/` (tamper-evident audit logs and backups)
 - `system_resources/` (internal project configurations)
-- `data/settings/agent_settings.json`, `data/settings/app_settings.json`, `data/settings/system_settings.json`
+- `config/settings/agent_settings.json`, `engine/settings/system_agent_settings.json`, `config/settings/system_settings.json`, `data/state/app_settings.json`
 
 ---
 
@@ -81,7 +81,7 @@ Implemented in [`services/web_tools.py`](file:///c:/Users/Hp/Documents/agy2-proj
 
 ## ⏱️ Wall-Clock Execution Timeout & Iteration Cap
 
-Izvor bounds tool calling loops with two limits in [`data/settings/system_settings.json`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/config/settings/system_settings.json):
+Izvor bounds tool calling loops with two limits in [`config/settings/system_settings.json`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/config/settings/system_settings.json):
 - **`max_tool_iterations`** (default: `3`): Maximum sequential tool-calling rounds per agent turn.
 - **`tool_call_loop_timeout_seconds`** (default: `60.0` seconds): Maximum wall-clock time for the iterative tool loop. If exceeded, execution is safely terminated and the persona synthesizes the best answer from the evidence gathered so far.
 

@@ -39,11 +39,11 @@ await run_in_threadpool(record_flat_history, channel_id, thread_ts, turn_data)
 This ensures disk writes never introduce jitter or latency into the Slack event dispatcher.
 
 ### 2. Storage Location & Naming
-Transcripts are persisted in the `flat-histories/` directory using prompt slugs and thread timestamps:
+Transcripts are persisted in the `data/flat-histories/` directory using prompt slugs and thread timestamps:
 ```
-flat-histories/<prompt_prefix_10>_<thread_ts_10>.md
+data/flat-histories/<prompt_prefix_10>_<thread_ts_10>.md
 ```
-*Example*: `flat-histories/we_are_cons_1790455185.md` (or `flat-histories/we_are_cons_1790455185_54321.md` if disambiguating collisions).
+*Example*: `data/flat-histories/we_are_cons_1790455185.md` (or `data/flat-histories/we_are_cons_1790455185_54321.md` if disambiguating collisions).
 
 ### 3. File Format Structure
 ```markdown
@@ -77,6 +77,6 @@ When users share files in Slack threads:
 ## 🔄 Archival & Knowledge Base Sync
 
 Exported flat histories can be ingested into Izvor’s own RAG knowledge base:
-- Move or copy completed transcripts into `rag_knowledge/shared/`.
+- Move or copy completed transcripts into `config/rag_knowledge/shared/`.
 - Trigger reconciliation via `POST /api/rag/reconcile` (or wait for the automatic startup sync).
 - Future deliberations can immediately cite outcomes and rationale from past debates.
