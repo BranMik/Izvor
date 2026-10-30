@@ -248,8 +248,10 @@ def test_mcp_write_file_blocks_protected_default_files():
         ".git/hooks/pre-commit",
         "system_resources",
         "system_resources/agy/plan.md",
-        "data/settings/agent_settings.json",
-        "data/settings/app_settings.json",
+        "config/settings/agent_settings.json",
+        "config/settings/system_settings.json",
+        "engine/settings/system_agent_settings.json",
+        "data/state/app_settings.json",
     ]
     for target in targets:
         res = json.loads(write_document(target, "malicious_overwrite_attempt"))

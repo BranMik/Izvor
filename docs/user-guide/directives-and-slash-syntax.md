@@ -67,7 +67,7 @@ Workspace administrators (`SLACK_ADMIN_USER_IDS`) can grant or revoke tool capab
 | `/revoke_constraint max_words` (or `/revoke max_words`) | `[revoke_constraint: max_words]` | **Slack Admin + Slash Origin** |
 
 > [!CAUTION]
-> Enforced by `require_directive_admin` in [`orchestration/stages/directive_handlers.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/orchestration/stages/directive_handlers.py), `/grant_skill`, `/grant_skill_for_all`, `/revoke_skill_for_all`, `/revoke_constraint`, and disabling constraints via `=off` require **Slack Workspace Admin** privileges (`is_slack_admin(user_id)`) AND explicit slash invocation (`origin: "slash"`). Unauthorized attempts are rejected and emit an `UNAUTHORIZED_DIRECTIVE_ATTEMPT` security audit log; authorized executions emit `ADMIN_DIRECTIVE_EXECUTED`.
+> Enforced by `require_directive_admin` in [`orchestration/stages/directive_handlers.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/orchestration/stages/directive_handlers.py), `/grant_skill`, `/grant_skill_for_all`, `/revoke_skill_for_all`, `/revoke_constraint`, and disabling constraints via `=off` require **Slack Workspace Admin** privileges (`is_slack_admin(user_id)`) AND explicit slash invocation (`origin: "slash"`). Unauthorized attempts are rejected and emit an `UNAUTHORIZED_DIRECTIVE_ATTEMPT` security audit log; authorized executions emit `ADMIN_DIRECTIVE_EXECUTED`.
 
 ---
 
@@ -82,7 +82,7 @@ Workspace administrators (`SLACK_ADMIN_USER_IDS`) can grant or revoke tool capab
 
 ## 🗣️ Unified Pre-Flight Intent & Language Extraction
 
-Izvor's [`nlp/intent_extractor.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/nlp/intent_extractor.py) extracts both safe conversational directives and the user's `detected_language` in a single pre-flight LLM pass:
+Izvor's [`nlp/intent_extractor.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/nlp/intent_extractor.py) extracts both safe conversational directives and the user's `detected_language` in a single pre-flight LLM pass:
 
 - *"Please keep all answers under 100 words"* ➔ Automatically parses as `max_words = 100` (`origin: "inferred"`).
 - *"Stop the debate"* ➔ Automatically triggers `stop_discussion`.

@@ -53,7 +53,7 @@ def test_core_exceptions_hierarchy():
 
 def test_core_does_not_import_adapters():
     """Verify that core/ modules never import from adapters/ layer."""
-    core_dir = PROJECT_ROOT / "core"
+    core_dir = PROJECT_ROOT / "engine" / "core"
     violations = []
 
     for py_file in core_dir.glob("*.py"):
@@ -72,7 +72,7 @@ def test_core_does_not_import_adapters():
 
 def test_core_top_level_does_not_import_orchestration():
     """Verify that core/ modules have zero top-level imports from orchestration/."""
-    core_dir = PROJECT_ROOT / "core"
+    core_dir = PROJECT_ROOT / "engine" / "core"
     violations = []
 
     for py_file in core_dir.glob("*.py"):
@@ -165,7 +165,7 @@ def test_slack_client_chat_not_called_outside_allowed_modules():
     """
     violations = []
     allowed_prefixes = (
-        Path("services") / "slack",
+        Path("engine") / "services" / "slack",
         Path("tests"),
         Path("e2e_testing_harness"),
     )

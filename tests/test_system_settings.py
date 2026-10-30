@@ -205,11 +205,13 @@ def test_is_path_write_blocked_defaults(tmp_path):
     assert is_path_write_blocked(".git/hooks/pre-commit", base_dir=base_dir) is True
 
     # Config files protection
-    assert is_path_write_blocked("data/settings/agent_settings.json", base_dir=base_dir) is True
+    assert is_path_write_blocked("config/settings/agent_settings.json", base_dir=base_dir) is True
     assert is_path_write_blocked("agent_settings.json", base_dir=base_dir) is True
-    assert is_path_write_blocked("data/settings/app_settings.json", base_dir=base_dir) is True
+    assert is_path_write_blocked("engine/settings/system_agent_settings.json", base_dir=base_dir) is True
+    assert is_path_write_blocked("system_agent_settings.json", base_dir=base_dir) is True
+    assert is_path_write_blocked("data/state/app_settings.json", base_dir=base_dir) is True
     assert is_path_write_blocked("app_settings.json", base_dir=base_dir) is True
-    assert is_path_write_blocked("data/settings/system_settings.json", base_dir=base_dir) is True
+    assert is_path_write_blocked("config/settings/system_settings.json", base_dir=base_dir) is True
     assert is_path_write_blocked("system_settings.json", base_dir=base_dir) is True
 
     # Python source files must be blocked

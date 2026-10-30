@@ -103,7 +103,7 @@ cmd /c .venv\Scripts\python.exe -u -m pytest tests/test_code_hygiene.py tests/te
 
 ## 🛡️ Testing Conventions & Principles
 
-1. **Deterministic Mocking & `InMemoryWorkspaceAdapter`**: Real LLM API calls and Slack HTTP calls must never be executed in standard unit tests. Use [`InMemoryWorkspaceAdapter`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/adapters/slack/workspace_adapter.py), [`PipelineDeps`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/orchestration/protocols.py), and `conftest.py` stubs.
+1. **Deterministic Mocking & `InMemoryWorkspaceAdapter`**: Real LLM API calls and Slack HTTP calls must never be executed in standard unit tests. Use [`InMemoryWorkspaceAdapter`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/adapters/slack/workspace_adapter.py), [`PipelineDeps`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/orchestration/protocols.py), and `conftest.py` stubs.
 2. **Generation Divergence Tests**: Concurrency tests must verify that incrementing thread generation aborts ongoing background tasks without dangling coroutines.
 3. **Clean Fixture Teardown**: Async tests using `ThreadStateManager`, `TurnTraceRecorder`, or SQLite connections must cleanly close background worker coroutines and reset database connections upon teardown.
 4. **Hygiene & Layer Asserts**: All source and documentation files must conform to [`test_code_hygiene.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/tests/test_code_hygiene.py) and [`test_architecture_layers.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/tests/test_architecture_layers.py), preventing debug print statements, broken markdown file links, legacy brand strings, and upward layer imports.

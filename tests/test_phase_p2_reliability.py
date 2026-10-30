@@ -26,7 +26,7 @@ from pipeline.directive_parser.slash_parser import (
     strip_all_slash_commands,
 )
 from services.rag.config import get_rag_setting, load_rag_settings_from_file
-from skills.knowledge_base_rag.tools import (
+from config.skills.knowledge_base_rag.tools import (
     SEARCH_KNOWLEDGE_RAG_SCHEMA,
     async_execute_search_knowledge_rag,
 )
@@ -180,7 +180,7 @@ async def test_rag_retrieval_clamping():
     assert param_schema.get("maximum") == 10
 
     # Tool execution clamps
-    with patch("skills.knowledge_base_rag.tools.rag_service.search", new_callable=AsyncMock) as mock_search:
+    with patch("config.skills.knowledge_base_rag.tools.rag_service.search", new_callable=AsyncMock) as mock_search:
         mock_search.return_value = "results"
         await async_execute_search_knowledge_rag({"query": "architecture", "max_results": 100})
         assert mock_search.call_args[1]["max_results"] == 10
@@ -312,7 +312,7 @@ def test_rag_config_delegation_to_system_settings():
 
 def test_revoke_constraint_action_and_modifier_clearing():
     """TKT-714: Verify revoke_constraint handles modifier clearing and returns halted."""
-    from skills.revoke_constraint.action import run as revoke_constraint_action
+    from skills.builtin.revoke_constraint.action import run as revoke_constraint_action
     from orchestration.thread_state import thread_state_manager
 
     thread_state_manager.set_format_modifiers("C_REVOKE", "T_REVOKE", ["bullet_points"])

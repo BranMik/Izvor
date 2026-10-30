@@ -218,8 +218,11 @@ def test_sandbox_audit_write_protection():
     """Verifies that system_settings blocks tool writes targeting the audit directory."""
     # is_path_write_blocked should return True for any audit path or system_resources
     assert is_path_write_blocked("audit") is True
+    assert is_path_write_blocked("data/audit") is True
     assert is_path_write_blocked("audit/audit_2026_10.jsonl") is True
+    assert is_path_write_blocked("data/audit/audit_2026_10.jsonl") is True
     assert is_path_write_blocked("audit/backups/snapshot.jsonl") is True
+    assert is_path_write_blocked("data/audit/backups/snapshot.jsonl") is True
     assert is_path_write_blocked("system_resources") is True
     assert is_path_write_blocked("system_resources/audit/tamper.txt") is True
 

@@ -14,16 +14,10 @@ def test_python_ast_compilation_and_hygiene():
     """
     root_dir = Path(__file__).resolve().parent.parent
     targets = [
-        "services",
-        "orchestration",
-        "adapters",
-        "core",
-        "agents",
-        "nlp",
-        "pipeline",
-        "skills",
+        "engine",
         "e2e_testing_harness",
         "tests",
+        "scripts",
         "main.py",
     ]
 

@@ -19,7 +19,7 @@ When a deliberation is initiated, progresses, or reaches its configured round li
   - **Action Items & Owners**: Assigned follow-ups and immediate next steps.
 - The conclusion note is formatted with high-contrast Slack Block Kit headers and can be pinned to the thread for executive review.
 
-### 3. Thread Notes Disk Persistence ([`services/thread_notes_writer.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/services/thread_notes_writer.py))
+### 3. Thread Notes Disk Persistence ([`services/thread_notes_writer.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/services/thread_notes_writer.py))
 In addition to posting inside Slack, thread notes are automatically saved to disk in `agents_resources/thread_notes/`:
 - **Live Notes**: `<prompt_slug>_<ts5>_live_notes.md`
 - **Conclusion Notes**: `<prompt_slug>_<ts5>_conclusion.md`
@@ -29,7 +29,7 @@ In addition to posting inside Slack, thread notes are automatically saved to dis
 
 ## 📁 Asynchronous Flat History Markdown Archival
 
-Every deliberation turn is automatically and asynchronously archived to a local markdown transcript by [`services/flat_history_recorder.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/services/flat_history_recorder.py).
+Every deliberation turn is automatically and asynchronously archived to a local markdown transcript by [`services/flat_history_recorder.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/services/flat_history_recorder.py).
 
 ### 1. Non-Blocking Off-Loop Execution
 Disk I/O is decoupled from the main asyncio event loop using `async_record_flat_history`:
@@ -69,7 +69,7 @@ While attractive, high-frequency session writes cause table bloat and vacuum str
 
 When users share files in Slack threads:
 1. Izvor's file listener downloads the attachment to `downloads/`.
-2. The [`document_reader`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/skills/document_reader) parses the document content (PDFs, Markdown, CSVs, code files).
+2. The [`document_reader`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/config/skills/document_reader) parses the document content (PDFs, Markdown, CSVs, code files).
 3. Extracted text is wrapped in `<untrusted_file_content>` security boundaries, enabling debate personas to critique the uploaded RFC or specification without risking prompt injection.
 
 ---

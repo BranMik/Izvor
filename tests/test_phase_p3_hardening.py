@@ -16,7 +16,7 @@ from services.rag.manifest_manager import ManifestManager
 from services.slack import cleanup_old_downloads
 from services.thread_notes_writer import _atomic_write_file
 from services.web_tools import PinnedIPTransport
-from skills.knowledge_base_rag.tools import TOOL_HANDLERS, async_execute_search_knowledge_rag
+from config.skills.knowledge_base_rag.tools import TOOL_HANDLERS, async_execute_search_knowledge_rag
 from skills.loader import SkillDefinition, SkillRegistry
 
 

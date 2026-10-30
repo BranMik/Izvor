@@ -8,11 +8,9 @@ import orchestration.app_settings as app_settings_mod
 import services.pricing_service as pricing_service_mod
 from orchestration.agent_settings import (
     BACKUP_FILE as REAL_BACKUP_FILE,
-)
-from orchestration.agent_settings import (
     SETTINGS_FILE as REAL_SETTINGS_FILE,
-)
-from orchestration.agent_settings import (
+    SYSTEM_AGENT_BACKUP_FILE as REAL_SYSTEM_AGENT_BACKUP_FILE,
+    SYSTEM_AGENT_SETTINGS_FILE as REAL_SYSTEM_AGENT_SETTINGS_FILE,
     settings_manager,
 )
 from services.pricing_service import PRICING_CACHE_FILE as REAL_PRICING_CACHE_FILE
@@ -58,19 +56,38 @@ def isolate_pricing_cache_for_tests(tmp_path, monkeypatch):
 @pytest.fixture(autouse=True)
 def isolate_agent_settings_for_tests(tmp_path, monkeypatch):
     """
-    Prevents tests from modifying or overwriting production data/settings/agent_settings.json.
+    Prevents tests from modifying or overwriting config/settings/agent_settings.json
+    and engine/settings/system_agent_settings.json.
     Each test gets an isolated copy in tmp_path.
     """
     temp_settings = tmp_path / "agent_settings.json"
     temp_backup = tmp_path / "agent_settings_backup.json"
+    temp_sys_settings = tmp_path / "system_agent_settings.json"
+    temp_sys_backup = tmp_path / "system_agent_settings_backup.json"
 
     if REAL_SETTINGS_FILE.exists():
         shutil.copy2(REAL_SETTINGS_FILE, temp_settings)
     if REAL_BACKUP_FILE.exists():
         shutil.copy2(REAL_BACKUP_FILE, temp_backup)
+    if REAL_SYSTEM_AGENT_SETTINGS_FILE.exists():
+        shutil.copy2(REAL_SYSTEM_AGENT_SETTINGS_FILE, temp_sys_settings)
+    if REAL_SYSTEM_AGENT_BACKUP_FILE.exists():
+        shutil.copy2(REAL_SYSTEM_AGENT_BACKUP_FILE, temp_sys_backup)
 
     monkeypatch.setattr(agent_settings_mod, "SETTINGS_FILE", temp_settings)
     monkeypatch.setattr(agent_settings_mod, "BACKUP_FILE", temp_backup)
+    monkeypatch.setattr(agent_settings_mod, "SYSTEM_AGENT_SETTINGS_FILE", temp_sys_settings)
+    monkeypatch.setattr(agent_settings_mod, "SYSTEM_AGENT_BACKUP_FILE", temp_sys_backup)
+
+    orig_default_sys_settings = settings_manager.default_system_agent_settings_file
+    orig_default_sys_backup = settings_manager.default_system_agent_backup_file
+    orig_default_settings = settings_manager.default_settings_file
+    orig_default_backup = settings_manager.default_backup_file
+
+    settings_manager.default_settings_file = temp_settings
+    settings_manager.default_backup_file = temp_backup
+    settings_manager.default_system_agent_settings_file = temp_sys_settings
+    settings_manager.default_system_agent_backup_file = temp_sys_backup
 
     # Save original in-memory state
     orig_enabled = set(settings_manager.enabled_agents)
@@ -79,6 +96,8 @@ def isolate_agent_settings_for_tests(tmp_path, monkeypatch):
     orig_sandwich_end = list(settings_manager.sandwich_end_chain)
     orig_fixed = list(settings_manager.fixed_chain)
     orig_agents_config = copy.deepcopy(settings_manager.agents_config)
+    orig_system_agents = copy.deepcopy(settings_manager.system_agents_config)
+    orig_orchestrator = copy.deepcopy(settings_manager.orchestrator_config)
 
     yield
 
@@ -94,12 +113,20 @@ def isolate_agent_settings_for_tests(tmp_path, monkeypatch):
     settings_manager.fixed_chain.extend(orig_fixed)
     settings_manager.agents_config.clear()
     settings_manager.agents_config.update(orig_agents_config)
+    settings_manager.system_agents_config.clear()
+    settings_manager.system_agents_config.update(orig_system_agents)
+    settings_manager.orchestrator_config.clear()
+    settings_manager.orchestrator_config.update(orig_orchestrator)
+    settings_manager.default_settings_file = orig_default_settings
+    settings_manager.default_backup_file = orig_default_backup
+    settings_manager.default_system_agent_settings_file = orig_default_sys_settings
+    settings_manager.default_system_agent_backup_file = orig_default_sys_backup
 
 
 @pytest.fixture(autouse=True)
 def isolate_app_settings_for_tests(tmp_path, monkeypatch):
     """
-    Prevents tests from modifying or overwriting production data/settings/app_settings.json.
+    Prevents tests from modifying or overwriting production data/state/app_settings.json.
     Each test gets an isolated copy in tmp_path.
     """
     from orchestration.app_settings import (
