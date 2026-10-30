@@ -1,5 +1,5 @@
 """
-Tests for AppSettingsManager and data/settings/app_settings.json.
+Tests for AppSettingsManager and data/state/app_settings.json.
 Only covers application settings changeable via the Slack UI.
 """
 

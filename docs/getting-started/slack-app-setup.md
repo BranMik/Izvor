@@ -114,7 +114,7 @@ If setting up scopes manually under **OAuth & Permissions**:
   ```
   https://<your-domain>/slack/events
   ```
-- Slack will immediately send an HTTP POST with a `challenge` parameter. Izvor's [`adapters/slack/events.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/adapters/slack/events.py) automatically validates the signature and responds with the challenge value.
+- Slack will immediately send an HTTP POST with a `challenge` parameter. Izvor's [`adapters/slack/events.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/adapters/slack/events.py) automatically validates the signature and responds with the challenge value.
 - Under **Subscribe to bot events**, ensure the following events are added:
   - `app_home_opened`
   - `app_mention`
@@ -131,7 +131,7 @@ If setting up scopes manually under **OAuth & Permissions**:
   ```
   https://<your-domain>/slack/interactivity
   ```
-- This URL handles App Home configuration modal submissions, persona toggles, and dropdown interactions ([`adapters/slack/interactivity.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/adapters/slack/interactivity.py)).
+- This URL handles App Home configuration modal submissions, persona toggles, and dropdown interactions ([`adapters/slack/interactivity.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/adapters/slack/interactivity.py)).
 - Click **Save Changes**.
 
 ---

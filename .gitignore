@@ -5,17 +5,25 @@
 *.key
 *.pdf
 rag_knowledge/*
+config/rag_knowledge/*
 deprecated/*
 [Ii]zvor-app/*
 !rag_knowledge/agent-10008/
 !rag_knowledge/shared/
+!config/rag_knowledge/agent-10008/
+!config/rag_knowledge/shared/
 
 rag_knowledge/agent-10008/*
 rag_knowledge/shared/*
+config/rag_knowledge/agent-10008/*
+config/rag_knowledge/shared/*
 
 !rag_knowledge/agent-10008/security_policy.md
 !rag_knowledge/shared/system_overview.md
 !rag_knowledge/shared/rag_instructions.md
+!config/rag_knowledge/agent-10008/security_policy.md
+!config/rag_knowledge/shared/system_overview.md
+!config/rag_knowledge/shared/rag_instructions.md
 
 /static_backup
 
@@ -45,6 +53,8 @@ venv/
 .venv/
 ENV/
 flat-histories/*
+data/flat-histories/*
+!data/flat-histories/.gitkeep
 system_resources/*
 agents_resources/*
 !system_resources/.gitkeep
@@ -67,7 +77,9 @@ data/thread_usage_data.json
 data/thread/thread_usage_data.json
 data/model_pricing_cache.json
 data/pricing/model_pricing_cache.json
-data/state/
+data/state/*
+!data/state/app_settings.json
+!data/state/.gitkeep
 data/.rag_cache/
 data/*.db*
 *.db
@@ -80,6 +92,8 @@ model_pricing_cache.json
 # Audit logs (runtime files preserved locally, not tracked in git)
 audit/*
 !audit/.gitkeep
+data/audit/*
+!data/audit/.gitkeep
 
 # Temporary commit message files
 .commit_msg*

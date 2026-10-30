@@ -64,7 +64,7 @@ Izvor utilizes:
 Create a `.env` file in the project root by copying [`.env.example`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/.env.example):
 
 ### Configuration Variables Breakdown
-Refer to [`core/config.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/core/config.py) for the full definitions:
+Refer to [`core/config.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/core/config.py) for the full definitions:
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
@@ -88,7 +88,7 @@ Refer to [`core/config.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/co
 
 ### ⚙️ System Settings (`data/settings/system_settings.json`)
 
-System operational parameters, security guardrails, and timeouts are managed by [`SystemSettingsManager`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/orchestration/system_settings.py) (backed by [`JsonSettingsStore`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/orchestration/settings_store.py)). These settings can be modified live without server restarts:
+System operational parameters, security guardrails, and timeouts are managed by [`SystemSettingsManager`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/orchestration/system_settings.py) (backed by [`JsonSettingsStore`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/orchestration/settings_store.py)). These settings can be modified live without server restarts:
 
 | Setting Key | Default | Description |
 |---|---|---|

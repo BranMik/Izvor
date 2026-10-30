@@ -23,7 +23,7 @@ from orchestration.system_settings import (
     set_rebuttal_agent,
 )
 from orchestration.thread_state import thread_state_manager
-from skills.control_plane.tools import build_control_plane_tool_schemas
+from skills.builtin.control_plane.tools import build_control_plane_tool_schemas
 
 
 @pytest.fixture(autouse=True)

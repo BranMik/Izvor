@@ -2,6 +2,11 @@ import asyncio
 import logging
 import os
 import sys
+from pathlib import Path
+
+_engine_dir = Path(__file__).resolve().parent / "engine"
+if str(_engine_dir) not in sys.path:
+    sys.path.insert(0, str(_engine_dir))
 import threading
 import time
 from contextlib import asynccontextmanager
@@ -36,7 +41,7 @@ from services.slack import publish_app_home
 
 from orchestration.system_settings import system_settings_manager
 from core.logging_filters import setup_credential_redaction_filters
-from core.paths import PROJECT_ROOT
+from core.paths import AVATARS_DIR, PROJECT_ROOT
 
 # Configure logging format
 dynamic_log_level = getattr(logging, system_settings_manager.get_log_level(), logging.INFO)
@@ -254,7 +259,8 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
+app.mount("/static", StaticFiles(directory=AVATARS_DIR), name="static")
+app.mount("/avatars", StaticFiles(directory=AVATARS_DIR), name="avatars")
 
 # Mount Slack Adapter routes (/slack/events, /slack/actions, /slack/interactivity)
 app.include_router(slack_router, prefix="/slack")

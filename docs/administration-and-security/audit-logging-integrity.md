@@ -6,7 +6,7 @@ This document details **Izvor**'s non-repudiable audit logging system, cryptogra
 
 ## 🔒 Architectural Overview
 
-Enterprise governance requires an immutable record of system events, administrative changes, and security actions. Izvor implements a hash-chained, HMAC-signed JSON Lines (JSONL) audit log managed by [`services/audit_logger.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/services/audit_logger.py), paired with SQLite head-hash anchors in `data/izvor.db`.
+Enterprise governance requires an immutable record of system events, administrative changes, and security actions. Izvor implements a hash-chained, HMAC-signed JSON Lines (JSONL) audit log managed by [`services/audit_logger.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/services/audit_logger.py), paired with SQLite head-hash anchors in `data/izvor.db`.
 
 ```mermaid
 graph LR
@@ -48,7 +48,7 @@ A classic weakness of file-only hash chains is **tail truncation** (where an att
 To detect tampering, file truncation, or key discrepancies immediately, Izvor runs two validation layers:
 
 ### 1. Startup Verification
-During server boot in [`main.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/main.py#L164-L224), [`AppIntegrityValidator.check_audit_log_integrity()`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/orchestration/integrity_checks.py) scans all historical and active audit files:
+During server boot in [`main.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/main.py#L164-L224), [`AppIntegrityValidator.check_audit_log_integrity()`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/orchestration/integrity_checks.py) scans all historical and active audit files:
 - Verifies line-by-line hash continuity and sequence monotonicity.
 - Verifies `audit_anchors` head-hash consistency against SQLite.
 - Confirms HMAC secret continuity.
@@ -63,7 +63,7 @@ During server boot in [`main.py`](file:///c:/Users/Hp/Documents/agy2-projects/Iz
 
 ## 🚨 Emergency Alerts on Integrity Breaches
 
-If any cryptographic, anchor, or hash continuity violation occurs, [`send_admin_audit_alert()`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/services/audit_logger.py) formats and dispatches a high-priority incident notice.
+If any cryptographic, anchor, or hash continuity violation occurs, [`send_admin_audit_alert()`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/services/audit_logger.py) formats and dispatches a high-priority incident notice.
 
 ### 1. Multi-Admin Alert Routing & Delivery Hierarchy
 Audit alerts follow a strict three-tier routing strategy:
@@ -91,8 +91,8 @@ Use the following matrix to identify real production breach alerts:
 | Alert Category | Title / Identifier | Payload Characteristics | Origin | Action Required |
 |:---|:---|:---|:---|:---|
 | **Production Breach** | `Periodic Audit Guard Integrity Breach` | Contains verified `Violations` and corrupted `Files` paths | [`main.py:L100`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/main.py#L100) (periodic integrity guard) | **CRITICAL**: Immediate forensic inspection and snapshot comparison. |
-| **Security Alert** | `SECURITY_ALERT` / `GUARDRAIL_FAIL_CLOSED_BLOCKED` | Semantic prompt injection detection record or fail-closed block | [`services/security/guardrail.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/services/security/guardrail.py) | **HIGH**: Review user prompt and threat actor profile. |
-| **Privilege Alert** | `UNAUTHORIZED_DIRECTIVE_ATTEMPT` | Non-admin user attempted `/grant_skill`, `/revoke_constraint`, or `=off` override | [`orchestration/stages/directive_handlers.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/orchestration/stages/directive_handlers.py) | **MEDIUM**: Review user activity in thread. |
+| **Security Alert** | `SECURITY_ALERT` / `GUARDRAIL_FAIL_CLOSED_BLOCKED` | Semantic prompt injection detection record or fail-closed block | [`services/security/guardrail.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/services/security/guardrail.py) | **HIGH**: Review user prompt and threat actor profile. |
+| **Privilege Alert** | `UNAUTHORIZED_DIRECTIVE_ATTEMPT` | Non-admin user attempted `/grant_skill`, `/revoke_constraint`, or `=off` override | [`orchestration/stages/directive_handlers.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/orchestration/stages/directive_handlers.py) | **MEDIUM**: Review user activity in thread. |
 | **Production Breach** | `Startup Audit Integrity Alert: Secret Mismatch (...)` | Contains `Status`, `Warning`, `Last File`, `Last Seq`, and `Errors` | [`main.py:L183`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/main.py#L183) (startup boot check) | **CRITICAL**: Confirm `AUDIT_HMAC_SECRET` rotation or restore audit logs. |
 | **Production Warning** | `AUDIT_HMAC_SECRET Discrepancy (...)` | Contains `Status`, `Warning`, `Last File`, and `Last Seq` | [`main.py:L200`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/main.py#L200) (startup boot check) | **HIGH**: Key mismatch detected between historic records and runtime environment. |
 | **Production Breach** | `Startup Audit Log Integrity Violation` | Contains `Violations` list and `Files` | [`main.py:L218`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/main.py#L218) (startup boot check) | **CRITICAL**: Immediate disk inspection and chain repair. |
@@ -153,5 +153,5 @@ python -m services.audit_logger --snapshot
 - **Tail Caching & Reverse Seek**: `AuditLogger` caches `(seq, entry_hash)` in memory (`_cached_last_state`) for $O(1)$ sequential appends and uses reverse byte seek on cold boot.
 
 ### 2. Amplification Defense & Sliding-Window Burst Suppression
-- Configured via `security_burst_limits` in `system_settings.json` and enforced in [`core/slack_security.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/core/slack_security.py).
+- Configured via `security_burst_limits` in `system_settings.json` and enforced in [`core/slack_security.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/core/slack_security.py).
 - Up to 5 discrete `AUTH_FAILURE` events are logged per client IP within each 60-second window (and 25 globally); subsequent failures are aggregated into a consolidated summary event upon window expiration.

@@ -28,7 +28,7 @@ from prompts.builder import load_system_prompt
 
 def test_core_paths_rag_anchors():
     """Verifies that RAG and vector directories are centralized in core.paths."""
-    assert paths.RAG_KNOWLEDGE_DIR == paths.PROJECT_ROOT / "rag_knowledge"
+    assert paths.RAG_KNOWLEDGE_DIR == paths.CONFIG_DIR / "rag_knowledge"
     assert paths.RAG_CACHE_DIR == paths.DATA_DIR / ".rag_cache"
     assert paths.LANCEDB_DIR == paths.RAG_CACHE_DIR / "lancedb"
     assert paths.MANIFEST_PATH == paths.RAG_CACHE_DIR / "file_manifest.json"

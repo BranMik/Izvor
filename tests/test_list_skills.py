@@ -14,7 +14,7 @@ from orchestration.turn_pipeline import TurnContext
 from pipeline.directive_parser import directive_parser
 from prompts.builder import build_agent_prompt
 from core.registry import get_skill_registry
-from skills.list_skills.action import run as list_skills_action_run
+from skills.builtin.list_skills.action import run as list_skills_action_run
 
 skill_registry = get_skill_registry()
 
@@ -126,8 +126,8 @@ async def test_action_run_no_agent_no_text_halts():
         ]
     }
 
-    with patch("skills.list_skills.action.execute_llm_with_retry", new_callable=AsyncMock, return_value=mock_llm_response) as mock_llm, \
-         patch("skills.list_skills.action.post_system_message", new_callable=AsyncMock) as mock_post:
+    with patch("skills.builtin.list_skills.action.execute_llm_with_retry", new_callable=AsyncMock, return_value=mock_llm_response) as mock_llm, \
+         patch("skills.builtin.list_skills.action.post_system_message", new_callable=AsyncMock) as mock_post:
         res = await list_skills_action_run(ctx)
         assert res == {"ok": True, "halted": True, "action": "list_skills"}
         mock_llm.assert_awaited_once()
@@ -149,8 +149,8 @@ async def test_action_run_with_named_agent_halts_exclusively():
         thread_ts="1234567.89",
         raw_text="/list_skills [agent-10008]",
     )
-    with patch("skills.list_skills.action.execute_llm_with_retry", new_callable=AsyncMock), \
-         patch("skills.list_skills.action.post_system_message", new_callable=AsyncMock):
+    with patch("skills.builtin.list_skills.action.execute_llm_with_retry", new_callable=AsyncMock), \
+         patch("skills.builtin.list_skills.action.post_system_message", new_callable=AsyncMock):
         res = await list_skills_action_run(ctx)
         assert res == {"ok": True, "halted": True, "action": "list_skills"}
 
@@ -166,8 +166,8 @@ async def test_action_run_with_additional_text_halts_exclusively():
         thread_ts="1234567.89",
         raw_text="/list_skills which agent should I use for code reviews?",
     )
-    with patch("skills.list_skills.action.execute_llm_with_retry", new_callable=AsyncMock), \
-         patch("skills.list_skills.action.post_system_message", new_callable=AsyncMock):
+    with patch("skills.builtin.list_skills.action.execute_llm_with_retry", new_callable=AsyncMock), \
+         patch("skills.builtin.list_skills.action.post_system_message", new_callable=AsyncMock):
         res = await list_skills_action_run(ctx)
         assert res == {"ok": True, "halted": True, "action": "list_skills"}
 

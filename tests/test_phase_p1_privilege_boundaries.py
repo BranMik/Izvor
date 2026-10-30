@@ -523,7 +523,8 @@ def test_thread_skills_manager_authoritative_sqlite():
 
 def test_circuit_breaker_enabled_by_default_in_settings():
     """app_settings.json has circuit_breaker_enabled: true."""
-    settings_file = Path(__file__).resolve().parent.parent / "data" / "settings" / "app_settings.json"
+    from core.paths import APP_SETTINGS_FILE
+    settings_file = APP_SETTINGS_FILE
     data = json.loads(settings_file.read_text(encoding="utf-8"))
     assert data.get("circuit_breaker_enabled") is True
 
