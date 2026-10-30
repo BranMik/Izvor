@@ -24,7 +24,7 @@ graph TD
     
     subgraph Persistence & Durability
         SettingsMgr --> AtomicWrite["Atomic File Write via JsonSettingsStore"]
-        AtomicWrite --> EmergencyBackup["Rolling Backups (data/backups/ & data/backups/workflows/)"]
+        AtomicWrite --> EmergencyBackup["Rolling Backups (data/backups/ & engine/workflows/)"]
     end
     
     SettingsMgr --> RePublish["Re-render & Publish Updated App Home View"]
@@ -56,7 +56,7 @@ The App Home dashboard organizes controls into structured blocks (strictly cappe
 ### 2. Discussion Topology & Workflows (`workflows_tab.py`)
 - **Topology Selection**: Switch between **Sandwich Mode** (`sandwich`), **Fixed Mode** (`fixed`), and **Parallel Dialectic Mode** (`scatter_gather`).
 - **Chain & Pool Configuration**: Configure Sandwich Start/End chains, Fixed speaker order, or Parallel Dialectic specialists and closing synthesizer.
-- **Workflow Presets**: Save, load, or restore curated workflow presets in `data/backups/workflows/`.
+- **Workflow Presets**: Save, load, or restore curated workflow presets in `config/workflows/` (seeded from immutable templates in `engine/workflows/`).
 
 ### 3. Governance, Scribe & Dialectical Controls (`governance_tab.py`)
 - **Consensus Convergence Fast-Forward (`fast_forward_on_convergence`)**: Toggle (`🟢 ON` / `🔴 OFF`) whether consecutive `signal_consensus_convergence` calls trigger the Challenger + RebuttalAdvocate stress-test gate to fast-forward to `end_chain`.
@@ -80,11 +80,12 @@ To prevent file corruption during concurrent updates:
 - Settings are serialized to a temporary file (`.tmp`) and flushed to disk.
 - The temporary file is atomically replaced using `os.replace`.
 
-### 2. Rolling Backups in `data/backups/`
-Every modification maintains rolling backups in `data/backups/` and `data/backups/workflows/`:
-- `data/backups/agent_settings_backup.json`
-- `data/backups/app_settings_backup.json`
-- `data/backups/system_settings_backup.json`
+### 2. Settings Files & Rolling Backups in `data/backups/`
+Settings are partitioned across the 3-tier architecture and backed by rolling snapshots in `data/backups/`:
+- **Debate Panel Settings**: [`config/settings/agent_settings.json`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/config/settings/agent_settings.json) → `data/backups/agent_settings_backup.json`
+- **Engine System Agent Settings**: [`engine/settings/system_agent_settings.json`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/settings/system_agent_settings.json) → `data/backups/system_agent_settings_backup.json`
+- **System Operational Settings**: [`config/settings/system_settings.json`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/config/settings/system_settings.json) → `data/backups/system_settings_backup.json`
+- **Slack UI Runtime State**: [`data/state/app_settings.json`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/data/state/app_settings.json) → `data/backups/app_settings_backup.json`
 
 ### 3. Non-Destructive Failover
-If a primary settings file in `data/settings/` is missing or corrupted on startup, `JsonSettingsStore` automatically recovers from the backup snapshot before falling back to validated Pydantic defaults.
+If a primary settings file in `config/settings/`, `engine/settings/`, or `data/state/` is missing or corrupted on startup, `JsonSettingsStore` automatically recovers from the corresponding backup snapshot in `data/backups/` before falling back to validated Pydantic defaults.

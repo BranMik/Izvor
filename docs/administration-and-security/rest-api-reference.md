@@ -27,7 +27,7 @@ This document provides complete technical specifications for the HTTP endpoints 
 | `GET` | `/api/health` | Admin | Authenticated health check exposing active registered persona keys (17 personas). |
 | `GET` | `/api/skills` | Admin | Returns all 21 registered dynamic skills, descriptions, and schemas. |
 | `GET` | `/api/rag/status` | Admin | Returns RAG manifest status and total indexed documents. |
-| `POST` | `/api/rag/reconcile` | Admin | Triggers an immediate on-demand reconciliation of `rag_knowledge/`. |
+| `POST` | `/api/rag/reconcile` | Admin | Triggers an immediate on-demand reconciliation of `config/rag_knowledge/`. |
 | `GET` | `/api/audit/status` | Admin | Returns cryptographic integrity, SQLite anchor, and HMAC hash chain verification diagnostics. |
 
 ---
@@ -163,7 +163,7 @@ This document provides complete technical specifications for the HTTP endpoints 
 {
   "valid": true,
   "errors": [],
-  "scanned_files": ["audit/audit_2026_10.jsonl"],
+  "scanned_files": ["data/audit/audit_2026_10.jsonl"],
   "total_records": 482,
   "hmac_continuity": {
     "matches": true,

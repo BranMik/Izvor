@@ -67,7 +67,7 @@ Izvor does not rely on rigid turn-taking. It supports distinct workflow topologi
 - **Generation-Based Superseding**: If a human user replies to an ongoing deliberation, the thread generation counter increments. Obsolete background agent turns detect generation divergence and gracefully abort without race conditions.
 
 ### 3. Asynchronous Tool Execution & Non-Blocking Slack UX
-- **Wall-Clock Guard**: Tool loops are bounded by `tool_call_loop_timeout_seconds` (default: 60s in [`data/settings/system_settings.json`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/config/settings/system_settings.json)) to prevent runaway recursive calls.
+- **Wall-Clock Guard**: Tool loops are bounded by `tool_call_loop_timeout_seconds` (default: 60s in [`config/settings/system_settings.json`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/config/settings/system_settings.json)) to prevent runaway recursive calls.
 - **5-Second Delayed Status Indicator**: If a tool call takes longer than 5 seconds, Izvor posts an intermediate placeholder (e.g., `_🔍 *Visionary* is searching the web..._`). Fast calls (<5s) complete silently without UI jitter.
 - **In-Place Message Editing**: When tool output resolves, the placeholder is edited in-place with the final response, avoiding cluttered Slack threads.
 
@@ -78,7 +78,7 @@ Izvor does not rely on rigid turn-taking. It supports distinct workflow topologi
 
 ### 5. Interactive Slack App Home & Administrative SSOT
 - **Live Configuration**: Slack workspace admins (`is_slack_admin(user_id)`) can configure debate workflows, agent rosters, circuit breaker thresholds, and topologies directly in the Slack App Home tab ([`services/slack_home/`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/services/slack_home/__init__.py)).
-- **Resilient Persistence**: Changes are committed atomically to `data/settings/agent_settings.json` and `data/settings/app_settings.json`, backed by automated rolling backups in `data/backups/`.
+- **Resilient Persistence**: Changes are committed atomically to `config/settings/agent_settings.json`, `engine/settings/system_agent_settings.json`, and `data/state/app_settings.json`, backed by automated rolling backups in `data/backups/`.
 
 ### 6. Non-Repudiable Cryptographic Audit Logging
 - Every administrative action, security event, and RAG synchronization is recorded in a cryptographically chained, HMAC-verified JSONL audit log ([`services/audit_logger.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/services/audit_logger.py)).

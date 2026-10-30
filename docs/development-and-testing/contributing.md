@@ -27,33 +27,52 @@ If a requested solution represents poor engineering practice, an architectural a
 
 ---
 
-## ➕ Adding a New Persona
+### 6. 3-Tier Separation of Concerns (`config/`, `engine/`, `data/`)
+- **Implementer Configuration (`config/`)**: Debate personas (`config/personas/`), debate panel settings (`config/settings/agent_settings.json`), system tuning (`config/settings/system_settings.json`), custom workflows (`config/workflows/`), agent tool skills (`config/skills/`), avatars (`config/avatars/`), and RAG documents (`config/rag_knowledge/`) belong in `config/`.
+- **Immutable Engine (`engine/`)**: Core Python packages (`engine/core`, `engine/orchestration`, `engine/pipeline`, `engine/nlp`, `engine/adapters`, `engine/services`, `engine/prompts`, `engine/skills`), system agents (`engine/settings/system_agent_settings.json`), built-in modifier/control skills (`engine/skills/builtin/`), and seed workflows (`engine/workflows/`) belong in `engine/`.
+- **Runtime & UI State (`data/`)**: Dynamic Slack UI settings (`data/state/app_settings.json`), SQLite databases (`data/izvor.db`), audit logs (`data/audit/`), backups (`data/backups/`), and exported transcripts (`data/flat-histories/`) belong in `data/`.
 
-To introduce a new debate persona:
+---
 
-1. **System Prompt**: Add a dedicated markdown prompt file in [`prompts/`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/prompts) defining the persona's core perspective, biases, and tone.
-2. **Roster Registration**: Register the agent entry in [`data/settings/agent_settings.json`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/config/settings/agent_settings.json) with:
+## ➕ Adding or Customizing a Persona
+
+### A. Debate Panel Persona (`config/`)
+To introduce or customize a debate panel persona:
+1. **System Prompt**: Add a dedicated markdown prompt file in [`config/personas/`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/config/personas) (e.g., `config/personas/agent-10018.md`) defining the persona's core perspective, biases, and tone.
+2. **Avatar Image**: Place the avatar PNG in [`config/avatars/`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/config/avatars).
+3. **Roster Registration**: Register the agent entry in [`config/settings/agent_settings.json`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/config/settings/agent_settings.json) under `"agents"` (and optionally add its ID to `"enabled_agents"`):
    - `username`: Canonical identifier (e.g. `DataScientist`).
    - `displayname`: Formatted title (e.g. `Data Scientist`).
    - `model`: Default LLM router string.
-   - `icon_url`: Avatar asset path.
-   - `skills`: Initial tool permissions.
+   - `instruction`: Relative prompt path (e.g. `config/personas/agent-10018.md`).
+   - `avatar`: Avatar filename (e.g. `image_18.png`).
+   - `skills`: Initial tool permissions (e.g. `["knowledge_base_rag", "web_research"]`).
    - `special_role`: Dialectical role (`"NONE"`, `"CHALLENGER"`, or `"REBUTTAL"`).
-3. **Entity Resolution**: Add aliases or nickname mappings to [`pipeline/entity_resolver`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/pipeline/entity_resolver).
-4. **Tests**: Add unit test verification to [`tests/test_agent_settings_ssot.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/tests/test_agent_settings_ssot.py).
+4. **Entity Resolution**: Add aliases or nickname mappings to [`engine/pipeline/entity_resolver`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/pipeline/entity_resolver).
+5. **Tests**: Add unit test verification to [`tests/test_agent_settings_ssot.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/tests/test_agent_settings_ssot.py).
+
+### B. Engine System Agent (`engine/`)
+Internal support agents (`Orchestrator`, `Discussion_Scribe`, `Intent_Extractor`, `Language_Detector`, `Pricing_Agent`, `Thread_Notes_Agent`, `Usage_Agent`, `InternalRevisor`, `List_Skills`) are part of the core engine:
+- Their configuration resides in [`engine/settings/system_agent_settings.json`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/settings/system_agent_settings.json).
+- Their prompt templates reside in [`engine/prompts/system_agents/`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/prompts/system_agents).
 
 ---
 
 ## 🛠️ Adding a New Dynamic Skill or Directive
 
-To implement a new skill or directive:
+ [`SkillRegistry`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/skills/loader.py) discovers skills from two directories:
+- **Implementer Tool Skills (`config/skills/<skill_name>/`)**: Tool-backed capabilities (`scope: agent`) that debate personas invoke during deliberations (imported as `config.skills.<skill_name>.tools`).
+- **Engine Built-in Directives & Modifiers (`engine/skills/builtin/<skill_name>/`)**: Core orchestration actions (`scope: orchestrator`), prompt modifiers (`scope: prompt_modifier`), and `control_plane` tools (imported as `skills.builtin.<skill_name>.action` or `.tools`).
 
-1. **Directory Structure**: Create a new folder under [`skills/<skill_name>/`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/config/skills).
+To implement a new skill:
+1. **Directory Structure**:
+   - For a new agent tool skill, create [`config/skills/<skill_name>/`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/config/skills) (with an `__init__.py`, `SKILL.md`, and `tools.py`).
+   - For a core engine directive or prompt modifier, create [`engine/skills/builtin/<skill_name>/`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/skills/builtin).
 2. **`SKILL.md` Manifest**: Define YAML frontmatter with `name`, `display_name`, `description`, `scope`, `triggers`, and tool schemas.
 3. **Execution Logic**:
    - If tool-backed (`scope: agent`), implement `tools.py` and ensure `ToolPrincipal` authorization is respected.
-   - If a slash directive, register the handler in [`orchestration/stages/directive_handlers.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/orchestration/stages/directive_handlers.py) and gate privileged mutations with `require_directive_admin`.
-   - If adding a Slack interactive button or modal, register an `ActionSpec` in [`adapters/slack/interactivity.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/adapters/slack/interactivity.py) and implement the handler under [`adapters/slack/actions/`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/adapters/slack/actions/).
+   - If a slash directive, register the handler in [`engine/orchestration/stages/directive_handlers.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/orchestration/stages/directive_handlers.py) and gate privileged mutations with `require_directive_admin`.
+   - If adding a Slack interactive button or modal, register an `ActionSpec` in [`engine/adapters/slack/interactivity.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/adapters/slack/interactivity.py) and implement the handler under [`engine/adapters/slack/actions/`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/adapters/slack/actions/).
 4. **Validation Test**: Add corresponding test cases in [`tests/test_agent_skills.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/tests/test_agent_skills.py).
 
 ---

@@ -18,7 +18,7 @@ graph LR
     end
 ```
 
-Every audit file is organized monthly (e.g., `audit/audit_2026_10.jsonl`). Each line is a self-contained JSON object bound cryptographically to its predecessor, and the latest `(month, seq, entry_hash)` is anchored in the SQLite `audit_anchors` table.
+Every audit file is organized monthly (e.g., `data/audit/audit_2026_10.jsonl`). Each line is a self-contained JSON object bound cryptographically to its predecessor, and the latest `(month, seq, entry_hash)` is anchored in the SQLite `audit_anchors` table.
 
 ---
 
@@ -81,7 +81,7 @@ Alerts sent to Slack are posted by the `Security Audit Guard` persona and follow
 🚨 *[SECURITY CRITICAL] Periodic Audit Guard Integrity Breach*
 Periodic scan identified corruption or tampering in the active audit trail.
 • *Violations:* `Hash mismatch at sequence #142 in audit_2026_10.jsonl`
-• *Files:* `audit/audit_2026_10.jsonl`
+• *Files:* `data/audit/audit_2026_10.jsonl`
 👉 _Action Required: Run `python -m services.audit_logger --verify` for forensic diagnostics._
 ```
 

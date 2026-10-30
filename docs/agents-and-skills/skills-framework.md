@@ -15,7 +15,7 @@ Skills fall into three distinct categories:
 
 ```mermaid
 graph TD
-    Directory["skills/<skill_name>/"] --> Loader["skills/loader.py"]
+    Directory["engine/skills/builtin/ & config/skills/"] --> Loader["engine/skills/loader.py"]
     Loader --> Registry["SkillRegistry (core/registry.py)"]
     Registry --> SchemaGen["Tool Schema Generator (JSON Schema for LiteLLM)"]
     
@@ -72,7 +72,7 @@ graph TD
 
 ## 📜 Complete `SKILL.md` Manifest Specification
 
-Every skill is defined by a `SKILL.md` file located in `skills/<skill_name>/SKILL.md`. The file consists of a YAML frontmatter header followed by Markdown operational instructions/guidelines.
+Every skill is defined by a `SKILL.md` file located in `config/skills/<skill_name>/SKILL.md` (implementer tool skills) or `engine/skills/builtin/<skill_name>/SKILL.md` (built-in engine directives & modifiers). The file consists of a YAML frontmatter header followed by Markdown operational instructions/guidelines.
 
 ### 1. Top-Level Frontmatter Properties
 
@@ -117,7 +117,7 @@ The `triggers:` dictionary configures how the skill is detected from user input 
 ## 🔍 Discovery & Registration Lifecycle
 
 ### 1. Skill Discovery ([`skills/loader.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/skills/loader.py))
-During application boot, the loader scans the [`skills/`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/config/skills) root directory. Every subdirectory containing a valid `SKILL.md` file is evaluated.
+During application boot, the loader scans both [`engine/skills/builtin/`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/skills/builtin) (built-in directives and modifiers) and [`config/skills/`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/config/skills) (implementer tool skills). Every subdirectory containing a valid `SKILL.md` file is evaluated.
 
 ### 2. Manifest & Schema Parsing
 The loader extracts all top-level and trigger metadata, validates required fields, registers custom tools from `tools.py`, and checks for action handlers in `action.py`.
@@ -132,7 +132,7 @@ Valid skills are registered into the global `SkillRegistry`. They can be queried
 Izvor provides fine-grained control over skill assignment through [`ThreadSkillsManager`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/orchestration/thread_skills_manager.py) and [`orchestration/stages/directive_handlers.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/orchestration/stages/directive_handlers.py):
 
 ### 1. Static Configuration (Baseline)
-Personas can be assigned permanent baseline skills in [`data/settings/agent_settings.json`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/config/settings/agent_settings.json) (e.g., `SecurityArchitect` defaults with `knowledge_base_rag` and `document_reader`).
+Personas can be assigned permanent baseline skills in [`config/settings/agent_settings.json`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/config/settings/agent_settings.json) (e.g., `SecurityArchitect` defaults with `knowledge_base_rag` and `document_reader`).
 
 ### 2. Runtime Dynamic Granting (Slack Admin Only)
 Workspace administrators (`is_slack_admin`) can grant skills on the fly within an active thread using slash syntax:
@@ -161,7 +161,7 @@ CREATE TABLE IF NOT EXISTS thread_skills (
     PRIMARY KEY (channel_id, thread_ts, agent_id, skill_name)
 );
 ```
-Every grant and revocation emits a non-repudiable audit event to `audit/`:
+Every grant and revocation emits a non-repudiable audit event to `data/audit/`:
 - `THREAD_SKILL_GRANTED`
 - `THREAD_SKILL_REVOKED`
 

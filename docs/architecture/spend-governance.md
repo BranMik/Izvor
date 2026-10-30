@@ -85,7 +85,7 @@ $$\text{Cost} = \frac{\text{Prompt Tokens} \times \text{Rate}_{\text{prompt}} + 
 
 ## ⚡ Two-Tiered Circuit Breaker & Parallel Reservation Protection
 
-Managed by [`SpendGovernance`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/pipeline/spend_governance/circuit_breaker.py) and configured via `data/settings/app_settings.json` (or Slack App Home):
+Managed by [`SpendGovernance`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/pipeline/spend_governance/circuit_breaker.py) and configured via `data/state/app_settings.json` (or Slack App Home):
 - **`daily_budget_usd`**: Global cap on total workspace spending across all threads within a 24-hour UTC window (e.g., `$10.00`). **Enforced unconditionally on every turn**, even if the per-thread `circuit_breaker_enabled` toggle is set to `false`.
 - **`circuit_breaker_enabled`**: `true` (Enabled by default; controls per-thread threshold enforcement).
 - **`circuit_breaker_threshold_usd`**: Maximum allowed USD cost per individual thread (e.g., `$1.00`).

@@ -17,7 +17,7 @@ In Izvor, personas are not simply "chatbots" with different system instructions.
 
 ## 📋 The Complete 17-Persona Roster
 
-The roster is managed dynamically in [`data/settings/agent_settings.json`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/config/settings/agent_settings.json) and configured via [`orchestration/agent_settings.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/orchestration/agent_settings.py):
+The debate panel roster is managed dynamically in [`config/settings/agent_settings.json`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/config/settings/agent_settings.json) and configured via [`orchestration/agent_settings.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/orchestration/agent_settings.py):
 
 | Agent ID | Display Name | Username Tag | Default LLM Model | Special Role | Default Assigned Skills | Output Style |
 |---|---|---|---|---|---|---|
@@ -42,13 +42,13 @@ The roster is managed dynamically in [`data/settings/agent_settings.json`](file:
 ### Dialectical `special_role` Values
 - **`NONE`**: Standard deliberation participant.
 - **`CHALLENGER`** (`Innovator`, `Sceptic`): Automatically selected when consecutive convergence signals reach `convergence_consecutive_threshold` (`2`) to stress-test emerging consensus for blind spots.
-- **`REBUTTAL`** (`RebuttalAdvocate`, prompt at [`prompts/personas/agent-10017.md`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/config/personas/agent-10017.md)): Immediately follows the Challenger during convergence stress-testing to defend the proposal and emit a binding verdict (`[VERDICT: A — CONSENSUS HOLDS]` to fast-forward to `end_chain`, or `[VERDICT: B — FLAWS EXPOSED]` to reset convergence and resume middle-pool debate).
+- **`REBUTTAL`** (`RebuttalAdvocate`, prompt at [`config/personas/agent-10017.md`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/config/personas/agent-10017.md)): Immediately follows the Challenger during convergence stress-testing to defend the proposal and emit a binding verdict (`[VERDICT: A — CONSENSUS HOLDS]` to fast-forward to `end_chain`, or `[VERDICT: B — FLAWS EXPOSED]` to reset convergence and resume middle-pool debate).
 
 ---
 
 ## 🛠️ System Agents
 
-In addition to the 17-persona debate roster, Izvor runs dedicated system-level agents:
+In addition to the 17-persona debate roster in `config/settings/agent_settings.json`, Izvor runs dedicated engine-level system agents configured in [`engine/settings/system_agent_settings.json`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/settings/system_agent_settings.json):
 
 ### 1. The Orchestrator (`Orchestrator`)
 - **Role**: Evaluates inbound user prompts, detects directives and language in a single pre-flight pass ([`nlp/intent_extractor.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/nlp/intent_extractor.py)), selects the initial speaker chain, and manages debate transitions.
@@ -79,7 +79,7 @@ In addition to the 17-persona debate roster, Izvor runs dedicated system-level a
 
 Personas' effective system prompts are assembled dynamically during **Stage 3: Context Preparation** ([`orchestration/stages/context_prep.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/orchestration/stages/context_prep.py)) using [`prompts/builder.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/prompts/builder.py):
 
-1. **Base System Prompt**: Loaded from [`prompts/`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/prompts) or dynamic `AgentSettingsManager` overrides.
+1. **Base System Prompt**: Loaded from [`config/personas/`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/config/personas) (for debate personas) or [`engine/prompts/system_agents/`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/prompts/system_agents) (for system agents).
 2. **Behavioral Guidelines**: Rules prohibiting self-repetition, requiring peer engagement, and enforcing civil intellectual tension.
 3. **3-Tier Memory Context**: Injects `<episodic_thread_summary>` (when history is sliced) and `<shared_round_evidence>` (cached read-only tool outputs from `RoundEvidenceStore`).
 4. **Word Constraints**: If `is_short_output: true` or if a directive (`[max_words: N]`, `[min_words: N]`) is active, instructions are clamped (`max_words ≤ 2000`) and injected into the prompt.
