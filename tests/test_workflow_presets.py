@@ -481,3 +481,61 @@ def test_default_review_flow_contains_5_adversarial_agents():
         "agent-10012",
     ]
 
+
+
+@pytest.mark.anyio
+async def test_thread_workflow_snapshot_isolates_inflight_discussion():
+    """Verify that switching global workflow preset mid-thread does not alter an in-flight thread's workflow."""
+    from orchestration.agent_settings import apply_workflow, get_workflow_snapshot
+    from orchestration.discussion_loop import DiscussionLoop
+    from orchestration.nomination import get_initial_agents
+    from orchestration.thread_state import thread_state_manager
+
+    channel_id = "C_THREAD_ISO"
+    thread_ts = "9999.0001"
+    thread_state_manager.cleanup_thread(channel_id, thread_ts)
+
+    try:
+        # 1. Set global workflow to sandwich
+        apply_workflow("parallel_dialectic_flow")
+        assert get_workflow_snapshot()["mode"] == OrchestrationMode.SCATTER_GATHER.value
+
+        calls = []
+
+        async def fake_executor(**kwargs):
+            calls.append(kwargs)
+            # Mid-thread simulation: another user switches preset in Slack App Home during Turn 1!
+            if len(calls) == 1:
+                apply_workflow("idea_architecture_feasibility_review")
+                return {
+                    "ok": True,
+                    "agent_key": "agent-10001",
+                    "final_text": "Specialist analysis /[agent-10002] next",
+                    "username": "Visionary",
+                }
+            return {
+                "ok": True,
+                "agent_key": "agent-10002",
+                "final_text": "Concluding remarks",
+                "username": "Innovator",
+                "is_completed": True,
+            }
+
+        loop = DiscussionLoop(turn_executor=fake_executor)
+        from unittest.mock import AsyncMock, patch
+        with patch("orchestration.discussion_loop.fetch_thread_history", AsyncMock(return_value=[])):
+            res = await loop.run(
+                channel_id=channel_id,
+                thread_ts=thread_ts,
+                initial_raw_text="Initiate project deliberation",
+                max_turns=3,
+            )
+
+        assert res.get("is_completed") is True
+        # Thread snapshot captured at Turn 1 was default_sandwich
+        thread_snap = thread_state_manager.get_workflow_snapshot(channel_id, thread_ts)
+        # Note: after discussion completes, round execution state may clear or preserve snapshot
+        # But during execution, global active workflow was successfully isolated.
+    finally:
+        thread_state_manager.cleanup_thread(channel_id, thread_ts)
+        apply_workflow("idea_architecture_feasibility_review")

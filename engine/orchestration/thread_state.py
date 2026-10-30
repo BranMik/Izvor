@@ -48,6 +48,7 @@ class ThreadStateManager:
         self.thread_active_file_context = self.context.thread_active_file_context
         self.thread_rounds = self.discussion.thread_rounds
         self.thread_round_sequences = self.discussion.thread_round_sequences
+        self.thread_workflow_snapshots = self.discussion.thread_workflow_snapshots
         self.thread_last_activity: dict[tuple[str, str], float] = {}
         self._cleanup_hooks: list[Any] = []
         self._reset_hooks: list[Any] = []
@@ -416,6 +417,16 @@ class ThreadStateManager:
     def clear_initial_prompt(self, channel_id: str, thread_ts: str) -> None:
         self.discussion.clear_initial_prompt(channel_id, thread_ts)
 
+    def get_workflow_snapshot(self, channel_id: str, thread_ts: str) -> dict[str, Any] | None:
+        return self.discussion.get_workflow_snapshot(channel_id, thread_ts)
+
+    def set_workflow_snapshot(self, channel_id: str, thread_ts: str, snapshot: dict[str, Any]) -> None:
+        self._touch(channel_id, thread_ts)
+        self.discussion.set_workflow_snapshot(channel_id, thread_ts, snapshot)
+
+    def clear_workflow_snapshot(self, channel_id: str, thread_ts: str) -> None:
+        self.discussion.clear_workflow_snapshot(channel_id, thread_ts)
+
     # --- Cross-Store Coordination & Lifecycle ---
     def is_discussion_active(self, channel_id: str, thread_ts: str) -> bool:
         return self.discussion.is_active(channel_id, thread_ts) or self.retry.has_pending_retries(channel_id, thread_ts)
@@ -440,6 +451,7 @@ class ThreadStateManager:
         self.discussion.clear_custom_flow(channel_id, thread_ts)
         self.discussion.clear_stop(channel_id, thread_ts)
         self.discussion.clear_rounds(channel_id, thread_ts)
+        self.discussion.clear_workflow_snapshot(channel_id, thread_ts)
 
     def request_stop(self, channel_id: str, thread_ts: str) -> None:
         self._touch(channel_id, thread_ts)
@@ -453,6 +465,7 @@ class ThreadStateManager:
         self.context.clear_history_limit(channel_id, thread_ts)
         self.discussion.clear_custom_flow(channel_id, thread_ts)
         self.discussion.clear_rounds(channel_id, thread_ts)
+        self.discussion.clear_workflow_snapshot(channel_id, thread_ts)
         logger.info(f"[THREAD STATE] Stop requested for thread {thread_key}. Queues and limits cleared.")
         try:
             from agents import trigger_thread_notes_update, trigger_usage_update
@@ -479,6 +492,7 @@ class ThreadStateManager:
         self.discussion.clear_custom_flow(channel_id, thread_ts)
         self.discussion.clear_stop(channel_id, thread_ts)
         self.discussion.clear_rounds(channel_id, thread_ts)
+        self.discussion.clear_workflow_snapshot(channel_id, thread_ts)
         self.retry.clear_retry_queue(channel_id, thread_ts)
         self.retry.clear_already_retried(channel_id, thread_ts)
         self.retry.clear_503_errored_agents(channel_id, thread_ts)

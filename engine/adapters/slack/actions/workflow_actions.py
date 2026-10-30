@@ -8,6 +8,7 @@ from agents.thread_notes_agent import (
     get_thread_note_content,
 )
 from agents.usage_agent import calculate_thread_costs
+from core.config import is_slack_admin
 from core.models import OrchestrationMode
 from orchestration.agent_settings import (
     apply_workflow,
@@ -589,13 +590,14 @@ async def _handle_select_workflow_preset(
         wf_id = val.split(":", 1)[1]
         if wf_id and wf_id != "none":
             apply_workflow(wf_id)
+            actor_type = "slack_admin" if is_slack_admin(user_id) else "slack_user"
             log_audit_event(
                 event_type="WORKFLOW_PRESET_MUTATION",
-                actor={"type": "slack_admin", "id": user_id or "unknown"},
+                actor={"type": actor_type, "id": user_id or "unknown"},
                 action="apply_workflow_preset",
                 target=f"workflow:{wf_id}",
                 details={"workflow_id": wf_id},
-                severity="CRITICAL",
+                severity="INFO",
             )
     return None
 
@@ -620,13 +622,14 @@ async def _handle_load_workflow_preset_button(
         selected_wf_id = get_active_workflow_id()
     if selected_wf_id and selected_wf_id != "none":
         apply_workflow(selected_wf_id)
+        actor_type = "slack_admin" if is_slack_admin(user_id) else "slack_user"
         log_audit_event(
             event_type="WORKFLOW_PRESET_MUTATION",
-            actor={"type": "slack_admin", "id": user_id or "unknown"},
+            actor={"type": actor_type, "id": user_id or "unknown"},
             action="apply_workflow_preset",
             target=f"workflow:{selected_wf_id}",
             details={"workflow_id": selected_wf_id},
-            severity="CRITICAL",
+            severity="INFO",
         )
     return None
 

@@ -3,6 +3,8 @@ import json
 import logging
 import time
 
+from typing import Any
+
 from core.database import get_connection, get_db_transaction
 
 logger = logging.getLogger(__name__)
@@ -21,6 +23,7 @@ class DiscussionStateStore:
         self.thread_round_sequences: dict[tuple[str, str], list[str]] = {}
         self.thread_initial_prompts: dict[tuple[str, str], str] = {}
         self.consensus_reached_threads: set[tuple[str, str]] = set()
+        self.thread_workflow_snapshots: dict[tuple[str, str], dict[str, Any]] = {}
         self._loaded_threads: set[tuple[str, str]] = set()
 
     def _ensure_loaded(self, channel_id: str, thread_ts: str) -> None:
@@ -381,6 +384,21 @@ class DiscussionStateStore:
     def is_consensus_reached(self, channel_id: str, thread_ts: str) -> bool:
         return (channel_id, thread_ts) in self.consensus_reached_threads
 
+    def get_workflow_snapshot(self, channel_id: str, thread_ts: str) -> dict[str, Any] | None:
+        """Returns the cached workflow configuration snapshot for this thread, if captured."""
+        return self.thread_workflow_snapshots.get((channel_id, thread_ts))
+
+    def set_workflow_snapshot(self, channel_id: str, thread_ts: str, snapshot: dict[str, Any]) -> None:
+        """Captures a frozen workflow configuration snapshot for this thread."""
+        self.thread_workflow_snapshots[(channel_id, thread_ts)] = dict(snapshot)
+        logger.info(
+            f"[DISCUSSION STORE] Captured workflow snapshot for {(channel_id, thread_ts)}: {snapshot.get('workflow_id')} ({snapshot.get('mode')})"
+        )
+
+    def clear_workflow_snapshot(self, channel_id: str, thread_ts: str) -> None:
+        """Clears the workflow configuration snapshot for this thread."""
+        self.thread_workflow_snapshots.pop((channel_id, thread_ts), None)
+
     def clear_thread(self, channel_id: str, thread_ts: str) -> None:
         """Purges discussion state for this thread."""
         self.clear_remaining_agents(channel_id, thread_ts)
@@ -392,6 +410,7 @@ class DiscussionStateStore:
         self.clear_round_sequence(channel_id, thread_ts)
         self.clear_initial_prompt(channel_id, thread_ts)
         self.set_consensus_reached(channel_id, thread_ts, False)
+        self.clear_workflow_snapshot(channel_id, thread_ts)
         self._loaded_threads.discard((channel_id, thread_ts))
         try:
             with get_db_transaction(immediate=True) as conn:
@@ -413,6 +432,7 @@ class DiscussionStateStore:
         self.thread_round_sequences.clear()
         self.thread_initial_prompts.clear()
         self.consensus_reached_threads.clear()
+        self.thread_workflow_snapshots.clear()
         self._loaded_threads.clear()
         try:
             with get_db_transaction(immediate=True) as conn:
