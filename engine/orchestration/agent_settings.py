@@ -951,6 +951,15 @@ class AgentSettingsManager:
         logger.info(f"[SETTINGS] Successfully applied workflow preset '{preset.name}' ({preset.id})")
         return True
 
+    def get_workflow_snapshot(self) -> dict[str, Any]:
+        """Returns a snapshot of the currently active workflow settings."""
+        return {
+            "workflow_id": self.get_active_workflow_id(),
+            "mode": get_orchestration_mode(),
+            "sandwich_config": get_sandwich_config(),
+            "fixed_config": get_fixed_config(),
+        }
+
     def reset(self, save: bool = True) -> None:
         """Resets all registered agents to enabled state and resets orchestration mode to sandwich default."""
         self.enabled_agents.clear()
@@ -1259,6 +1268,15 @@ def set_active_workflow_id(workflow_id: str | None, save: bool = True) -> None:
 
 def apply_workflow(workflow_id: str, save: bool = True) -> bool:
     return settings_manager.apply_workflow(workflow_id, save=save)
+
+
+def get_workflow_snapshot() -> dict[str, Any]:
+    return {
+        "workflow_id": get_active_workflow_id(),
+        "mode": get_orchestration_mode(),
+        "sandwich_config": get_sandwich_config(),
+        "fixed_config": get_fixed_config(),
+    }
 
 
 def persist_active_workflow() -> None:

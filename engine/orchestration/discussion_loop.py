@@ -117,6 +117,12 @@ class DiscussionLoop:
                 ):
                     accumulated_history.append({"role": "user", "content": initial_raw_text})
 
+                # Snapshot active workflow at Turn 1 for mid-thread concurrency isolation
+                if not thread_state_manager.get_workflow_snapshot(channel_id, thread_ts):
+                    from orchestration.agent_settings import get_workflow_snapshot
+
+                    thread_state_manager.set_workflow_snapshot(channel_id, thread_ts, get_workflow_snapshot())
+
                 # 2. Run first turn with user prompt
                 turn_res = await self.turn_executor(
                     channel_id=channel_id,
@@ -171,10 +177,11 @@ class DiscussionLoop:
                     )
 
                 # Scatter-Gather Topology Check
-                active_mode = get_orchestration_mode()
+                wf_snap = thread_state_manager.get_workflow_snapshot(channel_id, thread_ts)
+                active_mode = wf_snap.get("mode") if wf_snap else get_orchestration_mode()
                 if active_mode in (OrchestrationMode.SCATTER_GATHER, "scatter_gather"):
                     remaining = thread_state_manager.get_remaining_agents(channel_id, thread_ts)
-                    sandwich_cfg = get_sandwich_config()
+                    sandwich_cfg = wf_snap.get("sandwich_config") if wf_snap else get_sandwich_config()
                     end_chain = sandwich_cfg.get("end_chain", [])
                     scatter_agents = [a for a in remaining if a not in end_chain]
 

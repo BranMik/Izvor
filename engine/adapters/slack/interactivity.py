@@ -128,10 +128,10 @@ ACTION_REGISTRY: dict[str, ActionSpec] = {
         handler=_handle_save_daily_budget_button, admin_required=True, audit_action="ADMIN_CONFIG_CHANGE", publish_home=True
     ),
     "select_workflow_preset": ActionSpec(
-        handler=_handle_select_workflow_preset, admin_required=True, audit_action="ADMIN_CONFIG_CHANGE", publish_home=True
+        handler=_handle_select_workflow_preset, admin_required=False, audit_action="WORKFLOW_PRESET_SELECTED", publish_home=True
     ),
     "load_workflow_preset_button": ActionSpec(
-        handler=_handle_load_workflow_preset_button, admin_required=True, audit_action="ADMIN_CONFIG_CHANGE", publish_home=True
+        handler=_handle_load_workflow_preset_button, admin_required=False, audit_action="WORKFLOW_PRESET_SELECTED", publish_home=True
     ),
     "delete_workflow_preset_button": ActionSpec(
         handler=_handle_delete_workflow_preset_button, admin_required=True, audit_action="ADMIN_CONFIG_CHANGE", publish_home=True
