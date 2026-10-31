@@ -11,9 +11,9 @@ from pathlib import Path
 import pytest
 
 from prompts.builder import (
-    SHORT_OUTPUT_AGENTS,
-    SYSTEM_AGENTS,
     _read_prompt_file,
+    get_short_output_agents,
+    get_system_agents,
     is_short_output_agent,
     is_system_agent,
 )
@@ -99,11 +99,11 @@ def test_prompt_file_mtime_cache_invalidation():
 
 
 def test_dynamic_agent_sets_and_predicates():
-    """Verifies that SHORT_OUTPUT_AGENTS and SYSTEM_AGENTS resolve dynamically without disk reads."""
-    assert len(SHORT_OUTPUT_AGENTS) == 4
+    """Verifies that short output and system agents resolve dynamically without disk reads."""
+    assert len(get_short_output_agents()) == 4
     assert is_short_output_agent("agent-10010") is True
     assert is_short_output_agent("agent-10001") is False
 
-    assert "orchestrator" in SYSTEM_AGENTS
+    assert "orchestrator" in get_system_agents()
     assert is_system_agent("orchestrator") is True
     assert is_system_agent("agent-10001") is False

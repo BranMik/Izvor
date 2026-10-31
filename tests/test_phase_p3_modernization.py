@@ -51,7 +51,7 @@ def test_sandwich_orchestration_simplification():
     channel = "C_P3_TEST"
     ts = "200.001"
     thread_state_manager.clear_state(channel, ts)
-    thread_state_manager.remaining_agents_map[(channel, ts)] = ["agent-10001", "agent-10002"]
+    thread_state_manager.discussion.remaining_agents_map[(channel, ts)] = ["agent-10001", "agent-10002"]
 
     with patch.object(settings_manager, "get_orchestration_mode", return_value=OrchestrationMode.SANDWICH):
         agent, cleaned, was_explicit = parse_agent_and_prompt("hello team", channel, ts)

@@ -436,7 +436,6 @@ class AppIntegrityValidator:
         """
         Validates that required system settings keys exist in system_settings.json.
         Logs WARNING for any missing required key.
-        If deprecated challenger_agents or rebuttal_agent exist, strips them and saves.
         """
         if not isinstance(data, dict):
             logger.warning("[INTEGRITY] System settings payload is not a dictionary.")
@@ -458,18 +457,6 @@ class AppIntegrityValidator:
                     "[INTEGRITY] Required system setting '%s' is missing from system_settings.json.", k
                 )
 
-        dirty = False
-        for deprecated in ("challenger_agents", "rebuttal_agent"):
-            if deprecated in data:
-                del data[deprecated]
-                dirty = True
-
-        if dirty and settings_path is not None:
-            try:
-                Path(settings_path).write_text(json.dumps(data, indent=2), encoding="utf-8")
-                logger.info("[INTEGRITY] Stripped deprecated roles and saved system settings.")
-            except Exception as e:  # noqa: BLE001
-                logger.error("[INTEGRITY] Failed to write updated system settings: %s", e)
 
         return data
 

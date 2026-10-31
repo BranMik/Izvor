@@ -353,7 +353,7 @@ async def upload_text_file_to_slack(
 ) -> dict[str, Any]:
     """
     Uploads a plain text file directly to a Slack channel or DM.
-    Supports modern files_upload_v2 with fallback to files_upload and mock support.
+    Uses modern files_upload_v2.
     """
     bot_token = get_slack_bot_token()
     if (
@@ -391,10 +391,7 @@ async def upload_text_file_to_slack(
         if thread_ts:
             kwargs["thread_ts"] = thread_ts
 
-        if hasattr(client, "files_upload_v2"):
-            res = await client.files_upload_v2(**kwargs)
-        else:
-            res = await client.files_upload(**kwargs)
+        res = await client.files_upload_v2(**kwargs)
         file_data = res.data if hasattr(res, "data") else res
         logger.info(f"[SLACK FILE] Successfully uploaded file '{filename}' to {channel_id}")
         return {"ok": True, "file": file_data}

@@ -71,36 +71,6 @@ def get_short_output_agents() -> set[str]:
     return set()
 
 
-class _DynamicAgentSet(set):
-    """Dynamically resolves agents from settings_manager while providing a set interface."""
-
-    def __init__(self, fetcher: Any):
-        super().__init__()
-        self._fetcher = fetcher
-
-    def _sync(self) -> None:
-        fetched = self._fetcher()
-        if fetched:
-            super().clear()
-            super().update(fetched)
-
-    def __contains__(self, item: Any) -> bool:
-        self._sync()
-        return super().__contains__(item)
-
-    def __len__(self) -> int:
-        self._sync()
-        return super().__len__()
-
-    def __iter__(self) -> Any:
-        self._sync()
-        return super().__iter__()
-
-
-# Dynamic sets preserving backward compatibility without import-time disk reads
-SHORT_OUTPUT_AGENTS: set[str] = _DynamicAgentSet(get_short_output_agents)
-
-
 def is_short_output_agent(agent_key: str) -> bool:
     """Checks whether an agent is configured with is_short_output: true dynamically from SSOT."""
     try:
@@ -117,7 +87,7 @@ def is_short_output_agent(agent_key: str) -> bool:
                 return True
     except Exception as e:  # noqa: BLE001
         logger.debug(f"[PROMPT BUILDER] Dynamic short output check fallback: {e}")
-    return agent_key in SHORT_OUTPUT_AGENTS
+    return agent_key in get_short_output_agents()
 
 
 def get_system_agents() -> set[str]:
@@ -137,9 +107,6 @@ def get_system_agents() -> set[str]:
     return system_keys
 
 
-SYSTEM_AGENTS: set[str] = _DynamicAgentSet(get_system_agents)
-
-
 def is_system_agent(agent_key: str) -> bool:
     """Checks whether an agent is configured as a system agent via metadata or settings."""
     if agent_key in ("orchestrator", "Orchestrator"):
@@ -154,7 +121,7 @@ def is_system_agent(agent_key: str) -> bool:
     except Exception as e:  # noqa: BLE001
         logger.debug(f"[PROMPT BUILDER] Dynamic system agent check fallback: {e}")
 
-    if agent_key in SYSTEM_AGENTS:
+    if agent_key in get_system_agents():
         return True
 
     # Runtime fallback lookup against core.config.SYSTEM_AGENTS_CONFIG
@@ -195,6 +162,7 @@ def build_agent_prompt(
     min_words: int | None = None,
     skills: list[str] | None = None,
     modifiers: dict[str, Any] | None = None,
+    is_short_output: bool | None = None,
 ) -> str:
     """
     Builds the complete system prompt for a given agent by combining
@@ -240,7 +208,7 @@ def build_agent_prompt(
             f"{word_constraints}\n"
             f"</output_and_length_constraints>"
         )
-    elif is_short_output_agent(agent_key):
+    elif is_short_output if is_short_output is not None else is_short_output_agent(agent_key):
         output_constraints = _read_prompt_file(SHARED_DIR / "output_constraints_100w.md")
     else:
         output_constraints = _read_prompt_file(SHARED_DIR / "output_constraints.md")

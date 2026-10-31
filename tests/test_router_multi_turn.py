@@ -5,7 +5,6 @@ import pytest
 from orchestration import agent_router
 from orchestration.agent_router import process_and_respond
 from orchestration.agent_settings import (
-    ENABLED_DEBATE_AGENTS,
     get_enabled_agents,
     load_enabled_agents,
     reset_enabled_agents,
@@ -13,6 +12,7 @@ from orchestration.agent_settings import (
     set_fixed_config,
     set_orchestration_mode,
     set_sandwich_config,
+    settings_manager,
     toggle_agent,
 )
 from orchestration.app_settings import (
@@ -82,8 +82,8 @@ async def test_scenario_2_multiple_agents_custom_flow(monkeypatch):
     )
 
     # Innovator's premature SecurityArchitect nomination should be corrected to LegalAdvisor
-    assert thread_key in thread_state_manager.custom_flow_threads
-    assert thread_state_manager.remaining_agents_map[thread_key] == ["agent-10011"]
+    assert thread_key in thread_state_manager.discussion.custom_flow_threads
+    assert thread_state_manager.discussion.remaining_agents_map[thread_key] == ["agent-10011"]
     assert "/[agent-10011]" in posted_messages[0]
 
     # Step 2: Next bot trigger for LegalAdvisor (the last custom agent)
@@ -108,8 +108,8 @@ async def test_scenario_2_multiple_agents_custom_flow(monkeypatch):
 
     # Last custom agent cleanly terminates
     assert "CRITICAL CONSTRAINT" in mock_run_2.captured_user_prompt
-    assert thread_key not in thread_state_manager.custom_flow_threads
-    assert thread_key not in thread_state_manager.remaining_agents_map
+    assert thread_key not in thread_state_manager.discussion.custom_flow_threads
+    assert thread_key not in thread_state_manager.discussion.remaining_agents_map
     assert "/[agent-10008]" not in posted_messages[1]
 
 
@@ -158,12 +158,12 @@ async def test_scenario_3_no_agent_tagged_default_flow(monkeypatch):
     )
 
     # Default starts with Visionary and initializes all panel agents
-    assert thread_key not in thread_state_manager.custom_flow_threads
-    assert len(thread_state_manager.remaining_agents_map[thread_key]) == 16
+    assert thread_key not in thread_state_manager.discussion.custom_flow_threads
+    assert len(thread_state_manager.discussion.remaining_agents_map[thread_key]) == 16
     assert "/[agent-10003]" in posted_messages[0]
 
     # Step 2: Intermediate agent (Monitoring Specialist) tries to prematurely nominate SecurityArchitect
-    thread_state_manager.remaining_agents_map[thread_key] = [
+    thread_state_manager.discussion.remaining_agents_map[thread_key] = [
         "agent-10007",
         "agent-10008",
         "agent-10003",
@@ -188,10 +188,10 @@ async def test_scenario_3_no_agent_tagged_default_flow(monkeypatch):
 
     # Premature Innovator tag is programmatically replaced with first remaining agent (UserAdvocate)
     assert "/[agent-10007]" in posted_messages[1]
-    assert "agent-10007" in thread_state_manager.remaining_agents_map[thread_key]
+    assert "agent-10007" in thread_state_manager.discussion.remaining_agents_map[thread_key]
 
     # Step 3: Intermediate agent speaks and nominates next remaining agent
-    thread_state_manager.remaining_agents_map[thread_key] = ["agent-10008", "agent-10008"]
+    thread_state_manager.discussion.remaining_agents_map[thread_key] = ["agent-10008", "agent-10008"]
 
     mock_choice_3 = MagicMock()
     mock_choice_3.message.content = "Security review finished."
@@ -211,7 +211,7 @@ async def test_scenario_3_no_agent_tagged_default_flow(monkeypatch):
     )
 
     # Next agent is SecurityArchitect
-    assert thread_state_manager.remaining_agents_map[thread_key] == ["agent-10008"]
+    assert thread_state_manager.discussion.remaining_agents_map[thread_key] == ["agent-10008"]
     assert "/[agent-10008]" in posted_messages[2]
 
     # Step 4: SecurityArchitect executes final summary
@@ -233,7 +233,7 @@ async def test_scenario_3_no_agent_tagged_default_flow(monkeypatch):
     )
 
     # SecurityArchitect finishes, state cleaned up, tags stripped
-    assert thread_key not in thread_state_manager.remaining_agents_map
+    assert thread_key not in thread_state_manager.discussion.remaining_agents_map
     assert "/[agent-10001]" not in posted_messages[3]
 
 
@@ -333,36 +333,36 @@ async def test_thread_stop_during_llm_execution(monkeypatch):
     assert "agent-10002" not in posted_messages[0]
 
     # 3. State cleaned up - no remaining agents, not in stop requested set
-    assert thread_key not in thread_state_manager.remaining_agents_map
-    assert thread_key not in thread_state_manager.stop_requested_threads
-    assert thread_key not in thread_state_manager.custom_flow_threads
+    assert thread_key not in thread_state_manager.discussion.remaining_agents_map
+    assert thread_key not in thread_state_manager.discussion.stop_requested_threads
+    assert thread_key not in thread_state_manager.discussion.custom_flow_threads
 
 
 def test_locked_agents_cannot_be_disabled():
     reset_enabled_agents()
     # All agents can be freely toggled on and off (no locked agents)
     assert set_agent_enabled("agent-10001", False) is True
-    assert "agent-10001" not in ENABLED_DEBATE_AGENTS
+    assert "agent-10001" not in settings_manager.enabled_agents
 
     assert set_agent_enabled("agent-10008", False) is True
-    assert "agent-10008" not in ENABLED_DEBATE_AGENTS
+    assert "agent-10008" not in settings_manager.enabled_agents
 
     assert set_agent_enabled("agent-10003", False) is True
-    assert "agent-10003" not in ENABLED_DEBATE_AGENTS
+    assert "agent-10003" not in settings_manager.enabled_agents
 
 
 def test_toggleable_agent_enable_and_disable():
     reset_enabled_agents()
-    assert "agent-10011" in ENABLED_DEBATE_AGENTS
+    assert "agent-10011" in settings_manager.enabled_agents
 
     # Disable LegalAdvisor
     assert set_agent_enabled("agent-10011", False) is True
-    assert "agent-10011" not in ENABLED_DEBATE_AGENTS
+    assert "agent-10011" not in settings_manager.enabled_agents
     assert "agent-10011" not in get_initial_agents()
 
     # Re-enable via toggle_agent
     assert toggle_agent("agent-10011") is True
-    assert "agent-10011" in ENABLED_DEBATE_AGENTS
+    assert "agent-10011" in settings_manager.enabled_agents
     assert "agent-10011" in get_initial_agents()
 
 
@@ -444,14 +444,14 @@ def test_settings_persistence(tmp_path, monkeypatch):
     set_circuit_breaker_threshold(3.50)
 
     assert test_settings_path.exists()
-    assert "agent-10011" not in ENABLED_DEBATE_AGENTS
-    assert "agent-10002" not in ENABLED_DEBATE_AGENTS
+    assert "agent-10011" not in settings_manager.enabled_agents
+    assert "agent-10002" not in settings_manager.enabled_agents
     assert is_circuit_breaker_enabled() is True
     assert get_circuit_breaker_threshold() == 3.50
 
     # 2. Simulate server restart by clearing memory and calling load_enabled_agents()
-    ENABLED_DEBATE_AGENTS.clear()
-    assert len(ENABLED_DEBATE_AGENTS) == 0
+    settings_manager.enabled_agents.clear()
+    assert len(settings_manager.enabled_agents) == 0
 
     loaded = load_enabled_agents()
     assert "agent-10011" not in loaded
@@ -467,24 +467,24 @@ def test_settings_persistence(tmp_path, monkeypatch):
 
 def test_is_discussion_active_behavior():
     thread_key = ("C_ACTIVE_TEST", "12345.1001")
-    thread_state_manager.remaining_agents_map.pop(thread_key, None)
-    thread_state_manager.rate_limit_retry_queue.pop(thread_key, None)
-    thread_state_manager.active_thread_tasks.pop(thread_key, None)
+    thread_state_manager.discussion.remaining_agents_map.pop(thread_key, None)
+    thread_state_manager.retry.rate_limit_retry_queue.pop(thread_key, None)
+    thread_state_manager.discussion.active_thread_tasks.pop(thread_key, None)
 
     # 1. Fresh / idle thread is not active
     assert thread_state_manager.is_discussion_active("C_ACTIVE_TEST", "12345.1001") is False
 
     # 2. Active when remaining agents exist
-    thread_state_manager.remaining_agents_map[thread_key] = ["agent-10011"]
+    thread_state_manager.discussion.remaining_agents_map[thread_key] = ["agent-10011"]
     assert thread_state_manager.is_discussion_active("C_ACTIVE_TEST", "12345.1001") is True
 
     # 3. Active when retry queue has entries
-    thread_state_manager.remaining_agents_map.pop(thread_key, None)
-    thread_state_manager.rate_limit_retry_queue[thread_key] = ["agent-10002"]
+    thread_state_manager.discussion.remaining_agents_map.pop(thread_key, None)
+    thread_state_manager.retry.rate_limit_retry_queue[thread_key] = ["agent-10002"]
     assert thread_state_manager.is_discussion_active("C_ACTIVE_TEST", "12345.1001") is True
 
     # Clean up
-    thread_state_manager.rate_limit_retry_queue.pop(thread_key, None)
+    thread_state_manager.retry.rate_limit_retry_queue.pop(thread_key, None)
     assert thread_state_manager.is_discussion_active("C_ACTIVE_TEST", "12345.1001") is False
 
 
@@ -494,20 +494,20 @@ async def test_interrupt_thread_discussion_clears_state_and_cancels_task():
 
     thread_key = ("C_INTERRUPT_TEST", "12345.1002")
 
-    thread_state_manager.remaining_agents_map[thread_key] = ["agent-10011", "agent-10002"]
-    thread_state_manager.rate_limit_retry_queue[thread_key] = ["agent-10001"]
-    thread_state_manager.rate_limit_already_retried[thread_key] = {"agent-10011"}
-    thread_state_manager.custom_flow_threads.add(thread_key)
-    thread_state_manager.stop_requested_threads.add(thread_key)
+    thread_state_manager.discussion.remaining_agents_map[thread_key] = ["agent-10011", "agent-10002"]
+    thread_state_manager.retry.rate_limit_retry_queue[thread_key] = ["agent-10001"]
+    thread_state_manager.retry.rate_limit_already_retried[thread_key] = {"agent-10011"}
+    thread_state_manager.discussion.custom_flow_threads.add(thread_key)
+    thread_state_manager.discussion.stop_requested_threads.add(thread_key)
 
     # Create dummy running background task
     async def dummy_coro():
         await asyncio.sleep(100)
 
     task = asyncio.create_task(dummy_coro())
-    thread_state_manager.active_thread_tasks[thread_key] = task
+    thread_state_manager.discussion.active_thread_tasks[thread_key] = task
 
-    initial_gen = thread_state_manager.thread_generations.get(thread_key, 0)
+    initial_gen = thread_state_manager.get_generation(thread_key[0], thread_key[1])
 
     # Trigger interrupt
     thread_state_manager.interrupt_discussion("C_INTERRUPT_TEST", "12345.1002")
@@ -518,12 +518,12 @@ async def test_interrupt_thread_discussion_clears_state_and_cancels_task():
     except asyncio.CancelledError:
         pass
     assert task.cancelled() is True
-    assert thread_state_manager.thread_generations[thread_key] == initial_gen + 1
-    assert thread_key not in thread_state_manager.remaining_agents_map
-    assert thread_key not in thread_state_manager.rate_limit_retry_queue
-    assert thread_key not in thread_state_manager.rate_limit_already_retried
-    assert thread_key not in thread_state_manager.custom_flow_threads
-    assert thread_key not in thread_state_manager.stop_requested_threads
+    assert thread_state_manager.get_generation(thread_key[0], thread_key[1]) == initial_gen + 1
+    assert thread_key not in thread_state_manager.discussion.remaining_agents_map
+    assert thread_key not in thread_state_manager.retry.rate_limit_retry_queue
+    assert thread_key not in thread_state_manager.retry.rate_limit_already_retried
+    assert thread_key not in thread_state_manager.discussion.custom_flow_threads
+    assert thread_key not in thread_state_manager.discussion.stop_requested_threads
     assert thread_state_manager.is_discussion_active("C_INTERRUPT_TEST", "12345.1002") is False
 
 
@@ -538,8 +538,8 @@ async def test_interruption_during_llm_execution_aborts_superseded_turn(monkeypa
     - Turn 2 (new query) processes and posts to Slack.
     """
     thread_key = ("C_INTERRUPT_LLM", "12345.1003")
-    thread_state_manager.remaining_agents_map.pop(thread_key, None)
-    thread_state_manager.active_thread_tasks.pop(thread_key, None)
+    thread_state_manager.discussion.remaining_agents_map.pop(thread_key, None)
+    thread_state_manager.discussion.active_thread_tasks.pop(thread_key, None)
 
     posted_messages = []
 
@@ -613,8 +613,8 @@ async def test_interruption_during_pacing_delay_aborts_superseded_turn(monkeypat
     - Turn 1 does not post to Slack.
     """
     thread_key = ("C_INTERRUPT_SLEEP", "12345.1004")
-    thread_state_manager.remaining_agents_map.pop(thread_key, None)
-    thread_state_manager.active_thread_tasks.pop(thread_key, None)
+    thread_state_manager.discussion.remaining_agents_map.pop(thread_key, None)
+    thread_state_manager.discussion.active_thread_tasks.pop(thread_key, None)
 
     posted_messages = []
 

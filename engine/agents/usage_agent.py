@@ -646,25 +646,6 @@ class ThreadUsageTracker:
 usage_tracker = ThreadUsageTracker()
 thread_usage_tracker = usage_tracker
 
-# Module-level variable mapping for backward compatibility
-THREAD_USAGE_DATA = usage_tracker.thread_usage_data
-USAGE_LOCKS = usage_tracker.usage_locks
-_RUNNING_USAGE_TASKS = usage_tracker.running_usage_tasks
-_PENDING_USAGE_UPDATES = usage_tracker.pending_usage_updates
-_PENDING_USAGE_COMPLETED = usage_tracker.pending_usage_completed
-
-
-# Backward-compatible function aliases
-def _get_usage_lock(channel_id: str, thread_ts: str) -> asyncio.Lock:
-    return usage_tracker.get_lock(channel_id, thread_ts)
-
-
-def load_thread_usage_data() -> None:
-    usage_tracker.load()
-
-
-def save_thread_usage_data() -> None:
-    usage_tracker.save()
 
 
 def record_thread_tokens(

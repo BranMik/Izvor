@@ -32,23 +32,6 @@ class ThreadStateManager:
         self.context = ThreadContextStore()
         self.evidence = RoundEvidenceStore()
 
-        # Backward-compatible dictionary references
-        self.remaining_agents_map = self.discussion.remaining_agents_map
-        self.rate_limit_retry_queue = self.retry.rate_limit_retry_queue
-        self.rate_limit_already_retried = self.retry.rate_limit_already_retried
-        self.high_demand_errored_agents = self.retry.high_demand_errored_agents
-        self.active_thread_tasks = self.discussion.active_thread_tasks
-        self.thread_generations = self.retry.thread_generations
-        self.custom_flow_threads = self.discussion.custom_flow_threads
-        self.stop_requested_threads = self.discussion.stop_requested_threads
-        self.thread_history_limits = self.context.thread_history_limits
-        self.thread_max_words_limits = self.context.thread_max_words_limits
-        self.thread_min_words_limits = self.context.thread_min_words_limits
-        self.thread_languages = self.context.thread_languages
-        self.thread_active_file_context = self.context.thread_active_file_context
-        self.thread_rounds = self.discussion.thread_rounds
-        self.thread_round_sequences = self.discussion.thread_round_sequences
-        self.thread_workflow_snapshots = self.discussion.thread_workflow_snapshots
         self.thread_last_activity: dict[tuple[str, str], float] = {}
         self._cleanup_hooks: list[Any] = []
         self._reset_hooks: list[Any] = []
@@ -572,9 +555,9 @@ class ThreadStateManager:
         evicted_count = 0
 
         # Reap completed tasks from active_thread_tasks
-        done_keys = [k for k, task in list(self.active_thread_tasks.items()) if task.done()]
+        done_keys = [k for k, task in list(self.discussion.active_thread_tasks.items()) if task.done()]
         for k in done_keys:
-            self.active_thread_tasks.pop(k, None)
+            self.discussion.active_thread_tasks.pop(k, None)
 
         # Prune inactive threads exceeding TTL (only skip if task is currently running)
         candidates = [key for key, last_time in list(self.thread_last_activity.items()) if (now - last_time) > ttl_seconds]
@@ -590,7 +573,7 @@ class ThreadStateManager:
         cutoff = now - ttl_seconds
         active_running_keys = {
             (c_id, t_ts)
-            for (c_id, t_ts), task in list(self.active_thread_tasks.items())
+            for (c_id, t_ts), task in list(self.discussion.active_thread_tasks.items())
             if task and not task.done()
         }
         try:

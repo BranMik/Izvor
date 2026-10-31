@@ -41,23 +41,118 @@ class ParsedDirectives:
     modifiers: dict[str, Any] = field(default_factory=dict)
     attachments: list[MediaAttachment] = field(default_factory=list)
 
-    # Legacy & domain accessors
-    max_words: int | str | None = None
-    min_words: int | str | None = None
-    scribe_max_words: int | str | None = None
-    scribe_min_words: int | str | None = None
-    history_limit: int | None = None
-    excluded_agents: list[str] = field(default_factory=list)
-    included_agents: list[str] = field(default_factory=list)
-    exclude_off: bool = False
-    include_off: bool = False
-    revoke_target: str | None = None
-    first_agent: str | None = None
-    open_debate_agent: str | None = None
-    is_file_req: bool = False
-    target_filename: str | None = None
-    is_stop: bool = False
     detected_language: str | None = None
+
+    @property
+    def max_words(self) -> int | None:
+        val = self.modifiers.get("max_words")
+        try:
+            return int(val) if val is not None else None
+        except (ValueError, TypeError):
+            return None
+
+    @property
+    def min_words(self) -> int | None:
+        val = self.modifiers.get("min_words")
+        try:
+            return int(val) if val is not None else None
+        except (ValueError, TypeError):
+            return None
+
+    @property
+    def scribe_max_words(self) -> int | None:
+        val = self.modifiers.get("scribe_max_words")
+        if val is None:
+            for a in self.actions:
+                if a.name == "scribe_max_words":
+                    val = a.params.get("words") or a.params.get("value")
+                    break
+        try:
+            return int(val) if val is not None else None
+        except (ValueError, TypeError):
+            return None
+
+    @property
+    def scribe_min_words(self) -> int | None:
+        val = self.modifiers.get("scribe_min_words")
+        if val is None:
+            for a in self.actions:
+                if a.name == "scribe_min_words":
+                    val = a.params.get("words") or a.params.get("value")
+                    break
+        try:
+            return int(val) if val is not None else None
+        except (ValueError, TypeError):
+            return None
+
+    @property
+    def history_limit(self) -> int | None:
+        val = self.modifiers.get("history")
+        try:
+            return int(val) if val is not None else None
+        except (ValueError, TypeError):
+            return None
+
+    @property
+    def excluded_agents(self) -> list[str]:
+        for a in self.actions:
+            if a.name == "exclude_agents":
+                return list(a.params.get("agents", []))
+        return list(self.modifiers.get("excluded_agents", []))
+
+    @property
+    def included_agents(self) -> list[str]:
+        for a in self.actions:
+            if a.name == "include_agents":
+                return list(a.params.get("agents", []))
+        return list(self.modifiers.get("included_agents", []))
+
+    @property
+    def exclude_off(self) -> bool:
+        return any(a.name == "exclude_agents" and a.params.get("off") is True for a in self.actions)
+
+    @property
+    def include_off(self) -> bool:
+        return any(a.name == "include_agents" and a.params.get("off") is True for a in self.actions)
+
+    @property
+    def revoke_target(self) -> str | None:
+        for a in self.actions:
+            if a.name == "revoke_constraint":
+                return a.params.get("target")
+        return None
+
+    @property
+    def first_agent(self) -> str | None:
+        for a in self.actions:
+            if a.name == "first":
+                return a.params.get("first_agent")
+        return None
+
+    @property
+    def open_debate_agent(self) -> str | None:
+        for a in self.actions:
+            if a.name == "open_debate":
+                return a.params.get("first_agent")
+        return None
+
+    @property
+    def is_file_req(self) -> bool:
+        return any(
+            a.name in ("document_reader", "read_file", "file") or "target_file" in a.params
+            for a in self.actions
+        ) or bool(self.modifiers.get("file_use"))
+
+    @property
+    def target_filename(self) -> str | None:
+        for a in self.actions:
+            if "target_file" in a.params:
+                return str(a.params["target_file"])
+        return self.modifiers.get("target_file")
+
+    @property
+    def is_stop(self) -> bool:
+        return any(a.name == "stop_discussion" for a in self.actions)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -107,7 +202,6 @@ class DirectiveParser:
             return ParsedDirectives(
                 cleaned_prompt=raw_text,
                 actions=[ActionDirective(name="stop_discussion")],
-                is_stop=True,
             )
 
         actions: list[ActionDirective] = []
@@ -395,22 +489,21 @@ class DirectiveParser:
             detected_language = getattr(intent, "detected_language", None)
 
             # Smart merge: slash commands take absolute priority over LLM inferences
-            if max_words is None and intent.max_words is not None:
-                max_words = intent.max_words
-                modifiers["max_words"] = max_words
+            intent_max_words = intent.modifiers.get("max_words")
+            if "max_words" not in modifiers and intent_max_words is not None:
+                modifiers["max_words"] = intent_max_words
 
-            if min_words is None and intent.min_words is not None:
-                min_words = intent.min_words
-                modifiers["min_words"] = min_words
+            intent_min_words = intent.modifiers.get("min_words")
+            if "min_words" not in modifiers and intent_min_words is not None:
+                modifiers["min_words"] = intent_min_words
 
-            if history_limit is None and intent.history is not None:
-                history_limit = intent.history
-                modifiers["history"] = history_limit
+            intent_history = intent.modifiers.get("history")
+            if "history" not in modifiers and intent_history is not None:
+                modifiers["history"] = intent_history
 
-            if not is_file_req and intent.file_use:
-                is_file_req = True
-                if not target_filename and intent.target_file:
-                    target_filename = intent.target_file
+            intent_file_target = intent.modifiers.get("target_file")
+            has_file_action = any("target_file" in a.params for a in actions)
+            if not has_file_action and (intent.modifiers.get("file_use") or intent_file_target):
                 from core.registry import get_skill_registry
                 skill_registry = get_skill_registry()
 
@@ -419,18 +512,16 @@ class DirectiveParser:
                     actions.append(
                         ActionDirective(
                             name=file_skill.name,
-                            params=(
-                                {"target_file": target_filename}
-                                if target_filename
-                                else {}
-                            ),
+                            params={"target_file": intent_file_target} if intent_file_target else {},
                         )
                     )
 
             from pipeline.entity_resolver import entity_resolver
 
             tagged_in_prompt = set(entity_resolver.extract_tagged_agents(raw_text))
-            for exc in intent.excluded_agents:
+            exc_actions = [a for a in intent.actions if a.name == "exclude_agents"]
+            llm_excluded = exc_actions[0].params.get("agents", []) if exc_actions else intent.modifiers.get("excluded_agents", [])
+            for exc in llm_excluded:
                 if exc not in excluded and exc not in tagged_in_prompt:
                     excluded.append(exc)
 
@@ -475,21 +566,6 @@ class DirectiveParser:
             cleaned_prompt=text_cleaned.strip(),
             actions=actions,
             modifiers=modifiers,
-            max_words=max_words,
-            min_words=min_words,
-            scribe_max_words=scribe_max_words,
-            scribe_min_words=scribe_min_words,
-            history_limit=history_limit,
-            excluded_agents=excluded,
-            included_agents=included,
-            exclude_off=exclude_off,
-            include_off=include_off,
-            revoke_target=revoke_target,
-            first_agent=first_agent,
-            open_debate_agent=open_debate_agent,
-            is_file_req=is_file_req,
-            target_filename=target_filename,
-            is_stop=False,
             detected_language=detected_language,
         )
 

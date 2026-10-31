@@ -9,7 +9,6 @@ from .agent_router import (
 )
 from .agent_settings import (
     DEFAULT_WORKFLOW_ID,
-    ENABLED_DEBATE_AGENTS,
     LOCKED_AGENTS,
     SETTINGS_FILE,
     AgentSettingsManager,
@@ -74,7 +73,6 @@ from .workflow_manager import (
 # Exports: Routing, Settings, Circuit Breaker, Nomination, and Thread State
 __all__ = [
     "DEFAULT_WORKFLOW_ID",
-    "ENABLED_DEBATE_AGENTS",
     "LOCKED_AGENTS",
     "SETTINGS_FILE",
     "WORKFLOWS_DIR",

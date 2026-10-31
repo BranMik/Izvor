@@ -19,29 +19,12 @@ slack_async_client = AsyncWebClient(token=SLACK_BOT_TOKEN)
 
 
 def get_slack_bot_token() -> str:
-    """Returns the configured Slack bot token, respecting monkeypatching on services.slack."""
-    slack_mod = sys.modules.get("services.slack")
-    if slack_mod is not None:
-        custom_token = getattr(slack_mod, "SLACK_BOT_TOKEN", None)
-        if custom_token is not None:
-            return custom_token
-    core_mod = sys.modules.get(__name__)
-    if core_mod is not None:
-        custom_core = getattr(core_mod, "SLACK_BOT_TOKEN", None)
-        if custom_core is not None:
-            return custom_core
-    from core.config import SLACK_BOT_TOKEN as _DEFAULT_TOKEN
-
-    return _DEFAULT_TOKEN
+    """Returns the configured Slack bot token."""
+    return SLACK_BOT_TOKEN
 
 
 def get_slack_async_client() -> AsyncWebClient:
-    """Returns the canonical AsyncWebClient instance, respecting monkeypatching on services.slack."""
-    slack_mod = sys.modules.get("services.slack")
-    if slack_mod is not None:
-        custom_client = getattr(slack_mod, "slack_async_client", None)
-        if custom_client is not None and custom_client is not slack_async_client:
-            return custom_client
+    """Returns the canonical AsyncWebClient instance."""
     return slack_async_client
 
 # In-memory caches for channel metadata

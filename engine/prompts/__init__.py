@@ -1,3 +1,3 @@
-from .builder import SYSTEM_AGENTS, build_agent_prompt, is_system_agent
+from .builder import build_agent_prompt, get_system_agents, is_system_agent
 
-__all__ = ["SYSTEM_AGENTS", "build_agent_prompt", "is_system_agent"]
+__all__ = ["build_agent_prompt", "get_system_agents", "is_system_agent"]

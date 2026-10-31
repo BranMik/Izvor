@@ -1,7 +1,12 @@
 from pathlib import Path
 from core.paths import PROMPTS_DIR, SYSTEM_AGENTS_DIR, PERSONAS_DIR
 from orchestration.agent_settings import get_agents_config
-from prompts.builder import SHORT_OUTPUT_AGENTS, build_agent_prompt, load_system_prompt
+from prompts.builder import (
+    build_agent_prompt,
+    get_short_output_agents,
+    is_short_output_agent,
+    load_system_prompt,
+)
 
 AGENTS_CONFIG = get_agents_config()
 
@@ -200,12 +205,12 @@ def test_system_agents_critical_runtime_contracts():
 
 def test_all_agents_contain_shared_skills():
     assert len(AGENTS_CONFIG) == 17
-    assert len(SHORT_OUTPUT_AGENTS) == 4
+    assert len(get_short_output_agents()) == 4
 
     for key in AGENTS_CONFIG:
         prompt = AGENTS_CONFIG[key]["system_prompt"]
         # Output format skill checks
-        if key in SHORT_OUTPUT_AGENTS:
+        if is_short_output_agent(key):
             assert "Hard Limit: Your entire response must strictly NOT exceed 100 words." in prompt
         else:
             assert "Hard Limit: Your entire response must strictly NOT exceed 200 words." in prompt

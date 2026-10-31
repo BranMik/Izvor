@@ -216,7 +216,7 @@ class TurnContext:
         self.agent_key: str = kwargs.get("agent_key", "")
         self.prompt: str = kwargs.get("prompt", "")
         self.was_explicit_target: bool = kwargs.get("was_explicit_target", False)
-        self.agent_cfg: dict[str, Any] = dict(kwargs.get("agent_cfg") or kwargs.get("agent_config") or {})
+        self.agent_cfg: dict[str, Any] = dict(kwargs.get("agent_cfg") or {})
         self.remaining: list[str] = list(kwargs.get("remaining", []))
         self.is_custom_flow: bool = kwargs.get("is_custom_flow", False)
         self.is_open_debate: bool = kwargs.get("is_open_debate", False)
@@ -577,37 +577,53 @@ class TurnPipeline:
         self.execution_stage = ExecutionStage(self.deps)
         self.post_record_stage = PostRecordStage(self.deps)
 
-    def __setattr__(self, name: str, value: Any) -> None:
-        super().__setattr__(name, value)
-        if name != "deps" and hasattr(self, "deps") and self.deps is not None:
-            target_field = name
-            if name in ("post_agent_response", "post_agent_response_fn"):
-                target_field = "slack_poster"
-            elif name in ("post_system_message", "post_system_message_fn"):
-                target_field = "post_system_message_fn"
-            elif name in ("execute_llm_with_retry", "llm_executor"):
-                target_field = "llm_executor"
-            elif name in ("run_in_threadpool", "run_in_threadpool_fn"):
-                target_field = "run_in_threadpool_fn"
-            if hasattr(self.deps, target_field):
-                self.deps = replace(self.deps, **{target_field: value})
-                if target_field in ("slack_poster", "update_message_fn", "post_system_message_fn"):
-                    from adapters.slack.workspace_adapter import SlackWorkspaceAdapter
-                    self.deps = replace(self.deps, workspace_adapter=SlackWorkspaceAdapter(
-                        post_agent_fn=self.deps.slack_poster,
-                        update_msg_fn=self.deps.update_message_fn,
-                        post_system_fn=self.deps.post_system_message_fn,
-                    ))
-                for stage_name in (
-                    "validation_stage",
-                    "resolution_stage",
-                    "context_prep_stage",
-                    "execution_stage",
-                    "post_record_stage",
-                ):
-                    stage = getattr(self, stage_name, None)
-                    if stage is not None:
-                        stage.deps = self.deps
+    @property
+    def post_system_message_fn(self) -> Any:
+        return getattr(self.deps, "post_system_message_fn", None)
+
+    @post_system_message_fn.setter
+    def post_system_message_fn(self, value: Any) -> None:
+        import dataclasses
+        self.deps = dataclasses.replace(self.deps, post_system_message_fn=value)
+        if hasattr(self, "validation_stage") and self.validation_stage:
+            self.validation_stage.deps = self.deps
+        if hasattr(self, "resolution_stage") and self.resolution_stage:
+            self.resolution_stage.deps = self.deps
+        if hasattr(self, "context_prep_stage") and self.context_prep_stage:
+            self.context_prep_stage.deps = self.deps
+        if hasattr(self, "execution_stage") and self.execution_stage:
+            self.execution_stage.deps = self.deps
+        if hasattr(self, "post_record_stage") and self.post_record_stage:
+            self.post_record_stage.deps = self.deps
+
+    @property
+    def slack_poster(self) -> Any:
+        return getattr(self.deps, "slack_poster", None)
+
+    @slack_poster.setter
+    def slack_poster(self, value: Any) -> None:
+        import dataclasses
+        from adapters.slack.workspace_adapter import SlackWorkspaceAdapter
+        ws = SlackWorkspaceAdapter(
+            post_agent_fn=value,
+            update_msg_fn=getattr(self.deps, "update_message_fn", None),
+            post_system_fn=getattr(self.deps, "post_system_message_fn", None),
+        )
+        self.deps = dataclasses.replace(self.deps, slack_poster=value, workspace_adapter=ws)
+        if hasattr(self, "post_record_stage") and self.post_record_stage:
+            self.post_record_stage.deps = self.deps
+
+    @property
+    def workspace_adapter(self) -> Any:
+        return getattr(self.deps, "workspace_adapter", None)
+
+    @workspace_adapter.setter
+    def workspace_adapter(self, value: Any) -> None:
+        import dataclasses
+        self.deps = dataclasses.replace(self.deps, workspace_adapter=value)
+        if hasattr(self, "post_record_stage") and self.post_record_stage:
+            self.post_record_stage.deps = self.deps
+
 
     async def _sleep(self, seconds: float):
         """Asynchronous sleep respecting injected sleep_fn."""

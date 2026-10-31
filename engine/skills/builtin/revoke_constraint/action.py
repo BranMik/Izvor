@@ -46,7 +46,7 @@ async def run(ctx: Any, params: dict[str, Any] | None = None) -> dict[str, Any] 
             )
         return {"ok": False, "halted": True, "action": "revoke_constraint", "reason": "unauthorized"}
 
-    target = str(params.get("target", "") or params.get("arg", "")).strip().lower()
+    target = str(params.get("target", "")).strip().lower()
 
     logger.info(
         f"[REVOKE CONSTRAINT ACTION] Revoking '{target}' for thread {channel_id}:{thread_ts}"
