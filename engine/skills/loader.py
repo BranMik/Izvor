@@ -200,7 +200,7 @@ class SkillRegistry:
         if "{name}" in extraction_rule:
             extraction_rule = extraction_rule.replace("{name}", name)
         handles_files = bool(triggers.get("handles_files", False))
-        is_terminal = bool(triggers.get("terminal", False) or triggers.get("arg_type") == "terminal_flag")
+        is_terminal = bool(triggers.get("terminal", False))
 
         # Check for tools.py handler and schemas
         custom_tool_schemas: list[dict[str, Any]] = []

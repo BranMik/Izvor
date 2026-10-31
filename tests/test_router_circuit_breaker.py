@@ -52,11 +52,11 @@ def test_circuit_breaker_configuration_methods():
 
 @pytest.mark.anyio
 async def test_circuit_breaker_triggers_when_threshold_exceeded(monkeypatch):
-    thread_state_manager.remaining_agents_map.clear()
+    thread_state_manager.discussion.remaining_agents_map.clear()
     channel_id = "C_CB_TRIGGER"
     thread_ts = "123456789.9001"
     thread_key = (channel_id, thread_ts)
-    thread_state_manager.remaining_agents_map[thread_key] = ["agent-10011", "agent-10008"]
+    thread_state_manager.discussion.remaining_agents_map[thread_key] = ["agent-10011", "agent-10008"]
 
     set_circuit_breaker_enabled(True)
     set_circuit_breaker_threshold(0.50)
@@ -133,15 +133,15 @@ async def test_circuit_breaker_triggers_when_threshold_exceeded(monkeypatch):
     )
     assert notes_updated is False  # Suppressed to avoid burning LLM tokens after breaker trip
     assert usage_updated is True
-    assert thread_key in thread_state_manager.remaining_agents_map
-    assert thread_state_manager.remaining_agents_map[thread_key] == ["agent-10008"]
+    assert thread_key in thread_state_manager.discussion.remaining_agents_map
+    assert thread_state_manager.discussion.remaining_agents_map[thread_key] == ["agent-10008"]
 
 
 @pytest.mark.anyio
 async def test_circuit_breaker_allows_normal_response_when_below_threshold(
     monkeypatch,
 ):
-    thread_state_manager.remaining_agents_map.clear()
+    thread_state_manager.discussion.remaining_agents_map.clear()
     channel_id = "C_CB_BELOW"
     thread_ts = "123456789.9002"
 
@@ -204,7 +204,7 @@ async def test_circuit_breaker_allows_normal_response_when_below_threshold(
 
 @pytest.mark.anyio
 async def test_circuit_breaker_allows_normal_response_when_disabled(monkeypatch):
-    thread_state_manager.remaining_agents_map.clear()
+    thread_state_manager.discussion.remaining_agents_map.clear()
     channel_id = "C_CB_DISABLED"
     thread_ts = "123456789.9003"
 

@@ -327,7 +327,7 @@ async def handle_slash_directives(
 
     # Process /revoke_constraint action
     revoke_act = next((a for a in (ctx.actions or []) if a.name in ("revoke", "revoke_constraint")), None)
-    revoke_target = (revoke_act.params.get("target") or revoke_act.params.get("value")) if revoke_act else None
+    revoke_target = revoke_act.params.get("target") if revoke_act else None
     if revoke_target:
         admin_check = await require_directive_admin(
             ctx,

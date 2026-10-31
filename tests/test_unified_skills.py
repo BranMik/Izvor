@@ -55,25 +55,26 @@ def test_action_directive_contract():
     assert pr_actions[1].params["pr_id"] == 99
 
 
-def test_extracted_intent_backward_and_unified_compatibility():
-    """Validates that ExtractedIntent seamlessly maps legacy properties to modifiers and actions."""
-    ei = ExtractedIntent(max_words=60, min_words=10, history=3, file_use=True, target_file="data.csv")
-    assert ei.max_words == 60
-    assert ei.min_words == 10
-    assert ei.history == 3
-    assert ei.file_use is True
-    assert ei.target_file == "data.csv"
-    assert ei.has_action("document_reader") or ei.has_action("document_authoring")
+def test_extracted_intent_canonical_representation():
+    """Validates that ExtractedIntent cleanly serializes and restores canonical modifiers and actions."""
+    ei = ExtractedIntent(
+        actions=[ActionDirective(name="document_reader", params={"target_file": "data.csv"})],
+        modifiers={"max_words": 60, "min_words": 10, "history": 3},
+    )
+    assert ei.get_modifier("max_words") == 60
+    assert ei.get_modifier("min_words") == 10
+    assert ei.get_modifier("history") == 3
+    assert ei.has_action("document_reader") is True
 
     # Validate dict round-trip
     d = ei.to_dict()
     assert d["modifiers"]["max_words"] == 60
-    assert any(a["name"] in ("document_reader", "document_authoring") for a in d["actions"])
+    assert any(a["name"] == "document_reader" for a in d["actions"])
 
     ei_restored = ExtractedIntent.from_dict(d)
-    assert ei_restored.max_words == 60
-    assert ei_restored.min_words == 10
-    assert ei_restored.has_action("document_reader") or ei_restored.has_action("document_authoring")
+    assert ei_restored.get_modifier("max_words") == 60
+    assert ei_restored.get_modifier("min_words") == 10
+    assert ei_restored.has_action("document_reader") is True
 
 
 def test_skill_registry_scopes_and_agent_catalog_isolation():

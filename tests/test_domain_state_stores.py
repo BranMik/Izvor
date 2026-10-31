@@ -174,15 +174,15 @@ def test_thread_state_manager_facade_composition():
     # State mutations via facade reflect on domain store
     mgr.set_remaining_agents(channel_id, thread_ts, ["agent-10001", "agent-10008"])
     assert mgr.discussion.get_remaining_agents(channel_id, thread_ts) == ["agent-10001", "agent-10008"]
-    assert mgr.remaining_agents_map[(channel_id, thread_ts)] == ["agent-10001", "agent-10008"]
+    assert mgr.get_remaining_agents(channel_id, thread_ts) == ["agent-10001", "agent-10008"]
 
     mgr.add_to_retry_queue(channel_id, thread_ts, "agent-10002")
     assert mgr.retry.get_retry_queue(channel_id, thread_ts) == ["agent-10002"]
-    assert mgr.rate_limit_retry_queue[(channel_id, thread_ts)] == ["agent-10002"]
+    assert mgr.get_retry_queue(channel_id, thread_ts) == ["agent-10002"]
 
     mgr.set_language(channel_id, thread_ts, "de")
     assert mgr.context.get_language(channel_id, thread_ts) == "de"
-    assert mgr.thread_languages[(channel_id, thread_ts)] == "de"
+    assert mgr.get_language(channel_id, thread_ts) == "de"
 
     # Multi-store lifecycle: cleanup_thread purges across all 3 stores
     mgr.cleanup_thread(channel_id, thread_ts)

@@ -1,20 +1,15 @@
 {
   "id": "default_sandwich",
   "name": "Default Sandwich Review",
-  "mode": "sandwich",
+  "mode": "fixed",
   "description": "[DO NOT DELETE OR MODIFY - SYSTEM DEFAULT] Standard multi-agent panel with kickoff and concluding wrap-up.",
-  "sandwich_config": {
-    "start_chain": [
-      "agent-10005",
+  "fixed_config": {
+    "chain": [
       "agent-10001",
-      "agent-10007",
+      "agent-10002",
       "agent-10003",
-      "agent-10002"
-    ],
-    "end_chain": [
-      "agent-10008",
-      "agent-10003",
-      "agent-10015"
+      "agent-10014",
+      "agent-10012"
     ]
   }
 }

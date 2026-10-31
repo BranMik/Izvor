@@ -4,29 +4,23 @@ import pytest
 
 from agents import usage_agent
 from agents.usage_agent import (
-    THREAD_USAGE_DATA,
     calculate_thread_costs,
     format_usage_slack_message,
     record_thread_tokens,
     update_usage_for_thread,
+    usage_tracker,
 )
 
 
 @pytest.fixture(autouse=True)
 def clean_usage_state(monkeypatch, tmp_path):
     temp_store = tmp_path / "test_thread_usage_data.json"
-    monkeypatch.setattr(usage_agent, "USAGE_STORE_FILE", temp_store)
-    THREAD_USAGE_DATA.clear()
-    usage_agent.USAGE_LOCKS.clear()
-    usage_agent._RUNNING_USAGE_TASKS.clear()
-    usage_agent._PENDING_USAGE_UPDATES.clear()
-    usage_agent._PENDING_USAGE_COMPLETED.clear()
+    monkeypatch.setattr(usage_tracker, "store_file", temp_store)
+    usage_tracker.thread_usage_data.clear()
+    usage_tracker.reset_runtime_state()
     yield
-    THREAD_USAGE_DATA.clear()
-    usage_agent.USAGE_LOCKS.clear()
-    usage_agent._RUNNING_USAGE_TASKS.clear()
-    usage_agent._PENDING_USAGE_UPDATES.clear()
-    usage_agent._PENDING_USAGE_COMPLETED.clear()
+    usage_tracker.thread_usage_data.clear()
+    usage_tracker.reset_runtime_state()
     if temp_store.exists():
         temp_store.unlink()
 
@@ -150,7 +144,7 @@ async def test_update_usage_for_thread_creates_and_updates_in_slack():
         mock_post.assert_awaited_once()
         mock_update.assert_not_called()
 
-        assert THREAD_USAGE_DATA[(channel_id, thread_ts)]["usage_msg_ts"] == "usage_msg_ts_123"
+        assert usage_tracker.thread_usage_data[(channel_id, thread_ts)]["usage_msg_ts"] == "usage_msg_ts_123"
 
         # 2. Second turn in same thread -> updates existing message in-place
         record_thread_tokens(

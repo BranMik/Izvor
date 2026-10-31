@@ -258,8 +258,8 @@ async def test_scenario_1_single_agent_tagged(monkeypatch):
     # 1. User prompt forced termination
     assert "CRITICAL CONSTRAINT" in mock_run_in_threadpool.captured_user_prompt
     # 2. State cleaned up
-    assert thread_key not in thread_state_manager.custom_flow_threads
-    assert thread_key not in thread_state_manager.remaining_agents_map
+    assert thread_key not in thread_state_manager.discussion.custom_flow_threads
+    assert thread_key not in thread_state_manager.discussion.remaining_agents_map
     # 3. Posted message has complete nomination stripped (not just brackets, agent name is removed too)
     assert len(posted_messages) == 1
     assert "/[agent-10003]" not in posted_messages[0]
@@ -353,7 +353,7 @@ async def test_process_and_respond_history_limit_initial_prompt(monkeypatch):
     """
     thread_key = ("C_HIST_TEST", "12345.2001")
     thread_state_manager.context.thread_history_limits.pop(thread_key, None)
-    thread_state_manager.remaining_agents_map.pop(thread_key, None)
+    thread_state_manager.discussion.remaining_agents_map.pop(thread_key, None)
 
     mock_history = [
         {"role": "user", "content": "Message 1"},
@@ -627,7 +627,7 @@ async def test_process_and_respond_with_max_words(monkeypatch):
     channel_id = "C_MAX_WORDS"
     thread_ts = "99999.0001"
     thread_key = (channel_id, thread_ts)
-    thread_state_manager.remaining_agents_map[thread_key] = ["agent-10008"]
+    thread_state_manager.discussion.remaining_agents_map[thread_key] = ["agent-10008"]
 
     captured_messages = []
 
@@ -697,7 +697,7 @@ async def test_process_and_respond_with_min_words(monkeypatch):
     channel_id = "C_MIN_WORDS"
     thread_ts = "88888.0001"
     thread_key = (channel_id, thread_ts)
-    thread_state_manager.remaining_agents_map[thread_key] = ["agent-10008"]
+    thread_state_manager.discussion.remaining_agents_map[thread_key] = ["agent-10008"]
 
     captured_messages = []
 
@@ -768,7 +768,7 @@ async def test_process_and_respond_with_min_and_max_words(monkeypatch):
     channel_id = "C_MIN_MAX_WORDS"
     thread_ts = "77777.0001"
     thread_key = (channel_id, thread_ts)
-    thread_state_manager.remaining_agents_map[thread_key] = ["agent-10008"]
+    thread_state_manager.discussion.remaining_agents_map[thread_key] = ["agent-10008"]
 
     captured_messages = []
 
@@ -838,7 +838,7 @@ async def test_process_and_respond_with_natural_language_limits(monkeypatch):
     channel_id = "C_NL_LIMITS"
     thread_ts = "66666.0001"
     thread_key = (channel_id, thread_ts)
-    thread_state_manager.remaining_agents_map[thread_key] = ["agent-10008"]
+    thread_state_manager.discussion.remaining_agents_map[thread_key] = ["agent-10008"]
 
     captured_messages = []
 
@@ -949,8 +949,8 @@ async def test_process_and_respond_with_exclude_command(monkeypatch):
 
     assert res.get("ok") is True
     # Innovator should be removed immediately from remaining agents
-    assert "agent-10002" not in thread_state_manager.remaining_agents_map[thread_key]
-    assert thread_state_manager.remaining_agents_map[thread_key] == ["agent-10005"]
+    assert "agent-10002" not in thread_state_manager.discussion.remaining_agents_map[thread_key]
+    assert thread_state_manager.discussion.remaining_agents_map[thread_key] == ["agent-10005"]
 
     # Command should be cleanly stripped from user message passed to model
     user_msg = captured_messages[0][-1]["content"]
@@ -998,7 +998,7 @@ async def test_process_and_respond_with_multi_agent_exclude_command(monkeypatch)
 
     assert res.get("ok") is True
     # Both Innovator and ScopeOptimizer should be removed from remaining agents
-    assert thread_state_manager.remaining_agents_map[thread_key] == ["agent-10007"]
+    assert thread_state_manager.discussion.remaining_agents_map[thread_key] == ["agent-10007"]
 
 
 @pytest.mark.anyio
@@ -1040,8 +1040,8 @@ async def test_process_and_respond_with_default_flow_and_exclude(monkeypatch):
     )
 
     assert res.get("ok") is True
-    assert "agent-10011" not in thread_state_manager.remaining_agents_map[thread_key]
-    assert "agent-10002" not in thread_state_manager.remaining_agents_map[thread_key]
+    assert "agent-10011" not in thread_state_manager.discussion.remaining_agents_map[thread_key]
+    assert "agent-10002" not in thread_state_manager.discussion.remaining_agents_map[thread_key]
 
 
 @pytest.mark.anyio
@@ -1092,7 +1092,7 @@ async def test_process_and_respond_with_nl_exclude(monkeypatch):
     )
 
     assert res.get("ok") is True
-    assert "agent-10011" not in thread_state_manager.remaining_agents_map[thread_key]
+    assert "agent-10011" not in thread_state_manager.discussion.remaining_agents_map[thread_key]
 
 
 @pytest.mark.anyio
@@ -1342,7 +1342,7 @@ async def test_multi_agent_nomination_syntax(monkeypatch):
     assert res.get("ok") is True
     assert len(posted_messages) == 1
     assert posted_messages[0]["username"] == "SecurityArchitect"
-    assert thread_state_manager.remaining_agents_map[thread_key] == ["agent-10003", "agent-10002"]
+    assert thread_state_manager.discussion.remaining_agents_map[thread_key] == ["agent-10003", "agent-10002"]
     assert "Pa sad ostatak prompta." in captured_prompt
     assert "/[agent-10008]" not in captured_prompt
     assert "/[agent-10003]" not in captured_prompt

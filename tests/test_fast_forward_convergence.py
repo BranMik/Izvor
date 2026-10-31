@@ -14,13 +14,15 @@ from orchestration.app_settings import (
     is_convergence_fast_forward_enabled,
     set_convergence_fast_forward_enabled,
 )
-from orchestration.system_settings import (
+from orchestration.agent_settings import (
     get_challenger_agents,
-    get_convergence_consecutive_threshold,
     get_rebuttal_agent,
     set_challenger_agents,
-    set_convergence_consecutive_threshold,
     set_rebuttal_agent,
+)
+from orchestration.system_settings import (
+    get_convergence_consecutive_threshold,
+    set_convergence_consecutive_threshold,
 )
 from orchestration.thread_state import thread_state_manager
 from skills.builtin.control_plane.tools import build_control_plane_tool_schemas

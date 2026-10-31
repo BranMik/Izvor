@@ -59,7 +59,7 @@ def test_enforce_valid_nomination_with_control_plane_override():
 
 
 def test_rebuttal_advocate_persona_and_standby_topology():
-    from orchestration.system_settings import get_challenger_agents, get_rebuttal_agent
+    from orchestration.agent_settings import get_challenger_agents, get_rebuttal_agent
 
     assert get_rebuttal_agent() == "agent-10017"
     assert "agent-10003" in get_challenger_agents()

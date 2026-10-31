@@ -182,7 +182,7 @@ async def test_fixed_mode_end_to_end_discussion(monkeypatch):
     assert posted_messages[0]["username"] == "LegalAdvisor"
     # Deterministic nomination enforced to next agent in chain
     assert "/[agent-10002]" in posted_messages[0]["text"]
-    assert thread_state_manager.remaining_agents_map[thread_key] == ["agent-10002", "agent-10008"]
+    assert thread_state_manager.discussion.remaining_agents_map[thread_key] == ["agent-10002", "agent-10008"]
 
     # Turn 2: Innovator
     mock_choice_2 = MagicMock()
@@ -205,7 +205,7 @@ async def test_fixed_mode_end_to_end_discussion(monkeypatch):
     assert len(posted_messages) == 2
     assert posted_messages[1]["username"] == "Innovator"
     assert "/[agent-10008]" in posted_messages[1]["text"]
-    assert thread_state_manager.remaining_agents_map[thread_key] == ["agent-10008"]
+    assert thread_state_manager.discussion.remaining_agents_map[thread_key] == ["agent-10008"]
 
     # Turn 3: SecurityArchitect (final in chain)
     mock_choice_3 = MagicMock()
@@ -228,7 +228,7 @@ async def test_fixed_mode_end_to_end_discussion(monkeypatch):
     assert len(posted_messages) == 3
     assert posted_messages[2]["username"] == "SecurityArchitect"
     # Thread finished -> state cleaned up, tags stripped
-    assert thread_key not in thread_state_manager.remaining_agents_map
+    assert thread_key not in thread_state_manager.discussion.remaining_agents_map
     assert "[" not in posted_messages[2]["text"].split("\n\n[")[0]
 
 
@@ -287,7 +287,7 @@ async def test_sandwich_mode_end_to_end_discussion(monkeypatch):
     assert len(posted_messages) == 1
     assert posted_messages[0]["username"] == "SecurityArchitect"
     assert "/[agent-10001]" in posted_messages[0]["text"]
-    assert thread_state_manager.remaining_agents_map[thread_key] == ["agent-10001", "agent-10011", "agent-10008"]
+    assert thread_state_manager.discussion.remaining_agents_map[thread_key] == ["agent-10001", "agent-10011", "agent-10008"]
 
     # Turn 2: Visionary speaks (last of start_chain).
     # Visionary cites [agent-10008] in text and tries to nominate /[agent-10008],
@@ -313,7 +313,7 @@ async def test_sandwich_mode_end_to_end_discussion(monkeypatch):
     assert posted_messages[1]["username"] == "Visionary"
     # Must have corrected nomination to LegalAdvisor (middle pool agent)
     assert "/[agent-10011]" in posted_messages[1]["text"]
-    assert thread_state_manager.remaining_agents_map[thread_key] == ["agent-10011", "agent-10008"]
+    assert thread_state_manager.discussion.remaining_agents_map[thread_key] == ["agent-10011", "agent-10008"]
 
     # Turn 3: LegalAdvisor speaks (middle pool).
     # LegalAdvisor is the last of middle pool, so designated next agent is SecurityArchitect (end_chain).
@@ -337,7 +337,7 @@ async def test_sandwich_mode_end_to_end_discussion(monkeypatch):
     assert len(posted_messages) == 3
     assert posted_messages[2]["username"] == "LegalAdvisor"
     assert "/[agent-10008]" in posted_messages[2]["text"]
-    assert thread_state_manager.remaining_agents_map[thread_key] == ["agent-10008"]
+    assert thread_state_manager.discussion.remaining_agents_map[thread_key] == ["agent-10008"]
 
     # Turn 4: SecurityArchitect speaks (end_chain).
     # This is the final agent; must force termination and NOT nominate anyone.
@@ -361,7 +361,7 @@ async def test_sandwich_mode_end_to_end_discussion(monkeypatch):
     assert len(posted_messages) == 4
     assert posted_messages[3]["username"] == "SecurityArchitect"
     # Thread finished -> state cleaned up, tags stripped
-    assert thread_key not in thread_state_manager.remaining_agents_map
+    assert thread_key not in thread_state_manager.discussion.remaining_agents_map
     assert "[" not in posted_messages[3]["text"].split("\n\n[")[0]
 
 

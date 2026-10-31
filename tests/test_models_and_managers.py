@@ -8,6 +8,7 @@ import pytest
 
 from agents.usage_agent import ThreadUsageTracker
 from core.models import (
+    ActionDirective,
     CircuitBreakerConfig,
     ExtractedIntent,
     FileContext,
@@ -63,13 +64,16 @@ def test_models_serialization():
     assert fc_restored.authorized_agents == {"agent-10001"}
 
     # 2. ExtractedIntent
-    ei = ExtractedIntent(max_words=50, history=3, file_use=True, target_file="data.csv")
+    ei = ExtractedIntent(
+        actions=[ActionDirective(name="document_reader", params={"target_file": "data.csv"})],
+        modifiers={"max_words": 50, "history": 3},
+    )
     d_ei = ei.to_dict()
     assert d_ei["modifiers"]["max_words"] == 50
     assert any(a["name"] in ("document_reader", "document_authoring") for a in d_ei["actions"])
     ei_restored = ExtractedIntent.from_dict(d_ei)
-    assert ei_restored.max_words == 50
-    assert ei_restored.target_file == "data.csv"
+    assert ei_restored.modifiers["max_words"] == 50
+    assert ei_restored.actions[0].params["target_file"] == "data.csv"
 
     # 3. CircuitBreakerConfig
     cb = CircuitBreakerConfig(enabled=True, threshold_usd=2.5)
@@ -460,9 +464,9 @@ async def test_intent_extractor_class():
     with patch("nlp.intent_extractor.litellm.acompletion", AsyncMock(return_value=mock_resp)):
         intent = await extractor.extract_intent("keep it to 75 words using last 2 messages")
         assert isinstance(intent, ExtractedIntent)
-        assert intent.max_words == 75
-        assert intent.history == 2
-        assert intent.file_use is False
+        assert intent.modifiers.get("max_words") == 75
+        assert intent.modifiers.get("history") == 2
+        assert not intent.has_action("document_reader")
 
 
 def test_pricing_service_class():

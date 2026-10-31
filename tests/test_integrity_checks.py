@@ -351,25 +351,23 @@ class TestRequiredSettingsKeys:
 # ---------------------------------------------------------------------------
 
 class TestSystemSettingsIntegrity:
-    def test_strips_deprecated_roles_and_saves(self, tmp_path):
+    def test_validates_required_system_settings_keys(self, tmp_path):
         settings_file = tmp_path / "system_settings.json"
         data = {
-            "orchestration_mode": "sandwich",
-            "challenger_agents": ["agent-10002"],
-            "rebuttal_agent": "agent-10017",
-            "system_prompt": "Hello",
+            "default_fast_model": "mistral/mistral-small-latest",
+            "default_reasoning_model": "deepseek/deepseek-reasoner",
+            "max_discussion_turns": 10,
+            "max_tool_iterations": 5,
+            "strict_privacy_mode_enabled": True,
+            "convergence_consecutive_threshold": 2,
+            "dialectical_stress_test": True,
+            "debate_turn_pacing_seconds": 1.0,
         }
         settings_file.write_text(json.dumps(data), encoding="utf-8")
 
-        cleaned = AppIntegrityValidator.check_system_settings_integrity(data, settings_path=settings_file)
-        assert "challenger_agents" not in cleaned
-        assert "rebuttal_agent" not in cleaned
-        assert cleaned["orchestration_mode"] == "sandwich"
-
-        # Check saved file on disk
-        saved = json.loads(settings_file.read_text(encoding="utf-8"))
-        assert "challenger_agents" not in saved
-        assert "rebuttal_agent" not in saved
+        validated = AppIntegrityValidator.check_system_settings_integrity(data, settings_path=settings_file)
+        assert validated["default_fast_model"] == "mistral/mistral-small-latest"
+        assert validated["max_discussion_turns"] == 10
 
 
 # ---------------------------------------------------------------------------

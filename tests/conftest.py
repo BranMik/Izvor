@@ -101,7 +101,7 @@ def isolate_agent_settings_for_tests(tmp_path, monkeypatch):
 
     yield
 
-    # Restore in-memory state in-place to preserve reference identity (e.g. ENABLED_DEBATE_AGENTS)
+    # Restore in-memory state in-place
     settings_manager.enabled_agents.clear()
     settings_manager.enabled_agents.update(orig_enabled)
     settings_manager.orchestration_mode = orig_orchestration_mode

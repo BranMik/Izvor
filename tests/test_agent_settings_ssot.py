@@ -393,6 +393,7 @@ async def test_turn_pipeline_propagates_agent_avatar_icon():
     pipeline.slack_poster = mock_post
     with patch("adapters.slack.workspace_adapter.post_agent_response", mock_post), \
          patch("services.slack.post_agent_response", mock_post), \
+         patch("services.slack.messages.post_agent_response", mock_post), \
          patch("orchestration.agent_router.post_agent_response", mock_post), \
          patch("orchestration.agent_router.trigger_thread_notes_update"), \
          patch("orchestration.agent_router.trigger_usage_update"), \

@@ -81,13 +81,14 @@ async def test_extract_user_intent_success():
             available_files=[{"name": "schema.sql", "id": "F123"}],
         )
 
-        assert intent.max_words == 60
-        assert intent.history == 4
-        assert intent.file_use is True
-        assert intent.target_file == "schema.sql"
-        assert intent.excluded_agents == ["agent-10011", "agent-10002"]
         assert intent.modifiers["max_words"] == 60
         assert intent.modifiers["history"] == 4
+        doc_action = next((a for a in intent.actions if a.name == "document_reader"), None)
+        assert doc_action is not None
+        assert doc_action.params.get("target_file") == "schema.sql"
+        exclude_action = next((a for a in intent.actions if a.name == "exclude_agents"), None)
+        assert exclude_action is not None
+        assert exclude_action.params.get("agents") == ["agent-10011", "agent-10002"]
         assert any(a.name == "document_reader" for a in intent.actions)
         assert any(a.name == "exclude_agents" for a in intent.actions)
 
@@ -95,12 +96,11 @@ async def test_extract_user_intent_success():
 @pytest.mark.anyio
 async def test_extract_user_intent_empty_text():
     intent = await intent_extractor.extract_intent("")
-    assert intent.max_words is None
-    assert intent.min_words is None
-    assert intent.history is None
-    assert intent.file_use is False
-    assert intent.target_file is None
-    assert intent.excluded_agents == []
+    assert intent.modifiers.get("max_words") is None
+    assert intent.modifiers.get("min_words") is None
+    assert intent.modifiers.get("history") is None
+    assert not intent.has_action("document_reader")
+    assert not intent.has_action("exclude_agents")
     assert intent.actions == []
     assert intent.modifiers == {}
 
@@ -109,12 +109,11 @@ async def test_extract_user_intent_empty_text():
 async def test_extract_user_intent_failure_fallback():
     with patch("nlp.intent_extractor.litellm.acompletion", side_effect=Exception("API Down")):
         intent = await intent_extractor.extract_intent("some message")
-        assert intent.max_words is None
-        assert intent.min_words is None
-        assert intent.history is None
-        assert intent.file_use is False
-        assert intent.target_file is None
-        assert intent.excluded_agents == []
+        assert intent.modifiers.get("max_words") is None
+        assert intent.modifiers.get("min_words") is None
+        assert intent.modifiers.get("history") is None
+        assert not intent.has_action("document_reader")
+        assert not intent.has_action("exclude_agents")
         assert intent.actions == []
         assert intent.modifiers == {}
 

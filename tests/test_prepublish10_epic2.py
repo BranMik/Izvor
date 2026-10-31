@@ -185,7 +185,7 @@ async def test_tool_loop_pause_disables_tool_choice():
         channel_id="C_EXEC",
         thread_ts="1700000000.111",
         raw_text="run query",
-        agent_config={"model": "gemini/gemini-3.8-flash", "skills": []},
+        agent_cfg={"model": "gemini/gemini-3.8-flash", "skills": []},
     )
     ctx.agent_key = "Analyst"
     ctx.waiting_hitl = True

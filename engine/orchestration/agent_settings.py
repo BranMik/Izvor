@@ -164,6 +164,38 @@ class AgentSettingsManager:
         """Returns a read-only view of the currently configured agents."""
         return MappingProxyType(self._agents_config)
 
+    def get_challenger_agents(self) -> list[str]:
+        return [
+            agent_id
+            for agent_id, cfg in self.agents_config.items()
+            if str(cfg.get("special_role", "")).upper() == "CHALLENGER"
+        ]
+
+    def set_challenger_agents(self, agent_ids: list[str], save: bool = True) -> None:
+        target_set = set(agent_ids)
+        for agent_id, cfg in self.agents_config.items():
+            if agent_id in target_set:
+                cfg["special_role"] = "CHALLENGER"
+            elif str(cfg.get("special_role", "")).upper() == "CHALLENGER":
+                cfg["special_role"] = "NONE"
+        if save:
+            self.save()
+
+    def get_rebuttal_agent(self) -> str | None:
+        for agent_id, cfg in self.agents_config.items():
+            if str(cfg.get("special_role", "")).upper() == "REBUTTAL":
+                return agent_id
+        return None
+
+    def set_rebuttal_agent(self, agent_id: str | None, save: bool = True) -> None:
+        for a_id, cfg in self.agents_config.items():
+            if agent_id and a_id == agent_id:
+                cfg["special_role"] = "REBUTTAL"
+            elif str(cfg.get("special_role", "")).upper() == "REBUTTAL":
+                cfg["special_role"] = "NONE"
+        if save:
+            self.save()
+
     def configure_paths(
         self,
         settings_file: Path | str | None = None,
@@ -383,15 +415,6 @@ class AgentSettingsManager:
             logger.error(f"[SETTINGS] 'agents' key in {source_name} is not a dictionary after validation.")
             return False
 
-        # Sync SHORT_OUTPUT_AGENTS before building agent prompts (only for primary settings file)
-        if self.active_settings_file == SETTINGS_FILE:
-            from prompts.builder import SHORT_OUTPUT_AGENTS
-            new_short_agents = {
-                k for k, cfg in raw_agents.items()
-                if isinstance(cfg, dict) and cfg.get("is_short_output") is True
-            }
-            SHORT_OUTPUT_AGENTS.clear()
-            SHORT_OUTPUT_AGENTS.update(new_short_agents)
 
         valid_agents: dict[str, dict[str, Any]] = {}
         for key, cfg in raw_agents.items():
@@ -410,7 +433,7 @@ class AgentSettingsManager:
                     "is_short_output": is_short,
                     "skills": skills,
                     "special_role": str(cfg.get("special_role", "NONE")).strip().upper() if str(cfg.get("special_role", "")).strip().upper() in ("NONE", "CHALLENGER", "REBUTTAL") else "NONE",
-                    "system_prompt": build_agent_prompt(key, skills=skills),
+                    "system_prompt": build_agent_prompt(key, skills=skills, is_short_output=is_short),
                 }
 
         if not valid_agents:
@@ -455,7 +478,7 @@ class AgentSettingsManager:
                         self.system_agents_config[sys_k] = sys_entry
 
         # Parse active workflow reference ("workflow_config" primary, "active_workflow_id" fallback)
-        raw_wf = data.get("workflow_config") or data.get("active_workflow_id")
+        raw_wf = data.get("workflow_config")
         if isinstance(raw_wf, str):
             clean_wf = raw_wf.strip()
             clean_wf = clean_wf.removesuffix(".json")
@@ -955,9 +978,9 @@ class AgentSettingsManager:
         """Returns a snapshot of the currently active workflow settings."""
         return {
             "workflow_id": self.get_active_workflow_id(),
-            "mode": get_orchestration_mode(),
-            "sandwich_config": get_sandwich_config(),
-            "fixed_config": get_fixed_config(),
+            "mode": self.get_orchestration_mode(),
+            "sandwich_config": self.get_sandwich_config(),
+            "fixed_config": self.get_fixed_config(),
         }
 
     def reset(self, save: bool = True) -> None:
@@ -974,52 +997,6 @@ class AgentSettingsManager:
         if save:
             self.save()
         logger.info(f"[SETTINGS] Reset all {len(self.enabled_agents)} agents to ENABLED and mode to default review sandwich.")
-
-    def get_challenger_agents(self) -> list[str]:
-        challengers = [
-            k for k, v in self.agents_config.items()
-            if isinstance(v, dict) and v.get("special_role") == "CHALLENGER"
-        ]
-        return challengers
-
-    def set_challenger_agents(self, agents: list[str], save: bool = True) -> None:
-        target_set = set(agents)
-        for k, v in self.agents_config.items():
-            if not isinstance(v, dict):
-                continue
-            if k in target_set:
-                v["special_role"] = "CHALLENGER"
-            elif v.get("special_role") == "CHALLENGER":
-                v["special_role"] = "NONE"
-        if save:
-            self.save()
-        logger.info(f"[SETTINGS] Updated challenger agents: {agents}")
-
-    def get_rebuttal_agent(self) -> str:
-        rebuttals = [
-            k for k, v in self.agents_config.items()
-            if isinstance(v, dict) and v.get("special_role") == "REBUTTAL"
-        ]
-        if not rebuttals:
-            return ""
-        if len(rebuttals) > 1:
-            logger.warning(
-                f"[SETTINGS] Multiple agents ({rebuttals}) configured with special_role 'REBUTTAL'. "
-                f"Using the first available: {rebuttals[0]}."
-            )
-        return rebuttals[0]
-
-    def set_rebuttal_agent(self, agent_key: str, save: bool = True) -> None:
-        for k, v in self.agents_config.items():
-            if not isinstance(v, dict):
-                continue
-            if k == agent_key:
-                v["special_role"] = "REBUTTAL"
-            elif v.get("special_role") == "REBUTTAL":
-                v["special_role"] = "NONE"
-        if save:
-            self.save()
-        logger.info(f"[SETTINGS] Updated rebuttal agent: {agent_key}")
 
     def get_enabled_agents(self) -> set[str]:
         return set(self.enabled_agents)
@@ -1166,8 +1143,6 @@ class AgentSettingsManager:
 # Default singleton instance initialized automatically
 settings_manager = AgentSettingsManager()
 
-# Module-level aliases
-ENABLED_DEBATE_AGENTS = settings_manager.enabled_agents
 
 
 def get_orchestration_mode() -> str:
@@ -1311,17 +1286,19 @@ def save_system_agent_settings() -> None:
     settings_manager.save_system_agent_settings()
 
 
+
+
 def get_challenger_agents() -> list[str]:
     return settings_manager.get_challenger_agents()
 
 
-def set_challenger_agents(agents: list[str], save: bool = True) -> None:
-    settings_manager.set_challenger_agents(agents, save=save)
+def set_challenger_agents(agent_ids: list[str], save: bool = True) -> None:
+    settings_manager.set_challenger_agents(agent_ids, save=save)
 
 
-def get_rebuttal_agent() -> str:
+def get_rebuttal_agent() -> str | None:
     return settings_manager.get_rebuttal_agent()
 
 
-def set_rebuttal_agent(agent: str, save: bool = True) -> None:
-    settings_manager.set_rebuttal_agent(agent, save=save)
+def set_rebuttal_agent(agent_id: str | None, save: bool = True) -> None:
+    settings_manager.set_rebuttal_agent(agent_id, save=save)

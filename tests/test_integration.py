@@ -4,9 +4,10 @@ from fastapi.testclient import TestClient
 
 from main import PROCESSED_EVENTS, app
 from orchestration.agent_settings import (
-    ENABLED_DEBATE_AGENTS,
     LOCKED_AGENTS,
+    get_enabled_agents,
     reset_enabled_agents,
+    settings_manager,
 )
 from orchestration.app_settings import (
     get_circuit_breaker_threshold,
@@ -185,7 +186,7 @@ def test_stop_command_integration(monkeypatch):
 
     # Pre-populate remaining agents for thread to verify they are cleared on stop
     thread_key = ("C_TEST_STOP", "123456789.0008")
-    thread_state_manager.remaining_agents_map[thread_key] = ["agent-10011", "agent-10002"]
+    thread_state_manager.set_remaining_agents(thread_key[0], thread_key[1], ["agent-10011", "agent-10002"])
 
     mock_process = AsyncMock(return_value={"ok": True})
     monkeypatch.setattr("adapters.slack.events.process_and_respond", mock_process)
@@ -205,15 +206,15 @@ def test_stop_command_integration(monkeypatch):
     response = client.post("/slack/events", json=payload_stop_mention)
     assert response.status_code == 200
     assert thread_key in PROCESSED_EVENTS
-    assert thread_key in thread_state_manager.stop_requested_threads
-    assert thread_key not in thread_state_manager.remaining_agents_map
+    assert thread_state_manager.is_stopped(thread_key[0], thread_key[1])
+    assert thread_state_manager.get_remaining_agents(thread_key[0], thread_key[1]) == []
     # Verify process_and_respond was NOT called for stop command
     mock_process.assert_not_called()
 
     # 2. User sends stop via persona name mention in regular message
-    thread_state_manager.stop_requested_threads.clear()
+    thread_state_manager.discussion.stop_requested_threads.clear()
     thread_key_2 = ("C_TEST_STOP", "123456789.0009")
-    thread_state_manager.remaining_agents_map[thread_key_2] = ["agent-10006"]
+    thread_state_manager.set_remaining_agents(thread_key_2[0], thread_key_2[1], ["agent-10006"])
 
     payload_stop_persona = {
         "type": "event_callback",
@@ -229,8 +230,8 @@ def test_stop_command_integration(monkeypatch):
     response2 = client.post("/slack/events", json=payload_stop_persona)
     assert response2.status_code == 200
     assert thread_key_2 in PROCESSED_EVENTS
-    assert thread_key_2 in thread_state_manager.stop_requested_threads
-    assert thread_key_2 not in thread_state_manager.remaining_agents_map
+    assert thread_state_manager.is_stopped(thread_key_2[0], thread_key_2[1])
+    assert thread_state_manager.get_remaining_agents(thread_key_2[0], thread_key_2[1]) == []
     mock_process.assert_not_called()
 
 
@@ -274,7 +275,7 @@ def test_slack_interactivity_radio_toggle_action(monkeypatch):
 
     response = client.post("/slack/actions", json=payload_off)
     assert response.status_code == 200
-    assert "agent-10011" not in ENABLED_DEBATE_AGENTS
+    assert "agent-10011" not in settings_manager.enabled_agents
     mock_publish.assert_called_with(user_id="U_TEST_USER_2")
 
     # 2. Turn ON LegalAdvisor via radio button
@@ -294,7 +295,7 @@ def test_slack_interactivity_radio_toggle_action(monkeypatch):
 
     response_on = client.post("/slack/interactivity", json=payload_on)
     assert response_on.status_code == 200
-    assert "agent-10011" in ENABLED_DEBATE_AGENTS
+    assert "agent-10011" in settings_manager.enabled_agents
 
     # 3. Bulk disable optional (only locked agents remain ON)
     payload_bulk_off = {
@@ -305,7 +306,7 @@ def test_slack_interactivity_radio_toggle_action(monkeypatch):
 
     response_bulk_off = client.post("/slack/actions", json=payload_bulk_off)
     assert response_bulk_off.status_code == 200
-    assert ENABLED_DEBATE_AGENTS == LOCKED_AGENTS
+    assert settings_manager.enabled_agents == LOCKED_AGENTS
 
     # 4. Bulk enable all
     payload_bulk_on = {
@@ -317,7 +318,7 @@ def test_slack_interactivity_radio_toggle_action(monkeypatch):
     response_bulk_on = client.post("/slack/actions", json=payload_bulk_on)
     assert response_bulk_on.status_code == 200
     from orchestration.agent_settings import get_agents_config
-    assert len(ENABLED_DEBATE_AGENTS) == len(get_agents_config())
+    assert len(settings_manager.enabled_agents) == len(get_agents_config())
 
 
 def test_user_new_query_interrupts_ongoing_discussion_webhook(monkeypatch):
@@ -325,8 +326,8 @@ def test_user_new_query_interrupts_ongoing_discussion_webhook(monkeypatch):
     thread_key = ("C_TEST_INTERRUPT_WEBHOOK", "123456789.2001")
 
     # 1. Simulate an ongoing discussion with remaining agents
-    thread_state_manager.remaining_agents_map[thread_key] = ["agent-10011", "agent-10002"]
-    initial_gen = thread_state_manager.thread_generations.get(thread_key, 0)
+    thread_state_manager.set_remaining_agents(thread_key[0], thread_key[1], ["agent-10011", "agent-10002"])
+    initial_gen = thread_state_manager.get_generation(thread_key[0], thread_key[1])
     assert thread_state_manager.is_discussion_active("C_TEST_INTERRUPT_WEBHOOK", "123456789.2001") is True
 
     mock_process = AsyncMock(return_value={"ok": True})
@@ -349,8 +350,8 @@ def test_user_new_query_interrupts_ongoing_discussion_webhook(monkeypatch):
     assert ("C_TEST_INTERRUPT_WEBHOOK", "123456789.2002") in PROCESSED_EVENTS
 
     # 3. Verify previous discussion state was cleared and generation was bumped
-    assert thread_key not in thread_state_manager.remaining_agents_map
-    assert thread_state_manager.thread_generations[thread_key] == initial_gen + 1
+    assert thread_state_manager.get_remaining_agents(thread_key[0], thread_key[1]) == []
+    assert thread_state_manager.get_generation(thread_key[0], thread_key[1]) == initial_gen + 1
 
     # 4. Verify process_and_respond was dispatched for the new query
     mock_process.assert_called_once()
@@ -366,7 +367,7 @@ def test_user_mention_syntax_variations_webhook_interruption(monkeypatch):
     thread_key = ("C_TEST_INTERRUPT_SYNTAX", "123456789.3001")
 
     # 1. Message with @CaiLogics Hub
-    thread_state_manager.remaining_agents_map[thread_key] = ["agent-10008"]
+    thread_state_manager.set_remaining_agents(thread_key[0], thread_key[1], ["agent-10008"])
     mock_process = AsyncMock(return_value={"ok": True})
     monkeypatch.setattr("adapters.slack.events.process_and_respond", mock_process)
 
@@ -383,11 +384,11 @@ def test_user_mention_syntax_variations_webhook_interruption(monkeypatch):
 
     response1 = client.post("/slack/events", json=payload_hub)
     assert response1.status_code == 200
-    assert thread_key not in thread_state_manager.remaining_agents_map
+    assert thread_state_manager.get_remaining_agents(thread_key[0], thread_key[1]) == []
     assert mock_process.call_count == 1
 
     # 2. Message with agent bracket tag [agent-10001]
-    thread_state_manager.remaining_agents_map[thread_key] = ["agent-10008"]
+    thread_state_manager.set_remaining_agents(thread_key[0], thread_key[1], ["agent-10008"])
     payload_tag = {
         "type": "event_callback",
         "event": {
@@ -401,7 +402,7 @@ def test_user_mention_syntax_variations_webhook_interruption(monkeypatch):
 
     response2 = client.post("/slack/events", json=payload_tag)
     assert response2.status_code == 200
-    assert thread_key not in thread_state_manager.remaining_agents_map
+    assert thread_state_manager.get_remaining_agents(thread_key[0], thread_key[1]) == []
     assert mock_process.call_count == 2
 
 

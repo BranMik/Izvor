@@ -261,7 +261,7 @@ async def test_download_slack_file_mock_mode():
         "url_private_download": "https://files.slack.com/files-pri/T1/sample.py",
         "size": 100,
     }
-    with patch("services.slack.SLACK_BOT_TOKEN", ""):
+    with patch("services.slack.files.get_slack_bot_token", return_value=""):
         res = await download_slack_file(file_info)
         assert res["ok"] is True
         assert res["file_name"] == "sample.py"
