@@ -327,7 +327,6 @@ class AppIntegrityValidator:
         payload: dict,
         workflows_dir: Path,
         backups_dir: Path | None = None,
-        backup_dir: Path | None = None,
     ) -> dict:
         """
         Validates that the required default workflows exist and are valid JSON.
@@ -342,7 +341,7 @@ class AppIntegrityValidator:
         if not workflows_dir.exists():
             workflows_dir.mkdir(parents=True, exist_ok=True)
 
-        b_dir = backups_dir or backup_dir or _DEFAULT_WORKFLOWS_BACKUP_DIR
+        b_dir = backups_dir or _DEFAULT_WORKFLOWS_BACKUP_DIR
         wm = WorkflowManager(workflows_dir=workflows_dir, auto_seed=False)
 
         for wf_id in REQUIRED_DEFAULT_WORKFLOW_IDS:

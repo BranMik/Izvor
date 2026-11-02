@@ -168,7 +168,7 @@ async def test_fixed_mode_end_to_end_discussion(monkeypatch):
 
     async def mock_run_1(func, *args, **kwargs):
         return mock_resp_1
-    monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_run_1)
+    monkeypatch.setattr("orchestration.agent_router.execute_llm_with_retry", mock_run_1)
 
     res_1 = await process_and_respond(
         channel_id="C_CHAIN",
@@ -192,7 +192,7 @@ async def test_fixed_mode_end_to_end_discussion(monkeypatch):
 
     async def mock_run_2(func, *args, **kwargs):
         return mock_resp_2
-    monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_run_2)
+    monkeypatch.setattr("orchestration.agent_router.execute_llm_with_retry", mock_run_2)
 
     res_2 = await process_and_respond(
         channel_id="C_CHAIN",
@@ -215,7 +215,7 @@ async def test_fixed_mode_end_to_end_discussion(monkeypatch):
 
     async def mock_run_3(func, *args, **kwargs):
         return mock_resp_3
-    monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_run_3)
+    monkeypatch.setattr("orchestration.agent_router.execute_llm_with_retry", mock_run_3)
 
     res_3 = await process_and_respond(
         channel_id="C_CHAIN",
@@ -274,7 +274,7 @@ async def test_sandwich_mode_end_to_end_discussion(monkeypatch):
 
     async def mock_run_1(func, *args, **kwargs):
         return mock_resp_1
-    monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_run_1)
+    monkeypatch.setattr("orchestration.agent_router.execute_llm_with_retry", mock_run_1)
 
     res_1 = await process_and_respond(
         channel_id="C_SANDWICH",
@@ -299,7 +299,7 @@ async def test_sandwich_mode_end_to_end_discussion(monkeypatch):
 
     async def mock_run_2(func, *args, **kwargs):
         return mock_resp_2
-    monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_run_2)
+    monkeypatch.setattr("orchestration.agent_router.execute_llm_with_retry", mock_run_2)
 
     res_2 = await process_and_respond(
         channel_id="C_SANDWICH",
@@ -324,7 +324,7 @@ async def test_sandwich_mode_end_to_end_discussion(monkeypatch):
 
     async def mock_run_3(func, *args, **kwargs):
         return mock_resp_3
-    monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_run_3)
+    monkeypatch.setattr("orchestration.agent_router.execute_llm_with_retry", mock_run_3)
 
     res_3 = await process_and_respond(
         channel_id="C_SANDWICH",
@@ -348,7 +348,7 @@ async def test_sandwich_mode_end_to_end_discussion(monkeypatch):
 
     async def mock_run_4(func, *args, **kwargs):
         return mock_resp_4
-    monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_run_4)
+    monkeypatch.setattr("orchestration.agent_router.execute_llm_with_retry", mock_run_4)
 
     res_4 = await process_and_respond(
         channel_id="C_SANDWICH",

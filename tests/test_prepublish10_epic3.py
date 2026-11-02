@@ -71,7 +71,6 @@ def test_audit_logger_production_mode_requires_hmac_secret(monkeypatch):
     """TKT-1010 / S-04: Verifies startup fails closed if AUDIT_HMAC_SECRET is missing in production."""
     monkeypatch.setenv("ENVIRONMENT", "production")
     monkeypatch.setattr("services.audit_logger.get_audit_hmac_secret", lambda: b"")
-    monkeypatch.setattr("core.config.is_test_environment", lambda: False)
 
     with pytest.raises(RuntimeError, match="AUDIT_HMAC_SECRET is required in production"):
         validate_audit_configuration()

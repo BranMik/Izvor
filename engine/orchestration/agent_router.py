@@ -4,7 +4,6 @@ import sys
 from typing import Any
 
 import litellm
-from starlette.concurrency import run_in_threadpool
 
 from agents import (
     calculate_thread_costs,
@@ -264,7 +263,6 @@ async def process_and_respond(
         isolated_branch=isolated_branch,
     )
     pipeline = TurnPipeline(
-        hooks={"run_in_threadpool": run_in_threadpool},
         llm_executor=execute_llm_with_retry,
         slack_poster=post_agent_response,
         post_system_message_fn=post_system_message,

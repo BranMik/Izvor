@@ -83,12 +83,8 @@ class VectorStore:
             import lancedb.index
             table.create_index("text", config=lancedb.index.FTS(), replace=True)
             logger.info(f"[RAG VectorStore] Created BM25 FTS index on table '{TABLE_NAME}'")
-        except Exception:  # noqa: BLE001
-            try:
-                table.create_fts_index("text", replace=True)
-                logger.info(f"[RAG VectorStore] Created BM25 FTS index via create_fts_index on '{TABLE_NAME}'")
-            except Exception as e:  # noqa: BLE001
-                logger.debug(f"[RAG VectorStore] FTS index creation skipped (e.g. empty table): {e}")
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"[RAG VectorStore] FTS index creation skipped (e.g. empty table): {e}")
 
     def rebuild_fts_index(self) -> None:
         """Explicitly recreates or updates the BM25 full-text index on the table."""

@@ -59,13 +59,6 @@ def get_short_output_agents() -> set[str]:
                 k for k, v in cfg.items()
                 if isinstance(v, dict) and v.get("is_short_output") is True
             }
-        if hasattr(settings_manager, "_raw_data") and settings_manager._raw_data:
-            raw_agents = settings_manager._raw_data.get("agents", {})
-            if isinstance(raw_agents, dict):
-                return {
-                    k for k, v in raw_agents.items()
-                    if isinstance(v, dict) and v.get("is_short_output") is True
-                }
     except Exception as e:  # noqa: BLE001
         logger.debug(f"[PROMPT BUILDER] Error retrieving short output agents: {e}")
     return set()
@@ -81,10 +74,6 @@ def is_short_output_agent(agent_key: str) -> bool:
         cfg = settings_manager.get_agents_config().get(agent_key)
         if cfg and cfg.get("is_short_output") is True:
             return True
-        if hasattr(settings_manager, "_raw_data") and settings_manager._raw_data:
-            raw_a = settings_manager._raw_data.get("agents", {}).get(agent_key, {})
-            if isinstance(raw_a, dict) and raw_a.get("is_short_output") is True:
-                return True
     except Exception as e:  # noqa: BLE001
         logger.debug(f"[PROMPT BUILDER] Dynamic short output check fallback: {e}")
     return agent_key in get_short_output_agents()

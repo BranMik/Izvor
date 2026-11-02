@@ -22,65 +22,29 @@ from core.paths import FLAT_HISTORIES_DIR
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_FLAT_HISTORIES_DIR = FLAT_HISTORIES_DIR
-FLAT_HISTORIES_DIR = DEFAULT_FLAT_HISTORIES_DIR
-
-# Known prefixes and indicators for automated test channels and threads
-TEST_CHANNEL_PREFIXES = ("C_TEST", "TEST_", "test_", "mock_", "MOCK_")
-TEST_CHANNEL_IDS = frozenset({
-    "C_TEST",
-    "C_FILE_TEST",
-    "C123",
-    "C12345",
-    "C999",
-    "test_channel",
-    "TEST_CHANNEL",
-})
+_configured_flat_histories_dir: Path | None = None
 
 
-def is_test_thread(
-    channel_id: str | None = None,
-    thread_ts: str | None = None,
-) -> bool:
-    """
-    Returns True if the thread or channel is identified as part of automated testing
-    (unit tests, integration tests, or E2E harness executions).
-    """
-    # If FLAT_HISTORIES_DIR has been redirected to an isolated test folder
-    # (e.g. tmp_path in test_flat_history), allow writing to that test dir.
-    try:
-        if FLAT_HISTORIES_DIR.resolve() != DEFAULT_FLAT_HISTORIES_DIR.resolve():
-            return False
-    except OSError as e:
-        logger.debug(f"[FLAT HISTORY] Failed to resolve directory paths: {e}")
+def configure_paths(flat_histories_dir: Path | None = None) -> None:
+    """Sets a custom directory for flat conversation history files (e.g. for test isolation)."""
+    global _configured_flat_histories_dir
+    _configured_flat_histories_dir = flat_histories_dir
 
-    # 1. Check explicit test execution environment flags
-    if os.getenv("E2E_TESTING") == "1" or os.getenv("DISABLE_FLAT_HISTORY") == "1":
-        return True
 
-    # 2. Check if running under pytest and targeting the real project directory
-    if os.getenv("PYTEST_CURRENT_TEST"):
-        return True
+def reset_paths() -> None:
+    """Resets flat histories directory to default paths SSOT."""
+    global _configured_flat_histories_dir
+    _configured_flat_histories_dir = None
 
-    # 3. Check channel ID heuristics
-    cid = (channel_id or "").strip()
-    if cid and (cid in TEST_CHANNEL_IDS or cid.startswith(TEST_CHANNEL_PREFIXES)):
-        return True
 
-    # 4. Check thread timestamp heuristics
-    tts = str(thread_ts or "").strip()
-    if tts:
-        # E2E test thread ID formats (e.g. T_01, T_08, T_15, T_26)
-        if re.match(r"^T_\d+$", tts, re.IGNORECASE):
-            return True
-        # Synthetic mock timestamps starting with 1700000 (standard test epoch mock)
-        if tts.startswith("1700000"):
-            return True
-        # Synthetic test run timestamps (e.g. 100001, 12345..., 200001, etc.)
-        if re.match(r"^(12345|10000|20000|55500|66600|77777|88888|99999)\d*", tts):
-            return True
-
-    return False
+def get_flat_histories_dir() -> Path:
+    """Resolves the active flat histories directory taking configured paths and IZVOR_HISTORIES_DIR into account."""
+    if _configured_flat_histories_dir is not None:
+        return _configured_flat_histories_dir
+    env_dir = os.getenv("IZVOR_HISTORIES_DIR")
+    if env_dir:
+        return Path(env_dir)
+    return FLAT_HISTORIES_DIR
 
 
 def generate_flat_history_filename(prompt: str, thread_ts: str) -> str:
@@ -114,11 +78,12 @@ def get_flat_history_filepath(
     If a file for this thread_ts already exists in flat-histories/, re-uses it (1 thread = 1 file).
     Disambiguates filename collisions between same-second threads using thread_ts suffix.
     """
-    FLAT_HISTORIES_DIR.mkdir(parents=True, exist_ok=True)
+    hist_dir = get_flat_histories_dir()
+    hist_dir.mkdir(parents=True, exist_ok=True)
     all_digits = re.sub(r"[^\w]", "", str(thread_ts))
     clean_ts = all_digits[:10]
     if clean_ts:
-        existing = list(FLAT_HISTORIES_DIR.glob(f"*_{clean_ts}*.md"))
+        existing = list(hist_dir.glob(f"*_{clean_ts}*.md"))
         for f in existing:
             try:
                 content = f.read_text(encoding="utf-8", errors="ignore")
@@ -128,14 +93,14 @@ def get_flat_history_filepath(
                 logger.debug(f"[FLAT HISTORY] Could not read file {f}: {e}")
 
     filename = generate_flat_history_filename(prompt or "thread", thread_ts)
-    candidate_path = FLAT_HISTORIES_DIR / filename
+    candidate_path = hist_dir / filename
     if candidate_path.exists():
         try:
             content = candidate_path.read_text(encoding="utf-8", errors="ignore")
             if f"**Thread TS:** `{thread_ts}`" not in content:
                 suffix = all_digits[-5:] if len(all_digits) >= 5 else "alt"
                 filename = f"{candidate_path.stem}_{suffix}.md"
-                candidate_path = FLAT_HISTORIES_DIR / filename
+                candidate_path = hist_dir / filename
         except OSError:
             pass
 
@@ -206,14 +171,7 @@ def record_flat_history(
     """
     Atomically writes the full conversation history to flat-histories/<prompt10>_<thread_ts10>.md.
     Guarantees 1 thread = 1 file.
-    Does NOT write files for testing threads (e2e or unit tests) unless force=True.
     """
-    if not force and is_test_thread(channel_id, thread_ts):
-        logger.debug(
-            f"[FLAT HISTORY] Skipping flat history creation for testing thread: channel={channel_id}, thread_ts={thread_ts}"
-        )
-        return None
-
     try:
         target_path = get_flat_history_filepath(channel_id, thread_ts, initial_prompt)
         effective_messages = messages or []
@@ -225,7 +183,7 @@ def record_flat_history(
         )
 
         tmp_fd, tmp_path = tempfile.mkstemp(
-            dir=str(FLAT_HISTORIES_DIR),
+            dir=str(target_path.parent),
             prefix=f"{target_path.stem}_",
             suffix=".tmp",
         )

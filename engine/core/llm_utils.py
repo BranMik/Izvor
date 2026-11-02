@@ -7,7 +7,6 @@ from typing import Any
 
 import litellm
 
-from core.config import is_test_environment
 from core.paths import SYSTEM_SETTINGS_FILE
 
 logger = logging.getLogger(__name__)
@@ -39,8 +38,6 @@ def get_llm_max_retries() -> int:
 
 
 def get_llm_retry_backoff_base() -> float:
-    if is_test_environment():
-        return 0.01
     if _llm_retry_config_provider is not None:
         try:
             return float(_llm_retry_config_provider()[1])
@@ -217,14 +214,10 @@ def is_high_demand_503_error(e: Exception) -> bool:
     return classify_agent_error(e) == "service_unavailable"
 
 
-async def _invoke_llm(func: Any, kwargs: dict[str, Any], runner: Any = None) -> Any:
-    """Invokes LLM completion natively if coroutine, via runner if provided, or directly."""
-    if runner is not None:
-        return await runner(func, **kwargs)
-    if inspect.iscoroutinefunction(func):
-        return await func(**kwargs)
+async def _invoke_llm(func: Any, kwargs: dict[str, Any]) -> Any:
+    """Invokes async LLM completion natively."""
     res = func(**kwargs)
-    if asyncio.iscoroutine(res):
+    if inspect.isawaitable(res):
         return await res
     return res
 
@@ -237,7 +230,6 @@ async def execute_llm_with_retry(
     thread_key: tuple[str, str],
     is_superseded_fn=None,
     max_attempts: int = LLM_MAX_RETRIES,
-    run_in_threadpool_fn=None,
     allow_503_immediate_retry: bool = True,
     turn_token_mapping: dict[str, str] | None = None,
 ) -> Any:
@@ -321,7 +313,7 @@ async def execute_llm_with_retry(
                 logger.info(
                     f"[LLM] Retrying LLM completion for {agent_key} (attempt {attempt}/{max_attempts})..."
                 )
-            res = await _invoke_llm(func, kwargs, runner=run_in_threadpool_fn)
+            res = await _invoke_llm(func, kwargs)
 
             # 2. Unmasking Phase
             if is_strict and active_mapping and hasattr(res, "choices") and res.choices:

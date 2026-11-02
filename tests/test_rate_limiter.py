@@ -8,12 +8,13 @@ from services.rate_limiter import SlackRateLimiter
 def test_rate_limiter_bypass_when_mock_token():
     async def _run():
         limiter = SlackRateLimiter(rate=1.0, capacity=1.0)
-        # By default in pytest, acquire is bypassed immediately
-        start = time.monotonic()
-        await limiter.acquire()
-        await limiter.acquire()
-        elapsed = time.monotonic() - start
-        assert elapsed < 0.1
+        # When SLACK_BOT_TOKEN is unset or placeholder, acquire is bypassed immediately
+        with patch("services.rate_limiter.SLACK_BOT_TOKEN", "xoxb-your-bot-user-oauth-token"):
+            start = time.monotonic()
+            await limiter.acquire()
+            await limiter.acquire()
+            elapsed = time.monotonic() - start
+            assert elapsed < 0.1
 
     asyncio.run(_run())
 
@@ -21,8 +22,8 @@ def test_rate_limiter_bypass_when_mock_token():
 def test_rate_limiter_token_consumption_and_refill():
     async def _run():
         limiter = SlackRateLimiter(rate=5.0, capacity=2.0)
-        # Simulate production environment: real token and remove "pytest" from sys.modules check
-        with patch("services.rate_limiter.SLACK_BOT_TOKEN", "xoxb-real-production-token-123"), patch("services.rate_limiter.is_test_environment", return_value=False):
+        # With real token, rate limiting engages
+        with patch("services.rate_limiter.SLACK_BOT_TOKEN", "xoxb-real-production-token-123"):
             # Initially tokens = 2.0
             assert limiter.tokens == 2.0
 
@@ -46,10 +47,10 @@ def test_rate_limiter_token_consumption_and_refill():
 def test_rate_limiter_concurrency():
     async def _run():
         limiter = SlackRateLimiter(rate=10.0, capacity=5.0)
-        with patch("services.rate_limiter.SLACK_BOT_TOKEN", "xoxb-real-production-token-123"), patch("services.rate_limiter.is_test_environment", return_value=False):
+        with patch("services.rate_limiter.SLACK_BOT_TOKEN", "xoxb-real-production-token-123"):
             # Launch 5 tasks concurrently
-                tasks = [limiter.acquire() for _ in range(5)]
-                await asyncio.gather(*tasks)
-                assert limiter.tokens <= 0.5
+            tasks = [limiter.acquire() for _ in range(5)]
+            await asyncio.gather(*tasks)
+            assert limiter.tokens <= 0.5
 
     asyncio.run(_run())

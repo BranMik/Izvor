@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .config import CACHE_DIR, MANIFEST_PATH, RAG_KNOWLEDGE_DIR, SUPPORTED_EXTENSIONS
+from .config import MANIFEST_PATH, RAG_CACHE_DIR, RAG_KNOWLEDGE_DIR, SUPPORTED_EXTENSIONS
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +52,7 @@ class ManifestManager:
 
     def save(self) -> None:
         """Atomically saves the in-memory manifest to disk."""
-        CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        RAG_CACHE_DIR.mkdir(parents=True, exist_ok=True)
         tmp_path = self.manifest_path.parent / f"{self.manifest_path.name}.{uuid.uuid4().hex}.tmp"
         try:
             with open(tmp_path, "w", encoding="utf-8") as f:

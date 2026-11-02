@@ -169,10 +169,6 @@ class EventDeduplicationCache(dict):
 # Global cache for request deduplication
 PROCESSED_EVENTS: EventDeduplicationCache = EventDeduplicationCache(ttl_seconds=600.0, maxsize=2000)
 
-_FALLBACK_SLASH_RE = re.compile(
-    r"(?:^|\s)/(?:grant_skill_for_all|grant-skill-for-all|grant_for_all|grant-for-all|grant_skill|grant-skill|revoke_skill_for_all|revoke-skill-for-all|revoke_for_all|revoke-for-all|revoke_constraint|revoke-constraint|revoke|list_skills|list-skills|rounds|round|next_round|next-round|nextround)\b",
-    re.IGNORECASE,
-)
 _SKILLS_SLASH_CACHE: tuple[tuple[str, ...], re.Pattern] | None = None
 
 
@@ -205,7 +201,7 @@ from services.slack.views import safe_publish_home as _safe_publish_home
 def is_explicit_app_mention(raw_text: str, bot_user_id: str | None = None) -> bool:
     """
     Checks if raw_text contains an explicit mention of the app.
-    Requires an explicit '@' prefix (@Izvor, @CaiLogics, @app_mention)
+    Requires an explicit '@' prefix (@Izvor, @app_mention)
     or Slack user mention format (<@bot_user_id>) so common nouns
     (like Croatian 'izvor') do not trigger false mentions.
     """
@@ -214,7 +210,7 @@ def is_explicit_app_mention(raw_text: str, bot_user_id: str | None = None) -> bo
     if bot_user_id and f"<@{bot_user_id}>" in raw_text:
         return True
     return bool(
-        re.search(r"@(?:Izvor|CaiLogics)\b", raw_text, re.IGNORECASE)
+        re.search(r"@Izvor\b", raw_text, re.IGNORECASE)
         or re.search(r"@app_mention\b", raw_text, re.IGNORECASE)
     )
 
@@ -259,12 +255,12 @@ async def handle_slack_events(request: Request, background_tasks: BackgroundTask
     # 6. Handle Event Callbacks (message.channels, app_mention)
     if data.get("type") == "event_callback":
         event = data.get("event", {})
-        # Slack Events API uses 'authorizations' in modern apps, fallback to 'authed_users'
         authorizations = data.get("authorizations")
-        if authorizations and isinstance(authorizations, list) and len(authorizations) > 0:
-            bot_user_id = authorizations[0].get("user_id")
-        else:
-            bot_user_id = data.get("authed_users", [None])[0] if data.get("authed_users") else None
+        bot_user_id = (
+            authorizations[0].get("user_id")
+            if (authorizations and isinstance(authorizations, list) and len(authorizations) > 0)
+            else None
+        )
 
         event_type = event.get("type")
         # 6a. Handle App Home Opened
@@ -339,9 +335,7 @@ async def handle_slack_events(request: Request, background_tasks: BackgroundTask
 
                 # User messages must either have a bracketed tag, be an app_mention/DM, or contain a recognized slash command
                 skills_slash_re = _get_skills_slash_regex()
-                has_slash_command = bool(
-                    (skills_slash_re and skills_slash_re.search(raw_text)) or _FALLBACK_SLASH_RE.search(raw_text)
-                )
+                has_slash_command = bool(skills_slash_re and skills_slash_re.search(raw_text))
 
                 if has_tag or is_mention_or_dm or has_slash_command:
                     should_process = True

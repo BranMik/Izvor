@@ -32,7 +32,7 @@ from services.pricing_service import PricingService
 @pytest.fixture(autouse=True)
 def setup_models_and_managers_env():
     from agents.thread_notes_agent import _RUNNING_TASKS
-    from agents.usage_agent import thread_usage_tracker
+    from agents.usage_agent import usage_tracker
 
     settings_manager.reset()
     yield
@@ -41,10 +41,10 @@ def setup_models_and_managers_env():
         if not task.done():
             task.cancel()
     _RUNNING_TASKS.clear()
-    for task in list(thread_usage_tracker.running_usage_tasks.values()):
+    for task in list(usage_tracker.running_usage_tasks.values()):
         if not task.done():
             task.cancel()
-    thread_usage_tracker.running_usage_tasks.clear()
+    usage_tracker.running_usage_tasks.clear()
 
 
 def test_models_serialization():

@@ -31,9 +31,6 @@ from core.paths import (
 
 logger = logging.getLogger(__name__)
 
-# Mandatory locked agents (empty by default now that lock system is removed)
-LOCKED_AGENTS: set[str] = set()
-
 # 7-day interval in seconds (604,800 seconds)
 BACKUP_INTERVAL_SECONDS = 7 * 86400
 
@@ -55,7 +52,6 @@ class AgentSettingsManager:
         backup_file: Path | None = None,
         system_agent_settings_file: Path | None = None,
         system_agent_backup_file: Path | None = None,
-        locked_agents: set[str] | None = None,
         backup_interval_seconds: float = BACKUP_INTERVAL_SECONDS,
         auto_load: bool = True,
         workflows_dir: Path | None = None,
@@ -70,7 +66,6 @@ class AgentSettingsManager:
         self.default_system_agent_backup_file = system_agent_backup_file or SYSTEM_AGENT_BACKUP_FILE
         self._custom_system_agent_backup_file = system_agent_backup_file is not None
 
-        self.locked_agents = set(locked_agents or set())
         self.backup_interval_seconds = backup_interval_seconds
         self._save_lock = threading.RLock()
 

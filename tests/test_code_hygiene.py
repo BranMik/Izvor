@@ -170,7 +170,6 @@ def test_no_monkeypatch_setattr_on_module_paths_or_managers():
         "APP_BACKUP_FILE",
         "PRICING_CACHE_FILE",
         "USAGE_STORE_FILE",
-        "DEFAULT_DB_PATH",
         "system_settings_manager",
         "app_settings_manager",
     }

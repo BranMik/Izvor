@@ -7,17 +7,11 @@ from unittest.mock import patch
 
 from starlette.testclient import TestClient
 
-from core.config import is_test_environment
 from main import app
 from orchestration.agent_settings import settings_manager
 from orchestration.nomination import parse_agent_and_prompt
 from orchestration.thread_state import thread_state_manager
 from prompts.builder import is_short_output_agent, is_system_agent
-
-
-def test_is_test_environment():
-    """is_test_environment() should return True during pytest execution."""
-    assert is_test_environment() is True
 
 
 def test_app_mention_regex_routing():

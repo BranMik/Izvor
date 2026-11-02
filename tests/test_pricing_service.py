@@ -176,7 +176,7 @@ async def test_fetch_pricing_with_agent_success():
     )
 
     with patch("litellm.acompletion", new_callable=AsyncMock, side_effect=[first_response, second_response]) as mock_completion, \
-         patch("services.pricing_service.web_search", return_value=mock_search_json) as mock_search:
+         patch("services.pricing_service.web_search", new_callable=AsyncMock, return_value=mock_search_json) as mock_search:
 
         res = await pricing_service.fetch_pricing_with_agent("gemini/gemini-3.8-flash")
 
@@ -218,7 +218,7 @@ async def test_fetch_pricing_from_web_agent_fallback():
     )
 
     with patch.object(pricing_service, "fetch_pricing_with_agent", side_effect=Exception("LiteLLM connection error")), \
-         patch("services.pricing_service.web_search", return_value=mock_search_json):
+         patch("services.pricing_service.web_search", new_callable=AsyncMock, return_value=mock_search_json):
 
         res = await pricing_service.fetch_pricing_from_web("gemini/gemini-3.8-flash")
         assert res["input_price_per_1m"] == 0.75

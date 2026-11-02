@@ -20,24 +20,15 @@ from adapters.slack import (
     PROCESSED_EVENTS,
     slack_router,
 )
-from adapters.slack import (
-    handle_slack_events as slack_events,
-)
-from adapters.slack import (
-    handle_slack_interactivity as slack_interactivity,
-)
 from core.config import (
     ADMIN_PASSWORD,
     ADMIN_USERNAME,
     AGENTS_CONFIG,
 )
-from core.slack_security import verify_slack_signature
-from orchestration.agent_router import process_and_respond
 from orchestration.agent_settings import load_enabled_agents
 from orchestration.thread_state import thread_state_manager
 from services.pricing_service import pricing_service
 from services.rag.sync_engine import rag_sync_engine
-from services.slack import publish_app_home
 
 from orchestration.system_settings import system_settings_manager
 from core.logging_filters import setup_credential_redaction_filters
@@ -466,10 +457,5 @@ async def get_audit_status():
 __all__ = [
     "PROCESSED_EVENTS",
     "app",
-    "process_and_respond",
-    "publish_app_home",
-    "slack_events",
-    "slack_interactivity",
     "slack_router",
-    "verify_slack_signature",
 ]

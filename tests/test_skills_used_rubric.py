@@ -23,11 +23,9 @@ async def test_post_record_with_single_skill_used():
         return {"ok": True, "ts": "1234.9999"}
 
     pipeline = TurnPipeline(
-        hooks={
-            "post_agent_response": mock_post,
-            "DEBATE_TURN_PACING_SECONDS": 0,
-            "SLACK_POST_PAUSE_SECONDS": 0,
-        }
+        slack_poster=mock_post,
+        debate_turn_pacing_seconds=0,
+        slack_post_pause_seconds=0,
     )
     ctx = TurnContext(
         channel_id="C_SKILL_TEST",
@@ -66,11 +64,9 @@ async def test_post_record_with_multiple_skills_used():
         return {"ok": True, "ts": "1234.9999"}
 
     pipeline = TurnPipeline(
-        hooks={
-            "post_agent_response": mock_post,
-            "DEBATE_TURN_PACING_SECONDS": 0,
-            "SLACK_POST_PAUSE_SECONDS": 0,
-        }
+        slack_poster=mock_post,
+        debate_turn_pacing_seconds=0,
+        slack_post_pause_seconds=0,
     )
     ctx = TurnContext(
         channel_id="C_SKILL_TEST",
@@ -108,11 +104,9 @@ async def test_post_record_omits_skills_used_when_none():
         return {"ok": True, "ts": "1234.9999"}
 
     pipeline = TurnPipeline(
-        hooks={
-            "post_agent_response": mock_post,
-            "DEBATE_TURN_PACING_SECONDS": 0,
-            "SLACK_POST_PAUSE_SECONDS": 0,
-        }
+        slack_poster=mock_post,
+        debate_turn_pacing_seconds=0,
+        slack_post_pause_seconds=0,
     )
     ctx = TurnContext(
         channel_id="C_SKILL_TEST",

@@ -55,16 +55,6 @@ def is_slack_admin(user_id: str | None) -> bool:
     return bool(u and u in get_admin_slack_user_ids())
 
 
-def is_test_environment() -> bool:
-    """
-    Determines if the application is currently running inside an automated test suite.
-    Checks PYTEST_CURRENT_TEST and safely falls back to inspecting loaded test runner modules.
-    """
-    if os.getenv("PYTEST_CURRENT_TEST"):
-        return True
-    return "pytest" in sys.modules
-
-
 def is_production() -> bool:
     """
     Determines if the application is currently running in a production environment.

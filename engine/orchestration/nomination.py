@@ -15,12 +15,9 @@ from core.config import AGENTS_CONFIG
 from core.models import OrchestrationMode
 from pipeline.directive_parser.slash_parser import strip_all_slash_commands
 from pipeline.entity_resolver import (
-    NOMINATION_TAG_RE,
     NOMINATION_TAG_REGEX,
-    TAG_REGEX,
     entity_resolver,
     format_nomination,
-    format_nomination_tag,
 )
 from pipeline.orchestrator import SandwichOrchestrator
 
@@ -30,12 +27,14 @@ from .thread_state import thread_state_manager
 logger = logging.getLogger(__name__)
 
 __all__ = [
-    "NOMINATION_TAG_RE",
     "NOMINATION_TAG_REGEX",
-    "TAG_REGEX",
+    "enforce_valid_nomination",
     "entity_resolver",
     "format_nomination",
-    "format_nomination_tag",
+    "get_initial_agents",
+    "parse_agent_and_prompt",
+    "resolve_target_file",
+    "strip_all_nominations",
 ]
 
 
@@ -144,7 +143,7 @@ def parse_agent_and_prompt(
     cleaned_text = re.sub(r"<@[A-Z0-9]+>", "", cleaned_text).strip()
 
     tag_matches = []
-    for match in TAG_REGEX.finditer(cleaned_text):
+    for match in NOMINATION_TAG_REGEX.finditer(cleaned_text):
         raw_tag = match.group(1)
         resolved_key = entity_resolver.resolve_agent_name(raw_tag)
         if resolved_key:
@@ -224,7 +223,7 @@ def strip_all_nominations(text: str) -> str:
             if uname:
                 agent_tokens.add(uname)
 
-    for match in TAG_REGEX.finditer(text):
+    for match in NOMINATION_TAG_REGEX.finditer(text):
         raw_tag = match.group(1).strip()
         resolved_key = entity_resolver.resolve_agent_name(raw_tag)
         if resolved_key:
@@ -306,7 +305,7 @@ def enforce_valid_nomination(
             return f"{stripped.strip()}\n\n{format_nomination(target)}"
 
     agent_tag_matches = []
-    for match in TAG_REGEX.finditer(text):
+    for match in NOMINATION_TAG_REGEX.finditer(text):
         raw_tag = match.group(1)
         resolved_key = entity_resolver.resolve_agent_name(raw_tag)
         if resolved_key:

@@ -4,7 +4,6 @@ from .flat_history_recorder import (
     format_messages_to_markdown,
     generate_flat_history_filename,
     get_flat_history_filepath,
-    is_test_thread,
     record_flat_history,
 )
 from .mcp_tools import (
@@ -15,10 +14,8 @@ from .mcp_tools import (
     write_document,
 )
 from .pricing_service import (
-    BASELINE_CONFIG_FILE,
     BASELINE_MODEL_PRICING,
     BASELINE_PRICES_FILE,
-    CACHE_TTL_SECONDS,
     DEFAULT_FALLBACK_PRICING,
     PRICING_CACHE_FILE,
     PRICING_TOOL_SCHEMAS,
@@ -57,7 +54,6 @@ from .slack import (
     upload_text_file_to_slack,
 )
 from .thread_notes_writer import (
-    DEFAULT_THREAD_NOTES_DIR,
     THREAD_NOTES_DIR,
     generate_notes_filename,
     save_thread_notes_to_disk,
@@ -68,10 +64,8 @@ from .web_tools import (
 )
 
 __all__ = [
-    "BASELINE_CONFIG_FILE",
     "BASELINE_MODEL_PRICING",
     "BASELINE_PRICES_FILE",
-    "CACHE_TTL_SECONDS",
     "DEFAULT_FALLBACK_PRICING",
     "FLAT_HISTORIES_DIR",
     "MCP_TOOLS_SCHEMAS",
@@ -85,8 +79,6 @@ __all__ = [
     "download_slack_file",
     "execute_mcp_tool",
     "extract_thread_files_metadata",
-    "fetch_pricing_from_web",
-    "fetch_pricing_with_agent",
     "fetch_thread_files",
     "fetch_thread_history",
     "fetch_web_page",
@@ -98,7 +90,6 @@ __all__ = [
     "get_flat_history_filepath",
     "get_model_pricing",
     "get_or_create_usage_channel",
-    "is_test_thread",
     "list_documents",
     "load_baseline_pricing",
     "open_dm_channel",
@@ -121,7 +112,6 @@ __all__ = [
     "save_thread_notes_to_disk",
     "generate_notes_filename",
     "THREAD_NOTES_DIR",
-    "DEFAULT_THREAD_NOTES_DIR",
     "web_search",
     "write_document",
 ]

@@ -300,6 +300,36 @@ def isolate_downloads_dir_for_tests(request, tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def isolate_flat_histories_and_notes_for_tests(tmp_path, monkeypatch):
+    """
+    Prevents tests from creating flat history and thread note files in real directories.
+    Provides fast pacing for multi-turn execution without production test seams.
+    """
+    from services.flat_history_recorder import configure_paths as configure_flat_paths, reset_paths as reset_flat_paths
+    from services.thread_notes_writer import configure_paths as configure_note_paths, reset_paths as reset_note_paths
+
+    iso_dir = tmp_path / "_conftest_iso"
+    iso_dir.mkdir(parents=True, exist_ok=True)
+    temp_flat = iso_dir / "flat-histories"
+    temp_flat.mkdir(parents=True, exist_ok=True)
+    temp_notes = iso_dir / "thread_notes"
+    temp_notes.mkdir(parents=True, exist_ok=True)
+
+    monkeypatch.setenv("IZVOR_HISTORIES_DIR", str(temp_flat))
+    monkeypatch.setenv("IZVOR_THREAD_NOTES_DIR", str(temp_notes))
+    monkeypatch.setenv("IZVOR_DEBATE_TURN_PACING_SECONDS", "0.01")
+    monkeypatch.setenv("IZVOR_SLACK_POST_PAUSE_SECONDS", "0.01")
+
+    configure_flat_paths(temp_flat)
+    configure_note_paths(temp_notes)
+
+    yield
+
+    reset_flat_paths()
+    reset_note_paths()
+
+
+@pytest.fixture(autouse=True)
 def isolate_workspace_tests_for_tests():
     """
     Cleans up any scratch or temporary test files written into agents_resources or workspace.

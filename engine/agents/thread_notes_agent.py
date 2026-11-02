@@ -140,20 +140,13 @@ def get_thread_note(channel_id: str, thread_ts: str) -> str | None:
     thread_key = (channel_id, thread_ts)
     if thread_key not in THREAD_NOTE_MSG_MAP:
         _load_notes_state_from_db(channel_id, thread_ts)
-    val = THREAD_NOTE_MSG_MAP.get(thread_key)
-    if isinstance(val, dict):
-        return val.get("note_ts")
-    return val
+    return THREAD_NOTE_MSG_MAP.get(thread_key)
 
 
-def set_thread_note(channel_id: str, thread_ts: str, message_ts: str | dict[str, Any]) -> None:
+def set_thread_note(channel_id: str, thread_ts: str, message_ts: str) -> None:
     """Stores the message_ts of the live note associated with a thread."""
     thread_key = (channel_id, thread_ts)
-    if isinstance(message_ts, dict):
-        ts = message_ts.get("note_ts")
-        THREAD_NOTE_MSG_MAP[thread_key] = str(ts)
-    else:
-        THREAD_NOTE_MSG_MAP[thread_key] = str(message_ts)
+    THREAD_NOTE_MSG_MAP[thread_key] = str(message_ts)
     _sync_notes_state_to_db(channel_id, thread_ts)
 
 

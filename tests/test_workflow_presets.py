@@ -477,8 +477,8 @@ def test_default_review_flow_contains_5_adversarial_agents():
         "agent-10001",
         "agent-10002",
         "agent-10003",
-        "agent-10014",
-        "agent-10012",
+        "agent-10004",
+        "agent-10005",
     ]
 
 

@@ -48,11 +48,7 @@ PROVIDER_CATALOG: dict[str, dict[str, Any]] = load_provider_catalog()
 
 def _get_project_env_path() -> Path:
     """Resolves path to .env file."""
-    root_env = PROJECT_ROOT / ".env"
-    if root_env.exists():
-        return root_env
-    core_env = PROJECT_ROOT / "core" / ".env"
-    return core_env
+    return PROJECT_ROOT / ".env"
 
 
 def _is_valid_key(value: Any) -> bool:

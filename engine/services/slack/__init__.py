@@ -1,8 +1,8 @@
 import logging
-from core.config import PROJECT_ROOT, SLACK_BOT_TOKEN
 
 from services.slack.client_core import (
     CHANNEL_NAME_CACHE,
+    SLACK_BOT_TOKEN,
     get_bot_user_id,
     get_channel_name,
     get_or_create_usage_channel,

@@ -13,7 +13,6 @@ import time
 from typing import TYPE_CHECKING, Any
 
 import litellm
-from starlette.concurrency import run_in_threadpool
 
 from agents import record_thread_tokens
 from core.config import TOOL_INTERMEDIATE_UPDATE_DELAY_SECONDS
@@ -229,10 +228,6 @@ class ExecutionStage:
                 completion_kwargs["api_base"] = os.getenv("META_API_BASE")
 
         exec_retry_fn = getattr(self.deps, "llm_executor", None) or execute_llm_with_retry
-        threadpool_fn = getattr(self.deps, "run_in_threadpool_fn", None)
-        custom_runner = (
-            threadpool_fn if (threadpool_fn is not None and threadpool_fn is not run_in_threadpool) else None
-        )
 
         response = await exec_retry_fn(
             litellm.acompletion,
@@ -240,7 +235,6 @@ class ExecutionStage:
             agent_key=ctx.agent_key,
             thread_key=ctx.thread_key,
             is_superseded_fn=ctx.is_superseded,
-            run_in_threadpool_fn=custom_runner,
             allow_503_immediate_retry=allow_503_immediate,
             turn_token_mapping=ctx.turn_token_mapping,
         )
@@ -565,7 +559,6 @@ class ExecutionStage:
                         agent_key=f"{ctx.agent_key} follow-up",
                         thread_key=ctx.thread_key,
                         is_superseded_fn=ctx.is_superseded,
-                        run_in_threadpool_fn=custom_runner,
                         allow_503_immediate_retry=allow_503_immediate,
                         turn_token_mapping=ctx.turn_token_mapping,
                     )

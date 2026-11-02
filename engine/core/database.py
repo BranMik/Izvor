@@ -14,8 +14,6 @@ from core.paths import DB_PATH
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_DB_PATH = DB_PATH
-
 BASELINE_SCHEMA_STATEMENTS = [
     # 1. Thread Sessions (Discussion state, scheduling, remaining agents, turns)
     """

@@ -388,7 +388,7 @@ class TestDefaultWorkflowsIntegrity:
         )
 
         payload = {"agents": {"agent-1": {}, "agent-2": {}}}
-        AppIntegrityValidator.check_default_workflows_integrity(payload, workflows_dir=wf_dir, backup_dir=backup_dir)
+        AppIntegrityValidator.check_default_workflows_integrity(payload, workflows_dir=wf_dir, backups_dir=backup_dir)
 
         restored = json.loads((wf_dir / "default_sandwich.json").read_text(encoding="utf-8"))
         assert restored["name"] == "Backup Sandwich"
@@ -399,7 +399,7 @@ class TestDefaultWorkflowsIntegrity:
         wf_dir.mkdir(parents=True, exist_ok=True)
 
         payload = {"agents": {"agent-10001": {}, "agent-10002": {}}}
-        AppIntegrityValidator.check_default_workflows_integrity(payload, workflows_dir=wf_dir, backup_dir=backup_dir)
+        AppIntegrityValidator.check_default_workflows_integrity(payload, workflows_dir=wf_dir, backups_dir=backup_dir)
 
         assert (wf_dir / "default_sandwich.json").exists()
         assert (wf_dir / "default_review_flow.json").exists()
