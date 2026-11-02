@@ -1,4 +1,5 @@
 import asyncio
+import copy
 import inspect
 import json
 import logging
@@ -312,6 +313,14 @@ class PricingService:
         self.default_fallback = dict(DEFAULT_FALLBACK_PRICING)
         self._mem_cache: dict[str, dict[str, Any]] | None = None
         self._mem_cache_key: tuple[str, float] | None = None
+        self._refresh_lock: asyncio.Lock | None = None
+
+    @property
+    def refresh_lock(self) -> asyncio.Lock:
+        """Lazily instantiates asyncio.Lock inside running event loop."""
+        if self._refresh_lock is None:
+            self._refresh_lock = asyncio.Lock()
+        return self._refresh_lock
 
     def configure_paths(self, cache_file: Path | str | None = None) -> None:
         """Configures isolated cache file for tests and runtime overrides."""
@@ -398,10 +407,10 @@ class PricingService:
                 res["source_url"] = baseline.get(
                     "source_url", get_pricing_benchmark_url()
                 )
-            return res
+            return copy.deepcopy(res)
         res = dict(baseline)
         res["updated_at"] = 0
-        return res
+        return copy.deepcopy(res)
 
     async def fetch_pricing_with_agent(self, model_name: str) -> dict[str, Any]:
         """Researches pricing for a given model using LiteLLM agent with tool calls."""
@@ -639,55 +648,56 @@ class PricingService:
         If weekly update is OFF, models with existing pricing are not updated, but models without set
         pricing will still fetch pricing.
         """
-        cache = self.load_cache()
-        norm = _normalize_model_name(model_name)
-        now = time.time()
+        async with self.refresh_lock:
+            cache = self.load_cache()
+            norm = _normalize_model_name(model_name)
+            now = time.time()
 
-        from orchestration.app_settings import is_weekly_pricing_update_enabled
-        weekly_update_enabled = is_weekly_pricing_update_enabled()
+            from orchestration.app_settings import is_weekly_pricing_update_enabled
+            weekly_update_enabled = is_weekly_pricing_update_enabled()
 
-        cached_entry = cache.get(norm)
-        has_price = (
-            cached_entry is not None
-            and cached_entry.get("input_price_per_1m") is not None
-            and cached_entry.get("output_price_per_1m") is not None
-        )
+            cached_entry = cache.get(norm)
+            has_price = (
+                cached_entry is not None
+                and cached_entry.get("input_price_per_1m") is not None
+                and cached_entry.get("output_price_per_1m") is not None
+            )
 
-        if cached_entry and not force:
-            updated_at = cached_entry.get("updated_at", 0)
-            age = now - updated_at
+            if cached_entry and not force:
+                updated_at = cached_entry.get("updated_at", 0)
+                age = now - updated_at
 
-            # If weekly updates are turned OFF and pricing is already set for this model,
-            # do not update and return cached pricing.
-            if not weekly_update_enabled and has_price:
-                logger.debug(
-                    f"[PRICING] Weekly updates disabled; using existing price for '{norm}'"
-                )
-                if not cached_entry.get("source_url"):
-                    baseline = get_baseline_for_model(model_name)
-                    cached_entry["source_url"] = baseline.get(
-                        "source_url", get_pricing_benchmark_url()
+                # If weekly updates are turned OFF and pricing is already set for this model,
+                # do not update and return cached pricing.
+                if not weekly_update_enabled and has_price:
+                    logger.debug(
+                        f"[PRICING] Weekly updates disabled; using existing price for '{norm}'"
                     )
-                return cached_entry
+                    if not cached_entry.get("source_url"):
+                        baseline = get_baseline_for_model(model_name)
+                        cached_entry["source_url"] = baseline.get(
+                            "source_url", get_pricing_benchmark_url()
+                        )
+                    return copy.deepcopy(cached_entry)
 
-            # If weekly updates are turned ON, enforce the dynamic TTL check
-            effective_ttl = get_pricing_cache_ttl_seconds()
-            if weekly_update_enabled and has_price and age < effective_ttl:
-                logger.debug(
-                    f"[PRICING] Using cached pricing for '{norm}' (age: {age / 86400:.1f} days / {effective_ttl / 86400:.1f}-day TTL)"
-                )
-                if not cached_entry.get("source_url"):
-                    baseline = get_baseline_for_model(model_name)
-                    cached_entry["source_url"] = baseline.get(
-                        "source_url", get_pricing_benchmark_url()
+                # If weekly updates are turned ON, enforce the dynamic TTL check
+                effective_ttl = get_pricing_cache_ttl_seconds()
+                if weekly_update_enabled and has_price and age < effective_ttl:
+                    logger.debug(
+                        f"[PRICING] Using cached pricing for '{norm}' (age: {age / 86400:.1f} days / {effective_ttl / 86400:.1f}-day TTL)"
                     )
-                return cached_entry
+                    if not cached_entry.get("source_url"):
+                        baseline = get_baseline_for_model(model_name)
+                        cached_entry["source_url"] = baseline.get(
+                            "source_url", get_pricing_benchmark_url()
+                        )
+                    return copy.deepcopy(cached_entry)
 
-        fresh_pricing = await self.fetch_pricing_from_web(model_name)
+            fresh_pricing = await self.fetch_pricing_from_web(model_name)
 
-        cache[norm] = fresh_pricing
-        self.save_cache(cache)
-        return fresh_pricing
+            cache[norm] = fresh_pricing
+            self.save_cache(cache)
+            return copy.deepcopy(fresh_pricing)
 
     async def warm_up_cache(self, models: list[str] | None = None) -> None:
         """Warms up pricing cache at server startup for all known models."""

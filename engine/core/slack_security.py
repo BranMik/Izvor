@@ -1,11 +1,16 @@
+from collections.abc import Callable
 import hashlib
 import hmac
+import json
 import logging
 import os
+from pathlib import Path
 import re
 import threading
 import time
 from typing import Any
+
+from core.paths import SYSTEM_SETTINGS_FILE
 
 logger = logging.getLogger(__name__)
 
@@ -15,18 +20,50 @@ _AUTH_FAILURE_BURST_LIMIT = 5
 _GLOBAL_AUTH_FAILURE_BURST_LIMIT = 25
 _MAX_TRACKER_ENTRIES = 1000
 
+_burst_limits_provider: Callable[[], dict[str, Any]] | None = None
+_audit_logger_hook: Callable[..., Any] | None = None
+_secret_scanner_hook: Callable[[str, str], str | None] | None = None
+
+
+def set_burst_limits_provider(provider: Callable[[], dict[str, Any]] | None) -> None:
+    """Injectable provider for burst limits, decoupling core/slack_security from orchestration."""
+    global _burst_limits_provider
+    _burst_limits_provider = provider
+
+
+def set_audit_logger_hook(hook: Callable[..., Any] | None) -> None:
+    """Injectable audit logger hook, decoupling core/slack_security from services."""
+    global _audit_logger_hook
+    _audit_logger_hook = hook
+
+
+def set_secret_scanner_hook(hook: Callable[[str, str], str | None] | None) -> None:
+    """Injectable secret scanner hook, decoupling core/slack_security from services."""
+    global _secret_scanner_hook
+    _secret_scanner_hook = hook
+
 
 def _get_security_burst_limits() -> dict[str, Any]:
+    if _burst_limits_provider is not None:
+        try:
+            return _burst_limits_provider()
+        except Exception:
+            pass
     try:
-        from orchestration.system_settings import system_settings_manager
-        return system_settings_manager.get_security_burst_limits()
+        if SYSTEM_SETTINGS_FILE.exists():
+            with open(SYSTEM_SETTINGS_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            sec = data.get("security_burst_limits")
+            if isinstance(sec, dict):
+                return sec
     except Exception:  # noqa: BLE001
-        return {
-            "auth_failure_window_seconds": _AUTH_FAILURE_WINDOW_SECONDS,
-            "auth_failure_burst_limit": _AUTH_FAILURE_BURST_LIMIT,
-            "global_auth_failure_burst_limit": _GLOBAL_AUTH_FAILURE_BURST_LIMIT,
-            "max_tracker_entries": _MAX_TRACKER_ENTRIES,
-        }
+        pass
+    return {
+        "auth_failure_window_seconds": _AUTH_FAILURE_WINDOW_SECONDS,
+        "auth_failure_burst_limit": _AUTH_FAILURE_BURST_LIMIT,
+        "global_auth_failure_burst_limit": _GLOBAL_AUTH_FAILURE_BURST_LIMIT,
+        "max_tracker_entries": _MAX_TRACKER_ENTRIES,
+    }
 
 
 _auth_failure_lock = threading.Lock()
@@ -119,51 +156,58 @@ def _record_auth_failure_audit(client_id: str) -> None:
             else:
                 state["suppressed_count"] += 1
 
-    try:
-        from services.audit_logger import log_audit_event
+    log_fn = _audit_logger_hook
+    if log_fn is None:
+        try:
+            from services.audit_logger import log_audit_event
+            log_fn = log_audit_event
+        except Exception:
+            log_fn = None
 
-        for ev_id, ev_count in evicted_summaries:
-            log_audit_event(
-                event_type="AUTH_FAILURE",
-                actor={"type": "slack_webhook", "id": ev_id},
-                action="verify_slack_signature",
-                target="/slack/*",
-                details={
-                    "reason": "HMAC signature mismatch (cache eviction summary)",
-                    "suppressed_attempts_count": ev_count,
-                    "evicted_from_cache": True,
-                },
-                severity="WARNING",
-                status="FAILED",
-            )
+    if log_fn is not None:
+        try:
+            for ev_id, ev_count in evicted_summaries:
+                log_fn(
+                    event_type="AUTH_FAILURE",
+                    actor={"type": "slack_webhook", "id": ev_id},
+                    action="verify_slack_signature",
+                    target="/slack/*",
+                    details={
+                        "reason": "HMAC signature mismatch (cache eviction summary)",
+                        "suppressed_attempts_count": ev_count,
+                        "evicted_from_cache": True,
+                    },
+                    severity="WARNING",
+                    status="FAILED",
+                )
 
-        if summary_to_log:
-            log_audit_event(
-                event_type="AUTH_FAILURE",
-                actor={"type": "slack_webhook", "id": client_id},
-                action="verify_slack_signature",
-                target="/slack/*",
-                details={
-                    "reason": "HMAC signature mismatch (burst aggregation)",
-                    "suppressed_attempts_count": summary_to_log,
-                    "window_seconds": int(window_secs),
-                },
-                severity="CRITICAL",
-                status="FAILED",
-            )
+            if summary_to_log:
+                log_fn(
+                    event_type="AUTH_FAILURE",
+                    actor={"type": "slack_webhook", "id": client_id},
+                    action="verify_slack_signature",
+                    target="/slack/*",
+                    details={
+                        "reason": "HMAC signature mismatch (burst aggregation)",
+                        "suppressed_attempts_count": summary_to_log,
+                        "window_seconds": int(window_secs),
+                    },
+                    severity="CRITICAL",
+                    status="FAILED",
+                )
 
-        if should_log:
-            log_audit_event(
-                event_type="AUTH_FAILURE",
-                actor={"type": "slack_webhook", "id": client_id},
-                action="verify_slack_signature",
-                target="/slack/*",
-                details={"reason": "HMAC signature mismatch"},
-                severity="CRITICAL",
-                status="FAILED",
-            )
-    except Exception as e:  # noqa: BLE001
-        logger.debug(f"[SECURITY] Failed to record auth failure audit: {e}")
+            if should_log:
+                log_fn(
+                    event_type="AUTH_FAILURE",
+                    actor={"type": "slack_webhook", "id": client_id},
+                    action="verify_slack_signature",
+                    target="/slack/*",
+                    details={"reason": "HMAC signature mismatch"},
+                    severity="CRITICAL",
+                    status="FAILED",
+                )
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"[SECURITY] Failed to record auth failure audit: {e}")
 
 
 def verify_slack_signature(body_bytes: bytes, headers: dict) -> bool:
@@ -253,7 +297,14 @@ def sanitize_slack_blocks(
         return blocks, None
 
     import copy
-    from services.security import scan_output_for_secrets
+
+    scan_fn = _secret_scanner_hook
+    if scan_fn is None:
+        try:
+            from services.security import scan_output_for_secrets
+            scan_fn = scan_output_for_secrets
+        except Exception:
+            scan_fn = None
 
     blocks_copy = copy.deepcopy(blocks)
     matched_rule: str | None = None
@@ -261,8 +312,8 @@ def sanitize_slack_blocks(
     def _walk_and_sanitize(obj: Any) -> Any:
         nonlocal matched_rule
         if isinstance(obj, str):
-            if matched_rule is None:
-                rule = scan_output_for_secrets(obj, user_id=user_id)
+            if matched_rule is None and scan_fn is not None:
+                rule = scan_fn(obj, user_id=user_id)
                 if rule:
                     matched_rule = rule
             return sanitize_slack_broadcast_mentions(obj)

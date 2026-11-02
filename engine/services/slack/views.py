@@ -46,3 +46,20 @@ async def publish_app_home(
     except Exception as e:  # noqa: BLE001 - Slack API boundary returns error payload instead of crashing callers
         logger.error(f"Error publishing App Home view to user {user_id}: {e}")
         return {"ok": False, "error": str(e)}
+
+
+async def safe_publish_home(user_id: str) -> None:
+    """
+    Safely syncs settings and publishes the App Home view, swallowing and logging any exceptions.
+    Suitable for use in FastAPI background tasks or event callbacks.
+    """
+    try:
+        from orchestration.agent_settings import sync_settings_if_modified
+
+        sync_settings_if_modified()
+        import services.slack.views as ssv
+        await ssv.publish_app_home(user_id=user_id)
+    except SlackApiError as e:
+        logger.error(f"[SLACK] SlackApiError publishing App Home for {user_id}: {e}")
+    except Exception as e:  # noqa: BLE001 - Resilient to Slack errors in background tasks
+        logger.error(f"[SLACK] Failed to publish App Home for {user_id}: {e}")

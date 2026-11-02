@@ -77,14 +77,7 @@ class ActionSpec:
     publish_home: bool = True
 
 
-async def _safe_publish_home(user_id: str) -> None:
-    try:
-        sync_settings_if_modified()
-        await publish_app_home(user_id=user_id)
-    except SlackApiError as e:
-        logger.error(f"[INTERACTIVITY] SlackApiError publishing App Home for {user_id}: {e}")
-    except Exception as e:  # noqa: BLE001 - Interactivity handler isolates app home publishing failure
-        logger.error(f"[INTERACTIVITY] Failed to publish App Home for {user_id}: {e}")
+from services.slack.views import safe_publish_home as _safe_publish_home
 
 
 ACTION_REGISTRY: dict[str, ActionSpec] = {

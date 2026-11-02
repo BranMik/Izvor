@@ -6,6 +6,7 @@ specifications (from data/system_settings.json SSOT), and dynamic model getter
 functions that read from agent_settings.json SSOT without circular dependencies.
 """
 
+from collections.abc import Callable
 import logging
 import os
 import sys
@@ -203,26 +204,42 @@ DEFAULT_FAST_MODEL = "gemini/gemini-3.8-flash"
 DEFAULT_REASONING_MODEL = "mistral/mistral-large-latest"
 
 
+_fast_model_provider: Callable[[], str] | None = None
+_reasoning_model_provider: Callable[[], str] | None = None
+
+
+def set_default_model_providers(
+    fast_provider: Callable[[], str] | None = None,
+    reasoning_provider: Callable[[], str] | None = None,
+) -> None:
+    """Injectable providers for default models, decoupling core/config from orchestration."""
+    global _fast_model_provider, _reasoning_model_provider
+    if fast_provider is not None:
+        _fast_model_provider = fast_provider
+    if reasoning_provider is not None:
+        _reasoning_model_provider = reasoning_provider
+
+
 def get_default_fast_model() -> str:
     """Returns the system-level default fast LLM model dynamically from SSOT."""
-    try:
-        from orchestration.system_settings import system_settings_manager
-
-        return system_settings_manager.default_fast_model
-    except Exception:
-        fast, _ = _load_default_models_from_ssot()
-        return fast
+    if _fast_model_provider is not None:
+        try:
+            return _fast_model_provider()
+        except Exception:
+            pass
+    fast, _ = _load_default_models_from_ssot()
+    return fast
 
 
 def get_default_reasoning_model() -> str:
     """Returns the system-level default reasoning LLM model dynamically from SSOT."""
-    try:
-        from orchestration.system_settings import system_settings_manager
-
-        return system_settings_manager.default_reasoning_model
-    except Exception:
-        _, reasoning = _load_default_models_from_ssot()
-        return reasoning
+    if _reasoning_model_provider is not None:
+        try:
+            return _reasoning_model_provider()
+        except Exception:
+            pass
+    _, reasoning = _load_default_models_from_ssot()
+    return reasoning
 
 
 def get_system_agent_model(name: str, fallback: str = "") -> str:
@@ -294,29 +311,45 @@ def get_orchestrator_reasoning_model(fallback: str | None = None) -> str:
 
 # System / Utility Agent prompts (lazily built to prevent circular imports with prompts)
 _CACHED_PROMPTS: dict[str, str] = {}
+_prompt_builder_provider: Callable[[str], str] | None = None
+
+
+def set_prompt_builder_provider(builder: Callable[[str], str] | None) -> None:
+    """Injectable prompt builder, decoupling core/config from prompts layer."""
+    global _prompt_builder_provider
+    _prompt_builder_provider = builder
 
 
 def get_thread_notes_prompt() -> str:
     if "thread_notes" not in _CACHED_PROMPTS:
-        from prompts import build_agent_prompt
+        if _prompt_builder_provider is not None:
+            _CACHED_PROMPTS["thread_notes"] = _prompt_builder_provider("Thread_Notes_Agent")
+        else:
+            from prompts import build_agent_prompt
 
-        _CACHED_PROMPTS["thread_notes"] = build_agent_prompt("Thread_Notes_Agent")
+            _CACHED_PROMPTS["thread_notes"] = build_agent_prompt("Thread_Notes_Agent")
     return _CACHED_PROMPTS["thread_notes"]
 
 
 def get_usage_agent_prompt() -> str:
     if "usage_agent" not in _CACHED_PROMPTS:
-        from prompts import build_agent_prompt
+        if _prompt_builder_provider is not None:
+            _CACHED_PROMPTS["usage_agent"] = _prompt_builder_provider("Usage_Agent")
+        else:
+            from prompts import build_agent_prompt
 
-        _CACHED_PROMPTS["usage_agent"] = build_agent_prompt("Usage_Agent")
+            _CACHED_PROMPTS["usage_agent"] = build_agent_prompt("Usage_Agent")
     return _CACHED_PROMPTS["usage_agent"]
 
 
 def get_pricing_agent_prompt() -> str:
     if "pricing_agent" not in _CACHED_PROMPTS:
-        from prompts import build_agent_prompt
+        if _prompt_builder_provider is not None:
+            _CACHED_PROMPTS["pricing_agent"] = _prompt_builder_provider("Pricing_Agent")
+        else:
+            from prompts import build_agent_prompt
 
-        _CACHED_PROMPTS["pricing_agent"] = build_agent_prompt("Pricing_Agent")
+            _CACHED_PROMPTS["pricing_agent"] = build_agent_prompt("Pricing_Agent")
     return _CACHED_PROMPTS["pricing_agent"]
 
 
@@ -341,13 +374,33 @@ def get_language_detector_model() -> str:
     return get_orchestrator_fast_model()
 
 
+_max_discussion_turns_provider: Callable[[], int] | None = None
+
+
+def set_max_discussion_turns_provider(provider: Callable[[], int] | None) -> None:
+    """Injectable provider for max discussion turns, decoupling core/config from orchestration."""
+    global _max_discussion_turns_provider
+    _max_discussion_turns_provider = provider
+
+
 def get_max_discussion_turns() -> int:
     """Returns max discussion turns from system_settings.json (SSOT)."""
+    if _max_discussion_turns_provider is not None:
+        try:
+            return _max_discussion_turns_provider()
+        except Exception:
+            pass
     try:
-        from orchestration.system_settings import get_max_discussion_turns as _get_val
-        return _get_val()
+        import json
+
+        settings_file = SYSTEM_SETTINGS_FILE
+        if settings_file.exists():
+            with open(settings_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return int(data.get("max_discussion_turns", 20))
     except Exception:  # noqa: BLE001
-        return 20
+        pass
+    return 20
 
 
 MAX_DISCUSSION_TURNS = get_max_discussion_turns()

@@ -210,7 +210,7 @@ class ThreadUsageTracker:
                 temp_file = self.store_file.with_name(f"{self.store_file.name}.tmp.{os.getpid()}")
                 temp_file.write_text(json.dumps(raw_data, indent=2), encoding="utf-8")
                 temp_file.replace(self.store_file)
-            except (json.JSONDecodeError, ValueError) as e:
+            except (json.JSONDecodeError, ValueError, OSError) as e:
                 logger.debug(f"[USAGE AGENT] Error saving thread usage data to custom file: {e}")
 
     def record_tokens(

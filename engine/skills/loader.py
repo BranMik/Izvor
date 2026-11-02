@@ -6,6 +6,7 @@ and binds low-level MCP execution backends.
 
 import asyncio
 import concurrent.futures
+import contextvars
 import inspect
 import json
 import logging
@@ -598,8 +599,65 @@ class SkillRegistry:
         returns the skill's SKILL.md guidelines.
         Otherwise delegates to custom tool handlers or services.mcp_tools.execute_mcp_tool.
         """
-        from core.domain import ToolPrincipal
+        is_ok, early_resp, effective_authorized_skills = self._verify_tool_authorization(
+            tool_name=tool_name,
+            arguments=arguments,
+            authorized_skills=authorized_skills,
+            expired_skills=expired_skills,
+            ttl_hours=ttl_hours,
+            agent_name=agent_name,
+        )
+        if not is_ok or early_resp is not None:
+            return early_resp
 
+        # Check if any skill registered a custom tool handler
+        for s_def in self._skills.values():
+            if tool_name in s_def.tool_handlers:
+                handler = s_def.tool_handlers[tool_name]
+                try:
+                    sig = inspect.signature(handler)
+                    actor_id = (
+                        agent_name.id
+                        if isinstance(agent_name, ToolPrincipal)
+                        else (str(agent_name) if agent_name is not None else "")
+                    )
+                    kwargs = {"agent_name": actor_id} if "agent_name" in sig.parameters else {}
+                    if inspect.iscoroutinefunction(handler):
+                        ctx = contextvars.copy_context()
+                        try:
+                            loop = asyncio.get_running_loop()
+                        except RuntimeError:
+                            loop = None
+                        if loop and loop.is_running():
+                            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                                return pool.submit(ctx.run, asyncio.run, handler(arguments, **kwargs)).result()
+                        else:
+                            return ctx.run(asyncio.run, handler(arguments, **kwargs))
+                    return handler(arguments, **kwargs)
+                except Exception as e:  # noqa: BLE001
+                    logger.error(f"[SKILLS] Custom tool handler error for '{tool_name}': {e}")
+                    return json.dumps({"error": f"Tool execution failed: {e}"})
+
+        return execute_mcp_tool(
+            tool_name,
+            arguments,
+            agent_name=agent_name,
+            authorized_skills=list(effective_authorized_skills),
+        )
+
+    def _verify_tool_authorization(
+        self,
+        tool_name: str,
+        arguments: dict[str, Any],
+        authorized_skills: list[str] | str | None = None,
+        expired_skills: list[str] | None = None,
+        ttl_hours: float | None = None,
+        agent_name: Any = "",
+    ) -> tuple[bool, str | None, list[str]]:
+        """
+        Unified tool and skill authorization check with audit event logging (A-17).
+        Returns: (is_authorized, early_response_or_None, effective_authorized_skills).
+        """
         is_system_principal = isinstance(agent_name, ToolPrincipal) and agent_name.kind == "system"
         is_internal = (
             is_system_principal
@@ -633,13 +691,17 @@ class SkillRegistry:
                         severity="CRITICAL",
                         status="BLOCKED",
                     )
-                    return json.dumps(
-                        {
-                            "error": (
-                                f"Permission denied: Thread global skill '{skill_name}' expired after {ttl_str}. "
-                                f"Run `/grant_skill_for_all {skill_name}` in this thread to grant access again."
-                            )
-                        }
+                    return (
+                        False,
+                        json.dumps(
+                            {
+                                "error": (
+                                    f"Permission denied: Thread global skill '{skill_name}' expired after {ttl_str}. "
+                                    f"Run `/grant_skill_for_all {skill_name}` in this thread to grant access again."
+                                )
+                            }
+                        ),
+                        effective_authorized_skills,
                     )
                 allowed_str = ", ".join(f"'{s}'" for s in effective_authorized_skills) or "none"
                 log_audit_event(
@@ -654,22 +716,30 @@ class SkillRegistry:
                     severity="CRITICAL",
                     status="BLOCKED",
                 )
-                return json.dumps(
-                    {
-                        "error": (
-                            f"Permission denied: Agent is not authorized to load skill '{skill_name}'. "
-                            f"Permitted skills: {allowed_str}. "
-                            f"CRITICAL INSTRUCTION: You do NOT have permission to load or use the skill '{skill_name}'. "
-                            f"You must explicitly state to the user that you do not have permission / the required skill '{skill_name}' to access or process this resource. "
-                            f"Do NOT report that the file or resource was not found."
-                        )
-                    }
+                return (
+                    False,
+                    json.dumps(
+                        {
+                            "error": (
+                                f"Permission denied: Agent is not authorized to load skill '{skill_name}'. "
+                                f"Permitted skills: {allowed_str}. "
+                                f"CRITICAL INSTRUCTION: You do NOT have permission to load or use the skill '{skill_name}'. "
+                                f"You must explicitly state to the user that you do not have permission / the required skill '{skill_name}' to access or process this resource. "
+                                f"Do NOT report that the file or resource was not found."
+                            )
+                        }
+                    ),
+                    effective_authorized_skills,
                 )
 
             skill = target_skill
             if not skill:
                 avail = ", ".join(f"'{s.name}'" for s in self.list_skills())
-                return json.dumps({"error": f"Skill '{skill_name}' not found. Available skills: {avail}"})
+                return (
+                    False,
+                    json.dumps({"error": f"Skill '{skill_name}' not found. Available skills: {avail}"}),
+                    effective_authorized_skills,
+                )
 
             from services.audit_logger import log_audit_event
 
@@ -683,15 +753,19 @@ class SkillRegistry:
                 status="SUCCESS",
             )
 
-            return json.dumps(
-                {
-                    "status": "loaded",
-                    "skill": skill.name,
-                    "display_name": skill.display_name,
-                    "unlocked_tools": skill.tools,
-                    "operational_guidelines": skill.instructions,
-                },
-                indent=2,
+            return (
+                True,
+                json.dumps(
+                    {
+                        "status": "loaded",
+                        "skill": skill.name,
+                        "display_name": skill.display_name,
+                        "unlocked_tools": skill.tools,
+                        "operational_guidelines": skill.instructions,
+                    },
+                    indent=2,
+                ),
+                effective_authorized_skills,
             )
 
         # For any other tool, verify authorization against authorized/global skills (fail-closed)
@@ -718,51 +792,23 @@ class SkillRegistry:
                     severity="CRITICAL",
                     status="BLOCKED",
                 )
-                return json.dumps(
-                    {
-                        "error": (
-                            f"Permission denied: Agent is not authorized to execute tool '{tool_name}'. "
-                            f"Permitted tools: {allowed_tools_str}. "
-                            f"CRITICAL INSTRUCTION: You do NOT have permission to execute tool '{tool_name}'. "
-                            f"You must explicitly state to the user that you do not have permission to execute this tool. "
-                            f"Do NOT report that the file or resource was not found."
-                        )
-                    }
+                return (
+                    False,
+                    json.dumps(
+                        {
+                            "error": (
+                                f"Permission denied: Agent is not authorized to execute tool '{tool_name}'. "
+                                f"Permitted tools: {allowed_tools_str}. "
+                                f"CRITICAL INSTRUCTION: You do NOT have permission to execute tool '{tool_name}'. "
+                                f"You must explicitly state to the user that you do not have permission to execute this tool. "
+                                f"Do NOT report that the file or resource was not found."
+                            )
+                        }
+                    ),
+                    effective_authorized_skills,
                 )
 
-        # Check if any skill registered a custom tool handler
-        for s_def in self._skills.values():
-            if tool_name in s_def.tool_handlers:
-                handler = s_def.tool_handlers[tool_name]
-                try:
-                    sig = inspect.signature(handler)
-                    actor_id = (
-                        agent_name.id
-                        if isinstance(agent_name, ToolPrincipal)
-                        else (str(agent_name) if agent_name is not None else "")
-                    )
-                    kwargs = {"agent_name": actor_id} if "agent_name" in sig.parameters else {}
-                    if inspect.iscoroutinefunction(handler):
-                        try:
-                            loop = asyncio.get_running_loop()
-                        except RuntimeError:
-                            loop = None
-                        if loop and loop.is_running():
-                            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                                return pool.submit(asyncio.run, handler(arguments, **kwargs)).result()
-                        else:
-                            return asyncio.run(handler(arguments, **kwargs))
-                    return handler(arguments, **kwargs)
-                except Exception as e:  # noqa: BLE001
-                    logger.error(f"[SKILLS] Custom tool handler error for '{tool_name}': {e}")
-                    return json.dumps({"error": f"Tool execution failed: {e}"})
-
-        return execute_mcp_tool(
-            tool_name,
-            arguments,
-            agent_name=agent_name,
-            authorized_skills=list(effective_authorized_skills),
-        )
+        return True, None, effective_authorized_skills
 
     async def execute_tool_async(
         self,
@@ -779,6 +825,17 @@ class SkillRegistry:
         or exposes an `_async_fn` attribute, awaits it directly on the running event loop;
         otherwise offloads the synchronous handler/MCP execution to `asyncio.to_thread`.
         """
+        is_ok, early_resp, effective_authorized_skills = self._verify_tool_authorization(
+            tool_name=tool_name,
+            arguments=arguments,
+            authorized_skills=authorized_skills,
+            expired_skills=expired_skills,
+            ttl_hours=ttl_hours,
+            agent_name=agent_name,
+        )
+        if not is_ok or early_resp is not None:
+            return early_resp
+
         target_handler: Any = None
         for s_def in self._skills.values():
             if tool_name in s_def.tool_handlers:
@@ -788,56 +845,6 @@ class SkillRegistry:
         if target_handler is not None and (
             inspect.iscoroutinefunction(target_handler) or hasattr(target_handler, "_async_fn")
         ):
-            from core.domain import ToolPrincipal
-
-            is_system_principal = isinstance(agent_name, ToolPrincipal) and agent_name.kind == "system"
-            is_internal = (
-                is_system_principal
-                or authorized_skills == ALL_INTERNAL_SKILLS
-                or (isinstance(authorized_skills, (list, tuple, set)) and ALL_INTERNAL_SKILLS in authorized_skills)
-            )
-            actor_id = agent_name.id if hasattr(agent_name, "id") else str(agent_name or "unknown_agent")
-            actor_kind = getattr(agent_name, "kind", "agent")
-
-            normalized_auth = normalize_skills_list(authorized_skills)
-            effective_authorized_skills: list[str] = (
-                [s.name for s in self._skills.values()] if is_internal else normalized_auth
-            )
-            if not is_internal:
-                permitted_tools = get_permitted_tools_for_principal(
-                    principal=agent_name,
-                    authorized_skills=effective_authorized_skills,
-                    skill_registry=self,
-                )
-
-                if tool_name not in permitted_tools:
-                    allowed_tools_str = ", ".join(f"'{t}'" for t in sorted(permitted_tools)) or "none"
-                    from services.audit_logger import log_audit_event
-
-                    log_audit_event(
-                        event_type="SECURITY_POLICY_VIOLATION",
-                        actor={"type": actor_kind, "id": actor_id},
-                        action="execute_tool",
-                        target=f"tool:{tool_name}",
-                        details={
-                            "reason": "Agent not authorized for tool",
-                            "permitted_tools": sorted(permitted_tools),
-                        },
-                        severity="CRITICAL",
-                        status="BLOCKED",
-                    )
-                    return json.dumps(
-                        {
-                            "error": (
-                                f"Permission denied: Agent is not authorized to execute tool '{tool_name}'. "
-                                f"Permitted tools: {allowed_tools_str}. "
-                                f"CRITICAL INSTRUCTION: You do NOT have permission to execute tool '{tool_name}'. "
-                                f"You must explicitly state to the user that you do not have permission to execute this tool. "
-                                f"Do NOT report that the file or resource was not found."
-                            )
-                        }
-                    )
-
             async_fn = getattr(target_handler, "_async_fn", target_handler)
             sig = inspect.signature(async_fn)
             actor_id = (
@@ -996,8 +1003,20 @@ def get_skill_registry() -> SkillRegistry:
     global _skill_registry_instance
     if _skill_registry_instance is None:
         _skill_registry_instance = SkillRegistry()
+        try:
+            from core.registry import set_skill_registry_provider
+
+            set_skill_registry_provider(get_skill_registry)
+        except Exception:  # noqa: BLE001
+            pass
     return _skill_registry_instance
 
 
 # Global singleton registry instance
 skill_registry: SkillRegistry = get_skill_registry()
+try:
+    from core.registry import set_skill_registry_provider
+
+    set_skill_registry_provider(get_skill_registry)
+except Exception:  # noqa: BLE001
+    pass

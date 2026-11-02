@@ -385,29 +385,32 @@ class ThreadContextStore:
 
     def revoke_all(self, channel_id: str, thread_ts: str) -> None:
         """Revokes all format constraints, language locks, and agent exclusions/inclusions for this thread."""
-        self.clear_max_words(channel_id, thread_ts)
-        self.clear_min_words(channel_id, thread_ts)
-        self.clear_scribe_max_words(channel_id, thread_ts)
-        self.clear_scribe_min_words(channel_id, thread_ts)
-        self.clear_excluded_agents(channel_id, thread_ts)
-        self.clear_included_agents(channel_id, thread_ts)
-        self.clear_format_modifiers(channel_id, thread_ts)
-        self.clear_language(channel_id, thread_ts)
+        key = (channel_id, thread_ts)
+        self.thread_max_words_limits.pop(key, None)
+        self.thread_min_words_limits.pop(key, None)
+        self.thread_scribe_max_words_limits.pop(key, None)
+        self.thread_scribe_min_words_limits.pop(key, None)
+        self.thread_excluded_agents.pop(key, None)
+        self.thread_included_agents.pop(key, None)
+        self.thread_format_modifiers.pop(key, None)
+        self.thread_languages.pop(key, None)
+        self._sync_to_db(channel_id, thread_ts)
         logger.info(f"[CONTEXT STORE] Revoked all constraints for thread {(channel_id, thread_ts)}")
 
     def clear_thread(self, channel_id: str, thread_ts: str) -> None:
-        """Purges context limits and data for this thread."""
-        self.clear_history_limit(channel_id, thread_ts)
-        self.clear_max_words(channel_id, thread_ts)
-        self.clear_min_words(channel_id, thread_ts)
-        self.clear_scribe_max_words(channel_id, thread_ts)
-        self.clear_scribe_min_words(channel_id, thread_ts)
-        self.clear_language(channel_id, thread_ts)
-        self.clear_excluded_agents(channel_id, thread_ts)
-        self.clear_included_agents(channel_id, thread_ts)
-        self.clear_format_modifiers(channel_id, thread_ts)
-        self.clear_file_context(channel_id, thread_ts)
-        self._loaded_threads.discard((channel_id, thread_ts))
+        """Purges context limits and data for this thread in a single atomic transaction."""
+        key = (channel_id, thread_ts)
+        self.thread_history_limits.pop(key, None)
+        self.thread_max_words_limits.pop(key, None)
+        self.thread_min_words_limits.pop(key, None)
+        self.thread_scribe_max_words_limits.pop(key, None)
+        self.thread_scribe_min_words_limits.pop(key, None)
+        self.thread_languages.pop(key, None)
+        self.thread_excluded_agents.pop(key, None)
+        self.thread_included_agents.pop(key, None)
+        self.thread_format_modifiers.pop(key, None)
+        self.thread_active_file_context.pop(key, None)
+        self._loaded_threads.discard(key)
         try:
             with get_db_transaction(immediate=True) as conn:
                 conn.execute(

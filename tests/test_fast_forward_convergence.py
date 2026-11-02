@@ -200,7 +200,7 @@ def test_slack_app_home_toggle_interactivity_handler(monkeypatch):
         lambda *args, **kwargs: True,
     )
     monkeypatch.setattr(
-        "adapters.slack.interactivity.publish_app_home",
+        "services.slack.views.publish_app_home",
         AsyncMock(),
     )
 

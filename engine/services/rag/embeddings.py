@@ -37,39 +37,39 @@ class EmbeddingService:
         return results
 
     async def _embed_batch(self, batch: list[str], max_retries: int = 3) -> list[list[float]]:
-        last_error = None
-        for attempt in range(1, max_retries + 1):
-            try:
-                # liteLLM accepts text-embedding-004 or gemini/text-embedding-004
-                response: Any = await litellm.aembedding(
-                    model=self.model,
-                    input=batch,
-                )
-                try:
-                    from pipeline.spend_governance import spend_governance
-                    usage = getattr(response, "usage", None)
-                    p_toks = getattr(usage, "prompt_tokens", 0) or getattr(usage, "total_tokens", 0) or 0
-                    if p_toks > 0:
-                        spend_governance.record_usage(
-                            session_id="system:embeddings",
-                            model_name=self.model,
-                            prompt_tokens=p_toks,
-                            completion_tokens=0,
-                        )
-                except Exception as rec_err:  # noqa: BLE001
-                    logger.debug(f"[RAG Embeddings] Failed to record spend ledger: {rec_err}")
+        from core.llm_utils import execute_llm_with_retry
 
-                return [item["embedding"] for item in response.data]
-            except Exception as e:  # noqa: BLE001
-                last_error = e
-                logger.warning(
-                    f"[RAG Embeddings] Batch embedding attempt {attempt}/{max_retries} failed: {e}"
-                )
-                if attempt < max_retries:
-                    await asyncio.sleep(2**attempt)
+        try:
+            response: Any = await execute_llm_with_retry(
+                func=litellm.aembedding,
+                kwargs={
+                    "model": self.model,
+                    "input": batch,
+                },
+                agent_key="rag_embeddings",
+                thread_key=("system", "embeddings"),
+                max_attempts=max_retries,
+            )
+        except Exception as e:
+            logger.error(f"[RAG Embeddings] All {max_retries} embedding attempts failed: {e}")
+            raise RuntimeError(f"Embedding generation failed: {e}") from e
 
-        logger.error(f"[RAG Embeddings] All {max_retries} embedding attempts failed: {last_error}")
-        raise RuntimeError(f"Embedding generation failed: {last_error}") from last_error
+        try:
+            from pipeline.spend_governance import spend_governance
+
+            usage = getattr(response, "usage", None)
+            p_toks = getattr(usage, "prompt_tokens", 0) or getattr(usage, "total_tokens", 0) or 0
+            if p_toks > 0:
+                spend_governance.record_usage(
+                    session_id="system:embeddings",
+                    model_name=self.model,
+                    prompt_tokens=p_toks,
+                    completion_tokens=0,
+                )
+        except Exception as rec_err:  # noqa: BLE001
+            logger.debug(f"[RAG Embeddings] Failed to record spend ledger: {rec_err}")
+
+        return [item["embedding"] for item in response.data]
 
 
 # Singleton instance

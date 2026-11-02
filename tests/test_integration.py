@@ -36,8 +36,7 @@ def patch_slack_calls(monkeypatch):
     monkeypatch.setattr("orchestration.agent_router.fetch_thread_history", mock_fetch_thread_history)
     monkeypatch.setattr("adapters.slack.events.verify_slack_signature", lambda body, headers: True)
     monkeypatch.setattr("adapters.slack.interactivity.verify_slack_signature", lambda body, headers: True)
-    monkeypatch.setattr("adapters.slack.events.publish_app_home", AsyncMock(return_value={"ok": True}))
-    monkeypatch.setattr("adapters.slack.interactivity.publish_app_home", AsyncMock(return_value={"ok": True}))
+    monkeypatch.setattr("services.slack.views.publish_app_home", AsyncMock(return_value={"ok": True}))
     monkeypatch.setattr(
         "adapters.slack.interactivity.is_slack_admin",
         lambda user_id: True,
@@ -237,7 +236,7 @@ def test_stop_command_integration(monkeypatch):
 
 def test_app_home_opened_event(monkeypatch):
     mock_publish = AsyncMock(return_value={"ok": True})
-    monkeypatch.setattr("adapters.slack.events.publish_app_home", mock_publish)
+    monkeypatch.setattr("services.slack.views.publish_app_home", mock_publish)
 
     payload = {
         "type": "event_callback",
@@ -256,7 +255,7 @@ def test_app_home_opened_event(monkeypatch):
 def test_slack_interactivity_radio_toggle_action(monkeypatch):
     reset_enabled_agents()
     mock_publish = AsyncMock(return_value={"ok": True})
-    monkeypatch.setattr("adapters.slack.interactivity.publish_app_home", mock_publish)
+    monkeypatch.setattr("services.slack.views.publish_app_home", mock_publish)
 
     # 1. Turn OFF LegalAdvisor via radio button
     payload_off = {

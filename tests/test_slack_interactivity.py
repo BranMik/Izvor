@@ -92,7 +92,7 @@ async def test_chain_mutation_rejects_unknown_agent_keys(monkeypatch):
     monkeypatch.setattr("adapters.slack.interactivity.verify_slack_signature", lambda body, headers: True)
     monkeypatch.setattr("core.config.is_slack_admin", lambda uid: True)
     monkeypatch.setattr("adapters.slack.interactivity.is_slack_admin", lambda uid: True)
-    monkeypatch.setattr("adapters.slack.interactivity.publish_app_home", AsyncMock())
+    monkeypatch.setattr("services.slack.views.publish_app_home", AsyncMock())
 
     logged_events = []
     record_event = lambda **kwargs: logged_events.append(kwargs)
@@ -148,7 +148,7 @@ async def test_newly_audited_actions_emit_audit_log(monkeypatch):
     monkeypatch.setattr("adapters.slack.interactivity.verify_slack_signature", lambda body, headers: True)
     monkeypatch.setattr("core.config.is_slack_admin", lambda uid: True)
     monkeypatch.setattr("adapters.slack.interactivity.is_slack_admin", lambda uid: True)
-    monkeypatch.setattr("adapters.slack.interactivity.publish_app_home", AsyncMock())
+    monkeypatch.setattr("services.slack.views.publish_app_home", AsyncMock())
 
     logged_events = []
     record_event = lambda **kwargs: logged_events.append(kwargs)

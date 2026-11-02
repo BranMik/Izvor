@@ -243,7 +243,7 @@ async def test_main_interactivity_workflow_actions(monkeypatch):
 
     # Mock publish_app_home and slack signature to avoid network/auth rejections
     mock_publish = AsyncMock(return_value={"ok": True})
-    monkeypatch.setattr("adapters.slack.interactivity.publish_app_home", mock_publish)
+    monkeypatch.setattr("services.slack.views.publish_app_home", mock_publish)
     monkeypatch.setattr("adapters.slack.interactivity.verify_slack_signature", lambda body, headers: True)
     monkeypatch.setattr("adapters.slack.interactivity.is_slack_admin", lambda user_id: True)
 

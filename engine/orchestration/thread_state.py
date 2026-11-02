@@ -76,21 +76,22 @@ class ThreadStateManager:
                         continue
                     self.cleanup_thread(c_id, t_ts)
 
-    def _touch(self, channel_id: str, thread_ts: str) -> None:
+    def _touch(self, channel_id: str, thread_ts: str, sync_db: bool = False) -> None:
         now = time.time()
         self.thread_last_activity[(channel_id, thread_ts)] = now
-        try:
-            with get_db_transaction(immediate=True) as conn:
-                conn.execute(
-                    "UPDATE thread_sessions SET last_activity = ? WHERE channel_id = ? AND thread_ts = ?",
-                    (now, channel_id, thread_ts),
-                )
-        except Exception as e:  # noqa: BLE001
-            logger.debug("Thread session touch DB error: %s", e)
+        if sync_db:
+            try:
+                with get_db_transaction(immediate=True) as conn:
+                    conn.execute(
+                        "UPDATE thread_sessions SET last_activity = ? WHERE channel_id = ? AND thread_ts = ?",
+                        (now, channel_id, thread_ts),
+                    )
+            except Exception as e:  # noqa: BLE001
+                logger.debug("Thread session touch DB error: %s", e)
         self._check_capacity()
 
     def touch(self, channel_id: str, thread_ts: str) -> None:
-        self._touch(channel_id, thread_ts)
+        self._touch(channel_id, thread_ts, sync_db=True)
 
     def get_last_activity(self, channel_id: str, thread_ts: str) -> float | None:
         if (channel_id, thread_ts) in self.thread_last_activity:
@@ -327,17 +328,10 @@ class ThreadStateManager:
 
     def dispatch_discussion_task(self, channel_id: str, thread_ts: str, coro: Any) -> None:
         """Dispatches an asynchronous discussion agent loop, attaching error tracking and state registry natively."""
+        from core.task_utils import safe_create_task
+
         self._touch(channel_id, thread_ts)
-        task = asyncio.create_task(coro)
-
-        def _log_background_task_error(t: asyncio.Task) -> None:
-            if not t.cancelled() and t.exception():
-                logger.error(
-                    f"[THREAD STATE] Background task failed for thread {(channel_id, thread_ts)}: {t.exception()}",
-                    exc_info=t.exception(),
-                )
-
-        task.add_done_callback(_log_background_task_error)
+        task = safe_create_task(coro, name=f"discussion:{channel_id}:{thread_ts}")
         self.discussion.set_active_task(channel_id, thread_ts, task)
 
     def is_custom_flow(self, channel_id: str, thread_ts: str) -> bool:

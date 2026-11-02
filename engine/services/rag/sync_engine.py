@@ -30,14 +30,20 @@ class SyncReconciliationEngine:
         self.vector_store = store or vector_store
         self.embedder = embedder or embedding_service
         self.parser = parser or DocumentParser()
-        self._lock = asyncio.Lock()
+        self._lock: asyncio.Lock | None = None
+
+    @property
+    def lock(self) -> asyncio.Lock:
+        if self._lock is None:
+            self._lock = asyncio.Lock()
+        return self._lock
 
     async def reconcile(self) -> dict[str, int]:
         """
         Executes non-blocking reconciliation pass.
         Returns counts of processed files: {'new': N, 'modified': M, 'deleted': D, 'unchanged': U}.
         """
-        async with self._lock:
+        async with self.lock:
             logger.info(f"[RAG Sync] Starting knowledge reconciliation for {self.knowledge_dir}...")
             stats = {"new": 0, "modified": 0, "deleted": 0, "unchanged": 0}
 

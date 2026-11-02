@@ -749,7 +749,7 @@ class TurnPipeline:
             logger.info(
                 f"[ROUTER] Task cancelled for thread {ctx.thread_key} (agent {ctx.agent_key}, gen {ctx.my_generation}). Aborting cleanly."
             )
-            return {"ok": False, "cancelled": True, "reason": "cancelled"}
+            raise
         except Exception as e:  # noqa: BLE001 - Pipeline error boundary catches unexpected stage errors and delegates to handle_error
             return await self.post_record_stage.handle_error(ctx, e)
         finally:
