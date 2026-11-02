@@ -77,7 +77,6 @@ async def _execute_and_resume_hitl_approval(req: Any, user_id: str) -> None:
         logger.error(f"[HITL] Failed to post tool result to Slack: {e}")
 
     # 4. Resume the calling agent with the result context
-    import json
     from services.turn_checkpoint_store import turn_checkpoint_store
     from orchestration.agent_router import continue_discussion_from_turn_result
 

@@ -121,13 +121,9 @@ class SpendGovernance:
         """Manually resets the daily spend ledger."""
         now = datetime.now(timezone.utc)
         with self._lock:
-            try:
-                self._daily_reset_offset_ts = now.timestamp()
-            except Exception as e:  # noqa: BLE001
-                logger.error(f"[SPEND GOVERNANCE] Failed resetting daily spend in SQLite: {e}")
-
+            self._daily_reset_offset_ts = now.timestamp()
             self._daily_spend_usd = 0.0
-            self._daily_spend_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            self._daily_spend_date = now.strftime("%Y-%m-%d")
 
     def calculate_spend(self, session_id: str) -> SpendMetrics:
         """

@@ -40,8 +40,6 @@ logging.basicConfig(level=dynamic_log_level, format="%(asctime)s [%(levelname)s]
 setup_credential_redaction_filters()
 logger = logging.getLogger("IzvorBackend")
 
-BASE_DIR = PROJECT_ROOT
-
 WIN32_HEARTBEAT_INTERVAL_SECONDS = 0.5
 RETENTION_PRUNE_INTERVAL_SECONDS = 86400.0  # 24 hours
 

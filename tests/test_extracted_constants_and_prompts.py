@@ -39,13 +39,12 @@ def test_core_paths_rag_anchors():
 
 
 def test_load_system_prompt_files():
-    """Verifies that all 5 extracted system prompts exist in prompts/system_agents/ and load correctly."""
+    """Verifies that extracted system prompts exist in prompts/system_agents/ and load correctly."""
     prompt_files = [
         "Discussion_Scribe_Live",
         "Discussion_Scribe_Conclusion",
         "Intent_Extractor",
         "Language_Detector",
-        "List_Skills",
     ]
     for prompt_name in prompt_files:
         file_path = paths.SYSTEM_AGENTS_DIR / f"{prompt_name}.md"

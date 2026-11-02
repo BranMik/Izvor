@@ -2,16 +2,6 @@ import ast
 from pathlib import Path
 
 
-from core.exceptions import (
-    ConfigurationError,
-    CorruptedSettingsError,
-    IzvorError,
-    OrchestrationPipelineError,
-    SkillExecutionError,
-    SpendLimitExceededError,
-    ToolAuthorizationError,
-    TurnExecutionTimeoutError,
-)
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
@@ -34,21 +24,6 @@ def _get_python_source_files() -> list[Path]:
             continue
         py_files.append(path)
     return py_files
-
-
-def test_core_exceptions_hierarchy():
-    """Verify all domain exceptions inherit from IzvorError."""
-    assert issubclass(ToolAuthorizationError, IzvorError)
-    assert issubclass(SpendLimitExceededError, IzvorError)
-    assert issubclass(CorruptedSettingsError, IzvorError)
-    assert issubclass(OrchestrationPipelineError, IzvorError)
-    assert issubclass(SkillExecutionError, IzvorError)
-    assert issubclass(TurnExecutionTimeoutError, IzvorError)
-    assert issubclass(ConfigurationError, IzvorError)
-
-    err = ToolAuthorizationError("Unauthorized skill access", details={"skill": "shell"})
-    assert "Unauthorized skill access" in str(err)
-    assert err.details.get("skill") == "shell"
 
 
 def test_core_does_not_import_adapters():

@@ -11,7 +11,6 @@ from core.domain import ToolPrincipal
 from core.paths import (
     AGENTS_RESOURCES_DIR as CANONICAL_AGENTS_RESOURCES_DIR,
     PROJECT_ROOT,
-    SYSTEM_RESOURCES_DIR as CANONICAL_SYSTEM_RESOURCES_DIR,
 )
 
 from .web_tools import fetch_web_page, web_search
@@ -26,16 +25,11 @@ WORKSPACE_DIR = (
     else PROJECT_ROOT
 )
 
-# Agents and system resources directories (no import-time mkdir side effects)
+# Agents resources directory (no import-time mkdir side effects)
 AGENTS_RESOURCES_DIR = (
     (WORKSPACE_DIR / "agents_resources").resolve()
     if WORKSPACE_DIR != PROJECT_ROOT
     else CANONICAL_AGENTS_RESOURCES_DIR
-)
-SYSTEM_RESOURCES_DIR = (
-    (WORKSPACE_DIR / "system_resources").resolve()
-    if WORKSPACE_DIR != PROJECT_ROOT
-    else CANONICAL_SYSTEM_RESOURCES_DIR
 )
 
 

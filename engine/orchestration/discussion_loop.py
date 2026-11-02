@@ -323,7 +323,6 @@ class DiscussionLoop:
                                 thread_ts=thread_ts,
                                 initial_prompt=init_p,
                                 messages=accumulated_history,
-                                bot_user_id=bot_user_id,
                             )
                         except Exception as e:  # noqa: BLE001
                             logger.debug(f"[ORCHESTRATOR] Flat history sync exception: {e}")
@@ -514,7 +513,6 @@ class DiscussionLoop:
                     thread_ts=thread_ts,
                     initial_prompt=init_p,
                     messages=accumulated_history,
-                    bot_user_id=bot_user_id,
                 )
             except Exception as e:  # noqa: BLE001
                 logger.debug(f"[ORCHESTRATOR] Final flat history sync exception: {e}")

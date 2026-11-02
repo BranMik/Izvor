@@ -28,14 +28,6 @@ REQUIRED_DEFAULT_WORKFLOW_IDS: set[str] = {
 }
 
 
-class AgentSpecialRole(StrEnum):
-    """Supported special roles for agents in dialectical stress test workflows."""
-
-    NONE = "NONE"
-    CHALLENGER = "CHALLENGER"
-    REBUTTAL = "REBUTTAL"
-
-
 @dataclass
 class FileContext:
     """Represents file attachment content and authorization metadata for a thread turn."""
@@ -226,36 +218,6 @@ class HistoryLimitConfig:
             "limit": self.limit,
             "prior_cutoff_index": self.prior_cutoff_index,
         }
-
-
-@dataclass
-class ModelPricing:
-    """Represents pricing per million tokens for an LLM model."""
-
-    input_price_per_1m: float
-    output_price_per_1m: float
-    currency: str = "USD"
-    source: str = "Unknown"
-    source_url: str = ""
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "input_price_per_1m": self.input_price_per_1m,
-            "output_price_per_1m": self.output_price_per_1m,
-            "currency": self.currency,
-            "source": self.source,
-            "source_url": self.source_url,
-        }
-
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "ModelPricing":
-        return cls(
-            input_price_per_1m=float(data.get("input_price_per_1m", 0.0)),
-            output_price_per_1m=float(data.get("output_price_per_1m", 0.0)),
-            currency=data.get("currency", "USD"),
-            source=data.get("source", "Unknown"),
-            source_url=data.get("source_url", ""),
-        )
 
 
 @dataclass

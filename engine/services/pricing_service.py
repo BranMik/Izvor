@@ -307,8 +307,6 @@ class PricingService:
     def __init__(self, cache_file: Path | None = None):
         self._custom_cache_file: bool = cache_file is not None
         self.default_cache_file = cache_file or PRICING_CACHE_FILE
-        self.baseline_pricing = dict(BASELINE_MODEL_PRICING)
-        self.default_fallback = dict(DEFAULT_FALLBACK_PRICING)
         self._mem_cache: dict[str, dict[str, Any]] | None = None
         self._mem_cache_key: tuple[str, float] | None = None
         self._refresh_lock: asyncio.Lock | None = None

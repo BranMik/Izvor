@@ -186,7 +186,7 @@ class DirectiveParser:
     """
 
     def __init__(self, extractor_client: Any = None):
-        self._extractor_client = extractor_client
+        pass
 
     async def parse(
         self,
@@ -209,20 +209,9 @@ class DirectiveParser:
         modifiers: dict[str, Any] = {}
         text_cleaned = raw_text
 
-        max_words: int | str | None = None
-        min_words: int | str | None = None
-        scribe_max_words: int | str | None = None
-        scribe_min_words: int | str | None = None
-        history_limit: int | None = None
         excluded: list[str] = []
-        included: list[str] = []
-        exclude_off: bool = False
-        include_off: bool = False
-        revoke_target: str | None = None
         is_file_req: bool = False
         target_filename: str | None = None
-        first_agent: str | None = None
-        open_debate_agent: str | None = None
 
         # 2. Dynamic deterministic slash command extraction driven by SkillRegistry
         try:
@@ -266,13 +255,8 @@ class DirectiveParser:
                     if matched:
                         if skill_def.scope == "prompt_modifier":
                             modifiers[skill_def.name] = val
-                            if skill_def.name == "max_words":
-                                max_words = val
-                            elif skill_def.name == "min_words":
-                                min_words = val
                         elif skill_def.name == "thread_history":
-                            history_limit = int(val) if isinstance(val, int) else None
-                            modifiers["history"] = history_limit
+                            modifiers["history"] = int(val) if isinstance(val, int) else None
                         else:
                             p_name = param_name or ("words" if "words" in skill_def.name else "value")
                             params_dict: dict[str, Any] = {
@@ -284,10 +268,6 @@ class DirectiveParser:
                                 if val is None:
                                     params_dict[p_name] = 1
                             actions.append(ActionDirective(name=skill_def.name, params=params_dict))
-                            if skill_def.name == "scribe_max_words":
-                                scribe_max_words = val
-                            elif skill_def.name == "scribe_min_words":
-                                scribe_min_words = val
 
                 elif arg_type == "agent_list":
                     matched, agents_list, is_off, text_cleaned = parse_agent_list(slash_cmd, text_cleaned)
@@ -303,10 +283,6 @@ class DirectiveParser:
                         )
                         if skill_def.name == "exclude_agents":
                             excluded = list(agents_list)
-                            exclude_off = is_off
-                        elif skill_def.name == "include_agents":
-                            included = list(agents_list)
-                            include_off = is_off
 
                 elif arg_type == "agent_token":
                     matched, agent_target, text_cleaned = parse_single_agent_directive(slash_cmd, text_cleaned)
@@ -318,10 +294,6 @@ class DirectiveParser:
                                 params={p_name: agent_target} if agent_target else {},
                             )
                         )
-                        if skill_def.name == "first":
-                            first_agent = agent_target
-                        elif skill_def.name == "open_debate":
-                            open_debate_agent = agent_target
 
                 elif arg_type in ("file_target", "file") or trg_cfg.get("handles_files") or skill_def.handles_files:
                     matched, target_fn, text_cleaned = parse_file_target(
@@ -347,8 +319,6 @@ class DirectiveParser:
                                 params={param_name or "target": target},
                             )
                         )
-                        if skill_def.name in ("revoke", "revoke_constraint"):
-                            revoke_target = target
 
                 elif arg_type == "grant_skill" or skill_def.name == "grant_skill":
                     matched, sk_name, ag_list, text_cleaned = parse_grant_skill(slash_cmd, text_cleaned)

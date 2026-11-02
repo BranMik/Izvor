@@ -456,15 +456,6 @@ class AuditLogger:
             )
             return asdict(record)
 
-    def anchor_head(self) -> None:
-        """Forces an anchor of current head state to SQLite."""
-        with self._write_lock:
-            seq, h = self.get_last_state()
-            if seq > 0:
-                now_str = datetime.datetime.now(datetime.timezone.utc).isoformat()
-                now_month = datetime.datetime.now(datetime.timezone.utc).strftime("%Y_%m")
-                _persist_audit_anchor(now_month, seq, h, now_str)
-
     def create_snapshot(self) -> Path | None:
         """
         Creates an archival read-only snapshot of current month audit log in audit/backups/

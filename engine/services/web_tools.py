@@ -689,11 +689,3 @@ def fetch_web_page(url: str, max_chars: int = 4000) -> str:
     return _fetch_web_page_inner(url, max_chars)
 
 
-async def async_web_search(query: str, max_results: int = 5) -> str:
-    """Asynchronous wrapper for web_search that executes in a background thread."""
-    return await asyncio.to_thread(web_search, query=query, max_results=max_results)
-
-
-async def async_fetch_web_page(url: str, max_chars: int = 4000) -> str:
-    """Asynchronous wrapper for fetch_web_page that executes in a background thread."""
-    return await asyncio.to_thread(fetch_web_page, url=url, max_chars=max_chars)

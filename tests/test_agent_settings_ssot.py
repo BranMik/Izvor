@@ -349,6 +349,7 @@ def test_configurable_pacing_defaults():
     import core.config
     from orchestration.system_settings import (
         get_debate_turn_pacing_seconds,
+        get_max_discussion_turns,
         get_slack_post_pause_seconds,
         get_tool_call_loop_timeout_seconds,
     )
@@ -356,8 +357,8 @@ def test_configurable_pacing_defaults():
     assert isinstance(get_debate_turn_pacing_seconds(), float)
     assert isinstance(get_slack_post_pause_seconds(), float)
     assert isinstance(get_tool_call_loop_timeout_seconds(), float)
-    assert isinstance(core.config.MAX_DISCUSSION_TURNS, int)
-    assert core.config.MAX_DISCUSSION_TURNS == 20
+    assert isinstance(get_max_discussion_turns(), int)
+    assert get_max_discussion_turns() == 20
 
 
 @pytest.mark.anyio

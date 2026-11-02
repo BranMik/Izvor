@@ -326,7 +326,7 @@ async def detect_language_llm(
         return default
 
 
-def detect_language(text: str, default: str = "English", model: str | None = None) -> str:
+def detect_language(text: str, default: str = "English") -> str:
     """
     Synchronous entry point for language detection using fast heuristic classification.
     """

@@ -365,7 +365,7 @@ class TestSystemSettingsIntegrity:
         }
         settings_file.write_text(json.dumps(data), encoding="utf-8")
 
-        validated = AppIntegrityValidator.check_system_settings_integrity(data, settings_path=settings_file)
+        validated = AppIntegrityValidator.check_system_settings_integrity(data)
         assert validated["default_fast_model"] == "mistral/mistral-small-latest"
         assert validated["max_discussion_turns"] == 10
 

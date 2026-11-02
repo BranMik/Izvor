@@ -112,7 +112,6 @@ class PIIMasker:
 
     def __init__(self) -> None:
         self._presidio_analyzer: Any = None
-        self._presidio_anonymizer: Any = None
         self._presidio_initialized = False
         self._init_lock = threading.Lock()
 
@@ -125,7 +124,6 @@ class PIIMasker:
             try:
                 from presidio_analyzer import AnalyzerEngine
                 from presidio_analyzer.nlp_engine import NlpEngineProvider
-                from presidio_anonymizer import AnonymizerEngine
 
                 # Explicitly load the lightweight en_core_web_sm model
                 provider = NlpEngineProvider(
@@ -136,7 +134,6 @@ class PIIMasker:
                 )
                 nlp_engine = provider.create_engine()
                 self._presidio_analyzer = AnalyzerEngine(nlp_engine=nlp_engine)
-                self._presidio_anonymizer = AnonymizerEngine()
                 logger.info("[PII Masker] Microsoft Presidio (en_core_web_sm) successfully initialized.")
             except ImportError:
                 logger.debug("[PII Masker] Presidio not installed; using built-in high-performance regex engine.")
@@ -231,7 +228,7 @@ class PIIMasker:
 
         # 3. Presidio enhancement (for NER: PERSON, LOCATION, ORGANIZATION)
         self._init_presidio_if_available()
-        if self._presidio_analyzer and self._presidio_anonymizer:
+        if self._presidio_analyzer:
             try:
                 results = self._presidio_analyzer.analyze(
                     text=masked_text,
