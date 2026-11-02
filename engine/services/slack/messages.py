@@ -1,7 +1,6 @@
 import logging
 from pathlib import Path
 import re
-import sys
 import time
 from typing import Any
 
@@ -141,16 +140,10 @@ async def post_system_message(
     """
     Posts a system warning/notice message to a Slack thread using the System Agent persona.
     """
-    default_username = "Panel System"
-    default_icon = "static/image_99.png"
+    from core.config import SYSTEM_AGENT_AVATAR, SYSTEM_AGENT_USERNAME
 
-    try:
-        from core.config import SYSTEM_AGENT_AVATAR, SYSTEM_AGENT_USERNAME
-
-        default_username = SYSTEM_AGENT_USERNAME
-        default_icon = SYSTEM_AGENT_AVATAR
-    except (ImportError, AttributeError, KeyError):
-        logger.debug("[SLACK CLIENT] Fallback core.config persona lookup skipped")
+    default_username = SYSTEM_AGENT_USERNAME
+    default_icon = SYSTEM_AGENT_AVATAR
 
     try:
         from orchestration.agent_settings import settings_manager
@@ -160,8 +153,8 @@ async def post_system_message(
             default_username = orch_cfg["username"]
         if orch_cfg.get("icon_url"):
             default_icon = orch_cfg["icon_url"]
-    except (ImportError, AttributeError, KeyError, TypeError):
-        logger.debug("[SLACK CLIENT] Fallback settings_manager persona lookup skipped")
+    except Exception as e:
+        logger.debug(f"[SLACK CLIENT] Fallback settings_manager persona lookup skipped: {e}")
 
     final_username = username or default_username
     final_icon = icon_url or default_icon

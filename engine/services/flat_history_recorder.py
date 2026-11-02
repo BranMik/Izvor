@@ -165,7 +165,6 @@ def record_flat_history(
     thread_ts: str,
     initial_prompt: str | None = None,
     messages: list[dict[str, Any]] | None = None,
-    bot_user_id: str | None = None,
     force: bool = False,
 ) -> Path | None:
     """
@@ -216,7 +215,6 @@ async def async_record_flat_history(
     thread_ts: str,
     initial_prompt: str | None = None,
     messages: list[dict[str, Any]] | None = None,
-    bot_user_id: str | None = None,
     force: bool = False,
 ) -> Path | None:
     """Asynchronous wrapper for record_flat_history."""
@@ -226,6 +224,5 @@ async def async_record_flat_history(
         thread_ts=thread_ts,
         initial_prompt=initial_prompt,
         messages=messages,
-        bot_user_id=bot_user_id,
         force=force,
     )

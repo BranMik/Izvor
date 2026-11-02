@@ -42,10 +42,6 @@ def load_provider_catalog(catalog_path: Path | str | None = None) -> dict[str, d
         return {}
 
 
-# Providers catalog loaded from configuration JSON file
-PROVIDER_CATALOG: dict[str, dict[str, Any]] = load_provider_catalog()
-
-
 def _get_project_env_path() -> Path:
     """Resolves path to .env file."""
     return PROJECT_ROOT / ".env"

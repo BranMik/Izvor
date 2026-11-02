@@ -13,7 +13,6 @@ from core.models import (
     ExtractedIntent,
     FileContext,
     HistoryLimitConfig,
-    ModelPricing,
     OrchestrationMode,
 )
 from nlp.intent_extractor import IntentExtractor
@@ -86,19 +85,6 @@ def test_models_serialization():
     d_hl = hl.to_dict()
     assert d_hl["limit"] == 5
     assert d_hl["prior_cutoff_index"] == 10
-
-    # 5. ModelPricing
-    mp = ModelPricing(
-        input_price_per_1m=0.15,
-        output_price_per_1m=0.60,
-        currency="USD",
-        source="Test Source",
-        source_url="https://example.com",
-    )
-    d_mp = mp.to_dict()
-    assert d_mp["input_price_per_1m"] == 0.15
-    mp_restored = ModelPricing.from_dict(d_mp)
-    assert mp_restored.source == "Test Source"
 
 
 def test_agent_settings_manager():

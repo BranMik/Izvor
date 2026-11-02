@@ -10,9 +10,6 @@ import uuid
 import httpx
 from slack_sdk.errors import SlackApiError
 
-from core.config import (
-    PROJECT_ROOT,
-)
 from core.paths import get_downloads_dir
 from orchestration.system_settings import (
     get_max_file_size_bytes,

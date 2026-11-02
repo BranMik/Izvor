@@ -54,7 +54,6 @@ def get_llm_retry_backoff_base() -> float:
 
 
 LLM_MAX_RETRIES = get_llm_max_retries()
-LLM_RETRY_BACKOFF_BASE = get_llm_retry_backoff_base()
 
 
 _privacy_mode_provider: Callable[[], bool] | None = None

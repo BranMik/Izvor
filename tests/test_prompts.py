@@ -141,18 +141,14 @@ def test_all_17_personas_enforce_2026_xml_and_zero_you_are():
         assert "YOUR PERSONALITY & TONE" not in persona_content
 
 
-def test_all_10_system_agents_enforce_2026_xml_and_zero_you_are():
+def test_all_system_agents_enforce_2026_xml_and_zero_you_are():
     system_agents = [
-        "Orchestrator",
         "InternalRevisor",
         "Discussion_Scribe_Live",
         "Discussion_Scribe_Conclusion",
-        "Thread_Notes_Agent",
         "Intent_Extractor",
         "Language_Detector",
-        "List_Skills",
         "Pricing_Agent",
-        "Usage_Agent",
     ]
     for agent_name in system_agents:
         prompt = load_system_prompt(agent_name)
@@ -197,10 +193,6 @@ def test_system_agents_critical_runtime_contracts():
     conclusion_scribe_prompt = load_system_prompt("Discussion_Scribe_Conclusion")
     assert "Part 1: *Problem Statement*" in conclusion_scribe_prompt
     assert "Part 2: *Conclusion and Argumentation*" in conclusion_scribe_prompt
-
-    thread_notes_prompt = load_system_prompt("Thread_Notes_Agent")
-    for emoji in ["📋", "🎯", "💡", "🤝", "⚠️", "🚀"]:
-        assert emoji in thread_notes_prompt
 
 
 def test_all_agents_contain_shared_skills():
@@ -303,7 +295,7 @@ def test_system_agent_detection_and_prompts():
     assert is_system_agent("agent-10008") is False
     assert is_system_agent("agent-10011") is False
 
-    # Prompts for system agent (Orchestrator) must be self-contained (no nomination rules or debate output constraints)
-    prompt = build_agent_prompt("Orchestrator")
+    # Prompts for system agent (e.g. InternalRevisor) must be self-contained (no nomination rules or debate output constraints)
+    prompt = build_agent_prompt("InternalRevisor")
     assert "OUTPUT & LENGTH CONSTRAINTS:" not in prompt
     assert "nominate the next agent" not in prompt

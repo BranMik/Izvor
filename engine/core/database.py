@@ -22,7 +22,6 @@ BASELINE_SCHEMA_STATEMENTS = [
         thread_ts TEXT NOT NULL,
         status TEXT NOT NULL CHECK(status IN ('active', 'paused', 'completed')),
         remaining_agents TEXT NOT NULL DEFAULT '[]',
-        current_turn INTEGER NOT NULL DEFAULT 0,
         custom_flow INTEGER NOT NULL DEFAULT 0,
         stop_requested INTEGER NOT NULL DEFAULT 0,
         rounds INTEGER NOT NULL DEFAULT 0,
@@ -215,8 +214,6 @@ SESSION_DURABILITY_STATEMENTS = [
     "ALTER TABLE thread_sessions ADD COLUMN consensus_reached BOOLEAN NOT NULL DEFAULT 0;",
 ]
 
-SCHEMA_STATEMENTS = BASELINE_SCHEMA_STATEMENTS + AUDIT_ANCHORS_STATEMENTS + SESSION_DURABILITY_STATEMENTS
-
 MIGRATIONS: list[tuple[int, str, list[str]]] = [
     (1, "baseline_schema", BASELINE_SCHEMA_STATEMENTS),
     (2, "audit_anchors_and_indices", AUDIT_ANCHORS_STATEMENTS),
@@ -265,14 +262,6 @@ class DatabaseManager:
         if self._custom_db_path is not None:
             return self._custom_db_path
         return DB_PATH
-
-    @property
-    def _all_conns(self) -> list[sqlite3.Connection]:
-        with self._conns_lock:
-            conns: list[sqlite3.Connection] = []
-            for t_conns in self._thread_conns.values():
-                conns.extend(t_conns.values())
-            return conns
 
     def _evict_dead_thread_connections(self) -> None:
         """Evicts and closes SQLite connections belonging to terminated threads."""

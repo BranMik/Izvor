@@ -23,17 +23,7 @@ __all__ = [
     "RAG_KNOWLEDGE_DIR",
     "SYSTEM_SETTINGS_FILE",
     "get_rag_setting",
-    "load_rag_settings_from_file",
 ]
-
-
-def load_rag_settings_from_file() -> dict[str, Any]:
-    """Reads the 'rag' section via SystemSettingsManager SSOT."""
-    try:
-        return system_settings_manager.get_rag_config()
-    except Exception as e:  # noqa: BLE001
-        logger.debug(f"[RAG Config] Could not read rag settings from system_settings_manager: {e}")
-        return {}
 
 
 def get_rag_setting(key: str, default: Any = None) -> Any:
@@ -86,7 +76,6 @@ DEFAULT_TOP_K = int(get_rag_setting("default_top_k", 6))
 
 # PII masking configuration ("AT_RETRIEVAL", "AT_INGESTION", "NONE")
 VALID_PII_MASKING_MODES = {"AT_RETRIEVAL", "AT_INGESTION", "NONE"}
-PII_MASKING = str(get_rag_setting("pii_masking", "AT_RETRIEVAL")).strip().upper()
 
 
 def get_pii_masking_mode() -> str:

@@ -190,10 +190,6 @@ def _load_default_models_from_ssot() -> tuple[str, str]:
         return fast_default, reasoning_default
 
 
-DEFAULT_FAST_MODEL = "gemini/gemini-3.8-flash"
-DEFAULT_REASONING_MODEL = "mistral/mistral-large-latest"
-
-
 _fast_model_provider: Callable[[], str] | None = None
 _reasoning_model_provider: Callable[[], str] | None = None
 
@@ -310,28 +306,6 @@ def set_prompt_builder_provider(builder: Callable[[str], str] | None) -> None:
     _prompt_builder_provider = builder
 
 
-def get_thread_notes_prompt() -> str:
-    if "thread_notes" not in _CACHED_PROMPTS:
-        if _prompt_builder_provider is not None:
-            _CACHED_PROMPTS["thread_notes"] = _prompt_builder_provider("Thread_Notes_Agent")
-        else:
-            from prompts import build_agent_prompt
-
-            _CACHED_PROMPTS["thread_notes"] = build_agent_prompt("Thread_Notes_Agent")
-    return _CACHED_PROMPTS["thread_notes"]
-
-
-def get_usage_agent_prompt() -> str:
-    if "usage_agent" not in _CACHED_PROMPTS:
-        if _prompt_builder_provider is not None:
-            _CACHED_PROMPTS["usage_agent"] = _prompt_builder_provider("Usage_Agent")
-        else:
-            from prompts import build_agent_prompt
-
-            _CACHED_PROMPTS["usage_agent"] = build_agent_prompt("Usage_Agent")
-    return _CACHED_PROMPTS["usage_agent"]
-
-
 def get_pricing_agent_prompt() -> str:
     if "pricing_agent" not in _CACHED_PROMPTS:
         if _prompt_builder_provider is not None:
@@ -346,10 +320,6 @@ def get_pricing_agent_prompt() -> str:
 # Module-level getters (dynamically resolved from SSOT)
 def get_thread_notes_model() -> str:
     return get_orchestrator_reasoning_model()
-
-
-def get_usage_agent_model() -> str:
-    return get_system_agent_model("usage_agent", fallback="mistral/mistral-small-latest")
 
 
 def get_pricing_agent_model() -> str:
@@ -393,7 +363,6 @@ def get_max_discussion_turns() -> int:
     return 20
 
 
-MAX_DISCUSSION_TURNS = get_max_discussion_turns()
 TOOL_INTERMEDIATE_UPDATE_DELAY_SECONDS = float(
     os.getenv("TOOL_INTERMEDIATE_UPDATE_DELAY_SECONDS", "5.0")
 )
@@ -429,9 +398,6 @@ __all__ = [
     "AGENTS_CONFIG",
     "SYSTEM_AGENTS_CONFIG",
     "ORCHESTRATOR_CONFIG",
-    "DEFAULT_FAST_MODEL",
-    "DEFAULT_REASONING_MODEL",
-    "MAX_DISCUSSION_TURNS",
     "TOOL_INTERMEDIATE_UPDATE_DELAY_SECONDS",
     "resolve_avatar_url",
     "get_default_fast_model",
@@ -440,12 +406,9 @@ __all__ = [
     "get_orchestrator_fast_model",
     "get_orchestrator_reasoning_model",
     "get_thread_notes_model",
-    "get_usage_agent_model",
     "get_pricing_agent_model",
     "get_intent_extractor_model",
     "get_language_detector_model",
-    "get_thread_notes_prompt",
-    "get_usage_agent_prompt",
     "get_pricing_agent_prompt",
     "is_internal_revisor_enabled",
 ]

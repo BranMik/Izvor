@@ -59,7 +59,7 @@ In addition to the 17-persona debate roster in `config/settings/agent_settings.j
 - **Role**: Dispatched in the background to inspect official provider documentation and determine token pricing for new models (validated within `$0.005–$500.00/1M` bounds).
 
 ### 3. Usage Reporter Agent (`Usage_Agent`)
-- **Prompt**: [`prompts/system_agents/Usage_Agent.md`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/prompts/system_agents/Usage_Agent.md)
+- **Implementation**: [`agents/usage_agent.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/agents/usage_agent.py)
 - **Role**: Posts token consumption and spend summaries to the dedicated usage channel (configured via `USAGE_CHANNEL_NAME`, default `#izvor-usage` or `izvor-usage`), persisting thread metadata in SQLite table `thread_usage_meta`.
 
 ### 4. Scribe (`Scribe`)

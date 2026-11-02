@@ -446,7 +446,7 @@ class AppIntegrityValidator:
     # 5b. System settings integrity
     # ------------------------------------------------------------------
     @classmethod
-    def check_system_settings_integrity(cls, data: dict, settings_path: Path | None = None) -> dict:
+    def check_system_settings_integrity(cls, data: dict) -> dict:
         """
         Validates that required system settings keys exist in system_settings.json.
         Logs WARNING for any missing required key.

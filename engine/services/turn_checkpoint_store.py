@@ -234,24 +234,6 @@ class TurnCheckpointStore:
             logger.debug(f"[CHECKPOINT] Failed marking abandoned {checkpoint_id}: {e}")
             return False
 
-    def mark_expired(self, checkpoint_id: str) -> bool:
-        """Updates checkpoint status to EXPIRED and redacts payload."""
-        try:
-            with get_db_transaction(immediate=True) as conn:
-                cur = conn.execute(
-                    """
-                    UPDATE turn_checkpoints
-                    SET status = 'EXPIRED', messages_json = '[]', accumulated_history_json = '[]',
-                        pending_tool_call_json = '{}', token_mapping_json = '{}'
-                    WHERE checkpoint_id = ?;
-                    """,
-                    (checkpoint_id,),
-                )
-                return cur.rowcount > 0
-        except Exception as e:  # noqa: BLE001
-            logger.debug(f"[CHECKPOINT] Failed marking expired {checkpoint_id}: {e}")
-            return False
-
     def prune_expired(self) -> int:
         """Prunes checkpoints whose expiration timestamp has passed."""
         now = time.time()

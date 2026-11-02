@@ -166,7 +166,6 @@ class PostRecordStage:
                             thread_ts=ctx.thread_ts,
                             initial_prompt=initial_prompt,
                             messages=history_to_record,
-                            bot_user_id=ctx.bot_user_id,
                         )
                     else:
                         record_flat_fn(
@@ -174,7 +173,6 @@ class PostRecordStage:
                             thread_ts=ctx.thread_ts,
                             initial_prompt=initial_prompt,
                             messages=history_to_record,
-                            bot_user_id=ctx.bot_user_id,
                         )
             except Exception as e:  # noqa: BLE001
                 logger.warning(f"[WORKSPACE] Failed to record flat history for {ctx.thread_key}: {e}")

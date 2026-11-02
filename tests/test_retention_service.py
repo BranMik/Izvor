@@ -94,27 +94,6 @@ def test_checkpoint_redaction():
     assert abandoned.messages == []
     assert abandoned.accumulated_history == []
 
-    # 4. Test mark_expired redaction
-    chk4 = TurnCheckpoint(
-        checkpoint_id="chk_redact_04",
-        session_id="C_TEST:100.4",
-        channel_id="C_TEST",
-        thread_ts="100.4",
-        agent_key="agent-10001",
-        pause_reason="HITL",
-        messages=[{"role": "user", "content": "confidential"}],
-        accumulated_history=[{"role": "assistant", "content": "prior"}],
-        status="PENDING",
-        created_at=time.time(),
-        expires_at=time.time() + 3600,
-    )
-    store.save_checkpoint(chk4)
-    assert store.mark_expired("chk_redact_04") is True
-    expired = store.get_checkpoint("chk_redact_04")
-    assert expired.status == "EXPIRED"
-    assert expired.messages == []
-    assert expired.accumulated_history == []
-
 
 def test_prune_expired_records():
     now = time.time()

@@ -227,10 +227,6 @@ def test_session_context_hydration_in_turn_context():
     assert session.session_id == "C_SESS:123.456"
     assert len(session.history) == 2
     assert isinstance(session.history[0], Turn)
-    assert session.to_llm_history() == [
-        {"role": "user", "content": "Hello world"},
-        {"role": "assistant", "content": "Hi there"},
-    ]
 
     ctx = TurnContext(
         channel_id="C_SESS",

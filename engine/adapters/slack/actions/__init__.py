@@ -3,8 +3,6 @@ Slack interactivity action handlers package.
 Divided into HITL actions, agent panel actions, and workflow/governance actions.
 """
 
-from typing import Any
-
 from adapters.slack.actions.agent_actions import (
     _deliver_admin_denial_feedback,
     _deny_non_admin_action,

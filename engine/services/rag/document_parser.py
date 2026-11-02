@@ -126,7 +126,7 @@ class DocumentParser:
         chunk_idx = 1
 
         for header, body in sections:
-            sub_chunks = self._chunk_text(body, header)
+            sub_chunks = self._chunk_text(body)
             for sub_text in sub_chunks:
                 cid = f"{base_id}_c{chunk_idx:03d}"
                 chunks.append(
@@ -165,7 +165,7 @@ class DocumentParser:
                     continue
 
                 header = f"Page {page_num}"
-                sub_chunks = self._chunk_text(page_text, header)
+                sub_chunks = self._chunk_text(page_text)
                 for sub_text in sub_chunks:
                     cid = f"{base_id}_c{chunk_idx:03d}"
                     chunks.append(
@@ -198,7 +198,7 @@ class DocumentParser:
 
         chunks: list[DocumentChunk] = []
         base_id = sanitize_id(doc_id)
-        sub_chunks = self._chunk_text(content, "General")
+        sub_chunks = self._chunk_text(content)
         for chunk_idx, sub_text in enumerate(sub_chunks, start=1):
             cid = f"{base_id}_c{chunk_idx:03d}"
             chunks.append(
@@ -214,7 +214,7 @@ class DocumentParser:
 
         return chunks
 
-    def _chunk_text(self, text: str, header_context: str = "") -> list[str]:
+    def _chunk_text(self, text: str) -> list[str]:
         """
         Splits a text body into semantic chunks using RecursiveTextSplitter.
         Ensures splits cleanly happen at paragraph, line, or sentence breaks

@@ -62,8 +62,8 @@ class EventDeduplicationCache(dict):
             except Exception as e:  # noqa: BLE001
                 logger.debug("Event dedup batch eviction error: %s", e)
 
-        # Evict from SQLite table event_dedup only periodically or when exceeding maxsize
-        if (now - self._last_db_evict >= self.db_evict_interval) or len(self) >= self.maxsize:
+        # Evict from SQLite table event_dedup periodically
+        if (now - self._last_db_evict >= self.db_evict_interval):
             self._last_db_evict = now
             cutoff = now - self.ttl_seconds
             try:
@@ -283,7 +283,6 @@ async def handle_slack_events(request: Request, background_tasks: BackgroundTask
             logger.info(f"[WEBHOOK] Received {event_type} - channel: {channel_id}, ts: {ts}, thread_ts: {thread_ts}")
 
             if channel_id and ts and raw_text:
-                now = time.time()
                 # 6b. Deduplicate Slack duplicate events (fast check)
                 event_key = (channel_id, ts)
                 if event_key in PROCESSED_EVENTS:

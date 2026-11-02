@@ -25,14 +25,14 @@ _CREDENTIAL_PATTERNS: list[tuple[re.Pattern, str]] = [
         re.compile(r"\bxox[baprs]-[0-9a-zA-Z-]{10,}\b"),
         "[REDACTED_SLACK_TOKEN]",
     ),
-    # OpenAI & generic sk- tokens
-    (
-        re.compile(r"\bsk-(?:proj-|live-)?[a-zA-Z0-9_-]{20,}\b"),
-        "[REDACTED_API_KEY]",
-    ),
     # Anthropic API Keys
     (
         re.compile(r"\bsk-ant-[a-zA-Z0-9_-]{20,}\b"),
+        "[REDACTED_API_KEY]",
+    ),
+    # OpenAI & generic sk- tokens
+    (
+        re.compile(r"\bsk-(?:proj-|live-)?[a-zA-Z0-9_-]{20,}\b"),
         "[REDACTED_API_KEY]",
     ),
     # Groq API Keys

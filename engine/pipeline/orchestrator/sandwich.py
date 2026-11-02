@@ -56,11 +56,7 @@ class SandwichOrchestrator:
         end_set = set(end)
         standby_set = set(self.standby_agents)
 
-        middle = [
-            a
-            for a in valid_available
-            if a not in start_set and a not in end_set and a not in standby_set
-        ]
+        middle = [a for a in valid_available if a not in start_set and a not in end_set and a not in standby_set]
 
         # Combine into complete remaining sequence (standby agents enter dynamically via stress-test)
         return start + middle + end
@@ -94,7 +90,9 @@ class SandwichOrchestrator:
 
         # 1. Handoff Enforcement Between Challenger and RebuttalAdvocate (TKT-823)
         # When remaining_pool begins with rebuttal_key (Challenger is currently speaking and rebuttal_key is at remaining_pool[0])
-        if remaining_pool and ((rebuttal_key and remaining_pool[0] == rebuttal_key) or remaining_pool[0] in standby_set):
+        if remaining_pool and (
+            (rebuttal_key and remaining_pool[0] == rebuttal_key) or remaining_pool[0] in standby_set
+        ):
             return remaining_pool[0], [remaining_pool[0]]
 
         if is_open_debate:
@@ -117,18 +115,16 @@ class SandwichOrchestrator:
                 eligible = list(remaining_middle) + (self.end_chain[:1] if self.end_chain else [])
                 return None, eligible
 
-        middle_pool_set = {
-            k for k in self.agents_map if k not in start_set and k not in end_set and k not in standby_set
-        } if self.agents_map else {
-            k for k in remaining_pool if k not in start_set and k not in end_set and k not in standby_set
-        }
+        middle_pool_set = (
+            {k for k in self.agents_map if k not in start_set and k not in end_set and k not in standby_set}
+            if self.agents_map
+            else {k for k in remaining_pool if k not in start_set and k not in end_set and k not in standby_set}
+        )
 
         remaining_middle = [k for k in remaining_pool if k in middle_pool_set]
 
         if remaining_middle:
-            first_middle_idx = next(
-                i for i, k in enumerate(remaining_pool) if k in middle_pool_set
-            )
+            first_middle_idx = next(i for i, k in enumerate(remaining_pool) if k in middle_pool_set)
             if first_middle_idx > 0:
                 return remaining_pool[0], [remaining_pool[0]]
             else:
@@ -136,8 +132,4 @@ class SandwichOrchestrator:
                 designated = remaining_middle[0] if len(remaining_middle) == 1 else None
                 return designated, eligible
 
-        end_chain_len = len(self.end_chain)
-        if not middle_pool_set and len(remaining_pool) > end_chain_len:
-            return remaining_pool[0], [remaining_pool[0]]
-        else:
-            return remaining_pool[0], [remaining_pool[0]]
+        return remaining_pool[0], [remaining_pool[0]]

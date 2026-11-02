@@ -23,7 +23,7 @@ from pipeline.directive_parser.slash_parser import (
     parse_grant_skill,
     strip_all_slash_commands,
 )
-from services.rag.config import get_rag_setting, load_rag_settings_from_file
+from services.rag.config import get_rag_setting
 from config.skills.knowledge_base_rag.tools import (
     SEARCH_KNOWLEDGE_RAG_SCHEMA,
     async_execute_search_knowledge_rag,
@@ -293,11 +293,6 @@ def test_rag_config_delegation_to_system_settings():
 
     assert get_rag_setting("default_top_k") == 5
     assert get_rag_setting("pii_masking") == "NONE"
-
-    # Verify load_rag_settings_from_file returns the manager's config
-    cfg = load_rag_settings_from_file()
-    assert cfg["default_top_k"] == 5
-    assert cfg["pii_masking"] == "NONE"
 
     # Restore default
     system_settings_manager.rag_config["default_top_k"] = 6

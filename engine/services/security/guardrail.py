@@ -18,9 +18,6 @@ def _get_max_embedding_cache_size() -> int:
         return 500
 
 
-_MAX_EMBEDDING_CACHE_SIZE = _get_max_embedding_cache_size()
-
-
 def _search_lance_table(table, query_vector: list[float]):
     """Synchronous LanceDB table search helper executed in background thread."""
     return table.search(query_vector).metric("cosine").limit(1).to_pandas()

@@ -88,29 +88,6 @@ class SessionContext:
             history=history_turns,
         )
 
-    def to_llm_history(self) -> list[dict[str, str]]:
-        return [
-            {"role": t.role, "content": t.content}
-            for t in self.history
-        ]
-
-    def add_turn(
-        self,
-        role: Literal["user", "assistant", "system"],
-        content: str,
-        speaker: str = "User",
-        token_usage: dict[str, int] | None = None,
-    ) -> Turn:
-        turn = Turn(
-            role=role,
-            content=content,
-            speaker=speaker,
-            token_usage=token_usage or {},
-        )
-        self.history.append(turn)
-        return turn
-
-
 
 @dataclass
 class DiscussionBrief:
