@@ -33,14 +33,16 @@ async def _execute_and_resume_hitl_approval(req: Any, user_id: str) -> None:
         f"[HITL] Auto-executing approved tool '{fn_name}' for agent '{agent_name}' in {(channel_id, thread_ts)}"
     )
 
-    # 1. Resolve agent skills + thread-granted skills
+    # 1. Resolve agent skills + thread-granted skills + global skills
     agents_map = settings_manager.get_agents_config()
     agent_cfg = agents_map.get(agent_name, {})
     agent_skills = list(agent_cfg.get("skills", []))
+    global_skills = skill_registry.get_global_skills()
     thread_skills = thread_skills_manager.get_active_skills(channel_id, thread_ts)
+    active_agent_skills = thread_skills_manager.get_active_agent_skills(channel_id, thread_ts, agent_name)
     expired_skills = thread_skills_manager.get_expired_skills(channel_id, thread_ts)
     ttl_hours = thread_skills_manager.get_ttl_seconds() / 3600.0
-    effective_skills = list(set(agent_skills + thread_skills))
+    effective_skills = list(dict.fromkeys(agent_skills + global_skills + thread_skills + active_agent_skills))
 
     # 2. Mark approval consumed & execute tool deterministically
     try:
@@ -100,12 +102,13 @@ async def _execute_and_resume_hitl_approval(req: Any, user_id: str) -> None:
                 thread_ts=thread_ts,
                 turn_res=turn_res,
                 user_id=user_id,
+                accumulated_history=chk.accumulated_history,
             )
 
         thread_state_manager.dispatch_discussion_task(channel_id, thread_ts, _run_resumption())
     else:
         resume_prompt = (
-            f"[{agent_name}] Tool '{fn_name}' execution was approved by <@{user_id}>.\n"
+            f"/[{agent_name}] Tool '{fn_name}' execution was approved by <@{user_id}>.\n"
             f"Tool Result:\n{tool_result}\n\n"
             f"Please analyze this result and provide your response to continue the discussion."
         )
@@ -159,12 +162,13 @@ async def _resume_hitl_denial(req: Any, user_id: str) -> None:
                 thread_ts=thread_ts,
                 turn_res=turn_res,
                 user_id=user_id,
+                accumulated_history=chk.accumulated_history,
             )
 
         thread_state_manager.dispatch_discussion_task(channel_id, thread_ts, _run_denial_resumption())
     else:
         resume_prompt = (
-            f"[{agent_name}] Tool '{fn_name}' execution was denied by supervisor <@{user_id}>.\n"
+            f"/[{agent_name}] Tool '{fn_name}' execution was denied by supervisor <@{user_id}>.\n"
             f"Please proceed with the discussion without calling or waiting for this tool."
         )
         ctx = TurnContext(

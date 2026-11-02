@@ -156,6 +156,7 @@ class ContextPrepStage:
                 min_words=active_min_words,
                 skills=effective_skills,
                 modifiers=ctx.modifiers,
+                is_short_output=bool(ctx.agent_cfg.get("is_short_output", False)),
             )
         else:
             ctx.system_prompt = ctx.agent_cfg["system_prompt"]

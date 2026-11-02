@@ -131,7 +131,7 @@ def test_user_message_filtering():
             "type": "message",
             "channel": "C_TEST_USER",
             "ts": "123456789.0005",
-            "text": "[agent-10011] Please analyze this schema.",
+            "text": "/[agent-10011] Please analyze this schema.",
         },
     }
     response2 = client.post("/slack/events", json=payload_tag)
@@ -396,7 +396,7 @@ def test_user_mention_syntax_variations_webhook_interruption(monkeypatch):
             "channel": "C_TEST_INTERRUPT_SYNTAX",
             "ts": "123456789.3003",
             "thread_ts": "123456789.3001",
-            "text": "[agent-10001] Start fresh with this",
+            "text": "/[agent-10001] Start fresh with this",
         },
     }
 

@@ -1,4 +1,5 @@
 import hashlib
+import inspect
 import json
 import logging
 from pathlib import Path
@@ -517,13 +518,12 @@ def execute_mcp_tool(
 
     if handler:
         try:
-            return handler(raw_args, principal=agent_name)
-        except TypeError:
-            try:
-                return handler(raw_args)
-            except Exception as e:  # noqa: BLE001
-                logger.error(f"[MCP] Error executing tool {tool_name}: {e}")
-                return json.dumps({"error": f"Tool execution error: {e}"})
+            sig = inspect.signature(handler)
+            if "principal" in sig.parameters or any(
+                p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
+            ):
+                return handler(raw_args, principal=agent_name)
+            return handler(raw_args)
         except Exception as e:  # noqa: BLE001
             logger.error(f"[MCP] Error executing tool {tool_name}: {e}")
             return json.dumps({"error": f"Tool execution error: {e}"})

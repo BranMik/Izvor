@@ -95,6 +95,17 @@ async def _handle_scribe_download(
             )
 
         dm_channel_id = await open_dm_channel(user_id) or user_id
+        if not dm_channel_id:
+            logger.error(f"[INTERACTIVITY] Could not resolve DM channel for user {user_id}")
+            if channel_id and thread_ts:
+                await post_ephemeral_to_slack(
+                    channel_id=channel_id,
+                    user_id=user_id,
+                    text="❌ Could not open a direct message channel to deliver your notes. Please ensure you allow direct messages from apps.",
+                    thread_ts=thread_ts,
+                )
+            return
+
         clean_ts = thread_ts.replace(".", "_") if thread_ts else "notes"
         filename = f"{filename_prefix}_{clean_ts}.txt"
         await upload_text_file_to_slack(

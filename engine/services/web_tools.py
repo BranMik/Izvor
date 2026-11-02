@@ -13,8 +13,8 @@ from bs4 import BeautifulSoup
 
 logger = logging.getLogger(__name__)
 
-_turn_web_fetch_count: contextvars.ContextVar[list[int]] = contextvars.ContextVar(
-    "_turn_web_fetch_count", default=[0]
+_turn_web_fetch_count: contextvars.ContextVar[list[int] | None] = contextvars.ContextVar(
+    "_turn_web_fetch_count", default=None
 )
 
 
@@ -26,7 +26,7 @@ def reset_turn_web_budget() -> None:
 def get_turn_web_fetch_count() -> int:
     """Returns current number of web fetches executed in this turn."""
     holder = _turn_web_fetch_count.get()
-    return holder[0] if isinstance(holder, list) else int(holder)
+    return holder[0] if isinstance(holder, list) else 0
 
 
 def check_and_increment_web_budget() -> None:
@@ -239,9 +239,7 @@ def _web_search_inner(query: str, max_results: int = 5) -> str:
 
 
 def web_search(query: str, max_results: int = 5) -> str:
-    from core.security_utils import wrap_untrusted_content
-    result = _web_search_inner(query, max_results)
-    return wrap_untrusted_content(result)
+    return _web_search_inner(query, max_results)
 
 
 # Security constraints for SSRF & outbound HTTP defense
@@ -687,9 +685,7 @@ def _fetch_web_page_inner(url: str, max_chars: int = 4000) -> str:
 
 
 def fetch_web_page(url: str, max_chars: int = 4000) -> str:
-    from core.security_utils import wrap_untrusted_content
-    result = _fetch_web_page_inner(url, max_chars)
-    return wrap_untrusted_content(result)
+    return _fetch_web_page_inner(url, max_chars)
 
 
 async def async_web_search(query: str, max_results: int = 5) -> str:

@@ -41,7 +41,7 @@ from services.slack import publish_app_home
 
 from orchestration.system_settings import system_settings_manager
 from core.logging_filters import setup_credential_redaction_filters
-from core.paths import AVATARS_DIR, PROJECT_ROOT
+from core.paths import AVATARS_DIR, ENGINE_AVATARS_DIR, PROJECT_ROOT
 
 # Configure logging format
 dynamic_log_level = getattr(logging, system_settings_manager.get_log_level(), logging.INFO)
@@ -258,8 +258,26 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-app.mount("/static", StaticFiles(directory=AVATARS_DIR), name="static")
-app.mount("/avatars", StaticFiles(directory=AVATARS_DIR), name="avatars")
+class MultiDirStaticFiles(StaticFiles):
+    """StaticFiles subclass that searches across multiple root directories in order."""
+
+    def __init__(self, directories: list[Path | str], html: bool = False, check_dir: bool = False):
+        existing_dirs = [Path(d) for d in directories if Path(d).exists()]
+        primary_dir = existing_dirs[0] if existing_dirs else Path(directories[0])
+        super().__init__(directory=primary_dir, html=html, check_dir=False)
+        self.all_directories = [str(d) for d in existing_dirs]
+
+
+app.mount(
+    "/static",
+    MultiDirStaticFiles(directories=[AVATARS_DIR, ENGINE_AVATARS_DIR]),
+    name="static",
+)
+app.mount(
+    "/avatars",
+    MultiDirStaticFiles(directories=[AVATARS_DIR, ENGINE_AVATARS_DIR]),
+    name="avatars",
+)
 
 # Mount Slack Adapter routes (/slack/events, /slack/actions, /slack/interactivity)
 app.include_router(slack_router, prefix="/slack")

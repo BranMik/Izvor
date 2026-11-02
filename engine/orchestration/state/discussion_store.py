@@ -50,13 +50,13 @@ class DiscussionStateStore:
                         self.stop_requested_threads.add(key)
                     if row["rounds"] and key not in self.thread_rounds:
                         self.thread_rounds[key] = row["rounds"]
-                    if key not in self.thread_round_sequences:
+                    if key not in self.thread_round_sequences and row["round_sequence"] is not None:
                         seq = json.loads(row["round_sequence"])
                         if seq:
                             self.thread_round_sequences[key] = seq
                     if row["initial_prompt"] and key not in self.thread_initial_prompts:
                         self.thread_initial_prompts[key] = row["initial_prompt"]
-        except (json.JSONDecodeError, ValueError) as e:
+        except (json.JSONDecodeError, ValueError, TypeError) as e:
             logger.debug(f"[DISCUSSION STORE] Failed to load session from DB for {key}: {e}")
 
     def _sync_to_db(self, channel_id: str, thread_ts: str) -> None:

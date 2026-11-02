@@ -237,6 +237,22 @@ class DiscussionLoop:
 
                         scatter_results: list[ScatterBranchResult] = [t.result() for t in branch_tasks]
 
+                        # Check if any branch halted, requested HITL, or tripped circuit breaker
+                        for s_res in scatter_results:
+                            resp = s_res.response
+                            if isinstance(resp, dict):
+                                if (
+                                    resp.get("waiting_hitl")
+                                    or resp.get("clarification_question")
+                                    or resp.get("halted")
+                                    or resp.get("circuit_breaker_triggered")
+                                    or resp.get("cancelled")
+                                ):
+                                    logger.info(
+                                        f"[ORCHESTRATOR] Scatter branch {s_res.agent_key} triggered halt/HITL. Halting scatter-gather sequence."
+                                    )
+                                    return resp
+
                         # Single deterministic post-gather reducer
                         for s_res in scatter_results:
                             if s_res.response and isinstance(s_res.response, dict) and "final_text" in s_res.response:
@@ -259,9 +275,10 @@ class DiscussionLoop:
                         remaining_after = [a for a in remaining if a not in scatter_agents]
                         thread_state_manager.set_remaining_agents(channel_id, thread_ts, remaining_after)
 
-                        # Gather & Synthesis Phase
-                        if remaining_after and not thread_state_manager.is_stopped(channel_id, thread_ts):
-                            gather_agent = remaining_after[0]
+                        # Gather & Synthesis Phase: execute the complete end_chain
+                        while remaining_after and not thread_state_manager.is_stopped(channel_id, thread_ts):
+                            gather_agent = remaining_after.pop(0)
+                            thread_state_manager.set_remaining_agents(channel_id, thread_ts, remaining_after)
                             logger.info(
                                 f"[ORCHESTRATOR] Entering Parallel Gather Phase with synthesis agent {gather_agent}."
                             )
@@ -278,14 +295,24 @@ class DiscussionLoop:
                                 target_agent_override=gather_agent,
                             )
                             last_res = gather_res
-                            if isinstance(gather_res, dict) and "final_text" in gather_res:
-                                g_name = gather_res.get("displayname", gather_res.get("username", "Unknown Agent"))
-                                accumulated_history.append(
-                                    {
-                                        "role": "assistant",
-                                        "content": f"[{g_name}]: {gather_res['final_text']}",
-                                    }
-                                )
+                            if isinstance(gather_res, dict):
+                                if (
+                                    gather_res.get("waiting_hitl")
+                                    or gather_res.get("clarification_question")
+                                    or gather_res.get("halted")
+                                    or gather_res.get("circuit_breaker_triggered")
+                                    or gather_res.get("cancelled")
+                                ):
+                                    return gather_res
+                                if "final_text" in gather_res:
+                                    g_name = gather_res.get("displayname", gather_res.get("username", "Unknown Agent"))
+                                    accumulated_history.append(
+                                        {
+                                            "role": "assistant",
+                                            "content": f"[{g_name}]: {gather_res['final_text']}",
+                                        }
+                                    )
+                                    spoken_agents.add(gather_agent)
 
                         try:
                             from services.flat_history_recorder import record_flat_history
@@ -300,6 +327,32 @@ class DiscussionLoop:
                             )
                         except Exception as e:  # noqa: BLE001
                             logger.debug(f"[ORCHESTRATOR] Flat history sync exception: {e}")
+
+                        # Multi-round continuation support for scatter-gather
+                        active_rounds = thread_state_manager.get_rounds(channel_id, thread_ts)
+                        if active_rounds > 0 and not thread_state_manager.is_stopped(channel_id, thread_ts):
+                            remaining_rounds = thread_state_manager.decrement_rounds(channel_id, thread_ts)
+                            if remaining_rounds > 0:
+                                round_seq = thread_state_manager.get_round_sequence(channel_id, thread_ts)
+                                if not round_seq:
+                                    round_seq = list(scatter_agents) + list(end_chain)
+                                thread_state_manager.set_remaining_agents(channel_id, thread_ts, round_seq)
+                                next_prompt = (
+                                    last_res.get("final_text", "")
+                                    if isinstance(last_res, dict)
+                                    else initial_raw_text
+                                )
+                                return await self.run(
+                                    channel_id=channel_id,
+                                    thread_ts=thread_ts,
+                                    initial_raw_text=next_prompt,
+                                    bot_user_id=bot_user_id,
+                                    icon_url=icon_url,
+                                    max_turns=max_turns,
+                                    user_id=user_id,
+                                    accumulated_history=accumulated_history,
+                                    is_bot_trigger=True,
+                                )
 
                         return last_res
             else:

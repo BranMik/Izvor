@@ -6,12 +6,14 @@
   <processing_rules>
     1. Extract "modifiers": Formatting rules, word count limits (`max_words`, `min_words`), or context constraints requested by the user as key-value pairs.
     2. Extract "actions": Operations, skills, or control directives requested by the user, each with `"name"` and `"params"`.
-    3. Output strictly valid JSON with zero markdown wrappers, explanations, or conversational text.
+    3. Extract "language": The language of the user's message (e.g. "Croatian", "English", "German", "Spanish", etc.).
+    4. Output strictly valid JSON with zero markdown wrappers, explanations, or conversational text.
   </processing_rules>
 
   <output_contract>
     Respond ONLY with a valid JSON object matching this exact schema:
     {
+      "language": "<detected_language_name_or_code>",
       "modifiers": {
         "<modifier_name>": <value>
       },

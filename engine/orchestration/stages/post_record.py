@@ -225,7 +225,7 @@ class PostRecordStage:
                     ctx.channel_id, ctx.thread_ts
                 )
                 if not round_seq:
-                    round_seq = get_initial_agents()
+                    round_seq = get_initial_agents(ctx.channel_id, ctx.thread_ts)
                 if round_seq:
                     next_speaker = round_seq[0]
                     ctx.next_designated_agent = next_speaker
@@ -509,9 +509,10 @@ class PostRecordStage:
                     ctx.channel_id, ctx.thread_ts, ctx.agent_key
                 )
                 if ctx.agent_key not in ctx.remaining:
-                    mode = settings_manager.get_orchestration_mode()
+                    wf_snap = thread_state_manager.get_workflow_snapshot(ctx.channel_id, ctx.thread_ts)
+                    mode = wf_snap.get("mode") if wf_snap else settings_manager.get_orchestration_mode()
                     if mode == OrchestrationMode.SANDWICH:
-                        sandwich_cfg = settings_manager.get_sandwich_config()
+                        sandwich_cfg = wf_snap.get("sandwich_config") if wf_snap else settings_manager.get_sandwich_config()
                         end_chain = sandwich_cfg.get("end_chain", [])
                         end_chain_indices = [
                             i
@@ -552,7 +553,10 @@ class PostRecordStage:
                     a for a in ctx.remaining if a != ctx.agent_key
                 ]
                 if other_candidates:
-                    next_agent = random.choice(other_candidates)
+                    if mode in (OrchestrationMode.FIXED, OrchestrationMode.SANDWICH, OrchestrationMode.SCATTER_GATHER) or ctx.is_custom_flow:
+                        next_agent = other_candidates[0]
+                    else:
+                        next_agent = random.choice(other_candidates)
                     next_nomination = f"/[{next_agent}]"
                 elif ctx.remaining:
                     next_agent = ctx.remaining[0]

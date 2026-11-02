@@ -65,9 +65,9 @@ async def async_execute_search_knowledge_rag(arguments: dict[str, Any], agent_na
             scope=scope,
             max_results=max_results,
         )
-        from core.security_utils import wrap_untrusted_content
 
-        return wrap_untrusted_content(result)
+
+        return result
     except Exception as e:  # noqa: BLE001
         logger.error(f"[search_knowledge_rag] Async tool execution failed: {e}")
         return f"Error executing knowledge search: {e}"

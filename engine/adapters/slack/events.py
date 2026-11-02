@@ -312,9 +312,9 @@ async def handle_slack_events(request: Request, background_tasks: BackgroundTask
                     or (bot_user_id is not None and event.get("user") == bot_user_id)
                 )
 
-                # 6d. Extract nominations and tags ([Agent_Key])
+                # 6d. Extract nominations and tags (/[Agent_Key] or /{Agent_Key})
                 has_tag = False
-                for match in re.finditer(r"[\[{]\s*([^\]}\r\n]+?)\s*[\]}]", raw_text):
+                for match in re.finditer(r"/\s*[\[{]\s*([^\]}\r\n]+?)\s*[\]}]", raw_text):
                     tag = match.group(1)
                     if entity_resolver.resolve_candidates(tag):
                         has_tag = True
