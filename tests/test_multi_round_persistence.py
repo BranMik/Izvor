@@ -74,13 +74,13 @@ async def test_three_round_five_word_croatian_test(monkeypatch):
 
     async def mock_run_turn(func, *args, **kwargs):
         # Inspect system prompt passed to LLM in kwargs['messages']
-        messages = kwargs.get("messages", [])
+        messages = kwargs.get("messages") or (args[0].get("messages") if args and isinstance(args[0], dict) else [])
         for msg in messages:
             if isinstance(msg, dict) and msg.get("role") == "system":
                 captured_system_prompts.append(msg.get("content", ""))
         return mock_run_turn.current_response
 
-    monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_run_turn)
+    monkeypatch.setattr("orchestration.agent_router.execute_llm_with_retry", mock_run_turn)
 
     async def mock_generate_thread_notes(history, is_completed=False, thread_language="English", scribe_max_words=None, scribe_min_words=None):
         captured_scribe_calls.append({
@@ -245,7 +245,7 @@ async def test_scribe_max_and_min_words_separation(monkeypatch):
     mock_choice.message.content = "Agent response"
     mock_choice.message.tool_calls = None
     mock_resp = MagicMock(choices=[mock_choice], usage=None)
-    monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", AsyncMock(return_value=mock_resp))
+    monkeypatch.setattr("orchestration.agent_router.execute_llm_with_retry", AsyncMock(return_value=mock_resp))
 
     await process_and_respond(
         channel_id=channel,

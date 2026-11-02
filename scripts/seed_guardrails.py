@@ -33,7 +33,7 @@ async def seed_guardrails():
     ])
 
     table_name = "guardrail_signatures"
-    if table_name in db.table_names():
+    if table_name in db:
         print(f"Dropping existing {table_name} table...")
         db.drop_table(table_name)
 

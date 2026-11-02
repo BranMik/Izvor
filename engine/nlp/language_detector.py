@@ -162,11 +162,6 @@ def clean_system_and_tags(text: str) -> str:
     return cleaned.strip()
 
 
-def _clean_slack_tags(text: str) -> str:
-    """Strips Slack user/bot mentions, bracketed agent tags, and system wrappers so they don't pollute classification."""
-    return clean_system_and_tags(text)
-
-
 def _heuristic_detect(text: str, default: str = "English") -> str:
     """Fast deterministic heuristic classification for synchronous callers without LLM."""
     if "¿" in text or "¡" in text:
@@ -263,7 +258,7 @@ async def detect_language_llm(
     """
     if is_system_message(text):
         return default
-    clean_text = _clean_slack_tags(text)
+    clean_text = clean_system_and_tags(text)
     if _is_empty_or_pure_code(clean_text):
         return default
 
@@ -338,7 +333,7 @@ def detect_language(text: str, default: str = "English", model: str | None = Non
     try:
         if is_system_message(text):
             return default
-        clean_text = _clean_slack_tags(text)
+        clean_text = clean_system_and_tags(text)
         if _is_empty_or_pure_code(clean_text):
             return default
         return _heuristic_detect(clean_text, default=default)

@@ -9,15 +9,12 @@ class OrchestrationMode(StrEnum):
     SANDWICH = "sandwich"
     FIXED = "fixed"
     SCATTER_GATHER = "scatter_gather"
-    PARALLEL_DIALECTIC = "scatter_gather"
 
     @classmethod
     def from_value(cls, val: str | "OrchestrationMode") -> "OrchestrationMode":
         if isinstance(val, cls):
             return val
         val_str = str(val or "").strip().lower()
-        if val_str in ("scatter_gather", "parallel_dialectic"):
-            return cls.SCATTER_GATHER
         try:
             return cls(val_str)
         except ValueError:
@@ -333,24 +330,7 @@ def build_dynamic_default_workflows(agent_ids: list[str]) -> list[WorkflowPreset
         pd_start: list[str] = []
         pd_end: list[str] = []
     else:
-        preferred_fixed = [
-            "agent-10001",
-            "agent-10002",
-            "agent-10003",
-            "agent-10014",
-            "agent-10012",
-        ]
-        if all(a in agents for a in preferred_fixed):
-            fixed_chain = list(preferred_fixed)
-        elif any(a in agents for a in preferred_fixed):
-            fixed_chain = [a for a in preferred_fixed if a in agents]
-            for a in agents:
-                if a not in fixed_chain:
-                    fixed_chain.append(a)
-                if len(fixed_chain) >= 5:
-                    break
-        else:
-            fixed_chain = agents[:5] if len(agents) >= 5 else list(agents)
+        fixed_chain = agents[:5] if len(agents) >= 5 else list(agents)
         sw_start = agents[: min(5, len(agents))]
         sw_end = list(reversed(agents[-min(3, len(agents)) :])) if len(agents) > 1 else list(agents)
         pd_start = [agents[0]]

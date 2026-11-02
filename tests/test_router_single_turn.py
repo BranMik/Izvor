@@ -123,7 +123,7 @@ async def test_process_and_respond_token_appending(monkeypatch):
         return {"ok": True, "ts": "12345.6789"}
 
     monkeypatch.setattr(
-        "orchestration.agent_router.run_in_threadpool", mock_run_in_threadpool
+        "orchestration.agent_router.execute_llm_with_retry", mock_run_in_threadpool
     )
     monkeypatch.setattr(
         "orchestration.agent_router.post_agent_response", mock_post_agent_response
@@ -171,7 +171,7 @@ async def test_process_and_respond_model_token_footer_openai(monkeypatch):
         return {"ok": True, "ts": "12345.9999"}
 
     monkeypatch.setattr(
-        "orchestration.agent_router.run_in_threadpool", mock_run_in_threadpool
+        "orchestration.agent_router.execute_llm_with_retry", mock_run_in_threadpool
     )
     monkeypatch.setattr(
         "orchestration.agent_router.post_agent_response", mock_post_agent_response
@@ -223,7 +223,7 @@ async def test_scenario_1_single_agent_tagged(monkeypatch):
     mock_response.usage = None
 
     async def mock_run_in_threadpool(func, *args, **kwargs):
-        captured_messages = kwargs.get("messages") or args[2]
+        captured_messages = kwargs.get("messages") or (args[0].get("messages") if args and isinstance(args[0], dict) else (args[2] if len(args) > 2 else []))
         mock_run_in_threadpool.captured_user_prompt = captured_messages[-1]["content"]
         return mock_response
 
@@ -236,7 +236,7 @@ async def test_scenario_1_single_agent_tagged(monkeypatch):
         return {"ok": True, "ts": "12345.0001"}
 
     monkeypatch.setattr(
-        "orchestration.agent_router.run_in_threadpool", mock_run_in_threadpool
+        "orchestration.agent_router.execute_llm_with_retry", mock_run_in_threadpool
     )
     monkeypatch.setattr(
         "orchestration.agent_router.post_agent_response", mock_post_agent_response
@@ -377,11 +377,12 @@ async def test_process_and_respond_history_limit_initial_prompt(monkeypatch):
     mock_resp = MagicMock(choices=[mock_choice], usage=None)
 
     async def mock_run(func, *args, **kwargs):
-        if "messages" in kwargs:
-            captured_messages.extend(kwargs["messages"])
+        msgs = kwargs.get("messages") or (args[0].get("messages") if args and isinstance(args[0], dict) else [])
+        if msgs:
+            captured_messages.extend(msgs)
         return mock_resp
 
-    monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_run)
+    monkeypatch.setattr("orchestration.agent_router.execute_llm_with_retry", mock_run)
     monkeypatch.setattr(
         "orchestration.agent_router.post_agent_response",
         AsyncMock(return_value={"ok": True, "ts": "12345.2002"}),
@@ -444,11 +445,12 @@ async def test_process_and_respond_history_zero(monkeypatch):
     mock_resp = MagicMock(choices=[mock_choice], usage=None)
 
     async def mock_run(func, *args, **kwargs):
-        if "messages" in kwargs:
-            captured_messages.extend(kwargs["messages"])
+        msgs = kwargs.get("messages") or (args[0].get("messages") if args and isinstance(args[0], dict) else [])
+        if msgs:
+            captured_messages.extend(msgs)
         return mock_resp
 
-    monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_run)
+    monkeypatch.setattr("orchestration.agent_router.execute_llm_with_retry", mock_run)
     monkeypatch.setattr(
         "orchestration.agent_router.post_agent_response",
         AsyncMock(return_value={"ok": True, "ts": "12345.5002"}),
@@ -640,7 +642,7 @@ async def test_process_and_respond_with_max_words(monkeypatch):
     mock_response.usage = MagicMock(prompt_tokens=15, completion_tokens=10)
 
     async def mock_run_in_threadpool(func, *args, **kwargs):
-        captured_messages.append(kwargs.get("messages", []))
+        captured_messages.append(kwargs.get("messages") or (args[0].get("messages") if args and isinstance(args[0], dict) else []))
         return mock_response
 
     posted_messages = []
@@ -655,7 +657,7 @@ async def test_process_and_respond_with_max_words(monkeypatch):
         "orchestration.agent_router.post_agent_response", mock_post_agent_response
     )
     monkeypatch.setattr(
-        "orchestration.agent_router.run_in_threadpool", mock_run_in_threadpool
+        "orchestration.agent_router.execute_llm_with_retry", mock_run_in_threadpool
     )
     monkeypatch.setattr(
         "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
@@ -711,7 +713,7 @@ async def test_process_and_respond_with_min_words(monkeypatch):
     mock_response.usage = MagicMock(prompt_tokens=15, completion_tokens=85)
 
     async def mock_run_in_threadpool(func, *args, **kwargs):
-        captured_messages.append(kwargs.get("messages", []))
+        captured_messages.append(kwargs.get("messages") or (args[0].get("messages") if args and isinstance(args[0], dict) else []))
         return mock_response
 
     posted_messages = []
@@ -726,7 +728,7 @@ async def test_process_and_respond_with_min_words(monkeypatch):
         "orchestration.agent_router.post_agent_response", mock_post_agent_response
     )
     monkeypatch.setattr(
-        "orchestration.agent_router.run_in_threadpool", mock_run_in_threadpool
+        "orchestration.agent_router.execute_llm_with_retry", mock_run_in_threadpool
     )
     monkeypatch.setattr(
         "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
@@ -781,7 +783,7 @@ async def test_process_and_respond_with_min_and_max_words(monkeypatch):
     mock_response.usage = MagicMock(prompt_tokens=15, completion_tokens=60)
 
     async def mock_run_in_threadpool(func, *args, **kwargs):
-        captured_messages.append(kwargs.get("messages", []))
+        captured_messages.append(kwargs.get("messages") or (args[0].get("messages") if args and isinstance(args[0], dict) else []))
         return mock_response
 
     posted_messages = []
@@ -796,7 +798,7 @@ async def test_process_and_respond_with_min_and_max_words(monkeypatch):
         "orchestration.agent_router.post_agent_response", mock_post_agent_response
     )
     monkeypatch.setattr(
-        "orchestration.agent_router.run_in_threadpool", mock_run_in_threadpool
+        "orchestration.agent_router.execute_llm_with_retry", mock_run_in_threadpool
     )
     monkeypatch.setattr(
         "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
@@ -851,7 +853,7 @@ async def test_process_and_respond_with_natural_language_limits(monkeypatch):
     mock_response.usage = MagicMock(prompt_tokens=15, completion_tokens=30)
 
     async def mock_run_in_threadpool(func, *args, **kwargs):
-        captured_messages.append(kwargs.get("messages", []))
+        captured_messages.append(kwargs.get("messages") or (args[0].get("messages") if args and isinstance(args[0], dict) else []))
         return mock_response
 
     posted_messages = []
@@ -866,7 +868,7 @@ async def test_process_and_respond_with_natural_language_limits(monkeypatch):
         "orchestration.agent_router.post_agent_response", mock_post_agent_response
     )
     monkeypatch.setattr(
-        "orchestration.agent_router.run_in_threadpool", mock_run_in_threadpool
+        "orchestration.agent_router.execute_llm_with_retry", mock_run_in_threadpool
     )
     monkeypatch.setattr(
         "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
@@ -918,7 +920,7 @@ async def test_process_and_respond_with_exclude_command(monkeypatch):
     mock_response.usage = MagicMock(prompt_tokens=20, completion_tokens=40)
 
     async def mock_run_in_threadpool(func, *args, **kwargs):
-        captured_messages.append(kwargs.get("messages", []))
+        captured_messages.append(kwargs.get("messages") or (args[0].get("messages") if args and isinstance(args[0], dict) else []))
         return mock_response
 
     posted_messages = []
@@ -933,7 +935,7 @@ async def test_process_and_respond_with_exclude_command(monkeypatch):
         "orchestration.agent_router.post_agent_response", mock_post_agent_response
     )
     monkeypatch.setattr(
-        "orchestration.agent_router.run_in_threadpool", mock_run_in_threadpool
+        "orchestration.agent_router.execute_llm_with_retry", mock_run_in_threadpool
     )
     monkeypatch.setattr(
         "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
@@ -982,7 +984,7 @@ async def test_process_and_respond_with_multi_agent_exclude_command(monkeypatch)
         AsyncMock(return_value={"ok": True, "ts": thread_ts}),
     )
     monkeypatch.setattr(
-        "orchestration.agent_router.run_in_threadpool", mock_run_in_threadpool
+        "orchestration.agent_router.execute_llm_with_retry", mock_run_in_threadpool
     )
     monkeypatch.setattr(
         "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
@@ -1025,7 +1027,7 @@ async def test_process_and_respond_with_default_flow_and_exclude(monkeypatch):
         AsyncMock(return_value={"ok": True, "ts": thread_ts}),
     )
     monkeypatch.setattr(
-        "orchestration.agent_router.run_in_threadpool", mock_run_in_threadpool
+        "orchestration.agent_router.execute_llm_with_retry", mock_run_in_threadpool
     )
     monkeypatch.setattr(
         "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
@@ -1066,7 +1068,7 @@ async def test_process_and_respond_with_nl_exclude(monkeypatch):
         AsyncMock(return_value={"ok": True, "ts": thread_ts}),
     )
     monkeypatch.setattr(
-        "orchestration.agent_router.run_in_threadpool", mock_run_in_threadpool
+        "orchestration.agent_router.execute_llm_with_retry", mock_run_in_threadpool
     )
     monkeypatch.setattr(
         "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
@@ -1123,7 +1125,7 @@ async def test_partial_tag_routing(monkeypatch):
         "services.slack.post_agent_response", mock_post_agent
     )
     monkeypatch.setattr(
-        "orchestration.agent_router.run_in_threadpool",
+        "orchestration.agent_router.execute_llm_with_retry",
         AsyncMock(return_value=mock_response),
     )
     monkeypatch.setattr(
@@ -1169,7 +1171,7 @@ async def test_ambiguous_tag_system_warning_halt(monkeypatch):
         "orchestration.agent_router.post_system_message", mock_post_system
     )
     monkeypatch.setattr(
-        "orchestration.agent_router.run_in_threadpool", mock_run_in_threadpool
+        "orchestration.agent_router.execute_llm_with_retry", mock_run_in_threadpool
     )
     monkeypatch.setattr(
         "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
@@ -1219,7 +1221,7 @@ async def test_unrecognized_tag_system_warning_halt(monkeypatch):
         "orchestration.agent_router.post_system_message", mock_post_system
     )
     monkeypatch.setattr(
-        "orchestration.agent_router.run_in_threadpool", mock_run_in_threadpool
+        "orchestration.agent_router.execute_llm_with_retry", mock_run_in_threadpool
     )
     monkeypatch.setattr(
         "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
@@ -1275,7 +1277,7 @@ async def test_plain_bracket_does_not_halt_or_warn(monkeypatch):
 
     monkeypatch.setattr("orchestration.agent_router.post_system_message", mock_post_system)
     monkeypatch.setattr("orchestration.agent_router.post_agent_response", mock_post_agent)
-    monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_run_in_threadpool)
+    monkeypatch.setattr("orchestration.agent_router.execute_llm_with_retry", mock_run_in_threadpool)
     monkeypatch.setattr("orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[]))
     monkeypatch.setattr("orchestration.agent_router.record_thread_tokens", MagicMock())
 
@@ -1318,7 +1320,7 @@ async def test_multi_agent_nomination_syntax(monkeypatch):
 
     async def mock_run_in_threadpool(func, *args, **kwargs):
         nonlocal captured_prompt
-        messages = kwargs.get("messages") or args[2]
+        messages = kwargs.get("messages") or (args[0].get("messages") if args and isinstance(args[0], dict) else (args[2] if len(args) > 2 else []))
         captured_prompt = messages[-1]["content"]
         return mock_response
 
@@ -1328,7 +1330,7 @@ async def test_multi_agent_nomination_syntax(monkeypatch):
         return {"ok": True, "ts": thread_ts}
 
     monkeypatch.setattr("orchestration.agent_router.post_agent_response", mock_post_agent)
-    monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_run_in_threadpool)
+    monkeypatch.setattr("orchestration.agent_router.execute_llm_with_retry", mock_run_in_threadpool)
     monkeypatch.setattr("orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[]))
     monkeypatch.setattr("orchestration.agent_router.record_thread_tokens", MagicMock())
 

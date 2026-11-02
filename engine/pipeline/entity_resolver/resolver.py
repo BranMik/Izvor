@@ -6,17 +6,12 @@ logger = logging.getLogger(__name__)
 
 # Canonical unicode-safe tag regex: matches /[TagName] with unicode support
 NOMINATION_TAG_REGEX = re.compile(r"/\[\s*([^\]\r\n]+?)\s*\]", re.UNICODE)
-NOMINATION_TAG_RE = NOMINATION_TAG_REGEX
-TAG_REGEX = NOMINATION_TAG_REGEX
 
 
 def format_nomination(agent_key: str) -> str:
     """Formats an agent key into canonical nomination tag format: /[AGENT_KEY]."""
     clean = agent_key.strip().strip("/[]")
     return f"/[{clean}]"
-
-
-format_nomination_tag = format_nomination
 
 
 class EntityResolver:
@@ -149,7 +144,7 @@ class EntityResolver:
         cleaned = re.sub(r"<@[A-Z0-9]+>", "", text)
         cleaned = re.sub(r"\[([^\]]+)\]\([^\)]+\)", "", cleaned)
 
-        for match in TAG_REGEX.finditer(cleaned):
+        for match in NOMINATION_TAG_REGEX.finditer(cleaned):
             resolved_key = self.resolve_agent_name(match.group(1))
             if resolved_key:
                 matches.append((match.start(), resolved_key))
@@ -172,7 +167,7 @@ class EntityResolver:
         cleaned = re.sub(r"<@[A-Z0-9]+>", "", text)
         cleaned = re.sub(r"\[([^\]]+)\]\([^\)]+\)", "", cleaned)
 
-        for match in TAG_REGEX.finditer(cleaned):
+        for match in NOMINATION_TAG_REGEX.finditer(cleaned):
             tag_content = match.group(1).strip()
             # Skip token counters like [150/50]
             if re.match(r"^\d+\s*/\s*\d+$", tag_content):
@@ -193,18 +188,15 @@ class EntityResolver:
         cleaned = re.sub(r"\[([^\]]+)\]\([^\)]+\)", "", cleaned)
 
         ignored_tags = {
-            "cailogics",
             "app_mention",
             "live discussion notes",
             "final discussion notes",
-            "bilješke rasprave",
-            "strateška sinteza",
             "strategic synthesis",
             "completed",
             "updating live",
         }
 
-        for match in TAG_REGEX.finditer(cleaned):
+        for match in NOMINATION_TAG_REGEX.finditer(cleaned):
             tag_content = match.group(1).strip()
             # Skip token usage [150/50]
             if re.match(r"^\d+\s*/\s*\d+$", tag_content):

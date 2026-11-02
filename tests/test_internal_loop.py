@@ -44,7 +44,7 @@ async def test_internal_loop_multi_agent_custom_flow(monkeypatch):
     async def mock_llm_run(func, *args, **kwargs):
         nonlocal turn_counter
         turn_counter += 1
-        messages = kwargs.get("messages") or (args[2] if len(args) > 2 else [])
+        messages = kwargs.get("messages") or (args[0].get("messages") if args and isinstance(args[0], dict) else (args[2] if len(args) > 2 else []))
         captured_contexts.append(list(messages))
 
         mock_choice = MagicMock()
@@ -56,7 +56,7 @@ async def test_internal_loop_multi_agent_custom_flow(monkeypatch):
         mock_response = MagicMock(choices=[mock_choice], usage=None)
         return mock_response
 
-    monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_llm_run)
+    monkeypatch.setattr("orchestration.agent_router.execute_llm_with_retry", mock_llm_run)
 
     # Run internal discussion loop
     await orchestrate_discussion(
@@ -122,7 +122,7 @@ async def test_internal_loop_user_stop_interruption(monkeypatch):
             thread_state_manager.request_stop(channel_id, thread_ts)
         return MagicMock(choices=[mock_choice], usage=None)
 
-    monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_llm_run)
+    monkeypatch.setattr("orchestration.agent_router.execute_llm_with_retry", mock_llm_run)
 
     await orchestrate_discussion(
         channel_id=channel_id,

@@ -130,10 +130,6 @@ def get_audit_hmac_secret() -> bytes:
     env_val = os.getenv("AUDIT_HMAC_SECRET", "").strip().encode("utf-8")
     if env_val:
         return env_val
-    from core.config import is_test_environment
-
-    if is_test_environment():
-        return b"test-only-default-audit-hmac-secret-32b"
     return b""
 
 
@@ -154,18 +150,17 @@ def get_main_event_loop() -> Any:
 def validate_audit_configuration() -> None:
     """Validates that audit security settings (such as AUDIT_HMAC_SECRET) are valid at startup."""
     secret = get_audit_hmac_secret()
-    from core.config import is_production, is_test_environment
+    from core.config import is_production
 
     if not secret:
         if is_production():
             raise RuntimeError(
                 "[SECURITY] AUDIT_HMAC_SECRET is required in production environment but is missing or empty."
             )
-        if not is_test_environment():
-            logger.warning(
-                "[AUDIT] AUDIT_HMAC_SECRET is not configured in environment. "
-                "Audit records will be signed with standard SHA-256 without HMAC key."
-            )
+        logger.warning(
+            "[AUDIT] AUDIT_HMAC_SECRET is not configured in environment. "
+            "Audit records will be signed with standard SHA-256 without HMAC key."
+        )
 
 
 def _persist_audit_anchor(month: str, seq: int, entry_hash: str, timestamp: str) -> None:

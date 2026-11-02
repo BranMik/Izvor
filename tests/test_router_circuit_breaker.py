@@ -77,11 +77,6 @@ async def test_circuit_breaker_triggers_when_threshold_exceeded(monkeypatch):
 
     llm_called = False
 
-    async def mock_run_in_threadpool(func, *args, **kwargs):
-        nonlocal llm_called
-        llm_called = True
-        raise RuntimeError("LLM should not be called when circuit-breaker is triggered")
-
     async def mock_execute_llm(func, *args, **kwargs):
         nonlocal llm_called
         llm_called = True
@@ -103,9 +98,6 @@ async def test_circuit_breaker_triggers_when_threshold_exceeded(monkeypatch):
 
     monkeypatch.setattr(
         "orchestration.agent_router.post_agent_response", mock_post_agent_response
-    )
-    monkeypatch.setattr(
-        "orchestration.agent_router.run_in_threadpool", mock_run_in_threadpool
     )
     monkeypatch.setattr(
         "orchestration.agent_router.execute_llm_with_retry", mock_execute_llm
@@ -162,9 +154,6 @@ async def test_circuit_breaker_allows_normal_response_when_below_threshold(
     mock_response.choices = [mock_choice]
     mock_response.usage = MagicMock(prompt_tokens=10, completion_tokens=10)
 
-    async def mock_run_in_threadpool(func, *args, **kwargs):
-        return mock_response
-
     async def mock_execute_llm(func, *args, **kwargs):
         return mock_response
 
@@ -178,9 +167,6 @@ async def test_circuit_breaker_allows_normal_response_when_below_threshold(
 
     monkeypatch.setattr(
         "orchestration.agent_router.post_agent_response", mock_post_agent_response
-    )
-    monkeypatch.setattr(
-        "orchestration.agent_router.run_in_threadpool", mock_run_in_threadpool
     )
     monkeypatch.setattr(
         "orchestration.agent_router.execute_llm_with_retry", mock_execute_llm
@@ -225,9 +211,6 @@ async def test_circuit_breaker_allows_normal_response_when_disabled(monkeypatch)
     mock_response.choices = [mock_choice]
     mock_response.usage = MagicMock(prompt_tokens=10, completion_tokens=10)
 
-    async def mock_run_in_threadpool(func, *args, **kwargs):
-        return mock_response
-
     async def mock_execute_llm(func, *args, **kwargs):
         return mock_response
 
@@ -241,9 +224,6 @@ async def test_circuit_breaker_allows_normal_response_when_disabled(monkeypatch)
 
     monkeypatch.setattr(
         "orchestration.agent_router.post_agent_response", mock_post_agent_response
-    )
-    monkeypatch.setattr(
-        "orchestration.agent_router.run_in_threadpool", mock_run_in_threadpool
     )
     monkeypatch.setattr(
         "orchestration.agent_router.execute_llm_with_retry", mock_execute_llm

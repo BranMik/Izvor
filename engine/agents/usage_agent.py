@@ -644,7 +644,6 @@ class ThreadUsageTracker:
 
 # Default singleton instance
 usage_tracker = ThreadUsageTracker()
-thread_usage_tracker = usage_tracker
 
 
 

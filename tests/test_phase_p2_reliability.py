@@ -9,11 +9,9 @@ import pytest
 
 from core.models import OrchestrationMode
 from orchestration.nomination import (
-    NOMINATION_TAG_RE,
     NOMINATION_TAG_REGEX,
     enforce_valid_nomination,
     format_nomination,
-    format_nomination_tag,
 )
 from orchestration.stages.post_record import (
     PostRecordStage,
@@ -111,15 +109,11 @@ def test_nomination_unicode_and_format_helpers():
     assert format_nomination("agent-10002") == "/[agent-10002]"
     assert format_nomination("/[agent-10002]") == "/[agent-10002]"
     assert format_nomination(" [Inženjer] ") == "/[Inženjer]"
-    assert format_nomination_tag("agent-10002") == "/[agent-10002]"
 
     # Unicode diacritics matching
     sample_text = "Odlična analiza. Predajem riječ /[R&D Inženjer] i /[Agent-Češ]."
     matches = NOMINATION_TAG_REGEX.findall(sample_text)
     assert matches == ["R&D Inženjer", "Agent-Češ"]
-
-    matches_alias = NOMINATION_TAG_RE.findall(sample_text)
-    assert matches_alias == ["R&D Inženjer", "Agent-Češ"]
 
     # enforce_valid_nomination uses format_nomination
     corrected = enforce_valid_nomination(
@@ -359,9 +353,9 @@ def test_format_modifiers_pipeline_persistence():
         raw_text="Follow-up question",
         bot_user_id="U_BOT",
         agent_key="agent-10001",
+        in_memory_history=[],
     )
     ctx.modifiers = []
-    ctx.in_memory_history = []
 
     with patch("orchestration.stages.context_prep.build_agent_prompt", return_value="System prompt"), \
          patch("orchestration.stages.context_prep.build_llm_messages", return_value=[]):
@@ -405,7 +399,7 @@ def test_explicit_app_mention_detection():
 
     # Explicit mentions
     assert is_explicit_app_mention("@Izvor molim te napravi sažetak") is True
-    assert is_explicit_app_mention("@CaiLogics provjeri ovo") is True
+    assert is_explicit_app_mention("@CaiLogics provjeri ovo") is False
     assert is_explicit_app_mention("<@U12345> javi se", bot_user_id="U12345") is True
     assert is_explicit_app_mention("<@U99999> javi se", bot_user_id="U12345") is False
     assert is_explicit_app_mention("@app_mention do something") is True

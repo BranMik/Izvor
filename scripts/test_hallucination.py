@@ -7,6 +7,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..',
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from orchestration.turn_pipeline import TurnContext
+import orchestration.revisor_service as revisor_module
 from orchestration.revisor_service import run_internal_revisor
 from orchestration.thread_state import thread_state_manager
 import services.slack as slack_client
@@ -22,6 +23,7 @@ async def mock_post_agent_response(channel_id, thread_ts, text, username, icon_u
 
 async def main():
     # 1. Mock the slack poster so we don't try to hit real Slack API
+    revisor_module.post_agent_response = mock_post_agent_response
     slack_client.post_agent_response = mock_post_agent_response
 
     # 2. Setup thread state manager for a dummy thread

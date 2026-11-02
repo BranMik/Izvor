@@ -72,7 +72,7 @@ async def test_scenario_2_multiple_agents_custom_flow(monkeypatch):
     async def mock_run_1(func, *args, **kwargs):
         return mock_response_1
 
-    monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_run_1)
+    monkeypatch.setattr("orchestration.agent_router.execute_llm_with_retry", mock_run_1)
 
     await process_and_respond(
         channel_id="C123",
@@ -93,11 +93,11 @@ async def test_scenario_2_multiple_agents_custom_flow(monkeypatch):
     mock_response_2 = MagicMock(choices=[mock_choice_2], usage=None)
 
     async def mock_run_2(func, *args, **kwargs):
-        captured_messages = kwargs.get("messages") or args[2]
+        captured_messages = kwargs.get("messages") or (args[0].get("messages") if args and isinstance(args[0], dict) else (args[2] if len(args) > 2 else []))
         mock_run_2.captured_user_prompt = captured_messages[-1]["content"]
         return mock_response_2
 
-    monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_run_2)
+    monkeypatch.setattr("orchestration.agent_router.execute_llm_with_retry", mock_run_2)
 
     await process_and_respond(
         channel_id="C123",
@@ -148,7 +148,7 @@ async def test_scenario_3_no_agent_tagged_default_flow(monkeypatch):
     async def mock_run_1(func, *args, **kwargs):
         return mock_response_1
 
-    monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_run_1)
+    monkeypatch.setattr("orchestration.agent_router.execute_llm_with_retry", mock_run_1)
 
     await process_and_respond(
         channel_id="C123",
@@ -177,7 +177,7 @@ async def test_scenario_3_no_agent_tagged_default_flow(monkeypatch):
     async def mock_run_2(func, *args, **kwargs):
         return mock_response_2
 
-    monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_run_2)
+    monkeypatch.setattr("orchestration.agent_router.execute_llm_with_retry", mock_run_2)
 
     await process_and_respond(
         channel_id="C123",
@@ -201,7 +201,7 @@ async def test_scenario_3_no_agent_tagged_default_flow(monkeypatch):
     async def mock_run_3(func, *args, **kwargs):
         return mock_response_3
 
-    monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_run_3)
+    monkeypatch.setattr("orchestration.agent_router.execute_llm_with_retry", mock_run_3)
 
     await process_and_respond(
         channel_id="C123",
@@ -223,7 +223,7 @@ async def test_scenario_3_no_agent_tagged_default_flow(monkeypatch):
     async def mock_run_4(func, *args, **kwargs):
         return mock_response_4
 
-    monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_run_4)
+    monkeypatch.setattr("orchestration.agent_router.execute_llm_with_retry", mock_run_4)
 
     await process_and_respond(
         channel_id="C123",
@@ -314,7 +314,7 @@ async def test_thread_stop_during_llm_execution(monkeypatch):
         return mock_response
 
     monkeypatch.setattr(
-        "orchestration.agent_router.run_in_threadpool", mock_run_with_stop_injected
+        "orchestration.agent_router.execute_llm_with_retry", mock_run_with_stop_injected
     )
 
     await process_and_respond(
@@ -566,7 +566,7 @@ async def test_interruption_during_llm_execution_aborts_superseded_turn(monkeypa
         thread_state_manager.interrupt_discussion("C_INTERRUPT_LLM", "12345.1003")
         return mock_resp_1
 
-    monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_run_turn_1)
+    monkeypatch.setattr("orchestration.agent_router.execute_llm_with_retry", mock_run_turn_1)
 
     # Run Turn 1
     res1 = await process_and_respond(
@@ -589,7 +589,7 @@ async def test_interruption_during_llm_execution_aborts_superseded_turn(monkeypa
     async def mock_run_turn_2(func, *args, **kwargs):
         return mock_resp_2
 
-    monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_run_turn_2)
+    monkeypatch.setattr("orchestration.agent_router.execute_llm_with_retry", mock_run_turn_2)
 
     await process_and_respond(
         channel_id="C_INTERRUPT_LLM",
@@ -639,7 +639,7 @@ async def test_interruption_during_pacing_delay_aborts_superseded_turn(monkeypat
     async def mock_run(func, *args, **kwargs):
         return mock_resp
 
-    monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_run)
+    monkeypatch.setattr("orchestration.agent_router.execute_llm_with_retry", mock_run)
 
     # Interrupt injected during asyncio.sleep in router
     async def mock_sleep_with_interrupt(duration):
@@ -701,11 +701,12 @@ async def test_process_and_respond_history_limit_subsequent_bot_rounds(monkeypat
     mock_resp = MagicMock(choices=[mock_choice], usage=None)
 
     async def mock_run(func, *args, **kwargs):
-        if "messages" in kwargs:
-            captured_messages.extend(kwargs["messages"])
+        msgs = kwargs.get("messages") or (args[0].get("messages") if args and isinstance(args[0], dict) else [])
+        if msgs:
+            captured_messages.extend(msgs)
         return mock_resp
 
-    monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_run)
+    monkeypatch.setattr("orchestration.agent_router.execute_llm_with_retry", mock_run)
     monkeypatch.setattr(
         "orchestration.agent_router.post_agent_response",
         AsyncMock(return_value={"ok": True, "ts": "12345.3003"}),
@@ -772,11 +773,12 @@ async def test_process_and_respond_subsequent_prompt_resets_full_history(monkeyp
     mock_resp = MagicMock(choices=[mock_choice], usage=None)
 
     async def mock_run(func, *args, **kwargs):
-        if "messages" in kwargs:
-            captured_messages.extend(kwargs["messages"])
+        msgs = kwargs.get("messages") or (args[0].get("messages") if args and isinstance(args[0], dict) else [])
+        if msgs:
+            captured_messages.extend(msgs)
         return mock_resp
 
-    monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_run)
+    monkeypatch.setattr("orchestration.agent_router.execute_llm_with_retry", mock_run)
     monkeypatch.setattr(
         "orchestration.agent_router.post_agent_response",
         AsyncMock(return_value={"ok": True, "ts": "12345.4002"}),

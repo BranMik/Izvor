@@ -406,13 +406,12 @@ async def test_audit_logger_log_event_synchronous_return_in_async_context(temp_a
     assert rec.get("entry_hash") is not None
 
 
-def test_hmac_secret_optional_in_non_test_environment(monkeypatch, caplog):
-    """Verifies that get_audit_hmac_secret returns b'' and validates without crashing when unset outside tests."""
+def test_hmac_secret_optional_when_unset(monkeypatch, caplog):
+    """Verifies that get_audit_hmac_secret returns b'' and validates without crashing when unset."""
     from services.audit_logger import get_audit_hmac_secret, validate_audit_configuration
 
     monkeypatch.setattr("services.audit_logger.AUDIT_HMAC_SECRET", b"")
     monkeypatch.delenv("AUDIT_HMAC_SECRET", raising=False)
-    monkeypatch.setattr("core.config.is_test_environment", lambda: False)
 
     secret = get_audit_hmac_secret()
     assert secret == b""

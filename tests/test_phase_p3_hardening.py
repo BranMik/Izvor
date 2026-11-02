@@ -248,7 +248,10 @@ def test_tkt_728_cleanup_old_downloads(tmp_path: Path):
 
 
 def test_tkt_728_flat_history_disambiguation(tmp_path: Path):
-    with patch("services.flat_history_recorder.FLAT_HISTORIES_DIR", tmp_path):
+    from services.flat_history_recorder import configure_paths, reset_paths
+
+    configure_paths(tmp_path)
+    try:
         # Create existing file for thread 1712345678.000100
         f1 = tmp_path / "thread_1712345678.md"
         f1.write_text("# History\n- **Thread TS:** `1712345678.000100`\n", encoding="utf-8")
@@ -261,6 +264,8 @@ def test_tkt_728_flat_history_disambiguation(tmp_path: Path):
         found2 = get_flat_history_filepath("C1", "1712345678.000200")
         assert found2 != f1
         assert "00200.md" in found2.name or found2.stem.endswith("_00200")
+    finally:
+        reset_paths()
 
 
 def test_tkt_728_thread_notes_atomic_tmp_cleanup(tmp_path: Path):

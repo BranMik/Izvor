@@ -29,6 +29,7 @@ def setup_test_environment(monkeypatch):
     set_fixed_config([])
     thread_state_manager.reset_all()
     monkeypatch.setattr(agent_router.asyncio, "sleep", AsyncMock(return_value=None))
+    monkeypatch.setattr("core.llm_utils.asyncio.sleep", AsyncMock(return_value=None))
 
 
 def test_classify_agent_error():
@@ -108,7 +109,7 @@ def test_classify_agent_error():
 async def test_process_and_respond_api_key_not_found(monkeypatch):
     thread_state_manager.reset_all()
 
-    async def mock_run_in_threadpool(func, *args, **kwargs):
+    async def mock_fail_api_key(*args, **kwargs):
         raise RuntimeError("AuthenticationError: Missing API key for Gemini")
 
     posted = []
@@ -119,9 +120,7 @@ async def test_process_and_respond_api_key_not_found(monkeypatch):
         posted.append({"text": text, "username": username, "icon_url": icon_url})
         return {"ok": True, "ts": "12345.0001"}
 
-    monkeypatch.setattr(
-        "orchestration.agent_router.run_in_threadpool", mock_run_in_threadpool
-    )
+    monkeypatch.setattr("litellm.acompletion", mock_fail_api_key)
     monkeypatch.setattr(
         "orchestration.agent_router.post_agent_response", mock_post_agent_response
     )
@@ -151,7 +150,7 @@ async def test_process_and_respond_model_not_found(monkeypatch):
     thread_key = ("C123", "12345.0002")
     thread_state_manager.discussion.remaining_agents_map[thread_key] = ["agent-10002"]
 
-    async def mock_run_in_threadpool(func, *args, **kwargs):
+    async def mock_fail_model(*args, **kwargs):
         raise RuntimeError("NotFoundError: Model gemini/gemini-3.8-flash does not exist")
 
     posted = []
@@ -162,9 +161,7 @@ async def test_process_and_respond_model_not_found(monkeypatch):
         posted.append({"text": text, "username": username, "icon_url": icon_url})
         return {"ok": True, "ts": "12345.0002"}
 
-    monkeypatch.setattr(
-        "orchestration.agent_router.run_in_threadpool", mock_run_in_threadpool
-    )
+    monkeypatch.setattr("litellm.acompletion", mock_fail_model)
     monkeypatch.setattr(
         "orchestration.agent_router.post_agent_response", mock_post_agent_response
     )
@@ -194,7 +191,7 @@ async def test_process_and_respond_retries_and_clean_error_message(monkeypatch):
 
     call_count = 0
 
-    async def mock_fail_general_error(func, *args, **kwargs):
+    async def mock_fail_general_error(*args, **kwargs):
         nonlocal call_count
         call_count += 1
         raise RuntimeError("Internal Server Error: Unexpected JSON decoding crash")
@@ -207,9 +204,7 @@ async def test_process_and_respond_retries_and_clean_error_message(monkeypatch):
         posted.append({"text": text, "username": username, "icon_url": icon_url})
         return {"ok": True, "ts": "12345.9999"}
 
-    monkeypatch.setattr(
-        "orchestration.agent_router.run_in_threadpool", mock_fail_general_error
-    )
+    monkeypatch.setattr("litellm.acompletion", mock_fail_general_error)
     monkeypatch.setattr(
         "orchestration.agent_router.post_agent_response", mock_post_agent_response
     )
@@ -253,12 +248,10 @@ async def test_process_and_respond_rate_limits_and_retry_flow(monkeypatch):
         return {"ok": True, "ts": "12345.0003"}
 
     # 1. First run of LegalAdvisor encounters 429 RateLimitError
-    async def mock_fail_rate_limit(func, *args, **kwargs):
+    async def mock_fail_rate_limit(*args, **kwargs):
         raise RuntimeError("RateLimitError: 429 Too Many Requests, quota exceeded")
 
-    monkeypatch.setattr(
-        "orchestration.agent_router.run_in_threadpool", mock_fail_rate_limit
-    )
+    monkeypatch.setattr("litellm.acompletion", mock_fail_rate_limit)
     monkeypatch.setattr(
         "orchestration.agent_router.post_agent_response", mock_post_agent_response
     )
@@ -288,12 +281,10 @@ async def test_process_and_respond_rate_limits_and_retry_flow(monkeypatch):
     mock_choice.message.tool_calls = None
     mock_resp = MagicMock(choices=[mock_choice], usage=None)
 
-    async def mock_success_innovator(func, *args, **kwargs):
+    async def mock_success_innovator(*args, **kwargs):
         return mock_resp
 
-    monkeypatch.setattr(
-        "orchestration.agent_router.run_in_threadpool", mock_success_innovator
-    )
+    monkeypatch.setattr("litellm.acompletion", mock_success_innovator)
 
     await process_and_respond(
         channel_id="C123",
@@ -310,9 +301,7 @@ async def test_process_and_respond_rate_limits_and_retry_flow(monkeypatch):
 
     # 3. LegalAdvisor retries at the end of discussion, fails again with RateLimit:
     # Must post 'RATE LIMITS CROSSED' and NOT be retried again.
-    monkeypatch.setattr(
-        "orchestration.agent_router.run_in_threadpool", mock_fail_rate_limit
-    )
+    monkeypatch.setattr("litellm.acompletion", mock_fail_rate_limit)
 
     await process_and_respond(
         channel_id="C123",
@@ -351,12 +340,12 @@ async def test_process_and_respond_503_high_demand_first_skip_and_random_handoff
         return {"ok": True, "ts": "12345.5031"}
 
     # Simulate 503 High Demand error
-    async def mock_fail_503(func, *args, **kwargs):
+    async def mock_fail_503(*args, **kwargs):
         raise RuntimeError(
             "ServiceUnavailableError: 503 The server is currently overloaded with high demand"
         )
 
-    monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_fail_503)
+    monkeypatch.setattr("litellm.acompletion", mock_fail_503)
     monkeypatch.setattr(
         "orchestration.agent_router.post_agent_response", mock_post_agent_response
     )
@@ -416,14 +405,12 @@ async def test_process_and_respond_503_high_demand_second_query_retries_and_term
 
     attempts_count = 0
 
-    async def mock_fail_503_retry(func, *args, **kwargs):
+    async def mock_fail_503_retry(*args, **kwargs):
         nonlocal attempts_count
         attempts_count += 1
         raise RuntimeError("503 Server Temporarily Unavailable (high demand spike)")
 
-    monkeypatch.setattr(
-        "orchestration.agent_router.run_in_threadpool", mock_fail_503_retry
-    )
+    monkeypatch.setattr("litellm.acompletion", mock_fail_503_retry)
     monkeypatch.setattr(
         "orchestration.agent_router.post_agent_response", mock_post_agent_response
     )

@@ -59,12 +59,10 @@ async def test_tool_call_loop_timeout_fallback():
     mock_retry_fn = AsyncMock(return_value=mock_resp)
 
     pipeline = TurnPipeline(
-        hooks={
-            "TOOL_CALL_LOOP_TIMEOUT_SECONDS": 0.05,
-            "TOOL_INTERMEDIATE_UPDATE_DELAY_SECONDS": 10.0,  # no intermediate post during test
-            "execute_llm_with_retry": mock_retry_fn,
-            "execute_mcp_tool": slow_mcp_tool,
-        }
+        timeout_secs=0.05,
+        intermediate_delay_secs=10.0,
+        llm_executor=mock_retry_fn,
+        tool_executor=slow_mcp_tool,
     )
     ctx = TurnContext(
         channel_id="C_TEST",
@@ -116,16 +114,14 @@ async def test_delayed_intermediate_status_and_inplace_update():
     mock_retry_fn = AsyncMock(side_effect=[mock_initial_resp, mock_followup_resp])
 
     pipeline = TurnPipeline(
-        hooks={
-            "TOOL_CALL_LOOP_TIMEOUT_SECONDS": 5.0,
-            "TOOL_INTERMEDIATE_UPDATE_DELAY_SECONDS": 0.05,  # quick trigger
-            "execute_llm_with_retry": mock_retry_fn,
-            "execute_mcp_tool": delayed_tool,
-            "post_agent_response": mock_post_agent,
-            "update_slack_message": mock_update_msg,
-            "DEBATE_TURN_PACING_SECONDS": 0.0,
-            "SLACK_POST_PAUSE_SECONDS": 0.0,
-        }
+        timeout_secs=5.0,
+        intermediate_delay_secs=0.05,
+        llm_executor=mock_retry_fn,
+        tool_executor=delayed_tool,
+        slack_poster=mock_post_agent,
+        update_message_fn=mock_update_msg,
+        debate_turn_pacing_seconds=0.0,
+        slack_post_pause_seconds=0.0,
     )
     ctx = TurnContext(
         channel_id="C_TEST",

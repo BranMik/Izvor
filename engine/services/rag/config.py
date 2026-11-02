@@ -13,25 +13,17 @@ from core.paths import (
 )
 from orchestration.system_settings import system_settings_manager
 
-# Canonical project & RAG paths from core.paths SSOT
-BASE_DIR = PROJECT_ROOT
-CACHE_DIR = RAG_CACHE_DIR
-SYSTEM_SETTINGS_PATH = SYSTEM_SETTINGS_FILE
-
 logger = logging.getLogger(__name__)
 
 __all__ = [
-    "BASE_DIR",
-    "CACHE_DIR",
-    "SYSTEM_SETTINGS_PATH",
     "LANCEDB_DIR",
     "MANIFEST_PATH",
     "PROJECT_ROOT",
     "RAG_CACHE_DIR",
     "RAG_KNOWLEDGE_DIR",
     "SYSTEM_SETTINGS_FILE",
-    "load_rag_settings_from_file",
     "get_rag_setting",
+    "load_rag_settings_from_file",
 ]
 
 

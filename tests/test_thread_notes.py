@@ -231,7 +231,7 @@ async def test_router_invokes_trigger_thread_notes_update(monkeypatch):
     mock_trigger = MagicMock()
     monkeypatch.setattr("orchestration.agent_router.trigger_thread_notes_update", mock_trigger)
     monkeypatch.setattr(
-        "orchestration.agent_router.run_in_threadpool",
+        "orchestration.agent_router.execute_llm_with_retry",
         AsyncMock(
             return_value=MagicMock(
                 choices=[MagicMock(message=MagicMock(content="Hello world [agent-10003]", tool_calls=None))],

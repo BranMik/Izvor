@@ -58,7 +58,7 @@ async def test_stage_execute_llm_does_not_artificially_choke_max_tokens():
         captured_kwargs.update(completion_kwargs)
         return mock_resp
 
-    pipeline = TurnPipeline(hooks={"execute_llm_with_retry": mock_exec_retry})
+    pipeline = TurnPipeline(llm_executor=mock_exec_retry)
     ctx = TurnContext(
         channel_id="C123",
         thread_ts="1234.5678",
@@ -95,11 +95,9 @@ async def test_stage_post_and_record_mechanical_truncation():
             return {"ok": True, "ts": "1234.9999"}
 
         pipeline = TurnPipeline(
-            hooks={
-                "post_agent_response": mock_post,
-                "DEBATE_TURN_PACING_SECONDS": 0,
-                "SLACK_POST_PAUSE_SECONDS": 0,
-            }
+            slack_poster=mock_post,
+            debate_turn_pacing_seconds=0,
+            slack_post_pause_seconds=0,
         )
         ctx = TurnContext(
             channel_id=channel,
@@ -144,11 +142,9 @@ async def test_stage_post_and_record_no_truncation_when_within_limit():
             return {"ok": True, "ts": "1234.9999"}
 
         pipeline = TurnPipeline(
-            hooks={
-                "post_agent_response": mock_post,
-                "DEBATE_TURN_PACING_SECONDS": 0,
-                "SLACK_POST_PAUSE_SECONDS": 0,
-            }
+            slack_poster=mock_post,
+            debate_turn_pacing_seconds=0,
+            slack_post_pause_seconds=0,
         )
         ctx = TurnContext(
             channel_id=channel,

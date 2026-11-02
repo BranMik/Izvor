@@ -1,13 +1,13 @@
 import copy
 import fnmatch
 import logging
+import os
 import time
 from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field
 
-from core.config import is_test_environment
 from core.paths import PROJECT_ROOT, SYSTEM_BACKUP_FILE, SYSTEM_SETTINGS_FILE
 from orchestration.settings_store import JsonSettingsStore
 
@@ -144,6 +144,8 @@ class SystemSettingsManager:
         self.log_level: str = "INFO"
         self.debate_turn_pacing_seconds: float = 3.0
         self.slack_post_pause_seconds: float = 2.0
+        self._debate_turn_pacing_manually_set: bool = False
+        self._slack_post_pause_manually_set: bool = False
         self.tool_call_loop_timeout_seconds: float = 60.0
         self.guardrail_fail_mode: str = "open"
         self.max_discussion_turns: int = 20
@@ -194,8 +196,6 @@ class SystemSettingsManager:
         self.retention_checkpoints_days: int = 7
         self.retention_traces_days: int = 30
         self.retention_event_dedup_days: int = 1
-        self._debate_turn_pacing_manually_set: bool = False
-        self._slack_post_pause_manually_set: bool = False
         self._raw_data: dict[str, Any] = {}
 
         self.rag_config: dict[str, Any] = {
@@ -603,8 +603,13 @@ class SystemSettingsManager:
     # --- Pacing & Execution Timeout Settings ---
     def get_debate_turn_pacing_seconds(self) -> float:
         self.load()
-        if is_test_environment() and not self._debate_turn_pacing_manually_set:
-            return 0.01
+        if not getattr(self, "_debate_turn_pacing_manually_set", False):
+            env_val = os.getenv("IZVOR_DEBATE_TURN_PACING_SECONDS")
+            if env_val is not None:
+                try:
+                    return max(0.0, float(env_val))
+                except ValueError:
+                    pass
         return self.debate_turn_pacing_seconds
 
     def set_debate_turn_pacing_seconds(self, seconds: float, save: bool = True) -> None:
@@ -616,8 +621,13 @@ class SystemSettingsManager:
 
     def get_slack_post_pause_seconds(self) -> float:
         self.load()
-        if is_test_environment() and not self._slack_post_pause_manually_set:
-            return 0.01
+        if not getattr(self, "_slack_post_pause_manually_set", False):
+            env_val = os.getenv("IZVOR_SLACK_POST_PAUSE_SECONDS")
+            if env_val is not None:
+                try:
+                    return max(0.0, float(env_val))
+                except ValueError:
+                    pass
         return self.slack_post_pause_seconds
 
     def set_slack_post_pause_seconds(self, seconds: float, save: bool = True) -> None:

@@ -23,8 +23,8 @@ from services.slack_home import build_app_home_view
 
 def test_orchestration_mode_scatter_gather_and_parallel_dialectic():
     assert OrchestrationMode.SCATTER_GATHER.value == "scatter_gather"
-    assert OrchestrationMode.PARALLEL_DIALECTIC.value == "scatter_gather"
-    assert OrchestrationMode.SCATTER_GATHER == OrchestrationMode.PARALLEL_DIALECTIC
+    assert OrchestrationMode.from_value("scatter_gather") == OrchestrationMode.SCATTER_GATHER
+    assert OrchestrationMode.from_value("unknown_mode") == OrchestrationMode.SANDWICH
 
     # Verify parallel dialectic flow preset exists in default workflows
     assert "parallel_dialectic_flow" in REQUIRED_DEFAULT_WORKFLOW_IDS
@@ -52,7 +52,7 @@ def test_agent_settings_supports_scatter_gather():
         set_orchestration_mode("scatter_gather", save=False)
         assert get_orchestration_mode() == "scatter_gather"
 
-        set_orchestration_mode(OrchestrationMode.PARALLEL_DIALECTIC, save=False)
+        set_orchestration_mode(OrchestrationMode.SCATTER_GATHER, save=False)
         assert get_orchestration_mode() == "scatter_gather"
     finally:
         set_orchestration_mode(orig_mode, save=False)

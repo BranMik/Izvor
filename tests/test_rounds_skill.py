@@ -129,7 +129,7 @@ async def test_multi_round_execution_end_to_end(monkeypatch):
     async def mock_run_turn(func, *args, **kwargs):
         return mock_run_turn.current_response
 
-    monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_run_turn)
+    monkeypatch.setattr("orchestration.agent_router.execute_llm_with_retry", mock_run_turn)
 
     mock_run_turn.current_response = mock_resp_1
     res_1 = await process_and_respond(
@@ -213,7 +213,7 @@ async def test_next_round_command_after_discussion_finishes(monkeypatch):
     async def mock_run_turn(func, *args, **kwargs):
         return mock_run_turn.current_response
 
-    monkeypatch.setattr("orchestration.agent_router.run_in_threadpool", mock_run_turn)
+    monkeypatch.setattr("orchestration.agent_router.execute_llm_with_retry", mock_run_turn)
 
     # Initial 1-round discussion with 2 agents
     mock_choice_1 = MagicMock()

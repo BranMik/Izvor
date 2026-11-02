@@ -207,7 +207,6 @@ class PipelineDeps:
     post_system_message_fn: SystemMessagePoster | None = None
     update_message_fn: SlackMessageUpdater | None = None
     slack_poster: SlackPoster | None = None
-    run_in_threadpool_fn: Any = None
     download_file_fn: Any = None
     debate_turn_pacing_seconds: float | None = None
     slack_post_pause_seconds: float | None = None
@@ -218,27 +217,18 @@ class PipelineDeps:
 
 def resolve_pipeline_deps(
     deps: PipelineDeps | None = None,
-    hooks: dict[str, Any] | None = None,
     **overrides: Any,
 ) -> PipelineDeps:
     """
     Constructs a fully populated, immutable PipelineDeps instance.
-    Injected arguments take highest precedence, followed by hooks, followed by production defaults.
+    Injected arguments take highest precedence, followed by production defaults.
     """
-    hooks = hooks or {}
-
-    # Helper to resolve field value: overrides -> deps -> hooks -> lazy production default
+    # Helper to resolve field value: overrides -> deps -> lazy production default
     def _get(field_name: str, default_factory: Callable[[], Any] | None = None) -> Any:
         if field_name in overrides and overrides[field_name] is not None:
             return overrides[field_name]
         if deps is not None and getattr(deps, field_name, None) is not None:
             return getattr(deps, field_name)
-        if field_name in hooks and hooks[field_name] is not None:
-            return hooks[field_name]
-        if field_name.lower() in hooks and hooks[field_name.lower()] is not None:
-            return hooks[field_name.lower()]
-        if field_name.upper() in hooks and hooks[field_name.upper()] is not None:
-            return hooks[field_name.upper()]
         if default_factory is not None:
             return default_factory()
         return None
@@ -261,7 +251,6 @@ def resolve_pipeline_deps(
         trigger_usage_update,
     )
     import asyncio
-    from starlette.concurrency import run_in_threadpool
 
     llm_executor = (
         _get("llm_executor")
@@ -297,11 +286,6 @@ def resolve_pipeline_deps(
         or _get("post_agent_response")
         or _get("post_agent_response_fn")
         or post_agent_response
-    )
-    run_in_threadpool_fn = (
-        _get("run_in_threadpool_fn")
-        or _get("run_in_threadpool")
-        or run_in_threadpool
     )
 
     # Workspace Adapter Port (Hexagonal Architecture)
@@ -345,7 +329,6 @@ def resolve_pipeline_deps(
         post_system_message_fn=post_system_message_fn,
         update_message_fn=update_message_fn,
         slack_poster=slack_poster,
-        run_in_threadpool_fn=run_in_threadpool_fn,
         debate_turn_pacing_seconds=debate_turn_pacing,
         slack_post_pause_seconds=slack_post_pause,
         max_tool_iterations=max_tool_iters,

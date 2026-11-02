@@ -4,7 +4,6 @@ from fastapi.testclient import TestClient
 
 from main import PROCESSED_EVENTS, app
 from orchestration.agent_settings import (
-    LOCKED_AGENTS,
     get_enabled_agents,
     reset_enabled_agents,
     settings_manager,
@@ -296,16 +295,16 @@ def test_slack_interactivity_radio_toggle_action(monkeypatch):
     assert response_on.status_code == 200
     assert "agent-10011" in settings_manager.enabled_agents
 
-    # 3. Bulk disable optional (only locked agents remain ON)
+    # 3. Bulk disable all
     payload_bulk_off = {
         "type": "block_actions",
         "user": {"id": "U_TEST_USER_2"},
-        "actions": [{"action_id": "bulk_disable_optional"}],
+        "actions": [{"action_id": "bulk_disable_all"}],
     }
 
     response_bulk_off = client.post("/slack/actions", json=payload_bulk_off)
     assert response_bulk_off.status_code == 200
-    assert settings_manager.enabled_agents == LOCKED_AGENTS
+    assert settings_manager.enabled_agents == set()
 
     # 4. Bulk enable all
     payload_bulk_on = {
@@ -365,7 +364,7 @@ def test_user_mention_syntax_variations_webhook_interruption(monkeypatch):
     PROCESSED_EVENTS.clear()
     thread_key = ("C_TEST_INTERRUPT_SYNTAX", "123456789.3001")
 
-    # 1. Message with @CaiLogics Hub
+    # 1. Message with @Izvor
     thread_state_manager.set_remaining_agents(thread_key[0], thread_key[1], ["agent-10008"])
     mock_process = AsyncMock(return_value={"ok": True})
     monkeypatch.setattr("adapters.slack.events.process_and_respond", mock_process)
@@ -377,7 +376,7 @@ def test_user_mention_syntax_variations_webhook_interruption(monkeypatch):
             "channel": "C_TEST_INTERRUPT_SYNTAX",
             "ts": "123456789.3002",
             "thread_ts": "123456789.3001",
-            "text": "@CaiLogics Hub Analyze this other query",
+            "text": "@Izvor Analyze this other query",
         },
     }
 

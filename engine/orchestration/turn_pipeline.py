@@ -122,6 +122,8 @@ class TurnContext:
     excluded_agents: list[str]
     included_agents: list[str]
     thread_files: list[dict[str, Any]]
+    is_file_req: bool
+    target_filename: str | None
 
     # Resolved routing
     agent_key: str
@@ -212,6 +214,8 @@ class TurnContext:
         self.excluded_agents: list[str] = list(kwargs.get("excluded_agents", []))
         self.included_agents: list[str] = list(kwargs.get("included_agents", []))
         self.thread_files: list[dict[str, Any]] = list(kwargs.get("thread_files", []))
+        self.is_file_req: bool = bool(kwargs.get("is_file_req", False))
+        self.target_filename: str | None = kwargs.get("target_filename")
 
         # Resolved routing
         self.agent_key: str = kwargs.get("agent_key", "")
@@ -237,6 +241,7 @@ class TurnContext:
         self.intermediate_msg_ts: str | None = kwargs.get("intermediate_msg_ts")
 
         # Explicitly declared typed fields previously monkeypatched (C13)
+        self.icon_url: str | None = kwargs.get("icon_url", self.inp.icon_url)
         self.episodic_summary: str | None = kwargs.get("episodic_summary")
         self.shared_round_evidence: str = kwargs.get("shared_round_evidence", "")
         self.authorized_skills: list[str] = list(kwargs.get("authorized_skills", []))
@@ -251,80 +256,38 @@ class TurnContext:
             in_mem = list(self.inp.in_memory_history) if self.inp.in_memory_history else None
             self.session = SessionContext.from_thread(self.inp.channel_id, self.inp.thread_ts, in_mem)
 
-    # Input properties
+    # Input properties (read-only views into self.inp)
     @property
     def channel_id(self) -> str:
-        return getattr(self, "_channel_id_override", self.inp.channel_id)
-
-    @channel_id.setter
-    def channel_id(self, val: str) -> None:
-        self._channel_id_override = val
+        return self.inp.channel_id
 
     @property
     def thread_ts(self) -> str:
-        return getattr(self, "_thread_ts_override", self.inp.thread_ts)
-
-    @thread_ts.setter
-    def thread_ts(self, val: str) -> None:
-        self._thread_ts_override = val
+        return self.inp.thread_ts
 
     @property
     def raw_text(self) -> str:
-        return getattr(self, "_raw_text_override", self.inp.raw_text)
-
-    @raw_text.setter
-    def raw_text(self, val: str) -> None:
-        self._raw_text_override = val
+        return self.inp.raw_text
 
     @property
     def user_id(self) -> str | None:
-        return getattr(self, "_user_id_override", self.inp.user_id)
-
-    @user_id.setter
-    def user_id(self, val: str | None) -> None:
-        self._user_id_override = val
+        return self.inp.user_id
 
     @property
     def bot_user_id(self) -> str | None:
-        return getattr(self, "_bot_user_id_override", self.inp.bot_user_id)
-
-    @bot_user_id.setter
-    def bot_user_id(self, val: str | None) -> None:
-        self._bot_user_id_override = val
-
-    @property
-    def icon_url(self) -> str | None:
-        return getattr(self, "_icon_url_override", self.inp.icon_url)
-
-    @icon_url.setter
-    def icon_url(self, val: str | None) -> None:
-        self._icon_url_override = val
+        return self.inp.bot_user_id
 
     @property
     def is_bot_trigger(self) -> bool:
-        return getattr(self, "_is_bot_trigger_override", self.inp.is_bot_trigger)
-
-    @is_bot_trigger.setter
-    def is_bot_trigger(self, val: bool) -> None:
-        self._is_bot_trigger_override = val
+        return self.inp.is_bot_trigger
 
     @property
     def in_memory_history(self) -> list[dict[str, Any]] | None:
-        if hasattr(self, "_in_memory_history_override"):
-            return self._in_memory_history_override
         return list(self.inp.in_memory_history) if self.inp.in_memory_history is not None else None
-
-    @in_memory_history.setter
-    def in_memory_history(self, val: list[dict[str, Any]] | None) -> None:
-        self._in_memory_history_override = list(val) if val is not None else None
 
     @property
     def isolated_branch(self) -> bool:
-        return getattr(self, "_isolated_branch_override", self.inp.isolated_branch)
-
-    @isolated_branch.setter
-    def isolated_branch(self, val: bool) -> None:
-        self._isolated_branch_override = val
+        return self.inp.isolated_branch
 
     @property
     def consensus_signaled(self) -> bool:
@@ -333,22 +296,6 @@ class TurnContext:
     @consensus_signaled.setter
     def consensus_signaled(self, val: bool) -> None:
         self.control_plane.consensus_signaled = val
-
-    @property
-    def is_file_req(self) -> bool:
-        return getattr(self, "_is_file_req", False)
-
-    @is_file_req.setter
-    def is_file_req(self, val: bool) -> None:
-        self._is_file_req = val
-
-    @property
-    def target_filename(self) -> str | None:
-        return getattr(self, "_target_filename", None)
-
-    @target_filename.setter
-    def target_filename(self, val: str | None) -> None:
-        self._target_filename = val
 
     # Output properties
     @property
@@ -557,12 +504,11 @@ class TurnPipeline:
     def __init__(
         self,
         deps: PipelineDeps | None = None,
-        hooks: dict[str, Any] | None = None,
         **overrides: Any,
     ):
         from orchestration.protocols import resolve_pipeline_deps
 
-        self.deps = resolve_pipeline_deps(deps, hooks, **overrides)
+        self.deps = resolve_pipeline_deps(deps, **overrides)
 
         # Initialize the composed stage instances
         self.validation_stage = ValidationStage(self.deps)

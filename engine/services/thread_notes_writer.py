@@ -18,12 +18,32 @@ import time
 from pathlib import Path
 
 from core.paths import THREAD_NOTES_DIR
-from services.flat_history_recorder import is_test_thread
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_THREAD_NOTES_DIR = THREAD_NOTES_DIR
-THREAD_NOTES_DIR = DEFAULT_THREAD_NOTES_DIR
+_configured_thread_notes_dir: Path | None = None
+
+
+def configure_paths(thread_notes_dir: Path | None = None) -> None:
+    """Sets a custom directory for thread notes disk persistence (e.g. for test isolation)."""
+    global _configured_thread_notes_dir
+    _configured_thread_notes_dir = thread_notes_dir
+
+
+def reset_paths() -> None:
+    """Resets thread notes directory to default paths SSOT."""
+    global _configured_thread_notes_dir
+    _configured_thread_notes_dir = None
+
+
+def get_thread_notes_dir() -> Path:
+    """Resolves the active thread notes directory taking configured paths and IZVOR_THREAD_NOTES_DIR into account."""
+    if _configured_thread_notes_dir is not None:
+        return _configured_thread_notes_dir
+    env_dir = os.getenv("IZVOR_THREAD_NOTES_DIR")
+    if env_dir:
+        return Path(env_dir)
+    return THREAD_NOTES_DIR
 
 
 def sanitize_prompt_slug(prompt: str | None, max_length: int = 20) -> str:
@@ -97,19 +117,8 @@ def save_thread_notes_to_disk(
     Atomically writes the live notes and/or conclusion notes to agents_resources/thread_notes/.
     If called repeatedly on thread re-engagement, safely updates the existing files.
     """
-    # Skip file creation during automated test harness runs unless forced or redirected
-    if not force and is_test_thread(channel_id, thread_ts):
-        try:
-            if THREAD_NOTES_DIR.resolve() == DEFAULT_THREAD_NOTES_DIR.resolve():
-                logger.debug(
-                    f"[THREAD NOTES WRITER] Skipping disk save for test thread: {channel_id}/{thread_ts}"
-                )
-                return {}
-        except OSError:
-            pass
-
     out_paths: dict[str, str] = {}
-    target_dir = THREAD_NOTES_DIR
+    target_dir = get_thread_notes_dir()
     try:
         target_dir.mkdir(parents=True, exist_ok=True)
     except OSError as e:

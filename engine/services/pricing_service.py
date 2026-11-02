@@ -22,8 +22,6 @@ from core.paths import BASELINE_PRICES_FILE, PRICING_CACHE_FILE
 
 logger = logging.getLogger(__name__)
 
-# Baseline model pricing alias
-BASELINE_CONFIG_FILE = BASELINE_PRICES_FILE
 
 def get_pricing_cache_ttl_seconds() -> int:
     try:
@@ -480,19 +478,12 @@ class PricingService:
                     if isinstance(tc.function.arguments, str)
                     else tc.function.arguments
                 )
-                import services.pricing_service as psm
                 if fn_name == "web_search":
-                    search_fn = getattr(psm, "web_search", web_search)
-                    if inspect.iscoroutinefunction(search_fn):
-                        res_str = await search_fn(**fn_args)
-                    else:
-                        res_str = await asyncio.to_thread(search_fn, **fn_args)
+                    call_res = web_search(**fn_args)
+                    res_str = await call_res if inspect.isawaitable(call_res) else call_res
                 elif fn_name == "fetch_web_page":
-                    fetch_page_fn = getattr(psm, "fetch_web_page", fetch_web_page)
-                    if inspect.iscoroutinefunction(fetch_page_fn):
-                        res_str = await fetch_page_fn(**fn_args)
-                    else:
-                        res_str = await asyncio.to_thread(fetch_page_fn, **fn_args)
+                    call_res = fetch_web_page(**fn_args)
+                    res_str = await call_res if inspect.isawaitable(call_res) else call_res
                 else:
                     res_str = f"Error: unknown tool '{fn_name}'"
 
@@ -589,12 +580,8 @@ class PricingService:
         # Fallback to direct web search extraction
         try:
             clean_query = re.sub(r"^[a-zA-Z0-9_-]+/", "", model_name)
-            import services.pricing_service as psm
-            search_fn = getattr(psm, "web_search", web_search)
-            if inspect.iscoroutinefunction(search_fn):
-                search_raw = await search_fn(query=f"{clean_query} api pricing tokens million official", max_results=5)
-            else:
-                search_raw = await asyncio.to_thread(search_fn, query=f"{clean_query} api pricing tokens million official", max_results=5)
+            call_res = web_search(query=f"{clean_query} api pricing tokens million official", max_results=5)
+            search_raw = await call_res if inspect.isawaitable(call_res) else call_res
             in_val, out_val = _extract_pricing_from_search_text(search_raw, model_name)
             cand_in = in_val if in_val is not None else float(baseline["input_price_per_1m"])
             cand_out = out_val if out_val is not None else float(baseline["output_price_per_1m"])
