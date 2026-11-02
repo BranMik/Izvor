@@ -50,9 +50,9 @@ sequenceDiagram
 
     User->>Slack: @Izvor Should we adopt GraphQL or REST for our new public API?
     Slack->>Visionary: Triggers Start Chain
-    Visionary-->>Slack: Discusses developer velocity and asks [Tactician] about operational complexity.
+    Visionary-->>Slack: Discusses developer velocity and asks /[Tactician] about operational complexity.
     Slack->>Tactician: Resolves Nomination
-    Tactician-->>Slack: Highlights caching hurdles and asks [Security Architect] about query depth exploits.
+    Tactician-->>Slack: Highlights caching hurdles and asks /[SecurityArchitect] about query depth exploits.
     Slack->>Security: Resolves Nomination
     Security-->>Slack: Analyzes DoS surface and proposes schema introspection guards.
 ```
@@ -81,9 +81,9 @@ Let's focus strictly on AWS serverless options; discount on-premise Kubernetes e
 1. **Be Specific in Initial Context**: Frame the decision, target constraints, and current assumptions.
 2. **Tag Personas Directly**: If you want a specific persona to open the conversation, specify them:
    ```
-   @Izvor [include: SecurityArchitect, LegalAdvisor] Review our proposed OAuth2 token exchange architecture.
+   @Izvor /include SecurityArchitect, LegalAdvisor Review our proposed OAuth2 token exchange architecture.
    ```
 3. **Use Constraints**: If you need brief answers, add word limits:
    ```
-   @Izvor [max_words: 100] Give me 3 bullet points each on pros and cons.
+   @Izvor /max_words 100 Give me 3 bullet points each on pros and cons.
    ```

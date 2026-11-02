@@ -91,7 +91,7 @@ Managed by [`SpendGovernance`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor
 - **`circuit_breaker_threshold_usd`**: Maximum allowed USD cost per individual thread (e.g., `$1.00`).
 
 ### 1. Pre-Turn Gatekeeping in Stage 2 (`ResolutionStage`)
-Before allocating compute or dispatching to an LLM, [`orchestration/stages/resolution.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/orchestration/stages/resolution.py) invokes `spend_governance.check_circuit_breaker()`:
+Before allocating compute or dispatching to an LLM, [`orchestration/stages/resolution.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/orchestration/stages/resolution.py) invokes `spend_governance.is_budget_exceeded()`:
 1. Evaluates today's UTC aggregate spend (`timestamp >= midnight_utc`) + active in-flight reservations against `daily_budget_usd` (**unconditional**).
 2. If `circuit_breaker_enabled` is `true`, evaluates cumulative thread spend + active thread reservations against `circuit_breaker_threshold_usd`.
 3. If either threshold is breached:
@@ -101,9 +101,9 @@ Before allocating compute or dispatching to an LLM, [`orchestration/stages/resol
 
 ### 2. Parallel Dialectic Budget Reservations (`reserve_budget` / `release_reservation`)
 When running `OrchestrationMode.SCATTER_GATHER` in [`DiscussionLoop`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/orchestration/discussion_loop.py), multiple specialist branches execute concurrently in an `asyncio.TaskGroup`. To prevent N parallel branches from simultaneously passing the pre-turn check and overshooting the budget:
-- Each branch calls `spend_governance.reserve_budget(thread_ts, estimated_cost_usd)` prior to LLM execution.
+- Each branch calls `reserve_id = spend_governance.reserve_budget(session_id, estimated_cost_usd)` prior to LLM execution.
 - In-flight reservations are included in all thread and daily budget checks.
-- Reservations are deterministically released in a `finally` block via `spend_governance.release_reservation(reservation_id)` once actual spend is committed to `spend_ledger`.
+- Reservations are deterministically released in a `finally` block via `spend_governance.release_reservation(session_id, reserve_id)` once actual spend is committed to `spend_ledger`.
 
 ### 3. Administrative Override & Resume Action
 When a deliberation is paused by the circuit breaker, authorized workspace administrators (`is_slack_admin`) can click `"Continue Sequence"` (`resume_sequence_action`), handled via [`adapters/slack/actions/workflow_actions.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/adapters/slack/actions/workflow_actions.py), to grant an incremental budget override and resume the paused checkpoint or remaining agent queue.

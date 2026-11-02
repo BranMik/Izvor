@@ -225,7 +225,7 @@ async def _handle_hitl_approve_tool(
                     "skill": approved_req.skill_name,
                     "args": approved_req.fn_args,
                 },
-                severity="HIGH",
+                severity="WARNING",
             )
             msg = payload.get("message", {})
             if msg and msg.get("ts"):
@@ -293,7 +293,7 @@ async def _handle_hitl_deny_tool(
                 action="hitl_deny_tool",
                 target=f"{denied_req.channel_id}:{denied_req.thread_ts}:{denied_req.fn_name}",
                 details={"agent": denied_req.agent_name, "skill": denied_req.skill_name, "args": denied_req.fn_args},
-                severity="HIGH",
+                severity="WARNING",
             )
             msg = payload.get("message", {})
             if msg and msg.get("ts"):

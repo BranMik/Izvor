@@ -1098,7 +1098,7 @@ def cli_main() -> None:
         for err in result.errors:
             print(f"  ❌ {err}")
         print("\nImmediate action required: Check backup snapshots or server security logs.\n")
-        exit(1)
+        sys.exit(1)
 
 
 if __name__ == "__main__":

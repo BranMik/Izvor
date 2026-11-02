@@ -31,10 +31,10 @@ In addition to posting inside Slack, thread notes are automatically saved to dis
 
 Every deliberation turn is automatically and asynchronously archived to a local markdown transcript by [`services/flat_history_recorder.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/services/flat_history_recorder.py).
 
-### 1. Non-Blocking Off-Loop Execution
-Disk I/O is decoupled from the main asyncio event loop using `async_record_flat_history`:
+### 1. Non-Blocking Execution
+Disk I/O is dispatched asynchronously via `async_record_flat_history`:
 ```python
-await run_in_threadpool(record_flat_history, channel_id, thread_ts, turn_data)
+await async_record_flat_history(channel_id, thread_ts, initial_prompt, messages)
 ```
 This ensures disk writes never introduce jitter or latency into the Slack event dispatcher.
 
@@ -47,20 +47,32 @@ data/flat-histories/<prompt_prefix_10>_<thread_ts_10>.md
 
 ### 3. File Format Structure
 ```markdown
-# Debate Transcript: Slack Thread #eng-architecture (ts: 1790455185)
+# Conversation History: 1790455185.000100
 
-## [2026-10-08 10:14:02 UTC] Human User (@alice)
-We are considering migrating our session store from Redis to Postgres row-level JSONB...
+- **Thread TS:** `1790455185.000100`
+- **Channel ID:** `C0123456789`
+- **Last Updated:** `2026-10-08 10:14:15 UTC`
+- **Initial Prompt:** We are considering migrating our session store from Redis to Postgres row-level JSONB.
 
 ---
 
-## [2026-10-08 10:14:06 UTC] Visionary (Model: gemini/gemini-3.8-flash)
+### **[User]**
+
+We are considering migrating our session store from Redis to Postgres row-level JSONB. What are the engineering tradeoffs, security considerations, and cost impacts?
+
+---
+
+### **[Visionary]**
+
 Adopting Postgres JSONB unifies our storage topology and simplifies transactional consistency...
 
 ---
 
-## [2026-10-08 10:14:12 UTC] Scope Optimizer (Model: mistral/mistral-large-latest)
-While attractive, high-frequency session writes cause table bloat and vacuum strain in Postgres...
+### **[Security Architect]**
+
+While attractive, session tokens stored in row JSONB require strict field-level encryption...
+
+---
 ```
 
 ---
@@ -68,7 +80,7 @@ While attractive, high-frequency session writes cause table bloat and vacuum str
 ## 📥 File Attachments & Untrusted Content Wrapping
 
 When users share files in Slack threads:
-1. Izvor's file listener downloads the attachment to `downloads/`.
+1. Izvor's file listener downloads the attachment to `data/downloads/`.
 2. The [`document_reader`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/config/skills/document_reader) parses the document content (PDFs, Markdown, CSVs, code files).
 3. Extracted text is wrapped in `<untrusted_file_content>` security boundaries, enabling debate personas to critique the uploaded RFC or specification without risking prompt injection.
 

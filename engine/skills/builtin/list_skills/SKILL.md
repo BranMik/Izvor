@@ -2,7 +2,7 @@
 name: list_skills
 display_name: List Skills
 description: List all available skills in the application along with the agents authorized to use each skill.
-scope: agent
+scope: orchestrator
 triggers:
   slash:
     - /list_skills

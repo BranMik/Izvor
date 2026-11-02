@@ -7,6 +7,13 @@
       "icon_url": "static/image_99.png",
       "is_short_output": true,
       "skills": []
+    },
+    "list_skills": {
+      "username": "ListSkills",
+      "model": "gemini/gemini-3.8-flash",
+      "displayname": "Skills Directory Presenter",
+      "icon_url": "static/image_99.png",
+      "skills": []
     }
   },
   "orchestrator": {

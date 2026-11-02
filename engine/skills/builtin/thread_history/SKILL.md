@@ -8,6 +8,7 @@ triggers:
   slash:
     - /history
   arg_type: int
+  param_name: history_limit
 extraction_rule: "Extract integer message limit if requested (e.g. 'last 3 messages', 'zadnje 2 poruke')."
 requires_human_ITL: false
 ---

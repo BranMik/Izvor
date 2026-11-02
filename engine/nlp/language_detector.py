@@ -1,10 +1,9 @@
 """
-Natural language detection for Izvor via LLM.
+Natural language detection for Izvor.
 
-Uses an ultra-fast LLM call (Mistral Small by default) to accurately classify
-natural language, with clean normalization to canonical English language names.
-All heuristic/deterministic Python text scoring has been removed in favor of
-pure LLM classification.
+Provides fast deterministic heuristic scoring for synchronous classification
+and an asynchronous micro-LLM pipeline for full conversational classification,
+with clean normalization to canonical English language names.
 """
 
 import asyncio

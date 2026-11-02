@@ -39,6 +39,7 @@ dependencies = [
 dev = [
     "pytest>=8.3.0,<10.0.0",
     "anyio>=4.0.0,<5.0.0",
+    "datasets>=3.0.0,<4.0.0",
 ]
 
 [tool.pytest.ini_options]
@@ -47,11 +48,7 @@ pythonpath = ["engine", "."]
 norecursedirs = [
     "data",
     "config",
-    "deprecated",
-    "static_backup",
-    "Izvor-app",
     "e2e_testing_harness",
-    "scripts",
     ".venv",
     "agents_resources",
     "system_resources",

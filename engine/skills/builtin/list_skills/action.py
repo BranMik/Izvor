@@ -9,7 +9,7 @@ system message, and halts further agent invocation.
 import logging
 from typing import Any
 
-from core.config import get_system_agent_model
+from core.config import get_orchestrator_fast_model, get_system_agent_model
 from core.llm_utils import execute_llm_with_retry
 from services.slack import post_system_message
 
@@ -26,7 +26,7 @@ async def run(ctx: Any, params: dict[str, Any] | None = None) -> dict[str, Any] 
 
     skills_directory_text = skill_registry.format_skills_directory_markdown(channel_id=channel_id, thread_ts=thread_ts)
 
-    system_model = get_system_agent_model("system_agent", fallback="mistral/mistral-small-latest")
+    system_model = get_system_agent_model("list_skills", fallback=get_orchestrator_fast_model())
     formatted_msg = skills_directory_text
 
     try:

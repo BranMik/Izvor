@@ -166,7 +166,7 @@ async def lifespan(app: FastAPI):
     hmac_check = audit_status.get("hmac_continuity", {})
 
     if hmac_check and not hmac_check.get("matches", True):
-        status = hmac_check.get("status")
+        hmac_status = hmac_check.get("status")
         msg = hmac_check.get("message")
         logger.warning(f"[SECURITY STARTUP] AUDIT_HMAC_SECRET mismatch: {msg}")
 
@@ -177,10 +177,10 @@ async def lifespan(app: FastAPI):
 
             safe_create_task(
                 send_admin_audit_alert(
-                    title=f"Startup Audit Integrity Alert: Secret Mismatch ({status})",
+                    title=f"Startup Audit Integrity Alert: Secret Mismatch ({hmac_status})",
                     message="Server startup detected that AUDIT_HMAC_SECRET does not match the key used for existing audit logs, causing verification failure.",
                     details={
-                        "Status": status,
+                        "Status": hmac_status,
                         "Warning": msg,
                         "Last File": hmac_check.get("last_file") or "N/A",
                         "Last Seq": str(hmac_check.get("last_seq", 0)),
@@ -194,10 +194,10 @@ async def lifespan(app: FastAPI):
 
             safe_create_task(
                 send_admin_audit_alert(
-                    title=f"AUDIT_HMAC_SECRET Discrepancy ({status})",
+                    title=f"AUDIT_HMAC_SECRET Discrepancy ({hmac_status})",
                     message="Server startup detected that AUDIT_HMAC_SECRET does not match the key used for existing audit logs.",
                     details={
-                        "Status": status,
+                        "Status": hmac_status,
                         "Warning": msg,
                         "Last File": hmac_check.get("last_file") or "N/A",
                         "Last Seq": str(hmac_check.get("last_seq", 0)),
