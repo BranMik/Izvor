@@ -1,6 +1,8 @@
 import hashlib
 import json
 import logging
+import os
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -51,11 +53,13 @@ class ManifestManager:
     def save(self) -> None:
         """Atomically saves the in-memory manifest to disk."""
         CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        tmp_path = self.manifest_path.with_suffix(".tmp")
+        tmp_path = self.manifest_path.parent / f"{self.manifest_path.name}.{uuid.uuid4().hex}.tmp"
         try:
             with open(tmp_path, "w", encoding="utf-8") as f:
                 json.dump(self._manifest, f, indent=2, ensure_ascii=False)
-            tmp_path.replace(self.manifest_path)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, self.manifest_path)
             logger.debug(f"[RAG Manifest] Saved {len(self._manifest)} document record(s) to {self.manifest_path}")
         except (OSError, json.JSONDecodeError, ValueError) as e:
             logger.error(f"[RAG Manifest] Failed to persist manifest: {e}")

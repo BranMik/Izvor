@@ -523,6 +523,9 @@ class DiscussionLoop:
                 thread_state_manager.clear_round_execution_state(channel_id, thread_ts)
 
             return last_res
+        except asyncio.CancelledError:
+            logger.info(f"[ORCHESTRATOR] Discussion loop cancelled for thread {thread_key}")
+            raise
         except Exception as e:
             logger.exception(f"[ORCHESTRATOR] Unhandled exception in discussion loop for thread {thread_key}")
             return {"ok": False, "error": str(e)}

@@ -35,7 +35,8 @@ class DiscussionStateStore:
             with get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute(
-                    "SELECT remaining_agents, custom_flow, stop_requested, rounds, round_sequence, initial_prompt "
+                    "SELECT remaining_agents, custom_flow, stop_requested, rounds, round_sequence, initial_prompt, "
+                    "workflow_snapshot, open_debate, consensus_reached "
                     "FROM thread_sessions WHERE channel_id = ? AND thread_ts = ?",
                     (channel_id, thread_ts),
                 )
@@ -56,6 +57,15 @@ class DiscussionStateStore:
                             self.thread_round_sequences[key] = seq
                     if row["initial_prompt"] and key not in self.thread_initial_prompts:
                         self.thread_initial_prompts[key] = row["initial_prompt"]
+                    if key not in self.thread_workflow_snapshots and row["workflow_snapshot"]:
+                        try:
+                            self.thread_workflow_snapshots[key] = json.loads(row["workflow_snapshot"])
+                        except Exception:
+                            pass
+                    if row["open_debate"] and key not in self.open_debate_threads:
+                        self.open_debate_threads.add(key)
+                    if row["consensus_reached"] and key not in self.consensus_reached_threads:
+                        self.consensus_reached_threads.add(key)
         except (json.JSONDecodeError, ValueError, TypeError) as e:
             logger.debug(f"[DISCUSSION STORE] Failed to load session from DB for {key}: {e}")
 
@@ -67,6 +77,9 @@ class DiscussionStateStore:
         rounds = self.thread_rounds.get(key, 0)
         seq = self.thread_round_sequences.get(key)
         prompt = self.thread_initial_prompts.get(key)
+        wf_snapshot = self.thread_workflow_snapshots.get(key)
+        open_debate = 1 if key in self.open_debate_threads else 0
+        consensus_reached = 1 if key in self.consensus_reached_threads else 0
 
         has_data = (
             rem_agents is not None
@@ -75,6 +88,9 @@ class DiscussionStateStore:
             or rounds > 0
             or seq is not None
             or prompt is not None
+            or wf_snapshot is not None
+            or open_debate == 1
+            or consensus_reached == 1
         )
 
         try:
@@ -91,8 +107,10 @@ class DiscussionStateStore:
                         """
                         INSERT INTO thread_sessions (
                             channel_id, thread_ts, status, remaining_agents, custom_flow,
-                            stop_requested, rounds, round_sequence, initial_prompt, created_at, last_activity
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            stop_requested, rounds, round_sequence, initial_prompt,
+                            workflow_snapshot, open_debate, consensus_reached,
+                            created_at, last_activity
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         ON CONFLICT(channel_id, thread_ts) DO UPDATE SET
                             status = excluded.status,
                             remaining_agents = excluded.remaining_agents,
@@ -101,6 +119,9 @@ class DiscussionStateStore:
                             rounds = excluded.rounds,
                             round_sequence = excluded.round_sequence,
                             initial_prompt = COALESCE(excluded.initial_prompt, thread_sessions.initial_prompt),
+                            workflow_snapshot = excluded.workflow_snapshot,
+                            open_debate = excluded.open_debate,
+                            consensus_reached = excluded.consensus_reached,
                             last_activity = excluded.last_activity
                         """,
                         (
@@ -113,6 +134,9 @@ class DiscussionStateStore:
                             rounds,
                             json.dumps(seq or []),
                             prompt,
+                            json.dumps(wf_snapshot) if wf_snapshot is not None else None,
+                            open_debate,
+                            consensus_reached,
                             now,
                             now,
                         ),
@@ -279,10 +303,12 @@ class DiscussionStateStore:
             self.open_debate_threads.add(thread_key)
         else:
             self.open_debate_threads.discard(thread_key)
+        self._sync_to_db(channel_id, thread_ts)
 
     def clear_open_debate(self, channel_id: str, thread_ts: str) -> None:
         """Clears open debate flag for this thread."""
         self.open_debate_threads.discard((channel_id, thread_ts))
+        self._sync_to_db(channel_id, thread_ts)
 
     def is_stopped(self, channel_id: str, thread_ts: str) -> bool:
         """Checks if stop has been requested for this thread."""
@@ -376,42 +402,52 @@ class DiscussionStateStore:
 
     def set_consensus_reached(self, channel_id: str, thread_ts: str, reached: bool = True) -> None:
         key = (channel_id, thread_ts)
+        self._loaded_threads.add(key)
         if reached:
             self.consensus_reached_threads.add(key)
         else:
             self.consensus_reached_threads.discard(key)
+        self._sync_to_db(channel_id, thread_ts)
 
     def is_consensus_reached(self, channel_id: str, thread_ts: str) -> bool:
+        self._ensure_loaded(channel_id, thread_ts)
         return (channel_id, thread_ts) in self.consensus_reached_threads
 
     def get_workflow_snapshot(self, channel_id: str, thread_ts: str) -> dict[str, Any] | None:
         """Returns the cached workflow configuration snapshot for this thread, if captured."""
+        self._ensure_loaded(channel_id, thread_ts)
         return self.thread_workflow_snapshots.get((channel_id, thread_ts))
 
     def set_workflow_snapshot(self, channel_id: str, thread_ts: str, snapshot: dict[str, Any]) -> None:
         """Captures a frozen workflow configuration snapshot for this thread."""
-        self.thread_workflow_snapshots[(channel_id, thread_ts)] = dict(snapshot)
+        key = (channel_id, thread_ts)
+        self._loaded_threads.add(key)
+        self.thread_workflow_snapshots[key] = dict(snapshot)
+        self._sync_to_db(channel_id, thread_ts)
         logger.info(
             f"[DISCUSSION STORE] Captured workflow snapshot for {(channel_id, thread_ts)}: {snapshot.get('workflow_id')} ({snapshot.get('mode')})"
         )
 
     def clear_workflow_snapshot(self, channel_id: str, thread_ts: str) -> None:
         """Clears the workflow configuration snapshot for this thread."""
-        self.thread_workflow_snapshots.pop((channel_id, thread_ts), None)
+        key = (channel_id, thread_ts)
+        self.thread_workflow_snapshots.pop(key, None)
+        self._sync_to_db(channel_id, thread_ts)
 
     def clear_thread(self, channel_id: str, thread_ts: str) -> None:
-        """Purges discussion state for this thread."""
-        self.clear_remaining_agents(channel_id, thread_ts)
-        self.clear_custom_flow(channel_id, thread_ts)
-        self.clear_open_debate(channel_id, thread_ts)
-        self.clear_stop(channel_id, thread_ts)
+        """Purges discussion state for this thread in a single atomic operation."""
+        key = (channel_id, thread_ts)
+        self.remaining_agents_map.pop(key, None)
+        self.custom_flow_threads.discard(key)
+        self.open_debate_threads.discard(key)
+        self.stop_requested_threads.discard(key)
         self.cancel_active_task(channel_id, thread_ts)
-        self.clear_rounds(channel_id, thread_ts)
-        self.clear_round_sequence(channel_id, thread_ts)
-        self.clear_initial_prompt(channel_id, thread_ts)
-        self.set_consensus_reached(channel_id, thread_ts, False)
-        self.clear_workflow_snapshot(channel_id, thread_ts)
-        self._loaded_threads.discard((channel_id, thread_ts))
+        self.thread_rounds.pop(key, None)
+        self.thread_round_sequences.pop(key, None)
+        self.thread_initial_prompts.pop(key, None)
+        self.consensus_reached_threads.discard(key)
+        self.thread_workflow_snapshots.pop(key, None)
+        self._loaded_threads.discard(key)
         try:
             with get_db_transaction(immediate=True) as conn:
                 conn.execute(

@@ -1,5 +1,7 @@
 
 
+import pytest
+
 from core.models import FileContext
 from orchestration.state import (
     DiscussionStateStore,
@@ -239,4 +241,123 @@ def test_session_context_hydration_in_turn_context():
     assert ctx.session_id == "C_SESS:123.456"
     assert isinstance(ctx.session, SessionContext)
     assert len(ctx.session.history) == 2
+
+
+def test_discussion_store_session_durability_rehydration():
+    """A-03: Verify workflow snapshot, open debate, and consensus reached survive RAM eviction and reload from DB."""
+    channel_id = "C_DURABLE"
+    thread_ts = "1700000002.0001"
+    store1 = DiscussionStateStore()
+
+    store1.set_open_debate(channel_id, thread_ts, True)
+    store1.set_consensus_reached(channel_id, thread_ts, True)
+    snapshot = {"workflow_id": "test_flow", "mode": "FIXED", "agents": ["a1", "a2"]}
+    store1.set_workflow_snapshot(channel_id, thread_ts, snapshot)
+
+    assert store1.is_open_debate(channel_id, thread_ts) is True
+    assert store1.is_consensus_reached(channel_id, thread_ts) is True
+    assert store1.get_workflow_snapshot(channel_id, thread_ts) == snapshot
+
+    # Create a fresh store instance simulating a server restart / RAM cache eviction
+    store2 = DiscussionStateStore()
+    assert store2.is_open_debate(channel_id, thread_ts) is True
+    assert store2.is_consensus_reached(channel_id, thread_ts) is True
+    assert store2.get_workflow_snapshot(channel_id, thread_ts) == snapshot
+
+    # Cleanup
+    store2.clear_thread(channel_id, thread_ts)
+    store3 = DiscussionStateStore()
+    assert store3.is_open_debate(channel_id, thread_ts) is False
+    assert store3.is_consensus_reached(channel_id, thread_ts) is False
+    assert store3.get_workflow_snapshot(channel_id, thread_ts) is None
+
+
+def test_telemetry_bounded_buffer_and_retry_requeue():
+    """A-12: Verify telemetry queue bounds and retry re-queuing on DB error."""
+    from unittest.mock import patch
+    import services.telemetry as tel
+    from services.telemetry import (
+        _TRACE_BUFFER,
+        _TRACE_BUFFER_LOCK,
+        MAX_TRACE_BUFFER_SIZE,
+        flush_turn_traces,
+        record_turn_trace,
+    )
+
+    assert _TRACE_BUFFER.maxlen == MAX_TRACE_BUFFER_SIZE
+    with _TRACE_BUFFER_LOCK:
+        _TRACE_BUFFER.clear()
+
+    with patch("services.telemetry.get_db_transaction", side_effect=RuntimeError("Contention")):
+        record_turn_trace("s1", "c1", "t1", "agent1", "stage1", 10.0)
+        assert len(_TRACE_BUFFER) == 1
+
+    flushed = flush_turn_traces()
+    assert flushed == 1
+    assert len(_TRACE_BUFFER) == 0
+
+
+def test_pricing_service_returns_deepcopy():
+    """A-13: Verify PricingService returns deepcopies so callers cannot mutate shared cache."""
+    from services.pricing_service import pricing_service
+    p1 = pricing_service.get_pricing("gemini-2.5-flash")
+    p2 = pricing_service.get_pricing("gemini-2.5-flash")
+    assert p1 is not p2
+    original_val = p1["input_price_per_1m"]
+    p1["input_price_per_1m"] = 999999.0
+    p3 = pricing_service.get_pricing("gemini-2.5-flash")
+    assert p3["input_price_per_1m"] == original_val
+
+
+@pytest.mark.anyio
+async def test_channel_name_cache_ttl():
+    """A-14: Verify channel name cache obeys TTL and updates timestamp."""
+    import services.slack.client_core as sc
+    sc.CHANNEL_NAME_CACHE.clear()
+    ch_id = "C_TEST_TTL"
+    sc.CHANNEL_NAME_CACHE[ch_id] = ("#old-name", 0.0)
+    resolved = await sc.get_channel_name(ch_id)
+    assert resolved == f"#{ch_id}"
+    assert sc.CHANNEL_NAME_CACHE[ch_id][1] > 0
+
+
+def test_manifest_manager_atomic_save(tmp_path):
+    """A-15: Verify ManifestManager saves atomically with unique temp file."""
+    from services.rag.manifest_manager import ManifestManager
+    mf_file = tmp_path / "test_manifest.json"
+    mgr = ManifestManager(manifest_path=mf_file)
+    mgr.record_document("doc1.md", "agentA", "hash123", 100.0, ["c1", "c2"])
+    mgr.save()
+    assert mf_file.exists()
+    tmp_files = list(tmp_path.glob("*.tmp"))
+    assert len(tmp_files) == 0
+
+
+def test_rag_citation_instructions_cached():
+    """A-15: Verify RAGService citation instructions are cached."""
+    from services.rag.service import _load_citation_instructions
+    import services.rag.service as rag_mod
+    rag_mod._CACHED_CITATION_INSTRUCTIONS = "MOCK_CITATION_HEADER"
+    assert _load_citation_instructions() == "MOCK_CITATION_HEADER"
+    rag_mod._CACHED_CITATION_INSTRUCTIONS = None
+
+
+@pytest.mark.anyio
+async def test_dispatch_discussion_task_safe():
+    """A-20: Verify ThreadStateManager.dispatch_discussion_task uses safe_create_task."""
+    mgr = ThreadStateManager()
+    completed = False
+
+    async def sample_coro():
+        nonlocal completed
+        completed = True
+
+    mgr.dispatch_discussion_task("C_DISPATCH_SAFE", "T_SAFE", sample_coro())
+    task = mgr.get_active_task("C_DISPATCH_SAFE", "T_SAFE")
+    assert task is not None
+    assert task.get_name() == "discussion:C_DISPATCH_SAFE:T_SAFE"
+    await task
+    assert completed is True
+
+
 

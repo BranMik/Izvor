@@ -19,7 +19,8 @@ from core.database import get_connection, get_db_transaction
 
 logger = logging.getLogger(__name__)
 
-_TRACE_BUFFER: collections.deque[tuple[Any, ...]] = collections.deque()
+MAX_TRACE_BUFFER_SIZE = 10_000
+_TRACE_BUFFER: collections.deque[tuple[Any, ...]] = collections.deque(maxlen=MAX_TRACE_BUFFER_SIZE)
 _TRACE_BUFFER_LOCK = threading.Lock()
 
 
@@ -48,6 +49,9 @@ def flush_turn_traces() -> int:
         return len(items)
     except Exception as e:  # noqa: BLE001
         logger.debug(f"[TELEMETRY] Failed to batch flush turn traces: {e}")
+        with _TRACE_BUFFER_LOCK:
+            for item in reversed(items):
+                _TRACE_BUFFER.appendleft(item)
         return 0
 
 

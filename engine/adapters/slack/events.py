@@ -199,16 +199,7 @@ def _get_skills_slash_regex() -> re.Pattern | None:
         return None
 
 
-async def _safe_publish_home(user_id: str) -> None:
-    try:
-        from orchestration.agent_settings import sync_settings_if_modified
-
-        sync_settings_if_modified()
-        await publish_app_home(user_id=user_id)
-    except SlackApiError as e:
-        logger.error(f"[WEBHOOK] SlackApiError publishing app home on open: {e}")
-    except Exception as e:  # noqa: BLE001 - Webhook event handler isolates app home publishing failure
-        logger.error(f"[WEBHOOK] Error publishing app home on open: {e}")
+from services.slack.views import safe_publish_home as _safe_publish_home
 
 
 def is_explicit_app_mention(raw_text: str, bot_user_id: str | None = None) -> bool:

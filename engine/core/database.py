@@ -3,7 +3,7 @@ Embedded SQLite State Engine for Izvor.
 Provides zero-infrastructure ACID state storage using standard library sqlite3 in WAL mode.
 """
 
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from contextlib import contextmanager
 import logging
 from pathlib import Path
@@ -210,19 +210,41 @@ AUDIT_ANCHORS_STATEMENTS = [
     "CREATE INDEX IF NOT EXISTS idx_audit_anchors_month_seq ON audit_anchors(month, seq);",
 ]
 
-SCHEMA_STATEMENTS = BASELINE_SCHEMA_STATEMENTS + AUDIT_ANCHORS_STATEMENTS
+SESSION_DURABILITY_STATEMENTS = [
+    # 12. Thread Session Durability (Workflow snapshot, open debate, consensus reached)
+    "ALTER TABLE thread_sessions ADD COLUMN workflow_snapshot TEXT DEFAULT NULL;",
+    "ALTER TABLE thread_sessions ADD COLUMN open_debate BOOLEAN NOT NULL DEFAULT 0;",
+    "ALTER TABLE thread_sessions ADD COLUMN consensus_reached BOOLEAN NOT NULL DEFAULT 0;",
+]
+
+SCHEMA_STATEMENTS = BASELINE_SCHEMA_STATEMENTS + AUDIT_ANCHORS_STATEMENTS + SESSION_DURABILITY_STATEMENTS
 
 MIGRATIONS: list[tuple[int, str, list[str]]] = [
     (1, "baseline_schema", BASELINE_SCHEMA_STATEMENTS),
     (2, "audit_anchors_and_indices", AUDIT_ANCHORS_STATEMENTS),
+    (3, "thread_session_durability", SESSION_DURABILITY_STATEMENTS),
 ]
 
 
+_db_busy_timeout_provider: Callable[[], float] | None = None
+
+
+def set_db_busy_timeout_provider(provider: Callable[[], float] | None) -> None:
+    """Injectable provider for dynamic busy timeout, decoupling core/database from orchestration."""
+    global _db_busy_timeout_provider
+    _db_busy_timeout_provider = provider
+
+
 def _get_db_busy_timeout() -> float:
+    if _db_busy_timeout_provider is not None:
+        try:
+            return float(_db_busy_timeout_provider())
+        except Exception:
+            pass
     try:
-        from orchestration.system_settings import get_db_busy_timeout_seconds
-        return get_db_busy_timeout_seconds()
-    except Exception:  # noqa: BLE001
+        import os
+        return float(os.getenv("IZVOR_DB_BUSY_TIMEOUT", "5.0"))
+    except Exception:
         return 5.0
 
 
@@ -280,14 +302,29 @@ class DatabaseManager:
             current_version = int(row[0]) if row else 0
             for version, description, statements in MIGRATIONS:
                 if version > current_version:
-                    for stmt in statements:
-                        stmt_clean = stmt.strip()
-                        if stmt_clean:
-                            conn.execute(stmt_clean)
-                    conn.execute(f"PRAGMA user_version = {version};")
-                    logger.info(
-                        f"[DATABASE] Applied migration {version} ({description}) to {resolved}."
-                    )
+                    conn.execute("BEGIN IMMEDIATE;")
+                    try:
+                        for stmt in statements:
+                            stmt_clean = stmt.strip()
+                            if stmt_clean:
+                                try:
+                                    conn.execute(stmt_clean)
+                                except sqlite3.OperationalError as op_err:
+                                    if "duplicate column name" in str(op_err).lower():
+                                        pass
+                                    else:
+                                        raise
+                        conn.execute(f"PRAGMA user_version = {version};")
+                        conn.execute("COMMIT;")
+                        logger.info(
+                            f"[DATABASE] Applied migration {version} ({description}) to {resolved}."
+                        )
+                    except Exception:
+                        try:
+                            conn.execute("ROLLBACK;")
+                        except Exception:
+                            pass
+                        raise
             self._initialized_paths.add(resolved)
             logger.info(f"[DATABASE] SQLite schema at {resolved} initialized up to version {MIGRATIONS[-1][0]} (WAL mode).")
 
@@ -346,6 +383,8 @@ class DatabaseManager:
                     except Exception as e:  # noqa: BLE001
                         logger.debug("Error closing connection during close_all: %s", e)
             self._thread_conns.clear()
+        with self._init_lock:
+            self._initialized_paths.clear()
 
     @contextmanager
     def get_connection(self) -> Generator[sqlite3.Connection, None, None]:
@@ -396,12 +435,19 @@ class DatabaseManager:
                     for stmt in statements:
                         stmt_clean = stmt.strip()
                         if stmt_clean:
-                            conn.execute(stmt_clean)
+                            try:
+                                conn.execute(stmt_clean)
+                            except sqlite3.OperationalError as op_err:
+                                if "duplicate column name" in str(op_err).lower():
+                                    pass
+                                else:
+                                    raise
                     conn.execute(f"PRAGMA user_version = {version};")
                     logger.info(
                         f"[DATABASE] Applied migration {version} ({description}) to {self.db_path}."
                     )
-        self._initialized_paths.add(self.db_path.resolve())
+        with self._init_lock:
+            self._initialized_paths.add(self.db_path.resolve())
         logger.info(f"[DATABASE] SQLite database initialized at {self.db_path} up to version {MIGRATIONS[-1][0]} (WAL mode).")
 
 

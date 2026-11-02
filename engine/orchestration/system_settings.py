@@ -32,6 +32,7 @@ DEFAULT_PROTECTED_WRITE_PATHS: list[str] = [
 class SystemSettingsModel(BaseModel):
     default_fast_model: str = "gemini/gemini-3.8-flash"
     default_reasoning_model: str = "mistral/mistral-large-latest"
+    internal_revisor_enabled: bool = True
     max_file_size_mb: float = 50.0
     rag: dict[str, Any] = Field(
         default_factory=lambda: {
@@ -136,6 +137,7 @@ class SystemSettingsManager:
 
         self.default_fast_model: str = "gemini/gemini-3.8-flash"
         self.default_reasoning_model: str = "mistral/mistral-large-latest"
+        self.internal_revisor_enabled: bool = True
         self.max_file_size_mb: float = 50.0
         self.workspace_write_blacklist_additional: list[str] = []
         self.strict_privacy_mode_enabled: bool = True
@@ -239,6 +241,7 @@ class SystemSettingsManager:
             self.load(force=True)
         else:
             self._apply_model_to_fields(SystemSettingsModel())
+        self._register_core_providers()
 
     def reset_paths(self) -> None:
         """Resets configured paths back to canonical system defaults."""
@@ -257,6 +260,7 @@ class SystemSettingsManager:
                 self.load(force=True)
             except Exception:
                 pass
+        self._register_core_providers()
 
     def _parse_rag_section(self, rag_data: Any) -> None:
         if isinstance(rag_data, dict):
@@ -283,6 +287,7 @@ class SystemSettingsManager:
         self.default_reasoning_model = (
             str(model.default_reasoning_model).strip() or "mistral/mistral-large-latest"
         )
+        self.internal_revisor_enabled = bool(getattr(model, "internal_revisor_enabled", True))
         self.max_file_size_mb = float(model.max_file_size_mb)
         self._parse_rag_section(model.rag)
         raw_bl = model.workspace_write_blacklist_additional
@@ -381,6 +386,7 @@ class SystemSettingsManager:
         payload.update({
             "default_fast_model": self.default_fast_model,
             "default_reasoning_model": self.default_reasoning_model,
+            "internal_revisor_enabled": self.internal_revisor_enabled,
             "max_file_size_mb": self.max_file_size_mb,
             "rag": self.rag_config,
             "_comment_workspace_write_blacklist_additional": (
@@ -467,6 +473,47 @@ class SystemSettingsManager:
             if save:
                 self.save()
             logger.info(f"[SYSTEM_SETTINGS] Set default_reasoning_model to '{self.default_reasoning_model}'.")
+
+    # --- Internal Revisor Settings ---
+    def get_internal_revisor_enabled(self) -> bool:
+        self.load()
+        return bool(getattr(self, "internal_revisor_enabled", True))
+
+    def set_internal_revisor_enabled(self, enabled: bool, save: bool = True) -> None:
+        self.internal_revisor_enabled = bool(enabled)
+        if save:
+            self.save()
+        logger.info(f"[SYSTEM_SETTINGS] Set internal_revisor_enabled to {self.internal_revisor_enabled}.")
+
+    def _register_core_providers(self) -> None:
+        try:
+            from core.config import set_default_model_providers, set_max_discussion_turns_provider
+            set_default_model_providers(
+                fast_provider=lambda: self.get_default_fast_model(),
+                reasoning_provider=lambda: self.get_default_reasoning_model(),
+            )
+            set_max_discussion_turns_provider(lambda: self.get_max_discussion_turns())
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"[SYSTEM_SETTINGS] Failed to register core model providers: {e}")
+
+        try:
+            from core.llm_utils import set_llm_retry_config_provider, set_privacy_mode_provider
+            set_llm_retry_config_provider(lambda: (self.get_llm_max_retries(), self.get_llm_retry_backoff_base()))
+            set_privacy_mode_provider(lambda: self.is_strict_privacy_mode_enabled())
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"[SYSTEM_SETTINGS] Failed to register core LLM providers: {e}")
+
+        try:
+            from core.database import set_db_busy_timeout_provider
+            set_db_busy_timeout_provider(lambda: self.get_db_busy_timeout_seconds())
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"[SYSTEM_SETTINGS] Failed to register core DB provider: {e}")
+
+        try:
+            from core.slack_security import set_burst_limits_provider
+            set_burst_limits_provider(lambda: self.get_security_burst_limits())
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"[SYSTEM_SETTINGS] Failed to register core burst limits provider: {e}")
 
     # --- File Size Limit ---
     def get_max_file_size_mb(self) -> float:
@@ -900,6 +947,14 @@ def get_default_reasoning_model() -> str:
 
 def set_default_reasoning_model(model: str, save: bool = True) -> None:
     system_settings_manager.set_default_reasoning_model(model, save=save)
+
+
+def is_internal_revisor_enabled() -> bool:
+    return system_settings_manager.get_internal_revisor_enabled()
+
+
+def set_internal_revisor_enabled(enabled: bool, save: bool = True) -> None:
+    system_settings_manager.set_internal_revisor_enabled(enabled, save=save)
 
 
 def is_strict_privacy_mode_enabled() -> bool:

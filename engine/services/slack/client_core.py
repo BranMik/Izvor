@@ -1,5 +1,6 @@
 import logging
 import sys
+import time
 from typing import Any
 
 from slack_sdk.errors import SlackApiError
@@ -28,23 +29,27 @@ def get_slack_async_client() -> AsyncWebClient:
     return slack_async_client
 
 # In-memory caches for channel metadata
-CHANNEL_NAME_CACHE: dict[str, str] = {}
+CHANNEL_CACHE_TTL_SECONDS = 3600.0
+CHANNEL_NAME_CACHE: dict[str, tuple[str, float]] = {}
 _RESOLVED_USAGE_CHANNEL_ID: str | None = None
 
 
 async def get_channel_name(channel_id: str) -> str:
     """
-    Fetches the human-readable channel name (e.g. '#general') with in-memory caching.
+    Fetches the human-readable channel name (e.g. '#general') with in-memory caching and TTL.
     """
     if not channel_id:
         return "#unknown"
+    now = time.time()
     if channel_id in CHANNEL_NAME_CACHE:
-        return CHANNEL_NAME_CACHE[channel_id]
+        name, cached_at = CHANNEL_NAME_CACHE[channel_id]
+        if now - cached_at < CHANNEL_CACHE_TTL_SECONDS:
+            return name
 
     bot_token = get_slack_bot_token()
     if not bot_token or bot_token == "xoxb-your-bot-user-oauth-token":
         name = f"#{channel_id}"
-        CHANNEL_NAME_CACHE[channel_id] = name
+        CHANNEL_NAME_CACHE[channel_id] = (name, now)
         return name
 
     try:
@@ -54,7 +59,7 @@ async def get_channel_name(channel_id: str) -> str:
         name = ch_info.get("name")
         if name:
             formatted = f"#{name}"
-            CHANNEL_NAME_CACHE[channel_id] = formatted
+            CHANNEL_NAME_CACHE[channel_id] = (formatted, now)
             return formatted
     except SlackApiError as e:
         logger.debug(
@@ -68,7 +73,7 @@ async def get_channel_name(channel_id: str) -> str:
         logger.debug(f"[SLACK] Could not fetch channel name for {channel_id}: {e}")
 
     fallback = f"#{channel_id}"
-    CHANNEL_NAME_CACHE[channel_id] = fallback
+    CHANNEL_NAME_CACHE[channel_id] = (fallback, now)
     return fallback
 
 
@@ -154,13 +159,18 @@ async def get_or_create_usage_channel() -> str | None:
                 f"[SLACK] Channel '{target_name}' name_taken, attempting retrieval via list..."
             )
             try:
-                res = await client.conversations_list(
-                    types="public_channel,private_channel", limit=200
-                )
-                for ch in res.get("channels", []):
-                    if ch.get("name", "").lower() == target_name:
-                        _RESOLVED_USAGE_CHANNEL_ID = ch.get("id")
-                        return _RESOLVED_USAGE_CHANNEL_ID
+                cursor = None
+                while True:
+                    res = await client.conversations_list(
+                        types="public_channel,private_channel", limit=200, cursor=cursor
+                    )
+                    for ch in res.get("channels", []):
+                        if ch.get("name", "").lower() == target_name:
+                            _RESOLVED_USAGE_CHANNEL_ID = ch.get("id")
+                            return _RESOLVED_USAGE_CHANNEL_ID
+                    cursor = res.get("response_metadata", {}).get("next_cursor")
+                    if not cursor:
+                        break
             except SlackApiError as err:
                 logger.debug(
                     f"[SLACK] conversations_list API error during channel resolution: {err}"

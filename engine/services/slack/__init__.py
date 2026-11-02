@@ -36,7 +36,7 @@ from services.slack.messages import (
     update_thread_note,
     update_usage_message,
 )
-from services.slack.views import publish_app_home
+from services.slack.views import publish_app_home, safe_publish_home
 
 logger = logging.getLogger("services.slack")
 
@@ -74,4 +74,5 @@ __all__ = [
     "upload_text_file_to_slack",
     "cleanup_old_downloads",
     "publish_app_home",
+    "safe_publish_home",
 ]

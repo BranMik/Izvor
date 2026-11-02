@@ -1,35 +1,79 @@
 import asyncio
+from collections.abc import Callable
 import inspect
+import json
 import logging
 from typing import Any
 
 import litellm
 
 from core.config import is_test_environment
+from core.paths import SYSTEM_SETTINGS_FILE
 
 logger = logging.getLogger(__name__)
 
 # Pacing and retry configuration
+_llm_retry_config_provider: Callable[[], tuple[int, float]] | None = None
+
+
+def set_llm_retry_config_provider(provider: Callable[[], tuple[int, float]] | None) -> None:
+    """Injectable provider for LLM retries and backoff base, decoupling core from orchestration."""
+    global _llm_retry_config_provider
+    _llm_retry_config_provider = provider
+
+
 def get_llm_max_retries() -> int:
+    if _llm_retry_config_provider is not None:
+        try:
+            return int(_llm_retry_config_provider()[0])
+        except Exception:
+            pass
     try:
-        from orchestration.system_settings import get_llm_max_retries
-        return get_llm_max_retries()
+        if SYSTEM_SETTINGS_FILE.exists():
+            with open(SYSTEM_SETTINGS_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return int(data.get("llm_max_retries", 3))
     except Exception:  # noqa: BLE001
-        return 3
+        pass
+    return 3
 
 
 def get_llm_retry_backoff_base() -> float:
     if is_test_environment():
         return 0.01
+    if _llm_retry_config_provider is not None:
+        try:
+            return float(_llm_retry_config_provider()[1])
+        except Exception:
+            pass
     try:
-        from orchestration.system_settings import get_llm_retry_backoff_base
-        return get_llm_retry_backoff_base()
+        if SYSTEM_SETTINGS_FILE.exists():
+            with open(SYSTEM_SETTINGS_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return float(data.get("llm_retry_backoff_base", 1.5))
     except Exception:  # noqa: BLE001
-        return 1.5
+        pass
+    return 1.5
 
 
 LLM_MAX_RETRIES = get_llm_max_retries()
 LLM_RETRY_BACKOFF_BASE = get_llm_retry_backoff_base()
+
+
+_privacy_mode_provider: Callable[[], bool] | None = None
+_pii_masker_instance: Any = None
+
+
+def set_privacy_mode_provider(provider: Callable[[], bool] | None) -> None:
+    """Injectable provider for privacy mode, decoupling core from orchestration."""
+    global _privacy_mode_provider
+    _privacy_mode_provider = provider
+
+
+def set_pii_masker_instance(masker: Any) -> None:
+    """Injectable PII masker, decoupling core from services."""
+    global _pii_masker_instance
+    _pii_masker_instance = masker
 
 
 def is_anthropic_model(model: str | None) -> bool:
@@ -203,26 +247,47 @@ async def execute_llm_with_retry(
     If `allow_503_immediate_retry` is False and a 503/high-demand error occurs on attempt 1,
     the exception is raised immediately to allow postponement and multi-agent rotation.
     """
-    from orchestration.system_settings import is_strict_privacy_mode_enabled
-    from services.rag.pii_masker import pii_masker
     import copy
 
-    is_strict = is_strict_privacy_mode_enabled()
+    if _privacy_mode_provider is not None:
+        try:
+            is_strict = _privacy_mode_provider()
+        except Exception:
+            is_strict = False
+    else:
+        try:
+            if SYSTEM_SETTINGS_FILE.exists():
+                with open(SYSTEM_SETTINGS_FILE, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                is_strict = bool(data.get("strict_privacy_mode_enabled", True))
+            else:
+                is_strict = True
+        except Exception:
+            is_strict = True
+
+    masker = _pii_masker_instance
+    if masker is None and is_strict:
+        try:
+            from services.rag.pii_masker import pii_masker
+            masker = pii_masker
+        except Exception:
+            masker = None
+
     active_mapping: dict[str, str] = turn_token_mapping if turn_token_mapping is not None else {}
 
     # 1. Masking Phase
-    if is_strict and "messages" in kwargs:
+    if is_strict and masker and "messages" in kwargs:
         # Create a deep copy to avoid mutating the original message array referenced elsewhere
         kwargs = copy.deepcopy(kwargs)
         for msg in kwargs.get("messages", []):
             if "content" in msg and isinstance(msg["content"], str):
-                masked_content, mapping = await pii_masker.async_mask(msg["content"], existing_mapping=active_mapping)
+                masked_content, mapping = await masker.async_mask(msg["content"], existing_mapping=active_mapping)
                 msg["content"] = masked_content
                 active_mapping.update(mapping)
             elif "content" in msg and isinstance(msg["content"], list):
                 for part in msg["content"]:
                     if isinstance(part, dict) and part.get("type") == "text" and isinstance(part.get("text"), str):
-                        masked_part, mapping = await pii_masker.async_mask(part["text"], existing_mapping=active_mapping)
+                        masked_part, mapping = await masker.async_mask(part["text"], existing_mapping=active_mapping)
                         part["text"] = masked_part
                         active_mapping.update(mapping)
             if "tool_calls" in msg and isinstance(msg["tool_calls"], list):

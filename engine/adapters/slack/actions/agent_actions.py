@@ -98,16 +98,7 @@ async def _deliver_admin_denial_feedback(
                 logger.warning(f"[INTERACTIVITY] Fallback DM delivery failed for user {user_id}: {e}")
 
 
-async def _safe_publish_home_task(user_id: str) -> None:
-    """Safely refreshes App Home view in a background task without raising uncaught exceptions."""
-    try:
-        from orchestration.agent_settings import sync_settings_if_modified
-        from services.slack.views import publish_app_home
-
-        sync_settings_if_modified()
-        await publish_app_home(user_id=user_id)
-    except Exception as e:  # noqa: BLE001 - Re-syncing app home is resilient to Slack errors
-        logger.error(f"[INTERACTIVITY] Failed to publish App Home for {user_id}: {e}")
+from services.slack.views import safe_publish_home as _safe_publish_home_task
 
 
 def _deny_non_admin_action(

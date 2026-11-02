@@ -1,5 +1,6 @@
 import pytest
-from adapters.slack.workspace_adapter import InMemoryWorkspaceAdapter, SlackWorkspaceAdapter
+from adapters.slack.workspace_adapter import SlackWorkspaceAdapter
+from e2e_testing_harness.workspace_adapter import InMemoryWorkspaceAdapter
 from orchestration.turn_pipeline import TurnPipeline
 from orchestration.protocols import WorkspaceAdapter
 

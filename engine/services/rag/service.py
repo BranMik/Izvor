@@ -8,14 +8,20 @@ from .vector_store import VectorStore, vector_store
 
 logger = logging.getLogger(__name__)
 
+_CACHED_CITATION_INSTRUCTIONS: str | None = None
+
 
 def _load_citation_instructions() -> str:
-    """Loads citation and fidelity instructions from external markdown file."""
+    """Loads citation and fidelity instructions from external markdown file with caching."""
+    global _CACHED_CITATION_INSTRUCTIONS
+    if _CACHED_CITATION_INSTRUCTIONS is not None:
+        return _CACHED_CITATION_INSTRUCTIONS
     try:
         from .config import CITATION_INSTRUCTIONS_PATH
 
         if CITATION_INSTRUCTIONS_PATH.exists():
-            return CITATION_INSTRUCTIONS_PATH.read_text(encoding="utf-8").strip()
+            _CACHED_CITATION_INSTRUCTIONS = CITATION_INSTRUCTIONS_PATH.read_text(encoding="utf-8").strip()
+            return _CACHED_CITATION_INSTRUCTIONS
     except (OSError, UnicodeDecodeError) as e:
         logger.debug(f"[RAG Service] Could not load citation instructions: {e}")
     return ""

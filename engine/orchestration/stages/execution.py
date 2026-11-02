@@ -329,7 +329,7 @@ class ExecutionStage:
                         fn_args = _unmask_argument_values(raw_args, getattr(ctx, "turn_token_mapping", {}))
                         cached_evidence = None
                         if fn_name == "load_skill":
-                            tool_result = skill_registry.execute_tool(
+                            tool_result = await skill_registry.execute_tool_async(
                                 fn_name,
                                 fn_args,
                                 authorized_skills=agent_skills,
@@ -368,7 +368,7 @@ class ExecutionStage:
                             if not is_agent_authorized_for_tool(
                                 principal, fn_name, authorized_skills=agent_skills, skill_registry=skill_registry
                             ):
-                                tool_result = skill_registry.execute_tool(
+                                tool_result = await skill_registry.execute_tool_async(
                                     fn_name,
                                     fn_args,
                                     authorized_skills=agent_skills,
