@@ -63,4 +63,79 @@ class SlackRateLimiter:
 # Global singleton rate limiter
 slack_rate_limiter = SlackRateLimiter()
 
-__all__ = ["SlackRateLimiter", "slack_rate_limiter"]
+
+class SlidingWindowIPRateLimiter:
+    """
+    Thread-safe sliding-window rate limiter keyed by client IP address.
+    Enforces maximum memory bounds with automatic eviction of expired entries,
+    and suppresses redundant audit logging during sustained brute-force / 429 flood attacks.
+    """
+
+    def __init__(self, max_entries: int = 10000) -> None:
+        import threading
+        self._lock = threading.Lock()
+        self._entries: dict[str, list[float]] = {}
+        self._logged_block: set[str] = set()
+        self._max_entries = max_entries
+
+    def check_and_record(
+        self,
+        client_ip: str,
+        max_requests: int = 5,
+        window_seconds: float = 60.0,
+    ) -> tuple[bool, int, bool]:
+        """
+        Records an attempt and returns:
+          - is_allowed (bool): True if under limit, False if rate limited.
+          - current_count (int): Total attempts in the active window.
+          - should_log_audit (bool): True if this transition to blocked should emit an audit event.
+        """
+        now = time.time()
+        with self._lock:
+            # Capacity guard: prune expired entries if over capacity
+            if len(self._entries) >= self._max_entries and client_ip not in self._entries:
+                expired = [
+                    k for k, timestamps in self._entries.items()
+                    if not timestamps or (now - timestamps[-1]) >= window_seconds
+                ]
+                for k in expired:
+                    self._entries.pop(k, None)
+                    self._logged_block.discard(k)
+
+                # If still over capacity, evict oldest entry
+                if len(self._entries) >= self._max_entries:
+                    oldest_k = min(self._entries.keys(), key=lambda k: self._entries[k][-1] if self._entries[k] else 0.0)
+                    self._entries.pop(oldest_k, None)
+                    self._logged_block.discard(oldest_k)
+
+            timestamps = self._entries.get(client_ip, [])
+            timestamps = [t for t in timestamps if now - t < window_seconds]
+            timestamps.append(now)
+            self._entries[client_ip] = timestamps
+            count = len(timestamps)
+
+            if count > max_requests:
+                # Rate-limited
+                if client_ip not in self._logged_block:
+                    self._logged_block.add(client_ip)
+                    return False, count, True
+                return False, count, False
+
+            # Within limits
+            self._logged_block.discard(client_ip)
+            return True, count, False
+
+    def reset(self, client_ip: str | None = None) -> None:
+        with self._lock:
+            if client_ip is not None:
+                self._entries.pop(client_ip, None)
+                self._logged_block.discard(client_ip)
+            else:
+                self._entries.clear()
+                self._logged_block.clear()
+
+
+ip_rate_limiter = SlidingWindowIPRateLimiter()
+
+__all__ = ["SlackRateLimiter", "slack_rate_limiter", "SlidingWindowIPRateLimiter", "ip_rate_limiter"]
+

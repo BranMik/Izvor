@@ -2,13 +2,13 @@ import json
 import logging
 import re
 
-from core.config import PROJECT_ROOT
+from core.paths import SYSTEM_SETTINGS_FILE
 from services.audit_logger import log_audit_event
 from services.security.guardrail import GuardrailService, guardrail_service
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_CONFIG_PATH = PROJECT_ROOT / "system_config.json"
+DEFAULT_CONFIG_PATH = SYSTEM_SETTINGS_FILE
 
 # Hardcoded main patterns
 MAIN_PATTERNS = {
@@ -16,7 +16,11 @@ MAIN_PATTERNS = {
     "stripe_sk_live": r"sk_live_[a-zA-Z0-9]+",
     "aws_access_key_id": r"AKIA[0-9A-Z]{16}",
     "internal_system_prompt_leak": r"OUTPUT & LENGTH CONSTRAINTS:",
-    "aws_secret_key": r"(?i)aws_secret_access_key\s*=\s*[a-zA-Z0-9/+=]{40}"
+    "aws_secret_key": r"(?i)aws_secret_access_key\s*=\s*[a-zA-Z0-9/+=]{40}",
+    "openai_api_key": r"sk-(?:proj-)?[a-zA-Z0-9_\-]{20,}",
+    "anthropic_api_key": r"sk-ant-[a-zA-Z0-9_\-]{20,}",
+    "google_api_key": r"AIzaSy[a-zA-Z0-9_\-]{33}",
+    "github_token": r"gh[pousr]_[a-zA-Z0-9]{36,}",
 }
 
 def load_additional_patterns() -> dict[str, str]:

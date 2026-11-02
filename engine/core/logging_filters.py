@@ -86,6 +86,10 @@ def redact_text(text: str) -> str:
         os.getenv("GROQ_API_KEY"),
         os.getenv("META_API_KEY"),
         os.getenv("DEEPSEEK_API_KEY"),
+        os.getenv("OPENROUTER_API_KEY"),
+        os.getenv("COHERE_API_KEY"),
+        os.getenv("PERPLEXITY_API_KEY"),
+        os.getenv("TOGETHER_API_KEY"),
         os.getenv("AUDIT_HMAC_SECRET"),
     ]
     for secret in env_secrets:
@@ -116,8 +120,13 @@ class CredentialRedactionFilter(logging.Filter):
     """
 
     def filter(self, record: logging.LogRecord) -> bool:
-        if isinstance(record.msg, str):
-            record.msg = redact_text(record.msg)
+        if record.msg is not None:
+            if isinstance(record.msg, str):
+                record.msg = redact_text(record.msg)
+            elif isinstance(record.msg, (dict, list, tuple)):
+                record.msg = _sanitize_obj(record.msg)
+            else:
+                record.msg = redact_text(str(record.msg))
         if record.args:
             record.args = _sanitize_obj(record.args)
         if record.exc_info and not record.exc_text:

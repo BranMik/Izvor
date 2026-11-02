@@ -215,34 +215,70 @@ async def download_slack_file(file_info: dict[str, Any], max_chars: int = 50000)
         download_timeout = 30.0
 
     try:
-        async with httpx.AsyncClient(timeout=download_timeout, follow_redirects=True) as client:
-            async with client.stream("GET", url, headers=headers) as resp:
-                if resp.status_code != 200:
-                    return {
-                        "ok": False,
-                        "file_name": file_name,
-                        "content": "",
-                        "truncated": False,
-                        "size": file_size,
-                        "error": f"Slack file download failed with HTTP status {resp.status_code}",
-                    }
+        current_dl_url = url
+        dl_redirect_count = 0
+        max_dl_redirects = 5
+        raw_bytes = b""
+        async with httpx.AsyncClient(timeout=download_timeout, follow_redirects=False) as client:
+            while True:
+                async with client.stream("GET", current_dl_url, headers=headers) as resp:
+                    if (300 <= resp.status_code < 400) and resp.headers.get("location"):
+                        dl_redirect_count += 1
+                        if dl_redirect_count > max_dl_redirects:
+                            return {
+                                "ok": False,
+                                "file_name": file_name,
+                                "content": "",
+                                "truncated": False,
+                                "size": file_size,
+                                "error": f"Security violation: Exceeded maximum allowed redirects ({max_dl_redirects}) on Slack file download.",
+                            }
+                        loc = resp.headers.get("location", "")
+                        next_dl_url = urllib.parse.urljoin(current_dl_url, loc)
+                        from services.web_tools import validate_url_security
+                        is_safe_dl, _, dl_err, _ = validate_url_security(next_dl_url)
+                        if not is_safe_dl:
+                            logger.warning(
+                                f"[SLACK FILE] Blocked redirect to unsafe URL '{next_dl_url}': {dl_err}"
+                            )
+                            return {
+                                "ok": False,
+                                "file_name": file_name,
+                                "content": "",
+                                "truncated": False,
+                                "size": file_size,
+                                "error": f"Security violation on redirect: {dl_err}",
+                            }
+                        current_dl_url = next_dl_url
+                        continue
 
-                chunks = []
-                total_bytes = 0
-                async for chunk in resp.aiter_bytes(chunk_size=65536):
-                    total_bytes += len(chunk)
-                    if total_bytes > max_size_bytes:
+                    if resp.status_code != 200:
                         return {
                             "ok": False,
                             "file_name": file_name,
                             "content": "",
                             "truncated": False,
-                            "size": total_bytes,
-                            "error": f"File '{file_name}' ({total_bytes} bytes) exceeds maximum allowed size of {max_size_mb:.1f} MB.",
+                            "size": file_size,
+                            "error": f"Slack file download failed with HTTP status {resp.status_code}",
                         }
-                    chunks.append(chunk)
 
-                raw_bytes = b"".join(chunks)
+                    chunks = []
+                    total_bytes = 0
+                    async for chunk in resp.aiter_bytes(chunk_size=65536):
+                        total_bytes += len(chunk)
+                        if total_bytes > max_size_bytes:
+                            return {
+                                "ok": False,
+                                "file_name": file_name,
+                                "content": "",
+                                "truncated": False,
+                                "size": total_bytes,
+                                "error": f"File '{file_name}' ({total_bytes} bytes) exceeds maximum allowed size of {max_size_mb:.1f} MB.",
+                            }
+                        chunks.append(chunk)
+
+                    raw_bytes = b"".join(chunks)
+                    break
 
             # Cache local copy to workspace safely
             try:
@@ -336,6 +372,16 @@ async def upload_text_file_to_slack(
     Uploads a plain text file directly to a Slack channel or DM.
     Uses modern files_upload_v2.
     """
+    from services.security import scan_output_for_secrets
+
+    matched_rule = scan_output_for_secrets(content, user_id="file_uploader")
+    if matched_rule:
+        logger.warning(f"[SECURITY] File upload '{filename}' blocked by DLP rule: {matched_rule}")
+        return {
+            "ok": False,
+            "error": f"Security violation: File content matches restricted DLP pattern '{matched_rule}'.",
+        }
+
     bot_token = get_slack_bot_token()
     if (
         not bot_token

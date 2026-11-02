@@ -150,13 +150,13 @@ ACTION_REGISTRY: dict[str, ActionSpec] = {
     ),
     "select_workflow_preset": ActionSpec(
         handler=_handle_select_workflow_preset,
-        admin_required=False,
+        admin_required=True,
         audit_action="WORKFLOW_PRESET_SELECTED",
         publish_home=True,
     ),
     "load_workflow_preset_button": ActionSpec(
         handler=_handle_load_workflow_preset_button,
-        admin_required=False,
+        admin_required=True,
         audit_action="WORKFLOW_PRESET_SELECTED",
         publish_home=True,
     ),

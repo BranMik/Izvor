@@ -86,12 +86,15 @@ def _record_auth_failure_audit(client_id: str) -> None:
                 _auth_failure_tracker.pop(k, None)
 
         # Cap tracker capacity
+        evicted_summaries: list[tuple[str, int]] = []
         while len(_auth_failure_tracker) >= max_entries and client_id not in _auth_failure_tracker:
             oldest_key = min(
                 _auth_failure_tracker.keys(),
                 key=lambda k: _auth_failure_tracker[k].get("window_start", 0.0),
             )
-            _auth_failure_tracker.pop(oldest_key, None)
+            old_val = _auth_failure_tracker.pop(oldest_key, None)
+            if old_val and old_val.get("suppressed_count", 0) > 0:
+                evicted_summaries.append((oldest_key, old_val["suppressed_count"]))
 
         state = _auth_failure_tracker.get(client_id)
         if not state or (now - state["window_start"]) >= window_secs:
@@ -118,6 +121,21 @@ def _record_auth_failure_audit(client_id: str) -> None:
 
     try:
         from services.audit_logger import log_audit_event
+
+        for ev_id, ev_count in evicted_summaries:
+            log_audit_event(
+                event_type="AUTH_FAILURE",
+                actor={"type": "slack_webhook", "id": ev_id},
+                action="verify_slack_signature",
+                target="/slack/*",
+                details={
+                    "reason": "HMAC signature mismatch (cache eviction summary)",
+                    "suppressed_attempts_count": ev_count,
+                    "evicted_from_cache": True,
+                },
+                severity="WARNING",
+                status="FAILED",
+            )
 
         if summary_to_log:
             log_audit_event(

@@ -37,12 +37,13 @@ class SpendGovernance:
 
     def _check_daily_rollover(self) -> None:
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        if self._daily_spend_date != today:
-            logger.info(
-                f"[SPEND GOVERNANCE] New day rollover ({today} vs {self._daily_spend_date}). Resetting daily spend cache."
-            )
-            self._daily_spend_date = today
-            self._daily_spend_usd = 0.0
+        with self._lock:
+            if self._daily_spend_date != today:
+                logger.info(
+                    f"[SPEND GOVERNANCE] New day rollover ({today} vs {self._daily_spend_date}). Resetting daily spend cache."
+                )
+                self._daily_spend_date = today
+                self._daily_spend_usd = 0.0
 
     def record_usage(
         self,
@@ -52,16 +53,6 @@ class SpendGovernance:
         completion_tokens: int = 0,
     ) -> None:
         """Records token usage for a model within a session, accumulates daily spend, and writes to SQLite ledger."""
-        if session_id not in self._session_tokens:
-            self._session_tokens[session_id] = {}
-        if model_name not in self._session_tokens[session_id]:
-            self._session_tokens[session_id][model_name] = {"prompt": 0, "completion": 0}
-
-        self._session_tokens[session_id][model_name]["prompt"] += prompt_tokens
-        self._session_tokens[session_id][model_name]["completion"] += completion_tokens
-
-        # Accumulate incremental daily spend
-        self._check_daily_rollover()
         pricing = get_model_pricing(model_name)
         p_rate = (
             pricing.input_price_per_1m
@@ -74,7 +65,22 @@ class SpendGovernance:
             else pricing.get("output_price_per_1m", 0.0)
         )
         delta_cost = (prompt_tokens * p_rate + completion_tokens * c_rate) / 1_000_000.0
-        self._daily_spend_usd += delta_cost
+
+        with self._lock:
+            if session_id not in self._session_tokens:
+                self._session_tokens[session_id] = {}
+            if model_name not in self._session_tokens[session_id]:
+                self._session_tokens[session_id][model_name] = {"prompt": 0, "completion": 0}
+
+            self._session_tokens[session_id][model_name]["prompt"] += prompt_tokens
+            self._session_tokens[session_id][model_name]["completion"] += completion_tokens
+
+            # Accumulate incremental daily spend
+            today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            if self._daily_spend_date != today:
+                self._daily_spend_date = today
+                self._daily_spend_usd = 0.0
+            self._daily_spend_usd += delta_cost
 
         # Persist to SQLite spend_ledger
         channel_id, thread_ts = _parse_session_id(session_id)
@@ -114,15 +120,14 @@ class SpendGovernance:
     def reset_daily_spend(self) -> None:
         """Manually resets the daily spend ledger."""
         now = datetime.now(timezone.utc)
-        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+        with self._lock:
+            try:
+                self._daily_reset_offset_ts = now.timestamp()
+            except Exception as e:  # noqa: BLE001
+                logger.error(f"[SPEND GOVERNANCE] Failed resetting daily spend in SQLite: {e}")
 
-        try:
-            self._daily_reset_offset_ts = now.timestamp()
-        except Exception as e:  # noqa: BLE001
-            logger.error(f"[SPEND GOVERNANCE] Failed resetting daily spend in SQLite: {e}")
-
-        self._daily_spend_usd = 0.0
-        self._daily_spend_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            self._daily_spend_usd = 0.0
+            self._daily_spend_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
     def calculate_spend(self, session_id: str) -> SpendMetrics:
         """
@@ -310,11 +315,13 @@ class SpendGovernance:
 
     def clear_session(self, session_id: str) -> None:
         """Clears in-memory active session cache for a completed session, preserving historical spend_ledger."""
-        self._session_tokens.pop(session_id, None)
+        with self._lock:
+            self._session_tokens.pop(session_id, None)
 
     def clear_all_sessions(self) -> None:
         """Clears in-memory session caches for all sessions, preserving historical spend_ledger."""
-        self._session_tokens.clear()
+        with self._lock:
+            self._session_tokens.clear()
 
 
 # Global default instance

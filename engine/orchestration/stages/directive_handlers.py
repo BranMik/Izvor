@@ -375,6 +375,21 @@ async def handle_slash_directives(
 
     is_admin = is_slack_admin(getattr(ctx, "user_id", None))
 
+    attempted_off = bool(
+        (ctx.modifiers or {}).get("max_words") == "off"
+        or (ctx.modifiers or {}).get("min_words") == "off"
+        or (ctx.modifiers or {}).get("scribe_max_words") == "off"
+        or (ctx.modifiers or {}).get("scribe_min_words") == "off"
+        or any(a.name == "exclude_agents" and a.params.get("off") for a in ctx.actions)
+        or any(a.name == "include_agents" and a.params.get("off") for a in ctx.actions)
+        or any(a.name in ("scribe_max_words", "scribe_min_words") and a.params.get("words") == "off" for a in ctx.actions)
+    )
+    if attempted_off and not is_admin:
+        logger.warning(f"[SECURITY] Non-admin '{ctx.user_id}' denied from turning off directives on {ctx.thread_key}")
+        msg = "⚠️ *Permission Denied*: Only Slack administrators are authorized to turn off safety or constraint directives."
+        await post_sys_msg(channel_id=ctx.channel_id, thread_ts=ctx.thread_ts, text=msg)
+        return {"ok": False, "halted": True, "error": "admin_required"}
+
     max_words_val = (ctx.modifiers or {}).get("max_words")
     if max_words_val == "off":
         if is_admin:

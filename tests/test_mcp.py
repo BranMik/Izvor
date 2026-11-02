@@ -8,21 +8,21 @@ def test_mcp_write_and_read():
     rel_path = "tests/scratch_test.txt"
     content = "Hello from Native MCP Test!"
 
-    write_res = write_document(rel_path, content)
+    write_res = write_document(rel_path, content, principal=SYSTEM_PRINCIPAL)
     assert "success" in write_res
 
-    read_res = read_document(rel_path)
+    read_res = read_document(rel_path, principal=SYSTEM_PRINCIPAL)
     res_json = json.loads(read_res)
     assert res_json.get("content") == content
 
 def test_mcp_list_directory():
-    list_res = list_documents(".")
+    list_res = list_documents(".", principal=SYSTEM_PRINCIPAL)
     res_json = json.loads(list_res)
     assert "contents" in res_json
     assert isinstance(res_json["contents"], list)
 
 def test_mcp_directory_traversal_prevention():
-    read_res = read_document("../../windows/system32/cmd.exe")
+    read_res = read_document("../../windows/system32/cmd.exe", principal=SYSTEM_PRINCIPAL)
     res_json = json.loads(read_res)
     assert "error" in res_json
     assert "Access denied" in res_json["error"] or "does not exist" in res_json["error"]
@@ -34,12 +34,12 @@ def test_mcp_document_write_and_read():
     rel_path = "scratch_doc.txt"
     content = "Hello from Sandboxed Resource Document!"
 
-    write_res = write_document(rel_path, content)
+    write_res = write_document(rel_path, content, principal=SYSTEM_PRINCIPAL)
     write_json = json.loads(write_res)
     assert write_json.get("success") is True
     assert write_json.get("document") == rel_path
 
-    read_res = read_document(rel_path)
+    read_res = read_document(rel_path, principal=SYSTEM_PRINCIPAL)
     res_json = json.loads(read_res)
     assert res_json.get("content") == content
     assert res_json.get("document") == rel_path
@@ -48,7 +48,7 @@ def test_mcp_document_write_and_read():
 def test_mcp_list_documents():
     from services.mcp_tools import list_documents
 
-    list_res = list_documents(".")
+    list_res = list_documents(".", principal=SYSTEM_PRINCIPAL)
     res_json = json.loads(list_res)
     assert "contents" in res_json
     assert isinstance(res_json["contents"], list)
@@ -60,13 +60,13 @@ def test_mcp_document_traversal_prevention():
     from services.mcp_tools import read_document, write_document
 
     # Attempt to read outside agents_resources/
-    read_res = read_document("../main.py")
+    read_res = read_document("../main.py", principal=SYSTEM_PRINCIPAL)
     res_json = json.loads(read_res)
     assert "error" in res_json
     assert "Access denied" in res_json["error"]
 
     # Attempt to write outside agents_resources/
-    write_res = write_document("../leak.txt", "danger")
+    write_res = write_document("../leak.txt", "danger", principal=SYSTEM_PRINCIPAL)
     write_json = json.loads(write_res)
     assert "error" in write_json
     assert "Access denied" in write_json["error"]
@@ -118,7 +118,7 @@ def test_mcp_read_pdf_document():
 
     try:
         # Test real PDF reading with blank pages
-        res = read_document(pdf_filename)
+        res = read_document(pdf_filename, principal=SYSTEM_PRINCIPAL)
         data = json.loads(res)
         assert data.get("document") == pdf_filename
         assert data.get("pages") == 2
@@ -134,7 +134,7 @@ def test_mcp_read_pdf_document():
         mock_reader.pages = [mock_page1, mock_page2]
 
         with patch("pypdf.PdfReader", return_value=mock_reader):
-            res_mocked = read_document(pdf_filename)
+            res_mocked = read_document(pdf_filename, principal=SYSTEM_PRINCIPAL)
             data_mocked = json.loads(res_mocked)
             assert data_mocked.get("pages") == 2
             assert "Quarterly Financial Analysis" in data_mocked["content"]
@@ -151,7 +151,7 @@ def test_mcp_read_pdf_corrupted():
     bad_pdf.write_bytes(b"not a valid pdf data stream")
 
     try:
-        res = read_document("corrupt.pdf")
+        res = read_document("corrupt.pdf", principal=SYSTEM_PRINCIPAL)
         data = json.loads(res)
         assert "error" in data
         assert "Failed to parse PDF" in data["error"]
@@ -190,16 +190,16 @@ def test_mcp_read_document_exact_path_and_no_fuzzy_subdirectory_fallback():
 
     try:
         # 1. Search without folder path must fail (fuzzy fallback removed for TKT-913)
-        res1 = json.loads(read_document("Nested_Report.txt"))
+        res1 = json.loads(read_document("Nested_Report.txt", principal=SYSTEM_PRINCIPAL))
         assert "error" in res1
         assert "does not exist in agents_resources" in res1["error"]
 
         # 2. Exact relative path with subfolder must succeed
-        res2 = json.loads(read_document("subfolder/Nested_Report.txt"))
+        res2 = json.loads(read_document("subfolder/Nested_Report.txt", principal=SYSTEM_PRINCIPAL))
         assert "Found nested document content" in res2.get("content", "")
 
         # 3. Read with 'agents_resources/' prefix and subfolder must succeed
-        res3 = json.loads(read_document("agents_resources/subfolder/Nested_Report.txt"))
+        res3 = json.loads(read_document("agents_resources/subfolder/Nested_Report.txt", principal=SYSTEM_PRINCIPAL))
         assert "Found nested document content" in res3.get("content", "")
     finally:
         if nested_file.exists():
@@ -216,7 +216,7 @@ def test_mcp_read_file_fallback_to_resources():
 
     try:
         # read_document should find resource_only.txt via fallback
-        res = json.loads(read_document("resource_only.txt"))
+        res = json.loads(read_document("resource_only.txt", principal=SYSTEM_PRINCIPAL))
         assert "content" in res
         assert "Hello from resources folder fallback" in res["content"]
     finally:
@@ -230,7 +230,7 @@ def test_mcp_write_document_normalizes_resources_prefix():
     test_file = AGENTS_RESOURCES_DIR / "normalized_write.txt"
     try:
         # Write specifying "agents_resources/normalized_write.txt"
-        res = json.loads(write_document("agents_resources/normalized_write.txt", "Content via resources prefix"))
+        res = json.loads(write_document("agents_resources/normalized_write.txt", "Content via resources prefix", principal=SYSTEM_PRINCIPAL))
         assert res.get("success") is True
         assert test_file.exists()
         assert test_file.read_text(encoding="utf-8") == "Content via resources prefix"
@@ -254,7 +254,7 @@ def test_mcp_write_file_blocks_protected_default_files():
         "data/state/app_settings.json",
     ]
     for target in targets:
-        res = json.loads(write_document(target, "malicious_overwrite_attempt"))
+        res = json.loads(write_document(target, "malicious_overwrite_attempt", principal=SYSTEM_PRINCIPAL))
         assert "error" in res, f"Expected error when writing to {target}"
         assert "Permission denied: Writing to protected path" in res["error"]
 
@@ -270,17 +270,17 @@ def test_mcp_write_file_blocks_custom_blacklist(monkeypatch, tmp_path):
     )
 
     # 1. Blocked custom paths
-    res1 = json.loads(write_document("custom_blocked_dir/sample.txt", "content"))
+    res1 = json.loads(write_document("custom_blocked_dir/sample.txt", "content", principal=SYSTEM_PRINCIPAL))
     assert "error" in res1
     assert "Permission denied: Writing to protected path" in res1["error"]
 
-    res2 = json.loads(write_document("blacklisted.txt", "content"))
+    res2 = json.loads(write_document("blacklisted.txt", "content", principal=SYSTEM_PRINCIPAL))
     assert "error" in res2
     assert "Permission denied: Writing to protected path" in res2["error"]
 
     # 2. Allowed normal path
     allowed_file = "tests/test_write_allowed.tmp"
-    res3 = json.loads(write_document(allowed_file, "valid content"))
+    res3 = json.loads(write_document(allowed_file, "valid content", principal=SYSTEM_PRINCIPAL))
     assert res3.get("success") is True
     from services.mcp_tools import WORKSPACE_DIR
     p = WORKSPACE_DIR / allowed_file
@@ -298,7 +298,7 @@ def test_mcp_write_document_blocks_blacklisted_path(monkeypatch):
         lambda: ["agents_resources/secret_doc.txt"],
     )
 
-    res = json.loads(write_document("secret_doc.txt", "confidential"))
+    res = json.loads(write_document("secret_doc.txt", "confidential", principal=SYSTEM_PRINCIPAL))
     assert "error" in res
     assert "Permission denied: Writing to protected path" in res["error"]
 
@@ -388,11 +388,11 @@ def test_mcp_system_resources_boundary_enforcement():
     from services.mcp_tools import read_document, write_document
 
     # Attempt to read inside system_resources via relative path traversal
-    res_read = json.loads(read_document("../system_resources/agy/README.md"))
+    res_read = json.loads(read_document("../system_resources/agy/README.md", principal=SYSTEM_PRINCIPAL))
     assert "error" in res_read
     assert "Access denied" in res_read["error"]
 
     # Attempt to write inside system_resources via relative path traversal
-    res_write = json.loads(write_document("../system_resources/tamper.txt", "evil"))
+    res_write = json.loads(write_document("../system_resources/tamper.txt", "evil", principal=SYSTEM_PRINCIPAL))
     assert "error" in res_write
     assert "Permission denied" in res_write["error"] or "Access denied" in res_write["error"]

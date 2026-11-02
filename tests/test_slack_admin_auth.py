@@ -228,8 +228,8 @@ def test_workflow_delete_non_admin_expired_trigger_id_fallback_dm(monkeypatch):
     mock_publish_home.assert_called_once_with(user_id="U0123456789")
 
 
-def test_workflow_dropdown_non_admin_allowed(monkeypatch):
-    """Test that non-admin users CAN select workflow presets without admin rejection."""
+def test_workflow_dropdown_admin_rbac(monkeypatch):
+    """Test that workflow preset selection requires admin permissions (S-08)."""
     from orchestration.agent_settings import get_active_workflow_id
 
     monkeypatch.setenv("SLACK_ADMIN_USER_IDS", "U_LEGIT_ADMIN")
@@ -238,7 +238,7 @@ def test_workflow_dropdown_non_admin_allowed(monkeypatch):
     monkeypatch.setattr("services.slack.views.publish_app_home", mock_publish_home)
     monkeypatch.setattr("adapters.slack.interactivity.publish_app_home", mock_publish_home)
 
-    wf_payload = {
+    wf_payload_non_admin = {
         "type": "block_actions",
         "user": {"id": "U_REGULAR_USER"},
         "actions": [
@@ -246,13 +246,31 @@ def test_workflow_dropdown_non_admin_allowed(monkeypatch):
                 "action_id": "select_workflow_preset",
                 "selected_option": {
                     "value": "wf:default_sandwich",
-                    "text": {"type": "plain_text", "text": "🥪 Default Sandwich"},
+                    "text": {"type": "plain_text", "text": "\U0001f96a Default Sandwich"},
                 },
             }
         ],
     }
-    resp = client.post("/slack/actions", json=wf_payload)
-    assert resp.status_code == 200
+    # Non-admin is blocked with 403 Forbidden
+    resp = client.post("/slack/actions", json=wf_payload_non_admin)
+    assert resp.status_code == 403
+
+    # Admin user succeeds with 200 OK
+    wf_payload_admin = {
+        "type": "block_actions",
+        "user": {"id": "U_LEGIT_ADMIN"},
+        "actions": [
+            {
+                "action_id": "select_workflow_preset",
+                "selected_option": {
+                    "value": "wf:default_sandwich",
+                    "text": {"type": "plain_text", "text": "\U0001f96a Default Sandwich"},
+                },
+            }
+        ],
+    }
+    resp_admin = client.post("/slack/actions", json=wf_payload_admin)
+    assert resp_admin.status_code == 200
     assert get_active_workflow_id() == "default_sandwich"
 
     # Verify audit event emitted with actor type slack_user
@@ -260,10 +278,10 @@ def test_workflow_dropdown_non_admin_allowed(monkeypatch):
     mutation_events = [
         e for e in trail
         if e.get("event_type") == "WORKFLOW_PRESET_MUTATION"
-        and e.get("actor", {}).get("id") == "U_REGULAR_USER"
+        and e.get("actor", {}).get("id") == "U_LEGIT_ADMIN"
     ]
     assert len(mutation_events) > 0
-    assert mutation_events[-1]["actor"]["type"] == "slack_user"
+    assert mutation_events[-1]["actor"]["type"] == "slack_admin"
     assert mutation_events[-1]["severity"] == "INFO" 
 
 

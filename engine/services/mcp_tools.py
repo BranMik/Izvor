@@ -112,14 +112,17 @@ def list_documents(
 ) -> str:
     """
     Lists the contents of a directory inside the agents_resources/ directory.
-    Enforces principal authorization when principal is supplied.
+    Enforces principal authorization (fails closed if principal is missing).
     """
-    if principal is not None:
-        if not is_agent_authorized_for_tool(principal, "list_documents"):
-            actor_id = principal.id if hasattr(principal, "id") else str(principal)
-            return json.dumps({
-                "error": f"Permission denied: Principal '{actor_id}' is not authorized to list documents."
-            })
+    if principal is None:
+        return json.dumps({
+            "error": "Permission denied: Principal identity is required to list documents."
+        })
+    if not is_agent_authorized_for_tool(principal, "list_documents"):
+        actor_id = principal.id if hasattr(principal, "id") else str(principal)
+        return json.dumps({
+            "error": f"Permission denied: Principal '{actor_id}' is not authorized to list documents."
+        })
 
     try:
         path = _resolve_resource_path(rel_path)
@@ -156,22 +159,25 @@ def read_document(
     """
     Reads the content of a text or PDF document inside the agents_resources/ directory.
     agents_resources/ is the default working and search directory even if omitted in rel_path.
-    Enforces principal authorization and per-file ACL checks if provided.
+    Enforces principal authorization and per-file ACL checks (fails closed if principal is missing).
     """
-    if principal is not None:
-        if not is_agent_authorized_for_tool(principal, "read_document"):
-            actor_id = principal.id if hasattr(principal, "id") else str(principal)
-            return json.dumps({
-                "error": f"Permission denied: Principal '{actor_id}' is not authorized to read documents."
-            })
+    if principal is None:
+        return json.dumps({
+            "error": "Permission denied: Principal identity is required to read documents."
+        })
+    if not is_agent_authorized_for_tool(principal, "read_document"):
+        actor_id = principal.id if hasattr(principal, "id") else str(principal)
+        return json.dumps({
+            "error": f"Permission denied: Principal '{actor_id}' is not authorized to read documents."
+        })
 
-        if authorized_agents is not None:
-            actor_id = principal.id if hasattr(principal, "id") else str(principal)
-            actor_kind = getattr(principal, "kind", "agent")
-            if actor_kind != "system" and actor_id != "system" and actor_id not in authorized_agents:
-                return json.dumps({
-                    "error": f"Permission denied: Agent '{actor_id}' is not authorized to access document '{rel_path}'."
-                })
+    if authorized_agents is not None:
+        actor_id = principal.id if hasattr(principal, "id") else str(principal)
+        actor_kind = getattr(principal, "kind", "agent")
+        if actor_kind != "system" and actor_id != "system" and actor_id not in authorized_agents:
+            return json.dumps({
+                "error": f"Permission denied: Agent '{actor_id}' is not authorized to access document '{rel_path}'."
+            })
 
     from orchestration.system_settings import (
         get_max_file_size_bytes,
@@ -235,10 +241,28 @@ def read_document(
         return json.dumps({"error": f"Operating system error reading document '{rel_path}': {e}"})
 
 
-def write_document(rel_path: str, content: str) -> str:
+def write_document(
+    rel_path: str,
+    content: str,
+    principal: ToolPrincipal | str | None = None,
+) -> str:
     """
     Writes or overwrites content to a text document inside the agents_resources/ directory.
+    Enforces principal authorization and write boundaries (fails closed if principal is missing).
     """
+    if principal is None:
+        return json.dumps({
+            "error": "Permission denied: Principal identity is required to write documents."
+        })
+    if not is_agent_authorized_for_tool(principal, "write_document"):
+        actor_id = principal.id if hasattr(principal, "id") else str(principal)
+        return json.dumps({
+            "error": f"Permission denied: Principal '{actor_id}' is not authorized to write documents."
+        })
+
+    actor_id = principal.id if hasattr(principal, "id") else str(principal)
+    actor_kind = getattr(principal, "kind", "agent")
+
     try:
         from orchestration.system_settings import (
             get_max_write_bytes,
@@ -252,7 +276,7 @@ def write_document(rel_path: str, content: str) -> str:
 
             log_audit_event(
                 event_type="FILE_WRITE_BLOCKED",
-                actor={"type": "agent_tool", "id": "write_document"},
+                actor={"type": actor_kind, "id": actor_id},
                 action="write_document",
                 target=rel_path,
                 details={"reason": f"Content size ({content_bytes} bytes) exceeds maximum permitted limit ({max_bytes} bytes)"},
@@ -264,12 +288,17 @@ def write_document(rel_path: str, content: str) -> str:
             })
 
         path = _resolve_resource_path(rel_path)
+        if not path.is_relative_to(AGENTS_RESOURCES_DIR):
+            raise PermissionError(
+                f"Access denied: Write path '{rel_path}' resolves outside agents_resources directory '{AGENTS_RESOURCES_DIR}'."
+            )
+
         if is_path_write_blocked(path, base_dir=WORKSPACE_DIR) or is_path_write_blocked(rel_path, base_dir=WORKSPACE_DIR):
             from services.audit_logger import log_audit_event
 
             log_audit_event(
                 event_type="FILE_WRITE_BLOCKED",
-                actor={"type": "agent_tool", "id": "write_document"},
+                actor={"type": actor_kind, "id": actor_id},
                 action="write_document",
                 target=rel_path,
                 details={"resolved_path": str(path.relative_to(WORKSPACE_DIR).as_posix()), "reason": "Path is protected in system settings"},
@@ -286,7 +315,7 @@ def write_document(rel_path: str, content: str) -> str:
 
         log_audit_event(
             event_type="TOOL_EXECUTE_FILE_WRITE",
-            actor={"type": "agent_tool", "id": "write_document"},
+            actor={"type": actor_kind, "id": actor_id},
             action="write_document",
             target=rel_path,
             details={"bytes_written": bytes_written},
@@ -422,8 +451,8 @@ MCP_TOOLS_SCHEMAS = [
 
 TOOL_DISPATCHER: dict[str, Any] = {
     "list_documents": lambda args, **kw: list_documents(args.get("rel_path", "."), principal=kw.get("principal")),
-    "read_document": lambda args, **kw: read_document(args.get("rel_path", ""), principal=kw.get("principal")),
-    "write_document": lambda args, **kw: write_document(args.get("rel_path", ""), args.get("content", "")),
+    "read_document": lambda args, **kw: read_document(args.get("rel_path", ""), principal=kw.get("principal"), authorized_agents=kw.get("authorized_agents")),
+    "write_document": lambda args, **kw: write_document(args.get("rel_path", ""), args.get("content", ""), principal=kw.get("principal")),
     "web_search": lambda args, **kw: web_search(query=args.get("query", ""), max_results=args.get("max_results", 5)),
     "fetch_web_page": lambda args, **kw: fetch_web_page(url=args.get("url", ""), max_chars=args.get("max_chars", 4000)),
 }
