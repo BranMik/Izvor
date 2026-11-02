@@ -151,7 +151,7 @@ System operational parameters, security guardrails, and timeouts are managed by 
 | `pricing_benchmark_url` | `"https://artificialanalysis.ai/models"` | Endpoint for remote LLM token pricing benchmarks. |
 | `web_search_endpoint` | `"https://html.duckduckgo.com/html/"` | Target endpoint for outbound web searches. |
 | `web_fetch_user_agent` | Izvor Bot string | HTTP `User-Agent` header for outbound web fetching. |
-| `web_security` | `{...}` | Outbound web safety rules (`max_url_length: 2048`, `max_query_length: 500`, `max_redirects: 5`, `max_body_bytes: 2097152`, `allowed_ports: [80, 443]`, `allowed_domains: []`, `strip_query_on_untrusted_domains: true`, `max_fetches_per_turn: 10`). |
+| `web_security` | `{...}` | Outbound web safety rules (`max_url_length: 2048`, `max_query_length: 1024`, `max_redirects: 5`, `max_body_bytes: 2097152`, `allowed_ports: [80, 443]`, `allowed_domains: []`, `strip_query_on_untrusted_domains: true`, `max_fetches_per_turn: 10`). |
 | `security_burst_limits` | `{...}` | Sliding-window rate limiters for failed authentication (`auth_failure_window_seconds: 60.0`, `auth_failure_burst_limit: 5`, `global_auth_failure_burst_limit: 25`, `max_tracker_entries: 1000`). |
 | `convergence_consecutive_threshold` | `2` | Number of consecutive `signal_consensus_convergence` calls required before triggering the Challenger/Rebuttal fast-forward gate. |
 | `dialectical_stress_test` | `{...}` | Dialectical stress-test parameters (`enabled: true`, `consecutive_threshold: 2`, `max_stress_rounds: 1`). |

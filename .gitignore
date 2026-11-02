@@ -4,28 +4,16 @@
 *.pem
 *.key
 *.pdf
-rag_knowledge/*
+
+# RAG Knowledge Base (runtime content ignored except defaults)
 config/rag_knowledge/*
-deprecated/*
-[Ii]zvor-app/*
-!rag_knowledge/agent-10008/
-!rag_knowledge/shared/
 !config/rag_knowledge/agent-10008/
 !config/rag_knowledge/shared/
-
-rag_knowledge/agent-10008/*
-rag_knowledge/shared/*
 config/rag_knowledge/agent-10008/*
 config/rag_knowledge/shared/*
-
-!rag_knowledge/agent-10008/security_policy.md
-!rag_knowledge/shared/system_overview.md
-!rag_knowledge/shared/rag_instructions.md
 !config/rag_knowledge/agent-10008/security_policy.md
 !config/rag_knowledge/shared/system_overview.md
 !config/rag_knowledge/shared/rag_instructions.md
-
-/static_backup
 
 # Python
 __pycache__/
@@ -37,7 +25,6 @@ env/
 build/
 develop-eggs/
 dist/
-downloads/
 eggs/
 .eggs/
 lib/
@@ -52,12 +39,19 @@ wheels/
 venv/
 .venv/
 ENV/
-flat-histories/*
+
+# Data & Downloads
+data/downloads/*
+!data/downloads/.gitkeep
 data/flat-histories/*
 !data/flat-histories/.gitkeep
+
+# Resources sandboxes
 system_resources/*
 agents_resources/*
 !system_resources/.gitkeep
+!system_resources/agy/.gitkeep
+!system_resources/agy/auto/.gitkeep
 !agents_resources/.gitkeep
 e2e_testing_harness/.test_run_counter
 
@@ -74,8 +68,6 @@ Thumbs.db
 
 # Runtime cache and usage storage
 data/thread_usage_data.json
-data/thread/thread_usage_data.json
-data/model_pricing_cache.json
 data/pricing/model_pricing_cache.json
 data/state/*
 !data/state/app_settings.json
@@ -85,19 +77,12 @@ data/*.db*
 *.db
 *.db-wal
 *.db-shm
-thread_usage_data.json
-model_pricing_cache.json
 *.migrated
 
 # Audit logs (runtime files preserved locally, not tracked in git)
-audit/*
-!audit/.gitkeep
 data/audit/*
 !data/audit/.gitkeep
 
 # Temporary commit message files
 .commit_msg*
 commit_msg_*.txt
-*scratch_test*
-tests/scratch_*
-

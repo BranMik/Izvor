@@ -77,12 +77,12 @@ This document provides a complete reference guide for all **21 built-in skills a
 
 ### `first`
 - **Location**: [`skills/first/SKILL.md`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/skills/builtin/first/SKILL.md)
-- **Trigger**: `/first <Agent>` or `[first: <Agent>]`
+- **Trigger**: `/first <Agent>`
 - **Description**: Sets the specified agent as the initial speaker to start the panel discussion, after which the debate continues in its normal workflow chain order.
 
 ### `open_debate`
 - **Location**: [`skills/open_debate/SKILL.md`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/skills/builtin/open_debate/SKILL.md)
-- **Triggers**: `/open_debate <Agent>`, `/open-debate <Agent>`, `/opendebate <Agent>`, or `[open_debate: <Agent>]`
+- **Triggers**: `/open_debate <Agent>`, `/open-debate <Agent>`, or `/opendebate <Agent>`
 - **Description**: Designates the specified agent as the opening speaker and bypasses fixed start/end workflow chains. All agents participate in an open dynamic debate (up to 3 rounds) where each speaker nominates the next peer.
 
 ### `grant_skill`, `grant_skill_for_all`, `revoke_skill_for_all` & `revoke_constraint`

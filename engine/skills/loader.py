@@ -552,7 +552,7 @@ class SkillRegistry:
             lines.append("")
 
         lines.append(
-            "_Note: Agents are strictly limited to their assigned permissions and cannot execute unauthorized skills, unless /grant_skill_for_all instructions was given in a thread._"
+            "_Note: Agents are strictly limited to their assigned permissions and cannot execute unauthorized skills, unless /grant_skill_for_all instruction was given in a thread._"
         )
         return "\n".join(lines)
 

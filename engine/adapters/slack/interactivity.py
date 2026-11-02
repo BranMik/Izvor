@@ -353,9 +353,6 @@ async def handle_slack_interactivity(request: Request, background_tasks: Backgro
         except (json.JSONDecodeError, ValueError) as e:
             logger.error(f"Failed to parse interactivity payload: {e}")
             raise HTTPException(status_code=400, detail="Invalid payload") from e
-        except Exception as e:
-            logger.error(f"Failed to parse interactivity payload: {e}")
-            raise HTTPException(status_code=400, detail="Invalid payload") from e
 
     payload_type = payload.get("type")
     if payload_type == "block_actions":
@@ -421,7 +418,7 @@ async def handle_slack_interactivity(request: Request, background_tasks: Backgro
                         action=action.get("action_id", "unknown_action"),
                         target="slack_app_home",
                         details={"action": action.get("action_id"), "error": str(e)},
-                        severity="ERROR",
+                        severity="WARNING",
                         status="FAILURE",
                     )
                 raise

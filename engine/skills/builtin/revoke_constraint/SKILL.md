@@ -16,4 +16,4 @@ requires_human_ITL: false
 
 ### REVOKE CONSTRAINT
 Revokes a specific active thread constraint or all constraints.
-Usage: `/revoke_constraint [max_words | min_words | scribe_max_words | scribe_min_words | exclude | include | language | all]`
+Usage: `/revoke_constraint [max_words | min_words | scribe_max_words | scribe_min_words | exclude | include | language | modifiers | all]`
