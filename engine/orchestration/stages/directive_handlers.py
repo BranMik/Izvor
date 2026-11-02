@@ -124,6 +124,7 @@ async def handle_slash_directives(
         from orchestration.app_settings import app_settings_manager
         from orchestration.thread_skills_manager import thread_skills_manager
         from core.registry import get_skill_registry
+
         skill_registry = get_skill_registry()
 
         requested_skills = grant_act.params.get("skills", [])
@@ -139,12 +140,12 @@ async def handle_slash_directives(
             lines = []
             if invalid_skills:
                 avail = ", ".join(f"`{s}`" for s in sorted(known_agent_skills))
-                lines.append(f"⚠️ *Unknown or non-agent skill(s)*: {', '.join(f'`{s}`' for s in invalid_skills)}.\n_Available agent skills: {avail}_")
+                lines.append(
+                    f"⚠️ *Unknown or non-agent skill(s)*: {', '.join(f'`{s}`' for s in invalid_skills)}.\n_Available agent skills: {avail}_"
+                )
 
             if valid_skills:
-                active_skills, _exp_ts = thread_skills_manager.grant_skills(
-                    ctx.channel_id, ctx.thread_ts, valid_skills
-                )
+                active_skills, _exp_ts = thread_skills_manager.grant_skills(ctx.channel_id, ctx.thread_ts, valid_skills)
                 ttl_hours = app_settings_manager.get_thread_skill_expiration_time()
                 skills_str = ", ".join(f"`{s}`" for s in valid_skills)
                 active_str = ", ".join(f"`{s}`" for s in active_skills)
@@ -175,6 +176,7 @@ async def handle_slash_directives(
         from orchestration.thread_skills_manager import thread_skills_manager
         from core.registry import get_skill_registry
         from pipeline.entity_resolver import entity_resolver
+
         skill_registry = get_skill_registry()
 
         requested_skill = grant_skill_act.params.get("skill")
@@ -224,9 +226,7 @@ async def handle_slash_directives(
         lines = []
         if not is_valid_skill:
             avail = ", ".join(f"`{s}`" for s in sorted(known_agent_skills))
-            lines.append(
-                f"⚠️ *Unknown or non-agent skill*: `{requested_skill}`.\n_Available agent skills: {avail}_"
-            )
+            lines.append(f"⚠️ *Unknown or non-agent skill*: `{requested_skill}`.\n_Available agent skills: {avail}_")
 
         if unresolved_agents:
             registered_agents = list(entity_resolver._get_agents_map().keys())
@@ -236,9 +236,7 @@ async def handle_slash_directives(
             )
 
         if is_valid_skill and resolved_agents:
-            thread_skills_manager.grant_agent_skills(
-                ctx.channel_id, ctx.thread_ts, requested_skill, resolved_agents
-            )
+            thread_skills_manager.grant_agent_skills(ctx.channel_id, ctx.thread_ts, requested_skill, resolved_agents)
             ttl_hours = app_settings_manager.get_thread_skill_expiration_time()
             agents_str = ", ".join(f"`{a}`" for a in resolved_agents)
             lines.append(
@@ -271,9 +269,7 @@ async def handle_slash_directives(
             await post_sys_msg(channel_id=ctx.channel_id, thread_ts=ctx.thread_ts, text=msg)
             return {"ok": True, "halted": True, "action": "revoke_skill_for_all"}
         else:
-            remaining = thread_skills_manager.revoke_skills(
-                ctx.channel_id, ctx.thread_ts, skills_to_revoke
-            )
+            remaining = thread_skills_manager.revoke_skills(ctx.channel_id, ctx.thread_ts, skills_to_revoke)
             if not remaining or any(s.lower() == "all" for s in skills_to_revoke):
                 msg = "🗑️ *Revoked all thread-global skills* for this thread."
             else:
@@ -284,10 +280,12 @@ async def handle_slash_directives(
 
     # Check if user prompt attempts to refer to an expired thread skill
     from orchestration.thread_skills_manager import thread_skills_manager
+
     expired_skills = thread_skills_manager.get_expired_skills(ctx.channel_id, ctx.thread_ts)
     if expired_skills and ctx.raw_text_cleaned:
         mentioned_expired = [
-            s for s in expired_skills
+            s
+            for s in expired_skills
             if s.lower() in ctx.raw_text_cleaned.lower() or s.replace("_", " ").lower() in ctx.raw_text_cleaned.lower()
         ]
         if mentioned_expired:
@@ -301,6 +299,7 @@ async def handle_slash_directives(
     # Execute any registered orchestrator action handlers
     try:
         from core.registry import get_skill_registry
+
         skill_registry = get_skill_registry()
         for act in ctx.actions:
             sk = skill_registry.get(act.name)
@@ -373,6 +372,7 @@ async def handle_slash_directives(
 
     # Update persistent word limits and off toggles
     from core.config import is_slack_admin
+
     is_admin = is_slack_admin(getattr(ctx, "user_id", None))
 
     max_words_val = (ctx.modifiers or {}).get("max_words")
@@ -445,11 +445,25 @@ async def handle_slash_directives(
     custom_mods = {
         k: v
         for k, v in (ctx.modifiers or {}).items()
-        if k not in ("max_words", "min_words", "history", "file_use", "target_file", "excluded_agents")
+        if k
+        not in (
+            "max_words",
+            "min_words",
+            "history",
+            "file_use",
+            "target_file",
+            "excluded_agents",
+            "scribe_max_words",
+            "scribe_min_words",
+            "language",
+        )
     }
     if custom_mods and not ctx.is_bot_trigger:
         existing_mods = thread_state_manager.get_format_modifiers(ctx.channel_id, ctx.thread_ts)
-        existing_mods.update(custom_mods)
+        if isinstance(existing_mods, dict):
+            existing_mods.update(custom_mods)
+        else:
+            existing_mods = dict(custom_mods)
         thread_state_manager.set_format_modifiers(ctx.channel_id, ctx.thread_ts, existing_mods)
 
     # If user message only contained directive toggles and no discussion prompt, halt cleanly

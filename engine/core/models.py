@@ -24,6 +24,13 @@ class OrchestrationMode(StrEnum):
             return cls.SANDWICH
 
 
+REQUIRED_DEFAULT_WORKFLOW_IDS: set[str] = {
+    "default_review_flow",
+    "default_sandwich",
+    "parallel_dialectic_flow",
+}
+
+
 class AgentSpecialRole(StrEnum):
     """Supported special roles for agents in dialectical stress test workflows."""
 
@@ -92,10 +99,12 @@ class MediaAttachment:
             "file_id": self.file_id,
             "name": self.name,
             "mimetype": self.mimetype,
-            "attachment_type": self.attachment_type.value if isinstance(self.attachment_type, AttachmentType) else str(self.attachment_type),
+            "attachment_type": self.attachment_type.value
+            if isinstance(self.attachment_type, AttachmentType)
+            else str(self.attachment_type),
             "size": self.size,
             "b64_data": self.b64_data,
-            "authorized_agents": list(self.authorized_agents) if self.authorized_agents else None,
+            "authorized_agents": list(self.authorized_agents) if self.authorized_agents is not None else None,
         }
 
     @classmethod
@@ -177,18 +186,12 @@ class ExtractedIntent:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "ExtractedIntent":
         raw_actions = data.get("actions") or []
-        actions = [
-            ActionDirective.from_dict(a) if isinstance(a, dict) else a
-            for a in raw_actions
-        ]
+        actions = [ActionDirective.from_dict(a) if isinstance(a, dict) else a for a in raw_actions]
 
         modifiers = dict(data.get("modifiers") or {})
 
         raw_attachments = data.get("attachments") or []
-        attachments = [
-            MediaAttachment.from_dict(att) if isinstance(att, dict) else att
-            for att in raw_attachments
-        ]
+        attachments = [MediaAttachment.from_dict(att) if isinstance(att, dict) else att for att in raw_attachments]
 
         return cls(
             actions=actions,
@@ -266,12 +269,8 @@ class WorkflowPreset:
     name: str
     mode: str = OrchestrationMode.SANDWICH.value
     description: str = ""
-    sandwich_config: dict[str, list[str]] = field(
-        default_factory=lambda: {"start_chain": [], "end_chain": []}
-    )
-    fixed_config: dict[str, list[str]] = field(
-        default_factory=lambda: {"chain": []}
-    )
+    sandwich_config: dict[str, list[str]] = field(default_factory=lambda: {"start_chain": [], "end_chain": []})
+    fixed_config: dict[str, list[str]] = field(default_factory=lambda: {"chain": []})
 
     def to_dict(self) -> dict[str, Any]:
         data: dict[str, Any] = {
@@ -296,18 +295,12 @@ class WorkflowPreset:
             OrchestrationMode.SCATTER_GATHER.value,
             "scatter_gather",
         )
-        mode = (
-            raw_mode
-            if raw_mode in valid_modes
-            else OrchestrationMode.SANDWICH.value
-        )
+        mode = raw_mode if raw_mode in valid_modes else OrchestrationMode.SANDWICH.value
         if mode == OrchestrationMode.FIXED.value:
             fixed_config = dict(data.get("fixed_config") or {"chain": []})
             sandwich_config = {"start_chain": [], "end_chain": []}
         else:
-            sandwich_config = dict(
-                data.get("sandwich_config") or {"start_chain": [], "end_chain": []}
-            )
+            sandwich_config = dict(data.get("sandwich_config") or {"start_chain": [], "end_chain": []})
             fixed_config = {"chain": []}
 
         return cls(
@@ -358,8 +351,8 @@ def build_dynamic_default_workflows(agent_ids: list[str]) -> list[WorkflowPreset
                     break
         else:
             fixed_chain = agents[:5] if len(agents) >= 5 else list(agents)
-        sw_start = agents[:min(5, len(agents))]
-        sw_end = list(reversed(agents[-min(3, len(agents)):])) if len(agents) > 1 else list(agents)
+        sw_start = agents[: min(5, len(agents))]
+        sw_end = list(reversed(agents[-min(3, len(agents)) :])) if len(agents) > 1 else list(agents)
         pd_start = [agents[0]]
         pd_end = [agents[-1]] if len(agents) > 1 else [agents[0]]
 
@@ -395,4 +388,3 @@ def build_dynamic_default_workflows(agent_ids: list[str]) -> list[WorkflowPreset
             fixed_config={"chain": []},
         ),
     ]
-

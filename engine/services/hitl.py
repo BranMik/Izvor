@@ -42,9 +42,6 @@ class PendingHITLRequest:
         return time.time() > self.expires_at
 
 
-
-
-
 def _row_to_request(row: Any) -> PendingHITLRequest:
     try:
         fn_args = json.loads(row["fn_args"]) if row["fn_args"] else {}
@@ -148,9 +145,10 @@ def consume_tool_approval(
     thread_ts: str,
     fn_name: str,
     fn_args: dict[str, Any] | None = None,
+    agent_name: str | None = None,
 ) -> bool:
     """
-    Checks and consumes a single-use approval for the given tool and arguments atomically.
+    Checks and consumes a single-use approval for the given tool, arguments, and agent atomically.
     Returns True if an unexpired approval existed and was consumed; False otherwise.
     Wildcard function-level approvals without argument hash matching are rejected.
     """
@@ -160,16 +158,19 @@ def consume_tool_approval(
 
     try:
         with get_db_transaction(immediate=True) as conn:
-            row = conn.execute(
-                """
+            sql = """
                 SELECT request_id FROM hitl_approvals
                 WHERE channel_id = ? AND thread_ts = ? AND fn_name = ?
                   AND args_hash = ?
                   AND status = 'APPROVED' AND expires_at > ?
-                LIMIT 1;
-                """,
-                (channel_id, thread_ts, fn_name, args_hash, now),
-            ).fetchone()
+            """
+            params: list[Any] = [channel_id, thread_ts, fn_name, args_hash, now]
+            if agent_name:
+                sql += " AND agent_name = ?"
+                params.append(agent_name)
+            sql += " LIMIT 1;"
+
+            row = conn.execute(sql, tuple(params)).fetchone()
 
             if row:
                 req_id = row["request_id"]

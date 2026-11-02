@@ -49,6 +49,12 @@ class RAGService:
         if not cleaned_query:
             return "Error: Search query cannot be empty."
 
+        clean_agent_name = (
+            getattr(agent_name, "id", None)
+            if hasattr(agent_name, "id")
+            else (str(agent_name) if agent_name is not None else "")
+        )
+
         # Generate query vector
         query_vector = None
         try:
@@ -64,7 +70,7 @@ class RAGService:
                 self.vector_store.search,
                 query_text=cleaned_query,
                 query_vector=query_vector,
-                agent_name=agent_name,
+                agent_name=clean_agent_name,
                 scope=scope,
                 top_k=max_results,
             )
@@ -73,13 +79,13 @@ class RAGService:
             return f"Error executing knowledge base search: {e}"
 
         if not results:
-            scope_desc = f"agent '{agent_name}' and shared knowledge" if scope == "all" else f"agent '{agent_name}' only"
+            scope_desc = (
+                f"agent '{agent_name}' and shared knowledge" if scope == "all" else f"agent '{agent_name}' only"
+            )
             return f"No relevant documentation found for '{cleaned_query}' in {scope_desc}."
 
         # Format results as readable markdown citations
-        output_blocks = [
-            f"### Knowledge Base Search Results for: *\"{cleaned_query}\"*\n"
-        ]
+        output_blocks = [f'### Knowledge Base Search Results for: *"{cleaned_query}"*\n']
 
         for idx, item in enumerate(results, start=1):
             doc_id = item.get("doc_id", "Unknown")
@@ -88,10 +94,7 @@ class RAGService:
             if pii_masker.should_mask_at_retrieval():
                 text, _ = pii_masker.mask(text)
 
-            output_blocks.append(
-                f"**[{idx}] `{doc_id}` — {section}**\n"
-                f"> {text.replace(chr(10), chr(10) + '> ')}\n"
-            )
+            output_blocks.append(f"**[{idx}] `{doc_id}` — {section}**\n> {text.replace(chr(10), chr(10) + '> ')}\n")
 
         instructions = _load_citation_instructions()
         if instructions:

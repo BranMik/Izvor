@@ -353,7 +353,7 @@ def test_message_builder_wraps_slack_files():
     """message_builder wraps attached files with wrap_untrusted_content when agent has authorized skill."""
     from nlp.message_builder import build_llm_messages
 
-    agent_cfg = {"username": "Architect", "role": "Assistant", "skills": ["document_authoring"]}
+    agent_cfg = {"username": "Architect", "role": "Assistant", "skills": ["document_reader"]}
     file_ctx = {
         "file_name": "secret.env",
         "content": "KEY=12345",

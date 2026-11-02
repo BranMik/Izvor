@@ -42,8 +42,11 @@ async def _execute_and_resume_hitl_approval(req: Any, user_id: str) -> None:
     ttl_hours = thread_skills_manager.get_ttl_seconds() / 3600.0
     effective_skills = list(set(agent_skills + thread_skills))
 
-    # 2. Execute tool deterministically
+    # 2. Mark approval consumed & execute tool deterministically
     try:
+        from services.hitl import consume_tool_approval
+
+        consume_tool_approval(channel_id, thread_ts, fn_name, fn_args, agent_name=agent_name)
         tool_result = await asyncio.to_thread(
             skill_registry.execute_tool,
             fn_name,
@@ -85,6 +88,7 @@ async def _execute_and_resume_hitl_approval(req: Any, user_id: str) -> None:
 
     pipeline = TurnPipeline()
     if chk and chk.status == "ACTIVE":
+
         async def _run_resumption():
             turn_res = await pipeline.resume_from_checkpoint(
                 checkpoint=chk,
@@ -135,12 +139,15 @@ async def _resume_hitl_denial(req: Any, user_id: str) -> None:
 
     chk = turn_checkpoint_store.get_checkpoint_by_hitl_request(req.request_id)
     pipeline = TurnPipeline()
-    denial_result = json.dumps({
-        "status": "denied",
-        "error": f"Tool '{fn_name}' execution was denied by human supervisor <@{user_id}>. Proceed with analysis without calling this tool."
-    })
+    denial_result = json.dumps(
+        {
+            "status": "denied",
+            "error": f"Tool '{fn_name}' execution was denied by human supervisor <@{user_id}>. Proceed with analysis without calling this tool.",
+        }
+    )
 
     if chk and chk.status == "ACTIVE":
+
         async def _run_denial_resumption():
             turn_res = await pipeline.resume_from_checkpoint(
                 checkpoint=chk,
@@ -183,7 +190,7 @@ async def _handle_hitl_approve_tool(
 
     req = get_pending_request(val)
     if req:
-        if user_id != req.initiator_user_id and not is_slack_admin(user_id):
+        if not user_id or (user_id != req.initiator_user_id and not is_slack_admin(user_id)):
             logger.warning(f"[HITL] User {user_id} unauthorized to approve request {val}.")
             log_audit_event(
                 event_type="HITL_UNAUTHORIZED_ATTEMPT",
@@ -210,7 +217,11 @@ async def _handle_hitl_approve_tool(
                 actor={"type": "slack_user", "id": user_id or "unknown"},
                 action="hitl_approve_tool",
                 target=f"{approved_req.channel_id}:{approved_req.thread_ts}:{approved_req.fn_name}",
-                details={"agent": approved_req.agent_name, "skill": approved_req.skill_name, "args": approved_req.fn_args},
+                details={
+                    "agent": approved_req.agent_name,
+                    "skill": approved_req.skill_name,
+                    "args": approved_req.fn_args,
+                },
                 severity="HIGH",
             )
             msg = payload.get("message", {})
@@ -251,7 +262,7 @@ async def _handle_hitl_deny_tool(
 
     req = get_pending_request(val)
     if req:
-        if user_id != req.initiator_user_id and not is_slack_admin(user_id):
+        if not user_id or (user_id != req.initiator_user_id and not is_slack_admin(user_id)):
             logger.warning(f"[HITL] User {user_id} unauthorized to deny request {val}.")
             log_audit_event(
                 event_type="HITL_UNAUTHORIZED_ATTEMPT",

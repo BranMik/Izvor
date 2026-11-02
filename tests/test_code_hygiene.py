@@ -5,7 +5,6 @@ import sys
 from pathlib import Path
 
 
-
 def test_python_ast_compilation_and_hygiene():
     """
     Parses all repository Python files using the standard library `ast.parse`
@@ -17,7 +16,7 @@ def test_python_ast_compilation_and_hygiene():
         "engine",
         "e2e_testing_harness",
         "tests",
-        "scripts",
+        "config/skills",
         "main.py",
     ]
 
@@ -42,9 +41,8 @@ def test_python_ast_compilation_and_hygiene():
                 failed_files.append(f"{py_file.relative_to(root_dir)}: {e}")
 
     assert py_files_checked > 0, "No python files found to check!"
-    assert not failed_files, (
-        f"AST syntax/parsing errors found in {len(failed_files)} file(s):\n"
-        + "\n".join(failed_files)
+    assert not failed_files, f"AST syntax/parsing errors found in {len(failed_files)} file(s):\n" + "\n".join(
+        failed_files
     )
 
     # Optional Ruff F821 check if ruff is installed in the current environment
@@ -65,9 +63,7 @@ def test_python_ast_compilation_and_hygiene():
                 text=True,
                 check=False,
             )
-            assert res.returncode == 0, (
-                f"Ruff F821 undefined variable check failed:\n{res.stdout}\n{res.stderr}"
-            )
+            assert res.returncode == 0, f"Ruff F821 undefined variable check failed:\n{res.stdout}\n{res.stderr}"
     except FileNotFoundError:
         pass
 
@@ -112,9 +108,8 @@ def test_all_docs_markdown_file_links_exist_on_disk():
             if not target_path.exists():
                 broken_links.append(f"{doc_file.relative_to(root_dir)} -> {target}")
 
-    assert not broken_links, (
-        f"Found {len(broken_links)} broken file link(s) in documentation:\n"
-        + "\n".join(broken_links)
+    assert not broken_links, f"Found {len(broken_links)} broken file link(s) in documentation:\n" + "\n".join(
+        broken_links
     )
     assert links_checked > 0, "No markdown file links were checked!"
 
@@ -126,14 +121,15 @@ def test_no_unittest_mock_introspection_in_production_code():
     """
     root_dir = Path(__file__).resolve().parent.parent
     prod_dirs = [
-        root_dir / "orchestration",
-        root_dir / "pipeline",
-        root_dir / "services",
-        root_dir / "core",
-        root_dir / "agents",
-        root_dir / "nlp",
-        root_dir / "skills",
-        root_dir / "adapters",
+        root_dir / "engine" / "orchestration",
+        root_dir / "engine" / "pipeline",
+        root_dir / "engine" / "services",
+        root_dir / "engine" / "core",
+        root_dir / "engine" / "agents",
+        root_dir / "engine" / "nlp",
+        root_dir / "engine" / "skills",
+        root_dir / "engine" / "adapters",
+        root_dir / "config" / "skills",
     ]
 
     violations = []
@@ -146,8 +142,8 @@ def test_no_unittest_mock_introspection_in_production_code():
             text = py_file.read_text(encoding="utf-8")
             for token in forbidden_tokens:
                 if token in text:
-                    violations.append(f"{py_file.relative_to(root_dir)} contains forbidden test introspection token '{token}'")
+                    violations.append(
+                        f"{py_file.relative_to(root_dir)} contains forbidden test introspection token '{token}'"
+                    )
 
     assert not violations, "\n".join(violations)
-
-

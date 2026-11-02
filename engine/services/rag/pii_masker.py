@@ -18,16 +18,12 @@ _SECRET_PATTERNS: list[tuple[re.Pattern, str]] = [
     ),
     # Slack Webhooks
     (
-        re.compile(
-            r"https://hooks\.slack\.com/services/T[a-zA-Z0-9_]+/B[a-zA-Z0-9_]+/[a-zA-Z0-9_]+"
-        ),
+        re.compile(r"https://hooks\.slack\.com/services/T[a-zA-Z0-9_]+/B[a-zA-Z0-9_]+/[a-zA-Z0-9_]+"),
         "<SLACK_WEBHOOK>",
     ),
     # Slack Bot / User / App tokens
     (
-        re.compile(
-            r"\bxox[baprs]-[0-9]{10,13}-[0-9]{10,13}-[a-zA-Z0-9]{24,34}\b"
-        ),
+        re.compile(r"\bxox[baprs]-[0-9]{10,13}-[0-9]{10,13}-[a-zA-Z0-9]{24,34}\b"),
         "<SLACK_TOKEN>",
     ),
     # OpenAI & generic sk- tokens
@@ -57,9 +53,7 @@ _SECRET_PATTERNS: list[tuple[re.Pattern, str]] = [
     ),
     # JWT tokens
     (
-        re.compile(
-            r"\beyJ[a-zA-Z0-9_-]{10,}\.eyJ[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}\b"
-        ),
+        re.compile(r"\beyJ[a-zA-Z0-9_-]{10,}\.eyJ[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}\b"),
         "<JWT_TOKEN>",
     ),
     # Broad key-value secret configurations (e.g. MISTRAL_API_KEY=..., GROQ_API_KEY=..., password: xyz, api_secret="abc")
@@ -71,9 +65,7 @@ _SECRET_PATTERNS: list[tuple[re.Pattern, str]] = [
     ),
     # Hex hashes/tokens preceded by secret/token/hash context (avoiding bare commit SHAs or digests)
     (
-        re.compile(
-            r"(?i)\b([A-Za-z0-9_]*(?:token|secret|hash|salt|seed))\s*([:=])\s*['\"]?([a-f0-9]{32,64})['\"]?"
-        ),
+        re.compile(r"(?i)\b([A-Za-z0-9_]*(?:token|secret|hash|salt|seed))\s*([:=])\s*['\"]?([a-f0-9]{32,64})['\"]?"),
         r"\1\2 <TOKEN_HASH>",
     ),
     (
@@ -100,16 +92,12 @@ _PII_PATTERNS: list[tuple[re.Pattern, str]] = [
     ),
     # Phone numbers (US and international formats)
     (
-        re.compile(
-            r"(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b"
-        ),
+        re.compile(r"(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b"),
         "<PHONE>",
     ),
     # IPv4 addresses
     (
-        re.compile(
-            r"\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b"
-        ),
+        re.compile(r"\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b"),
         "<IP_ADDRESS>",
     ),
 ]
@@ -147,9 +135,7 @@ class PIIMasker:
             self._presidio_anonymizer = AnonymizerEngine()
             logger.info("[PII Masker] Microsoft Presidio (en_core_web_sm) successfully initialized.")
         except ImportError:
-            logger.debug(
-                "[PII Masker] Presidio not installed; using built-in high-performance regex engine."
-            )
+            logger.debug("[PII Masker] Presidio not installed; using built-in high-performance regex engine.")
         except Exception as e:  # noqa: BLE001
             logger.debug(f"[PII Masker] Could not initialize Presidio: {e}")
 
@@ -241,7 +227,6 @@ class PIIMasker:
         self._init_presidio_if_available()
         if self._presidio_analyzer and self._presidio_anonymizer:
             try:
-
                 results = self._presidio_analyzer.analyze(
                     text=masked_text,
                     entities=[
@@ -258,9 +243,10 @@ class PIIMasker:
                     language="en",
                 )
                 if results:
+
                     def custom_anonymize(res) -> str:
                         entity_type = res.entity_type
-                        original_str = masked_text[res.start:res.end]
+                        original_str = masked_text[res.start : res.end]
                         for t, v in token_mapping.items():
                             if v == original_str and t.startswith(f"<{entity_type}_"):
                                 return t
@@ -270,20 +256,27 @@ class PIIMasker:
                         token_mapping[token] = original_str
                         return token
 
-                    # Sort results by start index descending to replace from end to start without affecting indices
-                    results.sort(key=lambda x: x.start, reverse=True)
-                    for res in results:
+                    # Deduplicate overlapping spans (keep longest/earliest)
+                    sorted_spans = sorted(results, key=lambda x: (x.start, -(x.end - x.start)))
+                    non_overlapping = []
+                    last_end = -1
+                    for r in sorted_spans:
+                        if r.start >= last_end:
+                            non_overlapping.append(r)
+                            last_end = r.end
+
+                    # Sort non-overlapping results descending by start index to replace from end to start
+                    non_overlapping.sort(key=lambda x: x.start, reverse=True)
+                    for res in non_overlapping:
                         replacement = custom_anonymize(res)
-                        masked_text = masked_text[:res.start] + replacement + masked_text[res.end:]
+                        masked_text = masked_text[: res.start] + replacement + masked_text[res.end :]
 
             except Exception as e:  # noqa: BLE001
                 logger.debug(f"[PII Masker] Presidio NER processing error: {e}")
 
         return masked_text, token_mapping
 
-    async def async_mask(
-        self, text: str, existing_mapping: dict[str, str] | None = None
-    ) -> tuple[str, dict[str, str]]:
+    async def async_mask(self, text: str, existing_mapping: dict[str, str] | None = None) -> tuple[str, dict[str, str]]:
         """
         Asynchronously masks PII in text by offloading Presidio CPU-bound NER to a worker thread.
         """
@@ -301,12 +294,9 @@ class PIIMasker:
         if not text or not token_mapping:
             return text
 
-        pattern = re.compile(
-            "|".join(re.escape(k) for k in sorted(token_mapping.keys(), key=len, reverse=True))
-        )
+        pattern = re.compile("|".join(re.escape(k) for k in sorted(token_mapping.keys(), key=len, reverse=True)))
         return pattern.sub(lambda m: token_mapping[m.group(0)], text)
 
 
 # Global singleton instance
 pii_masker = PIIMasker()
-

@@ -34,7 +34,7 @@ def test_zero_litellm_completion_in_production_code():
     violations = []
 
     for pdir in production_dirs:
-        dir_path = root_dir / pdir
+        dir_path = root_dir / "engine" / pdir
         if not dir_path.exists():
             continue
         for py_file in dir_path.rglob("*.py"):

@@ -7,7 +7,7 @@ import shutil
 from pathlib import Path
 
 from core.models import OrchestrationMode, WorkflowPreset, build_dynamic_default_workflows
-from core.paths import WORKFLOWS_BACKUP_DIR, WORKFLOWS_DIR
+from core.paths import ENGINE_WORKFLOWS_DIR, WORKFLOWS_BACKUP_DIR, WORKFLOWS_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -51,8 +51,19 @@ class WorkflowManager:
                     except Exception as e:  # noqa: BLE001
                         logger.warning("[WORKFLOW] Failed to copy backup workflow %s: %s", bf, e)
 
+            if seeded_count == 0 and ENGINE_WORKFLOWS_DIR.exists():
+                seed_files = list(ENGINE_WORKFLOWS_DIR.glob("*.json"))
+                for sf in seed_files:
+                    dst = self.workflows_dir / sf.name
+                    try:
+                        shutil.copy2(sf, dst)
+                        seeded_count += 1
+                    except Exception as e:  # noqa: BLE001
+                        logger.warning("[WORKFLOW] Failed to copy seed workflow %s: %s", sf, e)
+
             if seeded_count == 0:
                 from core.config import AGENTS_CONFIG
+
                 agent_ids = list(AGENTS_CONFIG.keys())
                 dynamic_presets = build_dynamic_default_workflows(agent_ids)
                 for preset in dynamic_presets:
@@ -152,6 +163,9 @@ class WorkflowManager:
         if mode_normalized == OrchestrationMode.FIXED.value:
             sw_cfg = {"start_chain": [], "end_chain": []}
             fx_cfg = dict(fixed_config or {"chain": []})
+        elif mode_normalized == OrchestrationMode.SCATTER_GATHER.value:
+            sw_cfg = dict(sandwich_config or {"start_chain": [], "end_chain": []})
+            fx_cfg = {"chain": []}
         else:
             mode_normalized = OrchestrationMode.SANDWICH.value
             sw_cfg = dict(sandwich_config or {"start_chain": [], "end_chain": []})

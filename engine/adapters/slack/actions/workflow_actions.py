@@ -51,9 +51,11 @@ logger = logging.getLogger("IzvorBackend.SlackInteractivity.Workflows")
 
 def _validate_chain_agent_keys(raw_value: str) -> tuple[list[str], list[str]]:
     """
-    Parses comma-separated agent keys and validates them against known configured agents.
+    Parses comma-separated agent keys or names and validates them against known configured agents.
     Returns (valid_keys, invalid_keys).
     """
+    from pipeline.entity_resolver import entity_resolver
+
     known_keys = set(get_agents_config().keys())
     tokens = [k.strip() for k in raw_value.split(",") if k.strip()]
     valid: list[str] = []
@@ -62,7 +64,11 @@ def _validate_chain_agent_keys(raw_value: str) -> tuple[list[str], list[str]]:
         if token in known_keys:
             valid.append(token)
         else:
-            invalid.append(token)
+            resolved = entity_resolver.resolve_agent_name(token)
+            if resolved and resolved in known_keys:
+                valid.append(resolved)
+            else:
+                invalid.append(token)
     return valid, invalid
 
 
@@ -118,25 +124,13 @@ async def _handle_download_scribe_notes(
         channel_id, thread_ts = parts[0], parts[1]
     else:
         channel_id = payload.get("channel", {}).get("id") or ""
-        thread_ts = (
-            payload.get("container", {}).get("thread_ts")
-            or payload.get("message", {}).get("thread_ts")
-            or ""
-        )
+        thread_ts = payload.get("container", {}).get("thread_ts") or payload.get("message", {}).get("thread_ts") or ""
 
     is_conclusion = action_id == "download_conclusion_notes_txt"
     if is_conclusion:
-        notes_text = (
-            get_thread_conclusion_content(channel_id, thread_ts)
-            if channel_id and thread_ts
-            else None
-        )
+        notes_text = get_thread_conclusion_content(channel_id, thread_ts) if channel_id and thread_ts else None
     else:
-        notes_text = (
-            get_thread_note_content(channel_id, thread_ts)
-            if channel_id and thread_ts
-            else None
-        )
+        notes_text = get_thread_note_content(channel_id, thread_ts) if channel_id and thread_ts else None
 
     if not notes_text:
         msg = payload.get("message", {})
@@ -172,11 +166,7 @@ async def _handle_resume_sequence(
     view_state: dict[str, Any],
 ) -> Response | None:
     channel_id = payload.get("channel", {}).get("id") or ""
-    thread_ts = (
-        payload.get("container", {}).get("thread_ts")
-        or payload.get("message", {}).get("thread_ts")
-        or ""
-    )
+    thread_ts = payload.get("container", {}).get("thread_ts") or payload.get("message", {}).get("thread_ts") or ""
 
     if channel_id and thread_ts:
         from pipeline.spend_governance import spend_governance
@@ -193,7 +183,7 @@ async def _handle_resume_sequence(
         cost_info = calculate_thread_costs(channel_id, thread_ts)
         current_cost = cost_info.get("grand_total_cost_usd", 0.0)
 
-        tripped, _, _ = spend_governance.is_budget_exceeded(
+        tripped, _, effective_limit = spend_governance.is_budget_exceeded(
             session_id=session_id,
             threshold_usd=threshold,
             enabled=cb_enabled,
@@ -202,11 +192,12 @@ async def _handle_resume_sequence(
         )
 
         if tripped:
+            limit_val = effective_limit if effective_limit is not None else threshold
             background_tasks.add_task(
                 post_ephemeral_to_slack,
                 channel_id=channel_id,
                 user_id=user_id,
-                text=f"The budget limit (${threshold:.5f}) is still too low compared to current cost (${current_cost:.5f}). Please raise it first.",
+                text=f"The budget limit (${limit_val:.5f}) is still too low compared to current cost (${current_cost:.5f}). Please raise it first.",
                 thread_ts=thread_ts,
             )
         else:
@@ -229,10 +220,21 @@ async def _handle_resume_sequence(
             )
             from orchestration.agent_router import orchestrate_discussion
             from orchestration.thread_state import thread_state_manager
+            from services.turn_checkpoint_store import turn_checkpoint_store
 
-            remaining = thread_state_manager.get_remaining_agents(channel_id, thread_ts)
-            next_agent = remaining[0] if remaining else None
-            resume_prompt = f"/[{next_agent}]" if next_agent else ""
+            chk = turn_checkpoint_store.get_latest_checkpoint_for_thread(channel_id, thread_ts)
+            target_agent = None
+            resume_prompt = ""
+            if chk and chk.pause_reason == "circuit_breaker":
+                turn_checkpoint_store.mark_resumed(chk.checkpoint_id)
+                target_agent = chk.agent_key
+                resume_prompt = chk.prompt or ""
+                remaining = thread_state_manager.get_remaining_agents(channel_id, thread_ts)
+                if target_agent and target_agent not in remaining:
+                    thread_state_manager.set_remaining_agents(channel_id, thread_ts, [target_agent] + remaining)
+            else:
+                remaining = thread_state_manager.get_remaining_agents(channel_id, thread_ts)
+                target_agent = remaining[0] if remaining else None
 
             task_coro = orchestrate_discussion(
                 channel_id=channel_id,
@@ -240,6 +242,8 @@ async def _handle_resume_sequence(
                 raw_text=resume_prompt,
                 user_id=user_id,
                 bot_user_id=None,
+                target_agent_override=target_agent,
+                is_bot_trigger=True,
             )
             thread_state_manager.dispatch_discussion_task(channel_id, thread_ts, task_coro)
     return None
@@ -653,6 +657,12 @@ async def _handle_delete_workflow_preset_button(
     if not selected_wf_id:
         selected_wf_id = get_active_workflow_id()
     if selected_wf_id and selected_wf_id != "none":
+        from core.models import REQUIRED_DEFAULT_WORKFLOW_IDS
+
+        if selected_wf_id in REQUIRED_DEFAULT_WORKFLOW_IDS:
+            logger.warning(f"[WORKFLOW] Cannot delete default system preset '{selected_wf_id}'")
+            return None
+
         delete_workflow(selected_wf_id)
         if get_active_workflow_id() == selected_wf_id:
             set_active_workflow_id(None)
@@ -699,7 +709,9 @@ async def _handle_save_workflow_preset_button(
                             logger.warning(f"[INTERACTIVITY] Unknown fixed chain agent keys rejected: {invalid_f}")
                         set_fixed_config(f_chain)
                         break
-        elif mode == OrchestrationMode.SANDWICH.value and isinstance(view_state, dict):
+        elif mode in (OrchestrationMode.SANDWICH.value, OrchestrationMode.SCATTER_GATHER.value) and isinstance(
+            view_state, dict
+        ):
             s_val = None
             e_val = None
             for block_val in view_state.values():
@@ -711,14 +723,10 @@ async def _handle_save_workflow_preset_button(
             if s_val is not None or e_val is not None:
                 curr_sandwich = get_sandwich_config()
                 start_chain = (
-                    _validate_chain_agent_keys(s_val)[0]
-                    if s_val is not None
-                    else curr_sandwich.get("start_chain", [])
+                    _validate_chain_agent_keys(s_val)[0] if s_val is not None else curr_sandwich.get("start_chain", [])
                 )
                 end_chain = (
-                    _validate_chain_agent_keys(e_val)[0]
-                    if e_val is not None
-                    else curr_sandwich.get("end_chain", [])
+                    _validate_chain_agent_keys(e_val)[0] if e_val is not None else curr_sandwich.get("end_chain", [])
                 )
                 set_sandwich_config(start_chain, end_chain)
 

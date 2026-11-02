@@ -49,19 +49,15 @@ class ValidationStage:
             return val
         return default
 
-    async def stage_validate_and_parse(
-        self, ctx: TurnContext
-    ) -> dict[str, Any] | None:
+    async def stage_validate_and_parse(self, ctx: TurnContext) -> dict[str, Any] | None:
         """Stage 1: Directives, file inspection, tag validation, and candidate exclusions."""
         post_sys_msg = self._get_dep("post_system_message_fn", post_system_message)
 
         if not ctx.is_bot_trigger:
             fetch_files_fn = self._get_dep("files_fetcher", fetch_thread_files)
-            ctx.thread_files = await fetch_files_fn(
-                ctx.channel_id, ctx.thread_ts
-            )
+            ctx.thread_files = await fetch_files_fn(ctx.channel_id, ctx.thread_ts)
             directives = await directive_parser.parse(
-                ctx.raw_text, available_files=ctx.thread_files
+                ctx.raw_text, available_files=ctx.thread_files, thread_key=ctx.thread_key
             )
             ctx.actions = directives.actions
             ctx.modifiers = directives.modifiers
@@ -75,23 +71,18 @@ class ValidationStage:
 
             # Record initial prompt for flat history if not already recorded for this thread
             if not thread_state_manager.get_initial_prompt(ctx.channel_id, ctx.thread_ts):
-                thread_state_manager.set_initial_prompt(
-                    ctx.channel_id, ctx.thread_ts, ctx.raw_text
-                )
+                thread_state_manager.set_initial_prompt(ctx.channel_id, ctx.thread_ts, ctx.raw_text)
 
             # Snapshot active workflow at Turn 1 for mid-thread concurrency isolation
             if not thread_state_manager.get_workflow_snapshot(ctx.channel_id, ctx.thread_ts):
                 from orchestration.agent_settings import get_workflow_snapshot
-                thread_state_manager.set_workflow_snapshot(
-                    ctx.channel_id, ctx.thread_ts, get_workflow_snapshot()
-                )
 
+                thread_state_manager.set_workflow_snapshot(ctx.channel_id, ctx.thread_ts, get_workflow_snapshot())
 
             # Process administrative slash directives and persistent constraints
             directive_res = await handle_slash_directives(ctx, directives, post_sys_msg)
             if directive_res is not None:
                 return directive_res
-
 
             # Lock language for this thread on first human prompt or preserve existing
             current_lang = thread_state_manager.get_language(ctx.channel_id, ctx.thread_ts)
@@ -112,7 +103,9 @@ class ValidationStage:
                 else:
                     raw_candidate = ctx.raw_text_cleaned or ctx.raw_text
                     # Never infer or lock language from system warnings, runner banners, or slash commands
-                    if not is_system_message(raw_candidate) and not (raw_candidate.strip().startswith("/") and not raw_candidate.strip().startswith("/[")):
+                    if not is_system_message(raw_candidate) and not (
+                        raw_candidate.strip().startswith("/") and not raw_candidate.strip().startswith("/[")
+                    ):
                         pure_user_text = clean_system_and_tags(raw_candidate)
                         if pure_user_text:
                             logger.info(
@@ -120,14 +113,10 @@ class ValidationStage:
                             )
                             current_lang = await detect_language_llm(pure_user_text)
                             thread_state_manager.set_language(ctx.channel_id, ctx.thread_ts, current_lang)
-                            logger.info(
-                                f"[ROUTER] Locked thread language for {ctx.thread_key}: {current_lang}"
-                            )
+                            logger.info(f"[ROUTER] Locked thread language for {ctx.thread_key}: {current_lang}")
             ctx.thread_language = current_lang or "English"
 
-            ambiguous_tags = entity_resolver.detect_ambiguous_tags(
-                ctx.raw_text_cleaned
-            )
+            ambiguous_tags = entity_resolver.detect_ambiguous_tags(ctx.raw_text_cleaned)
             if ambiguous_tags:
                 logger.warning(
                     f"[ROUTER] Ambiguous agent tag(s) detected in user prompt for thread {ctx.thread_key}: {ambiguous_tags}. Halting turn."
@@ -135,19 +124,13 @@ class ValidationStage:
                 lines = ["⚠️ *Ambiguous Agent Reference*:"]
                 for tag_str, candidates in ambiguous_tags:
                     clean_tag = tag_str.strip("/[](){}:,; \t*~_")
-                    lines.append(
-                        f"Tag '{clean_tag}' matches multiple candidates:"
-                    )
+                    lines.append(f"Tag '{clean_tag}' matches multiple candidates:")
                     for cand in candidates:
-                        cfg = (
-                            settings_manager.agents_config or AGENTS_CONFIG
-                        ).get(cand, {})
+                        cfg = (settings_manager.agents_config or AGENTS_CONFIG).get(cand, {})
                         cand_username = cfg.get("username", cand)
                         lines.append(f"• {cand} ({cand_username})")
                     first_suggestion = ambiguous_tags[0][1][0]
-                    lines.append(
-                        f"\nPlease specify the exact agent name (e.g. '{first_suggestion}') to proceed."
-                    )
+                    lines.append(f"\nPlease specify the exact agent name (e.g. '{first_suggestion}') to proceed.")
                 warning_msg = "\n".join(lines)
 
                 await post_sys_msg(
@@ -162,9 +145,7 @@ class ValidationStage:
                     "ambiguous_tags": ambiguous_tags,
                 }
 
-            unrecognized_tags = entity_resolver.detect_unrecognized_tags(
-                ctx.raw_text_cleaned
-            )
+            unrecognized_tags = entity_resolver.detect_unrecognized_tags(ctx.raw_text_cleaned)
             if unrecognized_tags:
                 logger.warning(
                     f"[ROUTER] Unrecognized agent tag(s) detected in user prompt for thread {ctx.thread_key}: {unrecognized_tags}. Halting turn."
@@ -172,13 +153,9 @@ class ValidationStage:
                 lines = ["⚠️ *Unrecognized Agent Tag*:"]
                 for tag_str in unrecognized_tags:
                     clean_tag = tag_str.strip("/[](){}:,; \t*~_")
-                    lines.append(
-                        f"Tag '{clean_tag}' could not be matched to any active agent."
-                    )
+                    lines.append(f"Tag '{clean_tag}' could not be matched to any active agent.")
                 example_keys = _get_example_agent_keys(3)
-                lines.append(
-                    f"\nPlease check the agent name or tag a valid agent (e.g. {example_keys}) to proceed."
-                )
+                lines.append(f"\nPlease check the agent name or tag a valid agent (e.g. {example_keys}) to proceed.")
                 warning_msg = "\n".join(lines)
 
                 await post_sys_msg(
@@ -238,16 +215,11 @@ class ValidationStage:
                 ctx.is_open_debate = False
 
                 initial_pool = get_initial_agents(ctx.channel_id, ctx.thread_ts)
-                remaining_pool = [
-                    a for a in initial_pool
-                    if a != ctx.agent_key and a not in effective_excluded
-                ]
+                remaining_pool = [a for a in initial_pool if a != ctx.agent_key and a not in effective_excluded]
                 for inc in effective_included:
                     if inc not in remaining_pool and inc != ctx.agent_key:
                         remaining_pool.append(inc)
-                thread_state_manager.set_remaining_agents(
-                    ctx.channel_id, ctx.thread_ts, remaining_pool
-                )
+                thread_state_manager.set_remaining_agents(ctx.channel_id, ctx.thread_ts, remaining_pool)
 
             elif open_debate_act:
                 target_name = directives.open_debate_agent or open_debate_act.params.get("first_agent")
@@ -275,16 +247,11 @@ class ValidationStage:
                 ctx.is_open_debate = True
 
                 all_agents = get_initial_agents(ctx.channel_id, ctx.thread_ts)
-                remaining_pool = [
-                    a for a in all_agents
-                    if a != ctx.agent_key and a not in effective_excluded
-                ]
+                remaining_pool = [a for a in all_agents if a != ctx.agent_key and a not in effective_excluded]
                 for inc in effective_included:
                     if inc not in remaining_pool and inc != ctx.agent_key:
                         remaining_pool.append(inc)
-                thread_state_manager.set_remaining_agents(
-                    ctx.channel_id, ctx.thread_ts, remaining_pool
-                )
+                thread_state_manager.set_remaining_agents(ctx.channel_id, ctx.thread_ts, remaining_pool)
 
             elif tagged and not getattr(ctx, "target_agent_override", None):
                 if effective_excluded:
@@ -296,12 +263,8 @@ class ValidationStage:
                 if tagged:
                     ctx.agent_key = tagged[0]
                     remaining_tagged = [a for a in tagged if a != ctx.agent_key]
-                    thread_state_manager.set_remaining_agents(
-                        ctx.channel_id, ctx.thread_ts, remaining_tagged
-                    )
-                    thread_state_manager.set_custom_flow(
-                        ctx.channel_id, ctx.thread_ts, True
-                    )
+                    thread_state_manager.set_remaining_agents(ctx.channel_id, ctx.thread_ts, remaining_tagged)
+                    thread_state_manager.set_custom_flow(ctx.channel_id, ctx.thread_ts, True)
                     thread_state_manager.set_open_debate(ctx.channel_id, ctx.thread_ts, False)
                     ctx.is_open_debate = False
                     ctx.was_explicit_target = True
@@ -309,7 +272,9 @@ class ValidationStage:
                     logger.warning(
                         f"[ROUTER] All tagged agents in thread {ctx.thread_key} were excluded. Halting turn."
                     )
-                    warning_msg = "⚠️ *All tagged agents were excluded*: None of the specified agents can respond to this request."
+                    warning_msg = (
+                        "⚠️ *All tagged agents were excluded*: None of the specified agents can respond to this request."
+                    )
                     await post_sys_msg(
                         channel_id=ctx.channel_id,
                         thread_ts=ctx.thread_ts,
@@ -331,22 +296,16 @@ class ValidationStage:
                     if ctx.agent_key in curr_remaining:
                         curr_remaining.remove(ctx.agent_key)
                 if effective_excluded:
-                    curr_remaining = [
-                        a for a in curr_remaining if a not in effective_excluded
-                    ]
+                    curr_remaining = [a for a in curr_remaining if a not in effective_excluded]
                 for inc in effective_included:
                     if inc not in curr_remaining and inc != ctx.agent_key:
                         curr_remaining.append(inc)
 
-                thread_state_manager.set_remaining_agents(
-                    ctx.channel_id, ctx.thread_ts, curr_remaining
-                )
+                thread_state_manager.set_remaining_agents(ctx.channel_id, ctx.thread_ts, curr_remaining)
                 if ctx.agent_key in effective_excluded:
                     if curr_remaining:
                         ctx.agent_key = curr_remaining.pop(0)
-                        thread_state_manager.set_remaining_agents(
-                            ctx.channel_id, ctx.thread_ts, curr_remaining
-                        )
+                        thread_state_manager.set_remaining_agents(ctx.channel_id, ctx.thread_ts, curr_remaining)
                     else:
                         logger.warning(
                             f"[ROUTER] Agent '{ctx.agent_key}' and all remaining agents in thread {ctx.thread_key} are excluded. Halting turn."
@@ -387,15 +346,14 @@ class ValidationStage:
                 if not ctx.agent_key and current_seq:
                     ctx.agent_key = current_seq[0]
                     ctx.was_explicit_target = False
-                    thread_state_manager.set_remaining_agents(
-                        ctx.channel_id, ctx.thread_ts, current_seq[1:]
-                    )
+                    thread_state_manager.set_remaining_agents(ctx.channel_id, ctx.thread_ts, current_seq[1:])
 
             if current_seq:
                 thread_state_manager.set_round_sequence(ctx.channel_id, ctx.thread_ts, current_seq)
 
             if ctx.is_file_req:
                 from core.registry import get_skill_registry
+
                 skill_registry = get_skill_registry()
 
                 file_skill = skill_registry.get_file_handler_skill()
@@ -417,9 +375,7 @@ class ValidationStage:
                 else:
                     authorized_agents = None
 
-                chosen_file = resolve_target_file(
-                    ctx.thread_files, ctx.target_filename
-                )
+                chosen_file = resolve_target_file(ctx.thread_files, ctx.target_filename)
                 if chosen_file:
                     if chosen_file.get("is_resource_file"):
                         logger.info(
@@ -461,15 +417,12 @@ class ValidationStage:
                         download_file_fn = getattr(self.deps, "download_file_fn", None) or download_slack_file
                         dl_res = await download_file_fn(chosen_file)
 
-
                     if dl_res.get("ok"):
                         thread_state_manager.set_file_context(
                             ctx.channel_id,
                             ctx.thread_ts,
                             {
-                                "file_name": dl_res.get(
-                                    "file_name", chosen_file.get("name")
-                                ),
+                                "file_name": dl_res.get("file_name", chosen_file.get("name")),
                                 "content": dl_res.get("content", ""),
                                 "size": dl_res.get("size", 0),
                                 "truncated": dl_res.get("truncated", False),
@@ -482,9 +435,7 @@ class ValidationStage:
                             ctx.channel_id,
                             ctx.thread_ts,
                             {
-                                "file_name": chosen_file.get(
-                                    "name", "unknown"
-                                ),
+                                "file_name": chosen_file.get("name", "unknown"),
                                 "content": f"[Error reading file: {dl_res.get('error')}]",
                                 "size": chosen_file.get("size", 0),
                                 "truncated": False,
@@ -520,23 +471,30 @@ class ValidationStage:
                 thread_state_manager.clear_file_context(ctx.channel_id, ctx.thread_ts)
         else:
             ctx.raw_text_cleaned = ctx.raw_text
-            agent_key, prompt, was_explicit_target = parse_agent_and_prompt(
-                ctx.raw_text_cleaned, ctx.channel_id, ctx.thread_ts
-            )
-            ctx.agent_key = agent_key
-            ctx.prompt = prompt
-            ctx.was_explicit_target = was_explicit_target
-            ctx.thread_language = (
-                thread_state_manager.get_language(ctx.channel_id, ctx.thread_ts) or "English"
-            )
-            ctx.is_open_debate = thread_state_manager.is_open_debate(
-                ctx.channel_id, ctx.thread_ts
-            )
+            target_override = getattr(ctx, "target_agent_override", None)
+            excluded = thread_state_manager.get_excluded_agents(ctx.channel_id, ctx.thread_ts)
+
+            if target_override and target_override not in excluded:
+                ctx.agent_key = target_override
+                ctx.prompt = ctx.raw_text
+                ctx.was_explicit_target = True
+            else:
+                agent_key, prompt, was_explicit_target = parse_agent_and_prompt(
+                    ctx.raw_text_cleaned, ctx.channel_id, ctx.thread_ts
+                )
+                if agent_key in excluded:
+                    remaining = thread_state_manager.get_remaining_agents(ctx.channel_id, ctx.thread_ts)
+                    eligible = [a for a in remaining if a not in excluded]
+                    agent_key = eligible[0] if eligible else None
+                ctx.agent_key = agent_key
+                ctx.prompt = prompt
+                ctx.was_explicit_target = was_explicit_target
+
+            ctx.thread_language = thread_state_manager.get_language(ctx.channel_id, ctx.thread_ts) or "English"
+            ctx.is_open_debate = thread_state_manager.is_open_debate(ctx.channel_id, ctx.thread_ts)
 
         if not ctx.agent_key:
-            logger.info(
-                f"[ROUTER] No agent available to speak in thread {ctx.thread_key}. Halting turn."
-            )
+            logger.info(f"[ROUTER] No agent available to speak in thread {ctx.thread_key}. Halting turn.")
             enabled = settings_manager.get_enabled_agents()
             if not enabled:
                 await post_sys_msg(

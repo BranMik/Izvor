@@ -219,6 +219,12 @@ async def execute_llm_with_retry(
                 masked_content, mapping = await pii_masker.async_mask(msg["content"], existing_mapping=active_mapping)
                 msg["content"] = masked_content
                 active_mapping.update(mapping)
+            elif "content" in msg and isinstance(msg["content"], list):
+                for part in msg["content"]:
+                    if isinstance(part, dict) and part.get("type") == "text" and isinstance(part.get("text"), str):
+                        masked_part, mapping = await pii_masker.async_mask(part["text"], existing_mapping=active_mapping)
+                        part["text"] = masked_part
+                        active_mapping.update(mapping)
             if "tool_calls" in msg and isinstance(msg["tool_calls"], list):
                 for tc in msg["tool_calls"]:
                     fn = tc.get("function") if isinstance(tc, dict) else getattr(tc, "function", None)

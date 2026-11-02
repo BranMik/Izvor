@@ -94,9 +94,7 @@ def parse_int_or_off(
         return True, val, cleaned
 
     # Fallback: check if command was specified without arguments (e.g. /rounds)
-    bare_pattern = re.compile(
-        rf"(?:^|[\r\n\s]){re.escape(slash_cmd)}(?=[\s:=]|$)", re.IGNORECASE
-    )
+    bare_pattern = re.compile(rf"(?:^|[\r\n\s]){re.escape(slash_cmd)}(?=[\s:=]|$)", re.IGNORECASE)
     bare_match = bare_pattern.search(text)
     if bare_match:
         cleaned = remove_command_span(text, bare_match.start(), bare_match.end())
@@ -105,9 +103,7 @@ def parse_int_or_off(
     return False, None, text
 
 
-def parse_agent_list(
-    slash_cmd: str, text: str
-) -> tuple[bool, list[str], bool, str]:
+def parse_agent_list(slash_cmd: str, text: str) -> tuple[bool, list[str], bool, str]:
     """
     Extracts agent keys from text for commands like /exclude or /include,
     supporting /<cmd> [Agent1] [Agent2]... or /<cmd> off.
@@ -117,9 +113,7 @@ def parse_agent_list(
     if not text:
         return False, [], False, ""
 
-    off_pattern = re.compile(
-        rf"(?:^|[\r\n\s]){re.escape(slash_cmd)}\s*[:=]?\s*off\b", re.IGNORECASE
-    )
+    off_pattern = re.compile(rf"(?:^|[\r\n\s]){re.escape(slash_cmd)}\s*[:=]?\s*off\b", re.IGNORECASE)
     cleaned_text = text
     is_off = False
     matched_cmd = False
@@ -134,9 +128,7 @@ def parse_agent_list(
     agents: list[str] = []
 
     while True:
-        cmd_match = re.search(
-            rf"(?:^|[\r\n\s]){re.escape(slash_cmd)}(?=[\s:=]|$)", cleaned_text, re.IGNORECASE
-        )
+        cmd_match = re.search(rf"(?:^|[\r\n\s]){re.escape(slash_cmd)}(?=[\s:=]|$)", cleaned_text, re.IGNORECASE)
         if not cmd_match:
             break
 
@@ -162,7 +154,7 @@ def parse_agent_list(
             else:
                 ws_len = 0
 
-            t_match = re.match(r"(/?\[[^\]\r\n]+\]|[a-zA-Z0-9_\-]+)", remainder[offset + ws_len:])
+            t_match = re.match(r"(/?\[[^\]\r\n]+\]|[a-zA-Z0-9_\-]+)", remainder[offset + ws_len :])
             if not t_match:
                 break
 
@@ -210,13 +202,6 @@ def parse_file_target(
         cleaned = remove_command_span(text, match.start(), match.end())
         return True, target_filename, cleaned
 
-    # Check available files by name match in text
-    if available_files:
-        for f in available_files:
-            fname = f.get("name")
-            if fname and re.search(r"\b" + re.escape(fname) + r"\b", text, re.IGNORECASE):
-                return True, fname, text
-
     return False, None, text
 
 
@@ -242,9 +227,7 @@ def parse_token(slash_cmd: str, text: str) -> tuple[bool, str | None, str]:
     return False, None, text
 
 
-def parse_single_agent_directive(
-    slash_cmd: str, text: str
-) -> tuple[bool, str | None, str]:
+def parse_single_agent_directive(slash_cmd: str, text: str) -> tuple[bool, str | None, str]:
     """
     Extracts a single agent target for commands like /first [Agent] or /open_debate [Agent].
     Supports /cmd [Agent], /cmd /[Agent], /cmd: [Agent], /cmd: Agent, /cmd Agent.
@@ -253,9 +236,7 @@ def parse_single_agent_directive(
     if not text:
         return False, None, ""
 
-    cmd_match = re.search(
-        rf"(?:^|[\r\n\s]){re.escape(slash_cmd)}(?=[\s:=]|$)", text, re.IGNORECASE
-    )
+    cmd_match = re.search(rf"(?:^|[\r\n\s]){re.escape(slash_cmd)}(?=[\s:=]|$)", text, re.IGNORECASE)
     if not cmd_match:
         return False, None, text
 
@@ -263,9 +244,7 @@ def parse_single_agent_directive(
     curr_idx = cmd_match.end()
 
     delim_match = re.match(r"[ \t]*[:=]?[ \t]*", text[curr_idx:])
-    has_explicit_delim = bool(
-        delim_match and (":" in delim_match.group(0) or "=" in delim_match.group(0))
-    )
+    has_explicit_delim = bool(delim_match and (":" in delim_match.group(0) or "=" in delim_match.group(0)))
     if delim_match:
         curr_idx += delim_match.end()
 
@@ -282,13 +261,10 @@ def parse_single_agent_directive(
     raw_token = t_match.group(1)
     clean_token = raw_token.strip("/[]@<> \t")
     is_bracketed = (
-        (raw_token.startswith("[") or raw_token.startswith("/["))
-        and raw_token.endswith("]")
+        (raw_token.startswith("[") or raw_token.startswith("/[")) and raw_token.endswith("]")
     ) or raw_token.startswith(("@", "<@"))
 
-    resolved = entity_resolver.resolve_agent_name(
-        clean_token
-    ) or entity_resolver.resolve_agent_name(raw_token)
+    resolved = entity_resolver.resolve_agent_name(clean_token) or entity_resolver.resolve_agent_name(raw_token)
 
     if resolved or is_bracketed or has_explicit_delim:
         matched_span_end = curr_idx + t_match.end()
@@ -301,9 +277,7 @@ def parse_single_agent_directive(
     return True, None, cleaned_text
 
 
-def parse_grant_skill(
-    slash_cmd: str, text: str
-) -> tuple[bool, str, list[str], str]:
+def parse_grant_skill(slash_cmd: str, text: str) -> tuple[bool, str, list[str], str]:
     """
     Extracts skill name and agent targets for /grant_skill <skill> /[Agent1] /[Agent2].
     Strictly whitespace-separated, deterministic instruction parsing.
@@ -312,9 +286,7 @@ def parse_grant_skill(
     if not text:
         return False, "", [], ""
 
-    cmd_match = re.search(
-        rf"(?:^|[\r\n\s]){re.escape(slash_cmd)}(?=[\s:=]|$)", text, re.IGNORECASE
-    )
+    cmd_match = re.search(rf"(?:^|[\r\n\s]){re.escape(slash_cmd)}(?=[\s:=]|$)", text, re.IGNORECASE)
     if not cmd_match:
         return False, "", [], text
 
@@ -342,7 +314,7 @@ def parse_grant_skill(
 
         t_match = re.match(
             r"(/?\[[^\]\r\n]+\]|<@[A-Za-z0-9_]+>|@[a-zA-Z0-9_-]+|[a-zA-Z0-9_-]+)",
-            remainder[offset + ws_len:],
+            remainder[offset + ws_len :],
         )
         if not t_match:
             break
@@ -350,7 +322,9 @@ def parse_grant_skill(
         raw_token = t_match.group(1)
         token_clean = raw_token.strip("/[]@<>\t ")
         is_bracketed = (
-            (raw_token.startswith("[") or raw_token.startswith("/[")) and raw_token.endswith("]") or raw_token.startswith(("@", "<@"))
+            (raw_token.startswith("[") or raw_token.startswith("/["))
+            and raw_token.endswith("]")
+            or raw_token.startswith(("@", "<@"))
         )
 
         if not tokens:
@@ -359,9 +333,7 @@ def parse_grant_skill(
             matched_tokens_span_end = curr_idx + offset
         else:
             is_agent = bool(entity_resolver.resolve_agent_name(token_clean))
-            is_first_agent = len(tokens) == 1 and token_clean.lower() not in (
-                "and", "&", "to", "for", "with", "please"
-            )
+            is_first_agent = len(tokens) == 1 and token_clean.lower() not in ("and", "&", "to", "for", "with", "please")
             if is_bracketed or is_agent or is_first_agent:
                 tokens.append(token_clean)
                 offset += ws_len + t_match.end()
@@ -375,9 +347,7 @@ def parse_grant_skill(
     return True, skill_name, agents_list, cleaned_text
 
 
-def parse_list(
-    slash_cmd: str, text: str, known_items: set[str] | None = None
-) -> tuple[bool, list[str], str]:
+def parse_list(slash_cmd: str, text: str, known_items: set[str] | None = None) -> tuple[bool, list[str], str]:
     """
     Extracts a list of items for commands like /grant_skill_for_all [skill1] [skill2] or /revoke_skill_for_all.
     Strictly whitespace-separated, deterministic instruction parsing.
@@ -386,9 +356,7 @@ def parse_list(
     if not text:
         return False, [], ""
 
-    cmd_match = re.search(
-        rf"(?:^|[\r\n\s]){re.escape(slash_cmd)}(?=[\s:=]|$)", text, re.IGNORECASE
-    )
+    cmd_match = re.search(rf"(?:^|[\r\n\s]){re.escape(slash_cmd)}(?=[\s:=]|$)", text, re.IGNORECASE)
     if not cmd_match:
         return False, [], text
 
@@ -416,17 +384,15 @@ def parse_list(
 
         t_match = re.match(
             r"(/?\[[^\]\r\n]+\]|[a-zA-Z0-9_-]+)",
-            remainder[offset + ws_len:],
+            remainder[offset + ws_len :],
         )
         if not t_match:
             break
 
         raw_token = t_match.group(1)
         token_clean = raw_token.strip("/[]")
-        rem_after_token = remainder[offset + ws_len + t_match.end():].strip()
-        is_known = known_items and (
-            token_clean.lower() in known_items or token_clean.lower() == "all"
-        )
+        rem_after_token = remainder[offset + ws_len + t_match.end() :].strip()
+        is_known = known_items and (token_clean.lower() in known_items or token_clean.lower() == "all")
         is_last_token = not rem_after_token
 
         if is_known or (offset == 0 and is_last_token):

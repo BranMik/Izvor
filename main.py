@@ -45,9 +45,7 @@ from core.paths import AVATARS_DIR, PROJECT_ROOT
 
 # Configure logging format
 dynamic_log_level = getattr(logging, system_settings_manager.get_log_level(), logging.INFO)
-logging.basicConfig(
-    level=dynamic_log_level, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
-)
+logging.basicConfig(level=dynamic_log_level, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 setup_credential_redaction_filters()
 logger = logging.getLogger("IzvorBackend")
 
@@ -100,9 +98,7 @@ async def periodic_audit_integrity_guard():
             res = await asyncio.to_thread(AppIntegrityValidator.check_audit_log_integrity)
             hmac_check = res.get("hmac_continuity", {})
             if hmac_check and not hmac_check.get("matches", True):
-                logger.warning(
-                    f"[SECURITY GUARD] Periodic AUDIT_HMAC_SECRET mismatch: {hmac_check.get('message')}"
-                )
+                logger.warning(f"[SECURITY GUARD] Periodic AUDIT_HMAC_SECRET mismatch: {hmac_check.get('message')}")
             if not res["valid"]:
                 err_msg = "; ".join(res["errors"])
                 logger.critical(f"[SECURITY GUARD] Periodic audit integrity violation: {err_msg}")
@@ -143,10 +139,12 @@ async def periodic_retention_prune():
 async def lifespan(app: FastAPI):
     # Ensure SQLite schema and WAL mode are initialized before any queries execute
     from core.database import init_db
+
     init_db()
 
     # Enforce non-repudiable audit HMAC secret configuration fail-fast
     from services.audit_logger import validate_audit_configuration
+
     validate_audit_configuration()
 
     # Check worker concurrency
@@ -233,6 +231,7 @@ async def lifespan(app: FastAPI):
         )
 
     from services.audit_logger import set_main_event_loop
+
     set_main_event_loop(asyncio.get_running_loop())
 
     background_tasks: list[asyncio.Task] = []
@@ -311,12 +310,8 @@ def verify_admin_basic_auth(
             detail="Admin authentication is not configured on the server",
         )
 
-    is_correct_username = secrets.compare_digest(
-        credentials.username.encode("utf8"), ADMIN_USERNAME.encode("utf8")
-    )
-    is_correct_password = secrets.compare_digest(
-        credentials.password.encode("utf8"), ADMIN_PASSWORD.encode("utf8")
-    )
+    is_correct_username = secrets.compare_digest(credentials.username.encode("utf8"), ADMIN_USERNAME.encode("utf8"))
+    is_correct_password = secrets.compare_digest(credentials.password.encode("utf8"), ADMIN_PASSWORD.encode("utf8"))
 
     if not (is_correct_username and is_correct_password):
         now = time.time()
@@ -378,6 +373,7 @@ async def admin_health_check():
 async def get_registered_skills():
     """Returns all registered skills, descriptions, and their tool schemas."""
     from core.registry import get_skill_registry
+
     skill_registry = get_skill_registry()
     skills_data = []
     for s in skill_registry.list_skills():
@@ -396,14 +392,19 @@ async def get_registered_skills():
 @app.get("/api/rag/status", dependencies=[Depends(verify_admin_basic_auth)])
 async def get_rag_status():
     """Returns RAG manifest status and indexed documents overview."""
-    from services.rag.manifest_manager import ManifestManager
-    manifest = ManifestManager()
-    records = manifest.get_all_records()
-    return {
-        "status": "ready",
-        "total_documents": len(records),
-        "documents": records,
-    }
+
+    def _read_manifest():
+        from services.rag.manifest_manager import ManifestManager
+
+        manifest = ManifestManager()
+        records = manifest.get_all_records()
+        return {
+            "status": "ready",
+            "total_documents": len(records),
+            "documents": records,
+        }
+
+    return await asyncio.to_thread(_read_manifest)
 
 
 @app.post("/api/rag/reconcile")
@@ -441,10 +442,7 @@ async def get_audit_status():
     """Returns non-repudiable audit log cryptographic integrity status and statistics."""
     from orchestration.integrity_checks import AppIntegrityValidator
 
-    return AppIntegrityValidator.check_audit_log_integrity()
-
-
-
+    return await asyncio.to_thread(AppIntegrityValidator.check_audit_log_integrity)
 
 
 __all__ = [

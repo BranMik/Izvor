@@ -131,6 +131,7 @@ def get_audit_hmac_secret() -> bytes:
     if env_val:
         return env_val
     from core.config import is_test_environment
+
     if is_test_environment():
         return b"test-only-default-audit-hmac-secret-32b"
     return b""
@@ -171,6 +172,7 @@ def _persist_audit_anchor(month: str, seq: int, entry_hash: str, timestamp: str)
     """Persists a head-hash anchor to SQLite to detect subsequent tail truncations."""
     try:
         from core.database import db_manager
+
         with db_manager.transaction(immediate=True) as conn:
             conn.execute(
                 "INSERT OR REPLACE INTO audit_anchors (month, seq, entry_hash, anchored_at) VALUES (?, ?, ?, ?)",
@@ -484,7 +486,6 @@ class AuditLogger:
             logger.info(f"[AUDIT] Created backup snapshot: {snapshot_name} (SHA-256: {checksum[:12]}...)")
             return snapshot_path
 
-
     def check_hmac_secret_continuity(self, secret_key: bytes | None = None) -> dict[str, Any]:
         """Validates whether the current AUDIT_HMAC_SECRET matches the latest audit record."""
         return check_hmac_secret_continuity(audit_dir=self.audit_dir, secret_key=secret_key)
@@ -526,6 +527,7 @@ async def log_audit_event_async(
 ) -> dict[str, Any]:
     """Asynchronous entrypoint for emitting non-repudiable audit events via asyncio.to_thread."""
     import asyncio
+
     return await asyncio.to_thread(
         log_audit_event,
         event_type=event_type,
@@ -749,6 +751,7 @@ def verify_audit_log_integrity(
         if check_anchors:
             try:
                 from core.database import db_manager
+
                 with db_manager.get_connection() as conn:
                     if month:
                         clean_m = month.replace("-", "_")
@@ -789,6 +792,7 @@ def verify_audit_log_integrity(
     total_records = 0
     scanned_file_names: list[str] = []
     errors: list[str] = []
+    verified_hashes: dict[int, str] = {}
 
     # If checking a single month that is not the first, determine starting prev_hash from previous file
     if month and files:
@@ -821,9 +825,7 @@ def verify_audit_log_integrity(
                     try:
                         record_dict = json.loads(clean_line)
                     except json.JSONDecodeError as err:
-                        errors.append(
-                            f"File '{file_path.name}', line {line_num}: Malformed JSON - {err}"
-                        )
+                        errors.append(f"File '{file_path.name}', line {line_num}: Malformed JSON - {err}")
                         return AuditVerificationResult(
                             valid=False,
                             total_records=total_records,
@@ -874,6 +876,8 @@ def verify_audit_log_integrity(
                             f"computed hash '{computed_hash}'."
                         )
 
+                    if isinstance(seq, int):
+                        verified_hashes[seq] = recorded_entry_hash
                     expected_seq = (seq if isinstance(seq, int) else expected_seq) + 1
                     expected_prev_hash = recorded_entry_hash
 
@@ -883,31 +887,35 @@ def verify_audit_log_integrity(
     if check_anchors:
         try:
             from core.database import db_manager
+
             with db_manager.get_connection() as conn:
                 if month:
                     clean_m = month.replace("-", "_")
                     rows = conn.execute(
-                        "SELECT seq, entry_hash FROM audit_anchors WHERE month = ? ORDER BY seq DESC LIMIT 1",
+                        "SELECT seq, entry_hash FROM audit_anchors WHERE month = ? ORDER BY seq ASC",
                         (clean_m,),
                     ).fetchall()
                 else:
-                    rows = conn.execute(
-                        "SELECT seq, entry_hash FROM audit_anchors ORDER BY seq DESC LIMIT 1"
-                    ).fetchall()
-                if rows:
-                    anchor_seq = int(rows[0]["seq"])
-                    anchor_hash = str(rows[0]["entry_hash"])
-                    last_verified_seq = expected_seq - 1
-                    last_verified_hash = expected_prev_hash
+                    rows = conn.execute("SELECT seq, entry_hash FROM audit_anchors ORDER BY seq ASC").fetchall()
+                last_verified_seq = expected_seq - 1
+                for row in rows:
+                    anchor_seq = int(row["seq"])
+                    anchor_hash = str(row["entry_hash"])
                     if anchor_seq > last_verified_seq:
                         errors.append(
                             f"Tail truncation or anchor mismatch detected: SQLite anchor has seq {anchor_seq}, "
                             f"but verified JSONL log only reaches seq {last_verified_seq}."
                         )
-                    elif anchor_seq == last_verified_seq and anchor_hash != last_verified_hash:
+                    elif anchor_seq in verified_hashes:
+                        if verified_hashes[anchor_seq] != anchor_hash:
+                            errors.append(
+                                f"Anchor hash mismatch at seq {anchor_seq}: SQLite anchor has hash '{anchor_hash}', "
+                                f"but verified JSONL record has hash '{verified_hashes[anchor_seq]}'."
+                            )
+                    else:
                         errors.append(
-                            f"Tail truncation or anchor mismatch detected: SQLite anchor at seq {anchor_seq} "
-                            f"has hash '{anchor_hash}', but verified JSONL log has hash '{last_verified_hash}'."
+                            f"Anchor sequence missing in logs: SQLite anchor at seq {anchor_seq} "
+                            f"was not found in verified JSONL records."
                         )
         except Exception as e:  # noqa: BLE001
             logger.warning(f"[AUDIT] Could not verify audit anchors from database: {e}")
@@ -950,9 +958,7 @@ async def send_admin_audit_alert(
     if details:
         for k, v in details.items():
             text_parts.append(f"• *{k}:* `{v}`")
-    text_parts.append(
-        "👉 _Action Required: Run `python -m services.audit_logger --verify` for forensic diagnostics._"
-    )
+    text_parts.append("👉 _Action Required: Run `python -m services.audit_logger --verify` for forensic diagnostics._")
     alert_text = "\n".join(text_parts)
 
     admin_ids = get_admin_slack_user_ids()

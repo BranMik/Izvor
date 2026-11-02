@@ -5,6 +5,7 @@ Provides centralized path constants with zero internal application imports
 (only standard library `os` and `pathlib.Path`) to prevent circular dependency
 deadlocks across core, orchestration, services, and agent layers.
 """
+
 from __future__ import annotations
 
 import os
@@ -70,8 +71,9 @@ RAG_KNOWLEDGE_DIR = _resolve_env_path("IZVOR_RAG_KNOWLEDGE_DIR", CONFIG_DIR / "r
 
 # 2. engine/ Pillar (Immutable Core Engine & Built-in System Assets)
 ENGINE_SETTINGS_DIR = _resolve_env_path("IZVOR_ENGINE_SETTINGS_DIR", ENGINE_DIR / "settings")
+DEFAULT_SYSTEM_AGENT_SETTINGS_FILE = ENGINE_SETTINGS_DIR / "system_agent_settings.json"
 SYSTEM_AGENT_SETTINGS_FILE = _resolve_env_path(
-    "IZVOR_SYSTEM_AGENT_SETTINGS_FILE", ENGINE_SETTINGS_DIR / "system_agent_settings.json"
+    "IZVOR_SYSTEM_AGENT_SETTINGS_FILE", DATA_DIR / "settings" / "system_agent_settings.json"
 )
 PROMPTS_DIR = _resolve_env_path("IZVOR_PROMPTS_DIR", ENGINE_DIR / "prompts")
 SYSTEM_AGENTS_DIR = PROMPTS_DIR / "system_agents"
@@ -89,7 +91,7 @@ SYSTEM_BACKUP_FILE = BACKUPS_DIR / "system_settings_backup.json"
 AGENT_BACKUP_FILE = BACKUPS_DIR / "agent_settings_backup.json"
 SYSTEM_AGENT_BACKUP_FILE = BACKUPS_DIR / "system_agent_settings_backup.json"
 APP_BACKUP_FILE = BACKUPS_DIR / "app_settings_backup.json"
-WORKFLOWS_BACKUP_DIR = _resolve_env_path("IZVOR_WORKFLOWS_BACKUP_DIR", ENGINE_WORKFLOWS_DIR)
+WORKFLOWS_BACKUP_DIR = _resolve_env_path("IZVOR_WORKFLOWS_BACKUP_DIR", BACKUPS_DIR / "workflows")
 
 PRICING_DIR = _resolve_env_path("IZVOR_PRICING_DIR", DATA_DIR / "pricing")
 MODEL_PROVIDER_CATALOG_FILE = PRICING_DIR / "model_provider_catalog.json"
@@ -125,6 +127,7 @@ __all__ = [
     "CONFIG_DIR",
     "DATA_DIR",
     "DB_PATH",
+    "DEFAULT_SYSTEM_AGENT_SETTINGS_FILE",
     "DOWNLOADS_DIR",
     "ENGINE_AVATARS_DIR",
     "ENGINE_DIR",
