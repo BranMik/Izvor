@@ -214,13 +214,13 @@ def parse_token(slash_cmd: str, text: str) -> tuple[bool, str | None, str]:
         return False, None, ""
 
     pattern = re.compile(
-        rf"(?:^|[\r\n\s]){re.escape(slash_cmd)}(?![-_])\s*[:=]?\s*(?:/?\[?([a-zA-Z0-9_-]+)\]?|all\b)?",
+        rf"(?:^|[\r\n\s]){re.escape(slash_cmd)}(?![-_])\s*[:=]?\s*(?:/?\[?([a-zA-Z0-9_-]+)\]?|(all)\b)?",
         re.IGNORECASE,
     )
     match = pattern.search(text)
     if match:
-        raw_target = match.group(1) or "all"
-        target = raw_target.strip().lower()
+        target_candidate = match.group(1) or match.group(2)
+        target = target_candidate.strip().lower() if target_candidate else None
         cleaned = remove_command_span(text, match.start(), match.end())
         return True, target, cleaned
 
@@ -427,17 +427,19 @@ def strip_all_slash_commands(text: str) -> str:
         reverse=True,
     ):
         arg_type = trg_cfg.get("arg_type")
-        if arg_type in ("int", "int_or_off"):
+        if arg_type in ("int", "int_or_off", "integer"):
             _, _, cleaned = parse_int_or_off(trigger, cleaned)
+        elif arg_type == "grant_skill" or skill_def.name in ("grant_skill", "revoke_skill"):
+            _, _, _, cleaned = parse_grant_skill(trigger, cleaned)
         elif arg_type == "agent_list":
             _, _, _, cleaned = parse_agent_list(trigger, cleaned)
-        elif arg_type == "agent_token":
+        elif arg_type in ("agent_token", "agent"):
             _, _, cleaned = parse_single_agent_directive(trigger, cleaned)
-        elif arg_type == "file_target":
+        elif arg_type in ("file_target", "file"):
             _, _, cleaned = parse_file_target(trigger, cleaned)
-        elif arg_type == "terminal_flag" or skill_def.is_terminal:
+        elif arg_type in ("terminal_flag", "flag", "none", None) or skill_def.is_terminal:
             _, cleaned = parse_terminal_flag(trigger, cleaned)
-        elif arg_type == "token":
+        elif arg_type in ("token", "str"):
             _, _, cleaned = parse_token(trigger, cleaned)
         elif arg_type == "list":
             _, _, cleaned = parse_list(trigger, cleaned)

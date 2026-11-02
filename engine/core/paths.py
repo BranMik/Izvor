@@ -33,7 +33,13 @@ def _bootstrap_dotenv(env_file: Path) -> None:
                 if "=" in line:
                     key, val = line.split("=", 1)
                     key = key.strip()
-                    val = val.strip().strip("\"'")
+                    val = val.strip()
+                    if not (val.startswith(('"', "'")) and len(val) >= 2 and val[-1] == val[0]):
+                        if " #" in val:
+                            val = val.split(" #", 1)[0].strip()
+                        elif "\t#" in val:
+                            val = val.split("\t#", 1)[0].strip()
+                    val = val.strip("\"'")
                     if key:
                         os.environ.setdefault(key, val)
     except OSError:

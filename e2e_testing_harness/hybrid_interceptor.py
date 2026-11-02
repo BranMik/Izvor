@@ -161,22 +161,22 @@ class HybridInterceptor:
 
         # 1. Identify System Agents (IntentExtractor, LanguageDetector)
         is_intent_extractor = any(
-            "intent, directive, and parameter extractor"
-            in str(m.get("content", "")).lower()
+            any(k in str(m.get("content", "")).lower() for k in ("intent, directive, and parameter extractor", "structured directive & parameter extractor", 'id="intent_extractor"', "intent_extractor"))
+
             for m in messages
             if m.get("role") == "system"
         )
         is_language_detector = any(
-            "identify the primary natural human language"
-            in str(m.get("content", "")).lower()
-            or "language classifier" in str(m.get("content", "")).lower()
+            any(k in str(m.get("content", "")).lower() for k in ("identify the primary natural human language", "language classifier", 'id="language_detector"', "language_detector"))
+
+
             for m in messages
             if m.get("role") == "system"
         )
 
         is_scribe = any(
-            "discussion scribe" in str(m.get("content", "")).lower()
-            or "strategic synthesizer" in str(m.get("content", "")).lower()
+            any(k in str(m.get("content", "")).lower() for k in ("discussion scribe", "strategic synthesizer", "discussion_scribe", "live strategic synthesis", 'id="discussion_scribe_live"', 'id="discussion_scribe_conclusion"'))
+
             for m in messages
             if m.get("role") == "system"
         )
@@ -530,9 +530,9 @@ class HybridInterceptor:
         nomination_tag = ""
         if warrants_nomination:
             if "sceptic" in user_prompt_str.lower():
-                nomination_tag = " [LegalAdvisor]"
+                nomination_tag = " /[LegalAdvisor]"
             else:
-                nomination_tag = " [Sceptic]"
+                nomination_tag = " /[Sceptic]"
 
         # Craft concise mock text
         if is_croatian:

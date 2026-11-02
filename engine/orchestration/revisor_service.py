@@ -1,3 +1,4 @@
+import json
 import logging
 import litellm
 
@@ -39,7 +40,12 @@ async def run_internal_revisor(ctx: TurnContext):
         context_block = ""
         retrieved_parts = []
         if rag_used and ctx.file_context:
-            retrieved_parts.append(f"DOCUMENT/RAG CONTEXT:\n{ctx.file_context}")
+            if isinstance(ctx.file_context, dict):
+                f_name = ctx.file_context.get("filename") or ctx.file_context.get("name") or "Document"
+                f_body = ctx.file_context.get("content") or ctx.file_context.get("text") or json.dumps(ctx.file_context, indent=2)
+                retrieved_parts.append(f"DOCUMENT/RAG CONTEXT ({f_name}):\n{f_body}")
+            else:
+                retrieved_parts.append(f"DOCUMENT/RAG CONTEXT:\n{ctx.file_context}")
 
         for msg in (getattr(ctx, "messages", None) or []):
             if isinstance(msg, dict) and msg.get("role") == "tool":

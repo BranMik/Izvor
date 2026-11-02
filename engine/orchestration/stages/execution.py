@@ -59,6 +59,23 @@ def _unmask_argument_values(val: Any, mapping: dict[str, str]) -> Any:
     return val
 
 
+def _is_tool_error(result: Any) -> bool:
+    if isinstance(result, Exception):
+        return True
+    if isinstance(result, dict):
+        if result.get("is_error") is True:
+            return True
+        if "error" in result and len(result) <= 2:
+            return True
+    if isinstance(result, str):
+        lowered = result.strip().lower()
+        if lowered.startswith(("error:", "tool execution error:", "permission denied", "permissionerror:")):
+            return True
+        if lowered.startswith('{"error":') and len(result) < 300:
+            return True
+    return False
+
+
 class ExecutionStage:
     """Provides stage 4 LLM execution and tool calling loops for TurnPipeline."""
 
@@ -476,7 +493,7 @@ class ExecutionStage:
                             s_name = fn_args.get("skill_name", "").strip()
                         else:
                             s_name = skill_registry.find_skill_for_tool(fn_name) or fn_name
-                        if s_name and "error" not in str(tool_result):
+                        if s_name and not _is_tool_error(tool_result):
                             if s_name not in ctx.skills_used:
                                 ctx.skills_used.append(s_name)
 

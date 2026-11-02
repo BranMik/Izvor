@@ -54,18 +54,32 @@ def get_rag_setting(key: str, default: Any = None) -> Any:
     env_key = f"RAG_{key.upper()}"
     env_val = os.getenv(env_key)
     if env_val is not None:
+        if isinstance(default, bool):
+            return env_val.lower() in ("true", "1", "yes")
         if isinstance(default, int):
             try:
                 return int(env_val)
+            except ValueError:
+                pass
+        if isinstance(default, float):
+            try:
+                return float(env_val)
             except ValueError:
                 pass
         return env_val
 
     try:
         val = system_settings_manager.get_rag_setting(key, default)
+        if isinstance(default, bool) and val is not None:
+            return bool(val)
         if isinstance(default, int) and val is not None:
             try:
                 return int(val)
+            except (ValueError, TypeError):
+                pass
+        if isinstance(default, float) and val is not None:
+            try:
+                return float(val)
             except (ValueError, TypeError):
                 pass
         return val

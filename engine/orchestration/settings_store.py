@@ -93,6 +93,20 @@ class JsonSettingsStore(Generic[T]):
                 return self._cached_model
 
             if not self.settings_file.exists():
+                if self.backup_file and self.backup_file.exists():
+                    try:
+                        with open(self.backup_file, "r", encoding="utf-8") as bf:
+                            data = json.load(bf)
+                        self._raw_data = copy.deepcopy(data)
+                        self._cached_model = self.model_cls.model_validate(data)
+                        logger.warning(
+                            f"[SETTINGS_STORE] Settings file {self.settings_file} missing; recovered from backup: {self.backup_file}"
+                        )
+                        return self._cached_model
+                    except (OSError, json.JSONDecodeError, ValueError) as be:
+                        logger.error(
+                            f"[SETTINGS_STORE] Failed loading backup {self.backup_file}: {be}"
+                        )
                 self._raw_data = copy.deepcopy(self.default_data)
                 self._cached_model = self.model_cls.model_validate(self.default_data)
                 return self._cached_model

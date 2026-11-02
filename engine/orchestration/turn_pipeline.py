@@ -12,6 +12,7 @@ Coordinates turn processing across modular stages with an explicit TurnContext c
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 from dataclasses import dataclass, field, replace
@@ -806,6 +807,15 @@ class TurnPipeline:
         ctx.checkpoint_id = chk.checkpoint_id
         ctx.token_recorder = getattr(self.deps, "token_recorder", None) or record_thread_tokens
 
+        from orchestration.nomination import get_initial_agents
+        ctx.remaining = thread_state_manager.get_remaining_agents(
+            ctx.channel_id, ctx.thread_ts, default=get_initial_agents(ctx.channel_id, ctx.thread_ts)
+        )
+        ctx.eligible_remaining_agents = list(ctx.remaining)
+        ctx.is_custom_flow = thread_state_manager.is_custom_flow(ctx.channel_id, ctx.thread_ts)
+        ctx.is_open_debate = thread_state_manager.is_open_debate(ctx.channel_id, ctx.thread_ts)
+        ctx.full_history = list(chk.accumulated_history or [])
+
         agents_map = settings_manager.agents_config or AGENTS_CONFIG
         ctx.agent_cfg = dict(agents_map.get(ctx.agent_key, {}))
 
@@ -862,19 +872,72 @@ class TurnPipeline:
             if os.getenv("META_API_BASE"):
                 follow_up_kwargs["api_base"] = os.getenv("META_API_BASE")
 
-        follow_up = await exec_retry_fn(
-            litellm.acompletion,
-            follow_up_kwargs,
-            agent_key=f"{ctx.agent_key} resumed",
-            thread_key=ctx.thread_key,
-            is_superseded_fn=ctx.is_superseded,
-            turn_token_mapping=ctx.turn_token_mapping,
-        )
-        if follow_up is not None:
+        from orchestration.stages.execution import _unmask_argument_values
+
+        max_tool_iterations = system_settings_manager.get_max_tool_iterations()
+        iteration = 0
+        while iteration < max_tool_iterations:
+            follow_up = await exec_retry_fn(
+                litellm.acompletion,
+                follow_up_kwargs,
+                agent_key=f"{ctx.agent_key} resumed",
+                thread_key=ctx.thread_key,
+                is_superseded_fn=ctx.is_superseded,
+                turn_token_mapping=ctx.turn_token_mapping,
+            )
+            if follow_up is None:
+                break
             ctx.add_usage(follow_up)
-            if hasattr(follow_up, "choices") and follow_up.choices:
-                response_message = follow_up.choices[0].message
+            if not (hasattr(follow_up, "choices") and follow_up.choices):
+                break
+            response_message = follow_up.choices[0].message
+            tool_calls = getattr(response_message, "tool_calls", None)
+            if not tool_calls or not isinstance(tool_calls, (list, tuple)):
                 ctx.final_text = response_message.content or ""
+                break
+
+            # Follow-up tool calling loop
+            ctx.messages.append(response_message.model_dump())
+            for tool_call in tool_calls:
+                fn_name = tool_call.function.name
+                try:
+                    raw_args = (
+                        json.loads(tool_call.function.arguments)
+                        if isinstance(tool_call.function.arguments, str)
+                        else tool_call.function.arguments
+                    )
+                except (json.JSONDecodeError, TypeError) as decode_err:
+                    ctx.messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "name": fn_name,
+                            "content": f"<untrusted_file_content>\nInvalid JSON arguments: {decode_err}\n</untrusted_file_content>",
+                        }
+                    )
+                    continue
+
+                fn_args = _unmask_argument_values(raw_args, ctx.turn_token_mapping)
+                try:
+                    tool_res = skill_registry.execute_tool(
+                        fn_name,
+                        fn_args,
+                        authorized_skills=ctx.authorized_skills,
+                    )
+                except Exception as tool_err:  # noqa: BLE001
+                    tool_res = f"Tool execution failed: {tool_err}"
+
+                from core.security_utils import wrap_untrusted_content
+
+                ctx.messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tool_call.id,
+                        "name": fn_name,
+                        "content": wrap_untrusted_content(str(tool_res)),
+                    }
+                )
+            iteration += 1
 
         slack_res = await self.post_record_stage.stage_post_and_record(ctx)
 

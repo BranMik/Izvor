@@ -60,6 +60,7 @@ def _apply_convergence_stress_test_or_fast_forward(
     )
     from orchestration.system_settings import (
         get_convergence_consecutive_threshold,
+        is_dialectical_stress_test_enabled,
     )
 
     if last_turn_converged:
@@ -67,8 +68,15 @@ def _apply_convergence_stress_test_or_fast_forward(
     else:
         consecutive_convergence_count = 0
 
-    challenger_candidates = settings_manager.get_challenger_agents()
-    rebuttal_key = settings_manager.get_rebuttal_agent()
+    excluded = set(thread_state_manager.get_excluded_agents(channel_id, thread_ts))
+    enabled = set(settings_manager.get_enabled_agents())
+
+    challenger_candidates = [
+        c for c in settings_manager.get_challenger_agents()
+        if c in enabled and c not in excluded
+    ]
+    raw_rebuttal = settings_manager.get_rebuttal_agent()
+    rebuttal_key = raw_rebuttal if (raw_rebuttal in enabled and raw_rebuttal not in excluded) else None
     rebuttal_name = (settings_manager.get_agent(rebuttal_key) or {}).get("displayname") or "Rebuttal Agent"
     threshold = get_convergence_consecutive_threshold()
     wf_snap = thread_state_manager.get_workflow_snapshot(channel_id, thread_ts)
@@ -76,10 +84,23 @@ def _apply_convergence_stress_test_or_fast_forward(
     end_chain = sandwich_cfg.get("end_chain", [])
     remaining = thread_state_manager.get_remaining_agents(channel_id, thread_ts)
 
+    # If stress test is disabled, bypass dialectical challenge injection entirely
+    if not is_dialectical_stress_test_enabled():
+        if consecutive_convergence_count >= threshold:
+            new_queue = [e for e in end_chain if e in remaining or e not in spoken_agents]
+            if not new_queue and end_chain:
+                new_queue = list(end_chain)
+            thread_state_manager.set_remaining_agents(channel_id, thread_ts, new_queue)
+            logger.info(
+                f"[CONVERGENCE_FF] Consecutive threshold ({threshold}) met (stress testing disabled). Fast-forwarding directly to end chain: {new_queue}"
+            )
+            return new_queue, consecutive_convergence_count
+        return remaining, consecutive_convergence_count
+
     # Step 1: When last_speaker == rebuttal_key — Evaluating Rebuttal Verdict
     if rebuttal_key and last_speaker == rebuttal_key:
         if last_turn_converged:
-            # Verdict A — Consensus Defended/Patched: truncate remaining_agents to end_chain
+            # Verdict A — Consensus Defended/Patched: truncate remaining_agents to end_chain and prune middle remaining
             new_queue = [e for e in end_chain if e in remaining or e not in spoken_agents]
             if not new_queue and end_chain:
                 new_queue = list(end_chain)

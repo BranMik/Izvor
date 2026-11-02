@@ -66,7 +66,7 @@ def test_thread_note_content_cache():
 @pytest.mark.anyio
 async def test_upload_text_file_to_slack_mock():
     res = await upload_text_file_to_slack(
-        channel_id="D_TEST_DM",
+        channel_id="mock_dm",
         content="Hello file content",
         filename="test_notes.txt",
         title="Test Notes Title",

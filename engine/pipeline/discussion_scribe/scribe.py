@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import re
 import time
 from typing import Any
 
@@ -82,19 +83,19 @@ def _extract_brief_fields(raw_text: str) -> dict[str, Any]:
         lower = l_str.lower()
         is_header = l_str.startswith(("#", "**", "Part", "part", "PART")) or (l_str.endswith(":") and len(l_str) < 60)
         if is_header:
-            if "objective" in lower or "problem statement" in lower:
+            if any(k in lower for k in ("objective", "problem statement", "cilj", "problem", "svrha")):
                 current_section = "objective"
                 continue
-            elif "consensus" in lower and "perspective" not in lower:
+            elif any(k in lower for k in ("consensus", "konsenzus", "sporazum", "slaganje")) and not any(k in lower for k in ("perspective", "perspektiv")):
                 current_section = "consensus"
                 continue
-            elif "perspective" in lower:
+            elif any(k in lower for k in ("perspective", "perspektiv", "gledište", "stajališt")):
                 current_section = "perspectives"
                 continue
-            elif "risk" in lower or "trade-off" in lower or "open question" in lower:
+            elif any(k in lower for k in ("risk", "trade-off", "open question", "rizik", "kompromis", "otvoreno pitanje")):
                 current_section = "risks"
                 continue
-            elif "action item" in lower or "next step" in lower:
+            elif any(k in lower for k in ("action item", "next step", "akcijsk", "sljedeći korak", "koraci")):
                 current_section = "action_items"
                 continue
             elif l_str.startswith("#"):
@@ -104,25 +105,28 @@ def _extract_brief_fields(raw_text: str) -> dict[str, Any]:
         if not l_str:
             continue
 
+        m = re.match(r"^(?:[-*•]|\d+\.)\s*(.*)", l_str)
+        cleaned_bullet = m.group(1).strip() if m else l_str
+
         if current_section == "objective":
             objective += f" {l_str}"
         elif current_section == "perspectives":
-            if l_str.startswith(("-", "*", "•")):
-                perspectives.append(l_str.lstrip("-*• "))
-            elif "consensus" in lower:
+            if m:
+                perspectives.append(cleaned_bullet)
+            elif "consensus" in lower or "konsenzus" in lower:
                 consensus += f" {l_str}"
             else:
                 perspectives.append(l_str)
         elif current_section == "consensus":
             consensus += f" {l_str}"
         elif current_section == "risks":
-            if l_str.startswith(("-", "*", "•")):
-                risks.append(l_str.lstrip("-*• "))
+            if m:
+                risks.append(cleaned_bullet)
             else:
                 risks.append(l_str)
         elif current_section == "action_items":
-            if l_str.startswith(("-", "*", "•", "1.", "2.", "3.", "4.", "5.")):
-                action_items.append(l_str.lstrip("-*• 0123456789."))
+            if m:
+                action_items.append(cleaned_bullet)
             else:
                 action_items.append(l_str)
 
@@ -148,13 +152,13 @@ def _extract_conclusion_fields(raw_text: str) -> dict[str, Any]:
         lower = l_str.lower()
         is_header = l_str.startswith(("#", "**", "Part", "part", "PART")) or (l_str.endswith(":") and len(l_str) < 60)
         if is_header:
-            if "problem statement" in lower:
+            if any(k in lower for k in ("problem statement", "problem", "cilj", "pitanje")):
                 current_section = "problem"
                 continue
-            elif "consensus" in lower:
+            elif any(k in lower for k in ("consensus", "konsenzus", "zaključak", "slaganje")):
                 current_section = "consensus"
                 continue
-            elif "opposing" in lower or "divergent" in lower:
+            elif any(k in lower for k in ("opposing", "divergent", "suprotn", "različit", "drugačij")):
                 current_section = "opposing"
                 continue
             elif l_str.startswith("#"):
@@ -164,13 +168,16 @@ def _extract_conclusion_fields(raw_text: str) -> dict[str, Any]:
         if not l_str:
             continue
 
+        m = re.match(r"^(?:[-*•]|\d+\.)\s*(.*)", l_str)
+        cleaned_bullet = m.group(1).strip() if m else l_str
+
         if current_section == "problem":
             problem_statement += f" {l_str}"
         elif current_section == "consensus":
             consensus += f" {l_str}"
         elif current_section == "opposing":
-            if l_str.startswith(("-", "*", "•")):
-                opposing_conclusions.append({"text": l_str.lstrip("-*• ")})
+            if m:
+                opposing_conclusions.append({"text": cleaned_bullet})
             else:
                 opposing_conclusions.append({"text": l_str})
 

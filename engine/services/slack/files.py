@@ -340,13 +340,7 @@ async def upload_text_file_to_slack(
     if (
         not bot_token
         or bot_token == "xoxb-your-bot-user-oauth-token"
-        or (
-            channel_id
-            and (
-                str(channel_id).startswith(("mock_", "D_TEST", "D_MOCK", "C_TEST", "C_MOCK"))
-                or "TEST" in str(channel_id)
-            )
-        )
+        or (channel_id and str(channel_id).startswith("mock_"))
     ):
         mock_file_id = f"mock_file_{int(time.time() * 1000)}"
         logger.info(

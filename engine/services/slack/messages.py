@@ -398,7 +398,7 @@ async def update_thread_note(
 
     try:
         matched_rule = scan_output_for_secrets(text, user_id="system_update")
-        if blocks:
+        if blocks is not None:
             blocks, matched_rule_blocks = sanitize_slack_blocks(blocks, user_id="system_update")
             if matched_rule_blocks:
                 matched_rule = matched_rule or matched_rule_blocks
@@ -417,7 +417,7 @@ async def update_thread_note(
             "unfurl_links": False,
             "unfurl_media": False,
         }
-        if blocks:
+        if blocks is not None:
             kwargs["blocks"] = blocks
         await client.chat_update(**kwargs)
         logger.info(f"[SLACK NOTE] Successfully updated live note message {message_ts}")

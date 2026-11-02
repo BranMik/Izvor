@@ -54,6 +54,7 @@ class ThreadSkillsManager:
     def grant_skills(
         self, channel_id: str, thread_ts: str, skills: list[str]
     ) -> tuple[list[str], float]:
+        self._maybe_run_cleanup()
         clean_skills = [s.strip() for s in skills if isinstance(s, str) and s.strip()]
         if not clean_skills:
             return self.get_active_skills(channel_id, thread_ts), 0.0
@@ -99,6 +100,7 @@ class ThreadSkillsManager:
     def grant_agent_skills(
         self, channel_id: str, thread_ts: str, skill: str, agents: list[str]
     ) -> tuple[dict[str, list[str]], float]:
+        self._maybe_run_cleanup()
         clean_skill = skill.strip() if isinstance(skill, str) else ""
         if not clean_skill or not agents:
             return {}, 0.0
@@ -256,6 +258,7 @@ class ThreadSkillsManager:
         skills: list[str] | None = None,
         agent_key: str | None = None,
     ) -> list[str]:
+        self._maybe_run_cleanup()
         try:
             with get_db_transaction(immediate=True) as conn:
                 if agent_key is not None:
@@ -274,14 +277,14 @@ class ThreadSkillsManager:
                 else:
                     if not skills or any(s.lower() == "all" for s in skills):
                         conn.execute(
-                            "DELETE FROM thread_skills WHERE channel_id = ? AND thread_ts = ?;",
+                            "DELETE FROM thread_skills WHERE channel_id = ? AND thread_ts = ? AND agent_id = '*';",
                             (channel_id, thread_ts),
                         )
                     else:
                         clean = [s.strip() for s in skills if isinstance(s, str)]
                         placeholders = ",".join("?" for _ in clean)
                         conn.execute(
-                            f"DELETE FROM thread_skills WHERE channel_id = ? AND thread_ts = ? AND skill_name IN ({placeholders});",
+                            f"DELETE FROM thread_skills WHERE channel_id = ? AND thread_ts = ? AND agent_id = '*' AND skill_name IN ({placeholders});",
                             [channel_id, thread_ts, *clean],
                         )
         except Exception as e:  # noqa: BLE001

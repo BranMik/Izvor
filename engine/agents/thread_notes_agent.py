@@ -277,8 +277,8 @@ def build_conclusion_note_blocks(
     ]
 
 
-def clear_thread_note(channel_id: str, thread_ts: str) -> None:
-    """Removes live and conclusion note tracking and cancels any running/pending tasks for a thread."""
+def evict_thread_note_cache(channel_id: str, thread_ts: str) -> None:
+    """Removes in-memory note tracking and cancels pending tasks without touching SQLite SSOT."""
     thread_key = (channel_id, thread_ts)
     THREAD_NOTE_MSG_MAP.pop(thread_key, None)
     THREAD_NOTE_TEXT_MAP.pop(thread_key, None)
@@ -291,6 +291,11 @@ def clear_thread_note(channel_id: str, thread_ts: str) -> None:
     task = _RUNNING_TASKS.pop(thread_key, None)
     if task and not task.done():
         task.cancel()
+
+
+def clear_thread_note(channel_id: str, thread_ts: str) -> None:
+    """Removes live and conclusion note tracking, cancels tasks, and deletes persistent DB state."""
+    evict_thread_note_cache(channel_id, thread_ts)
     try:
         from core.database import get_db_transaction
 
@@ -329,7 +334,7 @@ def reset_thread_notes() -> None:
 try:
     from orchestration.thread_state import thread_state_manager
 
-    thread_state_manager.register_cleanup_hook(clear_thread_note)
+    thread_state_manager.register_cleanup_hook(evict_thread_note_cache)
     thread_state_manager.register_reset_hook(reset_thread_notes)
 except (ImportError, AttributeError, TypeError) as _e:
     logger.debug(f"[THREAD NOTES] Could not register thread_state hooks: {_e}")

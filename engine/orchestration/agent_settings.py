@@ -504,15 +504,15 @@ class AgentSettingsManager:
         self._load_workflow_details(self.workflow_config, fallback_data=data)
 
         # Parse enabled agents
-        raw_enabled = data.get("enabled_agents", [])
-        if isinstance(raw_enabled, list):
-            valid_enabled = {k for k in raw_enabled if k in self.agents_config}
+        raw_enabled = data.get("enabled_agents")
+        if raw_enabled is not None:
+            if isinstance(raw_enabled, list):
+                valid_enabled = {k for k in raw_enabled if k in self.agents_config}
+            else:
+                valid_enabled = set()
         else:
-            valid_enabled = set()
-
-        # If enabled list is empty, default to all valid agents
-        if not valid_enabled:
-            valid_enabled.update(self.agents_config.keys())
+            # If enabled_agents is omitted, default to all valid agents
+            valid_enabled = set(self.agents_config.keys())
 
         self.enabled_agents.clear()
         self.enabled_agents.update(valid_enabled)
@@ -1071,7 +1071,11 @@ class AgentSettingsManager:
             s.strip() for s in skills if isinstance(s, str) and s.strip()
         ]
         self.agents_config[agent_key]["skills"] = sanitized_skills
-        self.agents_config[agent_key]["system_prompt"] = build_agent_prompt(agent_key, skills=sanitized_skills)
+        self.agents_config[agent_key]["system_prompt"] = build_agent_prompt(
+            agent_key,
+            skills=sanitized_skills,
+            is_short_output=bool(self.agents_config[agent_key].get("is_short_output", False)),
+        )
         if save:
             self.save()
         logger.info(f"[SETTINGS] Updated skills for '{agent_key}': {sanitized_skills}")
@@ -1080,7 +1084,11 @@ class AgentSettingsManager:
     def refresh_agent_prompts(self) -> None:
         """Refreshes all in-memory agent system prompts."""
         for agent_key, cfg in self.agents_config.items():
-            cfg["system_prompt"] = build_agent_prompt(agent_key, skills=cfg.get("skills"))
+            cfg["system_prompt"] = build_agent_prompt(
+                agent_key,
+                skills=cfg.get("skills"),
+                is_short_output=bool(cfg.get("is_short_output", False)),
+            )
         logger.info(f"[SETTINGS] Refreshed system prompts for {len(self.agents_config)} agents.")
 
     def set_agent_model(self, agent_key: str, model: str, save: bool = True) -> bool:
