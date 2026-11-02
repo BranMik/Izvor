@@ -93,11 +93,12 @@ def test_app_settings_backup_resilience():
         assert mgr.is_weekly_pricing_update_enabled() is False
 
 
-def test_app_settings_module_convenience(monkeypatch, tmp_path):
+def test_app_settings_module_convenience(tmp_path):
     settings_file = tmp_path / "app_settings.json"
     backup_file = tmp_path / "app_settings_backup.json"
-    mgr = AppSettingsManager(settings_file=settings_file, backup_file=backup_file, auto_load=False)
-    monkeypatch.setattr("orchestration.app_settings.app_settings_manager", mgr)
+    from orchestration.app_settings import app_settings_manager
+
+    app_settings_manager.configure_paths(settings_file=settings_file, backup_file=backup_file)
 
     assert is_weekly_pricing_update_enabled() is True
     set_weekly_pricing_update_enabled(False)
@@ -112,7 +113,7 @@ def test_app_settings_module_convenience(monkeypatch, tmp_path):
     assert is_circuit_breaker_enabled() is True
 
     set_circuit_breaker_threshold(1.25)
-    assert mgr.get_circuit_breaker_threshold() == 1.25
+    assert app_settings_manager.get_circuit_breaker_threshold() == 1.25
 
     set_scribe_enabled(False)
     assert is_scribe_enabled() is False

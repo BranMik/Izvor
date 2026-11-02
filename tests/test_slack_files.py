@@ -538,9 +538,9 @@ def test_sanitize_slack_download_filename():
 
 @pytest.mark.anyio
 async def test_download_slack_file_saves_safely_inside_downloads():
-    from core.paths import DOWNLOADS_DIR
+    from core.paths import get_downloads_dir
 
-    downloads_dir = DOWNLOADS_DIR.resolve()
+    downloads_dir = get_downloads_dir().resolve()
     downloads_dir.mkdir(parents=True, exist_ok=True)
 
     # Malicious filename attempting path traversal
@@ -559,7 +559,7 @@ async def test_download_slack_file_saves_safely_inside_downloads():
         assert res["ok"] is True
 
         # Verify nothing was created in parent directories
-        parent_file = DOWNLOADS_DIR.parent / "traversal_attack.py"
+        parent_file = downloads_dir.parent / "traversal_attack.py"
         assert not parent_file.exists()
 
         # Verify file is inside downloads_dir with neutralized extension .py.txt

@@ -6,6 +6,7 @@ from orchestration.app_settings import (
     get_workspace_context,
     set_workspace_context,
     AppSettingsManager,
+    app_settings_manager,
 )
 from prompts.builder import build_agent_prompt
 from services.slack_home import (
@@ -15,13 +16,12 @@ from services.slack_home import (
 
 
 @pytest.fixture(autouse=True)
-def clean_workspace_context(tmp_path, monkeypatch):
+def clean_workspace_context(tmp_path):
     test_settings_file = tmp_path / "app_settings.json"
     test_settings_file.write_text(json.dumps({"workspace_context": ""}), encoding="utf-8")
-    monkeypatch.setattr("orchestration.app_settings.APP_SETTINGS_FILE", test_settings_file)
-    mgr = AppSettingsManager(settings_file=test_settings_file, auto_load=True)
-    monkeypatch.setattr("orchestration.app_settings.app_settings_manager", mgr)
+    app_settings_manager.configure_paths(settings_file=test_settings_file)
     yield
+    app_settings_manager.reset_paths()
 
 
 def test_get_and_set_workspace_context(tmp_path):

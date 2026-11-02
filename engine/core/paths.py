@@ -114,6 +114,17 @@ AGENTS_RESOURCES_DIR = _resolve_env_path("IZVOR_AGENTS_RESOURCES_DIR", PROJECT_R
 THREAD_NOTES_DIR = _resolve_env_path("IZVOR_THREAD_NOTES_DIR", AGENTS_RESOURCES_DIR / "thread_notes")
 SYSTEM_RESOURCES_DIR = _resolve_env_path("IZVOR_SYSTEM_RESOURCES_DIR", PROJECT_ROOT / "system_resources")
 
+
+def get_downloads_dir() -> Path:
+    """Dynamically resolves the active downloads directory taking IZVOR_DOWNLOADS_DIR overrides into account."""
+    return _resolve_env_path("IZVOR_DOWNLOADS_DIR", DATA_DIR / "downloads")
+
+
+def get_pricing_cache_file() -> Path:
+    """Dynamically resolves the pricing cache file taking IZVOR_PRICING_CACHE_FILE overrides into account."""
+    return _resolve_env_path("IZVOR_PRICING_CACHE_FILE", PRICING_DIR / "model_pricing_cache.json")
+
+
 __all__ = [
     "AGENT_BACKUP_FILE",
     "AGENT_SETTINGS_FILE",
@@ -161,4 +172,6 @@ __all__ = [
     "WORKFLOWS_BACKUP_DIR",
     "WORKFLOWS_DIR",
     "_resolve_env_path",
+    "get_downloads_dir",
+    "get_pricing_cache_file",
 ]

@@ -143,11 +143,12 @@ def test_system_settings_backup_resilience():
         assert mgr.get_rag_setting("default_top_k") == 5
 
 
-def test_system_settings_module_convenience(monkeypatch, tmp_path):
+def test_system_settings_module_convenience(tmp_path):
     settings_file = tmp_path / "system_settings.json"
     backup_file = tmp_path / "system_settings_backup.json"
-    mgr = SystemSettingsManager(settings_file=settings_file, backup_file=backup_file, auto_load=False)
-    monkeypatch.setattr("orchestration.system_settings.system_settings_manager", mgr)
+    from orchestration.system_settings import system_settings_manager
+
+    system_settings_manager.configure_paths(settings_file=settings_file, backup_file=backup_file)
 
     assert get_max_file_size_mb() == 50.0
     set_max_file_size_mb(15.0)
