@@ -248,9 +248,7 @@ class TurnContext:
             from core.domain import SessionContext
 
             in_mem = list(self.inp.in_memory_history) if self.inp.in_memory_history else None
-            self.session = SessionContext.from_thread(
-                self.inp.channel_id, self.inp.thread_ts, in_mem
-            )
+            self.session = SessionContext.from_thread(self.inp.channel_id, self.inp.thread_ts, in_mem)
 
     # Input properties
     @property
@@ -507,9 +505,8 @@ class TurnContext:
 
     def is_superseded(self) -> bool:
         """Determines if this turn was superseded by a newer query or task cancellation."""
-        return (
-            thread_state_manager.get_generation(self.channel_id, self.thread_ts) != self.my_generation
-            or bool(self.current_task and self.current_task.cancelled())
+        return thread_state_manager.get_generation(self.channel_id, self.thread_ts) != self.my_generation or bool(
+            self.current_task and self.current_task.cancelled()
         )
 
     def add_usage(self, resp: Any):
@@ -531,11 +528,7 @@ class TurnContext:
 
         if prompt_tokens > 0 or completion_tokens > 0:
             resp_model = getattr(resp, "model", None)
-            model_name = (
-                resp_model
-                or (self.agent_cfg.get("model", "") if self.agent_cfg else "")
-                or "unknown"
-            )
+            model_name = resp_model or (self.agent_cfg.get("model", "") if self.agent_cfg else "") or "unknown"
             recorder = getattr(self, "token_recorder", None) or record_thread_tokens
             if recorder:
                 try:
@@ -584,6 +577,7 @@ class TurnPipeline:
     @post_system_message_fn.setter
     def post_system_message_fn(self, value: Any) -> None:
         import dataclasses
+
         self.deps = dataclasses.replace(self.deps, post_system_message_fn=value)
         if hasattr(self, "validation_stage") and self.validation_stage:
             self.validation_stage.deps = self.deps
@@ -604,6 +598,7 @@ class TurnPipeline:
     def slack_poster(self, value: Any) -> None:
         import dataclasses
         from adapters.slack.workspace_adapter import SlackWorkspaceAdapter
+
         ws = SlackWorkspaceAdapter(
             post_agent_fn=value,
             update_msg_fn=getattr(self.deps, "update_message_fn", None),
@@ -620,10 +615,10 @@ class TurnPipeline:
     @workspace_adapter.setter
     def workspace_adapter(self, value: Any) -> None:
         import dataclasses
+
         self.deps = dataclasses.replace(self.deps, workspace_adapter=value)
         if hasattr(self, "post_record_stage") and self.post_record_stage:
             self.post_record_stage.deps = self.deps
-
 
     async def _sleep(self, seconds: float):
         """Asynchronous sleep respecting injected sleep_fn."""
@@ -631,17 +626,15 @@ class TurnPipeline:
             sleep_func = self.deps.sleep_fn or asyncio.sleep
             await sleep_func(seconds)
 
-
     async def run(self, ctx: TurnContext) -> dict[str, Any]:
         """Runs the entire turn execution lifecycle."""
         from services.web_tools import reset_turn_web_budget
+
         reset_turn_web_budget()
 
         ctx.token_recorder = getattr(self.deps, "token_recorder", None) or record_thread_tokens
 
-        logger.info(
-            f"\n[{ctx.start_time}] >>> START process_and_respond for thread_ts: {ctx.thread_ts} <<<"
-        )
+        logger.info(f"\n[{ctx.start_time}] >>> START process_and_respond for thread_ts: {ctx.thread_ts} <<<")
 
         if not ctx.is_bot_trigger:
             thread_state_manager.increment_generation(ctx.channel_id, ctx.thread_ts)
@@ -736,8 +729,10 @@ class TurnPipeline:
             # --- Phase 2: CASCADING HALLUCINATION PREVENTION (TKT-820) ---
             try:
                 from core.config import is_internal_revisor_enabled
+
                 if is_internal_revisor_enabled():
                     from orchestration.revisor_service import run_internal_revisor
+
                     warning = await asyncio.wait_for(run_internal_revisor(ctx), timeout=3.5)
                     if warning and isinstance(slack_res, dict):
                         slack_res["revisor_warning"] = warning
@@ -816,11 +811,16 @@ class TurnPipeline:
 
         from orchestration.thread_skills_manager import thread_skills_manager
         from skills.loader import skill_registry
+
         base_skills = list(ctx.agent_cfg.get("skills") or settings_manager.get_agent_skills(ctx.agent_key) or [])
         global_skills = skill_registry.get_global_skills()
         active_thread_skills = thread_skills_manager.get_active_skills(ctx.channel_id, ctx.thread_ts)
-        active_agent_skills = thread_skills_manager.get_active_agent_skills(ctx.channel_id, ctx.thread_ts, ctx.agent_key)
-        ctx.authorized_skills = list(dict.fromkeys(base_skills + global_skills + active_thread_skills + active_agent_skills))
+        active_agent_skills = thread_skills_manager.get_active_agent_skills(
+            ctx.channel_id, ctx.thread_ts, ctx.agent_key
+        )
+        ctx.authorized_skills = list(
+            dict.fromkeys(base_skills + global_skills + active_thread_skills + active_agent_skills)
+        )
 
         active_tools = list(chk.active_tools or [])
         pending_tool = chk.pending_tool_call
@@ -828,11 +828,9 @@ class TurnPipeline:
         if tool_result is not None and pending_tool:
             tool_call_id = pending_tool.get("id") or "call_resumed"
             fn_name = pending_tool.get("name") or "tool"
-            tool_result_str = (
-                f"<untrusted_file_content>\n{tool_result}\n</untrusted_file_content>"
-                if isinstance(tool_result, str)
-                else str(tool_result)
-            )
+            from core.security_utils import wrap_untrusted_content
+
+            tool_result_str = wrap_untrusted_content(str(tool_result))
 
             replaced = False
             for m in reversed(ctx.messages):
@@ -841,16 +839,17 @@ class TurnPipeline:
                     replaced = True
                     break
             if not replaced:
-                ctx.messages.append({
-                    "role": "tool",
-                    "tool_call_id": tool_call_id,
-                    "name": fn_name,
-                    "content": tool_result_str,
-                })
+                ctx.messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tool_call_id,
+                        "name": fn_name,
+                        "content": tool_result_str,
+                    }
+                )
 
         exec_retry_fn = self.deps.llm_executor or execute_llm_with_retry
         follow_up_kwargs: dict[str, Any] = {
-
             "model": ctx.agent_cfg.get("model", ""),
             "messages": ctx.messages,
             "tools": active_tools if active_tools else None,
@@ -881,8 +880,10 @@ class TurnPipeline:
 
         try:
             from core.config import is_internal_revisor_enabled
+
             if is_internal_revisor_enabled():
                 from orchestration.revisor_service import run_internal_revisor
+
                 warning = await asyncio.wait_for(run_internal_revisor(ctx), timeout=3.5)
                 if warning and isinstance(slack_res, dict):
                     slack_res["revisor_warning"] = warning
@@ -894,4 +895,3 @@ class TurnPipeline:
 
         turn_checkpoint_store.mark_resumed(chk.checkpoint_id)
         return slack_res
-

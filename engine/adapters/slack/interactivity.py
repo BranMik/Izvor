@@ -104,64 +104,118 @@ ACTION_REGISTRY: dict[str, ActionSpec] = {
         handler=_handle_resume_sequence, admin_required=True, audit_action="ADMIN_CONFIG_CHANGE", publish_home=False
     ),
     "toggle_circuit_breaker_radio": ActionSpec(
-        handler=_handle_toggle_circuit_breaker, admin_required=True, audit_action="ADMIN_CONFIG_CHANGE", publish_home=True
+        handler=_handle_toggle_circuit_breaker,
+        admin_required=True,
+        audit_action="ADMIN_CONFIG_CHANGE",
+        publish_home=True,
     ),
     "toggle_scribe_radio": ActionSpec(
         handler=_handle_toggle_scribe, admin_required=True, audit_action="ADMIN_CONFIG_CHANGE", publish_home=True
     ),
     "toggle_weekly_pricing_update_radio": ActionSpec(
-        handler=_handle_toggle_weekly_pricing, admin_required=True, audit_action="ADMIN_CONFIG_CHANGE", publish_home=True
+        handler=_handle_toggle_weekly_pricing,
+        admin_required=True,
+        audit_action="ADMIN_CONFIG_CHANGE",
+        publish_home=True,
     ),
     "toggle_convergence_fast_forward_radio": ActionSpec(
-        handler=_handle_toggle_convergence_ff, admin_required=True, audit_action="ADMIN_CONFIG_CHANGE", publish_home=True
+        handler=_handle_toggle_convergence_ff,
+        admin_required=True,
+        audit_action="ADMIN_CONFIG_CHANGE",
+        publish_home=True,
     ),
     "set_circuit_breaker_threshold_input": ActionSpec(
-        handler=_handle_set_circuit_breaker_threshold_input, admin_required=True, audit_action="ADMIN_CONFIG_CHANGE", publish_home=True
+        handler=_handle_set_circuit_breaker_threshold_input,
+        admin_required=True,
+        audit_action="ADMIN_CONFIG_CHANGE",
+        publish_home=True,
     ),
     "save_circuit_breaker_threshold_button": ActionSpec(
-        handler=_handle_save_circuit_breaker_threshold_button, admin_required=True, audit_action="ADMIN_CONFIG_CHANGE", publish_home=True
+        handler=_handle_save_circuit_breaker_threshold_button,
+        admin_required=True,
+        audit_action="ADMIN_CONFIG_CHANGE",
+        publish_home=True,
     ),
     "set_daily_budget_input": ActionSpec(
-        handler=_handle_set_daily_budget_input, admin_required=True, audit_action="ADMIN_CONFIG_CHANGE", publish_home=True
+        handler=_handle_set_daily_budget_input,
+        admin_required=True,
+        audit_action="ADMIN_CONFIG_CHANGE",
+        publish_home=True,
     ),
     "save_daily_budget_button": ActionSpec(
-        handler=_handle_save_daily_budget_button, admin_required=True, audit_action="ADMIN_CONFIG_CHANGE", publish_home=True
+        handler=_handle_save_daily_budget_button,
+        admin_required=True,
+        audit_action="ADMIN_CONFIG_CHANGE",
+        publish_home=True,
     ),
     "select_workflow_preset": ActionSpec(
-        handler=_handle_select_workflow_preset, admin_required=False, audit_action="WORKFLOW_PRESET_SELECTED", publish_home=True
+        handler=_handle_select_workflow_preset,
+        admin_required=False,
+        audit_action="WORKFLOW_PRESET_SELECTED",
+        publish_home=True,
     ),
     "load_workflow_preset_button": ActionSpec(
-        handler=_handle_load_workflow_preset_button, admin_required=False, audit_action="WORKFLOW_PRESET_SELECTED", publish_home=True
+        handler=_handle_load_workflow_preset_button,
+        admin_required=False,
+        audit_action="WORKFLOW_PRESET_SELECTED",
+        publish_home=True,
     ),
     "delete_workflow_preset_button": ActionSpec(
-        handler=_handle_delete_workflow_preset_button, admin_required=True, audit_action="ADMIN_CONFIG_CHANGE", publish_home=True
+        handler=_handle_delete_workflow_preset_button,
+        admin_required=True,
+        audit_action="ADMIN_CONFIG_CHANGE",
+        publish_home=True,
     ),
     "save_workflow_preset_button": ActionSpec(
-        handler=_handle_save_workflow_preset_button, admin_required=True, audit_action="ADMIN_CONFIG_CHANGE", publish_home=True
+        handler=_handle_save_workflow_preset_button,
+        admin_required=True,
+        audit_action="ADMIN_CONFIG_CHANGE",
+        publish_home=True,
     ),
     "select_orchestration_mode": ActionSpec(
-        handler=_handle_select_orchestration_mode, admin_required=True, audit_action="ADMIN_CONFIG_CHANGE", publish_home=True
+        handler=_handle_select_orchestration_mode,
+        admin_required=True,
+        audit_action="ADMIN_CONFIG_CHANGE",
+        publish_home=True,
     ),
     "save_sandwich_chains_button": ActionSpec(
-        handler=_handle_save_sandwich_chains_button, admin_required=True, audit_action="ADMIN_CONFIG_CHANGE", publish_home=True
+        handler=_handle_save_sandwich_chains_button,
+        admin_required=True,
+        audit_action="ADMIN_CONFIG_CHANGE",
+        publish_home=True,
     ),
     "clear_sandwich_chains_button": ActionSpec(
-        handler=_handle_clear_sandwich_chains_button, admin_required=True, audit_action="ADMIN_CONFIG_CHANGE", publish_home=True
+        handler=_handle_clear_sandwich_chains_button,
+        admin_required=True,
+        audit_action="ADMIN_CONFIG_CHANGE",
+        publish_home=True,
     ),
     "set_start_chain_input": ActionSpec(
-        handler=_handle_set_start_chain_input, admin_required=True, audit_action="ADMIN_CONFIG_CHANGE", publish_home=True
+        handler=_handle_set_start_chain_input,
+        admin_required=True,
+        audit_action="ADMIN_CONFIG_CHANGE",
+        publish_home=True,
     ),
     "set_end_chain_input": ActionSpec(
         handler=_handle_set_end_chain_input, admin_required=True, audit_action="ADMIN_CONFIG_CHANGE", publish_home=True
     ),
     "save_fixed_chain_button": ActionSpec(
-        handler=_handle_save_fixed_chain_button, admin_required=True, audit_action="ADMIN_CONFIG_CHANGE", publish_home=True
+        handler=_handle_save_fixed_chain_button,
+        admin_required=True,
+        audit_action="ADMIN_CONFIG_CHANGE",
+        publish_home=True,
     ),
     "clear_fixed_chain_button": ActionSpec(
-        handler=_handle_clear_fixed_chain_button, admin_required=True, audit_action="ADMIN_CONFIG_CHANGE", publish_home=True
+        handler=_handle_clear_fixed_chain_button,
+        admin_required=True,
+        audit_action="ADMIN_CONFIG_CHANGE",
+        publish_home=True,
     ),
     "set_fixed_chain_input": ActionSpec(
-        handler=_handle_set_fixed_chain_input, admin_required=True, audit_action="ADMIN_CONFIG_CHANGE", publish_home=True
+        handler=_handle_set_fixed_chain_input,
+        admin_required=True,
+        audit_action="ADMIN_CONFIG_CHANGE",
+        publish_home=True,
     ),
     "bulk_enable_all": ActionSpec(
         handler=_handle_bulk_enable_all, admin_required=True, audit_action="ADMIN_CONFIG_CHANGE", publish_home=True
@@ -176,7 +230,10 @@ ACTION_REGISTRY: dict[str, ActionSpec] = {
         handler=_handle_restore_from_backup, admin_required=True, audit_action="ADMIN_CONFIG_CHANGE", publish_home=True
     ),
     "open_edit_workspace_context_modal": ActionSpec(
-        handler=_handle_open_edit_workspace_context_modal, admin_required=True, audit_action="ADMIN_CONFIG_CHANGE", publish_home=False
+        handler=_handle_open_edit_workspace_context_modal,
+        admin_required=True,
+        audit_action="ADMIN_CONFIG_CHANGE",
+        publish_home=False,
     ),
 }
 
@@ -340,20 +397,44 @@ async def handle_slack_interactivity(request: Request, background_tasks: Backgro
         for action, spec in resolved_actions:
             if spec.publish_home:
                 should_publish_home = True
-            if spec.audit_action:
-                log_audit_event(
-                    event_type=spec.audit_action,
-                    actor={"type": "slack_user", "id": user_id or "unknown"},
-                    action=action.get("action_id", "unknown_action"),
-                    target="slack_app_home",
-                    details={"action": action.get("action_id")},
-                    severity="INFO",
-                )
-            res = spec.handler(action, payload, user_id, background_tasks, view_state)
-            if asyncio.iscoroutine(res):
-                res = await res
-            if isinstance(res, Response) and res.status_code != 200:
-                return res
+            try:
+                res = spec.handler(action, payload, user_id, background_tasks, view_state)
+                if asyncio.iscoroutine(res):
+                    res = await res
+                if isinstance(res, Response) and res.status_code != 200:
+                    if spec.audit_action:
+                        log_audit_event(
+                            event_type=spec.audit_action,
+                            actor={"type": "slack_user", "id": user_id or "unknown"},
+                            action=action.get("action_id", "unknown_action"),
+                            target="slack_app_home",
+                            details={"action": action.get("action_id"), "status_code": res.status_code},
+                            severity="WARNING",
+                            status="FAILURE",
+                        )
+                    return res
+                if spec.audit_action:
+                    log_audit_event(
+                        event_type=spec.audit_action,
+                        actor={"type": "slack_user", "id": user_id or "unknown"},
+                        action=action.get("action_id", "unknown_action"),
+                        target="slack_app_home",
+                        details={"action": action.get("action_id")},
+                        severity="INFO",
+                        status="SUCCESS",
+                    )
+            except Exception as e:
+                if spec.audit_action:
+                    log_audit_event(
+                        event_type=spec.audit_action,
+                        actor={"type": "slack_user", "id": user_id or "unknown"},
+                        action=action.get("action_id", "unknown_action"),
+                        target="slack_app_home",
+                        details={"action": action.get("action_id"), "error": str(e)},
+                        severity="ERROR",
+                        status="FAILURE",
+                    )
+                raise
 
         if user_id and should_publish_home:
             background_tasks.add_task(_safe_publish_home, user_id=user_id)
@@ -374,9 +455,7 @@ async def handle_slack_interactivity(request: Request, background_tasks: Backgro
             from starlette.responses import JSONResponse
 
             if not is_slack_admin(user_id):
-                logger.warning(
-                    f"[INTERACTIVITY] Non-admin user {user_id} attempted to submit workspace context."
-                )
+                logger.warning(f"[INTERACTIVITY] Non-admin user {user_id} attempted to submit workspace context.")
                 log_audit_event(
                     event_type="ADMIN_ACTION_DENIED",
                     actor={"type": "slack_user", "id": user_id or "unknown"},
@@ -389,9 +468,7 @@ async def handle_slack_interactivity(request: Request, background_tasks: Backgro
 
             values = view.get("state", {}).get("values", {})
             input_val = (
-                values.get("workspace_context_input_block", {})
-                .get("workspace_context_input", {})
-                .get("value")
+                values.get("workspace_context_input_block", {}).get("workspace_context_input", {}).get("value")
             ) or ""
             clean_val = str(input_val).strip()
 
@@ -408,9 +485,7 @@ async def handle_slack_interactivity(request: Request, background_tasks: Backgro
                 )
 
             set_workspace_context(clean_val)
-            logger.info(
-                f"[INTERACTIVITY] Workspace context updated by admin {user_id}: {len(clean_val)} chars."
-            )
+            logger.info(f"[INTERACTIVITY] Workspace context updated by admin {user_id}: {len(clean_val)} chars.")
             log_audit_event(
                 event_type="WORKSPACE_CONTEXT_MUTATION",
                 actor={"type": "slack_admin", "id": user_id or "unknown"},

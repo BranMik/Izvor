@@ -75,6 +75,8 @@ class DiscussionLoop:
         initial_raw_text: str = "",
         initial_turn_res: dict[str, Any] | None = None,
         accumulated_history: list[dict[str, Any]] | None = None,
+        target_agent_override: str | None = None,
+        is_bot_trigger: bool = False,
     ) -> dict[str, Any]:
         """
         Runs or continues a multi-agent discussion.
@@ -88,9 +90,7 @@ class DiscussionLoop:
             max_turns = min(max_turns, turn_ceiling)
 
         thread_key = (channel_id, thread_ts)
-        logger.info(
-            f"\n[ORCHESTRATOR] Starting/resuming internal discussion loop for thread {thread_key}"
-        )
+        logger.info(f"\n[ORCHESTRATOR] Starting/resuming internal discussion loop for thread {thread_key}")
 
         current_task = asyncio.current_task()
         if current_task:
@@ -104,16 +104,18 @@ class DiscussionLoop:
             if initial_turn_res is None:
                 # --- FRESH START ---
                 # 1. Fetch initial thread history from Slack once
-                history_list = await fetch_thread_history(
-                    channel_id, thread_ts, bot_user_id=bot_user_id
-                )
+                history_list = await fetch_thread_history(channel_id, thread_ts, bot_user_id=bot_user_id)
                 accumulated_history = list(history_list)
 
                 # Ensure user prompt is in accumulated_history so subsequent agents see it
                 if (
-                    not accumulated_history
-                    or accumulated_history[-1].get("role") != "user"
-                    or accumulated_history[-1].get("content") != initial_raw_text
+                    not is_bot_trigger
+                    and initial_raw_text
+                    and (
+                        not accumulated_history
+                        or accumulated_history[-1].get("role") != "user"
+                        or accumulated_history[-1].get("content") != initial_raw_text
+                    )
                 ):
                     accumulated_history.append({"role": "user", "content": initial_raw_text})
 
@@ -130,10 +132,11 @@ class DiscussionLoop:
                     raw_text=initial_raw_text,
                     bot_user_id=bot_user_id,
                     icon_url=icon_url,
-                    is_bot_trigger=False,
+                    is_bot_trigger=is_bot_trigger,
                     run_internal_loop=False,
                     in_memory_history=accumulated_history,
                     user_id=user_id,
+                    target_agent_override=target_agent_override,
                 )
 
                 last_res = turn_res
@@ -153,15 +156,11 @@ class DiscussionLoop:
                     or turn_res.get("is_completed")
                     or (not turn_res.get("ok", True) and not turn_res.get("final_text"))
                 ):
-                    logger.info(
-                        f"[ORCHESTRATOR] Turn 1 completed or ended discussion for thread {thread_key}."
-                    )
+                    logger.info(f"[ORCHESTRATOR] Turn 1 completed or ended discussion for thread {thread_key}.")
                     return turn_res
 
                 if "final_text" in turn_res:
-                    agent_name = turn_res.get(
-                        "displayname", turn_res.get("username", "Unknown Agent")
-                    )
+                    agent_name = turn_res.get("displayname", turn_res.get("username", "Unknown Agent"))
                     accumulated_history.append(
                         {
                             "role": "assistant",
@@ -212,9 +211,8 @@ class DiscussionLoop:
                                     "target_agent_override": agent_k,
                                 }
                                 executor_sig = inspect.signature(self.turn_executor)
-                                if (
-                                    "isolated_branch" in executor_sig.parameters
-                                    or any(p.kind == inspect.Parameter.VAR_KEYWORD for p in executor_sig.parameters.values())
+                                if "isolated_branch" in executor_sig.parameters or any(
+                                    p.kind == inspect.Parameter.VAR_KEYWORD for p in executor_sig.parameters.values()
                                 ):
                                     branch_kwargs["isolated_branch"] = True
 
@@ -241,18 +239,16 @@ class DiscussionLoop:
 
                         # Single deterministic post-gather reducer
                         for s_res in scatter_results:
-                            if (
-                                s_res.response
-                                and isinstance(s_res.response, dict)
-                                and "final_text" in s_res.response
-                            ):
+                            if s_res.response and isinstance(s_res.response, dict) and "final_text" in s_res.response:
                                 s_name = s_res.response.get(
                                     "displayname", s_res.response.get("username", "Unknown Agent")
                                 )
-                                accumulated_history.append({
-                                    "role": "assistant",
-                                    "content": f"[{s_name}]: {s_res.response['final_text']}",
-                                })
+                                accumulated_history.append(
+                                    {
+                                        "role": "assistant",
+                                        "content": f"[{s_name}]: {s_res.response['final_text']}",
+                                    }
+                                )
                                 spoken_agents.add(s_res.agent_key)
                                 last_res = s_res.response
                             elif s_res.error:
@@ -284,18 +280,17 @@ class DiscussionLoop:
                             last_res = gather_res
                             if isinstance(gather_res, dict) and "final_text" in gather_res:
                                 g_name = gather_res.get("displayname", gather_res.get("username", "Unknown Agent"))
-                                accumulated_history.append({
-                                    "role": "assistant",
-                                    "content": f"[{g_name}]: {gather_res['final_text']}",
-                                })
+                                accumulated_history.append(
+                                    {
+                                        "role": "assistant",
+                                        "content": f"[{g_name}]: {gather_res['final_text']}",
+                                    }
+                                )
 
                         try:
                             from services.flat_history_recorder import record_flat_history
 
-                            init_p = (
-                                thread_state_manager.get_initial_prompt(channel_id, thread_ts)
-                                or initial_raw_text
-                            )
+                            init_p = thread_state_manager.get_initial_prompt(channel_id, thread_ts) or initial_raw_text
                             record_flat_history(
                                 channel_id=channel_id,
                                 thread_ts=thread_ts,
@@ -315,18 +310,14 @@ class DiscussionLoop:
                     return turn_res
 
                 if accumulated_history is None:
-                    history_list = await fetch_thread_history(
-                        channel_id, thread_ts, bot_user_id=bot_user_id
-                    )
+                    history_list = await fetch_thread_history(channel_id, thread_ts, bot_user_id=bot_user_id)
                     accumulated_history = list(history_list)
 
                 if "agent_key" in turn_res and turn_res["agent_key"]:
                     spoken_agents.add(turn_res["agent_key"])
 
                 if turn_res.get("clarification_question"):
-                    logger.info(
-                        f"[ORCHESTRATOR] Clarification requested in thread {thread_key}. Suspending thread."
-                    )
+                    logger.info(f"[ORCHESTRATOR] Clarification requested in thread {thread_key}. Suspending thread.")
                     thread_state_manager.suspend_thread(channel_id, thread_ts)
                     return turn_res
 
@@ -394,9 +385,7 @@ class DiscussionLoop:
                     )
                     break
 
-                logger.info(
-                    f"[ORCHESTRATOR] Executing internal turn {turn_num} for thread {thread_key}"
-                )
+                logger.info(f"[ORCHESTRATOR] Executing internal turn {turn_num} for thread {thread_key}")
                 turn_res = await self.turn_executor(
                     channel_id=channel_id,
                     thread_ts=thread_ts,
@@ -416,9 +405,7 @@ class DiscussionLoop:
                     spoken_agents.add(turn_res["agent_key"])
 
                 if turn_res.get("clarification_question"):
-                    logger.info(
-                        f"[ORCHESTRATOR] Clarification requested in thread {thread_key}. Suspending thread."
-                    )
+                    logger.info(f"[ORCHESTRATOR] Clarification requested in thread {thread_key}. Suspending thread.")
                     thread_state_manager.suspend_thread(channel_id, thread_ts)
                     break
 
@@ -434,9 +421,7 @@ class DiscussionLoop:
                     break
 
                 if "final_text" in turn_res:
-                    agent_name = turn_res.get(
-                        "displayname", turn_res.get("username", "Unknown Agent")
-                    )
+                    agent_name = turn_res.get("displayname", turn_res.get("username", "Unknown Agent"))
                     accumulated_history.append(
                         {
                             "role": "assistant",
@@ -470,10 +455,7 @@ class DiscussionLoop:
             try:
                 from services.flat_history_recorder import record_flat_history
 
-                init_p = (
-                    thread_state_manager.get_initial_prompt(channel_id, thread_ts)
-                    or initial_raw_text
-                )
+                init_p = thread_state_manager.get_initial_prompt(channel_id, thread_ts) or initial_raw_text
                 record_flat_history(
                     channel_id=channel_id,
                     thread_ts=thread_ts,
@@ -489,9 +471,7 @@ class DiscussionLoop:
 
             return last_res
         except Exception as e:
-            logger.exception(
-                f"[ORCHESTRATOR] Unhandled exception in discussion loop for thread {thread_key}"
-            )
+            logger.exception(f"[ORCHESTRATOR] Unhandled exception in discussion loop for thread {thread_key}")
             return {"ok": False, "error": str(e)}
         finally:
             if current_task and thread_state_manager.get_active_task(channel_id, thread_ts) == current_task:

@@ -32,19 +32,11 @@ def prune_expired_records(
     - hitl_approvals and thread_skills older than 7 days past expiration timestamp
     """
     chk_days = (
-        retention_checkpoints_days
-        if retention_checkpoints_days is not None
-        else get_retention_checkpoints_days()
+        retention_checkpoints_days if retention_checkpoints_days is not None else get_retention_checkpoints_days()
     )
-    trace_days = (
-        retention_traces_days
-        if retention_traces_days is not None
-        else get_retention_traces_days()
-    )
+    trace_days = retention_traces_days if retention_traces_days is not None else get_retention_traces_days()
     event_days = (
-        retention_event_dedup_days
-        if retention_event_dedup_days is not None
-        else get_retention_event_dedup_days()
+        retention_event_dedup_days if retention_event_dedup_days is not None else get_retention_event_dedup_days()
     )
 
     now = time.time()
@@ -154,10 +146,15 @@ def forget_thread(channel_id: str, thread_ts: str) -> dict[str, int]:
 
         if FLAT_HISTORIES_DIR.exists():
             clean_ts = "".join(ch for ch in tts if ch.isalnum())
+            clean_ts_short = clean_ts[:10] if clean_ts else ""
             for p in list(FLAT_HISTORIES_DIR.glob("*.md")):
                 try:
                     content = p.read_text(encoding="utf-8", errors="ignore")
-                    if f"**Thread TS:** `{tts}`" in content or (clean_ts and f"_{clean_ts}" in p.stem):
+                    if (
+                        f"**Thread TS:** `{tts}`" in content
+                        or (clean_ts and f"_{clean_ts}" in p.stem)
+                        or (clean_ts_short and f"_{clean_ts_short}" in p.stem)
+                    ):
                         p.unlink(missing_ok=True)
                         flat_history_deleted += 1
                 except OSError:
@@ -166,13 +163,48 @@ def forget_thread(channel_id: str, thread_ts: str) -> dict[str, int]:
         logger.debug(f"[RETENTION] Error removing flat history file for {thread_identifier}: {fe}")
     purged_counts["flat_histories"] = flat_history_deleted
 
-    # Clear in-memory thread state
+    # Remove thread notes file(s)
+    thread_notes_deleted = 0
+    try:
+        from core.paths import THREAD_NOTES_DIR
+        from services.thread_notes_writer import extract_ts5_suffix
+
+        if THREAD_NOTES_DIR.exists():
+            ts5 = extract_ts5_suffix(tts)
+            for p in list(THREAD_NOTES_DIR.glob("*.md")):
+                try:
+                    content = p.read_text(encoding="utf-8", errors="ignore")
+                    if f"**Thread Timestamp**: `{tts}`" in content or (ts5 and f"_{ts5}_" in p.stem):
+                        p.unlink(missing_ok=True)
+                        thread_notes_deleted += 1
+                except OSError:
+                    pass
+    except OSError as ne:
+        logger.debug(f"[RETENTION] Error removing thread notes files for {thread_identifier}: {ne}")
+    purged_counts["thread_notes"] = thread_notes_deleted
+
+    # Clear in-memory thread state and tracking
     try:
         from orchestration.thread_state import thread_state_manager
 
         thread_state_manager.cleanup_thread(cid, tts)
     except Exception as se:  # noqa: BLE001
         logger.debug(f"[RETENTION] Error clearing thread_state_manager for {thread_identifier}: {se}")
+
+    try:
+        from agents.usage_agent import usage_tracker
+
+        usage_tracker.thread_usage_data.pop((cid, tts), None)
+        usage_tracker.cleanup_thread(cid, tts)
+    except Exception as ue:  # noqa: BLE001
+        logger.debug(f"[RETENTION] Error clearing usage_tracker for {thread_identifier}: {ue}")
+
+    try:
+        from pipeline.spend_governance import spend_governance
+
+        spend_governance.clear_session(f"{cid}:{tts}")
+    except Exception as sge:  # noqa: BLE001
+        logger.debug(f"[RETENTION] Error clearing spend_governance for {thread_identifier}: {sge}")
 
     # Emit audit event
     total_records = sum(purged_counts.values())

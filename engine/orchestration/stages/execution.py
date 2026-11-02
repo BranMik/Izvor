@@ -49,6 +49,7 @@ def _unmask_argument_values(val: Any, mapping: dict[str, str]) -> Any:
     if not mapping or val is None:
         return val
     from services.rag.pii_masker import pii_masker
+
     if isinstance(val, str):
         return pii_masker.unmask(val, mapping)
     elif isinstance(val, dict):
@@ -56,7 +57,6 @@ def _unmask_argument_values(val: Any, mapping: dict[str, str]) -> Any:
     elif isinstance(val, list):
         return [_unmask_argument_values(item, mapping) for item in val]
     return val
-
 
 
 class ExecutionStage:
@@ -70,17 +70,13 @@ class ExecutionStage:
         Calculates thread cost plus current turn's accumulated token usage,
         and checks if the circuit breaker limit or daily budget is exceeded.
         """
-        from orchestration.app_settings import (
-            get_circuit_breaker_threshold,
-            is_circuit_breaker_enabled,
-        )
-
-        if not is_circuit_breaker_enabled():
-            return False
-
         try:
             from agents.usage_agent import calculate_thread_costs
-            from orchestration.app_settings import get_daily_budget_usd, is_circuit_breaker_enabled
+            from orchestration.app_settings import (
+                get_circuit_breaker_threshold,
+                get_daily_budget_usd,
+                is_circuit_breaker_enabled,
+            )
             from pipeline.spend_governance import spend_governance
             from services.pricing_service import pricing_service
 
@@ -91,16 +87,15 @@ class ExecutionStage:
             incremental_cost = 0.0
             if model and (prompt_tokens > 0 or completion_tokens > 0):
                 pricing = pricing_service.get_pricing(model)
-                input_rate = float(pricing.get("input_cost_per_token", 0.0) or 0.0)
-                output_rate = float(pricing.get("output_cost_per_token", 0.0) or 0.0)
-                incremental_cost = (prompt_tokens * input_rate) + (completion_tokens * output_rate)
+                input_rate_1m = float(pricing.get("input_price_per_1m", 0.0) or 0.0)
+                output_rate_1m = float(pricing.get("output_price_per_1m", 0.0) or 0.0)
+                incremental_cost = ((prompt_tokens / 1_000_000.0) * input_rate_1m) + (
+                    (completion_tokens / 1_000_000.0) * output_rate_1m
+                )
 
             calc_costs_fn = getattr(self.deps, "calc_costs_fn", None) or calculate_thread_costs
             cost_info = calc_costs_fn(ctx.channel_id, ctx.thread_ts)
-            current_cost = (
-                float(cost_info.get("grand_total_cost_usd", 0.0) or 0.0)
-                + incremental_cost
-            )
+            current_cost = float(cost_info.get("grand_total_cost_usd", 0.0) or 0.0) + incremental_cost
             threshold = get_circuit_breaker_threshold()
             session_id = f"{ctx.channel_id}:{ctx.thread_ts}"
             daily_budget = get_daily_budget_usd()
@@ -155,19 +150,13 @@ class ExecutionStage:
             logger.error(f"[EXECUTION] Failed to save {pause_reason} checkpoint: {e}")
             return ""
 
-
-
     async def stage_execute_llm(self, ctx: TurnContext) -> dict[str, Any] | None:
         """Stage 4: Execute model completion and handle tool calling loop."""
         if ctx.is_superseded():
-            logger.info(
-                f"[ROUTER] Thread {ctx.thread_key} turn was superseded before LLM call. Aborting."
-            )
+            logger.info(f"[ROUTER] Thread {ctx.thread_key} turn was superseded before LLM call. Aborting.")
             return {"ok": False, "cancelled": True, "reason": "superseded"}
 
-        already_503_errored = thread_state_manager.has_agent_503_errored(
-            ctx.channel_id, ctx.thread_ts, ctx.agent_key
-        )
+        already_503_errored = thread_state_manager.has_agent_503_errored(ctx.channel_id, ctx.thread_ts, ctx.agent_key)
         allow_503_immediate = already_503_errored
 
         logger.info(
@@ -181,9 +170,12 @@ class ExecutionStage:
 
         from orchestration.app_settings import app_settings_manager
         from orchestration.thread_skills_manager import thread_skills_manager
+
         global_skills = skill_registry.get_global_skills()
         active_thread_skills = thread_skills_manager.get_active_skills(ctx.channel_id, ctx.thread_ts)
-        active_agent_skills = thread_skills_manager.get_active_agent_skills(ctx.channel_id, ctx.thread_ts, ctx.agent_key)
+        active_agent_skills = thread_skills_manager.get_active_agent_skills(
+            ctx.channel_id, ctx.thread_ts, ctx.agent_key
+        )
         combined_extra = list(dict.fromkeys(global_skills + active_thread_skills + active_agent_skills))
         if combined_extra:
             merged = list(agent_skills or [])
@@ -206,7 +198,6 @@ class ExecutionStage:
             "num_retries": 2,
         }
 
-
         # If agent has no authorized skills (pure debate agent), omit tools entirely
         # For skilled agents, start strictly with LOAD_SKILL_SCHEMA (progressive disclosure)
         active_tools: list[dict[str, Any]] = []
@@ -223,9 +214,7 @@ class ExecutionStage:
         exec_retry_fn = getattr(self.deps, "llm_executor", None) or execute_llm_with_retry
         threadpool_fn = getattr(self.deps, "run_in_threadpool_fn", None)
         custom_runner = (
-            threadpool_fn
-            if (threadpool_fn is not None and threadpool_fn is not run_in_threadpool)
-            else None
+            threadpool_fn if (threadpool_fn is not None and threadpool_fn is not run_in_threadpool) else None
         )
 
         response = await exec_retry_fn(
@@ -244,14 +233,10 @@ class ExecutionStage:
 
         ctx.add_usage(response)
         llm_duration = time.time() - llm_start
-        logger.info(
-            f"[LLM] Received response for {ctx.agent_key} in {llm_duration:.2f} seconds."
-        )
+        logger.info(f"[LLM] Received response for {ctx.agent_key} in {llm_duration:.2f} seconds.")
 
         if ctx.is_superseded():
-            logger.info(
-                f"[ROUTER] Thread {ctx.thread_key} turn was superseded after LLM call. Aborting."
-            )
+            logger.info(f"[ROUTER] Thread {ctx.thread_key} turn was superseded after LLM call. Aborting.")
             return {"ok": False, "cancelled": True, "reason": "superseded"}
 
         response_message = response.choices[0].message
@@ -313,20 +298,18 @@ class ExecutionStage:
                                 else tool_call.function.arguments
                             )
                         except (json.JSONDecodeError, TypeError) as decode_err:
-                            logger.warning(
-                                f"[TOOL CALL] Malformed JSON in arguments for {fn_name}: {decode_err}"
-                            )
+                            logger.warning(f"[TOOL CALL] Malformed JSON in arguments for {fn_name}: {decode_err}")
                             tool_result_str = f"<untrusted_file_content>\nTOOL EXECUTION ERROR: Invalid JSON arguments: {decode_err}\n</untrusted_file_content>"
-                            ctx.messages.append({
-                                "role": "tool",
-                                "tool_call_id": tool_call.id,
-                                "name": fn_name,
-                                "content": tool_result_str,
-                            })
+                            ctx.messages.append(
+                                {
+                                    "role": "tool",
+                                    "tool_call_id": tool_call.id,
+                                    "name": fn_name,
+                                    "content": tool_result_str,
+                                }
+                            )
                             continue
-                        fn_args = _unmask_argument_values(
-                            raw_args, getattr(ctx, "turn_token_mapping", {})
-                        )
+                        fn_args = _unmask_argument_values(raw_args, getattr(ctx, "turn_token_mapping", {}))
                         cached_evidence = None
                         if fn_name == "load_skill":
                             tool_result = skill_registry.execute_tool(
@@ -365,7 +348,9 @@ class ExecutionStage:
                             from services.mcp_tools import is_agent_authorized_for_tool
 
                             principal = ToolPrincipal(kind="agent", id=ctx.agent_key)
-                            if not is_agent_authorized_for_tool(principal, fn_name, authorized_skills=agent_skills, skill_registry=skill_registry):
+                            if not is_agent_authorized_for_tool(
+                                principal, fn_name, authorized_skills=agent_skills, skill_registry=skill_registry
+                            ):
                                 tool_result = skill_registry.execute_tool(
                                     fn_name,
                                     fn_args,
@@ -381,10 +366,17 @@ class ExecutionStage:
                                 # 2. Next check HITL approval
                                 if skill_def and skill_def.requires_human_ITL:
                                     from services.hitl import consume_tool_approval, request_human_approval
-                                    if not consume_tool_approval(ctx.channel_id, ctx.thread_ts, fn_name, fn_args):
+
+                                    if not consume_tool_approval(
+                                        ctx.channel_id, ctx.thread_ts, fn_name, fn_args, agent_name=ctx.agent_key
+                                    ):
                                         req_id = await request_human_approval(
-                                            ctx.channel_id, ctx.thread_ts, ctx.agent_key,
-                                            skill_def.name, fn_name, fn_args,
+                                            ctx.channel_id,
+                                            ctx.thread_ts,
+                                            ctx.agent_key,
+                                            skill_def.name,
+                                            fn_name,
+                                            fn_args,
                                             initiator_user_id=ctx.user_id,
                                         )
                                         tool_result_str = (
@@ -395,12 +387,14 @@ class ExecutionStage:
                                             f"Do NOT retry calling this tool until approval is granted."
                                             f"\n</untrusted_file_content>"
                                         )
-                                        ctx.messages.append({
-                                            "role": "tool",
-                                            "tool_call_id": tool_call.id,
-                                            "name": fn_name,
-                                            "content": tool_result_str,
-                                        })
+                                        ctx.messages.append(
+                                            {
+                                                "role": "tool",
+                                                "tool_call_id": tool_call.id,
+                                                "name": fn_name,
+                                                "content": tool_result_str,
+                                            }
+                                        )
                                         ctx.halted = True
                                         ctx.waiting_hitl = True
 
@@ -412,17 +406,19 @@ class ExecutionStage:
                                             sibling_id = getattr(sibling_tc, "id", None)
                                             if sibling_id and sibling_id not in responded_ids:
                                                 sibling_fn = getattr(sibling_tc.function, "name", "tool")
-                                                ctx.messages.append({
-                                                    "role": "tool",
-                                                    "tool_call_id": sibling_id,
-                                                    "name": sibling_fn,
-                                                    "content": (
-                                                        "<untrusted_file_content>\n"
-                                                        f"TOOL EXECUTION DEFERRED: Sibling tool '{sibling_fn}' "
-                                                        f"was not executed because turn paused for human approval on '{fn_name}'."
-                                                        "\n</untrusted_file_content>"
-                                                    ),
-                                                })
+                                                ctx.messages.append(
+                                                    {
+                                                        "role": "tool",
+                                                        "tool_call_id": sibling_id,
+                                                        "name": sibling_fn,
+                                                        "content": (
+                                                            "<untrusted_file_content>\n"
+                                                            f"TOOL EXECUTION DEFERRED: Sibling tool '{sibling_fn}' "
+                                                            f"was not executed because turn paused for human approval on '{fn_name}'."
+                                                            "\n</untrusted_file_content>"
+                                                        ),
+                                                    }
+                                                )
                                                 responded_ids.add(sibling_id)
 
                                         self._save_execution_checkpoint(
@@ -463,7 +459,9 @@ class ExecutionStage:
                                         if inspect.iscoroutinefunction(exec_mcp_fn):
                                             tool_result = await exec_mcp_fn(fn_name, fn_args, **kwargs)
                                         else:
-                                            tool_result = await asyncio.to_thread(exec_mcp_fn, fn_name, fn_args, **kwargs)
+                                            tool_result = await asyncio.to_thread(
+                                                exec_mcp_fn, fn_name, fn_args, **kwargs
+                                            )
                                     else:
                                         tool_result = await skill_registry.execute_tool_async(
                                             fn_name,
@@ -497,10 +495,9 @@ class ExecutionStage:
                             ctx.control_plane_consensus_summary = str(fn_args.get("summary_of_agreement", "")).strip()
                             thread_state_manager.set_consensus_reached(ctx.channel_id, ctx.thread_ts, True)
 
-                        if isinstance(tool_result, str):
-                            tool_result_str = f"<untrusted_file_content>\n{tool_result}\n</untrusted_file_content>"
-                        else:
-                            tool_result_str = tool_result
+                        from core.security_utils import wrap_untrusted_content
+
+                        tool_result_str = wrap_untrusted_content(str(tool_result))
 
                         if cached_evidence is None and not getattr(ctx, "halted", False):
                             res_str = tool_result if isinstance(tool_result, str) else str(tool_result)
@@ -527,7 +524,9 @@ class ExecutionStage:
                         logger.info(
                             f"[ROUTER] Thread {ctx.thread_key} turn was superseded during tool execution. Aborting."
                         )
-                        raise asyncio.CancelledError(f"Thread {ctx.thread_key} turn was superseded during tool execution.")
+                        raise asyncio.CancelledError(
+                            f"Thread {ctx.thread_key} turn was superseded during tool execution."
+                        )
 
                     is_paused = bool(getattr(ctx, "waiting_hitl", False) or getattr(ctx, "halted", False))
                     follow_up_kwargs: dict[str, Any] = {
@@ -585,16 +584,12 @@ class ExecutionStage:
                 return None
 
             try:
-                loop_res = await asyncio.wait_for(
-                    _run_tool_calling_loop(), timeout=timeout_secs
-                )
+                loop_res = await asyncio.wait_for(_run_tool_calling_loop(), timeout=timeout_secs)
                 if loop_res is not None:
                     return loop_res
                 ctx.final_text = response_message.content or ctx.final_text or ""
             except asyncio.TimeoutError:
-                logger.warning(
-                    f"[ROUTER] Tool calling loop timed out after {timeout_secs}s for {ctx.agent_key}."
-                )
+                logger.warning(f"[ROUTER] Tool calling loop timed out after {timeout_secs}s for {ctx.agent_key}.")
                 if not ctx.final_text:
                     ctx.final_text = (
                         response_message.content

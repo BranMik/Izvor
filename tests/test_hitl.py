@@ -157,11 +157,13 @@ def test_hitl_slack_interactivity_authorization(monkeypatch):
     resp_init = client.post("/slack/actions", json=payload_initiator)
     assert resp_init.status_code == 200
 
-    # 3. Verify single-use execution can consume approval
-    assert (
-        consume_tool_approval("C_SLACK_HITL", "1700000000.004", "execute_migration", {"target": "db_v2"})
-        is True
-    )
+    # 3. Verify single-use execution consumed approval
+    with get_db_transaction() as conn:
+        row = conn.execute(
+            "SELECT status FROM hitl_approvals WHERE request_id = ?;", (req.request_id,)
+        ).fetchone()
+        assert row is not None
+        assert row["status"] == "CONSUMED"
 
 
 def test_hitl_atomic_status_transition():

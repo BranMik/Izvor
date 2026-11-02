@@ -180,6 +180,7 @@ def _get_skills_slash_regex() -> re.Pattern | None:
     global _SKILLS_SLASH_CACHE
     try:
         from core.registry import get_skill_registry
+
         skill_registry = get_skill_registry()
 
         triggers = tuple(sorted(skill_registry.get_slash_triggers()))
@@ -269,18 +270,10 @@ async def handle_slack_events(request: Request, background_tasks: BackgroundTask
         event = data.get("event", {})
         # Slack Events API uses 'authorizations' in modern apps, fallback to 'authed_users'
         authorizations = data.get("authorizations")
-        if (
-            authorizations
-            and isinstance(authorizations, list)
-            and len(authorizations) > 0
-        ):
+        if authorizations and isinstance(authorizations, list) and len(authorizations) > 0:
             bot_user_id = authorizations[0].get("user_id")
         else:
-            bot_user_id = (
-                data.get("authed_users", [None])[0]
-                if data.get("authed_users")
-                else None
-            )
+            bot_user_id = data.get("authed_users", [None])[0] if data.get("authed_users") else None
 
         event_type = event.get("type")
         # 6a. Handle App Home Opened
@@ -300,9 +293,7 @@ async def handle_slack_events(request: Request, background_tasks: BackgroundTask
             thread_ts = event.get("thread_ts") or ts
             raw_text = event.get("text", "")
 
-            logger.info(
-                f"[WEBHOOK] Received {event_type} - channel: {channel_id}, ts: {ts}, thread_ts: {thread_ts}"
-            )
+            logger.info(f"[WEBHOOK] Received {event_type} - channel: {channel_id}, ts: {ts}, thread_ts: {thread_ts}")
 
             if channel_id and ts and raw_text:
                 now = time.time()
@@ -332,9 +323,7 @@ async def handle_slack_events(request: Request, background_tasks: BackgroundTask
                 is_app_name_mention = is_explicit_app_mention(raw_text, bot_user_id)
 
                 is_mention_or_dm = (
-                    (event_type == "app_mention")
-                    or (channel_id and channel_id.startswith("D"))
-                    or is_app_name_mention
+                    (event_type == "app_mention") or (channel_id and channel_id.startswith("D")) or is_app_name_mention
                 )
                 should_process = False
 
@@ -360,21 +349,13 @@ async def handle_slack_events(request: Request, background_tasks: BackgroundTask
                 # User messages must either have a bracketed tag, be an app_mention/DM, or contain a recognized slash command
                 skills_slash_re = _get_skills_slash_regex()
                 has_slash_command = bool(
-                    (skills_slash_re and skills_slash_re.search(raw_text))
-                    or _FALLBACK_SLASH_RE.search(raw_text)
+                    (skills_slash_re and skills_slash_re.search(raw_text)) or _FALLBACK_SLASH_RE.search(raw_text)
                 )
 
                 if has_tag or is_mention_or_dm or has_slash_command:
                     should_process = True
-                    if thread_state_manager.is_discussion_active(channel_id, thread_ts):
-                        logger.info(
-                            f"[WEBHOOK] Ongoing discussion in thread {thread_ts} detected. Interrupting discussion for new query (len: {len(raw_text)})"
-                        )
-                        thread_state_manager.interrupt_discussion(channel_id, thread_ts)
                 else:
-                    logger.info(
-                        f"Skipping plain user message in channel {channel_id} without mention/tag"
-                    )
+                    logger.info(f"Skipping plain user message in channel {channel_id} without mention/tag")
 
                 if should_process:
                     # Atomically claim event in processed events list to prevent double execution
@@ -383,6 +364,13 @@ async def handle_slack_events(request: Request, background_tasks: BackgroundTask
                             f"[WEBHOOK] Deduplicated event {event_type} for channel {channel_id}, ts {ts} (ALREADY PROCESSED)"
                         )
                         return Response(status_code=200)
+
+                    if thread_state_manager.is_discussion_active(channel_id, thread_ts):
+                        logger.info(
+                            f"[WEBHOOK] Ongoing discussion in thread {thread_ts} detected. Interrupting discussion for new query (len: {len(raw_text)})"
+                        )
+                        thread_state_manager.interrupt_discussion(channel_id, thread_ts)
+
                     logger.info(
                         f"[WEBHOOK] DISPATCHING BackgroundTask for '{event_type}' - channel: {channel_id}, thread: {thread_ts}"
                     )
@@ -398,12 +386,10 @@ async def handle_slack_events(request: Request, background_tasks: BackgroundTask
                             is_bot_trigger=False,
                             run_internal_loop=True,
                             user_id=event.get("user"),
-                        )
+                        ),
                     )
                 else:
-                    logger.info(
-                        "[WEBHOOK] Ignoring event - should_process evaluated to False"
-                    )
+                    logger.info("[WEBHOOK] Ignoring event - should_process evaluated to False")
 
     logger.info("[WEBHOOK] Returning 200 OK immediately to Slack")
     return Response(status_code=200)

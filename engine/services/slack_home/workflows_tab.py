@@ -29,7 +29,11 @@ def build_workflows_blocks(
 
     wf_options = []
     for wf in workflows:
-        icon = "🥪" if wf.mode == OrchestrationMode.SANDWICH.value else ("⚡" if wf.mode == OrchestrationMode.SCATTER_GATHER.value else "🎯")
+        icon = (
+            "🥪"
+            if wf.mode == OrchestrationMode.SANDWICH.value
+            else ("⚡" if wf.mode == OrchestrationMode.SCATTER_GATHER.value else "🎯")
+        )
         label = f"{icon} {wf.name}"
         if len(label) > 75:
             label = label[:72] + "..."
@@ -57,7 +61,11 @@ def build_workflows_blocks(
     if active_wf_id:
         for wf in workflows:
             if wf.id == active_wf_id:
-                active_icon = "🥪" if wf.mode == OrchestrationMode.SANDWICH.value else ("⚡" if wf.mode == OrchestrationMode.SCATTER_GATHER.value else "🎯")
+                active_icon = (
+                    "🥪"
+                    if wf.mode == OrchestrationMode.SANDWICH.value
+                    else ("⚡" if wf.mode == OrchestrationMode.SCATTER_GATHER.value else "🎯")
+                )
                 active_wf_name = f"{active_icon} {wf.name}"
                 break
 
@@ -100,11 +108,11 @@ def build_workflows_blocks(
                     ),
                 },
                 "accessory": preset_select_element,
-            }
+            },
         ]
     )
 
-    if active_wf_id not in ("default_review_flow", "default_sandwich"):
+    if active_wf_id not in REQUIRED_DEFAULT_WORKFLOW_IDS:
         blocks.append(
             {
                 "type": "actions",
@@ -139,7 +147,7 @@ def build_workflows_blocks(
                         f"Current mode: *{'🥪 Sandwich Chain (Start ➔ Middle ➔ End)' if mode_val == OrchestrationMode.SANDWICH.value else ('⚡ Parallel Dialectic (Scatter-Gather)' if mode_val == OrchestrationMode.SCATTER_GATHER.value else '🎯 Fixed Sequence')}*"
                     ),
                 },
-            }
+            },
         ]
     )
 
@@ -207,79 +215,83 @@ def build_workflows_blocks(
             ]
         )
         if is_default_wf:
-            blocks.append({
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": f"🚫 *Editing Disabled for System Defaults*\n*🚩 Start Chain:* {start_chain_str or 'None'}\n*🏁 End Chain:* {end_chain_str or 'None'}"
+            blocks.append(
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"🚫 *Editing Disabled for System Defaults*\n*🚩 Start Chain:* {start_chain_str or 'None'}\n*🏁 End Chain:* {end_chain_str or 'None'}",
+                    },
                 }
-            })
+            )
         else:
-            blocks.extend([
-                {
-                    "type": "input",
-                    "block_id": f"sandwich_start_chain_block_{start_hash}",
-                    "dispatch_action": True,
-                    "element": {
-                        "type": "plain_text_input",
-                        "action_id": "set_start_chain_input",
-                        "initial_value": start_chain_str,
-                        "placeholder": {
-                            "type": "plain_text",
-                            "text": f"e.g. {_get_example_agent_names(agents_cfg, count=2)} (comma-separated)",
-                        },
-                    },
-                    "label": {
-                        "type": "plain_text",
-                        "text": "🚩 Start Chain:",
-                        "emoji": True,
-                    },
-                },
-                {
-                    "type": "input",
-                    "block_id": f"sandwich_end_chain_block_{end_hash}",
-                    "dispatch_action": True,
-                    "element": {
-                        "type": "plain_text_input",
-                        "action_id": "set_end_chain_input",
-                        "initial_value": end_chain_str,
-                        "placeholder": {
-                            "type": "plain_text",
-                            "text": f"e.g. {_get_example_agent_names(agents_cfg, count=1)} (comma-separated)",
-                        },
-                    },
-                    "label": {
-                        "type": "plain_text",
-                        "text": "🏁 End Chain:",
-                        "emoji": True,
-                    },
-                },
-                {
-                    "type": "actions",
-                    "block_id": f"sandwich_chain_actions_{start_hash}_{end_hash}",
-                    "elements": [
-                        {
-                            "type": "button",
-                            "text": {
+            blocks.extend(
+                [
+                    {
+                        "type": "input",
+                        "block_id": f"sandwich_start_chain_block_{start_hash}",
+                        "dispatch_action": True,
+                        "element": {
+                            "type": "plain_text_input",
+                            "action_id": "set_start_chain_input",
+                            "initial_value": start_chain_str,
+                            "placeholder": {
                                 "type": "plain_text",
-                                "text": "💾 Save Sandwich chains",
-                                "emoji": True,
+                                "text": f"e.g. {_get_example_agent_names(agents_cfg, count=2)} (comma-separated)",
                             },
-                            "action_id": "save_sandwich_chains_button",
-                            "style": "primary",
                         },
-                        {
-                            "type": "button",
-                            "text": {
+                        "label": {
+                            "type": "plain_text",
+                            "text": "🚩 Start Chain:",
+                            "emoji": True,
+                        },
+                    },
+                    {
+                        "type": "input",
+                        "block_id": f"sandwich_end_chain_block_{end_hash}",
+                        "dispatch_action": True,
+                        "element": {
+                            "type": "plain_text_input",
+                            "action_id": "set_end_chain_input",
+                            "initial_value": end_chain_str,
+                            "placeholder": {
                                 "type": "plain_text",
-                                "text": "🗑️ Clear chains (Flexible)",
-                                "emoji": True,
+                                "text": f"e.g. {_get_example_agent_names(agents_cfg, count=1)} (comma-separated)",
                             },
-                            "action_id": "clear_sandwich_chains_button",
                         },
-                    ],
-                },
-            ])
+                        "label": {
+                            "type": "plain_text",
+                            "text": "🏁 End Chain:",
+                            "emoji": True,
+                        },
+                    },
+                    {
+                        "type": "actions",
+                        "block_id": f"sandwich_chain_actions_{start_hash}_{end_hash}",
+                        "elements": [
+                            {
+                                "type": "button",
+                                "text": {
+                                    "type": "plain_text",
+                                    "text": "💾 Save Sandwich chains",
+                                    "emoji": True,
+                                },
+                                "action_id": "save_sandwich_chains_button",
+                                "style": "primary",
+                            },
+                            {
+                                "type": "button",
+                                "text": {
+                                    "type": "plain_text",
+                                    "text": "🗑️ Clear chains (Flexible)",
+                                    "emoji": True,
+                                },
+                                "action_id": "clear_sandwich_chains_button",
+                            },
+                        ],
+                    },
+                ]
+            )
     elif mode_val == OrchestrationMode.SCATTER_GATHER.value:
         blocks.extend(
             [
@@ -295,79 +307,83 @@ def build_workflows_blocks(
             ]
         )
         if is_default_wf:
-            blocks.append({
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": f"🚫 *Editing Disabled for System Defaults*\n*🚩 Parallel Specialists:* {start_chain_str or 'None'}\n*🏁 Synthesis Agent:* {end_chain_str or 'None'}",
-                },
-            })
+            blocks.append(
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"🚫 *Editing Disabled for System Defaults*\n*🚩 Parallel Specialists:* {start_chain_str or 'None'}\n*🏁 Synthesis Agent:* {end_chain_str or 'None'}",
+                    },
+                }
+            )
         else:
-            blocks.extend([
-                {
-                    "type": "input",
-                    "block_id": f"sandwich_start_chain_block_{start_hash}",
-                    "dispatch_action": True,
-                    "element": {
-                        "type": "plain_text_input",
-                        "action_id": "set_start_chain_input",
-                        "initial_value": start_chain_str,
-                        "placeholder": {
-                            "type": "plain_text",
-                            "text": f"e.g. {_get_example_agent_names(agents_cfg, count=2)} (comma-separated)",
-                        },
-                    },
-                    "label": {
-                        "type": "plain_text",
-                        "text": "🚩 Parallel Specialists:",
-                        "emoji": True,
-                    },
-                },
-                {
-                    "type": "input",
-                    "block_id": f"sandwich_end_chain_block_{end_hash}",
-                    "dispatch_action": True,
-                    "element": {
-                        "type": "plain_text_input",
-                        "action_id": "set_end_chain_input",
-                        "initial_value": end_chain_str,
-                        "placeholder": {
-                            "type": "plain_text",
-                            "text": f"e.g. {_get_example_agent_names(agents_cfg, count=1)} (comma-separated)",
-                        },
-                    },
-                    "label": {
-                        "type": "plain_text",
-                        "text": "🏁 Synthesis Agent:",
-                        "emoji": True,
-                    },
-                },
-                {
-                    "type": "actions",
-                    "block_id": f"sandwich_chain_actions_{start_hash}_{end_hash}",
-                    "elements": [
-                        {
-                            "type": "button",
-                            "text": {
+            blocks.extend(
+                [
+                    {
+                        "type": "input",
+                        "block_id": f"sandwich_start_chain_block_{start_hash}",
+                        "dispatch_action": True,
+                        "element": {
+                            "type": "plain_text_input",
+                            "action_id": "set_start_chain_input",
+                            "initial_value": start_chain_str,
+                            "placeholder": {
                                 "type": "plain_text",
-                                "text": "💾 Save Parallel chains",
-                                "emoji": True,
+                                "text": f"e.g. {_get_example_agent_names(agents_cfg, count=2)} (comma-separated)",
                             },
-                            "action_id": "save_sandwich_chains_button",
-                            "style": "primary",
                         },
-                        {
-                            "type": "button",
-                            "text": {
+                        "label": {
+                            "type": "plain_text",
+                            "text": "🚩 Parallel Specialists:",
+                            "emoji": True,
+                        },
+                    },
+                    {
+                        "type": "input",
+                        "block_id": f"sandwich_end_chain_block_{end_hash}",
+                        "dispatch_action": True,
+                        "element": {
+                            "type": "plain_text_input",
+                            "action_id": "set_end_chain_input",
+                            "initial_value": end_chain_str,
+                            "placeholder": {
                                 "type": "plain_text",
-                                "text": "🗑️ Clear chains",
-                                "emoji": True,
+                                "text": f"e.g. {_get_example_agent_names(agents_cfg, count=1)} (comma-separated)",
                             },
-                            "action_id": "clear_sandwich_chains_button",
                         },
-                    ],
-                },
-            ])
+                        "label": {
+                            "type": "plain_text",
+                            "text": "🏁 Synthesis Agent:",
+                            "emoji": True,
+                        },
+                    },
+                    {
+                        "type": "actions",
+                        "block_id": f"sandwich_chain_actions_{start_hash}_{end_hash}",
+                        "elements": [
+                            {
+                                "type": "button",
+                                "text": {
+                                    "type": "plain_text",
+                                    "text": "💾 Save Parallel chains",
+                                    "emoji": True,
+                                },
+                                "action_id": "save_sandwich_chains_button",
+                                "style": "primary",
+                            },
+                            {
+                                "type": "button",
+                                "text": {
+                                    "type": "plain_text",
+                                    "text": "🗑️ Clear chains",
+                                    "emoji": True,
+                                },
+                                "action_id": "clear_sandwich_chains_button",
+                            },
+                        ],
+                    },
+                ]
+            )
     else:
         blocks.extend(
             [
@@ -383,60 +399,64 @@ def build_workflows_blocks(
             ]
         )
         if is_default_wf:
-            blocks.append({
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": f"🚫 *Editing Disabled for System Defaults*\n*🎯 Fixed Sequence Order:* {fixed_chain_str or 'None'}"
+            blocks.append(
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"🚫 *Editing Disabled for System Defaults*\n*🎯 Fixed Sequence Order:* {fixed_chain_str or 'None'}",
+                    },
                 }
-            })
+            )
         else:
-            blocks.extend([
-                {
-                    "type": "input",
-                    "block_id": f"fixed_chain_block_{fixed_hash}",
-                    "dispatch_action": True,
-                    "element": {
-                        "type": "plain_text_input",
-                        "action_id": "set_fixed_chain_input",
-                        "initial_value": fixed_chain_str,
-                        "placeholder": {
+            blocks.extend(
+                [
+                    {
+                        "type": "input",
+                        "block_id": f"fixed_chain_block_{fixed_hash}",
+                        "dispatch_action": True,
+                        "element": {
+                            "type": "plain_text_input",
+                            "action_id": "set_fixed_chain_input",
+                            "initial_value": fixed_chain_str,
+                            "placeholder": {
+                                "type": "plain_text",
+                                "text": f"e.g. {_get_example_agent_names(agents_cfg, count=3)} (comma-separated)",
+                            },
+                        },
+                        "label": {
                             "type": "plain_text",
-                            "text": f"e.g. {_get_example_agent_names(agents_cfg, count=3)} (comma-separated)",
+                            "text": "🎯 Fixed Sequence Order:",
+                            "emoji": True,
                         },
                     },
-                    "label": {
-                        "type": "plain_text",
-                        "text": "🎯 Fixed Sequence Order:",
-                        "emoji": True,
+                    {
+                        "type": "actions",
+                        "block_id": f"fixed_chain_actions_{fixed_hash}",
+                        "elements": [
+                            {
+                                "type": "button",
+                                "text": {
+                                    "type": "plain_text",
+                                    "text": "💾 Save Fixed chain",
+                                    "emoji": True,
+                                },
+                                "action_id": "save_fixed_chain_button",
+                                "style": "primary",
+                            },
+                            {
+                                "type": "button",
+                                "text": {
+                                    "type": "plain_text",
+                                    "text": "🗑️ Clear chain (Flexible)",
+                                    "emoji": True,
+                                },
+                                "action_id": "clear_fixed_chain_button",
+                            },
+                        ],
                     },
-                },
-                {
-                    "type": "actions",
-                    "block_id": f"fixed_chain_actions_{fixed_hash}",
-                    "elements": [
-                        {
-                            "type": "button",
-                            "text": {
-                                "type": "plain_text",
-                                "text": "💾 Save Fixed chain",
-                                "emoji": True,
-                            },
-                            "action_id": "save_fixed_chain_button",
-                            "style": "primary",
-                        },
-                        {
-                            "type": "button",
-                            "text": {
-                                "type": "plain_text",
-                                "text": "🗑️ Clear chain (Flexible)",
-                                "emoji": True,
-                            },
-                            "action_id": "clear_fixed_chain_button",
-                        },
-                    ],
-                },
-            ])
+                ]
+            )
 
     if not is_default_wf:
         blocks.extend(
@@ -473,7 +493,7 @@ def build_workflows_blocks(
                             "action_id": "save_workflow_preset_button",
                         },
                     ],
-                }
+                },
             ]
         )
 

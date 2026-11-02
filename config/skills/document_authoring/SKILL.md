@@ -11,7 +11,7 @@ triggers:
     - /write_doc
   auto_detect: true
   param_name: target_file
-  handles_files: true
+  handles_files: false
 extraction_rule: "If user asks to draft, write, or save a document/file locally (e.g. to agents_resources/), include action '{name}' with param 'target_file'."
 tools:
   - write_document

@@ -26,7 +26,7 @@ def test_zero_await_inside_database_transactions():
     violations: list[str] = []
 
     for src_dir in source_dirs:
-        dir_path = project_root / src_dir
+        dir_path = project_root / "engine" / src_dir
         if not dir_path.is_dir():
             continue
         for py_file in dir_path.rglob("*.py"):

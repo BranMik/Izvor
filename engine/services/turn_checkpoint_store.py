@@ -27,9 +27,7 @@ class TurnCheckpointStore:
 
         messages_json = json.dumps(checkpoint.messages, default=str)
         pending_tool_call_json = (
-            json.dumps(checkpoint.pending_tool_call, default=str)
-            if checkpoint.pending_tool_call is not None
-            else None
+            json.dumps(checkpoint.pending_tool_call, default=str) if checkpoint.pending_tool_call is not None else None
         )
         active_tools_json = json.dumps(checkpoint.active_tools, default=str)
         skills_used_json = json.dumps(checkpoint.skills_used, default=str)
@@ -134,15 +132,16 @@ class TurnCheckpointStore:
 
     def get_checkpoint_by_hitl_request(self, hitl_request_id: str) -> TurnCheckpoint | None:
         """Retrieves an active checkpoint associated with a specific HITL approval request."""
+        now = time.time()
         try:
             with get_connection() as conn:
                 row = conn.execute(
                     """
                     SELECT * FROM turn_checkpoints
-                    WHERE hitl_request_id = ? AND status IN ('PENDING', 'ACTIVE')
+                    WHERE hitl_request_id = ? AND status IN ('PENDING', 'ACTIVE') AND expires_at > ?
                     ORDER BY created_at DESC LIMIT 1;
                     """,
-                    (hitl_request_id,),
+                    (hitl_request_id, now),
                 ).fetchone()
                 if row:
                     return self._row_to_checkpoint(row)
@@ -154,25 +153,26 @@ class TurnCheckpointStore:
         self, channel_id: str, thread_ts: str, status: str | None = None
     ) -> TurnCheckpoint | None:
         """Retrieves the latest checkpoint for a given thread."""
+        now = time.time()
         try:
             with get_connection() as conn:
                 if status is not None:
                     row = conn.execute(
                         """
                         SELECT * FROM turn_checkpoints
-                        WHERE channel_id = ? AND thread_ts = ? AND status = ?
+                        WHERE channel_id = ? AND thread_ts = ? AND status = ? AND expires_at > ?
                         ORDER BY created_at DESC LIMIT 1;
                         """,
-                        (channel_id, thread_ts, status),
+                        (channel_id, thread_ts, status, now),
                     ).fetchone()
                 else:
                     row = conn.execute(
                         """
                         SELECT * FROM turn_checkpoints
-                        WHERE channel_id = ? AND thread_ts = ? AND status IN ('PENDING', 'ACTIVE')
+                        WHERE channel_id = ? AND thread_ts = ? AND status IN ('PENDING', 'ACTIVE') AND expires_at > ?
                         ORDER BY created_at DESC LIMIT 1;
                         """,
-                        (channel_id, thread_ts),
+                        (channel_id, thread_ts, now),
                     ).fetchone()
                 if row:
                     return self._row_to_checkpoint(row)
@@ -187,7 +187,8 @@ class TurnCheckpointStore:
                 cur = conn.execute(
                     """
                     UPDATE turn_checkpoints
-                    SET status = 'RESUMED', messages_json = '[]', accumulated_history_json = '[]'
+                    SET status = 'RESUMED', messages_json = '[]', accumulated_history_json = '[]',
+                        pending_tool_call_json = '{}', token_mapping_json = '{}'
                     WHERE checkpoint_id = ?;
                     """,
                     (checkpoint_id,),
@@ -204,7 +205,8 @@ class TurnCheckpointStore:
                 cur = conn.execute(
                     """
                     UPDATE turn_checkpoints
-                    SET status = 'RESOLVED', messages_json = '[]', accumulated_history_json = '[]'
+                    SET status = 'RESOLVED', messages_json = '[]', accumulated_history_json = '[]',
+                        pending_tool_call_json = '{}', token_mapping_json = '{}'
                     WHERE checkpoint_id = ?;
                     """,
                     (checkpoint_id,),
@@ -221,7 +223,8 @@ class TurnCheckpointStore:
                 cur = conn.execute(
                     """
                     UPDATE turn_checkpoints
-                    SET status = 'ABANDONED', messages_json = '[]', accumulated_history_json = '[]'
+                    SET status = 'ABANDONED', messages_json = '[]', accumulated_history_json = '[]',
+                        pending_tool_call_json = '{}', token_mapping_json = '{}'
                     WHERE checkpoint_id = ?;
                     """,
                     (checkpoint_id,),
@@ -238,7 +241,8 @@ class TurnCheckpointStore:
                 cur = conn.execute(
                     """
                     UPDATE turn_checkpoints
-                    SET status = 'EXPIRED', messages_json = '[]', accumulated_history_json = '[]'
+                    SET status = 'EXPIRED', messages_json = '[]', accumulated_history_json = '[]',
+                        pending_tool_call_json = '{}', token_mapping_json = '{}'
                     WHERE checkpoint_id = ?;
                     """,
                     (checkpoint_id,),

@@ -69,6 +69,7 @@ class IntentExtractor:
             return self._custom_system_prompt
         try:
             from core.registry import get_skill_registry
+
             skill_registry = get_skill_registry()
             prompt = skill_registry.build_extractor_catalog_prompt()
             if prompt:
@@ -136,13 +137,14 @@ class IntentExtractor:
             if resp and getattr(resp, "usage", None) and thread_key and thread_key != ("system", "intent_extractor"):
                 try:
                     from agents.usage_agent import record_thread_tokens
+
                     p_tok = getattr(resp.usage, "prompt_tokens", 0) or 0
                     c_tok = getattr(resp.usage, "completion_tokens", 0) or 0
                     if p_tok or c_tok:
                         record_thread_tokens(
                             channel_id=thread_key[0],
                             thread_ts=thread_key[1],
-                            model=self.model,
+                            model_name=self.model,
                             prompt_tokens=p_tok,
                             completion_tokens=c_tok,
                         )
@@ -166,10 +168,9 @@ class IntentExtractor:
                         modifiers[k] = v
 
             from core.registry import get_skill_registry
+
             skill_registry = get_skill_registry()
-            allowed_inferred_skills = {
-                s.name for s in skill_registry.get_auto_detect_skills()
-            } | {"exclude_agents"}
+            allowed_inferred_skills = {s.name for s in skill_registry.get_auto_detect_skills()} | {"exclude_agents"}
 
             # 2. Actions from structured "actions" list
             raw_actions = parsed.get("actions")
@@ -193,9 +194,7 @@ class IntentExtractor:
                                     if res and res not in resolved_agents:
                                         resolved_agents.append(res)
                                 act_params["agents"] = resolved_agents
-                        actions.append(
-                            ActionDirective(name=act_name, params=act_params, origin="inferred")
-                        )
+                        actions.append(ActionDirective(name=act_name, params=act_params, origin="inferred"))
 
             # 3. Dynamic file handler resolution
 
@@ -230,9 +229,7 @@ class IntentExtractor:
             )
 
         except (TimeoutError, asyncio.TimeoutError):
-            logger.warning(
-                f"[INTENT EXTRACTOR] Extraction timed out after {timeout_seconds}s. Falling back."
-            )
+            logger.warning(f"[INTENT EXTRACTOR] Extraction timed out after {timeout_seconds}s. Falling back.")
             return self._deterministic_fallback(text)
         except (json.JSONDecodeError, ValueError, KeyError, TypeError) as e:
             logger.warning(f"[INTENT EXTRACTOR] Extraction parsing error ({e}). Falling back.")

@@ -23,18 +23,20 @@ from services.slack.client_core import get_slack_async_client, get_slack_bot_tok
 
 logger = logging.getLogger(__name__)
 
-SAFE_DOWNLOAD_EXTENSIONS: frozenset[str] = frozenset({
-    ".txt",
-    ".md",
-    ".pdf",
-    ".csv",
-    ".json",
-    ".yaml",
-    ".yml",
-    ".xml",
-    ".html",
-    ".log",
-})
+SAFE_DOWNLOAD_EXTENSIONS: frozenset[str] = frozenset(
+    {
+        ".txt",
+        ".md",
+        ".pdf",
+        ".csv",
+        ".json",
+        ".yaml",
+        ".yml",
+        ".xml",
+        ".html",
+        ".log",
+    }
+)
 
 
 def sanitize_slack_download_filename(file_name: str, prefix_len: int = 6) -> str:
@@ -75,9 +77,7 @@ def _extract_pdf_pages(raw_bytes: bytes) -> str:
     return "\n\n".join(pages_text) if pages_text else "[Empty PDF document]"
 
 
-async def fetch_thread_files(
-    channel_id: str, thread_ts: str, max_messages: int = 500
-) -> list[dict[str, Any]]:
+async def fetch_thread_files(channel_id: str, thread_ts: str, max_messages: int = 500) -> list[dict[str, Any]]:
     """
     Fetches all file attachment metadata uploaded in a Slack thread.
     Implements cursor-based pagination (up to max_messages) to discover files across long threads.
@@ -125,30 +125,23 @@ async def fetch_thread_files(
                         "mimetype": f.get("mimetype", ""),
                         "filetype": f.get("filetype", ""),
                         "size": f.get("size", 0),
-                        "url_private_download": f.get("url_private_download")
-                        or f.get("url_private", ""),
+                        "url_private_download": f.get("url_private_download") or f.get("url_private", ""),
                         "url_private": f.get("url_private", ""),
                         "user": f.get("user") or msg.get("user"),
                         "ts": msg.get("ts"),
                     }
                 )
-        logger.info(
-            f"[SLACK FILES] Found {len(thread_files)} files in thread {thread_ts}"
-        )
+        logger.info(f"[SLACK FILES] Found {len(thread_files)} files in thread {thread_ts}")
         return thread_files
     except SlackApiError as e:
-        logger.error(
-            f"[SLACK FILES] Error fetching thread files: {e.response.get('error', e)}"
-        )
+        logger.error(f"[SLACK FILES] Error fetching thread files: {e.response.get('error', e)}")
         return []
     except Exception as e:  # noqa: BLE001 - File listing error boundary returns empty list
         logger.error(f"[SLACK FILES] Unexpected error fetching thread files: {e}")
         return []
 
 
-async def download_slack_file(
-    file_info: dict[str, Any], max_chars: int = 50000
-) -> dict[str, Any]:
+async def download_slack_file(file_info: dict[str, Any], max_chars: int = 50000) -> dict[str, Any]:
     """
     Downloads a private Slack file attachment using SLACK_BOT_TOKEN and extracts its text content.
     Returns dict: {"ok": bool, "file_name": str, "content": str, "truncated": bool, "size": int, "error": str | None}
@@ -189,14 +182,10 @@ async def download_slack_file(
         "slack-files.com",
     }
     is_slack_host = (
-        hostname in allowed_hosts
-        or hostname.endswith(".slack.com")
-        or hostname.endswith(".slack-files.com")
+        hostname in allowed_hosts or hostname.endswith(".slack.com") or hostname.endswith(".slack-files.com")
     )
     if not is_slack_host:
-        logger.warning(
-            f"[SLACK FILE] Blocked file download attempt to non-Slack domain: {hostname}"
-        )
+        logger.warning(f"[SLACK FILE] Blocked file download attempt to non-Slack domain: {hostname}")
         return {
             "ok": False,
             "file_name": file_name,
@@ -220,6 +209,7 @@ async def download_slack_file(
     headers = {"Authorization": f"Bearer {bot_token}"}
     try:
         from orchestration.system_settings import get_slack_file_download_timeout_seconds
+
         download_timeout = get_slack_file_download_timeout_seconds()
     except Exception:  # noqa: BLE001
         download_timeout = 30.0
@@ -264,20 +254,16 @@ async def download_slack_file(
                     raise PermissionError(
                         f"Path traversal detected: '{file_name}' resolves outside downloads directory"
                     )
-                file_path.write_bytes(raw_bytes)
+                await asyncio.to_thread(file_path.write_bytes, raw_bytes)
                 logger.info(f"[SLACK FILE] Cached Slack file safely to workspace: {file_path}")
             except (OSError, PermissionError) as save_err:
-                logger.warning(
-                    f"[SLACK FILE] Could not save local copy to workspace: {save_err}"
-                )
+                logger.warning(f"[SLACK FILE] Could not save local copy to workspace: {save_err}")
 
             if file_name.lower().endswith(".pdf"):
                 try:
                     text_content = await asyncio.to_thread(_extract_pdf_pages, raw_bytes)
                 except Exception as pdf_err:  # noqa: BLE001 - PDF parsing error boundary falls back cleanly
-                    logger.warning(
-                        f"[SLACK FILE] Could not parse PDF attachment {file_name}: {pdf_err}"
-                    )
+                    logger.warning(f"[SLACK FILE] Could not parse PDF attachment {file_name}: {pdf_err}")
                     text_content = f"[Failed to extract text from PDF: {pdf_err}]"
             else:
                 text_content = raw_bytes.decode("utf-8", errors="replace")
@@ -285,8 +271,7 @@ async def download_slack_file(
             truncated = False
             if len(text_content) > max_chars:
                 text_content = (
-                    text_content[:max_chars]
-                    + f"\n\n... [TRUNCATED: File exceeds {max_chars} characters] ..."
+                    text_content[:max_chars] + f"\n\n... [TRUNCATED: File exceeds {max_chars} characters] ..."
                 )
                 truncated = True
 
@@ -299,9 +284,7 @@ async def download_slack_file(
                 "error": None,
             }
     except (httpx.TimeoutException, httpx.RequestError) as e:
-        logger.error(
-            f"[SLACK FILE] Network error downloading Slack file {file_name}: {e}"
-        )
+        logger.error(f"[SLACK FILE] Network error downloading Slack file {file_name}: {e}")
         return {
             "ok": False,
             "file_name": file_name,
@@ -336,9 +319,7 @@ def extract_thread_files_metadata(
     ]
 
 
-async def read_slack_file_text(
-    file_info: dict[str, Any], max_chars: int = 50000
-) -> str:
+async def read_slack_file_text(file_info: dict[str, Any], max_chars: int = 50000) -> str:
     res = await download_slack_file(file_info, max_chars=max_chars)
     return res.get("content", "")
 
@@ -359,7 +340,13 @@ async def upload_text_file_to_slack(
     if (
         not bot_token
         or bot_token == "xoxb-your-bot-user-oauth-token"
-        or (channel_id and (str(channel_id).startswith(("mock_", "D_TEST", "D_MOCK", "C_TEST", "C_MOCK")) or "TEST" in str(channel_id)))
+        or (
+            channel_id
+            and (
+                str(channel_id).startswith(("mock_", "D_TEST", "D_MOCK", "C_TEST", "C_MOCK"))
+                or "TEST" in str(channel_id)
+            )
+        )
     ):
         mock_file_id = f"mock_file_{int(time.time() * 1000)}"
         logger.info(

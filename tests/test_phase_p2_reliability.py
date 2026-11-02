@@ -315,8 +315,8 @@ def test_revoke_constraint_action_and_modifier_clearing():
     from skills.builtin.revoke_constraint.action import run as revoke_constraint_action
     from orchestration.thread_state import thread_state_manager
 
-    thread_state_manager.set_format_modifiers("C_REVOKE", "T_REVOKE", ["bullet_points"])
-    assert thread_state_manager.get_format_modifiers("C_REVOKE", "T_REVOKE") == ["bullet_points"]
+    thread_state_manager.set_format_modifiers("C_REVOKE", "T_REVOKE", {"style": "bullet_points"})
+    assert thread_state_manager.get_format_modifiers("C_REVOKE", "T_REVOKE") == {"style": "bullet_points"}
 
     post_mock = AsyncMock()
     pipeline = MagicMock()
@@ -340,7 +340,7 @@ def test_revoke_constraint_action_and_modifier_clearing():
         assert res.get("ok") is True
 
         assert res.get("halted") is True
-        assert thread_state_manager.get_format_modifiers("C_REVOKE", "T_REVOKE") == []
+        assert thread_state_manager.get_format_modifiers("C_REVOKE", "T_REVOKE") == {}
         mock_post.assert_awaited_once()
 
 

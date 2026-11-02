@@ -23,6 +23,7 @@ from prompts.builder import build_agent_prompt
 from core.paths import (
     AGENT_BACKUP_FILE as BACKUP_FILE,
     AGENT_SETTINGS_FILE as SETTINGS_FILE,
+    DEFAULT_SYSTEM_AGENT_SETTINGS_FILE,
     PERSONAS_DIR,
     SYSTEM_AGENT_BACKUP_FILE,
     SYSTEM_AGENT_SETTINGS_FILE,
@@ -538,6 +539,14 @@ class AgentSettingsManager:
                 logger.warning(f"[SETTINGS] Loaded system agent settings from backup {backup_file.name}")
             except Exception as e:
                 logger.error(f"[SETTINGS] Failed reading system agent backup: {e}")
+
+        if not isinstance(data, dict) and DEFAULT_SYSTEM_AGENT_SETTINGS_FILE.exists():
+            try:
+                with open(DEFAULT_SYSTEM_AGENT_SETTINGS_FILE, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                logger.info(f"[SETTINGS] Loaded baseline system agent settings from {DEFAULT_SYSTEM_AGENT_SETTINGS_FILE.name}")
+            except Exception as e:
+                logger.error(f"[SETTINGS] Failed reading baseline system agent settings: {e}")
 
         if isinstance(data, dict):
             # Parse orchestrator config

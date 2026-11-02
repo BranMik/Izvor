@@ -275,6 +275,8 @@ async def orchestrate_discussion(
     icon_url: str | None = None,
     max_turns: int | None = None,
     user_id: str | None = None,
+    target_agent_override: str | None = None,
+    is_bot_trigger: bool = False,
 ) -> dict[str, Any]:
     """
     Internal multi-agent discussion loop:
@@ -289,6 +291,8 @@ async def orchestrate_discussion(
         icon_url=icon_url,
         max_turns=max_turns,
         user_id=user_id,
+        target_agent_override=target_agent_override,
+        is_bot_trigger=is_bot_trigger,
     )
 
 

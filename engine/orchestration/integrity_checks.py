@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 # Default paths — can be overridden per-check via kwargs
 _DEFAULT_PERSONAS_DIR = PERSONAS_DIR
 _DEFAULT_WORKFLOWS_DIR = WORKFLOWS_DIR
-_DEFAULT_WORKFLOWS_BACKUP_DIR = ENGINE_WORKFLOWS_DIR
+_DEFAULT_WORKFLOWS_BACKUP_DIR = WORKFLOWS_BACKUP_DIR
 
 
 class AppIntegrityValidator:
@@ -93,9 +93,7 @@ class AppIntegrityValidator:
         required_top = ("workflow_config", "enabled_agents", "agents")
         for key in required_top:
             if key not in payload:
-                logger.warning(
-                    "[INTEGRITY] Required top-level setting '%s' is missing from agent_settings.", key
-                )
+                logger.warning("[INTEGRITY] Required top-level setting '%s' is missing from agent_settings.", key)
 
         agents = payload.get("agents")
         if isinstance(agents, dict):
@@ -104,9 +102,7 @@ class AppIntegrityValidator:
                 if isinstance(acfg, dict):
                     for field in required_agent_fields:
                         if not acfg.get(field):
-                            logger.warning(
-                                "[INTEGRITY] Agent '%s' is missing required field '%s'.", aid, field
-                            )
+                            logger.warning("[INTEGRITY] Agent '%s' is missing required field '%s'.", aid, field)
         return payload
 
     # ------------------------------------------------------------------
@@ -198,8 +194,7 @@ class AppIntegrityValidator:
         for agent_key, agent_data in payload["agents"].items():
             if not re.match(r"^agent-\d+$", agent_key):
                 logger.warning(
-                    "[INTEGRITY] Agent ID '%s' is malformed (must match "
-                    "^agent-\\d+$). This agent will be ignored.",
+                    "[INTEGRITY] Agent ID '%s' is malformed (must match ^agent-\\d+$). This agent will be ignored.",
                     agent_key,
                 )
                 continue
@@ -259,8 +254,7 @@ class AppIntegrityValidator:
             prompt_path = personas_dir / f"{agent_key}.md"
             if not prompt_path.exists():
                 logger.warning(
-                    "[INTEGRITY] Missing persona prompt file '%s' for "
-                    "agent '%s'. Agent will be removed.",
+                    "[INTEGRITY] Missing persona prompt file '%s' for agent '%s'. Agent will be removed.",
                     prompt_path.name,
                     agent_key,
                 )
@@ -317,8 +311,7 @@ class AppIntegrityValidator:
             for ref in refs:
                 if isinstance(ref, str) and ref not in known_ids:
                     logger.warning(
-                        "[INTEGRITY] Workflow '%s' references agent '%s' "
-                        "which is not present in agent_settings.",
+                        "[INTEGRITY] Workflow '%s' references agent '%s' which is not present in agent_settings.",
                         wf_file.stem,
                         ref,
                     )
@@ -403,6 +396,28 @@ class AppIntegrityValidator:
                             ex,
                         )
 
+                if not restored and ENGINE_WORKFLOWS_DIR.exists():
+                    seed_file = ENGINE_WORKFLOWS_DIR / f"{wf_id}.json"
+                    if seed_file.exists():
+                        try:
+                            with open(seed_file, "r", encoding="utf-8") as sf:
+                                s_data = json.load(sf)
+                            if isinstance(s_data, dict) and s_data.get("id") == wf_id:
+                                shutil.copy2(seed_file, wf_file)
+                                logger.info(
+                                    "[INTEGRITY] Restored default workflow '%s' from engine seed at %s.",
+                                    wf_id,
+                                    seed_file,
+                                )
+                                restored = True
+                        except (OSError, json.JSONDecodeError, ValueError) as ex:
+                            logger.warning(
+                                "[INTEGRITY] Could not restore workflow '%s' from seed file %s: %s",
+                                wf_id,
+                                seed_file,
+                                ex,
+                            )
+
                 if not restored:
                     logger.warning(
                         "[INTEGRITY] Backup for default workflow '%s' not available. Dynamically generating from agent settings.",
@@ -453,10 +468,7 @@ class AppIntegrityValidator:
         )
         for k in required_keys:
             if k not in data:
-                logger.warning(
-                    "[INTEGRITY] Required system setting '%s' is missing from system_settings.json.", k
-                )
-
+                logger.warning("[INTEGRITY] Required system setting '%s' is missing from system_settings.json.", k)
 
         return data
 
@@ -505,8 +517,7 @@ class AppIntegrityValidator:
             agent_id = md_file.stem  # e.g. "agent-10001"
             if agent_id not in known_ids:
                 logger.warning(
-                    "[INTEGRITY] Orphaned persona file '%s' has no "
-                    "corresponding entry in agent_settings.",
+                    "[INTEGRITY] Orphaned persona file '%s' has no corresponding entry in agent_settings.",
                     md_file.name,
                 )
 
@@ -536,8 +547,7 @@ class AppIntegrityValidator:
                 )
             elif "/" not in model:
                 logger.warning(
-                    "[INTEGRITY] Agent '%s' model '%s' does not follow "
-                    "'provider/model' format.",
+                    "[INTEGRITY] Agent '%s' model '%s' does not follow 'provider/model' format.",
                     agent_key,
                     model,
                 )
@@ -603,9 +613,7 @@ class AppIntegrityValidator:
 
         hmac_continuity = check_hmac_secret_continuity(audit_dir=audit_dir)
         if not hmac_continuity["matches"]:
-            logger.warning(
-                f"[INTEGRITY] AUDIT_HMAC_SECRET continuity check warning: {hmac_continuity['message']}"
-            )
+            logger.warning(f"[INTEGRITY] AUDIT_HMAC_SECRET continuity check warning: {hmac_continuity['message']}")
 
         result = verify_audit_log_integrity(audit_dir=audit_dir, month=month)
         if not result.valid:

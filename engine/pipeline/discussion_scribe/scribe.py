@@ -62,7 +62,9 @@ _DEFAULT_CONCLUSION_PROMPT_FALLBACK = """<system_agent_specification id="Discuss
 </system_agent_specification>"""
 
 SCRIBE_DEFAULT_PROMPT = load_system_prompt("Discussion_Scribe_Live", fallback=_DEFAULT_SCRIBE_PROMPT_FALLBACK)
-SCRIBE_CONCLUSION_PROMPT = load_system_prompt("Discussion_Scribe_Conclusion", fallback=_DEFAULT_CONCLUSION_PROMPT_FALLBACK)
+SCRIBE_CONCLUSION_PROMPT = load_system_prompt(
+    "Discussion_Scribe_Conclusion", fallback=_DEFAULT_CONCLUSION_PROMPT_FALLBACK
+)
 
 
 def _extract_brief_fields(raw_text: str) -> dict[str, Any]:
@@ -203,17 +205,22 @@ class DiscussionScribe:
     def model(self, val: str | None) -> None:
         self._custom_model = val
 
-    async def _invoke_llm(
-        self, messages: list[dict[str, str]], max_tokens: int
-    ) -> Any:
+    async def _invoke_llm(self, messages: list[dict[str, str]], max_tokens: int) -> Any:
         completion_fn = self._completion_fn or litellm.acompletion
-        res = completion_fn(
-            model=self.model,
-            messages=messages,
-            max_tokens=max_tokens,
-            num_retries=2,
+        from core.llm_utils import execute_llm_with_retry
+
+        return await execute_llm_with_retry(
+            completion_fn,
+            kwargs={
+                "model": self.model,
+                "messages": messages,
+                "max_tokens": max_tokens,
+                "num_retries": 1,
+            },
+            agent_key="discussion_scribe",
+            thread_key=("system", "discussion_scribe"),
+            max_attempts=2,
         )
-        return await res if asyncio.iscoroutine(res) else res
 
     async def generate_brief(
         self,
@@ -259,7 +266,11 @@ class DiscussionScribe:
                     "Include Core Objective & Problem Statement, Key Perspectives & Emerging Consensus, "
                     "Risks & Trade-offs, and Action Items & Next Steps. Do NOT include a conclusion section."
                 )
-            ceiling_text = f"strictly under {scribe_max_words} words" if scribe_max_words is not None else "strictly under 500 words maximum ceiling"
+            ceiling_text = (
+                f"strictly under {scribe_max_words} words"
+                if scribe_max_words is not None
+                else "strictly under 500 words maximum ceiling"
+            )
             status_directive = (
                 f"The discussion has finished. Generate the FINAL concise strategic synthesis live notes ({ceiling_text}). "
                 f"{structure_req} "
@@ -464,9 +475,7 @@ class DiscussionScribe:
                 is_completed=True,
                 language=thread_language,
             )
-            logger.info(
-                f"[SCRIBE] Generated conclusion ({len(raw_text)} chars) in {time.time() - start_time:.2f}s"
-            )
+            logger.info(f"[SCRIBE] Generated conclusion ({len(raw_text)} chars) in {time.time() - start_time:.2f}s")
             return conclusion, tokens
 
         except (TimeoutError, asyncio.TimeoutError) as e:

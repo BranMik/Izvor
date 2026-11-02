@@ -78,6 +78,7 @@ class ThreadContextStore:
                 if isinstance(o, (set, frozenset)):
                     return list(o)
                 raise TypeError(f"Object of type {type(o).__name__} is not JSON serializable")
+
             return json.dumps(obj, default=_def)
 
         key = (channel_id, thread_ts)
@@ -92,18 +93,20 @@ class ThreadContextStore:
         fmt = json.dumps(self.thread_format_modifiers.get(key, {}))
         file_ctx = _safe_json(self.thread_active_file_context[key]) if key in self.thread_active_file_context else None
 
-        has_data = any([
-            h_limit is not None,
-            max_w is not None,
-            min_w is not None,
-            s_max_w is not None,
-            s_min_w is not None,
-            lang is not None,
-            excl != "[]",
-            incl != "[]",
-            fmt != "{}",
-            file_ctx is not None,
-        ])
+        has_data = any(
+            [
+                h_limit is not None,
+                max_w is not None,
+                min_w is not None,
+                s_max_w is not None,
+                s_min_w is not None,
+                lang is not None,
+                excl != "[]",
+                incl != "[]",
+                fmt != "{}",
+                file_ctx is not None,
+            ]
+        )
 
         try:
             with get_db_transaction(immediate=True) as conn:
@@ -150,16 +153,12 @@ class ThreadContextStore:
         except Exception as e:  # noqa: BLE001
             logger.debug(f"[CONTEXT STORE] Failed to sync context to DB for {key}: {e}")
 
-    def get_history_limit(
-        self, channel_id: str, thread_ts: str
-    ) -> dict[str, int] | None:
+    def get_history_limit(self, channel_id: str, thread_ts: str) -> dict[str, int] | None:
         """Returns active history limit dictionary for this thread."""
         self._ensure_loaded(channel_id, thread_ts)
         return self.thread_history_limits.get((channel_id, thread_ts))
 
-    def set_history_limit(
-        self, channel_id: str, thread_ts: str, limit: int, prior_cutoff_index: int
-    ) -> None:
+    def set_history_limit(self, channel_id: str, thread_ts: str, limit: int, prior_cutoff_index: int) -> None:
         """Sets history limit configuration for this thread."""
         key = (channel_id, thread_ts)
         self.thread_history_limits[key] = HistoryLimitConfig(
@@ -182,17 +181,13 @@ class ThreadContextStore:
         self._ensure_loaded(channel_id, thread_ts)
         return self.thread_max_words_limits.get((channel_id, thread_ts))
 
-    def set_max_words(
-        self, channel_id: str, thread_ts: str, max_words: int
-    ) -> None:
+    def set_max_words(self, channel_id: str, thread_ts: str, max_words: int) -> None:
         """Sets max_words limit for this thread."""
         key = (channel_id, thread_ts)
         self.thread_max_words_limits[key] = max_words
         self._loaded_threads.add(key)
         self._sync_to_db(channel_id, thread_ts)
-        logger.info(
-            f"[CONTEXT STORE] Set max_words limit for thread {(channel_id, thread_ts)}: max_words={max_words}"
-        )
+        logger.info(f"[CONTEXT STORE] Set max_words limit for thread {(channel_id, thread_ts)}: max_words={max_words}")
 
     def clear_max_words(self, channel_id: str, thread_ts: str) -> None:
         """Clears max_words limit for this thread."""
@@ -204,17 +199,13 @@ class ThreadContextStore:
         self._ensure_loaded(channel_id, thread_ts)
         return self.thread_min_words_limits.get((channel_id, thread_ts))
 
-    def set_min_words(
-        self, channel_id: str, thread_ts: str, min_words: int
-    ) -> None:
+    def set_min_words(self, channel_id: str, thread_ts: str, min_words: int) -> None:
         """Sets min_words limit for this thread."""
         key = (channel_id, thread_ts)
         self.thread_min_words_limits[key] = min_words
         self._loaded_threads.add(key)
         self._sync_to_db(channel_id, thread_ts)
-        logger.info(
-            f"[CONTEXT STORE] Set min_words limit for thread {(channel_id, thread_ts)}: min_words={min_words}"
-        )
+        logger.info(f"[CONTEXT STORE] Set min_words limit for thread {(channel_id, thread_ts)}: min_words={min_words}")
 
     def clear_min_words(self, channel_id: str, thread_ts: str) -> None:
         """Clears min_words limit for this thread."""
@@ -226,17 +217,13 @@ class ThreadContextStore:
         self._ensure_loaded(channel_id, thread_ts)
         return self.thread_scribe_max_words_limits.get((channel_id, thread_ts))
 
-    def set_scribe_max_words(
-        self, channel_id: str, thread_ts: str, max_words: int
-    ) -> None:
+    def set_scribe_max_words(self, channel_id: str, thread_ts: str, max_words: int) -> None:
         """Sets scribe_max_words limit for this thread."""
         key = (channel_id, thread_ts)
         self.thread_scribe_max_words_limits[key] = max_words
         self._loaded_threads.add(key)
         self._sync_to_db(channel_id, thread_ts)
-        logger.info(
-            f"[CONTEXT STORE] Set scribe_max_words limit for thread {(channel_id, thread_ts)}: {max_words}"
-        )
+        logger.info(f"[CONTEXT STORE] Set scribe_max_words limit for thread {(channel_id, thread_ts)}: {max_words}")
 
     def clear_scribe_max_words(self, channel_id: str, thread_ts: str) -> None:
         """Clears scribe_max_words limit for this thread."""
@@ -248,17 +235,13 @@ class ThreadContextStore:
         self._ensure_loaded(channel_id, thread_ts)
         return self.thread_scribe_min_words_limits.get((channel_id, thread_ts))
 
-    def set_scribe_min_words(
-        self, channel_id: str, thread_ts: str, min_words: int
-    ) -> None:
+    def set_scribe_min_words(self, channel_id: str, thread_ts: str, min_words: int) -> None:
         """Sets scribe_min_words limit for this thread."""
         key = (channel_id, thread_ts)
         self.thread_scribe_min_words_limits[key] = min_words
         self._loaded_threads.add(key)
         self._sync_to_db(channel_id, thread_ts)
-        logger.info(
-            f"[CONTEXT STORE] Set scribe_min_words limit for thread {(channel_id, thread_ts)}: {min_words}"
-        )
+        logger.info(f"[CONTEXT STORE] Set scribe_min_words limit for thread {(channel_id, thread_ts)}: {min_words}")
 
     def clear_scribe_min_words(self, channel_id: str, thread_ts: str) -> None:
         """Clears scribe_min_words limit for this thread."""
@@ -276,9 +259,7 @@ class ThreadContextStore:
         self.thread_languages[key] = language
         self._loaded_threads.add(key)
         self._sync_to_db(channel_id, thread_ts)
-        logger.info(
-            f"[CONTEXT STORE] Set locked language for thread {(channel_id, thread_ts)}: {language}"
-        )
+        logger.info(f"[CONTEXT STORE] Set locked language for thread {(channel_id, thread_ts)}: {language}")
 
     def clear_language(self, channel_id: str, thread_ts: str) -> None:
         """Clears locked language for this thread."""
@@ -296,9 +277,7 @@ class ThreadContextStore:
         self.thread_excluded_agents[key] = list(dict.fromkeys(agents))
         self._loaded_threads.add(key)
         self._sync_to_db(channel_id, thread_ts)
-        logger.info(
-            f"[CONTEXT STORE] Set excluded agents for thread {(channel_id, thread_ts)}: {agents}"
-        )
+        logger.info(f"[CONTEXT STORE] Set excluded agents for thread {(channel_id, thread_ts)}: {agents}")
 
     def add_excluded_agent(self, channel_id: str, thread_ts: str, agent: str) -> None:
         """Appends an agent to the persistent excluded list for this thread."""
@@ -339,9 +318,7 @@ class ThreadContextStore:
         if remaining_excluded != curr_excluded:
             self.thread_excluded_agents[key] = remaining_excluded
         self._sync_to_db(channel_id, thread_ts)
-        logger.info(
-            f"[CONTEXT STORE] Set included agents for thread {(channel_id, thread_ts)}: {agents}"
-        )
+        logger.info(f"[CONTEXT STORE] Set included agents for thread {(channel_id, thread_ts)}: {agents}")
 
     def add_included_agent(self, channel_id: str, thread_ts: str, agent: str) -> None:
         """Appends an agent to the persistent included list for this thread."""
@@ -356,29 +333,27 @@ class ThreadContextStore:
         self.thread_included_agents.pop((channel_id, thread_ts), None)
         self._sync_to_db(channel_id, thread_ts)
 
-    def get_format_modifiers(self, channel_id: str, thread_ts: str) -> list[str]:
-        """Returns custom format modifiers list for this thread."""
+    def get_format_modifiers(self, channel_id: str, thread_ts: str) -> dict[str, Any]:
+        """Returns custom format modifiers dictionary for this thread."""
         self._ensure_loaded(channel_id, thread_ts)
         val = self.thread_format_modifiers.get((channel_id, thread_ts))
-        if isinstance(val, (list, tuple, set)):
-            return list(val)
         if isinstance(val, dict):
-            return list(val.keys())
-        return []
+            return dict(val)
+        if isinstance(val, (list, tuple, set)):
+            return {item: True for item in val if item}
+        return {}
 
-    def set_format_modifiers(
-        self, channel_id: str, thread_ts: str, modifiers: Any
-    ) -> None:
+    def set_format_modifiers(self, channel_id: str, thread_ts: str, modifiers: Any) -> None:
         """Sets custom format modifiers for this thread."""
         key = (channel_id, thread_ts)
-        if isinstance(modifiers, (list, tuple, set)):
-            self.thread_format_modifiers[key] = list(modifiers)
-        elif isinstance(modifiers, dict):
-            self.thread_format_modifiers[key] = list(modifiers.keys())
+        if isinstance(modifiers, dict):
+            self.thread_format_modifiers[key] = dict(modifiers)
+        elif isinstance(modifiers, (list, tuple, set)):
+            self.thread_format_modifiers[key] = {item: True for item in modifiers if item}
         elif modifiers:
-            self.thread_format_modifiers[key] = [str(modifiers)]
+            self.thread_format_modifiers[key] = {str(modifiers): True}
         else:
-            self.thread_format_modifiers[key] = []
+            self.thread_format_modifiers[key] = {}
         self._loaded_threads.add(key)
         self._sync_to_db(channel_id, thread_ts)
 
@@ -387,22 +362,14 @@ class ThreadContextStore:
         self.thread_format_modifiers.pop((channel_id, thread_ts), None)
         self._sync_to_db(channel_id, thread_ts)
 
-    def get_file_context(
-        self, channel_id: str, thread_ts: str
-    ) -> dict[str, Any] | None:
+    def get_file_context(self, channel_id: str, thread_ts: str) -> dict[str, Any] | None:
         """Returns active file context dictionary for this thread."""
         self._ensure_loaded(channel_id, thread_ts)
         return self.thread_active_file_context.get((channel_id, thread_ts))
 
-    def set_file_context(
-        self, channel_id: str, thread_ts: str, file_context: dict[str, Any] | FileContext
-    ) -> None:
+    def set_file_context(self, channel_id: str, thread_ts: str, file_context: dict[str, Any] | FileContext) -> None:
         """Sets active file context for this thread."""
-        ctx_dict = (
-            file_context.to_dict()
-            if isinstance(file_context, FileContext)
-            else file_context
-        )
+        ctx_dict = file_context.to_dict() if isinstance(file_context, FileContext) else file_context
         key = (channel_id, thread_ts)
         self.thread_active_file_context[key] = ctx_dict
         self._loaded_threads.add(key)
