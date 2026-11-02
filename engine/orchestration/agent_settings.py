@@ -217,6 +217,17 @@ class AgentSettingsManager:
             self.default_system_agent_backup_file = Path(system_agent_backup_file)
             self._custom_system_agent_backup_file = True
 
+    def reset_paths(self) -> None:
+        """Resets configured paths back to canonical system defaults."""
+        self._custom_settings_file = False
+        self._custom_backup_file = False
+        self._custom_system_agent_settings_file = False
+        self._custom_system_agent_backup_file = False
+        self.default_settings_file = SETTINGS_FILE
+        self.default_backup_file = BACKUP_FILE
+        self.default_system_agent_settings_file = DEFAULT_SYSTEM_AGENT_SETTINGS_FILE
+        self.default_system_agent_backup_file = SYSTEM_AGENT_BACKUP_FILE
+
     @property
     def active_settings_file(self) -> Path:
         if self._custom_settings_file:

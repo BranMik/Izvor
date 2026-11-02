@@ -73,6 +73,62 @@ class AppSettingsManager:
     def active_settings_file(self) -> Path:
         return self.default_settings_file
 
+    def configure_paths(
+        self,
+        settings_file: Path | str | None = None,
+        backup_file: Path | str | None = None,
+    ) -> None:
+        """Configures isolated backing files for tests and runtime overrides."""
+        if settings_file is not None:
+            self.default_settings_file = Path(settings_file)
+            self._custom_settings_file = True
+        if backup_file is not None:
+            self.default_backup_file = Path(backup_file)
+        self._store = JsonSettingsStore[AppSettingsModel](
+            settings_file=self.default_settings_file,
+            model_cls=AppSettingsModel,
+            backup_file=self.default_backup_file,
+            default_data=AppSettingsModel().model_dump(),
+        )
+        self._last_loaded_mtime = 0.0
+        self._store.invalidate_cache()
+        if self.default_settings_file.exists():
+            self.load(force=True)
+        else:
+            self._apply_model_to_fields(AppSettingsModel())
+
+    def _apply_model_to_fields(self, model: AppSettingsModel) -> None:
+        self.thread_skill_expiration_time = float(model.thread_skill_expiration_time)
+        self.circuit_breaker_enabled = bool(model.circuit_breaker_enabled)
+        self.circuit_breaker_threshold_usd = float(model.circuit_breaker_threshold_usd)
+        self.daily_budget_usd = float(model.daily_budget_usd)
+        self.scribe_enabled = bool(model.scribe_enabled)
+        self.convergence_fast_forward_enabled = bool(model.convergence_fast_forward_enabled)
+        self.weekly_pricing_update_enabled = bool(model.weekly_pricing_update_enabled)
+        self.workspace_context = str(model.workspace_context).strip()[:1000]
+        self._raw_data = self._store.get_raw_data() if hasattr(self._store, "get_raw_data") else {}
+
+    def reset_paths(self) -> None:
+        """Resets configured paths back to canonical application defaults."""
+        self._custom_settings_file = False
+        self.default_settings_file = APP_SETTINGS_FILE
+        self.default_backup_file = APP_BACKUP_FILE
+        self._store = JsonSettingsStore[AppSettingsModel](
+            settings_file=self.default_settings_file,
+            model_cls=AppSettingsModel,
+            backup_file=self.default_backup_file,
+            default_data=AppSettingsModel().model_dump(),
+        )
+        self._last_loaded_mtime = 0.0
+        self._store.invalidate_cache()
+        if self.default_settings_file.exists():
+            try:
+                self.load(force=True)
+            except Exception:
+                pass
+        else:
+            self._apply_model_to_fields(AppSettingsModel())
+
     def load(self, force: bool = False) -> None:
         target_file = self.active_settings_file
         if not target_file.exists():
@@ -84,15 +140,7 @@ class AppSettingsManager:
             self._store.settings_file = target_file
             self._store.backup_file = self.default_backup_file
             model = self._store.load(force=True)
-            self.thread_skill_expiration_time = float(model.thread_skill_expiration_time)
-            self.circuit_breaker_enabled = bool(model.circuit_breaker_enabled)
-            self.circuit_breaker_threshold_usd = float(model.circuit_breaker_threshold_usd)
-            self.daily_budget_usd = float(model.daily_budget_usd)
-            self.scribe_enabled = bool(model.scribe_enabled)
-            self.convergence_fast_forward_enabled = bool(model.convergence_fast_forward_enabled)
-            self.weekly_pricing_update_enabled = bool(model.weekly_pricing_update_enabled)
-            self.workspace_context = str(model.workspace_context).strip()[:1000]
-            self._raw_data = self._store.get_raw_data()
+            self._apply_model_to_fields(model)
             self._last_loaded_mtime = mtime
             logger.debug(f"[APP_SETTINGS] Loaded settings from {self.active_settings_file}")
         except Exception as e:  # noqa: BLE001

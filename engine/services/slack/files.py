@@ -13,7 +13,7 @@ from slack_sdk.errors import SlackApiError
 from core.config import (
     PROJECT_ROOT,
 )
-from core.paths import DOWNLOADS_DIR
+from core.paths import get_downloads_dir
 from orchestration.system_settings import (
     get_max_file_size_bytes,
     get_max_file_size_mb,
@@ -246,7 +246,7 @@ async def download_slack_file(file_info: dict[str, Any], max_chars: int = 50000)
 
             # Cache local copy to workspace safely
             try:
-                downloads_dir = DOWNLOADS_DIR.resolve()
+                downloads_dir = get_downloads_dir().resolve()
                 downloads_dir.mkdir(parents=True, exist_ok=True)
                 safe_name = sanitize_slack_download_filename(file_name, prefix_len=6)
                 file_path = (downloads_dir / safe_name).resolve()
@@ -390,16 +390,17 @@ async def upload_text_file_to_slack(
         return {"ok": False, "error": str(e)}
 
 
-def cleanup_old_downloads(max_age_seconds: float = 86400.0) -> int:
+def cleanup_old_downloads(max_age_seconds: float = 86400.0, downloads_dir: Path | None = None) -> int:
     """
     Cleans up cached downloaded Slack files older than max_age_seconds (default 24h).
-    Checks both MCP_WORKSPACE_DIR / 'downloads' and PROJECT_ROOT / 'data' / 'downloads'.
+    Checks either explicit downloads_dir or dynamic get_downloads_dir().
     Returns the count of evicted files.
     """
     now = time.time()
     evicted_count = 0
+    target_dir = downloads_dir or get_downloads_dir()
     candidate_dirs = [
-        DOWNLOADS_DIR.resolve(),
+        target_dir.resolve(),
     ]
     seen_dirs: set[Path] = set()
     for d in candidate_dirs:

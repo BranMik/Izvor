@@ -22,8 +22,10 @@ from services.pricing_service import (
 @pytest.fixture(autouse=True)
 def clean_pricing_cache(monkeypatch, tmp_path):
     temp_cache = tmp_path / "test_model_pricing_cache.json"
-    monkeypatch.setattr(pricing_module, "PRICING_CACHE_FILE", temp_cache)
+    pricing_service.configure_paths(cache_file=temp_cache)
+    monkeypatch.setenv("IZVOR_PRICING_CACHE_FILE", str(temp_cache))
     yield
+    pricing_service.reset_paths()
     if temp_cache.exists():
         temp_cache.unlink()
 

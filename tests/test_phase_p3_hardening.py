@@ -241,11 +241,10 @@ def test_tkt_728_cleanup_old_downloads(tmp_path: Path):
     new_file = downloads_dir / "new.pdf"
     new_file.write_bytes(b"%PDF-new")
 
-    with patch("services.slack.files.DOWNLOADS_DIR", downloads_dir):
-        evicted = cleanup_old_downloads(max_age_seconds=86400.0)
-        assert evicted == 1
-        assert not old_file.exists()
-        assert new_file.exists()
+    evicted = cleanup_old_downloads(max_age_seconds=86400.0, downloads_dir=downloads_dir)
+    assert evicted == 1
+    assert not old_file.exists()
+    assert new_file.exists()
 
 
 def test_tkt_728_flat_history_disambiguation(tmp_path: Path):

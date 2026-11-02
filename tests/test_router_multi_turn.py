@@ -432,9 +432,9 @@ def test_build_app_home_view():
     assert any("[agent-10011]" in b.get("text", {}).get("text", "") for b in blocks)
 
 
-def test_settings_persistence(tmp_path, monkeypatch):
+def test_settings_persistence(tmp_path):
     test_settings_path = tmp_path / "test_agent_settings.json"
-    monkeypatch.setattr("orchestration.agent_settings.SETTINGS_FILE", test_settings_path)
+    settings_manager.configure_paths(settings_file=test_settings_path)
 
     # 1. Reset and disable specific agents & set circuit-breaker config
     reset_enabled_agents()

@@ -313,12 +313,30 @@ class PricingService:
         self._mem_cache: dict[str, dict[str, Any]] | None = None
         self._mem_cache_key: tuple[str, float] | None = None
 
+    def configure_paths(self, cache_file: Path | str | None = None) -> None:
+        """Configures isolated cache file for tests and runtime overrides."""
+        if cache_file is not None:
+            self.default_cache_file = Path(cache_file)
+            self._custom_cache_file = True
+        else:
+            self._custom_cache_file = False
+        self._mem_cache = None
+        self._mem_cache_key = None
+
+    def reset_paths(self) -> None:
+        """Resets configured paths back to canonical baseline cache."""
+        self._custom_cache_file = False
+        from core.paths import PRICING_CACHE_FILE
+        self.default_cache_file = PRICING_CACHE_FILE
+        self._mem_cache = None
+        self._mem_cache_key = None
+
     @property
     def active_cache_file(self) -> Path:
         if self._custom_cache_file:
             return self.default_cache_file
-        import services.pricing_service as psm
-        return Path(getattr(psm, "PRICING_CACHE_FILE", self.default_cache_file))
+        from core.paths import get_pricing_cache_file
+        return get_pricing_cache_file()
 
     def load_cache(self) -> dict[str, dict[str, Any]]:
         """Loads cached pricing data from JSON file with mtime-based memory cache."""

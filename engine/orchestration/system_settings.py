@@ -217,6 +217,47 @@ class SystemSettingsManager:
     def active_settings_file(self) -> Path:
         return self.default_settings_file
 
+    def configure_paths(
+        self,
+        settings_file: Path | str | None = None,
+        backup_file: Path | str | None = None,
+    ) -> None:
+        """Configures isolated backing files for tests and runtime overrides."""
+        if settings_file is not None:
+            self.default_settings_file = Path(settings_file)
+            self._custom_settings_file = True
+        if backup_file is not None:
+            self.default_backup_file = Path(backup_file)
+        self._store = JsonSettingsStore(
+            self.default_settings_file,
+            SystemSettingsModel,
+            backup_file=self.default_backup_file,
+        )
+        self._last_loaded_mtime = 0.0
+        self._store.invalidate_cache()
+        if self.default_settings_file.exists():
+            self.load(force=True)
+        else:
+            self._apply_model_to_fields(SystemSettingsModel())
+
+    def reset_paths(self) -> None:
+        """Resets configured paths back to canonical system defaults."""
+        self._custom_settings_file = False
+        self.default_settings_file = SYSTEM_SETTINGS_FILE
+        self.default_backup_file = SYSTEM_BACKUP_FILE
+        self._store = JsonSettingsStore(
+            self.default_settings_file,
+            SystemSettingsModel,
+            backup_file=self.default_backup_file,
+        )
+        self._last_loaded_mtime = 0.0
+        self._store.invalidate_cache()
+        if self.default_settings_file.exists():
+            try:
+                self.load(force=True)
+            except Exception:
+                pass
+
     def _parse_rag_section(self, rag_data: Any) -> None:
         if isinstance(rag_data, dict):
             def _get(key: str, default: Any) -> Any:
@@ -309,14 +350,14 @@ class SystemSettingsManager:
         self.retention_traces_days = int(getattr(model, "retention_traces_days", 30))
         self.retention_event_dedup_days = int(getattr(model, "retention_event_dedup_days", 1))
 
-    def load(self) -> None:
+    def load(self, force: bool = False) -> None:
         target_file = self.active_settings_file
         if not target_file.exists():
             return
 
         try:
             mtime = target_file.stat().st_mtime
-            if mtime == self._last_loaded_mtime and self._last_loaded_mtime > 0:
+            if not force and mtime == self._last_loaded_mtime and self._last_loaded_mtime > 0:
                 return
 
             model = self._store.load(force=True)

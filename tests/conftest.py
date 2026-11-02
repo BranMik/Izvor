@@ -3,9 +3,6 @@ import shutil
 
 import pytest
 
-import orchestration.agent_settings as agent_settings_mod
-import orchestration.app_settings as app_settings_mod
-import services.pricing_service as pricing_service_mod
 from orchestration.agent_settings import (
     BACKUP_FILE as REAL_BACKUP_FILE,
     SETTINGS_FILE as REAL_SETTINGS_FILE,
@@ -51,12 +48,16 @@ def isolate_pricing_cache_for_tests(tmp_path, monkeypatch):
     temp_pricing_cache = iso_dir / "model_pricing_cache.json"
     if REAL_PRICING_CACHE_FILE.exists():
         shutil.copy2(REAL_PRICING_CACHE_FILE, temp_pricing_cache)
-    monkeypatch.setattr(pricing_service_mod, "PRICING_CACHE_FILE", temp_pricing_cache)
+    monkeypatch.setenv("IZVOR_PRICING_CACHE_FILE", str(temp_pricing_cache))
+    from services.pricing_service import pricing_service
+
+    pricing_service.configure_paths(cache_file=temp_pricing_cache)
     yield
+    pricing_service.reset_paths()
 
 
 @pytest.fixture(autouse=True)
-def isolate_agent_settings_for_tests(tmp_path, monkeypatch):
+def isolate_agent_settings_for_tests(tmp_path):
     """
     Prevents tests from modifying or overwriting config/settings/agent_settings.json,
     engine/settings/system_agent_settings.json, and config/workflows/*.json.
@@ -86,24 +87,16 @@ def isolate_agent_settings_for_tests(tmp_path, monkeypatch):
         for wf_file in real_workflows_dir.glob("*.json"):
             shutil.copy2(wf_file, temp_workflows_dir / wf_file.name)
 
-    monkeypatch.setattr(agent_settings_mod, "SETTINGS_FILE", temp_settings)
-    monkeypatch.setattr(agent_settings_mod, "BACKUP_FILE", temp_backup)
-    monkeypatch.setattr(agent_settings_mod, "SYSTEM_AGENT_SETTINGS_FILE", temp_sys_settings)
-    monkeypatch.setattr(agent_settings_mod, "SYSTEM_AGENT_BACKUP_FILE", temp_sys_backup)
-
-    orig_default_sys_settings = settings_manager.default_system_agent_settings_file
-    orig_default_sys_backup = settings_manager.default_system_agent_backup_file
-    orig_default_settings = settings_manager.default_settings_file
-    orig_default_backup = settings_manager.default_backup_file
-
-    settings_manager.default_settings_file = temp_settings
-    settings_manager.default_backup_file = temp_backup
-    settings_manager.default_system_agent_settings_file = temp_sys_settings
-    settings_manager.default_system_agent_backup_file = temp_sys_backup
-
     orig_workflows_dir = settings_manager.workflow_manager.workflows_dir
     orig_active_wf_id = settings_manager.active_workflow_id
     settings_manager.workflow_manager.workflows_dir = temp_workflows_dir
+
+    settings_manager.configure_paths(
+        settings_file=temp_settings,
+        backup_file=temp_backup,
+        system_agent_settings_file=temp_sys_settings,
+        system_agent_backup_file=temp_sys_backup,
+    )
 
     # Save original in-memory state
     orig_enabled = set(settings_manager.enabled_agents)
@@ -133,17 +126,14 @@ def isolate_agent_settings_for_tests(tmp_path, monkeypatch):
     settings_manager.system_agents_config.update(orig_system_agents)
     settings_manager.orchestrator_config.clear()
     settings_manager.orchestrator_config.update(orig_orchestrator)
-    settings_manager.default_settings_file = orig_default_settings
-    settings_manager.default_backup_file = orig_default_backup
-    settings_manager.default_system_agent_settings_file = orig_default_sys_settings
-    settings_manager.default_system_agent_backup_file = orig_default_sys_backup
 
+    settings_manager.reset_paths()
     settings_manager.active_workflow_id = orig_active_wf_id
     settings_manager.workflow_manager.workflows_dir = orig_workflows_dir
 
 
 @pytest.fixture(autouse=True)
-def isolate_app_settings_for_tests(tmp_path, monkeypatch):
+def isolate_app_settings_for_tests(tmp_path):
     """
     Prevents tests from modifying or overwriting production data/state/app_settings.json.
     Each test gets an isolated copy in tmp_path / "_conftest_iso".
@@ -164,9 +154,6 @@ def isolate_app_settings_for_tests(tmp_path, monkeypatch):
     if REAL_APP_BACKUP_FILE.exists():
         shutil.copy2(REAL_APP_BACKUP_FILE, temp_app_backup)
 
-    monkeypatch.setattr(app_settings_mod, "APP_SETTINGS_FILE", temp_app_settings)
-    monkeypatch.setattr(app_settings_mod, "APP_BACKUP_FILE", temp_app_backup)
-
     # Save original in-memory state
     orig_expiration = app_settings_manager.thread_skill_expiration_time
     orig_cb_enabled = app_settings_manager.circuit_breaker_enabled
@@ -176,14 +163,10 @@ def isolate_app_settings_for_tests(tmp_path, monkeypatch):
     orig_weekly_pricing = app_settings_manager.weekly_pricing_update_enabled
     orig_workspace_context = app_settings_manager.workspace_context
 
-    orig_default_settings_file = app_settings_manager.default_settings_file
-    orig_default_backup_file = app_settings_manager.default_backup_file
-    app_settings_manager.default_settings_file = temp_app_settings
-    app_settings_manager.default_backup_file = temp_app_backup
-    app_settings_manager._store.settings_file = temp_app_settings
-    app_settings_manager._store.backup_file = temp_app_backup
-    app_settings_manager._store.invalidate_cache()
-    orig_last_mtime = app_settings_manager._last_loaded_mtime
+    app_settings_manager.configure_paths(
+        settings_file=temp_app_settings,
+        backup_file=temp_app_backup,
+    )
 
     yield
 
@@ -195,12 +178,7 @@ def isolate_app_settings_for_tests(tmp_path, monkeypatch):
     app_settings_manager.scribe_enabled = orig_scribe_enabled
     app_settings_manager.weekly_pricing_update_enabled = orig_weekly_pricing
     app_settings_manager.workspace_context = orig_workspace_context
-    app_settings_manager.default_settings_file = orig_default_settings_file
-    app_settings_manager.default_backup_file = orig_default_backup_file
-    app_settings_manager._last_loaded_mtime = orig_last_mtime
-    app_settings_manager._store.settings_file = orig_default_settings_file
-    app_settings_manager._store.backup_file = orig_default_backup_file
-    app_settings_manager._store.invalidate_cache()
+    app_settings_manager.reset_paths()
 
 
 @pytest.fixture(autouse=True)
@@ -209,14 +187,12 @@ def isolate_database_for_tests(tmp_path, monkeypatch):
     Bulletproof SQLite database isolation for tests.
     Each test gets a dedicated temporary SQLite database initialized with all schemas and WAL pragmas.
     """
-    import core.database as db_mod
     from core.database import db_manager, init_db
 
     iso_dir = tmp_path / "_conftest_iso"
     iso_dir.mkdir(parents=True, exist_ok=True)
     test_db_path = iso_dir / "test_izvor.db"
     monkeypatch.setenv("IZVOR_DB_PATH", str(test_db_path))
-    monkeypatch.setattr(db_mod, "DEFAULT_DB_PATH", test_db_path)
     old_custom_path = db_manager._custom_db_path
     db_manager._custom_db_path = test_db_path
 
@@ -234,7 +210,7 @@ def isolate_thread_state_files_for_tests(tmp_path, monkeypatch):
     Prevents tests from modifying or overwriting data/thread/thread_usage_data.json
     and ensures clean thread skills state in SQLite.
     """
-    import agents.usage_agent as usage_mod
+    from agents.usage_agent import usage_tracker
     from orchestration.thread_skills_manager import thread_skills_manager
 
     thread_skills_manager.clear_all()
@@ -243,8 +219,7 @@ def isolate_thread_state_files_for_tests(tmp_path, monkeypatch):
     iso_dir.mkdir(parents=True, exist_ok=True)
     temp_usage_file = iso_dir / "thread_usage_data.json"
     temp_usage_file.write_text("{}", encoding="utf-8")
-    monkeypatch.setattr(usage_mod, "USAGE_STORE_FILE", temp_usage_file)
-    from agents.usage_agent import usage_tracker
+    monkeypatch.setenv("IZVOR_THREAD_DATA_DIR", str(iso_dir))
 
     old_usage_storage = usage_tracker.store_file
     usage_tracker.store_file = temp_usage_file
@@ -273,12 +248,11 @@ def mock_embedding_service_for_tests(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def isolate_system_settings_for_tests(tmp_path, monkeypatch):
+def isolate_system_settings_for_tests(tmp_path):
     """
     Prevents tests from modifying config/settings/system_settings.json
     and data/backups/system_settings_backup.json.
     """
-    import orchestration.system_settings as sys_settings_mod
     from orchestration.system_settings import (
         SYSTEM_SETTINGS_FILE as REAL_SYS_SETTINGS_FILE,
         SYSTEM_BACKUP_FILE as REAL_SYS_BACKUP_FILE,
@@ -295,36 +269,17 @@ def isolate_system_settings_for_tests(tmp_path, monkeypatch):
     if REAL_SYS_BACKUP_FILE.exists():
         shutil.copy2(REAL_SYS_BACKUP_FILE, temp_sys_backup)
 
-    monkeypatch.setattr(sys_settings_mod, "SYSTEM_SETTINGS_FILE", temp_sys_settings)
-    monkeypatch.setattr(sys_settings_mod, "SYSTEM_BACKUP_FILE", temp_sys_backup)
-
-    orig_default_file = system_settings_manager.default_settings_file
-    orig_default_backup = system_settings_manager.default_backup_file
-    orig_store_file = system_settings_manager._store.settings_file
-    orig_store_backup = system_settings_manager._store.backup_file
-    orig_mtime = system_settings_manager._last_loaded_mtime
     orig_raw_data = copy.deepcopy(getattr(system_settings_manager, "_raw_data", {}))
 
-    system_settings_manager.default_settings_file = temp_sys_settings
-    system_settings_manager.default_backup_file = temp_sys_backup
-    system_settings_manager._store.settings_file = temp_sys_settings
-    system_settings_manager._store.backup_file = temp_sys_backup
-    system_settings_manager._store.invalidate_cache()
+    system_settings_manager.configure_paths(
+        settings_file=temp_sys_settings,
+        backup_file=temp_sys_backup,
+    )
 
     yield
 
-    system_settings_manager.default_settings_file = orig_default_file
-    system_settings_manager.default_backup_file = orig_default_backup
-    system_settings_manager._store.settings_file = orig_store_file
-    system_settings_manager._store.backup_file = orig_store_backup
-    system_settings_manager._last_loaded_mtime = orig_mtime
     system_settings_manager._raw_data = orig_raw_data
-    system_settings_manager._store.invalidate_cache()
-    if orig_default_file.exists():
-        try:
-            system_settings_manager.load()
-        except Exception:
-            pass
+    system_settings_manager.reset_paths()
 
 
 @pytest.fixture(autouse=True)
@@ -339,11 +294,8 @@ def isolate_downloads_dir_for_tests(request, tmp_path, monkeypatch):
     iso_dir.mkdir(parents=True, exist_ok=True)
     temp_downloads = iso_dir / "downloads"
     temp_downloads.mkdir(parents=True, exist_ok=True)
-    import core.paths as paths_mod
-    import services.slack.files as slack_files_mod
 
-    monkeypatch.setattr(paths_mod, "DOWNLOADS_DIR", temp_downloads)
-    monkeypatch.setattr(slack_files_mod, "DOWNLOADS_DIR", temp_downloads)
+    monkeypatch.setenv("IZVOR_DOWNLOADS_DIR", str(temp_downloads))
     yield
 
 
