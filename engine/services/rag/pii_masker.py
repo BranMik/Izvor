@@ -1,5 +1,6 @@
 import logging
 import re
+import threading
 from typing import Any
 
 from .config import get_pii_masking_mode
@@ -113,31 +114,36 @@ class PIIMasker:
         self._presidio_analyzer: Any = None
         self._presidio_anonymizer: Any = None
         self._presidio_initialized = False
+        self._init_lock = threading.Lock()
 
     def _init_presidio_if_available(self) -> None:
         if self._presidio_initialized:
             return
-        self._presidio_initialized = True
-        try:
-            from presidio_analyzer import AnalyzerEngine
-            from presidio_analyzer.nlp_engine import NlpEngineProvider
-            from presidio_anonymizer import AnonymizerEngine
+        with self._init_lock:
+            if self._presidio_initialized:
+                return
+            try:
+                from presidio_analyzer import AnalyzerEngine
+                from presidio_analyzer.nlp_engine import NlpEngineProvider
+                from presidio_anonymizer import AnonymizerEngine
 
-            # Explicitly load the lightweight en_core_web_sm model
-            provider = NlpEngineProvider(
-                nlp_configuration={
-                    "nlp_engine_name": "spacy",
-                    "models": [{"lang_code": "en", "model_name": "en_core_web_sm"}],
-                }
-            )
-            nlp_engine = provider.create_engine()
-            self._presidio_analyzer = AnalyzerEngine(nlp_engine=nlp_engine)
-            self._presidio_anonymizer = AnonymizerEngine()
-            logger.info("[PII Masker] Microsoft Presidio (en_core_web_sm) successfully initialized.")
-        except ImportError:
-            logger.debug("[PII Masker] Presidio not installed; using built-in high-performance regex engine.")
-        except Exception as e:  # noqa: BLE001
-            logger.debug(f"[PII Masker] Could not initialize Presidio: {e}")
+                # Explicitly load the lightweight en_core_web_sm model
+                provider = NlpEngineProvider(
+                    nlp_configuration={
+                        "nlp_engine_name": "spacy",
+                        "models": [{"lang_code": "en", "model_name": "en_core_web_sm"}],
+                    }
+                )
+                nlp_engine = provider.create_engine()
+                self._presidio_analyzer = AnalyzerEngine(nlp_engine=nlp_engine)
+                self._presidio_anonymizer = AnonymizerEngine()
+                logger.info("[PII Masker] Microsoft Presidio (en_core_web_sm) successfully initialized.")
+            except ImportError:
+                logger.debug("[PII Masker] Presidio not installed; using built-in high-performance regex engine.")
+            except Exception as e:  # noqa: BLE001
+                logger.debug(f"[PII Masker] Could not initialize Presidio: {e}")
+            finally:
+                self._presidio_initialized = True
 
     @property
     def mode(self) -> str:

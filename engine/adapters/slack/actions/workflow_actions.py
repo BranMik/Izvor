@@ -1,4 +1,5 @@
 import logging
+import math
 from typing import Any
 
 from fastapi import BackgroundTasks, Response
@@ -359,6 +360,8 @@ async def _handle_set_circuit_breaker_threshold_input(
     try:
         val_clean = str(val_str).strip().replace("$", "").replace(",", ".")
         val_float = float(val_clean)
+        if not math.isfinite(val_float):
+            raise ValueError(f"Non-finite threshold input: {val_clean}")
         if val_float > 0:
             set_circuit_breaker_threshold(val_float)
             set_circuit_breaker_enabled(True)
@@ -407,6 +410,8 @@ async def _handle_save_circuit_breaker_threshold_button(
         try:
             val_clean = str(val_str).strip().replace("$", "").replace(",", ".")
             val_float = float(val_clean)
+            if not math.isfinite(val_float):
+                raise ValueError(f"Non-finite threshold button value: {val_clean}")
         except (ValueError, TypeError):
             logger.warning(f"[INTERACTIVITY] Could not parse threshold from button save: '{val_str}'")
 
@@ -447,6 +452,8 @@ async def _handle_set_circuit_breaker_preset(
     val_str = action_id.split(":", 1)[1]
     try:
         val_float = float(val_str)
+        if not math.isfinite(val_float):
+            raise ValueError(f"Non-finite preset: {val_str}")
         if val_float > 0:
             set_circuit_breaker_threshold(val_float)
             set_circuit_breaker_enabled(True)
@@ -477,6 +484,8 @@ async def _handle_set_daily_budget_input(
     try:
         val_clean = str(val_str).strip().replace("$", "").replace(",", ".")
         val_float = float(val_clean)
+        if not math.isfinite(val_float):
+            raise ValueError(f"Non-finite daily budget input: {val_clean}")
         if val_float >= 0:
             set_daily_budget_usd(val_float)
             log_audit_event(
@@ -522,6 +531,8 @@ async def _handle_save_daily_budget_button(
         try:
             val_clean = str(val_str).strip().replace("$", "").replace(",", ".")
             val_float = float(val_clean)
+            if not math.isfinite(val_float):
+                raise ValueError(f"Non-finite threshold button value: {val_clean}")
         except (ValueError, TypeError):
             logger.warning(f"[INTERACTIVITY] Could not parse daily budget from button save: '{val_str}'")
 
@@ -549,6 +560,8 @@ async def _handle_set_daily_budget_preset(
     val_str = action_id.split(":", 1)[1]
     try:
         val_float = float(val_str)
+        if not math.isfinite(val_float):
+            raise ValueError(f"Non-finite daily budget preset: {val_str}")
         if val_float >= 0:
             set_daily_budget_usd(val_float)
             log_audit_event(

@@ -556,7 +556,8 @@ def _fetch_web_page_inner(url: str, max_chars: int = 4000) -> str:
                                     "url": next_url,
                                 }
                             )
-                        current_url = validated_next
+                        cleaned_redirect = sanitize_outbound_url(validated_next)
+                        current_url = cleaned_redirect
                         current_ip = next_ip
                         continue
 

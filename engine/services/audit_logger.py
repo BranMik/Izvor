@@ -249,12 +249,22 @@ class AuditLogger:
 
     @audit_dir.setter
     def audit_dir(self, val: Path) -> None:
-        self._audit_dir = Path(val)
-        self.backup_dir = self._audit_dir / "backups"
-        self.manifest_file = self._audit_dir / "manifest.sha256"
-        self._cached_last_state = None
-        self._cached_file_size = 0
-        self._ensure_dirs()
+        lock = getattr(self, "_write_lock", None)
+        if lock is not None:
+            with lock:
+                self._audit_dir = Path(val)
+                self.backup_dir = self._audit_dir / "backups"
+                self.manifest_file = self._audit_dir / "manifest.sha256"
+                self._cached_last_state = None
+                self._cached_file_size = 0
+                self._ensure_dirs()
+        else:
+            self._audit_dir = Path(val)
+            self.backup_dir = self._audit_dir / "backups"
+            self.manifest_file = self._audit_dir / "manifest.sha256"
+            self._cached_last_state = None
+            self._cached_file_size = 0
+            self._ensure_dirs()
 
     def __init__(self, audit_dir: Path | None = None) -> None:
         if getattr(self, "_initialized", False):
@@ -478,10 +488,13 @@ class AuditLogger:
             snapshot_path.write_bytes(content)
             checksum = hashlib.sha256(content).hexdigest()
 
-            # Append to manifest
+            # Append to manifest atomically with file lock and fsync
             manifest_line = f"{checksum}  {snapshot_name}\n"
-            with open(self.manifest_file, "a", encoding="utf-8") as mf:
-                mf.write(manifest_line)
+            with _cross_process_file_lock(self.manifest_file):
+                with open(self.manifest_file, "a", encoding="utf-8") as mf:
+                    mf.write(manifest_line)
+                    mf.flush()
+                    os.fsync(mf.fileno())
 
             logger.info(f"[AUDIT] Created backup snapshot: {snapshot_name} (SHA-256: {checksum[:12]}...)")
             return snapshot_path
@@ -578,7 +591,7 @@ def check_hmac_secret_continuity(
     Returns:
         dict with keys: has_records, matches, status, message, last_seq, last_file, recorded_hash, computed_hash
     """
-    base_dir = audit_dir or DEFAULT_AUDIT_DIR
+    base_dir = audit_dir or getattr(audit_logger, "audit_dir", DEFAULT_AUDIT_DIR)
     if not base_dir.exists():
         return {
             "has_records": False,
@@ -729,7 +742,7 @@ def verify_audit_log_integrity(
         month: Optional specific month to check (e.g., '2026_10' or '2026-10').
         check_anchors: Whether to verify tail truncation against SQLite head-hash anchors.
     """
-    base_dir = audit_dir or DEFAULT_AUDIT_DIR
+    base_dir = audit_dir or getattr(audit_logger, "audit_dir", DEFAULT_AUDIT_DIR)
     if not base_dir.exists():
         return AuditVerificationResult(
             valid=True,

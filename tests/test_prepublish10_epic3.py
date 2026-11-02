@@ -203,19 +203,22 @@ def test_basic_auth_throttling_on_failures():
     """TKT-1012 / S-13: Verifies sliding window rate limiting throttles repeated basic auth failures."""
     from fastapi import HTTPException
     from fastapi.security import HTTPBasicCredentials
-    from main import _basic_auth_failed_attempts, verify_admin_basic_auth
+    from starlette.requests import Request
+    from services.rate_limiter import ip_rate_limiter
+    from main import verify_admin_basic_auth
 
-    _basic_auth_failed_attempts.clear()
+    ip_rate_limiter.reset()
     bad_creds = HTTPBasicCredentials(username="malicious_actor", password="wrong_password")
+    mock_request = Request(scope={"type": "http", "client": ("198.51.100.1", 12345), "headers": []})
 
     # 5 attempts fail with 401
     for _ in range(5):
         with pytest.raises(HTTPException) as exc_info:
-            verify_admin_basic_auth(bad_creds)
+            verify_admin_basic_auth(mock_request, bad_creds)
         assert exc_info.value.status_code == 401
 
     # 6th attempt exceeds burst limit, fails with 429 Too Many Requests
     with pytest.raises(HTTPException) as exc_info:
-        verify_admin_basic_auth(bad_creds)
+        verify_admin_basic_auth(mock_request, bad_creds)
     assert exc_info.value.status_code == 429
     assert "Too many failed authentication attempts" in exc_info.value.detail

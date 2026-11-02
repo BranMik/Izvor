@@ -12,7 +12,7 @@ import time
 from contextlib import asynccontextmanager
 
 import secrets
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
 
@@ -296,21 +296,21 @@ async def health_check():
 # HTTP Basic Authentication security scheme for admin endpoints
 admin_security = HTTPBasic()
 
-_basic_auth_failures_lock = threading.Lock()
-_basic_auth_failed_attempts: dict[str, list[float]] = {}
-_BASIC_AUTH_RATE_LIMIT_WINDOW = 60.0
-_BASIC_AUTH_MAX_FAILURES = 5
-
-
 def verify_admin_basic_auth(
+    request: Request,
     credentials: HTTPBasicCredentials = Depends(admin_security),
 ) -> str:
     """
     Verifies HTTP Basic Auth credentials against ADMIN_USERNAME and ADMIN_PASSWORD.
     Uses secrets.compare_digest to defend against timing attacks.
-    Applies sliding-window rate limiting on brute-force failure attempts.
+    Applies sliding-window IP rate limiting on brute-force failure attempts.
     """
     from services.audit_logger import log_audit_event
+    from services.rate_limiter import ip_rate_limiter
+
+    client_ip = (
+        request.client.host if request.client and request.client.host else "unknown_ip"
+    )
 
     if not ADMIN_PASSWORD:
         logger.error("ADMIN_PASSWORD is not configured in environment/.env")
@@ -319,7 +319,7 @@ def verify_admin_basic_auth(
             actor={"type": "api_client", "id": credentials.username},
             action="admin_basic_auth",
             target="/api/*",
-            details={"reason": "ADMIN_PASSWORD not configured on server"},
+            details={"reason": "ADMIN_PASSWORD not configured on server", "client_ip": client_ip},
             severity="CRITICAL",
             status="FAILED",
         )
@@ -332,25 +332,27 @@ def verify_admin_basic_auth(
     is_correct_password = secrets.compare_digest(credentials.password.encode("utf8"), ADMIN_PASSWORD.encode("utf8"))
 
     if not (is_correct_username and is_correct_password):
-        now = time.time()
-        client_id = credentials.username or "unknown_user"
-        with _basic_auth_failures_lock:
-            attempts = _basic_auth_failed_attempts.get(client_id, [])
-            attempts = [t for t in attempts if now - t < _BASIC_AUTH_RATE_LIMIT_WINDOW]
-            attempts.append(now)
-            _basic_auth_failed_attempts[client_id] = attempts
-            is_rate_limited = len(attempts) > _BASIC_AUTH_MAX_FAILURES
+        is_allowed, attempts, should_log = ip_rate_limiter.check_and_record(
+            client_ip=client_ip,
+            max_requests=5,
+            window_seconds=60.0,
+        )
 
-        if is_rate_limited:
-            log_audit_event(
-                event_type="AUTH_RATE_LIMITED",
-                actor={"type": "api_client", "id": credentials.username},
-                action="admin_basic_auth",
-                target="/api/*",
-                details={"reason": "Excessive failed basic auth attempts (throttled)", "attempts": len(attempts)},
-                severity="CRITICAL",
-                status="BLOCKED",
-            )
+        if not is_allowed:
+            if should_log:
+                log_audit_event(
+                    event_type="AUTH_RATE_LIMITED",
+                    actor={"type": "api_client", "id": credentials.username},
+                    action="admin_basic_auth",
+                    target="/api/*",
+                    details={
+                        "reason": "Excessive failed basic auth attempts (throttled)",
+                        "attempts": attempts,
+                        "client_ip": client_ip,
+                    },
+                    severity="CRITICAL",
+                    status="BLOCKED",
+                )
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                 detail="Too many failed authentication attempts. Please wait before retrying.",
@@ -361,7 +363,7 @@ def verify_admin_basic_auth(
             actor={"type": "api_client", "id": credentials.username},
             action="admin_basic_auth",
             target="/api/*",
-            details={"reason": "Invalid credentials provided"},
+            details={"reason": "Invalid credentials provided", "client_ip": client_ip},
             severity="CRITICAL",
             status="FAILED",
         )
@@ -371,9 +373,7 @@ def verify_admin_basic_auth(
             headers={"WWW-Authenticate": "Basic"},
         )
 
-    with _basic_auth_failures_lock:
-        _basic_auth_failed_attempts.pop(credentials.username, None)
-
+    ip_rate_limiter.reset(client_ip)
     return credentials.username
 
 

@@ -34,6 +34,36 @@ def _sanitize_and_truncate_slack_text(text: str, max_chars: int = 3800) -> str:
     return f"{truncated.strip()}\n\n_...[truncated to fit Slack limits]_"
 
 
+def _prepare_outbound_payload(
+    text: str,
+    blocks: list[dict[str, Any]] | None = None,
+    user_id: str = "Izvor",
+    max_chars: int = 3800,
+) -> tuple[str, list[dict[str, Any]] | None]:
+    """
+    Central outbound dispatch processor:
+    1. Scans text and blocks for secrets (DLP). If found, blocks the message and records an audit event.
+    2. Neutralizes broadcast mentions (@everyone, @channel, @here).
+    3. Truncates text cleanly within Slack character limits.
+    """
+    clean_text = str(text or "")
+    matched_rule = scan_output_for_secrets(clean_text, user_id=user_id)
+    if blocks:
+        blocks, matched_rule_blocks = sanitize_slack_blocks(blocks, user_id=user_id)
+        if matched_rule_blocks:
+            matched_rule = matched_rule or matched_rule_blocks
+
+    if matched_rule:
+        logger.warning(
+            f"[SECURITY] Outbound message for '{user_id}' blocked by DLP guardrail rule: {matched_rule}"
+        )
+        clean_text = f"⚠️ *Message blocked by security policy.* (Rule: {matched_rule})"
+        blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": clean_text}}]
+
+    clean_text = _sanitize_and_truncate_slack_text(clean_text, max_chars=max_chars)
+    return clean_text, blocks
+
+
 async def post_agent_response(
     channel_id: str,
     thread_ts: str,
@@ -78,18 +108,7 @@ async def post_agent_response(
             f"[SLACK] chat_postMessage channel={channel_id} thread_ts={thread_ts} as '{username}' icon_url='{final_icon_url}'"
         )
 
-        matched_rule = scan_output_for_secrets(text, user_id=username)
-        if blocks:
-            blocks, matched_rule_blocks = sanitize_slack_blocks(blocks, user_id=username)
-            if matched_rule_blocks:
-                matched_rule = matched_rule or matched_rule_blocks
-
-        if matched_rule:
-            logger.warning(f"[SECURITY] Message blocked by guardrail rule: {matched_rule}")
-            text = f"⚠️ *Message blocked by security policy.* (Rule: {matched_rule})"
-            blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": text}}]
-
-        text = sanitize_slack_broadcast_mentions(text)
+        text, blocks = _prepare_outbound_payload(text, blocks, user_id=username)
 
         await slack_rate_limiter.acquire()
         client = get_slack_async_client()
@@ -441,7 +460,7 @@ async def post_usage_message(
     """
     Posts a new usage tracking report message in the specified usage channel.
     """
-    text = _sanitize_and_truncate_slack_text(text)
+    text, _ = _prepare_outbound_payload(text, None, user_id=username)
 
     bot_token = get_slack_bot_token()
     if not bot_token or bot_token == "xoxb-your-bot-user-oauth-token":
@@ -452,6 +471,7 @@ async def post_usage_message(
         return {"ok": True, "ts": mock_ts, "mock": True}
 
     try:
+        await slack_rate_limiter.acquire()
         client = get_slack_async_client()
         response = await client.chat_postMessage(
             channel=channel_id,
@@ -484,7 +504,7 @@ async def update_usage_message(
     """
     Updates an existing usage tracking report message in-place via chat.update.
     """
-    text = _sanitize_and_truncate_slack_text(text)
+    text, _ = _prepare_outbound_payload(text, None, user_id="Izvor Usage Analyst")
 
     bot_token = get_slack_bot_token()
     if (
@@ -498,6 +518,7 @@ async def update_usage_message(
         return {"ok": True, "ts": message_ts, "mock": True}
 
     try:
+        await slack_rate_limiter.acquire()
         client = get_slack_async_client()
         await client.chat_update(
             channel=channel_id,

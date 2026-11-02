@@ -63,11 +63,11 @@ def test_write_document_size_cap_enforcement(monkeypatch):
 
     try:
         small_content = "A" * 200
-        res_ok = write_document("test_small.txt", small_content)
+        res_ok = write_document("test_small.txt", small_content, principal=SYSTEM_PRINCIPAL)
         assert json.loads(res_ok).get("success") is True
 
         large_content = "A" * 600
-        res_blocked = write_document("test_large.txt", large_content)
+        res_blocked = write_document("test_large.txt", large_content, principal=SYSTEM_PRINCIPAL)
         data = json.loads(res_blocked)
         assert "error" in data
         assert "exceeds maximum permitted write limit" in data["error"]
@@ -94,3 +94,9 @@ def test_tool_principal_authorization_fail_closed():
     # Agent ToolPrincipal with authorized skill
     agent_principal = ToolPrincipal(kind="agent", id="agent-10008")
     assert is_agent_authorized_for_tool(agent_principal, "list_documents") is True
+
+    # Tool invocation fail-closed when principal is None
+    from services.mcp_tools import list_documents, read_document
+    assert "Principal identity is required" in list_documents()
+    assert "Principal identity is required" in read_document("doc.txt")
+    assert "Principal identity is required" in write_document("doc.txt", "content")
