@@ -146,9 +146,13 @@ class ParsedDirectives:
     @property
     def target_filename(self) -> str | None:
         for a in self.actions:
-            if "target_file" in a.params:
-                return str(a.params["target_file"])
-        return self.modifiers.get("target_file")
+            tf = a.params.get("target_file")
+            if tf is not None and str(tf).strip().lower() not in ("", "none", "null"):
+                return str(tf).strip()
+        tf = self.modifiers.get("target_file")
+        if tf is not None and str(tf).strip().lower() not in ("", "none", "null"):
+            return str(tf).strip()
+        return None
 
     @property
     def is_stop(self) -> bool:

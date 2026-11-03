@@ -2,6 +2,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from conftest import make_mock_acompletion
+
 from core.models import ActionDirective, ExtractedIntent
 from nlp.message_builder import build_llm_messages
 from orchestration import agent_router
@@ -111,9 +113,6 @@ async def test_process_and_respond_token_appending(monkeypatch):
     mock_response.choices = [mock_choice]
     mock_response.usage = mock_usage
 
-    async def mock_run_in_threadpool(func, *args, **kwargs):
-        return mock_response
-
     posted_messages = []
 
     async def mock_post_agent_response(
@@ -123,7 +122,7 @@ async def test_process_and_respond_token_appending(monkeypatch):
         return {"ok": True, "ts": "12345.6789"}
 
     monkeypatch.setattr(
-        "orchestration.agent_router.execute_llm_with_retry", mock_run_in_threadpool
+        "litellm.acompletion", make_mock_acompletion(lambda *a, **k: mock_response)
     )
     monkeypatch.setattr(
         "orchestration.agent_router.post_agent_response", mock_post_agent_response
@@ -159,9 +158,6 @@ async def test_process_and_respond_model_token_footer_openai(monkeypatch):
     mock_response.choices = [mock_choice]
     mock_response.usage = mock_usage
 
-    async def mock_run_in_threadpool(func, *args, **kwargs):
-        return mock_response
-
     posted_messages = []
 
     async def mock_post_agent_response(
@@ -171,7 +167,7 @@ async def test_process_and_respond_model_token_footer_openai(monkeypatch):
         return {"ok": True, "ts": "12345.9999"}
 
     monkeypatch.setattr(
-        "orchestration.agent_router.execute_llm_with_retry", mock_run_in_threadpool
+        "litellm.acompletion", make_mock_acompletion(lambda *a, **k: mock_response)
     )
     monkeypatch.setattr(
         "orchestration.agent_router.post_agent_response", mock_post_agent_response
@@ -222,9 +218,9 @@ async def test_scenario_1_single_agent_tagged(monkeypatch):
     mock_response.choices = [mock_choice]
     mock_response.usage = None
 
-    async def mock_run_in_threadpool(func, *args, **kwargs):
-        captured_messages = kwargs.get("messages") or (args[0].get("messages") if args and isinstance(args[0], dict) else (args[2] if len(args) > 2 else []))
-        mock_run_in_threadpool.captured_user_prompt = captured_messages[-1]["content"]
+    def handle_turn(*args, **kwargs):
+        captured_messages = kwargs.get("messages") or []
+        handle_turn.captured_user_prompt = captured_messages[-1]["content"]
         return mock_response
 
     posted_messages = []
@@ -236,7 +232,7 @@ async def test_scenario_1_single_agent_tagged(monkeypatch):
         return {"ok": True, "ts": "12345.0001"}
 
     monkeypatch.setattr(
-        "orchestration.agent_router.execute_llm_with_retry", mock_run_in_threadpool
+        "litellm.acompletion", make_mock_acompletion(handle_turn)
     )
     monkeypatch.setattr(
         "orchestration.agent_router.post_agent_response", mock_post_agent_response
@@ -256,7 +252,7 @@ async def test_scenario_1_single_agent_tagged(monkeypatch):
 
     # Verify:
     # 1. User prompt forced termination
-    assert "CRITICAL CONSTRAINT" in mock_run_in_threadpool.captured_user_prompt
+    assert "CRITICAL CONSTRAINT" in handle_turn.captured_user_prompt
     # 2. State cleaned up
     assert thread_key not in thread_state_manager.discussion.custom_flow_threads
     assert thread_key not in thread_state_manager.discussion.remaining_agents_map
@@ -277,9 +273,9 @@ async def test_extract_history_limit_formats():
     assert res.cleaned_prompt == "<@U12345> Tell me a joke"
 
     # 2. Bracketed format /history [3]
-    res = await directive_parser.parse("@CaiLogics [agent-10011] Explain rust /history [3]")
+    res = await directive_parser.parse("@Izvor [agent-10011] Explain rust /history [3]")
     assert res.history_limit == 3
-    assert res.cleaned_prompt == "@CaiLogics [agent-10011] Explain rust"
+    assert res.cleaned_prompt == "@Izvor [agent-10011] Explain rust"
 
     # 3. Explicit int format /history [2:int]
     res = await directive_parser.parse("@app_mention /history [2:int] summarize")
@@ -287,18 +283,18 @@ async def test_extract_history_limit_formats():
     assert res.cleaned_prompt == "@app_mention summarize"
 
     # 4. Colon format /history: 10 and /history:4
-    res = await directive_parser.parse("@CaiLogics /history: 10 test prompt")
+    res = await directive_parser.parse("@Izvor /history: 10 test prompt")
     assert res.history_limit == 10
-    assert res.cleaned_prompt == "@CaiLogics test prompt"
+    assert res.cleaned_prompt == "@Izvor test prompt"
 
-    res = await directive_parser.parse("@CaiLogics /history:4 test prompt")
+    res = await directive_parser.parse("@Izvor /history:4 test prompt")
     assert res.history_limit == 4
-    assert res.cleaned_prompt == "@CaiLogics test prompt"
+    assert res.cleaned_prompt == "@Izvor test prompt"
 
     # 5. Equals format /history=7
-    res = await directive_parser.parse("@CaiLogics /history=7 test prompt")
+    res = await directive_parser.parse("@Izvor /history=7 test prompt")
     assert res.history_limit == 7
-    assert res.cleaned_prompt == "@CaiLogics test prompt"
+    assert res.cleaned_prompt == "@Izvor test prompt"
 
     # 6. Zero history /history 0
     res = await directive_parser.parse("Prompt with /history 0")
@@ -311,9 +307,9 @@ async def test_extract_history_limit_formats():
     assert res.cleaned_prompt == "Plain prompt without history"
 
     # 8. Command in middle of text
-    res = await directive_parser.parse("@CaiLogics What is /history 3 quantum computing?")
+    res = await directive_parser.parse("@Izvor What is /history 3 quantum computing?")
     assert res.history_limit == 3
-    assert res.cleaned_prompt == "@CaiLogics What is quantum computing?"
+    assert res.cleaned_prompt == "@Izvor What is quantum computing?"
     # limit, cleaned = extract_history_limit("last 3 messages analyze the issue")
     # assert limit == 3
     # assert cleaned == "analyze the issue"
@@ -376,13 +372,13 @@ async def test_process_and_respond_history_limit_initial_prompt(monkeypatch):
     mock_choice.message.tool_calls = None
     mock_resp = MagicMock(choices=[mock_choice], usage=None)
 
-    async def mock_run(func, *args, **kwargs):
-        msgs = kwargs.get("messages") or (args[0].get("messages") if args and isinstance(args[0], dict) else [])
+    def handle_turn(*args, **kwargs):
+        msgs = kwargs.get("messages") or []
         if msgs:
             captured_messages.extend(msgs)
         return mock_resp
 
-    monkeypatch.setattr("orchestration.agent_router.execute_llm_with_retry", mock_run)
+    monkeypatch.setattr("litellm.acompletion", make_mock_acompletion(handle_turn))
     monkeypatch.setattr(
         "orchestration.agent_router.post_agent_response",
         AsyncMock(return_value={"ok": True, "ts": "12345.2002"}),
@@ -444,13 +440,13 @@ async def test_process_and_respond_history_zero(monkeypatch):
     mock_choice.message.tool_calls = None
     mock_resp = MagicMock(choices=[mock_choice], usage=None)
 
-    async def mock_run(func, *args, **kwargs):
-        msgs = kwargs.get("messages") or (args[0].get("messages") if args and isinstance(args[0], dict) else [])
+    def handle_turn(*args, **kwargs):
+        msgs = kwargs.get("messages") or []
         if msgs:
             captured_messages.extend(msgs)
         return mock_resp
 
-    monkeypatch.setattr("orchestration.agent_router.execute_llm_with_retry", mock_run)
+    monkeypatch.setattr("litellm.acompletion", make_mock_acompletion(handle_turn))
     monkeypatch.setattr(
         "orchestration.agent_router.post_agent_response",
         AsyncMock(return_value={"ok": True, "ts": "12345.5002"}),
@@ -641,8 +637,8 @@ async def test_process_and_respond_with_max_words(monkeypatch):
     mock_response.choices = [mock_choice]
     mock_response.usage = MagicMock(prompt_tokens=15, completion_tokens=10)
 
-    async def mock_run_in_threadpool(func, *args, **kwargs):
-        captured_messages.append(kwargs.get("messages") or (args[0].get("messages") if args and isinstance(args[0], dict) else []))
+    def handle_turn(*args, **kwargs):
+        captured_messages.append(kwargs.get("messages") or [])
         return mock_response
 
     posted_messages = []
@@ -657,7 +653,7 @@ async def test_process_and_respond_with_max_words(monkeypatch):
         "orchestration.agent_router.post_agent_response", mock_post_agent_response
     )
     monkeypatch.setattr(
-        "orchestration.agent_router.execute_llm_with_retry", mock_run_in_threadpool
+        "litellm.acompletion", make_mock_acompletion(handle_turn)
     )
     monkeypatch.setattr(
         "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
@@ -712,8 +708,8 @@ async def test_process_and_respond_with_min_words(monkeypatch):
     mock_response.choices = [mock_choice]
     mock_response.usage = MagicMock(prompt_tokens=15, completion_tokens=85)
 
-    async def mock_run_in_threadpool(func, *args, **kwargs):
-        captured_messages.append(kwargs.get("messages") or (args[0].get("messages") if args and isinstance(args[0], dict) else []))
+    def handle_turn(*args, **kwargs):
+        captured_messages.append(kwargs.get("messages") or [])
         return mock_response
 
     posted_messages = []
@@ -728,7 +724,7 @@ async def test_process_and_respond_with_min_words(monkeypatch):
         "orchestration.agent_router.post_agent_response", mock_post_agent_response
     )
     monkeypatch.setattr(
-        "orchestration.agent_router.execute_llm_with_retry", mock_run_in_threadpool
+        "litellm.acompletion", make_mock_acompletion(handle_turn)
     )
     monkeypatch.setattr(
         "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
@@ -782,8 +778,8 @@ async def test_process_and_respond_with_min_and_max_words(monkeypatch):
     mock_response.choices = [mock_choice]
     mock_response.usage = MagicMock(prompt_tokens=15, completion_tokens=60)
 
-    async def mock_run_in_threadpool(func, *args, **kwargs):
-        captured_messages.append(kwargs.get("messages") or (args[0].get("messages") if args and isinstance(args[0], dict) else []))
+    def handle_turn(*args, **kwargs):
+        captured_messages.append(kwargs.get("messages") or [])
         return mock_response
 
     posted_messages = []
@@ -798,7 +794,7 @@ async def test_process_and_respond_with_min_and_max_words(monkeypatch):
         "orchestration.agent_router.post_agent_response", mock_post_agent_response
     )
     monkeypatch.setattr(
-        "orchestration.agent_router.execute_llm_with_retry", mock_run_in_threadpool
+        "litellm.acompletion", make_mock_acompletion(handle_turn)
     )
     monkeypatch.setattr(
         "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
@@ -852,8 +848,8 @@ async def test_process_and_respond_with_natural_language_limits(monkeypatch):
     mock_response.choices = [mock_choice]
     mock_response.usage = MagicMock(prompt_tokens=15, completion_tokens=30)
 
-    async def mock_run_in_threadpool(func, *args, **kwargs):
-        captured_messages.append(kwargs.get("messages") or (args[0].get("messages") if args and isinstance(args[0], dict) else []))
+    def handle_turn(*args, **kwargs):
+        captured_messages.append(kwargs.get("messages") or [])
         return mock_response
 
     posted_messages = []
@@ -868,7 +864,7 @@ async def test_process_and_respond_with_natural_language_limits(monkeypatch):
         "orchestration.agent_router.post_agent_response", mock_post_agent_response
     )
     monkeypatch.setattr(
-        "orchestration.agent_router.execute_llm_with_retry", mock_run_in_threadpool
+        "litellm.acompletion", make_mock_acompletion(handle_turn)
     )
     monkeypatch.setattr(
         "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
@@ -919,8 +915,8 @@ async def test_process_and_respond_with_exclude_command(monkeypatch):
     mock_response.choices = [mock_choice]
     mock_response.usage = MagicMock(prompt_tokens=20, completion_tokens=40)
 
-    async def mock_run_in_threadpool(func, *args, **kwargs):
-        captured_messages.append(kwargs.get("messages") or (args[0].get("messages") if args and isinstance(args[0], dict) else []))
+    def handle_turn(*args, **kwargs):
+        captured_messages.append(kwargs.get("messages") or [])
         return mock_response
 
     posted_messages = []
@@ -935,7 +931,7 @@ async def test_process_and_respond_with_exclude_command(monkeypatch):
         "orchestration.agent_router.post_agent_response", mock_post_agent_response
     )
     monkeypatch.setattr(
-        "orchestration.agent_router.execute_llm_with_retry", mock_run_in_threadpool
+        "litellm.acompletion", make_mock_acompletion(handle_turn)
     )
     monkeypatch.setattr(
         "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
@@ -976,15 +972,12 @@ async def test_process_and_respond_with_multi_agent_exclude_command(monkeypatch)
     mock_response.choices = [mock_choice]
     mock_response.usage = MagicMock(prompt_tokens=20, completion_tokens=40)
 
-    async def mock_run_in_threadpool(func, *args, **kwargs):
-        return mock_response
-
     monkeypatch.setattr(
         "orchestration.agent_router.post_agent_response",
         AsyncMock(return_value={"ok": True, "ts": thread_ts}),
     )
     monkeypatch.setattr(
-        "orchestration.agent_router.execute_llm_with_retry", mock_run_in_threadpool
+        "litellm.acompletion", make_mock_acompletion(lambda *a, **k: mock_response)
     )
     monkeypatch.setattr(
         "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
@@ -1019,15 +1012,12 @@ async def test_process_and_respond_with_default_flow_and_exclude(monkeypatch):
     mock_response.choices = [mock_choice]
     mock_response.usage = MagicMock(prompt_tokens=20, completion_tokens=40)
 
-    async def mock_run_in_threadpool(func, *args, **kwargs):
-        return mock_response
-
     monkeypatch.setattr(
         "orchestration.agent_router.post_agent_response",
         AsyncMock(return_value={"ok": True, "ts": thread_ts}),
     )
     monkeypatch.setattr(
-        "orchestration.agent_router.execute_llm_with_retry", mock_run_in_threadpool
+        "litellm.acompletion", make_mock_acompletion(lambda *a, **k: mock_response)
     )
     monkeypatch.setattr(
         "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
@@ -1060,15 +1050,12 @@ async def test_process_and_respond_with_nl_exclude(monkeypatch):
     mock_response.choices = [mock_choice]
     mock_response.usage = MagicMock(prompt_tokens=20, completion_tokens=40)
 
-    async def mock_run_in_threadpool(func, *args, **kwargs):
-        return mock_response
-
     monkeypatch.setattr(
         "orchestration.agent_router.post_agent_response",
         AsyncMock(return_value={"ok": True, "ts": thread_ts}),
     )
     monkeypatch.setattr(
-        "orchestration.agent_router.execute_llm_with_retry", mock_run_in_threadpool
+        "litellm.acompletion", make_mock_acompletion(lambda *a, **k: mock_response)
     )
     monkeypatch.setattr(
         "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
@@ -1125,8 +1112,7 @@ async def test_partial_tag_routing(monkeypatch):
         "services.slack.post_agent_response", mock_post_agent
     )
     monkeypatch.setattr(
-        "orchestration.agent_router.execute_llm_with_retry",
-        AsyncMock(return_value=mock_response),
+        "litellm.acompletion", make_mock_acompletion(lambda *a, **k: mock_response)
     )
     monkeypatch.setattr(
         "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
@@ -1162,7 +1148,7 @@ async def test_ambiguous_tag_system_warning_halt(monkeypatch):
 
     llm_called = False
 
-    async def mock_run_in_threadpool(func, *args, **kwargs):
+    def handle_turn(*args, **kwargs):
         nonlocal llm_called
         llm_called = True
         return MagicMock()
@@ -1171,7 +1157,7 @@ async def test_ambiguous_tag_system_warning_halt(monkeypatch):
         "orchestration.agent_router.post_system_message", mock_post_system
     )
     monkeypatch.setattr(
-        "orchestration.agent_router.execute_llm_with_retry", mock_run_in_threadpool
+        "litellm.acompletion", make_mock_acompletion(handle_turn)
     )
     monkeypatch.setattr(
         "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
@@ -1212,7 +1198,7 @@ async def test_unrecognized_tag_system_warning_halt(monkeypatch):
 
     llm_called = False
 
-    async def mock_run_in_threadpool(func, *args, **kwargs):
+    def handle_turn(*args, **kwargs):
         nonlocal llm_called
         llm_called = True
         return MagicMock()
@@ -1221,7 +1207,7 @@ async def test_unrecognized_tag_system_warning_halt(monkeypatch):
         "orchestration.agent_router.post_system_message", mock_post_system
     )
     monkeypatch.setattr(
-        "orchestration.agent_router.execute_llm_with_retry", mock_run_in_threadpool
+        "litellm.acompletion", make_mock_acompletion(handle_turn)
     )
     monkeypatch.setattr(
         "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
@@ -1272,12 +1258,9 @@ async def test_plain_bracket_does_not_halt_or_warn(monkeypatch):
     mock_response.choices = [mock_choice]
     mock_response.usage = None
 
-    async def mock_run_in_threadpool(func, *args, **kwargs):
-        return mock_response
-
     monkeypatch.setattr("orchestration.agent_router.post_system_message", mock_post_system)
     monkeypatch.setattr("orchestration.agent_router.post_agent_response", mock_post_agent)
-    monkeypatch.setattr("orchestration.agent_router.execute_llm_with_retry", mock_run_in_threadpool)
+    monkeypatch.setattr("litellm.acompletion", make_mock_acompletion(lambda *a, **k: mock_response))
     monkeypatch.setattr("orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[]))
     monkeypatch.setattr("orchestration.agent_router.record_thread_tokens", MagicMock())
 
@@ -1318,9 +1301,9 @@ async def test_multi_agent_nomination_syntax(monkeypatch):
     mock_response.choices = [mock_choice]
     mock_response.usage = None
 
-    async def mock_run_in_threadpool(func, *args, **kwargs):
+    def handle_turn(*args, **kwargs):
         nonlocal captured_prompt
-        messages = kwargs.get("messages") or (args[0].get("messages") if args and isinstance(args[0], dict) else (args[2] if len(args) > 2 else []))
+        messages = kwargs.get("messages") or []
         captured_prompt = messages[-1]["content"]
         return mock_response
 
@@ -1330,7 +1313,7 @@ async def test_multi_agent_nomination_syntax(monkeypatch):
         return {"ok": True, "ts": thread_ts}
 
     monkeypatch.setattr("orchestration.agent_router.post_agent_response", mock_post_agent)
-    monkeypatch.setattr("orchestration.agent_router.execute_llm_with_retry", mock_run_in_threadpool)
+    monkeypatch.setattr("litellm.acompletion", make_mock_acompletion(handle_turn))
     monkeypatch.setattr("orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[]))
     monkeypatch.setattr("orchestration.agent_router.record_thread_tokens", MagicMock())
 

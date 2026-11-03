@@ -2,6 +2,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from conftest import make_mock_acompletion
+
 from orchestration import agent_router
 from orchestration.agent_router import process_and_respond
 from orchestration.agent_settings import (
@@ -126,10 +128,8 @@ async def test_multi_round_execution_end_to_end(monkeypatch):
     mock_choice_1.message.tool_calls = None
     mock_resp_1 = MagicMock(choices=[mock_choice_1], usage=None)
 
-    async def mock_run_turn(func, *args, **kwargs):
-        return mock_run_turn.current_response
-
-    monkeypatch.setattr("orchestration.agent_router.execute_llm_with_retry", mock_run_turn)
+    mock_run_turn = MagicMock()
+    monkeypatch.setattr("litellm.acompletion", make_mock_acompletion(lambda *a, **k: mock_run_turn.current_response))
 
     mock_run_turn.current_response = mock_resp_1
     res_1 = await process_and_respond(
@@ -210,10 +210,8 @@ async def test_next_round_command_after_discussion_finishes(monkeypatch):
     monkeypatch.setattr("orchestration.agent_router.post_agent_response", mock_post_agent_response)
     monkeypatch.setattr("orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[]))
 
-    async def mock_run_turn(func, *args, **kwargs):
-        return mock_run_turn.current_response
-
-    monkeypatch.setattr("orchestration.agent_router.execute_llm_with_retry", mock_run_turn)
+    mock_run_turn = MagicMock()
+    monkeypatch.setattr("litellm.acompletion", make_mock_acompletion(lambda *a, **k: mock_run_turn.current_response))
 
     # Initial 1-round discussion with 2 agents
     mock_choice_1 = MagicMock()

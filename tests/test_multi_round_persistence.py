@@ -2,6 +2,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from conftest import make_mock_acompletion
+
 from orchestration import agent_router
 from orchestration.agent_router import process_and_respond
 from orchestration.agent_settings import (
@@ -72,7 +74,9 @@ async def test_three_round_five_word_croatian_test(monkeypatch):
     captured_system_prompts = []
     captured_scribe_calls = []
 
-    async def mock_run_turn(func, *args, **kwargs):
+    mock_run_turn = MagicMock()
+
+    def mock_agent_turn(*args, **kwargs):
         # Inspect system prompt passed to LLM in kwargs['messages']
         messages = kwargs.get("messages") or (args[0].get("messages") if args and isinstance(args[0], dict) else [])
         for msg in messages:
@@ -80,7 +84,7 @@ async def test_three_round_five_word_croatian_test(monkeypatch):
                 captured_system_prompts.append(msg.get("content", ""))
         return mock_run_turn.current_response
 
-    monkeypatch.setattr("orchestration.agent_router.execute_llm_with_retry", mock_run_turn)
+    monkeypatch.setattr("litellm.acompletion", make_mock_acompletion(mock_agent_turn))
 
     async def mock_generate_thread_notes(history, is_completed=False, thread_language="English", scribe_max_words=None, scribe_min_words=None):
         captured_scribe_calls.append({
@@ -245,7 +249,7 @@ async def test_scribe_max_and_min_words_separation(monkeypatch):
     mock_choice.message.content = "Agent response"
     mock_choice.message.tool_calls = None
     mock_resp = MagicMock(choices=[mock_choice], usage=None)
-    monkeypatch.setattr("orchestration.agent_router.execute_llm_with_retry", AsyncMock(return_value=mock_resp))
+    monkeypatch.setattr("litellm.acompletion", make_mock_acompletion(lambda *a, **k: mock_resp))
 
     await process_and_respond(
         channel_id=channel,

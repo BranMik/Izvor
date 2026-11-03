@@ -2,6 +2,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from conftest import make_mock_acompletion
+
 from orchestration import agent_router
 from orchestration.agent_router import process_and_respond
 from orchestration.agent_settings import (
@@ -77,10 +79,12 @@ async def test_circuit_breaker_triggers_when_threshold_exceeded(monkeypatch):
 
     llm_called = False
 
-    async def mock_execute_llm(func, *args, **kwargs):
+    def mock_agent_turn(*args, **kwargs):
         nonlocal llm_called
         llm_called = True
         raise RuntimeError("LLM should not be called when circuit-breaker is triggered")
+
+    mock_execute_llm = make_mock_acompletion(mock_agent_turn)
 
     notes_updated = False
 
@@ -100,7 +104,7 @@ async def test_circuit_breaker_triggers_when_threshold_exceeded(monkeypatch):
         "orchestration.agent_router.post_agent_response", mock_post_agent_response
     )
     monkeypatch.setattr(
-        "orchestration.agent_router.execute_llm_with_retry", mock_execute_llm
+        "litellm.acompletion", mock_execute_llm
     )
     monkeypatch.setattr(
         "orchestration.agent_router.trigger_thread_notes_update", mock_trigger_notes
@@ -154,8 +158,7 @@ async def test_circuit_breaker_allows_normal_response_when_below_threshold(
     mock_response.choices = [mock_choice]
     mock_response.usage = MagicMock(prompt_tokens=10, completion_tokens=10)
 
-    async def mock_execute_llm(func, *args, **kwargs):
-        return mock_response
+    mock_execute_llm = make_mock_acompletion(lambda *a, **k: mock_response)
 
     posted_messages = []
 
@@ -169,7 +172,7 @@ async def test_circuit_breaker_allows_normal_response_when_below_threshold(
         "orchestration.agent_router.post_agent_response", mock_post_agent_response
     )
     monkeypatch.setattr(
-        "orchestration.agent_router.execute_llm_with_retry", mock_execute_llm
+        "litellm.acompletion", mock_execute_llm
     )
     monkeypatch.setattr(
         "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
@@ -211,8 +214,7 @@ async def test_circuit_breaker_allows_normal_response_when_disabled(monkeypatch)
     mock_response.choices = [mock_choice]
     mock_response.usage = MagicMock(prompt_tokens=10, completion_tokens=10)
 
-    async def mock_execute_llm(func, *args, **kwargs):
-        return mock_response
+    mock_execute_llm = make_mock_acompletion(lambda *a, **k: mock_response)
 
     posted_messages = []
 
@@ -226,7 +228,7 @@ async def test_circuit_breaker_allows_normal_response_when_disabled(monkeypatch)
         "orchestration.agent_router.post_agent_response", mock_post_agent_response
     )
     monkeypatch.setattr(
-        "orchestration.agent_router.execute_llm_with_retry", mock_execute_llm
+        "litellm.acompletion", mock_execute_llm
     )
     monkeypatch.setattr(
         "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
