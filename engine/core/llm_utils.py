@@ -58,6 +58,37 @@ LLM_MAX_RETRIES = get_llm_max_retries()
 
 _privacy_mode_provider: Callable[[], bool] | None = None
 _pii_masker_instance: Any = None
+_llm_completion_fn: Any = None
+_llm_sleep_fn: Any = None
+
+
+def configure_llm_completion_fn(fn: Any) -> None:
+    """Configures an in-memory LLM completion function override for tests and dependency injection."""
+    global _llm_completion_fn
+    _llm_completion_fn = fn
+
+
+def reset_llm_completion_fn() -> None:
+    """Resets the in-memory LLM completion override."""
+    global _llm_completion_fn
+    _llm_completion_fn = None
+
+
+def get_llm_completion_fn() -> Any:
+    """Returns the currently configured LLM completion function override, if any."""
+    return _llm_completion_fn
+
+
+def configure_llm_sleep_fn(fn: Any) -> None:
+    """Configures an in-memory sleep function for LLM backoff retries."""
+    global _llm_sleep_fn
+    _llm_sleep_fn = fn
+
+
+def reset_llm_sleep_fn() -> None:
+    """Resets the in-memory sleep function for LLM retries."""
+    global _llm_sleep_fn
+    _llm_sleep_fn = None
 
 
 def set_privacy_mode_provider(provider: Callable[[], bool] | None) -> None:
@@ -312,7 +343,8 @@ async def execute_llm_with_retry(
                 logger.info(
                     f"[LLM] Retrying LLM completion for {agent_key} (attempt {attempt}/{max_attempts})..."
                 )
-            res = await _invoke_llm(func, kwargs)
+            active_func = _llm_completion_fn or func or litellm.acompletion
+            res = await _invoke_llm(active_func, kwargs)
 
             # 2. Unmasking Phase
             if is_strict and active_mapping and hasattr(res, "choices") and res.choices:
@@ -338,8 +370,9 @@ async def execute_llm_with_retry(
             logger.warning(
                 f"[LLM] Attempt {attempt}/{max_attempts} timed out for {agent_key}: {exc}"
             )
+            sleep_call = _llm_sleep_fn or asyncio.sleep
             if attempt < max_attempts:
-                await asyncio.sleep(get_llm_retry_backoff_base() * attempt)
+                await sleep_call(get_llm_retry_backoff_base() * attempt)
             else:
                 raise last_error
         except Exception as exc:
@@ -353,8 +386,9 @@ async def execute_llm_with_retry(
                 )
                 raise
 
+            sleep_call = _llm_sleep_fn or asyncio.sleep
             if attempt < max_attempts:
-                await asyncio.sleep(get_llm_retry_backoff_base() * attempt)
+                await sleep_call(get_llm_retry_backoff_base() * attempt)
             else:
                 raise last_error
 

@@ -399,3 +399,43 @@ def make_mock_acompletion(agent_turn_handler=None, default_content="Response tex
 
     return _mock_acompletion
 
+
+async def async_noop_sleep(*args, **kwargs):
+    """Fast async no-op sleep helper for tests."""
+    return None
+
+
+@pytest.fixture(autouse=True)
+def reset_router_and_llm_di_for_tests():
+    """Guarantees that all in-memory DI overrides for router, LLM, slack messages, and usage tracking are cleanly reset."""
+    from core.llm_utils import reset_llm_completion_fn, reset_llm_sleep_fn
+    from orchestration.agent_router import reset_router_deps, reset_router_sleep_fn
+    from services.slack import (
+        reset_fetch_thread_history,
+        reset_post_agent_response,
+        reset_post_system_message,
+    )
+    from agents import (
+        reset_calculate_thread_costs,
+        reset_record_thread_tokens,
+        reset_trigger_thread_notes_update,
+        reset_trigger_usage_update,
+    )
+    from nlp import reset_intent_extractor
+
+    yield
+
+    reset_llm_completion_fn()
+    reset_llm_sleep_fn()
+    reset_router_deps()
+    reset_router_sleep_fn()
+    reset_post_agent_response()
+    reset_fetch_thread_history()
+    reset_post_system_message()
+    reset_record_thread_tokens()
+    reset_calculate_thread_costs()
+    reset_trigger_usage_update()
+    reset_trigger_thread_notes_update()
+    reset_intent_extractor()
+
+

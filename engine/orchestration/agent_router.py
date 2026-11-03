@@ -20,14 +20,20 @@ from services.slack import (
     post_system_message,
 )
 
+from .protocols import PipelineDeps, resolve_pipeline_deps
 from .turn_pipeline import TurnContext, TurnPipeline
 
 __all__ = [
     "_apply_convergence_stress_test_or_fast_forward",
+    "configure_router_deps",
+    "configure_router_sleep_fn",
     "continue_discussion_from_turn_result",
+    "get_router_deps",
     "orchestrate_discussion",
     "post_system_message",
     "process_and_respond",
+    "reset_router_deps",
+    "reset_router_sleep_fn",
 ]
 
 logger = logging.getLogger(__name__)
@@ -35,6 +41,38 @@ logger = logging.getLogger(__name__)
 # Turn off verbose LiteLLM logging unless debugging
 litellm.suppress_debug_info = True
 litellm.drop_params = True
+
+_router_deps_override: PipelineDeps | None = None
+_router_sleep_fn_override: Any = None
+
+
+def configure_router_deps(deps: PipelineDeps | None = None) -> None:
+    """Configures global default PipelineDeps for agent_router."""
+    global _router_deps_override
+    _router_deps_override = deps
+
+
+def reset_router_deps() -> None:
+    """Resets global default PipelineDeps for agent_router."""
+    global _router_deps_override
+    _router_deps_override = None
+
+
+def get_router_deps() -> PipelineDeps | None:
+    """Returns the currently configured PipelineDeps override, if any."""
+    return _router_deps_override
+
+
+def configure_router_sleep_fn(fn: Any) -> None:
+    """Configures an in-memory sleep function override for agent_router."""
+    global _router_sleep_fn_override
+    _router_sleep_fn_override = fn
+
+
+def reset_router_sleep_fn() -> None:
+    """Resets the in-memory sleep function override for agent_router."""
+    global _router_sleep_fn_override
+    _router_sleep_fn_override = None
 
 
 def _apply_convergence_stress_test_or_fast_forward(
@@ -191,12 +229,28 @@ async def process_and_respond(
     user_id: str | None = None,
     target_agent_override: str | None = None,
     isolated_branch: bool = False,
+    deps: PipelineDeps | None = None,
 ) -> dict[str, Any]:
     """
     Main background handler: parses prompt, builds conversation history,
     calls LiteLLM with agent parameters & MCP tools, and posts response back to Slack thread.
     If run_internal_loop is True, executes the entire multi-agent discussion loop internally.
     """
+    target_deps = deps or _router_deps_override
+    active_deps = resolve_pipeline_deps(
+        target_deps,
+        llm_executor=(target_deps.llm_executor if target_deps and target_deps.llm_executor is not None else execute_llm_with_retry),
+        slack_poster=(target_deps.slack_poster if target_deps and target_deps.slack_poster is not None else post_agent_response),
+        post_system_message_fn=(target_deps.post_system_message_fn if target_deps and target_deps.post_system_message_fn is not None else post_system_message),
+        history_fetcher=(target_deps.history_fetcher if target_deps and target_deps.history_fetcher is not None else fetch_thread_history),
+        files_fetcher=(target_deps.files_fetcher if target_deps and target_deps.files_fetcher is not None else fetch_thread_files),
+        token_recorder=(target_deps.token_recorder if target_deps and target_deps.token_recorder is not None else record_thread_tokens),
+        notes_updater=(target_deps.notes_updater if target_deps and target_deps.notes_updater is not None else trigger_thread_notes_update),
+        usage_updater=(target_deps.usage_updater if target_deps and target_deps.usage_updater is not None else trigger_usage_update),
+        calc_costs_fn=(target_deps.calc_costs_fn if target_deps and target_deps.calc_costs_fn is not None else calculate_thread_costs),
+        sleep_fn=_router_sleep_fn_override or (target_deps.sleep_fn if target_deps else None) or asyncio.sleep,
+    )
+
     # Guardrail Check for user inputs
     if not is_bot_trigger:
         try:
@@ -204,7 +258,8 @@ async def process_and_respond(
             is_injection = await guardrail_service.is_prompt_injection(raw_text)
             if is_injection:
                 logger.warning(f"[GUARDRAIL] Blocked malicious request in {channel_id}")
-                await post_system_message(
+                post_sys_fn = getattr(active_deps, "post_system_message_fn", None) or post_system_message
+                await post_sys_fn(
                     channel_id=channel_id,
                     thread_ts=thread_ts,
                     text="⚠️ *Security Guardrail Triggered*\nThis request violates safety policies and has been blocked.",
@@ -237,7 +292,8 @@ async def process_and_respond(
                 except Exception as ae:  # noqa: BLE001
                     logger.error(f"[GUARDRAIL] Failed to emit fail-closed audit event: {ae}")
 
-                await post_system_message(
+                post_sys_fn = getattr(active_deps, "post_system_message_fn", None) or post_system_message
+                await post_sys_fn(
                     channel_id=channel_id,
                     thread_ts=thread_ts,
                     text="⚠️ *Security Guardrail Error*\nGuardrail verification failed in fail-closed mode. This request has been blocked.",
@@ -247,14 +303,17 @@ async def process_and_respond(
             logger.error(f"[GUARDRAIL] Check failed, allowing request: {e}")
 
     if run_internal_loop:
-        return await orchestrate_discussion(
-            channel_id=channel_id,
-            thread_ts=thread_ts,
-            raw_text=raw_text,
-            bot_user_id=bot_user_id,
-            icon_url=icon_url,
-            user_id=user_id,
-        )
+        kwargs_to_pass: dict[str, Any] = {
+            "channel_id": channel_id,
+            "thread_ts": thread_ts,
+            "raw_text": raw_text,
+            "bot_user_id": bot_user_id,
+            "icon_url": icon_url,
+            "user_id": user_id,
+        }
+        if deps is not None:
+            kwargs_to_pass["deps"] = deps
+        return await orchestrate_discussion(**kwargs_to_pass)
 
     ctx = TurnContext(
         channel_id=channel_id,
@@ -268,26 +327,29 @@ async def process_and_respond(
         target_agent_override=target_agent_override,
         isolated_branch=isolated_branch,
     )
-    pipeline = TurnPipeline(
-        llm_executor=execute_llm_with_retry,
-        slack_poster=post_agent_response,
-        post_system_message_fn=post_system_message,
-        history_fetcher=fetch_thread_history,
-        files_fetcher=fetch_thread_files,
-        token_recorder=record_thread_tokens,
-        notes_updater=trigger_thread_notes_update,
-        usage_updater=trigger_usage_update,
-        calc_costs_fn=calculate_thread_costs,
-        sleep_fn=asyncio.sleep,
-    )
+    pipeline = TurnPipeline(deps=active_deps)
     return await pipeline.run(ctx)
 
 
-def _build_discussion_loop() -> Any:
+def _build_discussion_loop(sleep_fn: Any = None, deps: PipelineDeps | None = None) -> Any:
     from orchestration.discussion_loop import DiscussionLoop
 
+    active_deps = deps or _router_deps_override
+    effective_sleep = (
+        sleep_fn
+        or _router_sleep_fn_override
+        or (getattr(active_deps, "sleep_fn", None) if active_deps else None)
+        or asyncio.sleep
+    )
+
+    async def _turn_exec(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        if "deps" not in kwargs and active_deps is not None:
+            kwargs["deps"] = active_deps
+        return await process_and_respond(*args, **kwargs)
+
     return DiscussionLoop(
-        turn_executor=process_and_respond,
+        turn_executor=_turn_exec,
+        sleep_fn=effective_sleep,
         convergence_helper=_apply_convergence_stress_test_or_fast_forward,
     )
 
@@ -302,13 +364,14 @@ async def orchestrate_discussion(
     user_id: str | None = None,
     target_agent_override: str | None = None,
     is_bot_trigger: bool = False,
+    deps: PipelineDeps | None = None,
 ) -> dict[str, Any]:
     """
     Internal multi-agent discussion loop:
     Orchestrates the entire multi-agent discussion chain in-memory without relying on
     Slack Events API webhook bounce-backs.
     """
-    return await _build_discussion_loop().run(
+    return await _build_discussion_loop(deps=deps).run(
         channel_id=channel_id,
         thread_ts=thread_ts,
         initial_raw_text=raw_text,
@@ -330,12 +393,13 @@ async def continue_discussion_from_turn_result(
     max_turns: int | None = None,
     user_id: str | None = None,
     accumulated_history: list[dict[str, Any]] | None = None,
+    deps: PipelineDeps | None = None,
 ) -> dict[str, Any]:
     """
     Continues multi-agent discussion loop after a turn finishes (e.g. following HITL approval resumption).
     Drives remaining agents until round completion or termination.
     """
-    return await _build_discussion_loop().run(
+    return await _build_discussion_loop(deps=deps).run(
         channel_id=channel_id,
         thread_ts=thread_ts,
         initial_turn_res=turn_res,

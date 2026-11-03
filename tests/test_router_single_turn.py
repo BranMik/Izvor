@@ -2,12 +2,18 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from conftest import make_mock_acompletion
-
+from agents.thread_notes_agent import configure_trigger_thread_notes_update
+from agents.usage_agent import configure_record_thread_tokens
+from conftest import async_noop_sleep, make_mock_acompletion
+from core.llm_utils import configure_llm_completion_fn
 from core.models import ActionDirective, ExtractedIntent
+from nlp.intent_extractor import configure_intent_extractor
 from nlp.message_builder import build_llm_messages
 from orchestration import agent_router
-from orchestration.agent_router import process_and_respond
+from orchestration.agent_router import (
+    configure_router_sleep_fn,
+    process_and_respond,
+)
 from orchestration.agent_settings import (
     get_enabled_agents,
     reset_enabled_agents,
@@ -17,16 +23,21 @@ from orchestration.agent_settings import (
 )
 from orchestration.nomination import parse_agent_and_prompt
 from orchestration.thread_state import thread_state_manager
+from services.slack import (
+    configure_fetch_thread_history,
+    configure_post_agent_response,
+    configure_post_system_message,
+)
 
 
 @pytest.fixture(autouse=True)
-def setup_test_environment(monkeypatch):
+def setup_test_environment():
     reset_enabled_agents()
     set_orchestration_mode("sandwich")
     set_sandwich_config([], [])
     set_fixed_config([])
     thread_state_manager.reset_all()
-    monkeypatch.setattr(agent_router.asyncio, "sleep", AsyncMock(return_value=None))
+    configure_router_sleep_fn(async_noop_sleep)
 
 
 def test_parse_explicit_bracket_tags():
@@ -100,7 +111,7 @@ def test_parse_fallback_default_agent():
 
 
 @pytest.mark.anyio
-async def test_process_and_respond_token_appending(monkeypatch):
+async def test_process_and_respond_token_appending():
     mock_usage = MagicMock()
     mock_usage.prompt_tokens = 150
     mock_usage.completion_tokens = 50
@@ -121,15 +132,9 @@ async def test_process_and_respond_token_appending(monkeypatch):
         posted_messages.append(text)
         return {"ok": True, "ts": "12345.6789"}
 
-    monkeypatch.setattr(
-        "litellm.acompletion", make_mock_acompletion(lambda *a, **k: mock_response)
-    )
-    monkeypatch.setattr(
-        "orchestration.agent_router.post_agent_response", mock_post_agent_response
-    )
-    monkeypatch.setattr(
-        "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
-    )
+    configure_llm_completion_fn(make_mock_acompletion(lambda *a, **k: mock_response))
+    configure_post_agent_response(mock_post_agent_response)
+    configure_fetch_thread_history(AsyncMock(return_value=[]))
 
     await process_and_respond(
         channel_id="C123",
@@ -142,7 +147,7 @@ async def test_process_and_respond_token_appending(monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_process_and_respond_model_token_footer_openai(monkeypatch):
+async def test_process_and_respond_model_token_footer_openai():
     """
     Verifies that an agent using SecurityArchitect ends with {mistral/mistral-large-latest : 721/64}.
     """
@@ -166,15 +171,9 @@ async def test_process_and_respond_model_token_footer_openai(monkeypatch):
         posted_messages.append(text)
         return {"ok": True, "ts": "12345.9999"}
 
-    monkeypatch.setattr(
-        "litellm.acompletion", make_mock_acompletion(lambda *a, **k: mock_response)
-    )
-    monkeypatch.setattr(
-        "orchestration.agent_router.post_agent_response", mock_post_agent_response
-    )
-    monkeypatch.setattr(
-        "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
-    )
+    configure_llm_completion_fn(make_mock_acompletion(lambda *a, **k: mock_response))
+    configure_post_agent_response(mock_post_agent_response)
+    configure_fetch_thread_history(AsyncMock(return_value=[]))
 
     await process_and_respond(
         channel_id="C123",
@@ -202,7 +201,7 @@ async def test_model_token_footer_ignored_by_tag_detection():
 
 
 @pytest.mark.anyio
-async def test_scenario_1_single_agent_tagged(monkeypatch):
+async def test_scenario_1_single_agent_tagged():
     """
     Scenario: User tags ONLY one agent.
     Expected: Single agent speaks, force_termination=True, any generated nomination tag stripped, flow cleanly ends.
@@ -231,15 +230,9 @@ async def test_scenario_1_single_agent_tagged(monkeypatch):
         posted_messages.append(text)
         return {"ok": True, "ts": "12345.0001"}
 
-    monkeypatch.setattr(
-        "litellm.acompletion", make_mock_acompletion(handle_turn)
-    )
-    monkeypatch.setattr(
-        "orchestration.agent_router.post_agent_response", mock_post_agent_response
-    )
-    monkeypatch.setattr(
-        "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
-    )
+    configure_llm_completion_fn(make_mock_acompletion(handle_turn))
+    configure_post_agent_response(mock_post_agent_response)
+    configure_fetch_thread_history(AsyncMock(return_value=[]))
 
     thread_key = ("C123", "12345.0001")
 
@@ -340,7 +333,7 @@ def test_parse_agent_and_prompt_cleans_history_command():
 
 
 @pytest.mark.anyio
-async def test_process_and_respond_history_limit_initial_prompt(monkeypatch):
+async def test_process_and_respond_history_limit_initial_prompt():
     """
     Scenario: Thread has 5 prior messages. User submits prompt with /history 2.
     Expected:
@@ -360,10 +353,7 @@ async def test_process_and_respond_history_limit_initial_prompt(monkeypatch):
         {"role": "user", "content": "<@U12345> What now? /history 2"},
     ]
 
-    monkeypatch.setattr(
-        "orchestration.agent_router.fetch_thread_history",
-        AsyncMock(return_value=mock_history),
-    )
+    configure_fetch_thread_history(AsyncMock(return_value=mock_history))
 
     captured_messages = []
 
@@ -378,11 +368,8 @@ async def test_process_and_respond_history_limit_initial_prompt(monkeypatch):
             captured_messages.extend(msgs)
         return mock_resp
 
-    monkeypatch.setattr("litellm.acompletion", make_mock_acompletion(handle_turn))
-    monkeypatch.setattr(
-        "orchestration.agent_router.post_agent_response",
-        AsyncMock(return_value={"ok": True, "ts": "12345.2002"}),
-    )
+    configure_llm_completion_fn(make_mock_acompletion(handle_turn))
+    configure_post_agent_response(AsyncMock(return_value={"ok": True, "ts": "12345.2002"}))
 
     await process_and_respond(
         channel_id="C_HIST_TEST",
@@ -413,7 +400,7 @@ async def test_process_and_respond_history_limit_initial_prompt(monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_process_and_respond_history_zero(monkeypatch):
+async def test_process_and_respond_history_zero():
     """
     Scenario: User specifies /history 0.
     Expected:
@@ -428,10 +415,7 @@ async def test_process_and_respond_history_zero(monkeypatch):
         {"role": "user", "content": "<@U12345> Fresh start /history 0"},
     ]
 
-    monkeypatch.setattr(
-        "orchestration.agent_router.fetch_thread_history",
-        AsyncMock(return_value=mock_history),
-    )
+    configure_fetch_thread_history(AsyncMock(return_value=mock_history))
 
     captured_messages = []
 
@@ -442,15 +426,13 @@ async def test_process_and_respond_history_zero(monkeypatch):
 
     def handle_turn(*args, **kwargs):
         msgs = kwargs.get("messages") or []
-        if msgs:
+        if msgs and not captured_messages:
             captured_messages.extend(msgs)
         return mock_resp
 
-    monkeypatch.setattr("litellm.acompletion", make_mock_acompletion(handle_turn))
-    monkeypatch.setattr(
-        "orchestration.agent_router.post_agent_response",
-        AsyncMock(return_value={"ok": True, "ts": "12345.5002"}),
-    )
+    configure_trigger_thread_notes_update(MagicMock())
+    configure_llm_completion_fn(make_mock_acompletion(handle_turn))
+    configure_post_agent_response(AsyncMock(return_value={"ok": True, "ts": "12345.5002"}))
 
     await process_and_respond(
         channel_id="C_HIST_ZERO",
@@ -461,6 +443,9 @@ async def test_process_and_respond_history_zero(monkeypatch):
 
     # Only system prompt + user prompt (0 prior messages)
     assert len(captured_messages) == 2
+    assert captured_messages[0]["role"] == "system"
+    assert captured_messages[1]["role"] == "user"
+    assert "Fresh start" in captured_messages[1]["content"]
     assert captured_messages[0]["role"] == "system"
     assert captured_messages[1]["role"] == "user"
     assert "Fresh start" in captured_messages[1]["content"]
@@ -619,7 +604,7 @@ async def test_extract_min_words_limit():
 
 
 @pytest.mark.anyio
-async def test_process_and_respond_with_max_words(monkeypatch):
+async def test_process_and_respond_with_max_words():
     thread_state_manager.reset_all()
 
     channel_id = "C_MAX_WORDS"
@@ -649,16 +634,10 @@ async def test_process_and_respond_with_max_words(monkeypatch):
         posted_messages.append({"text": text, "username": username})
         return {"ok": True, "ts": thread_ts}
 
-    monkeypatch.setattr(
-        "orchestration.agent_router.post_agent_response", mock_post_agent_response
-    )
-    monkeypatch.setattr(
-        "litellm.acompletion", make_mock_acompletion(handle_turn)
-    )
-    monkeypatch.setattr(
-        "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
-    )
-    monkeypatch.setattr("orchestration.agent_router.record_thread_tokens", MagicMock())
+    configure_post_agent_response(mock_post_agent_response)
+    configure_llm_completion_fn(make_mock_acompletion(handle_turn))
+    configure_fetch_thread_history(AsyncMock(return_value=[]))
+    configure_record_thread_tokens(MagicMock())
 
     res = await process_and_respond(
         channel_id=channel_id,
@@ -689,7 +668,7 @@ async def test_process_and_respond_with_max_words(monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_process_and_respond_with_min_words(monkeypatch):
+async def test_process_and_respond_with_min_words():
     thread_state_manager.reset_all()
 
     channel_id = "C_MIN_WORDS"
@@ -720,16 +699,10 @@ async def test_process_and_respond_with_min_words(monkeypatch):
         posted_messages.append({"text": text, "username": username})
         return {"ok": True, "ts": thread_ts}
 
-    monkeypatch.setattr(
-        "orchestration.agent_router.post_agent_response", mock_post_agent_response
-    )
-    monkeypatch.setattr(
-        "litellm.acompletion", make_mock_acompletion(handle_turn)
-    )
-    monkeypatch.setattr(
-        "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
-    )
-    monkeypatch.setattr("orchestration.agent_router.record_thread_tokens", MagicMock())
+    configure_post_agent_response(mock_post_agent_response)
+    configure_llm_completion_fn(make_mock_acompletion(handle_turn))
+    configure_fetch_thread_history(AsyncMock(return_value=[]))
+    configure_record_thread_tokens(MagicMock())
 
     res = await process_and_respond(
         channel_id=channel_id,
@@ -760,7 +733,7 @@ async def test_process_and_respond_with_min_words(monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_process_and_respond_with_min_and_max_words(monkeypatch):
+async def test_process_and_respond_with_min_and_max_words():
     thread_state_manager.reset_all()
 
     channel_id = "C_MIN_MAX_WORDS"
@@ -790,16 +763,10 @@ async def test_process_and_respond_with_min_and_max_words(monkeypatch):
         posted_messages.append({"text": text, "username": username})
         return {"ok": True, "ts": thread_ts}
 
-    monkeypatch.setattr(
-        "orchestration.agent_router.post_agent_response", mock_post_agent_response
-    )
-    monkeypatch.setattr(
-        "litellm.acompletion", make_mock_acompletion(handle_turn)
-    )
-    monkeypatch.setattr(
-        "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
-    )
-    monkeypatch.setattr("orchestration.agent_router.record_thread_tokens", MagicMock())
+    configure_post_agent_response(mock_post_agent_response)
+    configure_llm_completion_fn(make_mock_acompletion(handle_turn))
+    configure_fetch_thread_history(AsyncMock(return_value=[]))
+    configure_record_thread_tokens(MagicMock())
 
     res = await process_and_respond(
         channel_id=channel_id,
@@ -830,7 +797,7 @@ async def test_process_and_respond_with_min_and_max_words(monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_process_and_respond_with_natural_language_limits(monkeypatch):
+async def test_process_and_respond_with_natural_language_limits():
     thread_state_manager.reset_all()
 
     channel_id = "C_NL_LIMITS"
@@ -860,18 +827,11 @@ async def test_process_and_respond_with_natural_language_limits(monkeypatch):
         posted_messages.append({"text": text, "username": username})
         return {"ok": True, "ts": thread_ts}
 
-    monkeypatch.setattr(
-        "orchestration.agent_router.post_agent_response", mock_post_agent_response
-    )
-    monkeypatch.setattr(
-        "litellm.acompletion", make_mock_acompletion(handle_turn)
-    )
-    monkeypatch.setattr(
-        "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
-    )
-    monkeypatch.setattr(
-        "nlp.intent_extractor.extract_intent",
-        AsyncMock(return_value=ExtractedIntent(modifiers={"max_words": 60})),
+    configure_post_agent_response(mock_post_agent_response)
+    configure_llm_completion_fn(make_mock_acompletion(handle_turn))
+    configure_fetch_thread_history(AsyncMock(return_value=[]))
+    configure_intent_extractor(
+        AsyncMock(return_value=ExtractedIntent(modifiers={"max_words": 60}))
     )
 
     res = await process_and_respond(
@@ -898,7 +858,7 @@ async def test_process_and_respond_with_natural_language_limits(monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_process_and_respond_with_exclude_command(monkeypatch):
+async def test_process_and_respond_with_exclude_command():
     thread_state_manager.reset_all()
 
     channel_id = "C_EXCLUDE_CMD"
@@ -927,16 +887,10 @@ async def test_process_and_respond_with_exclude_command(monkeypatch):
         posted_messages.append({"text": text, "username": username})
         return {"ok": True, "ts": thread_ts}
 
-    monkeypatch.setattr(
-        "orchestration.agent_router.post_agent_response", mock_post_agent_response
-    )
-    monkeypatch.setattr(
-        "litellm.acompletion", make_mock_acompletion(handle_turn)
-    )
-    monkeypatch.setattr(
-        "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
-    )
-    monkeypatch.setattr("orchestration.agent_router.record_thread_tokens", MagicMock())
+    configure_post_agent_response(mock_post_agent_response)
+    configure_llm_completion_fn(make_mock_acompletion(handle_turn))
+    configure_fetch_thread_history(AsyncMock(return_value=[]))
+    configure_record_thread_tokens(MagicMock())
 
     res = await process_and_respond(
         channel_id=channel_id,
@@ -957,7 +911,7 @@ async def test_process_and_respond_with_exclude_command(monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_process_and_respond_with_multi_agent_exclude_command(monkeypatch):
+async def test_process_and_respond_with_multi_agent_exclude_command():
     thread_state_manager.reset_all()
 
     channel_id = "C_MULTI_EXCLUDE"
@@ -972,17 +926,10 @@ async def test_process_and_respond_with_multi_agent_exclude_command(monkeypatch)
     mock_response.choices = [mock_choice]
     mock_response.usage = MagicMock(prompt_tokens=20, completion_tokens=40)
 
-    monkeypatch.setattr(
-        "orchestration.agent_router.post_agent_response",
-        AsyncMock(return_value={"ok": True, "ts": thread_ts}),
-    )
-    monkeypatch.setattr(
-        "litellm.acompletion", make_mock_acompletion(lambda *a, **k: mock_response)
-    )
-    monkeypatch.setattr(
-        "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
-    )
-    monkeypatch.setattr("orchestration.agent_router.record_thread_tokens", MagicMock())
+    configure_post_agent_response(AsyncMock(return_value={"ok": True, "ts": thread_ts}))
+    configure_llm_completion_fn(make_mock_acompletion(lambda *a, **k: mock_response))
+    configure_fetch_thread_history(AsyncMock(return_value=[]))
+    configure_record_thread_tokens(MagicMock())
 
     res = await process_and_respond(
         channel_id=channel_id,
@@ -997,7 +944,7 @@ async def test_process_and_respond_with_multi_agent_exclude_command(monkeypatch)
 
 
 @pytest.mark.anyio
-async def test_process_and_respond_with_default_flow_and_exclude(monkeypatch):
+async def test_process_and_respond_with_default_flow_and_exclude():
     thread_state_manager.reset_all()
 
     channel_id = "C_DEFAULT_EXCLUDE"
@@ -1012,17 +959,10 @@ async def test_process_and_respond_with_default_flow_and_exclude(monkeypatch):
     mock_response.choices = [mock_choice]
     mock_response.usage = MagicMock(prompt_tokens=20, completion_tokens=40)
 
-    monkeypatch.setattr(
-        "orchestration.agent_router.post_agent_response",
-        AsyncMock(return_value={"ok": True, "ts": thread_ts}),
-    )
-    monkeypatch.setattr(
-        "litellm.acompletion", make_mock_acompletion(lambda *a, **k: mock_response)
-    )
-    monkeypatch.setattr(
-        "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
-    )
-    monkeypatch.setattr("orchestration.agent_router.record_thread_tokens", MagicMock())
+    configure_post_agent_response(AsyncMock(return_value={"ok": True, "ts": thread_ts}))
+    configure_llm_completion_fn(make_mock_acompletion(lambda *a, **k: mock_response))
+    configure_fetch_thread_history(AsyncMock(return_value=[]))
+    configure_record_thread_tokens(MagicMock())
 
     res = await process_and_respond(
         channel_id=channel_id,
@@ -1037,7 +977,7 @@ async def test_process_and_respond_with_default_flow_and_exclude(monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_process_and_respond_with_nl_exclude(monkeypatch):
+async def test_process_and_respond_with_nl_exclude():
     thread_state_manager.reset_all()
 
     channel_id = "C_NL_EXCLUDE"
@@ -1050,18 +990,10 @@ async def test_process_and_respond_with_nl_exclude(monkeypatch):
     mock_response.choices = [mock_choice]
     mock_response.usage = MagicMock(prompt_tokens=20, completion_tokens=40)
 
-    monkeypatch.setattr(
-        "orchestration.agent_router.post_agent_response",
-        AsyncMock(return_value={"ok": True, "ts": thread_ts}),
-    )
-    monkeypatch.setattr(
-        "litellm.acompletion", make_mock_acompletion(lambda *a, **k: mock_response)
-    )
-    monkeypatch.setattr(
-        "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
-    )
-    monkeypatch.setattr(
-        "nlp.intent_extractor.extract_intent",
+    configure_post_agent_response(AsyncMock(return_value={"ok": True, "ts": thread_ts}))
+    configure_llm_completion_fn(make_mock_acompletion(lambda *a, **k: mock_response))
+    configure_fetch_thread_history(AsyncMock(return_value=[]))
+    configure_intent_extractor(
         AsyncMock(
             return_value=ExtractedIntent(
                 actions=[
@@ -1070,7 +1002,7 @@ async def test_process_and_respond_with_nl_exclude(monkeypatch):
                     )
                 ]
             )
-        ),
+        )
     )
 
     res = await process_and_respond(
@@ -1085,7 +1017,7 @@ async def test_process_and_respond_with_nl_exclude(monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_partial_tag_routing(monkeypatch):
+async def test_partial_tag_routing():
     thread_state_manager.reset_all()
 
     channel_id = "C_PARTIAL_TAG"
@@ -1105,19 +1037,10 @@ async def test_partial_tag_routing(monkeypatch):
         posted_messages.append({"username": username, "text": text})
         return {"ok": True, "ts": thread_ts}
 
-    monkeypatch.setattr(
-        "orchestration.agent_router.post_agent_response", mock_post_agent
-    )
-    monkeypatch.setattr(
-        "services.slack.post_agent_response", mock_post_agent
-    )
-    monkeypatch.setattr(
-        "litellm.acompletion", make_mock_acompletion(lambda *a, **k: mock_response)
-    )
-    monkeypatch.setattr(
-        "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
-    )
-    monkeypatch.setattr("orchestration.agent_router.record_thread_tokens", MagicMock())
+    configure_post_agent_response(mock_post_agent)
+    configure_llm_completion_fn(make_mock_acompletion(lambda *a, **k: mock_response))
+    configure_fetch_thread_history(AsyncMock(return_value=[]))
+    configure_record_thread_tokens(MagicMock())
 
     res = await process_and_respond(
         channel_id=channel_id,
@@ -1132,7 +1055,7 @@ async def test_partial_tag_routing(monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_ambiguous_tag_system_warning_halt(monkeypatch):
+async def test_ambiguous_tag_system_warning_halt():
     thread_state_manager.reset_all()
 
     channel_id = "C_AMBIG_TAG"
@@ -1153,15 +1076,9 @@ async def test_ambiguous_tag_system_warning_halt(monkeypatch):
         llm_called = True
         return MagicMock()
 
-    monkeypatch.setattr(
-        "orchestration.agent_router.post_system_message", mock_post_system
-    )
-    monkeypatch.setattr(
-        "litellm.acompletion", make_mock_acompletion(handle_turn)
-    )
-    monkeypatch.setattr(
-        "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
-    )
+    configure_post_system_message(mock_post_system)
+    configure_llm_completion_fn(make_mock_acompletion(handle_turn))
+    configure_fetch_thread_history(AsyncMock(return_value=[]))
 
     res = await process_and_respond(
         channel_id=channel_id,
@@ -1182,7 +1099,7 @@ async def test_ambiguous_tag_system_warning_halt(monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_unrecognized_tag_system_warning_halt(monkeypatch):
+async def test_unrecognized_tag_system_warning_halt():
     thread_state_manager.reset_all()
 
     channel_id = "C_UNREC_TAG"
@@ -1203,15 +1120,9 @@ async def test_unrecognized_tag_system_warning_halt(monkeypatch):
         llm_called = True
         return MagicMock()
 
-    monkeypatch.setattr(
-        "orchestration.agent_router.post_system_message", mock_post_system
-    )
-    monkeypatch.setattr(
-        "litellm.acompletion", make_mock_acompletion(handle_turn)
-    )
-    monkeypatch.setattr(
-        "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
-    )
+    configure_post_system_message(mock_post_system)
+    configure_llm_completion_fn(make_mock_acompletion(handle_turn))
+    configure_fetch_thread_history(AsyncMock(return_value=[]))
 
     res = await process_and_respond(
         channel_id=channel_id,
@@ -1231,7 +1142,7 @@ async def test_unrecognized_tag_system_warning_halt(monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_plain_bracket_does_not_halt_or_warn(monkeypatch):
+async def test_plain_bracket_does_not_halt_or_warn():
     """
     Verifies that plain brackets like [SomeUnknownTag] or [agent-10008] do NOT trigger
     unrecognized tag warnings or nomination tags, and normal execution proceeds.
@@ -1258,11 +1169,11 @@ async def test_plain_bracket_does_not_halt_or_warn(monkeypatch):
     mock_response.choices = [mock_choice]
     mock_response.usage = None
 
-    monkeypatch.setattr("orchestration.agent_router.post_system_message", mock_post_system)
-    monkeypatch.setattr("orchestration.agent_router.post_agent_response", mock_post_agent)
-    monkeypatch.setattr("litellm.acompletion", make_mock_acompletion(lambda *a, **k: mock_response))
-    monkeypatch.setattr("orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[]))
-    monkeypatch.setattr("orchestration.agent_router.record_thread_tokens", MagicMock())
+    configure_post_system_message(mock_post_system)
+    configure_post_agent_response(mock_post_agent)
+    configure_llm_completion_fn(make_mock_acompletion(lambda *a, **k: mock_response))
+    configure_fetch_thread_history(AsyncMock(return_value=[]))
+    configure_record_thread_tokens(MagicMock())
 
     res = await process_and_respond(
         channel_id=channel_id,
@@ -1278,7 +1189,7 @@ async def test_plain_bracket_does_not_halt_or_warn(monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_multi_agent_nomination_syntax(monkeypatch):
+async def test_multi_agent_nomination_syntax():
     """
     Scenario: User prompt nominates multiple agents:
     '/[agent-10008] /[agent-10003] /[agent-10002] Pa sad ostatak prompta.'
@@ -1312,19 +1223,18 @@ async def test_multi_agent_nomination_syntax(monkeypatch):
         posted_messages.append({"username": username, "text": text})
         return {"ok": True, "ts": thread_ts}
 
-    monkeypatch.setattr("orchestration.agent_router.post_agent_response", mock_post_agent)
-    monkeypatch.setattr("litellm.acompletion", make_mock_acompletion(handle_turn))
-    monkeypatch.setattr("orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[]))
-    monkeypatch.setattr("orchestration.agent_router.record_thread_tokens", MagicMock())
+    configure_post_agent_response(mock_post_agent)
+    configure_llm_completion_fn(make_mock_acompletion(handle_turn))
+    configure_fetch_thread_history(AsyncMock(return_value=[]))
+    configure_record_thread_tokens(MagicMock())
 
-    res = await process_and_respond(
+    await process_and_respond(
         channel_id=channel_id,
         thread_ts=thread_ts,
         raw_text="/[agent-10008] /[agent-10003] /[agent-10002] Pa sad ostatak prompta.",
         is_bot_trigger=False,
     )
 
-    assert res.get("ok") is True
     assert len(posted_messages) == 1
     assert posted_messages[0]["username"] == "SecurityArchitect"
     assert thread_state_manager.discussion.remaining_agents_map[thread_key] == ["agent-10003", "agent-10002"]

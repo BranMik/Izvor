@@ -685,6 +685,21 @@ async def _notes_worker(
         _PENDING_COMPLETED.pop(thread_key, None)
 
 
+_trigger_thread_notes_update_override: Any = None
+
+
+def configure_trigger_thread_notes_update(fn: Any) -> None:
+    """Configures an in-memory trigger_thread_notes_update override for tests and DI."""
+    global _trigger_thread_notes_update_override
+    _trigger_thread_notes_update_override = fn
+
+
+def reset_trigger_thread_notes_update() -> None:
+    """Resets the in-memory trigger_thread_notes_update override."""
+    global _trigger_thread_notes_update_override
+    _trigger_thread_notes_update_override = None
+
+
 def trigger_thread_notes_update(
     channel_id: str,
     thread_ts: str,
@@ -695,6 +710,14 @@ def trigger_thread_notes_update(
     Dispatches live thread note creation/update as a non-blocking background task.
     Coalesces rapid successive triggers so only one worker runs with pending follow-up.
     """
+    if _trigger_thread_notes_update_override is not None:
+        return _trigger_thread_notes_update_override(
+            channel_id=channel_id,
+            thread_ts=thread_ts,
+            is_completed=is_completed,
+            bot_user_id=bot_user_id,
+        )
+
     from orchestration.app_settings import is_scribe_enabled
     if not is_scribe_enabled():
         logger.info(

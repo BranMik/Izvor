@@ -2,10 +2,12 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from conftest import make_mock_acompletion
-
-from orchestration import agent_router
-from orchestration.agent_router import process_and_respond
+from conftest import async_noop_sleep, make_mock_acompletion
+from core.llm_utils import configure_llm_completion_fn
+from orchestration.agent_router import (
+    configure_router_sleep_fn,
+    process_and_respond,
+)
 from orchestration.agent_settings import (
     get_enabled_agents,
     load_enabled_agents,
@@ -26,21 +28,22 @@ from orchestration.app_settings import (
 from orchestration.nomination import get_initial_agents, parse_agent_and_prompt
 from orchestration.thread_state import thread_state_manager
 from pipeline.directive_parser import is_stop_command
+from services.slack import configure_fetch_thread_history, configure_post_agent_response
 from services.slack_home import build_app_home_view
 
 
 @pytest.fixture(autouse=True)
-def setup_test_environment(monkeypatch):
+def setup_test_environment():
     reset_enabled_agents()
     set_orchestration_mode("sandwich")
     set_sandwich_config([], [])
     set_fixed_config([])
     thread_state_manager.reset_all()
-    monkeypatch.setattr(agent_router.asyncio, "sleep", AsyncMock(return_value=None))
+    configure_router_sleep_fn(async_noop_sleep)
 
 
 @pytest.mark.anyio
-async def test_scenario_2_multiple_agents_custom_flow(monkeypatch):
+async def test_scenario_2_multiple_agents_custom_flow():
     """
     Scenario: User tags multiple specific agents.
     Expected: Only those agents speak in order, intermediate choices are validated, and flow ends after the last one.
@@ -55,12 +58,8 @@ async def test_scenario_2_multiple_agents_custom_flow(monkeypatch):
         posted_messages.append(text)
         return {"ok": True, "ts": f"12345.{len(posted_messages)}"}
 
-    monkeypatch.setattr(
-        "orchestration.agent_router.post_agent_response", mock_post_agent_response
-    )
-    monkeypatch.setattr(
-        "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
-    )
+    configure_post_agent_response(mock_post_agent_response)
+    configure_fetch_thread_history(AsyncMock(return_value=[]))
 
     thread_key = ("C123", "12345.0002")
 
@@ -71,7 +70,7 @@ async def test_scenario_2_multiple_agents_custom_flow(monkeypatch):
     mock_choice_1.message.tool_calls = None
     mock_response_1 = MagicMock(choices=[mock_choice_1], usage=None)
 
-    monkeypatch.setattr("litellm.acompletion", make_mock_acompletion(lambda *a, **k: mock_response_1))
+    configure_llm_completion_fn(make_mock_acompletion(lambda *a, **k: mock_response_1))
 
     await process_and_respond(
         channel_id="C123",
@@ -96,7 +95,7 @@ async def test_scenario_2_multiple_agents_custom_flow(monkeypatch):
         handle_turn_2.captured_user_prompt = captured_messages[-1]["content"]
         return mock_response_2
 
-    monkeypatch.setattr("litellm.acompletion", make_mock_acompletion(handle_turn_2))
+    configure_llm_completion_fn(make_mock_acompletion(handle_turn_2))
 
     await process_and_respond(
         channel_id="C123",
@@ -113,7 +112,7 @@ async def test_scenario_2_multiple_agents_custom_flow(monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_scenario_3_no_agent_tagged_default_flow(monkeypatch):
+async def test_scenario_3_no_agent_tagged_default_flow():
     """
     Scenario: User tags NO agent (plain message / app_mention).
     Expected: Default flow starts with Visionary, initializes all 15 panel agents,
@@ -129,12 +128,8 @@ async def test_scenario_3_no_agent_tagged_default_flow(monkeypatch):
         posted_messages.append(text)
         return {"ok": True, "ts": f"12345.{len(posted_messages)}"}
 
-    monkeypatch.setattr(
-        "orchestration.agent_router.post_agent_response", mock_post_agent_response
-    )
-    monkeypatch.setattr(
-        "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
-    )
+    configure_post_agent_response(mock_post_agent_response)
+    configure_fetch_thread_history(AsyncMock(return_value=[]))
 
     thread_key = ("C123", "12345.0003")
 
@@ -144,7 +139,7 @@ async def test_scenario_3_no_agent_tagged_default_flow(monkeypatch):
     mock_choice_1.message.tool_calls = None
     mock_response_1 = MagicMock(choices=[mock_choice_1], usage=None)
 
-    monkeypatch.setattr("litellm.acompletion", make_mock_acompletion(lambda *a, **k: mock_response_1))
+    configure_llm_completion_fn(make_mock_acompletion(lambda *a, **k: mock_response_1))
 
     await process_and_respond(
         channel_id="C123",
@@ -170,7 +165,7 @@ async def test_scenario_3_no_agent_tagged_default_flow(monkeypatch):
     mock_choice_2.message.tool_calls = None
     mock_response_2 = MagicMock(choices=[mock_choice_2], usage=None)
 
-    monkeypatch.setattr("litellm.acompletion", make_mock_acompletion(lambda *a, **k: mock_response_2))
+    configure_llm_completion_fn(make_mock_acompletion(lambda *a, **k: mock_response_2))
 
     await process_and_respond(
         channel_id="C123",
@@ -191,7 +186,7 @@ async def test_scenario_3_no_agent_tagged_default_flow(monkeypatch):
     mock_choice_3.message.tool_calls = None
     mock_response_3 = MagicMock(choices=[mock_choice_3], usage=None)
 
-    monkeypatch.setattr("litellm.acompletion", make_mock_acompletion(lambda *a, **k: mock_response_3))
+    configure_llm_completion_fn(make_mock_acompletion(lambda *a, **k: mock_response_3))
 
     await process_and_respond(
         channel_id="C123",
@@ -210,7 +205,7 @@ async def test_scenario_3_no_agent_tagged_default_flow(monkeypatch):
     mock_choice_4.message.tool_calls = None
     mock_response_4 = MagicMock(choices=[mock_choice_4], usage=None)
 
-    monkeypatch.setattr("litellm.acompletion", make_mock_acompletion(lambda *a, **k: mock_response_4))
+    configure_llm_completion_fn(make_mock_acompletion(lambda *a, **k: mock_response_4))
 
     await process_and_respond(
         channel_id="C123",
@@ -261,7 +256,7 @@ def test_is_stop_command():
 
 
 @pytest.mark.anyio
-async def test_thread_stop_during_llm_execution(monkeypatch):
+async def test_thread_stop_during_llm_execution():
     """
     Scenario: While an agent is in the middle of executing its LLM call,
     the user sends a stop command in that thread.
@@ -280,12 +275,8 @@ async def test_thread_stop_during_llm_execution(monkeypatch):
         posted_messages.append(text)
         return {"ok": True, "ts": "12345.0004"}
 
-    monkeypatch.setattr(
-        "orchestration.agent_router.post_agent_response", mock_post_agent_response
-    )
-    monkeypatch.setattr(
-        "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
-    )
+    configure_post_agent_response(mock_post_agent_response)
+    configure_fetch_thread_history(AsyncMock(return_value=[]))
 
     thread_key = ("C123", "12345.0004")
 
@@ -300,9 +291,7 @@ async def test_thread_stop_during_llm_execution(monkeypatch):
         thread_state_manager.request_stop("C123", "12345.0004")
         return mock_response
 
-    monkeypatch.setattr(
-        "litellm.acompletion", make_mock_acompletion(handle_with_stop_injected)
-    )
+    configure_llm_completion_fn(make_mock_acompletion(handle_with_stop_injected))
 
     await process_and_respond(
         channel_id="C123",
@@ -515,7 +504,7 @@ async def test_interrupt_thread_discussion_clears_state_and_cancels_task():
 
 
 @pytest.mark.anyio
-async def test_interruption_during_llm_execution_aborts_superseded_turn(monkeypatch):
+async def test_interruption_during_llm_execution_aborts_superseded_turn():
     """
     Scenario: Agent 1 of Turn 1 is in the middle of litellm call.
     User submits a new prompt in that thread.
@@ -536,12 +525,8 @@ async def test_interruption_during_llm_execution_aborts_superseded_turn(monkeypa
         posted_messages.append({"text": text, "username": username})
         return {"ok": True, "ts": "12345.1003"}
 
-    monkeypatch.setattr(
-        "orchestration.agent_router.post_agent_response", mock_post_agent_response
-    )
-    monkeypatch.setattr(
-        "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
-    )
+    configure_post_agent_response(mock_post_agent_response)
+    configure_fetch_thread_history(AsyncMock(return_value=[]))
 
     mock_choice_1 = MagicMock()
     mock_choice_1.message.content = "Turn 1 answer to old query. /[agent-10011]"
@@ -553,7 +538,7 @@ async def test_interruption_during_llm_execution_aborts_superseded_turn(monkeypa
         thread_state_manager.interrupt_discussion("C_INTERRUPT_LLM", "12345.1003")
         return mock_resp_1
 
-    monkeypatch.setattr("litellm.acompletion", make_mock_acompletion(handle_turn_1))
+    configure_llm_completion_fn(make_mock_acompletion(handle_turn_1))
 
     # Run Turn 1
     res1 = await process_and_respond(
@@ -573,7 +558,7 @@ async def test_interruption_during_llm_execution_aborts_superseded_turn(monkeypa
     mock_choice_2.message.tool_calls = None
     mock_resp_2 = MagicMock(choices=[mock_choice_2], usage=None)
 
-    monkeypatch.setattr("litellm.acompletion", make_mock_acompletion(lambda *a, **k: mock_resp_2))
+    configure_llm_completion_fn(make_mock_acompletion(lambda *a, **k: mock_resp_2))
 
     await process_and_respond(
         channel_id="C_INTERRUPT_LLM",
@@ -589,7 +574,7 @@ async def test_interruption_during_llm_execution_aborts_superseded_turn(monkeypa
 
 
 @pytest.mark.anyio
-async def test_interruption_during_pacing_delay_aborts_superseded_turn(monkeypatch):
+async def test_interruption_during_pacing_delay_aborts_superseded_turn():
     """
     Scenario: Agent 1 completes LLM and is during the 3-second pacing delay.
     User submits a new prompt in that thread.
@@ -608,27 +593,21 @@ async def test_interruption_during_pacing_delay_aborts_superseded_turn(monkeypat
         posted_messages.append({"text": text, "username": username})
         return {"ok": True, "ts": "12345.1004"}
 
-    monkeypatch.setattr(
-        "orchestration.agent_router.post_agent_response", mock_post_agent_response
-    )
-    monkeypatch.setattr(
-        "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
-    )
+    configure_post_agent_response(mock_post_agent_response)
+    configure_fetch_thread_history(AsyncMock(return_value=[]))
 
     mock_choice = MagicMock()
     mock_choice.message.content = "Turn 1 answer before sleep. /[agent-10011]"
     mock_choice.message.tool_calls = None
     mock_resp = MagicMock(choices=[mock_choice], usage=None)
 
-    monkeypatch.setattr("litellm.acompletion", make_mock_acompletion(lambda *a, **k: mock_resp))
+    configure_llm_completion_fn(make_mock_acompletion(lambda *a, **k: mock_resp))
 
     # Interrupt injected during asyncio.sleep in router
     async def mock_sleep_with_interrupt(duration):
         thread_state_manager.interrupt_discussion("C_INTERRUPT_SLEEP", "12345.1004")
 
-    monkeypatch.setattr(
-        "orchestration.agent_router.asyncio.sleep", mock_sleep_with_interrupt
-    )
+    configure_router_sleep_fn(mock_sleep_with_interrupt)
 
     res = await process_and_respond(
         channel_id="C_INTERRUPT_SLEEP",
@@ -643,7 +622,7 @@ async def test_interruption_during_pacing_delay_aborts_superseded_turn(monkeypat
 
 
 @pytest.mark.anyio
-async def test_process_and_respond_history_limit_subsequent_bot_rounds(monkeypatch):
+async def test_process_and_respond_history_limit_subsequent_bot_rounds():
     """
     Scenario: Following the previous prompt (/history 2), a bot trigger occurs (e.g. Mistral_LegalAdvisor).
     Expected:
@@ -669,10 +648,7 @@ async def test_process_and_respond_history_limit_subsequent_bot_rounds(monkeypat
         },
     ]
 
-    monkeypatch.setattr(
-        "orchestration.agent_router.fetch_thread_history",
-        AsyncMock(return_value=mock_history),
-    )
+    configure_fetch_thread_history(AsyncMock(return_value=mock_history))
 
     captured_messages = []
 
@@ -683,15 +659,12 @@ async def test_process_and_respond_history_limit_subsequent_bot_rounds(monkeypat
 
     def handle_turn(*args, **kwargs):
         msgs = kwargs.get("messages") or []
-        if msgs:
+        if msgs and not captured_messages:
             captured_messages.extend(msgs)
         return mock_resp
 
-    monkeypatch.setattr("litellm.acompletion", make_mock_acompletion(handle_turn))
-    monkeypatch.setattr(
-        "orchestration.agent_router.post_agent_response",
-        AsyncMock(return_value={"ok": True, "ts": "12345.3003"}),
-    )
+    configure_llm_completion_fn(make_mock_acompletion(handle_turn))
+    configure_post_agent_response(AsyncMock(return_value={"ok": True, "ts": "12345.3003"}))
 
     await process_and_respond(
         channel_id="C_HIST_TEST_2",
@@ -721,7 +694,7 @@ async def test_process_and_respond_history_limit_subsequent_bot_rounds(monkeypat
 
 
 @pytest.mark.anyio
-async def test_process_and_respond_subsequent_prompt_resets_full_history(monkeypatch):
+async def test_process_and_respond_subsequent_prompt_resets_full_history():
     """
     Scenario: In a thread that previously had /history 2, a new user prompt is submitted WITHOUT /history.
     Expected:
@@ -741,10 +714,7 @@ async def test_process_and_respond_subsequent_prompt_resets_full_history(monkeyp
         {"role": "user", "content": "<@U12345> Tell me more"},
     ]
 
-    monkeypatch.setattr(
-        "orchestration.agent_router.fetch_thread_history",
-        AsyncMock(return_value=mock_history),
-    )
+    configure_fetch_thread_history(AsyncMock(return_value=mock_history))
 
     captured_messages = []
 
@@ -755,15 +725,12 @@ async def test_process_and_respond_subsequent_prompt_resets_full_history(monkeyp
 
     def handle_turn(*args, **kwargs):
         msgs = kwargs.get("messages") or []
-        if msgs:
+        if msgs and not captured_messages:
             captured_messages.extend(msgs)
         return mock_resp
 
-    monkeypatch.setattr("litellm.acompletion", make_mock_acompletion(handle_turn))
-    monkeypatch.setattr(
-        "orchestration.agent_router.post_agent_response",
-        AsyncMock(return_value={"ok": True, "ts": "12345.4002"}),
-    )
+    configure_llm_completion_fn(make_mock_acompletion(handle_turn))
+    configure_post_agent_response(AsyncMock(return_value={"ok": True, "ts": "12345.4002"}))
 
     await process_and_respond(
         channel_id="C_HIST_TEST_RESET",

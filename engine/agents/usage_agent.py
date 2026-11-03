@@ -654,6 +654,45 @@ class ThreadUsageTracker:
 # Default singleton instance
 usage_tracker = ThreadUsageTracker()
 
+_record_thread_tokens_override: Any = None
+_calculate_thread_costs_override: Any = None
+_trigger_usage_update_override: Any = None
+
+
+def configure_record_thread_tokens(fn: Any) -> None:
+    """Configures an in-memory record_thread_tokens override for tests and DI."""
+    global _record_thread_tokens_override
+    _record_thread_tokens_override = fn
+
+
+def reset_record_thread_tokens() -> None:
+    """Resets the in-memory record_thread_tokens override."""
+    global _record_thread_tokens_override
+    _record_thread_tokens_override = None
+
+
+def configure_calculate_thread_costs(fn: Any) -> None:
+    """Configures an in-memory calculate_thread_costs override for tests and DI."""
+    global _calculate_thread_costs_override
+    _calculate_thread_costs_override = fn
+
+
+def reset_calculate_thread_costs() -> None:
+    """Resets the in-memory calculate_thread_costs override."""
+    global _calculate_thread_costs_override
+    _calculate_thread_costs_override = None
+
+
+def configure_trigger_usage_update(fn: Any) -> None:
+    """Configures an in-memory trigger_usage_update override for tests and DI."""
+    global _trigger_usage_update_override
+    _trigger_usage_update_override = fn
+
+
+def reset_trigger_usage_update() -> None:
+    """Resets the in-memory trigger_usage_update override."""
+    global _trigger_usage_update_override
+    _trigger_usage_update_override = None
 
 
 def record_thread_tokens(
@@ -664,6 +703,15 @@ def record_thread_tokens(
     completion_tokens: int,
     channel_name: str | None = None,
 ) -> dict[str, Any]:
+    if _record_thread_tokens_override is not None:
+        return _record_thread_tokens_override(
+            channel_id=channel_id,
+            thread_ts=thread_ts,
+            model_name=model_name,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            channel_name=channel_name,
+        )
     return usage_tracker.record_tokens(
         channel_id=channel_id,
         thread_ts=thread_ts,
@@ -675,6 +723,8 @@ def record_thread_tokens(
 
 
 def calculate_thread_costs(channel_id: str, thread_ts: str) -> dict[str, Any]:
+    if _calculate_thread_costs_override is not None:
+        return _calculate_thread_costs_override(channel_id, thread_ts)
     return usage_tracker.calculate_thread_costs(channel_id, thread_ts)
 
 
@@ -705,6 +755,8 @@ def trigger_usage_update(
     thread_ts: str,
     is_completed: bool = False,
 ) -> asyncio.Task | None:
+    if _trigger_usage_update_override is not None:
+        return _trigger_usage_update_override(channel_id, thread_ts, is_completed=is_completed)
     return usage_tracker.trigger_update(
         channel_id, thread_ts, is_completed=is_completed
     )

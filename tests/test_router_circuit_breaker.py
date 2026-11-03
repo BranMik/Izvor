@@ -2,10 +2,17 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from conftest import make_mock_acompletion
-
-from orchestration import agent_router
-from orchestration.agent_router import process_and_respond
+from conftest import async_noop_sleep, make_mock_acompletion
+from core.llm_utils import configure_llm_completion_fn
+from agents import (
+    configure_calculate_thread_costs,
+    configure_trigger_thread_notes_update,
+    configure_trigger_usage_update,
+)
+from orchestration.agent_router import (
+    configure_router_sleep_fn,
+    process_and_respond,
+)
 from orchestration.agent_settings import (
     reset_enabled_agents,
     set_fixed_config,
@@ -20,16 +27,17 @@ from orchestration.app_settings import (
     set_circuit_breaker_threshold,
 )
 from orchestration.thread_state import thread_state_manager
+from services.slack import configure_fetch_thread_history, configure_post_agent_response
 
 
 @pytest.fixture(autouse=True)
-def setup_test_environment(monkeypatch):
+def setup_test_environment():
     reset_enabled_agents()
     set_orchestration_mode("sandwich")
     set_sandwich_config([], [])
     set_fixed_config([])
     thread_state_manager.reset_all()
-    monkeypatch.setattr(agent_router.asyncio, "sleep", AsyncMock(return_value=None))
+    configure_router_sleep_fn(async_noop_sleep)
 
 
 def test_circuit_breaker_configuration_methods():
@@ -53,7 +61,7 @@ def test_circuit_breaker_configuration_methods():
 
 
 @pytest.mark.anyio
-async def test_circuit_breaker_triggers_when_threshold_exceeded(monkeypatch):
+async def test_circuit_breaker_triggers_when_threshold_exceeded():
     thread_state_manager.discussion.remaining_agents_map.clear()
     channel_id = "C_CB_TRIGGER"
     thread_ts = "123456789.9001"
@@ -64,10 +72,7 @@ async def test_circuit_breaker_triggers_when_threshold_exceeded(monkeypatch):
     set_circuit_breaker_threshold(0.50)
 
     # Mock calculate_thread_costs to return $0.75 (> $0.50)
-    monkeypatch.setattr(
-        "orchestration.agent_router.calculate_thread_costs",
-        lambda ch, ts: {"grand_total_cost_usd": 0.75},
-    )
+    configure_calculate_thread_costs(lambda ch, ts: {"grand_total_cost_usd": 0.75})
 
     posted_messages = []
 
@@ -100,18 +105,10 @@ async def test_circuit_breaker_triggers_when_threshold_exceeded(monkeypatch):
         if is_completed:
             usage_updated = True
 
-    monkeypatch.setattr(
-        "orchestration.agent_router.post_agent_response", mock_post_agent_response
-    )
-    monkeypatch.setattr(
-        "litellm.acompletion", mock_execute_llm
-    )
-    monkeypatch.setattr(
-        "orchestration.agent_router.trigger_thread_notes_update", mock_trigger_notes
-    )
-    monkeypatch.setattr(
-        "orchestration.agent_router.trigger_usage_update", mock_trigger_usage
-    )
+    configure_post_agent_response(mock_post_agent_response)
+    configure_llm_completion_fn(mock_execute_llm)
+    configure_trigger_thread_notes_update(mock_trigger_notes)
+    configure_trigger_usage_update(mock_trigger_usage)
 
     res = await process_and_respond(
         channel_id=channel_id,
@@ -134,9 +131,7 @@ async def test_circuit_breaker_triggers_when_threshold_exceeded(monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_circuit_breaker_allows_normal_response_when_below_threshold(
-    monkeypatch,
-):
+async def test_circuit_breaker_allows_normal_response_when_below_threshold():
     thread_state_manager.discussion.remaining_agents_map.clear()
     channel_id = "C_CB_BELOW"
     thread_ts = "123456789.9002"
@@ -145,10 +140,7 @@ async def test_circuit_breaker_allows_normal_response_when_below_threshold(
     set_circuit_breaker_threshold(1.00)
 
     # Cost is $0.20 (< $1.00)
-    monkeypatch.setattr(
-        "orchestration.agent_router.calculate_thread_costs",
-        lambda ch, ts: {"grand_total_cost_usd": 0.20},
-    )
+    configure_calculate_thread_costs(lambda ch, ts: {"grand_total_cost_usd": 0.20})
 
     mock_choice = MagicMock()
     mock_choice.message.content = "Normal agent response [agent-10008]"
@@ -168,15 +160,9 @@ async def test_circuit_breaker_allows_normal_response_when_below_threshold(
         posted_messages.append({"text": text, "username": username})
         return {"ok": True, "ts": "12345.9999"}
 
-    monkeypatch.setattr(
-        "orchestration.agent_router.post_agent_response", mock_post_agent_response
-    )
-    monkeypatch.setattr(
-        "litellm.acompletion", mock_execute_llm
-    )
-    monkeypatch.setattr(
-        "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
-    )
+    configure_post_agent_response(mock_post_agent_response)
+    configure_llm_completion_fn(mock_execute_llm)
+    configure_fetch_thread_history(AsyncMock(return_value=[]))
 
     res = await process_and_respond(
         channel_id=channel_id,
@@ -192,7 +178,7 @@ async def test_circuit_breaker_allows_normal_response_when_below_threshold(
 
 
 @pytest.mark.anyio
-async def test_circuit_breaker_allows_normal_response_when_disabled(monkeypatch):
+async def test_circuit_breaker_allows_normal_response_when_disabled():
     thread_state_manager.discussion.remaining_agents_map.clear()
     channel_id = "C_CB_DISABLED"
     thread_ts = "123456789.9003"
@@ -201,10 +187,7 @@ async def test_circuit_breaker_allows_normal_response_when_disabled(monkeypatch)
     set_circuit_breaker_threshold(0.10)
 
     # Cost is $5.00 (> $0.10), but circuit breaker is disabled
-    monkeypatch.setattr(
-        "orchestration.agent_router.calculate_thread_costs",
-        lambda ch, ts: {"grand_total_cost_usd": 5.00},
-    )
+    configure_calculate_thread_costs(lambda ch, ts: {"grand_total_cost_usd": 5.00})
 
     mock_choice = MagicMock()
     mock_choice.message.content = "Normal response despite high cost"
@@ -224,15 +207,9 @@ async def test_circuit_breaker_allows_normal_response_when_disabled(monkeypatch)
         posted_messages.append({"text": text, "username": username})
         return {"ok": True, "ts": "12345.9999"}
 
-    monkeypatch.setattr(
-        "orchestration.agent_router.post_agent_response", mock_post_agent_response
-    )
-    monkeypatch.setattr(
-        "litellm.acompletion", mock_execute_llm
-    )
-    monkeypatch.setattr(
-        "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
-    )
+    configure_post_agent_response(mock_post_agent_response)
+    configure_llm_completion_fn(mock_execute_llm)
+    configure_fetch_thread_history(AsyncMock(return_value=[]))
 
     try:
         res = await process_and_respond(
