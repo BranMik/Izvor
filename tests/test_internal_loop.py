@@ -41,10 +41,33 @@ async def test_internal_loop_multi_agent_custom_flow(monkeypatch):
     turn_counter = 0
     captured_contexts = []
 
-    async def mock_llm_run(func, *args, **kwargs):
+    async def mock_llm_run(*args, **kwargs):
+        messages = kwargs.get("messages") or (args[0].get("messages") if args and isinstance(args[0], dict) else (args[2] if len(args) > 2 else []))
+        sys_content = ""
+        for m in messages:
+            if isinstance(m, dict) and m.get("role") == "system":
+                sys_content += str(m.get("content", ""))
+
+        if "language_detector" in sys_content.lower() or "language identification" in sys_content.lower():
+            m = MagicMock()
+            m.message.content = "English"
+            m.message.tool_calls = None
+            return MagicMock(choices=[m], usage=None)
+
+        if "intent_extractor" in sys_content.lower() or "intent" in sys_content.lower():
+            m = MagicMock()
+            m.message.content = '{"detected_language": "English", "directives": {}}'
+            m.message.tool_calls = None
+            return MagicMock(choices=[m], usage=None)
+
+        if "internalrevisor" in sys_content.lower() or "revisor" in sys_content.lower():
+            m = MagicMock()
+            m.message.content = "VERDICT: APPROVED"
+            m.message.tool_calls = None
+            return MagicMock(choices=[m], usage=None)
+
         nonlocal turn_counter
         turn_counter += 1
-        messages = kwargs.get("messages") or (args[0].get("messages") if args and isinstance(args[0], dict) else (args[2] if len(args) > 2 else []))
         captured_contexts.append(list(messages))
 
         mock_choice = MagicMock()
@@ -56,7 +79,7 @@ async def test_internal_loop_multi_agent_custom_flow(monkeypatch):
         mock_response = MagicMock(choices=[mock_choice], usage=None)
         return mock_response
 
-    monkeypatch.setattr("orchestration.agent_router.execute_llm_with_retry", mock_llm_run)
+    monkeypatch.setattr("litellm.acompletion", mock_llm_run)
 
     # Run internal discussion loop
     await orchestrate_discussion(
@@ -111,7 +134,31 @@ async def test_internal_loop_user_stop_interruption(monkeypatch):
 
     turn_counter = 0
 
-    async def mock_llm_run(func, *args, **kwargs):
+    async def mock_llm_run(*args, **kwargs):
+        messages = kwargs.get("messages") or (args[0].get("messages") if args and isinstance(args[0], dict) else (args[2] if len(args) > 2 else []))
+        sys_content = ""
+        for m in messages:
+            if isinstance(m, dict) and m.get("role") == "system":
+                sys_content += str(m.get("content", ""))
+
+        if "language_detector" in sys_content.lower() or "language identification" in sys_content.lower():
+            m = MagicMock()
+            m.message.content = "English"
+            m.message.tool_calls = None
+            return MagicMock(choices=[m], usage=None)
+
+        if "intent_extractor" in sys_content.lower() or "intent" in sys_content.lower():
+            m = MagicMock()
+            m.message.content = '{"detected_language": "English", "directives": {}}'
+            m.message.tool_calls = None
+            return MagicMock(choices=[m], usage=None)
+
+        if "internalrevisor" in sys_content.lower() or "revisor" in sys_content.lower():
+            m = MagicMock()
+            m.message.content = "VERDICT: APPROVED"
+            m.message.tool_calls = None
+            return MagicMock(choices=[m], usage=None)
+
         nonlocal turn_counter
         turn_counter += 1
         mock_choice = MagicMock()
@@ -122,7 +169,7 @@ async def test_internal_loop_user_stop_interruption(monkeypatch):
             thread_state_manager.request_stop(channel_id, thread_ts)
         return MagicMock(choices=[mock_choice], usage=None)
 
-    monkeypatch.setattr("orchestration.agent_router.execute_llm_with_retry", mock_llm_run)
+    monkeypatch.setattr("litellm.acompletion", mock_llm_run)
 
     await orchestrate_discussion(
         channel_id=channel_id,

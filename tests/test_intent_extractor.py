@@ -255,7 +255,6 @@ async def test_sandwich_exclusion_and_bot_turn_not_stopped(monkeypatch):
         return active_turn_llm
 
     import litellm
-    monkeypatch.setattr(litellm, "completion", lambda **kwargs: mock_intent_resp)
     monkeypatch.setattr(litellm, "acompletion", mock_acompletion)
 
     thread_key = ("C_TEST", "77777.0001")

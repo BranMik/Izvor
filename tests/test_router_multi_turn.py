@@ -2,6 +2,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from conftest import make_mock_acompletion
+
 from orchestration import agent_router
 from orchestration.agent_router import process_and_respond
 from orchestration.agent_settings import (
@@ -69,10 +71,7 @@ async def test_scenario_2_multiple_agents_custom_flow(monkeypatch):
     mock_choice_1.message.tool_calls = None
     mock_response_1 = MagicMock(choices=[mock_choice_1], usage=None)
 
-    async def mock_run_1(func, *args, **kwargs):
-        return mock_response_1
-
-    monkeypatch.setattr("orchestration.agent_router.execute_llm_with_retry", mock_run_1)
+    monkeypatch.setattr("litellm.acompletion", make_mock_acompletion(lambda *a, **k: mock_response_1))
 
     await process_and_respond(
         channel_id="C123",
@@ -92,12 +91,12 @@ async def test_scenario_2_multiple_agents_custom_flow(monkeypatch):
     mock_choice_2.message.tool_calls = None
     mock_response_2 = MagicMock(choices=[mock_choice_2], usage=None)
 
-    async def mock_run_2(func, *args, **kwargs):
-        captured_messages = kwargs.get("messages") or (args[0].get("messages") if args and isinstance(args[0], dict) else (args[2] if len(args) > 2 else []))
-        mock_run_2.captured_user_prompt = captured_messages[-1]["content"]
+    def handle_turn_2(*args, **kwargs):
+        captured_messages = kwargs.get("messages") or []
+        handle_turn_2.captured_user_prompt = captured_messages[-1]["content"]
         return mock_response_2
 
-    monkeypatch.setattr("orchestration.agent_router.execute_llm_with_retry", mock_run_2)
+    monkeypatch.setattr("litellm.acompletion", make_mock_acompletion(handle_turn_2))
 
     await process_and_respond(
         channel_id="C123",
@@ -107,7 +106,7 @@ async def test_scenario_2_multiple_agents_custom_flow(monkeypatch):
     )
 
     # Last custom agent cleanly terminates
-    assert "CRITICAL CONSTRAINT" in mock_run_2.captured_user_prompt
+    assert "CRITICAL CONSTRAINT" in handle_turn_2.captured_user_prompt
     assert thread_key not in thread_state_manager.discussion.custom_flow_threads
     assert thread_key not in thread_state_manager.discussion.remaining_agents_map
     assert "/[agent-10008]" not in posted_messages[1]
@@ -145,10 +144,7 @@ async def test_scenario_3_no_agent_tagged_default_flow(monkeypatch):
     mock_choice_1.message.tool_calls = None
     mock_response_1 = MagicMock(choices=[mock_choice_1], usage=None)
 
-    async def mock_run_1(func, *args, **kwargs):
-        return mock_response_1
-
-    monkeypatch.setattr("orchestration.agent_router.execute_llm_with_retry", mock_run_1)
+    monkeypatch.setattr("litellm.acompletion", make_mock_acompletion(lambda *a, **k: mock_response_1))
 
     await process_and_respond(
         channel_id="C123",
@@ -174,10 +170,7 @@ async def test_scenario_3_no_agent_tagged_default_flow(monkeypatch):
     mock_choice_2.message.tool_calls = None
     mock_response_2 = MagicMock(choices=[mock_choice_2], usage=None)
 
-    async def mock_run_2(func, *args, **kwargs):
-        return mock_response_2
-
-    monkeypatch.setattr("orchestration.agent_router.execute_llm_with_retry", mock_run_2)
+    monkeypatch.setattr("litellm.acompletion", make_mock_acompletion(lambda *a, **k: mock_response_2))
 
     await process_and_respond(
         channel_id="C123",
@@ -198,10 +191,7 @@ async def test_scenario_3_no_agent_tagged_default_flow(monkeypatch):
     mock_choice_3.message.tool_calls = None
     mock_response_3 = MagicMock(choices=[mock_choice_3], usage=None)
 
-    async def mock_run_3(func, *args, **kwargs):
-        return mock_response_3
-
-    monkeypatch.setattr("orchestration.agent_router.execute_llm_with_retry", mock_run_3)
+    monkeypatch.setattr("litellm.acompletion", make_mock_acompletion(lambda *a, **k: mock_response_3))
 
     await process_and_respond(
         channel_id="C123",
@@ -220,10 +210,7 @@ async def test_scenario_3_no_agent_tagged_default_flow(monkeypatch):
     mock_choice_4.message.tool_calls = None
     mock_response_4 = MagicMock(choices=[mock_choice_4], usage=None)
 
-    async def mock_run_4(func, *args, **kwargs):
-        return mock_response_4
-
-    monkeypatch.setattr("orchestration.agent_router.execute_llm_with_retry", mock_run_4)
+    monkeypatch.setattr("litellm.acompletion", make_mock_acompletion(lambda *a, **k: mock_response_4))
 
     await process_and_respond(
         channel_id="C123",
@@ -242,9 +229,9 @@ def test_is_stop_command():
     assert is_stop_command("<@U12345> /stop") is True
     assert is_stop_command("<@U12345> /STOP!") is True
     assert is_stop_command("<@U12345> /Stop.") is True
-    assert is_stop_command("@CaiLogics Hub /stop") is True
-    assert is_stop_command("@CaiLogics Test /stop") is True
-    assert is_stop_command("@CaiLogics /stop") is True
+    assert is_stop_command("@Izvor Hub /stop") is True
+    assert is_stop_command("@Izvor Test /stop") is True
+    assert is_stop_command("@Izvor /stop") is True
     assert is_stop_command("@app_mention /stop") is True
     assert is_stop_command("[agent-10001] /stop") is True
     assert is_stop_command("/stop", is_mention_or_dm=True) is True
@@ -308,13 +295,13 @@ async def test_thread_stop_during_llm_execution(monkeypatch):
     mock_choice.message.tool_calls = None
     mock_response = MagicMock(choices=[mock_choice], usage=None)
 
-    async def mock_run_with_stop_injected(func, *args, **kwargs):
+    def handle_with_stop_injected(*args, **kwargs):
         # Simulate user posting stop command while LLM call is running in background
         thread_state_manager.request_stop("C123", "12345.0004")
         return mock_response
 
     monkeypatch.setattr(
-        "orchestration.agent_router.execute_llm_with_retry", mock_run_with_stop_injected
+        "litellm.acompletion", make_mock_acompletion(handle_with_stop_injected)
     )
 
     await process_and_respond(
@@ -561,12 +548,12 @@ async def test_interruption_during_llm_execution_aborts_superseded_turn(monkeypa
     mock_choice_1.message.tool_calls = None
     mock_resp_1 = MagicMock(choices=[mock_choice_1], usage=None)
 
-    async def mock_run_turn_1(func, *args, **kwargs):
+    def handle_turn_1(*args, **kwargs):
         # Simulate user interruption arriving while Turn 1 is waiting on LLM
         thread_state_manager.interrupt_discussion("C_INTERRUPT_LLM", "12345.1003")
         return mock_resp_1
 
-    monkeypatch.setattr("orchestration.agent_router.execute_llm_with_retry", mock_run_turn_1)
+    monkeypatch.setattr("litellm.acompletion", make_mock_acompletion(handle_turn_1))
 
     # Run Turn 1
     res1 = await process_and_respond(
@@ -586,10 +573,7 @@ async def test_interruption_during_llm_execution_aborts_superseded_turn(monkeypa
     mock_choice_2.message.tool_calls = None
     mock_resp_2 = MagicMock(choices=[mock_choice_2], usage=None)
 
-    async def mock_run_turn_2(func, *args, **kwargs):
-        return mock_resp_2
-
-    monkeypatch.setattr("orchestration.agent_router.execute_llm_with_retry", mock_run_turn_2)
+    monkeypatch.setattr("litellm.acompletion", make_mock_acompletion(lambda *a, **k: mock_resp_2))
 
     await process_and_respond(
         channel_id="C_INTERRUPT_LLM",
@@ -636,10 +620,7 @@ async def test_interruption_during_pacing_delay_aborts_superseded_turn(monkeypat
     mock_choice.message.tool_calls = None
     mock_resp = MagicMock(choices=[mock_choice], usage=None)
 
-    async def mock_run(func, *args, **kwargs):
-        return mock_resp
-
-    monkeypatch.setattr("orchestration.agent_router.execute_llm_with_retry", mock_run)
+    monkeypatch.setattr("litellm.acompletion", make_mock_acompletion(lambda *a, **k: mock_resp))
 
     # Interrupt injected during asyncio.sleep in router
     async def mock_sleep_with_interrupt(duration):
@@ -700,13 +681,13 @@ async def test_process_and_respond_history_limit_subsequent_bot_rounds(monkeypat
     mock_choice.message.tool_calls = None
     mock_resp = MagicMock(choices=[mock_choice], usage=None)
 
-    async def mock_run(func, *args, **kwargs):
-        msgs = kwargs.get("messages") or (args[0].get("messages") if args and isinstance(args[0], dict) else [])
+    def handle_turn(*args, **kwargs):
+        msgs = kwargs.get("messages") or []
         if msgs:
             captured_messages.extend(msgs)
         return mock_resp
 
-    monkeypatch.setattr("orchestration.agent_router.execute_llm_with_retry", mock_run)
+    monkeypatch.setattr("litellm.acompletion", make_mock_acompletion(handle_turn))
     monkeypatch.setattr(
         "orchestration.agent_router.post_agent_response",
         AsyncMock(return_value={"ok": True, "ts": "12345.3003"}),
@@ -772,13 +753,13 @@ async def test_process_and_respond_subsequent_prompt_resets_full_history(monkeyp
     mock_choice.message.tool_calls = None
     mock_resp = MagicMock(choices=[mock_choice], usage=None)
 
-    async def mock_run(func, *args, **kwargs):
-        msgs = kwargs.get("messages") or (args[0].get("messages") if args and isinstance(args[0], dict) else [])
+    def handle_turn(*args, **kwargs):
+        msgs = kwargs.get("messages") or []
         if msgs:
             captured_messages.extend(msgs)
         return mock_resp
 
-    monkeypatch.setattr("orchestration.agent_router.execute_llm_with_retry", mock_run)
+    monkeypatch.setattr("litellm.acompletion", make_mock_acompletion(handle_turn))
     monkeypatch.setattr(
         "orchestration.agent_router.post_agent_response",
         AsyncMock(return_value={"ok": True, "ts": "12345.4002"}),

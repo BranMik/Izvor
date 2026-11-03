@@ -1,5 +1,7 @@
 import copy
+import inspect
 import shutil
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -350,3 +352,53 @@ def isolate_workspace_tests_for_tests():
                     f.unlink(missing_ok=True)
                 except OSError:
                     pass
+
+
+def make_mock_acompletion(agent_turn_handler=None, default_content="Response text"):
+    """
+    Creates an AsyncMock for litellm.acompletion that automatically handles
+    system agent calls (Language Detector, Intent Extractor, Internal Revisor)
+    while routing debate agent calls to `agent_turn_handler` or returning a standard mock choice.
+    """
+    async def _mock_acompletion(*args, **kwargs):
+        messages = kwargs.get("messages") or (
+            args[0].get("messages")
+            if args and isinstance(args[0], dict)
+            else (args[2] if len(args) > 2 else [])
+        )
+        sys_content = ""
+        for m in messages:
+            if isinstance(m, dict) and m.get("role") == "system":
+                sys_content += str(m.get("content", ""))
+
+        if "language_detector" in sys_content.lower() or "language identification" in sys_content.lower():
+            m = MagicMock()
+            m.message.content = "English"
+            m.message.tool_calls = None
+            return MagicMock(choices=[m], usage=None)
+
+        if "intent_extractor" in sys_content.lower() or "intent" in sys_content.lower():
+            m = MagicMock()
+            m.message.content = '{"detected_language": "English", "directives": {}}'
+            m.message.tool_calls = None
+            return MagicMock(choices=[m], usage=None)
+
+        if "internalrevisor" in sys_content.lower() or "revisor" in sys_content.lower():
+            m = MagicMock()
+            m.message.content = "VERDICT: APPROVED"
+            m.message.tool_calls = None
+            return MagicMock(choices=[m], usage=None)
+
+        if agent_turn_handler is not None:
+            res = agent_turn_handler(*args, **kwargs)
+            if inspect.isawaitable(res):
+                return await res
+            return res
+
+        m = MagicMock()
+        m.message.content = default_content
+        m.message.tool_calls = None
+        return MagicMock(choices=[m], usage=None)
+
+    return _mock_acompletion
+

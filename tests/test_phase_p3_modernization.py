@@ -15,15 +15,13 @@ from prompts.builder import is_short_output_agent, is_system_agent
 
 
 def test_app_mention_regex_routing():
-    """Verify regex in adapters.slack.events recognizes both @Izvor and @CaiLogics."""
-    import re
+    """Verify is_explicit_app_mention in adapters.slack.events recognizes @Izvor and excludes plain common nouns."""
+    from adapters.slack.events import is_explicit_app_mention
 
-    mention_pattern = re.compile(r"@?(?:Izvor|CaiLogics)\b", re.IGNORECASE)
-    assert bool(mention_pattern.search("@Izvor help me")) is True
-    assert bool(mention_pattern.search("Izvor what is the status")) is True
-    assert bool(mention_pattern.search("@CaiLogics help me")) is True
-    assert bool(mention_pattern.search("CaiLogics status")) is True
-    assert bool(mention_pattern.search("Unrelated text")) is False
+    assert is_explicit_app_mention("@Izvor help me") is True
+    assert is_explicit_app_mention("Izvor what is the status") is False
+    assert is_explicit_app_mention("Ovo je glavni izvor prihoda") is False
+    assert is_explicit_app_mention("Unrelated text") is False
 
 
 def test_prompt_builder_dynamic_ssot(monkeypatch):
