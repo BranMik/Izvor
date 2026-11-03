@@ -24,16 +24,29 @@ def test_app_mention_regex_routing():
     assert is_explicit_app_mention("Unrelated text") is False
 
 
-def test_prompt_builder_dynamic_ssot(monkeypatch):
+def test_prompt_builder_dynamic_ssot():
     """Verify is_short_output_agent and is_system_agent query AgentSettingsManager dynamically."""
-    # Test short output dynamic query
-    monkeypatch.setattr(settings_manager, "get_agent", lambda k: {"is_short_output": True} if k == "dynamic-short" else {})
-    assert is_short_output_agent("dynamic-short") is True
-    assert is_short_output_agent("unknown-long") is False
+    orig_agents = dict(settings_manager.agents_config)
+    orig_system = dict(settings_manager.system_agents_config)
+    try:
+        # Test short output dynamic query via config injection
+        settings_manager.agents_config = {
+            **orig_agents,
+            "dynamic-short": {"is_short_output": True},
+            "unknown-long": {"is_short_output": False},
+        }
+        assert is_short_output_agent("dynamic-short") is True
+        assert is_short_output_agent("unknown-long") is False
 
-    # Test system agent dynamic query
-    monkeypatch.setattr(settings_manager, "is_system_agent", lambda k: k == "dynamic-sys")
-    assert is_system_agent("dynamic-sys") is True
+        # Test system agent dynamic query via config injection
+        settings_manager.system_agents_config = {
+            **orig_system,
+            "dynamic-sys": {"agent_key": "dynamic-sys"},
+        }
+        assert is_system_agent("dynamic-sys") is True
+    finally:
+        settings_manager.agents_config = orig_agents
+        settings_manager.system_agents_config = orig_system
 
 
 def test_sandwich_orchestration_simplification():

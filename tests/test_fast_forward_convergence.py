@@ -193,8 +193,9 @@ def test_slack_app_home_toggle_interactivity_handler(monkeypatch):
     import json
     from adapters.slack.interactivity import handle_slack_interactivity
     from fastapi import BackgroundTasks, Request
+    from core.config import set_admin_slack_user_ids_override
 
-    monkeypatch.setenv("SLACK_ADMIN_USER_IDS", "U_ADMIN_123")
+    set_admin_slack_user_ids_override("U_ADMIN_123")
     monkeypatch.setattr(
         "adapters.slack.interactivity.verify_slack_signature",
         lambda *args, **kwargs: True,
@@ -248,7 +249,10 @@ def test_slack_app_home_toggle_interactivity_handler(monkeypatch):
 
         assert is_convergence_fast_forward_enabled() is True
 
-    asyncio.run(_run())
+    try:
+        asyncio.run(_run())
+    finally:
+        set_admin_slack_user_ids_override(None)
 
 
 def test_consecutive_threshold_three_and_sceptic_early_kickoff_speech():

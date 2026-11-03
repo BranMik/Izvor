@@ -49,12 +49,14 @@ def _bootstrap_dotenv(env_file: Path) -> None:
 _bootstrap_dotenv(PROJECT_ROOT / ".env")
 
 
-def _resolve_env_path(env_var: str, default: Path) -> Path:
+def _resolve_env_path(env_var: str, default: Path, env: dict[str, str] | None = None) -> Path:
     """
     Resolves an environment variable override to a Path.
     If the override path is relative, it is anchored to PROJECT_ROOT rather than process CWD.
+    Accepts an optional env mapping for direct test dependency injection without process mutations.
     """
-    raw = os.getenv(env_var, "").strip()
+    source = os.environ if env is None else env
+    raw = source.get(env_var, "").strip()
     if not raw:
         return default
     p = Path(raw)
@@ -121,8 +123,19 @@ THREAD_NOTES_DIR = _resolve_env_path("IZVOR_THREAD_NOTES_DIR", AGENTS_RESOURCES_
 SYSTEM_RESOURCES_DIR = _resolve_env_path("IZVOR_SYSTEM_RESOURCES_DIR", PROJECT_ROOT / "system_resources")
 
 
+_downloads_dir_override: Path | None = None
+
+
+def set_downloads_dir_override(path: Path | None) -> None:
+    """Configures or clears an in-memory downloads directory override for test isolation."""
+    global _downloads_dir_override
+    _downloads_dir_override = path
+
+
 def get_downloads_dir() -> Path:
-    """Dynamically resolves the active downloads directory taking IZVOR_DOWNLOADS_DIR overrides into account."""
+    """Dynamically resolves the active downloads directory taking in-memory overrides and IZVOR_DOWNLOADS_DIR into account."""
+    if _downloads_dir_override is not None:
+        return _downloads_dir_override
     return _resolve_env_path("IZVOR_DOWNLOADS_DIR", DATA_DIR / "downloads")
 
 
@@ -180,4 +193,5 @@ __all__ = [
     "_resolve_env_path",
     "get_downloads_dir",
     "get_pricing_cache_file",
+    "set_downloads_dir_override",
 ]

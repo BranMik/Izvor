@@ -40,42 +40,47 @@ def test_tkt_701_sqlite_auto_initialization(tmp_path):
     assert "thread_context" in tables
 
 
-def test_tkt_702_spend_ledger_unification_and_preservation(tmp_path, monkeypatch):
+def test_tkt_702_spend_ledger_unification_and_preservation(tmp_path):
     """
     TKT-702: Verify record_thread_tokens records spend to SQLite spend_ledger,
     and clear_session does NOT delete historical spend records.
     """
+    from core.database import db_manager
+
     test_db = tmp_path / "spend_test.db"
-    monkeypatch.setenv("IZVOR_DB_PATH", str(test_db))
+    db_manager.configure_paths(db_path=test_db)
 
-    circuit_breaker = SpendGovernance()
+    try:
+        circuit_breaker = SpendGovernance()
 
-    # 1. Record usage directly via record_thread_tokens
-    with patch("pipeline.spend_governance.spend_governance", circuit_breaker):
-        record_thread_tokens(
-            channel_id="C_SPEND_1",
-            thread_ts="1700000000.100",
-            model_name="gemini/gemini-2.5-flash",
-            prompt_tokens=1000,
-            completion_tokens=500,
-        )
+        # 1. Record usage directly via record_thread_tokens
+        with patch("pipeline.spend_governance.spend_governance", circuit_breaker):
+            record_thread_tokens(
+                channel_id="C_SPEND_1",
+                thread_ts="1700000000.100",
+                model_name="gemini/gemini-2.5-flash",
+                prompt_tokens=1000,
+                completion_tokens=500,
+            )
 
-    # Check that spend_ledger has 1 record
-    with get_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT COUNT(*) FROM spend_ledger WHERE channel_id = 'C_SPEND_1' AND thread_ts = '1700000000.100';")
-        count = cursor.fetchone()[0]
-    assert count == 1
+        # Check that spend_ledger has 1 record
+        with get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM spend_ledger WHERE channel_id = 'C_SPEND_1' AND thread_ts = '1700000000.100';")
+            count = cursor.fetchone()[0]
+        assert count == 1
 
-    # 2. Clear session (e.g. after round or sequence resumption)
-    circuit_breaker.clear_session("C_SPEND_1:1700000000.100")
+        # 2. Clear session (e.g. after round or sequence resumption)
+        circuit_breaker.clear_session("C_SPEND_1:1700000000.100")
 
-    # Historical spend records must NOT be deleted
-    with get_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT COUNT(*) FROM spend_ledger WHERE channel_id = 'C_SPEND_1' AND thread_ts = '1700000000.100';")
-        count_after = cursor.fetchone()[0]
-    assert count_after == 1
+        # Historical spend records must NOT be deleted
+        with get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM spend_ledger WHERE channel_id = 'C_SPEND_1' AND thread_ts = '1700000000.100';")
+            count_after = cursor.fetchone()[0]
+        assert count_after == 1
+    finally:
+        db_manager.reset_paths()
 
 
 def test_tkt_703_mcp_tool_dynamic_thread_skill_authorization():

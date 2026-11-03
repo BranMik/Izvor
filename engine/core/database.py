@@ -263,6 +263,17 @@ class DatabaseManager:
             return self._custom_db_path
         return DB_PATH
 
+    def configure_paths(self, db_path: Path | None = None) -> None:
+        """Configures or resets the database path for test isolation without global monkeypatching."""
+        self.close_all_connections()
+        self._custom_db_path = db_path
+        if db_path is not None:
+            self.init_db(db_path)
+
+    def reset_paths(self) -> None:
+        """Resets the custom database path back to the canonical default."""
+        self.configure_paths(None)
+
     def _evict_dead_thread_connections(self) -> None:
         """Evicts and closes SQLite connections belonging to terminated threads."""
         active_thread_ids = {t.ident for t in threading.enumerate()}

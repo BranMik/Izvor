@@ -82,8 +82,11 @@ async def test_directive_parser_grant_skill_trailing_text_ignored():
 
 
 @pytest.fixture(autouse=True)
-def configure_admin_env(monkeypatch):
-    monkeypatch.setenv("SLACK_ADMIN_USER_IDS", "U_ADMIN")
+def configure_admin_env():
+    from core.config import set_admin_slack_user_ids_override
+    set_admin_slack_user_ids_override("U_ADMIN")
+    yield
+    set_admin_slack_user_ids_override(None)
 
 
 @pytest.mark.anyio

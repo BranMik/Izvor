@@ -63,40 +63,37 @@ def test_api_endpoints_reject_invalid_credentials(client):
     assert r.json()["detail"] == "Incorrect username or password"
 
 
-def test_api_endpoints_accept_valid_credentials(client, monkeypatch):
+def test_api_endpoints_accept_valid_credentials(client):
     """Admin /api/* endpoints must succeed when valid Basic Auth credentials are provided."""
     test_user = "testadmin"
     test_pass = "secret123"
 
-    # Patch config and module globals in main
-    monkeypatch.setattr(config, "ADMIN_USERNAME", test_user)
-    monkeypatch.setattr(config, "ADMIN_PASSWORD", test_pass)
-    import main
-    monkeypatch.setattr(main, "ADMIN_USERNAME", test_user)
-    monkeypatch.setattr(main, "ADMIN_PASSWORD", test_pass)
+    config.set_admin_credentials_override(test_user, test_pass)
+    try:
+        good_creds = base64.b64encode(f"{test_user}:{test_pass}".encode()).decode("ascii")
+        headers = {"Authorization": f"Basic {good_creds}"}
 
-    good_creds = base64.b64encode(f"{test_user}:{test_pass}".encode()).decode("ascii")
-    headers = {"Authorization": f"Basic {good_creds}"}
+        r_health = client.get("/api/health", headers=headers)
+        assert r_health.status_code == 200
+        assert r_health.json()["status"] == "healthy"
+        assert r_health.json()["service"] == "Izvor Multi-Agent Hub"
+        assert "agents" in r_health.json()
+        assert isinstance(r_health.json()["agents"], list)
 
-    r_health = client.get("/api/health", headers=headers)
-    assert r_health.status_code == 200
-    assert r_health.json()["status"] == "healthy"
-    assert r_health.json()["service"] == "Izvor Multi-Agent Hub"
-    assert "agents" in r_health.json()
-    assert isinstance(r_health.json()["agents"], list)
+        r_skills = client.get("/api/skills", headers=headers)
+        assert r_skills.status_code == 200
+        assert "skills" in r_skills.json()
 
-    r_skills = client.get("/api/skills", headers=headers)
-    assert r_skills.status_code == 200
-    assert "skills" in r_skills.json()
+        r_status = client.get("/api/rag/status", headers=headers)
+        assert r_status.status_code == 200
+        assert r_status.json()["status"] == "ready"
 
-    r_status = client.get("/api/rag/status", headers=headers)
-    assert r_status.status_code == 200
-    assert r_status.json()["status"] == "ready"
-
-    r_audit = client.get("/api/audit/status", headers=headers)
-    assert r_audit.status_code == 200
-    assert "valid" in r_audit.json()
-    assert "total_records" in r_audit.json()
+        r_audit = client.get("/api/audit/status", headers=headers)
+        assert r_audit.status_code == 200
+        assert "valid" in r_audit.json()
+        assert "total_records" in r_audit.json()
+    finally:
+        config.set_admin_credentials_override(None, None)
 
 
 def test_trigger_rag_reconciliation_audit_event(client, monkeypatch):
@@ -106,30 +103,29 @@ def test_trigger_rag_reconciliation_audit_event(client, monkeypatch):
     test_user = "testadmin"
     test_pass = "secret123"
 
-    monkeypatch.setattr(config, "ADMIN_USERNAME", test_user)
-    monkeypatch.setattr(config, "ADMIN_PASSWORD", test_pass)
-    import main
-    monkeypatch.setattr(main, "ADMIN_USERNAME", test_user)
-    monkeypatch.setattr(main, "ADMIN_PASSWORD", test_pass)
+    config.set_admin_credentials_override(test_user, test_pass)
+    try:
+        import main
+        monkeypatch.setattr(main.rag_sync_engine, "reconcile", AsyncMock(return_value={"reconciled": 5}))
 
-    monkeypatch.setattr(main.rag_sync_engine, "reconcile", AsyncMock(return_value={"reconciled": 5}))
+        logged_events = []
+        def mock_log_event(**kwargs):
+            logged_events.append(kwargs)
+            return kwargs
 
-    logged_events = []
-    def mock_log_event(**kwargs):
-        logged_events.append(kwargs)
-        return kwargs
+        monkeypatch.setattr("services.audit_logger.log_audit_event", mock_log_event)
 
-    monkeypatch.setattr("services.audit_logger.log_audit_event", mock_log_event)
+        good_creds = base64.b64encode(f"{test_user}:{test_pass}".encode()).decode("ascii")
+        headers = {"Authorization": f"Basic {good_creds}"}
 
-    good_creds = base64.b64encode(f"{test_user}:{test_pass}".encode()).decode("ascii")
-    headers = {"Authorization": f"Basic {good_creds}"}
+        r = client.post("/api/rag/reconcile", headers=headers)
+        assert r.status_code == 200
+        assert r.json()["status"] == "reconciliation_complete"
+        assert r.json()["stats"] == {"reconciled": 5}
 
-    r = client.post("/api/rag/reconcile", headers=headers)
-    assert r.status_code == 200
-    assert r.json()["status"] == "reconciliation_complete"
-    assert r.json()["stats"] == {"reconciled": 5}
-
-    reconcile_events = [e for e in logged_events if e.get("event_type") == "RAG_RECONCILE_COMPLETED"]
-    assert len(reconcile_events) >= 1
-    assert reconcile_events[0]["actor"]["id"] == test_user
+        reconcile_events = [e for e in logged_events if e.get("event_type") == "RAG_RECONCILE_COMPLETED"]
+        assert len(reconcile_events) >= 1
+        assert reconcile_events[0]["actor"]["id"] == test_user
+    finally:
+        config.set_admin_credentials_override(None, None)
 

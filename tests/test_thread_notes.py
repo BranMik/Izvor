@@ -151,77 +151,79 @@ async def test_trigger_thread_notes_update_spawns_and_coalesces_task():
 
 
 @pytest.mark.anyio
-async def test_slack_client_post_and_update_thread_note_mock_mode(monkeypatch):
+async def test_slack_client_post_and_update_thread_note_mock_mode():
     from services import slack as slack_client
-    monkeypatch.setattr(slack_client, "SLACK_BOT_TOKEN", "xoxb-your-bot-user-oauth-token")
-    monkeypatch.setattr("services.slack.client_core.SLACK_BOT_TOKEN", "xoxb-your-bot-user-oauth-token")
+    slack_client.configure_token("xoxb-your-bot-user-oauth-token")
+    try:
+        res_post = await post_thread_note(
+            channel_id="C_MOCK",
+            thread_ts="1700000000.001",
+            text="*Live Notes Mock*",
+            pin=True,
+        )
+        assert res_post["ok"] is True
+        assert "ts" in res_post
 
-    res_post = await post_thread_note(
-        channel_id="C_MOCK",
-        thread_ts="1700000000.001",
-        text="*Live Notes Mock*",
-        pin=True,
-    )
-    assert res_post["ok"] is True
-    assert "ts" in res_post
-
-    note_ts = res_post["ts"]
-    res_update = await update_thread_note(
-        channel_id="C_MOCK",
-        message_ts=note_ts,
-        text="*Updated Notes Mock*",
-    )
-    assert res_update["ok"] is True
+        note_ts = res_post["ts"]
+        res_update = await update_thread_note(
+            channel_id="C_MOCK",
+            message_ts=note_ts,
+            text="*Updated Notes Mock*",
+        )
+        assert res_update["ok"] is True
+    finally:
+        slack_client.reset_token()
 
 
 @pytest.mark.anyio
 async def test_slack_client_note_api_calls(monkeypatch):
     from services import slack as slack_client
-    monkeypatch.setattr(slack_client, "SLACK_BOT_TOKEN", "xoxb-valid-test-token")
-    monkeypatch.setattr("services.slack.client_core.SLACK_BOT_TOKEN", "xoxb-valid-test-token")
+    slack_client.configure_token("xoxb-valid-test-token")
+    try:
+        mock_post = AsyncMock(return_value={"ok": True, "ts": "1700000000.888"})
+        mock_pin = AsyncMock(return_value={"ok": True})
+        mock_update = AsyncMock(return_value={"ok": True, "ts": "1700000000.888"})
 
-    mock_post = AsyncMock(return_value={"ok": True, "ts": "1700000000.888"})
-    mock_pin = AsyncMock(return_value={"ok": True})
-    mock_update = AsyncMock(return_value={"ok": True, "ts": "1700000000.888"})
+        monkeypatch.setattr(slack_client.slack_async_client, "chat_postMessage", mock_post)
+        monkeypatch.setattr(slack_client.slack_async_client, "pins_add", mock_pin)
+        monkeypatch.setattr(slack_client.slack_async_client, "chat_update", mock_update)
 
-    monkeypatch.setattr(slack_client.slack_async_client, "chat_postMessage", mock_post)
-    monkeypatch.setattr(slack_client.slack_async_client, "pins_add", mock_pin)
-    monkeypatch.setattr(slack_client.slack_async_client, "chat_update", mock_update)
+        res_post = await post_thread_note(
+            channel_id="C12345",
+            thread_ts="1700000000.001",
+            text="📋 *Live Notes*",
+            pin=True,
+            username="Live Discussion Scribe",
+            icon_emoji=":memo:",
+        )
+        assert res_post["ok"] is True
+        assert res_post["ts"] == "1700000000.888"
+        mock_post.assert_awaited_once_with(
+            channel="C12345",
+            thread_ts="1700000000.001",
+            text="📋 *Live Notes*",
+            username="Live Discussion Scribe",
+            icon_emoji=":memo:",
+            unfurl_links=False,
+            unfurl_media=False,
+        )
+        mock_pin.assert_awaited_once_with(channel="C12345", timestamp="1700000000.888")
 
-    res_post = await post_thread_note(
-        channel_id="C12345",
-        thread_ts="1700000000.001",
-        text="📋 *Live Notes*",
-        pin=True,
-        username="Live Discussion Scribe",
-        icon_emoji=":memo:",
-    )
-    assert res_post["ok"] is True
-    assert res_post["ts"] == "1700000000.888"
-    mock_post.assert_awaited_once_with(
-        channel="C12345",
-        thread_ts="1700000000.001",
-        text="📋 *Live Notes*",
-        username="Live Discussion Scribe",
-        icon_emoji=":memo:",
-        unfurl_links=False,
-        unfurl_media=False,
-    )
-    mock_pin.assert_awaited_once_with(channel="C12345", timestamp="1700000000.888")
-
-    res_update = await update_thread_note(
-        channel_id="C12345",
-        message_ts="1700000000.888",
-        text="📋 *Updated Live Notes*",
-    )
-    assert res_update["ok"] is True
-    mock_update.assert_awaited_once_with(
-        channel="C12345",
-        ts="1700000000.888",
-        text="📋 *Updated Live Notes*",
-        unfurl_links=False,
-        unfurl_media=False,
-    )
+        res_update = await update_thread_note(
+            channel_id="C12345",
+            message_ts="1700000000.888",
+            text="📋 *Updated Live Notes*",
+        )
+        assert res_update["ok"] is True
+        mock_update.assert_awaited_once_with(
+            channel="C12345",
+            ts="1700000000.888",
+            text="📋 *Updated Live Notes*",
+            unfurl_links=False,
+            unfurl_media=False,
+        )
+    finally:
+        slack_client.reset_token()
 
 
 @pytest.mark.anyio
@@ -281,44 +283,45 @@ async def test_router_invokes_trigger_thread_notes_update(monkeypatch):
 async def test_fetch_thread_history_excludes_scribe_notes(monkeypatch):
     from services import slack as slack_client
 
-    monkeypatch.setattr(slack_client, "SLACK_BOT_TOKEN", "xoxb-valid-test-token")
-    monkeypatch.setattr("services.slack.client_core.SLACK_BOT_TOKEN", "xoxb-valid-test-token")
+    slack_client.configure_token("xoxb-valid-test-token")
+    try:
+        fake_messages = [
+            {"user": "U1", "text": "Let's debate the new API", "subtype": None},
+            {
+                "user": "UBOT",
+                "text": "📋 *Live Discussion Notes*\n\nKey takeaways so far...",
+                "username": "Live Discussion Scribe",
+                "subtype": "bot_message",
+            },
+            {
+                "user": "UBOT",
+                "text": "🎯 *Discussion Conclusion*\n\nFinal consensus and arguments...",
+                "username": "Discussion Conclusion",
+                "subtype": "bot_message",
+            },
+            {"user": "UBOT", "text": "We need microservices", "username": "agent-10011", "subtype": "bot_message"},
+            {"user": "UBOT", "text": "_⚡ *LegalAdvisor* is loading skill: web_research..._", "username": "agent-10011", "subtype": "bot_message"},
+            {"user": "U1", "text": "👤 *Follow-up Prompt:*\n> What about SQLite?", "subtype": None},
+        ]
 
-    fake_messages = [
-        {"user": "U1", "text": "Let's debate the new API", "subtype": None},
-        {
-            "user": "UBOT",
-            "text": "📋 *Live Discussion Notes*\n\nKey takeaways so far...",
-            "username": "Live Discussion Scribe",
-            "subtype": "bot_message",
-        },
-        {
-            "user": "UBOT",
-            "text": "🎯 *Discussion Conclusion*\n\nFinal consensus and arguments...",
-            "username": "Discussion Conclusion",
-            "subtype": "bot_message",
-        },
-        {"user": "UBOT", "text": "We need microservices", "username": "agent-10011", "subtype": "bot_message"},
-        {"user": "UBOT", "text": "_⚡ *LegalAdvisor* is loading skill: web_research..._", "username": "agent-10011", "subtype": "bot_message"},
-        {"user": "U1", "text": "👤 *Follow-up Prompt:*\n> What about SQLite?", "subtype": None},
-    ]
+        mock_replies = AsyncMock(return_value={"ok": True, "messages": fake_messages})
+        monkeypatch.setattr(slack_client.slack_async_client, "conversations_replies", mock_replies)
 
-    mock_replies = AsyncMock(return_value={"ok": True, "messages": fake_messages})
-    monkeypatch.setattr(slack_client.slack_async_client, "conversations_replies", mock_replies)
+        history = await slack_client.fetch_thread_history("C123", "1700000000.001")
+        contents = [m["content"] for m in history]
 
-    history = await slack_client.fetch_thread_history("C123", "1700000000.001")
-    contents = [m["content"] for m in history]
+        # Status indicator messages, live scribe, and conclusion notes should be excluded
+        assert not any("_⚡" in c for c in contents)
+        assert not any("Live Discussion Scribe" in c for c in contents)
+        assert not any("Discussion Conclusion" in c for c in contents)
 
-    # Status indicator messages, live scribe, and conclusion notes should be excluded
-    assert not any("_⚡" in c for c in contents)
-    assert not any("Live Discussion Scribe" in c for c in contents)
-    assert not any("Discussion Conclusion" in c for c in contents)
-
-    # Runner follow-up prefix should be cleaned via re.sub
-    assert len(history) == 3
-    assert contents[0] == "Let's debate the new API"
-    assert contents[1] == "[agent-10011]: We need microservices"
-    assert contents[2] == "What about SQLite?"
+        # Runner follow-up prefix should be cleaned via re.sub
+        assert len(history) == 3
+        assert contents[0] == "Let's debate the new API"
+        assert contents[1] == "[agent-10011]: We need microservices"
+        assert contents[2] == "What about SQLite?"
+    finally:
+        slack_client.reset_token()
 
 
 @pytest.mark.anyio

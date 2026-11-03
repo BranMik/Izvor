@@ -24,6 +24,8 @@ from core.config import (
     ADMIN_PASSWORD,
     ADMIN_USERNAME,
     AGENTS_CONFIG,
+    get_admin_password,
+    get_admin_username,
 )
 from orchestration.agent_settings import load_enabled_agents
 from orchestration.thread_state import thread_state_manager
@@ -301,7 +303,10 @@ def verify_admin_basic_auth(
         request.client.host if request.client and request.client.host else "unknown_ip"
     )
 
-    if not ADMIN_PASSWORD:
+    admin_pass = get_admin_password()
+    admin_user = get_admin_username()
+
+    if not admin_pass:
         logger.error("ADMIN_PASSWORD is not configured in environment/.env")
         log_audit_event(
             event_type="AUTH_FAILURE",
@@ -317,8 +322,8 @@ def verify_admin_basic_auth(
             detail="Admin authentication is not configured on the server",
         )
 
-    is_correct_username = secrets.compare_digest(credentials.username.encode("utf8"), ADMIN_USERNAME.encode("utf8"))
-    is_correct_password = secrets.compare_digest(credentials.password.encode("utf8"), ADMIN_PASSWORD.encode("utf8"))
+    is_correct_username = secrets.compare_digest(credentials.username.encode("utf8"), admin_user.encode("utf8"))
+    is_correct_password = secrets.compare_digest(credentials.password.encode("utf8"), admin_pass.encode("utf8"))
 
     if not (is_correct_username and is_correct_password):
         is_allowed, attempts, should_log = ip_rate_limiter.check_and_record(

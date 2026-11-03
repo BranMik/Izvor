@@ -67,13 +67,20 @@ async def test_post_message_to_slack_dlp_and_broadcast_mentions(monkeypatch):
     assert "Message blocked by security policy" in call_kwargs2["text"]
 
 
-def test_audit_logger_production_mode_requires_hmac_secret(monkeypatch):
+def test_audit_logger_production_mode_requires_hmac_secret():
     """TKT-1010 / S-04: Verifies startup fails closed if AUDIT_HMAC_SECRET is missing in production."""
-    monkeypatch.setenv("ENVIRONMENT", "production")
-    monkeypatch.setattr("services.audit_logger.get_audit_hmac_secret", lambda: b"")
+    from core.config import set_production_override
+    from services.audit_logger import set_audit_hmac_secret_override
 
-    with pytest.raises(RuntimeError, match="AUDIT_HMAC_SECRET is required in production"):
-        validate_audit_configuration()
+    set_production_override(True)
+    set_audit_hmac_secret_override(b"")
+
+    try:
+        with pytest.raises(RuntimeError, match="AUDIT_HMAC_SECRET is required in production"):
+            validate_audit_configuration()
+    finally:
+        set_production_override(None)
+        set_audit_hmac_secret_override(None)
 
 
 @pytest.mark.anyio
@@ -133,53 +140,57 @@ def test_audit_logger_corrupted_latest_file_raises(tmp_path):
 
 def test_mcp_tools_document_access_control(tmp_path, monkeypatch):
     """TKT-1011 / S-03: Verifies read_document and list_documents enforce principal authorization and ACLs."""
+    from services.mcp_tools import configure_paths as configure_mcp_paths, reset_paths as reset_mcp_paths
+
     test_res_dir = tmp_path / "agents_resources"
     test_res_dir.mkdir(parents=True)
     (test_res_dir / "public.txt").write_text("public document content", encoding="utf-8")
     (test_res_dir / "confidential.txt").write_text("top secret plan", encoding="utf-8")
 
-    monkeypatch.setattr("services.mcp_tools.AGENTS_RESOURCES_DIR", test_res_dir)
-    monkeypatch.setattr("services.mcp_tools.WORKSPACE_DIR", tmp_path)
+    configure_mcp_paths(workspace_dir=tmp_path, agents_resources_dir=test_res_dir)
 
-    # 1. Principal not authorized for tool
-    unauth_principal = ToolPrincipal(kind="agent", id="agent-unauthorized")
-    res_unauth = json.loads(read_document("public.txt", principal=unauth_principal))
-    assert "Permission denied" in res_unauth["error"]
+    try:
+        # 1. Principal not authorized for tool
+        unauth_principal = ToolPrincipal(kind="agent", id="agent-unauthorized")
+        res_unauth = json.loads(read_document("public.txt", principal=unauth_principal))
+        assert "Permission denied" in res_unauth["error"]
 
-    res_list_unauth = json.loads(list_documents(".", principal=unauth_principal))
-    assert "Permission denied" in res_list_unauth["error"]
+        res_list_unauth = json.loads(list_documents(".", principal=unauth_principal))
+        assert "Permission denied" in res_list_unauth["error"]
 
-    # 2. System principal is always authorized
-    res_sys = json.loads(read_document("public.txt", principal=SYSTEM_PRINCIPAL))
-    assert res_sys.get("content") == "public document content"
+        # 2. System principal is always authorized
+        res_sys = json.loads(read_document("public.txt", principal=SYSTEM_PRINCIPAL))
+        assert res_sys.get("content") == "public document content"
 
-    # 3. FileContext ACL enforcement: restricted document
-    reader_principal = ToolPrincipal(kind="agent", id="agent-10008")
-    monkeypatch.setattr(
-        "services.mcp_tools.is_agent_authorized_for_tool",
-        lambda principal, tool_name, **kw: True,
-    )
-
-    # Agent is authorized by ACL
-    res_acl_ok = json.loads(
-        read_document(
-            "confidential.txt",
-            principal=reader_principal,
-            authorized_agents={"agent-10008", "agent-10011"},
+        # 3. FileContext ACL enforcement: restricted document
+        reader_principal = ToolPrincipal(kind="agent", id="agent-10008")
+        monkeypatch.setattr(
+            "services.mcp_tools.is_agent_authorized_for_tool",
+            lambda principal, tool_name, **kw: True,
         )
-    )
-    assert res_acl_ok.get("content") == "top secret plan"
 
-    # Agent is NOT in authorized_agents ACL
-    unauth_reader = ToolPrincipal(kind="agent", id="agent-10002")
-    res_acl_denied = json.loads(
-        read_document(
-            "confidential.txt",
-            principal=unauth_reader,
-            authorized_agents={"agent-10008", "agent-10011"},
+        # Agent is authorized by ACL
+        res_acl_ok = json.loads(
+            read_document(
+                "confidential.txt",
+                principal=reader_principal,
+                authorized_agents={"agent-10008", "agent-10011"},
+            )
         )
-    )
-    assert "Permission denied: Agent 'agent-10002' is not authorized" in res_acl_denied["error"]
+        assert res_acl_ok.get("content") == "top secret plan"
+
+        # Agent is NOT in authorized_agents ACL
+        unauth_reader = ToolPrincipal(kind="agent", id="agent-10002")
+        res_acl_denied = json.loads(
+            read_document(
+                "confidential.txt",
+                principal=unauth_reader,
+                authorized_agents={"agent-10008", "agent-10011"},
+            )
+        )
+        assert "Permission denied: Agent 'agent-10002' is not authorized" in res_acl_denied["error"]
+    finally:
+        reset_mcp_paths()
 
 
 def test_mcp_tools_mask_sensitive_arguments():

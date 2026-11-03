@@ -17,9 +17,24 @@ logger = logging.getLogger(__name__)
 # Initialize async web client
 slack_async_client = AsyncWebClient(token=SLACK_BOT_TOKEN)
 
+_slack_bot_token_override: str | None = None
+
+
+def configure_token(token: str | None) -> None:
+    """Configures or clears an in-memory Slack bot token override for test isolation."""
+    global _slack_bot_token_override
+    _slack_bot_token_override = token
+
+
+def reset_token() -> None:
+    """Resets the in-memory Slack bot token override."""
+    configure_token(None)
+
 
 def get_slack_bot_token() -> str:
-    """Returns the configured Slack bot token."""
+    """Returns the configured Slack bot token, checking in-memory override first."""
+    if _slack_bot_token_override is not None:
+        return _slack_bot_token_override
     return SLACK_BOT_TOKEN
 
 

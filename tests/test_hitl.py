@@ -114,56 +114,61 @@ def test_hitl_expiration_ttl():
 
 def test_hitl_slack_interactivity_authorization(monkeypatch):
     """Test Slack Block Kit approval/denial authorization: only initiator or admin can approve/deny."""
-    monkeypatch.setenv("SLACK_ADMIN_USER_IDS", "U_WORKSPACE_ADMIN")
-    monkeypatch.setattr("adapters.slack.interactivity.verify_slack_signature", lambda body, headers: True)
-    monkeypatch.setattr("adapters.slack.interactivity.slack_async_client.chat_postEphemeral", AsyncMock(return_value={"ok": True}))
-    monkeypatch.setattr("adapters.slack.interactivity.slack_async_client.chat_update", AsyncMock(return_value={"ok": True}))
+    from core.config import set_admin_slack_user_ids_override
 
-    req = register_hitl_request(
-        channel_id="C_SLACK_HITL",
-        thread_ts="1700000000.004",
-        fn_name="execute_migration",
-        fn_args={"target": "db_v2"},
-        initiator_user_id="U_ORIGINAL_USER",
-    )
+    set_admin_slack_user_ids_override("U_WORKSPACE_ADMIN")
+    try:
+        monkeypatch.setattr("adapters.slack.interactivity.verify_slack_signature", lambda body, headers: True)
+        monkeypatch.setattr("adapters.slack.interactivity.slack_async_client.chat_postEphemeral", AsyncMock(return_value={"ok": True}))
+        monkeypatch.setattr("adapters.slack.interactivity.slack_async_client.chat_update", AsyncMock(return_value={"ok": True}))
 
-    # 1. Random user attempts to approve -> 403 Forbidden
-    payload_intruder = {
-        "type": "block_actions",
-        "user": {"id": "U_SNOOPING_USER"},
-        "actions": [{"action_id": "hitl_approve_tool", "value": req.request_id}],
-        "channel": {"id": "C_SLACK_HITL"},
-    }
-    resp = client.post("/slack/actions", json=payload_intruder)
-    assert resp.status_code == 403
+        req = register_hitl_request(
+            channel_id="C_SLACK_HITL",
+            thread_ts="1700000000.004",
+            fn_name="execute_migration",
+            fn_args={"target": "db_v2"},
+            initiator_user_id="U_ORIGINAL_USER",
+        )
 
-    # Wait briefly for background executor to write audit record
-    time.sleep(0.05)
+        # 1. Random user attempts to approve -> 403 Forbidden
+        payload_intruder = {
+            "type": "block_actions",
+            "user": {"id": "U_SNOOPING_USER"},
+            "actions": [{"action_id": "hitl_approve_tool", "value": req.request_id}],
+            "channel": {"id": "C_SLACK_HITL"},
+        }
+        resp = client.post("/slack/actions", json=payload_intruder)
+        assert resp.status_code == 403
 
-    # Audit trail verifies UNAUTHORIZED attempt
-    trail = get_audit_trail(limit=10)
-    unauth_events = [e for e in trail if e.get("event_type") == "HITL_UNAUTHORIZED_ATTEMPT"]
-    assert len(unauth_events) > 0
-    assert unauth_events[-1]["actor"]["id"] == "U_SNOOPING_USER"
+        # Wait briefly for background executor to write audit record
+        time.sleep(0.05)
 
-    # 2. Initiator approves -> 200 OK
-    payload_initiator = {
-        "type": "block_actions",
-        "user": {"id": "U_ORIGINAL_USER"},
-        "actions": [{"action_id": "hitl_approve_tool", "value": req.request_id}],
-        "channel": {"id": "C_SLACK_HITL"},
-        "message": {"ts": "1700000000.005"},
-    }
-    resp_init = client.post("/slack/actions", json=payload_initiator)
-    assert resp_init.status_code == 200
+        # Audit trail verifies UNAUTHORIZED attempt
+        trail = get_audit_trail(limit=10)
+        unauth_events = [e for e in trail if e.get("event_type") == "HITL_UNAUTHORIZED_ATTEMPT"]
+        assert len(unauth_events) > 0
+        assert unauth_events[-1]["actor"]["id"] == "U_SNOOPING_USER"
 
-    # 3. Verify single-use execution consumed approval
-    with get_db_transaction() as conn:
-        row = conn.execute(
-            "SELECT status FROM hitl_approvals WHERE request_id = ?;", (req.request_id,)
-        ).fetchone()
-        assert row is not None
-        assert row["status"] == "CONSUMED"
+        # 2. Initiator approves -> 200 OK
+        payload_initiator = {
+            "type": "block_actions",
+            "user": {"id": "U_ORIGINAL_USER"},
+            "actions": [{"action_id": "hitl_approve_tool", "value": req.request_id}],
+            "channel": {"id": "C_SLACK_HITL"},
+            "message": {"ts": "1700000000.005"},
+        }
+        resp_init = client.post("/slack/actions", json=payload_initiator)
+        assert resp_init.status_code == 200
+
+        # 3. Verify single-use execution consumed approval
+        with get_db_transaction() as conn:
+            row = conn.execute(
+                "SELECT status FROM hitl_approvals WHERE request_id = ?;", (req.request_id,)
+            ).fetchone()
+            assert row is not None
+            assert row["status"] == "CONSUMED"
+    finally:
+        set_admin_slack_user_ids_override(None)
 
 
 def test_hitl_atomic_status_transition():

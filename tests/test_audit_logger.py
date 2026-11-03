@@ -239,22 +239,27 @@ def test_sandbox_audit_write_protection():
     assert "Access denied" in res_sys_dict["error"] or "Permission denied" in res_sys_dict["error"]
 
 
-def test_send_admin_audit_alert_mock(monkeypatch):
+def test_send_admin_audit_alert_mock():
     """Verifies send_admin_audit_alert handles mock and dispatch cleanly."""
     import asyncio
+    from core.config import set_admin_slack_user_ids_override
+    from services.slack.client_core import configure_token, reset_token
 
-    monkeypatch.setenv("SLACK_ADMIN_USER_IDS", "U_ADMIN_TEST")
-    monkeypatch.setenv("SLACK_BOT_TOKEN", "xoxb-your-bot-user-oauth-token")
-    monkeypatch.setattr("core.config.SLACK_BOT_TOKEN", "xoxb-your-bot-user-oauth-token")
+    set_admin_slack_user_ids_override("U_ADMIN_TEST")
+    configure_token("xoxb-your-bot-user-oauth-token")
 
-    success = asyncio.run(
-        send_admin_audit_alert(
-            title="Test Security Breach",
-            message="This is an automated test alert in English.",
-            details={"line": 42, "file": "audit_2026_10.jsonl"},
+    try:
+        success = asyncio.run(
+            send_admin_audit_alert(
+                title="Test Security Breach",
+                message="This is an automated test alert in English.",
+                details={"line": 42, "file": "audit_2026_10.jsonl"},
+            )
         )
-    )
-    assert success is True
+        assert success is True
+    finally:
+        set_admin_slack_user_ids_override(None)
+        reset_token()
 
 
 def test_hmac_continuity_empty_records(tmp_path: Path):
@@ -267,85 +272,105 @@ def test_hmac_continuity_empty_records(tmp_path: Path):
     assert res["status"] == "NO_RECORDS"
 
 
-def test_hmac_continuity_key_matches(temp_audit_dir, monkeypatch):
+def test_hmac_continuity_key_matches(temp_audit_dir):
     """Verifies that matching HMAC secret reports MATCH."""
+    from services.audit_logger import set_audit_hmac_secret_override
+
     test_dir, logger = temp_audit_dir
-    monkeypatch.setattr("services.audit_logger.AUDIT_HMAC_SECRET", b"secret-v1")
+    set_audit_hmac_secret_override(b"secret-v1")
 
-    logger.log_event(
-        event_type="ADMIN_CONFIG_CHANGE",
-        actor={"type": "admin", "id": "admin"},
-        action="update_settings",
-        target="sys",
-    )
+    try:
+        logger.log_event(
+            event_type="ADMIN_CONFIG_CHANGE",
+            actor={"type": "admin", "id": "admin"},
+            action="update_settings",
+            target="sys",
+        )
 
-    res = check_hmac_secret_continuity(audit_dir=test_dir, secret_key=b"secret-v1")
-    assert res["has_records"] is True
-    assert res["matches"] is True
-    assert res["status"] == "MATCH"
-    assert res["last_seq"] == 1
+        res = check_hmac_secret_continuity(audit_dir=test_dir, secret_key=b"secret-v1")
+        assert res["has_records"] is True
+        assert res["matches"] is True
+        assert res["status"] == "MATCH"
+        assert res["last_seq"] == 1
+    finally:
+        set_audit_hmac_secret_override(None)
 
 
-def test_hmac_continuity_key_changed(temp_audit_dir, monkeypatch):
+def test_hmac_continuity_key_changed(temp_audit_dir):
     """Verifies that changing the HMAC secret key is detected as SECRET_CHANGED."""
+    from services.audit_logger import set_audit_hmac_secret_override
+
     test_dir, logger = temp_audit_dir
-    monkeypatch.setattr("services.audit_logger.AUDIT_HMAC_SECRET", b"secret-original")
+    set_audit_hmac_secret_override(b"secret-original")
 
-    logger.log_event(
-        event_type="ADMIN_CONFIG_CHANGE",
-        actor={"type": "admin", "id": "admin"},
-        action="update_settings",
-        target="sys",
-    )
+    try:
+        logger.log_event(
+            event_type="ADMIN_CONFIG_CHANGE",
+            actor={"type": "admin", "id": "admin"},
+            action="update_settings",
+            target="sys",
+        )
 
-    # Validate with a different key
-    res = check_hmac_secret_continuity(audit_dir=test_dir, secret_key=b"secret-changed-new")
-    assert res["has_records"] is True
-    assert res["matches"] is False
-    assert res["status"] == "SECRET_CHANGED"
-    assert "does not match the HMAC key" in res["message"]
+        # Validate with a different key
+        res = check_hmac_secret_continuity(audit_dir=test_dir, secret_key=b"secret-changed-new")
+        assert res["has_records"] is True
+        assert res["matches"] is False
+        assert res["status"] == "SECRET_CHANGED"
+        assert "does not match the HMAC key" in res["message"]
+    finally:
+        set_audit_hmac_secret_override(None)
 
 
-def test_hmac_continuity_secret_added_to_plain_chain(temp_audit_dir, monkeypatch):
+def test_hmac_continuity_secret_added_to_plain_chain(temp_audit_dir):
     """Verifies that adding a secret when previous logs were plain SHA-256 reports SECRET_ADDED."""
+    from services.audit_logger import set_audit_hmac_secret_override
+
     test_dir, logger = temp_audit_dir
     # Write record without HMAC secret
-    monkeypatch.setattr("services.audit_logger.get_audit_hmac_secret", lambda: b"")
+    set_audit_hmac_secret_override(b"")
 
-    logger.log_event(
-        event_type="ADMIN_CONFIG_CHANGE",
-        actor={"type": "admin", "id": "admin"},
-        action="update_settings",
-        target="sys",
-    )
+    try:
+        logger.log_event(
+            event_type="ADMIN_CONFIG_CHANGE",
+            actor={"type": "admin", "id": "admin"},
+            action="update_settings",
+            target="sys",
+        )
 
-    # Validate with a newly configured secret
-    res = check_hmac_secret_continuity(audit_dir=test_dir, secret_key=b"newly-added-secret")
-    assert res["has_records"] is True
-    assert res["matches"] is False
-    assert res["status"] == "SECRET_ADDED"
-    assert "plain SHA-256" in res["message"]
+        # Validate with a newly configured secret
+        res = check_hmac_secret_continuity(audit_dir=test_dir, secret_key=b"newly-added-secret")
+        assert res["has_records"] is True
+        assert res["matches"] is False
+        assert res["status"] == "SECRET_ADDED"
+        assert "plain SHA-256" in res["message"]
+    finally:
+        set_audit_hmac_secret_override(None)
 
 
-def test_hmac_continuity_secret_removed(temp_audit_dir, monkeypatch):
+def test_hmac_continuity_secret_removed(temp_audit_dir):
     """Verifies that removing the secret when previous logs were HMAC signed reports SECRET_REMOVED."""
+    from services.audit_logger import set_audit_hmac_secret_override
+
     test_dir, logger = temp_audit_dir
     # Write record with HMAC secret
-    monkeypatch.setattr("services.audit_logger.AUDIT_HMAC_SECRET", b"original-secret")
+    set_audit_hmac_secret_override(b"original-secret")
 
-    logger.log_event(
-        event_type="ADMIN_CONFIG_CHANGE",
-        actor={"type": "admin", "id": "admin"},
-        action="update_settings",
-        target="sys",
-    )
+    try:
+        logger.log_event(
+            event_type="ADMIN_CONFIG_CHANGE",
+            actor={"type": "admin", "id": "admin"},
+            action="update_settings",
+            target="sys",
+        )
 
-    # Validate with empty/None secret
-    res = check_hmac_secret_continuity(audit_dir=test_dir, secret_key=b"")
-    assert res["has_records"] is True
-    assert res["matches"] is False
-    assert res["status"] == "SECRET_REMOVED"
-    assert "AUDIT_HMAC_SECRET is not set" in res["message"]
+        # Validate with empty/None secret
+        res = check_hmac_secret_continuity(audit_dir=test_dir, secret_key=b"")
+        assert res["has_records"] is True
+        assert res["matches"] is False
+        assert res["status"] == "SECRET_REMOVED"
+        assert "AUDIT_HMAC_SECRET is not set" in res["message"]
+    finally:
+        set_audit_hmac_secret_override(None)
 
 
 def test_audit_logger_last_record_exceeding_8kb_preserves_chain(temp_audit_dir):
@@ -406,18 +431,20 @@ async def test_audit_logger_log_event_synchronous_return_in_async_context(temp_a
     assert rec.get("entry_hash") is not None
 
 
-def test_hmac_secret_optional_when_unset(monkeypatch, caplog):
+def test_hmac_secret_optional_when_unset(caplog):
     """Verifies that get_audit_hmac_secret returns b'' and validates without crashing when unset."""
-    from services.audit_logger import get_audit_hmac_secret, validate_audit_configuration
+    from services.audit_logger import get_audit_hmac_secret, set_audit_hmac_secret_override, validate_audit_configuration
 
-    monkeypatch.setattr("services.audit_logger.AUDIT_HMAC_SECRET", b"")
-    monkeypatch.delenv("AUDIT_HMAC_SECRET", raising=False)
+    set_audit_hmac_secret_override(b"")
+    try:
+        secret = get_audit_hmac_secret()
+        assert secret == b""
 
-    secret = get_audit_hmac_secret()
-    assert secret == b""
-
-    with caplog.at_level("WARNING"):
-        validate_audit_configuration()
+        with caplog.at_level("WARNING"):
+            validate_audit_configuration()
+        assert "AUDIT_HMAC_SECRET is not configured" in caplog.text
+    finally:
+        set_audit_hmac_secret_override(None)
     assert "AUDIT_HMAC_SECRET is not configured" in caplog.text
 
 

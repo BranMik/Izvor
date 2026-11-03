@@ -36,13 +36,22 @@ class ThreadUsageTracker:
     """Tracks token consumption, monetary expenses, and live summary card updates in #izvor-usage."""
 
     def __init__(self, store_file: Path | None = None):
-        self.store_file = store_file or USAGE_STORE_FILE
+        self._initial_store_file = store_file or USAGE_STORE_FILE
+        self.store_file = self._initial_store_file
         self.thread_usage_data: dict[tuple[str, str], dict[str, Any]] = {}
         self.usage_locks: dict[tuple[str, str], asyncio.Lock] = {}
         self.running_usage_tasks: dict[tuple[str, str], asyncio.Task] = {}
         self.pending_usage_updates: dict[tuple[str, str], bool] = {}
         self.pending_usage_completed: dict[tuple[str, str], bool] = {}
         self.load()
+
+    def configure_paths(self, store_file: Path | None = None) -> None:
+        """Configures the storage file for test isolation without monkeypatching."""
+        self.store_file = store_file or self._initial_store_file
+
+    def reset_paths(self) -> None:
+        """Resets the storage file back to default."""
+        self.store_file = self._initial_store_file
 
     def get_lock(self, channel_id: str, thread_ts: str) -> asyncio.Lock:
         """Returns or creates an asyncio.Lock for a specific thread."""
