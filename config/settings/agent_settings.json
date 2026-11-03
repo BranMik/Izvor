@@ -36,7 +36,8 @@
       "icon_url": "static/image_02.png",
       "is_short_output": false,
       "skills": [],
-      "special_role": "CHALLENGER"
+      "special_role": "CHALLENGER",
+      "challenger_priority": 2
     },
     "agent-10003": {
       "username": "Sceptic",
@@ -45,7 +46,8 @@
       "icon_url": "static/image_03.png",
       "is_short_output": false,
       "skills": [],
-      "special_role": "CHALLENGER"
+      "special_role": "CHALLENGER",
+      "challenger_priority": 1
     },
     "agent-10004": {
       "username": "CompliancePrivacyAndGovernanceOfficer",

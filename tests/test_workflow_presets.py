@@ -92,25 +92,31 @@ def test_slugify():
 
 
 def test_workflow_manager_crud(tmp_path: Path):
-    """Verify WorkflowManager full CRUD lifecycle in an isolated directory."""
+    """Verify WorkflowManager full CRUD lifecycle, composite lookup, and system preset immutability."""
     wf_dir = tmp_path / "isolated_workflows"
-    mgr = WorkflowManager(workflows_dir=wf_dir, auto_seed=False)
-    assert mgr.list_workflows() == []
+    mgr = WorkflowManager(workflows_dir=wf_dir)
 
-    # 1. Seed defaults
-    mgr.seed_default_workflows()
-    seeded = mgr.list_workflows()
-    assert len(seeded) >= 2
-    assert any(p.id == "default_review_flow" for p in seeded)
-    assert any(p.id == "default_sandwich" for p in seeded)
+    # 1. Composite lookup finds built-in engine defaults
+    defaults = mgr.list_workflows()
+    assert len(defaults) >= 2
+    assert any(p.id == "default_review_flow" for p in defaults)
+    assert any(p.id == "default_sandwich" for p in defaults)
 
-    # 2. Get workflow
+    # 2. Get workflow resolves built-in defaults from engine directory
     sw = mgr.get_workflow("default_sandwich")
     assert sw is not None
     assert sw.mode == OrchestrationMode.SANDWICH.value
     assert "agent-10001" in sw.sandwich_config["start_chain"]
+    default_path = mgr.get_workflow_file_path("default_sandwich")
+    assert default_path is not None
+    assert "engine" in str(default_path).lower()
 
-    # 3. Save new workflow
+    # 3. System defaults are immutable — cannot overwrite or delete
+    with pytest.raises(ValueError, match="Cannot overwrite reserved system default workflow"):
+        mgr.save_preset(WorkflowPreset(id="default_sandwich", name="Hacked Sandwich", mode="sandwich"))
+    assert mgr.delete_workflow("default_sandwich") is False
+
+    # 4. Save new custom workflow into user directory
     created = mgr.save_workflow(
         name="Custom Fixed Pipeline",
         mode=OrchestrationMode.FIXED.value,
@@ -120,16 +126,17 @@ def test_workflow_manager_crud(tmp_path: Path):
     assert created.id == "custom_fixed_pipeline"
     saved_file = wf_dir / "custom_fixed_pipeline.json"
     assert saved_file.exists()
+    assert mgr.get_workflow_file_path("custom_fixed_pipeline") == saved_file
 
     fetched = mgr.get_workflow("custom_fixed_pipeline")
     assert fetched is not None
     assert fetched.fixed_config["chain"] == ["agent-10001", "agent-10008"]
 
-    # 4. List workflows includes new one
+    # 5. List workflows includes new custom preset alongside defaults
     current = mgr.list_workflows()
-    assert len(current) == len(seeded) + 1
+    assert len(current) == len(defaults) + 1
 
-    # 5. Delete workflow
+    # 6. Delete custom workflow
     deleted = mgr.delete_workflow("custom_fixed_pipeline")
     assert deleted is True
     assert not saved_file.exists()
@@ -142,7 +149,7 @@ def test_workflow_manager_crud(tmp_path: Path):
 def test_workflow_manager_handles_corrupted_file(tmp_path: Path):
     """Verify WorkflowManager tolerates invalid/corrupted JSON files gracefully."""
     wf_dir = tmp_path / "corrupted_test_wf"
-    mgr = WorkflowManager(workflows_dir=wf_dir, auto_seed=False)
+    mgr = WorkflowManager(workflows_dir=wf_dir)
     bad_file = wf_dir / "broken.json"
     bad_file.write_text("NOT A VALID JSON {{{", encoding="utf-8")
 
@@ -150,15 +157,15 @@ def test_workflow_manager_handles_corrupted_file(tmp_path: Path):
     mgr.save_preset(good_preset)
 
     workflows = mgr.list_workflows()
-    assert len(workflows) == 1
-    assert workflows[0].id == "good"
+    assert any(w.id == "good" for w in workflows)
+    assert not any(w.id == "broken" for w in workflows)
 
 
 def test_agent_settings_workflow_integration(tmp_path: Path):
     """Verify AgentSettingsManager persistence and application of workflow presets."""
     settings_file = tmp_path / "agent_settings.json"
     wf_dir = tmp_path / "workflows"
-    WorkflowManager(workflows_dir=wf_dir, auto_seed=True)
+    WorkflowManager(workflows_dir=wf_dir)
 
     mgr = AgentSettingsManager(settings_file=settings_file, auto_load=False, workflows_dir=wf_dir)
     mgr.agents_config = {"agent-10001": {}, "agent-10008": {}, "agent-10011": {}, "agent-10003": {}}

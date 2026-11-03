@@ -3,10 +3,14 @@ import logging
 import os
 import re
 import tempfile
-import shutil
 from pathlib import Path
 
-from core.models import OrchestrationMode, WorkflowPreset, build_dynamic_default_workflows
+from core.models import (
+    REQUIRED_DEFAULT_WORKFLOW_IDS,
+    OrchestrationMode,
+    WorkflowPreset,
+    build_dynamic_default_workflows,
+)
 from core.paths import ENGINE_WORKFLOWS_DIR, WORKFLOWS_BACKUP_DIR, WORKFLOWS_DIR
 
 logger = logging.getLogger(__name__)
@@ -21,106 +25,124 @@ def slugify(name: str) -> str:
 
 class WorkflowManager:
     """
-    Manages named orchestration workflow presets stored as individual JSON files in data/workflows/.
-    Provides atomic file writes, automatic default seeding, validation, and CRUD operations.
+    Manages named orchestration workflow presets across a two-tier composite architecture:
+    1. engine/workflows/ (immutable golden system defaults)
+    2. config/workflows/ (implementer-owned custom presets)
+    Provides atomic file writes, validation, path resolution, and CRUD operations.
     """
 
-    def __init__(self, workflows_dir: Path | None = None, auto_seed: bool = True):
-        self.workflows_dir = Path(workflows_dir or WORKFLOWS_DIR)
+    def __init__(
+        self,
+        workflows_dir: Path | None = None,
+        engine_workflows_dir: Path | None = None,
+        auto_seed: bool = False,
+    ):
+        self.default_workflows_dir = Path(workflows_dir or WORKFLOWS_DIR)
+        self.default_engine_workflows_dir = Path(engine_workflows_dir or ENGINE_WORKFLOWS_DIR)
+        self.workflows_dir = self.default_workflows_dir
+        self.engine_workflows_dir = self.default_engine_workflows_dir
         self.workflows_dir.mkdir(parents=True, exist_ok=True)
-        if auto_seed:
-            self.seed_default_workflows()
 
-    def seed_default_workflows(self) -> None:
-        """Seeds initial default workflows if no JSON presets currently exist."""
-        try:
-            existing = list(self.workflows_dir.glob("*.json"))
-            if existing:
-                return
+    def configure_paths(
+        self,
+        workflows_dir: Path | str | None = None,
+        engine_workflows_dir: Path | str | None = None,
+    ) -> None:
+        """Configures active directory paths (used for dependency injection and test isolation)."""
+        if workflows_dir is not None:
+            self.workflows_dir = Path(workflows_dir)
+            self.workflows_dir.mkdir(parents=True, exist_ok=True)
+        if engine_workflows_dir is not None:
+            self.engine_workflows_dir = Path(engine_workflows_dir)
 
-            logger.warning("[WORKFLOW] No workflow presets found in %s. Seeding default workflows.", self.workflows_dir)
-            seeded_count = 0
+    def reset_paths(self) -> None:
+        """Resets active directory paths back to default canonical paths."""
+        self.workflows_dir = self.default_workflows_dir
+        self.engine_workflows_dir = self.default_engine_workflows_dir
 
-            if WORKFLOWS_BACKUP_DIR.exists():
-                backup_files = list(WORKFLOWS_BACKUP_DIR.glob("*.json"))
-                for bf in backup_files:
-                    dst = self.workflows_dir / bf.name
-                    try:
-                        shutil.copy2(bf, dst)
-                        seeded_count += 1
-                    except Exception as e:  # noqa: BLE001
-                        logger.warning("[WORKFLOW] Failed to copy backup workflow %s: %s", bf, e)
-
-            if seeded_count == 0 and ENGINE_WORKFLOWS_DIR.exists():
-                seed_files = list(ENGINE_WORKFLOWS_DIR.glob("*.json"))
-                for sf in seed_files:
-                    dst = self.workflows_dir / sf.name
-                    try:
-                        shutil.copy2(sf, dst)
-                        seeded_count += 1
-                    except Exception as e:  # noqa: BLE001
-                        logger.warning("[WORKFLOW] Failed to copy seed workflow %s: %s", sf, e)
-
-            if seeded_count == 0:
-                from core.config import AGENTS_CONFIG
-
-                agent_ids = list(AGENTS_CONFIG.keys())
-                dynamic_presets = build_dynamic_default_workflows(agent_ids)
-                for preset in dynamic_presets:
-                    self.save_preset(preset)
-                    seeded_count += 1
-                logger.info(f"[WORKFLOW] Dynamically seeded {seeded_count} default workflows in {self.workflows_dir}")
-            else:
-                logger.info(f"[WORKFLOW] Restored {seeded_count} default workflows from backup in {self.workflows_dir}")
-        except OSError:
-            logger.exception("[WORKFLOW] Failed to seed default workflows")
-
-    def list_workflows(self) -> list[WorkflowPreset]:
-        """Returns all valid workflow presets ordered by name."""
-        presets: list[WorkflowPreset] = []
-        if not self.workflows_dir.exists():
-            return presets
-
-        for file_path in sorted(self.workflows_dir.glob("*.json")):
-            try:
-                content = file_path.read_text(encoding="utf-8")
-                data = json.loads(content)
-                if not isinstance(data, dict):
-                    continue
-                # Ensure id matches filename stem if missing
-                if not data.get("id"):
-                    data["id"] = file_path.stem
-                if not data.get("name"):
-                    data["name"] = file_path.stem.replace("_", " ").title()
-                presets.append(WorkflowPreset.from_dict(data))
-            except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError) as e:
-                logger.warning(f"[WORKFLOW] Failed to load preset from {file_path.name}: {e}")
-
-        presets.sort(key=lambda p: p.name.lower())
-        return presets
-
-    def get_workflow(self, workflow_id: str) -> WorkflowPreset | None:
-        """Retrieves a workflow preset by its unique ID."""
-        clean_id = slugify(workflow_id)
-        file_path = self.workflows_dir / f"{clean_id}.json"
-        if not file_path.exists():
-            return None
-
+    def _load_preset_from_file(self, file_path: Path) -> WorkflowPreset | None:
         try:
             content = file_path.read_text(encoding="utf-8")
             data = json.loads(content)
             if not isinstance(data, dict):
                 return None
             if not data.get("id"):
-                data["id"] = clean_id
+                data["id"] = file_path.stem
+            if not data.get("name"):
+                data["name"] = file_path.stem.replace("_", " ").title()
             return WorkflowPreset.from_dict(data)
         except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError) as e:
-            logger.error(f"[WORKFLOW] Error reading workflow '{workflow_id}': {e}")
+            logger.warning(f"[WORKFLOW] Failed to load preset from {file_path.name}: {e}")
             return None
 
+    def list_workflows(self) -> list[WorkflowPreset]:
+        """Returns all valid workflow presets (built-in system presets merged with custom presets)."""
+        presets_by_id: dict[str, WorkflowPreset] = {}
+
+        # 1. Load built-in engine presets first (immutable baseline)
+        if self.engine_workflows_dir.exists():
+            for file_path in sorted(self.engine_workflows_dir.glob("*.json")):
+                preset = self._load_preset_from_file(file_path)
+                if preset:
+                    presets_by_id[preset.id] = preset
+
+        # Fallback: if engine defaults are missing on disk, build dynamic defaults
+        if not presets_by_id:
+            from core.config import AGENTS_CONFIG
+
+            dyn_presets = build_dynamic_default_workflows(list(AGENTS_CONFIG.keys()))
+            for p in dyn_presets:
+                presets_by_id[p.id] = p
+
+        # 2. Load custom presets from workflows_dir (cannot overwrite reserved default IDs)
+        if self.workflows_dir.exists():
+            for file_path in sorted(self.workflows_dir.glob("*.json")):
+                preset = self._load_preset_from_file(file_path)
+                if preset:
+                    if preset.id in REQUIRED_DEFAULT_WORKFLOW_IDS:
+                        logger.warning(
+                            f"[WORKFLOW] Ignoring custom preset in {file_path.name} which attempts to shadow system default '{preset.id}'"
+                        )
+                        continue
+                    presets_by_id[preset.id] = preset
+
+        presets = list(presets_by_id.values())
+        presets.sort(key=lambda p: p.name.lower())
+        return presets
+
+    def get_workflow_file_path(self, workflow_id: str) -> Path | None:
+        """Resolves the physical filesystem path for a workflow ID (custom or engine)."""
+        clean_id = slugify(workflow_id)
+        custom_path = self.workflows_dir / f"{clean_id}.json"
+        if custom_path.exists():
+            return custom_path
+        engine_path = self.engine_workflows_dir / f"{clean_id}.json"
+        if engine_path.exists():
+            return engine_path
+        return None
+
+    def get_workflow(self, workflow_id: str) -> WorkflowPreset | None:
+        """Retrieves a workflow preset by its unique ID (checking custom then engine)."""
+        clean_id = slugify(workflow_id)
+        file_path = self.get_workflow_file_path(clean_id)
+        if file_path:
+            return self._load_preset_from_file(file_path)
+
+        # Fallback: check dynamic defaults if it is a known required default ID
+        if clean_id in REQUIRED_DEFAULT_WORKFLOW_IDS:
+            from core.config import AGENTS_CONFIG
+
+            dyn_presets = build_dynamic_default_workflows(list(AGENTS_CONFIG.keys()))
+            for p in dyn_presets:
+                if p.id == clean_id:
+                    return p
+        return None
+
     def save_preset(self, preset: WorkflowPreset) -> WorkflowPreset:
-        """Atomically saves a WorkflowPreset to its JSON file."""
+        """Atomically saves a WorkflowPreset to its JSON file in workflows_dir (custom tier only)."""
         clean_id = slugify(preset.id or preset.name)
+        if clean_id in REQUIRED_DEFAULT_WORKFLOW_IDS:
+            raise ValueError(f"Cannot overwrite reserved system default workflow '{clean_id}'")
         preset.id = clean_id
         target_path = self.workflows_dir / f"{clean_id}.json"
 
@@ -137,7 +159,7 @@ class WorkflowManager:
                 f.flush()
                 os.fsync(f.fileno())
             os.replace(tmp_path, target_path)
-            logger.info(f"[WORKFLOW] Saved workflow '{clean_id}' to {target_path}")
+            logger.info(f"[WORKFLOW] Saved custom workflow '{clean_id}' to {target_path}")
             return preset
         except Exception as e:
             if os.path.exists(tmp_path):
@@ -182,15 +204,19 @@ class WorkflowManager:
         return self.save_preset(preset)
 
     def delete_workflow(self, workflow_id: str) -> bool:
-        """Deletes the JSON file for the specified workflow ID."""
+        """Deletes the JSON file for a custom workflow preset. System defaults cannot be deleted."""
         clean_id = slugify(workflow_id)
+        if clean_id in REQUIRED_DEFAULT_WORKFLOW_IDS:
+            logger.warning(f"[WORKFLOW] Cannot delete system default workflow '{clean_id}'")
+            return False
+
         file_path = self.workflows_dir / f"{clean_id}.json"
         if not file_path.exists():
             return False
 
         try:
             file_path.unlink()
-            logger.info(f"[WORKFLOW] Deleted workflow preset '{clean_id}'")
+            logger.info(f"[WORKFLOW] Deleted custom workflow preset '{clean_id}'")
             return True
         except OSError as e:
             logger.error(f"[WORKFLOW] Failed to delete workflow '{clean_id}': {e}")

@@ -359,8 +359,10 @@ class TestSystemSettingsIntegrity:
             "max_discussion_turns": 10,
             "max_tool_iterations": 5,
             "strict_privacy_mode_enabled": True,
-            "convergence_consecutive_threshold": 2,
-            "dialectical_stress_test": True,
+            "dialectical_stress_test": {
+                "enabled": True,
+                "consecutive_threshold": 3,
+            },
             "debate_turn_pacing_seconds": 1.0,
         }
         settings_file.write_text(json.dumps(data), encoding="utf-8")
@@ -368,40 +370,82 @@ class TestSystemSettingsIntegrity:
         validated = AppIntegrityValidator.check_system_settings_integrity(data)
         assert validated["default_fast_model"] == "mistral/mistral-small-latest"
         assert validated["max_discussion_turns"] == 10
+        assert validated["dialectical_stress_test"]["consecutive_threshold"] == 3
 
 
 # ---------------------------------------------------------------------------
-# 11. check_default_workflows_integrity fallback
+# 11. check_default_workflows_integrity composite lookup & fallback
 # ---------------------------------------------------------------------------
 
 class TestDefaultWorkflowsIntegrity:
-    def test_restores_from_backup_dir(self, tmp_path):
-        wf_dir = tmp_path / "workflows"
+    def test_composite_lookup_avoids_copying_defaults_to_user_workflows_dir(self, tmp_path):
+        wf_dir = tmp_path / "user_workflows"
+        engine_dir = tmp_path / "engine_workflows"
+        wf_dir.mkdir(parents=True, exist_ok=True)
+        engine_dir.mkdir(parents=True, exist_ok=True)
+
+        for wf_id in ("default_sandwich", "default_review_flow", "parallel_dialectic_flow"):
+            (engine_dir / f"{wf_id}.json").write_text(
+                json.dumps({"id": wf_id, "name": wf_id, "mode": "sandwich"}),
+                encoding="utf-8"
+            )
+
+        payload = {"agents": {"agent-1": {}, "agent-2": {}}}
+        AppIntegrityValidator.check_default_workflows_integrity(
+            payload,
+            workflows_dir=wf_dir,
+            engine_workflows_dir=engine_dir,
+        )
+
+        # Built-in defaults must NOT be duplicated into user workflows directory
+        assert not (wf_dir / "default_sandwich.json").exists()
+        assert not (wf_dir / "default_review_flow.json").exists()
+        assert not (wf_dir / "parallel_dialectic_flow.json").exists()
+
+    def test_restores_from_backup_dir_to_engine_workflows(self, tmp_path):
+        wf_dir = tmp_path / "user_workflows"
+        engine_dir = tmp_path / "engine_workflows"
         backup_dir = tmp_path / "backups" / "workflows"
         wf_dir.mkdir(parents=True, exist_ok=True)
+        engine_dir.mkdir(parents=True, exist_ok=True)
         backup_dir.mkdir(parents=True, exist_ok=True)
 
         # Write canonical backup
-        (backup_dir / "default_sandwich.json").write_text(
-            json.dumps({"id": "default_sandwich", "name": "Backup Sandwich"}),
-            encoding="utf-8"
-        )
+        for wf_id in ("default_sandwich", "default_review_flow", "parallel_dialectic_flow"):
+            (backup_dir / f"{wf_id}.json").write_text(
+                json.dumps({"id": wf_id, "name": f"Backup {wf_id}", "mode": "sandwich"}),
+                encoding="utf-8"
+            )
 
         payload = {"agents": {"agent-1": {}, "agent-2": {}}}
-        AppIntegrityValidator.check_default_workflows_integrity(payload, workflows_dir=wf_dir, backups_dir=backup_dir)
+        AppIntegrityValidator.check_default_workflows_integrity(
+            payload,
+            workflows_dir=wf_dir,
+            backups_dir=backup_dir,
+            engine_workflows_dir=engine_dir,
+        )
 
-        restored = json.loads((wf_dir / "default_sandwich.json").read_text(encoding="utf-8"))
-        assert restored["name"] == "Backup Sandwich"
+        restored = json.loads((engine_dir / "default_sandwich.json").read_text(encoding="utf-8"))
+        assert restored["name"] == "Backup default_sandwich"
+        assert not (wf_dir / "default_sandwich.json").exists()
 
     def test_falls_back_to_dynamic_when_no_backup(self, tmp_path):
-        wf_dir = tmp_path / "workflows"
+        wf_dir = tmp_path / "user_workflows"
+        engine_dir = tmp_path / "engine_workflows"
         backup_dir = tmp_path / "non_existent_backups"
         wf_dir.mkdir(parents=True, exist_ok=True)
+        engine_dir.mkdir(parents=True, exist_ok=True)
 
         payload = {"agents": {"agent-10001": {}, "agent-10002": {}}}
-        AppIntegrityValidator.check_default_workflows_integrity(payload, workflows_dir=wf_dir, backups_dir=backup_dir)
+        AppIntegrityValidator.check_default_workflows_integrity(
+            payload,
+            workflows_dir=wf_dir,
+            backups_dir=backup_dir,
+            engine_workflows_dir=engine_dir,
+        )
 
-        assert (wf_dir / "default_sandwich.json").exists()
-        assert (wf_dir / "default_review_flow.json").exists()
-        assert (wf_dir / "parallel_dialectic_flow.json").exists()
+        assert (engine_dir / "default_sandwich.json").exists()
+        assert (engine_dir / "default_review_flow.json").exists()
+        assert (engine_dir / "parallel_dialectic_flow.json").exists()
+        assert not (wf_dir / "default_sandwich.json").exists()
 

@@ -249,3 +249,109 @@ def test_slack_app_home_toggle_interactivity_handler(monkeypatch):
         assert is_convergence_fast_forward_enabled() is True
 
     asyncio.run(_run())
+
+
+def test_consecutive_threshold_three_and_sceptic_early_kickoff_speech():
+    """Verify T=3 threshold and that an early kickoff speech by Sceptic does not disqualify them from challenging later consensus."""
+    channel_id = "C_TEST_T3_KICKOFF"
+    thread_ts = "200.1"
+    thread_state_manager.cleanup_thread(channel_id, thread_ts)
+
+    # Threshold set to 3
+    set_convergence_consecutive_threshold(3, save=False)
+    assert get_convergence_consecutive_threshold() == 3
+
+    thread_state_manager.set_remaining_agents(
+        channel_id,
+        thread_ts,
+        ["agent-10004", "agent-10005", "agent-10006"],
+    )
+
+    # Sceptic (agent-10003) already spoke early in turn 1 (kickoff)
+    spoken_agents = {"agent-10003"}
+
+    with patch(
+        "orchestration.agent_settings.get_sandwich_config",
+        return_value={"end_chain": ["agent-10006"]},
+    ):
+        # Turn 2: Agent 4 converges (count 1)
+        queue, count = _apply_convergence_stress_test_or_fast_forward(
+            channel_id=channel_id,
+            thread_ts=thread_ts,
+            spoken_agents=spoken_agents | {"agent-10004"},
+            consecutive_convergence_count=0,
+            last_speaker="agent-10004",
+            last_turn_converged=True,
+        )
+        assert count == 1
+        assert queue == ["agent-10004", "agent-10005", "agent-10006"]
+
+        # Turn 3: Agent 5 converges (count 2 - still below T=3)
+        queue, count = _apply_convergence_stress_test_or_fast_forward(
+            channel_id=channel_id,
+            thread_ts=thread_ts,
+            spoken_agents=spoken_agents | {"agent-10004", "agent-10005"},
+            consecutive_convergence_count=count,
+            last_speaker="agent-10005",
+            last_turn_converged=True,
+        )
+        assert count == 2
+        assert queue == ["agent-10004", "agent-10005", "agent-10006"]
+
+        # Turn 4: Agent 6 converges (count 3 - threshold reached!)
+        queue, count = _apply_convergence_stress_test_or_fast_forward(
+            channel_id=channel_id,
+            thread_ts=thread_ts,
+            spoken_agents=spoken_agents | {"agent-10004", "agent-10005", "agent-10006"},
+            consecutive_convergence_count=count,
+            last_speaker="agent-10006",
+            last_turn_converged=True,
+        )
+        assert count == 0
+        # Sceptic (agent-10003) was NOT in the convergence streak, so Sceptic is chosen!
+        assert queue[0] == "agent-10003"
+        assert queue[1] == "agent-10017"  # rebuttal
+
+
+def test_priority_fallback_to_innovator_when_sceptic_converged():
+    """Verify that when Sceptic was part of the convergence streak, Innovator is selected as challenger."""
+    channel_id = "C_TEST_INNOVATOR_FALLBACK"
+    thread_ts = "200.2"
+    thread_state_manager.cleanup_thread(channel_id, thread_ts)
+
+    set_convergence_consecutive_threshold(2, save=False)
+
+    thread_state_manager.set_remaining_agents(
+        channel_id,
+        thread_ts,
+        ["agent-10005", "agent-10006"],
+    )
+
+    with patch(
+        "orchestration.agent_settings.get_sandwich_config",
+        return_value={"end_chain": ["agent-10006"]},
+    ):
+        # Turn 1: Sceptic (agent-10003) speaks and converges!
+        queue, count = _apply_convergence_stress_test_or_fast_forward(
+            channel_id=channel_id,
+            thread_ts=thread_ts,
+            spoken_agents={"agent-10003"},
+            consecutive_convergence_count=0,
+            last_speaker="agent-10003",
+            last_turn_converged=True,
+        )
+        assert count == 1
+
+        # Turn 2: Agent 4 speaks and also converges (threshold 2 reached!)
+        queue, count = _apply_convergence_stress_test_or_fast_forward(
+            channel_id=channel_id,
+            thread_ts=thread_ts,
+            spoken_agents={"agent-10003", "agent-10004"},
+            consecutive_convergence_count=count,
+            last_speaker="agent-10004",
+            last_turn_converged=True,
+        )
+        assert count == 0
+        # Sceptic participated in the convergence streak, so Innovator (agent-10002) is selected!
+        assert queue[0] == "agent-10002"
+        assert queue[1] == "agent-10017"  # rebuttal
