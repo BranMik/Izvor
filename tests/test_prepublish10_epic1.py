@@ -38,40 +38,41 @@ def test_circuit_breaker_toggle_preserves_threshold():
     assert get_circuit_breaker_threshold() == 3.5
 
 
-def test_reset_daily_spend_preserves_ledger_rows(tmp_path, monkeypatch):
+def test_reset_daily_spend_preserves_ledger_rows(tmp_path):
     """TKT-1002: reset_daily_spend() should use a watermark timestamp instead of deleting rows."""
-    from core.database import DatabaseManager
+    from core.database import db_manager
 
     fresh_db = tmp_path / "test_spend.db"
-    mgr = DatabaseManager(db_path=fresh_db)
-    mgr.init_db()
-    monkeypatch.setattr("core.database.db_manager", mgr)
+    db_manager.configure_paths(db_path=fresh_db)
 
-    sg = SpendGovernance()
-    sg.record_usage(
-        session_id="channel_1:thread_1",
-        model_name="gemini/gemini-3.8-flash",
-        prompt_tokens=1000,
-        completion_tokens=500,
-    )
+    try:
+        sg = SpendGovernance()
+        sg.record_usage(
+            session_id="channel_1:thread_1",
+            model_name="gemini/gemini-3.8-flash",
+            prompt_tokens=1000,
+            completion_tokens=500,
+        )
 
-    daily_spend = sg.get_daily_spend()
-    assert daily_spend > 0
+        daily_spend = sg.get_daily_spend()
+        assert daily_spend > 0
 
-    with mgr.get_connection() as conn:
-        count_before = conn.execute("SELECT COUNT(*) FROM spend_ledger").fetchone()[0]
-    assert count_before == 1
+        with db_manager.get_connection() as conn:
+            count_before = conn.execute("SELECT COUNT(*) FROM spend_ledger").fetchone()[0]
+        assert count_before == 1
 
-    # Reset daily spend
-    sg.reset_daily_spend()
+        # Reset daily spend
+        sg.reset_daily_spend()
 
-    # Daily spend calculation should now be 0.0
-    assert sg.get_daily_spend() == 0.0
+        # Daily spend calculation should now be 0.0
+        assert sg.get_daily_spend() == 0.0
 
-    # Ledger rows must still exist for historical audit integrity
-    with mgr.get_connection() as conn:
-        count_after = conn.execute("SELECT COUNT(*) FROM spend_ledger").fetchone()[0]
-    assert count_after == 1
+        # Ledger rows must still exist for historical audit integrity
+        with db_manager.get_connection() as conn:
+            count_after = conn.execute("SELECT COUNT(*) FROM spend_ledger").fetchone()[0]
+        assert count_after == 1
+    finally:
+        db_manager.reset_paths()
 
 
 @pytest.mark.anyio

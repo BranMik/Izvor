@@ -63,41 +63,41 @@ def test_sqlite_concurrent_writers(tmp_path):
         assert total_rows == num_threads * writes_per_thread
 
 
-def test_spend_ledger_persistence_and_daily_aggregation(tmp_path, monkeypatch):
+def test_spend_ledger_persistence_and_daily_aggregation(tmp_path):
     db_file = tmp_path / "test_spend.db"
-    monkeypatch.setenv("IZVOR_DB_PATH", str(db_file))
     from core.database import db_manager
-    db_manager._custom_db_path = db_file
-    db_manager.init_db()
+    db_manager.configure_paths(db_path=db_file)
+    try:
+        cb1 = SpendGovernance()
+        session_id = "C_CHANNEL:T_THREAD"
 
-    cb1 = SpendGovernance()
-    session_id = "C_CHANNEL:T_THREAD"
+        # Record usage
+        cb1.record_usage(session_id, "gemini-2.5-flash", 1000, 200)
+        cb1.record_usage(session_id, "gemini-2.5-pro", 500, 100)
 
-    # Record usage
-    cb1.record_usage(session_id, "gemini-2.5-flash", 1000, 200)
-    cb1.record_usage(session_id, "gemini-2.5-pro", 500, 100)
+        spend_metrics = cb1.calculate_spend(session_id)
+        assert spend_metrics.total_cost_usd > 0.0
+        assert spend_metrics.total_prompt_tokens == 1500
+        assert spend_metrics.total_completion_tokens == 300
+        total_spend_1 = cb1.get_daily_spend()
+        assert total_spend_1 > 0.0
 
-    spend_metrics = cb1.calculate_spend(session_id)
-    assert spend_metrics.total_cost_usd > 0.0
-    assert spend_metrics.total_prompt_tokens == 1500
-    assert spend_metrics.total_completion_tokens == 300
-    total_spend_1 = cb1.get_daily_spend()
-    assert total_spend_1 > 0.0
+        # Simulate process restart by instantiating new SpendGovernance
+        cb2 = SpendGovernance()
+        spend_metrics_2 = cb2.calculate_spend(session_id)
+        assert spend_metrics_2.total_cost_usd == spend_metrics.total_cost_usd
+        assert spend_metrics_2.total_prompt_tokens == 1500
+        assert cb2.get_daily_spend() == total_spend_1
 
-    # Simulate process restart by instantiating new SpendGovernance
-    cb2 = SpendGovernance()
-    spend_metrics_2 = cb2.calculate_spend(session_id)
-    assert spend_metrics_2.total_cost_usd == spend_metrics.total_cost_usd
-    assert spend_metrics_2.total_prompt_tokens == 1500
-    assert cb2.get_daily_spend() == total_spend_1
-
-    # Clear session (clears in-memory session cache while preserving append-only spend ledger)
-    cb2.clear_session(session_id)
-    assert session_id not in cb2._session_tokens
-    assert cb2.get_daily_spend() == total_spend_1
+        # Clear session (clears in-memory session cache while preserving append-only spend ledger)
+        cb2.clear_session(session_id)
+        assert session_id not in cb2._session_tokens
+        assert cb2.get_daily_spend() == total_spend_1
+    finally:
+        db_manager.reset_paths()
 
 
-def test_hitl_atomic_approval_consumption(tmp_path, monkeypatch):
+def test_hitl_atomic_approval_consumption(tmp_path):
     from services.hitl import (
         approve_hitl_request,
         consume_tool_approval,

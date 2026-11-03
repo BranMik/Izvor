@@ -36,8 +36,27 @@ SLACK_SIGNING_SECRET = os.getenv("SLACK_SIGNING_SECRET", "")
 SLACK_TEST_CHANNEL_ID = os.getenv("SLACK_TEST_CHANNEL_ID", "").strip()
 
 
+_admin_slack_user_ids_override: set[str] | None = None
+_production_override: bool | None = None
+_admin_username_override: str | None = None
+_admin_password_override: str | None = None
+
+
+def set_admin_slack_user_ids_override(admin_ids: set[str] | list[str] | str | None) -> None:
+    """Sets or clears an in-memory override for Slack admin user IDs (used for test isolation)."""
+    global _admin_slack_user_ids_override
+    if admin_ids is None:
+        _admin_slack_user_ids_override = None
+    elif isinstance(admin_ids, str):
+        _admin_slack_user_ids_override = {x.strip() for x in admin_ids.split(",") if x.strip()}
+    else:
+        _admin_slack_user_ids_override = {str(x).strip() for x in admin_ids if str(x).strip()}
+
+
 def get_admin_slack_user_ids() -> set[str]:
-    """Returns the set of authorized Slack Admin User IDs from environment configuration."""
+    """Returns the set of authorized Slack Admin User IDs from override or environment configuration."""
+    if _admin_slack_user_ids_override is not None:
+        return _admin_slack_user_ids_override
     raw = os.getenv("SLACK_ADMIN_USER_IDS", "").strip()
     if not raw:
         return set()
@@ -55,13 +74,22 @@ def is_slack_admin(user_id: str | None) -> bool:
     return bool(u and u in get_admin_slack_user_ids())
 
 
+def set_production_override(is_prod: bool | None) -> None:
+    """Sets or clears an in-memory override for production environment detection."""
+    global _production_override
+    _production_override = is_prod
+
+
 def is_production() -> bool:
     """
     Determines if the application is currently running in a production environment.
-    Checks ENVIRONMENT, IZVOR_ENV, and APP_ENV.
+    Checks in-memory override first, then ENVIRONMENT, IZVOR_ENV, and APP_ENV.
     """
+    if _production_override is not None:
+        return _production_override
     env = os.getenv("ENVIRONMENT", os.getenv("IZVOR_ENV", os.getenv("APP_ENV", "development"))).strip().lower()
     return env in ("production", "prod")
+
 
 # MCP workspace directory: defaults to project root (one directory above 'core' and 'services')
 _raw_workspace = os.getenv("MCP_WORKSPACE_DIR", "").strip()
@@ -79,6 +107,27 @@ else:
 # Admin HTTP Basic Authentication credentials
 ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
+
+
+def set_admin_credentials_override(username: str | None = None, password: str | None = None) -> None:
+    """Configures in-memory admin credentials override for test isolation."""
+    global _admin_username_override, _admin_password_override
+    _admin_username_override = username
+    _admin_password_override = password
+
+
+def get_admin_username() -> str:
+    """Returns active admin username, checking in-memory override first."""
+    if _admin_username_override is not None:
+        return _admin_username_override
+    return os.getenv("ADMIN_USERNAME", "admin")
+
+
+def get_admin_password() -> str:
+    """Returns active admin password, checking in-memory override first."""
+    if _admin_password_override is not None:
+        return _admin_password_override
+    return os.getenv("ADMIN_PASSWORD", "")
 
 # Base URL for resolving relative avatar icon paths for Slack messages
 BASE_AVATAR_URL = os.getenv("BASE_AVATAR_URL", "https://izvor.local/").rstrip("/") + "/"
@@ -390,6 +439,11 @@ __all__ = [
     "MCP_WORKSPACE_DIR",
     "ADMIN_USERNAME",
     "ADMIN_PASSWORD",
+    "get_admin_username",
+    "get_admin_password",
+    "set_admin_credentials_override",
+    "set_admin_slack_user_ids_override",
+    "set_production_override",
     "BASE_AVATAR_URL",
     "SYSTEM_AGENT_USERNAME",
     "SYSTEM_AGENT_AVATAR",

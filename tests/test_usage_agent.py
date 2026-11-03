@@ -13,12 +13,13 @@ from agents.usage_agent import (
 
 
 @pytest.fixture(autouse=True)
-def clean_usage_state(monkeypatch, tmp_path):
+def clean_usage_state(tmp_path):
     temp_store = tmp_path / "test_thread_usage_data.json"
-    monkeypatch.setattr(usage_tracker, "store_file", temp_store)
+    usage_tracker.configure_paths(store_file=temp_store)
     usage_tracker.thread_usage_data.clear()
     usage_tracker.reset_runtime_state()
     yield
+    usage_tracker.reset_paths()
     usage_tracker.thread_usage_data.clear()
     usage_tracker.reset_runtime_state()
     if temp_store.exists():

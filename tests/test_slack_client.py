@@ -2,6 +2,14 @@ from unittest.mock import AsyncMock
 
 import pytest
 from slack_sdk.errors import SlackApiError
+from services import slack as slack_client
+
+
+@pytest.fixture(autouse=True)
+def configure_slack_token_for_tests():
+    slack_client.configure_token("xoxb-valid-test-token")
+    yield
+    slack_client.reset_token()
 
 
 @pytest.mark.anyio
@@ -10,10 +18,6 @@ async def test_fetch_thread_history_filters_and_formats(monkeypatch):
     Verifies that fetch_thread_history runs real parsing, regex stripping,
     role mapping, and filtering without crashing.
     """
-    from services import slack as slack_client
-
-    monkeypatch.setattr(slack_client, "SLACK_BOT_TOKEN", "xoxb-valid-test-token")
-
     raw_messages = [
         # 1. Plain user message
         {"user": "U_USER1", "text": "Can we discuss the architecture?", "subtype": None},
@@ -68,10 +72,6 @@ async def test_fetch_thread_history_filters_and_formats(monkeypatch):
 @pytest.mark.anyio
 async def test_fetch_thread_history_handles_slack_api_error(monkeypatch):
     """Verifies that SlackApiError is caught and returns empty list gracefully."""
-    from services import slack as slack_client
-
-    monkeypatch.setattr(slack_client, "SLACK_BOT_TOKEN", "xoxb-valid-test-token")
-
     mock_error_replies = AsyncMock(
         side_effect=SlackApiError("channel_not_found", response={"error": "channel_not_found"})
     )
@@ -84,10 +84,6 @@ async def test_fetch_thread_history_handles_slack_api_error(monkeypatch):
 @pytest.mark.anyio
 async def test_fetch_thread_history_handles_generic_exception(monkeypatch):
     """Verifies that any unexpected exception does not crash the calling background task."""
-    from services import slack as slack_client
-
-    monkeypatch.setattr(slack_client, "SLACK_BOT_TOKEN", "xoxb-valid-test-token")
-
     mock_crashed_replies = AsyncMock(side_effect=RuntimeError("Connection socket reset by peer"))
     monkeypatch.setattr(slack_client.slack_async_client, "conversations_replies", mock_crashed_replies)
 
@@ -96,22 +92,19 @@ async def test_fetch_thread_history_handles_generic_exception(monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_fetch_thread_history_empty_token(monkeypatch):
+async def test_fetch_thread_history_empty_token():
     """Verifies empty or dummy token immediately returns empty list without calling API."""
-    from services import slack as slack_client
-
-    monkeypatch.setattr(slack_client, "SLACK_BOT_TOKEN", "")
-    result = await slack_client.fetch_thread_history("C1", "T1")
-    assert result == []
+    slack_client.configure_token("")
+    try:
+        result = await slack_client.fetch_thread_history("C1", "T1")
+        assert result == []
+    finally:
+        slack_client.configure_token("xoxb-valid-test-token")
 
 
 @pytest.mark.anyio
 async def test_fetch_thread_history_pagination(monkeypatch):
     """Verifies fetch_thread_history fetches multiple pages when has_more is True."""
-    from services import slack as slack_client
-
-    monkeypatch.setattr(slack_client, "SLACK_BOT_TOKEN", "xoxb-valid-test-token")
-
     page1_msgs = [{"user": "U1", "text": f"Msg {i}", "subtype": None} for i in range(100)]
     page2_msgs = [{"user": "U1", "text": f"Msg {i}", "subtype": None} for i in range(100, 130)]
 
@@ -149,10 +142,6 @@ async def test_fetch_thread_history_pagination(monkeypatch):
 @pytest.mark.anyio
 async def test_fetch_thread_files_pagination(monkeypatch):
     """Verifies fetch_thread_files paginates to discover file attachments across long threads."""
-    from services import slack as slack_client
-
-    monkeypatch.setattr(slack_client, "SLACK_BOT_TOKEN", "xoxb-valid-test-token")
-
     page1_msgs = [
         {"user": "U1", "ts": "1.0", "files": [{"id": "F1", "name": "doc1.txt"}]}
     ]
@@ -198,9 +187,6 @@ def test_sanitize_slack_broadcast_mentions():
 @pytest.mark.anyio
 async def test_post_agent_response_unfurl_and_sanitize(monkeypatch):
     """Verifies post_agent_response sanitizes broadcast mentions and disables unfurling."""
-    from services import slack as slack_client
-
-    monkeypatch.setattr(slack_client, "SLACK_BOT_TOKEN", "xoxb-valid-test-token")
     from unittest.mock import MagicMock
     captured_kwargs = {}
 

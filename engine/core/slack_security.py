@@ -210,12 +210,14 @@ def _record_auth_failure_audit(client_id: str) -> None:
             logger.debug(f"[SECURITY] Failed to record auth failure audit: {e}")
 
 
-def verify_slack_signature(body_bytes: bytes, headers: dict) -> bool:
+def verify_slack_signature(body_bytes: bytes, headers: dict, signing_secret: str | None = None) -> bool:
     """
     Verifies that the incoming HTTP request is genuinely sent from Slack
     using HMAC SHA256 signature verification.
+    Accepts an explicit signing_secret parameter for dependency injection in tests.
     """
-    signing_secret = os.getenv("SLACK_SIGNING_SECRET", "")
+    if signing_secret is None:
+        signing_secret = os.getenv("SLACK_SIGNING_SECRET", "")
 
     # If signing secret is not configured or is default placeholder, reject request
     if not signing_secret or signing_secret == "your-slack-signing-secret":

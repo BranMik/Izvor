@@ -20,12 +20,13 @@ from services.turn_checkpoint_store import TurnCheckpoint, turn_checkpoint_store
 
 
 @pytest.fixture(autouse=True)
-def clean_db(tmp_path, monkeypatch):
+def clean_db(tmp_path):
+    from core.database import db_manager
+
     fresh_db = tmp_path / "test_epic2.db"
-    mgr = DatabaseManager(db_path=fresh_db)
-    mgr.init_db()
-    monkeypatch.setattr("core.database.db_manager", mgr)
+    db_manager.configure_paths(db_path=fresh_db)
     yield
+    db_manager.reset_paths()
 
 
 def test_event_dedup_atomic_claim():

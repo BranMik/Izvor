@@ -172,9 +172,24 @@ def test_no_monkeypatch_setattr_on_module_paths_or_managers():
         "USAGE_STORE_FILE",
         "WORKFLOWS_DIR",
         "ENGINE_WORKFLOWS_DIR",
+        "THREAD_NOTES_DIR",
+        "AGENTS_RESOURCES_DIR",
+        "WORKSPACE_DIR",
+        "SLACK_BOT_TOKEN",
+        "SLACK_SIGNING_SECRET",
+        "ADMIN_USERNAME",
+        "ADMIN_PASSWORD",
+        "AUDIT_HMAC_SECRET",
         "system_settings_manager",
         "app_settings_manager",
         "workflow_manager",
+        "db_manager",
+        "usage_tracker",
+        "pricing_service",
+        "thread_notes_writer",
+        "flat_history_recorder",
+        "mcp_tools",
+        "store_file",
     }
 
     violations = []
@@ -215,5 +230,39 @@ def test_no_monkeypatch_setattr_on_module_paths_or_managers():
     assert not violations, (
         f"Found {len(violations)} forbidden monkeypatch.setattr calls on path constants/managers:\n"
         + "\n".join(violations)
-        + "\nUse manager.configure_paths() or monkeypatch.setenv('IZVOR_*', ...) instead."
+        + "\nUse manager.configure_paths() or dependency injection overrides instead."
+    )
+
+
+def test_no_monkeypatch_setenv_or_delenv():
+    """
+    Ensures that test files and fixtures do not use monkeypatch.setenv or monkeypatch.delenv,
+    enforcing clean parameter injection or manager configure/override APIs instead.
+    """
+    import ast
+
+    root_dir = Path(__file__).resolve().parent.parent
+    tests_dir = root_dir / "tests"
+
+    violations = []
+
+    for py_file in tests_dir.rglob("*.py"):
+        try:
+            tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
+        except SyntaxError:
+            continue
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                func = node.func
+                if isinstance(func, ast.Attribute) and func.attr in ("setenv", "delenv"):
+                    if isinstance(func.value, ast.Name) and func.value.id == "monkeypatch":
+                        violations.append(
+                            f"{py_file.relative_to(root_dir)}:{node.lineno} uses forbidden monkeypatch.{func.attr}"
+                        )
+
+    assert not violations, (
+        f"Found {len(violations)} forbidden monkeypatch.setenv/delenv calls in test suite:\n"
+        + "\n".join(violations)
+        + "\nUse manager configure_paths(), parameter injection, or config override functions instead."
     )

@@ -1,32 +1,40 @@
+import pytest
 import time
 from unittest.mock import AsyncMock
 
 from fastapi.testclient import TestClient
 
-from core.config import get_admin_slack_user_ids, is_slack_admin
+from core.config import get_admin_slack_user_ids, is_slack_admin, set_admin_slack_user_ids_override
 from main import app
 from services.audit_logger import get_audit_trail
 
 client = TestClient(app)
 
 
-def test_is_slack_admin_config_resolution(monkeypatch):
-    """Test resolution of admin user IDs from SLACK_ADMIN_USER_IDS env var."""
-    # 1. Fail-closed when no env vars configured
-    monkeypatch.delenv("SLACK_ADMIN_USER_IDS", raising=False)
+@pytest.fixture(autouse=True)
+def configure_default_admins():
+    set_admin_slack_user_ids_override("U_LEGIT_ADMIN,U_REAL_ADMIN")
+    yield
+    set_admin_slack_user_ids_override(None)
+
+
+def test_is_slack_admin_config_resolution():
+    """Test resolution of admin user IDs from override or env configuration."""
+    # 1. Fail-closed when no admin IDs configured
+    set_admin_slack_user_ids_override("")
     assert get_admin_slack_user_ids() == set()
     assert is_slack_admin("U_ANY") is False
     assert is_slack_admin(None) is False
     assert is_slack_admin("") is False
 
-    # 2. Single admin via SLACK_ADMIN_USER_IDS
-    monkeypatch.setenv("SLACK_ADMIN_USER_IDS", "U_CHIEF_ADMIN")
+    # 2. Single admin via override
+    set_admin_slack_user_ids_override("U_CHIEF_ADMIN")
     assert get_admin_slack_user_ids() == {"U_CHIEF_ADMIN"}
     assert is_slack_admin("U_CHIEF_ADMIN") is True
     assert is_slack_admin("U_RANDOM") is False
 
-    # 3. Multiple admins via SLACK_ADMIN_USER_IDS comma-separated
-    monkeypatch.setenv("SLACK_ADMIN_USER_IDS", "U_ADMIN_A, U_ADMIN_B,  U_ADMIN_C ")
+    # 3. Multiple admins via comma-separated string
+    set_admin_slack_user_ids_override("U_ADMIN_A, U_ADMIN_B,  U_ADMIN_C ")
     admin_ids = get_admin_slack_user_ids()
     assert admin_ids == {"U_ADMIN_A", "U_ADMIN_B", "U_ADMIN_C"}
     assert is_slack_admin("U_ADMIN_B") is True
@@ -35,7 +43,6 @@ def test_is_slack_admin_config_resolution(monkeypatch):
 
 def test_non_admin_blocked_from_system_actions(monkeypatch):
     """Test that non-admin users receive 403 Forbidden and audit event on admin Block Kit actions."""
-    monkeypatch.setenv("SLACK_ADMIN_USER_IDS", "U_REAL_ADMIN")
     monkeypatch.setattr("adapters.slack.interactivity.verify_slack_signature", lambda body, headers: True)
     mock_ephemeral = AsyncMock(return_value={"ok": True})
     monkeypatch.setattr("adapters.slack.interactivity.slack_async_client.chat_postEphemeral", mock_ephemeral)
@@ -75,7 +82,6 @@ def test_non_admin_blocked_from_system_actions(monkeypatch):
 
 def test_admin_allowed_system_actions(monkeypatch):
     """Test that configured admin users successfully perform settings actions."""
-    monkeypatch.setenv("SLACK_ADMIN_USER_IDS", "U_REAL_ADMIN")
     monkeypatch.setattr("adapters.slack.interactivity.verify_slack_signature", lambda body, headers: True)
     monkeypatch.setattr("adapters.slack.interactivity.publish_app_home", AsyncMock(return_value={"ok": True}))
 
@@ -99,7 +105,6 @@ def test_admin_allowed_system_actions(monkeypatch):
 
 def test_non_admin_blocked_from_workspace_modal(monkeypatch):
     """Test that modal submission and opening is restricted to admins with modal feedback for UI actions."""
-    monkeypatch.setenv("SLACK_ADMIN_USER_IDS", "U_LEGIT_ADMIN")
     monkeypatch.setattr("adapters.slack.interactivity.verify_slack_signature", lambda body, headers: True)
     mock_views_open = AsyncMock(return_value={"ok": True})
     monkeypatch.setattr("adapters.slack.actions.agent_actions.slack_async_client.views_open", mock_views_open)
@@ -149,7 +154,6 @@ def test_non_admin_blocked_from_workspace_modal(monkeypatch):
 
 def test_workflow_delete_non_admin_opens_admin_required_modal(monkeypatch):
     """Test that attempting admin-only workflow mutation (e.g. delete preset) as non-admin opens Admin Access Required modal."""
-    monkeypatch.setenv("SLACK_ADMIN_USER_IDS", "U_LEGIT_ADMIN")
     monkeypatch.setattr("adapters.slack.interactivity.verify_slack_signature", lambda body, headers: True)
     mock_views_open = AsyncMock(return_value={"ok": True})
     monkeypatch.setattr("adapters.slack.actions.agent_actions.slack_async_client.views_open", mock_views_open)
@@ -183,7 +187,6 @@ def test_workflow_delete_non_admin_expired_trigger_id_fallback_dm(monkeypatch):
     """Test that when trigger_id expires on views.open for admin actions, the server sends a fallback DM and re-syncs App Home."""
     from slack_sdk.errors import SlackApiError
 
-    monkeypatch.setenv("SLACK_ADMIN_USER_IDS", "U_LEGIT_ADMIN")
     monkeypatch.setattr("adapters.slack.interactivity.verify_slack_signature", lambda body, headers: True)
 
     mock_resp = {"ok": False, "error": "expired_trigger_id"}
@@ -232,7 +235,6 @@ def test_workflow_dropdown_admin_rbac(monkeypatch):
     """Test that workflow preset selection requires admin permissions (S-08)."""
     from orchestration.agent_settings import get_active_workflow_id
 
-    monkeypatch.setenv("SLACK_ADMIN_USER_IDS", "U_LEGIT_ADMIN")
     monkeypatch.setattr("adapters.slack.interactivity.verify_slack_signature", lambda body, headers: True)
     mock_publish_home = AsyncMock(return_value={"ok": True})
     monkeypatch.setattr("services.slack.views.publish_app_home", mock_publish_home)
@@ -287,7 +289,6 @@ def test_workflow_dropdown_admin_rbac(monkeypatch):
 
 def test_non_admin_in_channel_action_sends_ephemeral_on_modal_failure(monkeypatch):
     """Test that non-admin action inside a channel sends ephemeral denial if trigger_id is missing or views_open fails."""
-    monkeypatch.setenv("SLACK_ADMIN_USER_IDS", "U_LEGIT_ADMIN")
     monkeypatch.setattr("adapters.slack.interactivity.verify_slack_signature", lambda body, headers: True)
 
     mock_ephemeral = AsyncMock(return_value={"ok": True})

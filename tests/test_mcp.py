@@ -259,48 +259,54 @@ def test_mcp_write_file_blocks_protected_default_files():
         assert "Permission denied: Writing to protected path" in res["error"]
 
 
-def test_mcp_write_file_blocks_custom_blacklist(monkeypatch, tmp_path):
+def test_mcp_write_file_blocks_custom_blacklist(tmp_path):
     from orchestration.system_settings import system_settings_manager
     from services.mcp_tools import write_document
 
-    monkeypatch.setattr(
-        system_settings_manager,
-        "get_workspace_write_blacklist_additional",
-        lambda: ["custom_blocked_dir/*", "blacklisted.txt"],
+    orig_blacklist = system_settings_manager.get_workspace_write_blacklist_additional()
+    system_settings_manager.set_workspace_write_blacklist_additional(
+        ["custom_blocked_dir/*", "blacklisted.txt"],
+        save=False,
     )
 
-    # 1. Blocked custom paths
-    res1 = json.loads(write_document("custom_blocked_dir/sample.txt", "content", principal=SYSTEM_PRINCIPAL))
-    assert "error" in res1
-    assert "Permission denied: Writing to protected path" in res1["error"]
+    try:
+        # 1. Blocked custom paths
+        res1 = json.loads(write_document("custom_blocked_dir/sample.txt", "content", principal=SYSTEM_PRINCIPAL))
+        assert "error" in res1
+        assert "Permission denied: Writing to protected path" in res1["error"]
 
-    res2 = json.loads(write_document("blacklisted.txt", "content", principal=SYSTEM_PRINCIPAL))
-    assert "error" in res2
-    assert "Permission denied: Writing to protected path" in res2["error"]
+        res2 = json.loads(write_document("blacklisted.txt", "content", principal=SYSTEM_PRINCIPAL))
+        assert "error" in res2
+        assert "Permission denied: Writing to protected path" in res2["error"]
 
-    # 2. Allowed normal path
-    allowed_file = "tests/test_write_allowed.tmp"
-    res3 = json.loads(write_document(allowed_file, "valid content", principal=SYSTEM_PRINCIPAL))
-    assert res3.get("success") is True
-    from services.mcp_tools import WORKSPACE_DIR
-    p = WORKSPACE_DIR / allowed_file
-    if p.exists():
-        p.unlink()
+        # 2. Allowed normal path
+        allowed_file = "tests/test_write_allowed.tmp"
+        res3 = json.loads(write_document(allowed_file, "valid content", principal=SYSTEM_PRINCIPAL))
+        assert res3.get("success") is True
+        from services.mcp_tools import WORKSPACE_DIR
+        p = WORKSPACE_DIR / allowed_file
+        if p.exists():
+            p.unlink()
+    finally:
+        system_settings_manager.set_workspace_write_blacklist_additional(orig_blacklist, save=False)
 
 
-def test_mcp_write_document_blocks_blacklisted_path(monkeypatch):
+def test_mcp_write_document_blocks_blacklisted_path():
     from orchestration.system_settings import system_settings_manager
     from services.mcp_tools import write_document
 
-    monkeypatch.setattr(
-        system_settings_manager,
-        "get_workspace_write_blacklist_additional",
-        lambda: ["agents_resources/secret_doc.txt"],
+    orig_blacklist = system_settings_manager.get_workspace_write_blacklist_additional()
+    system_settings_manager.set_workspace_write_blacklist_additional(
+        ["agents_resources/secret_doc.txt"],
+        save=False,
     )
 
-    res = json.loads(write_document("secret_doc.txt", "confidential", principal=SYSTEM_PRINCIPAL))
-    assert "error" in res
-    assert "Permission denied: Writing to protected path" in res["error"]
+    try:
+        res = json.loads(write_document("secret_doc.txt", "confidential", principal=SYSTEM_PRINCIPAL))
+        assert "error" in res
+        assert "Permission denied: Writing to protected path" in res["error"]
+    finally:
+        system_settings_manager.set_workspace_write_blacklist_additional(orig_blacklist, save=False)
 
 
 def test_mcp_tool_dispatcher_registry():

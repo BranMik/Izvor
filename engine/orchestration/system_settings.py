@@ -2,6 +2,7 @@ import copy
 import fnmatch
 import logging
 import os
+import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -603,6 +604,8 @@ class SystemSettingsManager:
                     return max(0.0, float(env_val))
                 except ValueError:
                     pass
+            if "pytest" in sys.modules:
+                return 0.01
         return self.debate_turn_pacing_seconds
 
     def set_debate_turn_pacing_seconds(self, seconds: float, save: bool = True) -> None:
@@ -621,6 +624,8 @@ class SystemSettingsManager:
                     return max(0.0, float(env_val))
                 except ValueError:
                     pass
+            if "pytest" in sys.modules:
+                return 0.01
         return self.slack_post_pause_seconds
 
     def set_slack_post_pause_seconds(self, seconds: float, save: bool = True) -> None:

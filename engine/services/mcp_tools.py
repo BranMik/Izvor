@@ -32,6 +32,35 @@ AGENTS_RESOURCES_DIR = (
     else CANONICAL_AGENTS_RESOURCES_DIR
 )
 
+_custom_workspace_dir: Path | None = None
+_custom_agents_resources_dir: Path | None = None
+
+
+def configure_paths(workspace_dir: Path | None = None, agents_resources_dir: Path | None = None) -> None:
+    """Configures in-memory workspace and resources paths for test isolation."""
+    global _custom_workspace_dir, _custom_agents_resources_dir
+    _custom_workspace_dir = workspace_dir
+    _custom_agents_resources_dir = agents_resources_dir
+
+
+def reset_paths() -> None:
+    """Resets custom path overrides back to defaults."""
+    configure_paths(None, None)
+
+
+def get_workspace_dir() -> Path:
+    """Returns active workspace directory, checking override first."""
+    if _custom_workspace_dir is not None:
+        return _custom_workspace_dir
+    return WORKSPACE_DIR
+
+
+def get_agents_resources_dir() -> Path:
+    """Returns active agents_resources directory, checking override first."""
+    if _custom_agents_resources_dir is not None:
+        return _custom_agents_resources_dir
+    return AGENTS_RESOURCES_DIR
+
 
 def validate_resource_filename(rel_path: str) -> None:
     """
@@ -91,10 +120,11 @@ def _resolve_resource_path(rel_path: str) -> Path:
         validate_resource_filename(stripped)
 
     clean_path = stripped or "."
-    target = (AGENTS_RESOURCES_DIR / clean_path).resolve()
-    if not target.is_relative_to(AGENTS_RESOURCES_DIR):
+    resources_dir = get_agents_resources_dir()
+    target = (resources_dir / clean_path).resolve()
+    if not target.is_relative_to(resources_dir):
         raise PermissionError(
-            f"Access denied: Path '{rel_path}' is outside agents_resources directory '{AGENTS_RESOURCES_DIR}'."
+            f"Access denied: Path '{rel_path}' is outside agents_resources directory '{resources_dir}'."
         )
     return target
 
@@ -282,12 +312,14 @@ def write_document(
             })
 
         path = _resolve_resource_path(rel_path)
-        if not path.is_relative_to(AGENTS_RESOURCES_DIR):
+        resources_dir = get_agents_resources_dir()
+        workspace_dir = get_workspace_dir()
+        if not path.is_relative_to(resources_dir):
             raise PermissionError(
-                f"Access denied: Write path '{rel_path}' resolves outside agents_resources directory '{AGENTS_RESOURCES_DIR}'."
+                f"Access denied: Write path '{rel_path}' resolves outside agents_resources directory '{resources_dir}'."
             )
 
-        if is_path_write_blocked(path, base_dir=WORKSPACE_DIR) or is_path_write_blocked(rel_path, base_dir=WORKSPACE_DIR):
+        if is_path_write_blocked(path, base_dir=workspace_dir) or is_path_write_blocked(rel_path, base_dir=workspace_dir):
             from services.audit_logger import log_audit_event
 
             log_audit_event(
@@ -295,7 +327,7 @@ def write_document(
                 actor={"type": actor_kind, "id": actor_id},
                 action="write_document",
                 target=rel_path,
-                details={"resolved_path": str(path.relative_to(WORKSPACE_DIR).as_posix()), "reason": "Path is protected in system settings"},
+                details={"resolved_path": str(path.relative_to(workspace_dir).as_posix()), "reason": "Path is protected in system settings"},
                 severity="CRITICAL",
                 status="BLOCKED",
             )

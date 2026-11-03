@@ -3,6 +3,7 @@ import logging
 from services.slack.client_core import (
     CHANNEL_NAME_CACHE,
     SLACK_BOT_TOKEN,
+    configure_token,
     get_bot_user_id,
     get_channel_name,
     get_or_create_usage_channel,
@@ -10,6 +11,7 @@ from services.slack.client_core import (
     get_slack_bot_token,
     open_dm_channel,
     post_ephemeral_to_slack,
+    reset_token,
     slack_async_client,
     slack_rate_limiter,
 )
@@ -43,6 +45,8 @@ logger = logging.getLogger("services.slack")
 __all__ = [
     "SLACK_BOT_TOKEN",
     "logger",
+    "configure_token",
+    "reset_token",
     "get_slack_bot_token",
     "get_slack_async_client",
     "slack_async_client",

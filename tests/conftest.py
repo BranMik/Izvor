@@ -40,7 +40,7 @@ def isolate_audit_logger_for_tests(tmp_path):
 
 
 @pytest.fixture(autouse=True)
-def isolate_pricing_cache_for_tests(tmp_path, monkeypatch):
+def isolate_pricing_cache_for_tests(tmp_path):
     """
     Prevents tests from modifying or overwriting production data/pricing/model_pricing_cache.json.
     Each test gets an isolated copy in tmp_path / "_conftest_iso".
@@ -50,7 +50,6 @@ def isolate_pricing_cache_for_tests(tmp_path, monkeypatch):
     temp_pricing_cache = iso_dir / "model_pricing_cache.json"
     if REAL_PRICING_CACHE_FILE.exists():
         shutil.copy2(REAL_PRICING_CACHE_FILE, temp_pricing_cache)
-    monkeypatch.setenv("IZVOR_PRICING_CACHE_FILE", str(temp_pricing_cache))
     from services.pricing_service import pricing_service
 
     pricing_service.configure_paths(cache_file=temp_pricing_cache)
@@ -182,30 +181,25 @@ def isolate_app_settings_for_tests(tmp_path):
 
 
 @pytest.fixture(autouse=True)
-def isolate_database_for_tests(tmp_path, monkeypatch):
+def isolate_database_for_tests(tmp_path):
     """
     Bulletproof SQLite database isolation for tests.
     Each test gets a dedicated temporary SQLite database initialized with all schemas and WAL pragmas.
     """
-    from core.database import db_manager, init_db
+    from core.database import db_manager
 
     iso_dir = tmp_path / "_conftest_iso"
     iso_dir.mkdir(parents=True, exist_ok=True)
     test_db_path = iso_dir / "test_izvor.db"
-    monkeypatch.setenv("IZVOR_DB_PATH", str(test_db_path))
-    old_custom_path = db_manager._custom_db_path
-    db_manager._custom_db_path = test_db_path
-
-    init_db(test_db_path)
+    db_manager.configure_paths(db_path=test_db_path)
 
     yield
 
-    db_manager.close_all_connections()
-    db_manager._custom_db_path = old_custom_path
+    db_manager.reset_paths()
 
 
 @pytest.fixture(autouse=True)
-def isolate_thread_state_files_for_tests(tmp_path, monkeypatch):
+def isolate_thread_state_files_for_tests(tmp_path):
     """
     Prevents tests from modifying or overwriting data/thread/thread_usage_data.json
     and ensures clean thread skills state in SQLite.
@@ -219,17 +213,15 @@ def isolate_thread_state_files_for_tests(tmp_path, monkeypatch):
     iso_dir.mkdir(parents=True, exist_ok=True)
     temp_usage_file = iso_dir / "thread_usage_data.json"
     temp_usage_file.write_text("{}", encoding="utf-8")
-    monkeypatch.setenv("IZVOR_THREAD_DATA_DIR", str(iso_dir))
 
-    old_usage_storage = usage_tracker.store_file
-    usage_tracker.store_file = temp_usage_file
+    usage_tracker.configure_paths(store_file=temp_usage_file)
     old_usage_data = dict(usage_tracker.thread_usage_data)
     usage_tracker.thread_usage_data.clear()
 
     yield
 
     thread_skills_manager.clear_all()
-    usage_tracker.store_file = old_usage_storage
+    usage_tracker.reset_paths()
     usage_tracker.thread_usage_data.clear()
     usage_tracker.thread_usage_data.update(old_usage_data)
 
@@ -283,28 +275,32 @@ def isolate_system_settings_for_tests(tmp_path):
 
 
 @pytest.fixture(autouse=True)
-def isolate_downloads_dir_for_tests(request, tmp_path, monkeypatch):
+def isolate_downloads_dir_for_tests(request, tmp_path):
     """
     Prevents tests from leaking downloaded test files into data/downloads.
     """
     if "test_paths" in request.node.nodeid:
         yield
         return
+    from core.paths import set_downloads_dir_override
+
     iso_dir = tmp_path / "_conftest_iso"
     iso_dir.mkdir(parents=True, exist_ok=True)
     temp_downloads = iso_dir / "downloads"
     temp_downloads.mkdir(parents=True, exist_ok=True)
 
-    monkeypatch.setenv("IZVOR_DOWNLOADS_DIR", str(temp_downloads))
+    set_downloads_dir_override(temp_downloads)
     yield
+    set_downloads_dir_override(None)
 
 
 @pytest.fixture(autouse=True)
-def isolate_flat_histories_and_notes_for_tests(tmp_path, monkeypatch):
+def isolate_flat_histories_and_notes_for_tests(tmp_path):
     """
     Prevents tests from creating flat history and thread note files in real directories.
     Provides fast pacing for multi-turn execution without production test seams.
     """
+    from orchestration.system_settings import system_settings_manager
     from services.flat_history_recorder import configure_paths as configure_flat_paths, reset_paths as reset_flat_paths
     from services.thread_notes_writer import configure_paths as configure_note_paths, reset_paths as reset_note_paths
 
@@ -315,10 +311,11 @@ def isolate_flat_histories_and_notes_for_tests(tmp_path, monkeypatch):
     temp_notes = iso_dir / "thread_notes"
     temp_notes.mkdir(parents=True, exist_ok=True)
 
-    monkeypatch.setenv("IZVOR_HISTORIES_DIR", str(temp_flat))
-    monkeypatch.setenv("IZVOR_THREAD_NOTES_DIR", str(temp_notes))
-    monkeypatch.setenv("IZVOR_DEBATE_TURN_PACING_SECONDS", "0.01")
-    monkeypatch.setenv("IZVOR_SLACK_POST_PAUSE_SECONDS", "0.01")
+    orig_pacing = system_settings_manager.debate_turn_pacing_seconds
+    orig_pause = system_settings_manager.slack_post_pause_seconds
+
+    system_settings_manager.set_debate_turn_pacing_seconds(0.01, save=False)
+    system_settings_manager.set_slack_post_pause_seconds(0.01, save=False)
 
     configure_flat_paths(temp_flat)
     configure_note_paths(temp_notes)
@@ -327,6 +324,8 @@ def isolate_flat_histories_and_notes_for_tests(tmp_path, monkeypatch):
 
     reset_flat_paths()
     reset_note_paths()
+    system_settings_manager.set_debate_turn_pacing_seconds(orig_pacing, save=False)
+    system_settings_manager.set_slack_post_pause_seconds(orig_pause, save=False)
 
 
 @pytest.fixture(autouse=True)

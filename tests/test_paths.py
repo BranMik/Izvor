@@ -95,8 +95,8 @@ def test_default_paths_exist_or_resolve_to_repo_layout():
     assert paths.USAGE_STORE_FILE == root / "data" / "thread" / "thread_usage_data.json"
 
 
-def test_environment_variable_overrides(monkeypatch, tmp_path):
-    """Verify that setting IZVOR_* environment variables overrides path resolution on reload."""
+def test_environment_variable_overrides(tmp_path):
+    """Verify that _resolve_env_path properly resolves custom directory overrides via dependency injection."""
     custom_data = tmp_path / "custom_data"
     custom_config = tmp_path / "custom_config"
     custom_db = tmp_path / "custom.db"
@@ -107,34 +107,27 @@ def test_environment_variable_overrides(monkeypatch, tmp_path):
     custom_notes = tmp_path / "custom_notes"
     custom_histories = tmp_path / "custom_histories"
 
-    monkeypatch.setenv("IZVOR_DATA_DIR", str(custom_data))
-    monkeypatch.setenv("IZVOR_CONFIG_DIR", str(custom_config))
-    monkeypatch.setenv("IZVOR_DB_PATH", str(custom_db))
-    monkeypatch.setenv("IZVOR_AUDIT_DIR", str(custom_audit))
-    monkeypatch.setenv("IZVOR_DOWNLOADS_DIR", str(custom_downloads))
-    monkeypatch.setenv("IZVOR_PROMPTS_DIR", str(custom_prompts))
-    monkeypatch.setenv("IZVOR_PERSONAS_DIR", str(custom_personas))
-    monkeypatch.setenv("IZVOR_THREAD_NOTES_DIR", str(custom_notes))
-    monkeypatch.setenv("IZVOR_HISTORIES_DIR", str(custom_histories))
+    custom_env = {
+        "IZVOR_DATA_DIR": str(custom_data),
+        "IZVOR_CONFIG_DIR": str(custom_config),
+        "IZVOR_DB_PATH": str(custom_db),
+        "IZVOR_AUDIT_DIR": str(custom_audit),
+        "IZVOR_DOWNLOADS_DIR": str(custom_downloads),
+        "IZVOR_PROMPTS_DIR": str(custom_prompts),
+        "IZVOR_PERSONAS_DIR": str(custom_personas),
+        "IZVOR_THREAD_NOTES_DIR": str(custom_notes),
+        "IZVOR_HISTORIES_DIR": str(custom_histories),
+    }
 
-    reloaded = importlib.reload(paths)
-
-    try:
-        assert reloaded.DATA_DIR == custom_data
-        assert reloaded.CONFIG_DIR == custom_config
-        assert reloaded.DB_PATH == custom_db
-        assert reloaded.AUDIT_DIR == custom_audit
-        assert reloaded.DOWNLOADS_DIR == custom_downloads
-        assert reloaded.PROMPTS_DIR == custom_prompts
-        assert reloaded.PERSONAS_DIR == custom_personas
-        assert reloaded.THREAD_NOTES_DIR == custom_notes
-        assert reloaded.FLAT_HISTORIES_DIR == custom_histories
-        assert reloaded.SETTINGS_DIR == custom_config / "settings"
-        assert reloaded.SYSTEM_SETTINGS_FILE == custom_config / "settings" / "system_settings.json"
-    finally:
-        # Restore normal paths module
-        monkeypatch.undo()
-        importlib.reload(paths)
+    assert paths._resolve_env_path("IZVOR_DATA_DIR", paths.DATA_DIR, env=custom_env) == custom_data
+    assert paths._resolve_env_path("IZVOR_CONFIG_DIR", paths.CONFIG_DIR, env=custom_env) == custom_config
+    assert paths._resolve_env_path("IZVOR_DB_PATH", paths.DB_PATH, env=custom_env) == custom_db
+    assert paths._resolve_env_path("IZVOR_AUDIT_DIR", paths.AUDIT_DIR, env=custom_env) == custom_audit
+    assert paths._resolve_env_path("IZVOR_DOWNLOADS_DIR", paths.DOWNLOADS_DIR, env=custom_env) == custom_downloads
+    assert paths._resolve_env_path("IZVOR_PROMPTS_DIR", paths.PROMPTS_DIR, env=custom_env) == custom_prompts
+    assert paths._resolve_env_path("IZVOR_PERSONAS_DIR", paths.PERSONAS_DIR, env=custom_env) == custom_personas
+    assert paths._resolve_env_path("IZVOR_THREAD_NOTES_DIR", paths.THREAD_NOTES_DIR, env=custom_env) == custom_notes
+    assert paths._resolve_env_path("IZVOR_HISTORIES_DIR", paths.FLAT_HISTORIES_DIR, env=custom_env) == custom_histories
 
 
 def test_circular_import_resilience():

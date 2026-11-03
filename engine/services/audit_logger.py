@@ -120,8 +120,24 @@ def canonical_serialize(data: dict[str, Any]) -> str:
     return json.dumps(data, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
 
+_audit_hmac_secret_override: bytes | None = None
+
+
+def set_audit_hmac_secret_override(secret: bytes | str | None) -> None:
+    """Configures or clears an in-memory HMAC secret override for test isolation."""
+    global _audit_hmac_secret_override
+    if secret is None:
+        _audit_hmac_secret_override = None
+    elif isinstance(secret, bytes):
+        _audit_hmac_secret_override = secret
+    else:
+        _audit_hmac_secret_override = str(secret).encode("utf-8")
+
+
 def get_audit_hmac_secret() -> bytes:
-    """Returns the current HMAC secret from module global or environment."""
+    """Returns the current HMAC secret from override, module global, or environment."""
+    if _audit_hmac_secret_override is not None:
+        return _audit_hmac_secret_override
     val = globals().get("AUDIT_HMAC_SECRET")
     if val:
         secret = val if isinstance(val, bytes) else str(val).encode("utf-8")

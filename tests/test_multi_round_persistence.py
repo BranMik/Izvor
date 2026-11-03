@@ -17,7 +17,9 @@ from orchestration.thread_state import thread_state_manager
 
 @pytest.fixture(autouse=True)
 def setup_test_environment(monkeypatch):
-    monkeypatch.setenv("SLACK_ADMIN_USER_IDS", "U_ADMIN")
+    from core.config import set_admin_slack_user_ids_override
+
+    set_admin_slack_user_ids_override("U_ADMIN")
     reset_enabled_agents()
     set_orchestration_mode("sandwich")
 
@@ -43,6 +45,10 @@ def setup_test_environment(monkeypatch):
 
     monkeypatch.setattr(agent_router.asyncio, "sleep", AsyncMock(return_value=None))
     monkeypatch.setattr("orchestration.stages.execution.asyncio.sleep", AsyncMock(return_value=None))
+
+    yield
+
+    set_admin_slack_user_ids_override(None)
 
 
 @pytest.mark.anyio
