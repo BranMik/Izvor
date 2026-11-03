@@ -1,3 +1,4 @@
+import inspect
 import logging
 from pathlib import Path
 import re
@@ -19,6 +20,46 @@ from services.security import scan_output_for_secrets
 from services.slack.client_core import get_slack_async_client, get_slack_bot_token
 
 logger = logging.getLogger(__name__)
+
+_post_agent_response_override: Any = None
+_fetch_thread_history_override: Any = None
+_post_system_message_override: Any = None
+
+
+def configure_post_agent_response(fn: Any) -> None:
+    """Configures an in-memory post_agent_response override for tests and DI."""
+    global _post_agent_response_override
+    _post_agent_response_override = fn
+
+
+def reset_post_agent_response() -> None:
+    """Resets the in-memory post_agent_response override."""
+    global _post_agent_response_override
+    _post_agent_response_override = None
+
+
+def configure_fetch_thread_history(fn: Any) -> None:
+    """Configures an in-memory fetch_thread_history override for tests and DI."""
+    global _fetch_thread_history_override
+    _fetch_thread_history_override = fn
+
+
+def reset_fetch_thread_history() -> None:
+    """Resets the in-memory fetch_thread_history override."""
+    global _fetch_thread_history_override
+    _fetch_thread_history_override = None
+
+
+def configure_post_system_message(fn: Any) -> None:
+    """Configures an in-memory post_system_message override for tests and DI."""
+    global _post_system_message_override
+    _post_system_message_override = fn
+
+
+def reset_post_system_message() -> None:
+    """Resets the in-memory post_system_message override."""
+    global _post_system_message_override
+    _post_system_message_override = None
 
 
 def _sanitize_and_truncate_slack_text(text: str, max_chars: int = 3800) -> str:
@@ -74,6 +115,15 @@ async def post_agent_response(
     """
     Posts a message to Slack thread using dynamic persona fields (chat:write.customize).
     """
+    if _post_agent_response_override is not None:
+        try:
+            res = _post_agent_response_override(channel_id, thread_ts, text, username, icon_url=icon_url, blocks=blocks)
+        except TypeError:
+            res = _post_agent_response_override(channel_id, thread_ts, text, username, icon_url=icon_url)
+        if inspect.isawaitable(res):
+            return await res
+        return res
+
     bot_token = get_slack_bot_token()
     if not bot_token or bot_token == "xoxb-your-bot-user-oauth-token":
         logger.warning(
@@ -140,6 +190,12 @@ async def post_system_message(
     """
     Posts a system warning/notice message to a Slack thread using the System Agent persona.
     """
+    if _post_system_message_override is not None:
+        res = _post_system_message_override(channel_id, thread_ts, text, username=username, icon_url=icon_url)
+        if inspect.isawaitable(res):
+            return await res
+        return res
+
     from core.config import SYSTEM_AGENT_AVATAR, SYSTEM_AGENT_USERNAME
 
     default_username = SYSTEM_AGENT_USERNAME
@@ -181,6 +237,12 @@ async def fetch_thread_history(
     Fetches past messages in a Slack thread and formats them as LiteLLM conversation history.
     Implements cursor-based pagination (up to max_messages) to prevent truncating long discussions.
     """
+    if _fetch_thread_history_override is not None:
+        res = _fetch_thread_history_override(channel_id, thread_ts, bot_user_id=bot_user_id, max_messages=max_messages)
+        if inspect.isawaitable(res):
+            return await res
+        return res
+
     bot_token = get_slack_bot_token()
     if not bot_token or bot_token == "xoxb-your-bot-user-oauth-token":
         return []

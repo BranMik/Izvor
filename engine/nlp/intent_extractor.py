@@ -1,4 +1,5 @@
 import asyncio
+import inspect
 import json
 import logging
 from typing import Any
@@ -42,6 +43,21 @@ _DEFAULT_EXTRACTOR_PROMPT_FALLBACK = """<system_agent_specification id="Intent_E
 </system_agent_specification>"""
 
 EXTRACTOR_SYSTEM_PROMPT = load_system_prompt("Intent_Extractor", fallback=_DEFAULT_EXTRACTOR_PROMPT_FALLBACK)
+
+
+_extractor_override: Any = None
+
+
+def configure_intent_extractor(fn: Any) -> None:
+    """Configures an in-memory intent extractor override for tests and DI."""
+    global _extractor_override
+    _extractor_override = fn
+
+
+def reset_intent_extractor() -> None:
+    """Resets the in-memory intent extractor override."""
+    global _extractor_override
+    _extractor_override = None
 
 
 class IntentExtractor:
@@ -96,6 +112,12 @@ class IntentExtractor:
         Calls extractor model to parse structured constraints (max_words, history, file_use, target_file, excluded_agents).
         Returns an ExtractedIntent dataclass instance.
         """
+        if _extractor_override is not None:
+            res = _extractor_override(text, available_files=available_files, timeout_seconds=timeout_seconds, thread_key=thread_key)
+            if inspect.isawaitable(res):
+                return await res
+            return res
+
         default_intent = ExtractedIntent()
 
         if not text or not text.strip():
@@ -245,3 +267,18 @@ class IntentExtractor:
 
 # Default singleton instance
 intent_extractor = IntentExtractor()
+
+
+async def extract_intent(
+    text: str,
+    available_files: list[dict[str, Any]] | None = None,
+    timeout_seconds: float = 15.0,
+    thread_key: tuple[str, str] | None = None,
+) -> ExtractedIntent:
+    """Module-level convenience delegating to default intent_extractor instance."""
+    return await intent_extractor.extract_intent(
+        text,
+        available_files=available_files,
+        timeout_seconds=timeout_seconds,
+        thread_key=thread_key,
+    )

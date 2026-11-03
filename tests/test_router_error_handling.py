@@ -2,13 +2,18 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from conftest import async_noop_sleep
 from core.llm_utils import (
     classify_agent_error,
+    configure_llm_completion_fn,
+    configure_llm_sleep_fn,
     execute_llm_with_retry,
     is_high_demand_503_error,
 )
-from orchestration import agent_router
-from orchestration.agent_router import process_and_respond
+from orchestration.agent_router import (
+    configure_router_sleep_fn,
+    process_and_respond,
+)
 from orchestration.agent_settings import (
     get_agents_config,
     reset_enabled_agents,
@@ -17,19 +22,20 @@ from orchestration.agent_settings import (
     set_sandwich_config,
 )
 from orchestration.thread_state import thread_state_manager
+from services.slack import configure_fetch_thread_history, configure_post_agent_response
 
 AGENTS_CONFIG = get_agents_config()
 
 
 @pytest.fixture(autouse=True)
-def setup_test_environment(monkeypatch):
+def setup_test_environment():
     reset_enabled_agents()
     set_orchestration_mode("sandwich")
     set_sandwich_config([], [])
     set_fixed_config([])
     thread_state_manager.reset_all()
-    monkeypatch.setattr(agent_router.asyncio, "sleep", AsyncMock(return_value=None))
-    monkeypatch.setattr("core.llm_utils.asyncio.sleep", AsyncMock(return_value=None))
+    configure_router_sleep_fn(async_noop_sleep)
+    configure_llm_sleep_fn(async_noop_sleep)
 
 
 def test_classify_agent_error():
@@ -106,7 +112,7 @@ def test_classify_agent_error():
 
 
 @pytest.mark.anyio
-async def test_process_and_respond_api_key_not_found(monkeypatch):
+async def test_process_and_respond_api_key_not_found():
     thread_state_manager.reset_all()
 
     async def mock_fail_api_key(*args, **kwargs):
@@ -120,13 +126,9 @@ async def test_process_and_respond_api_key_not_found(monkeypatch):
         posted.append({"text": text, "username": username, "icon_url": icon_url})
         return {"ok": True, "ts": "12345.0001"}
 
-    monkeypatch.setattr("litellm.acompletion", mock_fail_api_key)
-    monkeypatch.setattr(
-        "orchestration.agent_router.post_agent_response", mock_post_agent_response
-    )
-    monkeypatch.setattr(
-        "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
-    )
+    configure_llm_completion_fn(mock_fail_api_key)
+    configure_post_agent_response(mock_post_agent_response)
+    configure_fetch_thread_history(AsyncMock(return_value=[]))
 
     await process_and_respond(
         channel_id="C123",
@@ -144,7 +146,7 @@ async def test_process_and_respond_api_key_not_found(monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_process_and_respond_model_not_found(monkeypatch):
+async def test_process_and_respond_model_not_found():
     thread_state_manager.reset_all()
 
     thread_key = ("C123", "12345.0002")
@@ -161,13 +163,9 @@ async def test_process_and_respond_model_not_found(monkeypatch):
         posted.append({"text": text, "username": username, "icon_url": icon_url})
         return {"ok": True, "ts": "12345.0002"}
 
-    monkeypatch.setattr("litellm.acompletion", mock_fail_model)
-    monkeypatch.setattr(
-        "orchestration.agent_router.post_agent_response", mock_post_agent_response
-    )
-    monkeypatch.setattr(
-        "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
-    )
+    configure_llm_completion_fn(mock_fail_model)
+    configure_post_agent_response(mock_post_agent_response)
+    configure_fetch_thread_history(AsyncMock(return_value=[]))
 
     await process_and_respond(
         channel_id="C123",
@@ -183,7 +181,7 @@ async def test_process_and_respond_model_not_found(monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_process_and_respond_retries_and_clean_error_message(monkeypatch):
+async def test_process_and_respond_retries_and_clean_error_message():
     thread_state_manager.reset_all()
 
     thread_key = ("C123", "12345.9999")
@@ -204,13 +202,9 @@ async def test_process_and_respond_retries_and_clean_error_message(monkeypatch):
         posted.append({"text": text, "username": username, "icon_url": icon_url})
         return {"ok": True, "ts": "12345.9999"}
 
-    monkeypatch.setattr("litellm.acompletion", mock_fail_general_error)
-    monkeypatch.setattr(
-        "orchestration.agent_router.post_agent_response", mock_post_agent_response
-    )
-    monkeypatch.setattr(
-        "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
-    )
+    configure_llm_completion_fn(mock_fail_general_error)
+    configure_post_agent_response(mock_post_agent_response)
+    configure_fetch_thread_history(AsyncMock(return_value=[]))
 
     await process_and_respond(
         channel_id="C123",
@@ -231,7 +225,7 @@ async def test_process_and_respond_retries_and_clean_error_message(monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_process_and_respond_rate_limits_and_retry_flow(monkeypatch):
+async def test_process_and_respond_rate_limits_and_retry_flow():
     thread_state_manager.reset_all()
 
     thread_key = ("C123", "12345.0003")
@@ -251,13 +245,9 @@ async def test_process_and_respond_rate_limits_and_retry_flow(monkeypatch):
     async def mock_fail_rate_limit(*args, **kwargs):
         raise RuntimeError("RateLimitError: 429 Too Many Requests, quota exceeded")
 
-    monkeypatch.setattr("litellm.acompletion", mock_fail_rate_limit)
-    monkeypatch.setattr(
-        "orchestration.agent_router.post_agent_response", mock_post_agent_response
-    )
-    monkeypatch.setattr(
-        "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
-    )
+    configure_llm_completion_fn(mock_fail_rate_limit)
+    configure_post_agent_response(mock_post_agent_response)
+    configure_fetch_thread_history(AsyncMock(return_value=[]))
 
     await process_and_respond(
         channel_id="C123",
@@ -284,7 +274,7 @@ async def test_process_and_respond_rate_limits_and_retry_flow(monkeypatch):
     async def mock_success_innovator(*args, **kwargs):
         return mock_resp
 
-    monkeypatch.setattr("litellm.acompletion", mock_success_innovator)
+    configure_llm_completion_fn(mock_success_innovator)
 
     await process_and_respond(
         channel_id="C123",
@@ -301,7 +291,7 @@ async def test_process_and_respond_rate_limits_and_retry_flow(monkeypatch):
 
     # 3. LegalAdvisor retries at the end of discussion, fails again with RateLimit:
     # Must post 'RATE LIMITS CROSSED' and NOT be retried again.
-    monkeypatch.setattr("litellm.acompletion", mock_fail_rate_limit)
+    configure_llm_completion_fn(mock_fail_rate_limit)
 
     await process_and_respond(
         channel_id="C123",
@@ -322,9 +312,7 @@ async def test_process_and_respond_rate_limits_and_retry_flow(monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_process_and_respond_503_high_demand_first_skip_and_random_handoff(
-    monkeypatch,
-):
+async def test_process_and_respond_503_high_demand_first_skip_and_random_handoff():
     thread_state_manager.reset_all()
 
     thread_key = ("C_503", "12345.5031")
@@ -345,13 +333,9 @@ async def test_process_and_respond_503_high_demand_first_skip_and_random_handoff
             "ServiceUnavailableError: 503 The server is currently overloaded with high demand"
         )
 
-    monkeypatch.setattr("litellm.acompletion", mock_fail_503)
-    monkeypatch.setattr(
-        "orchestration.agent_router.post_agent_response", mock_post_agent_response
-    )
-    monkeypatch.setattr(
-        "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
-    )
+    configure_llm_completion_fn(mock_fail_503)
+    configure_post_agent_response(mock_post_agent_response)
+    configure_fetch_thread_history(AsyncMock(return_value=[]))
 
     await process_and_respond(
         channel_id="C_503",
@@ -385,9 +369,7 @@ async def test_process_and_respond_503_high_demand_first_skip_and_random_handoff
 
 
 @pytest.mark.anyio
-async def test_process_and_respond_503_high_demand_second_query_retries_and_terminates(
-    monkeypatch,
-):
+async def test_process_and_respond_503_high_demand_second_query_retries_and_terminates():
     thread_state_manager.reset_all()
 
     thread_key = ("C_503", "12345.5032")
@@ -410,13 +392,9 @@ async def test_process_and_respond_503_high_demand_second_query_retries_and_term
         attempts_count += 1
         raise RuntimeError("503 Server Temporarily Unavailable (high demand spike)")
 
-    monkeypatch.setattr("litellm.acompletion", mock_fail_503_retry)
-    monkeypatch.setattr(
-        "orchestration.agent_router.post_agent_response", mock_post_agent_response
-    )
-    monkeypatch.setattr(
-        "orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[])
-    )
+    configure_llm_completion_fn(mock_fail_503_retry)
+    configure_post_agent_response(mock_post_agent_response)
+    configure_fetch_thread_history(AsyncMock(return_value=[]))
 
     await process_and_respond(
         channel_id="C_503",

@@ -45,10 +45,15 @@ from .domain import (
 )
 from .llm_utils import (
     classify_agent_error,
+    configure_llm_completion_fn,
+    configure_llm_sleep_fn,
     execute_llm_with_retry,
+    get_llm_completion_fn,
     is_anthropic_model,
     is_high_demand_503_error,
     is_openai_model,
+    reset_llm_completion_fn,
+    reset_llm_sleep_fn,
 )
 from .model_catalog import (
     get_active_providers,

@@ -4,8 +4,12 @@ Exposes routing, settings management, agent nomination, and thread state managem
 """
 
 from .agent_router import (
+    configure_router_deps,
+    configure_router_sleep_fn,
     orchestrate_discussion,
     process_and_respond,
+    reset_router_deps,
+    reset_router_sleep_fn,
 )
 from .agent_settings import (
     DEFAULT_WORKFLOW_ID,
@@ -84,6 +88,8 @@ __all__ = [
     "TurnRetryStateStore",
     "WorkflowManager",
     "apply_workflow",
+    "configure_router_deps",
+    "configure_router_sleep_fn",
     "delete_workflow",
     "enforce_valid_nomination",
     "get_active_workflow_id",
@@ -106,6 +112,8 @@ __all__ = [
     "parse_agent_and_prompt",
     "process_and_respond",
     "reset_enabled_agents",
+    "reset_router_deps",
+    "reset_router_sleep_fn",
     "resolve_target_file",
     "save_workflow",
     "set_active_workflow_id",

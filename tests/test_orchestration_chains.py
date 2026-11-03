@@ -2,12 +2,15 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from conftest import make_mock_acompletion
-
+from conftest import async_noop_sleep, make_mock_acompletion
 from core.config import AGENTS_CONFIG
+from core.llm_utils import configure_llm_completion_fn
+from agents import configure_record_thread_tokens
 from nlp.message_builder import build_llm_messages
-from orchestration import agent_router
-from orchestration.agent_router import process_and_respond
+from orchestration.agent_router import (
+    configure_router_sleep_fn,
+    process_and_respond,
+)
 from orchestration.agent_settings import (
     reset_enabled_agents,
     set_agent_enabled,
@@ -17,16 +20,17 @@ from orchestration.agent_settings import (
 )
 from orchestration.nomination import enforce_valid_nomination, get_initial_agents
 from orchestration.thread_state import thread_state_manager
+from services.slack import configure_fetch_thread_history, configure_post_agent_response
 
 
 @pytest.fixture(autouse=True)
-def setup_test_chains(monkeypatch):
+def setup_test_chains():
     reset_enabled_agents()
     set_orchestration_mode("sandwich")
     set_sandwich_config([], [])
     set_fixed_config([])
     thread_state_manager.reset_all()
-    monkeypatch.setattr(agent_router.asyncio, "sleep", AsyncMock(return_value=None))
+    configure_router_sleep_fn(async_noop_sleep)
     yield
     reset_enabled_agents()
     set_orchestration_mode("sandwich")
@@ -147,7 +151,7 @@ def test_enforce_valid_nomination_with_designated_next_agent():
 
 
 @pytest.mark.anyio
-async def test_fixed_mode_end_to_end_discussion(monkeypatch):
+async def test_fixed_mode_end_to_end_discussion():
     set_orchestration_mode("fixed")
     set_fixed_config(["agent-10011", "agent-10002", "agent-10008"])
 
@@ -156,9 +160,9 @@ async def test_fixed_mode_end_to_end_discussion(monkeypatch):
         posted_messages.append({"username": username, "text": text})
         return {"ok": True, "ts": f"99999.{len(posted_messages)}"}
 
-    monkeypatch.setattr("orchestration.agent_router.post_agent_response", mock_post_agent_response)
-    monkeypatch.setattr("orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[]))
-    monkeypatch.setattr("orchestration.agent_router.record_thread_tokens", MagicMock())
+    configure_post_agent_response(mock_post_agent_response)
+    configure_fetch_thread_history(AsyncMock(return_value=[]))
+    configure_record_thread_tokens(MagicMock())
 
     thread_key = ("C_CHAIN", "99999.0001")
 
@@ -168,7 +172,7 @@ async def test_fixed_mode_end_to_end_discussion(monkeypatch):
     mock_choice_1.message.tool_calls = None
     mock_resp_1 = MagicMock(choices=[mock_choice_1], usage=None)
 
-    monkeypatch.setattr("litellm.acompletion", make_mock_acompletion(lambda *a, **k: mock_resp_1))
+    configure_llm_completion_fn(make_mock_acompletion(lambda *a, **k: mock_resp_1))
 
     res_1 = await process_and_respond(
         channel_id="C_CHAIN",
@@ -190,7 +194,7 @@ async def test_fixed_mode_end_to_end_discussion(monkeypatch):
     mock_choice_2.message.tool_calls = None
     mock_resp_2 = MagicMock(choices=[mock_choice_2], usage=None)
 
-    monkeypatch.setattr("litellm.acompletion", make_mock_acompletion(lambda *a, **k: mock_resp_2))
+    configure_llm_completion_fn(make_mock_acompletion(lambda *a, **k: mock_resp_2))
 
     res_2 = await process_and_respond(
         channel_id="C_CHAIN",
@@ -211,7 +215,7 @@ async def test_fixed_mode_end_to_end_discussion(monkeypatch):
     mock_choice_3.message.tool_calls = None
     mock_resp_3 = MagicMock(choices=[mock_choice_3], usage=None)
 
-    monkeypatch.setattr("litellm.acompletion", make_mock_acompletion(lambda *a, **k: mock_resp_3))
+    configure_llm_completion_fn(make_mock_acompletion(lambda *a, **k: mock_resp_3))
 
     res_3 = await process_and_respond(
         channel_id="C_CHAIN",
@@ -229,7 +233,7 @@ async def test_fixed_mode_end_to_end_discussion(monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_sandwich_mode_end_to_end_discussion(monkeypatch):
+async def test_sandwich_mode_end_to_end_discussion():
     """
     Tests full Sandwich Mode execution with re-entrance:
     start_chain: [SecurityArchitect, Visionary]
@@ -256,9 +260,9 @@ async def test_sandwich_mode_end_to_end_discussion(monkeypatch):
         posted_messages.append({"username": username, "text": text})
         return {"ok": True, "ts": f"88888.{len(posted_messages)}"}
 
-    monkeypatch.setattr("orchestration.agent_router.post_agent_response", mock_post_agent_response)
-    monkeypatch.setattr("orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[]))
-    monkeypatch.setattr("orchestration.agent_router.record_thread_tokens", MagicMock())
+    configure_post_agent_response(mock_post_agent_response)
+    configure_fetch_thread_history(AsyncMock(return_value=[]))
+    configure_record_thread_tokens(MagicMock())
 
     thread_key = ("C_SANDWICH", "88888.0001")
 
@@ -268,7 +272,7 @@ async def test_sandwich_mode_end_to_end_discussion(monkeypatch):
     mock_choice_1.message.tool_calls = None
     mock_resp_1 = MagicMock(choices=[mock_choice_1], usage=None)
 
-    monkeypatch.setattr("litellm.acompletion", make_mock_acompletion(lambda *a, **k: mock_resp_1))
+    configure_llm_completion_fn(make_mock_acompletion(lambda *a, **k: mock_resp_1))
 
     res_1 = await process_and_respond(
         channel_id="C_SANDWICH",
@@ -291,7 +295,7 @@ async def test_sandwich_mode_end_to_end_discussion(monkeypatch):
     mock_choice_2.message.tool_calls = None
     mock_resp_2 = MagicMock(choices=[mock_choice_2], usage=None)
 
-    monkeypatch.setattr("litellm.acompletion", make_mock_acompletion(lambda *a, **k: mock_resp_2))
+    configure_llm_completion_fn(make_mock_acompletion(lambda *a, **k: mock_resp_2))
 
     res_2 = await process_and_respond(
         channel_id="C_SANDWICH",
@@ -314,7 +318,7 @@ async def test_sandwich_mode_end_to_end_discussion(monkeypatch):
     mock_choice_3.message.tool_calls = None
     mock_resp_3 = MagicMock(choices=[mock_choice_3], usage=None)
 
-    monkeypatch.setattr("litellm.acompletion", make_mock_acompletion(lambda *a, **k: mock_resp_3))
+    configure_llm_completion_fn(make_mock_acompletion(lambda *a, **k: mock_resp_3))
 
     res_3 = await process_and_respond(
         channel_id="C_SANDWICH",
@@ -336,7 +340,7 @@ async def test_sandwich_mode_end_to_end_discussion(monkeypatch):
     mock_choice_4.message.tool_calls = None
     mock_resp_4 = MagicMock(choices=[mock_choice_4], usage=None)
 
-    monkeypatch.setattr("litellm.acompletion", make_mock_acompletion(lambda *a, **k: mock_resp_4))
+    configure_llm_completion_fn(make_mock_acompletion(lambda *a, **k: mock_resp_4))
 
     res_4 = await process_and_respond(
         channel_id="C_SANDWICH",
