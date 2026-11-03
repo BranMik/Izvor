@@ -64,8 +64,10 @@ def _apply_convergence_stress_test_or_fast_forward(
 
     if last_turn_converged:
         consecutive_convergence_count += 1
+        thread_state_manager.record_convergence_speaker(channel_id, thread_ts, last_speaker)
     else:
         consecutive_convergence_count = 0
+        thread_state_manager.clear_convergence_speakers(channel_id, thread_ts)
 
     excluded = set(thread_state_manager.get_excluded_agents(channel_id, thread_ts))
     enabled = set(settings_manager.get_enabled_agents())
@@ -90,6 +92,7 @@ def _apply_convergence_stress_test_or_fast_forward(
             if not new_queue and end_chain:
                 new_queue = list(end_chain)
             thread_state_manager.set_remaining_agents(channel_id, thread_ts, new_queue)
+            thread_state_manager.clear_convergence_speakers(channel_id, thread_ts)
             logger.info(
                 f"[CONVERGENCE_FF] Consecutive threshold ({threshold}) met (stress testing disabled). Fast-forwarding directly to end chain: {new_queue}"
             )
@@ -104,6 +107,7 @@ def _apply_convergence_stress_test_or_fast_forward(
             if not new_queue and end_chain:
                 new_queue = list(end_chain)
             thread_state_manager.set_remaining_agents(channel_id, thread_ts, new_queue)
+            thread_state_manager.clear_convergence_speakers(channel_id, thread_ts)
             logger.info(
                 f"[CONVERGENCE_FF] Verdict A reached by {rebuttal_name} ({rebuttal_key}). Fast-forwarding to end chain: {new_queue}"
             )
@@ -128,42 +132,44 @@ def _apply_convergence_stress_test_or_fast_forward(
 
     # Step 2: When consecutive_convergence_count >= threshold
     if consecutive_convergence_count >= threshold:
-        # Case A — No Challenger in challenger_candidates has spoken yet
-        if spoken_agents.isdisjoint(challenger_candidates):
-            chosen_challenger = next(
-                (c for c in challenger_candidates if c in remaining),
-                challenger_candidates[0] if challenger_candidates else None,
-            )
-            if chosen_challenger:
-                preserved_tail = [
-                    a for a in remaining if a not in (chosen_challenger, rebuttal_key)
-                ]
-                new_queue = (
-                    [chosen_challenger]
-                    + ([rebuttal_key] if rebuttal_key else [])
-                    + preserved_tail
-                )
-                thread_state_manager.set_remaining_agents(channel_id, thread_ts, new_queue)
-                logger.info(
-                    f"[CONVERGENCE_FF] Consecutive threshold ({threshold}) met. Stress testing with {chosen_challenger} -> {rebuttal_key}"
-                )
-                return new_queue, 0
+        converged_speakers = set(thread_state_manager.get_convergence_speakers(channel_id, thread_ts))
+        eligible_challengers = [c for c in challenger_candidates if c not in converged_speakers]
 
-        # Case B — A Challenger HAS already spoken earlier in the round, and rebuttal_key has NOT spoken yet
+        # Case A — At least one Challenger is eligible (was not part of the current convergence streak)
+        if eligible_challengers:
+            chosen_challenger = eligible_challengers[0]
+            preserved_tail = [
+                a for a in remaining if a not in (chosen_challenger, rebuttal_key)
+            ]
+            new_queue = (
+                [chosen_challenger]
+                + ([rebuttal_key] if rebuttal_key else [])
+                + preserved_tail
+            )
+            thread_state_manager.set_remaining_agents(channel_id, thread_ts, new_queue)
+            thread_state_manager.clear_convergence_speakers(channel_id, thread_ts)
+            logger.info(
+                f"[CONVERGENCE_FF] Consecutive threshold ({threshold}) met. Stress testing with {chosen_challenger} -> {rebuttal_key}"
+            )
+            return new_queue, 0
+
+        # Case B — No eligible Challenger (all participated in consensus), and rebuttal_key has NOT spoken yet
         if rebuttal_key and rebuttal_key not in spoken_agents:
             preserved_tail = [a for a in remaining if a != rebuttal_key]
             new_queue = ([rebuttal_key] if rebuttal_key else []) + preserved_tail
             thread_state_manager.set_remaining_agents(channel_id, thread_ts, new_queue)
+            thread_state_manager.clear_convergence_speakers(channel_id, thread_ts)
             logger.info(
                 f"[CONVERGENCE_FF] Consecutive threshold ({threshold}) met. Injecting rebuttal {rebuttal_key}"
             )
             return new_queue, 0
 
-        # Case C — Both a Challenger and rebuttal_key have ALREADY spoken earlier in the round
+        # Case C — Both all Challengers and rebuttal_key have already spoken / participated
         new_queue = [e for e in end_chain if e in remaining or e not in spoken_agents]
         if not new_queue and end_chain:
             new_queue = list(end_chain)
         thread_state_manager.set_remaining_agents(channel_id, thread_ts, new_queue)
+        thread_state_manager.clear_convergence_speakers(channel_id, thread_ts)
         logger.info(
             f"[CONVERGENCE_FF] Consecutive threshold ({threshold}) met after stress test cycle. Fast-forwarding directly to end chain: {new_queue}"
         )

@@ -97,12 +97,10 @@ class SystemSettingsModel(BaseModel):
             "max_tracker_entries": 1000,
         }
     )
-    convergence_consecutive_threshold: int = 2
     dialectical_stress_test: dict[str, Any] = Field(
         default_factory=lambda: {
             "enabled": True,
-            "consecutive_threshold": 2,
-            "max_stress_rounds": 1,
+            "consecutive_threshold": 3,
         }
     )
     retention_checkpoints_days: int = 7
@@ -187,11 +185,9 @@ class SystemSettingsManager:
             "global_auth_failure_burst_limit": 25,
             "max_tracker_entries": 1000,
         }
-        self.convergence_consecutive_threshold: int = 2
         self.dialectical_stress_test: dict[str, Any] = {
             "enabled": True,
-            "consecutive_threshold": 2,
-            "max_stress_rounds": 1,
+            "consecutive_threshold": 3,
         }
         self.retention_checkpoints_days: int = 7
         self.retention_traces_days: int = 30
@@ -343,13 +339,11 @@ class SystemSettingsManager:
                 "global_auth_failure_burst_limit": int(raw_sbl.get("global_auth_failure_burst_limit", 25)),
                 "max_tracker_entries": int(raw_sbl.get("max_tracker_entries", 1000)),
             }
-        self.convergence_consecutive_threshold = int(model.convergence_consecutive_threshold)
         raw_dst = model.dialectical_stress_test
         if isinstance(raw_dst, dict):
             self.dialectical_stress_test = {
                 "enabled": bool(raw_dst.get("enabled", True)),
-                "consecutive_threshold": int(raw_dst.get("consecutive_threshold", self.convergence_consecutive_threshold)),
-                "max_stress_rounds": int(raw_dst.get("max_stress_rounds", 1)),
+                "consecutive_threshold": int(raw_dst.get("consecutive_threshold", 3)),
             }
         self.retention_checkpoints_days = int(getattr(model, "retention_checkpoints_days", 7))
         self.retention_traces_days = int(getattr(model, "retention_traces_days", 30))
@@ -423,7 +417,6 @@ class SystemSettingsManager:
             "max_write_bytes": self.max_write_bytes,
             "web_security": self.web_security,
             "security_burst_limits": self.security_burst_limits,
-            "convergence_consecutive_threshold": self.convergence_consecutive_threshold,
             "dialectical_stress_test": self.dialectical_stress_test,
             "retention_checkpoints_days": self.retention_checkpoints_days,
             "retention_traces_days": self.retention_traces_days,
@@ -837,13 +830,13 @@ class SystemSettingsManager:
 
     def get_convergence_consecutive_threshold(self) -> int:
         self.load()
-        return int(self.convergence_consecutive_threshold)
+        return int(self.dialectical_stress_test.get("consecutive_threshold", 3))
 
     def set_convergence_consecutive_threshold(self, val: int, save: bool = True) -> None:
-        self.convergence_consecutive_threshold = max(1, int(val))
+        self.dialectical_stress_test["consecutive_threshold"] = max(1, int(val))
         if save:
             self.save()
-        logger.info(f"[SYSTEM_SETTINGS] Set convergence_consecutive_threshold to {self.convergence_consecutive_threshold}.")
+        logger.info(f"[SYSTEM_SETTINGS] Set dialectical_stress_test consecutive_threshold to {self.dialectical_stress_test['consecutive_threshold']}.")
 
     def get_retention_checkpoints_days(self) -> int:
         self.load()

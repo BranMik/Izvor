@@ -161,11 +161,13 @@ class AgentSettingsManager:
         return MappingProxyType(self._agents_config)
 
     def get_challenger_agents(self) -> list[str]:
-        return [
-            agent_id
+        challengers = [
+            (agent_id, cfg.get("challenger_priority", 100))
             for agent_id, cfg in self.agents_config.items()
             if str(cfg.get("special_role", "")).upper() == "CHALLENGER"
         ]
+        challengers.sort(key=lambda x: x[1])
+        return [c[0] for c in challengers]
 
     def set_challenger_agents(self, agent_ids: list[str], save: bool = True) -> None:
         target_set = set(agent_ids)
@@ -198,6 +200,8 @@ class AgentSettingsManager:
         backup_file: Path | str | None = None,
         system_agent_settings_file: Path | str | None = None,
         system_agent_backup_file: Path | str | None = None,
+        workflows_dir: Path | str | None = None,
+        engine_workflows_dir: Path | str | None = None,
     ) -> None:
         if settings_file is not None:
             self.default_settings_file = Path(settings_file)
@@ -211,6 +215,11 @@ class AgentSettingsManager:
         if system_agent_backup_file is not None:
             self.default_system_agent_backup_file = Path(system_agent_backup_file)
             self._custom_system_agent_backup_file = True
+        if workflows_dir is not None or engine_workflows_dir is not None:
+            self.workflow_manager.configure_paths(
+                workflows_dir=workflows_dir,
+                engine_workflows_dir=engine_workflows_dir,
+            )
 
     def reset_paths(self) -> None:
         """Resets configured paths back to canonical system defaults."""
@@ -222,6 +231,7 @@ class AgentSettingsManager:
         self.default_backup_file = BACKUP_FILE
         self.default_system_agent_settings_file = DEFAULT_SYSTEM_AGENT_SETTINGS_FILE
         self.default_system_agent_backup_file = SYSTEM_AGENT_BACKUP_FILE
+        self.workflow_manager.reset_paths()
 
     @property
     def active_settings_file(self) -> Path:
@@ -305,7 +315,7 @@ class AgentSettingsManager:
                 logger.warning(f"[SETTINGS] Error retrieving workflow '{clean_ref}': {e}")
             if not preset:
                 logger.warning(
-                    f"[SETTINGS] Referenced workflow '{clean_ref}' not found in {self.workflow_manager.workflows_dir}. "
+                    f"[SETTINGS] Referenced workflow '{clean_ref}' not found in active workflow paths. "
                     "Attempting fallback to default preset."
                 )
                 try:
@@ -335,8 +345,8 @@ class AgentSettingsManager:
             self.workflow_config = preset.id
 
             # Track workflow file mtime
-            wf_file = self.workflow_manager.workflows_dir / f"{preset.id}.json"
-            if wf_file.exists():
+            wf_file = self.workflow_manager.get_workflow_file_path(preset.id)
+            if wf_file and wf_file.exists():
                 try:
                     self._last_workflow_mtime = wf_file.stat().st_mtime
                 except OSError as e:
@@ -371,11 +381,18 @@ class AgentSettingsManager:
     def persist_active_workflow(self) -> None:
         """Persists current mode and chains to the active workflow JSON file."""
         from orchestration.workflow_manager import slugify
+        from core.models import REQUIRED_DEFAULT_WORKFLOW_IDS
 
         wf_id = self.workflow_config or self.active_workflow_id
         if not wf_id:
             return
         clean_id = slugify(wf_id)
+        if clean_id in REQUIRED_DEFAULT_WORKFLOW_IDS:
+            logger.info(
+                f"[SETTINGS] Active workflow '{clean_id}' is a reserved system default preset. Skipping file persistence."
+            )
+            return
+
         existing = self.workflow_manager.get_workflow(clean_id)
         name = existing.name if existing else clean_id.replace("_", " ").title()
         desc = existing.description if existing else ""
@@ -401,8 +418,8 @@ class AgentSettingsManager:
         )
         self.workflow_config = saved.id
         self.active_workflow_id = saved.id
-        wf_file = self.workflow_manager.workflows_dir / f"{saved.id}.json"
-        if wf_file.exists():
+        wf_file = self.workflow_manager.get_workflow_file_path(saved.id)
+        if wf_file and wf_file.exists():
             try:
                 self._last_workflow_mtime = wf_file.stat().st_mtime
             except OSError as e:
@@ -432,7 +449,7 @@ class AgentSettingsManager:
                     for s in cfg.get("skills", [])
                     if isinstance(s, str) and s.strip()
                 ]
-                valid_agents[key] = {
+                agent_entry: dict[str, Any] = {
                     "username": cfg.get("username", key),
                     "model": cfg["model"].strip(),
                     "displayname": cfg["displayname"].strip(),
@@ -442,6 +459,12 @@ class AgentSettingsManager:
                     "special_role": str(cfg.get("special_role", "NONE")).strip().upper() if str(cfg.get("special_role", "")).strip().upper() in ("NONE", "CHALLENGER", "REBUTTAL") else "NONE",
                     "system_prompt": build_agent_prompt(key, skills=skills, is_short_output=is_short),
                 }
+                if "challenger_priority" in cfg and cfg["challenger_priority"] is not None:
+                    try:
+                        agent_entry["challenger_priority"] = int(cfg["challenger_priority"])
+                    except (ValueError, TypeError):
+                        pass
+                valid_agents[key] = agent_entry
 
         if not valid_agents:
             logger.error(f"[SETTINGS] Zero valid agents found in {source_name}. Validation failed.")
@@ -786,7 +809,7 @@ class AgentSettingsManager:
             data["agents"] = {}
         for k, v in self.agents_config.items():
             existing_agent = data["agents"].get(k, {}) if isinstance(data["agents"].get(k), dict) else {}
-            existing_agent.update({
+            agent_payload = {
                 "username": v.get("username", k),
                 "model": v.get("model", ""),
                 "displayname": v.get("displayname", k),
@@ -794,7 +817,13 @@ class AgentSettingsManager:
                 "is_short_output": bool(v.get("is_short_output", False)),
                 "skills": list(v.get("skills", [])),
                 "special_role": v.get("special_role", "NONE"),
-            })
+            }
+            if "challenger_priority" in v and v["challenger_priority"] is not None:
+                try:
+                    agent_payload["challenger_priority"] = int(v["challenger_priority"])
+                except (ValueError, TypeError):
+                    pass
+            existing_agent.update(agent_payload)
             data["agents"][k] = existing_agent
         for k in list(data["agents"].keys()):
             if k not in self.agents_config:
@@ -861,8 +890,8 @@ class AgentSettingsManager:
         wf_id = self.workflow_config or self.active_workflow_id
         if wf_id:
             from orchestration.workflow_manager import slugify
-            wf_file = self.workflow_manager.workflows_dir / f"{slugify(wf_id)}.json"
-            if wf_file.exists():
+            wf_file = self.workflow_manager.get_workflow_file_path(slugify(wf_id))
+            if wf_file and wf_file.exists():
                 try:
                     wf_mtime = wf_file.stat().st_mtime
                     last_wf_mtime = getattr(self, "_last_workflow_mtime", 0.0)
@@ -977,8 +1006,8 @@ class AgentSettingsManager:
         self.workflow_config = preset.id
         self.active_workflow_id = preset.id
 
-        wf_file = self.workflow_manager.workflows_dir / f"{preset.id}.json"
-        if wf_file.exists():
+        wf_file = self.workflow_manager.get_workflow_file_path(preset.id)
+        if wf_file and wf_file.exists():
             try:
                 self._last_workflow_mtime = wf_file.stat().st_mtime
             except OSError as e:

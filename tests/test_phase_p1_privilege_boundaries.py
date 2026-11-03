@@ -466,18 +466,21 @@ def test_default_workflows_ssot_integrity():
 
 
 def test_integrity_checks_uses_ssot_defaults(tmp_path):
-    """AppIntegrityValidator.check_default_workflows_integrity restores missing presets using backups or dynamic defaults."""
+    """AppIntegrityValidator.check_default_workflows_integrity resolves default presets without copying them to user workflows."""
+    from orchestration.workflow_manager import WorkflowManager
+
     wf_dir = tmp_path / "workflows"
     wf_dir.mkdir(parents=True, exist_ok=True)
     payload = {"agents": {"agent-1": {}, "agent-2": {}}}
 
     AppIntegrityValidator.check_default_workflows_integrity(payload, wf_dir)
 
+    wm = WorkflowManager(workflows_dir=wf_dir)
     for wf_id in REQUIRED_DEFAULT_WORKFLOW_IDS:
-        wf_file = wf_dir / f"{wf_id}.json"
-        assert wf_file.exists()
-        disk_data = json.loads(wf_file.read_text(encoding="utf-8"))
-        assert disk_data["id"] == wf_id
+        preset = wm.get_workflow(wf_id)
+        assert preset is not None
+        assert preset.id == wf_id
+        assert not (wf_dir / f"{wf_id}.json").exists()
 
 
 # ---------------------------------------------------------------------------

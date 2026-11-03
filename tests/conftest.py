@@ -89,15 +89,14 @@ def isolate_agent_settings_for_tests(tmp_path):
         for wf_file in real_workflows_dir.glob("*.json"):
             shutil.copy2(wf_file, temp_workflows_dir / wf_file.name)
 
-    orig_workflows_dir = settings_manager.workflow_manager.workflows_dir
     orig_active_wf_id = settings_manager.active_workflow_id
-    settings_manager.workflow_manager.workflows_dir = temp_workflows_dir
 
     settings_manager.configure_paths(
         settings_file=temp_settings,
         backup_file=temp_backup,
         system_agent_settings_file=temp_sys_settings,
         system_agent_backup_file=temp_sys_backup,
+        workflows_dir=temp_workflows_dir,
     )
 
     # Save original in-memory state
@@ -131,7 +130,6 @@ def isolate_agent_settings_for_tests(tmp_path):
 
     settings_manager.reset_paths()
     settings_manager.active_workflow_id = orig_active_wf_id
-    settings_manager.workflow_manager.workflows_dir = orig_workflows_dir
 
 
 @pytest.fixture(autouse=True)

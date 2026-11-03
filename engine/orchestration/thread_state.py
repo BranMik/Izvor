@@ -33,6 +33,7 @@ class ThreadStateManager:
         self.evidence = RoundEvidenceStore()
 
         self.thread_last_activity: dict[tuple[str, str], float] = {}
+        self.thread_convergence_speakers: dict[tuple[str, str], list[str]] = {}
         self._cleanup_hooks: list[Any] = []
         self._reset_hooks: list[Any] = []
 
@@ -484,6 +485,7 @@ class ThreadStateManager:
         self.context.clear_thread(channel_id, thread_ts)
         self.evidence.clear_thread_evidence(channel_id, thread_ts)
         self.thread_last_activity.pop((channel_id, thread_ts), None)
+        self.thread_convergence_speakers.pop((channel_id, thread_ts), None)
         for hook in list(self._cleanup_hooks):
             try:
                 hook(channel_id, thread_ts)
@@ -499,6 +501,7 @@ class ThreadStateManager:
         self.context.reset()
         self.evidence.reset_all()
         self.thread_last_activity.clear()
+        self.thread_convergence_speakers.clear()
         for hook in list(self._reset_hooks):
             try:
                 hook()
@@ -511,6 +514,20 @@ class ThreadStateManager:
 
     def is_consensus_reached(self, channel_id: str, thread_ts: str) -> bool:
         return self.discussion.is_consensus_reached(channel_id, thread_ts)
+
+    def record_convergence_speaker(self, channel_id: str, thread_ts: str, agent_key: str) -> None:
+        self._touch(channel_id, thread_ts)
+        key = (channel_id, thread_ts)
+        if key not in self.thread_convergence_speakers:
+            self.thread_convergence_speakers[key] = []
+        if agent_key and agent_key not in self.thread_convergence_speakers[key]:
+            self.thread_convergence_speakers[key].append(agent_key)
+
+    def get_convergence_speakers(self, channel_id: str, thread_ts: str) -> list[str]:
+        return list(self.thread_convergence_speakers.get((channel_id, thread_ts), []))
+
+    def clear_convergence_speakers(self, channel_id: str, thread_ts: str) -> None:
+        self.thread_convergence_speakers.pop((channel_id, thread_ts), None)
 
     def get_round_evidence(self, channel_id: str, thread_ts: str) -> list[Any]:
         """Returns all shared evidence items recorded for this thread."""
@@ -605,6 +622,9 @@ register_reset_hook = thread_state_manager.register_reset_hook
 cleanup_thread = thread_state_manager.cleanup_thread
 clear_round_execution_state = thread_state_manager.clear_round_execution_state
 reset_all_thread_states = thread_state_manager.reset_all
+record_convergence_speaker = thread_state_manager.record_convergence_speaker
+get_convergence_speakers = thread_state_manager.get_convergence_speakers
+clear_convergence_speakers = thread_state_manager.clear_convergence_speakers
 
 __all__ = [
     "DiscussionStateStore",
@@ -612,7 +632,10 @@ __all__ = [
     "ThreadStateManager",
     "TurnRetryStateStore",
     "cleanup_thread",
+    "clear_convergence_speakers",
     "clear_round_execution_state",
+    "get_convergence_speakers",
+    "record_convergence_speaker",
     "register_cleanup_hook",
     "register_reset_hook",
     "reset_all_thread_states",
