@@ -11,10 +11,9 @@ def test_python_ast_compilation_and_hygiene():
     to guarantee zero syntax errors, malformed tokens, or invalid indentations.
     Additionally runs `ruff check --select F821` if ruff is available in the environment.
     """
-    root_dir = Path(__file__).resolve().parent.parent
+    root_dir = Path(__file__).resolve().parents[2]
     targets = [
         "engine",
-        "e2e_testing_harness",
         "tests",
         "config/skills",
         "main.py",
@@ -74,7 +73,7 @@ def test_all_docs_markdown_file_links_exist_on_disk():
     local file link (file:///... and relative file references) resolves
     to an existing file on disk.
     """
-    root_dir = Path(__file__).resolve().parent.parent
+    root_dir = Path(__file__).resolve().parents[2]
     docs_dir = root_dir / "docs"
     assert docs_dir.exists(), "docs/ directory does not exist!"
 
@@ -119,7 +118,7 @@ def test_no_unittest_mock_introspection_in_production_code():
     Ensures production modules do not inspect test runner mocks (assert_called, mock_calls)
     or probe sys.modules for test monkeypatches.
     """
-    root_dir = Path(__file__).resolve().parent.parent
+    root_dir = Path(__file__).resolve().parents[2]
     prod_dirs = [
         root_dir / "engine" / "orchestration",
         root_dir / "engine" / "pipeline",
@@ -156,7 +155,7 @@ def test_no_monkeypatch_setattr_on_module_paths_or_managers():
     """
     import ast
 
-    root_dir = Path(__file__).resolve().parent.parent
+    root_dir = Path(__file__).resolve().parents[2]
     tests_dir = root_dir / "tests"
 
     forbidden_targets = {
@@ -241,7 +240,7 @@ def test_no_monkeypatch_setenv_or_delenv():
     """
     import ast
 
-    root_dir = Path(__file__).resolve().parent.parent
+    root_dir = Path(__file__).resolve().parents[2]
     tests_dir = root_dir / "tests"
 
     violations = []
@@ -276,7 +275,7 @@ def test_zero_monkeypatch_usage_in_test_suite():
     """
     import ast
 
-    root_dir = Path(__file__).resolve().parent.parent
+    root_dir = Path(__file__).resolve().parents[2]
     tests_dir = root_dir / "tests"
 
     violations = []

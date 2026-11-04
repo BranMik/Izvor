@@ -192,6 +192,9 @@ Izvor/
 │   ├── pricing/                    # 7-day LLM token pricing cache
 │   ├── thread/                     # Thread usage metadata
 │   └── izvor.db                    # SQLite WAL state engine (11 tables)
-├── tests/                          # Unit, integration, security, and regression test suites (749 tests)
-└── e2e_testing_harness/            # Behavioral testing suite, scenario runners, and synthetic Slack mock
+└── tests/                          # Test suites (unit/, integration/, e2e/ behavioral harness)
+    ├── unit/                       # Isolated component tests, parsers, and static checkers
+    ├── integration/                # Multi-component, pipeline, SQLite, and Slack API tests
+    └── e2e/                        # Synthetic Slack event and multi-turn behavioral simulation harness
+
 ```

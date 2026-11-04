@@ -22,8 +22,8 @@ Always create an implementation plan first before writing code or modifying exis
 If a requested solution represents poor engineering practice, an architectural antipattern, a security risk (e.g. path traversal, unverified webhooks), or a runaway token cost risk, **do not implement it blindly**. Warn about the downsides, explain why it is inadvisable, and propose 1–2 safer alternatives.
 
 ### 5. Strict Layer Boundaries & Async LLM Enforcement
-- Lower architectural layers (`core`, `nlp`, `pipeline`, `services`) must never import from `orchestration` or `adapters` (enforced by [`tests/test_architecture_layers.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/tests/test_architecture_layers.py)).
-- All runtime LLM and embedding invocations must use async `litellm.acompletion` and `litellm.aembedding` (enforced by [`tests/test_async_llm_enforcement.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/tests/test_async_llm_enforcement.py)).
+- Lower architectural layers (`core`, `nlp`, `pipeline`, `services`) must never import from `orchestration` or `adapters` (enforced by [`tests/unit/test_architecture_layers.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/tests/unit/test_architecture_layers.py)).
+- All runtime LLM and embedding invocations must use async `litellm.acompletion` and `litellm.aembedding` (enforced by [`tests/unit/test_async_llm_enforcement.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/tests/unit/test_async_llm_enforcement.py)).
 
 ---
 
@@ -49,7 +49,7 @@ To introduce or customize a debate panel persona:
    - `skills`: Initial tool permissions (e.g. `["knowledge_base_rag", "web_research"]`).
    - `special_role`: Dialectical role (`"NONE"`, `"CHALLENGER"`, or `"REBUTTAL"`).
 4. **Entity Resolution**: Add aliases or nickname mappings to [`engine/pipeline/entity_resolver`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/pipeline/entity_resolver).
-5. **Tests**: Add unit test verification to [`tests/test_agent_settings_ssot.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/tests/test_agent_settings_ssot.py).
+5. **Tests**: Add unit test verification to [`tests/unit/test_agent_settings_ssot.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/tests/unit/test_agent_settings_ssot.py).
 
 ### B. Engine System Agent (`engine/`)
 Internal support agents (`Orchestrator`, `Discussion_Scribe`, `Intent_Extractor`, `Language_Detector`, `Pricing_Agent`, `Thread_Notes_Agent`, `Usage_Agent`, `InternalRevisor`, `List_Skills`) are part of the core engine:
@@ -73,7 +73,7 @@ To implement a new skill:
    - If tool-backed (`scope: agent`), implement `tools.py` and ensure `ToolPrincipal` authorization is respected.
    - If a slash directive, register the handler in [`engine/orchestration/stages/directive_handlers.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/orchestration/stages/directive_handlers.py) and gate privileged mutations with `require_directive_admin`.
    - If adding a Slack interactive button or modal, register an `ActionSpec` in [`engine/adapters/slack/interactivity.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/adapters/slack/interactivity.py) and implement the handler under [`engine/adapters/slack/actions/`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/adapters/slack/actions/).
-4. **Validation Test**: Add corresponding test cases in [`tests/test_agent_skills.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/tests/test_agent_skills.py).
+4. **Validation Test**: Add corresponding test cases in [`tests/unit/test_agent_skills.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/tests/unit/test_agent_skills.py).
 
 ---
 

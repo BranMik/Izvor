@@ -28,7 +28,7 @@ import services.slack as _sc
 from core.config import SLACK_BOT_TOKEN, SLACK_SIGNING_SECRET, resolve_avatar_url
 from main import app
 
-logger = logging.getLogger("e2e_testing_harness.protocol_client")
+logger = logging.getLogger("tests.e2e.protocol_client")
 
 # Preserve references to real Slack API dispatch methods prior to any mock patching
 _REAL_SLACK_POST_AGENT = _sc.post_agent_response

@@ -1,5 +1,5 @@
 """
-tests/test_paths.py — Unit Tests for Centralized Paths Architecture.
+tests/unit/test_paths.py — Unit Tests for Centralized Paths Architecture.
 
 Verifies:
 1. Default canonical paths match 3-tier repository layout (config/, engine/, data/).
