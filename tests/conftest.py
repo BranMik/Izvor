@@ -227,16 +227,19 @@ def isolate_thread_state_files_for_tests(tmp_path):
 
 
 @pytest.fixture(autouse=True)
-def mock_embedding_service_for_tests(monkeypatch):
+def mock_embedding_service_for_tests():
     from services.rag.embeddings import EmbeddingService
 
-    async def dummy_get_embeddings(self, texts):
+    async def dummy_get_embeddings(texts):
         if not texts:
             return []
         return [[0.0] * 768 for _ in texts]
 
-    monkeypatch.setattr(EmbeddingService, "get_embeddings", dummy_get_embeddings)
-    yield
+    EmbeddingService.configure_embeddings_fn(dummy_get_embeddings)
+    try:
+        yield
+    finally:
+        EmbeddingService.reset_embeddings_fn()
 
 
 @pytest.fixture(autouse=True)
@@ -411,6 +414,7 @@ def reset_router_and_llm_di_for_tests():
     from core.llm_utils import reset_llm_completion_fn, reset_llm_sleep_fn
     from orchestration.agent_router import reset_router_deps, reset_router_sleep_fn
     from services.slack import (
+        reset_fetch_thread_files,
         reset_fetch_thread_history,
         reset_post_agent_response,
         reset_post_system_message,
@@ -422,20 +426,25 @@ def reset_router_and_llm_di_for_tests():
         reset_trigger_usage_update,
     )
     from nlp import reset_intent_extractor
+    from services.rag.embeddings import EmbeddingService
+    from core.config import set_internal_revisor_enabled_override
 
     yield
 
+    set_internal_revisor_enabled_override(None)
     reset_llm_completion_fn()
     reset_llm_sleep_fn()
     reset_router_deps()
     reset_router_sleep_fn()
     reset_post_agent_response()
     reset_fetch_thread_history()
+    reset_fetch_thread_files()
     reset_post_system_message()
     reset_record_thread_tokens()
     reset_calculate_thread_costs()
     reset_trigger_usage_update()
     reset_trigger_thread_notes_update()
     reset_intent_extractor()
+    EmbeddingService.reset_embeddings_fn()
 
 

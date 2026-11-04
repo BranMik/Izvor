@@ -1,4 +1,5 @@
 import asyncio
+import inspect
 import logging
 from typing import Any
 
@@ -15,6 +16,16 @@ class EmbeddingService:
     with Gemini (or OpenAI / local models) with batching.
     """
 
+    _get_embeddings_override: Any = None
+
+    @classmethod
+    def configure_embeddings_fn(cls, fn: Any) -> None:
+        cls._get_embeddings_override = fn
+
+    @classmethod
+    def reset_embeddings_fn(cls) -> None:
+        cls._get_embeddings_override = None
+
     def __init__(self, model: str = EMBEDDING_MODEL) -> None:
         self.model = model
 
@@ -22,6 +33,12 @@ class EmbeddingService:
         """
         Embeds a list of texts in batches and returns list of embedding float vectors.
         """
+        if self._get_embeddings_override is not None:
+            res = self._get_embeddings_override(texts)
+            if inspect.isawaitable(res):
+                return await res
+            return res
+
         if not texts:
             return []
 

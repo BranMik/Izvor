@@ -188,7 +188,7 @@ def test_control_plane_tool_schemas_dynamic_convergence_filtering():
     assert "nominate_next_speaker" in names_off
 
 
-def test_slack_app_home_toggle_interactivity_handler(monkeypatch):
+def test_slack_app_home_toggle_interactivity_handler():
     import asyncio
     import json
     from adapters.slack.interactivity import handle_slack_interactivity
@@ -196,14 +196,6 @@ def test_slack_app_home_toggle_interactivity_handler(monkeypatch):
     from core.config import set_admin_slack_user_ids_override
 
     set_admin_slack_user_ids_override("U_ADMIN_123")
-    monkeypatch.setattr(
-        "adapters.slack.interactivity.verify_slack_signature",
-        lambda *args, **kwargs: True,
-    )
-    monkeypatch.setattr(
-        "services.slack.views.publish_app_home",
-        AsyncMock(),
-    )
 
     payload_off = {
         "type": "block_actions",
@@ -222,32 +214,35 @@ def test_slack_app_home_toggle_interactivity_handler(monkeypatch):
     bg = BackgroundTasks()
 
     async def _run():
-        with patch.object(app_settings_manager, "save"):
+        with (
+            patch("adapters.slack.interactivity.verify_slack_signature", return_value=True),
+            patch("services.slack.views.publish_app_home", new_callable=AsyncMock),
+            patch.object(app_settings_manager, "save"),
+        ):
             res = await handle_slack_interactivity(req_off, bg)
             assert res.status_code == 200
 
-        assert is_convergence_fast_forward_enabled() is False
+            assert is_convergence_fast_forward_enabled() is False
 
-        # Toggle back to ON
-        payload_on = {
-            "type": "block_actions",
-            "user": {"id": "U_ADMIN_123", "username": "admin_tester"},
-            "actions": [
-                {
-                    "action_id": "toggle_convergence_fast_forward_radio",
-                    "selected_option": {"value": "convergence_ff:on"},
-                }
-            ],
-        }
-        req_on = MagicMock(spec=Request)
-        req_on.body = AsyncMock(return_value=json.dumps(payload_on).encode("utf-8"))
-        req_on.headers = {}
+            # Toggle back to ON
+            payload_on = {
+                "type": "block_actions",
+                "user": {"id": "U_ADMIN_123", "username": "admin_tester"},
+                "actions": [
+                    {
+                        "action_id": "toggle_convergence_fast_forward_radio",
+                        "selected_option": {"value": "convergence_ff:on"},
+                    }
+                ],
+            }
+            req_on = MagicMock(spec=Request)
+            req_on.body = AsyncMock(return_value=json.dumps(payload_on).encode("utf-8"))
+            req_on.headers = {}
 
-        with patch.object(app_settings_manager, "save"):
             res = await handle_slack_interactivity(req_on, bg)
             assert res.status_code == 200
 
-        assert is_convergence_fast_forward_enabled() is True
+            assert is_convergence_fast_forward_enabled() is True
 
     try:
         asyncio.run(_run())

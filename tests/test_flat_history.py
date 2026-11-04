@@ -3,8 +3,14 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from core.llm_utils import configure_llm_completion_fn
 from orchestration import agent_router
-from orchestration.agent_router import process_and_respond
+from orchestration.agent_router import (
+    configure_fetch_thread_history,
+    configure_post_agent_response,
+    configure_router_sleep_fn,
+    process_and_respond,
+)
 from orchestration.agent_settings import reset_enabled_agents, set_orchestration_mode
 from orchestration.thread_state import thread_state_manager
 from services.flat_history_recorder import (
@@ -18,11 +24,11 @@ from services.flat_history_recorder import (
 
 
 @pytest.fixture(autouse=True)
-def setup_flat_history_test_environment(monkeypatch, tmp_path):
+def setup_flat_history_test_environment(tmp_path):
     reset_enabled_agents()
     set_orchestration_mode("sandwich")
     thread_state_manager.reset_all()
-    monkeypatch.setattr(agent_router.asyncio, "sleep", AsyncMock(return_value=None))
+    configure_router_sleep_fn(AsyncMock(return_value=None))
 
     # Point flat histories to tmp_path during unit test isolation
     test_dir = tmp_path / "flat-histories"
@@ -121,7 +127,7 @@ def test_record_flat_history_atomic_write(tmp_path):
 
 
 @pytest.mark.anyio
-async def test_process_and_respond_writes_flat_history(monkeypatch, tmp_path):
+async def test_process_and_respond_writes_flat_history(tmp_path):
     """Verify end-to-end that process_and_respond updates flat-histories after agent turn."""
     channel_id = "C_INTEG"
     thread_ts = "1712345678.888"
@@ -135,15 +141,15 @@ async def test_process_and_respond_writes_flat_history(monkeypatch, tmp_path):
     async def fake_execute_llm(*args, **kwargs):
         return mock_llm_response
 
-    async def fake_post_agent_response(**kwargs):
+    async def fake_post_agent_response(*args, **kwargs):
         return {"ok": True, "ts": "1712345679.000", "message": kwargs}
 
     async def fake_fetch_history(*args, **kwargs):
         return [{"role": "user", "content": "Kako podici Docker container?"}]
 
-    monkeypatch.setattr(agent_router, "execute_llm_with_retry", fake_execute_llm)
-    monkeypatch.setattr(agent_router, "post_agent_response", fake_post_agent_response)
-    monkeypatch.setattr(agent_router, "fetch_thread_history", fake_fetch_history)
+    configure_llm_completion_fn(fake_execute_llm)
+    configure_post_agent_response(fake_post_agent_response)
+    configure_fetch_thread_history(fake_fetch_history)
 
     # Initial prompt stored in ThreadStateManager
     thread_state_manager.set_initial_prompt(

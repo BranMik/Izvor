@@ -327,7 +327,7 @@ def test_mcp_tool_dispatcher_registry():
         assert callable(func), f"Dispatcher entry '{name}' must be callable"
 
 
-def test_mcp_execute_tool_unknown_and_invalid_args(monkeypatch):
+def test_mcp_execute_tool_unknown_and_invalid_args():
     from services.mcp_tools import TOOL_DISPATCHER, execute_mcp_tool
 
     # Unknown tool
@@ -340,11 +340,14 @@ def test_mcp_execute_tool_unknown_and_invalid_args(monkeypatch):
     def _failing_handler(args):
         raise RuntimeError("Boom")
 
-    monkeypatch.setitem(TOOL_DISPATCHER, "faulty_tool", _failing_handler)
-    error_res = execute_mcp_tool("faulty_tool", {}, agent_name=SYSTEM_PRINCIPAL)
-    error_json = json.loads(error_res)
-    assert "error" in error_json
-    assert "Tool execution error: Boom" in error_json["error"]
+    TOOL_DISPATCHER["faulty_tool"] = _failing_handler
+    try:
+        error_res = execute_mcp_tool("faulty_tool", {}, agent_name=SYSTEM_PRINCIPAL)
+        error_json = json.loads(error_res)
+        assert "error" in error_json
+        assert "Tool execution error: Boom" in error_json["error"]
+    finally:
+        TOOL_DISPATCHER.pop("faulty_tool", None)
 
 
 def test_mcp_execute_tool_agent_authorization():

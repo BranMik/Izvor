@@ -5,6 +5,7 @@ Unit tests for Parallel Scatter-Gather Dialectical Topology (PrePublish 8 Phase 
 from __future__ import annotations
 
 import asyncio
+from unittest.mock import patch
 
 
 from core.models import (
@@ -15,7 +16,9 @@ from core.models import (
 )
 from orchestration.agent_settings import (
     get_orchestration_mode,
+    get_sandwich_config,
     set_orchestration_mode,
+    set_sandwich_config,
 )
 from pipeline.orchestrator.sandwich import SandwichOrchestrator
 from services.slack_home import build_app_home_view
@@ -82,7 +85,7 @@ def test_slack_app_home_view_includes_parallel_dialectic():
         set_orchestration_mode(orig_mode, save=False)
 
 
-def test_orchestrate_discussion_parallel_scatter_gather(monkeypatch):
+def test_orchestrate_discussion_parallel_scatter_gather():
     from orchestration.agent_router import orchestrate_discussion
     from orchestration.thread_state import thread_state_manager
 
@@ -96,48 +99,53 @@ def test_orchestrate_discussion_parallel_scatter_gather(monkeypatch):
         channel_id, thread_ts, ["agent-10002", "agent-10003", "agent-10006"]
     )
 
-    # Set mode to scatter_gather with end_chain=["agent-10006"]
-    monkeypatch.setattr("orchestration.agent_settings.get_orchestration_mode", lambda: "scatter_gather")
-    monkeypatch.setattr(
-        "orchestration.agent_settings.get_sandwich_config",
-        lambda: {"start_chain": ["agent-10001"], "end_chain": ["agent-10006"]},
-    )
+    orig_mode = get_orchestration_mode()
+    orig_sandwich = get_sandwich_config()
 
-    calls = []
+    try:
+        # Set mode to scatter_gather with end_chain=["agent-10006"]
+        set_orchestration_mode("scatter_gather", save=False)
+        set_sandwich_config(["agent-10001"], ["agent-10006"])
 
-    async def fake_process_and_respond(**kwargs):
-        agent_k = kwargs.get("target_agent_override", "unknown")
-        hist = kwargs.get("in_memory_history", [])
-        calls.append({
-            "agent": agent_k,
-            "raw_text": kwargs.get("raw_text"),
-            "history_snapshot_len": len(hist),
-        })
-        # Simulate slight async delay to verify gather concurrency
-        await asyncio.sleep(0.01)
-        return {
-            "final_text": f"Response from {agent_k}",
-            "username": agent_k,
-            "displayname": f"Agent {agent_k}",
-            "channel_id": kwargs.get("channel_id"),
-            "thread_ts": kwargs.get("thread_ts"),
-        }
+        calls = []
 
-    monkeypatch.setattr("orchestration.agent_router.process_and_respond", fake_process_and_respond)
+        async def fake_process_and_respond(**kwargs):
+            agent_k = kwargs.get("target_agent_override", "unknown")
+            hist = kwargs.get("in_memory_history", [])
+            calls.append({
+                "agent": agent_k,
+                "raw_text": kwargs.get("raw_text"),
+                "history_snapshot_len": len(hist),
+            })
+            # Simulate slight async delay to verify gather concurrency
+            await asyncio.sleep(0.01)
+            return {
+                "final_text": f"Response from {agent_k}",
+                "username": agent_k,
+                "displayname": f"Agent {agent_k}",
+                "channel_id": kwargs.get("channel_id"),
+                "thread_ts": kwargs.get("thread_ts"),
+            }
 
-    async def fake_fetch_history(*args, **kwargs):
-        return []
+        async def fake_fetch_history(*args, **kwargs):
+            return []
 
-    monkeypatch.setattr("orchestration.agent_router.fetch_thread_history", fake_fetch_history)
+        with (
+            patch("orchestration.agent_router.process_and_respond", fake_process_and_respond),
+            patch("orchestration.agent_router.fetch_thread_history", fake_fetch_history),
+        ):
+            async def _run():
+                return await orchestrate_discussion(
+                    channel_id=channel_id,
+                    thread_ts=thread_ts,
+                    raw_text="Investigate caching layer",
+                )
 
-    async def _run():
-        return await orchestrate_discussion(
-            channel_id=channel_id,
-            thread_ts=thread_ts,
-            raw_text="Investigate caching layer",
-        )
-
-    res = asyncio.run(_run())
+            res = asyncio.run(_run())
+    finally:
+        set_orchestration_mode(orig_mode, save=False)
+        if orig_sandwich:
+            set_sandwich_config(orig_sandwich.get("start_chain", []), orig_sandwich.get("end_chain", []))
 
     assert res is not None
     # Calls should include turn 1 framing, then scatter agents (10002 and 10003), then gather agent (10006)

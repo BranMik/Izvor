@@ -78,7 +78,7 @@ async def test_upload_text_file_to_slack_mock():
 
 
 @pytest.mark.anyio
-async def test_update_notes_for_thread_passes_blocks(monkeypatch):
+async def test_update_notes_for_thread_passes_blocks():
     channel_id = "C_SCRIBE_BLOCKS"
     thread_ts = "1710000000.000300"
     clear_thread_note(channel_id, thread_ts)

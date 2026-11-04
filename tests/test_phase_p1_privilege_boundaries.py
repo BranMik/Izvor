@@ -613,95 +613,97 @@ async def test_guardrail_handle_failure_passes_valid_audit_parameters():
 # ---------------------------------------------------------------------------
 
 @pytest.mark.anyio
-async def test_resume_sequence_action_rejects_non_admin(monkeypatch):
+async def test_resume_sequence_action_rejects_non_admin():
     """resume_sequence_action rejects non-admin users with 403 and ADMIN_ACTION_DENIED audit log."""
     from adapters.slack.interactivity import handle_slack_interactivity
     from starlette.background import BackgroundTasks
     from starlette.requests import Request
 
-    monkeypatch.setattr("adapters.slack.interactivity.verify_slack_signature", lambda body, headers: True)
-    monkeypatch.setattr("adapters.slack.interactivity.is_slack_admin", lambda uid: False)
-
     logged_events = []
     def mock_log(**kwargs):
         logged_events.append(kwargs)
         return kwargs
-    monkeypatch.setattr("adapters.slack.actions.agent_actions.log_audit_event", mock_log)
-    monkeypatch.setattr("services.audit_logger.log_audit_event", mock_log)
 
-    payload = {
-        "type": "block_actions",
-        "user": {"id": "U_REGULAR_USER"},
-        "actions": [{"action_id": "resume_sequence_action"}],
-        "channel": {"id": "C_TEST"},
-        "container": {"thread_ts": "1700000001.0001"},
-    }
+    with (
+        patch("adapters.slack.interactivity.verify_slack_signature", return_value=True),
+        patch("adapters.slack.interactivity.is_slack_admin", return_value=False),
+        patch("adapters.slack.actions.agent_actions.log_audit_event", side_effect=mock_log),
+        patch("services.audit_logger.log_audit_event", side_effect=mock_log),
+    ):
+        payload = {
+            "type": "block_actions",
+            "user": {"id": "U_REGULAR_USER"},
+            "actions": [{"action_id": "resume_sequence_action"}],
+            "channel": {"id": "C_TEST"},
+            "container": {"thread_ts": "1700000001.0001"},
+        }
 
-    async def mock_receive():
-        return {"type": "http.request", "body": json.dumps(payload).encode("utf-8")}
+        async def mock_receive():
+            return {"type": "http.request", "body": json.dumps(payload).encode("utf-8")}
 
-    scope = {
-        "type": "http",
-        "method": "POST",
-        "headers": [(b"content-type", b"application/json")],
-    }
-    request = Request(scope, mock_receive)
-    bg_tasks = BackgroundTasks()
+        scope = {
+            "type": "http",
+            "method": "POST",
+            "headers": [(b"content-type", b"application/json")],
+        }
+        request = Request(scope, mock_receive)
+        bg_tasks = BackgroundTasks()
 
-    resp = await handle_slack_interactivity(request, bg_tasks)
-    assert resp.status_code == 403
-    assert any(e.get("event_type") == "ADMIN_ACTION_DENIED" for e in logged_events)
+        resp = await handle_slack_interactivity(request, bg_tasks)
+        assert resp.status_code == 403
+        assert any(e.get("event_type") == "ADMIN_ACTION_DENIED" for e in logged_events)
 
 
 @pytest.mark.anyio
-async def test_resume_sequence_action_succeeds_for_admin(monkeypatch):
+async def test_resume_sequence_action_succeeds_for_admin():
     """resume_sequence_action allows admin, checks spend governance dynamically, and dispatches discussion."""
     from adapters.slack.interactivity import handle_slack_interactivity
     from starlette.background import BackgroundTasks
     from starlette.requests import Request
 
-    monkeypatch.setattr("adapters.slack.interactivity.verify_slack_signature", lambda body, headers: True)
-    monkeypatch.setattr("adapters.slack.interactivity.is_slack_admin", lambda uid: True)
-    monkeypatch.setattr("orchestration.app_settings.is_circuit_breaker_enabled", lambda: False)
-    monkeypatch.setattr("orchestration.app_settings.get_circuit_breaker_threshold", lambda: 0.0)
-    monkeypatch.setattr("orchestration.app_settings.get_daily_budget_usd", lambda: 50.0)
-
     logged_events = []
     def mock_log(**kwargs):
         logged_events.append(kwargs)
         return kwargs
-    monkeypatch.setattr("adapters.slack.actions.workflow_actions.log_audit_event", mock_log)
-    monkeypatch.setattr("services.audit_logger.log_audit_event", mock_log)
 
     dispatched = []
     def mock_dispatch(cid, ts, coro):
         dispatched.append((cid, ts, coro))
-    monkeypatch.setattr("orchestration.thread_state.thread_state_manager.dispatch_discussion_task", mock_dispatch)
 
-    payload = {
-        "type": "block_actions",
-        "user": {"id": "U_ADMIN_USER"},
-        "actions": [{"action_id": "resume_sequence_action"}],
-        "channel": {"id": "C_TEST"},
-        "container": {"thread_ts": "1700000001.0001"},
-        "message": {"ts": "1700000001.0002"},
-    }
+    with (
+        patch("adapters.slack.interactivity.verify_slack_signature", return_value=True),
+        patch("adapters.slack.interactivity.is_slack_admin", return_value=True),
+        patch("orchestration.app_settings.is_circuit_breaker_enabled", return_value=False),
+        patch("orchestration.app_settings.get_circuit_breaker_threshold", return_value=0.0),
+        patch("orchestration.app_settings.get_daily_budget_usd", return_value=50.0),
+        patch("adapters.slack.actions.workflow_actions.log_audit_event", side_effect=mock_log),
+        patch("services.audit_logger.log_audit_event", side_effect=mock_log),
+        patch("orchestration.thread_state.thread_state_manager.dispatch_discussion_task", side_effect=mock_dispatch),
+    ):
+        payload = {
+            "type": "block_actions",
+            "user": {"id": "U_ADMIN_USER"},
+            "actions": [{"action_id": "resume_sequence_action"}],
+            "channel": {"id": "C_TEST"},
+            "container": {"thread_ts": "1700000001.0001"},
+            "message": {"ts": "1700000001.0002"},
+        }
 
-    async def mock_receive():
-        return {"type": "http.request", "body": json.dumps(payload).encode("utf-8")}
+        async def mock_receive():
+            return {"type": "http.request", "body": json.dumps(payload).encode("utf-8")}
 
-    scope = {
-        "type": "http",
-        "method": "POST",
-        "headers": [(b"content-type", b"application/json")],
-    }
-    request = Request(scope, mock_receive)
-    bg_tasks = BackgroundTasks()
+        scope = {
+            "type": "http",
+            "method": "POST",
+            "headers": [(b"content-type", b"application/json")],
+        }
+        request = Request(scope, mock_receive)
+        bg_tasks = BackgroundTasks()
 
-    resp = await handle_slack_interactivity(request, bg_tasks)
-    assert resp.status_code == 200
-    assert any(e.get("event_type") == "SEQUENCE_RESUMED" for e in logged_events)
-    assert len(dispatched) == 1
-    assert dispatched[0][0] == "C_TEST"
-    assert dispatched[0][1] == "1700000001.0001"
+        resp = await handle_slack_interactivity(request, bg_tasks)
+        assert resp.status_code == 200
+        assert any(e.get("event_type") == "SEQUENCE_RESUMED" for e in logged_events)
+        assert len(dispatched) == 1
+        assert dispatched[0][0] == "C_TEST"
+        assert dispatched[0][1] == "1700000001.0001"
 

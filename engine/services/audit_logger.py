@@ -277,6 +277,19 @@ class AuditLogger:
             self._cached_file_size = 0
             self._ensure_dirs()
 
+    def configure_paths(self, audit_dir: Path | None = None) -> None:
+        """Configures in-memory paths for testing and DI."""
+        if audit_dir is not None:
+            self.audit_dir = Path(audit_dir)
+        else:
+            self.audit_dir = DEFAULT_AUDIT_DIR
+        self.invalidate_cache()
+
+    def reset_paths(self) -> None:
+        """Resets in-memory paths to default."""
+        self.audit_dir = DEFAULT_AUDIT_DIR
+        self.invalidate_cache()
+
     def __init__(self, audit_dir: Path | None = None) -> None:
         if getattr(self, "_initialized", False):
             if audit_dir is not None:

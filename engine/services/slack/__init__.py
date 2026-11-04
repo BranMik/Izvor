@@ -18,10 +18,12 @@ from services.slack.client_core import (
 from services.slack.files import (
     SAFE_DOWNLOAD_EXTENSIONS,
     cleanup_old_downloads,
+    configure_fetch_thread_files,
     download_slack_file,
     extract_thread_files_metadata,
     fetch_thread_files,
     read_slack_file_text,
+    reset_fetch_thread_files,
     sanitize_slack_download_filename,
     upload_text_file_to_slack,
 )
@@ -66,7 +68,9 @@ __all__ = [
     "_sanitize_and_truncate_slack_text",
     "configure_post_agent_response",
     "reset_post_agent_response",
+    "configure_fetch_thread_files",
     "configure_fetch_thread_history",
+    "reset_fetch_thread_files",
     "reset_fetch_thread_history",
     "configure_post_system_message",
     "reset_post_system_message",

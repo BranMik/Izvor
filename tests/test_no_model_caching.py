@@ -9,13 +9,15 @@ from agents.usage_agent import (
     format_usage_slack_message,
     record_thread_tokens,
 )
+from conftest import async_noop_sleep
 from orchestration import agent_router
+from orchestration.agent_router import configure_router_sleep_fn
 from services.pricing_service import pricing_service
 
 
 @pytest.fixture(autouse=True)
-def setup_test_environment(monkeypatch):
-    monkeypatch.setattr(agent_router.asyncio, "sleep", AsyncMock(return_value=None))
+def setup_test_environment():
+    configure_router_sleep_fn(async_noop_sleep)
 
 
 def _has_cache_control(messages: list[dict]) -> bool:

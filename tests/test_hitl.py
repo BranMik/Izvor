@@ -1,5 +1,5 @@
 import time
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -112,61 +112,62 @@ def test_hitl_expiration_ttl():
     )
 
 
-def test_hitl_slack_interactivity_authorization(monkeypatch):
+def test_hitl_slack_interactivity_authorization():
     """Test Slack Block Kit approval/denial authorization: only initiator or admin can approve/deny."""
     from core.config import set_admin_slack_user_ids_override
 
     set_admin_slack_user_ids_override("U_WORKSPACE_ADMIN")
     try:
-        monkeypatch.setattr("adapters.slack.interactivity.verify_slack_signature", lambda body, headers: True)
-        monkeypatch.setattr("adapters.slack.interactivity.slack_async_client.chat_postEphemeral", AsyncMock(return_value={"ok": True}))
-        monkeypatch.setattr("adapters.slack.interactivity.slack_async_client.chat_update", AsyncMock(return_value={"ok": True}))
+        with (
+            patch("adapters.slack.interactivity.verify_slack_signature", return_value=True),
+            patch("adapters.slack.interactivity.slack_async_client.chat_postEphemeral", AsyncMock(return_value={"ok": True})),
+            patch("adapters.slack.interactivity.slack_async_client.chat_update", AsyncMock(return_value={"ok": True})),
+        ):
+            req = register_hitl_request(
+                channel_id="C_SLACK_HITL",
+                thread_ts="1700000000.004",
+                fn_name="execute_migration",
+                fn_args={"target": "db_v2"},
+                initiator_user_id="U_ORIGINAL_USER",
+            )
 
-        req = register_hitl_request(
-            channel_id="C_SLACK_HITL",
-            thread_ts="1700000000.004",
-            fn_name="execute_migration",
-            fn_args={"target": "db_v2"},
-            initiator_user_id="U_ORIGINAL_USER",
-        )
+            # 1. Random user attempts to approve -> 403 Forbidden
+            payload_intruder = {
+                "type": "block_actions",
+                "user": {"id": "U_SNOOPING_USER"},
+                "actions": [{"action_id": "hitl_approve_tool", "value": req.request_id}],
+                "channel": {"id": "C_SLACK_HITL"},
+            }
+            resp = client.post("/slack/actions", json=payload_intruder)
+            assert resp.status_code == 403
 
-        # 1. Random user attempts to approve -> 403 Forbidden
-        payload_intruder = {
-            "type": "block_actions",
-            "user": {"id": "U_SNOOPING_USER"},
-            "actions": [{"action_id": "hitl_approve_tool", "value": req.request_id}],
-            "channel": {"id": "C_SLACK_HITL"},
-        }
-        resp = client.post("/slack/actions", json=payload_intruder)
-        assert resp.status_code == 403
+            # Wait briefly for background executor to write audit record
+            time.sleep(0.05)
 
-        # Wait briefly for background executor to write audit record
-        time.sleep(0.05)
+            # Audit trail verifies UNAUTHORIZED attempt
+            trail = get_audit_trail(limit=10)
+            unauth_events = [e for e in trail if e.get("event_type") == "HITL_UNAUTHORIZED_ATTEMPT"]
+            assert len(unauth_events) > 0
+            assert unauth_events[-1]["actor"]["id"] == "U_SNOOPING_USER"
 
-        # Audit trail verifies UNAUTHORIZED attempt
-        trail = get_audit_trail(limit=10)
-        unauth_events = [e for e in trail if e.get("event_type") == "HITL_UNAUTHORIZED_ATTEMPT"]
-        assert len(unauth_events) > 0
-        assert unauth_events[-1]["actor"]["id"] == "U_SNOOPING_USER"
+            # 2. Initiator approves -> 200 OK
+            payload_initiator = {
+                "type": "block_actions",
+                "user": {"id": "U_ORIGINAL_USER"},
+                "actions": [{"action_id": "hitl_approve_tool", "value": req.request_id}],
+                "channel": {"id": "C_SLACK_HITL"},
+                "message": {"ts": "1700000000.005"},
+            }
+            resp_init = client.post("/slack/actions", json=payload_initiator)
+            assert resp_init.status_code == 200
 
-        # 2. Initiator approves -> 200 OK
-        payload_initiator = {
-            "type": "block_actions",
-            "user": {"id": "U_ORIGINAL_USER"},
-            "actions": [{"action_id": "hitl_approve_tool", "value": req.request_id}],
-            "channel": {"id": "C_SLACK_HITL"},
-            "message": {"ts": "1700000000.005"},
-        }
-        resp_init = client.post("/slack/actions", json=payload_initiator)
-        assert resp_init.status_code == 200
-
-        # 3. Verify single-use execution consumed approval
-        with get_db_transaction() as conn:
-            row = conn.execute(
-                "SELECT status FROM hitl_approvals WHERE request_id = ?;", (req.request_id,)
-            ).fetchone()
-            assert row is not None
-            assert row["status"] == "CONSUMED"
+            # 3. Verify single-use execution consumed approval
+            with get_db_transaction() as conn:
+                row = conn.execute(
+                    "SELECT status FROM hitl_approvals WHERE request_id = ?;", (req.request_id,)
+                ).fetchone()
+                assert row is not None
+                assert row["status"] == "CONSUMED"
     finally:
         set_admin_slack_user_ids_override(None)
 
@@ -195,22 +196,23 @@ def test_hitl_atomic_status_transition():
     assert den is None
 
 
-def test_hitl_slack_action_expired_or_handled_notice(monkeypatch):
+def test_hitl_slack_action_expired_or_handled_notice():
     """TKT-908: Post ephemeral warning when approval/denial action references non-existent or handled request."""
     mock_ephemeral = AsyncMock(return_value={"ok": True})
-    monkeypatch.setattr("adapters.slack.interactivity.verify_slack_signature", lambda body, headers: True)
-    monkeypatch.setattr("adapters.slack.interactivity.slack_async_client.chat_postEphemeral", mock_ephemeral)
+    with (
+        patch("adapters.slack.interactivity.verify_slack_signature", return_value=True),
+        patch("adapters.slack.interactivity.slack_async_client.chat_postEphemeral", mock_ephemeral),
+    ):
+        payload_missing = {
+            "type": "block_actions",
+            "user": {"id": "U_ANY_USER"},
+            "actions": [{"action_id": "hitl_approve_tool", "value": "non-existent-or-expired-id"}],
+            "channel": {"id": "C_SLACK_HITL"},
+        }
+        resp = client.post("/slack/actions", json=payload_missing)
+        assert resp.status_code == 200
 
-    payload_missing = {
-        "type": "block_actions",
-        "user": {"id": "U_ANY_USER"},
-        "actions": [{"action_id": "hitl_approve_tool", "value": "non-existent-or-expired-id"}],
-        "channel": {"id": "C_SLACK_HITL"},
-    }
-    resp = client.post("/slack/actions", json=payload_missing)
-    assert resp.status_code == 200
-
-    time.sleep(0.05)
-    mock_ephemeral.assert_called_once()
-    assert "Request Expired or Handled" in mock_ephemeral.call_args[1]["text"]
+        time.sleep(0.05)
+        mock_ephemeral.assert_called_once()
+        assert "Request Expired or Handled" in mock_ephemeral.call_args[1]["text"]
 

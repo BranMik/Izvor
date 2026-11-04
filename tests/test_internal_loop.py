@@ -1,8 +1,11 @@
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from core.llm_utils import configure_llm_completion_fn
 from orchestration.agent_router import (
+    configure_fetch_thread_history,
+    configure_post_agent_response,
     orchestrate_discussion,
     process_and_respond,
 )
@@ -17,7 +20,7 @@ def reset_state():
 
 
 @pytest.mark.anyio
-async def test_internal_loop_multi_agent_custom_flow(monkeypatch):
+async def test_internal_loop_multi_agent_custom_flow():
     """
     Verify that tagging multiple agents ([agent-10002] [agent-10011]) executes both
     agents in-memory sequentially in a single orchestrator call, posting each to Slack,
@@ -32,11 +35,8 @@ async def test_internal_loop_multi_agent_custom_flow(monkeypatch):
         posted_messages.append({"username": username, "text": text})
         return {"ok": True, "ts": f"1000.{len(posted_messages)}"}
 
-    monkeypatch.setattr("orchestration.agent_router.post_agent_response", mock_post)
-    monkeypatch.setattr(
-        "orchestration.agent_router.fetch_thread_history",
-        AsyncMock(return_value=[]),
-    )
+    configure_post_agent_response(mock_post)
+    configure_fetch_thread_history(AsyncMock(return_value=[]))
 
     turn_counter = 0
     captured_contexts = []
@@ -79,7 +79,7 @@ async def test_internal_loop_multi_agent_custom_flow(monkeypatch):
         mock_response = MagicMock(choices=[mock_choice], usage=None)
         return mock_response
 
-    monkeypatch.setattr("litellm.acompletion", mock_llm_run)
+    configure_llm_completion_fn(mock_llm_run)
 
     # Run internal discussion loop
     await orchestrate_discussion(
@@ -113,7 +113,7 @@ async def test_internal_loop_multi_agent_custom_flow(monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_internal_loop_user_stop_interruption(monkeypatch):
+async def test_internal_loop_user_stop_interruption():
     """
     Verify that if a user requests stop (request_thread_stop),
     the internal loop halts after the current turn and does NOT execute the next agent.
@@ -126,11 +126,8 @@ async def test_internal_loop_user_stop_interruption(monkeypatch):
         posted_messages.append({"username": username, "text": text})
         return {"ok": True, "ts": f"2000.{len(posted_messages)}"}
 
-    monkeypatch.setattr("orchestration.agent_router.post_agent_response", mock_post)
-    monkeypatch.setattr(
-        "orchestration.agent_router.fetch_thread_history",
-        AsyncMock(return_value=[]),
-    )
+    configure_post_agent_response(mock_post)
+    configure_fetch_thread_history(AsyncMock(return_value=[]))
 
     turn_counter = 0
 
@@ -169,7 +166,7 @@ async def test_internal_loop_user_stop_interruption(monkeypatch):
             thread_state_manager.request_stop(channel_id, thread_ts)
         return MagicMock(choices=[mock_choice], usage=None)
 
-    monkeypatch.setattr("litellm.acompletion", mock_llm_run)
+    configure_llm_completion_fn(mock_llm_run)
 
     await orchestrate_discussion(
         channel_id=channel_id,
@@ -183,20 +180,19 @@ async def test_internal_loop_user_stop_interruption(monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_process_and_respond_with_run_internal_loop(monkeypatch):
+async def test_process_and_respond_with_run_internal_loop():
     """
     Verify process_and_respond(run_internal_loop=True) delegates directly to
     orchestrate_discussion.
     """
     mock_orchestrate = AsyncMock(return_value={"ok": True, "loop_ran": True})
-    monkeypatch.setattr("orchestration.agent_router.orchestrate_discussion", mock_orchestrate)
-
-    res = await process_and_respond(
-        channel_id="C_DISPATCH",
-        thread_ts="3000.0001",
-        raw_text="Hello [agent-10001]",
-        run_internal_loop=True,
-    )
+    with patch("orchestration.agent_router.orchestrate_discussion", side_effect=mock_orchestrate):
+        res = await process_and_respond(
+            channel_id="C_DISPATCH",
+            thread_ts="3000.0001",
+            raw_text="Hello [agent-10001]",
+            run_internal_loop=True,
+        )
 
     assert res.get("loop_ran") is True
     mock_orchestrate.assert_awaited_once_with(

@@ -72,7 +72,7 @@ def test_audit_tail_caching_and_reverse_seek(tmp_path: Path):
 # 2. [S4] AUTH_FAILURE Amplification Defense
 # ---------------------------------------------------------------------------
 
-def test_auth_failure_burst_suppression(monkeypatch, tmp_path: Path):
+def test_auth_failure_burst_suppression(tmp_path: Path):
     from core import slack_security
 
     test_dir = tmp_path / "audit"
@@ -85,34 +85,33 @@ def test_auth_failure_burst_suppression(monkeypatch, tmp_path: Path):
     def mock_log_audit_event(**kwargs):
         logged_events.append(kwargs)
 
-    monkeypatch.setattr("services.audit_logger.log_audit_event", mock_log_audit_event)
+    with patch("services.audit_logger.log_audit_event", side_effect=mock_log_audit_event):
+        with slack_security._auth_failure_lock:
+            slack_security._auth_failure_tracker.clear()
 
-    with slack_security._auth_failure_lock:
-        slack_security._auth_failure_tracker.clear()
+        client_id = "test_attacker_ip_1"
 
-    client_id = "test_attacker_ip_1"
+        # Simulate 8 rapid failed attempts within the 60s window
+        for _ in range(8):
+            _record_auth_failure_audit(client_id)
 
-    # Simulate 8 rapid failed attempts within the 60s window
-    for _ in range(8):
+        # Max burst limit is 5: only 5 individual events should be logged
+        assert len(logged_events) == 5
+        for ev in logged_events:
+            assert ev["event_type"] == "AUTH_FAILURE"
+            assert ev["actor"]["id"] == client_id
+
+        # Advance time beyond 60s window to trigger aggregated summary
+        with slack_security._auth_failure_lock:
+            slack_security._auth_failure_tracker[client_id]["window_start"] -= 65.0
+
+        # Next attempt triggers the summary of the 3 suppressed events + 1 new event
         _record_auth_failure_audit(client_id)
 
-    # Max burst limit is 5: only 5 individual events should be logged
-    assert len(logged_events) == 5
-    for ev in logged_events:
-        assert ev["event_type"] == "AUTH_FAILURE"
-        assert ev["actor"]["id"] == client_id
-
-    # Advance time beyond 60s window to trigger aggregated summary
-    with slack_security._auth_failure_lock:
-        slack_security._auth_failure_tracker[client_id]["window_start"] -= 65.0
-
-    # Next attempt triggers the summary of the 3 suppressed events + 1 new event
-    _record_auth_failure_audit(client_id)
-
-    assert len(logged_events) == 7
-    summary_event = logged_events[5]
-    assert summary_event["details"]["suppressed_attempts_count"] == 3
-    assert "burst aggregation" in summary_event["details"]["reason"]
+        assert len(logged_events) == 7
+        summary_event = logged_events[5]
+        assert summary_event["details"]["suppressed_attempts_count"] == 3
+        assert "burst aggregation" in summary_event["details"]["reason"]
 
 
 # ---------------------------------------------------------------------------

@@ -1,11 +1,19 @@
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from conftest import make_mock_acompletion
 
+from core.llm_utils import configure_llm_completion_fn
 from orchestration import agent_router
-from orchestration.agent_router import process_and_respond
+from orchestration.agent_router import (
+    configure_fetch_thread_files,
+    configure_fetch_thread_history,
+    configure_post_agent_response,
+    configure_post_system_message,
+    configure_router_sleep_fn,
+    process_and_respond,
+)
 from orchestration.agent_settings import (
     reset_enabled_agents,
     set_fixed_config,
@@ -16,7 +24,7 @@ from orchestration.thread_state import thread_state_manager
 
 
 @pytest.fixture(autouse=True)
-def setup_test_environment(monkeypatch):
+def setup_test_environment():
     from core.config import set_admin_slack_user_ids_override
 
     set_admin_slack_user_ids_override("U_ADMIN")
@@ -27,24 +35,17 @@ def setup_test_environment(monkeypatch):
     set_fixed_config([])
     thread_state_manager.reset_all()
 
-    # Intercept Slack client calls in both services and router module
+    # Intercept Slack client calls via DI
     mock_post = AsyncMock(return_value={"ok": True, "ts": "123.45"})
     mock_sys = AsyncMock(return_value={"ok": True, "ts": "123.45"})
     mock_hist = AsyncMock(return_value=[])
     mock_files = AsyncMock(return_value=[])
 
-    monkeypatch.setattr("services.slack.post_agent_response", mock_post)
-    monkeypatch.setattr("services.slack.post_system_message", mock_sys)
-    monkeypatch.setattr("services.slack.fetch_thread_history", mock_hist)
-    monkeypatch.setattr("services.slack.fetch_thread_files", mock_files)
-
-    monkeypatch.setattr("orchestration.agent_router.post_agent_response", mock_post)
-    monkeypatch.setattr("orchestration.agent_router.post_system_message", mock_sys)
-    monkeypatch.setattr("orchestration.agent_router.fetch_thread_history", mock_hist)
-    monkeypatch.setattr("orchestration.agent_router.fetch_thread_files", mock_files)
-
-    monkeypatch.setattr(agent_router.asyncio, "sleep", AsyncMock(return_value=None))
-    monkeypatch.setattr("orchestration.stages.execution.asyncio.sleep", AsyncMock(return_value=None))
+    configure_post_agent_response(mock_post)
+    configure_post_system_message(mock_sys)
+    configure_fetch_thread_history(mock_hist)
+    configure_fetch_thread_files(mock_files)
+    configure_router_sleep_fn(AsyncMock(return_value=None))
 
     yield
 
@@ -52,7 +53,7 @@ def setup_test_environment(monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_three_round_five_word_croatian_test(monkeypatch):
+async def test_three_round_five_word_croatian_test():
     """
     Test user requirement:
     - User input: 'Ovo je test, maximum 5 rijeci /max_words 5'
@@ -67,15 +68,13 @@ async def test_three_round_five_word_croatian_test(monkeypatch):
         posted_messages.append(text)
         return {"ok": True, "ts": f"100.{len(posted_messages)}"}
 
-    monkeypatch.setattr("services.slack.post_agent_response", mock_post_agent_response)
+    configure_post_agent_response(mock_post_agent_response)
 
     # Mock language detection to return 'Croatian' for this initial text
     async def mock_detect_language_llm(text):
         if "test" in text.lower() or "rijeci" in text.lower() or "ovo" in text.lower():
             return "Croatian"
         return "English"
-
-    monkeypatch.setattr("orchestration.stages.validation.detect_language_llm", mock_detect_language_llm)
 
     captured_system_prompts = []
     captured_scribe_calls = []
@@ -90,7 +89,7 @@ async def test_three_round_five_word_croatian_test(monkeypatch):
                 captured_system_prompts.append(msg.get("content", ""))
         return mock_run_turn.current_response
 
-    monkeypatch.setattr("litellm.acompletion", make_mock_acompletion(mock_agent_turn))
+    configure_llm_completion_fn(make_mock_acompletion(mock_agent_turn))
 
     async def mock_generate_thread_notes(history, is_completed=False, thread_language="English", scribe_max_words=None, scribe_min_words=None):
         captured_scribe_calls.append({
@@ -101,134 +100,136 @@ async def test_three_round_five_word_croatian_test(monkeypatch):
         })
         return "Scribe strategic notes in Croatian", {"prompt_tokens": 10, "completion_tokens": 10, "total_tokens": 20}
 
-    monkeypatch.setattr("agents.thread_notes_agent.generate_thread_notes", mock_generate_thread_notes)
-    # Mock update_notes_for_thread fetch_thread_history to return non-empty so scribe runs
-    monkeypatch.setattr("agents.thread_notes_agent.fetch_thread_history", AsyncMock(return_value=[{"role": "user", "text": "test"}]))
+    configure_fetch_thread_history(AsyncMock(return_value=[{"role": "user", "text": "test"}]))
 
-    channel = "C_CROATIAN"
-    thread_ts = "555.001"
+    with (
+        patch("orchestration.stages.validation.detect_language_llm", side_effect=mock_detect_language_llm),
+        patch("agents.thread_notes_agent.generate_thread_notes", side_effect=mock_generate_thread_notes),
+    ):
+        channel = "C_CROATIAN"
+        thread_ts = "555.001"
 
-    # ==================== ROUND 1 ====================
-    # Turn 1: Innovator starts Round 1
-    mock_choice_1 = MagicMock()
-    mock_choice_1.message.content = "Ovo je prva ideja."  # 5 words in Croatian
-    mock_choice_1.message.tool_calls = None
-    mock_run_turn.current_response = MagicMock(choices=[mock_choice_1], usage=None)
+        # ==================== ROUND 1 ====================
+        # Turn 1: Innovator starts Round 1
+        mock_choice_1 = MagicMock()
+        mock_choice_1.message.content = "Ovo je prva ideja."  # 5 words in Croatian
+        mock_choice_1.message.tool_calls = None
+        mock_run_turn.current_response = MagicMock(choices=[mock_choice_1], usage=None)
 
-    res_1 = await process_and_respond(
-        channel_id=channel,
-        thread_ts=thread_ts,
-        raw_text="/[agent-10002] /[agent-10011] Ovo je test, maximum 5 rijeci /max_words 5",
-        is_bot_trigger=False,
-    )
+        res_1 = await process_and_respond(
+            channel_id=channel,
+            thread_ts=thread_ts,
+            raw_text="/[agent-10002] /[agent-10011] Ovo je test, maximum 5 rijeci /max_words 5",
+            is_bot_trigger=False,
+        )
 
-    assert not res_1.get("is_completed")
-    assert thread_state_manager.get_language(channel, thread_ts) == "Croatian"
-    assert thread_state_manager.get_max_words(channel, thread_ts) == 5
-    assert any("5 words" in prompt for prompt in captured_system_prompts)
+        assert not res_1.get("is_completed")
+        assert thread_state_manager.get_language(channel, thread_ts) == "Croatian"
+        assert thread_state_manager.get_max_words(channel, thread_ts) == 5
+        assert any("5 words" in prompt for prompt in captured_system_prompts)
 
-    # Turn 2: LegalAdvisor finishes Round 1
-    mock_choice_2 = MagicMock()
-    mock_choice_2.message.content = "LegalAdvisor potvrda za rundu jedan."  # 5 words
-    mock_choice_2.message.tool_calls = None
-    mock_run_turn.current_response = MagicMock(choices=[mock_choice_2], usage=None)
+        # Turn 2: LegalAdvisor finishes Round 1
+        mock_choice_2 = MagicMock()
+        mock_choice_2.message.content = "LegalAdvisor potvrda za rundu jedan."  # 5 words
+        mock_choice_2.message.tool_calls = None
+        mock_run_turn.current_response = MagicMock(choices=[mock_choice_2], usage=None)
 
-    res_2 = await process_and_respond(
-        channel_id=channel,
-        thread_ts=thread_ts,
-        raw_text="/[agent-10011] LegalAdvisor potvrda",
-        is_bot_trigger=True,
-    )
-    assert res_2.get("is_completed")
+        res_2 = await process_and_respond(
+            channel_id=channel,
+            thread_ts=thread_ts,
+            raw_text="/[agent-10011] LegalAdvisor potvrda",
+            is_bot_trigger=True,
+        )
+        assert res_2.get("is_completed")
 
-    # Verify persistent state after Round 1 completion
-    assert thread_state_manager.get_language(channel, thread_ts) == "Croatian"
-    assert thread_state_manager.get_max_words(channel, thread_ts) == 5
+        # Verify persistent state after Round 1 completion
+        assert thread_state_manager.get_language(channel, thread_ts) == "Croatian"
+        assert thread_state_manager.get_max_words(channel, thread_ts) == 5
 
-    # Check Scribe call for round 1: should have language='Croatian' and scribe_max_words=None
-    from agents.thread_notes_agent import update_notes_for_thread
-    await update_notes_for_thread(channel, thread_ts, is_completed=True)
+        # Check Scribe call for round 1: should have language='Croatian' and scribe_max_words=None
+        from agents.thread_notes_agent import update_notes_for_thread
+        await update_notes_for_thread(channel, thread_ts, is_completed=True)
 
-    assert len(captured_scribe_calls) >= 1
-    last_scribe = captured_scribe_calls[-1]
-    assert last_scribe["thread_language"] == "Croatian"
-    assert last_scribe["scribe_max_words"] is None  # /max_words 5 does NOT affect scribe!
+        assert len(captured_scribe_calls) >= 1
+        last_scribe = captured_scribe_calls[-1]
+        assert last_scribe["thread_language"] == "Croatian"
+        assert last_scribe["scribe_max_words"] is None  # /max_words 5 does NOT affect scribe!
 
-    # ==================== ROUND 2 ====================
-    # User issues /next-round
-    captured_system_prompts.clear()
-    mock_choice_3 = MagicMock()
-    mock_choice_3.message.content = "Innovator nastavak u drugoj rundi."  # 5 words
-    mock_choice_3.message.tool_calls = None
-    mock_run_turn.current_response = MagicMock(choices=[mock_choice_3], usage=None)
+        # ==================== ROUND 2 ====================
+        # User issues /next-round
+        captured_system_prompts.clear()
+        mock_choice_3 = MagicMock()
+        mock_choice_3.message.content = "Innovator nastavak u drugoj rundi."  # 5 words
+        mock_choice_3.message.tool_calls = None
+        mock_run_turn.current_response = MagicMock(choices=[mock_choice_3], usage=None)
 
-    res_3 = await process_and_respond(
-        channel_id=channel,
-        thread_ts=thread_ts,
-        raw_text="/next-round",
-        is_bot_trigger=False,
-    )
-    assert not res_3.get("is_completed")
-    # Must STILL be Croatian and max_words=5!
-    assert thread_state_manager.get_language(channel, thread_ts) == "Croatian"
-    assert thread_state_manager.get_max_words(channel, thread_ts) == 5
-    assert any("5 words" in prompt for prompt in captured_system_prompts)
+        res_3 = await process_and_respond(
+            channel_id=channel,
+            thread_ts=thread_ts,
+            raw_text="/next-round",
+            is_bot_trigger=False,
+        )
+        assert not res_3.get("is_completed")
+        # Must STILL be Croatian and max_words=5!
+        assert thread_state_manager.get_language(channel, thread_ts) == "Croatian"
+        assert thread_state_manager.get_max_words(channel, thread_ts) == 5
+        assert any("5 words" in prompt for prompt in captured_system_prompts)
 
-    # LegalAdvisor finishes Round 2
-    mock_choice_4 = MagicMock()
-    mock_choice_4.message.content = "LegalAdvisor kraj druge runde sada."  # 5 words
-    mock_choice_4.message.tool_calls = None
-    mock_run_turn.current_response = MagicMock(choices=[mock_choice_4], usage=None)
+        # LegalAdvisor finishes Round 2
+        mock_choice_4 = MagicMock()
+        mock_choice_4.message.content = "LegalAdvisor kraj druge runde sada."  # 5 words
+        mock_choice_4.message.tool_calls = None
+        mock_run_turn.current_response = MagicMock(choices=[mock_choice_4], usage=None)
 
-    res_4 = await process_and_respond(
-        channel_id=channel,
-        thread_ts=thread_ts,
-        raw_text="/[agent-10011] LegalAdvisor runda dva",
-        is_bot_trigger=True,
-    )
-    assert res_4.get("is_completed")
-    assert thread_state_manager.get_language(channel, thread_ts) == "Croatian"
-    assert thread_state_manager.get_max_words(channel, thread_ts) == 5
+        res_4 = await process_and_respond(
+            channel_id=channel,
+            thread_ts=thread_ts,
+            raw_text="/[agent-10011] LegalAdvisor runda dva",
+            is_bot_trigger=True,
+        )
+        assert res_4.get("is_completed")
+        assert thread_state_manager.get_language(channel, thread_ts) == "Croatian"
+        assert thread_state_manager.get_max_words(channel, thread_ts) == 5
 
-    # ==================== ROUND 3 ====================
-    # User issues /next-round for round 3
-    captured_system_prompts.clear()
-    mock_choice_5 = MagicMock()
-    mock_choice_5.message.content = "Treca runda za inovatora ovdje."  # 5 words
-    mock_choice_5.message.tool_calls = None
-    mock_run_turn.current_response = MagicMock(choices=[mock_choice_5], usage=None)
+        # ==================== ROUND 3 ====================
+        # User issues /next-round for round 3
+        captured_system_prompts.clear()
+        mock_choice_5 = MagicMock()
+        mock_choice_5.message.content = "Treca runda za inovatora ovdje."  # 5 words
+        mock_choice_5.message.tool_calls = None
+        mock_run_turn.current_response = MagicMock(choices=[mock_choice_5], usage=None)
 
-    res_5 = await process_and_respond(
-        channel_id=channel,
-        thread_ts=thread_ts,
-        raw_text="/next-round",
-        is_bot_trigger=False,
-    )
-    assert not res_5.get("is_completed")
-    assert thread_state_manager.get_language(channel, thread_ts) == "Croatian"
-    assert thread_state_manager.get_max_words(channel, thread_ts) == 5
-    assert any("5 words" in prompt for prompt in captured_system_prompts)
+        res_5 = await process_and_respond(
+            channel_id=channel,
+            thread_ts=thread_ts,
+            raw_text="/next-round",
+            is_bot_trigger=False,
+        )
+        assert not res_5.get("is_completed")
+        assert thread_state_manager.get_language(channel, thread_ts) == "Croatian"
+        assert thread_state_manager.get_max_words(channel, thread_ts) == 5
+        assert any("5 words" in prompt for prompt in captured_system_prompts)
 
-    # LegalAdvisor finishes Round 3
-    mock_choice_6 = MagicMock()
-    mock_choice_6.message.content = "Kraj trece runde napokon ovdje."  # 5 words
-    mock_choice_6.message.tool_calls = None
-    mock_run_turn.current_response = MagicMock(choices=[mock_choice_6], usage=None)
+        # LegalAdvisor finishes Round 3
+        mock_choice_6 = MagicMock()
+        mock_choice_6.message.content = "Kraj trece runde napokon ovdje."  # 5 words
+        mock_choice_6.message.tool_calls = None
+        mock_run_turn.current_response = MagicMock(choices=[mock_choice_6], usage=None)
 
-    res_6 = await process_and_respond(
-        channel_id=channel,
-        thread_ts=thread_ts,
-        raw_text="/[agent-10011] LegalAdvisor runda tri",
-        is_bot_trigger=True,
-    )
-    assert res_6.get("is_completed")
-    # Language and max_words held across all 3 rounds!
-    assert thread_state_manager.get_language(channel, thread_ts) == "Croatian"
-    assert thread_state_manager.get_max_words(channel, thread_ts) == 5
+        res_6 = await process_and_respond(
+            channel_id=channel,
+            thread_ts=thread_ts,
+            raw_text="/[agent-10011] LegalAdvisor runda tri",
+            is_bot_trigger=True,
+        )
+        assert res_6.get("is_completed")
+        # Language and max_words held across all 3 rounds!
+        assert thread_state_manager.get_language(channel, thread_ts) == "Croatian"
+        assert thread_state_manager.get_max_words(channel, thread_ts) == 5
 
 
 @pytest.mark.anyio
-async def test_scribe_max_and_min_words_separation(monkeypatch):
+async def test_scribe_max_and_min_words_separation():
     """
     Test skills /scribe_max_words and /scribe_min_words:
     - Sets limits specifically for Scribe.
@@ -244,8 +245,7 @@ async def test_scribe_max_and_min_words_separation(monkeypatch):
         })
         return "Notes", {"prompt_tokens": 10, "completion_tokens": 10, "total_tokens": 20}
 
-    monkeypatch.setattr("agents.thread_notes_agent.generate_thread_notes", mock_generate_thread_notes)
-    monkeypatch.setattr("agents.thread_notes_agent.fetch_thread_history", AsyncMock(return_value=[{"role": "user", "text": "hi"}]))
+    configure_fetch_thread_history(AsyncMock(return_value=[{"role": "user", "text": "hi"}]))
 
     channel = "C_SCRIBE"
     thread_ts = "666.001"
@@ -255,29 +255,30 @@ async def test_scribe_max_and_min_words_separation(monkeypatch):
     mock_choice.message.content = "Agent response"
     mock_choice.message.tool_calls = None
     mock_resp = MagicMock(choices=[mock_choice], usage=None)
-    monkeypatch.setattr("litellm.acompletion", make_mock_acompletion(lambda *a, **k: mock_resp))
+    configure_llm_completion_fn(make_mock_acompletion(lambda *a, **k: mock_resp))
 
-    await process_and_respond(
-        channel_id=channel,
-        thread_ts=thread_ts,
-        raw_text="[agent-10002] Discuss feature /scribe_max_words 40 /scribe_min_words 10",
-        is_bot_trigger=False,
-    )
+    with patch("agents.thread_notes_agent.generate_thread_notes", side_effect=mock_generate_thread_notes):
+        await process_and_respond(
+            channel_id=channel,
+            thread_ts=thread_ts,
+            raw_text="[agent-10002] Discuss feature /scribe_max_words 40 /scribe_min_words 10",
+            is_bot_trigger=False,
+        )
 
-    # Scribe limits are stored in state
-    assert thread_state_manager.get_scribe_max_words(channel, thread_ts) == 40
-    assert thread_state_manager.get_scribe_min_words(channel, thread_ts) == 10
-    # Debate agents do NOT have max_words
-    assert thread_state_manager.get_max_words(channel, thread_ts) is None
-    assert thread_state_manager.get_min_words(channel, thread_ts) is None
+        # Scribe limits are stored in state
+        assert thread_state_manager.get_scribe_max_words(channel, thread_ts) == 40
+        assert thread_state_manager.get_scribe_min_words(channel, thread_ts) == 10
+        # Debate agents do NOT have max_words
+        assert thread_state_manager.get_max_words(channel, thread_ts) is None
+        assert thread_state_manager.get_min_words(channel, thread_ts) is None
 
-    # Check Scribe call
-    from agents.thread_notes_agent import update_notes_for_thread
-    await update_notes_for_thread(channel, thread_ts, is_completed=False)
+        # Check Scribe call
+        from agents.thread_notes_agent import update_notes_for_thread
+        await update_notes_for_thread(channel, thread_ts, is_completed=False)
 
-    assert len(captured_scribe_calls) >= 1
-    assert captured_scribe_calls[-1]["scribe_max_words"] == 40
-    assert captured_scribe_calls[-1]["scribe_min_words"] == 10
+        assert len(captured_scribe_calls) >= 1
+        assert captured_scribe_calls[-1]["scribe_max_words"] == 40
+        assert captured_scribe_calls[-1]["scribe_min_words"] == 10
 
 
 @pytest.mark.anyio

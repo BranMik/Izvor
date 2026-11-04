@@ -14,10 +14,18 @@ from agents import (
 from core.llm_utils import execute_llm_with_retry
 from orchestration.thread_state import thread_state_manager
 from services.slack import (
+    configure_fetch_thread_files,
+    configure_fetch_thread_history,
+    configure_post_agent_response,
+    configure_post_system_message,
     fetch_thread_files,
     fetch_thread_history,
     post_agent_response,
     post_system_message,
+    reset_fetch_thread_files,
+    reset_fetch_thread_history,
+    reset_post_agent_response,
+    reset_post_system_message,
 )
 
 from .protocols import PipelineDeps, resolve_pipeline_deps
@@ -25,6 +33,10 @@ from .turn_pipeline import TurnContext, TurnPipeline
 
 __all__ = [
     "_apply_convergence_stress_test_or_fast_forward",
+    "configure_fetch_thread_files",
+    "configure_fetch_thread_history",
+    "configure_post_agent_response",
+    "configure_post_system_message",
     "configure_router_deps",
     "configure_router_sleep_fn",
     "continue_discussion_from_turn_result",
@@ -32,6 +44,10 @@ __all__ = [
     "orchestrate_discussion",
     "post_system_message",
     "process_and_respond",
+    "reset_fetch_thread_files",
+    "reset_fetch_thread_history",
+    "reset_post_agent_response",
+    "reset_post_system_message",
     "reset_router_deps",
     "reset_router_sleep_fn",
 ]

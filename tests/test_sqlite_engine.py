@@ -140,7 +140,7 @@ def test_hitl_atomic_approval_consumption(tmp_path):
     assert results.count(False) == 4
 
 
-def test_thread_skills_persistence_and_expiry(tmp_path, monkeypatch):
+def test_thread_skills_persistence_and_expiry(tmp_path):
     channel_id = "C_SKILLS"
     thread_ts = "1700000002.0002"
 

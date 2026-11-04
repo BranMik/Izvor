@@ -189,7 +189,7 @@ async def test_directive_parser_uses_intent_extractor_for_all_directives():
 
 
 @pytest.mark.anyio
-async def test_sandwich_exclusion_and_bot_turn_not_stopped(monkeypatch):
+async def test_sandwich_exclusion_and_bot_turn_not_stopped():
     """
     Verifies that when an agent in Sandwich start_chain (e.g. Visionary) is excluded via
     natural language alongside /max_words:
@@ -200,8 +200,14 @@ async def test_sandwich_exclusion_and_bot_turn_not_stopped(monkeypatch):
     """
     from unittest.mock import AsyncMock
 
+    from agents.usage_agent import configure_record_thread_tokens
     from core.config import AGENTS_CONFIG
-    from orchestration.agent_router import process_and_respond
+    from core.llm_utils import configure_llm_completion_fn
+    from orchestration.agent_router import (
+        configure_fetch_thread_history,
+        configure_post_agent_response,
+        process_and_respond,
+    )
     from orchestration.agent_settings import (
         set_agent_enabled,
         set_orchestration_mode,
@@ -223,9 +229,9 @@ async def test_sandwich_exclusion_and_bot_turn_not_stopped(monkeypatch):
         posted_messages.append({"username": username, "text": text})
         return {"ok": True, "ts": f"77777.{len(posted_messages)}"}
 
-    monkeypatch.setattr("orchestration.agent_router.post_agent_response", mock_post)
-    monkeypatch.setattr("orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[]))
-    monkeypatch.setattr("orchestration.agent_router.record_thread_tokens", MagicMock())
+    configure_post_agent_response(mock_post)
+    configure_fetch_thread_history(AsyncMock(return_value=[]))
+    configure_record_thread_tokens(MagicMock())
 
     mock_intent_resp = MagicMock()
     mock_intent_resp.choices = [
@@ -254,8 +260,7 @@ async def test_sandwich_exclusion_and_bot_turn_not_stopped(monkeypatch):
             return mock_intent_resp
         return active_turn_llm
 
-    import litellm
-    monkeypatch.setattr(litellm, "acompletion", mock_acompletion)
+    configure_llm_completion_fn(mock_acompletion)
 
     thread_key = ("C_TEST", "77777.0001")
     thread_state_manager.clear_state(thread_key[0], thread_key[1])
@@ -296,9 +301,9 @@ async def test_sandwich_exclusion_and_bot_turn_not_stopped(monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_validation_stage_locks_language_from_unified_intent_extractor(monkeypatch):
+async def test_validation_stage_locks_language_from_unified_intent_extractor():
     """Verifies TKT-821: Stage 1 locks language directly from unified intent extraction without extra LLM call."""
-    from unittest.mock import AsyncMock
+    from unittest.mock import AsyncMock, patch
     from orchestration.stages.validation import ValidationStage
     from orchestration.thread_state import thread_state_manager
     from orchestration.turn_pipeline import TurnContext, TurnPipeline
@@ -322,16 +327,18 @@ async def test_validation_stage_locks_language_from_unified_intent_extractor(mon
         detect_llm_called = True
         return "hr"
 
-    monkeypatch.setattr("orchestration.stages.validation.detect_language_llm", mock_detect_llm)
-    monkeypatch.setattr(
-        "orchestration.stages.validation.directive_parser.parse",
-        AsyncMock(return_value=ParsedDirectives(cleaned_prompt=ctx.raw_text, detected_language="hr")),
-    )
+    with (
+        patch("orchestration.stages.validation.detect_language_llm", side_effect=mock_detect_llm),
+        patch(
+            "orchestration.stages.validation.directive_parser.parse",
+            AsyncMock(return_value=ParsedDirectives(cleaned_prompt=ctx.raw_text, detected_language="hr")),
+        ),
+    ):
+        pipeline = TurnPipeline()
+        validation_stage = ValidationStage(pipeline.deps)
 
-    pipeline = TurnPipeline()
-    validation_stage = ValidationStage(pipeline.deps)
+        res = await validation_stage.stage_validate_and_parse(ctx)
 
-    res = await validation_stage.stage_validate_and_parse(ctx)
     assert res is None  # no halt
     assert ctx.thread_language == "Croatian"
     assert thread_state_manager.get_language(channel_id, thread_ts) == "Croatian"
