@@ -1,8 +1,12 @@
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
 from main import PROCESSED_EVENTS, app
+from orchestration.agent_router import (
+    configure_fetch_thread_history,
+    configure_post_agent_response,
+)
 from orchestration.agent_settings import (
     get_enabled_agents,
     reset_enabled_agents,
@@ -28,19 +32,16 @@ async def mock_fetch_thread_history(*args, **kwargs):
 
 
 @pytest.fixture(autouse=True)
-def patch_slack_calls(monkeypatch):
+def patch_slack_calls():
     reset_enabled_agents()
-    monkeypatch.setattr("adapters.slack.events.process_and_respond", AsyncMock(return_value={"ok": True}))
-    monkeypatch.setattr("orchestration.agent_router.post_agent_response", mock_post_agent_response)
-    monkeypatch.setattr("orchestration.agent_router.fetch_thread_history", mock_fetch_thread_history)
-    monkeypatch.setattr("adapters.slack.events.verify_slack_signature", lambda body, headers: True)
-    monkeypatch.setattr("adapters.slack.interactivity.verify_slack_signature", lambda body, headers: True)
-    monkeypatch.setattr("services.slack.views.publish_app_home", AsyncMock(return_value={"ok": True}))
-    monkeypatch.setattr(
-        "adapters.slack.interactivity.is_slack_admin",
-        lambda user_id: True,
-    )
-    yield
+    configure_post_agent_response(mock_post_agent_response)
+    configure_fetch_thread_history(mock_fetch_thread_history)
+    with patch("adapters.slack.events.process_and_respond", AsyncMock(return_value={"ok": True})), \
+         patch("adapters.slack.events.verify_slack_signature", lambda body, headers: True), \
+         patch("adapters.slack.interactivity.verify_slack_signature", lambda body, headers: True), \
+         patch("services.slack.views.publish_app_home", AsyncMock(return_value={"ok": True})), \
+         patch("adapters.slack.interactivity.is_slack_admin", lambda user_id: True):
+        yield
     set_circuit_breaker_enabled(True)
     set_circuit_breaker_threshold(1.50)
 
@@ -178,7 +179,7 @@ def test_slack_retry_handling():
     assert response2.status_code == 200
 
 
-def test_stop_command_integration(monkeypatch):
+def test_stop_command_integration():
     PROCESSED_EVENTS.clear()
     thread_state_manager.reset_all()
 
@@ -187,139 +188,136 @@ def test_stop_command_integration(monkeypatch):
     thread_state_manager.set_remaining_agents(thread_key[0], thread_key[1], ["agent-10011", "agent-10002"])
 
     mock_process = AsyncMock(return_value={"ok": True})
-    monkeypatch.setattr("adapters.slack.events.process_and_respond", mock_process)
+    with patch("adapters.slack.events.process_and_respond", mock_process):
+        # 1. User sends stop via app_mention
+        payload_stop_mention = {
+            "type": "event_callback",
+            "event": {
+                "type": "app_mention",
+                "channel": "C_TEST_STOP",
+                "ts": "123456789.0008",
+                "thread_ts": "123456789.0008",
+                "text": "<@U12345> /stop",
+            },
+        }
 
-    # 1. User sends stop via app_mention
-    payload_stop_mention = {
-        "type": "event_callback",
-        "event": {
-            "type": "app_mention",
-            "channel": "C_TEST_STOP",
-            "ts": "123456789.0008",
-            "thread_ts": "123456789.0008",
-            "text": "<@U12345> /stop",
-        },
-    }
+        response = client.post("/slack/events", json=payload_stop_mention)
+        assert response.status_code == 200
+        assert thread_key in PROCESSED_EVENTS
+        assert thread_state_manager.is_stopped(thread_key[0], thread_key[1])
+        assert thread_state_manager.get_remaining_agents(thread_key[0], thread_key[1]) == []
+        # Verify process_and_respond was NOT called for stop command
+        mock_process.assert_not_called()
 
-    response = client.post("/slack/events", json=payload_stop_mention)
-    assert response.status_code == 200
-    assert thread_key in PROCESSED_EVENTS
-    assert thread_state_manager.is_stopped(thread_key[0], thread_key[1])
-    assert thread_state_manager.get_remaining_agents(thread_key[0], thread_key[1]) == []
-    # Verify process_and_respond was NOT called for stop command
-    mock_process.assert_not_called()
+        # 2. User sends stop via persona name mention in regular message
+        thread_state_manager.discussion.stop_requested_threads.clear()
+        thread_key_2 = ("C_TEST_STOP", "123456789.0009")
+        thread_state_manager.set_remaining_agents(thread_key_2[0], thread_key_2[1], ["agent-10006"])
 
-    # 2. User sends stop via persona name mention in regular message
-    thread_state_manager.discussion.stop_requested_threads.clear()
-    thread_key_2 = ("C_TEST_STOP", "123456789.0009")
-    thread_state_manager.set_remaining_agents(thread_key_2[0], thread_key_2[1], ["agent-10006"])
+        payload_stop_persona = {
+            "type": "event_callback",
+            "event": {
+                "type": "message",
+                "channel": "C_TEST_STOP",
+                "ts": "123456789.0009",
+                "thread_ts": "123456789.0009",
+                "text": "@Izvor Test /stop",
+            },
+        }
 
-    payload_stop_persona = {
-        "type": "event_callback",
-        "event": {
-            "type": "message",
-            "channel": "C_TEST_STOP",
-            "ts": "123456789.0009",
-            "thread_ts": "123456789.0009",
-            "text": "@Izvor Test /stop",
-        },
-    }
-
-    response2 = client.post("/slack/events", json=payload_stop_persona)
-    assert response2.status_code == 200
-    assert thread_key_2 in PROCESSED_EVENTS
-    assert thread_state_manager.is_stopped(thread_key_2[0], thread_key_2[1])
-    assert thread_state_manager.get_remaining_agents(thread_key_2[0], thread_key_2[1]) == []
-    mock_process.assert_not_called()
+        response2 = client.post("/slack/events", json=payload_stop_persona)
+        assert response2.status_code == 200
+        assert thread_key_2 in PROCESSED_EVENTS
+        assert thread_state_manager.is_stopped(thread_key_2[0], thread_key_2[1])
+        assert thread_state_manager.get_remaining_agents(thread_key_2[0], thread_key_2[1]) == []
+        mock_process.assert_not_called()
 
 
-def test_app_home_opened_event(monkeypatch):
+def test_app_home_opened_event():
     mock_publish = AsyncMock(return_value={"ok": True})
-    monkeypatch.setattr("services.slack.views.publish_app_home", mock_publish)
+    with patch("services.slack.views.publish_app_home", mock_publish):
+        payload = {
+            "type": "event_callback",
+            "event": {
+                "type": "app_home_opened",
+                "user": "U_TEST_USER_1",
+                "tab": "home",
+            },
+        }
 
-    payload = {
-        "type": "event_callback",
-        "event": {
-            "type": "app_home_opened",
-            "user": "U_TEST_USER_1",
-            "tab": "home",
-        },
-    }
-
-    response = client.post("/slack/events", json=payload)
-    assert response.status_code == 200
-    mock_publish.assert_called_once_with(user_id="U_TEST_USER_1")
+        response = client.post("/slack/events", json=payload)
+        assert response.status_code == 200
+        mock_publish.assert_called_once_with(user_id="U_TEST_USER_1")
 
 
-def test_slack_interactivity_radio_toggle_action(monkeypatch):
+def test_slack_interactivity_radio_toggle_action():
     reset_enabled_agents()
     mock_publish = AsyncMock(return_value={"ok": True})
-    monkeypatch.setattr("services.slack.views.publish_app_home", mock_publish)
+    with patch("services.slack.views.publish_app_home", mock_publish):
+        # 1. Turn OFF LegalAdvisor via radio button
+        payload_off = {
+            "type": "block_actions",
+            "user": {"id": "U_TEST_USER_2"},
+            "actions": [
+                {
+                    "action_id": "toggle_agent_radio:agent-10011",
+                    "selected_option": {
+                        "value": "agent-10011:off",
+                        "text": {"type": "plain_text", "text": "🔴 OFF"},
+                    },
+                }
+            ],
+        }
 
-    # 1. Turn OFF LegalAdvisor via radio button
-    payload_off = {
-        "type": "block_actions",
-        "user": {"id": "U_TEST_USER_2"},
-        "actions": [
-            {
-                "action_id": "toggle_agent_radio:agent-10011",
-                "selected_option": {
-                    "value": "agent-10011:off",
-                    "text": {"type": "plain_text", "text": "🔴 OFF"},
-                },
-            }
-        ],
-    }
+        response = client.post("/slack/actions", json=payload_off)
+        assert response.status_code == 200
+        assert "agent-10011" not in settings_manager.enabled_agents
+        mock_publish.assert_called_with(user_id="U_TEST_USER_2")
 
-    response = client.post("/slack/actions", json=payload_off)
-    assert response.status_code == 200
-    assert "agent-10011" not in settings_manager.enabled_agents
-    mock_publish.assert_called_with(user_id="U_TEST_USER_2")
+        # 2. Turn ON LegalAdvisor via radio button
+        payload_on = {
+            "type": "block_actions",
+            "user": {"id": "U_TEST_USER_2"},
+            "actions": [
+                {
+                    "action_id": "toggle_agent_radio:agent-10011",
+                    "selected_option": {
+                        "value": "agent-10011:on",
+                        "text": {"type": "plain_text", "text": "🟢 ON"},
+                    },
+                }
+            ],
+        }
 
-    # 2. Turn ON LegalAdvisor via radio button
-    payload_on = {
-        "type": "block_actions",
-        "user": {"id": "U_TEST_USER_2"},
-        "actions": [
-            {
-                "action_id": "toggle_agent_radio:agent-10011",
-                "selected_option": {
-                    "value": "agent-10011:on",
-                    "text": {"type": "plain_text", "text": "🟢 ON"},
-                },
-            }
-        ],
-    }
+        response_on = client.post("/slack/interactivity", json=payload_on)
+        assert response_on.status_code == 200
+        assert "agent-10011" in settings_manager.enabled_agents
 
-    response_on = client.post("/slack/interactivity", json=payload_on)
-    assert response_on.status_code == 200
-    assert "agent-10011" in settings_manager.enabled_agents
+        # 3. Bulk disable all
+        payload_bulk_off = {
+            "type": "block_actions",
+            "user": {"id": "U_TEST_USER_2"},
+            "actions": [{"action_id": "bulk_disable_all"}],
+        }
 
-    # 3. Bulk disable all
-    payload_bulk_off = {
-        "type": "block_actions",
-        "user": {"id": "U_TEST_USER_2"},
-        "actions": [{"action_id": "bulk_disable_all"}],
-    }
+        response_bulk_off = client.post("/slack/actions", json=payload_bulk_off)
+        assert response_bulk_off.status_code == 200
+        assert settings_manager.enabled_agents == set()
 
-    response_bulk_off = client.post("/slack/actions", json=payload_bulk_off)
-    assert response_bulk_off.status_code == 200
-    assert settings_manager.enabled_agents == set()
+        # 4. Bulk enable all
+        payload_bulk_on = {
+            "type": "block_actions",
+            "user": {"id": "U_TEST_USER_2"},
+            "actions": [{"action_id": "bulk_enable_all"}],
+        }
 
-    # 4. Bulk enable all
-    payload_bulk_on = {
-        "type": "block_actions",
-        "user": {"id": "U_TEST_USER_2"},
-        "actions": [{"action_id": "bulk_enable_all"}],
-    }
-
-    response_bulk_on = client.post("/slack/actions", json=payload_bulk_on)
-    assert response_bulk_on.status_code == 200
-    from orchestration.agent_settings import get_agents_config
-    assert len(settings_manager.enabled_agents) == len(get_agents_config())
+        response_bulk_on = client.post("/slack/actions", json=payload_bulk_on)
+        assert response_bulk_on.status_code == 200
+        from orchestration.agent_settings import get_agents_config
+        assert len(settings_manager.enabled_agents) == len(get_agents_config())
 
 
-def test_user_new_query_interrupts_ongoing_discussion_webhook(monkeypatch):
+def test_user_new_query_interrupts_ongoing_discussion_webhook():
     PROCESSED_EVENTS.clear()
     thread_key = ("C_TEST_INTERRUPT_WEBHOOK", "123456789.2001")
 
@@ -329,100 +327,97 @@ def test_user_new_query_interrupts_ongoing_discussion_webhook(monkeypatch):
     assert thread_state_manager.is_discussion_active("C_TEST_INTERRUPT_WEBHOOK", "123456789.2001") is True
 
     mock_process = AsyncMock(return_value={"ok": True})
-    monkeypatch.setattr("adapters.slack.events.process_and_respond", mock_process)
+    with patch("adapters.slack.events.process_and_respond", mock_process):
+        # 2. User sends new query in the same thread with @app_name
+        payload = {
+            "type": "event_callback",
+            "event": {
+                "type": "app_mention",
+                "channel": "C_TEST_INTERRUPT_WEBHOOK",
+                "ts": "123456789.2002",
+                "thread_ts": "123456789.2001",
+                "text": "<@U12345> New topic prompt",
+            },
+        }
 
-    # 2. User sends new query in the same thread with @app_name
-    payload = {
-        "type": "event_callback",
-        "event": {
-            "type": "app_mention",
-            "channel": "C_TEST_INTERRUPT_WEBHOOK",
-            "ts": "123456789.2002",
-            "thread_ts": "123456789.2001",
-            "text": "<@U12345> New topic prompt",
-        },
-    }
+        response = client.post("/slack/events", json=payload)
+        assert response.status_code == 200
+        assert ("C_TEST_INTERRUPT_WEBHOOK", "123456789.2002") in PROCESSED_EVENTS
 
-    response = client.post("/slack/events", json=payload)
-    assert response.status_code == 200
-    assert ("C_TEST_INTERRUPT_WEBHOOK", "123456789.2002") in PROCESSED_EVENTS
+        # 3. Verify previous discussion state was cleared and generation was bumped
+        assert thread_state_manager.get_remaining_agents(thread_key[0], thread_key[1]) == []
+        assert thread_state_manager.get_generation(thread_key[0], thread_key[1]) == initial_gen + 1
 
-    # 3. Verify previous discussion state was cleared and generation was bumped
-    assert thread_state_manager.get_remaining_agents(thread_key[0], thread_key[1]) == []
-    assert thread_state_manager.get_generation(thread_key[0], thread_key[1]) == initial_gen + 1
-
-    # 4. Verify process_and_respond was dispatched for the new query
-    mock_process.assert_called_once()
-    call_kwargs = mock_process.call_args.kwargs
-    assert call_kwargs["channel_id"] == "C_TEST_INTERRUPT_WEBHOOK"
-    assert call_kwargs["thread_ts"] == "123456789.2001"
-    assert call_kwargs["raw_text"] == "<@U12345> New topic prompt"
-    assert call_kwargs["is_bot_trigger"] is False
+        # 4. Verify process_and_respond was dispatched for the new query
+        mock_process.assert_called_once()
+        call_kwargs = mock_process.call_args.kwargs
+        assert call_kwargs["channel_id"] == "C_TEST_INTERRUPT_WEBHOOK"
+        assert call_kwargs["thread_ts"] == "123456789.2001"
+        assert call_kwargs["raw_text"] == "<@U12345> New topic prompt"
+        assert call_kwargs["is_bot_trigger"] is False
 
 
-def test_user_mention_syntax_variations_webhook_interruption(monkeypatch):
+def test_user_mention_syntax_variations_webhook_interruption():
     PROCESSED_EVENTS.clear()
     thread_key = ("C_TEST_INTERRUPT_SYNTAX", "123456789.3001")
 
     # 1. Message with @Izvor
     thread_state_manager.set_remaining_agents(thread_key[0], thread_key[1], ["agent-10008"])
     mock_process = AsyncMock(return_value={"ok": True})
-    monkeypatch.setattr("adapters.slack.events.process_and_respond", mock_process)
+    with patch("adapters.slack.events.process_and_respond", mock_process):
+        payload_hub = {
+            "type": "event_callback",
+            "event": {
+                "type": "message",
+                "channel": "C_TEST_INTERRUPT_SYNTAX",
+                "ts": "123456789.3002",
+                "thread_ts": "123456789.3001",
+                "text": "@Izvor Analyze this other query",
+            },
+        }
 
-    payload_hub = {
-        "type": "event_callback",
-        "event": {
-            "type": "message",
-            "channel": "C_TEST_INTERRUPT_SYNTAX",
-            "ts": "123456789.3002",
-            "thread_ts": "123456789.3001",
-            "text": "@Izvor Analyze this other query",
-        },
-    }
+        response1 = client.post("/slack/events", json=payload_hub)
+        assert response1.status_code == 200
+        assert thread_state_manager.get_remaining_agents(thread_key[0], thread_key[1]) == []
+        assert mock_process.call_count == 1
 
-    response1 = client.post("/slack/events", json=payload_hub)
-    assert response1.status_code == 200
-    assert thread_state_manager.get_remaining_agents(thread_key[0], thread_key[1]) == []
-    assert mock_process.call_count == 1
+        # 2. Message with agent bracket tag [agent-10001]
+        thread_state_manager.set_remaining_agents(thread_key[0], thread_key[1], ["agent-10008"])
+        payload_tag = {
+            "type": "event_callback",
+            "event": {
+                "type": "message",
+                "channel": "C_TEST_INTERRUPT_SYNTAX",
+                "ts": "123456789.3003",
+                "thread_ts": "123456789.3001",
+                "text": "/[agent-10001] Start fresh with this",
+            },
+        }
 
-    # 2. Message with agent bracket tag [agent-10001]
-    thread_state_manager.set_remaining_agents(thread_key[0], thread_key[1], ["agent-10008"])
-    payload_tag = {
-        "type": "event_callback",
-        "event": {
-            "type": "message",
-            "channel": "C_TEST_INTERRUPT_SYNTAX",
-            "ts": "123456789.3003",
-            "thread_ts": "123456789.3001",
-            "text": "/[agent-10001] Start fresh with this",
-        },
-    }
-
-    response2 = client.post("/slack/events", json=payload_tag)
-    assert response2.status_code == 200
-    assert thread_state_manager.get_remaining_agents(thread_key[0], thread_key[1]) == []
-    assert mock_process.call_count == 2
+        response2 = client.post("/slack/events", json=payload_tag)
+        assert response2.status_code == 200
+        assert thread_state_manager.get_remaining_agents(thread_key[0], thread_key[1]) == []
+        assert mock_process.call_count == 2
 
 
-def test_webhook_with_history_limit_dispatches_properly(monkeypatch):
+def test_webhook_with_history_limit_dispatches_properly():
     PROCESSED_EVENTS.clear()
 
     mock_process = AsyncMock(return_value={"ok": True})
-    monkeypatch.setattr("adapters.slack.events.process_and_respond", mock_process)
+    with patch("adapters.slack.events.process_and_respond", mock_process):
+        payload = {
+            "type": "event_callback",
+            "event": {
+                "type": "app_mention",
+                "channel": "C_TEST_HIST_WEBHOOK",
+                "ts": "123456789.4002",
+                "thread_ts": "123456789.4001",
+                "text": "<@U12345> Analyze the previous discussion /history 3",
+            },
+        }
 
-    payload = {
-        "type": "event_callback",
-        "event": {
-            "type": "app_mention",
-            "channel": "C_TEST_HIST_WEBHOOK",
-            "ts": "123456789.4002",
-            "thread_ts": "123456789.4001",
-            "text": "<@U12345> Analyze the previous discussion /history 3",
-        },
-    }
-
-    response = client.post("/slack/events", json=payload)
-    assert response.status_code == 200
+        response = client.post("/slack/events", json=payload)
+        assert response.status_code == 200
     assert mock_process.call_count == 1
     call_kwargs = mock_process.call_args.kwargs
     assert call_kwargs["channel_id"] == "C_TEST_HIST_WEBHOOK"

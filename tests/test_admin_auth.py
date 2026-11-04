@@ -96,9 +96,9 @@ def test_api_endpoints_accept_valid_credentials(client):
         config.set_admin_credentials_override(None, None)
 
 
-def test_trigger_rag_reconciliation_audit_event(client, monkeypatch):
+def test_trigger_rag_reconciliation_audit_event(client):
     """POST /api/rag/reconcile must emit RAG_RECONCILE_TRIGGERED audit event."""
-    from unittest.mock import AsyncMock
+    from unittest.mock import AsyncMock, patch
 
     test_user = "testadmin"
     test_pass = "secret123"
@@ -106,26 +106,26 @@ def test_trigger_rag_reconciliation_audit_event(client, monkeypatch):
     config.set_admin_credentials_override(test_user, test_pass)
     try:
         import main
-        monkeypatch.setattr(main.rag_sync_engine, "reconcile", AsyncMock(return_value={"reconciled": 5}))
 
         logged_events = []
         def mock_log_event(**kwargs):
             logged_events.append(kwargs)
             return kwargs
 
-        monkeypatch.setattr("services.audit_logger.log_audit_event", mock_log_event)
+        with patch.object(main.rag_sync_engine, "reconcile", AsyncMock(return_value={"reconciled": 5})), \
+             patch("services.audit_logger.log_audit_event", side_effect=mock_log_event):
 
-        good_creds = base64.b64encode(f"{test_user}:{test_pass}".encode()).decode("ascii")
-        headers = {"Authorization": f"Basic {good_creds}"}
+            good_creds = base64.b64encode(f"{test_user}:{test_pass}".encode()).decode("ascii")
+            headers = {"Authorization": f"Basic {good_creds}"}
 
-        r = client.post("/api/rag/reconcile", headers=headers)
-        assert r.status_code == 200
-        assert r.json()["status"] == "reconciliation_complete"
-        assert r.json()["stats"] == {"reconciled": 5}
+            r = client.post("/api/rag/reconcile", headers=headers)
+            assert r.status_code == 200
+            assert r.json()["status"] == "reconciliation_complete"
+            assert r.json()["stats"] == {"reconciled": 5}
 
-        reconcile_events = [e for e in logged_events if e.get("event_type") == "RAG_RECONCILE_COMPLETED"]
-        assert len(reconcile_events) >= 1
-        assert reconcile_events[0]["actor"]["id"] == test_user
+            reconcile_events = [e for e in logged_events if e.get("event_type") == "RAG_RECONCILE_COMPLETED"]
+            assert len(reconcile_events) >= 1
+            assert reconcile_events[0]["actor"]["id"] == test_user
     finally:
         config.set_admin_credentials_override(None, None)
 

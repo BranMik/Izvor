@@ -74,12 +74,33 @@ def _extract_pdf_pages(raw_bytes: bytes) -> str:
     return "\n\n".join(pages_text) if pages_text else "[Empty PDF document]"
 
 
+_fetch_thread_files_override: Any = None
+
+
+def configure_fetch_thread_files(fn: Any) -> None:
+    """Configures an in-memory fetch_thread_files override for tests and DI."""
+    global _fetch_thread_files_override
+    _fetch_thread_files_override = fn
+
+
+def reset_fetch_thread_files() -> None:
+    """Resets the in-memory fetch_thread_files override."""
+    global _fetch_thread_files_override
+    _fetch_thread_files_override = None
+
+
 async def fetch_thread_files(channel_id: str, thread_ts: str, max_messages: int = 500) -> list[dict[str, Any]]:
     """
     Fetches all file attachment metadata uploaded in a Slack thread.
     Implements cursor-based pagination (up to max_messages) to discover files across long threads.
     Returns a list of file dicts with keys: id, name, title, mimetype, filetype, size, url_private_download, url_private.
     """
+    if _fetch_thread_files_override is not None:
+        res = _fetch_thread_files_override(channel_id, thread_ts, max_messages=max_messages)
+        if asyncio.iscoroutine(res):
+            return await res
+        return res
+
     bot_token = get_slack_bot_token()
     if not bot_token or bot_token == "xoxb-your-bot-user-oauth-token":
         return []

@@ -13,6 +13,7 @@ from orchestration.system_settings import is_path_write_blocked
 from services.audit_logger import (
     GENESIS_HASH,
     AuditLogger,
+    audit_logger,
     check_hmac_secret_continuity,
     send_admin_audit_alert,
     verify_audit_log_integrity,
@@ -26,9 +27,11 @@ def temp_audit_dir(tmp_path: Path):
     """Provides an isolated temporary audit directory for testing."""
     test_dir = tmp_path / "audit"
     test_dir.mkdir(parents=True, exist_ok=True)
-    logger = AuditLogger(audit_dir=test_dir)
-    logger.invalidate_cache()
-    return test_dir, logger
+    audit_logger.configure_paths(audit_dir=test_dir)
+    try:
+        yield test_dir, audit_logger
+    finally:
+        audit_logger.reset_paths()
 
 
 def test_sequential_hash_chaining(temp_audit_dir):
@@ -500,13 +503,12 @@ def test_audit_anchor_persisted_and_tail_truncation_detected(temp_audit_dir):
     assert any("Tail truncation or anchor mismatch detected" in err for err in res_truncated.errors)
 
 
-def test_log_audit_event_async(temp_audit_dir, monkeypatch):
+def test_log_audit_event_async(temp_audit_dir):
     """Verifies log_audit_event_async asynchronously writes records via thread pool."""
     import asyncio
     from services.audit_logger import log_audit_event_async
 
     test_dir, logger_inst = temp_audit_dir
-    monkeypatch.setattr("services.audit_logger.audit_logger", logger_inst)
 
     async def run_async_test():
         rec = await log_audit_event_async(

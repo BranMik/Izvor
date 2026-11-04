@@ -71,7 +71,7 @@ def test_get_baseline_for_model():
     assert "source_url" in unknown_base
 
 
-def test_get_baseline_from_litellm_model_cost(monkeypatch):
+def test_get_baseline_from_litellm_model_cost():
     """TKT-907: If not in baseline JSON, query litellm.model_cost community registry."""
     import litellm
     mock_cost = {
@@ -80,12 +80,11 @@ def test_get_baseline_from_litellm_model_cost(monkeypatch):
             "output_cost_per_token": 0.000015,  # $15.00 / 1M
         }
     }
-    monkeypatch.setattr(litellm, "model_cost", mock_cost)
-
-    res = get_baseline_for_model("special-unlisted-model")
-    assert res["input_price_per_1m"] == 3.00
-    assert res["output_price_per_1m"] == 15.00
-    assert "LiteLLM Community Registry" in res["source"]
+    with patch.object(litellm, "model_cost", mock_cost):
+        res = get_baseline_for_model("special-unlisted-model")
+        assert res["input_price_per_1m"] == 3.00
+        assert res["output_price_per_1m"] == 15.00
+        assert "LiteLLM Community Registry" in res["source"]
 
 
 def test_pricing_bounds_validation():
@@ -228,7 +227,7 @@ async def test_fetch_pricing_from_web_agent_fallback():
 
 
 @pytest.mark.anyio
-async def test_7_day_cache_ttl(monkeypatch):
+async def test_7_day_cache_ttl():
     model = "gemini/gemini-3.8-flash"
     now = time.time()
 

@@ -56,7 +56,7 @@ def test_validate_resource_filename_security_boundaries():
     validate_resource_filename("agents_resources/clean_file.csv")
 
 
-def test_write_document_size_cap_enforcement(monkeypatch):
+def test_write_document_size_cap_enforcement():
     # Set max_write_bytes to 500 bytes for test
     from orchestration.system_settings import set_max_write_bytes
     set_max_write_bytes(500)

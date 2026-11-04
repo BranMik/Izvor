@@ -17,9 +17,9 @@ from services.slack import post_thread_note, update_thread_note
 
 
 @pytest.fixture(autouse=True)
-def clean_notes_state(monkeypatch):
-    from orchestration import agent_router
-    monkeypatch.setattr(agent_router.asyncio, "sleep", AsyncMock(return_value=None))
+def clean_notes_state():
+    from orchestration.agent_router import configure_router_sleep_fn
+    configure_router_sleep_fn(AsyncMock(return_value=None))
     reset_thread_notes()
     yield
     reset_thread_notes()
@@ -176,7 +176,7 @@ async def test_slack_client_post_and_update_thread_note_mock_mode():
 
 
 @pytest.mark.anyio
-async def test_slack_client_note_api_calls(monkeypatch):
+async def test_slack_client_note_api_calls():
     from services import slack as slack_client
     slack_client.configure_token("xoxb-valid-test-token")
     try:
@@ -184,68 +184,73 @@ async def test_slack_client_note_api_calls(monkeypatch):
         mock_pin = AsyncMock(return_value={"ok": True})
         mock_update = AsyncMock(return_value={"ok": True, "ts": "1700000000.888"})
 
-        monkeypatch.setattr(slack_client.slack_async_client, "chat_postMessage", mock_post)
-        monkeypatch.setattr(slack_client.slack_async_client, "pins_add", mock_pin)
-        monkeypatch.setattr(slack_client.slack_async_client, "chat_update", mock_update)
+        with (
+            patch.object(slack_client.slack_async_client, "chat_postMessage", mock_post),
+            patch.object(slack_client.slack_async_client, "pins_add", mock_pin),
+            patch.object(slack_client.slack_async_client, "chat_update", mock_update),
+        ):
+            res_post = await post_thread_note(
+                channel_id="C12345",
+                thread_ts="1700000000.001",
+                text="📋 *Live Notes*",
+                pin=True,
+                username="Live Discussion Scribe",
+                icon_emoji=":memo:",
+            )
+            assert res_post["ok"] is True
+            assert res_post["ts"] == "1700000000.888"
+            mock_post.assert_awaited_once_with(
+                channel="C12345",
+                thread_ts="1700000000.001",
+                text="📋 *Live Notes*",
+                username="Live Discussion Scribe",
+                icon_emoji=":memo:",
+                unfurl_links=False,
+                unfurl_media=False,
+            )
+            mock_pin.assert_awaited_once_with(channel="C12345", timestamp="1700000000.888")
 
-        res_post = await post_thread_note(
-            channel_id="C12345",
-            thread_ts="1700000000.001",
-            text="📋 *Live Notes*",
-            pin=True,
-            username="Live Discussion Scribe",
-            icon_emoji=":memo:",
-        )
-        assert res_post["ok"] is True
-        assert res_post["ts"] == "1700000000.888"
-        mock_post.assert_awaited_once_with(
-            channel="C12345",
-            thread_ts="1700000000.001",
-            text="📋 *Live Notes*",
-            username="Live Discussion Scribe",
-            icon_emoji=":memo:",
-            unfurl_links=False,
-            unfurl_media=False,
-        )
-        mock_pin.assert_awaited_once_with(channel="C12345", timestamp="1700000000.888")
-
-        res_update = await update_thread_note(
-            channel_id="C12345",
-            message_ts="1700000000.888",
-            text="📋 *Updated Live Notes*",
-        )
-        assert res_update["ok"] is True
-        mock_update.assert_awaited_once_with(
-            channel="C12345",
-            ts="1700000000.888",
-            text="📋 *Updated Live Notes*",
-            unfurl_links=False,
-            unfurl_media=False,
-        )
+            res_update = await update_thread_note(
+                channel_id="C12345",
+                message_ts="1700000000.888",
+                text="📋 *Updated Live Notes*",
+            )
+            assert res_update["ok"] is True
+            mock_update.assert_awaited_once_with(
+                channel="C12345",
+                ts="1700000000.888",
+                text="📋 *Updated Live Notes*",
+                unfurl_links=False,
+                unfurl_media=False,
+            )
     finally:
         slack_client.reset_token()
 
 
 @pytest.mark.anyio
-async def test_router_invokes_trigger_thread_notes_update(monkeypatch):
+async def test_router_invokes_trigger_thread_notes_update():
+    from agents.thread_notes_agent import configure_trigger_thread_notes_update
+    from core.llm_utils import configure_llm_completion_fn
     from orchestration import agent_router
+    from orchestration.agent_router import (
+        configure_fetch_thread_history,
+        configure_post_agent_response,
+    )
 
     mock_trigger = MagicMock()
-    monkeypatch.setattr("orchestration.agent_router.trigger_thread_notes_update", mock_trigger)
-    monkeypatch.setattr(
-        "litellm.acompletion",
+    configure_trigger_thread_notes_update(mock_trigger)
+    configure_llm_completion_fn(
         AsyncMock(
             return_value=MagicMock(
                 choices=[MagicMock(message=MagicMock(content="Hello world [agent-10003]", tool_calls=None))],
                 usage=MagicMock(prompt_tokens=10, completion_tokens=10, total_tokens=20),
             )
-        ),
+        )
     )
-    monkeypatch.setattr(
-        "orchestration.agent_router.post_agent_response",
-        AsyncMock(return_value={"ok": True, "ts": "1700000000.999"}),
+    configure_post_agent_response(
+        AsyncMock(return_value={"ok": True, "ts": "1700000000.999"})
     )
-    monkeypatch.setattr("orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[]))
+    configure_fetch_thread_history(AsyncMock(return_value=[]))
 
     # 1. Multi-agent debate trigger (is_completed=False)
     await agent_router.process_and_respond(
@@ -280,7 +285,7 @@ async def test_router_invokes_trigger_thread_notes_update(monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_fetch_thread_history_excludes_scribe_notes(monkeypatch):
+async def test_fetch_thread_history_excludes_scribe_notes():
     from services import slack as slack_client
 
     slack_client.configure_token("xoxb-valid-test-token")
@@ -305,27 +310,26 @@ async def test_fetch_thread_history_excludes_scribe_notes(monkeypatch):
         ]
 
         mock_replies = AsyncMock(return_value={"ok": True, "messages": fake_messages})
-        monkeypatch.setattr(slack_client.slack_async_client, "conversations_replies", mock_replies)
+        with patch.object(slack_client.slack_async_client, "conversations_replies", mock_replies):
+            history = await slack_client.fetch_thread_history("C123", "1700000000.001")
+            contents = [m["content"] for m in history]
 
-        history = await slack_client.fetch_thread_history("C123", "1700000000.001")
-        contents = [m["content"] for m in history]
+            # Status indicator messages, live scribe, and conclusion notes should be excluded
+            assert not any("_⚡" in c for c in contents)
+            assert not any("Live Discussion Scribe" in c for c in contents)
+            assert not any("Discussion Conclusion" in c for c in contents)
 
-        # Status indicator messages, live scribe, and conclusion notes should be excluded
-        assert not any("_⚡" in c for c in contents)
-        assert not any("Live Discussion Scribe" in c for c in contents)
-        assert not any("Discussion Conclusion" in c for c in contents)
-
-        # Runner follow-up prefix should be cleaned via re.sub
-        assert len(history) == 3
-        assert contents[0] == "Let's debate the new API"
-        assert contents[1] == "[agent-10011]: We need microservices"
-        assert contents[2] == "What about SQLite?"
+            # Runner follow-up prefix should be cleaned via re.sub
+            assert len(history) == 3
+            assert contents[0] == "Let's debate the new API"
+            assert contents[1] == "[agent-10011]: We need microservices"
+            assert contents[2] == "What about SQLite?"
     finally:
         slack_client.reset_token()
 
 
 @pytest.mark.anyio
-async def test_scribe_disabled_skips_trigger_and_update(monkeypatch):
+async def test_scribe_disabled_skips_trigger_and_update():
     from orchestration.app_settings import set_scribe_enabled
 
     try:
@@ -350,7 +354,7 @@ async def test_scribe_disabled_skips_trigger_and_update(monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_update_notes_for_thread_completed_unpins_live_and_pins_conclusion(monkeypatch):
+async def test_update_notes_for_thread_completed_unpins_live_and_pins_conclusion():
     """
     On is_completed=True:
     1. Unpins Live Scribe Note.
@@ -389,43 +393,44 @@ async def test_update_notes_for_thread_completed_unpins_live_and_pins_conclusion
         unpinned_ts_list.append(message_ts)
         return {"ok": True}
 
-    monkeypatch.setattr("agents.thread_notes_agent.fetch_thread_history", AsyncMock(return_value=history))
-    monkeypatch.setattr("agents.thread_notes_agent.generate_thread_notes", AsyncMock(return_value=mock_live_notes))
-    monkeypatch.setattr("agents.thread_notes_agent.generate_conclusion_notes", AsyncMock(return_value=mock_conc_notes))
-    monkeypatch.setattr("agents.thread_notes_agent.post_thread_note", mock_post_thread_note)
-    monkeypatch.setattr("agents.thread_notes_agent.unpin_thread_note", mock_unpin_thread_note)
+    with (
+        patch("agents.thread_notes_agent.fetch_thread_history", AsyncMock(return_value=history)),
+        patch("agents.thread_notes_agent.generate_thread_notes", AsyncMock(return_value=mock_live_notes)),
+        patch("agents.thread_notes_agent.generate_conclusion_notes", AsyncMock(return_value=mock_conc_notes)),
+        patch("agents.thread_notes_agent.post_thread_note", mock_post_thread_note),
+        patch("agents.thread_notes_agent.unpin_thread_note", mock_unpin_thread_note),
+    ):
+        # 1. Active debate turn (is_completed=False)
+        res_active = await update_notes_for_thread(channel_id, thread_ts, is_completed=False)
+        assert res_active["ok"] is True
+        live_ts = res_active["note_ts"]
+        assert live_ts == "mock_ts_1.000"
+        assert len(posted_notes) == 1
+        assert posted_notes[0]["username"] == "Live Discussion Scribe"
+        assert posted_notes[0]["pin"] is True
+        assert unpinned_ts_list == []
 
-    # 1. Active debate turn (is_completed=False)
-    res_active = await update_notes_for_thread(channel_id, thread_ts, is_completed=False)
-    assert res_active["ok"] is True
-    live_ts = res_active["note_ts"]
-    assert live_ts == "mock_ts_1.000"
-    assert len(posted_notes) == 1
-    assert posted_notes[0]["username"] == "Live Discussion Scribe"
-    assert posted_notes[0]["pin"] is True
-    assert unpinned_ts_list == []
+        # 2. Final round completed (is_completed=True)
+        res_completed = await update_notes_for_thread(channel_id, thread_ts, is_completed=True)
+        assert res_completed["ok"] is True
+        assert res_completed["conclusion_ts"] == "mock_ts_2.000"
 
-    # 2. Final round completed (is_completed=True)
-    res_completed = await update_notes_for_thread(channel_id, thread_ts, is_completed=True)
-    assert res_completed["ok"] is True
-    assert res_completed["conclusion_ts"] == "mock_ts_2.000"
+        # Verify live note was unpinned
+        assert live_ts in unpinned_ts_list
 
-    # Verify live note was unpinned
-    assert live_ts in unpinned_ts_list
-
-    # Verify conclusion note was posted and pinned as 'Discussion Conclusion'
-    assert len(posted_notes) == 2
-    conc_post = posted_notes[1]
-    assert conc_post["username"] == "Discussion Conclusion"
-    assert conc_post["pin"] is True
-    assert "Part 1: *Problem Statement*" in conc_post["text"]
-    assert "Part 2: *Conclusion and Argumentation*" in conc_post["text"]
-    assert "PostgreSQL" in conc_post["text"]
-    assert "MongoDB" in conc_post["text"]
+        # Verify conclusion note was posted and pinned as 'Discussion Conclusion'
+        assert len(posted_notes) == 2
+        conc_post = posted_notes[1]
+        assert conc_post["username"] == "Discussion Conclusion"
+        assert conc_post["pin"] is True
+        assert "Part 1: *Problem Statement*" in conc_post["text"]
+        assert "Part 2: *Conclusion and Argumentation*" in conc_post["text"]
+        assert "PostgreSQL" in conc_post["text"]
+        assert "MongoDB" in conc_post["text"]
 
 
 @pytest.mark.anyio
-async def test_update_notes_for_thread_reengagement_updates_existing_notes(monkeypatch):
+async def test_update_notes_for_thread_reengagement_updates_existing_notes():
     """
     On user follow-up queries after completion, subsequent completion calls
     must update existing live note and existing conclusion note in-place.
@@ -434,24 +439,26 @@ async def test_update_notes_for_thread_reengagement_updates_existing_notes(monke
     thread_ts = "1700000000.999"
 
     mock_update_note = AsyncMock(return_value={"ok": True})
-    monkeypatch.setattr("agents.thread_notes_agent.update_thread_note", mock_update_note)
-    monkeypatch.setattr("agents.thread_notes_agent.unpin_thread_note", AsyncMock(return_value={"ok": True}))
-    monkeypatch.setattr("agents.thread_notes_agent.fetch_thread_history", AsyncMock(return_value=[{"role": "user", "content": "What about costs?"}]))
-    monkeypatch.setattr("agents.thread_notes_agent.generate_thread_notes", AsyncMock(return_value=("Updated live notes", {"prompt_tokens": 10, "completion_tokens": 10, "total_tokens": 20})))
-    monkeypatch.setattr("agents.thread_notes_agent.generate_conclusion_notes", AsyncMock(return_value=("Updated conclusion notes", {"prompt_tokens": 10, "completion_tokens": 10, "total_tokens": 20})))
 
-    # Pre-populate state as already created
-    set_thread_note(channel_id, thread_ts, "live_ts_123")
-    set_thread_conclusion_note(channel_id, thread_ts, "conclusion_ts_456")
+    with (
+        patch("agents.thread_notes_agent.update_thread_note", mock_update_note),
+        patch("agents.thread_notes_agent.unpin_thread_note", new_callable=AsyncMock, return_value={"ok": True}),
+        patch("agents.thread_notes_agent.fetch_thread_history", new_callable=AsyncMock, return_value=[{"role": "user", "content": "What about costs?"}]),
+        patch("agents.thread_notes_agent.generate_thread_notes", new_callable=AsyncMock, return_value=("Updated live notes", {"prompt_tokens": 10, "completion_tokens": 10, "total_tokens": 20})),
+        patch("agents.thread_notes_agent.generate_conclusion_notes", new_callable=AsyncMock, return_value=("Updated conclusion notes", {"prompt_tokens": 10, "completion_tokens": 10, "total_tokens": 20})),
+    ):
+        # Pre-populate state as already created
+        set_thread_note(channel_id, thread_ts, "live_ts_123")
+        set_thread_conclusion_note(channel_id, thread_ts, "conclusion_ts_456")
 
-    res = await update_notes_for_thread(channel_id, thread_ts, is_completed=True)
-    assert res["ok"] is True
+        res = await update_notes_for_thread(channel_id, thread_ts, is_completed=True)
+        assert res["ok"] is True
 
-    # Both notes should be updated in-place via update_thread_note
-    calls = mock_update_note.call_args_list
-    assert len(calls) == 2
-    assert calls[0].kwargs["message_ts"] == "live_ts_123"
-    assert calls[1].kwargs["message_ts"] == "conclusion_ts_456"
+        # Both notes should be updated in-place via update_thread_note
+        calls = mock_update_note.call_args_list
+        assert len(calls) == 2
+        assert calls[0].kwargs["message_ts"] == "live_ts_123"
+        assert calls[1].kwargs["message_ts"] == "conclusion_ts_456"
 
 
 def test_thread_notes_sqlite_persistence_and_cache_reload():

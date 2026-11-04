@@ -18,7 +18,7 @@ def test_extract_resolved_nomination_keys():
 
 
 @pytest.mark.anyio
-async def test_display_name_nomination_preserves_round_and_pops_retry(monkeypatch):
+async def test_display_name_nomination_preserves_round_and_pops_retry():
     channel_id = "C_NOM_TEST"
     thread_ts = "1700000088.8888"
 
@@ -42,16 +42,13 @@ async def test_display_name_nomination_preserves_round_and_pops_retry(monkeypatc
 
     # Pipeline and post_agent_response
     mock_post = AsyncMock(return_value={"ts": "1700000088.9999"})
-    mock_pipeline = TurnPipeline(sleep_fn=AsyncMock(), slack_poster=mock_post)
+    mock_pipeline = TurnPipeline(
+        sleep_fn=AsyncMock(),
+        slack_poster=mock_post,
+        usage_updater=MagicMock(),
+        notes_updater=MagicMock(),
+    )
     stage = PostRecordStage(mock_pipeline.deps)
-    monkeypatch.setattr(
-        "orchestration.stages.post_record.trigger_usage_update",
-        MagicMock(),
-    )
-    monkeypatch.setattr(
-        "orchestration.stages.post_record.trigger_thread_notes_update",
-        MagicMock(),
-    )
 
     await stage.stage_post_and_record(ctx)
 

@@ -1,5 +1,5 @@
 import json
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from orchestration.app_settings import (
@@ -102,130 +102,130 @@ def test_build_edit_workspace_context_modal():
 
 
 @pytest.mark.anyio
-async def test_interactivity_open_modal_and_submit(monkeypatch):
+async def test_interactivity_open_modal_and_submit():
     from adapters.slack.interactivity import handle_slack_interactivity
     from fastapi import BackgroundTasks, Request
     from core.config import set_admin_slack_user_ids_override
 
     set_admin_slack_user_ids_override("U_ADMIN_123")
     try:
-        monkeypatch.setattr("adapters.slack.interactivity.verify_slack_signature", lambda *args, **kwargs: True)
-
         mock_views_open = AsyncMock()
-        monkeypatch.setattr("services.slack.slack_async_client.views_open", mock_views_open)
-        monkeypatch.setattr("adapters.slack.actions.workflow_actions.slack_async_client.views_open", mock_views_open)
-        monkeypatch.setattr("adapters.slack.actions.agent_actions.slack_async_client.views_open", mock_views_open)
-        monkeypatch.setattr("services.slack.views.publish_app_home", AsyncMock(return_value={"ok": True}))
+        with (
+            patch("adapters.slack.interactivity.verify_slack_signature", return_value=True),
+            patch("services.slack.slack_async_client.views_open", mock_views_open),
+            patch("adapters.slack.actions.workflow_actions.slack_async_client.views_open", mock_views_open),
+            patch("adapters.slack.actions.agent_actions.slack_async_client.views_open", mock_views_open),
+            patch("services.slack.views.publish_app_home", AsyncMock(return_value={"ok": True})),
+        ):
+            # 1. Non-admin tries to click open_edit_workspace_context_modal -> returns 200 and opens Admin Access Required modal
+            non_admin_payload = {
+                "type": "block_actions",
+                "user": {"id": "U_NON_ADMIN"},
+                "trigger_id": "trig_111",
+                "actions": [{"action_id": "open_edit_workspace_context_modal"}],
+            }
+            req = MagicMock(spec=Request)
+            req.body = AsyncMock(return_value=json.dumps(non_admin_payload).encode("utf-8"))
+            req.headers = {}
+            bg = BackgroundTasks()
+            res = await handle_slack_interactivity(req, bg)
+            assert res.status_code == 200
+            await bg()
+            mock_views_open.assert_called_once()
+            call_kwargs_non_admin = mock_views_open.call_args.kwargs
+            assert call_kwargs_non_admin["trigger_id"] == "trig_111"
+            assert call_kwargs_non_admin["view"]["title"]["text"] == "Admin Access Required"
 
-        # 1. Non-admin tries to click open_edit_workspace_context_modal -> returns 200 and opens Admin Access Required modal
-        non_admin_payload = {
-            "type": "block_actions",
-            "user": {"id": "U_NON_ADMIN"},
-            "trigger_id": "trig_111",
-            "actions": [{"action_id": "open_edit_workspace_context_modal"}],
-        }
-        req = MagicMock(spec=Request)
-        req.body = AsyncMock(return_value=json.dumps(non_admin_payload).encode("utf-8"))
-        req.headers = {}
-        bg = BackgroundTasks()
-        res = await handle_slack_interactivity(req, bg)
-        assert res.status_code == 200
-        await bg()
-        mock_views_open.assert_called_once()
-        call_kwargs_non_admin = mock_views_open.call_args.kwargs
-        assert call_kwargs_non_admin["trigger_id"] == "trig_111"
-        assert call_kwargs_non_admin["view"]["title"]["text"] == "Admin Access Required"
+            mock_views_open.reset_mock()
 
-        mock_views_open.reset_mock()
+            # 2. Admin clicks open_edit_workspace_context_modal -> returns 200 and opens Workspace Context edit modal
+            admin_payload = {
+                "type": "block_actions",
+                "user": {"id": "U_ADMIN_123"},
+                "trigger_id": "trig_222",
+                "actions": [{"action_id": "open_edit_workspace_context_modal"}],
+            }
+            req = MagicMock(spec=Request)
+            req.body = AsyncMock(return_value=json.dumps(admin_payload).encode("utf-8"))
+            req.headers = {}
+            bg = BackgroundTasks()
+            res = await handle_slack_interactivity(req, bg)
+            assert res.status_code == 200
+            await bg()
+            mock_views_open.assert_called_once()
+            call_kwargs = mock_views_open.call_args.kwargs
+            assert call_kwargs["trigger_id"] == "trig_222"
+            assert call_kwargs["view"]["callback_id"] == "submit_workspace_context_modal"
 
-        # 2. Admin clicks open_edit_workspace_context_modal -> returns 200 and opens Workspace Context edit modal
-        admin_payload = {
-            "type": "block_actions",
-            "user": {"id": "U_ADMIN_123"},
-            "trigger_id": "trig_222",
-            "actions": [{"action_id": "open_edit_workspace_context_modal"}],
-        }
-        req = MagicMock(spec=Request)
-        req.body = AsyncMock(return_value=json.dumps(admin_payload).encode("utf-8"))
-        req.headers = {}
-        bg = BackgroundTasks()
-        res = await handle_slack_interactivity(req, bg)
-        assert res.status_code == 200
-        await bg()
-        mock_views_open.assert_called_once()
-        call_kwargs = mock_views_open.call_args.kwargs
-        assert call_kwargs["trigger_id"] == "trig_222"
-        assert call_kwargs["view"]["callback_id"] == "submit_workspace_context_modal"
-
-        # 3. Non-admin tries to submit modal
-        submit_non_admin = {
-            "type": "view_submission",
-            "user": {"id": "U_NON_ADMIN"},
-            "view": {
-                "callback_id": "submit_workspace_context_modal",
-                "state": {
-                    "values": {
-                        "workspace_context_input_block": {
-                            "workspace_context_input": {"value": "Malicious override"}
+            # 3. Non-admin tries to submit modal
+            submit_non_admin = {
+                "type": "view_submission",
+                "user": {"id": "U_NON_ADMIN"},
+                "view": {
+                    "callback_id": "submit_workspace_context_modal",
+                    "state": {
+                        "values": {
+                            "workspace_context_input_block": {
+                                "workspace_context_input": {"value": "Malicious override"}
+                            }
                         }
-                    }
+                    },
                 },
-            },
-        }
-        req = MagicMock(spec=Request)
-        req.body = AsyncMock(return_value=json.dumps(submit_non_admin).encode("utf-8"))
-        req.headers = {}
-        bg = BackgroundTasks()
-        res = await handle_slack_interactivity(req, bg)
-        assert res.status_code == 403
-        assert get_workspace_context() == ""
+            }
+            req = MagicMock(spec=Request)
+            req.body = AsyncMock(return_value=json.dumps(submit_non_admin).encode("utf-8"))
+            req.headers = {}
+            bg = BackgroundTasks()
+            res = await handle_slack_interactivity(req, bg)
+            assert res.status_code == 403
+            assert get_workspace_context() == ""
 
-        # 4. Admin submits valid modal
-        submit_admin = {
-            "type": "view_submission",
-            "user": {"id": "U_ADMIN_123"},
-            "view": {
-                "callback_id": "submit_workspace_context_modal",
-                "state": {
-                    "values": {
-                        "workspace_context_input_block": {
-                            "workspace_context_input": {"value": "Valid company rules."}
+            # 4. Admin submits valid modal
+            submit_admin = {
+                "type": "view_submission",
+                "user": {"id": "U_ADMIN_123"},
+                "view": {
+                    "callback_id": "submit_workspace_context_modal",
+                    "state": {
+                        "values": {
+                            "workspace_context_input_block": {
+                                "workspace_context_input": {"value": "Valid company rules."}
+                            }
                         }
-                    }
+                    },
                 },
-            },
-        }
-        req = MagicMock(spec=Request)
-        req.body = AsyncMock(return_value=json.dumps(submit_admin).encode("utf-8"))
-        req.headers = {}
-        bg = BackgroundTasks()
-        res = await handle_slack_interactivity(req, bg)
-        assert res.status_code == 200
-        assert get_workspace_context() == "Valid company rules."
+            }
+            req = MagicMock(spec=Request)
+            req.body = AsyncMock(return_value=json.dumps(submit_admin).encode("utf-8"))
+            req.headers = {}
+            bg = BackgroundTasks()
+            res = await handle_slack_interactivity(req, bg)
+            assert res.status_code == 200
+            assert get_workspace_context() == "Valid company rules."
 
-        # 5. Admin submits exceeding 1000 characters
-        submit_admin_too_long = {
-            "type": "view_submission",
-            "user": {"id": "U_ADMIN_123"},
-            "view": {
-                "callback_id": "submit_workspace_context_modal",
-                "state": {
-                    "values": {
-                        "workspace_context_input_block": {
-                            "workspace_context_input": {"value": "X" * 1050}
+            # 5. Admin submits exceeding 1000 characters
+            submit_admin_too_long = {
+                "type": "view_submission",
+                "user": {"id": "U_ADMIN_123"},
+                "view": {
+                    "callback_id": "submit_workspace_context_modal",
+                    "state": {
+                        "values": {
+                            "workspace_context_input_block": {
+                                "workspace_context_input": {"value": "X" * 1050}
+                            }
                         }
-                    }
+                    },
                 },
-            },
-        }
-        req = MagicMock(spec=Request)
-        req.body = AsyncMock(return_value=json.dumps(submit_admin_too_long).encode("utf-8"))
-        req.headers = {}
-        bg = BackgroundTasks()
-        res = await handle_slack_interactivity(req, bg)
-        assert res.status_code == 200
-        resp_data = json.loads(res.body.decode("utf-8"))
-        assert resp_data["response_action"] == "errors"
-        assert "workspace_context_input_block" in resp_data["errors"]
+            }
+            req = MagicMock(spec=Request)
+            req.body = AsyncMock(return_value=json.dumps(submit_admin_too_long).encode("utf-8"))
+            req.headers = {}
+            bg = BackgroundTasks()
+            res = await handle_slack_interactivity(req, bg)
+            assert res.status_code == 200
+            resp_data = json.loads(res.body.decode("utf-8"))
+            assert resp_data["response_action"] == "errors"
+            assert "workspace_context_input_block" in resp_data["errors"]
     finally:
         set_admin_slack_user_ids_override(None)

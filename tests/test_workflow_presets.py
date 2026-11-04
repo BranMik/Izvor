@@ -1,6 +1,6 @@
 import json
 from pathlib import Path
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -244,118 +244,119 @@ def test_build_app_home_view_includes_workflow_ui():
 
 
 @pytest.mark.anyio
-async def test_main_interactivity_workflow_actions(monkeypatch):
+async def test_main_interactivity_workflow_actions():
     """Test full Block Kit interactivity dispatch for workflow preset save, load, and delete."""
     client = TestClient(app)
 
     # Mock publish_app_home and slack signature to avoid network/auth rejections
     mock_publish = AsyncMock(return_value={"ok": True})
-    monkeypatch.setattr("services.slack.views.publish_app_home", mock_publish)
-    monkeypatch.setattr("adapters.slack.interactivity.verify_slack_signature", lambda body, headers: True)
-    monkeypatch.setattr("adapters.slack.interactivity.is_slack_admin", lambda user_id: True)
-
-    # 1. Save new workflow preset via block action
-    save_payload = {
-        "type": "block_actions",
-        "user": {"id": "U12345"},
-        "actions": [{"action_id": "save_workflow_preset_button"}],
-        "view": {
-            "state": {
-                "values": {
-                    "save_workflow_preset_block": {
-                        "save_workflow_preset_name_input": {
-                            "type": "plain_text_input",
-                            "value": "Integration Test Preset",
+    with (
+        patch("services.slack.views.publish_app_home", mock_publish),
+        patch("adapters.slack.interactivity.verify_slack_signature", return_value=True),
+        patch("adapters.slack.interactivity.is_slack_admin", return_value=True),
+    ):
+        # 1. Save new workflow preset via block action
+        save_payload = {
+            "type": "block_actions",
+            "user": {"id": "U12345"},
+            "actions": [{"action_id": "save_workflow_preset_button"}],
+            "view": {
+                "state": {
+                    "values": {
+                        "save_workflow_preset_block": {
+                            "save_workflow_preset_name_input": {
+                                "type": "plain_text_input",
+                                "value": "Integration Test Preset",
+                            }
                         }
                     }
                 }
-            }
-        },
-    }
+            },
+        }
 
-    set_sandwich_config(["agent-10001"], ["agent-10008"])
-    set_orchestration_mode("sandwich")
+        set_sandwich_config(["agent-10001"], ["agent-10008"])
+        set_orchestration_mode("sandwich")
 
-    resp = client.post("/slack/interactivity", json=save_payload)
-    assert resp.status_code == 200
+        resp = client.post("/slack/interactivity", json=save_payload)
+        assert resp.status_code == 200
 
-    saved = get_workflow("integration_test_preset")
-    assert saved is not None
-    assert saved.name == "Integration Test Preset"
-    assert saved.sandwich_config["start_chain"] == ["agent-10001"]
-    assert get_active_workflow_id() == "integration_test_preset"
+        saved = get_workflow("integration_test_preset")
+        assert saved is not None
+        assert saved.name == "Integration Test Preset"
+        assert saved.sandwich_config["start_chain"] == ["agent-10001"]
+        assert get_active_workflow_id() == "integration_test_preset"
 
-    quick = WorkflowPreset(
-        id="quick_tech_triage",
-        name="Quick Tech Triage",
-        mode=OrchestrationMode.FIXED.value,
-        fixed_config={"chain": ["agent-10011", "agent-10008"]}
-    )
-    from orchestration.agent_settings import settings_manager
-    settings_manager.workflow_manager.save_preset(quick)
+        quick = WorkflowPreset(
+            id="quick_tech_triage",
+            name="Quick Tech Triage",
+            mode=OrchestrationMode.FIXED.value,
+            fixed_config={"chain": ["agent-10011", "agent-10008"]}
+        )
+        from orchestration.agent_settings import settings_manager
+        settings_manager.workflow_manager.save_preset(quick)
 
-    # 2. Select different preset via dropdown
-    select_payload = {
-        "type": "block_actions",
-        "user": {"id": "U12345"},
-        "actions": [
-            {
-                "action_id": "select_workflow_preset",
-                "selected_option": {"value": "wf:quick_tech_triage"},
-            }
-        ],
-    }
-    resp = client.post("/slack/interactivity", json=select_payload)
-    assert resp.status_code == 200
-    assert get_active_workflow_id() == "quick_tech_triage"
-    assert get_orchestration_mode() == OrchestrationMode.FIXED.value
+        # 2. Select different preset via dropdown
+        select_payload = {
+            "type": "block_actions",
+            "user": {"id": "U12345"},
+            "actions": [
+                {
+                    "action_id": "select_workflow_preset",
+                    "selected_option": {"value": "wf:quick_tech_triage"},
+                }
+            ],
+        }
+        resp = client.post("/slack/interactivity", json=select_payload)
+        assert resp.status_code == 200
+        assert get_active_workflow_id() == "quick_tech_triage"
+        assert get_orchestration_mode() == OrchestrationMode.FIXED.value
 
-    # 3. Load workflow preset via button
-    load_payload = {
-        "type": "block_actions",
-        "user": {"id": "U12345"},
-        "actions": [{"action_id": "load_workflow_preset_button"}],
-        "view": {
-            "state": {
-                "values": {
-                    "workflow_preset_select_block": {
-                        "select_workflow_preset": {
-                            "selected_option": {"value": "wf:integration_test_preset"}
+        # 3. Load workflow preset via button
+        load_payload = {
+            "type": "block_actions",
+            "user": {"id": "U12345"},
+            "actions": [{"action_id": "load_workflow_preset_button"}],
+            "view": {
+                "state": {
+                    "values": {
+                        "workflow_preset_select_block": {
+                            "select_workflow_preset": {
+                                "selected_option": {"value": "wf:integration_test_preset"}
+                            }
                         }
                     }
                 }
-            }
-        },
-    }
-    resp = client.post("/slack/interactivity", json=load_payload)
-    assert resp.status_code == 200
-    assert get_active_workflow_id() == "integration_test_preset"
-    assert get_orchestration_mode() == OrchestrationMode.SANDWICH.value
+            },
+        }
+        resp = client.post("/slack/interactivity", json=load_payload)
+        assert resp.status_code == 200
+        assert get_active_workflow_id() == "integration_test_preset"
+        assert get_orchestration_mode() == OrchestrationMode.SANDWICH.value
 
-    # 4. Delete custom preset via button
-    del_payload = {
-        "type": "block_actions",
-        "user": {"id": "U12345"},
-        "actions": [{"action_id": "delete_workflow_preset_button"}],
-        "view": {
-            "state": {
-                "values": {
-                    "workflow_preset_select_block": {
-                        "select_workflow_preset": {
-                            "selected_option": {"value": "wf:integration_test_preset"}
+        # 4. Delete custom preset via button
+        del_payload = {
+            "type": "block_actions",
+            "user": {"id": "U12345"},
+            "actions": [{"action_id": "delete_workflow_preset_button"}],
+            "view": {
+                "state": {
+                    "values": {
+                        "workflow_preset_select_block": {
+                            "select_workflow_preset": {
+                                "selected_option": {"value": "wf:integration_test_preset"}
+                            }
                         }
                     }
                 }
-            }
-        },
-    }
-    resp = client.post("/slack/interactivity", json=del_payload)
-    assert resp.status_code == 200
-    assert get_workflow("integration_test_preset") is None
-    assert get_active_workflow_id() in (None, "default_review_flow")
+            },
+        }
+        resp = client.post("/slack/interactivity", json=del_payload)
+        assert resp.status_code == 200
+        assert get_workflow("integration_test_preset") is None
+        assert get_active_workflow_id() in (None, "default_review_flow")
 
-    # Restore default active workflow for subsequent tests
-    apply_workflow("idea_architecture_feasibility_review")
+        # Restore default active workflow for subsequent tests
+        apply_workflow("idea_architecture_feasibility_review")
 
 
 def test_agent_settings_file_structure_and_dynamic_load():

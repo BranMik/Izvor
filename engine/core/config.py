@@ -416,8 +416,19 @@ TOOL_INTERMEDIATE_UPDATE_DELAY_SECONDS = float(
     os.getenv("TOOL_INTERMEDIATE_UPDATE_DELAY_SECONDS", "5.0")
 )
 
+_internal_revisor_enabled_override: bool | None = None
+
+
+def set_internal_revisor_enabled_override(enabled: bool | None) -> None:
+    """Sets or clears an in-memory override for is_internal_revisor_enabled."""
+    global _internal_revisor_enabled_override
+    _internal_revisor_enabled_override = enabled
+
+
 def is_internal_revisor_enabled() -> bool:
     """Checks if InternalRevisor is enabled in data/settings/system_settings.json."""
+    if _internal_revisor_enabled_override is not None:
+        return _internal_revisor_enabled_override
     settings_file = SYSTEM_SETTINGS_FILE
     if not settings_file.exists():
         return True
@@ -465,6 +476,7 @@ __all__ = [
     "get_language_detector_model",
     "get_pricing_agent_prompt",
     "is_internal_revisor_enabled",
+    "set_internal_revisor_enabled_override",
 ]
 
 

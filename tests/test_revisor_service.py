@@ -1,13 +1,14 @@
 import pytest
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
+from core.config import set_internal_revisor_enabled_override
 from orchestration.agent_router import continue_discussion_from_turn_result
 from orchestration.thread_state import thread_state_manager
 from orchestration.turn_pipeline import TurnContext, TurnPipeline
 
 
 @pytest.mark.anyio
-async def test_revisor_warning_injected_into_accumulated_history_before_next_speaker(monkeypatch):
+async def test_revisor_warning_injected_into_accumulated_history_before_next_speaker():
     """Verifies TKT-820: InternalRevisor verdict is attached to slack_res and injected into accumulated_history before next speaker."""
     channel_id = "C_REVISOR_TEST"
     thread_ts = "88888.0001"
@@ -25,27 +26,24 @@ async def test_revisor_warning_injected_into_accumulated_history_before_next_spe
     ctx.skills_used = ["knowledge_base_rag"]
 
     # 1. Enable revisor and mock it returning a hallucination warning
-    monkeypatch.setattr("core.config.is_internal_revisor_enabled", lambda: True)
+    set_internal_revisor_enabled_override(True)
     revisor_warning = "ATTENTION: The claim '$100M revenue' contradicts internal financial docs."
 
     async def mock_run_revisor(c):
         return revisor_warning
 
-    monkeypatch.setattr("orchestration.revisor_service.run_internal_revisor", mock_run_revisor)
-
     pipeline = TurnPipeline()
     # Mock stages 1-4 returning None (no halt) and stage 5 returning base response
-    monkeypatch.setattr(pipeline.validation_stage, "stage_validate_and_parse", AsyncMock(return_value=None))
-    monkeypatch.setattr(pipeline.resolution_stage, "stage_resolve_agent_and_governance", AsyncMock(return_value=None))
-    monkeypatch.setattr(pipeline.context_prep_stage, "stage_prepare_context", AsyncMock(return_value=None))
-    monkeypatch.setattr(pipeline.execution_stage, "stage_execute_llm", AsyncMock(return_value=None))
-    monkeypatch.setattr(
-        pipeline.post_record_stage,
-        "stage_post_and_record",
-        AsyncMock(return_value={"ok": True, "final_text": ctx.final_text, "username": "Visionary"}),
+    pipeline.validation_stage.stage_validate_and_parse = AsyncMock(return_value=None)
+    pipeline.resolution_stage.stage_resolve_agent_and_governance = AsyncMock(return_value=None)
+    pipeline.context_prep_stage.stage_prepare_context = AsyncMock(return_value=None)
+    pipeline.execution_stage.stage_execute_llm = AsyncMock(return_value=None)
+    pipeline.post_record_stage.stage_post_and_record = AsyncMock(
+        return_value={"ok": True, "final_text": ctx.final_text, "username": "Visionary"}
     )
 
-    slack_res = await pipeline.run(ctx)
+    with patch("orchestration.revisor_service.run_internal_revisor", side_effect=mock_run_revisor):
+        slack_res = await pipeline.run(ctx)
     assert slack_res.get("revisor_warning") == revisor_warning
     assert ctx.revisor_warning == revisor_warning
 

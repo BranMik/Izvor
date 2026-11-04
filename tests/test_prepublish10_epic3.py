@@ -38,33 +38,35 @@ def test_slack_broadcast_mentions_neutralized():
 
 
 @pytest.mark.anyio
-async def test_post_message_to_slack_dlp_and_broadcast_mentions(monkeypatch):
+async def test_post_message_to_slack_dlp_and_broadcast_mentions():
     """TKT-1009 / S-01: Verifies post_message_to_slack neutralizes broadcasts and blocks secret leaks."""
-    monkeypatch.setattr("services.slack.messages.get_slack_bot_token", lambda: "xoxb-real-token")
     mock_post = AsyncMock(return_value=MagicMock(data={"ok": True, "ts": "123.456"}))
     mock_client = MagicMock(chat_postMessage=mock_post)
-    monkeypatch.setattr("services.slack.messages.get_slack_async_client", lambda: mock_client)
 
-    # 1. Mention neutralization in text and blocks
-    blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": "<!here|here> alert"}}]
-    await post_message_to_slack(
-        channel_id="C123",
-        text="<!channel|team> attention",
-        blocks=blocks,
-    )
-    call_kwargs = mock_post.call_args.kwargs
-    assert call_kwargs["text"] == "@channel attention"
-    assert call_kwargs["blocks"][0]["text"]["text"] == "@here alert"
+    with (
+        patch("services.slack.messages.get_slack_bot_token", return_value="xoxb-real-token"),
+        patch("services.slack.messages.get_slack_async_client", return_value=mock_client),
+    ):
+        # 1. Mention neutralization in text and blocks
+        blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": "<!here|here> alert"}}]
+        await post_message_to_slack(
+            channel_id="C123",
+            text="<!channel|team> attention",
+            blocks=blocks,
+        )
+        call_kwargs = mock_post.call_args.kwargs
+        assert call_kwargs["text"] == "@channel attention"
+        assert call_kwargs["blocks"][0]["text"]["text"] == "@here alert"
 
-    # 2. Secret leak blocking
-    mock_post.reset_mock()
-    secret_text = "Here is the key: xoxb-1234567890-1234567890123-abcdefghijklmnopqrstuvwx"
-    await post_message_to_slack(
-        channel_id="C123",
-        text=secret_text,
-    )
-    call_kwargs2 = mock_post.call_args.kwargs
-    assert "Message blocked by security policy" in call_kwargs2["text"]
+        # 2. Secret leak blocking
+        mock_post.reset_mock()
+        secret_text = "Here is the key: xoxb-1234567890-1234567890123-abcdefghijklmnopqrstuvwx"
+        await post_message_to_slack(
+            channel_id="C123",
+            text=secret_text,
+        )
+        call_kwargs2 = mock_post.call_args.kwargs
+        assert "Message blocked by security policy" in call_kwargs2["text"]
 
 
 def test_audit_logger_production_mode_requires_hmac_secret():
@@ -84,7 +86,7 @@ def test_audit_logger_production_mode_requires_hmac_secret():
 
 
 @pytest.mark.anyio
-async def test_audit_logger_cross_thread_alerting(monkeypatch):
+async def test_audit_logger_cross_thread_alerting():
     """TKT-1010 / S-05: Verifies critical alerts can be dispatched from worker threads via run_coroutine_threadsafe."""
     main_loop = asyncio.get_running_loop()
     set_main_event_loop(main_loop)
@@ -95,21 +97,20 @@ async def test_audit_logger_cross_thread_alerting(monkeypatch):
         alert_dispatched.set()
         return {"ok": True}
 
-    monkeypatch.setattr("services.audit_logger.send_admin_audit_alert", mock_send_alert)
+    with patch("services.audit_logger.send_admin_audit_alert", side_effect=mock_send_alert):
+        # Invoke from a worker thread where get_running_loop() normally raises RuntimeError
+        def worker_thread_action():
+            _dispatch_critical_alert({
+                "event_type": "SECURITY_POLICY_VIOLATION",
+                "action": "execute_tool",
+                "target": "write_document",
+                "status": "BLOCKED",
+                "details": {"test": "cross_thread"},
+            })
 
-    # Invoke from a worker thread where get_running_loop() normally raises RuntimeError
-    def worker_thread_action():
-        _dispatch_critical_alert({
-            "event_type": "SECURITY_POLICY_VIOLATION",
-            "action": "execute_tool",
-            "target": "write_document",
-            "status": "BLOCKED",
-            "details": {"test": "cross_thread"},
-        })
-
-    await asyncio.to_thread(worker_thread_action)
-    await asyncio.wait_for(alert_dispatched.wait(), timeout=2.0)
-    assert alert_dispatched.is_set()
+        await asyncio.to_thread(worker_thread_action)
+        await asyncio.wait_for(alert_dispatched.wait(), timeout=2.0)
+        assert alert_dispatched.is_set()
 
 
 def test_audit_logger_corrupted_latest_file_raises(tmp_path):
@@ -138,7 +139,7 @@ def test_audit_logger_corrupted_latest_file_raises(tmp_path):
         logger.get_last_state()
 
 
-def test_mcp_tools_document_access_control(tmp_path, monkeypatch):
+def test_mcp_tools_document_access_control(tmp_path):
     """TKT-1011 / S-03: Verifies read_document and list_documents enforce principal authorization and ACLs."""
     from services.mcp_tools import configure_paths as configure_mcp_paths, reset_paths as reset_mcp_paths
 
@@ -164,31 +165,27 @@ def test_mcp_tools_document_access_control(tmp_path, monkeypatch):
 
         # 3. FileContext ACL enforcement: restricted document
         reader_principal = ToolPrincipal(kind="agent", id="agent-10008")
-        monkeypatch.setattr(
-            "services.mcp_tools.is_agent_authorized_for_tool",
-            lambda principal, tool_name, **kw: True,
-        )
-
-        # Agent is authorized by ACL
-        res_acl_ok = json.loads(
-            read_document(
-                "confidential.txt",
-                principal=reader_principal,
-                authorized_agents={"agent-10008", "agent-10011"},
+        with patch("services.mcp_tools.is_agent_authorized_for_tool", return_value=True):
+            # Agent is authorized by ACL
+            res_acl_ok = json.loads(
+                read_document(
+                    "confidential.txt",
+                    principal=reader_principal,
+                    authorized_agents={"agent-10008", "agent-10011"},
+                )
             )
-        )
-        assert res_acl_ok.get("content") == "top secret plan"
+            assert res_acl_ok.get("content") == "top secret plan"
 
-        # Agent is NOT in authorized_agents ACL
-        unauth_reader = ToolPrincipal(kind="agent", id="agent-10002")
-        res_acl_denied = json.loads(
-            read_document(
-                "confidential.txt",
-                principal=unauth_reader,
-                authorized_agents={"agent-10008", "agent-10011"},
+            # Agent is NOT in authorized_agents ACL
+            unauth_reader = ToolPrincipal(kind="agent", id="agent-10002")
+            res_acl_denied = json.loads(
+                read_document(
+                    "confidential.txt",
+                    principal=unauth_reader,
+                    authorized_agents={"agent-10008", "agent-10011"},
+                )
             )
-        )
-        assert "Permission denied: Agent 'agent-10002' is not authorized" in res_acl_denied["error"]
+            assert "Permission denied: Agent 'agent-10002' is not authorized" in res_acl_denied["error"]
     finally:
         reset_mcp_paths()
 

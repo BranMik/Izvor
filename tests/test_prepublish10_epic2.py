@@ -84,7 +84,7 @@ def test_hitl_prune_expired_preserves_audit_records():
 
 
 @pytest.mark.anyio
-async def test_hitl_resumption_effective_skills(monkeypatch):
+async def test_hitl_resumption_effective_skills():
     """TKT-1006: resume_from_checkpoint must populate ctx.authorized_skills with dynamic grants."""
     from orchestration.thread_skills_manager import thread_skills_manager
     channel_id = "C_SKILLS"

@@ -4,8 +4,14 @@ import pytest
 
 from conftest import make_mock_acompletion
 
+from core.llm_utils import configure_llm_completion_fn
 from orchestration import agent_router
-from orchestration.agent_router import process_and_respond
+from orchestration.agent_router import (
+    configure_fetch_thread_history,
+    configure_post_agent_response,
+    configure_router_sleep_fn,
+    process_and_respond,
+)
 from orchestration.agent_settings import (
     reset_enabled_agents,
     set_fixed_config,
@@ -19,13 +25,13 @@ skill_registry = get_skill_registry()
 
 
 @pytest.fixture(autouse=True)
-def setup_test_environment(monkeypatch):
+def setup_test_environment():
     reset_enabled_agents()
     set_orchestration_mode("sandwich")
     set_sandwich_config([], [])
     set_fixed_config([])
     thread_state_manager.reset_all()
-    monkeypatch.setattr(agent_router.asyncio, "sleep", AsyncMock(return_value=None))
+    configure_router_sleep_fn(AsyncMock(return_value=None))
 
 
 def test_rounds_skill_discovered_in_registry():
@@ -105,7 +111,7 @@ def test_thread_state_manager_rounds_lifecycle():
 
 
 @pytest.mark.anyio
-async def test_multi_round_execution_end_to_end(monkeypatch):
+async def test_multi_round_execution_end_to_end():
     """
     Test that /rounds 2 loops through participating agents twice.
     Round 1: Innovator -> LegalAdvisor
@@ -119,8 +125,8 @@ async def test_multi_round_execution_end_to_end(monkeypatch):
         posted_messages.append(text)
         return {"ok": True, "ts": f"12345.{len(posted_messages)}"}
 
-    monkeypatch.setattr("orchestration.agent_router.post_agent_response", mock_post_agent_response)
-    monkeypatch.setattr("orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[]))
+    configure_post_agent_response(mock_post_agent_response)
+    configure_fetch_thread_history(AsyncMock(return_value=[]))
 
     # Turn 1: Innovator in Round 1
     mock_choice_1 = MagicMock()
@@ -129,7 +135,7 @@ async def test_multi_round_execution_end_to_end(monkeypatch):
     mock_resp_1 = MagicMock(choices=[mock_choice_1], usage=None)
 
     mock_run_turn = MagicMock()
-    monkeypatch.setattr("litellm.acompletion", make_mock_acompletion(lambda *a, **k: mock_run_turn.current_response))
+    configure_llm_completion_fn(make_mock_acompletion(lambda *a, **k: mock_run_turn.current_response))
 
     mock_run_turn.current_response = mock_resp_1
     res_1 = await process_and_respond(
@@ -196,7 +202,7 @@ async def test_multi_round_execution_end_to_end(monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_next_round_command_after_discussion_finishes(monkeypatch):
+async def test_next_round_command_after_discussion_finishes():
     """
     Test that /next_round executed on an already finished discussion
     starts another round from the first agent to the last agent.
@@ -207,11 +213,11 @@ async def test_next_round_command_after_discussion_finishes(monkeypatch):
         posted_messages.append(text)
         return {"ok": True, "ts": f"12345.{len(posted_messages)}"}
 
-    monkeypatch.setattr("orchestration.agent_router.post_agent_response", mock_post_agent_response)
-    monkeypatch.setattr("orchestration.agent_router.fetch_thread_history", AsyncMock(return_value=[]))
+    configure_post_agent_response(mock_post_agent_response)
+    configure_fetch_thread_history(AsyncMock(return_value=[]))
 
     mock_run_turn = MagicMock()
-    monkeypatch.setattr("litellm.acompletion", make_mock_acompletion(lambda *a, **k: mock_run_turn.current_response))
+    configure_llm_completion_fn(make_mock_acompletion(lambda *a, **k: mock_run_turn.current_response))
 
     # Initial 1-round discussion with 2 agents
     mock_choice_1 = MagicMock()
@@ -274,7 +280,7 @@ async def test_next_round_command_after_discussion_finishes(monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_stop_command_cancels_multi_round_debate(monkeypatch):
+async def test_stop_command_cancels_multi_round_debate():
     """Verify that /stop request terminates an active multi-round debate."""
     channel_id = "C_STOP"
     thread_ts = "300.001"

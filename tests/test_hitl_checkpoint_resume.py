@@ -1,6 +1,6 @@
 import json
 import pytest
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from core.database import get_db_transaction
 from core.domain import TurnCheckpoint
@@ -20,7 +20,7 @@ def setup_teardown():
 
 
 @pytest.mark.anyio
-async def test_hitl_pause_creates_durable_turn_checkpoint(monkeypatch):
+async def test_hitl_pause_creates_durable_turn_checkpoint():
     """Verifies TKT-809: when a destructive tool requires human approval, execution pauses and saves a durable checkpoint."""
     channel_id = "C_HITL_TEST"
     thread_ts = "99999.0001"
@@ -69,11 +69,12 @@ async def test_hitl_pause_creates_durable_turn_checkpoint(monkeypatch):
     mock_skill_registry.get.return_value = skill_def
     mock_skill_registry.is_mcp_tool.return_value = False
 
-    monkeypatch.setattr("orchestration.stages.execution.skill_registry", mock_skill_registry)
-    monkeypatch.setattr("services.hitl.post_message_to_slack", AsyncMock(return_value={"ok": True, "ts": "11111"}))
-
-    # Run execution stage
-    await exec_stage.stage_execute_llm(ctx)
+    with (
+        patch("orchestration.stages.execution.skill_registry", mock_skill_registry),
+        patch("services.hitl.post_message_to_slack", AsyncMock(return_value={"ok": True, "ts": "11111"})),
+    ):
+        # Run execution stage
+        await exec_stage.stage_execute_llm(ctx)
 
     assert ctx.waiting_hitl is True
     assert ctx.halted is True
@@ -91,7 +92,7 @@ async def test_hitl_pause_creates_durable_turn_checkpoint(monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_hitl_approve_restores_checkpoint_and_continues_remaining_agents(monkeypatch):
+async def test_hitl_approve_restores_checkpoint_and_continues_remaining_agents():
     """Verifies TKT-810: resume_from_checkpoint restores context, completes execution, and marks checkpoint RESUMED."""
     channel_id = "C_HITL_RESUME"
     thread_ts = "99999.0002"
@@ -156,7 +157,7 @@ async def test_hitl_approve_restores_checkpoint_and_continues_remaining_agents(m
 
 
 @pytest.mark.anyio
-async def test_hitl_resume_generation_mismatch_fixed(monkeypatch):
+async def test_hitl_resume_generation_mismatch_fixed():
     """Verifies TKT-904: resume_from_checkpoint syncs my_generation so active turns with generation >= 1 are not aborted as superseded."""
     channel_id = "C_HITL_GEN"
     thread_ts = "99999.0003"
@@ -212,7 +213,7 @@ async def test_hitl_resume_generation_mismatch_fixed(monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_hitl_pause_synthesizes_deferred_sibling_responses(monkeypatch):
+async def test_hitl_pause_synthesizes_deferred_sibling_responses():
     """Verifies TKT-904: multi-tool batches pausing on HITL synthesize deferred tool responses for remaining sibling calls."""
     channel_id = "C_HITL_BATCH"
     thread_ts = "99999.0004"
@@ -272,10 +273,11 @@ async def test_hitl_pause_synthesizes_deferred_sibling_responses(monkeypatch):
     mock_skill_registry.get.return_value = skill_def
     mock_skill_registry.is_mcp_tool.return_value = False
 
-    monkeypatch.setattr("orchestration.stages.execution.skill_registry", mock_skill_registry)
-    monkeypatch.setattr("services.hitl.post_message_to_slack", AsyncMock(return_value={"ok": True, "ts": "44444"}))
-
-    await exec_stage.stage_execute_llm(ctx)
+    with (
+        patch("orchestration.stages.execution.skill_registry", mock_skill_registry),
+        patch("services.hitl.post_message_to_slack", AsyncMock(return_value={"ok": True, "ts": "44444"})),
+    ):
+        await exec_stage.stage_execute_llm(ctx)
 
     assert ctx.waiting_hitl is True
     assert ctx.halted is True

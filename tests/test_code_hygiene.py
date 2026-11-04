@@ -266,3 +266,50 @@ def test_no_monkeypatch_setenv_or_delenv():
         + "\n".join(violations)
         + "\nUse manager configure_paths(), parameter injection, or config override functions instead."
     )
+
+
+def test_zero_monkeypatch_usage_in_test_suite():
+    """
+    Enforces repository-wide prohibition of pytest monkeypatch fixture and monkeypatch calls.
+    Tests must use dependency injection, manager configure_paths(), IZVOR_* overrides,
+    or unittest.mock.patch instead.
+    """
+    import ast
+
+    root_dir = Path(__file__).resolve().parent.parent
+    tests_dir = root_dir / "tests"
+
+    violations = []
+
+    for py_file in tests_dir.rglob("*.py"):
+        if py_file.name == "test_code_hygiene.py":
+            continue
+
+        try:
+            tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
+        except SyntaxError:
+            continue
+
+        for node in ast.walk(tree):
+            # Check function definitions for 'monkeypatch' parameter
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                for arg in node.args.args + node.args.kwonlyargs:
+                    if arg.arg == "monkeypatch":
+                        violations.append(
+                            f"{py_file.relative_to(root_dir)}:{node.lineno} function '{node.name}' requests 'monkeypatch' fixture parameter"
+                        )
+
+            # Check calls on monkeypatch identifier
+            if isinstance(node, ast.Call):
+                func = node.func
+                if isinstance(func, ast.Attribute):
+                    if isinstance(func.value, ast.Name) and func.value.id == "monkeypatch":
+                        violations.append(
+                            f"{py_file.relative_to(root_dir)}:{node.lineno} calls forbidden 'monkeypatch.{func.attr}'"
+                        )
+
+    assert not violations, (
+        f"Found {len(violations)} forbidden monkeypatch usages in test suite:\n"
+        + "\n".join(violations)
+        + "\nUse manager configure_paths(), dependency injection, or unittest.mock.patch instead."
+    )
