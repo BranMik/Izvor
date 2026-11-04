@@ -13,11 +13,9 @@ def set_skill_registry_provider(provider: Callable[[], Any] | None) -> None:
 def get_skill_registry() -> Any:
     """
     Returns the global SkillRegistry instance.
-    Uses registered provider if set, or falls back to skills.loader.
+    Uses registered provider if set, or raises RuntimeError if not configured.
     """
     if _skill_registry_provider is not None:
         return _skill_registry_provider()
-    from skills.loader import get_skill_registry as _get_reg
-
-    return _get_reg()
+    raise RuntimeError("Skill registry provider not configured. Call set_skill_registry_provider().")
 

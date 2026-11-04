@@ -288,13 +288,6 @@ async def execute_llm_with_retry(
             is_strict = True
 
     masker = _pii_masker_instance
-    if masker is None and is_strict:
-        try:
-            from services.rag.pii_masker import pii_masker
-            masker = pii_masker
-        except Exception:
-            masker = None
-
     active_mapping: dict[str, str] = turn_token_mapping if turn_token_mapping is not None else {}
 
     # 1. Masking Phase
@@ -318,7 +311,7 @@ async def execute_llm_with_retry(
                     if fn:
                         args = fn.get("arguments") if isinstance(fn, dict) else getattr(fn, "arguments", None)
                         if isinstance(args, str):
-                            masked_args, mapping = await pii_masker.async_mask(args, existing_mapping=active_mapping)
+                            masked_args, mapping = await masker.async_mask(args, existing_mapping=active_mapping)
                             if isinstance(fn, dict):
                                 fn["arguments"] = masked_args
                             else:
@@ -347,16 +340,16 @@ async def execute_llm_with_retry(
             res = await _invoke_llm(active_func, kwargs)
 
             # 2. Unmasking Phase
-            if is_strict and active_mapping and hasattr(res, "choices") and res.choices:
+            if is_strict and active_mapping and hasattr(res, "choices") and res.choices and masker:
                 first_choice = res.choices[0]
                 if hasattr(first_choice, "message"):
                     if hasattr(first_choice.message, "content") and isinstance(first_choice.message.content, str):
-                        unmasked_content = pii_masker.unmask(first_choice.message.content, active_mapping)
+                        unmasked_content = masker.unmask(first_choice.message.content, active_mapping)
                         first_choice.message.content = unmasked_content
                     if hasattr(first_choice.message, "tool_calls") and first_choice.message.tool_calls:
                         for tc in first_choice.message.tool_calls:
                             if hasattr(tc, "function") and hasattr(tc.function, "arguments") and isinstance(tc.function.arguments, str):
-                                tc.function.arguments = pii_masker.unmask(tc.function.arguments, active_mapping)
+                                tc.function.arguments = masker.unmask(tc.function.arguments, active_mapping)
 
             if turn_token_mapping is not None:
                 turn_token_mapping.update(active_mapping)

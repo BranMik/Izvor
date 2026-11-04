@@ -15,8 +15,8 @@ class LLMExecutor(Protocol):
         thread_key: tuple[str, str],
         is_superseded_fn: Any = None,
         max_attempts: int = 3,
-        run_in_threadpool_fn: Any = None,
         allow_503_immediate_retry: bool = True,
+        turn_token_mapping: dict[str, str] | None = None,
     ) -> Any: ...
 
 

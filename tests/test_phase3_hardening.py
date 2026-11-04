@@ -74,6 +74,7 @@ def test_audit_tail_caching_and_reverse_seek(tmp_path: Path):
 
 def test_auth_failure_burst_suppression(tmp_path: Path):
     from core import slack_security
+    from services.audit_logger import log_audit_event
 
     test_dir = tmp_path / "audit"
     test_dir.mkdir(parents=True, exist_ok=True)
@@ -85,7 +86,8 @@ def test_auth_failure_burst_suppression(tmp_path: Path):
     def mock_log_audit_event(**kwargs):
         logged_events.append(kwargs)
 
-    with patch("services.audit_logger.log_audit_event", side_effect=mock_log_audit_event):
+    slack_security.set_audit_logger_hook(mock_log_audit_event)
+    try:
         with slack_security._auth_failure_lock:
             slack_security._auth_failure_tracker.clear()
 
@@ -112,6 +114,8 @@ def test_auth_failure_burst_suppression(tmp_path: Path):
         summary_event = logged_events[5]
         assert summary_event["details"]["suppressed_attempts_count"] == 3
         assert "burst aggregation" in summary_event["details"]["reason"]
+    finally:
+        slack_security.set_audit_logger_hook(log_audit_event)
 
 
 # ---------------------------------------------------------------------------

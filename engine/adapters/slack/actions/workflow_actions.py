@@ -754,27 +754,38 @@ async def _handle_save_workflow_preset_button(
                 )
                 set_sandwich_config(start_chain, end_chain)
 
-        if mode == OrchestrationMode.FIXED.value:
-            saved = save_workflow(
-                name=preset_name,
-                mode=mode,
-                fixed_config=get_fixed_config(),
+        try:
+            if mode == OrchestrationMode.FIXED.value:
+                saved = save_workflow(
+                    name=preset_name,
+                    mode=mode,
+                    fixed_config=get_fixed_config(),
+                )
+            else:
+                saved = save_workflow(
+                    name=preset_name,
+                    mode=mode,
+                    sandwich_config=get_sandwich_config(),
+                )
+            set_active_workflow_id(saved.id)
+            log_audit_event(
+                event_type="WORKFLOW_PRESET_MUTATION",
+                actor={"type": "slack_admin", "id": user_id or "unknown"},
+                action="save_workflow_preset",
+                target=f"workflow:{saved.id}",
+                details={"name": preset_name, "mode": mode, "workflow_id": saved.id},
+                severity="CRITICAL",
             )
-        else:
-            saved = save_workflow(
-                name=preset_name,
-                mode=mode,
-                sandwich_config=get_sandwich_config(),
-            )
-        set_active_workflow_id(saved.id)
-        log_audit_event(
-            event_type="WORKFLOW_PRESET_MUTATION",
-            actor={"type": "slack_admin", "id": user_id or "unknown"},
-            action="save_workflow_preset",
-            target=f"workflow:{saved.id}",
-            details={"name": preset_name, "mode": mode, "workflow_id": saved.id},
-            severity="CRITICAL",
-        )
+        except ValueError as ve:
+            logger.warning(f"[WORKFLOW] Cannot save preset '{preset_name}': {ve}")
+            if user_id:
+                dm_id = await open_dm_channel(user_id)
+                if dm_id:
+                    await post_ephemeral_to_slack(
+                        channel_id=dm_id,
+                        user_id=user_id,
+                        text=f"⚠️ *Cannot save preset '{preset_name}'*: {ve}. System default presets are reserved and immutable.",
+                    )
     return None
 
 

@@ -337,19 +337,16 @@ class AppIntegrityValidator:
         engine_workflows_dir: Path | None = None,
     ) -> dict:
         """
-        Validates that the required default workflows exist and can be loaded by WorkflowManager.
-        If missing or corrupted in both user and engine workflows:
-          1. Attempts restoration to ENGINE_WORKFLOWS_DIR from backups_dir.
-          2. If backup is also absent or invalid, dynamically builds and saves presets
-             to ENGINE_WORKFLOWS_DIR based on active agents.
+        Validates that the required default workflows exist and can be resolved by WorkflowManager.
+        Verifies presence across composite tiers or in-memory dynamic defaults.
+        Never mutates or writes to ENGINE_WORKFLOWS_DIR at runtime (preserving engine immutability).
         """
-        from core.models import REQUIRED_DEFAULT_WORKFLOW_IDS, build_dynamic_default_workflows
+        from core.models import REQUIRED_DEFAULT_WORKFLOW_IDS
         from orchestration.workflow_manager import WorkflowManager
 
         if not workflows_dir.exists():
             workflows_dir.mkdir(parents=True, exist_ok=True)
 
-        b_dir = backups_dir or _DEFAULT_WORKFLOWS_BACKUP_DIR
         e_dir = engine_workflows_dir or ENGINE_WORKFLOWS_DIR
         wm = WorkflowManager(workflows_dir=workflows_dir, engine_workflows_dir=e_dir)
 
@@ -358,60 +355,19 @@ class AppIntegrityValidator:
             if existing_path is not None:
                 continue
 
-            logger.warning(
-                "[INTEGRITY] Default workflow '%s' could not be resolved by WorkflowManager. Attempting restore from backup.",
-                wf_id,
-            )
-            restored = False
-            backup_file = b_dir / f"{wf_id}.json"
-            target_engine_file = e_dir / f"{wf_id}.json"
-
-            if backup_file.exists():
-                try:
-                    with open(backup_file, "r", encoding="utf-8") as bf:
-                        b_data = json.load(bf)
-                    if isinstance(b_data, dict) and b_data.get("id") == wf_id:
-                        e_dir.mkdir(parents=True, exist_ok=True)
-                        shutil.copy2(backup_file, target_engine_file)
-                        logger.info(
-                            "[INTEGRITY] Restored default workflow '%s' from backup to %s.",
-                            wf_id,
-                            target_engine_file,
-                        )
-                        restored = True
-                except (OSError, json.JSONDecodeError, ValueError) as ex:
-                    logger.warning(
-                        "[INTEGRITY] Could not restore workflow '%s' from backup file %s: %s",
-                        wf_id,
-                        backup_file,
-                        ex,
-                    )
-
-            if not restored:
-                logger.warning(
-                    "[INTEGRITY] Backup for default workflow '%s' not available. Dynamically generating to engine workflows.",
+            # Fallback is resolved dynamically in-memory by WorkflowManager.get_workflow(wf_id)
+            preset = wm.get_workflow(wf_id)
+            if preset is not None:
+                logger.info(
+                    "[INTEGRITY] Default workflow '%s' not found on disk in %s; using dynamic in-memory preset.",
+                    wf_id,
+                    e_dir,
+                )
+            else:
+                logger.error(
+                    "[INTEGRITY] Default workflow '%s' could not be resolved on disk or dynamically.",
                     wf_id,
                 )
-                agent_keys = list(payload.get("agents", {}).keys())
-                dyn_presets = build_dynamic_default_workflows(agent_keys)
-                for preset in dyn_presets:
-                    if preset.id == wf_id:
-                        try:
-                            e_dir.mkdir(parents=True, exist_ok=True)
-                            with open(target_engine_file, "w", encoding="utf-8") as tf:
-                                json.dump(preset.model_dump(), tf, indent=2)
-                            logger.info(
-                                "[INTEGRITY] Dynamically generated and saved default workflow '%s' to %s.",
-                                wf_id,
-                                target_engine_file,
-                            )
-                        except Exception as e:  # noqa: BLE001
-                            logger.error(
-                                "[INTEGRITY] Failed to save dynamic workflow '%s': %s",
-                                wf_id,
-                                e,
-                            )
-                        break
 
         return payload
 

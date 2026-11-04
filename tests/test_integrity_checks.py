@@ -402,7 +402,7 @@ class TestDefaultWorkflowsIntegrity:
         assert not (wf_dir / "default_review_flow.json").exists()
         assert not (wf_dir / "parallel_dialectic_flow.json").exists()
 
-    def test_restores_from_backup_dir_to_engine_workflows(self, tmp_path):
+    def test_composite_resolution_does_not_mutate_engine_dir(self, tmp_path):
         wf_dir = tmp_path / "user_workflows"
         engine_dir = tmp_path / "engine_workflows"
         backup_dir = tmp_path / "backups" / "workflows"
@@ -425,11 +425,18 @@ class TestDefaultWorkflowsIntegrity:
             engine_workflows_dir=engine_dir,
         )
 
-        restored = json.loads((engine_dir / "default_sandwich.json").read_text(encoding="utf-8"))
-        assert restored["name"] == "Backup default_sandwich"
+        # Engine directory must remain untouched (immutable at runtime)
+        assert not (engine_dir / "default_sandwich.json").exists()
         assert not (wf_dir / "default_sandwich.json").exists()
 
-    def test_falls_back_to_dynamic_when_no_backup(self, tmp_path):
+        # WorkflowManager resolves defaults dynamically
+        from orchestration.workflow_manager import WorkflowManager
+        wm = WorkflowManager(workflows_dir=wf_dir, engine_workflows_dir=engine_dir)
+        preset = wm.get_workflow("default_sandwich")
+        assert preset is not None
+        assert preset.id == "default_sandwich"
+
+    def test_falls_back_to_dynamic_in_memory_without_disk_writes(self, tmp_path):
         wf_dir = tmp_path / "user_workflows"
         engine_dir = tmp_path / "engine_workflows"
         backup_dir = tmp_path / "non_existent_backups"
@@ -444,8 +451,15 @@ class TestDefaultWorkflowsIntegrity:
             engine_workflows_dir=engine_dir,
         )
 
-        assert (engine_dir / "default_sandwich.json").exists()
-        assert (engine_dir / "default_review_flow.json").exists()
-        assert (engine_dir / "parallel_dialectic_flow.json").exists()
+        # Zero runtime writes to engine_dir or wf_dir
+        assert not (engine_dir / "default_sandwich.json").exists()
+        assert not (engine_dir / "default_review_flow.json").exists()
+        assert not (engine_dir / "parallel_dialectic_flow.json").exists()
         assert not (wf_dir / "default_sandwich.json").exists()
+
+        # Dynamic resolution succeeds in memory
+        from orchestration.workflow_manager import WorkflowManager
+        wm = WorkflowManager(workflows_dir=wf_dir, engine_workflows_dir=engine_dir)
+        assert wm.get_workflow("default_review_flow") is not None
+        assert wm.get_workflow("parallel_dialectic_flow") is not None
 
