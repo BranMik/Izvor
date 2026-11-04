@@ -220,7 +220,7 @@ def build_agent_prompt(
                     logger.warning(
                         f"[PROMPT BUILDER] Ignoring unverified prompt modifier key '{mod_k}' (not a registered skill with instructions)"
                     )
-        except (ImportError, AttributeError, KeyError, TypeError, ValueError) as e:
+        except (ImportError, AttributeError, KeyError, TypeError, ValueError, RuntimeError) as e:
             logger.debug(f"[PROMPT BUILDER] Error formatting custom modifiers: {e}")
 
     directives_block = f"\n\n{chr(10).join(custom_directives)}\n" if custom_directives else ""
@@ -245,7 +245,12 @@ def build_agent_prompt(
     # Append Skills Directory and on-demand progressive disclosure (strictly filtered to authorized skills)
     try:
         from core.registry import get_skill_registry
-        skill_registry = get_skill_registry()
+        try:
+            skill_registry = get_skill_registry()
+        except RuntimeError:
+            import importlib
+            importlib.import_module("skills.loader")
+            skill_registry = get_skill_registry()
 
         # Inject comprehensive skills directory so any agent asked can accurately list all skills and authorized agents
         skills_dir_prompt = skill_registry.get_skills_directory_prompt()
@@ -276,7 +281,7 @@ def build_agent_prompt(
                     pinned_guidelines.append(s_def.instructions)
             if pinned_guidelines:
                 prompt += "\n### PRE-EQUIPPED SKILL GUIDELINES\n" + "\n\n".join(pinned_guidelines) + "\n\n"
-    except (ImportError, AttributeError, KeyError, TypeError, ValueError) as e:
+    except (ImportError, AttributeError, KeyError, TypeError, ValueError, RuntimeError) as e:
         logger.warning(f"[PROMPT BUILDER] Failed to load skills catalog/guidelines for {agent_key}: {e}")
 
     return prompt

@@ -214,10 +214,16 @@ SESSION_DURABILITY_STATEMENTS = [
     "ALTER TABLE thread_sessions ADD COLUMN consensus_reached BOOLEAN NOT NULL DEFAULT 0;",
 ]
 
+SESSION_CONVERGENCE_STATEMENTS = [
+    # 13. Thread Session Convergence Durability (Speaker streak across restarts)
+    "ALTER TABLE thread_sessions ADD COLUMN convergence_speakers TEXT NOT NULL DEFAULT '[]';",
+]
+
 MIGRATIONS: list[tuple[int, str, list[str]]] = [
     (1, "baseline_schema", BASELINE_SCHEMA_STATEMENTS),
     (2, "audit_anchors_and_indices", AUDIT_ANCHORS_STATEMENTS),
     (3, "thread_session_durability", SESSION_DURABILITY_STATEMENTS),
+    (4, "thread_session_convergence_speakers", SESSION_CONVERGENCE_STATEMENTS),
 ]
 
 

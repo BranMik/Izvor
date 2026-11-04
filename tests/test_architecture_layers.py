@@ -45,6 +45,32 @@ def test_core_does_not_import_adapters():
     assert not violations, f"Layer violation: core/ cannot import from adapters/: {violations}"
 
 
+def test_core_does_not_import_higher_layers():
+    """
+    Strict Layer Inversion: Verify that core/ modules have ZERO imports (top-level or deferred)
+    from higher layers: adapters, orchestration, services, pipeline, skills, prompts.
+    """
+    core_dir = PROJECT_ROOT / "engine" / "core"
+    forbidden_layers = {"adapters", "orchestration", "services", "pipeline", "skills", "prompts"}
+    violations = []
+
+    for py_file in core_dir.glob("*.py"):
+        tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    root_pkg = alias.name.split(".")[0]
+                    if root_pkg in forbidden_layers:
+                        violations.append(f"{py_file.name}:{node.lineno} imports {alias.name}")
+            elif isinstance(node, ast.ImportFrom):
+                if node.module:
+                    root_pkg = node.module.split(".")[0]
+                    if root_pkg in forbidden_layers:
+                        violations.append(f"{py_file.name}:{node.lineno} imports from {node.module}")
+
+    assert not violations, f"Layer violation: core/ cannot import from higher layers {forbidden_layers}: {violations}"
+
+
 def test_core_top_level_does_not_import_orchestration():
     """Verify that core/ modules have zero top-level imports from orchestration/."""
     core_dir = PROJECT_ROOT / "engine" / "core"

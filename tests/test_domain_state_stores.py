@@ -356,4 +356,67 @@ async def test_dispatch_discussion_task_safe():
     assert completed is True
 
 
+def test_convergence_speakers_sqlite_durability():
+    """Verify convergence speakers persist to SQLite thread_sessions and survive cache reload."""
+    from orchestration.thread_state import thread_state_manager
+    ch = "C_CONV_PERSIST"
+    ts = "1700000999.0001"
+
+    thread_state_manager.clear_convergence_speakers(ch, ts)
+    assert thread_state_manager.get_convergence_speakers(ch, ts) == []
+
+    thread_state_manager.record_convergence_speaker(ch, ts, "agent-10001")
+    thread_state_manager.record_convergence_speaker(ch, ts, "agent-10008")
+    # Duplicate addition should be ignored (streak of unique agents)
+    thread_state_manager.record_convergence_speaker(ch, ts, "agent-10001")
+    assert thread_state_manager.get_convergence_speakers(ch, ts) == ["agent-10001", "agent-10008"]
+
+    # Evict in-memory state to simulate process restart / eviction
+    thread_state_manager.discussion._loaded_threads.discard((ch, ts))
+    thread_state_manager.discussion.thread_convergence_speakers.pop((ch, ts), None)
+
+    # Verify reloading from SQLite restores convergence speakers
+    reloaded = thread_state_manager.get_convergence_speakers(ch, ts)
+    assert reloaded == ["agent-10001", "agent-10008"]
+
+    # Clear and verify DB sync
+    thread_state_manager.clear_convergence_speakers(ch, ts)
+    assert thread_state_manager.get_convergence_speakers(ch, ts) == []
+
+    thread_state_manager.discussion._loaded_threads.discard((ch, ts))
+    assert thread_state_manager.get_convergence_speakers(ch, ts) == []
+
+
+@pytest.mark.anyio
+async def test_outbound_messages_dlp_unified():
+    """Verify post_thread_note, update_thread_note, and post_message_to_slack sanitize via _prepare_outbound_payload."""
+    from services.slack.messages import post_thread_note, update_thread_note, post_message_to_slack
+    from services.slack.client_core import configure_token, reset_token
+
+    configure_token("")
+    secret_text = "Here is sensitive token: sk_live_1234567890abcdef"
+    try:
+        # Note post
+        res_post = await post_thread_note("C_TEST", "1700000001.0001", secret_text)
+        assert res_post["ok"] is True
+        blocks = res_post.get("blocks")
+        assert blocks is not None
+        assert "blocked by security policy" in blocks[0]["text"]["text"]
+
+        # Note update
+        res_upd = await update_thread_note("C_TEST", "mock_note_1", secret_text)
+        assert res_upd["ok"] is True
+        upd_blocks = res_upd.get("blocks")
+        assert upd_blocks is not None
+        assert "blocked by security policy" in upd_blocks[0]["text"]["text"]
+
+        # Message post
+        res_msg = await post_message_to_slack("C_TEST", secret_text)
+        assert res_msg["ok"] is True
+        assert res_msg.get("mock") is True
+    finally:
+        reset_token()
+
+
+
 

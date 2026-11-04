@@ -11,10 +11,6 @@ import httpx
 from slack_sdk.errors import SlackApiError
 
 from core.paths import get_downloads_dir
-from orchestration.system_settings import (
-    get_max_file_size_bytes,
-    get_max_file_size_mb,
-)
 from services.rate_limiter import slack_rate_limiter
 from services.slack.client_core import get_slack_async_client, get_slack_bot_token
 
@@ -167,6 +163,11 @@ async def download_slack_file(file_info: dict[str, Any], max_chars: int = 50000)
     file_name = file_info.get("name", "unknown_file")
     url = file_info.get("url_private_download") or file_info.get("url_private")
     file_size = file_info.get("size", 0)
+
+    from orchestration.system_settings import (
+        get_max_file_size_bytes,
+        get_max_file_size_mb,
+    )
 
     max_size_bytes = get_max_file_size_bytes()
     max_size_mb = get_max_file_size_mb()

@@ -157,13 +157,6 @@ def _record_auth_failure_audit(client_id: str) -> None:
                 state["suppressed_count"] += 1
 
     log_fn = _audit_logger_hook
-    if log_fn is None:
-        try:
-            from services.audit_logger import log_audit_event
-            log_fn = log_audit_event
-        except Exception:
-            log_fn = None
-
     if log_fn is not None:
         try:
             for ev_id, ev_count in evicted_summaries:
@@ -301,13 +294,6 @@ def sanitize_slack_blocks(
     import copy
 
     scan_fn = _secret_scanner_hook
-    if scan_fn is None:
-        try:
-            from services.security import scan_output_for_secrets
-            scan_fn = scan_output_for_secrets
-        except Exception:
-            scan_fn = None
-
     blocks_copy = copy.deepcopy(blocks)
     matched_rule: str | None = None
 

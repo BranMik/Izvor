@@ -35,6 +35,17 @@ from services.rag.sync_engine import rag_sync_engine
 from orchestration.system_settings import system_settings_manager
 from core.logging_filters import setup_credential_redaction_filters
 from core.paths import AVATARS_DIR, ENGINE_AVATARS_DIR, PROJECT_ROOT
+import skills.loader
+from core.llm_utils import set_pii_masker_instance
+from core.slack_security import set_audit_logger_hook, set_secret_scanner_hook
+from services.audit_logger import log_audit_event
+from services.rag.pii_masker import pii_masker
+from services.security import scan_output_for_secrets
+
+# Wire IoC hooks from core to services
+set_audit_logger_hook(log_audit_event)
+set_secret_scanner_hook(scan_output_for_secrets)
+set_pii_masker_instance(pii_masker)
 
 # Configure logging format
 dynamic_log_level = getattr(logging, system_settings_manager.get_log_level(), logging.INFO)

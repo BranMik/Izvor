@@ -113,6 +113,15 @@ class WorkflowManager:
     def get_workflow_file_path(self, workflow_id: str) -> Path | None:
         """Resolves the physical filesystem path for a workflow ID (custom or engine)."""
         clean_id = slugify(workflow_id)
+        if clean_id in REQUIRED_DEFAULT_WORKFLOW_IDS:
+            engine_path = self.engine_workflows_dir / f"{clean_id}.json"
+            if engine_path.exists():
+                return engine_path
+            custom_path = self.workflows_dir / f"{clean_id}.json"
+            if custom_path.exists():
+                return custom_path
+            return None
+
         custom_path = self.workflows_dir / f"{clean_id}.json"
         if custom_path.exists():
             return custom_path

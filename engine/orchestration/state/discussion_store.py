@@ -24,6 +24,7 @@ class DiscussionStateStore:
         self.thread_initial_prompts: dict[tuple[str, str], str] = {}
         self.consensus_reached_threads: set[tuple[str, str]] = set()
         self.thread_workflow_snapshots: dict[tuple[str, str], dict[str, Any]] = {}
+        self.thread_convergence_speakers: dict[tuple[str, str], list[str]] = {}
         self._loaded_threads: set[tuple[str, str]] = set()
 
     def _ensure_loaded(self, channel_id: str, thread_ts: str) -> None:
@@ -36,7 +37,7 @@ class DiscussionStateStore:
                 cursor = conn.cursor()
                 cursor.execute(
                     "SELECT remaining_agents, custom_flow, stop_requested, rounds, round_sequence, initial_prompt, "
-                    "workflow_snapshot, open_debate, consensus_reached "
+                    "workflow_snapshot, open_debate, consensus_reached, convergence_speakers "
                     "FROM thread_sessions WHERE channel_id = ? AND thread_ts = ?",
                     (channel_id, thread_ts),
                 )
@@ -66,6 +67,13 @@ class DiscussionStateStore:
                         self.open_debate_threads.add(key)
                     if row["consensus_reached"] and key not in self.consensus_reached_threads:
                         self.consensus_reached_threads.add(key)
+                    if key not in self.thread_convergence_speakers and row["convergence_speakers"]:
+                        try:
+                            conv = json.loads(row["convergence_speakers"])
+                            if isinstance(conv, list):
+                                self.thread_convergence_speakers[key] = conv
+                        except Exception:
+                            pass
         except (json.JSONDecodeError, ValueError, TypeError) as e:
             logger.debug(f"[DISCUSSION STORE] Failed to load session from DB for {key}: {e}")
 
@@ -80,6 +88,7 @@ class DiscussionStateStore:
         wf_snapshot = self.thread_workflow_snapshots.get(key)
         open_debate = 1 if key in self.open_debate_threads else 0
         consensus_reached = 1 if key in self.consensus_reached_threads else 0
+        conv_speakers = self.thread_convergence_speakers.get(key)
 
         has_data = (
             rem_agents is not None
@@ -91,6 +100,7 @@ class DiscussionStateStore:
             or wf_snapshot is not None
             or open_debate == 1
             or consensus_reached == 1
+            or (conv_speakers is not None and len(conv_speakers) > 0)
         )
 
         try:
@@ -108,9 +118,9 @@ class DiscussionStateStore:
                         INSERT INTO thread_sessions (
                             channel_id, thread_ts, status, remaining_agents, custom_flow,
                             stop_requested, rounds, round_sequence, initial_prompt,
-                            workflow_snapshot, open_debate, consensus_reached,
+                            workflow_snapshot, open_debate, consensus_reached, convergence_speakers,
                             created_at, last_activity
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         ON CONFLICT(channel_id, thread_ts) DO UPDATE SET
                             status = excluded.status,
                             remaining_agents = excluded.remaining_agents,
@@ -122,6 +132,7 @@ class DiscussionStateStore:
                             workflow_snapshot = excluded.workflow_snapshot,
                             open_debate = excluded.open_debate,
                             consensus_reached = excluded.consensus_reached,
+                            convergence_speakers = excluded.convergence_speakers,
                             last_activity = excluded.last_activity
                         """,
                         (
@@ -137,6 +148,7 @@ class DiscussionStateStore:
                             json.dumps(wf_snapshot) if wf_snapshot is not None else None,
                             open_debate,
                             consensus_reached,
+                            json.dumps(conv_speakers or []),
                             now,
                             now,
                         ),
@@ -434,6 +446,29 @@ class DiscussionStateStore:
         self.thread_workflow_snapshots.pop(key, None)
         self._sync_to_db(channel_id, thread_ts)
 
+    def record_convergence_speaker(self, channel_id: str, thread_ts: str, agent_key: str) -> None:
+        """Records a unique agent key in the convergence speaker streak and persists to SQLite."""
+        self._ensure_loaded(channel_id, thread_ts)
+        key = (channel_id, thread_ts)
+        if key not in self.thread_convergence_speakers:
+            self.thread_convergence_speakers[key] = []
+        if agent_key and agent_key not in self.thread_convergence_speakers[key]:
+            self.thread_convergence_speakers[key].append(agent_key)
+            self._sync_to_db(channel_id, thread_ts)
+
+    def get_convergence_speakers(self, channel_id: str, thread_ts: str) -> list[str]:
+        """Returns the list of speakers in the current convergence streak from SQLite."""
+        self._ensure_loaded(channel_id, thread_ts)
+        return list(self.thread_convergence_speakers.get((channel_id, thread_ts), []))
+
+    def clear_convergence_speakers(self, channel_id: str, thread_ts: str) -> None:
+        """Clears the convergence speaker streak for this thread in memory and SQLite."""
+        self._ensure_loaded(channel_id, thread_ts)
+        key = (channel_id, thread_ts)
+        if key in self.thread_convergence_speakers:
+            self.thread_convergence_speakers.pop(key, None)
+            self._sync_to_db(channel_id, thread_ts)
+
     def clear_thread(self, channel_id: str, thread_ts: str) -> None:
         """Purges discussion state for this thread in a single atomic operation."""
         key = (channel_id, thread_ts)
@@ -447,6 +482,7 @@ class DiscussionStateStore:
         self.thread_initial_prompts.pop(key, None)
         self.consensus_reached_threads.discard(key)
         self.thread_workflow_snapshots.pop(key, None)
+        self.thread_convergence_speakers.pop(key, None)
         self._loaded_threads.discard(key)
         try:
             with get_db_transaction(immediate=True) as conn:
@@ -469,6 +505,7 @@ class DiscussionStateStore:
         self.thread_initial_prompts.clear()
         self.consensus_reached_threads.clear()
         self.thread_workflow_snapshots.clear()
+        self.thread_convergence_speakers.clear()
         self._loaded_threads.clear()
         try:
             with get_db_transaction(immediate=True) as conn:

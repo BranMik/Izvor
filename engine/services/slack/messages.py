@@ -340,7 +340,7 @@ async def post_thread_note(
     Posts a live updatable summary/notes message inside the given Slack thread.
     Optionally pins the note message for quick discovery. Supports Block Kit blocks.
     """
-    text = _sanitize_and_truncate_slack_text(text)
+    text, blocks = _prepare_outbound_payload(text, blocks, user_id=username)
 
     bot_token = get_slack_bot_token()
     if not bot_token or bot_token == "xoxb-your-bot-user-oauth-token":
@@ -351,16 +351,6 @@ async def post_thread_note(
         return {"ok": True, "ts": mock_ts, "mock": True, "blocks": blocks}
 
     try:
-        matched_rule = scan_output_for_secrets(text, user_id=username)
-        if blocks:
-            blocks, matched_rule_blocks = sanitize_slack_blocks(blocks, user_id=username)
-            if matched_rule_blocks:
-                matched_rule = matched_rule or matched_rule_blocks
-
-        if matched_rule:
-            logger.warning(f"[SECURITY] Note blocked by guardrail rule: {matched_rule}")
-            text = f"⚠️ *Note blocked by security policy.* (Rule: {matched_rule})"
-            blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": text}}]
 
         await slack_rate_limiter.acquire()
         client = get_slack_async_client()
@@ -459,7 +449,7 @@ async def update_thread_note(
     Updates an existing live summary/notes message in-place via Slack chat.update.
     Supports Block Kit blocks.
     """
-    text = _sanitize_and_truncate_slack_text(text)
+    text, blocks = _prepare_outbound_payload(text, blocks, user_id="system_update")
 
     bot_token = get_slack_bot_token()
     if (
@@ -471,16 +461,6 @@ async def update_thread_note(
         return {"ok": True, "ts": message_ts, "mock": True, "blocks": blocks}
 
     try:
-        matched_rule = scan_output_for_secrets(text, user_id="system_update")
-        if blocks is not None:
-            blocks, matched_rule_blocks = sanitize_slack_blocks(blocks, user_id="system_update")
-            if matched_rule_blocks:
-                matched_rule = matched_rule or matched_rule_blocks
-
-        if matched_rule:
-            logger.warning(f"[SECURITY] Update blocked by guardrail rule: {matched_rule}")
-            text = f"⚠️ *Update blocked by security policy.* (Rule: {matched_rule})"
-            blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": text}}]
 
         await slack_rate_limiter.acquire()
         client = get_slack_async_client()
@@ -603,22 +583,11 @@ async def post_message_to_slack(
     icon_emoji: str | None = None,
     blocks: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
+    text, blocks = _prepare_outbound_payload(text, blocks, user_id=username or "system")
     bot_token = get_slack_bot_token()
     if not bot_token or bot_token == "xoxb-your-bot-user-oauth-token":
         return {"ok": True, "mock": True, "ts": f"mock_msg_{int(time.time() * 1000)}.000"}
     try:
-        matched_rule = scan_output_for_secrets(text, user_id=username or "system")
-        if blocks:
-            blocks, matched_rule_blocks = sanitize_slack_blocks(blocks, user_id=username or "system")
-            if matched_rule_blocks:
-                matched_rule = matched_rule or matched_rule_blocks
-
-        if matched_rule:
-            logger.warning(f"[SECURITY] Message blocked by guardrail rule: {matched_rule}")
-            text = f"⚠️ *Message blocked by security policy.* (Rule: {matched_rule})"
-            blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": text}}]
-
-        text = sanitize_slack_broadcast_mentions(text)
         kwargs: dict[str, Any] = {
             "channel": channel_id,
             "text": text,

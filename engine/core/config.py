@@ -18,6 +18,7 @@ from dotenv import load_dotenv
 from .paths import (
     AGENT_SETTINGS_FILE,
     PROJECT_ROOT,
+    PROMPTS_DIR,
     SYSTEM_AGENT_SETTINGS_FILE,
     SYSTEM_SETTINGS_FILE,
 )
@@ -360,9 +361,11 @@ def get_pricing_agent_prompt() -> str:
         if _prompt_builder_provider is not None:
             _CACHED_PROMPTS["pricing_agent"] = _prompt_builder_provider("Pricing_Agent")
         else:
-            from prompts import build_agent_prompt
-
-            _CACHED_PROMPTS["pricing_agent"] = build_agent_prompt("Pricing_Agent")
+            prompt_file = PROMPTS_DIR / "system_agents" / "Pricing_Agent.md"
+            if prompt_file.exists():
+                _CACHED_PROMPTS["pricing_agent"] = prompt_file.read_text(encoding="utf-8")
+            else:
+                _CACHED_PROMPTS["pricing_agent"] = "You are a pricing analyst."
     return _CACHED_PROMPTS["pricing_agent"]
 
 
