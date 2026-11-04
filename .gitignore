@@ -53,7 +53,7 @@ agents_resources/*
 !system_resources/agy/.gitkeep
 !system_resources/agy/auto/.gitkeep
 !agents_resources/.gitkeep
-e2e_testing_harness/.test_run_counter
+tests/e2e/.test_run_counter
 
 # IDE / Editor
 .vscode/
@@ -86,3 +86,4 @@ data/audit/*
 # Temporary commit message files
 .commit_msg*
 commit_msg_*.txt
+Bitna pitanja za analizu.md

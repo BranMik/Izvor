@@ -1,6 +1,6 @@
 """
 Pytest integration for E2E Hybrid Simulation Test Suite.
-Allows running the scenarios via `pytest e2e_testing_harness/`.
+Allows running the scenarios via `pytest tests/e2e/test_e2e_suite.py`.
 Collects all scenarios from `ALL_SCENARIOS` and executes them using `E2ETestRunner`.
 """
 
@@ -8,8 +8,8 @@ import os
 
 import pytest
 
-from e2e_testing_harness.runner import E2ETestRunner
-from e2e_testing_harness.scenarios import ALL_SCENARIOS, Scenario
+from tests.e2e.runner import E2ETestRunner
+from tests.e2e.scenarios import ALL_SCENARIOS, Scenario
 
 
 @pytest.mark.anyio

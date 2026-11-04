@@ -1,7 +1,7 @@
 # Izvor Slack Hub — End-to-End Behavioural Test Suite
 
 A comprehensive manual testing guide with 27 actionable, copy-pasteable test scenarios to validate all agent personas, skills, directives, governance rules, and interactive Slack features. 
-**This entire test matrix can also be run completely automatically using the `e2e_testing_harness` hybrid regression suite.**
+**This entire test matrix can also be run completely automatically using the `tests/e2e` hybrid regression suite.**
 
 ---
 
@@ -10,24 +10,24 @@ A comprehensive manual testing guide with 27 actionable, copy-pasteable test sce
 To run the full suite automatically without manual typing in Slack:
 ```powershell
 # 1. Live LLM Execution (DEFAULT: runs authentic LLM completion for all agents)
-python -m e2e_testing_harness.runner
-python -m e2e_testing_harness.runner --case TC-06
-python -m pytest e2e_testing_harness/test_e2e_suite.py
+python -m tests.e2e.runner
+python -m tests.e2e.runner --case TC-06
+python -m pytest tests/e2e/test_e2e_suite.py
 
 # 2. Hybrid Mocked LLM Simulation (Fast offline testing via deterministic mocks)
-python -m e2e_testing_harness.runner --hybrid--mocked-llm
-python -m e2e_testing_harness.runner --hybrid--mocked-llm --case TC-06
-python -m pytest e2e_testing_harness/test_e2e_suite.py --hybrid--mocked-llm
+python -m tests.e2e.runner --hybrid--mocked-llm
+python -m tests.e2e.runner --hybrid--mocked-llm --case TC-06
+python -m pytest tests/e2e/test_e2e_suite.py --hybrid--mocked-llm
 
 # 3. Live Slack Dispatch Mode (Streams real cards, avatars & turns to Slack)
 # Runs scenario TC-01 into the dedicated channel with 1s pacing (live LLM by default):
-python -m e2e_testing_harness.runner --live-slack --channel C0123456789 --case TC-01
+python -m tests.e2e.runner --live-slack --channel C0123456789 --case TC-01
 
 # Run with custom testing run prefix (e.g. TEST_RUN_1-[TC-01]):
-python -m e2e_testing_harness.runner --live-slack --channel C0123456789 --run-num 1 --case TC-02
+python -m tests.e2e.runner --live-slack --channel C0123456789 --run-num 1 --case TC-02
 
 # Run live Slack dispatch with hybrid mocked LLM simulation:
-python -m e2e_testing_harness.runner --live-slack --channel C0123456789 --hybrid--mocked-llm --case TC-01
+python -m tests.e2e.runner --live-slack --channel C0123456789 --hybrid--mocked-llm --case TC-01
 ```
 
 ---

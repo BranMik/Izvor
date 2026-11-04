@@ -6,7 +6,7 @@ Supports dual-mode execution:
 - Offline Simulation: fast, zero-delay in-memory test harness
 - Live Slack Dispatch: streams authentic messages, Block Kit cards, avatars, and
   progress edits directly into a designated Slack test channel with configurable pacing.
-Supports standalone CLI execution: `python -m e2e_testing_harness.runner` or via `pytest`.
+Supports standalone CLI execution: `python -m tests.e2e.runner` or via `pytest`.
 """
 
 from __future__ import annotations
@@ -21,19 +21,35 @@ import time
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
+_root_dir = str(Path(__file__).resolve().parents[2])
+_engine_dir = str(Path(__file__).resolve().parents[2] / "engine")
+if _root_dir not in sys.path:
+    sys.path.insert(0, _root_dir)
+if _engine_dir not in sys.path:
+    sys.path.insert(0, _engine_dir)
+
+import main
+
 from core.config import SLACK_BOT_TOKEN, SLACK_TEST_CHANNEL_ID
-from e2e_testing_harness.hybrid_interceptor import HybridInterceptor
-from e2e_testing_harness.protocol_client import SlackProtocolClient
-from e2e_testing_harness.scenarios import ALL_SCENARIOS, Scenario, ScenarioResult
+
+from tests.e2e.hybrid_interceptor import HybridInterceptor
+from tests.e2e.protocol_client import SlackProtocolClient
+from tests.e2e.scenarios import ALL_SCENARIOS, Scenario, ScenarioResult
 from orchestration.agent_settings import (
     reset_enabled_agents,
+    settings_manager,
+
+)
+from orchestration.app_settings import (
     set_circuit_breaker_enabled,
     set_circuit_breaker_threshold,
-    settings_manager,
+
+
+
 )
 from orchestration.thread_state import thread_state_manager
 
-logger = logging.getLogger("e2e_testing_harness.runner")
+logger = logging.getLogger("tests.e2e.runner")
 
 
 def get_next_test_run_prefix(run_id: str | None = None, run_num: int | None = None) -> str:
@@ -160,14 +176,15 @@ class E2ETestRunner:
 
         patches = [
             patch("core.slack_security.verify_slack_signature", lambda body, headers: True),
-            patch("main.verify_slack_signature", lambda body, headers: True),
+            patch("adapters.slack.events.verify_slack_signature", lambda body, headers: True),
+            patch("adapters.slack.interactivity.verify_slack_signature", lambda body, headers: True),
             patch("orchestration.stages.post_record.get_debate_turn_pacing_seconds", lambda: self.pacing),
             patch("orchestration.stages.post_record.get_slack_post_pause_seconds", lambda: self.pacing),
             patch("orchestration.stages.resolution.get_slack_post_pause_seconds", lambda: self.pacing),
             patch("adapters.slack.interactivity.open_dm_channel", AsyncMock(return_value="D_TEST_DM")),
             patch("services.flat_history_recorder.record_flat_history", lambda *args, **kwargs: None),
             patch("services.flat_history_recorder.async_record_flat_history", new_callable=AsyncMock),
-            patch("orchestration.stages.post_record.record_flat_history", lambda *args, **kwargs: None),
+            patch("orchestration.stages.post_record.async_record_flat_history", new_callable=AsyncMock),
         ]
 
         # In live mode with live LLMs, do NOT intercept LiteLLM calls
@@ -186,7 +203,7 @@ class E2ETestRunner:
         patches.extend([
             patch("services.slack.post_agent_response", self.client.mock_post_agent_response),
             patch("services.slack.update_slack_message", self.client.mock_update_slack_message),
-            patch("orchestration.stages.post_record.update_slack_message", self.client.mock_update_slack_message),
+
             patch("services.slack.post_system_message", self.client.mock_post_system_message),
             patch("services.slack.post_ephemeral_to_slack", self.client.mock_post_ephemeral),
             patch("services.slack.upload_text_file_to_slack", self.client.mock_upload_file),
@@ -201,7 +218,7 @@ class E2ETestRunner:
             patch("orchestration.agent_router.fetch_thread_files", self.client.mock_fetch_thread_files),
             patch("orchestration.stages.validation.post_system_message", self.client.mock_post_system_message),
             patch("orchestration.stages.resolution.post_system_message", self.client.mock_post_system_message),
-            patch("orchestration.stages.resolution.post_agent_response", self.client.mock_post_agent_response),
+
             patch("orchestration.stages.execution.post_agent_response", self.client.mock_post_agent_response),
             patch("orchestration.stages.post_record.post_agent_response", self.client.mock_post_agent_response),
             patch("services.slack.post_thread_note", self.client.mock_post_thread_note),

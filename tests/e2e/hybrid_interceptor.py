@@ -17,7 +17,7 @@ from unittest.mock import MagicMock
 
 import litellm
 
-logger = logging.getLogger("e2e_testing_harness.interceptor")
+logger = logging.getLogger("tests.e2e.interceptor")
 
 # Deterministic fixture results for external web tools
 MOCK_WEB_SEARCH_FIXTURES: dict[str, list[dict[str, str]]] = {

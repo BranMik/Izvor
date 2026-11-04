@@ -1,7 +1,7 @@
 """
 E2E Behavioural Test Scenarios.
 
-Defines the 28 comprehensive test scenarios matching e2e_testing_harness/SLACK_BEHAVIOURAL_TEST_CASES.md,
+Defines the 28 comprehensive test scenarios matching tests/e2e/SLACK_BEHAVIOURAL_TEST_CASES.md,
 including verification logic and assertion checks.
 Seamlessly supports both offline simulation and live Slack dispatch.
 """
@@ -13,8 +13,8 @@ from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
 from typing import Any
 
-from e2e_testing_harness.protocol_client import SlackProtocolClient
-from orchestration.agent_settings import (
+from tests.e2e.protocol_client import SlackProtocolClient
+from orchestration.app_settings import (
     set_circuit_breaker_enabled,
     set_circuit_breaker_threshold,
 )

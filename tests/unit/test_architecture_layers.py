@@ -3,7 +3,7 @@ from pathlib import Path
 
 
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 EXCLUDED_DIRS = {
     ".venv",
@@ -168,7 +168,6 @@ def test_slack_client_chat_not_called_outside_allowed_modules():
     allowed_prefixes = (
         Path("engine") / "services" / "slack",
         Path("tests"),
-        Path("e2e_testing_harness"),
     )
 
     for py_file in _get_python_source_files():

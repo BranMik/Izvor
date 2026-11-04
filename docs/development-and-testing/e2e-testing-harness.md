@@ -1,6 +1,6 @@
 # E2E Behavioral Testing Harness
 
-This document describes the design, architecture, and operation of **Izvor**'s End-to-End (E2E) Behavioral Testing Harness located in [`e2e_testing_harness/`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/e2e_testing_harness).
+This document describes the design, architecture, and operation of **Izvor**'s End-to-End (E2E) Behavioral Testing Harness located in [`tests/e2e/`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/tests/e2e).
 
 ---
 
@@ -20,7 +20,7 @@ The harness validates complex behavioral flows such as:
 
 ```mermaid
 graph TD
-    Runner["E2E Test Runner (e2e_testing_harness/runner.py)"] --> Scenarios["Test Scenarios (e2e_testing_harness/scenarios.py)"]
+    Runner["E2E Test Runner (tests/e2e/runner.py)"] --> Scenarios["Test Scenarios (tests/e2e/scenarios.py)"]
     Scenarios --> ProtocolClient["Synthetic Protocol Client (protocol_client.py)"]
     
     subgraph Emulation & Interception
@@ -38,19 +38,19 @@ graph TD
 ## 🧩 Core Harness Components
 
 ### 1. The Protocol Client (`protocol_client.py`)
-- **File**: [`e2e_testing_harness/protocol_client.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/e2e_testing_harness/protocol_client.py)
+- **File**: [`tests/e2e/protocol_client.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/tests/e2e/protocol_client.py)
 - **Role**: Synthesizes authentic Slack Events API payloads (`app_mention`, `message`, `block_actions`).
 - Computes valid HMAC-SHA256 signatures with timestamps, exercising the complete security verification path.
 
 ### 2. The Hybrid Interceptor (`hybrid_interceptor.py`)
-- **File**: [`e2e_testing_harness/hybrid_interceptor.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/e2e_testing_harness/hybrid_interceptor.py)
+- **File**: [`tests/e2e/hybrid_interceptor.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/tests/e2e/hybrid_interceptor.py)
 - **Role**: Intercepts outbound calls to the Slack WebClient (`chat.postMessage`, `chat.update`, `views.publish`, etc.).
 - Records every posted message, placeholder, edit, and avatar override for post-test assertions.
 - Supports configurable latency injection to simulate slow or fast LLM/tool executions.
 
 ### 3. Scenario Catalog (`scenarios.py`)
-- **File**: [`e2e_testing_harness/scenarios.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/e2e_testing_harness/scenarios.py)
-- Implements comprehensive test suites mapped directly to [`SLACK_BEHAVIOURAL_TEST_CASES.md`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/e2e_testing_harness/SLACK_BEHAVIOURAL_TEST_CASES.md).
+- **File**: [`tests/e2e/scenarios.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/tests/e2e/scenarios.py)
+- Implements comprehensive test suites mapped directly to [`SLACK_BEHAVIOURAL_TEST_CASES.md`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/tests/e2e/SLACK_BEHAVIOURAL_TEST_CASES.md).
 
 ---
 
@@ -59,11 +59,11 @@ graph TD
 Execute the full behavioral harness suite using `pytest`:
 
 ```bash
-pytest e2e_testing_harness/test_e2e_suite.py -v
+pytest tests/e2e/test_e2e_suite.py -v
 ```
 
 Or run the standalone scenario runner script:
 
 ```bash
-python -m e2e_testing_harness.runner --all
+python -m tests.e2e.runner --all
 ```
