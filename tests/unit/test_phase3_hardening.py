@@ -9,7 +9,9 @@ Dedicated test suite verifying Phase 3 Hardening & Remediation:
 import json
 import logging
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
+
+import pytest
 
 
 from core.logging_filters import CredentialRedactionFilter
@@ -122,30 +124,31 @@ def test_auth_failure_burst_suppression(tmp_path: Path):
 # 3. [S7] Fail-Closed Tool Authorization
 # ---------------------------------------------------------------------------
 
-def test_fail_closed_tool_authorization():
+@pytest.mark.anyio
+async def test_fail_closed_tool_authorization():
     # Calling with authorized_skills=None must fail closed
-    res_none = skill_registry.execute_tool(
+    res_none = await skill_registry.execute_tool_async(
         "read_document", {"file_path": "confidential.txt"}
     )
     data_none = json.loads(res_none)
     assert "Permission denied: Agent is not authorized to execute tool 'read_document'" in data_none["error"]
 
     # Calling with empty list must fail closed
-    res_empty = skill_registry.execute_tool(
+    res_empty = await skill_registry.execute_tool_async(
         "read_document", {"file_path": "confidential.txt"}, authorized_skills=[]
     )
     data_empty = json.loads(res_empty)
     assert "Permission denied: Agent is not authorized to execute tool 'read_document'" in data_empty["error"]
 
     # Calling with internal sentinel allows execution
-    with patch("skills.loader.execute_local_tool", return_value=json.dumps({"contents": "unrestricted"})):
-        res_internal = skill_registry.execute_tool(
+    with patch("skills.loader.execute_local_tool", new_callable=AsyncMock, return_value=json.dumps({"contents": "unrestricted"})):
+        res_internal = await skill_registry.execute_tool_async(
             "read_document", {"file_path": "doc.txt"}, authorized_skills=ALL_INTERNAL_SKILLS
         )
         assert json.loads(res_internal) == {"contents": "unrestricted"}
 
     # Calling load_skill with None fails closed
-    load_none = skill_registry.execute_tool("load_skill", {"skill_name": "web_research"})
+    load_none = await skill_registry.execute_tool_async("load_skill", {"skill_name": "web_research"})
     data_load = json.loads(load_none)
     assert "Permission denied: Agent is not authorized to load skill 'web_research'" in data_load["error"]
 

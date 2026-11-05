@@ -5,7 +5,7 @@ Unit tests for core.model_catalog and Slack App Home model selection dropdown.
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from starlette.testclient import TestClient
+from fastapi.testclient import TestClient
 
 from core.config import AGENTS_CONFIG
 from core.model_catalog import (

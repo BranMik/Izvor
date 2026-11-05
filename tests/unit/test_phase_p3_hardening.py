@@ -42,8 +42,8 @@ def test_tkt_723_mid_turn_budget_check():
             agent_cfg={"model": "gemini/gemini-3.8-flash"},
         )
         ctx.messages = [{"role": "user", "content": "hi"}]
-        ctx.total_prompt_tokens = 50000
-        ctx.total_completion_tokens = 10000
+        ctx.output.total_prompt_tokens = 50000
+        ctx.output.total_completion_tokens = 10000
 
         with (
             patch("pipeline.spend_governance.spend_governance.is_budget_exceeded", return_value=(True, "Budget limit", 15.0)),
@@ -305,7 +305,7 @@ def test_tkt_728_rag_diff_mtime_fastpath(tmp_path: Path):
 # =========================================================================
 def test_tkt_729_pinned_ip_transport_fail_closed():
     # Creating transport without valid httpx pool attributes should raise RuntimeError
-    with patch("httpx.HTTPTransport.__init__"):
+    with patch("httpx.AsyncHTTPTransport.__init__"):
         with pytest.raises(RuntimeError, match="PinnedIPTransport cannot bind PinnedIPBackend"):
             PinnedIPTransport("93.184.216.34")
 

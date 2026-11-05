@@ -112,9 +112,10 @@ def test_per_turn_web_fetch_budget():
         check_and_increment_web_budget()
 
 
-def test_web_search_ssrf_blocked_on_endpoint():
+@pytest.mark.anyio
+async def test_web_search_ssrf_blocked_on_endpoint():
     with patch("services.web_tools.get_web_search_endpoint", return_value="http://127.0.0.1:8000/search"):
-        res = _web_search_inner("test query")
+        res = await _web_search_inner("test query")
         data = json.loads(res)
         assert "error" in data
         assert "Security Block on search endpoint" in data["error"]

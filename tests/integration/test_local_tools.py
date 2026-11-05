@@ -1,4 +1,5 @@
 import json
+import pytest
 
 from core.domain import SYSTEM_PRINCIPAL
 from services.local_tools import list_documents, read_document, write_document
@@ -72,11 +73,12 @@ def test_local_tools_document_traversal_prevention():
     assert "Access denied" in write_json["error"]
 
 
-def test_local_tools_execute_tool_document_dispatch():
+@pytest.mark.anyio
+async def test_local_tools_execute_tool_document_dispatch():
     from services.local_tools import execute_local_tool
 
     # Write document via execute_local_tool
-    write_res = execute_local_tool(
+    write_res = await execute_local_tool(
         "write_document",
         {"rel_path": "dispatch_test.txt", "content": "Dispatched document content"},
         agent_name=SYSTEM_PRINCIPAL,
@@ -84,11 +86,11 @@ def test_local_tools_execute_tool_document_dispatch():
     assert "success" in json.loads(write_res)
 
     # Read document via execute_local_tool
-    read_res = execute_local_tool("read_document", {"rel_path": "dispatch_test.txt"}, agent_name=SYSTEM_PRINCIPAL)
+    read_res = await execute_local_tool("read_document", {"rel_path": "dispatch_test.txt"}, agent_name=SYSTEM_PRINCIPAL)
     assert json.loads(read_res).get("content") == "Dispatched document content"
 
     # List documents via execute_local_tool
-    list_res = execute_local_tool("list_documents", {"rel_path": "."}, agent_name=SYSTEM_PRINCIPAL)
+    list_res = await execute_local_tool("list_documents", {"rel_path": "."}, agent_name=SYSTEM_PRINCIPAL)
     assert "contents" in json.loads(list_res)
 
     # Clean up test artifacts
@@ -327,11 +329,12 @@ def test_local_tools_tool_dispatcher_registry():
         assert callable(func), f"Dispatcher entry '{name}' must be callable"
 
 
-def test_local_tools_execute_tool_unknown_and_invalid_args():
+@pytest.mark.anyio
+async def test_local_tools_execute_tool_unknown_and_invalid_args():
     from services.local_tools import TOOL_DISPATCHER, execute_local_tool
 
     # Unknown tool
-    unknown_res = execute_local_tool("non_existent_tool_xyz", {"foo": "bar"}, agent_name=SYSTEM_PRINCIPAL)
+    unknown_res = await execute_local_tool("non_existent_tool_xyz", {"foo": "bar"}, agent_name=SYSTEM_PRINCIPAL)
     unknown_json = json.loads(unknown_res)
     assert "error" in unknown_json
     assert "Unknown tool: non_existent_tool_xyz" in unknown_json["error"]
@@ -342,7 +345,7 @@ def test_local_tools_execute_tool_unknown_and_invalid_args():
 
     TOOL_DISPATCHER["faulty_tool"] = _failing_handler
     try:
-        error_res = execute_local_tool("faulty_tool", {}, agent_name=SYSTEM_PRINCIPAL)
+        error_res = await execute_local_tool("faulty_tool", {}, agent_name=SYSTEM_PRINCIPAL)
         error_json = json.loads(error_res)
         assert "error" in error_json
         assert "Tool execution error: Boom" in error_json["error"]
@@ -350,11 +353,12 @@ def test_local_tools_execute_tool_unknown_and_invalid_args():
         TOOL_DISPATCHER.pop("faulty_tool", None)
 
 
-def test_local_tools_execute_tool_agent_authorization():
+@pytest.mark.anyio
+async def test_local_tools_execute_tool_agent_authorization():
     from services.local_tools import execute_local_tool
 
     # Sceptic has no skills configured -> write_document must be denied
-    denied_res = execute_local_tool(
+    denied_res = await execute_local_tool(
         "write_document",
         {"rel_path": "agents_resources/unauthorized_test.txt", "content": "test"},
         agent_name="agent-10003",
@@ -365,7 +369,7 @@ def test_local_tools_execute_tool_agent_authorization():
     assert "agent-10003" in denied_json["error"]
 
     # SYSTEM_PRINCIPAL must be allowed
-    sys_res = execute_local_tool(
+    sys_res = await execute_local_tool(
         "list_documents",
         {"rel_path": "."},
         agent_name=SYSTEM_PRINCIPAL,
@@ -374,7 +378,7 @@ def test_local_tools_execute_tool_agent_authorization():
     assert "contents" in sys_json
 
     # String "system" must NOT bypass authorization (fail closed)
-    str_sys_res = execute_local_tool(
+    str_sys_res = await execute_local_tool(
         "list_documents",
         {"rel_path": "."},
         agent_name="system",
@@ -384,7 +388,7 @@ def test_local_tools_execute_tool_agent_authorization():
     assert "Permission denied" in str_sys_json["error"]
 
     # SecurityArchitect has document_reader skill -> list_documents must be allowed
-    tech_res = execute_local_tool(
+    tech_res = await execute_local_tool(
         "list_documents",
         {"rel_path": "."},
         agent_name="agent-10008",

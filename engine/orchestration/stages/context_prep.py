@@ -37,15 +37,15 @@ class ContextPrepStage:
         self, ctx: TurnContext
     ) -> dict[str, Any] | None:
         """Stage 3: Fetch thread history, apply history/word limits, and construct LLM prompts."""
-        if ctx.in_memory_history is not None:
-            history = list(ctx.in_memory_history)
+        if ctx.input.in_memory_history is not None:
+            history = list(ctx.input.in_memory_history)
             logger.info(
                 f"[ROUTER] Using in-memory history with {len(history)} messages."
             )
         else:
             fetch_hist_fn = getattr(self.deps, "history_fetcher", None) or fetch_thread_history
             history = await fetch_hist_fn(
-                ctx.channel_id, ctx.thread_ts, bot_user_id=ctx.bot_user_id
+                ctx.input.channel_id, ctx.input.thread_ts, bot_user_id=ctx.input.bot_user_id
             )
             logger.info(
                 f"[ROUTER] Fetched {len(history)} messages from thread history."
@@ -57,8 +57,8 @@ class ContextPrepStage:
             )
             return {"ok": False, "cancelled": True, "reason": "superseded"}
 
-        if not ctx.is_bot_trigger and (not history or history[-1].get("role") != "user"):
-            history = list(history) + [{"role": "user", "content": ctx.raw_text}]
+        if not ctx.input.is_bot_trigger and (not history or history[-1].get("role") != "user"):
+            history = list(history) + [{"role": "user", "content": ctx.input.raw_text}]
 
         ctx.full_history = list(history)
         from core.domain import Turn
@@ -71,7 +71,7 @@ class ContextPrepStage:
         ctx.session.language = ctx.thread_language
 
 
-        if not ctx.is_bot_trigger:
+        if not ctx.input.is_bot_trigger:
             if history and history[-1]["role"] == "user":
                 prior_messages = history[:-1]
             else:
@@ -79,8 +79,8 @@ class ContextPrepStage:
 
             if ctx.history_limit is not None:
                 thread_state_manager.set_history_limit(
-                    channel_id=ctx.channel_id,
-                    thread_ts=ctx.thread_ts,
+                    channel_id=ctx.input.channel_id,
+                    thread_ts=ctx.input.thread_ts,
                     limit=ctx.history_limit,
                     prior_cutoff_index=len(prior_messages),
                 )
@@ -93,13 +93,13 @@ class ContextPrepStage:
                     f"[ROUTER] Applying /history {ctx.history_limit}: kept {len(effective_prior)} of {len(prior_messages)} prior messages for user prompt."
                 )
             else:
-                thread_state_manager.clear_history_limit(ctx.channel_id, ctx.thread_ts)
+                thread_state_manager.clear_history_limit(ctx.input.channel_id, ctx.input.thread_ts)
                 effective_prior = prior_messages
 
             ctx.effective_history = effective_prior
         else:
             hist_limit_info = thread_state_manager.get_history_limit(
-                ctx.channel_id, ctx.thread_ts
+                ctx.input.channel_id, ctx.input.thread_ts
             )
             if hist_limit_info is not None:
                 limit = hist_limit_info["limit"]
@@ -119,8 +119,8 @@ class ContextPrepStage:
         from core.registry import get_skill_registry
         skill_registry = get_skill_registry()
         global_skills = skill_registry.get_global_skills()
-        active_thread_skills = thread_skills_manager.get_active_skills(ctx.channel_id, ctx.thread_ts)
-        active_agent_skills = thread_skills_manager.get_active_agent_skills(ctx.channel_id, ctx.thread_ts, ctx.agent_key)
+        active_thread_skills = thread_skills_manager.get_active_skills(ctx.input.channel_id, ctx.input.thread_ts)
+        active_agent_skills = thread_skills_manager.get_active_agent_skills(ctx.input.channel_id, ctx.input.thread_ts, ctx.agent_key)
         extra_skills = list(dict.fromkeys(global_skills + active_thread_skills + active_agent_skills))
         effective_skills = None
         if extra_skills:
@@ -130,9 +130,9 @@ class ContextPrepStage:
             effective_skills = list(dict.fromkeys((base_skills or []) + extra_skills))
             ctx.agent_cfg = dict(ctx.agent_cfg, skills=effective_skills)
 
-        active_max_words = thread_state_manager.get_max_words(ctx.channel_id, ctx.thread_ts)
-        active_min_words = thread_state_manager.get_min_words(ctx.channel_id, ctx.thread_ts)
-        persisted_mods = thread_state_manager.get_format_modifiers(ctx.channel_id, ctx.thread_ts)
+        active_max_words = thread_state_manager.get_max_words(ctx.input.channel_id, ctx.input.thread_ts)
+        active_min_words = thread_state_manager.get_min_words(ctx.input.channel_id, ctx.input.thread_ts)
+        persisted_mods = thread_state_manager.get_format_modifiers(ctx.input.channel_id, ctx.input.thread_ts)
         effective_modifiers: dict[str, Any] = {}
         if isinstance(persisted_mods, dict):
             effective_modifiers.update(persisted_mods)
@@ -162,23 +162,23 @@ class ContextPrepStage:
             ctx.system_prompt = ctx.agent_cfg["system_prompt"]
 
         ctx.remaining = thread_state_manager.get_remaining_agents(
-            ctx.channel_id, ctx.thread_ts, default=get_initial_agents(ctx.channel_id, ctx.thread_ts)
+            ctx.input.channel_id, ctx.input.thread_ts, default=get_initial_agents(ctx.input.channel_id, ctx.input.thread_ts)
         )
         ctx.is_custom_flow = thread_state_manager.is_custom_flow(
-            ctx.channel_id, ctx.thread_ts
+            ctx.input.channel_id, ctx.input.thread_ts
         )
         ctx.is_open_debate = thread_state_manager.is_open_debate(
-            ctx.channel_id, ctx.thread_ts
+            ctx.input.channel_id, ctx.input.thread_ts
         )
 
-        active_rounds = thread_state_manager.get_rounds(ctx.channel_id, ctx.thread_ts)
+        active_rounds = thread_state_manager.get_rounds(ctx.input.channel_id, ctx.input.thread_ts)
         ctx.force_termination = bool(
             (
-                (ctx.was_explicit_target and not ctx.is_bot_trigger and not ctx.remaining)
+                (ctx.was_explicit_target and not ctx.input.is_bot_trigger and not ctx.remaining)
                 or (ctx.is_custom_flow and not ctx.remaining)
             )
             and active_rounds <= 1
-            or thread_state_manager.is_stopped(ctx.channel_id, ctx.thread_ts)
+            or thread_state_manager.is_stopped(ctx.input.channel_id, ctx.input.thread_ts)
         )
 
         if ctx.force_termination:
@@ -190,7 +190,7 @@ class ContextPrepStage:
                 f"[ROUTER] Agent {ctx.agent_key} remaining available agents: {ctx.remaining} (active rounds: {active_rounds})"
             )
 
-        wf_snap = thread_state_manager.get_workflow_snapshot(ctx.channel_id, ctx.thread_ts)
+        wf_snap = thread_state_manager.get_workflow_snapshot(ctx.input.channel_id, ctx.input.thread_ts)
         mode = wf_snap.get("mode") if wf_snap else get_orchestration_mode()
         ctx.next_designated_agent = None
         ctx.eligible_remaining_agents = list(ctx.remaining)
@@ -221,18 +221,18 @@ class ContextPrepStage:
             )
         elif not ctx.force_termination and not ctx.remaining and active_rounds > 1:
             round_seq = thread_state_manager.get_round_sequence(
-                ctx.channel_id, ctx.thread_ts
-            ) or get_initial_agents(ctx.channel_id, ctx.thread_ts)
+                ctx.input.channel_id, ctx.input.thread_ts
+            ) or get_initial_agents(ctx.input.channel_id, ctx.input.thread_ts)
             if round_seq:
                 ctx.next_designated_agent = round_seq[0]
                 ctx.eligible_remaining_agents = [round_seq[0]]
 
         ctx.file_context = thread_state_manager.get_file_context(
-            ctx.channel_id, ctx.thread_ts
+            ctx.input.channel_id, ctx.input.thread_ts
         )
         if not getattr(ctx, "thread_language", None):
             ctx.thread_language = (
-                thread_state_manager.get_language(ctx.channel_id, ctx.thread_ts)
+                thread_state_manager.get_language(ctx.input.channel_id, ctx.input.thread_ts)
                 or "English"
             )
         if hasattr(ctx, "session") and ctx.session is not None:
@@ -279,8 +279,8 @@ class ContextPrepStage:
                     get_thread_note_content,
                 )
                 episodic_summary = (
-                    get_thread_note_content(ctx.channel_id, ctx.thread_ts)
-                    or get_thread_conclusion_content(ctx.channel_id, ctx.thread_ts)
+                    get_thread_note_content(ctx.input.channel_id, ctx.input.thread_ts)
+                    or get_thread_conclusion_content(ctx.input.channel_id, ctx.input.thread_ts)
                 )
             except Exception as e:  # noqa: BLE001
                 logger.debug(f"[CONTEXT] Failed to fetch episodic summary: {e}")
@@ -288,14 +288,14 @@ class ContextPrepStage:
 
         # Fetch round evidence block (round evidence scratchpad tier 3)
         ctx.shared_round_evidence = thread_state_manager.format_round_evidence(
-            ctx.channel_id, ctx.thread_ts
+            ctx.input.channel_id, ctx.input.thread_ts
         )
 
         ctx.messages = build_llm_messages(
             system_prompt=ctx.system_prompt,
             effective_history=ctx.effective_history,
             prompt=ctx.prompt,
-            is_bot_trigger=ctx.is_bot_trigger,
+            is_bot_trigger=ctx.input.is_bot_trigger,
             agent_key=ctx.agent_key,
             agent_cfg=ctx.agent_cfg,
             file_context=ctx.file_context,

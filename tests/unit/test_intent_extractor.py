@@ -331,7 +331,7 @@ async def test_validation_stage_locks_language_from_unified_intent_extractor():
         patch("orchestration.stages.validation.detect_language_llm", side_effect=mock_detect_llm),
         patch(
             "orchestration.stages.validation.directive_parser.parse",
-            AsyncMock(return_value=ParsedDirectives(cleaned_prompt=ctx.raw_text, detected_language="hr")),
+            AsyncMock(return_value=ParsedDirectives(cleaned_prompt=ctx.input.raw_text, detected_language="hr")),
         ),
     ):
         pipeline = TurnPipeline()

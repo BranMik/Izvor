@@ -74,7 +74,7 @@ def get_next_test_run_prefix(run_id: str | None = None, run_num: int | None = No
     return f"TEST_RUN_{next_num}"
 
 
-def _mock_web_search(query: str, max_results: int = 5) -> str:
+async def _mock_web_search(query: str, max_results: int = 5) -> str:
     """Fixture returning scenario-relevant search results (Claude pricing or Vector DBs)."""
     q = str(query or "").lower()
     if "vector" in q:

@@ -1,7 +1,7 @@
 import ipaddress
 import json
 import socket
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from core.security_utils import wrap_untrusted_content
@@ -29,7 +29,7 @@ def _test_loads(s):
 
 
 class MockStreamResponse:
-    """Mock context manager for httpx.Client.stream."""
+    """Mock context manager for httpx.AsyncClient.stream."""
 
     def __init__(self, status_code=200, text="", headers=None, chunks=None):
         self.status_code = status_code
@@ -38,16 +38,17 @@ class MockStreamResponse:
         self.encoding = "utf-8"
         self._chunks = chunks
 
-    def iter_bytes(self, chunk_size=65536):
+    async def aiter_bytes(self, chunk_size=65536):
         if self._chunks is not None:
-            yield from self._chunks
+            for chunk in self._chunks:
+                yield chunk
         else:
             yield self.text.encode(self.encoding)
 
-    def __enter__(self):
+    async def __aenter__(self):
         return self
 
-    def __exit__(self, *args):
+    async def __aexit__(self, *args):
         pass
 
 
@@ -57,14 +58,16 @@ def test_local_schemas_include_web_tools():
     assert "fetch_web_page" in tool_names
 
 
-def test_web_search_empty_query():
-    res = web_search("")
+@pytest.mark.anyio
+async def test_web_search_empty_query():
+    res = await web_search("")
     data = _test_loads(res)
     assert "error" in data
     assert "empty" in data["error"]
 
 
-def test_web_search_mocked_html():
+@pytest.mark.anyio
+async def test_web_search_mocked_html():
     sample_html = """
     <html>
       <body>
@@ -80,8 +83,8 @@ def test_web_search_mocked_html():
     mock_resp.status_code = 200
     mock_resp.text = sample_html
 
-    with patch("httpx.Client.post", return_value=mock_resp):
-        res = web_search("AI agent platform", max_results=3)
+    with patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=mock_resp):
+        res = await web_search("AI agent platform", max_results=3)
         data = _test_loads(res)
         assert data.get("query") == "AI agent platform"
         assert data.get("results_count") == 1
@@ -92,13 +95,15 @@ def test_web_search_mocked_html():
         assert "multi-agent" in result["snippet"]
 
 
-def test_fetch_web_page_empty_url():
-    res = fetch_web_page("")
+@pytest.mark.anyio
+async def test_fetch_web_page_empty_url():
+    res = await fetch_web_page("")
     data = _test_loads(res)
     assert "error" in data
 
 
-def test_fetch_web_page_clean_extraction():
+@pytest.mark.anyio
+async def test_fetch_web_page_clean_extraction():
     sample_html = """
     <!DOCTYPE html>
     <html>
@@ -121,8 +126,8 @@ def test_fetch_web_page_clean_extraction():
     """
     mock_resp = MockStreamResponse(status_code=200, text=sample_html)
 
-    with patch("httpx.Client.stream", return_value=mock_resp):
-        res = fetch_web_page("https://competitor.com/pricing", max_chars=2000)
+    with patch("httpx.AsyncClient.stream", return_value=mock_resp):
+        res = await fetch_web_page("https://competitor.com/pricing", max_chars=2000)
         data = _test_loads(res)
         assert data.get("url") == "https://competitor.com/pricing"
         assert data.get("title") == "Competitor X - Pricing & Features"
@@ -134,51 +139,55 @@ def test_fetch_web_page_clean_extraction():
         assert data.get("truncated") is False
 
 
-def test_fetch_web_page_truncation():
+@pytest.mark.anyio
+async def test_fetch_web_page_truncation():
     sample_html = "<html><body><p>" + ("Market analysis detail paragraph. " * 100) + "</p></body></html>"
     mock_resp = MockStreamResponse(status_code=200, text=sample_html)
 
-    with patch("httpx.Client.stream", return_value=mock_resp):
-        res = fetch_web_page("https://example.com/long-page", max_chars=500)
+    with patch("httpx.AsyncClient.stream", return_value=mock_resp):
+        res = await fetch_web_page("https://example.com/long-page", max_chars=500)
         data = _test_loads(res)
         assert data.get("truncated") is True
         assert len(data.get("content", "")) <= 600
 
 
-def test_fetch_web_page_http_error():
+@pytest.mark.anyio
+async def test_fetch_web_page_http_error():
     mock_resp = MockStreamResponse(status_code=404, text="Not Found")
 
-    with patch("httpx.Client.stream", return_value=mock_resp):
-        res = fetch_web_page("https://example.com/nonexistent")
+    with patch("httpx.AsyncClient.stream", return_value=mock_resp):
+        res = await fetch_web_page("https://example.com/nonexistent")
         data = _test_loads(res)
         assert "error" in data
         assert "404" in data["error"]
 
 
-def test_execute_local_web_tools():
+@pytest.mark.anyio
+async def test_execute_local_web_tools():
     from core.domain import SYSTEM_PRINCIPAL
 
-    with patch("services.local_tools.web_search", return_value=json.dumps({"query": "test", "results": []})) as mock_search:
-        res = execute_local_tool("web_search", {"query": "test", "max_results": 3}, agent_name=SYSTEM_PRINCIPAL)
+    with patch("services.local_tools.web_search", new_callable=AsyncMock, return_value=json.dumps({"query": "test", "results": []})) as mock_search:
+        res = await execute_local_tool("web_search", {"query": "test", "max_results": 3}, agent_name=SYSTEM_PRINCIPAL)
         mock_search.assert_called_once_with(query="test", max_results=3)
         assert "results" in res
 
-    with patch("services.local_tools.fetch_web_page", return_value=json.dumps({"url": "https://example.com", "content": "mocked"})) as mock_fetch:
-        res = execute_local_tool("fetch_web_page", {"url": "https://example.com", "max_chars": 1000}, agent_name=SYSTEM_PRINCIPAL)
+    with patch("services.local_tools.fetch_web_page", new_callable=AsyncMock, return_value=json.dumps({"url": "https://example.com", "content": "mocked"})) as mock_fetch:
+        res = await execute_local_tool("fetch_web_page", {"url": "https://example.com", "max_chars": 1000}, agent_name=SYSTEM_PRINCIPAL)
         mock_fetch.assert_called_once_with(url="https://example.com", max_chars=1000)
         assert "mocked" in res
 
-    with patch("services.local_tools.fetch_web_page", return_value=json.dumps({"url": "https://example.com", "content": "fetched_default"})) as mock_fetch_default:
-        res = execute_local_tool("fetch_web_page", {"url": "https://example.com"}, agent_name=SYSTEM_PRINCIPAL)
+    with patch("services.local_tools.fetch_web_page", new_callable=AsyncMock, return_value=json.dumps({"url": "https://example.com", "content": "fetched_default"})) as mock_fetch_default:
+        res = await execute_local_tool("fetch_web_page", {"url": "https://example.com"}, agent_name=SYSTEM_PRINCIPAL)
         mock_fetch_default.assert_called_once_with(url="https://example.com", max_chars=4000)
         assert "fetched_default" in res
 
-    res_unknown = execute_local_tool("web_scrape", {"url": "https://example.com"}, agent_name=SYSTEM_PRINCIPAL)
+    res_unknown = await execute_local_tool("web_scrape", {"url": "https://example.com"}, agent_name=SYSTEM_PRINCIPAL)
     assert "error" in json.loads(res_unknown)
 
 
 
-def test_fetch_web_page_ssrf_loopback():
+@pytest.mark.anyio
+async def test_fetch_web_page_ssrf_loopback():
     for blocked_url in [
         "http://localhost:8000/secret",
         "http://127.0.0.1:8000",
@@ -186,42 +195,46 @@ def test_fetch_web_page_ssrf_loopback():
         "http://0.0.0.0:80",
         "http://service.localhost",
     ]:
-        res = fetch_web_page(blocked_url)
+        res = await fetch_web_page(blocked_url)
         data = _test_loads(res)
         assert "error" in data
         assert "Security violation" in data["error"]
 
 
-def test_fetch_web_page_ssrf_cloud_metadata():
-    res = fetch_web_page("http://169.254.169.254/latest/meta-data")
+@pytest.mark.anyio
+async def test_fetch_web_page_ssrf_cloud_metadata():
+    res = await fetch_web_page("http://169.254.169.254/latest/meta-data")
     data = _test_loads(res)
     assert "error" in data
     assert "Security violation" in data["error"]
     assert "restricted IP" in data["error"] or "blocked" in data["error"]
 
 
-def test_fetch_web_page_ssrf_private_network():
+@pytest.mark.anyio
+async def test_fetch_web_page_ssrf_private_network():
     for private_url in [
         "http://10.0.0.1/admin",
         "http://192.168.1.1",
         "http://172.16.0.5",
         "http://100.64.0.1",
     ]:
-        res = fetch_web_page(private_url)
+        res = await fetch_web_page(private_url)
         data = _test_loads(res)
         assert "error" in data
         assert "Security violation" in data["error"]
 
 
-def test_fetch_web_page_query_length_limit():
+@pytest.mark.anyio
+async def test_fetch_web_page_query_length_limit():
     huge_query = "https://example.com/search?q=" + ("x" * 1050)
-    res = fetch_web_page(huge_query)
+    res = await fetch_web_page(huge_query)
     data = _test_loads(res)
     assert "error" in data
     assert "Query string length" in data["error"]
 
 
-def test_fetch_web_page_blocked_mutating_actions():
+@pytest.mark.anyio
+async def test_fetch_web_page_blocked_mutating_actions():
     for dangerous_url in [
         "https://example.com/wiki?title=Test&action=edit",
         "https://example.com/wiki?title=Test&action=delete",
@@ -229,48 +242,51 @@ def test_fetch_web_page_blocked_mutating_actions():
         "https://example.com/forum?topic=1&do=post",
         "https://example.com/api?cmd=destroy",
     ]:
-        res = fetch_web_page(dangerous_url)
+        res = await fetch_web_page(dangerous_url)
         data = _test_loads(res)
         assert "error" in data
         assert "Blocked mutating parameter" in data["error"]
 
 
-def test_fetch_web_page_allowed_safe_query_params():
+@pytest.mark.anyio
+async def test_fetch_web_page_allowed_safe_query_params():
     mock_resp = MockStreamResponse(
         status_code=200,
         text="<html><body><h1>Article Title</h1><p>Safe content paragraph.</p></body></html>",
         headers={"content-type": "text/html"},
     )
 
-    with patch("httpx.Client.stream", return_value=mock_resp):
-        res = fetch_web_page("https://example.com/wiki?title=Main_Page&action=view&lang=en")
+    with patch("httpx.AsyncClient.stream", return_value=mock_resp):
+        res = await fetch_web_page("https://example.com/wiki?title=Main_Page&action=view&lang=en")
         data = _test_loads(res)
         assert "title" in data
         assert "Article Title" in data["title"]
         assert "Safe content paragraph." in data["content"]
 
 
-def test_fetch_web_page_redirect_to_ssrf_blocked():
+@pytest.mark.anyio
+async def test_fetch_web_page_redirect_to_ssrf_blocked():
     redirect_resp = MockStreamResponse(
         status_code=302,
         headers={"location": "http://127.0.0.1:8000/internal-metrics"},
     )
 
-    with patch("httpx.Client.stream", return_value=redirect_resp):
-        res = fetch_web_page("https://example.com/redirect-target")
+    with patch("httpx.AsyncClient.stream", return_value=redirect_resp):
+        res = await fetch_web_page("https://example.com/redirect-target")
         data = _test_loads(res)
         assert "error" in data
         assert "Security violation on redirect" in data["error"]
 
 
-def test_fetch_web_page_too_many_redirects():
+@pytest.mark.anyio
+async def test_fetch_web_page_too_many_redirects():
     redirect_resp = MockStreamResponse(
         status_code=302,
         headers={"location": "https://example.com/hop"},
     )
 
-    with patch("httpx.Client.stream", return_value=redirect_resp):
-        res = fetch_web_page("https://example.com/hop")
+    with patch("httpx.AsyncClient.stream", return_value=redirect_resp):
+        res = await fetch_web_page("https://example.com/hop")
         data = _test_loads(res)
         assert "error" in data
         assert "Exceeded maximum allowed redirects" in data["error"]
@@ -326,7 +342,8 @@ def test_dns_rebinding_defense_and_ip_resolution():
         assert "restricted IP address '127.0.0.1'" in reason
 
 
-def test_fetch_web_page_streaming_body_cap():
+@pytest.mark.anyio
+async def test_fetch_web_page_streaming_body_cap():
     # Chunk generator totaling > 2 MB
     chunk_1mb = b"A" * (1024 * 1024)
     oversized_chunks = [chunk_1mb, chunk_1mb, b"extra"]
@@ -336,14 +353,15 @@ def test_fetch_web_page_streaming_body_cap():
         chunks=oversized_chunks,
     )
 
-    with patch("httpx.Client.stream", return_value=mock_resp):
-        res = fetch_web_page("https://example.com/huge-file")
+    with patch("httpx.AsyncClient.stream", return_value=mock_resp):
+        res = await fetch_web_page("https://example.com/huge-file")
         data = _test_loads(res)
         assert "error" in data
         assert "Response body exceeded maximum permitted limit" in data["error"]
 
 
-def test_fetch_web_page_blocked_content_types():
+@pytest.mark.anyio
+async def test_fetch_web_page_blocked_content_types():
     # Binary content types should be immediately rejected before reading body
     for ct in ["image/png", "application/octet-stream", "video/mp4", "audio/mpeg"]:
         mock_resp = MockStreamResponse(
@@ -351,8 +369,8 @@ def test_fetch_web_page_blocked_content_types():
             headers={"content-type": ct},
             text="binary data",
         )
-        with patch("httpx.Client.stream", return_value=mock_resp):
-            res = fetch_web_page("https://example.com/asset")
+        with patch("httpx.AsyncClient.stream", return_value=mock_resp):
+            res = await fetch_web_page("https://example.com/asset")
             data = _test_loads(res)
             assert "error" in data
             assert "Unsupported or dangerous Content-Type" in data["error"]

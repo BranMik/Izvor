@@ -313,3 +313,63 @@ def test_zero_monkeypatch_usage_in_test_suite():
         + "\n".join(violations)
         + "\nUse manager configure_paths(), dependency injection, or unittest.mock.patch instead."
     )
+
+
+def test_no_duplicate_module_constants_in_models():
+    """
+    Enforces that module-level constants in engine/core/models.py are never defined
+    more than once (e.g. REQUIRED_DEFAULT_WORKFLOW_IDS).
+    """
+    root_dir = Path(__file__).resolve().parents[2]
+    models_file = root_dir / "engine" / "core" / "models.py"
+    assert models_file.exists(), "engine/core/models.py does not exist!"
+
+    tree = ast.parse(models_file.read_text(encoding="utf-8"), filename=str(models_file))
+    top_level_targets: dict[str, list[int]] = {}
+
+    for node in tree.body:
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    top_level_targets.setdefault(target.id, []).append(node.lineno)
+        elif isinstance(node, ast.AnnAssign):
+            if isinstance(node.target, ast.Name):
+                top_level_targets.setdefault(node.target.id, []).append(node.lineno)
+
+    duplicates = {name: lines for name, lines in top_level_targets.items() if len(lines) > 1}
+    assert not duplicates, (
+        f"Found duplicate top-level constant assignment(s) in engine/core/models.py:\n"
+        + "\n".join(f"- {name} at lines {lines}" for name, lines in duplicates.items())
+    )
+
+
+def test_consistent_fastapi_testclient_imports():
+    """
+    Guarantees that test modules import TestClient from fastapi.testclient,
+    preventing inconsistent starlette.testclient imports.
+    """
+    root_dir = Path(__file__).resolve().parents[2]
+    tests_dir = root_dir / "tests"
+
+    starlette_testclient_usages: list[str] = []
+
+    for py_file in tests_dir.rglob("*.py"):
+        try:
+            tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
+        except SyntaxError:
+            continue
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and node.module == "starlette.testclient":
+                for alias in node.names:
+                    if alias.name == "TestClient":
+                        starlette_testclient_usages.append(
+                            f"{py_file.relative_to(root_dir)}:{node.lineno} imports TestClient from starlette.testclient"
+                        )
+
+    assert not starlette_testclient_usages, (
+        f"Found {len(starlette_testclient_usages)} starlette.testclient TestClient import(s):\n"
+        + "\n".join(starlette_testclient_usages)
+        + "\nImport from fastapi.testclient instead."
+    )
+

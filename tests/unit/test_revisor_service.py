@@ -22,8 +22,8 @@ async def test_revisor_warning_injected_into_accumulated_history_before_next_spe
     )
     ctx.agent_key = "agent-10001"
     ctx.agent_cfg = {"model": "test-model", "username": "Visionary"}
-    ctx.final_text = "The project generated $100M last year."
-    ctx.skills_used = ["knowledge_base_rag"]
+    ctx.output.final_text = "The project generated $100M last year."
+    ctx.output.skills_used = ["knowledge_base_rag"]
 
     # 1. Enable revisor and mock it returning a hallucination warning
     set_internal_revisor_enabled_override(True)
@@ -39,13 +39,13 @@ async def test_revisor_warning_injected_into_accumulated_history_before_next_spe
     pipeline.context_prep_stage.stage_prepare_context = AsyncMock(return_value=None)
     pipeline.execution_stage.stage_execute_llm = AsyncMock(return_value=None)
     pipeline.post_record_stage.stage_post_and_record = AsyncMock(
-        return_value={"ok": True, "final_text": ctx.final_text, "username": "Visionary"}
+        return_value={"ok": True, "final_text": ctx.output.final_text, "username": "Visionary"}
     )
 
     with patch("orchestration.revisor_service.run_internal_revisor", side_effect=mock_run_revisor):
         slack_res = await pipeline.run(ctx)
     assert slack_res.get("revisor_warning") == revisor_warning
-    assert ctx.revisor_warning == revisor_warning
+    assert ctx.output.revisor_warning == revisor_warning
 
     # 2. Verify that continue_discussion_from_turn_result injects revisor warning into accumulated_history
     history = [{"role": "user", "content": "Tell me about project revenue."}]

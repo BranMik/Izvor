@@ -105,7 +105,7 @@ async def test_grant_skill_for_all_unconditionally_halts():
         user_id="U_ADMIN",
         raw_text="/grant_skill_for_all web_research Now discuss everything",
     )
-    directives = await directive_parser.parse(ctx.raw_text)
+    directives = await directive_parser.parse(ctx.input.raw_text)
     ctx.actions = directives.actions
     ctx.raw_text_cleaned = directives.cleaned_prompt
 
@@ -132,7 +132,7 @@ async def test_grant_skill_for_all_halts_on_bot_mention():
         user_id="U_ADMIN",
         raw_text="<@U0812345> /grant_skill_for_all web_research",
     )
-    directives = await directive_parser.parse(ctx.raw_text)
+    directives = await directive_parser.parse(ctx.input.raw_text)
     ctx.actions = directives.actions
     ctx.raw_text_cleaned = directives.cleaned_prompt
 
@@ -158,7 +158,7 @@ async def test_grant_skill_unconditionally_halts():
         user_id="U_ADMIN",
         raw_text="/grant_skill web_research SecurityArchitect And continue debate",
     )
-    directives = await directive_parser.parse(ctx.raw_text)
+    directives = await directive_parser.parse(ctx.input.raw_text)
     ctx.actions = directives.actions
     ctx.raw_text_cleaned = directives.cleaned_prompt
 
@@ -188,7 +188,7 @@ async def test_grant_skill_missing_params():
         user_id="U_ADMIN",
         raw_text="/grant_skill",
     )
-    directives = await directive_parser.parse(ctx.raw_text)
+    directives = await directive_parser.parse(ctx.input.raw_text)
     ctx.actions = directives.actions
 
     res = await pipeline.validation_stage.stage_validate_and_parse(ctx)
@@ -209,7 +209,7 @@ async def test_grant_skill_missing_agent():
         user_id="U_ADMIN",
         raw_text="/grant_skill web_research",
     )
-    directives = await directive_parser.parse(ctx.raw_text)
+    directives = await directive_parser.parse(ctx.input.raw_text)
     ctx.actions = directives.actions
 
     res = await pipeline.validation_stage.stage_validate_and_parse(ctx)
@@ -230,7 +230,7 @@ async def test_grant_skill_unknown_skill():
         user_id="U_ADMIN",
         raw_text="/grant_skill nonexistent_skill SecurityArchitect",
     )
-    directives = await directive_parser.parse(ctx.raw_text)
+    directives = await directive_parser.parse(ctx.input.raw_text)
     ctx.actions = directives.actions
 
     res = await pipeline.validation_stage.stage_validate_and_parse(ctx)
@@ -250,7 +250,7 @@ async def test_grant_skill_unknown_agent():
         user_id="U_ADMIN",
         raw_text="/grant_skill web_research FakeAgentName",
     )
-    directives = await directive_parser.parse(ctx.raw_text)
+    directives = await directive_parser.parse(ctx.input.raw_text)
     ctx.actions = directives.actions
 
     res = await pipeline.validation_stage.stage_validate_and_parse(ctx)
@@ -270,7 +270,7 @@ async def test_grant_skill_for_all_non_admin_denied():
         user_id="U_REGULAR",
         raw_text="/grant_skill_for_all web_research",
     )
-    directives = await directive_parser.parse(ctx.raw_text)
+    directives = await directive_parser.parse(ctx.input.raw_text)
     ctx.actions = directives.actions
 
     with patch("services.audit_logger.log_audit_event") as mock_audit:
@@ -300,7 +300,7 @@ async def test_grant_skill_non_admin_denied():
         user_id="U_REGULAR",
         raw_text="/grant_skill web_research SecurityArchitect",
     )
-    directives = await directive_parser.parse(ctx.raw_text)
+    directives = await directive_parser.parse(ctx.input.raw_text)
     ctx.actions = directives.actions
 
     with patch("services.audit_logger.log_audit_event") as mock_audit:
@@ -327,7 +327,7 @@ async def test_revoke_skill_for_all_non_admin_denied():
         user_id="U_REGULAR",
         raw_text="/revoke_skill_for_all web_research",
     )
-    directives = await directive_parser.parse(ctx.raw_text)
+    directives = await directive_parser.parse(ctx.input.raw_text)
     ctx.actions = directives.actions
 
     with patch("services.audit_logger.log_audit_event") as mock_audit:
@@ -354,7 +354,7 @@ async def test_revoke_constraint_non_admin_denied():
         user_id="U_REGULAR",
         raw_text="/revoke_constraint max_words",
     )
-    directives = await directive_parser.parse(ctx.raw_text)
+    directives = await directive_parser.parse(ctx.input.raw_text)
     ctx.actions = directives.actions
     ctx.revoke_target = directives.revoke_target
 

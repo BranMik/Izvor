@@ -198,7 +198,8 @@ def test_all_agents_see_skills_in_prompt():
     assert "`document_reader`" in architect_prompt
 
 
-def test_runtime_permission_enforcement():
+@pytest.mark.anyio
+async def test_runtime_permission_enforcement():
     """
     Verify that an agent cannot circumvent its permission boundaries:
     runtime rejects unauthorized load_skill or tool execution.
@@ -207,7 +208,7 @@ def test_runtime_permission_enforcement():
     architect_skills = ["document_reader"]
 
     # 1. Attempting to load unauthorized skill document_authoring -> Rejected
-    res1 = skill_registry.execute_tool(
+    res1 = await skill_registry.execute_tool_async(
         tool_name="load_skill",
         arguments={"skill_name": "document_authoring"},
         authorized_skills=architect_skills,
@@ -217,7 +218,7 @@ def test_runtime_permission_enforcement():
     assert "Permission denied: Agent is not authorized to load skill 'document_authoring'" in data1["error"]
 
     # 2. Attempting to execute unauthorized tool write_to_file -> Rejected
-    res2 = skill_registry.execute_tool(
+    res2 = await skill_registry.execute_tool_async(
         tool_name="write_to_file",
         arguments={"path": "test.txt", "content": "hack"},
         authorized_skills=architect_skills,
@@ -227,7 +228,7 @@ def test_runtime_permission_enforcement():
     assert "Permission denied: Agent is not authorized to execute tool 'write_to_file'" in data2["error"]
 
     # 3. Loading authorized skill document_reader -> Allowed
-    res3 = skill_registry.execute_tool(
+    res3 = await skill_registry.execute_tool_async(
         tool_name="load_skill",
         arguments={"skill_name": "document_reader"},
         authorized_skills=architect_skills,

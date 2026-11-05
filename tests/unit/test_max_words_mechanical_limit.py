@@ -112,7 +112,7 @@ async def test_stage_post_and_record_mechanical_truncation():
 
         # 120 words followed by /[agent-10011] tag
         words = [f"word{i}" for i in range(1, 121)]
-        ctx.final_text = " ".join(words) + "\n\n/[agent-10011]"
+        ctx.output.final_text = " ".join(words) + "\n\n/[agent-10011]"
 
         res = await pipeline.post_record_stage.stage_post_and_record(ctx)
         assert res is None or res.get("ok", True)
@@ -159,7 +159,7 @@ async def test_stage_post_and_record_no_truncation_when_within_limit():
 
         words = [f"word{i}" for i in range(1, 60)]
         original_content = " ".join(words)
-        ctx.final_text = original_content + "\n\n/[agent-10011]"
+        ctx.output.final_text = original_content + "\n\n/[agent-10011]"
 
         await pipeline.post_record_stage.stage_post_and_record(ctx)
 

@@ -70,7 +70,7 @@ class ResolutionStage:
             next_candidate = None
             while True:
                 candidate = thread_state_manager.pop_remaining_agent(
-                    ctx.channel_id, ctx.thread_ts
+                    ctx.input.channel_id, ctx.input.thread_ts
                 )
                 if not candidate:
                     break
@@ -79,7 +79,7 @@ class ResolutionStage:
                     break
 
             if not next_candidate:
-                wf_snap = thread_state_manager.get_workflow_snapshot(ctx.channel_id, ctx.thread_ts)
+                wf_snap = thread_state_manager.get_workflow_snapshot(ctx.input.channel_id, ctx.input.thread_ts)
                 mode = wf_snap.get("mode") if wf_snap else settings_manager.get_orchestration_mode()
                 if mode in (OrchestrationMode.SANDWICH, OrchestrationMode.SANDWICH.value):
                     sw_cfg = wf_snap.get("sandwich_config") if wf_snap else settings_manager.get_sandwich_config()
@@ -107,8 +107,8 @@ class ResolutionStage:
                     f"Handing off to [{next_candidate}]."
                 )
                 await post_sys_msg(
-                    channel_id=ctx.channel_id,
-                    thread_ts=ctx.thread_ts,
+                    channel_id=ctx.input.channel_id,
+                    thread_ts=ctx.input.thread_ts,
                     text=warning_msg,
                 )
                 ctx.agent_key = next_candidate
@@ -118,8 +118,8 @@ class ResolutionStage:
                     f"⚠️ *Configuration Error*: Agent '{ctx.agent_key}' is not configured and no other agents are available."
                 )
                 await post_sys_msg(
-                    channel_id=ctx.channel_id,
-                    thread_ts=ctx.thread_ts,
+                    channel_id=ctx.input.channel_id,
+                    thread_ts=ctx.input.thread_ts,
                     text=warning_msg,
                 )
                 return {
@@ -135,7 +135,7 @@ class ResolutionStage:
             ctx.icon_url = ctx.agent_cfg.get("icon_url")
 
         logger.info(
-            f"[ROUTER] Parsed Agent: {ctx.agent_key} ({ctx.agent_cfg['model']}) | Explicit target: {ctx.was_explicit_target} | Bot trigger: {ctx.is_bot_trigger} | Gen: {ctx.my_generation} | History limit: {ctx.history_limit}"
+            f"[ROUTER] Parsed Agent: {ctx.agent_key} ({ctx.agent_cfg['model']}) | Explicit target: {ctx.was_explicit_target} | Bot trigger: {ctx.input.is_bot_trigger} | Gen: {ctx.my_generation} | History limit: {ctx.history_limit}"
         )
 
         if ctx.is_superseded():
@@ -146,10 +146,10 @@ class ResolutionStage:
 
         # Circuit breaker & daily budget verification
         calc_costs_fn = getattr(self.deps, "calc_costs_fn", None) or calculate_thread_costs
-        cost_info = calc_costs_fn(ctx.channel_id, ctx.thread_ts)
+        cost_info = calc_costs_fn(ctx.input.channel_id, ctx.input.thread_ts)
         current_cost = cost_info.get("grand_total_cost_usd", 0.0)
         threshold = get_circuit_breaker_threshold()
-        session_id = f"{ctx.channel_id}:{ctx.thread_ts}"
+        session_id = f"{ctx.input.channel_id}:{ctx.input.thread_ts}"
         from orchestration.app_settings import get_daily_budget_usd
 
         daily_budget = get_daily_budget_usd()
@@ -174,8 +174,8 @@ class ResolutionStage:
                 action="trip_circuit_breaker",
                 target=ctx.thread_key,
                 details={
-                    "channel_id": ctx.channel_id,
-                    "thread_ts": ctx.thread_ts,
+                    "channel_id": ctx.input.channel_id,
+                    "thread_ts": ctx.input.thread_ts,
                     "current_cost_usd": current_cost,
                     "threshold_usd": threshold,
                 },
@@ -186,7 +186,7 @@ class ResolutionStage:
                 "EXPENSE LIMIT REACHED FOR THE THREAD. ENDING CALLS"
             )
 
-            session_id = getattr(ctx, "session_id", f"{ctx.channel_id}:{ctx.thread_ts}")
+            session_id = getattr(ctx, "session_id", f"{ctx.input.channel_id}:{ctx.input.thread_ts}")
             try:
                 import uuid
                 from core.domain import TurnCheckpoint
@@ -196,17 +196,17 @@ class ResolutionStage:
                 chk = TurnCheckpoint(
                     checkpoint_id=chk_id,
                     session_id=session_id,
-                    channel_id=ctx.channel_id,
-                    thread_ts=ctx.thread_ts,
+                    channel_id=ctx.input.channel_id,
+                    thread_ts=ctx.input.thread_ts,
                     agent_key=ctx.agent_key,
                     pause_reason="circuit_breaker",
                     messages=ctx.messages or [],
-                    accumulated_history=ctx.in_memory_history or [],
-                    prompt_tokens=ctx.total_prompt_tokens,
-                    completion_tokens=ctx.total_completion_tokens,
+                    accumulated_history=ctx.input.in_memory_history or [],
+                    prompt_tokens=ctx.output.total_prompt_tokens,
+                    completion_tokens=ctx.output.total_completion_tokens,
                 )
                 turn_checkpoint_store.save_checkpoint(chk)
-                ctx.checkpoint_id = chk_id
+                ctx.output.checkpoint_id = chk_id
             except Exception as ex:  # noqa: BLE001
                 logger.debug(f"[RESOLUTION] Failed to save circuit breaker checkpoint: {ex}")
 
@@ -214,8 +214,8 @@ class ResolutionStage:
                 circuit_breaker_msg, session_id
             )
             slack_res = await self.workspace_adapter.post_agent_turn(
-                channel_id=ctx.channel_id,
-                thread_ts=ctx.thread_ts,
+                channel_id=ctx.input.channel_id,
+                thread_ts=ctx.input.thread_ts,
                 text=circuit_breaker_msg,
                 username=ctx.agent_cfg["username"],
                 icon_url=ctx.agent_cfg.get("icon_url"),
@@ -231,12 +231,12 @@ class ResolutionStage:
 
             trig_usage = getattr(self.deps, "usage_updater", None) or trigger_usage_update
             trig_usage(
-                channel_id=ctx.channel_id,
-                thread_ts=ctx.thread_ts,
+                channel_id=ctx.input.channel_id,
+                thread_ts=ctx.input.thread_ts,
                 is_completed=True,
             )
 
-            thread_state_manager.suspend_thread(ctx.channel_id, ctx.thread_ts)
+            thread_state_manager.suspend_thread(ctx.input.channel_id, ctx.input.thread_ts)
             if isinstance(slack_res, dict):
                 slack_res["is_completed"] = True
                 slack_res["final_text"] = circuit_breaker_msg

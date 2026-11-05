@@ -240,7 +240,7 @@ async def test_async_flat_history_recording():
         agent_key="agent-10002",
     )
     ctx.agent_cfg = {"model": "mock-model", "username": "Security Architect"}
-    ctx.final_text = "Security review completed."
+    ctx.output.final_text = "Security review completed."
 
     with patch("orchestration.stages.post_record.get_debate_turn_pacing_seconds", return_value=0.0), \
          patch("orchestration.stages.post_record.get_slack_post_pause_seconds", return_value=0.0):

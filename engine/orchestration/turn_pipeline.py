@@ -103,9 +103,9 @@ class TurnOutput:
 class TurnContext:
     """Encapsulates all runtime state, directives, and metadata for a single agent turn execution."""
 
-    inp: TurnInput
-    control_plane: TurnControlPlane
-    out: TurnOutput
+    input: TurnInput
+    control: TurnControlPlane
+    output: TurnOutput
 
     # Lifecycle state
     thread_key: tuple[str, str]
@@ -170,18 +170,22 @@ class TurnContext:
         isolated_branch: bool = False,
         my_generation: int = 0,
         start_time: float | None = None,
+        input: TurnInput | None = None,
+        control: TurnControlPlane | None = None,
+        output: TurnOutput | None = None,
         inp: TurnInput | None = None,
         control_plane: TurnControlPlane | None = None,
         out: TurnOutput | None = None,
         **kwargs: Any,
     ):
-        if inp is not None:
-            self.inp = inp
+        effective_input = input or inp
+        if effective_input is not None:
+            self.input = effective_input
         else:
             if channel_id is None or thread_ts is None:
                 raise ValueError("TurnContext requires channel_id and thread_ts or TurnInput.")
             hist_tuple = tuple(in_memory_history) if in_memory_history is not None else None
-            self.inp = TurnInput(
+            self.input = TurnInput(
                 channel_id=channel_id,
                 thread_ts=thread_ts,
                 raw_text=raw_text,
@@ -196,20 +200,40 @@ class TurnContext:
                 start_time=start_time or time.time(),
             )
 
-        self.control_plane: TurnControlPlane = control_plane or TurnControlPlane()
-        self.out: TurnOutput = out or TurnOutput()
+        self.control = control or control_plane or TurnControlPlane(
+            consensus_signaled=kwargs.get("consensus_signaled", False) or kwargs.get("control_plane_consensus_signaled", False),
+            consensus_summary=kwargs.get("consensus_summary") or kwargs.get("control_plane_consensus_summary"),
+            nomination=kwargs.get("nomination") or kwargs.get("control_plane_nomination"),
+            nomination_rationale=kwargs.get("nomination_rationale") or kwargs.get("control_plane_rationale"),
+            clarification_requested=kwargs.get("clarification_requested", False) or kwargs.get("control_plane_clarification_requested", False),
+            clarification_question=kwargs.get("clarification_question") or kwargs.get("control_plane_clarification_question"),
+            convergence_summary=kwargs.get("convergence_summary"),
+        )
+        self.output = output or out or TurnOutput(
+            final_text=kwargs.get("final_text", ""),
+            total_prompt_tokens=kwargs.get("total_prompt_tokens", 0),
+            total_completion_tokens=kwargs.get("total_completion_tokens", 0),
+            skills_used=list(kwargs.get("skills_used", [])),
+            generated_tags=list(kwargs.get("generated_tags", [])),
+            slack_res=kwargs.get("slack_res"),
+            is_completed=kwargs.get("is_completed", False),
+            halted=kwargs.get("halted", False),
+            waiting_hitl=kwargs.get("waiting_hitl", False),
+            checkpoint_id=kwargs.get("checkpoint_id"),
+            revisor_warning=kwargs.get("revisor_warning"),
+        )
 
         # Lifecycle state
-        self.thread_key = (self.inp.channel_id, self.inp.thread_ts)
-        self.start_time = self.inp.start_time
-        self.my_generation = self.inp.my_generation
+        self.thread_key = (self.input.channel_id, self.input.thread_ts)
+        self.start_time = self.input.start_time
+        self.my_generation = self.input.my_generation
         self.current_task: asyncio.Task | None = kwargs.get("current_task")
 
         # Directives & Skills
         self.actions: list[ActionDirective] = list(kwargs.get("actions", []))
         self.modifiers: dict[str, Any] = dict(kwargs.get("modifiers", {}))
         self.attachments: list[MediaAttachment] = list(kwargs.get("attachments", []))
-        self.raw_text_cleaned: str = kwargs.get("raw_text_cleaned", self.inp.raw_text)
+        self.raw_text_cleaned: str = kwargs.get("raw_text_cleaned", self.input.raw_text)
         self.history_limit: int | None = kwargs.get("history_limit")
         self.excluded_agents: list[str] = list(kwargs.get("excluded_agents", []))
         self.included_agents: list[str] = list(kwargs.get("included_agents", []))
@@ -228,7 +252,7 @@ class TurnContext:
         self.force_termination: bool = kwargs.get("force_termination", False)
         self.eligible_remaining_agents: list[str] = list(kwargs.get("eligible_remaining_agents", []))
         self.next_designated_agent: str | None = kwargs.get("next_designated_agent")
-        self.target_agent_override: str | None = kwargs.get("target_agent_override", self.inp.target_agent_override)
+        self.target_agent_override: str | None = kwargs.get("target_agent_override", self.input.target_agent_override)
 
         # LLM & Conversation Context
         self.effective_history: list[dict[str, Any]] = list(kwargs.get("effective_history", []))
@@ -241,219 +265,24 @@ class TurnContext:
         self.intermediate_msg_ts: str | None = kwargs.get("intermediate_msg_ts")
 
         # Explicitly declared typed fields previously monkeypatched (C13)
-        self.icon_url: str | None = kwargs.get("icon_url", self.inp.icon_url)
+        self.icon_url: str | None = kwargs.get("icon_url", self.input.icon_url)
         self.episodic_summary: str | None = kwargs.get("episodic_summary")
         self.shared_round_evidence: str = kwargs.get("shared_round_evidence", "")
         self.authorized_skills: list[str] = list(kwargs.get("authorized_skills", []))
         self.token_recorder: Any = kwargs.get("token_recorder")
 
         # Session
-        self.session_id: str = kwargs.get("session_id", f"{self.inp.channel_id}:{self.inp.thread_ts}")
+        self.session_id: str = kwargs.get("session_id", f"{self.input.channel_id}:{self.input.thread_ts}")
         self.session: Any = kwargs.get("session")
         if self.session is None:
             from core.domain import SessionContext
 
-            in_mem = list(self.inp.in_memory_history) if self.inp.in_memory_history else None
-            self.session = SessionContext.from_thread(self.inp.channel_id, self.inp.thread_ts, in_mem)
-
-    # Input properties (read-only views into self.inp)
-    @property
-    def channel_id(self) -> str:
-        return self.inp.channel_id
-
-    @property
-    def thread_ts(self) -> str:
-        return self.inp.thread_ts
-
-    @property
-    def raw_text(self) -> str:
-        return self.inp.raw_text
-
-    @property
-    def user_id(self) -> str | None:
-        return self.inp.user_id
-
-    @property
-    def bot_user_id(self) -> str | None:
-        return self.inp.bot_user_id
-
-    @property
-    def is_bot_trigger(self) -> bool:
-        return self.inp.is_bot_trigger
-
-    @property
-    def in_memory_history(self) -> list[dict[str, Any]] | None:
-        return list(self.inp.in_memory_history) if self.inp.in_memory_history is not None else None
-
-    @property
-    def isolated_branch(self) -> bool:
-        return self.inp.isolated_branch
-
-    @property
-    def consensus_signaled(self) -> bool:
-        return self.control_plane.consensus_signaled
-
-    @consensus_signaled.setter
-    def consensus_signaled(self, val: bool) -> None:
-        self.control_plane.consensus_signaled = val
-
-    # Output properties
-    @property
-    def final_text(self) -> str:
-        return self.out.final_text
-
-    @final_text.setter
-    def final_text(self, val: str):
-        self.out.final_text = val
-
-    @property
-    def total_prompt_tokens(self) -> int:
-        return self.out.total_prompt_tokens
-
-    @total_prompt_tokens.setter
-    def total_prompt_tokens(self, val: int):
-        self.out.total_prompt_tokens = val
-
-    @property
-    def total_completion_tokens(self) -> int:
-        return self.out.total_completion_tokens
-
-    @total_completion_tokens.setter
-    def total_completion_tokens(self, val: int):
-        self.out.total_completion_tokens = val
-
-    @property
-    def skills_used(self) -> list[str]:
-        return self.out.skills_used
-
-    @skills_used.setter
-    def skills_used(self, val: list[str]):
-        self.out.skills_used = val
-
-    @property
-    def generated_tags(self) -> list[str]:
-        return self.out.generated_tags
-
-    @generated_tags.setter
-    def generated_tags(self, val: list[str]):
-        self.out.generated_tags = val
-
-    @property
-    def slack_res(self) -> dict[str, Any] | None:
-        return self.out.slack_res
-
-    @slack_res.setter
-    def slack_res(self, val: dict[str, Any] | None):
-        self.out.slack_res = val
-
-    @property
-    def is_completed(self) -> bool:
-        return self.out.is_completed
-
-    @is_completed.setter
-    def is_completed(self, val: bool):
-        self.out.is_completed = val
-
-    @property
-    def halted(self) -> bool:
-        return self.out.halted
-
-    @halted.setter
-    def halted(self, val: bool):
-        self.out.halted = val
-
-    @property
-    def waiting_hitl(self) -> bool:
-        return self.out.waiting_hitl
-
-    @waiting_hitl.setter
-    def waiting_hitl(self, val: bool):
-        self.out.waiting_hitl = val
-
-    @property
-    def checkpoint_id(self) -> str | None:
-        return self.out.checkpoint_id
-
-    @checkpoint_id.setter
-    def checkpoint_id(self, val: str | None):
-        self.out.checkpoint_id = val
-
-    @property
-    def revisor_warning(self) -> str | None:
-        return self.out.revisor_warning
-
-    @revisor_warning.setter
-    def revisor_warning(self, val: str | None):
-        self.out.revisor_warning = val
-
-    # Control plane properties
-    @property
-    def clarification_question(self) -> str | None:
-        return self.control_plane.clarification_question
-
-    @clarification_question.setter
-    def clarification_question(self, val: str | None):
-        self.control_plane.clarification_question = val
-
-    @property
-    def convergence_summary(self) -> str | None:
-        return self.control_plane.convergence_summary
-
-    @convergence_summary.setter
-    def convergence_summary(self, val: str | None):
-        self.control_plane.convergence_summary = val
-
-    @property
-    def control_plane_nomination(self) -> str | None:
-        return self.control_plane.nomination
-
-    @control_plane_nomination.setter
-    def control_plane_nomination(self, val: str | None):
-        self.control_plane.nomination = val
-
-    @property
-    def control_plane_rationale(self) -> str | None:
-        return self.control_plane.nomination_rationale
-
-    @control_plane_rationale.setter
-    def control_plane_rationale(self, val: str | None):
-        self.control_plane.nomination_rationale = val
-
-    @property
-    def control_plane_clarification_requested(self) -> bool:
-        return self.control_plane.clarification_requested
-
-    @control_plane_clarification_requested.setter
-    def control_plane_clarification_requested(self, val: bool):
-        self.control_plane.clarification_requested = val
-
-    @property
-    def control_plane_clarification_question(self) -> str | None:
-        return self.control_plane.clarification_question
-
-    @control_plane_clarification_question.setter
-    def control_plane_clarification_question(self, val: str | None):
-        self.control_plane.clarification_question = val
-
-    @property
-    def control_plane_consensus_signaled(self) -> bool:
-        return self.control_plane.consensus_signaled
-
-    @control_plane_consensus_signaled.setter
-    def control_plane_consensus_signaled(self, val: bool):
-        self.control_plane.consensus_signaled = val
-
-    @property
-    def control_plane_consensus_summary(self) -> str | None:
-        return self.control_plane.consensus_summary
-
-    @control_plane_consensus_summary.setter
-    def control_plane_consensus_summary(self, val: str | None):
-        self.control_plane.consensus_summary = val
+            in_mem = list(self.input.in_memory_history) if self.input.in_memory_history else None
+            self.session = SessionContext.from_thread(self.input.channel_id, self.input.thread_ts, in_mem)
 
     def is_superseded(self) -> bool:
         """Determines if this turn was superseded by a newer query or task cancellation."""
-        return thread_state_manager.get_generation(self.channel_id, self.thread_ts) != self.my_generation or bool(
+        return thread_state_manager.get_generation(self.input.channel_id, self.input.thread_ts) != self.my_generation or bool(
             self.current_task and self.current_task.cancelled()
         )
 
@@ -471,8 +300,8 @@ class TurnContext:
             prompt_tokens = int(getattr(usage, "prompt_tokens", 0) or 0)
             completion_tokens = int(getattr(usage, "completion_tokens", 0) or 0)
 
-        self.out.total_prompt_tokens += prompt_tokens
-        self.out.total_completion_tokens += completion_tokens
+        self.output.total_prompt_tokens += prompt_tokens
+        self.output.total_completion_tokens += completion_tokens
 
         if prompt_tokens > 0 or completion_tokens > 0:
             resp_model = getattr(resp, "model", None)
@@ -481,8 +310,8 @@ class TurnContext:
             if recorder:
                 try:
                     recorder(
-                        channel_id=self.channel_id,
-                        thread_ts=self.thread_ts,
+                        channel_id=self.input.channel_id,
+                        thread_ts=self.input.thread_ts,
                         model_name=model_name,
                         prompt_tokens=prompt_tokens,
                         completion_tokens=completion_tokens,
@@ -581,15 +410,15 @@ class TurnPipeline:
 
         ctx.token_recorder = getattr(self.deps, "token_recorder", None) or record_thread_tokens
 
-        logger.info(f"\n[{ctx.start_time}] >>> START process_and_respond for thread_ts: {ctx.thread_ts} <<<")
+        logger.info(f"\n[{ctx.start_time}] >>> START process_and_respond for thread_ts: {ctx.input.thread_ts} <<<")
 
-        if not ctx.is_bot_trigger:
-            thread_state_manager.increment_generation(ctx.channel_id, ctx.thread_ts)
+        if not ctx.input.is_bot_trigger:
+            thread_state_manager.increment_generation(ctx.input.channel_id, ctx.input.thread_ts)
 
-        ctx.my_generation = thread_state_manager.get_generation(ctx.channel_id, ctx.thread_ts)
+        ctx.my_generation = thread_state_manager.get_generation(ctx.input.channel_id, ctx.input.thread_ts)
         ctx.current_task = asyncio.current_task()
-        if ctx.current_task and not ctx.isolated_branch:
-            thread_state_manager.set_active_task(ctx.channel_id, ctx.thread_ts, ctx.current_task)
+        if ctx.current_task and not ctx.input.isolated_branch:
+            thread_state_manager.set_active_task(ctx.input.channel_id, ctx.input.thread_ts, ctx.current_task)
 
         try:
             from services.telemetry import record_turn_trace
@@ -598,9 +427,9 @@ class TurnPipeline:
             t0 = time.time()
             halt = await self.validation_stage.stage_validate_and_parse(ctx)
             record_turn_trace(
-                session_id=getattr(ctx, "session_id", f"{ctx.channel_id}:{ctx.thread_ts}"),
-                channel_id=ctx.channel_id,
-                thread_ts=ctx.thread_ts,
+                session_id=getattr(ctx, "session_id", f"{ctx.input.channel_id}:{ctx.input.thread_ts}"),
+                channel_id=ctx.input.channel_id,
+                thread_ts=ctx.input.thread_ts,
                 agent_key=ctx.agent_key or "unknown",
                 stage_name="validation",
                 duration_ms=(time.time() - t0) * 1000.0,
@@ -613,9 +442,9 @@ class TurnPipeline:
             t0 = time.time()
             halt = await self.resolution_stage.stage_resolve_agent_and_governance(ctx)
             record_turn_trace(
-                session_id=getattr(ctx, "session_id", f"{ctx.channel_id}:{ctx.thread_ts}"),
-                channel_id=ctx.channel_id,
-                thread_ts=ctx.thread_ts,
+                session_id=getattr(ctx, "session_id", f"{ctx.input.channel_id}:{ctx.input.thread_ts}"),
+                channel_id=ctx.input.channel_id,
+                thread_ts=ctx.input.thread_ts,
                 agent_key=ctx.agent_key or "unknown",
                 stage_name="resolution",
                 duration_ms=(time.time() - t0) * 1000.0,
@@ -628,9 +457,9 @@ class TurnPipeline:
             t0 = time.time()
             halt = await self.context_prep_stage.stage_prepare_context(ctx)
             record_turn_trace(
-                session_id=getattr(ctx, "session_id", f"{ctx.channel_id}:{ctx.thread_ts}"),
-                channel_id=ctx.channel_id,
-                thread_ts=ctx.thread_ts,
+                session_id=getattr(ctx, "session_id", f"{ctx.input.channel_id}:{ctx.input.thread_ts}"),
+                channel_id=ctx.input.channel_id,
+                thread_ts=ctx.input.thread_ts,
                 agent_key=ctx.agent_key or "unknown",
                 stage_name="context_prep",
                 duration_ms=(time.time() - t0) * 1000.0,
@@ -643,15 +472,15 @@ class TurnPipeline:
             t0 = time.time()
             halt = await self.execution_stage.stage_execute_llm(ctx)
             record_turn_trace(
-                session_id=getattr(ctx, "session_id", f"{ctx.channel_id}:{ctx.thread_ts}"),
-                channel_id=ctx.channel_id,
-                thread_ts=ctx.thread_ts,
+                session_id=getattr(ctx, "session_id", f"{ctx.input.channel_id}:{ctx.input.thread_ts}"),
+                channel_id=ctx.input.channel_id,
+                thread_ts=ctx.input.thread_ts,
                 agent_key=ctx.agent_key or "unknown",
                 stage_name="execution",
                 duration_ms=(time.time() - t0) * 1000.0,
-                prompt_tokens=ctx.total_prompt_tokens,
-                completion_tokens=ctx.total_completion_tokens,
-                tools_called=ctx.skills_used,
+                prompt_tokens=ctx.output.total_prompt_tokens,
+                completion_tokens=ctx.output.total_completion_tokens,
+                tools_called=ctx.output.skills_used,
                 status="HALTED" if halt else "SUCCESS",
             )
             if halt:
@@ -661,15 +490,15 @@ class TurnPipeline:
             t0 = time.time()
             slack_res = await self.post_record_stage.stage_post_and_record(ctx)
             record_turn_trace(
-                session_id=getattr(ctx, "session_id", f"{ctx.channel_id}:{ctx.thread_ts}"),
-                channel_id=ctx.channel_id,
-                thread_ts=ctx.thread_ts,
+                session_id=getattr(ctx, "session_id", f"{ctx.input.channel_id}:{ctx.input.thread_ts}"),
+                channel_id=ctx.input.channel_id,
+                thread_ts=ctx.input.thread_ts,
                 agent_key=ctx.agent_key or "unknown",
                 stage_name="post_record",
                 duration_ms=(time.time() - t0) * 1000.0,
-                prompt_tokens=ctx.total_prompt_tokens,
-                completion_tokens=ctx.total_completion_tokens,
-                tools_called=ctx.skills_used,
+                prompt_tokens=ctx.output.total_prompt_tokens,
+                completion_tokens=ctx.output.total_completion_tokens,
+                tools_called=ctx.output.skills_used,
                 status="SUCCESS" if isinstance(slack_res, dict) and slack_res.get("ok", True) else "FAILED",
             )
 
@@ -683,7 +512,7 @@ class TurnPipeline:
                     warning = await asyncio.wait_for(run_internal_revisor(ctx), timeout=3.5)
                     if warning and isinstance(slack_res, dict):
                         slack_res["revisor_warning"] = warning
-                        ctx.revisor_warning = warning
+                        ctx.output.revisor_warning = warning
             except asyncio.TimeoutError:
                 logger.warning(f"[REVISOR] InternalRevisor barrier timed out after 3.5s on {ctx.thread_key}")
             except Exception as e:  # noqa: BLE001
@@ -701,10 +530,10 @@ class TurnPipeline:
         finally:
             if (
                 ctx.current_task
-                and thread_state_manager.get_active_task(ctx.channel_id, ctx.thread_ts) == ctx.current_task
-                and (ctx.in_memory_history is None or ctx.is_completed)
+                and thread_state_manager.get_active_task(ctx.input.channel_id, ctx.input.thread_ts) == ctx.current_task
+                and (ctx.input.in_memory_history is None or ctx.output.is_completed)
             ):
-                thread_state_manager.clear_active_task(ctx.channel_id, ctx.thread_ts, ctx.current_task)
+                thread_state_manager.clear_active_task(ctx.input.channel_id, ctx.input.thread_ts, ctx.current_task)
 
     async def resume_from_checkpoint(
         self,
@@ -741,25 +570,25 @@ class TurnPipeline:
             is_bot_trigger=True,
             in_memory_history=list(chk.accumulated_history or []),
         )
-        ctx.my_generation = thread_state_manager.get_generation(ctx.channel_id, ctx.thread_ts)
+        ctx.my_generation = thread_state_manager.get_generation(ctx.input.channel_id, ctx.input.thread_ts)
         ctx.current_task = asyncio.current_task()
         ctx.session_id = chk.session_id
         ctx.agent_key = chk.agent_key
         ctx.messages = list(chk.messages or [])
         ctx.turn_token_mapping = dict(chk.token_mapping or {})
-        ctx.skills_used = list(chk.skills_used or [])
-        ctx.total_prompt_tokens = chk.prompt_tokens
-        ctx.total_completion_tokens = chk.completion_tokens
-        ctx.checkpoint_id = chk.checkpoint_id
+        ctx.output.skills_used = list(chk.skills_used or [])
+        ctx.output.total_prompt_tokens = chk.prompt_tokens
+        ctx.output.total_completion_tokens = chk.completion_tokens
+        ctx.output.checkpoint_id = chk.checkpoint_id
         ctx.token_recorder = getattr(self.deps, "token_recorder", None) or record_thread_tokens
 
         from orchestration.nomination import get_initial_agents
         ctx.remaining = thread_state_manager.get_remaining_agents(
-            ctx.channel_id, ctx.thread_ts, default=get_initial_agents(ctx.channel_id, ctx.thread_ts)
+            ctx.input.channel_id, ctx.input.thread_ts, default=get_initial_agents(ctx.input.channel_id, ctx.input.thread_ts)
         )
         ctx.eligible_remaining_agents = list(ctx.remaining)
-        ctx.is_custom_flow = thread_state_manager.is_custom_flow(ctx.channel_id, ctx.thread_ts)
-        ctx.is_open_debate = thread_state_manager.is_open_debate(ctx.channel_id, ctx.thread_ts)
+        ctx.is_custom_flow = thread_state_manager.is_custom_flow(ctx.input.channel_id, ctx.input.thread_ts)
+        ctx.is_open_debate = thread_state_manager.is_open_debate(ctx.input.channel_id, ctx.input.thread_ts)
         ctx.full_history = list(chk.accumulated_history or [])
 
         agents_map = settings_manager.agents_config or AGENTS_CONFIG
@@ -770,9 +599,9 @@ class TurnPipeline:
 
         base_skills = list(ctx.agent_cfg.get("skills") or settings_manager.get_agent_skills(ctx.agent_key) or [])
         global_skills = skill_registry.get_global_skills()
-        active_thread_skills = thread_skills_manager.get_active_skills(ctx.channel_id, ctx.thread_ts)
+        active_thread_skills = thread_skills_manager.get_active_skills(ctx.input.channel_id, ctx.input.thread_ts)
         active_agent_skills = thread_skills_manager.get_active_agent_skills(
-            ctx.channel_id, ctx.thread_ts, ctx.agent_key
+            ctx.input.channel_id, ctx.input.thread_ts, ctx.agent_key
         )
         ctx.authorized_skills = list(
             dict.fromkeys(base_skills + global_skills + active_thread_skills + active_agent_skills)
@@ -839,7 +668,7 @@ class TurnPipeline:
             response_message = follow_up.choices[0].message
             tool_calls = getattr(response_message, "tool_calls", None)
             if not tool_calls or not isinstance(tool_calls, (list, tuple)):
-                ctx.final_text = response_message.content or ""
+                ctx.output.final_text = response_message.content or ""
                 break
 
             # Follow-up tool calling loop
@@ -900,7 +729,7 @@ class TurnPipeline:
                 warning = await asyncio.wait_for(run_internal_revisor(ctx), timeout=3.5)
                 if warning and isinstance(slack_res, dict):
                     slack_res["revisor_warning"] = warning
-                    ctx.revisor_warning = warning
+                    ctx.output.revisor_warning = warning
         except asyncio.TimeoutError:
             logger.warning(f"[REVISOR] InternalRevisor barrier timed out after 3.5s on {ctx.thread_key}")
         except Exception as e:  # noqa: BLE001

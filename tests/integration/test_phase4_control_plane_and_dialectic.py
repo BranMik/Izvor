@@ -5,6 +5,7 @@ and Observability Span Traces (PrePublish 8 Phase 4 / Epic C6 & tickets TKT-817,
 
 from __future__ import annotations
 
+import pytest
 
 from orchestration.nomination import enforce_valid_nomination
 from pipeline.discussion_scribe.scribe import (
@@ -16,7 +17,8 @@ from services.telemetry import get_turn_traces, record_turn_trace
 from skills import skill_registry
 
 
-def test_control_plane_skill_registered_and_executable():
+@pytest.mark.anyio
+async def test_control_plane_skill_registered_and_executable():
     skill = skill_registry.get("control_plane")
     assert skill is not None
     assert skill.is_global
@@ -26,7 +28,7 @@ def test_control_plane_skill_registered_and_executable():
     assert "signal_consensus_convergence" in tool_names
 
     # Test executing nominate_next_speaker
-    res = skill_registry.execute_tool(
+    res = await skill_registry.execute_tool_async(
         "nominate_next_speaker",
         {"agent_name": "agent-10002", "rationale": "Needs technical architecture review"},
         agent_name="agent-10001",
@@ -35,7 +37,7 @@ def test_control_plane_skill_registered_and_executable():
     assert "nominated" in res
 
     # Test executing signal_consensus_convergence
-    res = skill_registry.execute_tool(
+    res = await skill_registry.execute_tool_async(
         "signal_consensus_convergence",
         {"summary_of_agreement": "Agreed on SQLite WAL architecture."},
         agent_name="agent-10001",

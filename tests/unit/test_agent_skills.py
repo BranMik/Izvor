@@ -3,7 +3,7 @@ Comprehensive test suite for the Declarative SKILL.md Framework and LLM Progress
 """
 
 import json
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -92,8 +92,9 @@ def test_load_skill_schema():
     assert "skill_name" in LOAD_SKILL_SCHEMA["function"]["parameters"]["properties"]
 
 
-def test_execute_load_skill_valid():
-    raw_res = skill_registry.execute_tool(
+@pytest.mark.anyio
+async def test_execute_load_skill_valid():
+    raw_res = await skill_registry.execute_tool_async(
         "load_skill", {"skill_name": "web_research"}, authorized_skills=["web_research"]
     )
     data = json.loads(raw_res)
@@ -105,9 +106,10 @@ def test_execute_load_skill_valid():
     assert "# Web Research Skill" in data["operational_guidelines"]
 
 
-def test_execute_load_skill_authorization():
+@pytest.mark.anyio
+async def test_execute_load_skill_authorization():
     # Authorized case
-    raw_res = skill_registry.execute_tool(
+    raw_res = await skill_registry.execute_tool_async(
         "load_skill", {"skill_name": "web_research"}, authorized_skills=["web_research"]
     )
     data = json.loads(raw_res)
@@ -115,7 +117,7 @@ def test_execute_load_skill_authorization():
     assert data["skill"] == "web_research"
 
     # Unauthorized case: Sceptic has [], tries to load web_research
-    denied_res = skill_registry.execute_tool(
+    denied_res = await skill_registry.execute_tool_async(
         "load_skill", {"skill_name": "web_research"}, authorized_skills=[]
     )
     denied_data = json.loads(denied_res)
@@ -125,7 +127,7 @@ def test_execute_load_skill_authorization():
     assert "Do NOT report that the file or resource was not found." in denied_data["error"]
 
     # Unauthorized case: LegalAdvisor has ['document_reader'], tries to load web_research
-    tl_denied = skill_registry.execute_tool(
+    tl_denied = await skill_registry.execute_tool_async(
         "load_skill", {"skill_name": "web_research"}, authorized_skills=["document_reader"]
     )
     tl_data = json.loads(tl_denied)
@@ -134,18 +136,20 @@ def test_execute_load_skill_authorization():
     assert "Do NOT report that the file or resource was not found." in tl_data["error"]
 
 
-def test_execute_load_skill_invalid():
-    raw_res = skill_registry.execute_tool("load_skill", {"skill_name": "teleportation"}, authorized_skills=["teleportation"])
+@pytest.mark.anyio
+async def test_execute_load_skill_invalid():
+    raw_res = await skill_registry.execute_tool_async("load_skill", {"skill_name": "teleportation"}, authorized_skills=["teleportation"])
     data = json.loads(raw_res)
 
     assert "error" in data
     assert "not found" in data["error"]
 
 
-def test_execute_delegated_local_tool():
-    with patch("skills.loader.execute_local_tool") as mock_exec:
+@pytest.mark.anyio
+async def test_execute_delegated_local_tool():
+    with patch("skills.loader.execute_local_tool", new_callable=AsyncMock) as mock_exec:
         mock_exec.return_value = json.dumps({"contents": []})
-        res = skill_registry.execute_tool(
+        res = await skill_registry.execute_tool_async(
             "list_documents", {"rel_path": "."}, authorized_skills=ALL_INTERNAL_SKILLS
         )
         assert "contents" in res
@@ -156,18 +160,19 @@ def test_execute_delegated_local_tool():
         assert set(kwargs.get("authorized_skills", [])) == {s.name for s in skill_registry._skills.values()}
 
 
-def test_execute_tool_authorization_enforcement():
+@pytest.mark.anyio
+async def test_execute_tool_authorization_enforcement():
     # Authorized: web_research allows web_search
-    with patch("skills.loader.execute_local_tool") as mock_exec:
+    with patch("skills.loader.execute_local_tool", new_callable=AsyncMock) as mock_exec:
         mock_exec.return_value = json.dumps({"results": ["ok"]})
-        res = skill_registry.execute_tool(
+        res = await skill_registry.execute_tool_async(
             "web_search", {"query": "AI"}, authorized_skills=["web_research"]
         )
         assert json.loads(res) == {"results": ["ok"]}
         mock_exec.assert_called_once()
 
     # Unauthorized tool: web_research does NOT allow read_document
-    denied_res = skill_registry.execute_tool(
+    denied_res = await skill_registry.execute_tool_async(
         "read_document", {"file_path": "secret.txt"}, authorized_skills=["web_research"]
     )
     denied_data = json.loads(denied_res)
@@ -176,7 +181,7 @@ def test_execute_tool_authorization_enforcement():
     assert "'web_search'" in denied_data["error"]
 
     # Zero skills agent: no non-global tools authorized
-    zero_res = skill_registry.execute_tool(
+    zero_res = await skill_registry.execute_tool_async(
         "read_document", {"file_path": "test.txt"}, authorized_skills=[]
     )
     zero_data = json.loads(zero_res)
@@ -185,7 +190,7 @@ def test_execute_tool_authorization_enforcement():
     assert "read_document" not in permitted_part
 
     # Default None authorized_skills: fails closed!
-    default_none_res = skill_registry.execute_tool(
+    default_none_res = await skill_registry.execute_tool_async(
         "read_document", {"file_path": "test.txt"}
     )
     default_none_data = json.loads(default_none_res)
@@ -226,14 +231,19 @@ def test_prompt_builder_strict_role_authorization():
 
     # Research expert has ['web_research']:
     # Loadable catalog should contain web_research, but NOT document_reader or workspace_authoring
+    # Pre-equipped multi-paragraph guidelines should NOT be dumped into system prompt (lazy load_skill)
     market_prompt = build_agent_prompt("agent-10009")
+    assert "### PRE-EQUIPPED SKILL GUIDELINES" not in market_prompt
+    assert "# Web Research Skill" not in market_prompt
     assert "AVAILABLE SKILLS (ON DEMAND VIA `load_skill`)" in market_prompt
     loadable_market = market_prompt.split("AVAILABLE SKILLS (ON DEMAND VIA `load_skill`)")[1]
     assert "`web_research`" in loadable_market
+    assert skill_registry.get("web_research").description in loadable_market
     assert "`workspace_authoring`" not in loadable_market
 
     # LegalAdvisor has ['knowledge_base_rag', 'web_research']
     tech_prompt = build_agent_prompt("agent-10011")
+    assert "### PRE-EQUIPPED SKILL GUIDELINES" not in tech_prompt
     assert "AVAILABLE SKILLS (ON DEMAND VIA `load_skill`)" in tech_prompt
     loadable_tech = tech_prompt.split("AVAILABLE SKILLS (ON DEMAND VIA `load_skill`)")[1]
     assert "`knowledge_base_rag`" in loadable_tech
@@ -258,7 +268,8 @@ def test_skill_loader_tool_aggregation():
     assert skill_registry.get_tools_for_skills(None) == []
 
 
-def test_pipeline_tools_initialization_and_progressive_unlocking():
+@pytest.mark.anyio
+async def test_pipeline_tools_initialization_and_progressive_unlocking():
     # 1. Zero-skills persona (Sceptic)
     sceptic_skills = settings_manager.get_agent_skills("agent-10003")
     assert sceptic_skills == []
@@ -278,7 +289,7 @@ def test_pipeline_tools_initialization_and_progressive_unlocking():
     assert market_active_tools == [LOAD_SKILL_SCHEMA]
 
     # Authorized load_skill call unlocks only permitted tools
-    load_res = skill_registry.execute_tool(
+    load_res = await skill_registry.execute_tool_async(
         "load_skill", {"skill_name": "web_research"}, authorized_skills=market_skills
     )
     load_data = json.loads(load_res)
@@ -292,7 +303,7 @@ def test_pipeline_tools_initialization_and_progressive_unlocking():
     assert unlocked_names == {"load_skill", "web_search", "fetch_web_page"}
 
     # Unauthorized load_skill call rejects and does NOT unlock forbidden tools
-    unauth_res = skill_registry.execute_tool(
+    unauth_res = await skill_registry.execute_tool_async(
         "load_skill", {"skill_name": "document_reader"}, authorized_skills=market_skills
     )
     unauth_data = json.loads(unauth_res)

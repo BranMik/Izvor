@@ -21,11 +21,11 @@ class OrchestrationMode(StrEnum):
             return cls.SANDWICH
 
 
-REQUIRED_DEFAULT_WORKFLOW_IDS: set[str] = {
+REQUIRED_DEFAULT_WORKFLOW_IDS: tuple[str, ...] = (
     "default_review_flow",
     "default_sandwich",
     "parallel_dialectic_flow",
-}
+)
 
 
 @dataclass
@@ -270,13 +270,6 @@ class WorkflowPreset:
             sandwich_config=sandwich_config,
             fixed_config=fixed_config,
         )
-
-
-REQUIRED_DEFAULT_WORKFLOW_IDS: tuple[str, ...] = (
-    "default_review_flow",
-    "default_sandwich",
-    "parallel_dialectic_flow",
-)
 
 
 def build_dynamic_default_workflows(agent_ids: list[str]) -> list[WorkflowPreset]:

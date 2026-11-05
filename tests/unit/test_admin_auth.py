@@ -1,6 +1,6 @@
 import base64
 import pytest
-from starlette.testclient import TestClient
+from fastapi.testclient import TestClient
 
 from main import app
 import core.config as config
