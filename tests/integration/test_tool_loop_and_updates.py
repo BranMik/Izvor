@@ -78,7 +78,7 @@ async def test_tool_call_loop_timeout_fallback():
 
     res = await pipeline.execution_stage.stage_execute_llm(ctx)
     assert res is None  # continues gracefully
-    assert ctx.final_text == "Initial analysis before tool"
+    assert ctx.output.final_text == "Initial analysis before tool"
 
 
 @pytest.mark.anyio
@@ -137,7 +137,7 @@ async def test_delayed_intermediate_status_and_inplace_update():
 
     res = await pipeline.execution_stage.stage_execute_llm(ctx)
     assert res is None
-    assert ctx.final_text == "Here is the final answer about AI 2026."
+    assert ctx.output.final_text == "Here is the final answer about AI 2026."
     assert ctx.intermediate_msg_ts == "11111.0001"
     mock_post_agent.assert_called_once()
     assert "is searching the web" in mock_post_agent.call_args[1]["text"]

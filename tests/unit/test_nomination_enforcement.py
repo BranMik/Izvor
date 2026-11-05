@@ -38,7 +38,7 @@ async def test_display_name_nomination_preserves_round_and_pops_retry():
     ctx.agent_cfg = {"username": "Visionary", "model": "test-model"}
     ctx.remaining = []
     ctx.eligible_remaining_agents = []
-    ctx.final_text = "I nominate /[The Sceptic] to share critical thoughts."
+    ctx.output.final_text = "I nominate /[The Sceptic] to share critical thoughts."
 
     # Pipeline and post_agent_response
     mock_post = AsyncMock(return_value={"ts": "1700000088.9999"})
@@ -56,7 +56,7 @@ async def test_display_name_nomination_preserves_round_and_pops_retry():
     assert thread_state_manager.has_pending_retries(channel_id, thread_ts) is False
 
     # 2. generated_tags should contain canonical key 'agent-10003'
-    assert "agent-10003" in ctx.generated_tags
+    assert "agent-10003" in ctx.output.generated_tags
 
     # 3. Discussion should NOT be marked completed because has_nominated_next is True
-    assert ctx.is_completed is False
+    assert ctx.output.is_completed is False

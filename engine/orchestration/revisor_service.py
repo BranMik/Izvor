@@ -27,16 +27,16 @@ async def run_internal_revisor(ctx: TurnContext):
         logger.info(f"[REVISOR] Triggering InternalRevisor on turn {turn_count}")
 
         # 2. Get the initial user prompt
-        initial_prompt = thread_state_manager.get_initial_prompt(ctx.channel_id, ctx.thread_ts)
+        initial_prompt = thread_state_manager.get_initial_prompt(ctx.input.channel_id, ctx.input.thread_ts)
         if not initial_prompt:
-            initial_prompt = ctx.raw_text
+            initial_prompt = ctx.input.raw_text
 
         # 3. Get the last two agent messages
         prev_msg = assistant_msgs[-1].get("content", "") if len(assistant_msgs) >= 1 else ""
-        current_msg = f"[{ctx.agent_cfg.get('username', ctx.agent_key)}]: {ctx.final_text}"
+        current_msg = f"[{ctx.agent_cfg.get('username', ctx.agent_key)}]: {ctx.output.final_text}"
 
         # Check if RAG/documents or tools were used in the current turn
-        rag_used = any(s in ctx.skills_used for s in ["knowledge_base_rag", "document_reader"])
+        rag_used = any(s in ctx.output.skills_used for s in ["knowledge_base_rag", "document_reader"])
         context_block = ""
         retrieved_parts = []
         if rag_used and ctx.file_context:
@@ -96,13 +96,13 @@ async def run_internal_revisor(ctx: TurnContext):
                     from agents.usage_agent import record_thread_tokens, trigger_usage_update
 
                     record_thread_tokens(
-                        channel_id=ctx.channel_id,
-                        thread_ts=ctx.thread_ts,
+                        channel_id=ctx.input.channel_id,
+                        thread_ts=ctx.input.thread_ts,
                         model_name=model,
                         prompt_tokens=prompt_tokens,
                         completion_tokens=completion_tokens,
                     )
-                    trigger_usage_update(channel_id=ctx.channel_id, thread_ts=ctx.thread_ts)
+                    trigger_usage_update(channel_id=ctx.input.channel_id, thread_ts=ctx.input.thread_ts)
                 except Exception as ex:  # noqa: BLE001
                     logger.debug(f"[REVISOR] Could not record token usage for InternalRevisor: {ex}")
 
@@ -117,8 +117,8 @@ async def run_internal_revisor(ctx: TurnContext):
                 display_name = sys_cfg.get("displayname") or "Internal Revisor"
                 icon_url = sys_cfg.get("icon_url") or "static/image_99.png"
                 await post_agent_response(
-                    channel_id=ctx.channel_id,
-                    thread_ts=ctx.thread_ts,
+                    channel_id=ctx.input.channel_id,
+                    thread_ts=ctx.input.thread_ts,
                     text=output,
                     username=display_name,
                     icon_url=icon_url

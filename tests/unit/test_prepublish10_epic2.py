@@ -189,8 +189,8 @@ async def test_tool_loop_pause_disables_tool_choice():
         agent_cfg={"model": "gemini/gemini-3.8-flash", "skills": []},
     )
     ctx.agent_key = "Analyst"
-    ctx.waiting_hitl = True
-    ctx.halted = True
+    ctx.output.waiting_hitl = True
+    ctx.output.halted = True
 
     # Initial response calling a tool
     mock_tool_call = MagicMock()

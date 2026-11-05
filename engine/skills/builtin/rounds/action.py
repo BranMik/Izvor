@@ -13,8 +13,9 @@ logger = logging.getLogger(__name__)
 async def run(ctx: Any, params: dict[str, Any] | None = None) -> dict[str, Any] | None:
     from orchestration.thread_state import thread_state_manager
     params = params or {}
-    channel_id = getattr(ctx, "channel_id", "")
-    thread_ts = getattr(ctx, "thread_ts", "")
+    inp = getattr(ctx, "input", ctx)
+    channel_id = getattr(inp, "channel_id", "")
+    thread_ts = getattr(inp, "thread_ts", "")
     slash_cmd = str(params.get("slash_cmd", "")).lower()
 
     is_next_round = bool(

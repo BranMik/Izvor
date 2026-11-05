@@ -214,8 +214,8 @@ def test_turn_context_delta_token_recording():
     mock_resp1.usage = MagicMock(prompt_tokens=100, completion_tokens=50)
 
     ctx.add_usage(mock_resp1)
-    assert ctx.total_prompt_tokens == 100
-    assert ctx.total_completion_tokens == 50
+    assert ctx.output.total_prompt_tokens == 100
+    assert ctx.output.total_completion_tokens == 50
     mock_recorder.assert_called_once_with(
         channel_id="channel_1",
         thread_ts="thread_1",
@@ -232,8 +232,8 @@ def test_turn_context_delta_token_recording():
     mock_resp2.usage = MagicMock(prompt_tokens=40, completion_tokens=25)
 
     ctx.add_usage(mock_resp2)
-    assert ctx.total_prompt_tokens == 140
-    assert ctx.total_completion_tokens == 75
+    assert ctx.output.total_prompt_tokens == 140
+    assert ctx.output.total_completion_tokens == 75
     # Must record ONLY the delta tokens (40, 25)
     mock_recorder.assert_called_once_with(
         channel_id="channel_1",

@@ -115,8 +115,9 @@ async def test_directive_parser_grant_and_revoke_for_all():
     assert parsed_revoke.cleaned_prompt == ""
 
 
-def test_execute_tool_expired_skill_warning():
-    res = skill_registry.execute_tool(
+@pytest.mark.anyio
+async def test_execute_tool_expired_skill_warning():
+    res = await skill_registry.execute_tool_async(
         "load_skill",
         {"skill_name": "web_research"},
         authorized_skills=[],

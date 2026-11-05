@@ -155,7 +155,8 @@ def test_reconciliation_engine_lifecycle(temp_rag_dir):
     asyncio.run(_run())
 
 
-def test_skill_registry_loads_knowledge_base_rag():
+@pytest.mark.anyio
+async def test_skill_registry_loads_knowledge_base_rag():
     registry = SkillRegistry()
     skill = registry.get("knowledge_base_rag")
     assert skill is not None
@@ -169,7 +170,7 @@ def test_skill_registry_loads_knowledge_base_rag():
     assert len(fn_names) == len(set(fn_names))
 
     # Test tool execution dispatch
-    result = registry.execute_tool(
+    result = await registry.execute_tool_async(
         "search_knowledge_rag",
         {"query": "coding standards", "scope": "all", "max_results": 2},
         authorized_skills=["knowledge_base_rag"],
@@ -177,7 +178,7 @@ def test_skill_registry_loads_knowledge_base_rag():
     assert isinstance(result, str)
 
     # Test tool execution dispatch with agent_name
-    result_agent = registry.execute_tool(
+    result_agent = await registry.execute_tool_async(
         "search_knowledge_rag",
         {"query": "AI in delivery", "scope": "all", "max_results": 2},
         authorized_skills=["knowledge_base_rag"],

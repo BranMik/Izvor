@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import inspect
 import json
@@ -520,7 +521,7 @@ def _mask_tool_args(args_dict: dict[str, Any]) -> dict[str, Any]:
     return masked
 
 
-def execute_local_tool(
+async def execute_local_tool(
     tool_name: str,
     arguments: dict[str, Any] | None = None,
     agent_name: ToolPrincipal | str | None = None,
@@ -574,11 +575,21 @@ def execute_local_tool(
     if handler:
         try:
             sig = inspect.signature(handler)
+            kwargs = {}
             if "principal" in sig.parameters or any(
                 p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
             ):
-                return handler(raw_args, principal=agent_name)
-            return handler(raw_args)
+                kwargs["principal"] = agent_name
+
+            if inspect.iscoroutinefunction(handler):
+                return await handler(raw_args, **kwargs)
+            elif tool_name in ("list_documents", "read_document", "write_document"):
+                return await asyncio.to_thread(handler, raw_args, **kwargs)
+            else:
+                res = handler(raw_args, **kwargs)
+                if inspect.isawaitable(res):
+                    return await res
+                return res
         except Exception as e:  # noqa: BLE001
             logger.error(f"[LOCAL_TOOLS] Error executing tool {tool_name}: {e}")
             return json.dumps({"error": f"Tool execution error: {e}"})

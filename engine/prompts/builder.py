@@ -272,15 +272,6 @@ def build_agent_prompt(
         catalog_prompt = skill_registry.get_skills_catalog_prompt(allowed_skills=effective_skills)
         if catalog_prompt:
             prompt += f"\n{catalog_prompt}\n"
-
-        if effective_skills:
-            pinned_guidelines = []
-            for s_name in effective_skills:
-                s_def = skill_registry.get(s_name)
-                if s_def and s_def.instructions:
-                    pinned_guidelines.append(s_def.instructions)
-            if pinned_guidelines:
-                prompt += "\n### PRE-EQUIPPED SKILL GUIDELINES\n" + "\n\n".join(pinned_guidelines) + "\n\n"
     except (ImportError, AttributeError, KeyError, TypeError, ValueError, RuntimeError) as e:
         logger.warning(f"[PROMPT BUILDER] Failed to load skills catalog/guidelines for {agent_key}: {e}")
 

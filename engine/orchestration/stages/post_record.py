@@ -124,18 +124,18 @@ class PostRecordStage:
         trig_notes = getattr(self.deps, "notes_updater", None) or trigger_thread_notes_update
         if trig_notes:
             trig_notes(
-                channel_id=ctx.channel_id,
-                thread_ts=ctx.thread_ts,
+                channel_id=ctx.input.channel_id,
+                thread_ts=ctx.input.thread_ts,
                 is_completed=is_completed,
-                bot_user_id=ctx.bot_user_id,
+                bot_user_id=ctx.input.bot_user_id,
             )
 
         # 3. Trigger usage update
         trig_usage = getattr(self.deps, "usage_updater", None) or trigger_usage_update
         if trig_usage:
             trig_usage(
-                channel_id=ctx.channel_id,
-                thread_ts=ctx.thread_ts,
+                channel_id=ctx.input.channel_id,
+                thread_ts=ctx.input.thread_ts,
                 is_completed=is_completed,
             )
 
@@ -143,18 +143,18 @@ class PostRecordStage:
         if record_flat_history:
             try:
                 initial_prompt = thread_state_manager.get_initial_prompt(
-                    ctx.channel_id, ctx.thread_ts
+                    ctx.input.channel_id, ctx.input.thread_ts
                 )
-                if not initial_prompt and not ctx.is_bot_trigger:
-                    initial_prompt = ctx.raw_text
+                if not initial_prompt and not ctx.input.is_bot_trigger:
+                    initial_prompt = ctx.input.raw_text
 
                 history_to_record = list(getattr(ctx, "full_history", []))
-                if ctx.final_text:
+                if ctx.output.final_text:
                     agent_name = ctx.agent_cfg.get("username", ctx.agent_key) if ctx.agent_cfg else ctx.agent_key
                     history_to_record.append(
                         {
                             "role": "assistant",
-                            "content": f"[{agent_name}]: {ctx.final_text}",
+                            "content": f"[{agent_name}]: {ctx.output.final_text}",
                         }
                     )
 
@@ -162,15 +162,15 @@ class PostRecordStage:
                 if record_flat_fn:
                     if inspect.iscoroutinefunction(record_flat_fn):
                         await record_flat_fn(
-                            channel_id=ctx.channel_id,
-                            thread_ts=ctx.thread_ts,
+                            channel_id=ctx.input.channel_id,
+                            thread_ts=ctx.input.thread_ts,
                             initial_prompt=initial_prompt,
                             messages=history_to_record,
                         )
                     else:
                         record_flat_fn(
-                            channel_id=ctx.channel_id,
-                            thread_ts=ctx.thread_ts,
+                            channel_id=ctx.input.channel_id,
+                            thread_ts=ctx.input.thread_ts,
                             initial_prompt=initial_prompt,
                             messages=history_to_record,
                         )
@@ -188,48 +188,48 @@ class PostRecordStage:
             )
             return {"ok": False, "cancelled": True, "reason": "superseded"}
 
-        if thread_state_manager.is_stopped(ctx.channel_id, ctx.thread_ts):
+        if thread_state_manager.is_stopped(ctx.input.channel_id, ctx.input.thread_ts):
             ctx.force_termination = True
             logger.info(
                 f"[ROUTER] Thread {ctx.thread_key} received stop request during execution. Forcing termination."
             )
 
         retries = thread_state_manager.get_retry_queue(
-            ctx.channel_id, ctx.thread_ts
+            ctx.input.channel_id, ctx.input.thread_ts
         )
 
         # Check if more discussion rounds remain when active round ends
         if (
-            not ctx.isolated_branch
+            not ctx.input.isolated_branch
             and not ctx.remaining
             and not retries
             and not ctx.force_termination
-            and not thread_state_manager.is_stopped(ctx.channel_id, ctx.thread_ts)
+            and not thread_state_manager.is_stopped(ctx.input.channel_id, ctx.input.thread_ts)
         ):
             active_rounds = thread_state_manager.get_rounds(
-                ctx.channel_id, ctx.thread_ts
+                ctx.input.channel_id, ctx.input.thread_ts
             )
-            if thread_state_manager.is_consensus_reached(ctx.channel_id, ctx.thread_ts):
-                thread_state_manager.clear_rounds(ctx.channel_id, ctx.thread_ts)
+            if thread_state_manager.is_consensus_reached(ctx.input.channel_id, ctx.input.thread_ts):
+                thread_state_manager.clear_rounds(ctx.input.channel_id, ctx.input.thread_ts)
                 ctx.force_termination = True
                 logger.info(
                     f"[ROUTER] Consensus convergence reached for thread {ctx.thread_key}. Concluding discussion and clearing rounds."
                 )
             elif active_rounds > 1:
                 thread_state_manager.decrement_rounds(
-                    ctx.channel_id, ctx.thread_ts
+                    ctx.input.channel_id, ctx.input.thread_ts
                 )
                 round_seq = thread_state_manager.get_round_sequence(
-                    ctx.channel_id, ctx.thread_ts
+                    ctx.input.channel_id, ctx.input.thread_ts
                 )
                 if not round_seq:
-                    round_seq = get_initial_agents(ctx.channel_id, ctx.thread_ts)
+                    round_seq = get_initial_agents(ctx.input.channel_id, ctx.input.thread_ts)
                 if round_seq:
                     next_speaker = round_seq[0]
                     ctx.next_designated_agent = next_speaker
                     ctx.eligible_remaining_agents = [next_speaker]
                     thread_state_manager.set_remaining_agents(
-                        ctx.channel_id, ctx.thread_ts, list(round_seq)
+                        ctx.input.channel_id, ctx.input.thread_ts, list(round_seq)
                     )
                     ctx.force_termination = False
                     logger.info(
@@ -238,32 +238,32 @@ class PostRecordStage:
                     )
             elif active_rounds == 1:
                 thread_state_manager.clear_rounds(
-                    ctx.channel_id, ctx.thread_ts
+                    ctx.input.channel_id, ctx.input.thread_ts
                 )
                 logger.info(
                     f"[ROUTER] Final round completed for thread {ctx.thread_key}. Concluding discussion."
                 )
-        if not ctx.final_text:
+        if not ctx.output.final_text:
             if ctx.force_termination:
-                ctx.final_text = "(No text response generated)"
+                ctx.output.final_text = "(No text response generated)"
             else:
                 if ctx.next_designated_agent:
                     next_tag = ctx.next_designated_agent
-                    ctx.final_text = (
+                    ctx.output.final_text = (
                         f"(No text response generated) /[{next_tag}] next"
                     )
                 elif ctx.eligible_remaining_agents:
                     next_tag = ctx.eligible_remaining_agents[0]
-                    ctx.final_text = (
+                    ctx.output.final_text = (
                         f"(No text response generated) /[{next_tag}] next"
                     )
                 elif retries:
                     next_tag = retries[0]
-                    ctx.final_text = (
+                    ctx.output.final_text = (
                         f"(No text response generated) /[{next_tag}] next"
                     )
                 else:
-                    ctx.final_text = "(No text response generated)"
+                    ctx.output.final_text = "(No text response generated)"
                     ctx.force_termination = True
             logger.warning(f"[ROUTER] final_text was empty for {ctx.agent_key}!")
         else:
@@ -271,7 +271,7 @@ class PostRecordStage:
             active_max_words = None
             raw_max = ctx.modifiers.get("max_words") if isinstance(ctx.modifiers, dict) else None
             if raw_max is None:
-                raw_max = thread_state_manager.get_max_words(ctx.channel_id, ctx.thread_ts)
+                raw_max = thread_state_manager.get_max_words(ctx.input.channel_id, ctx.input.thread_ts)
             if raw_max is not None and str(raw_max).strip().lower() != "off":
                 try:
                     p_max = int(raw_max)
@@ -281,28 +281,28 @@ class PostRecordStage:
                     active_max_words = None
 
             if active_max_words is not None:
-                ctx.final_text = apply_mechanical_word_limit(ctx.final_text, active_max_words)
+                ctx.output.final_text = apply_mechanical_word_limit(ctx.output.final_text, active_max_words)
 
-            formatted = self.workspace_adapter.format_outbound_text(ctx.final_text)
+            formatted = self.workspace_adapter.format_outbound_text(ctx.output.final_text)
             if isinstance(formatted, str):
-                ctx.final_text = formatted
+                ctx.output.final_text = formatted
             from orchestration.agent_settings import get_rebuttal_agent, get_sandwich_config
 
             rebuttal_k = get_rebuttal_agent()
             if ctx.agent_key == rebuttal_k and (
-                getattr(ctx, "control_plane_consensus_signaled", False)
+                getattr(ctx.control, "consensus_signaled", False)
                 or getattr(ctx, "convergence_signaled", False)
             ):
-                wf_snap = thread_state_manager.get_workflow_snapshot(ctx.channel_id, ctx.thread_ts)
+                wf_snap = thread_state_manager.get_workflow_snapshot(ctx.input.channel_id, ctx.input.thread_ts)
                 sandwich_cfg = wf_snap.get("sandwich_config") if wf_snap else get_sandwich_config()
                 end_chain = sandwich_cfg.get("end_chain", [])
                 if end_chain:
                     ctx.next_designated_agent = end_chain[0]
                     ctx.eligible_remaining_agents = list(end_chain)
 
-            if not getattr(ctx, "waiting_hitl", False) and not getattr(ctx, "control_plane_clarification_requested", False):
-                ctx.final_text = enforce_valid_nomination(
-                    ctx.final_text,
+            if not getattr(ctx.output, "waiting_hitl", False) and not getattr(ctx.control, "clarification_requested", False):
+                ctx.output.final_text = enforce_valid_nomination(
+                    ctx.output.final_text,
                     ctx.agent_key,
                     []
                     if ctx.force_termination
@@ -310,43 +310,43 @@ class PostRecordStage:
                     ctx.force_termination,
                     pending_retries=retries,
                     designated_next_agent=ctx.next_designated_agent,
-                    control_plane_nomination=getattr(ctx, "control_plane_nomination", None),
+                    control_plane_nomination=getattr(ctx.control, "nomination", None),
                 )
-            elif getattr(ctx, "control_plane_clarification_requested", False):
+            elif getattr(ctx.control, "clarification_requested", False):
                 from orchestration.nomination import strip_all_nominations
-                ctx.final_text = strip_all_nominations(ctx.final_text)
+                ctx.output.final_text = strip_all_nominations(ctx.output.final_text)
 
         retries = thread_state_manager.get_retry_queue(
-            ctx.channel_id, ctx.thread_ts
+            ctx.input.channel_id, ctx.input.thread_ts
         )
-        resolved_tags = _extract_resolved_nomination_keys(ctx.final_text)
+        resolved_tags = _extract_resolved_nomination_keys(ctx.output.final_text)
         if not ctx.remaining and retries:
             for r_agent in list(retries):
-                if r_agent in resolved_tags or f"[{r_agent}]" in ctx.final_text:
+                if r_agent in resolved_tags or f"[{r_agent}]" in ctx.output.final_text:
                     thread_state_manager.pop_retry_agent(
-                        ctx.channel_id, ctx.thread_ts, r_agent
+                        ctx.input.channel_id, ctx.input.thread_ts, r_agent
                     )
                     thread_state_manager.mark_already_retried(
-                        ctx.channel_id, ctx.thread_ts, r_agent
+                        ctx.input.channel_id, ctx.input.thread_ts, r_agent
                     )
                     break
 
         agent_model = ctx.agent_cfg.get("model", "")
         if agent_model:
-            token_footer = f"{{{agent_model} : {ctx.total_prompt_tokens}/{ctx.total_completion_tokens}}}"
+            token_footer = f"{{{agent_model} : {ctx.output.total_prompt_tokens}/{ctx.output.total_completion_tokens}}}"
         else:
             token_footer = (
-                f"{{{ctx.total_prompt_tokens}/{ctx.total_completion_tokens}}}"
+                f"{{{ctx.output.total_prompt_tokens}/{ctx.output.total_completion_tokens}}}"
             )
 
-        if ctx.skills_used:
-            skills_str = ", ".join(f"[{s}]" for s in ctx.skills_used)
-            ctx.final_text = f"{ctx.final_text}\n\nSkills used: {skills_str}\n\n{token_footer}"
+        if ctx.output.skills_used:
+            skills_str = ", ".join(f"[{s}]" for s in ctx.output.skills_used)
+            ctx.output.final_text = f"{ctx.output.final_text}\n\nSkills used: {skills_str}\n\n{token_footer}"
         else:
-            ctx.final_text = f"{ctx.final_text}\n\n{token_footer}"
-        ctx.generated_tags = resolved_tags
+            ctx.output.final_text = f"{ctx.output.final_text}\n\n{token_footer}"
+        ctx.output.generated_tags = resolved_tags
         logger.info(
-            f"[ROUTER] Agent {ctx.agent_key} generated tag(s): {ctx.generated_tags}. Full text length: {len(ctx.final_text)}"
+            f"[ROUTER] Agent {ctx.agent_key} generated tag(s): {ctx.output.generated_tags}. Full text length: {len(ctx.output.final_text)}"
         )
 
         pacing_secs = getattr(self.deps, "debate_turn_pacing_seconds", None)
@@ -366,18 +366,18 @@ class PostRecordStage:
                 f"[WORKSPACE] Updating in-place intermediate message {ctx.intermediate_msg_ts} with final text for {ctx.agent_cfg['username']}"
             )
             slack_res = await self.workspace_adapter.update_agent_turn(
-                channel_id=ctx.channel_id,
+                channel_id=ctx.input.channel_id,
                 message_ts=ctx.intermediate_msg_ts,
-                text=ctx.final_text,
+                text=ctx.output.final_text,
             )
             if isinstance(slack_res, dict) and not slack_res.get("ok"):
                 logger.warning(
                     f"[WORKSPACE] In-place update failed ({slack_res.get('error')}), falling back to post_agent_turn."
                 )
                 slack_res = await self.workspace_adapter.post_agent_turn(
-                    channel_id=ctx.channel_id,
-                    thread_ts=ctx.thread_ts,
-                    text=ctx.final_text,
+                    channel_id=ctx.input.channel_id,
+                    thread_ts=ctx.input.thread_ts,
+                    text=ctx.output.final_text,
                     username=ctx.agent_cfg["username"],
                     icon_url=resolved_turn_icon,
                 )
@@ -387,17 +387,17 @@ class PostRecordStage:
         else:
             resolved_username = ctx.agent_cfg.get("username", ctx.agent_key) if ctx.agent_cfg else ctx.agent_key
             logger.info(
-                f"[WORKSPACE] Posting agent response to channel {ctx.channel_id}, thread_ts {ctx.thread_ts} as {resolved_username} (icon: {resolved_turn_icon})"
+                f"[WORKSPACE] Posting agent response to channel {ctx.input.channel_id}, thread_ts {ctx.input.thread_ts} as {resolved_username} (icon: {resolved_turn_icon})"
             )
             slack_res = await self.workspace_adapter.post_agent_turn(
-                channel_id=ctx.channel_id,
-                thread_ts=ctx.thread_ts,
-                text=ctx.final_text,
+                channel_id=ctx.input.channel_id,
+                thread_ts=ctx.input.thread_ts,
+                text=ctx.output.final_text,
                 username=resolved_username,
                 icon_url=resolved_turn_icon,
             )
             posted_ts = slack_res.get("ts") if isinstance(slack_res, dict) else None
-        ctx.slack_res = slack_res
+        ctx.output.slack_res = slack_res
         logger.info(f"[WORKSPACE] Successfully posted message! Received ts: {posted_ts}")
 
         pause_secs = getattr(self.deps, "slack_post_pause_seconds", None)
@@ -406,55 +406,55 @@ class PostRecordStage:
         await self._sleep(pause_secs)
 
         has_pending_retries = thread_state_manager.has_pending_retries(
-            ctx.channel_id, ctx.thread_ts
+            ctx.input.channel_id, ctx.input.thread_ts
         )
-        if getattr(ctx, "waiting_hitl", False):
+        if getattr(ctx.output, "waiting_hitl", False):
             has_nominated_next = False
-            ctx.is_completed = False
-            ctx.halted = True
+            ctx.output.is_completed = False
+            ctx.output.halted = True
         else:
             known_agents = set(AGENTS_CONFIG.keys()) | set(settings_manager.get_enabled_agents())
-            has_nominated_next = any(tag in known_agents for tag in ctx.generated_tags)
-            ctx.is_completed = bool(
+            has_nominated_next = any(tag in known_agents for tag in ctx.output.generated_tags)
+            ctx.output.is_completed = bool(
                 ctx.force_termination
                 or (
                     not ctx.remaining
                     and not has_pending_retries
                     and not has_nominated_next
                 )
-                or (thread_state_manager.is_stopped(ctx.channel_id, ctx.thread_ts))
+                or (thread_state_manager.is_stopped(ctx.input.channel_id, ctx.input.thread_ts))
             )
 
         await self._finalize_turn_bookkeeping(
-            ctx, is_completed=ctx.is_completed, record_flat_history=True
+            ctx, is_completed=ctx.output.is_completed, record_flat_history=True
         )
 
-        if ctx.is_completed and not ctx.isolated_branch:
+        if ctx.output.is_completed and not ctx.input.isolated_branch:
             logger.info(
                 f"[ROUTER] Thread {ctx.thread_key} reached termination (forced or natural). Cleaning up state."
             )
-            thread_state_manager.clear_round_execution_state(ctx.channel_id, ctx.thread_ts)
+            thread_state_manager.clear_round_execution_state(ctx.input.channel_id, ctx.input.thread_ts)
 
         if isinstance(slack_res, dict):
-            slack_res["is_completed"] = ctx.is_completed
-            slack_res["halted"] = getattr(ctx, "halted", False)
-            slack_res["waiting_hitl"] = getattr(ctx, "waiting_hitl", False)
-            slack_res["final_text"] = ctx.final_text
+            slack_res["is_completed"] = ctx.output.is_completed
+            slack_res["halted"] = getattr(ctx.output, "halted", False)
+            slack_res["waiting_hitl"] = getattr(ctx.output, "waiting_hitl", False)
+            slack_res["final_text"] = ctx.output.final_text
             slack_res["username"] = ctx.agent_cfg["username"]
             slack_res["displayname"] = ctx.agent_cfg.get("displayname", ctx.agent_cfg["username"])
             slack_res["agent_key"] = ctx.agent_key
             slack_res["icon_url"] = resolved_turn_icon
-            slack_res["generated_tags"] = ctx.generated_tags
+            slack_res["generated_tags"] = ctx.output.generated_tags
             slack_res["convergence_signaled"] = bool(
-                getattr(ctx, "control_plane_consensus_signaled", False)
+                getattr(ctx.control, "consensus_signaled", False)
                 or getattr(ctx, "convergence_signaled", False)
             )
             slack_res["clarification_question"] = getattr(
                 ctx, "control_plane_clarification_question", None
-            ) or getattr(ctx, "clarification_question", None)
+            ) or getattr(ctx.control, "clarification_question", None)
 
         logger.info(
-            f"[{time.time()}] <<< END process_and_respond for thread_ts: {ctx.thread_ts} (Total: {time.time() - ctx.start_time:.2f}s) <<<\n"
+            f"[{time.time()}] <<< END process_and_respond for thread_ts: {ctx.input.thread_ts} (Total: {time.time() - ctx.start_time:.2f}s) <<<\n"
         )
         return slack_res
 
@@ -474,9 +474,9 @@ class PostRecordStage:
             f"[ROUTER] Classified error for {ctx.agent_key} as: '{err_category}'"
         )
 
-        stop_requested = thread_state_manager.is_stopped(ctx.channel_id, ctx.thread_ts)
+        stop_requested = thread_state_manager.is_stopped(ctx.input.channel_id, ctx.input.thread_ts)
         already_503 = thread_state_manager.has_agent_503_errored(
-            ctx.channel_id, ctx.thread_ts, ctx.agent_key
+            ctx.input.channel_id, ctx.input.thread_ts, ctx.agent_key
         )
 
         is_first_503_skip = False
@@ -486,14 +486,14 @@ class PostRecordStage:
             error_sentence = "MODEL NOT FOUND"
         elif err_category == "rate_limit":
             already_retried = thread_state_manager.is_already_retried(
-                ctx.channel_id, ctx.thread_ts, ctx.agent_key
+                ctx.input.channel_id, ctx.input.thread_ts, ctx.agent_key
             )
             if not already_retried and not stop_requested:
                 error_sentence = (
                     "RATE LIMITS CROSSED, will retry at the end of discussion"
                 )
                 thread_state_manager.add_to_retry_queue(
-                    ctx.channel_id, ctx.thread_ts, ctx.agent_key
+                    ctx.input.channel_id, ctx.input.thread_ts, ctx.agent_key
                 )
             else:
                 error_sentence = "RATE LIMITS CROSSED"
@@ -504,10 +504,10 @@ class PostRecordStage:
                 and not ctx.force_termination
             ):
                 thread_state_manager.mark_agent_503_errored(
-                    ctx.channel_id, ctx.thread_ts, ctx.agent_key
+                    ctx.input.channel_id, ctx.input.thread_ts, ctx.agent_key
                 )
                 if ctx.agent_key not in ctx.remaining:
-                    wf_snap = thread_state_manager.get_workflow_snapshot(ctx.channel_id, ctx.thread_ts)
+                    wf_snap = thread_state_manager.get_workflow_snapshot(ctx.input.channel_id, ctx.input.thread_ts)
                     mode = wf_snap.get("mode") if wf_snap else settings_manager.get_orchestration_mode()
                     if mode == OrchestrationMode.SANDWICH:
                         sandwich_cfg = wf_snap.get("sandwich_config") if wf_snap else settings_manager.get_sandwich_config()
@@ -525,9 +525,9 @@ class PostRecordStage:
                             ctx.remaining.append(ctx.agent_key)
                     else:
                         ctx.remaining.append(ctx.agent_key)
-                if not ctx.isolated_branch:
+                if not ctx.input.isolated_branch:
                     thread_state_manager.set_remaining_agents(
-                        ctx.channel_id, ctx.thread_ts, ctx.remaining
+                        ctx.input.channel_id, ctx.input.thread_ts, ctx.remaining
                     )
                 other_candidates = [
                     a for a in ctx.remaining if a != ctx.agent_key
@@ -564,11 +564,11 @@ class PostRecordStage:
                 next_nomination = f"/[{next_agent}]"
             else:
                 next_agent = thread_state_manager.pop_retry_agent(
-                    ctx.channel_id, ctx.thread_ts
+                    ctx.input.channel_id, ctx.input.thread_ts
                 )
                 if next_agent:
                     thread_state_manager.mark_already_retried(
-                        ctx.channel_id, ctx.thread_ts, next_agent
+                        ctx.input.channel_id, ctx.input.thread_ts, next_agent
                     )
                     next_nomination = f"/[{next_agent}]"
 
@@ -578,12 +578,12 @@ class PostRecordStage:
             error_post_text = error_sentence
 
         logger.info(
-            f"[SLACK] Posting gracious error message to channel {ctx.channel_id}, thread_ts {ctx.thread_ts} as {ctx.agent_cfg.get('username', ctx.agent_key)}"
+            f"[SLACK] Posting gracious error message to channel {ctx.input.channel_id}, thread_ts {ctx.input.thread_ts} as {ctx.agent_cfg.get('username', ctx.agent_key)}"
         )
         post_resp_fn = getattr(self.deps, "slack_poster", None) or post_agent_response
         slack_res = await post_resp_fn(
-            channel_id=ctx.channel_id,
-            thread_ts=ctx.thread_ts,
+            channel_id=ctx.input.channel_id,
+            thread_ts=ctx.input.thread_ts,
             text=error_post_text,
             username=ctx.agent_cfg.get("username", ctx.agent_key),
             icon_url=ctx.agent_cfg.get("icon_url"),
@@ -594,21 +594,21 @@ class PostRecordStage:
             pause_secs = get_slack_post_pause_seconds()
         await self._sleep(pause_secs)
 
-        ctx.is_completed = bool(
+        ctx.output.is_completed = bool(
             ctx.force_termination
             or not next_nomination
-            or thread_state_manager.is_stopped(ctx.channel_id, ctx.thread_ts)
+            or thread_state_manager.is_stopped(ctx.input.channel_id, ctx.input.thread_ts)
         )
 
         await self._finalize_turn_bookkeeping(
-            ctx, is_completed=ctx.is_completed, record_flat_history=False
+            ctx, is_completed=ctx.output.is_completed, record_flat_history=False
         )
 
-        if ctx.is_completed and not ctx.isolated_branch:
-            thread_state_manager.clear_round_execution_state(ctx.channel_id, ctx.thread_ts)
+        if ctx.output.is_completed and not ctx.input.isolated_branch:
+            thread_state_manager.clear_round_execution_state(ctx.input.channel_id, ctx.input.thread_ts)
 
         if isinstance(slack_res, dict):
-            slack_res["is_completed"] = ctx.is_completed
+            slack_res["is_completed"] = ctx.output.is_completed
             slack_res["final_text"] = error_post_text
             slack_res["username"] = ctx.agent_cfg.get(
                 "username", ctx.agent_key
@@ -623,7 +623,7 @@ class PostRecordStage:
             "error": str(e),
             "classified_error": err_category,
             "slack_res": slack_res,
-            "is_completed": ctx.is_completed,
+            "is_completed": ctx.output.is_completed,
             "final_text": error_post_text,
             "username": ctx.agent_cfg.get("username", ctx.agent_key),
             "agent_key": ctx.agent_key,

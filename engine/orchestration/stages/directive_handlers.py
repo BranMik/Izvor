@@ -51,7 +51,7 @@ async def require_directive_admin(
     from core.config import is_slack_admin
     from services.audit_logger import log_audit_event
 
-    user_id = getattr(ctx, "user_id", None)
+    user_id = getattr(ctx.input, "user_id", None)
     if not is_slack_admin(user_id):
         logger.warning(
             f"[VALIDATION] Non-admin user '{user_id}' attempted to execute privileged directive '/{directive_name}'"
@@ -61,7 +61,7 @@ async def require_directive_admin(
                 event_type="UNAUTHORIZED_DIRECTIVE_ATTEMPT",
                 actor={"type": "slack_user", "id": user_id or "unknown"},
                 action=directive_name,
-                target=f"{ctx.channel_id}:{ctx.thread_ts}",
+                target=f"{ctx.input.channel_id}:{ctx.input.thread_ts}",
                 details=details or {},
                 severity="CRITICAL",
                 status="BLOCKED",
@@ -70,8 +70,8 @@ async def require_directive_admin(
             logger.error(f"[VALIDATION] Failed to emit audit event for unauthorized directive: {ae}")
 
         await post_sys_msg(
-            channel_id=ctx.channel_id,
-            thread_ts=ctx.thread_ts,
+            channel_id=ctx.input.channel_id,
+            thread_ts=ctx.input.thread_ts,
             text=f"⛔ *Permission Denied*: Only workspace administrators can execute `/{directive_name}`.",
         )
         return {"ok": False, "halted": True, "action": directive_name, "reason": "unauthorized"}
@@ -81,7 +81,7 @@ async def require_directive_admin(
             event_type="ADMIN_DIRECTIVE_EXECUTED",
             actor={"type": "slack_admin", "id": user_id},
             action=directive_name,
-            target=f"{ctx.channel_id}:{ctx.thread_ts}",
+            target=f"{ctx.input.channel_id}:{ctx.input.thread_ts}",
             details=details or {},
             severity="WARNING",
             status="SUCCESS",
@@ -104,10 +104,10 @@ async def handle_slash_directives(
     # Check for stop_discussion or terminal action
     if directives.is_stop or any(a.name == "stop_discussion" for a in ctx.actions):
         logger.info(f"[ROUTER] Stop action triggered for thread {ctx.thread_key}.")
-        thread_state_manager.request_stop(ctx.channel_id, ctx.thread_ts)
+        thread_state_manager.request_stop(ctx.input.channel_id, ctx.input.thread_ts)
         return {"ok": True, "halted": True, "action": "stop_discussion"}
 
-    thread_state_manager.clear_stop(ctx.channel_id, ctx.thread_ts)
+    thread_state_manager.clear_stop(ctx.input.channel_id, ctx.input.thread_ts)
 
     # Process /grant_skill_for_all action
     grant_act = next((a for a in ctx.actions if a.name in ("grant_skill_for_all", "grant_for_all")), None)
@@ -130,7 +130,7 @@ async def handle_slash_directives(
         requested_skills = grant_act.params.get("skills", [])
         if not requested_skills:
             msg = "⚠️ *Missing Skills*: Please specify at least one skill to grant for all agents.\n_Example: `/grant_skill_for_all web_research rag`_"
-            await post_sys_msg(channel_id=ctx.channel_id, thread_ts=ctx.thread_ts, text=msg)
+            await post_sys_msg(channel_id=ctx.input.channel_id, thread_ts=ctx.input.thread_ts, text=msg)
             return {"ok": True, "halted": True, "action": "grant_skill_for_all"}
         else:
             known_agent_skills = {s.name for s in skill_registry.get_agent_skills()}
@@ -145,7 +145,7 @@ async def handle_slash_directives(
                 )
 
             if valid_skills:
-                active_skills, _exp_ts = thread_skills_manager.grant_skills(ctx.channel_id, ctx.thread_ts, valid_skills)
+                active_skills, _exp_ts = thread_skills_manager.grant_skills(ctx.input.channel_id, ctx.input.thread_ts, valid_skills)
                 ttl_hours = app_settings_manager.get_thread_skill_expiration_time()
                 skills_str = ", ".join(f"`{s}`" for s in valid_skills)
                 active_str = ", ".join(f"`{s}`" for s in active_skills)
@@ -156,7 +156,7 @@ async def handle_slash_directives(
                 )
 
             if lines:
-                await post_sys_msg(channel_id=ctx.channel_id, thread_ts=ctx.thread_ts, text="\n\n".join(lines))
+                await post_sys_msg(channel_id=ctx.input.channel_id, thread_ts=ctx.input.thread_ts, text="\n\n".join(lines))
 
             return {"ok": True, "halted": True, "action": "grant_skill_for_all"}
 
@@ -191,7 +191,7 @@ async def handle_slash_directives(
                 "⚠️ *Missing Parameters*: Please specify a skill and at least one agent.\n"
                 f"_Example: `/grant_skill web_research {example_ag}` or `/grant_skill [web_research] [{example_ag}]`_"
             )
-            await post_sys_msg(channel_id=ctx.channel_id, thread_ts=ctx.thread_ts, text=msg)
+            await post_sys_msg(channel_id=ctx.input.channel_id, thread_ts=ctx.input.thread_ts, text=msg)
             return {"ok": True, "halted": True, "action": "grant_skill"}
 
         if not requested_skill:
@@ -199,7 +199,7 @@ async def handle_slash_directives(
                 "⚠️ *Missing Skill*: Please specify a skill to grant.\n"
                 f"_Example: `/grant_skill web_research {example_ag}`_"
             )
-            await post_sys_msg(channel_id=ctx.channel_id, thread_ts=ctx.thread_ts, text=msg)
+            await post_sys_msg(channel_id=ctx.input.channel_id, thread_ts=ctx.input.thread_ts, text=msg)
             return {"ok": True, "halted": True, "action": "grant_skill"}
 
         if not requested_agents:
@@ -207,7 +207,7 @@ async def handle_slash_directives(
                 f"⚠️ *Missing Agent*: Please specify at least one agent to grant `{requested_skill}` to.\n"
                 f"_Example: `/grant_skill {requested_skill} {example_ag}`_"
             )
-            await post_sys_msg(channel_id=ctx.channel_id, thread_ts=ctx.thread_ts, text=msg)
+            await post_sys_msg(channel_id=ctx.input.channel_id, thread_ts=ctx.input.thread_ts, text=msg)
             return {"ok": True, "halted": True, "action": "grant_skill"}
 
         known_agent_skills = {s.name for s in skill_registry.get_agent_skills()}
@@ -236,7 +236,7 @@ async def handle_slash_directives(
             )
 
         if is_valid_skill and resolved_agents:
-            thread_skills_manager.grant_agent_skills(ctx.channel_id, ctx.thread_ts, requested_skill, resolved_agents)
+            thread_skills_manager.grant_agent_skills(ctx.input.channel_id, ctx.input.thread_ts, requested_skill, resolved_agents)
             ttl_hours = app_settings_manager.get_thread_skill_expiration_time()
             agents_str = ", ".join(f"`{a}`" for a in resolved_agents)
             lines.append(
@@ -245,7 +245,7 @@ async def handle_slash_directives(
             )
 
         if lines:
-            await post_sys_msg(channel_id=ctx.channel_id, thread_ts=ctx.thread_ts, text="\n\n".join(lines))
+            await post_sys_msg(channel_id=ctx.input.channel_id, thread_ts=ctx.input.thread_ts, text="\n\n".join(lines))
 
         return {"ok": True, "halted": True, "action": "grant_skill"}
 
@@ -266,22 +266,22 @@ async def handle_slash_directives(
         skills_to_revoke = revoke_act.params.get("skills", [])
         if not skills_to_revoke:
             msg = "⚠️ *Missing Parameters*: Please specify skills to revoke or `all`.\n_Example: `/revoke_skill_for_all web_research` or `/revoke_skill_for_all all`_"
-            await post_sys_msg(channel_id=ctx.channel_id, thread_ts=ctx.thread_ts, text=msg)
+            await post_sys_msg(channel_id=ctx.input.channel_id, thread_ts=ctx.input.thread_ts, text=msg)
             return {"ok": True, "halted": True, "action": "revoke_skill_for_all"}
         else:
-            remaining = thread_skills_manager.revoke_skills(ctx.channel_id, ctx.thread_ts, skills_to_revoke)
+            remaining = thread_skills_manager.revoke_skills(ctx.input.channel_id, ctx.input.thread_ts, skills_to_revoke)
             if not remaining or any(s.lower() == "all" for s in skills_to_revoke):
                 msg = "🗑️ *Revoked all thread-global skills* for this thread."
             else:
                 rem_str = ", ".join(f"`{s}`" for s in remaining)
                 msg = f"🗑️ *Revoked specified thread-global skills*. Remaining active in thread: {rem_str}"
-            await post_sys_msg(channel_id=ctx.channel_id, thread_ts=ctx.thread_ts, text=msg)
+            await post_sys_msg(channel_id=ctx.input.channel_id, thread_ts=ctx.input.thread_ts, text=msg)
             return {"ok": True, "halted": True, "action": "revoke_skill_for_all"}
 
     # Check if user prompt attempts to refer to an expired thread skill
     from orchestration.thread_skills_manager import thread_skills_manager
 
-    expired_skills = thread_skills_manager.get_expired_skills(ctx.channel_id, ctx.thread_ts)
+    expired_skills = thread_skills_manager.get_expired_skills(ctx.input.channel_id, ctx.input.thread_ts)
     if expired_skills and ctx.raw_text_cleaned:
         mentioned_expired = [
             s
@@ -294,7 +294,7 @@ async def handle_slash_directives(
                 f"⚠️ *Expired Global Skill*: The thread-global skill {exp_str} has expired.\n"
                 f"Run `/grant_skill_for_all {mentioned_expired[0]}` in this thread to re-enable access for all agents."
             )
-            await post_sys_msg(channel_id=ctx.channel_id, thread_ts=ctx.thread_ts, text=exp_msg)
+            await post_sys_msg(channel_id=ctx.input.channel_id, thread_ts=ctx.input.thread_ts, text=exp_msg)
 
     # Execute any registered orchestrator action handlers
     try:
@@ -339,41 +339,41 @@ async def handle_slash_directives(
 
         target = str(revoke_target).lower()
         if target in ("all", "everything"):
-            thread_state_manager.revoke_all(ctx.channel_id, ctx.thread_ts)
+            thread_state_manager.revoke_all(ctx.input.channel_id, ctx.input.thread_ts)
             msg = "🗑️ *Revoked all thread constraints* (word limits, language lock, inclusions, and exclusions) for this thread."
         elif target in ("max_words", "max-words", "maxwords"):
-            thread_state_manager.clear_max_words(ctx.channel_id, ctx.thread_ts)
+            thread_state_manager.clear_max_words(ctx.input.channel_id, ctx.input.thread_ts)
             msg = "🗑️ *Revoked constraint*: `max_words` cleared for this thread."
         elif target in ("min_words", "min-words", "minwords"):
-            thread_state_manager.clear_min_words(ctx.channel_id, ctx.thread_ts)
+            thread_state_manager.clear_min_words(ctx.input.channel_id, ctx.input.thread_ts)
             msg = "🗑️ *Revoked constraint*: `min_words` cleared for this thread."
         elif target in ("scribe_max_words", "scribe-max-words", "scribemaxwords"):
-            thread_state_manager.clear_scribe_max_words(ctx.channel_id, ctx.thread_ts)
+            thread_state_manager.clear_scribe_max_words(ctx.input.channel_id, ctx.input.thread_ts)
             msg = "🗑️ *Revoked constraint*: `scribe_max_words` cleared for this thread."
         elif target in ("scribe_min_words", "scribe-min-words", "scribeminwords"):
-            thread_state_manager.clear_scribe_min_words(ctx.channel_id, ctx.thread_ts)
+            thread_state_manager.clear_scribe_min_words(ctx.input.channel_id, ctx.input.thread_ts)
             msg = "🗑️ *Revoked constraint*: `scribe_min_words` cleared for this thread."
         elif target in ("exclude", "exclude_agents", "excluded"):
-            thread_state_manager.clear_excluded_agents(ctx.channel_id, ctx.thread_ts)
+            thread_state_manager.clear_excluded_agents(ctx.input.channel_id, ctx.input.thread_ts)
             msg = "🗑️ *Revoked constraint*: Agent exclusions cleared for this thread."
         elif target in ("include", "include_agents", "included"):
-            thread_state_manager.clear_included_agents(ctx.channel_id, ctx.thread_ts)
+            thread_state_manager.clear_included_agents(ctx.input.channel_id, ctx.input.thread_ts)
             msg = "🗑️ *Revoked constraint*: Forced agent inclusions cleared for this thread."
         elif target in ("language", "lang"):
-            thread_state_manager.clear_language(ctx.channel_id, ctx.thread_ts)
+            thread_state_manager.clear_language(ctx.input.channel_id, ctx.input.thread_ts)
             msg = "🗑️ *Revoked language lock*: Thread language cleared."
         elif target in ("modifiers", "modifier"):
-            thread_state_manager.clear_format_modifiers(ctx.channel_id, ctx.thread_ts)
+            thread_state_manager.clear_format_modifiers(ctx.input.channel_id, ctx.input.thread_ts)
             msg = "🗑️ *Revoked constraint*: `format_modifiers` cleared for this thread."
         else:
             msg = f"⚠️ *Unknown Revoke Target*: `{target}`. Available: `max_words`, `min_words`, `scribe_max_words`, `scribe_min_words`, `exclude`, `include`, `language`, `modifiers`, `all`."
-        await post_sys_msg(channel_id=ctx.channel_id, thread_ts=ctx.thread_ts, text=msg)
+        await post_sys_msg(channel_id=ctx.input.channel_id, thread_ts=ctx.input.thread_ts, text=msg)
         return {"ok": True, "halted": True, "action": "revoke_constraint"}
 
     # Update persistent word limits and off toggles
     from core.config import is_slack_admin
 
-    is_admin = is_slack_admin(getattr(ctx, "user_id", None))
+    is_admin = is_slack_admin(getattr(ctx.input, "user_id", None))
 
     attempted_off = bool(
         (ctx.modifiers or {}).get("max_words") == "off"
@@ -385,28 +385,28 @@ async def handle_slash_directives(
         or any(a.name in ("scribe_max_words", "scribe_min_words") and a.params.get("words") == "off" for a in ctx.actions)
     )
     if attempted_off and not is_admin:
-        logger.warning(f"[SECURITY] Non-admin '{ctx.user_id}' denied from turning off directives on {ctx.thread_key}")
+        logger.warning(f"[SECURITY] Non-admin '{ctx.input.user_id}' denied from turning off directives on {ctx.thread_key}")
         msg = "⚠️ *Permission Denied*: Only Slack administrators are authorized to turn off safety or constraint directives."
-        await post_sys_msg(channel_id=ctx.channel_id, thread_ts=ctx.thread_ts, text=msg)
+        await post_sys_msg(channel_id=ctx.input.channel_id, thread_ts=ctx.input.thread_ts, text=msg)
         return {"ok": False, "halted": True, "error": "admin_required"}
 
     max_words_val = (ctx.modifiers or {}).get("max_words")
     if max_words_val == "off":
         if is_admin:
-            thread_state_manager.clear_max_words(ctx.channel_id, ctx.thread_ts)
+            thread_state_manager.clear_max_words(ctx.input.channel_id, ctx.input.thread_ts)
         else:
-            logger.warning(f"[VALIDATION] Non-admin '{ctx.user_id}' attempted to turn off max_words")
+            logger.warning(f"[VALIDATION] Non-admin '{ctx.input.user_id}' attempted to turn off max_words")
     elif max_words_val is not None and isinstance(max_words_val, int):
-        thread_state_manager.set_max_words(ctx.channel_id, ctx.thread_ts, max_words_val)
+        thread_state_manager.set_max_words(ctx.input.channel_id, ctx.input.thread_ts, max_words_val)
 
     min_words_val = (ctx.modifiers or {}).get("min_words")
     if min_words_val == "off":
         if is_admin:
-            thread_state_manager.clear_min_words(ctx.channel_id, ctx.thread_ts)
+            thread_state_manager.clear_min_words(ctx.input.channel_id, ctx.input.thread_ts)
         else:
-            logger.warning(f"[VALIDATION] Non-admin '{ctx.user_id}' attempted to turn off min_words")
+            logger.warning(f"[VALIDATION] Non-admin '{ctx.input.user_id}' attempted to turn off min_words")
     elif min_words_val is not None and isinstance(min_words_val, int):
-        thread_state_manager.set_min_words(ctx.channel_id, ctx.thread_ts, min_words_val)
+        thread_state_manager.set_min_words(ctx.input.channel_id, ctx.input.thread_ts, min_words_val)
 
     scribe_max_val = (ctx.modifiers or {}).get("scribe_max_words")
     if scribe_max_val is None:
@@ -416,11 +416,11 @@ async def handle_slash_directives(
                 break
     if scribe_max_val == "off":
         if is_admin:
-            thread_state_manager.clear_scribe_max_words(ctx.channel_id, ctx.thread_ts)
+            thread_state_manager.clear_scribe_max_words(ctx.input.channel_id, ctx.input.thread_ts)
         else:
-            logger.warning(f"[VALIDATION] Non-admin '{ctx.user_id}' attempted to turn off scribe_max_words")
+            logger.warning(f"[VALIDATION] Non-admin '{ctx.input.user_id}' attempted to turn off scribe_max_words")
     elif scribe_max_val is not None and isinstance(scribe_max_val, int):
-        thread_state_manager.set_scribe_max_words(ctx.channel_id, ctx.thread_ts, scribe_max_val)
+        thread_state_manager.set_scribe_max_words(ctx.input.channel_id, ctx.input.thread_ts, scribe_max_val)
 
     scribe_min_val = (ctx.modifiers or {}).get("scribe_min_words")
     if scribe_min_val is None:
@@ -430,31 +430,31 @@ async def handle_slash_directives(
                 break
     if scribe_min_val == "off":
         if is_admin:
-            thread_state_manager.clear_scribe_min_words(ctx.channel_id, ctx.thread_ts)
+            thread_state_manager.clear_scribe_min_words(ctx.input.channel_id, ctx.input.thread_ts)
         else:
-            logger.warning(f"[VALIDATION] Non-admin '{ctx.user_id}' attempted to turn off scribe_min_words")
+            logger.warning(f"[VALIDATION] Non-admin '{ctx.input.user_id}' attempted to turn off scribe_min_words")
     elif scribe_min_val is not None and isinstance(scribe_min_val, int):
-        thread_state_manager.set_scribe_min_words(ctx.channel_id, ctx.thread_ts, scribe_min_val)
+        thread_state_manager.set_scribe_min_words(ctx.input.channel_id, ctx.input.thread_ts, scribe_min_val)
 
     exclude_off = any(a.name == "exclude_agents" and a.params.get("off") for a in ctx.actions)
     if exclude_off:
         if is_admin:
-            thread_state_manager.clear_excluded_agents(ctx.channel_id, ctx.thread_ts)
+            thread_state_manager.clear_excluded_agents(ctx.input.channel_id, ctx.input.thread_ts)
         else:
-            logger.warning(f"[VALIDATION] Non-admin '{ctx.user_id}' attempted to turn off agent exclusions")
+            logger.warning(f"[VALIDATION] Non-admin '{ctx.input.user_id}' attempted to turn off agent exclusions")
     elif ctx.excluded_agents:
         for ag in ctx.excluded_agents:
-            thread_state_manager.add_excluded_agent(ctx.channel_id, ctx.thread_ts, ag)
+            thread_state_manager.add_excluded_agent(ctx.input.channel_id, ctx.input.thread_ts, ag)
 
     include_off = any(a.name == "include_agents" and a.params.get("off") for a in ctx.actions)
     if include_off:
         if is_admin:
-            thread_state_manager.clear_included_agents(ctx.channel_id, ctx.thread_ts)
+            thread_state_manager.clear_included_agents(ctx.input.channel_id, ctx.input.thread_ts)
         else:
-            logger.warning(f"[VALIDATION] Non-admin '{ctx.user_id}' attempted to turn off agent inclusions")
+            logger.warning(f"[VALIDATION] Non-admin '{ctx.input.user_id}' attempted to turn off agent inclusions")
     elif ctx.included_agents:
         for ag in ctx.included_agents:
-            thread_state_manager.add_included_agent(ctx.channel_id, ctx.thread_ts, ag)
+            thread_state_manager.add_included_agent(ctx.input.channel_id, ctx.input.thread_ts, ag)
 
     # Persist custom format modifiers into thread state
     custom_mods = {
@@ -473,13 +473,13 @@ async def handle_slash_directives(
             "language",
         )
     }
-    if custom_mods and not ctx.is_bot_trigger:
-        existing_mods = thread_state_manager.get_format_modifiers(ctx.channel_id, ctx.thread_ts)
+    if custom_mods and not ctx.input.is_bot_trigger:
+        existing_mods = thread_state_manager.get_format_modifiers(ctx.input.channel_id, ctx.input.thread_ts)
         if isinstance(existing_mods, dict):
             existing_mods.update(custom_mods)
         else:
             existing_mods = dict(custom_mods)
-        thread_state_manager.set_format_modifiers(ctx.channel_id, ctx.thread_ts, existing_mods)
+        thread_state_manager.set_format_modifiers(ctx.input.channel_id, ctx.input.thread_ts, existing_mods)
 
     # If user message only contained directive toggles and no discussion prompt, halt cleanly
     is_pure_toggle = bool(
@@ -495,7 +495,7 @@ async def handle_slash_directives(
     )
     if is_pure_toggle:
         msg = "⚙️ *Thread Configuration Updated*: Requested directive constraints have been turned off for this thread."
-        await post_sys_msg(channel_id=ctx.channel_id, thread_ts=ctx.thread_ts, text=msg)
+        await post_sys_msg(channel_id=ctx.input.channel_id, thread_ts=ctx.input.thread_ts, text=msg)
         return {"ok": True, "halted": True, "action": "directive_toggle"}
 
     return None

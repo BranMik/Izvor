@@ -477,11 +477,9 @@ class PricingService:
                     else tc.function.arguments
                 )
                 if fn_name == "web_search":
-                    call_res = web_search(**fn_args)
-                    res_str = await call_res if inspect.isawaitable(call_res) else call_res
+                    res_str = await web_search(**fn_args)
                 elif fn_name == "fetch_web_page":
-                    call_res = fetch_web_page(**fn_args)
-                    res_str = await call_res if inspect.isawaitable(call_res) else call_res
+                    res_str = await fetch_web_page(**fn_args)
                 else:
                     res_str = f"Error: unknown tool '{fn_name}'"
 
@@ -578,8 +576,7 @@ class PricingService:
         # Fallback to direct web search extraction
         try:
             clean_query = re.sub(r"^[a-zA-Z0-9_-]+/", "", model_name)
-            call_res = web_search(query=f"{clean_query} api pricing tokens million official", max_results=5)
-            search_raw = await call_res if inspect.isawaitable(call_res) else call_res
+            search_raw = await web_search(query=f"{clean_query} api pricing tokens million official", max_results=5)
             in_val, out_val = _extract_pricing_from_search_text(search_raw, model_name)
             cand_in = in_val if in_val is not None else float(baseline["input_price_per_1m"])
             cand_out = out_val if out_val is not None else float(baseline["output_price_per_1m"])

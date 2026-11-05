@@ -138,7 +138,7 @@ def test_tkt_704_slack_blocks_and_notes_secret_and_broadcast_guardrails():
 @pytest.mark.anyio
 async def test_tkt_705_hitl_workflow_suspension_and_nomination_suppression():
     """
-    TKT-705: Verify that when waiting_hitl is True, ctx.halted is True
+    TKT-705: Verify that when waiting_hitl is True, ctx.output.halted is True
     and nomination injection in PostRecordStage is completely suppressed.
     """
     mock_poster = AsyncMock(return_value={"ok": True, "ts": "1700000000.501"})
@@ -154,19 +154,19 @@ async def test_tkt_705_hitl_workflow_suspension_and_nomination_suppression():
         thread_ts="1700000000.500",
         raw_text="Test prompt",
     )
-    ctx.waiting_hitl = True
-    ctx.halted = True
+    ctx.output.waiting_hitl = True
+    ctx.output.halted = True
     ctx.agent_key = "agent-10001"
     ctx.agent_cfg = {"username": "Security Architect", "icon_url": "static/image_1.png", "model": "test-model"}
-    ctx.final_text = "I need approval for file modification. Over to [agent-10002]."
+    ctx.output.final_text = "I need approval for file modification. Over to [agent-10002]."
     ctx.turn_token_mapping = {}
 
     stage = PostRecordStage(pipeline.deps)
 
     await stage.stage_post_and_record(ctx)
 
-    assert ctx.halted is True
-    assert ctx.is_completed is False
+    assert ctx.output.halted is True
+    assert ctx.output.is_completed is False
     assert ctx.next_designated_agent is None
 
 

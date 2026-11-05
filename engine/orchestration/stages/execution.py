@@ -97,8 +97,8 @@ class ExecutionStage:
             from services.pricing_service import pricing_service
 
             model = ctx.agent_cfg.get("model", "") if ctx.agent_cfg else ""
-            prompt_tokens = getattr(ctx, "total_prompt_tokens", 0) or 0
-            completion_tokens = getattr(ctx, "total_completion_tokens", 0) or 0
+            prompt_tokens = getattr(ctx.output, "total_prompt_tokens", 0) or 0
+            completion_tokens = getattr(ctx.output, "total_completion_tokens", 0) or 0
 
             incremental_cost = 0.0
             if model and (prompt_tokens > 0 or completion_tokens > 0):
@@ -110,10 +110,10 @@ class ExecutionStage:
                 )
 
             calc_costs_fn = getattr(self.deps, "calc_costs_fn", None) or calculate_thread_costs
-            cost_info = calc_costs_fn(ctx.channel_id, ctx.thread_ts)
+            cost_info = calc_costs_fn(ctx.input.channel_id, ctx.input.thread_ts)
             current_cost = float(cost_info.get("grand_total_cost_usd", 0.0) or 0.0) + incremental_cost
             threshold = get_circuit_breaker_threshold()
-            session_id = f"{ctx.channel_id}:{ctx.thread_ts}"
+            session_id = f"{ctx.input.channel_id}:{ctx.input.thread_ts}"
             daily_budget = get_daily_budget_usd()
 
             tripped, _, _ = spend_governance.is_budget_exceeded(
@@ -144,23 +144,23 @@ class ExecutionStage:
         try:
             chk = TurnCheckpoint(
                 checkpoint_id=chk_id,
-                session_id=getattr(ctx, "session_id", f"{ctx.channel_id}:{ctx.thread_ts}"),
-                channel_id=ctx.channel_id,
-                thread_ts=ctx.thread_ts,
+                session_id=getattr(ctx, "session_id", f"{ctx.input.channel_id}:{ctx.input.thread_ts}"),
+                channel_id=ctx.input.channel_id,
+                thread_ts=ctx.input.thread_ts,
                 agent_key=ctx.agent_key,
                 pause_reason=pause_reason,
                 hitl_request_id=hitl_request_id,
                 messages=ctx.messages or [],
                 pending_tool_call=pending_tool_call,
                 active_tools=active_tools or [],
-                skills_used=ctx.skills_used or [],
+                skills_used=ctx.output.skills_used or [],
                 token_mapping=ctx.turn_token_mapping or {},
-                accumulated_history=ctx.in_memory_history or [],
-                prompt_tokens=ctx.total_prompt_tokens,
-                completion_tokens=ctx.total_completion_tokens,
+                accumulated_history=ctx.input.in_memory_history or [],
+                prompt_tokens=ctx.output.total_prompt_tokens,
+                completion_tokens=ctx.output.total_completion_tokens,
             )
             turn_checkpoint_store.save_checkpoint(chk)
-            ctx.checkpoint_id = chk_id
+            ctx.output.checkpoint_id = chk_id
             return chk_id
         except Exception as e:  # noqa: BLE001
             logger.error(f"[EXECUTION] Failed to save {pause_reason} checkpoint: {e}")
@@ -172,7 +172,7 @@ class ExecutionStage:
             logger.info(f"[ROUTER] Thread {ctx.thread_key} turn was superseded before LLM call. Aborting.")
             return {"ok": False, "cancelled": True, "reason": "superseded"}
 
-        already_503_errored = thread_state_manager.has_agent_503_errored(ctx.channel_id, ctx.thread_ts, ctx.agent_key)
+        already_503_errored = thread_state_manager.has_agent_503_errored(ctx.input.channel_id, ctx.input.thread_ts, ctx.agent_key)
         allow_503_immediate = already_503_errored
 
         logger.info(
@@ -188,9 +188,9 @@ class ExecutionStage:
         from orchestration.thread_skills_manager import thread_skills_manager
 
         global_skills = skill_registry.get_global_skills()
-        active_thread_skills = thread_skills_manager.get_active_skills(ctx.channel_id, ctx.thread_ts)
+        active_thread_skills = thread_skills_manager.get_active_skills(ctx.input.channel_id, ctx.input.thread_ts)
         active_agent_skills = thread_skills_manager.get_active_agent_skills(
-            ctx.channel_id, ctx.thread_ts, ctx.agent_key
+            ctx.input.channel_id, ctx.input.thread_ts, ctx.agent_key
         )
         combined_extra = list(dict.fromkeys(global_skills + active_thread_skills + active_agent_skills))
         if combined_extra:
@@ -202,8 +202,8 @@ class ExecutionStage:
 
         expired_thread_skills = list(
             dict.fromkeys(
-                thread_skills_manager.get_expired_skills(ctx.channel_id, ctx.thread_ts)
-                + thread_skills_manager.get_expired_agent_skills(ctx.channel_id, ctx.thread_ts, ctx.agent_key)
+                thread_skills_manager.get_expired_skills(ctx.input.channel_id, ctx.input.thread_ts)
+                + thread_skills_manager.get_expired_agent_skills(ctx.input.channel_id, ctx.input.thread_ts, ctx.agent_key)
             )
         )
         thread_ttl_hours = app_settings_manager.get_thread_skill_expiration_time()
@@ -279,8 +279,8 @@ class ExecutionStage:
                             f"[ROUTER] Tool delay reached ({intermediate_delay_secs}s). Posting intermediate status for {username}."
                         )
                         res = await post_resp_fn(
-                            channel_id=ctx.channel_id,
-                            thread_ts=ctx.thread_ts,
+                            channel_id=ctx.input.channel_id,
+                            thread_ts=ctx.input.thread_ts,
                             text=status_text,
                             username=username,
                             icon_url=resolved_icon,
@@ -392,17 +392,17 @@ class ExecutionStage:
                                     from services.hitl import consume_tool_approval, request_human_approval
 
                                     if not consume_tool_approval(
-                                        ctx.channel_id, ctx.thread_ts, fn_name, fn_args, agent_name=ctx.agent_key
+                                        ctx.input.channel_id, ctx.input.thread_ts, fn_name, fn_args, agent_name=ctx.agent_key
                                     ):
                                         effective_skill_name = skill_def.name if skill_def else (s_name or "mcp_tool")
                                         req_id = await request_human_approval(
-                                            ctx.channel_id,
-                                            ctx.thread_ts,
+                                            ctx.input.channel_id,
+                                            ctx.input.thread_ts,
                                             ctx.agent_key,
                                             effective_skill_name,
                                             fn_name,
                                             fn_args,
-                                            initiator_user_id=ctx.user_id,
+                                            initiator_user_id=ctx.input.user_id,
                                         )
                                         tool_result_str = (
                                             f"<untrusted_file_content>\n"
@@ -420,8 +420,8 @@ class ExecutionStage:
                                                 "content": tool_result_str,
                                             }
                                         )
-                                        ctx.halted = True
-                                        ctx.waiting_hitl = True
+                                        ctx.output.halted = True
+                                        ctx.output.waiting_hitl = True
 
                                         # TKT-904: Synthesize responses for remaining sibling tool calls in batch
                                         responded_ids = {
@@ -457,20 +457,20 @@ class ExecutionStage:
                                             },
                                             hitl_request_id=req_id,
                                         )
-                                        if s_name and s_name not in ctx.skills_used:
-                                            ctx.skills_used.append(s_name)
+                                        if s_name and s_name not in ctx.output.skills_used:
+                                            ctx.output.skills_used.append(s_name)
                                         break
 
                                 # 3. Only check evidence cache after Authorization and HITL pass
                                 if thread_state_manager.evidence.is_cacheable_tool(fn_name):
                                     cached_evidence = thread_state_manager.evidence.get_evidence(
-                                        ctx.channel_id, ctx.thread_ts, fn_name, fn_args, agent_key=ctx.agent_key
+                                        ctx.input.channel_id, ctx.input.thread_ts, fn_name, fn_args, agent_key=ctx.agent_key
                                     )
 
                                 if cached_evidence is not None:
                                     tool_result = cached_evidence.result
                                     logger.info(
-                                        f"[EVIDENCE] Reusing cached round evidence for tool '{fn_name}' from agent {cached_evidence.agent_key} in {ctx.channel_id}:{ctx.thread_ts}"
+                                        f"[EVIDENCE] Reusing cached round evidence for tool '{fn_name}' from agent {cached_evidence.agent_key} in {ctx.input.channel_id}:{ctx.input.thread_ts}"
                                     )
                                 else:
                                     # 4. Low-level execution via custom executor hook or skill_registry
@@ -502,34 +502,34 @@ class ExecutionStage:
                         else:
                             s_name = skill_registry.find_skill_for_tool(fn_name) or fn_name
                         if s_name and not _is_tool_error(tool_result):
-                            if s_name not in ctx.skills_used:
-                                ctx.skills_used.append(s_name)
+                            if s_name not in ctx.output.skills_used:
+                                ctx.output.skills_used.append(s_name)
 
                         # Handle explicit control plane tools
                         if fn_name == "nominate_next_speaker":
                             nom_agent = fn_args.get("agent_name")
                             if nom_agent:
-                                ctx.control_plane_nomination = str(nom_agent).strip()
-                                ctx.control_plane_rationale = str(fn_args.get("rationale", "")).strip()
+                                ctx.control.nomination = str(nom_agent).strip()
+                                ctx.control.nomination_rationale = str(fn_args.get("rationale", "")).strip()
                         elif fn_name == "request_user_clarification":
-                            ctx.control_plane_clarification_requested = True
-                            ctx.control_plane_clarification_question = str(fn_args.get("question", "")).strip()
-                            ctx.halted = True
+                            ctx.control.clarification_requested = True
+                            ctx.control.clarification_question = str(fn_args.get("question", "")).strip()
+                            ctx.output.halted = True
                         elif fn_name == "signal_consensus_convergence":
-                            ctx.control_plane_consensus_signaled = True
-                            ctx.control_plane_consensus_summary = str(fn_args.get("summary_of_agreement", "")).strip()
-                            thread_state_manager.set_consensus_reached(ctx.channel_id, ctx.thread_ts, True)
+                            ctx.control.consensus_signaled = True
+                            ctx.control.consensus_summary = str(fn_args.get("summary_of_agreement", "")).strip()
+                            thread_state_manager.set_consensus_reached(ctx.input.channel_id, ctx.input.thread_ts, True)
 
                         from core.security_utils import wrap_untrusted_content
 
                         tool_result_str = wrap_untrusted_content(str(tool_result))
 
-                        if cached_evidence is None and not getattr(ctx, "halted", False):
+                        if cached_evidence is None and not getattr(ctx.output, "halted", False):
                             res_str = tool_result if isinstance(tool_result, str) else str(tool_result)
                             if not (res_str.strip().lower().startswith("permission denied") or '"error":' in res_str):
                                 thread_state_manager.add_round_evidence(
-                                    channel_id=ctx.channel_id,
-                                    thread_ts=ctx.thread_ts,
+                                    channel_id=ctx.input.channel_id,
+                                    thread_ts=ctx.input.thread_ts,
                                     tool_name=fn_name,
                                     arguments=fn_args,
                                     result=res_str,
@@ -553,7 +553,7 @@ class ExecutionStage:
                             f"Thread {ctx.thread_key} turn was superseded during tool execution."
                         )
 
-                    is_paused = bool(getattr(ctx, "waiting_hitl", False) or getattr(ctx, "halted", False))
+                    is_paused = bool(getattr(ctx.output, "waiting_hitl", False) or getattr(ctx.output, "halted", False))
                     follow_up_kwargs: dict[str, Any] = {
                         "model": ctx.agent_cfg["model"],
                         "messages": ctx.messages,
@@ -585,7 +585,7 @@ class ExecutionStage:
 
                     if is_paused:
                         tool_calls = None
-                        ctx.final_text = response_message.content or ctx.final_text or ""
+                        ctx.output.final_text = response_message.content or ctx.output.final_text or ""
                         break
 
                     if tool_calls and self._is_mid_turn_budget_exceeded(ctx):
@@ -597,8 +597,8 @@ class ExecutionStage:
                             pause_reason="circuit_breaker",
                             active_tools=active_tools,
                         )
-                        ctx.halted = True
-                        ctx.final_text = (
+                        ctx.output.halted = True
+                        ctx.output.final_text = (
                             response_message.content
                             or "⚠️ _Thread cost safety limit reached during tool execution. Turn paused._"
                         )
@@ -611,11 +611,11 @@ class ExecutionStage:
                 loop_res = await asyncio.wait_for(_run_tool_calling_loop(), timeout=timeout_secs)
                 if loop_res is not None:
                     return loop_res
-                ctx.final_text = response_message.content or ctx.final_text or ""
+                ctx.output.final_text = response_message.content or ctx.output.final_text or ""
             except asyncio.TimeoutError:
                 logger.warning(f"[ROUTER] Tool calling loop timed out after {timeout_secs}s for {ctx.agent_key}.")
-                if not ctx.final_text:
-                    ctx.final_text = (
+                if not ctx.output.final_text:
+                    ctx.output.final_text = (
                         response_message.content
                         if (response_message and response_message.content)
                         else "⚠️ _Tool execution timed out. Continuing discussion._"
@@ -624,6 +624,6 @@ class ExecutionStage:
                 if not delay_task.done():
                     delay_task.cancel()
         else:
-            ctx.final_text = response_message.content or ""
+            ctx.output.final_text = response_message.content or ""
 
         return None

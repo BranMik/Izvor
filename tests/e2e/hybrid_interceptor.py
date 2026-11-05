@@ -621,4 +621,4 @@ async def mock_execute_local_tool(tool_name: str, arguments: dict[str, Any] | st
     # For local filesystem/doc tools, run the real implementation
     from services.local_tools import execute_local_tool
 
-    return execute_local_tool(tool_name, arguments)
+    return await execute_local_tool(tool_name, arguments)

@@ -5,8 +5,6 @@ and binds low-level MCP execution backends.
 """
 
 import asyncio
-import concurrent.futures
-import contextvars
 import inspect
 import json
 import logging
@@ -617,105 +615,6 @@ class SkillRegistry:
         )
         return "\n".join(lines) + "\n"
 
-    def execute_tool(
-        self,
-        tool_name: str,
-        arguments: dict[str, Any],
-        authorized_skills: list[str] | str | None = None,
-        expired_skills: list[str] | None = None,
-        ttl_hours: float | None = None,
-        agent_name: str = "",
-    ) -> str:
-        """
-        Dispatches tool execution with fail-closed authorization.
-        If authorized_skills is None, defaults to [] (fail-closed, rejecting non-global tools).
-        Internal unrestricted callers must explicitly pass ALL_INTERNAL_SKILLS.
-        If tool is 'load_skill', enforces authorization against authorized_skills and
-        returns the skill's SKILL.md guidelines.
-        Otherwise delegates to custom tool handlers or services.local_tools.execute_local_tool.
-        """
-        is_ok, early_resp, effective_authorized_skills = self._verify_tool_authorization(
-            tool_name=tool_name,
-            arguments=arguments,
-            authorized_skills=authorized_skills,
-            expired_skills=expired_skills,
-            ttl_hours=ttl_hours,
-            agent_name=agent_name,
-        )
-        if not is_ok or early_resp is not None:
-            return early_resp
-
-        # Check if MCP tool
-        from services.mcp.schema_translator import is_mcp_namespaced_tool
-
-        if is_mcp_namespaced_tool(tool_name):
-            from services.mcp.security_bridge import execute_external_mcp_tool
-
-            ctx = contextvars.copy_context()
-            try:
-                loop = asyncio.get_running_loop()
-            except RuntimeError:
-                loop = None
-            if loop and loop.is_running():
-                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                    return pool.submit(
-                        ctx.run,
-                        asyncio.run,
-                        execute_external_mcp_tool(
-                            namespaced_tool_name=tool_name,
-                            arguments=arguments,
-                            agent_name=agent_name,
-                            authorized_skills=effective_authorized_skills,
-                            skill_registry=self,
-                        ),
-                    ).result()
-            else:
-                return ctx.run(
-                    asyncio.run,
-                    execute_external_mcp_tool(
-                        namespaced_tool_name=tool_name,
-                        arguments=arguments,
-                        agent_name=agent_name,
-                        authorized_skills=effective_authorized_skills,
-                        skill_registry=self,
-                    ),
-                )
-
-        # Check if any skill registered a custom tool handler
-        for s_def in self._skills.values():
-            if tool_name in s_def.tool_handlers:
-                handler = s_def.tool_handlers[tool_name]
-                try:
-                    sig = inspect.signature(handler)
-                    actor_id = (
-                        agent_name.id
-                        if isinstance(agent_name, ToolPrincipal)
-                        else (str(agent_name) if agent_name is not None else "")
-                    )
-                    kwargs = {"agent_name": actor_id} if "agent_name" in sig.parameters else {}
-                    if inspect.iscoroutinefunction(handler):
-                        ctx = contextvars.copy_context()
-                        try:
-                            loop = asyncio.get_running_loop()
-                        except RuntimeError:
-                            loop = None
-                        if loop and loop.is_running():
-                            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                                return pool.submit(ctx.run, asyncio.run, handler(arguments, **kwargs)).result()
-                        else:
-                            return ctx.run(asyncio.run, handler(arguments, **kwargs))
-                    return handler(arguments, **kwargs)
-                except Exception as e:  # noqa: BLE001
-                    logger.error(f"[SKILLS] Custom tool handler error for '{tool_name}': {e}")
-                    return json.dumps({"error": f"Tool execution failed: {e}"})
-
-        return execute_local_tool(
-            tool_name,
-            arguments,
-            agent_name=agent_name,
-            authorized_skills=list(effective_authorized_skills),
-        )
-
     def _verify_tool_authorization(
         self,
         tool_name: str,
@@ -900,13 +799,12 @@ class SkillRegistry:
         authorized_skills: list[str] | str | None = None,
         expired_skills: list[str] | None = None,
         ttl_hours: float | None = None,
-        agent_name: str = "",
+        agent_name: Any = "",
     ) -> str:
         """
-        Asynchronously dispatches tool execution.
-        Enforces authorization; if the handler is an async coroutine function
-        or exposes an `_async_fn` attribute, awaits it directly on the running event loop;
-        otherwise offloads the synchronous handler/local tool execution to `asyncio.to_thread`.
+        Asynchronously dispatches tool execution with fail-closed authorization.
+        Directly awaits coroutines, MCP tools, and native async local tools.
+        Offloads synchronous custom tool handlers to asyncio.to_thread.
         """
         is_ok, early_resp, effective_authorized_skills = self._verify_tool_authorization(
             tool_name=tool_name,
@@ -933,37 +831,32 @@ class SkillRegistry:
                 skill_registry=self,
             )
 
-        target_handler: Any = None
+        # Check if any skill registered a custom tool handler
         for s_def in self._skills.values():
             if tool_name in s_def.tool_handlers:
-                target_handler = s_def.tool_handlers[tool_name]
-                break
+                handler = s_def.tool_handlers[tool_name]
+                try:
+                    actor_id = (
+                        agent_name.id
+                        if isinstance(agent_name, ToolPrincipal)
+                        else (str(agent_name) if agent_name is not None else "")
+                    )
+                    async_fn = getattr(handler, "_async_fn", handler)
+                    sig = inspect.signature(async_fn)
+                    kwargs = {"agent_name": actor_id} if "agent_name" in sig.parameters else {}
+                    if inspect.iscoroutinefunction(async_fn):
+                        return await async_fn(arguments, **kwargs)
+                    else:
+                        return await asyncio.to_thread(handler, arguments, **kwargs)
+                except Exception as e:  # noqa: BLE001
+                    logger.error(f"[SKILLS] Custom tool handler error for '{tool_name}': {e}")
+                    return json.dumps({"error": f"Tool execution failed: {e}"})
 
-        if target_handler is not None and (
-            inspect.iscoroutinefunction(target_handler) or hasattr(target_handler, "_async_fn")
-        ):
-            async_fn = getattr(target_handler, "_async_fn", target_handler)
-            sig = inspect.signature(async_fn)
-            actor_id = (
-                agent_name.id
-                if isinstance(agent_name, ToolPrincipal)
-                else (str(agent_name) if agent_name is not None else "")
-            )
-            kwargs = {"agent_name": actor_id} if "agent_name" in sig.parameters else {}
-            try:
-                return await async_fn(arguments, **kwargs)
-            except Exception as e:  # noqa: BLE001
-                logger.error(f"[SKILLS] Async custom tool handler error for '{tool_name}': {e}")
-                return json.dumps({"error": f"Tool execution failed: {e}"})
-
-        return await asyncio.to_thread(
-            self.execute_tool,
+        return await execute_local_tool(
             tool_name,
             arguments,
-            authorized_skills=authorized_skills,
-            expired_skills=expired_skills,
-            ttl_hours=ttl_hours,
             agent_name=agent_name,
+            authorized_skills=list(effective_authorized_skills),
         )
 
 

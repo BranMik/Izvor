@@ -2,7 +2,7 @@
 Unit and integration tests for the Unified Skills SecurityArchitecture and Multimodal Data Contracts.
 """
 
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -149,7 +149,8 @@ async def test_smart_merge_slash_priority_over_llm():
         assert directives.modifiers["max_words"] == 30
 
 
-def test_global_skill_declarative_frontmatter():
+@pytest.mark.anyio
+async def test_global_skill_declarative_frontmatter():
     """Verifies that skills marked global: true are universally accessible to all agents."""
     import json
 
@@ -180,7 +181,7 @@ def test_global_skill_declarative_frontmatter():
         assert "universal_tool" in catalog
 
         # 4. load_skill succeeds without permission error
-        res = skill_registry.execute_tool(
+        res = await skill_registry.execute_tool_async(
             tool_name="load_skill",
             arguments={"skill_name": "universal_tool"},
             authorized_skills=[],
@@ -190,8 +191,8 @@ def test_global_skill_declarative_frontmatter():
         assert loaded.get("skill") == "universal_tool"
 
         # 5. Local tools permitted for execution
-        with patch("services.local_tools.web_search", return_value="mock_search_result"):
-            tool_res = skill_registry.execute_tool(
+        with patch("services.local_tools.web_search", new_callable=AsyncMock, return_value="mock_search_result"):
+            tool_res = await skill_registry.execute_tool_async(
                 tool_name="web_search",
                 arguments={"query": "test"},
                 authorized_skills=[],

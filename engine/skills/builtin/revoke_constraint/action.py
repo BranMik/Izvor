@@ -16,9 +16,10 @@ async def run(ctx: Any, params: dict[str, Any] | None = None) -> dict[str, Any] 
     from services.slack import post_system_message
 
     params = params or {}
-    channel_id = getattr(ctx, "channel_id", "")
-    thread_ts = getattr(ctx, "thread_ts", "")
-    user_id = getattr(ctx, "user_id", None)
+    inp = getattr(ctx, "input", ctx)
+    channel_id = getattr(inp, "channel_id", "")
+    thread_ts = getattr(inp, "thread_ts", "")
+    user_id = getattr(inp, "user_id", None)
 
     if not is_slack_admin(user_id):
         logger.warning(

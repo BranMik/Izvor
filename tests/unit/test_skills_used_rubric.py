@@ -37,10 +37,10 @@ async def test_post_record_with_single_skill_used():
     ctx.agent_cfg = {"username": "agent-10008", "model": "openai/gpt-4o"}
     ctx.eligible_remaining_agents = ["agent-10011"]
     ctx.remaining = ["agent-10011"]
-    ctx.final_text = "I reviewed the architecture.\n\n/[agent-10011]"
-    ctx.skills_used = ["knowledge_base_rag"]
-    ctx.total_prompt_tokens = 500
-    ctx.total_completion_tokens = 100
+    ctx.output.final_text = "I reviewed the architecture.\n\n/[agent-10011]"
+    ctx.output.skills_used = ["knowledge_base_rag"]
+    ctx.output.total_prompt_tokens = 500
+    ctx.output.total_completion_tokens = 100
 
     await pipeline.post_record_stage.stage_post_and_record(ctx)
 
@@ -78,10 +78,10 @@ async def test_post_record_with_multiple_skills_used():
     ctx.agent_cfg = {"username": "agent-10011", "model": "mistral/mistral-large"}
     ctx.eligible_remaining_agents = ["agent-10001"]
     ctx.remaining = ["agent-10001"]
-    ctx.final_text = "Analysis complete.\n\n/[agent-10001]"
-    ctx.skills_used = ["document_reader", "web_research"]
-    ctx.total_prompt_tokens = 600
-    ctx.total_completion_tokens = 150
+    ctx.output.final_text = "Analysis complete.\n\n/[agent-10001]"
+    ctx.output.skills_used = ["document_reader", "web_research"]
+    ctx.output.total_prompt_tokens = 600
+    ctx.output.total_completion_tokens = 150
 
     await pipeline.post_record_stage.stage_post_and_record(ctx)
 
@@ -118,10 +118,10 @@ async def test_post_record_omits_skills_used_when_none():
     ctx.agent_cfg = {"username": "agent-10001", "model": "gemini/gemini-3.8-flash"}
     ctx.eligible_remaining_agents = ["agent-10003"]
     ctx.remaining = ["agent-10003"]
-    ctx.final_text = "Creative thought.\n\n/[agent-10003]"
-    ctx.skills_used = []
-    ctx.total_prompt_tokens = 300
-    ctx.total_completion_tokens = 50
+    ctx.output.final_text = "Creative thought.\n\n/[agent-10003]"
+    ctx.output.skills_used = []
+    ctx.output.total_prompt_tokens = 300
+    ctx.output.total_completion_tokens = 50
 
     await pipeline.post_record_stage.stage_post_and_record(ctx)
 

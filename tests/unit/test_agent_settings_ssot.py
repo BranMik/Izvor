@@ -399,7 +399,7 @@ async def test_turn_pipeline_propagates_agent_avatar_icon():
          patch("orchestration.agent_router.trigger_thread_notes_update"), \
          patch("orchestration.agent_router.trigger_usage_update"), \
          patch("orchestration.agent_router.record_thread_tokens"):
-        ctx.final_text = "Visionary response."
+        ctx.output.final_text = "Visionary response."
         res5 = await pipeline.post_record_stage.stage_post_and_record(ctx)
 
         assert mock_post.called

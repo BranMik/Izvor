@@ -34,7 +34,7 @@ async def test_hitl_pause_creates_durable_turn_checkpoint():
     )
     ctx.agent_key = "agent-10001"
     ctx.agent_cfg = {"model": "test-model", "username": "Visionary", "skills": ["db_admin"]}
-    ctx.messages = [{"role": "user", "content": ctx.raw_text}]
+    ctx.messages = [{"role": "user", "content": ctx.input.raw_text}]
 
     # Mock tool call that requires human approval
     tool_call = MagicMock()
@@ -75,11 +75,11 @@ async def test_hitl_pause_creates_durable_turn_checkpoint():
         # Run execution stage
         await exec_stage.stage_execute_llm(ctx)
 
-    assert ctx.waiting_hitl is True
-    assert ctx.halted is True
-    assert ctx.checkpoint_id is not None
+    assert ctx.output.waiting_hitl is True
+    assert ctx.output.halted is True
+    assert ctx.output.checkpoint_id is not None
 
-    chk = turn_checkpoint_store.get_checkpoint(ctx.checkpoint_id)
+    chk = turn_checkpoint_store.get_checkpoint(ctx.output.checkpoint_id)
     assert chk is not None
     assert chk.pause_reason == "hitl"
     assert chk.status == "ACTIVE"
@@ -226,7 +226,7 @@ async def test_hitl_pause_synthesizes_deferred_sibling_responses():
     )
     ctx.agent_key = "agent-10001"
     ctx.agent_cfg = {"model": "test-model", "username": "Visionary", "skills": ["danger_skill"]}
-    ctx.messages = [{"role": "user", "content": ctx.raw_text}]
+    ctx.messages = [{"role": "user", "content": ctx.input.raw_text}]
 
     # 2 tool calls in the same assistant response: first requires HITL, second is a sibling
     tc1 = MagicMock()
@@ -277,11 +277,11 @@ async def test_hitl_pause_synthesizes_deferred_sibling_responses():
     ):
         await exec_stage.stage_execute_llm(ctx)
 
-    assert ctx.waiting_hitl is True
-    assert ctx.halted is True
-    assert ctx.checkpoint_id is not None
+    assert ctx.output.waiting_hitl is True
+    assert ctx.output.halted is True
+    assert ctx.output.checkpoint_id is not None
 
-    chk = turn_checkpoint_store.get_checkpoint(ctx.checkpoint_id)
+    chk = turn_checkpoint_store.get_checkpoint(ctx.output.checkpoint_id)
     assert chk is not None
 
     # Check saved messages contain responses for both tool calls

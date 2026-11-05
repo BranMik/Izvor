@@ -7,7 +7,7 @@ import re
 import socket
 import urllib.parse
 
-from httpcore._backends.sync import SyncBackend
+from httpcore._backends.auto import AutoBackend
 import httpx
 from bs4 import BeautifulSoup
 
@@ -94,7 +94,7 @@ USER_AGENT = (
 )
 
 
-def _web_search_inner(query: str, max_results: int = 5) -> str:
+async def _web_search_inner(query: str, max_results: int = 5) -> str:
     """
     Performs a live web search for the given query and returns a list of results
     with titles, URLs, and snippets in JSON format.
@@ -113,7 +113,7 @@ def _web_search_inner(query: str, max_results: int = 5) -> str:
     # Strategy 1: DuckDuckGo HTML Endpoint (Fast, reliable, zero-auth)
     try:
         url = get_web_search_endpoint()
-        is_safe, cleaned_endpoint, err, resolved_ip = validate_url_security(url)
+        is_safe, cleaned_endpoint, err, resolved_ip = await asyncio.to_thread(validate_url_security, url)
         if not is_safe or not resolved_ip:
             from services.audit_logger import log_audit_event
 
@@ -135,8 +135,8 @@ def _web_search_inner(query: str, max_results: int = 5) -> str:
         }
         data = {"q": cleaned_query}
         transport = PinnedIPTransport(resolved_ip)
-        with httpx.Client(transport=transport, timeout=get_web_search_timeout(), follow_redirects=False) as client:
-            response = client.post(cleaned_endpoint, data=data, headers=headers)
+        async with httpx.AsyncClient(transport=transport, timeout=get_web_search_timeout(), follow_redirects=False) as client:
+            response = await client.post(cleaned_endpoint, data=data, headers=headers)
 
         if response.status_code == 200:
             soup = BeautifulSoup(response.text, "html.parser")
@@ -197,25 +197,28 @@ def _web_search_inner(query: str, max_results: int = 5) -> str:
 
     # Strategy 2: ddgs library fallback
     try:
-        from ddgs import DDGS
+        def _run_ddgs():
+            from ddgs import DDGS
 
-        timeout_sec = int(get_web_search_timeout())
-        ddgs_results = []
-        with DDGS(timeout=timeout_sec) as ddgs:
-            for r in ddgs.text(cleaned_query, max_results=max_results):
-                candidate_url = r.get("href", "") or r.get("link", "") or r.get("url", "")
-                if candidate_url:
-                    is_safe, _, _, _ = validate_url_security(candidate_url)
-                    if not is_safe:
-                        continue
-                ddgs_results.append(
-                    {
-                        "title": r.get("title", ""),
-                        "url": candidate_url,
-                        "snippet": r.get("body", "") or r.get("snippet", ""),
-                    }
-                )
+            timeout_sec = int(get_web_search_timeout())
+            ddgs_results = []
+            with DDGS(timeout=timeout_sec) as ddgs:
+                for r in ddgs.text(cleaned_query, max_results=max_results):
+                    candidate_url = r.get("href", "") or r.get("link", "") or r.get("url", "")
+                    if candidate_url:
+                        is_safe, _, _, _ = validate_url_security(candidate_url)
+                        if not is_safe:
+                            continue
+                    ddgs_results.append(
+                        {
+                            "title": r.get("title", ""),
+                            "url": candidate_url,
+                            "snippet": r.get("body", "") or r.get("snippet", ""),
+                        }
+                    )
+            return ddgs_results
 
+        ddgs_results = await asyncio.to_thread(_run_ddgs)
         if ddgs_results:
             return json.dumps(
                 {
@@ -238,8 +241,8 @@ def _web_search_inner(query: str, max_results: int = 5) -> str:
     )
 
 
-def web_search(query: str, max_results: int = 5) -> str:
-    return _web_search_inner(query, max_results)
+async def web_search(query: str, max_results: int = 5) -> str:
+    return await _web_search_inner(query, max_results)
 
 
 # Security constraints for SSRF & outbound HTTP defense
@@ -249,9 +252,9 @@ MAX_REDIRECTS = 5
 MAX_BODY_BYTES = 2 * 1024 * 1024  # 2 MB response body cap
 
 
-class PinnedIPBackend(SyncBackend):
+class PinnedIPBackend(AutoBackend):
     """
-    Custom NetworkBackend that routes TCP connections directly to a pre-verified IP,
+    Custom AsyncNetworkBackend that routes TCP connections directly to a pre-verified IP,
     defeating DNS-rebinding Time-Of-Check to Time-Of-Use (TOCTOU) exploits while
     preserving the original Host header and TLS SNI extension.
     """
@@ -260,20 +263,20 @@ class PinnedIPBackend(SyncBackend):
         super().__init__()
         self._pinned_ip = pinned_ip
 
-    def connect_tcp(self, host: str, port: int, *args, **kwargs):
-        return super().connect_tcp(self._pinned_ip, port, *args, **kwargs)
+    async def connect_tcp(self, host: str, port: int, *args, **kwargs):
+        return await super().connect_tcp(self._pinned_ip, port, *args, **kwargs)
 
 
-class PinnedIPTransport(httpx.HTTPTransport):
+class PinnedIPTransport(httpx.AsyncHTTPTransport):
     """
-    HTTPTransport configured to use PinnedIPBackend for connection establishment.
+    AsyncHTTPTransport configured to use PinnedIPBackend for connection establishment.
     """
 
     def __init__(self, pinned_ip: str, **kwargs):
         super().__init__(**kwargs)
         if not (hasattr(self, "_pool") and hasattr(self._pool, "_network_backend")):
             raise RuntimeError(
-                "PinnedIPTransport cannot bind PinnedIPBackend: httpx HTTPTransport internal "
+                "PinnedIPTransport cannot bind PinnedIPBackend: httpx AsyncHTTPTransport internal "
                 "_pool._network_backend attribute is missing. Refusing to proceed without IP pinning."
             )
         self._pool._network_backend = PinnedIPBackend(pinned_ip)
@@ -487,7 +490,7 @@ def validate_url_security(url: str) -> tuple[bool, str, str | None, str | None]:
     return True, cleaned_url, None, primary_ip
 
 
-def _fetch_web_page_inner(url: str, max_chars: int = 4000) -> str:
+async def _fetch_web_page_inner(url: str, max_chars: int = 4000) -> str:
     """
     Fetches the content of a web page and extracts clean, readable text/markdown.
     Strips scripts, styles, navigation, headers, footers, and ads.
@@ -497,7 +500,7 @@ def _fetch_web_page_inner(url: str, max_chars: int = 4000) -> str:
     if not url or not isinstance(url, str) or not url.strip():
         return json.dumps({"error": "URL cannot be empty."})
 
-    is_safe, cleaned_url, reason, resolved_ip = validate_url_security(url)
+    is_safe, cleaned_url, reason, resolved_ip = await asyncio.to_thread(validate_url_security, url)
     if not is_safe:
         logger.warning(f"[FETCH_WEB_PAGE] Blocked unsafe URL '{url}': {reason}")
         return json.dumps(
@@ -531,8 +534,8 @@ def _fetch_web_page_inner(url: str, max_chars: int = 4000) -> str:
 
         while True:
             transport = PinnedIPTransport(current_ip) if current_ip else None
-            with httpx.Client(transport=transport, timeout=fetch_timeout, follow_redirects=False) as client:
-                with client.stream("GET", current_url, headers=headers) as response:
+            async with httpx.AsyncClient(transport=transport, timeout=fetch_timeout, follow_redirects=False) as client:
+                async with client.stream("GET", current_url, headers=headers) as response:
                     # Check for redirect (3xx status code with Location header)
                     if (300 <= response.status_code < 400) and response.headers.get("location"):
                         redirect_count += 1
@@ -545,7 +548,7 @@ def _fetch_web_page_inner(url: str, max_chars: int = 4000) -> str:
                             )
                         loc = response.headers.get("location", "")
                         next_url = urllib.parse.urljoin(current_url, loc)
-                        is_safe_redirect, validated_next, redirect_reason, next_ip = validate_url_security(next_url)
+                        is_safe_redirect, validated_next, redirect_reason, next_ip = await asyncio.to_thread(validate_url_security, next_url)
                         if not is_safe_redirect:
                             logger.warning(
                                 f"[FETCH_WEB_PAGE] Blocked redirect to unsafe URL '{next_url}': {redirect_reason}"
@@ -596,7 +599,7 @@ def _fetch_web_page_inner(url: str, max_chars: int = 4000) -> str:
                     # Read streamed content with byte limit
                     content_chunks = []
                     total_bytes = 0
-                    for chunk in response.iter_bytes(chunk_size=65536):
+                    async for chunk in response.aiter_bytes(chunk_size=65536):
                         total_bytes += len(chunk)
                         if total_bytes > max_body_bytes:
                             return json.dumps(
@@ -612,65 +615,68 @@ def _fetch_web_page_inner(url: str, max_chars: int = 4000) -> str:
                     body_text = raw_bytes.decode(encoding, errors="replace")
                     break
 
-        soup = BeautifulSoup(body_text, "html.parser")
+        def _extract_readable_html(text: str, target_url: str, limit_chars: int) -> str:
+            soup = BeautifulSoup(text, "html.parser")
 
-        # Extract title
-        title = ""
-        if soup.title and soup.title.string:
-            title = soup.title.string.strip()
-        elif soup.find("h1"):
-            title = soup.find("h1").get_text(strip=True)
+            # Extract title
+            title = ""
+            if soup.title and soup.title.string:
+                title = soup.title.string.strip()
+            elif soup.find("h1"):
+                title = soup.find("h1").get_text(strip=True)
 
-        # Remove noisy and non-content elements
-        for tag in soup(
-            [
-                "script",
-                "style",
-                "nav",
-                "footer",
-                "header",
-                "aside",
-                "noscript",
-                "svg",
-                "iframe",
-                "form",
-                "button",
-                "meta",
-                "link",
-            ]
-        ):
-            tag.decompose()
+            # Remove noisy and non-content elements
+            for tag in soup(
+                [
+                    "script",
+                    "style",
+                    "nav",
+                    "footer",
+                    "header",
+                    "aside",
+                    "noscript",
+                    "svg",
+                    "iframe",
+                    "form",
+                    "button",
+                    "meta",
+                    "link",
+                ]
+            ):
+                tag.decompose()
 
-        # Extract text elements with paragraph separation
-        main_content = soup.find("main") or soup.find("article") or soup.find("body") or soup
-        text_lines = []
-        for element in main_content.find_all(["h1", "h2", "h3", "h4", "p", "li", "tr"]):
-            line = element.get_text(separator=" ", strip=True)
-            if line and len(line) > 10:
-                text_lines.append(line)
+            # Extract text elements with paragraph separation
+            main_content = soup.find("main") or soup.find("article") or soup.find("body") or soup
+            text_lines = []
+            for element in main_content.find_all(["h1", "h2", "h3", "h4", "p", "li", "tr"]):
+                line = element.get_text(separator=" ", strip=True)
+                if line and len(line) > 10:
+                    text_lines.append(line)
 
-        if not text_lines:
-            raw_text = soup.get_text(separator="\n", strip=True)
-            text_lines = [line.strip() for line in raw_text.splitlines() if len(line.strip()) > 15]
+            if not text_lines:
+                raw_text = soup.get_text(separator="\n", strip=True)
+                text_lines = [line.strip() for line in raw_text.splitlines() if len(line.strip()) > 15]
 
-        cleaned_text = "\n\n".join(text_lines)
-        cleaned_text = re.sub(r"\n{3,}", "\n\n", cleaned_text).strip()
+            cleaned_text = "\n\n".join(text_lines)
+            cleaned_text = re.sub(r"\n{3,}", "\n\n", cleaned_text).strip()
 
-        is_truncated = False
-        if len(cleaned_text) > max_chars:
-            cleaned_text = cleaned_text[:max_chars] + "\n... [Content Truncated]"
-            is_truncated = True
+            is_truncated = False
+            if len(cleaned_text) > limit_chars:
+                cleaned_text = cleaned_text[:limit_chars] + "\n... [Content Truncated]"
+                is_truncated = True
 
-        return json.dumps(
-            {
-                "url": current_url,
-                "title": title,
-                "content": cleaned_text if cleaned_text else "(No readable text found on page)",
-                "content_length": len(cleaned_text),
-                "truncated": is_truncated,
-            },
-            indent=2,
-        )
+            return json.dumps(
+                {
+                    "url": target_url,
+                    "title": title,
+                    "content": cleaned_text if cleaned_text else "(No readable text found on page)",
+                    "content_length": len(cleaned_text),
+                    "truncated": is_truncated,
+                },
+                indent=2,
+            )
+
+        return await asyncio.to_thread(_extract_readable_html, body_text, current_url, max_chars)
 
     except httpx.TimeoutException:
         return json.dumps({"error": f"Request to '{cleaned_url}' timed out.", "url": cleaned_url})
@@ -685,7 +691,7 @@ def _fetch_web_page_inner(url: str, max_chars: int = 4000) -> str:
         return json.dumps({"error": f"Error fetching web page: {e!s}", "url": cleaned_url})
 
 
-def fetch_web_page(url: str, max_chars: int = 4000) -> str:
-    return _fetch_web_page_inner(url, max_chars)
+async def fetch_web_page(url: str, max_chars: int = 4000) -> str:
+    return await _fetch_web_page_inner(url, max_chars)
 
 

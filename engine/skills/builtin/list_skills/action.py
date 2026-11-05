@@ -18,8 +18,9 @@ logger = logging.getLogger(__name__)
 
 async def run(ctx: Any, params: dict[str, Any] | None = None) -> dict[str, Any] | None:
     # /list_skills is strictly exclusive: presents platform skills directory and halts discussion
-    channel_id = getattr(ctx, "channel_id", "")
-    thread_ts = getattr(ctx, "thread_ts", "")
+    inp = getattr(ctx, "input", ctx)
+    channel_id = getattr(inp, "channel_id", "")
+    thread_ts = getattr(inp, "thread_ts", "")
     from core.registry import get_skill_registry
 
     skill_registry = get_skill_registry()

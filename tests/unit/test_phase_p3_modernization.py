@@ -5,7 +5,7 @@ and Background Worker Warning Mitigation.
 
 from unittest.mock import patch
 
-from starlette.testclient import TestClient
+from fastapi.testclient import TestClient
 
 from main import app
 from orchestration.agent_settings import settings_manager
