@@ -234,7 +234,7 @@ def resolve_pipeline_deps(
         return None
 
     from core.llm_utils import execute_llm_with_retry
-    from services.mcp_tools import execute_mcp_tool
+    from services.local_tools import execute_local_tool
     from services.slack import (
         download_slack_file,
         fetch_thread_files,
@@ -259,8 +259,8 @@ def resolve_pipeline_deps(
     )
     tool_executor = (
         _get("tool_executor")
-        or _get("execute_mcp_tool")
-        or execute_mcp_tool
+        or _get("execute_local_tool")
+        or execute_local_tool
     )
     history_fetcher = _get("history_fetcher", default_factory=lambda: fetch_thread_history)
     files_fetcher = _get("files_fetcher", default_factory=lambda: fetch_thread_files)

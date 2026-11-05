@@ -8,7 +8,7 @@ from main import app
 from core.database import DatabaseManager, get_connection
 from pipeline.spend_governance.circuit_breaker import SpendGovernance
 from agents.usage_agent import record_thread_tokens
-from services.mcp_tools import is_agent_authorized_for_tool
+from services.local_tools import is_agent_authorized_for_tool
 from core.slack_security import sanitize_slack_blocks
 from agents.thread_notes_agent import _sanitize_note_text
 from orchestration.turn_pipeline import TurnContext, TurnPipeline
@@ -83,9 +83,9 @@ def test_tkt_702_spend_ledger_unification_and_preservation(tmp_path):
         db_manager.reset_paths()
 
 
-def test_tkt_703_mcp_tool_dynamic_thread_skill_authorization():
+def test_tkt_703_local_tool_dynamic_thread_skill_authorization():
     """
-    TKT-703: Verify is_agent_authorized_for_tool and execute_mcp_tool
+    TKT-703: Verify is_agent_authorized_for_tool and execute_local_tool
     grant access when the skill is granted in authorized_skills (thread-level).
     """
     agent = "agent-10001"  # Security Architect (does not statically own web_research or document tools)

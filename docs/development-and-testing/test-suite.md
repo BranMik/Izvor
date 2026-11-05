@@ -34,8 +34,8 @@ tests/
 │   ├── test_fast_forward_convergence.py       # Convergence threshold & Challenger/Rebuttal fast-forward
 │   ├── test_hitl_checkpoint_resume.py         # Durable TurnCheckpoint pause/resume & atomic HITL transitions
 │   ├── test_integration.py                    # Multi-agent turn integration tests
-│   ├── test_mcp.py                            # MCP tool sandbox & directory traversal guards
-│   ├── test_mcp_tools_security.py             # Windows device names, ADS blocking & max_write_bytes cap
+│   ├── test_local_tools.py                    # Local tool sandbox & directory traversal guards
+│   ├── test_local_tools_security.py           # Windows device names, ADS blocking & max_write_bytes cap
 │   ├── test_phase4_control_plane_and_dialectic.py # control_plane tools & RebuttalAdvocate verdict gate
 │   ├── test_phase5_parallel_dialectic.py      # Parallel Dialectic (scatter_gather) & anchor isolation
 │   ├── test_rag.py                            # LanceDB vector search & retrieval tests
@@ -83,7 +83,7 @@ cmd /c .venv\Scripts\python.exe -u -m tests.e2e.runner --case TC-01
 ### 3. Run Specific Subsystems
 ```bash
 # Run security, tool sandboxing & authentication tests
-cmd /c .venv\Scripts\python.exe -u -m pytest tests/unit/test_admin_auth.py tests/integration/test_web_tools_security.py tests/integration/test_mcp_tools_security.py tests/integration/test_slack_interactivity.py
+cmd /c .venv\Scripts\python.exe -u -m pytest tests/unit/test_admin_auth.py tests/integration/test_web_tools_security.py tests/integration/test_local_tools_security.py tests/integration/test_slack_interactivity.py
 
 # Run SQLite migrations, transaction safety & retention tests
 cmd /c .venv\Scripts\python.exe -u -m pytest tests/integration/test_db_migrations.py tests/integration/test_sqlite_engine.py tests/unit/test_retention_service.py

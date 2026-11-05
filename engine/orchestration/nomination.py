@@ -64,7 +64,7 @@ def resolve_target_file(
     # Fallback to local default agents_resources/ directory if target filename is requested
     if target_filename:
         try:
-            from services.mcp_tools import AGENTS_RESOURCES_DIR, _resolve_resource_path
+            from services.local_tools import AGENTS_RESOURCES_DIR, _resolve_resource_path
 
             try:
                 target_path = _resolve_resource_path(target_filename)

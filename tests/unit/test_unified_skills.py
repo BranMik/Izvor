@@ -189,8 +189,8 @@ def test_global_skill_declarative_frontmatter():
         assert loaded.get("status") == "loaded"
         assert loaded.get("skill") == "universal_tool"
 
-        # 5. MCP tools permitted for execution
-        with patch("services.mcp_tools.web_search", return_value="mock_search_result"):
+        # 5. Local tools permitted for execution
+        with patch("services.local_tools.web_search", return_value="mock_search_result"):
             tool_res = skill_registry.execute_tool(
                 tool_name="web_search",
                 arguments={"query": "test"},

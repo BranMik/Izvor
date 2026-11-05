@@ -86,7 +86,7 @@ def test_resolve_target_file():
 
 
 def test_resolve_target_file_resources_fallback_and_slack_precedence():
-    from services.mcp_tools import AGENTS_RESOURCES_DIR
+    from services.local_tools import AGENTS_RESOURCES_DIR
 
     test_filename = "precedence_test_doc.txt"
     res_file = AGENTS_RESOURCES_DIR / test_filename
@@ -461,7 +461,7 @@ async def test_file_context_lifecycle_in_process_and_respond():
 @pytest.mark.anyio
 async def test_resource_file_resolution_in_validation_stage():
     from orchestration.turn_pipeline import TurnContext, TurnPipeline
-    from services.mcp_tools import AGENTS_RESOURCES_DIR
+    from services.local_tools import AGENTS_RESOURCES_DIR
 
     channel_id = "C_RES_STAGE_TEST"
     thread_ts = "1700000000.9999"

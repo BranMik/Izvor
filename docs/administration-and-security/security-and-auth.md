@@ -100,7 +100,7 @@ Outgoing Slack messages are posted via [`services/slack/messages.py`](file:///c:
 ## 🗄️ Path Traversal, Web SSRF & Sandbox Isolation
 
 - **Fail-Closed `ToolPrincipal`**: [`SkillLoader`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/skills/loader.py) verifies [`ToolPrincipal`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/core/domain.py) before executing any tool.
-- **Filesystem Confinement**: `validate_resource_filename` in [`services/mcp_tools.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/services/mcp_tools.py) confines operations to `agents_resources/`, blocks Windows device names (`CON`, `PRN`, `AUX`, `NUL`, `COM1–9`, `LPT1–9`) and NTFS ADS (`:`), protects `DEFAULT_PROTECTED_WRITE_PATHS`, and caps writes at `max_write_bytes` (1 MB).
+- **Filesystem Confinement**: `validate_resource_filename` in [`services/local_tools.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/services/local_tools.py) confines operations to `agents_resources/`, blocks Windows device names (`CON`, `PRN`, `AUX`, `NUL`, `COM1–9`, `LPT1–9`) and NTFS ADS (`:`), protects `DEFAULT_PROTECTED_WRITE_PATHS`, and caps writes at `max_write_bytes` (1 MB).
 - **Outbound Web SSRF & DNS-Rebinding Protection**: [`services/web_tools.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/services/web_tools.py) uses `PinnedIPTransport` to pin resolved public IPs, blocks private IPv4/IPv6/NAT64 ranges, strips query strings on untrusted domains, and enforces a per-turn web fetch cap (`max_fetches_per_turn: 10`).
 
 ---

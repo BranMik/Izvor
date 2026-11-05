@@ -603,7 +603,7 @@ class HybridInterceptor:
         )
 
 
-async def mock_execute_mcp_tool(tool_name: str, arguments: dict[str, Any] | str) -> str:
+async def mock_execute_local_tool(tool_name: str, arguments: dict[str, Any] | str) -> str:
     """Provides deterministic fixture execution for external tools."""
     args = json.loads(arguments) if isinstance(arguments, str) else arguments
     if tool_name == "web_search":
@@ -619,6 +619,6 @@ async def mock_execute_mcp_tool(tool_name: str, arguments: dict[str, Any] | str)
         return "Anthropic Claude 3.7 Sonnet pricing: $3.00/MTok input, $15.00/MTok output. Fast reasoning capabilities."
 
     # For local filesystem/doc tools, run the real implementation
-    from services.mcp_tools import execute_mcp_tool
+    from services.local_tools import execute_local_tool
 
-    return execute_mcp_tool(tool_name, arguments)
+    return execute_local_tool(tool_name, arguments)

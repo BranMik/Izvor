@@ -67,7 +67,6 @@ async def test_hitl_pause_creates_durable_turn_checkpoint():
     mock_skill_registry = MagicMock()
     mock_skill_registry.find_skill_for_tool.return_value = "db_admin"
     mock_skill_registry.get.return_value = skill_def
-    mock_skill_registry.is_mcp_tool.return_value = False
 
     with (
         patch("orchestration.stages.execution.skill_registry", mock_skill_registry),
@@ -271,7 +270,6 @@ async def test_hitl_pause_synthesizes_deferred_sibling_responses():
     mock_skill_registry = MagicMock()
     mock_skill_registry.find_skill_for_tool.return_value = "danger_skill"
     mock_skill_registry.get.return_value = skill_def
-    mock_skill_registry.is_mcp_tool.return_value = False
 
     with (
         patch("orchestration.stages.execution.skill_registry", mock_skill_registry),

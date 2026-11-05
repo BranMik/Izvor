@@ -249,7 +249,7 @@ async def process_and_respond(
 ) -> dict[str, Any]:
     """
     Main background handler: parses prompt, builds conversation history,
-    calls LiteLLM with agent parameters & MCP tools, and posts response back to Slack thread.
+    calls LiteLLM with agent parameters & tools, and posts response back to Slack thread.
     If run_internal_loop is True, executes the entire multi-agent discussion loop internally.
     """
     target_deps = deps or _router_deps_override

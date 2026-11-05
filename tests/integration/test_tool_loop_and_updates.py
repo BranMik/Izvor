@@ -52,7 +52,7 @@ async def test_tool_call_loop_timeout_fallback():
     mock_choice.message.model_dump.return_value = {"role": "assistant", "content": "Initial"}
     mock_resp.choices = [mock_choice]
 
-    async def slow_mcp_tool(name, args):
+    async def slow_local_tool(name, args):
         await asyncio.sleep(0.5)
         return "slow result"
 
@@ -62,7 +62,7 @@ async def test_tool_call_loop_timeout_fallback():
         timeout_secs=0.05,
         intermediate_delay_secs=10.0,
         llm_executor=mock_retry_fn,
-        tool_executor=slow_mcp_tool,
+        tool_executor=slow_local_tool,
     )
     ctx = TurnContext(
         channel_id="C_TEST",

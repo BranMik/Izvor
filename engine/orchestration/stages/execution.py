@@ -25,7 +25,7 @@ from orchestration.agent_settings import settings_manager
 from orchestration.stages.tool_status import _build_tool_status_text
 from orchestration.protocols import PipelineDeps
 from orchestration.thread_state import thread_state_manager
-from services.mcp_tools import execute_mcp_tool
+from services.local_tools import execute_local_tool
 from services.slack import post_agent_response
 from skills.loader import LOAD_SKILL_SCHEMA, skill_registry
 
@@ -254,7 +254,7 @@ class ExecutionStage:
         tool_calls = getattr(response_message, "tool_calls", None)
 
         if tool_calls:
-            exec_mcp_fn = getattr(self.deps, "tool_executor", None)
+            custom_tool_executor = getattr(self.deps, "tool_executor", None)
             max_tool_iterations = getattr(self.deps, "max_tool_iterations", None)
             if max_tool_iterations is None:
                 max_tool_iterations = system_settings_manager.get_max_tool_iterations()
@@ -335,6 +335,14 @@ class ExecutionStage:
                             skill_def = skill_registry.get(skill_name)
                             is_globally_allowed = bool(skill_def and skill_def.is_global)
                             if skill_def and ((agent_skills and skill_name in agent_skills) or is_globally_allowed):
+                                if getattr(skill_def, "mcp_server", ""):
+                                    try:
+                                        from services.mcp.client_manager import get_mcp_client_manager
+
+                                        await get_mcp_client_manager().discover_server_tools(skill_def.mcp_server)
+                                    except Exception as e:
+                                        logger.warning(f"[EXECUTION] Failed on-demand MCP discovery for '{skill_def.mcp_server}': {e}")
+
                                 existing_names = {
                                     s.get("function", {}).get("name")
                                     for s in active_tools
@@ -356,7 +364,7 @@ class ExecutionStage:
                         else:
                             # 1. First verify tool authorization before cache or execution
                             from core.domain import ToolPrincipal
-                            from services.mcp_tools import is_agent_authorized_for_tool
+                            from services.local_tools import is_agent_authorized_for_tool
 
                             principal = ToolPrincipal(kind="agent", id=ctx.agent_key)
                             if not is_agent_authorized_for_tool(
@@ -375,17 +383,23 @@ class ExecutionStage:
                                 skill_def = skill_registry.get(s_name) if s_name else None
 
                                 # 2. Next check HITL approval
-                                if skill_def and skill_def.requires_human_ITL:
+                                from services.mcp.client_manager import get_mcp_client_manager
+
+                                is_mcp_mutating = get_mcp_client_manager().is_tool_mutating(fn_name)
+                                requires_hitl = bool(skill_def and skill_def.requires_human_ITL) or is_mcp_mutating
+
+                                if requires_hitl:
                                     from services.hitl import consume_tool_approval, request_human_approval
 
                                     if not consume_tool_approval(
                                         ctx.channel_id, ctx.thread_ts, fn_name, fn_args, agent_name=ctx.agent_key
                                     ):
+                                        effective_skill_name = skill_def.name if skill_def else (s_name or "mcp_tool")
                                         req_id = await request_human_approval(
                                             ctx.channel_id,
                                             ctx.thread_ts,
                                             ctx.agent_key,
-                                            skill_def.name,
+                                            effective_skill_name,
                                             fn_name,
                                             fn_args,
                                             initiator_user_id=ctx.user_id,
@@ -460,18 +474,18 @@ class ExecutionStage:
                                     )
                                 else:
                                     # 4. Low-level execution via custom executor hook or skill_registry
-                                    if exec_mcp_fn is not None and exec_mcp_fn is not execute_mcp_tool:
-                                        sig = inspect.signature(exec_mcp_fn)
+                                    if custom_tool_executor is not None and custom_tool_executor is not execute_local_tool:
+                                        sig = inspect.signature(custom_tool_executor)
                                         kwargs = {}
                                         if "agent_name" in sig.parameters:
                                             kwargs["agent_name"] = ctx.agent_key
                                         if "authorized_skills" in sig.parameters:
                                             kwargs["authorized_skills"] = agent_skills
-                                        if inspect.iscoroutinefunction(exec_mcp_fn):
-                                            tool_result = await exec_mcp_fn(fn_name, fn_args, **kwargs)
+                                        if inspect.iscoroutinefunction(custom_tool_executor):
+                                            tool_result = await custom_tool_executor(fn_name, fn_args, **kwargs)
                                         else:
                                             tool_result = await asyncio.to_thread(
-                                                exec_mcp_fn, fn_name, fn_args, **kwargs
+                                                custom_tool_executor, fn_name, fn_args, **kwargs
                                             )
                                     else:
                                         tool_result = await skill_registry.execute_tool_async(

@@ -228,7 +228,7 @@ async def test_tool_loop_pause_disables_tool_choice():
          patch("skills.loader.skill_registry.get", return_value=mock_skill), \
          patch("services.hitl.consume_tool_approval", return_value=False), \
          patch("services.hitl.request_human_approval", new_callable=AsyncMock, return_value="req-123"), \
-         patch("services.mcp_tools.is_agent_authorized_for_tool", return_value=True):
+         patch("services.local_tools.is_agent_authorized_for_tool", return_value=True):
         await stage.stage_execute_llm(ctx)
 
     # The follow-up call must have tool_choice='none'

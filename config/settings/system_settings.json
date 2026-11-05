@@ -67,5 +67,6 @@
   "max_write_bytes": 1048576,
   "retention_checkpoints_days": 7,
   "retention_traces_days": 30,
-  "retention_event_dedup_days": 1
+  "retention_event_dedup_days": 1,
+  "mcp_servers": {}
 }

@@ -92,17 +92,17 @@ def is_production() -> bool:
     return env in ("production", "prod")
 
 
-# MCP workspace directory: defaults to project root (one directory above 'core' and 'services')
-_raw_workspace = os.getenv("MCP_WORKSPACE_DIR", "").strip()
+# Tools workspace directory: defaults to project root (one directory above 'core' and 'services')
+_raw_workspace = os.getenv("IZVOR_WORKSPACE_DIR", os.getenv("TOOLS_WORKSPACE_DIR", "")).strip()
 if _raw_workspace and _raw_workspace != ".":
     _workspace_path = Path(_raw_workspace)
-    MCP_WORKSPACE_DIR = (
+    TOOLS_WORKSPACE_DIR = (
         _workspace_path.resolve()
         if _workspace_path.is_absolute()
         else (PROJECT_ROOT / _workspace_path).resolve()
     )
 else:
-    MCP_WORKSPACE_DIR = PROJECT_ROOT
+    TOOLS_WORKSPACE_DIR = PROJECT_ROOT
 
 
 # Admin HTTP Basic Authentication credentials
@@ -450,7 +450,7 @@ __all__ = [
     "SLACK_BOT_TOKEN",
     "SLACK_SIGNING_SECRET",
     "SLACK_TEST_CHANNEL_ID",
-    "MCP_WORKSPACE_DIR",
+    "TOOLS_WORKSPACE_DIR",
     "ADMIN_USERNAME",
     "ADMIN_PASSWORD",
     "get_admin_username",

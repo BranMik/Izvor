@@ -1,12 +1,12 @@
 import json
 
 from core.domain import SYSTEM_PRINCIPAL
-from services.mcp_tools import list_documents, read_document, write_document
+from services.local_tools import list_documents, read_document, write_document
 
 
-def test_mcp_write_and_read():
+def test_local_tools_write_and_read():
     rel_path = "tests/scratch_test.txt"
-    content = "Hello from Native MCP Test!"
+    content = "Hello from Native Local Tools Test!"
 
     write_res = write_document(rel_path, content, principal=SYSTEM_PRINCIPAL)
     assert "success" in write_res
@@ -15,21 +15,21 @@ def test_mcp_write_and_read():
     res_json = json.loads(read_res)
     assert res_json.get("content") == content
 
-def test_mcp_list_directory():
+def test_local_tools_list_directory():
     list_res = list_documents(".", principal=SYSTEM_PRINCIPAL)
     res_json = json.loads(list_res)
     assert "contents" in res_json
     assert isinstance(res_json["contents"], list)
 
-def test_mcp_directory_traversal_prevention():
+def test_local_tools_directory_traversal_prevention():
     read_res = read_document("../../windows/system32/cmd.exe", principal=SYSTEM_PRINCIPAL)
     res_json = json.loads(read_res)
     assert "error" in res_json
     assert "Access denied" in res_json["error"] or "does not exist" in res_json["error"]
 
 
-def test_mcp_document_write_and_read():
-    from services.mcp_tools import read_document, write_document
+def test_local_tools_document_write_and_read():
+    from services.local_tools import read_document, write_document
 
     rel_path = "scratch_doc.txt"
     content = "Hello from Sandboxed Resource Document!"
@@ -45,8 +45,8 @@ def test_mcp_document_write_and_read():
     assert res_json.get("document") == rel_path
 
 
-def test_mcp_list_documents():
-    from services.mcp_tools import list_documents
+def test_local_tools_list_documents():
+    from services.local_tools import list_documents
 
     list_res = list_documents(".", principal=SYSTEM_PRINCIPAL)
     res_json = json.loads(list_res)
@@ -56,8 +56,8 @@ def test_mcp_list_documents():
     assert ".gitkeep" in names or "scratch_doc.txt" in names
 
 
-def test_mcp_document_traversal_prevention():
-    from services.mcp_tools import read_document, write_document
+def test_local_tools_document_traversal_prevention():
+    from services.local_tools import read_document, write_document
 
     # Attempt to read outside agents_resources/
     read_res = read_document("../main.py", principal=SYSTEM_PRINCIPAL)
@@ -72,39 +72,39 @@ def test_mcp_document_traversal_prevention():
     assert "Access denied" in write_json["error"]
 
 
-def test_mcp_execute_tool_document_dispatch():
-    from services.mcp_tools import execute_mcp_tool
+def test_local_tools_execute_tool_document_dispatch():
+    from services.local_tools import execute_local_tool
 
-    # Write document via execute_mcp_tool
-    write_res = execute_mcp_tool(
+    # Write document via execute_local_tool
+    write_res = execute_local_tool(
         "write_document",
         {"rel_path": "dispatch_test.txt", "content": "Dispatched document content"},
         agent_name=SYSTEM_PRINCIPAL,
     )
     assert "success" in json.loads(write_res)
 
-    # Read document via execute_mcp_tool
-    read_res = execute_mcp_tool("read_document", {"rel_path": "dispatch_test.txt"}, agent_name=SYSTEM_PRINCIPAL)
+    # Read document via execute_local_tool
+    read_res = execute_local_tool("read_document", {"rel_path": "dispatch_test.txt"}, agent_name=SYSTEM_PRINCIPAL)
     assert json.loads(read_res).get("content") == "Dispatched document content"
 
-    # List documents via execute_mcp_tool
-    list_res = execute_mcp_tool("list_documents", {"rel_path": "."}, agent_name=SYSTEM_PRINCIPAL)
+    # List documents via execute_local_tool
+    list_res = execute_local_tool("list_documents", {"rel_path": "."}, agent_name=SYSTEM_PRINCIPAL)
     assert "contents" in json.loads(list_res)
 
     # Clean up test artifacts
-    from services.mcp_tools import AGENTS_RESOURCES_DIR
+    from services.local_tools import AGENTS_RESOURCES_DIR
     for fname in ("scratch_doc.txt", "dispatch_test.txt"):
         fpath = AGENTS_RESOURCES_DIR / fname
         if fpath.exists():
             fpath.unlink()
 
 
-def test_mcp_read_pdf_document():
+def test_local_tools_read_pdf_document():
     from unittest.mock import MagicMock, patch
 
     import pypdf
 
-    from services.mcp_tools import AGENTS_RESOURCES_DIR, read_document
+    from services.local_tools import AGENTS_RESOURCES_DIR, read_document
 
     pdf_filename = "test_sample.pdf"
     pdf_path = AGENTS_RESOURCES_DIR / pdf_filename
@@ -144,8 +144,8 @@ def test_mcp_read_pdf_document():
             pdf_path.unlink()
 
 
-def test_mcp_read_pdf_corrupted():
-    from services.mcp_tools import AGENTS_RESOURCES_DIR, read_document
+def test_local_tools_read_pdf_corrupted():
+    from services.local_tools import AGENTS_RESOURCES_DIR, read_document
 
     bad_pdf = AGENTS_RESOURCES_DIR / "corrupt.pdf"
     bad_pdf.write_bytes(b"not a valid pdf data stream")
@@ -160,8 +160,8 @@ def test_mcp_read_pdf_corrupted():
             bad_pdf.unlink()
 
 
-def test_mcp_resource_path_normalization_and_prefix_stripping():
-    from services.mcp_tools import AGENTS_RESOURCES_DIR, _resolve_resource_path
+def test_local_tools_resource_path_normalization_and_prefix_stripping():
+    from services.local_tools import AGENTS_RESOURCES_DIR, _resolve_resource_path
 
     # Naked filename
     p1 = _resolve_resource_path("doc.txt")
@@ -180,8 +180,8 @@ def test_mcp_resource_path_normalization_and_prefix_stripping():
     assert p4 == AGENTS_RESOURCES_DIR.resolve()
 
 
-def test_mcp_read_document_exact_path_and_no_fuzzy_subdirectory_fallback():
-    from services.mcp_tools import AGENTS_RESOURCES_DIR, read_document
+def test_local_tools_read_document_exact_path_and_no_fuzzy_subdirectory_fallback():
+    from services.local_tools import AGENTS_RESOURCES_DIR, read_document
 
     sub_dir = AGENTS_RESOURCES_DIR / "subfolder"
     sub_dir.mkdir(parents=True, exist_ok=True)
@@ -208,8 +208,8 @@ def test_mcp_read_document_exact_path_and_no_fuzzy_subdirectory_fallback():
             sub_dir.rmdir()
 
 
-def test_mcp_read_file_fallback_to_resources():
-    from services.mcp_tools import AGENTS_RESOURCES_DIR, read_document
+def test_local_tools_read_file_fallback_to_resources():
+    from services.local_tools import AGENTS_RESOURCES_DIR, read_document
 
     res_only_file = AGENTS_RESOURCES_DIR / "resource_only.txt"
     res_only_file.write_text("Hello from resources folder fallback", encoding="utf-8")
@@ -224,8 +224,8 @@ def test_mcp_read_file_fallback_to_resources():
             res_only_file.unlink()
 
 
-def test_mcp_write_document_normalizes_resources_prefix():
-    from services.mcp_tools import AGENTS_RESOURCES_DIR, write_document
+def test_local_tools_write_document_normalizes_resources_prefix():
+    from services.local_tools import AGENTS_RESOURCES_DIR, write_document
 
     test_file = AGENTS_RESOURCES_DIR / "normalized_write.txt"
     try:
@@ -239,8 +239,8 @@ def test_mcp_write_document_normalizes_resources_prefix():
             test_file.unlink()
 
 
-def test_mcp_write_file_blocks_protected_default_files():
-    from services.mcp_tools import write_document
+def test_local_tools_write_file_blocks_protected_default_files():
+    from services.local_tools import write_document
 
     targets = [
         ".env",
@@ -259,9 +259,9 @@ def test_mcp_write_file_blocks_protected_default_files():
         assert "Permission denied: Writing to protected path" in res["error"]
 
 
-def test_mcp_write_file_blocks_custom_blacklist(tmp_path):
+def test_local_tools_write_file_blocks_custom_blacklist(tmp_path):
     from orchestration.system_settings import system_settings_manager
-    from services.mcp_tools import write_document
+    from services.local_tools import write_document
 
     orig_blacklist = system_settings_manager.get_workspace_write_blacklist_additional()
     system_settings_manager.set_workspace_write_blacklist_additional(
@@ -283,7 +283,7 @@ def test_mcp_write_file_blocks_custom_blacklist(tmp_path):
         allowed_file = "tests/test_write_allowed.tmp"
         res3 = json.loads(write_document(allowed_file, "valid content", principal=SYSTEM_PRINCIPAL))
         assert res3.get("success") is True
-        from services.mcp_tools import WORKSPACE_DIR
+        from services.local_tools import WORKSPACE_DIR
         p = WORKSPACE_DIR / allowed_file
         if p.exists():
             p.unlink()
@@ -291,9 +291,9 @@ def test_mcp_write_file_blocks_custom_blacklist(tmp_path):
         system_settings_manager.set_workspace_write_blacklist_additional(orig_blacklist, save=False)
 
 
-def test_mcp_write_document_blocks_blacklisted_path():
+def test_local_tools_write_document_blocks_blacklisted_path():
     from orchestration.system_settings import system_settings_manager
-    from services.mcp_tools import write_document
+    from services.local_tools import write_document
 
     orig_blacklist = system_settings_manager.get_workspace_write_blacklist_additional()
     system_settings_manager.set_workspace_write_blacklist_additional(
@@ -309,8 +309,8 @@ def test_mcp_write_document_blocks_blacklisted_path():
         system_settings_manager.set_workspace_write_blacklist_additional(orig_blacklist, save=False)
 
 
-def test_mcp_tool_dispatcher_registry():
-    from services.mcp_tools import TOOL_DISPATCHER
+def test_local_tools_tool_dispatcher_registry():
+    from services.local_tools import TOOL_DISPATCHER
 
     expected_tools = {
         "read_document",
@@ -327,11 +327,11 @@ def test_mcp_tool_dispatcher_registry():
         assert callable(func), f"Dispatcher entry '{name}' must be callable"
 
 
-def test_mcp_execute_tool_unknown_and_invalid_args():
-    from services.mcp_tools import TOOL_DISPATCHER, execute_mcp_tool
+def test_local_tools_execute_tool_unknown_and_invalid_args():
+    from services.local_tools import TOOL_DISPATCHER, execute_local_tool
 
     # Unknown tool
-    unknown_res = execute_mcp_tool("non_existent_tool_xyz", {"foo": "bar"}, agent_name=SYSTEM_PRINCIPAL)
+    unknown_res = execute_local_tool("non_existent_tool_xyz", {"foo": "bar"}, agent_name=SYSTEM_PRINCIPAL)
     unknown_json = json.loads(unknown_res)
     assert "error" in unknown_json
     assert "Unknown tool: non_existent_tool_xyz" in unknown_json["error"]
@@ -342,7 +342,7 @@ def test_mcp_execute_tool_unknown_and_invalid_args():
 
     TOOL_DISPATCHER["faulty_tool"] = _failing_handler
     try:
-        error_res = execute_mcp_tool("faulty_tool", {}, agent_name=SYSTEM_PRINCIPAL)
+        error_res = execute_local_tool("faulty_tool", {}, agent_name=SYSTEM_PRINCIPAL)
         error_json = json.loads(error_res)
         assert "error" in error_json
         assert "Tool execution error: Boom" in error_json["error"]
@@ -350,11 +350,11 @@ def test_mcp_execute_tool_unknown_and_invalid_args():
         TOOL_DISPATCHER.pop("faulty_tool", None)
 
 
-def test_mcp_execute_tool_agent_authorization():
-    from services.mcp_tools import execute_mcp_tool
+def test_local_tools_execute_tool_agent_authorization():
+    from services.local_tools import execute_local_tool
 
     # Sceptic has no skills configured -> write_document must be denied
-    denied_res = execute_mcp_tool(
+    denied_res = execute_local_tool(
         "write_document",
         {"rel_path": "agents_resources/unauthorized_test.txt", "content": "test"},
         agent_name="agent-10003",
@@ -365,7 +365,7 @@ def test_mcp_execute_tool_agent_authorization():
     assert "agent-10003" in denied_json["error"]
 
     # SYSTEM_PRINCIPAL must be allowed
-    sys_res = execute_mcp_tool(
+    sys_res = execute_local_tool(
         "list_documents",
         {"rel_path": "."},
         agent_name=SYSTEM_PRINCIPAL,
@@ -374,7 +374,7 @@ def test_mcp_execute_tool_agent_authorization():
     assert "contents" in sys_json
 
     # String "system" must NOT bypass authorization (fail closed)
-    str_sys_res = execute_mcp_tool(
+    str_sys_res = execute_local_tool(
         "list_documents",
         {"rel_path": "."},
         agent_name="system",
@@ -384,7 +384,7 @@ def test_mcp_execute_tool_agent_authorization():
     assert "Permission denied" in str_sys_json["error"]
 
     # SecurityArchitect has document_reader skill -> list_documents must be allowed
-    tech_res = execute_mcp_tool(
+    tech_res = execute_local_tool(
         "list_documents",
         {"rel_path": "."},
         agent_name="agent-10008",
@@ -393,8 +393,8 @@ def test_mcp_execute_tool_agent_authorization():
     assert "contents" in tech_json
 
 
-def test_mcp_system_resources_boundary_enforcement():
-    from services.mcp_tools import read_document, write_document
+def test_local_tools_system_resources_boundary_enforcement():
+    from services.local_tools import read_document, write_document
 
     # Attempt to read inside system_resources via relative path traversal
     res_read = json.loads(read_document("../system_resources/agy/README.md", principal=SYSTEM_PRINCIPAL))

@@ -6,7 +6,7 @@ from pathlib import Path
 import re
 from typing import Any
 
-from core.config import MCP_WORKSPACE_DIR
+from core.config import TOOLS_WORKSPACE_DIR
 from core.domain import ToolPrincipal
 from core.paths import (
     AGENTS_RESOURCES_DIR as CANONICAL_AGENTS_RESOURCES_DIR,
@@ -20,8 +20,8 @@ logger = logging.getLogger(__name__)
 
 # Workspace root directory defaults to PROJECT_ROOT
 WORKSPACE_DIR = (
-    MCP_WORKSPACE_DIR.resolve()
-    if (isinstance(MCP_WORKSPACE_DIR, Path) and MCP_WORKSPACE_DIR.exists())
+    TOOLS_WORKSPACE_DIR.resolve()
+    if (isinstance(TOOLS_WORKSPACE_DIR, Path) and TOOLS_WORKSPACE_DIR.exists())
     else PROJECT_ROOT
 )
 
@@ -370,7 +370,7 @@ def write_document(
 
 
 # LiteLLM compatible tool schemas (OpenAI / Function calling standard)
-MCP_TOOLS_SCHEMAS = [
+LOCAL_TOOLS_SCHEMAS = [
 
     {
         "type": "function",
@@ -520,14 +520,14 @@ def _mask_tool_args(args_dict: dict[str, Any]) -> dict[str, Any]:
     return masked
 
 
-def execute_mcp_tool(
+def execute_local_tool(
     tool_name: str,
     arguments: dict[str, Any] | None = None,
     agent_name: ToolPrincipal | str | None = None,
     authorized_skills: list[str] | set[str] | str | None = None,
 ) -> str:
     """
-    Executes a requested native MCP tool via dispatcher dictionary and returns the JSON string result.
+    Executes a requested native local tool via dispatcher dictionary and returns the JSON string result.
     Enforces principal tool authorization unconditionally (defense-in-depth).
     """
     raw_args = arguments or {}
@@ -539,14 +539,14 @@ def execute_mcp_tool(
 
     if not is_agent_authorized_for_tool(agent_name, tool_name, authorized_skills=authorized_skills):
         logger.warning(
-            f"[MCP] Access denied: Agent/Principal '{actor_id}' is not authorized to execute tool '{tool_name}'."
+            f"[LOCAL_TOOLS] Access denied: Agent/Principal '{actor_id}' is not authorized to execute tool '{tool_name}'."
         )
         from services.audit_logger import log_audit_event
 
         log_audit_event(
             event_type="SECURITY_POLICY_VIOLATION",
             actor={"type": actor_kind, "id": actor_id},
-            action="execute_mcp_tool",
+            action="execute_local_tool",
             target=f"tool:{tool_name}",
             details={"reason": "Defense-in-depth authorization check failed", "args_sha256": args_hash},
             severity="CRITICAL",
@@ -580,7 +580,7 @@ def execute_mcp_tool(
                 return handler(raw_args, principal=agent_name)
             return handler(raw_args)
         except Exception as e:  # noqa: BLE001
-            logger.error(f"[MCP] Error executing tool {tool_name}: {e}")
+            logger.error(f"[LOCAL_TOOLS] Error executing tool {tool_name}: {e}")
             return json.dumps({"error": f"Tool execution error: {e}"})
     return json.dumps({"error": f"Unknown tool: {tool_name}"})
 

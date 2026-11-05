@@ -6,12 +6,18 @@ from .flat_history_recorder import (
     get_flat_history_filepath,
     record_flat_history,
 )
-from .mcp_tools import (
-    MCP_TOOLS_SCHEMAS,
-    execute_mcp_tool,
+from .local_tools import (
+    LOCAL_TOOLS_SCHEMAS,
+    execute_local_tool,
     list_documents,
     read_document,
     write_document,
+)
+from .mcp import (
+    McpClientManager,
+    execute_external_mcp_tool,
+    get_mcp_client_manager,
+    mcp_client_manager,
 )
 from .pricing_service import (
     BASELINE_MODEL_PRICING,
@@ -68,7 +74,7 @@ __all__ = [
     "BASELINE_PRICES_FILE",
     "DEFAULT_FALLBACK_PRICING",
     "FLAT_HISTORIES_DIR",
-    "MCP_TOOLS_SCHEMAS",
+    "LOCAL_TOOLS_SCHEMAS",
     "PRICING_CACHE_FILE",
     "PRICING_TOOL_SCHEMAS",
     "PricingService",
@@ -77,7 +83,10 @@ __all__ = [
     "build_app_home_view",
     "build_edit_workspace_context_modal",
     "download_slack_file",
-    "execute_mcp_tool",
+    "execute_local_tool",
+    "execute_external_mcp_tool",
+    "get_mcp_client_manager",
+    "mcp_client_manager",
     "extract_thread_files_metadata",
     "fetch_thread_files",
     "fetch_thread_history",

@@ -142,8 +142,8 @@ def test_execute_load_skill_invalid():
     assert "not found" in data["error"]
 
 
-def test_execute_delegated_mcp_tool():
-    with patch("skills.loader.execute_mcp_tool") as mock_exec:
+def test_execute_delegated_local_tool():
+    with patch("skills.loader.execute_local_tool") as mock_exec:
         mock_exec.return_value = json.dumps({"contents": []})
         res = skill_registry.execute_tool(
             "list_documents", {"rel_path": "."}, authorized_skills=ALL_INTERNAL_SKILLS
@@ -158,7 +158,7 @@ def test_execute_delegated_mcp_tool():
 
 def test_execute_tool_authorization_enforcement():
     # Authorized: web_research allows web_search
-    with patch("skills.loader.execute_mcp_tool") as mock_exec:
+    with patch("skills.loader.execute_local_tool") as mock_exec:
         mock_exec.return_value = json.dumps({"results": ["ok"]})
         res = skill_registry.execute_tool(
             "web_search", {"query": "AI"}, authorized_skills=["web_research"]

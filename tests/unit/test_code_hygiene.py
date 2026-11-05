@@ -187,7 +187,8 @@ def test_no_monkeypatch_setattr_on_module_paths_or_managers():
         "pricing_service",
         "thread_notes_writer",
         "flat_history_recorder",
-        "mcp_tools",
+        "local_tools",
+        "mcp_client_manager",
         "store_file",
     }
 
