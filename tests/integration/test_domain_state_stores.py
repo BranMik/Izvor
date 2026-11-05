@@ -371,19 +371,12 @@ def test_convergence_speakers_sqlite_durability():
     thread_state_manager.record_convergence_speaker(ch, ts, "agent-10001")
     assert thread_state_manager.get_convergence_speakers(ch, ts) == ["agent-10001", "agent-10008"]
 
-    # Evict in-memory state to simulate process restart / eviction
-    thread_state_manager.discussion._loaded_threads.discard((ch, ts))
-    thread_state_manager.discussion.thread_convergence_speakers.pop((ch, ts), None)
-
     # Verify reloading from SQLite restores convergence speakers
     reloaded = thread_state_manager.get_convergence_speakers(ch, ts)
     assert reloaded == ["agent-10001", "agent-10008"]
 
     # Clear and verify DB sync
     thread_state_manager.clear_convergence_speakers(ch, ts)
-    assert thread_state_manager.get_convergence_speakers(ch, ts) == []
-
-    thread_state_manager.discussion._loaded_threads.discard((ch, ts))
     assert thread_state_manager.get_convergence_speakers(ch, ts) == []
 
 

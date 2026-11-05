@@ -13,17 +13,10 @@ from agents.usage_agent import (
 
 
 @pytest.fixture(autouse=True)
-def clean_usage_state(tmp_path):
-    temp_store = tmp_path / "test_thread_usage_data.json"
-    usage_tracker.configure_paths(store_file=temp_store)
-    usage_tracker.thread_usage_data.clear()
-    usage_tracker.reset_runtime_state()
+def clean_usage_state():
+    usage_tracker.clear_all()
     yield
-    usage_tracker.reset_paths()
-    usage_tracker.thread_usage_data.clear()
-    usage_tracker.reset_runtime_state()
-    if temp_store.exists():
-        temp_store.unlink()
+    usage_tracker.clear_all()
 
 
 def test_record_thread_tokens_accumulation():
@@ -145,7 +138,8 @@ async def test_update_usage_for_thread_creates_and_updates_in_slack():
         mock_post.assert_awaited_once()
         mock_update.assert_not_called()
 
-        assert usage_tracker.thread_usage_data[(channel_id, thread_ts)]["usage_msg_ts"] == "usage_msg_ts_123"
+        meta = usage_tracker.get_thread_meta(channel_id, thread_ts)
+        assert meta is not None and meta["usage_msg_ts"] == "usage_msg_ts_123"
 
         # 2. Second turn in same thread -> updates existing message in-place
         record_thread_tokens(
@@ -201,8 +195,7 @@ async def test_no_cache_info_in_usage_message():
     assert "predmemoriranih" not in msg
 
 
-def test_sqlite_persistence_and_legacy_migration(tmp_path):
-    import json
+def test_sqlite_persistence_and_metadata():
     from core.database import get_connection
     from agents.usage_agent import ThreadUsageTracker
 
@@ -231,7 +224,7 @@ def test_sqlite_persistence_and_legacy_migration(tmp_path):
         assert ledger_row["p"] == 3000
         assert ledger_row["c"] == 600
 
-    # 2. Test SQLite persistence and metadata synchronization
+    # 2. Test SQLite persistence and metadata reading via Tracker
     with get_connection() as conn:
         conn.execute(
             """
@@ -242,12 +235,13 @@ def test_sqlite_persistence_and_legacy_migration(tmp_path):
         )
 
     tracker = ThreadUsageTracker()
-    assert ("C_LEGACY", "1700000000.999999") in tracker.thread_usage_data
-    assert tracker.thread_usage_data[("C_LEGACY", "1700000000.999999")]["is_completed"] is True
+    meta = tracker.get_thread_meta("C_LEGACY", "1700000000.999999")
+    assert meta is not None
+    assert meta["is_completed"] is True
+    assert meta["channel_name"] == "#legacy-channel"
 
-    # Mutate and sync to DB
-    tracker.thread_usage_data[("C_LEGACY", "1700000000.999999")]["channel_name"] = "#updated-channel"
-    tracker._sync_meta_to_db("C_LEGACY", "1700000000.999999")
+    # Mutate directly via upsert_thread_meta
+    tracker.upsert_thread_meta("C_LEGACY", "1700000000.999999", channel_name="#updated-channel")
 
     with get_connection() as conn:
         migrated_row = conn.execute(

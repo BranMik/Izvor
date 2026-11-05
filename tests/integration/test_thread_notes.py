@@ -464,10 +464,6 @@ async def test_update_notes_for_thread_reengagement_updates_existing_notes():
 def test_thread_notes_sqlite_persistence_and_cache_reload():
     from core.database import get_connection
     from agents.thread_notes_agent import (
-        THREAD_CONCLUSION_MSG_MAP,
-        THREAD_CONCLUSION_TEXT_MAP,
-        THREAD_NOTE_MSG_MAP,
-        THREAD_NOTE_TEXT_MAP,
         get_thread_conclusion_content,
         get_thread_conclusion_note,
         get_thread_note,
@@ -498,21 +494,11 @@ def test_thread_notes_sqlite_persistence_and_cache_reload():
         assert row["conclusion_note_ts"] == "conc_ts_888"
         assert row["conclusion_note_content"] == "Conclusion content"
 
-    # Simulate process restart by clearing all L1 in-memory caches
-    THREAD_NOTE_MSG_MAP.clear()
-    THREAD_NOTE_TEXT_MAP.clear()
-    THREAD_CONCLUSION_MSG_MAP.clear()
-    THREAD_CONCLUSION_TEXT_MAP.clear()
-
-    # Querying getters should reload from SQLite into L1
+    # Querying getters should read directly from SQLite SSOT
     assert get_thread_note(channel_id, thread_ts) == "live_ts_999"
     assert get_thread_note_content(channel_id, thread_ts) == "Live synthesis content"
     assert get_thread_conclusion_note(channel_id, thread_ts) == "conc_ts_888"
     assert get_thread_conclusion_content(channel_id, thread_ts) == "Conclusion content"
-
-    # L1 cache should now be repopulated
-    assert (channel_id, thread_ts) in THREAD_NOTE_MSG_MAP
-    assert (channel_id, thread_ts) in THREAD_CONCLUSION_MSG_MAP
 
 
 

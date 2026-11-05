@@ -89,10 +89,10 @@ def test_spend_ledger_persistence_and_daily_aggregation(tmp_path):
         assert spend_metrics_2.total_prompt_tokens == 1500
         assert cb2.get_daily_spend() == total_spend_1
 
-        # Clear session (clears in-memory session cache while preserving append-only spend ledger)
+        # Clear session (clears in-memory reservations while preserving append-only spend ledger)
         cb2.clear_session(session_id)
-        assert session_id not in cb2._session_tokens
         assert cb2.get_daily_spend() == total_spend_1
+        assert cb2.calculate_spend(session_id).total_prompt_tokens == 1500
     finally:
         db_manager.reset_paths()
 

@@ -108,8 +108,8 @@ async def test_internal_loop_multi_agent_custom_flow():
     assert any("Innovator response proposing a new idea" in c for c in assistant_posts_in_turn_2)
 
     # 4. Verify thread state cleanup
-    assert thread_key not in thread_state_manager.discussion.remaining_agents_map
-    assert thread_key not in thread_state_manager.discussion.custom_flow_threads
+    assert not thread_state_manager.discussion.has_remaining_agents_key(thread_key[0], thread_key[1])
+    assert not thread_state_manager.discussion.is_custom_flow(thread_key[0], thread_key[1])
 
 
 @pytest.mark.anyio

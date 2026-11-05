@@ -21,7 +21,7 @@ BASELINE_SCHEMA_STATEMENTS = [
         channel_id TEXT NOT NULL,
         thread_ts TEXT NOT NULL,
         status TEXT NOT NULL CHECK(status IN ('active', 'paused', 'completed')),
-        remaining_agents TEXT NOT NULL DEFAULT '[]',
+        remaining_agents TEXT DEFAULT NULL,
         custom_flow INTEGER NOT NULL DEFAULT 0,
         stop_requested INTEGER NOT NULL DEFAULT 0,
         rounds INTEGER NOT NULL DEFAULT 0,

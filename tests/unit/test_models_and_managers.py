@@ -472,27 +472,26 @@ def test_pricing_service_class():
 
 
 def test_thread_usage_tracker_class():
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        store_file = Path(tmp_dir) / "test_usage.json"
-        tracker = ThreadUsageTracker(store_file=store_file)
+    tracker = ThreadUsageTracker()
+    tracker.clear_all()
 
-        channel_id = "C999"
-        thread_ts = "1700000000.123456"
+    channel_id = "C999"
+    thread_ts = "1700000000.123456"
 
-        tracker.record_tokens(
-            channel_id=channel_id,
-            thread_ts=thread_ts,
-            model_name="gemini/gemini-3.8-flash",
-            prompt_tokens=1000,
-            completion_tokens=500,
-            channel_name="#general",
-        )
+    tracker.record_tokens(
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        model_name="gemini/gemini-3.8-flash",
+        prompt_tokens=1000,
+        completion_tokens=500,
+        channel_name="#general",
+    )
 
-        costs = tracker.calculate_thread_costs(channel_id, thread_ts)
-        assert costs["grand_prompt_tokens"] == 1000
-        assert costs["grand_completion_tokens"] == 500
-        assert costs["grand_total_tokens"] == 1500
-        assert costs["grand_total_cost_usd"] > 0.0
+    costs = tracker.calculate_thread_costs(channel_id, thread_ts)
+    assert costs["grand_prompt_tokens"] == 1000
+    assert costs["grand_completion_tokens"] == 500
+    assert costs["grand_total_tokens"] == 1500
+    assert costs["grand_total_cost_usd"] > 0.0
 
-        total_usd = tracker.get_thread_total_cost_usd(channel_id, thread_ts)
-        assert total_usd == costs["grand_total_cost_usd"]
+    total_usd = tracker.get_thread_total_cost_usd(channel_id, thread_ts)
+    assert total_usd == costs["grand_total_cost_usd"]

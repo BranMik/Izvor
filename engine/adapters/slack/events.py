@@ -19,10 +19,10 @@ from services.slack import publish_app_home
 logger = logging.getLogger("IzvorBackend.SlackEvents")
 
 
-class EventDeduplicationCache(dict):
+class EventDeduplicationCache:
     """
     Time-to-live (TTL) bounded cache for Slack event deduplication.
-    Backed by SQLite table `event_dedup` with in-memory caching for zero latency.
+    Pure SQLite state engine backed by table `event_dedup`.
     """
 
     def __init__(
@@ -31,7 +31,6 @@ class EventDeduplicationCache(dict):
         maxsize: int = 2000,
         db_evict_interval: float = 60.0,
     ):
-        super().__init__()
         self.ttl_seconds = ttl_seconds
         self.maxsize = maxsize
         self.db_evict_interval = db_evict_interval
@@ -42,28 +41,9 @@ class EventDeduplicationCache(dict):
             return f"{key[0]}:{key[1]}"
         return str(key)
 
-    def _evict_expired(self) -> None:
+    def _evict_expired(self, force: bool = False) -> None:
         now = time.time()
-        expired = [k for k, v in self.items() if now - v > self.ttl_seconds]
-        for k in expired:
-            super().pop(k, None)
-        if len(self) >= self.maxsize:
-            num_to_evict = max(1, int(len(self) * 0.2))
-            sorted_keys = sorted(self.keys(), key=lambda k: self[k])
-            evicted_keys = sorted_keys[:num_to_evict]
-            for k in evicted_keys:
-                super().pop(k, None)
-            try:
-                with get_db_transaction(immediate=True) as conn:
-                    conn.executemany(
-                        "DELETE FROM event_dedup WHERE event_id = ?",
-                        [(self._format_key(k),) for k in evicted_keys],
-                    )
-            except Exception as e:  # noqa: BLE001
-                logger.debug("Event dedup batch eviction error: %s", e)
-
-        # Evict from SQLite table event_dedup periodically
-        if (now - self._last_db_evict >= self.db_evict_interval):
+        if force or (now - self._last_db_evict >= self.db_evict_interval):
             self._last_db_evict = now
             cutoff = now - self.ttl_seconds
             try:
@@ -71,6 +51,22 @@ class EventDeduplicationCache(dict):
                     conn.execute("DELETE FROM event_dedup WHERE received_at < ?", (cutoff,))
             except Exception as e:  # noqa: BLE001
                 logger.debug("Event dedup periodic eviction error: %s", e)
+
+    def _enforce_maxsize(self, conn: Any) -> None:
+        cursor = conn.execute("SELECT COUNT(*) FROM event_dedup")
+        row = cursor.fetchone()
+        count = int(row[0]) if row else 0
+        if count > self.maxsize:
+            num_to_evict = max(1, int(count * 0.2))
+            conn.execute(
+                """
+                DELETE FROM event_dedup
+                WHERE event_id IN (
+                    SELECT event_id FROM event_dedup ORDER BY received_at ASC LIMIT ?
+                )
+                """,
+                (num_to_evict,),
+            )
 
     def claim_event(self, key: Any) -> bool:
         """
@@ -80,49 +76,66 @@ class EventDeduplicationCache(dict):
         now = time.time()
         self._evict_expired()
         event_id = self._format_key(key)
+        cutoff = now - self.ttl_seconds
 
         try:
             with get_db_transaction(immediate=True) as conn:
+                conn.execute(
+                    "DELETE FROM event_dedup WHERE event_id = ? AND received_at < ?",
+                    (event_id, cutoff),
+                )
                 cursor = conn.execute(
                     "INSERT OR IGNORE INTO event_dedup (event_id, received_at) VALUES (?, ?)",
                     (event_id, float(now)),
                 )
                 if cursor.rowcount > 0:
-                    super().__setitem__(key, float(now))
+                    self._enforce_maxsize(conn)
                     return True
-                super().__setitem__(key, float(now))
                 return False
         except Exception as e:  # noqa: BLE001
             logger.debug("Event dedup atomic insert error: %s", e)
-            if super().__contains__(key):
-                return False
-            super().__setitem__(key, float(now))
             return True
 
     def __contains__(self, key: Any) -> bool:
         self._evict_expired()
-        if super().__contains__(key):
-            return True
         event_id = self._format_key(key)
+        cutoff = time.time() - self.ttl_seconds
         try:
-            cutoff = time.time() - self.ttl_seconds
             with get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute(
+                cursor = conn.execute(
+                    "SELECT 1 FROM event_dedup WHERE event_id = ? AND received_at >= ?",
+                    (event_id, cutoff),
+                )
+                return cursor.fetchone() is not None
+        except Exception as e:  # noqa: BLE001
+            logger.debug("Event dedup lookup error: %s", e)
+            return False
+
+    def __getitem__(self, key: Any) -> float:
+        self._evict_expired()
+        event_id = self._format_key(key)
+        cutoff = time.time() - self.ttl_seconds
+        try:
+            with get_connection() as conn:
+                cursor = conn.execute(
                     "SELECT received_at FROM event_dedup WHERE event_id = ? AND received_at >= ?",
                     (event_id, cutoff),
                 )
                 row = cursor.fetchone()
-                if row:
-                    super().__setitem__(key, float(row["received_at"]))
-                    return True
+                if row is not None:
+                    return float(row["received_at"])
         except Exception as e:  # noqa: BLE001
-            logger.debug("Event dedup lookup error: %s", e)
-        return False
+            logger.debug("Event dedup getitem error: %s", e)
+        raise KeyError(key)
+
+    def get(self, key: Any, default: Any = None) -> Any:
+        try:
+            return self[key]
+        except KeyError:
+            return default
 
     def __setitem__(self, key: Any, value: float) -> None:
         self._evict_expired()
-        super().__setitem__(key, value)
         event_id = self._format_key(key)
         try:
             with get_db_transaction(immediate=True) as conn:
@@ -130,25 +143,26 @@ class EventDeduplicationCache(dict):
                     "INSERT OR REPLACE INTO event_dedup (event_id, received_at) VALUES (?, ?)",
                     (event_id, float(value)),
                 )
+                self._enforce_maxsize(conn)
         except Exception as e:  # noqa: BLE001
             logger.debug("Event dedup insert error: %s", e)
-        if len(self) > self.maxsize:
-            num_to_evict = max(1, int(len(self) * 0.2))
-            sorted_keys = sorted(self.keys(), key=lambda k: self[k])
-            evicted_keys = sorted_keys[:num_to_evict]
-            for k in evicted_keys:
-                super().pop(k, None)
-            try:
-                with get_db_transaction(immediate=True) as conn:
-                    conn.executemany(
-                        "DELETE FROM event_dedup WHERE event_id = ?",
-                        [(self._format_key(k),) for k in evicted_keys],
-                    )
-            except Exception as e:  # noqa: BLE001
-                logger.debug("Event dedup overflow eviction error: %s", e)
+
+    def __len__(self) -> int:
+        self._evict_expired()
+        cutoff = time.time() - self.ttl_seconds
+        try:
+            with get_connection() as conn:
+                cursor = conn.execute(
+                    "SELECT COUNT(*) FROM event_dedup WHERE received_at >= ?",
+                    (cutoff,),
+                )
+                row = cursor.fetchone()
+                return int(row[0]) if row else 0
+        except Exception as e:  # noqa: BLE001
+            logger.debug("Event dedup len error: %s", e)
+            return 0
 
     def clear(self) -> None:
-        super().clear()
         try:
             with get_db_transaction(immediate=True) as conn:
                 conn.execute("DELETE FROM event_dedup")
@@ -156,14 +170,17 @@ class EventDeduplicationCache(dict):
             logger.debug("Event dedup clear error: %s", e)
 
     def pop(self, key: Any, default: Any = None) -> Any:
-        val = super().pop(key, default)
         event_id = self._format_key(key)
         try:
             with get_db_transaction(immediate=True) as conn:
-                conn.execute("DELETE FROM event_dedup WHERE event_id = ?", (event_id,))
+                cursor = conn.execute("SELECT received_at FROM event_dedup WHERE event_id = ?", (event_id,))
+                row = cursor.fetchone()
+                if row is not None:
+                    conn.execute("DELETE FROM event_dedup WHERE event_id = ?", (event_id,))
+                    return float(row["received_at"])
         except Exception as e:  # noqa: BLE001
             logger.debug("Event dedup pop error: %s", e)
-        return val
+        return default
 
 
 # Global cache for request deduplication

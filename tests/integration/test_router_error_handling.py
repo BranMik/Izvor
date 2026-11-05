@@ -150,7 +150,7 @@ async def test_process_and_respond_model_not_found():
     thread_state_manager.reset_all()
 
     thread_key = ("C123", "12345.0002")
-    thread_state_manager.discussion.remaining_agents_map[thread_key] = ["agent-10002"]
+    thread_state_manager.discussion.set_remaining_agents(thread_key[0], thread_key[1], ["agent-10002"])
 
     async def mock_fail_model(*args, **kwargs):
         raise RuntimeError("NotFoundError: Model gemini/gemini-3.8-flash does not exist")
@@ -185,7 +185,7 @@ async def test_process_and_respond_retries_and_clean_error_message():
     thread_state_manager.reset_all()
 
     thread_key = ("C123", "12345.9999")
-    thread_state_manager.discussion.remaining_agents_map[thread_key] = ["agent-10002"]
+    thread_state_manager.discussion.set_remaining_agents(thread_key[0], thread_key[1], ["agent-10002"])
 
     call_count = 0
 
@@ -231,7 +231,7 @@ async def test_process_and_respond_rate_limits_and_retry_flow():
     thread_key = ("C123", "12345.0003")
 
     # Set up specific short flow: LegalAdvisor -> Innovator -> (retry LegalAdvisor) -> SecurityArchitect
-    thread_state_manager.discussion.remaining_agents_map[thread_key] = ["agent-10002"]
+    thread_state_manager.discussion.set_remaining_agents(thread_key[0], thread_key[1], ["agent-10002"])
 
     posted = []
 
@@ -317,7 +317,7 @@ async def test_process_and_respond_503_high_demand_first_skip_and_random_handoff
 
     thread_key = ("C_503", "12345.5031")
     # Remaining agents list before LegalAdvisor speaks: Innovator, DeepSeek_Challenger
-    thread_state_manager.discussion.remaining_agents_map[thread_key] = ["agent-10002", "DeepSeek_Challenger"]
+    thread_state_manager.discussion.set_remaining_agents(thread_key[0], thread_key[1], ["agent-10002", "DeepSeek_Challenger"])
 
     posted = []
 
@@ -354,10 +354,11 @@ async def test_process_and_respond_503_high_demand_first_skip_and_random_handoff
     assert thread_key in thread_state_manager.retry.high_demand_errored_agents
     assert "agent-10011" in thread_state_manager.retry.high_demand_errored_agents[thread_key]
 
-    # Verify LegalAdvisor is kept in REMAINING_AGENTS_MAP
-    assert "agent-10011" in thread_state_manager.discussion.remaining_agents_map[thread_key]
-    assert "agent-10002" in thread_state_manager.discussion.remaining_agents_map[thread_key]
-    assert "DeepSeek_Challenger" in thread_state_manager.discussion.remaining_agents_map[thread_key]
+    # Verify LegalAdvisor is kept in remaining agents
+    rem_agents = thread_state_manager.discussion.get_remaining_agents(thread_key[0], thread_key[1])
+    assert "agent-10011" in rem_agents
+    assert "agent-10002" in rem_agents
+    assert "DeepSeek_Challenger" in rem_agents
 
     # Verify next nomination is one of the other candidates
     nominated_tag = None
@@ -375,7 +376,7 @@ async def test_process_and_respond_503_high_demand_second_query_retries_and_term
     thread_key = ("C_503", "12345.5032")
     # LegalAdvisor already encountered 503 once
     thread_state_manager.retry.high_demand_errored_agents[thread_key] = {"agent-10011"}
-    thread_state_manager.discussion.remaining_agents_map[thread_key] = []  # No other agents left
+    thread_state_manager.discussion.set_remaining_agents(thread_key[0], thread_key[1], [])  # No other agents left
 
     posted = []
 
@@ -411,7 +412,7 @@ async def test_process_and_respond_503_high_demand_second_query_retries_and_term
     # Retried 3 times standardly because allow_503_immediate_retry=True on second query
     assert attempts_count == 3
     # Should NOT be added back to remaining
-    assert "agent-10011" not in thread_state_manager.discussion.remaining_agents_map.get(thread_key, [])
+    assert "agent-10011" not in thread_state_manager.discussion.get_remaining_agents(thread_key[0], thread_key[1])
     # Clean termination without forced closing nomination tag
     assert "/[agent-10008]" not in posted[0]["text"]
 

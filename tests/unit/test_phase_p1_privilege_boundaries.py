@@ -559,26 +559,22 @@ async def test_resolution_passes_daily_budget_to_spend_governance():
 # 11. Atomic Usage Ledger Persistence (B8)
 # ---------------------------------------------------------------------------
 
-def test_usage_agent_atomic_write(tmp_path):
-    """ThreadUsageTracker writes ledger using atomic replace so incomplete files are never visible."""
+def test_usage_agent_atomic_write():
+    """ThreadUsageTracker writes usage metadata and tokens using atomic SQLite transactions."""
     from agents.usage_agent import ThreadUsageTracker
 
-    test_ledger = tmp_path / "usage_ledger.json"
-    tracker = ThreadUsageTracker(store_file=test_ledger)
+    tracker = ThreadUsageTracker()
+    tracker.upsert_thread_meta(
+        "C_TEST",
+        "T_TEST",
+        channel_name="#p1-test",
+        is_completed=True,
+    )
 
-    tracker.thread_usage_data[("C_TEST", "T_TEST")] = {
-        "channel_id": "C_TEST",
-        "thread_ts": "T_TEST",
-        "prompt_tokens": 100,
-        "completion_tokens": 50,
-        "total_cost_usd": 0.005,
-    }
-    tracker.save()
-
-    assert test_ledger.exists()
-    data = json.loads(test_ledger.read_text(encoding="utf-8"))
-    assert "C_TEST:T_TEST" in data
-    assert data["C_TEST:T_TEST"]["prompt_tokens"] == 100
+    meta = tracker.get_thread_meta("C_TEST", "T_TEST")
+    assert meta is not None
+    assert meta["channel_name"] == "#p1-test"
+    assert meta["is_completed"] is True
 
 
 # ---------------------------------------------------------------------------

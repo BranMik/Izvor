@@ -92,7 +92,6 @@ def test_default_paths_exist_or_resolve_to_repo_layout():
     assert paths.AGENTS_RESOURCES_DIR == root / "agents_resources"
     assert paths.THREAD_NOTES_DIR == root / "agents_resources" / "thread_notes"
     assert paths.SYSTEM_RESOURCES_DIR == root / "system_resources"
-    assert paths.USAGE_STORE_FILE == root / "data" / "thread" / "thread_usage_data.json"
 
 
 def test_environment_variable_overrides(tmp_path):
