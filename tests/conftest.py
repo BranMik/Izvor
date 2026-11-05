@@ -237,6 +237,24 @@ def isolate_thread_state_files_for_tests(tmp_path):
 
 
 @pytest.fixture(autouse=True)
+def isolate_mcp_client_for_tests():
+    """
+    Prevents tests from leaking custom MCP transport factories,
+    cached tool discoveries, or custom MCP servers.
+    """
+    from services.mcp.client_manager import mcp_client_manager
+    from orchestration.system_settings import system_settings_manager
+
+    old_mcp_servers = dict(system_settings_manager.mcp_servers)
+    mcp_client_manager.reset_transport_factory()
+
+    yield
+
+    mcp_client_manager.reset_transport_factory()
+    system_settings_manager.mcp_servers = old_mcp_servers
+
+
+@pytest.fixture(autouse=True)
 def mock_embedding_service_for_tests():
     from services.rag.embeddings import EmbeddingService
 

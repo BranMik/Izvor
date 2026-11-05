@@ -19,7 +19,7 @@ from services.audit_logger import (
     verify_audit_log_integrity,
 )
 from core.domain import SYSTEM_PRINCIPAL
-from services.mcp_tools import write_document
+from services.local_tools import write_document
 
 
 @pytest.fixture

@@ -21,7 +21,7 @@ import yaml
 
 from core.paths import ENGINE_SKILLS_DIR, SKILLS_DIR
 from core.domain import ToolPrincipal
-from services.mcp_tools import MCP_TOOLS_SCHEMAS, execute_mcp_tool
+from services.local_tools import LOCAL_TOOLS_SCHEMAS, execute_local_tool
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +73,8 @@ class SkillDefinition:
     handles_files: bool = False
     custom_tool_schemas: list[dict[str, Any]] = field(default_factory=list)
     tool_handlers: dict[str, Callable[..., Any]] = field(default_factory=dict)
+    mcp_server: str = ""
+    mcp_tools: list[str] = field(default_factory=list)
 
     def get_tool_schemas(self) -> list[dict[str, Any]]:
         """Returns the LiteLLM tool schemas for the tools declared by this skill."""
@@ -86,11 +88,29 @@ class SkillDefinition:
                     seen_names.add(fn_name)
                 elif not fn_name and schema not in matched:
                     matched.append(schema)
-        for schema in MCP_TOOLS_SCHEMAS:
+        for schema in LOCAL_TOOLS_SCHEMAS:
             fn_name = schema.get("function", {}).get("name")
             if fn_name in self.tools and fn_name not in seen_names:
                 matched.append(schema)
                 seen_names.add(fn_name)
+
+        if self.mcp_server:
+            try:
+                from services.mcp.client_manager import get_mcp_client_manager
+                mgr = get_mcp_client_manager()
+                allowed = self.mcp_tools if (self.mcp_tools and "*" not in self.mcp_tools) else None
+                cached_tools = mgr.get_cached_tools_for_server(self.mcp_server, allowed_raw_names=allowed)
+                for mcp_tool in cached_tools:
+                    schema = mcp_tool.litellm_schema
+                    fn_name = schema.get("function", {}).get("name")
+                    if fn_name and fn_name not in seen_names:
+                        matched.append(schema)
+                        seen_names.add(fn_name)
+                        if fn_name not in self.tools:
+                            self.tools.append(fn_name)
+            except Exception as e:
+                logger.warning(f"[SKILLS] Failed to retrieve MCP schemas for server '{self.mcp_server}': {e}")
+
         return matched
 
 
@@ -175,6 +195,19 @@ class SkillRegistry:
         raw_tools = meta.get("tools", [])
         tools = [str(t).strip() for t in raw_tools if str(t).strip()]
 
+        mcp_server = str(meta.get("mcp_server", "")).strip()
+        raw_mcp_tools = meta.get("mcp_tools") or []
+        mcp_tools = [str(t).strip() for t in raw_mcp_tools if str(t).strip()] if isinstance(raw_mcp_tools, list) else []
+
+        if mcp_server and mcp_tools:
+            from services.mcp.schema_translator import format_mcp_tool_name
+
+            for raw_t in mcp_tools:
+                if raw_t != "*":
+                    ns_name = format_mcp_tool_name(mcp_server, raw_t)
+                    if ns_name not in tools:
+                        tools.append(ns_name)
+
         is_global = bool(meta.get("global", False))
         requires_human_ITL = bool(meta.get("requires_human_ITL", False))
 
@@ -234,6 +267,8 @@ class SkillRegistry:
             handles_files=handles_files,
             custom_tool_schemas=custom_tool_schemas,
             tool_handlers=tool_handlers,
+            mcp_server=mcp_server,
+            mcp_tools=mcp_tools,
         )
 
     def get(self, name: str) -> SkillDefinition | None:
@@ -597,7 +632,7 @@ class SkillRegistry:
         Internal unrestricted callers must explicitly pass ALL_INTERNAL_SKILLS.
         If tool is 'load_skill', enforces authorization against authorized_skills and
         returns the skill's SKILL.md guidelines.
-        Otherwise delegates to custom tool handlers or services.mcp_tools.execute_mcp_tool.
+        Otherwise delegates to custom tool handlers or services.local_tools.execute_local_tool.
         """
         is_ok, early_resp, effective_authorized_skills = self._verify_tool_authorization(
             tool_name=tool_name,
@@ -609,6 +644,42 @@ class SkillRegistry:
         )
         if not is_ok or early_resp is not None:
             return early_resp
+
+        # Check if MCP tool
+        from services.mcp.schema_translator import is_mcp_namespaced_tool
+
+        if is_mcp_namespaced_tool(tool_name):
+            from services.mcp.security_bridge import execute_external_mcp_tool
+
+            ctx = contextvars.copy_context()
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
+            if loop and loop.is_running():
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                    return pool.submit(
+                        ctx.run,
+                        asyncio.run,
+                        execute_external_mcp_tool(
+                            namespaced_tool_name=tool_name,
+                            arguments=arguments,
+                            agent_name=agent_name,
+                            authorized_skills=effective_authorized_skills,
+                            skill_registry=self,
+                        ),
+                    ).result()
+            else:
+                return ctx.run(
+                    asyncio.run,
+                    execute_external_mcp_tool(
+                        namespaced_tool_name=tool_name,
+                        arguments=arguments,
+                        agent_name=agent_name,
+                        authorized_skills=effective_authorized_skills,
+                        skill_registry=self,
+                    ),
+                )
 
         # Check if any skill registered a custom tool handler
         for s_def in self._skills.values():
@@ -638,7 +709,7 @@ class SkillRegistry:
                     logger.error(f"[SKILLS] Custom tool handler error for '{tool_name}': {e}")
                     return json.dumps({"error": f"Tool execution failed: {e}"})
 
-        return execute_mcp_tool(
+        return execute_local_tool(
             tool_name,
             arguments,
             agent_name=agent_name,
@@ -741,6 +812,18 @@ class SkillRegistry:
                     effective_authorized_skills,
                 )
 
+            if skill.mcp_server:
+                try:
+                    from services.mcp.client_manager import get_mcp_client_manager
+                    mgr = get_mcp_client_manager()
+                    allowed = skill.mcp_tools if (skill.mcp_tools and "*" not in skill.mcp_tools) else None
+                    cached = mgr.get_cached_tools_for_server(skill.mcp_server, allowed_raw_names=allowed)
+                    for t in cached:
+                        if t.namespaced_name not in skill.tools:
+                            skill.tools.append(t.namespaced_name)
+                except Exception as e:
+                    logger.debug(f"[SKILLS] Error updating MCP tools for skill {skill.name}: {e}")
+
             from services.audit_logger import log_audit_event
 
             log_audit_event(
@@ -823,7 +906,7 @@ class SkillRegistry:
         Asynchronously dispatches tool execution.
         Enforces authorization; if the handler is an async coroutine function
         or exposes an `_async_fn` attribute, awaits it directly on the running event loop;
-        otherwise offloads the synchronous handler/MCP execution to `asyncio.to_thread`.
+        otherwise offloads the synchronous handler/local tool execution to `asyncio.to_thread`.
         """
         is_ok, early_resp, effective_authorized_skills = self._verify_tool_authorization(
             tool_name=tool_name,
@@ -835,6 +918,20 @@ class SkillRegistry:
         )
         if not is_ok or early_resp is not None:
             return early_resp
+
+        # Check if MCP tool
+        from services.mcp.schema_translator import is_mcp_namespaced_tool
+
+        if is_mcp_namespaced_tool(tool_name):
+            from services.mcp.security_bridge import execute_external_mcp_tool
+
+            return await execute_external_mcp_tool(
+                namespaced_tool_name=tool_name,
+                arguments=arguments,
+                agent_name=agent_name,
+                authorized_skills=effective_authorized_skills,
+                skill_registry=self,
+            )
 
         target_handler: Any = None
         for s_def in self._skills.values():
@@ -941,6 +1038,17 @@ def get_permitted_tools_for_principal(
                 fn = schema.get("function", {}).get("name")
                 if fn:
                     permitted.add(fn)
+            if getattr(s_def, "mcp_server", ""):
+                try:
+                    from services.mcp.client_manager import get_mcp_client_manager
+                    mgr = get_mcp_client_manager()
+                    allowed = getattr(s_def, "mcp_tools", None)
+                    allowed_raw = allowed if (allowed and "*" not in allowed) else None
+                    cached = mgr.get_cached_tools_for_server(s_def.mcp_server, allowed_raw_names=allowed_raw)
+                    for t in cached:
+                        permitted.add(t.namespaced_name)
+                except Exception:
+                    pass
 
     skills_iter = (
         skill_registry.list_skills()
@@ -954,6 +1062,17 @@ def get_permitted_tools_for_principal(
                 fn = schema.get("function", {}).get("name")
                 if fn:
                     permitted.add(fn)
+            if getattr(s_def, "mcp_server", ""):
+                try:
+                    from services.mcp.client_manager import get_mcp_client_manager
+                    mgr = get_mcp_client_manager()
+                    allowed = getattr(s_def, "mcp_tools", None)
+                    allowed_raw = allowed if (allowed and "*" not in allowed) else None
+                    cached = mgr.get_cached_tools_for_server(s_def.mcp_server, allowed_raw_names=allowed_raw)
+                    for t in cached:
+                        permitted.add(t.namespaced_name)
+                except Exception:
+                    pass
 
     return permitted
 

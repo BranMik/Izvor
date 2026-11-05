@@ -384,7 +384,7 @@ class ValidationStage:
                         import json
 
                         from core.domain import SYSTEM_PRINCIPAL
-                        from services.mcp_tools import read_document
+                        from services.local_tools import read_document
 
                         doc_res_json = read_document(
                             chosen_file.get("rel_path", chosen_file.get("name", "")),

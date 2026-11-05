@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from core.security_utils import wrap_untrusted_content
-from services.mcp_tools import MCP_TOOLS_SCHEMAS, execute_mcp_tool
+from services.local_tools import LOCAL_TOOLS_SCHEMAS, execute_local_tool
 from services.web_tools import (
     fetch_web_page,
     is_ip_blocked,
@@ -51,8 +51,8 @@ class MockStreamResponse:
         pass
 
 
-def test_mcp_schemas_include_web_tools():
-    tool_names = [tool["function"]["name"] for tool in MCP_TOOLS_SCHEMAS]
+def test_local_schemas_include_web_tools():
+    tool_names = [tool["function"]["name"] for tool in LOCAL_TOOLS_SCHEMAS]
     assert "web_search" in tool_names
     assert "fetch_web_page" in tool_names
 
@@ -155,25 +155,25 @@ def test_fetch_web_page_http_error():
         assert "404" in data["error"]
 
 
-def test_execute_mcp_web_tools():
+def test_execute_local_web_tools():
     from core.domain import SYSTEM_PRINCIPAL
 
-    with patch("services.mcp_tools.web_search", return_value=json.dumps({"query": "test", "results": []})) as mock_search:
-        res = execute_mcp_tool("web_search", {"query": "test", "max_results": 3}, agent_name=SYSTEM_PRINCIPAL)
+    with patch("services.local_tools.web_search", return_value=json.dumps({"query": "test", "results": []})) as mock_search:
+        res = execute_local_tool("web_search", {"query": "test", "max_results": 3}, agent_name=SYSTEM_PRINCIPAL)
         mock_search.assert_called_once_with(query="test", max_results=3)
         assert "results" in res
 
-    with patch("services.mcp_tools.fetch_web_page", return_value=json.dumps({"url": "https://example.com", "content": "mocked"})) as mock_fetch:
-        res = execute_mcp_tool("fetch_web_page", {"url": "https://example.com", "max_chars": 1000}, agent_name=SYSTEM_PRINCIPAL)
+    with patch("services.local_tools.fetch_web_page", return_value=json.dumps({"url": "https://example.com", "content": "mocked"})) as mock_fetch:
+        res = execute_local_tool("fetch_web_page", {"url": "https://example.com", "max_chars": 1000}, agent_name=SYSTEM_PRINCIPAL)
         mock_fetch.assert_called_once_with(url="https://example.com", max_chars=1000)
         assert "mocked" in res
 
-    with patch("services.mcp_tools.fetch_web_page", return_value=json.dumps({"url": "https://example.com", "content": "fetched_default"})) as mock_fetch_default:
-        res = execute_mcp_tool("fetch_web_page", {"url": "https://example.com"}, agent_name=SYSTEM_PRINCIPAL)
+    with patch("services.local_tools.fetch_web_page", return_value=json.dumps({"url": "https://example.com", "content": "fetched_default"})) as mock_fetch_default:
+        res = execute_local_tool("fetch_web_page", {"url": "https://example.com"}, agent_name=SYSTEM_PRINCIPAL)
         mock_fetch_default.assert_called_once_with(url="https://example.com", max_chars=4000)
         assert "fetched_default" in res
 
-    res_unknown = execute_mcp_tool("web_scrape", {"url": "https://example.com"}, agent_name=SYSTEM_PRINCIPAL)
+    res_unknown = execute_local_tool("web_scrape", {"url": "https://example.com"}, agent_name=SYSTEM_PRINCIPAL)
     assert "error" in json.loads(res_unknown)
 
 

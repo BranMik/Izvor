@@ -29,12 +29,12 @@ def test_custom_tool_executor_cannot_bypass_authorization():
     tool_call.function.name = "write_document"
     tool_call.function.arguments = '{"rel_path": "test.txt", "content": "bypass"}'
 
-    from services.mcp_tools import is_agent_authorized_for_tool
+    from services.local_tools import is_agent_authorized_for_tool
     assert is_agent_authorized_for_tool(ctx.agent_key, "write_document", authorized_skills=[]) is False
 
     # Execute tool via stage
-    exec_mcp_fn = pipeline.deps.tool_executor
-    assert exec_mcp_fn is mock_executor
+    exec_tool_fn = pipeline.deps.tool_executor
+    assert exec_tool_fn is mock_executor
 
 
 def test_tool_executor_injected_via_di():

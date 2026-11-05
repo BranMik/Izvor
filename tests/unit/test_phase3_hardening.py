@@ -138,7 +138,7 @@ def test_fail_closed_tool_authorization():
     assert "Permission denied: Agent is not authorized to execute tool 'read_document'" in data_empty["error"]
 
     # Calling with internal sentinel allows execution
-    with patch("skills.loader.execute_mcp_tool", return_value=json.dumps({"contents": "unrestricted"})):
+    with patch("skills.loader.execute_local_tool", return_value=json.dumps({"contents": "unrestricted"})):
         res_internal = skill_registry.execute_tool(
             "read_document", {"file_path": "doc.txt"}, authorized_skills=ALL_INTERNAL_SKILLS
         )

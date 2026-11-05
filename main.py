@@ -244,6 +244,9 @@ async def lifespan(app: FastAPI):
     background_tasks.append(asyncio.create_task(periodic_audit_integrity_guard(), name="periodic_audit_guard"))
     background_tasks.append(asyncio.create_task(periodic_retention_prune(), name="periodic_retention_prune"))
     background_tasks.append(asyncio.create_task(rag_sync_engine.reconcile(), name="rag_sync"))
+    from services.mcp import mcp_client_manager
+
+    background_tasks.append(asyncio.create_task(mcp_client_manager.discover_all_enabled_servers(), name="mcp_discovery"))
     try:
         yield
     finally:
@@ -251,11 +254,15 @@ async def lifespan(app: FastAPI):
         for task in background_tasks:
             task.cancel()
         await asyncio.gather(*background_tasks, return_exceptions=True)
+        try:
+            await mcp_client_manager.shutdown()
+        except Exception as mcp_err:
+            logger.warning(f"[MAIN] Error shutting down MCP client manager: {mcp_err}")
 
 
 app = FastAPI(
     title="Izvor Multi-Agent Slack Hub",
-    description="Multi-agent orchestration platform integrating Slack Events API, LiteLLM, and MCP tools.",
+    description="Multi-agent orchestration platform integrating Slack Events API, LiteLLM, and external MCP client tools.",
     version="1.0.0",
     lifespan=lifespan,
 )

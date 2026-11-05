@@ -197,7 +197,7 @@ class E2ETestRunner:
             ])
 
         if self.mock:
-            patches.append(patch("services.mcp_tools.web_search", _mock_web_search))
+            patches.append(patch("services.local_tools.web_search", _mock_web_search))
 
         # Always attach client tracking hooks so messages are recorded into self.client.bus
         patches.extend([

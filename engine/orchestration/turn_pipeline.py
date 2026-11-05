@@ -864,11 +864,15 @@ class TurnPipeline:
                     continue
 
                 fn_args = _unmask_argument_values(raw_args, ctx.turn_token_mapping)
+                from core.domain import ToolPrincipal
+
+                principal = ToolPrincipal(kind="agent", id=ctx.agent_key)
                 try:
-                    tool_res = skill_registry.execute_tool(
+                    tool_res = await skill_registry.execute_tool_async(
                         fn_name,
                         fn_args,
                         authorized_skills=ctx.authorized_skills,
+                        agent_name=principal,
                     )
                 except Exception as tool_err:  # noqa: BLE001
                     tool_res = f"Tool execution failed: {tool_err}"

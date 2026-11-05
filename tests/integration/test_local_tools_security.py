@@ -3,7 +3,7 @@ import json
 import pytest
 
 from core.domain import SYSTEM_PRINCIPAL, ToolPrincipal
-from services.mcp_tools import (
+from services.local_tools import (
     is_agent_authorized_for_tool,
     validate_resource_filename,
     write_document,
@@ -73,7 +73,7 @@ def test_write_document_size_cap_enforcement():
         assert "exceeds maximum permitted write limit" in data["error"]
     finally:
         set_max_write_bytes(1_048_576)
-        from services.mcp_tools import AGENTS_RESOURCES_DIR
+        from services.local_tools import AGENTS_RESOURCES_DIR
         for p in [AGENTS_RESOURCES_DIR / "test_small.txt", AGENTS_RESOURCES_DIR / "test_large.txt"]:
             if p.exists():
                 p.unlink()
@@ -96,7 +96,7 @@ def test_tool_principal_authorization_fail_closed():
     assert is_agent_authorized_for_tool(agent_principal, "list_documents") is True
 
     # Tool invocation fail-closed when principal is None
-    from services.mcp_tools import list_documents, read_document
+    from services.local_tools import list_documents, read_document
     assert "Principal identity is required" in list_documents()
     assert "Principal identity is required" in read_document("doc.txt")
     assert "Principal identity is required" in write_document("doc.txt", "content")

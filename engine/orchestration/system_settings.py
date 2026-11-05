@@ -2,10 +2,11 @@ import copy
 import fnmatch
 import logging
 import os
+import re
 import sys
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -28,6 +29,47 @@ DEFAULT_PROTECTED_WRITE_PATHS: list[str] = [
     "engine/settings/system_agent_settings.json",
     "data/state/app_settings.json",
 ]
+
+
+_ENV_VAR_REGEX = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)")
+
+
+def _expand_env_vars_in_str(val: str) -> str:
+    """Replaces ${VAR} or $VAR in a string with os.environ.get(VAR, '')."""
+    if not isinstance(val, str):
+        return val
+    return _ENV_VAR_REGEX.sub(lambda m: os.environ.get(m.group(1) or m.group(2), ""), val)
+
+
+def _expand_env_vars_in_dict(d: dict[str, Any]) -> dict[str, Any]:
+    """Recursively expands ${VAR} or $VAR in dict keys and values."""
+    res: dict[str, Any] = {}
+    for k, v in d.items():
+        if isinstance(v, str):
+            res[k] = _expand_env_vars_in_str(v)
+        elif isinstance(v, dict):
+            res[k] = _expand_env_vars_in_dict(v)
+        elif isinstance(v, list):
+            res[k] = [_expand_env_vars_in_str(item) if isinstance(item, str) else item for item in v]
+        else:
+            res[k] = v
+    return res
+
+
+class McpServerConfig(BaseModel):
+    enabled: bool = True
+    transport: Literal["stdio", "sse", "streamable_http"] = "stdio"
+    command: str = ""
+    args: list[str] = Field(default_factory=list)
+    env: dict[str, str] = Field(default_factory=dict)
+    cwd: str | None = None
+    url: str = ""
+    headers: dict[str, str] = Field(default_factory=dict)
+    timeout_seconds: float = 30.0
+    mutating_tools: list[str] = Field(default_factory=list)
+    outbound_pii_masking: bool = True
+
+    model_config = {"extra": "allow"}
 
 
 class SystemSettingsModel(BaseModel):
@@ -107,6 +149,7 @@ class SystemSettingsModel(BaseModel):
     retention_checkpoints_days: int = 7
     retention_traces_days: int = 30
     retention_event_dedup_days: int = 1
+    mcp_servers: dict[str, Any] = Field(default_factory=dict)
 
     model_config = {"extra": "allow"}
 
@@ -193,6 +236,7 @@ class SystemSettingsManager:
         self.retention_checkpoints_days: int = 7
         self.retention_traces_days: int = 30
         self.retention_event_dedup_days: int = 1
+        self.mcp_servers: dict[str, dict[str, Any]] = {}
         self._raw_data: dict[str, Any] = {}
 
         self.rag_config: dict[str, Any] = {
@@ -349,6 +393,8 @@ class SystemSettingsManager:
         self.retention_checkpoints_days = int(getattr(model, "retention_checkpoints_days", 7))
         self.retention_traces_days = int(getattr(model, "retention_traces_days", 30))
         self.retention_event_dedup_days = int(getattr(model, "retention_event_dedup_days", 1))
+        raw_mcp = getattr(model, "mcp_servers", {})
+        self.mcp_servers = copy.deepcopy(raw_mcp) if isinstance(raw_mcp, dict) else {}
 
     def load(self, force: bool = False) -> None:
         target_file = self.active_settings_file
@@ -422,6 +468,7 @@ class SystemSettingsManager:
             "retention_checkpoints_days": self.retention_checkpoints_days,
             "retention_traces_days": self.retention_traces_days,
             "retention_event_dedup_days": self.retention_event_dedup_days,
+            "mcp_servers": self.mcp_servers,
         })
 
         try:
@@ -886,6 +933,46 @@ class SystemSettingsManager:
         from orchestration.agent_settings import set_rebuttal_agent as _set
         _set(agent, save=save)
 
+    # --- MCP Servers Settings ---
+    def get_mcp_servers(self) -> dict[str, McpServerConfig]:
+        """Returns validated McpServerConfig objects with env vars expanded."""
+        self.load()
+        result: dict[str, McpServerConfig] = {}
+        for name, raw_cfg in self.mcp_servers.items():
+            if not isinstance(raw_cfg, dict):
+                continue
+            cfg_dict = _expand_env_vars_in_dict(raw_cfg)
+            if "command" in cfg_dict and isinstance(cfg_dict["command"], str):
+                cfg_dict["command"] = _expand_env_vars_in_str(cfg_dict["command"])
+            if "url" in cfg_dict and isinstance(cfg_dict["url"], str):
+                cfg_dict["url"] = _expand_env_vars_in_str(cfg_dict["url"])
+            if "cwd" in cfg_dict and isinstance(cfg_dict["cwd"], str):
+                cfg_dict["cwd"] = _expand_env_vars_in_str(cfg_dict["cwd"])
+            if "args" in cfg_dict and isinstance(cfg_dict["args"], list):
+                cfg_dict["args"] = [_expand_env_vars_in_str(a) if isinstance(a, str) else str(a) for a in cfg_dict["args"]]
+            try:
+                result[name] = McpServerConfig(**cfg_dict)
+            except Exception as e:
+                logger.warning(f"[SYSTEM_SETTINGS] Invalid MCP server config for '{name}': {e}")
+        return result
+
+    def get_mcp_server_config(self, server_name: str) -> McpServerConfig | None:
+        """Returns the McpServerConfig for server_name or None if not found."""
+        return self.get_mcp_servers().get(server_name)
+
+    def set_mcp_servers(self, servers: dict[str, Any], save: bool = True) -> None:
+        """Sets MCP servers dictionary and optionally persists to disk."""
+        self.load()
+        cleaned: dict[str, Any] = {}
+        for k, v in servers.items():
+            if isinstance(v, McpServerConfig):
+                cleaned[k] = v.model_dump()
+            elif isinstance(v, dict):
+                cleaned[k] = copy.deepcopy(v)
+        self.mcp_servers = cleaned
+        if save:
+            self.save()
+
 
 system_settings_manager = SystemSettingsManager()
 
@@ -1160,6 +1247,19 @@ def get_retention_traces_days() -> int:
 
 def get_retention_event_dedup_days() -> int:
     return system_settings_manager.get_retention_event_dedup_days()
+
+
+def get_mcp_servers() -> dict[str, McpServerConfig]:
+    return system_settings_manager.get_mcp_servers()
+
+
+def get_mcp_server_config(server_name: str) -> McpServerConfig | None:
+    return system_settings_manager.get_mcp_server_config(server_name)
+
+
+def set_mcp_servers(servers: dict[str, Any], save: bool = True) -> None:
+    system_settings_manager.set_mcp_servers(servers, save=save)
+
 
 
 

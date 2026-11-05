@@ -14,7 +14,7 @@ from services.audit_logger import (
     set_main_event_loop,
     validate_audit_configuration,
 )
-from services.mcp_tools import (
+from services.local_tools import (
     _mask_tool_args,
     list_documents,
     read_document,
@@ -139,16 +139,16 @@ def test_audit_logger_corrupted_latest_file_raises(tmp_path):
         logger.get_last_state()
 
 
-def test_mcp_tools_document_access_control(tmp_path):
+def test_local_tools_document_access_control(tmp_path):
     """TKT-1011 / S-03: Verifies read_document and list_documents enforce principal authorization and ACLs."""
-    from services.mcp_tools import configure_paths as configure_mcp_paths, reset_paths as reset_mcp_paths
+    from services.local_tools import configure_paths as configure_local_paths, reset_paths as reset_local_paths
 
     test_res_dir = tmp_path / "agents_resources"
     test_res_dir.mkdir(parents=True)
     (test_res_dir / "public.txt").write_text("public document content", encoding="utf-8")
     (test_res_dir / "confidential.txt").write_text("top secret plan", encoding="utf-8")
 
-    configure_mcp_paths(workspace_dir=tmp_path, agents_resources_dir=test_res_dir)
+    configure_local_paths(workspace_dir=tmp_path, agents_resources_dir=test_res_dir)
 
     try:
         # 1. Principal not authorized for tool
@@ -165,7 +165,7 @@ def test_mcp_tools_document_access_control(tmp_path):
 
         # 3. FileContext ACL enforcement: restricted document
         reader_principal = ToolPrincipal(kind="agent", id="agent-10008")
-        with patch("services.mcp_tools.is_agent_authorized_for_tool", return_value=True):
+        with patch("services.local_tools.is_agent_authorized_for_tool", return_value=True):
             # Agent is authorized by ACL
             res_acl_ok = json.loads(
                 read_document(
@@ -187,10 +187,10 @@ def test_mcp_tools_document_access_control(tmp_path):
             )
             assert "Permission denied: Agent 'agent-10002' is not authorized" in res_acl_denied["error"]
     finally:
-        reset_mcp_paths()
+        reset_local_paths()
 
 
-def test_mcp_tools_mask_sensitive_arguments():
+def test_local_tools_mask_sensitive_arguments():
     """TKT-1012 / S-09: Verifies sensitive keywords (tokens, passwords, keys) are masked in logs."""
     raw = {
         "api_key": "sk-proj-secret-12345",

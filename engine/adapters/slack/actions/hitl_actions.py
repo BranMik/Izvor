@@ -46,17 +46,18 @@ async def _execute_and_resume_hitl_approval(req: Any, user_id: str) -> None:
 
     # 2. Mark approval consumed & execute tool deterministically
     try:
+        from core.domain import ToolPrincipal
         from services.hitl import consume_tool_approval
 
+        principal = ToolPrincipal(kind="agent", id=agent_name)
         consume_tool_approval(channel_id, thread_ts, fn_name, fn_args, agent_name=agent_name)
-        tool_result = await asyncio.to_thread(
-            skill_registry.execute_tool,
+        tool_result = await skill_registry.execute_tool_async(
             fn_name,
             fn_args,
             authorized_skills=effective_skills,
             expired_skills=expired_skills,
             ttl_hours=ttl_hours,
-            agent_name=agent_name,
+            agent_name=principal,
         )
     except Exception as e:  # noqa: BLE001 - Resilient tool execution error capture
         logger.error(f"[HITL] Error executing tool '{fn_name}': {e}", exc_info=True)

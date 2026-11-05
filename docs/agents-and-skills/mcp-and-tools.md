@@ -4,9 +4,14 @@ This document details **Izvor**'s tool execution architecture, Model Context Pro
 
 ---
 
-## 🛠️ MCP & Native Tool Integration
+## 🛠️ Tool Architecture: Local Sandboxed Tools vs External MCP Servers
 
-Izvor integrates with the Model Context Protocol (MCP) and built-in skill tools via [`services/mcp_tools.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/services/mcp_tools.py) and [`services/web_tools.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/services/web_tools.py), translating tool schemas into standard JSON function definitions compatible with LiteLLM.
+Izvor provides two distinct, defense-in-depth tool execution layers:
+
+1. **Local Sandboxed Tools ([`services/local_tools.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/services/local_tools.py))**:
+   Built-in, in-process tools for reading/writing documents in `agents_resources/` and web tools ([`services/web_tools.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/services/web_tools.py)) with strict SSRF defenses.
+2. **External Model Context Protocol (MCP) Client Subsystem ([`services/mcp/`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/services/mcp/)):**
+   Full external MCP client integration connecting Izvor to external MCP servers (via `stdio` or `sse`), discovering tools dynamically, and converting them to LiteLLM-compatible function schemas.
 
 ```mermaid
 graph TD
@@ -16,20 +21,85 @@ graph TD
     subgraph Security & Confinement Pipeline
         Dispatcher --> PrincipalCheck{"ToolPrincipal Fail-Closed AuthZ"}
         PrincipalCheck -->|Denied| AuthErr["Reject: Unauthorized Tool / Skill"]
-        PrincipalCheck -->|Authorized| HITLCheck{"requires_human_ITL?"}
-        HITLCheck -->|Unapproved| SaveCP["Save TurnCheckpoint & Post Approve/Deny Buttons"]
-        HITLCheck -->|Approved / Not Required| CacheCheck{"In RoundEvidenceStore?"}
+        PrincipalCheck -->|Authorized| ToolRouter{"Tool Target Router"}
+        
+        ToolRouter -->|Local Tool| HITLLocal{"requires_human_ITL?"}
+        HITLLocal -->|Unapproved| SaveCP["Save TurnCheckpoint & Post HITL Buttons"]
+        HITLLocal -->|Approved / Not Required| CacheCheck{"In RoundEvidenceStore?"}
         CacheCheck -->|Hit| ReturnCached["Return Cached Read-Only Evidence"]
         CacheCheck -->|Miss| SandboxCheck{"Filesystem / Web Security Check"}
-        SandboxCheck -->|Pass| Execution["Execute Tool & Cache Read-Only Output"]
+        SandboxCheck -->|Pass| LocalExec["Execute Local Tool: services/local_tools.py"]
+
+        ToolRouter -->|External MCP Tool| HITLMCP{"Mutating MCP Tool?"}
+        HITLMCP -->|Yes & Unapproved| SaveCP
+        HITLMCP -->|Approved / Read-Only| SecBridge["Security Bridge: services/mcp/security_bridge.py"]
+        SecBridge --> OutboundSanitize["Outbound Masking: PII / Secret Stripping"]
+        OutboundSanitize --> MCPClientMgr["McpClientManager Dispatch: Stdio / SSE"]
+        MCPClientMgr --> InboundSanitize["Inbound Sanitization: Secret Leak Scanning"]
     end
     
     subgraph Slack User Experience
         Dispatcher --> Timer[5-Second Delayed Status Rule]
         Timer -->|Duration >= 5s| SlackStatus[Post Intermediate In-Place Placeholder]
-        Execution --> Finalize[chat.update Edits Placeholder In-Place]
+        LocalExec --> Finalize[chat.update Edits Placeholder In-Place]
+        InboundSanitize --> Finalize
     end
 ```
+
+---
+
+## 🔌 External MCP Client Integration (`services/mcp/`)
+
+External MCP servers are configured in [`config/settings/system_settings.json`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/config/settings/system_settings.json) under `"mcp_servers"`.
+
+### 1. Server Configuration Example
+```json
+{
+  "mcp_servers": {
+    "github": {
+      "enabled": true,
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": {
+        "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_TOKEN}"
+      },
+      "mutating_tools": ["create_issue", "push_files"],
+      "timeout_seconds": 30.0,
+      "outbound_pii_masking": true
+    }
+  }
+}
+```
+
+### 2. Windows Subprocess Hardening (`windows_process.py`)
+- **Job Object Confinement**: On Windows hosts, child subprocesses spawned by `stdio` transport are bound to a Win32 Job Object with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`. When Izvor exits or is terminated, all descendant Node.js or Python MCP servers are automatically reaped by the Windows kernel.
+- **Environment Sanitization (`build_safe_stdio_env`)**: Child MCP servers inherit only clean OS variables (`PATH`, `SYSTEMROOT`, `TEMP`, etc.) and explicitly configured `env`. Sensitive Izvor host secrets (`SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`, `AUDIT_HMAC_SECRET`, `ADMIN_PASSWORD`) are unconditionally stripped.
+
+### 3. Tool Namespacing & Schema Translation (`schema_translator.py`)
+- Tools discovered from external MCP servers are automatically namespaced: `mcp__{server_name}__{raw_tool_name}` (e.g., `mcp__github__create_issue`).
+- Translated into standard LiteLLM function calling schemas compatible with OpenAI, Anthropic, and Gemini.
+
+### 4. Declarative Skill Bindings (`SKILL.md`)
+Skills can expose tools from external MCP servers by specifying `mcp_server` and optional `mcp_tools` in their frontmatter:
+```markdown
+---
+name: github_expert
+display_name: GitHub Expert
+description: Expert GitHub integration and repository manager
+mcp_server: github
+mcp_tools:
+  - search_repos
+  - create_issue
+---
+```
+When `load_skill` is invoked by an authorized agent, Izvor discovers tools from `mcp_server` on-demand and dynamically unlocks them in LiteLLM for subsequent turns.
+
+### 5. Roadmap R-04 Defenses (`security_bridge.py`)
+- **Outbound Masking**: Arguments sent to external MCP servers are scanned by `PIIMasker`, preventing host tokens or sensitive entities from leaking to third-party MCP endpoints.
+- **Inbound Secret Scanning**: Responses from MCP servers are checked by `scan_output_for_secrets()`. Any response containing leaked credentials (e.g. AWS keys, tokens) is immediately blocked.
+- **Mandatory HITL Gate for Mutating Tools**: Any tool listed in `mutating_tools` or marked with `destructiveHint=True` triggers Slack approval buttons before execution.
+
 
 ---
 
@@ -47,7 +117,7 @@ Every tool execution in **Stage 4 (`ExecutionStage`)** is bound to an immutable 
 
 ## 🛡️ Filesystem Sandboxing & Protected Write Paths
 
-Allowing language models to read or write files carries security risks if unconstrained. Izvor enforces multi-layered isolation in [`services/mcp_tools.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/services/mcp_tools.py):
+Allowing language models to read or write files carries security risks if unconstrained. Izvor enforces multi-layered isolation in [`services/local_tools.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/services/local_tools.py):
 
 ### 1. Workspace Segregation: `agents_resources/` vs `system_resources/`
 All agent-accessible file operations (`list_documents`, `read_document`, `write_document`) are strictly confined to `agents_resources/`.
