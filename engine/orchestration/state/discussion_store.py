@@ -2,7 +2,6 @@ import asyncio
 import json
 import logging
 import time
-
 from typing import Any
 
 from core.database import get_connection, get_db_transaction
@@ -11,108 +10,81 @@ logger = logging.getLogger(__name__)
 
 
 class DiscussionStateStore:
-    """Manages active discussion tasks, remaining agent queues, custom flow tags, and stop requests per Slack thread."""
+    """Manages active discussion tasks, remaining agent queues, custom flow tags, and stop requests per Slack thread using pure SQLite state."""
 
     def __init__(self) -> None:
-        self.remaining_agents_map: dict[tuple[str, str], list[str]] = {}
         self.active_thread_tasks: dict[tuple[str, str], asyncio.Task] = {}
-        self.custom_flow_threads: set[tuple[str, str]] = set()
-        self.open_debate_threads: set[tuple[str, str]] = set()
-        self.stop_requested_threads: set[tuple[str, str]] = set()
-        self.thread_rounds: dict[tuple[str, str], int] = {}
-        self.thread_round_sequences: dict[tuple[str, str], list[str]] = {}
-        self.thread_initial_prompts: dict[tuple[str, str], str] = {}
-        self.consensus_reached_threads: set[tuple[str, str]] = set()
-        self.thread_workflow_snapshots: dict[tuple[str, str], dict[str, Any]] = {}
-        self.thread_convergence_speakers: dict[tuple[str, str], list[str]] = {}
-        self._loaded_threads: set[tuple[str, str]] = set()
 
-    def _ensure_loaded(self, channel_id: str, thread_ts: str) -> None:
-        key = (channel_id, thread_ts)
-        if key in self._loaded_threads:
-            return
-        self._loaded_threads.add(key)
+    def _get_row(self, channel_id: str, thread_ts: str) -> dict[str, Any] | None:
         try:
             with get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute(
-                    "SELECT remaining_agents, custom_flow, stop_requested, rounds, round_sequence, initial_prompt, "
-                    "workflow_snapshot, open_debate, consensus_reached, convergence_speakers "
+                    "SELECT status, remaining_agents, custom_flow, stop_requested, rounds, round_sequence, initial_prompt, "
+                    "workflow_snapshot, open_debate, consensus_reached, convergence_speakers, created_at, last_activity "
                     "FROM thread_sessions WHERE channel_id = ? AND thread_ts = ?",
                     (channel_id, thread_ts),
                 )
                 row = cursor.fetchone()
-                if row:
-                    if key not in self.remaining_agents_map:
-                        if row["remaining_agents"] is not None:
-                            self.remaining_agents_map[key] = json.loads(row["remaining_agents"])
-                    if row["custom_flow"] and key not in self.custom_flow_threads:
-                        self.custom_flow_threads.add(key)
-                    if row["stop_requested"] and key not in self.stop_requested_threads:
-                        self.stop_requested_threads.add(key)
-                    if row["rounds"] and key not in self.thread_rounds:
-                        self.thread_rounds[key] = row["rounds"]
-                    if key not in self.thread_round_sequences and row["round_sequence"] is not None:
-                        seq = json.loads(row["round_sequence"])
-                        if seq:
-                            self.thread_round_sequences[key] = seq
-                    if row["initial_prompt"] and key not in self.thread_initial_prompts:
-                        self.thread_initial_prompts[key] = row["initial_prompt"]
-                    if key not in self.thread_workflow_snapshots and row["workflow_snapshot"]:
-                        try:
-                            self.thread_workflow_snapshots[key] = json.loads(row["workflow_snapshot"])
-                        except Exception:
-                            pass
-                    if row["open_debate"] and key not in self.open_debate_threads:
-                        self.open_debate_threads.add(key)
-                    if row["consensus_reached"] and key not in self.consensus_reached_threads:
-                        self.consensus_reached_threads.add(key)
-                    if key not in self.thread_convergence_speakers and row["convergence_speakers"]:
-                        try:
-                            conv = json.loads(row["convergence_speakers"])
-                            if isinstance(conv, list):
-                                self.thread_convergence_speakers[key] = conv
-                        except Exception:
-                            pass
-        except (json.JSONDecodeError, ValueError, TypeError) as e:
-            logger.debug(f"[DISCUSSION STORE] Failed to load session from DB for {key}: {e}")
+                return dict(row) if row else None
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"[DISCUSSION STORE] Failed to read session from DB for ({channel_id}, {thread_ts}): {e}")
+            return None
 
-    def _sync_to_db(self, channel_id: str, thread_ts: str) -> None:
-        key = (channel_id, thread_ts)
-        rem_agents = self.remaining_agents_map.get(key)
-        custom = 1 if key in self.custom_flow_threads else 0
-        stopped = 1 if key in self.stop_requested_threads else 0
-        rounds = self.thread_rounds.get(key, 0)
-        seq = self.thread_round_sequences.get(key)
-        prompt = self.thread_initial_prompts.get(key)
-        wf_snapshot = self.thread_workflow_snapshots.get(key)
-        open_debate = 1 if key in self.open_debate_threads else 0
-        consensus_reached = 1 if key in self.consensus_reached_threads else 0
-        conv_speakers = self.thread_convergence_speakers.get(key)
-
-        has_data = (
-            rem_agents is not None
-            or custom == 1
-            or stopped == 1
-            or rounds > 0
-            or seq is not None
-            or prompt is not None
-            or wf_snapshot is not None
-            or open_debate == 1
-            or consensus_reached == 1
-            or (conv_speakers is not None and len(conv_speakers) > 0)
-        )
-
+    def _update_fields(self, channel_id: str, thread_ts: str, **updates: Any) -> None:
+        now = time.time()
         try:
             with get_db_transaction(immediate=True) as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT status, remaining_agents, custom_flow, stop_requested, rounds, round_sequence, "
+                    "initial_prompt, workflow_snapshot, open_debate, consensus_reached, convergence_speakers, created_at "
+                    "FROM thread_sessions WHERE channel_id = ? AND thread_ts = ?",
+                    (channel_id, thread_ts),
+                )
+                row = cursor.fetchone()
+                data: dict[str, Any] = dict(row) if row else {
+                    "status": "active",
+                    "remaining_agents": None,
+                    "custom_flow": 0,
+                    "stop_requested": 0,
+                    "rounds": 0,
+                    "round_sequence": "[]",
+                    "initial_prompt": None,
+                    "workflow_snapshot": None,
+                    "open_debate": 0,
+                    "consensus_reached": 0,
+                    "convergence_speakers": "[]",
+                    "created_at": now,
+                }
+                for k, v in updates.items():
+                    if k in data:
+                        data[k] = v
+
+                # Check if session has any active data
+                rem_agents_val = data["remaining_agents"]
+                has_data = (
+                    rem_agents_val is not None
+                    or data["custom_flow"] == 1
+                    or data["stop_requested"] == 1
+                    or data["rounds"] > 0
+                    or data["round_sequence"] not in (None, "[]", "")
+                    or data["initial_prompt"] is not None
+                    or data["workflow_snapshot"] is not None
+                    or data["open_debate"] == 1
+                    or data["consensus_reached"] == 1
+                    or data["convergence_speakers"] not in (None, "[]", "")
+                )
+
                 if not has_data:
                     conn.execute(
                         "DELETE FROM thread_sessions WHERE channel_id = ? AND thread_ts = ?",
                         (channel_id, thread_ts),
                     )
                 else:
-                    now = time.time()
-                    status = "active" if (rounds > 0 or (rem_agents and len(rem_agents) > 0)) else "completed"
+                    rounds_count = data["rounds"]
+                    is_active = (rounds_count > 0) or (rem_agents_val is not None and rem_agents_val != "[]")
+                    status = "active" if is_active else "completed"
                     conn.execute(
                         """
                         INSERT INTO thread_sessions (
@@ -133,37 +105,39 @@ class DiscussionStateStore:
                             open_debate = excluded.open_debate,
                             consensus_reached = excluded.consensus_reached,
                             convergence_speakers = excluded.convergence_speakers,
-                            last_activity = excluded.last_activity
+                            last_activity = excluded.last_activity;
                         """,
                         (
                             channel_id,
                             thread_ts,
                             status,
-                            json.dumps(rem_agents or []),
-                            custom,
-                            stopped,
-                            rounds,
-                            json.dumps(seq or []),
-                            prompt,
-                            json.dumps(wf_snapshot) if wf_snapshot is not None else None,
-                            open_debate,
-                            consensus_reached,
-                            json.dumps(conv_speakers or []),
-                            now,
+                            data["remaining_agents"],
+                            data["custom_flow"],
+                            data["stop_requested"],
+                            data["rounds"],
+                            data["round_sequence"],
+                            data["initial_prompt"],
+                            data["workflow_snapshot"],
+                            data["open_debate"],
+                            data["consensus_reached"],
+                            data["convergence_speakers"],
+                            data["created_at"],
                             now,
                         ),
                     )
-        except (json.JSONDecodeError, ValueError) as e:
-            logger.debug(f"[DISCUSSION STORE] Failed to sync session to DB for {key}: {e}")
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"[DISCUSSION STORE] Failed to update session in DB for ({channel_id}, {thread_ts}): {e}")
 
     def get_remaining_agents(
         self, channel_id: str, thread_ts: str, default: list[str] | None = None
     ) -> list[str]:
         """Returns the list of remaining agents scheduled for this thread."""
-        self._ensure_loaded(channel_id, thread_ts)
-        thread_key = (channel_id, thread_ts)
-        if thread_key in self.remaining_agents_map:
-            return list(self.remaining_agents_map[thread_key])
+        row = self._get_row(channel_id, thread_ts)
+        if row and row.get("remaining_agents") is not None:
+            try:
+                return list(json.loads(row["remaining_agents"]))
+            except (json.JSONDecodeError, TypeError):
+                pass
         if default is not None:
             return list(default)
         return []
@@ -172,40 +146,49 @@ class DiscussionStateStore:
         self, channel_id: str, thread_ts: str, agents: list[str]
     ) -> None:
         """Sets the remaining agents scheduled for this thread."""
-        self.remaining_agents_map[(channel_id, thread_ts)] = list(agents)
-        self._loaded_threads.add((channel_id, thread_ts))
-        self._sync_to_db(channel_id, thread_ts)
+        agents_list = list(agents)
+        self._update_fields(channel_id, thread_ts, remaining_agents=json.dumps(agents_list))
         logger.info(
-            f"[DISCUSSION STORE] Set remaining agents for {(channel_id, thread_ts)}: {agents}"
+            f"[DISCUSSION STORE] Set remaining agents for {(channel_id, thread_ts)}: {agents_list}"
         )
 
     def pop_remaining_agent(
         self, channel_id: str, thread_ts: str, agent_key: str | None = None
     ) -> str | None:
         """Pops a specific agent or the next agent from remaining agents list."""
-        self._ensure_loaded(channel_id, thread_ts)
-        thread_key = (channel_id, thread_ts)
-        agents = self.remaining_agents_map.get(thread_key, [])
+        row = self._get_row(channel_id, thread_ts)
+        if not row or row.get("remaining_agents") is None:
+            return None
+        try:
+            agents: list[str] = json.loads(row["remaining_agents"])
+        except (json.JSONDecodeError, TypeError):
+            return None
         if not agents:
             return None
         if agent_key is None:
             popped = agents.pop(0)
-            self._sync_to_db(channel_id, thread_ts)
+            self._update_fields(channel_id, thread_ts, remaining_agents=json.dumps(agents))
             return popped
         if agent_key in agents:
             agents.remove(agent_key)
-            self._sync_to_db(channel_id, thread_ts)
+            self._update_fields(channel_id, thread_ts, remaining_agents=json.dumps(agents))
             return agent_key
+        return None
+
     def remove_remaining_agent(
         self, channel_id: str, thread_ts: str, agent_key: str
     ) -> bool:
         """Removes a specific agent from the remaining agents list and syncs to DB."""
-        self._ensure_loaded(channel_id, thread_ts)
-        thread_key = (channel_id, thread_ts)
-        agents = self.remaining_agents_map.get(thread_key, [])
+        row = self._get_row(channel_id, thread_ts)
+        if not row or row.get("remaining_agents") is None:
+            return False
+        try:
+            agents: list[str] = json.loads(row["remaining_agents"])
+        except (json.JSONDecodeError, TypeError):
+            return False
         if agent_key in agents:
             agents.remove(agent_key)
-            self._sync_to_db(channel_id, thread_ts)
+            self._update_fields(channel_id, thread_ts, remaining_agents=json.dumps(agents))
             return True
         return False
 
@@ -213,28 +196,30 @@ class DiscussionStateStore:
         self, channel_id: str, thread_ts: str
     ) -> str | None:
         """Pops a random agent from remaining agents list and syncs to DB."""
-        self._ensure_loaded(channel_id, thread_ts)
-        thread_key = (channel_id, thread_ts)
-        agents = self.remaining_agents_map.get(thread_key, [])
+        row = self._get_row(channel_id, thread_ts)
+        if not row or row.get("remaining_agents") is None:
+            return None
+        try:
+            agents: list[str] = json.loads(row["remaining_agents"])
+        except (json.JSONDecodeError, TypeError):
+            return None
         if not agents:
             return None
         import random
 
         chosen = random.choice(agents)
         agents.remove(chosen)
-        self._sync_to_db(channel_id, thread_ts)
+        self._update_fields(channel_id, thread_ts, remaining_agents=json.dumps(agents))
         return chosen
 
-
     def has_remaining_agents_key(self, channel_id: str, thread_ts: str) -> bool:
-        """Checks if remaining_agents_map explicitly has an entry for this thread."""
-        self._ensure_loaded(channel_id, thread_ts)
-        return (channel_id, thread_ts) in self.remaining_agents_map
+        """Checks if remaining_agents is explicitly set (even if empty) for this thread."""
+        row = self._get_row(channel_id, thread_ts)
+        return bool(row and row.get("remaining_agents") is not None)
 
     def clear_remaining_agents(self, channel_id: str, thread_ts: str) -> None:
         """Clears remaining agents for this thread."""
-        self.remaining_agents_map.pop((channel_id, thread_ts), None)
-        self._sync_to_db(channel_id, thread_ts)
+        self._update_fields(channel_id, thread_ts, remaining_agents=None)
 
     def get_active_task(
         self, channel_id: str, thread_ts: str
@@ -280,129 +265,107 @@ class DiscussionStateStore:
 
     def is_custom_flow(self, channel_id: str, thread_ts: str) -> bool:
         """Checks if this thread is running an ad-hoc custom tagged agent flow."""
-        self._ensure_loaded(channel_id, thread_ts)
-        return (channel_id, thread_ts) in self.custom_flow_threads
+        row = self._get_row(channel_id, thread_ts)
+        return bool(row and row.get("custom_flow"))
 
     def set_custom_flow(
         self, channel_id: str, thread_ts: str, is_custom: bool = True
     ) -> None:
         """Enables or disables custom flow flag for this thread."""
-        thread_key = (channel_id, thread_ts)
-        self._loaded_threads.add(thread_key)
-        if is_custom:
-            self.custom_flow_threads.add(thread_key)
-        else:
-            self.custom_flow_threads.discard(thread_key)
-        self._sync_to_db(channel_id, thread_ts)
+        self._update_fields(channel_id, thread_ts, custom_flow=1 if is_custom else 0)
 
     def clear_custom_flow(self, channel_id: str, thread_ts: str) -> None:
         """Clears custom flow flag for this thread."""
-        self.custom_flow_threads.discard((channel_id, thread_ts))
-        self._sync_to_db(channel_id, thread_ts)
+        self._update_fields(channel_id, thread_ts, custom_flow=0)
 
     def is_open_debate(self, channel_id: str, thread_ts: str) -> bool:
         """Checks if this thread is running an open debate without fixed start/end chains."""
-        self._ensure_loaded(channel_id, thread_ts)
-        return (channel_id, thread_ts) in self.open_debate_threads
+        row = self._get_row(channel_id, thread_ts)
+        return bool(row and row.get("open_debate"))
 
     def set_open_debate(
         self, channel_id: str, thread_ts: str, is_open: bool = True
     ) -> None:
         """Enables or disables open debate mode for this thread."""
-        thread_key = (channel_id, thread_ts)
-        self._loaded_threads.add(thread_key)
-        if is_open:
-            self.open_debate_threads.add(thread_key)
-        else:
-            self.open_debate_threads.discard(thread_key)
-        self._sync_to_db(channel_id, thread_ts)
+        self._update_fields(channel_id, thread_ts, open_debate=1 if is_open else 0)
 
     def clear_open_debate(self, channel_id: str, thread_ts: str) -> None:
         """Clears open debate flag for this thread."""
-        self.open_debate_threads.discard((channel_id, thread_ts))
-        self._sync_to_db(channel_id, thread_ts)
+        self._update_fields(channel_id, thread_ts, open_debate=0)
 
     def is_stopped(self, channel_id: str, thread_ts: str) -> bool:
         """Checks if stop has been requested for this thread."""
-        self._ensure_loaded(channel_id, thread_ts)
-        return (channel_id, thread_ts) in self.stop_requested_threads
+        row = self._get_row(channel_id, thread_ts)
+        return bool(row and row.get("stop_requested"))
 
     def request_stop(self, channel_id: str, thread_ts: str) -> None:
         """Marks thread for stopping."""
-        self.stop_requested_threads.add((channel_id, thread_ts))
-        self._loaded_threads.add((channel_id, thread_ts))
-        self._sync_to_db(channel_id, thread_ts)
+        self._update_fields(channel_id, thread_ts, stop_requested=1)
 
     def clear_stop(self, channel_id: str, thread_ts: str) -> None:
         """Clears stop flag for this thread."""
-        self.stop_requested_threads.discard((channel_id, thread_ts))
-        self._sync_to_db(channel_id, thread_ts)
+        self._update_fields(channel_id, thread_ts, stop_requested=0)
 
     def get_rounds(self, channel_id: str, thread_ts: str) -> int:
         """Returns the number of remaining discussion rounds for this thread."""
-        self._ensure_loaded(channel_id, thread_ts)
-        return self.thread_rounds.get((channel_id, thread_ts), 0)
+        row = self._get_row(channel_id, thread_ts)
+        return int(row["rounds"]) if row and row.get("rounds") is not None else 0
 
     def set_rounds(self, channel_id: str, thread_ts: str, rounds: int) -> None:
         """Sets the remaining discussion rounds for this thread."""
-        thread_key = (channel_id, thread_ts)
-        self._loaded_threads.add(thread_key)
-        self.thread_rounds[thread_key] = max(0, int(rounds))
-        self._sync_to_db(channel_id, thread_ts)
-        logger.info(f"[DISCUSSION STORE] Set rounds for {thread_key}: {self.thread_rounds[thread_key]}")
+        r = max(0, int(rounds))
+        self._update_fields(channel_id, thread_ts, rounds=r)
+        logger.info(f"[DISCUSSION STORE] Set rounds for {(channel_id, thread_ts)}: {r}")
 
     def decrement_rounds(self, channel_id: str, thread_ts: str) -> int:
         """Decrements the remaining discussion rounds for this thread by 1."""
-        self._ensure_loaded(channel_id, thread_ts)
-        thread_key = (channel_id, thread_ts)
-        current = self.thread_rounds.get(thread_key, 0)
-        new_val = max(0, current - 1)
-        self.thread_rounds[thread_key] = new_val
-        self._sync_to_db(channel_id, thread_ts)
-        logger.info(f"[DISCUSSION STORE] Decremented rounds for {thread_key}: {new_val}")
+        curr = self.get_rounds(channel_id, thread_ts)
+        new_val = max(0, curr - 1)
+        self._update_fields(channel_id, thread_ts, rounds=new_val)
+        logger.info(f"[DISCUSSION STORE] Decremented rounds for {(channel_id, thread_ts)}: {new_val}")
         return new_val
 
     def clear_rounds(self, channel_id: str, thread_ts: str) -> None:
         """Clears remaining discussion rounds for this thread."""
-        self.thread_rounds.pop((channel_id, thread_ts), None)
-        self._sync_to_db(channel_id, thread_ts)
+        self._update_fields(channel_id, thread_ts, rounds=0)
 
     def get_round_sequence(self, channel_id: str, thread_ts: str) -> list[str]:
         """Returns the established agent sequence for a round in this thread."""
-        self._ensure_loaded(channel_id, thread_ts)
-        return list(self.thread_round_sequences.get((channel_id, thread_ts), []))
+        row = self._get_row(channel_id, thread_ts)
+        if row and row.get("round_sequence"):
+            try:
+                return list(json.loads(row["round_sequence"]))
+            except (json.JSONDecodeError, TypeError):
+                return []
+        return []
 
     def set_round_sequence(self, channel_id: str, thread_ts: str, sequence: list[str]) -> None:
         """Saves the established agent sequence for a round in this thread."""
-        thread_key = (channel_id, thread_ts)
-        self._loaded_threads.add(thread_key)
-        self.thread_round_sequences[thread_key] = list(sequence)
-        self._sync_to_db(channel_id, thread_ts)
-        logger.info(f"[DISCUSSION STORE] Set round sequence for {(channel_id, thread_ts)}: {sequence}")
+        seq_list = list(sequence)
+        self._update_fields(channel_id, thread_ts, round_sequence=json.dumps(seq_list))
+        logger.info(f"[DISCUSSION STORE] Set round sequence for {(channel_id, thread_ts)}: {seq_list}")
 
     def clear_round_sequence(self, channel_id: str, thread_ts: str) -> None:
         """Clears the established round sequence for this thread."""
-        self.thread_round_sequences.pop((channel_id, thread_ts), None)
-        self._sync_to_db(channel_id, thread_ts)
+        self._update_fields(channel_id, thread_ts, round_sequence="[]")
 
     def get_initial_prompt(self, channel_id: str, thread_ts: str) -> str | None:
         """Returns the initial user prompt that started this thread."""
-        self._ensure_loaded(channel_id, thread_ts)
-        return self.thread_initial_prompts.get((channel_id, thread_ts))
+        row = self._get_row(channel_id, thread_ts)
+        return str(row["initial_prompt"]) if row and row.get("initial_prompt") else None
 
     def set_initial_prompt(self, channel_id: str, thread_ts: str, prompt: str) -> None:
         """Sets the initial user prompt that started this thread if not already set."""
-        self._ensure_loaded(channel_id, thread_ts)
-        key = (channel_id, thread_ts)
-        if key not in self.thread_initial_prompts and prompt:
-            self.thread_initial_prompts[key] = prompt
-            self._sync_to_db(channel_id, thread_ts)
-            logger.info(f"[DISCUSSION STORE] Stored initial prompt for {key} (length: {len(prompt)})")
+        if not prompt:
+            return
+        existing = self.get_initial_prompt(channel_id, thread_ts)
+        if not existing:
+            self._update_fields(channel_id, thread_ts, initial_prompt=prompt)
+            logger.info(f"[DISCUSSION STORE] Stored initial prompt for {(channel_id, thread_ts)} (length: {len(prompt)})")
 
     def clear_initial_prompt(self, channel_id: str, thread_ts: str) -> None:
         """Clears the stored initial user prompt for this thread."""
-        self.thread_initial_prompts.pop((channel_id, thread_ts), None)
-        self._sync_to_db(channel_id, thread_ts)
+        self._update_fields(channel_id, thread_ts, initial_prompt=None)
 
     def is_active(self, channel_id: str, thread_ts: str) -> bool:
         """Checks if there is an active running task or pending remaining agents."""
@@ -413,77 +376,58 @@ class DiscussionStateStore:
         return bool(self.get_remaining_agents(channel_id, thread_ts))
 
     def set_consensus_reached(self, channel_id: str, thread_ts: str, reached: bool = True) -> None:
-        key = (channel_id, thread_ts)
-        self._loaded_threads.add(key)
-        if reached:
-            self.consensus_reached_threads.add(key)
-        else:
-            self.consensus_reached_threads.discard(key)
-        self._sync_to_db(channel_id, thread_ts)
+        self._update_fields(channel_id, thread_ts, consensus_reached=1 if reached else 0)
 
     def is_consensus_reached(self, channel_id: str, thread_ts: str) -> bool:
-        self._ensure_loaded(channel_id, thread_ts)
-        return (channel_id, thread_ts) in self.consensus_reached_threads
+        row = self._get_row(channel_id, thread_ts)
+        return bool(row and row.get("consensus_reached"))
 
     def get_workflow_snapshot(self, channel_id: str, thread_ts: str) -> dict[str, Any] | None:
         """Returns the cached workflow configuration snapshot for this thread, if captured."""
-        self._ensure_loaded(channel_id, thread_ts)
-        return self.thread_workflow_snapshots.get((channel_id, thread_ts))
+        row = self._get_row(channel_id, thread_ts)
+        if row and row.get("workflow_snapshot"):
+            try:
+                return json.loads(row["workflow_snapshot"])
+            except (json.JSONDecodeError, TypeError):
+                return None
+        return None
 
     def set_workflow_snapshot(self, channel_id: str, thread_ts: str, snapshot: dict[str, Any]) -> None:
         """Captures a frozen workflow configuration snapshot for this thread."""
-        key = (channel_id, thread_ts)
-        self._loaded_threads.add(key)
-        self.thread_workflow_snapshots[key] = dict(snapshot)
-        self._sync_to_db(channel_id, thread_ts)
+        snap_dict = dict(snapshot)
+        self._update_fields(channel_id, thread_ts, workflow_snapshot=json.dumps(snap_dict))
         logger.info(
-            f"[DISCUSSION STORE] Captured workflow snapshot for {(channel_id, thread_ts)}: {snapshot.get('workflow_id')} ({snapshot.get('mode')})"
+            f"[DISCUSSION STORE] Captured workflow snapshot for {(channel_id, thread_ts)}: {snap_dict.get('workflow_id')} ({snap_dict.get('mode')})"
         )
 
     def clear_workflow_snapshot(self, channel_id: str, thread_ts: str) -> None:
         """Clears the workflow configuration snapshot for this thread."""
-        key = (channel_id, thread_ts)
-        self.thread_workflow_snapshots.pop(key, None)
-        self._sync_to_db(channel_id, thread_ts)
+        self._update_fields(channel_id, thread_ts, workflow_snapshot=None)
 
     def record_convergence_speaker(self, channel_id: str, thread_ts: str, agent_key: str) -> None:
         """Records a unique agent key in the convergence speaker streak and persists to SQLite."""
-        self._ensure_loaded(channel_id, thread_ts)
-        key = (channel_id, thread_ts)
-        if key not in self.thread_convergence_speakers:
-            self.thread_convergence_speakers[key] = []
-        if agent_key and agent_key not in self.thread_convergence_speakers[key]:
-            self.thread_convergence_speakers[key].append(agent_key)
-            self._sync_to_db(channel_id, thread_ts)
+        speakers = self.get_convergence_speakers(channel_id, thread_ts)
+        if agent_key and agent_key not in speakers:
+            speakers.append(agent_key)
+            self._update_fields(channel_id, thread_ts, convergence_speakers=json.dumps(speakers))
 
     def get_convergence_speakers(self, channel_id: str, thread_ts: str) -> list[str]:
         """Returns the list of speakers in the current convergence streak from SQLite."""
-        self._ensure_loaded(channel_id, thread_ts)
-        return list(self.thread_convergence_speakers.get((channel_id, thread_ts), []))
+        row = self._get_row(channel_id, thread_ts)
+        if row and row.get("convergence_speakers"):
+            try:
+                return list(json.loads(row["convergence_speakers"]))
+            except (json.JSONDecodeError, TypeError):
+                return []
+        return []
 
     def clear_convergence_speakers(self, channel_id: str, thread_ts: str) -> None:
         """Clears the convergence speaker streak for this thread in memory and SQLite."""
-        self._ensure_loaded(channel_id, thread_ts)
-        key = (channel_id, thread_ts)
-        if key in self.thread_convergence_speakers:
-            self.thread_convergence_speakers.pop(key, None)
-            self._sync_to_db(channel_id, thread_ts)
+        self._update_fields(channel_id, thread_ts, convergence_speakers="[]")
 
     def clear_thread(self, channel_id: str, thread_ts: str) -> None:
         """Purges discussion state for this thread in a single atomic operation."""
-        key = (channel_id, thread_ts)
-        self.remaining_agents_map.pop(key, None)
-        self.custom_flow_threads.discard(key)
-        self.open_debate_threads.discard(key)
-        self.stop_requested_threads.discard(key)
         self.cancel_active_task(channel_id, thread_ts)
-        self.thread_rounds.pop(key, None)
-        self.thread_round_sequences.pop(key, None)
-        self.thread_initial_prompts.pop(key, None)
-        self.consensus_reached_threads.discard(key)
-        self.thread_workflow_snapshots.pop(key, None)
-        self.thread_convergence_speakers.pop(key, None)
-        self._loaded_threads.discard(key)
         try:
             with get_db_transaction(immediate=True) as conn:
                 conn.execute(
@@ -495,18 +439,7 @@ class DiscussionStateStore:
 
     def reset(self) -> None:
         """Resets all discussion states across all threads."""
-        self.remaining_agents_map.clear()
         self.active_thread_tasks.clear()
-        self.custom_flow_threads.clear()
-        self.open_debate_threads.clear()
-        self.stop_requested_threads.clear()
-        self.thread_rounds.clear()
-        self.thread_round_sequences.clear()
-        self.thread_initial_prompts.clear()
-        self.consensus_reached_threads.clear()
-        self.thread_workflow_snapshots.clear()
-        self.thread_convergence_speakers.clear()
-        self._loaded_threads.clear()
         try:
             with get_db_transaction(immediate=True) as conn:
                 conn.execute("DELETE FROM thread_sessions")

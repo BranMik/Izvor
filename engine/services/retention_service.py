@@ -194,7 +194,6 @@ def forget_thread(channel_id: str, thread_ts: str) -> dict[str, int]:
     try:
         from agents.usage_agent import usage_tracker
 
-        usage_tracker.thread_usage_data.pop((cid, tts), None)
         usage_tracker.cleanup_thread(cid, tts)
     except Exception as ue:  # noqa: BLE001
         logger.debug(f"[RETENTION] Error clearing usage_tracker for {thread_identifier}: {ue}")

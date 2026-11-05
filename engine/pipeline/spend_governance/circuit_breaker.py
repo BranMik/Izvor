@@ -27,23 +27,9 @@ class SpendGovernance:
     def __init__(self, default_threshold_usd: float = 1.0, default_daily_budget_usd: float = 10.0):
         self.default_threshold_usd = default_threshold_usd
         self.default_daily_budget_usd = default_daily_budget_usd
-        # In-memory working cache for active execution turns
-        self._session_tokens: dict[str, dict[str, dict[str, int]]] = {}
-        self._daily_spend_usd: float = 0.0
-        self._daily_spend_date: str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         self._lock = threading.Lock()
         self._active_reservations: dict[str, dict[str, float]] = {}
         self._daily_reset_offset_ts: float | None = None
-
-    def _check_daily_rollover(self) -> None:
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        with self._lock:
-            if self._daily_spend_date != today:
-                logger.info(
-                    f"[SPEND GOVERNANCE] New day rollover ({today} vs {self._daily_spend_date}). Resetting daily spend cache."
-                )
-                self._daily_spend_date = today
-                self._daily_spend_usd = 0.0
 
     def record_usage(
         self,
@@ -52,7 +38,7 @@ class SpendGovernance:
         prompt_tokens: int = 0,
         completion_tokens: int = 0,
     ) -> None:
-        """Records token usage for a model within a session, accumulates daily spend, and writes to SQLite ledger."""
+        """Records token usage for a model within a session and writes directly to SQLite spend_ledger."""
         pricing = get_model_pricing(model_name)
         p_rate = (
             pricing.input_price_per_1m
@@ -65,22 +51,6 @@ class SpendGovernance:
             else pricing.get("output_price_per_1m", 0.0)
         )
         delta_cost = (prompt_tokens * p_rate + completion_tokens * c_rate) / 1_000_000.0
-
-        with self._lock:
-            if session_id not in self._session_tokens:
-                self._session_tokens[session_id] = {}
-            if model_name not in self._session_tokens[session_id]:
-                self._session_tokens[session_id][model_name] = {"prompt": 0, "completion": 0}
-
-            self._session_tokens[session_id][model_name]["prompt"] += prompt_tokens
-            self._session_tokens[session_id][model_name]["completion"] += completion_tokens
-
-            # Accumulate incremental daily spend
-            today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-            if self._daily_spend_date != today:
-                self._daily_spend_date = today
-                self._daily_spend_usd = 0.0
-            self._daily_spend_usd += delta_cost
 
         # Persist to SQLite spend_ledger
         channel_id, thread_ts = _parse_session_id(session_id)
@@ -113,17 +83,13 @@ class SpendGovernance:
         except Exception as e:  # noqa: BLE001
             logger.error(f"[SPEND GOVERNANCE] Failed querying daily spend from SQLite: {e}")
 
-        # Fallback to in-memory tracker
-        self._check_daily_rollover()
-        return round(self._daily_spend_usd, 6)
+        return 0.0
 
     def reset_daily_spend(self) -> None:
         """Manually resets the daily spend ledger."""
         now = datetime.now(timezone.utc)
         with self._lock:
             self._daily_reset_offset_ts = now.timestamp()
-            self._daily_spend_usd = 0.0
-            self._daily_spend_date = now.strftime("%Y-%m-%d")
 
     def calculate_spend(self, session_id: str) -> SpendMetrics:
         """
@@ -173,42 +139,13 @@ class SpendGovernance:
         except Exception as e:  # noqa: BLE001
             logger.error(f"[SPEND GOVERNANCE] Failed querying session spend from SQLite: {e}")
 
-        # In-memory fallback
-        data = self._session_tokens.get(session_id, {})
-        total_prompt = 0
-        total_completion = 0
-        total_cost = 0.0
-        cost_by_model: dict[str, float] = {}
-
-        for model, usage in data.items():
-            p_toks = usage["prompt"]
-            c_toks = usage["completion"]
-            total_prompt += p_toks
-            total_completion += c_toks
-
-            pricing = get_model_pricing(model)
-            p_rate = (
-                pricing.input_price_per_1m
-                if hasattr(pricing, "input_price_per_1m")
-                else pricing.get("input_price_per_1m", 0.0)
-            )
-            c_rate = (
-                pricing.output_price_per_1m
-                if hasattr(pricing, "output_price_per_1m")
-                else pricing.get("output_price_per_1m", 0.0)
-            )
-
-            model_cost = (p_toks * p_rate + c_toks * c_rate) / 1_000_000.0
-            cost_by_model[model] = model_cost
-            total_cost += model_cost
-
         return SpendMetrics(
             session_id=session_id,
-            total_prompt_tokens=total_prompt,
-            total_completion_tokens=total_completion,
-            total_cost_usd=round(total_cost, 6),
-            cost_by_model=cost_by_model,
-            tokens_by_model=data,
+            total_prompt_tokens=0,
+            total_completion_tokens=0,
+            total_cost_usd=0.0,
+            cost_by_model={},
+            tokens_by_model={},
         )
 
     def reserve_budget(
@@ -310,14 +247,14 @@ class SpendGovernance:
         return is_tripped, cost, limit
 
     def clear_session(self, session_id: str) -> None:
-        """Clears in-memory active session cache for a completed session, preserving historical spend_ledger."""
+        """Clears active budget reservations for a completed session."""
         with self._lock:
-            self._session_tokens.pop(session_id, None)
+            self._active_reservations.pop(session_id, None)
 
     def clear_all_sessions(self) -> None:
-        """Clears in-memory session caches for all sessions, preserving historical spend_ledger."""
+        """Clears all active budget reservations across all sessions."""
         with self._lock:
-            self._session_tokens.clear()
+            self._active_reservations.clear()
 
 
 # Global default instance

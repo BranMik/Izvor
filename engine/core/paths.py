@@ -107,7 +107,6 @@ PRICING_CACHE_FILE = PRICING_DIR / "model_pricing_cache.json"
 BASELINE_PRICES_FILE = PRICING_DIR / "baseline_prices.json"
 
 THREAD_DATA_DIR = _resolve_env_path("IZVOR_THREAD_DATA_DIR", DATA_DIR / "thread")
-USAGE_STORE_FILE = THREAD_DATA_DIR / "thread_usage_data.json"
 
 RAG_CACHE_DIR = _resolve_env_path("IZVOR_RAG_CACHE_DIR", DATA_DIR / ".rag_cache")
 LANCEDB_DIR = _resolve_env_path("IZVOR_LANCEDB_DIR", RAG_CACHE_DIR / "lancedb")
@@ -187,7 +186,6 @@ __all__ = [
     "SYSTEM_SETTINGS_FILE",
     "THREAD_DATA_DIR",
     "THREAD_NOTES_DIR",
-    "USAGE_STORE_FILE",
     "WORKFLOWS_BACKUP_DIR",
     "WORKFLOWS_DIR",
     "_resolve_env_path",

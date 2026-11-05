@@ -595,9 +595,9 @@ class ThreadStateManager:
                         "DELETE FROM thread_sessions WHERE channel_id = ? AND thread_ts = ?",
                         to_delete,
                     )
-                    conn.execute(
-                        "DELETE FROM thread_context WHERE (channel_id, thread_ts) NOT IN "
-                        "(SELECT channel_id, thread_ts FROM thread_sessions)"
+                    cursor.executemany(
+                        "DELETE FROM thread_context WHERE channel_id = ? AND thread_ts = ?",
+                        to_delete,
                     )
         except Exception as e:  # noqa: BLE001
             logger.debug(f"[THREAD STATE] SQLite cleanup error: {e}")

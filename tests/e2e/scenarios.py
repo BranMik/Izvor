@@ -735,8 +735,8 @@ async def tc_24_usage_channel(client: SlackProtocolClient) -> ScenarioResult:
     actual_thread = thread_ts or (
         client.bus.posted_messages[0]["thread_ts"] if client.bus.posted_messages else ""
     )
-    entry = usage_tracker.thread_usage_data.get((channel, actual_thread), {})
-    models = entry.get("models", {})
+    cost_data = usage_tracker.calculate_thread_costs(channel, actual_thread)
+    models = cost_data.get("models", {})
     passed = bool(
         models and any(m.get("prompt_tokens", 0) > 0 for m in models.values())
     )

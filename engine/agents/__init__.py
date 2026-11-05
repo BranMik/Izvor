@@ -6,10 +6,6 @@ from .thread_notes_agent import (
     THREAD_LOCKS as NOTES_THREAD_LOCKS,
 )
 from .thread_notes_agent import (
-    THREAD_CONCLUSION_MSG_MAP,
-    THREAD_CONCLUSION_TEXT_MAP,
-    THREAD_NOTE_MSG_MAP,
-    THREAD_NOTE_TEXT_MAP,
     build_conclusion_note_blocks,
     build_scribe_note_blocks,
     clear_thread_note,
@@ -19,7 +15,9 @@ from .thread_notes_agent import (
     get_thread_conclusion_note,
     get_thread_note,
     get_thread_note_content,
+    is_live_note_pinned,
     reset_thread_notes,
+    set_live_note_pinned,
     set_thread_conclusion_content,
     set_thread_conclusion_note,
     set_thread_note,
@@ -33,7 +31,6 @@ from .thread_notes_agent import (
     get_thread_lock as get_notes_thread_lock,
 )
 from .usage_agent import (
-    USAGE_STORE_FILE,
     calculate_thread_costs,
     configure_calculate_thread_costs,
     configure_record_thread_tokens,
@@ -50,11 +47,6 @@ from .usage_agent import (
 # Exports: Thread Notes / Scribe Agent and Usage / Cost Calculator Agent
 __all__ = [
     "NOTES_THREAD_LOCKS",
-    "THREAD_CONCLUSION_MSG_MAP",
-    "THREAD_CONCLUSION_TEXT_MAP",
-    "THREAD_NOTE_MSG_MAP",
-    "THREAD_NOTE_TEXT_MAP",
-    "USAGE_STORE_FILE",
     "build_conclusion_note_blocks",
     "build_scribe_note_blocks",
     "calculate_thread_costs",
@@ -71,12 +63,14 @@ __all__ = [
     "get_thread_conclusion_note",
     "get_thread_note",
     "get_thread_note_content",
+    "is_live_note_pinned",
     "record_thread_tokens",
     "reset_calculate_thread_costs",
     "reset_record_thread_tokens",
     "reset_thread_notes",
     "reset_trigger_thread_notes_update",
     "reset_trigger_usage_update",
+    "set_live_note_pinned",
     "set_thread_conclusion_content",
     "set_thread_conclusion_note",
     "set_thread_note",

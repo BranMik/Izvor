@@ -218,13 +218,16 @@ def test_spend_governance_daily_budget_and_session_clearing():
         assert cost == pytest.approx(0.11, rel=1e-3)
         assert limit == 0.10
 
-        # Test session eviction
-        assert session_1 in gov._session_tokens
+        # Test session reservation eviction
+        gov._active_reservations[session_1] = {"res1": 0.01}
+        gov._active_reservations[session_2] = {"res2": 0.02}
+        assert session_1 in gov._active_reservations
+        assert session_2 in gov._active_reservations
         gov.clear_session(session_1)
-        assert session_1 not in gov._session_tokens
-        assert session_2 in gov._session_tokens
+        assert session_1 not in gov._active_reservations
+        assert session_2 in gov._active_reservations
 
         # Test clear all sessions
         gov.clear_all_sessions()
-        assert len(gov._session_tokens) == 0
+        assert len(gov._active_reservations) == 0
 

@@ -209,31 +209,20 @@ def isolate_database_for_tests(tmp_path):
 
 
 @pytest.fixture(autouse=True)
-def isolate_thread_state_files_for_tests(tmp_path):
+def isolate_thread_state_files_for_tests():
     """
-    Prevents tests from modifying or overwriting data/thread/thread_usage_data.json
-    and ensures clean thread skills state in SQLite.
+    Ensures clean thread skills state and thread usage state in SQLite.
     """
     from agents.usage_agent import usage_tracker
     from orchestration.thread_skills_manager import thread_skills_manager
 
     thread_skills_manager.clear_all()
-
-    iso_dir = tmp_path / "_conftest_iso"
-    iso_dir.mkdir(parents=True, exist_ok=True)
-    temp_usage_file = iso_dir / "thread_usage_data.json"
-    temp_usage_file.write_text("{}", encoding="utf-8")
-
-    usage_tracker.configure_paths(store_file=temp_usage_file)
-    old_usage_data = dict(usage_tracker.thread_usage_data)
-    usage_tracker.thread_usage_data.clear()
+    usage_tracker.clear_all()
 
     yield
 
     thread_skills_manager.clear_all()
-    usage_tracker.reset_paths()
-    usage_tracker.thread_usage_data.clear()
-    usage_tracker.thread_usage_data.update(old_usage_data)
+    usage_tracker.clear_all()
 
 
 @pytest.fixture(autouse=True)

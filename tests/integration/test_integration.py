@@ -210,7 +210,7 @@ def test_stop_command_integration():
         mock_process.assert_not_called()
 
         # 2. User sends stop via persona name mention in regular message
-        thread_state_manager.discussion.stop_requested_threads.clear()
+        thread_state_manager.clear_stop(thread_key[0], thread_key[1])
         thread_key_2 = ("C_TEST_STOP", "123456789.0009")
         thread_state_manager.set_remaining_agents(thread_key_2[0], thread_key_2[1], ["agent-10006"])
 
