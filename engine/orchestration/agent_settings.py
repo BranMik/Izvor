@@ -18,7 +18,7 @@ from orchestration.app_settings import AppSettingsManager, app_settings_manager
 from orchestration.system_settings import SystemSettingsManager, system_settings_manager
 from orchestration.integrity_checks import AppIntegrityValidator
 from orchestration.settings_store import atomic_write_json
-from prompts.builder import build_agent_prompt
+from prompts.builder import build_agent_prompt, is_dialectical_system_agent
 
 from core.paths import (
     AGENT_BACKUP_FILE as BACKUP_FILE,
@@ -113,6 +113,8 @@ class AgentSettingsManager:
         self._last_loaded_mtime: float = 0.0
         self._last_workflow_mtime: float = 0.0
         self._raw_data: dict[str, Any] = {}
+        self._custom_challenger_agent: str | None = None
+        self._custom_rebuttal_agent: str | None = None
 
         if auto_load:
             self.load()
@@ -160,39 +162,21 @@ class AgentSettingsManager:
         """Returns a read-only view of the currently configured agents."""
         return MappingProxyType(self._agents_config)
 
-    def get_challenger_agents(self) -> list[str]:
-        challengers = [
-            (agent_id, cfg.get("challenger_priority", 100))
-            for agent_id, cfg in self.agents_config.items()
-            if str(cfg.get("special_role", "")).upper() == "CHALLENGER"
-        ]
-        challengers.sort(key=lambda x: x[1])
-        return [c[0] for c in challengers]
+    def get_challenger_agent(self) -> str:
+        if getattr(self, "_custom_challenger_agent", None):
+            return self._custom_challenger_agent
+        return "Challenger"
 
-    def set_challenger_agents(self, agent_ids: list[str], save: bool = True) -> None:
-        target_set = set(agent_ids)
-        for agent_id, cfg in self.agents_config.items():
-            if agent_id in target_set:
-                cfg["special_role"] = "CHALLENGER"
-            elif str(cfg.get("special_role", "")).upper() == "CHALLENGER":
-                cfg["special_role"] = "NONE"
-        if save:
-            self.save()
+    def set_challenger_agent(self, agent_id: str | None, save: bool = False) -> None:
+        self._custom_challenger_agent = agent_id
 
-    def get_rebuttal_agent(self) -> str | None:
-        for agent_id, cfg in self.agents_config.items():
-            if str(cfg.get("special_role", "")).upper() == "REBUTTAL":
-                return agent_id
-        return None
+    def get_rebuttal_agent(self) -> str:
+        if getattr(self, "_custom_rebuttal_agent", None):
+            return self._custom_rebuttal_agent
+        return "RebuttalAdvocate"
 
-    def set_rebuttal_agent(self, agent_id: str | None, save: bool = True) -> None:
-        for a_id, cfg in self.agents_config.items():
-            if agent_id and a_id == agent_id:
-                cfg["special_role"] = "REBUTTAL"
-            elif str(cfg.get("special_role", "")).upper() == "REBUTTAL":
-                cfg["special_role"] = "NONE"
-        if save:
-            self.save()
+    def set_rebuttal_agent(self, agent_id: str | None, save: bool = False) -> None:
+        self._custom_rebuttal_agent = agent_id
 
     def configure_paths(
         self,
@@ -231,6 +215,8 @@ class AgentSettingsManager:
         self.default_backup_file = BACKUP_FILE
         self.default_system_agent_settings_file = DEFAULT_SYSTEM_AGENT_SETTINGS_FILE
         self.default_system_agent_backup_file = SYSTEM_AGENT_BACKUP_FILE
+        self._custom_challenger_agent = None
+        self._custom_rebuttal_agent = None
         self.workflow_manager.reset_paths()
 
     @property
@@ -456,14 +442,8 @@ class AgentSettingsManager:
                     "icon_url": cfg["icon_url"].strip(),
                     "is_short_output": is_short,
                     "skills": skills,
-                    "special_role": str(cfg.get("special_role", "NONE")).strip().upper() if str(cfg.get("special_role", "")).strip().upper() in ("NONE", "CHALLENGER", "REBUTTAL") else "NONE",
                     "system_prompt": build_agent_prompt(key, skills=skills, is_short_output=is_short),
                 }
-                if "challenger_priority" in cfg and cfg["challenger_priority"] is not None:
-                    try:
-                        agent_entry["challenger_priority"] = int(cfg["challenger_priority"])
-                    except (ValueError, TypeError):
-                        pass
                 valid_agents[key] = agent_entry
 
         if not valid_agents:
@@ -618,6 +598,12 @@ class AgentSettingsManager:
                             sys_entry["agent_key"] = str(sys_v["agent_key"]).strip()
                         if "is_system_agent" in sys_v:
                             sys_entry["is_system_agent"] = bool(sys_v["is_system_agent"])
+                        if "skills" in sys_v and isinstance(sys_v["skills"], list):
+                            sys_entry["skills"] = [str(s).strip() for s in sys_v["skills"] if isinstance(s, str) and s.strip()]
+                        else:
+                            sys_entry["skills"] = []
+                        if is_dialectical_system_agent(sys_k):
+                            sys_entry["system_prompt"] = build_agent_prompt(sys_k, skills=sys_entry["skills"])
                         if sys_entry:
                             self.system_agents_config[sys_k] = sys_entry
 
@@ -816,14 +802,10 @@ class AgentSettingsManager:
                 "icon_url": v.get("icon_url", ""),
                 "is_short_output": bool(v.get("is_short_output", False)),
                 "skills": list(v.get("skills", [])),
-                "special_role": v.get("special_role", "NONE"),
             }
-            if "challenger_priority" in v and v["challenger_priority"] is not None:
-                try:
-                    agent_payload["challenger_priority"] = int(v["challenger_priority"])
-                except (ValueError, TypeError):
-                    pass
             existing_agent.update(agent_payload)
+            existing_agent.pop("special_role", None)
+            existing_agent.pop("challenger_priority", None)
             data["agents"][k] = existing_agent
         for k in list(data["agents"].keys()):
             if k not in self.agents_config:
@@ -1038,6 +1020,8 @@ class AgentSettingsManager:
         self.fixed_chain = []
         self.workflow_config = DEFAULT_WORKFLOW_ID
         self.active_workflow_id = DEFAULT_WORKFLOW_ID
+        self._custom_challenger_agent = None
+        self._custom_rebuttal_agent = None
         if save:
             self.save()
         logger.info(f"[SETTINGS] Reset all {len(self.enabled_agents)} agents to ENABLED and mode to default review sandwich.")
@@ -1067,7 +1051,7 @@ class AgentSettingsManager:
 
     def get_agent(self, agent_key: str) -> dict[str, Any] | None:
         """Returns the configuration dict for a specific agent key, or None if not found."""
-        return self.agents_config.get(agent_key)
+        return self.agents_config.get(agent_key) or self.system_agents_config.get(agent_key)
 
     def is_system_agent(self, agent_key: str) -> bool:
         """Checks whether the agent is configured as a system agent in settings."""
@@ -1080,7 +1064,7 @@ class AgentSettingsManager:
 
     def get_agent_skills(self, agent_key: str) -> list[str]:
         """Returns the list of equipped skills for an agent."""
-        cfg = self.agents_config.get(agent_key)
+        cfg = self.agents_config.get(agent_key) or self.system_agents_config.get(agent_key)
         if not cfg:
             return []
         return list(cfg.get("skills", []))
@@ -1113,7 +1097,13 @@ class AgentSettingsManager:
                 skills=cfg.get("skills"),
                 is_short_output=bool(cfg.get("is_short_output", False)),
             )
-        logger.info(f"[SETTINGS] Refreshed system prompts for {len(self.agents_config)} agents.")
+        for sys_key, sys_cfg in self.system_agents_config.items():
+            if is_dialectical_system_agent(sys_key):
+                sys_cfg["system_prompt"] = build_agent_prompt(
+                    sys_key,
+                    skills=sys_cfg.get("skills"),
+                )
+        logger.info(f"[SETTINGS] Refreshed system prompts for {len(self.agents_config)} agents and dialectical system agents.")
 
     def set_agent_model(self, agent_key: str, model: str, save: bool = True) -> bool:
         """Sets the LLM model for a panel agent and persists to settings JSON."""
@@ -1340,17 +1330,17 @@ def save_system_agent_settings() -> None:
 
 
 
-def get_challenger_agents() -> list[str]:
-    return settings_manager.get_challenger_agents()
+def get_challenger_agent() -> str:
+    return settings_manager.get_challenger_agent()
 
 
-def set_challenger_agents(agent_ids: list[str], save: bool = True) -> None:
-    settings_manager.set_challenger_agents(agent_ids, save=save)
+def set_challenger_agent(agent_id: str | None, save: bool = False) -> None:
+    settings_manager.set_challenger_agent(agent_id, save=save)
 
 
-def get_rebuttal_agent() -> str | None:
+def get_rebuttal_agent() -> str:
     return settings_manager.get_rebuttal_agent()
 
 
-def set_rebuttal_agent(agent_id: str | None, save: bool = True) -> None:
+def set_rebuttal_agent(agent_id: str | None, save: bool = False) -> None:
     settings_manager.set_rebuttal_agent(agent_id, save=save)

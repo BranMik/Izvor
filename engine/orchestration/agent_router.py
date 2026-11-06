@@ -12,6 +12,7 @@ from agents import (
     trigger_usage_update,
 )
 from core.llm_utils import execute_llm_with_retry
+from core.models import OrchestrationMode
 from orchestration.thread_state import thread_state_manager
 from services.slack import (
     configure_fetch_thread_files,
@@ -124,20 +125,29 @@ def _apply_convergence_stress_test_or_fast_forward(
         thread_state_manager.clear_convergence_speakers(channel_id, thread_ts)
 
     excluded = set(thread_state_manager.get_excluded_agents(channel_id, thread_ts))
-    enabled = set(settings_manager.get_enabled_agents())
 
-    challenger_candidates = [
-        c for c in settings_manager.get_challenger_agents()
-        if c in enabled and c not in excluded
-    ]
+    raw_challenger = settings_manager.get_challenger_agent()
+    challenger_key = raw_challenger if raw_challenger and raw_challenger not in excluded else None
+    challenger_name = (settings_manager.get_agent(challenger_key) or {}).get("displayname") or "Challenger"
+
     raw_rebuttal = settings_manager.get_rebuttal_agent()
-    rebuttal_key = raw_rebuttal if (raw_rebuttal in enabled and raw_rebuttal not in excluded) else None
-    rebuttal_name = (settings_manager.get_agent(rebuttal_key) or {}).get("displayname") or "Rebuttal Agent"
+    rebuttal_key = raw_rebuttal if raw_rebuttal and raw_rebuttal not in excluded else None
+    rebuttal_name = (settings_manager.get_agent(rebuttal_key) or {}).get("displayname") or "Rebuttal Advocate"
     threshold = get_convergence_consecutive_threshold()
     wf_snap = thread_state_manager.get_workflow_snapshot(channel_id, thread_ts)
-    sandwich_cfg = wf_snap.get("sandwich_config") if wf_snap else get_sandwich_config()
-    end_chain = sandwich_cfg.get("end_chain", [])
+    sandwich_cfg = (wf_snap.get("sandwich_config") if wf_snap else None) or get_sandwich_config() or {}
+    end_chain = sandwich_cfg.get("end_chain", []) if isinstance(sandwich_cfg, dict) else []
     remaining = thread_state_manager.get_remaining_agents(channel_id, thread_ts)
+
+    mode = wf_snap.get("mode") if wf_snap else settings_manager.get_orchestration_mode()
+    mode_val = mode.value if isinstance(mode, OrchestrationMode) else str(mode)
+    is_sandwich = mode_val.lower() == OrchestrationMode.SANDWICH.value
+
+    # Fixed-Chain & Small Remaining Pool Guard (Suggestion 2):
+    # Only trigger fast-forward or stress testing in SANDWICH mode or when more than 2 remaining agents exist.
+    # In fixed review chains with <= 2 remaining agents, let the sequence complete naturally.
+    if not is_sandwich and len(remaining) <= 2:
+        return remaining, consecutive_convergence_count
 
     # If stress test is disabled, bypass dialectical challenge injection entirely
     if not is_dialectical_stress_test_enabled():
@@ -174,8 +184,8 @@ def _apply_convergence_stress_test_or_fast_forward(
             )
             return remaining, 0
 
-    # If last speaker was one of the challengers, ensure rebuttal_key is queued next if not already spoken
-    if last_speaker in challenger_candidates:
+    # If last speaker was the Challenger, ensure rebuttal_key is queued next if not already spoken
+    if challenger_key and last_speaker == challenger_key:
         if rebuttal_key and rebuttal_key not in spoken_agents:
             if not remaining or remaining[0] != rebuttal_key:
                 preserved_tail = [a for a in remaining if a != rebuttal_key]
@@ -187,30 +197,28 @@ def _apply_convergence_stress_test_or_fast_forward(
     # Step 2: When consecutive_convergence_count >= threshold
     if consecutive_convergence_count >= threshold:
         converged_speakers = set(thread_state_manager.get_convergence_speakers(channel_id, thread_ts))
-        eligible_challengers = [c for c in challenger_candidates if c not in converged_speakers]
 
-        # Case A — At least one Challenger is eligible (was not part of the current convergence streak)
-        if eligible_challengers:
-            chosen_challenger = eligible_challengers[0]
+        # Case A — Challenger is eligible (was not part of the current convergence streak and hasn't spoken yet in this streak)
+        if challenger_key and challenger_key not in converged_speakers and challenger_key not in spoken_agents:
             preserved_tail = [
-                a for a in remaining if a not in (chosen_challenger, rebuttal_key)
+                a for a in remaining if a not in (challenger_key, rebuttal_key)
             ]
             new_queue = (
-                [chosen_challenger]
-                + ([rebuttal_key] if rebuttal_key else [])
+                [challenger_key]
+                + ([rebuttal_key] if rebuttal_key and rebuttal_key not in spoken_agents else [])
                 + preserved_tail
             )
             thread_state_manager.set_remaining_agents(channel_id, thread_ts, new_queue)
             thread_state_manager.clear_convergence_speakers(channel_id, thread_ts)
             logger.info(
-                f"[CONVERGENCE_FF] Consecutive threshold ({threshold}) met. Stress testing with {chosen_challenger} -> {rebuttal_key}"
+                f"[CONVERGENCE_FF] Consecutive threshold ({threshold}) met. Stress testing with {challenger_key} -> {rebuttal_key}"
             )
             return new_queue, 0
 
-        # Case B — No eligible Challenger (all participated in consensus), and rebuttal_key has NOT spoken yet
+        # Case B — Challenger has already spoken or participated, but rebuttal_key has NOT spoken yet
         if rebuttal_key and rebuttal_key not in spoken_agents:
             preserved_tail = [a for a in remaining if a != rebuttal_key]
-            new_queue = ([rebuttal_key] if rebuttal_key else []) + preserved_tail
+            new_queue = [rebuttal_key] + preserved_tail
             thread_state_manager.set_remaining_agents(channel_id, thread_ts, new_queue)
             thread_state_manager.clear_convergence_speakers(channel_id, thread_ts)
             logger.info(
@@ -218,7 +226,7 @@ def _apply_convergence_stress_test_or_fast_forward(
             )
             return new_queue, 0
 
-        # Case C — Both all Challengers and rebuttal_key have already spoken / participated
+        # Case C — Both Challenger and rebuttal_key have already spoken / participated
         new_queue = [e for e in end_chain if e in remaining or e not in spoken_agents]
         if not new_queue and end_chain:
             new_queue = list(end_chain)

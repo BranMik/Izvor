@@ -148,9 +148,9 @@ async def test_scenario_3_no_agent_tagged_default_flow():
         is_bot_trigger=False,
     )
 
-    # Default starts with Visionary and initializes all panel agents
+    # Default starts with Visionary and initializes all panel agents (16 total - 1 active = 15 remaining)
     assert not thread_state_manager.discussion.is_custom_flow(thread_key[0], thread_key[1])
-    assert len(thread_state_manager.discussion.get_remaining_agents(thread_key[0], thread_key[1])) == 16
+    assert len(thread_state_manager.discussion.get_remaining_agents(thread_key[0], thread_key[1])) == 15
     assert "/[agent-10003]" in posted_messages[0]
 
     # Step 2: Intermediate agent (Monitoring Specialist) tries to prematurely nominate SecurityArchitect
@@ -436,11 +436,11 @@ def test_settings_persistence(tmp_path):
     loaded = load_enabled_agents()
     assert "agent-10011" not in loaded
     assert "agent-10002" not in loaded
-    # Verify locked agents are always present even on reload
+    # Verify locked agents are always present even on reload (16 total - 2 disabled = 14)
     assert "agent-10001" in loaded
     assert "agent-10003" in loaded
     assert "agent-10008" in loaded
-    assert len(loaded) == 15
+    assert len(loaded) == 14
     assert is_circuit_breaker_enabled() is True
     assert get_circuit_breaker_threshold() == 3.50
 

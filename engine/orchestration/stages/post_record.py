@@ -413,7 +413,11 @@ class PostRecordStage:
             ctx.output.is_completed = False
             ctx.output.halted = True
         else:
-            known_agents = set(AGENTS_CONFIG.keys()) | set(settings_manager.get_enabled_agents())
+            known_agents = (
+                set(AGENTS_CONFIG.keys())
+                | set(settings_manager.get_enabled_agents())
+                | set(settings_manager.system_agents_config.keys())
+            )
             has_nominated_next = any(tag in known_agents for tag in ctx.output.generated_tags)
             ctx.output.is_completed = bool(
                 ctx.force_termination
@@ -529,8 +533,11 @@ class PostRecordStage:
                     thread_state_manager.set_remaining_agents(
                         ctx.input.channel_id, ctx.input.thread_ts, ctx.remaining
                     )
+                standby_exclusions = {
+                    k for k in (settings_manager.get_challenger_agent(), settings_manager.get_rebuttal_agent()) if k
+                }
                 other_candidates = [
-                    a for a in ctx.remaining if a != ctx.agent_key
+                    a for a in ctx.remaining if a != ctx.agent_key and a not in standby_exclusions
                 ]
                 if other_candidates:
                     is_first_503_skip = True
@@ -547,8 +554,11 @@ class PostRecordStage:
         next_nomination = None
         if not stop_requested:
             if is_first_503_skip:
+                standby_exclusions = {
+                    k for k in (settings_manager.get_challenger_agent(), settings_manager.get_rebuttal_agent()) if k
+                }
                 other_candidates = [
-                    a for a in ctx.remaining if a != ctx.agent_key
+                    a for a in ctx.remaining if a != ctx.agent_key and a not in standby_exclusions
                 ]
                 if other_candidates:
                     if mode in (OrchestrationMode.FIXED, OrchestrationMode.SANDWICH, OrchestrationMode.SCATTER_GATHER) or ctx.is_custom_flow:
@@ -556,8 +566,9 @@ class PostRecordStage:
                     else:
                         next_agent = random.choice(other_candidates)
                     next_nomination = f"/[{next_agent}]"
-                elif ctx.remaining:
-                    next_agent = ctx.remaining[0]
+                elif [a for a in ctx.remaining if a not in standby_exclusions]:
+                    eligible_remaining = [a for a in ctx.remaining if a not in standby_exclusions]
+                    next_agent = eligible_remaining[0]
                     next_nomination = f"/[{next_agent}]"
             elif ctx.remaining:
                 next_agent = ctx.remaining[0]

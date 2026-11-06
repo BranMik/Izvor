@@ -486,5 +486,40 @@ def test_weekly_pricing_settings_toggle_and_app_home_view():
         assert is_weekly_pricing_update_enabled() is True
 
 
+def test_single_challenger_and_rebuttal_system_agent_ssot():
+    from orchestration.agent_settings import (
+        get_challenger_agent,
+        get_rebuttal_agent,
+        settings_manager,
+    )
+    from services.slack_home import build_app_home_view
+
+    # SSOT singular getters default to system agent keys
+    assert get_challenger_agent() == "Challenger"
+    assert get_rebuttal_agent() == "RebuttalAdvocate"
+
+    # Debate panel agents are strictly 16
+    assert len(settings_manager.agents_config) == 16
+    for agent_key, cfg in settings_manager.agents_config.items():
+        assert "special_role" not in cfg
+        assert "challenger_priority" not in cfg
+
+    # Dialectical system agents exist in system_agents_config
+    assert "Challenger" in settings_manager.system_agents_config
+    assert "RebuttalAdvocate" in settings_manager.system_agents_config
+
+    # Dialectical system agents are excluded from the Slack App Home agent panel list
+    home_view = build_app_home_view()
+    agent_toggle_block_ids = [
+        b.get("block_id")
+        for b in home_view.get("blocks", [])
+        if str(b.get("block_id", "")).startswith("agent_toggle_")
+    ]
+    assert "agent_toggle_Challenger" not in agent_toggle_block_ids
+    assert "agent_toggle_RebuttalAdvocate" not in agent_toggle_block_ids
+    assert len(agent_toggle_block_ids) == 16
+
+
+
 
 

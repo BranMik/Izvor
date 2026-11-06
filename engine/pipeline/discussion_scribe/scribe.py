@@ -27,6 +27,7 @@ _DEFAULT_SCRIBE_PROMPT_FALLBACK = """<system_agent_specification id="Discussion_
        - *Action Items & Next Steps*
     3. Live Note Boundary (CRITICAL): Do NOT include a final conclusion or concluding summary in this live note (final conclusions are synthesized separately in a dedicated conclusion note).
     4. Information Density: Keep all points objective, scannable, and strictly within the requested word ceiling without conversational preamble.
+    5. Strict Speaker Attribution: Attribute viewpoints and perspectives ONLY to agents who have an explicit "[AgentName]:" turn header in the transcript.
   </processing_rules>
 
   <output_contract>
@@ -54,6 +55,7 @@ _DEFAULT_CONCLUSION_PROMPT_FALLBACK = """<system_agent_specification id="Discuss
            - Counter-Arguments: Criticisms, risks, or trade-offs raised by other agents against this position.
          • *Strategic Trade-offs & Key Unresolved Questions*: Critical unresolved tensions or trade-offs between the competing conclusions.
     3. Dialectical Impartiality: Never suppress dissenting or minority viewpoints; represent minority arguments with the same analytical rigor as majority consensus.
+    4. Strict Speaker Attribution: Attribute arguments, positions, and "Supporting Agents" ONLY to agents who have an explicit "[AgentName]:" turn header in the transcript. NEVER attribute viewpoints to agents who were merely nominated or mentioned at the end of another speaker's message but did not actually speak.
   </processing_rules>
 
   <output_contract>
@@ -66,6 +68,17 @@ SCRIBE_DEFAULT_PROMPT = load_system_prompt("Discussion_Scribe_Live", fallback=_D
 SCRIBE_CONCLUSION_PROMPT = load_system_prompt(
     "Discussion_Scribe_Conclusion", fallback=_DEFAULT_CONCLUSION_PROMPT_FALLBACK
 )
+
+
+def _clean_turn_content_for_scribe(content: str) -> str:
+    """Strips trailing agent nomination tags (/[AgentName]) and token footers ({model : tokens}) for clean scribe processing."""
+    if not content:
+        return ""
+    # Strip token stats footer e.g. {gemini-3.8-flash : 210} or {model: tokens}
+    cleaned = re.sub(r"\{\s*[^}]+:\s*\d+\s*\}\s*$", "", content.strip())
+    # Strip trailing nomination tags e.g. /[AgentName], /[agent-10003], / [Agent]
+    cleaned = re.sub(r"/\s*\[\s*[^\]]+\s*\]\s*$", "", cleaned.strip())
+    return cleaned.strip()
 
 
 def _extract_brief_fields(raw_text: str) -> dict[str, Any]:
@@ -310,22 +323,39 @@ class DiscussionScribe:
 
         # Build transcript text for the prompt
         transcript_lines: list[str] = []
+        participating_speakers: list[str] = []
         for item in history:
             if isinstance(item, Turn):
-                transcript_lines.append(f"[{item.speaker}]: {item.content}")
+                role = item.role
+                speaker = item.speaker
+                raw_c = item.content or ""
             elif isinstance(item, dict):
                 role = item.get("role", "user")
                 speaker = item.get("username") or role
-                content = item.get("content") or item.get("text") or ""
-                transcript_lines.append(f"[{speaker}]: {content}")
+                raw_c = item.get("content") or item.get("text") or ""
+            else:
+                continue
+
+            cleaned_c = _clean_turn_content_for_scribe(raw_c)
+            if not cleaned_c:
+                continue
+            transcript_lines.append(f"[{speaker}]: {cleaned_c}")
+            if role == "assistant" and speaker and speaker not in participating_speakers:
+                participating_speakers.append(speaker)
 
         transcript_text = "\n\n".join(transcript_lines)
+        speakers_str = ", ".join(participating_speakers) if participating_speakers else "None"
 
         formatted_messages: list[dict[str, str]] = [
             {"role": "system", "content": f"{self.system_prompt}\n\n{status_directive}"},
             {
                 "role": "user",
-                "content": f"Here is the discussion transcript to synthesize:\n\n{transcript_text}\n\nPlease generate the strategic synthesis notes now.",
+                "content": (
+                    f"PARTICIPATING AGENTS WHO ACTUALLY SPOKE IN THIS TRANSCRIPT: [{speakers_str}]\n"
+                    f"STRICT ATTRIBUTION CONSTRAINT: Attribute viewpoints and perspectives ONLY to agents listed above who actually spoke in the transcript.\n\n"
+                    f"Here is the discussion transcript to synthesize:\n\n{transcript_text}\n\n"
+                    f"Please generate the strategic synthesis notes now."
+                ),
             },
         ]
 
@@ -430,22 +460,39 @@ class DiscussionScribe:
             max_tokens = max(max_tokens, int(scribe_min_words * 4))
 
         transcript_lines: list[str] = []
+        participating_speakers: list[str] = []
         for item in history:
             if isinstance(item, Turn):
-                transcript_lines.append(f"[{item.speaker}]: {item.content}")
+                role = item.role
+                speaker = item.speaker
+                raw_c = item.content or ""
             elif isinstance(item, dict):
                 role = item.get("role", "user")
                 speaker = item.get("username") or role
-                content = item.get("content") or item.get("text") or ""
-                transcript_lines.append(f"[{speaker}]: {content}")
+                raw_c = item.get("content") or item.get("text") or ""
+            else:
+                continue
+
+            cleaned_c = _clean_turn_content_for_scribe(raw_c)
+            if not cleaned_c:
+                continue
+            transcript_lines.append(f"[{speaker}]: {cleaned_c}")
+            if role == "assistant" and speaker and speaker not in participating_speakers:
+                participating_speakers.append(speaker)
 
         transcript_text = "\n\n".join(transcript_lines)
+        speakers_str = ", ".join(participating_speakers) if participating_speakers else "None"
 
         formatted_messages: list[dict[str, str]] = [
             {"role": "system", "content": f"{SCRIBE_CONCLUSION_PROMPT}\n\n{status_directive}"},
             {
                 "role": "user",
-                "content": f"Here is the complete discussion transcript to analyze and conclude:\n\n{transcript_text}\n\nPlease generate the comprehensive Conclusion Note now.",
+                "content": (
+                    f"PARTICIPATING AGENTS WHO ACTUALLY SPOKE IN THIS DELIBERATION: [{speakers_str}]\n"
+                    f"STRICT ATTRIBUTION CONSTRAINT: Attribute opinions, consensus, and opposing arguments ONLY to agents listed in the participating list above who have an explicit turn header in the transcript. NEVER attribute positions or list as 'Supporting Agents' any agent who did not speak in the transcript.\n\n"
+                    f"Here is the complete discussion transcript to analyze and conclude:\n\n{transcript_text}\n\n"
+                    f"Please generate the comprehensive Conclusion Note now."
+                ),
             },
         ]
 

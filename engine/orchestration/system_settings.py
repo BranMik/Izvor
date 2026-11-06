@@ -917,19 +917,19 @@ class SystemSettingsManager:
         if save:
             self.save()
 
-    def get_challenger_agents(self) -> list[str]:
-        from orchestration.agent_settings import get_challenger_agents as _get
+    def get_challenger_agent(self) -> str:
+        from orchestration.agent_settings import get_challenger_agent as _get
         return _get()
 
-    def set_challenger_agents(self, agents: list[str], save: bool = True) -> None:
-        from orchestration.agent_settings import set_challenger_agents as _set
-        _set(agents, save=save)
+    def set_challenger_agent(self, agent: str | None, save: bool = False) -> None:
+        from orchestration.agent_settings import set_challenger_agent as _set
+        _set(agent, save=save)
 
     def get_rebuttal_agent(self) -> str:
         from orchestration.agent_settings import get_rebuttal_agent as _get
         return _get()
 
-    def set_rebuttal_agent(self, agent: str, save: bool = True) -> None:
+    def set_rebuttal_agent(self, agent: str | None, save: bool = False) -> None:
         from orchestration.agent_settings import set_rebuttal_agent as _set
         _set(agent, save=save)
 
@@ -1193,14 +1193,11 @@ def get_security_burst_limits() -> dict[str, Any]:
 
 
 def get_dialectical_stress_test_config() -> dict[str, Any]:
-    from orchestration.agent_settings import get_challenger_agents as _get_challengers, get_rebuttal_agent as _get_rebuttal
+    from orchestration.agent_settings import get_challenger_agent as _get_challenger, get_rebuttal_agent as _get_rebuttal
     system_settings_manager.load()
     cfg = dict(system_settings_manager.dialectical_stress_test)
-    challengers = _get_challengers()
-    rebuttal = _get_rebuttal()
-    cfg["challenger_agents"] = challengers
-    cfg["challenger_agent"] = challengers[0] if challengers else ""
-    cfg["rebuttal_agent"] = rebuttal
+    cfg["challenger_agent"] = _get_challenger() or ""
+    cfg["rebuttal_agent"] = _get_rebuttal() or ""
     return cfg
 
 
@@ -1217,14 +1214,14 @@ def set_convergence_consecutive_threshold(val: int, save: bool = True) -> None:
     system_settings_manager.set_convergence_consecutive_threshold(val, save=save)
 
 
-def get_challenger_agents() -> list[str]:
-    from orchestration.agent_settings import get_challenger_agents as _get
+def get_challenger_agent() -> str:
+    from orchestration.agent_settings import get_challenger_agent as _get
     return _get()
 
 
-def set_challenger_agents(agents: list[str], save: bool = True) -> None:
-    from orchestration.agent_settings import set_challenger_agents as _set
-    _set(agents, save=save)
+def set_challenger_agent(agent: str | None, save: bool = False) -> None:
+    from orchestration.agent_settings import set_challenger_agent as _set
+    _set(agent, save=save)
 
 
 def get_rebuttal_agent() -> str:
@@ -1232,7 +1229,7 @@ def get_rebuttal_agent() -> str:
     return _get()
 
 
-def set_rebuttal_agent(agent: str, save: bool = True) -> None:
+def set_rebuttal_agent(agent: str | None, save: bool = False) -> None:
     from orchestration.agent_settings import set_rebuttal_agent as _set
     _set(agent, save=save)
 

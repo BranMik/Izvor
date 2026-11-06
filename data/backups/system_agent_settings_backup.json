@@ -14,6 +14,30 @@
       "displayname": "Skills Directory Presenter",
       "icon_url": "static/image_99.png",
       "skills": []
+    },
+    "Challenger": {
+      "username": "Challenger",
+      "model": "mistral/mistral-large-latest",
+      "displayname": "Dialectical Challenger",
+      "icon_url": "static/image_18.png",
+      "is_short_output": false,
+      "skills": [
+        "document_reader",
+        "knowledge_base_rag",
+        "control_plane"
+      ]
+    },
+    "RebuttalAdvocate": {
+      "username": "RebuttalAdvocate",
+      "model": "mistral/mistral-large-latest",
+      "displayname": "Rebuttal & Defense Advocate",
+      "icon_url": "static/image_17.png",
+      "is_short_output": false,
+      "skills": [
+        "document_reader",
+        "knowledge_base_rag",
+        "control_plane"
+      ]
     }
   },
   "orchestrator": {
