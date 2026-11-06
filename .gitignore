@@ -49,9 +49,6 @@ data/flat-histories/*
 # Resources sandboxes
 system_resources/*
 agents_resources/*
-!system_resources/.gitkeep
-!system_resources/agy/.gitkeep
-!system_resources/agy/auto/.gitkeep
 !agents_resources/.gitkeep
 tests/e2e/.test_run_counter
 
