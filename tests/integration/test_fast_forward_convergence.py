@@ -15,9 +15,9 @@ from orchestration.app_settings import (
     set_convergence_fast_forward_enabled,
 )
 from orchestration.agent_settings import (
-    get_challenger_agents,
+    get_challenger_agent,
     get_rebuttal_agent,
-    set_challenger_agents,
+    set_challenger_agent,
     set_rebuttal_agent,
 )
 from orchestration.system_settings import (
@@ -33,21 +33,21 @@ def reset_settings_and_thread_state():
     # Save original settings
     orig_ff_enabled = is_convergence_fast_forward_enabled()
     orig_threshold = get_convergence_consecutive_threshold()
-    orig_challengers = get_challenger_agents()
+    orig_challenger = get_challenger_agent()
     orig_rebuttal = get_rebuttal_agent()
 
     # Reset default test values
     set_convergence_fast_forward_enabled(True, save=False)
     set_convergence_consecutive_threshold(2, save=False)
-    set_challenger_agents(["agent-10003", "agent-10002"], save=False)
-    set_rebuttal_agent("agent-10017", save=False)
+    set_challenger_agent("Challenger", save=False)
+    set_rebuttal_agent("RebuttalAdvocate", save=False)
 
     yield
 
     # Restore originals
     set_convergence_fast_forward_enabled(orig_ff_enabled, save=False)
     set_convergence_consecutive_threshold(orig_threshold, save=False)
-    set_challenger_agents(orig_challengers, save=False)
+    set_challenger_agent(orig_challenger, save=False)
     set_rebuttal_agent(orig_rebuttal, save=False)
 
 
@@ -78,8 +78,8 @@ def test_consecutive_convergence_triggers_challenger_rebuttal_stress_test():
             last_turn_converged=True,
         )
 
-        assert new_queue[0] in get_challenger_agents()  # chosen challenger
-        assert new_queue[1] == get_rebuttal_agent()  # rebuttal advocate
+        assert new_queue[0] == get_challenger_agent()  # Challenger
+        assert new_queue[1] == get_rebuttal_agent()  # RebuttalAdvocate
         assert "agent-10005" in new_queue
         assert "agent-10006" in new_queue
 
@@ -94,7 +94,7 @@ def test_rebuttal_advocate_verdict_a_fast_forwards_to_end_chain():
         ["agent-10004", "agent-10005", "agent-10006"],
     )
 
-    spoken_agents = {"agent-10001", "agent-10003", "agent-10017"}
+    spoken_agents = {"agent-10001", "Challenger", "RebuttalAdvocate"}
 
     with patch(
         "orchestration.agent_settings.get_sandwich_config",
@@ -106,7 +106,7 @@ def test_rebuttal_advocate_verdict_a_fast_forwards_to_end_chain():
             thread_ts=thread_ts,
             spoken_agents=spoken_agents,
             consecutive_convergence_count=1,
-            last_speaker="agent-10017",
+            last_speaker="RebuttalAdvocate",
             last_turn_converged=True,
         )
 
@@ -122,7 +122,7 @@ def test_rebuttal_advocate_verdict_b_cancels_fast_forward_and_resumes_middle_poo
     initial_queue = ["agent-10004", "agent-10005", "agent-10006"]
     thread_state_manager.set_remaining_agents(channel_id, thread_ts, list(initial_queue))
 
-    spoken_agents = {"agent-10001", "agent-10003", "agent-10017"}
+    spoken_agents = {"agent-10001", "Challenger", "RebuttalAdvocate"}
 
     with patch(
         "orchestration.agent_settings.get_sandwich_config",
@@ -134,7 +134,7 @@ def test_rebuttal_advocate_verdict_b_cancels_fast_forward_and_resumes_middle_poo
             thread_ts=thread_ts,
             spoken_agents=spoken_agents,
             consecutive_convergence_count=2,
-            last_speaker="agent-10017",
+            last_speaker="RebuttalAdvocate",
             last_turn_converged=False,
         )
 
@@ -307,14 +307,13 @@ def test_consecutive_threshold_three_and_sceptic_early_kickoff_speech():
             last_turn_converged=True,
         )
         assert count == 0
-        # Sceptic (agent-10003) was NOT in the convergence streak, so Sceptic is chosen!
-        assert queue[0] == "agent-10003"
-        assert queue[1] == "agent-10017"  # rebuttal
+        assert queue[0] == "Challenger"
+        assert queue[1] == "RebuttalAdvocate"
 
 
-def test_priority_fallback_to_innovator_when_sceptic_converged():
-    """Verify that when Sceptic was part of the convergence streak, Innovator is selected as challenger."""
-    channel_id = "C_TEST_INNOVATOR_FALLBACK"
+def test_case_b_direct_rebuttal_when_challenger_converged():
+    """Verify that when Challenger was part of the convergence streak, RebuttalAdvocate is injected directly (Case B)."""
+    channel_id = "C_TEST_CHALLENGER_CONV"
     thread_ts = "200.2"
     thread_state_manager.cleanup_thread(channel_id, thread_ts)
 
@@ -323,20 +322,20 @@ def test_priority_fallback_to_innovator_when_sceptic_converged():
     thread_state_manager.set_remaining_agents(
         channel_id,
         thread_ts,
-        ["agent-10005", "agent-10006"],
+        ["agent-10005", "agent-10006", "agent-10007"],
     )
 
     with patch(
         "orchestration.agent_settings.get_sandwich_config",
         return_value={"end_chain": ["agent-10006"]},
     ):
-        # Turn 1: Sceptic (agent-10003) speaks and converges!
+        # Turn 1: Challenger speaks and converges!
         queue, count = _apply_convergence_stress_test_or_fast_forward(
             channel_id=channel_id,
             thread_ts=thread_ts,
-            spoken_agents={"agent-10003"},
+            spoken_agents={"Challenger"},
             consecutive_convergence_count=0,
-            last_speaker="agent-10003",
+            last_speaker="Challenger",
             last_turn_converged=True,
         )
         assert count == 1
@@ -345,12 +344,45 @@ def test_priority_fallback_to_innovator_when_sceptic_converged():
         queue, count = _apply_convergence_stress_test_or_fast_forward(
             channel_id=channel_id,
             thread_ts=thread_ts,
-            spoken_agents={"agent-10003", "agent-10004"},
+            spoken_agents={"Challenger", "agent-10004"},
             consecutive_convergence_count=count,
             last_speaker="agent-10004",
             last_turn_converged=True,
         )
         assert count == 0
-        # Sceptic participated in the convergence streak, so Innovator (agent-10002) is selected!
-        assert queue[0] == "agent-10002"
-        assert queue[1] == "agent-10017"  # rebuttal
+        # Challenger participated in the convergence streak, so RebuttalAdvocate is injected directly!
+        assert queue[0] == "RebuttalAdvocate"
+        assert "agent-10005" in queue
+
+
+def test_fixed_chain_guard_bypasses_fast_forward_on_small_remaining_pool():
+    """Verify that in FIXED mode when len(remaining) <= 2, fast forward and stress testing do not truncate the chain."""
+    channel_id = "C_TEST_FIXED_GUARD"
+    thread_ts = "200.3"
+    thread_state_manager.cleanup_thread(channel_id, thread_ts)
+
+    set_convergence_consecutive_threshold(2, save=False)
+
+    initial_remaining = ["agent-10005", "agent-10006"]
+    thread_state_manager.set_remaining_agents(
+        channel_id,
+        thread_ts,
+        list(initial_remaining),
+    )
+
+    with patch(
+        "orchestration.thread_state.thread_state_manager.get_workflow_snapshot",
+        return_value={"mode": "fixed"},
+    ):
+        # Turn with 2 consecutive convergences:
+        queue, count = _apply_convergence_stress_test_or_fast_forward(
+            channel_id=channel_id,
+            thread_ts=thread_ts,
+            spoken_agents={"agent-10001", "agent-10002"},
+            consecutive_convergence_count=1,
+            last_speaker="agent-10002",
+            last_turn_converged=True,
+        )
+        # Small pool guard in fixed mode returns remaining unchanged!
+        assert queue == initial_remaining
+        assert count == 2

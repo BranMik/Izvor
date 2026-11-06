@@ -28,14 +28,22 @@ class EntityResolver:
             return self._agents_config
         try:
             from orchestration.agent_settings import settings_manager
-            if settings_manager.agents_config:
-                return settings_manager.agents_config
+            agents = dict(settings_manager.agents_config or {})
+            for k in ("Challenger", "RebuttalAdvocate"):
+                if k in settings_manager.system_agents_config:
+                    agents[k] = settings_manager.system_agents_config[k]
+            if agents:
+                return agents
         except (ImportError, AttributeError, TypeError) as e:
             logger.debug(f"[RESOLVER] settings_manager lookup skipped: {e}")
         try:
-            from core.config import AGENTS_CONFIG
-            if AGENTS_CONFIG:
-                return AGENTS_CONFIG
+            from core.config import AGENTS_CONFIG, SYSTEM_AGENTS_CONFIG
+            agents = dict(AGENTS_CONFIG or {})
+            for k in ("Challenger", "RebuttalAdvocate"):
+                if k in SYSTEM_AGENTS_CONFIG:
+                    agents[k] = SYSTEM_AGENTS_CONFIG[k]
+            if agents:
+                return agents
         except (ImportError, AttributeError, TypeError) as e:
             logger.debug(f"[RESOLVER] AGENTS_CONFIG lookup skipped: {e}")
         return {}

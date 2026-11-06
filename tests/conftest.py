@@ -7,6 +7,7 @@ import pytest
 
 from orchestration.agent_settings import (
     BACKUP_FILE as REAL_BACKUP_FILE,
+    DEFAULT_SYSTEM_AGENT_SETTINGS_FILE,
     SETTINGS_FILE as REAL_SETTINGS_FILE,
     SYSTEM_AGENT_BACKUP_FILE as REAL_SYSTEM_AGENT_BACKUP_FILE,
     SYSTEM_AGENT_SETTINGS_FILE as REAL_SYSTEM_AGENT_SETTINGS_FILE,
@@ -87,8 +88,12 @@ def isolate_agent_settings_for_tests(tmp_path):
         shutil.copy2(REAL_BACKUP_FILE, temp_backup)
     if REAL_SYSTEM_AGENT_SETTINGS_FILE.exists():
         shutil.copy2(REAL_SYSTEM_AGENT_SETTINGS_FILE, temp_sys_settings)
+    elif DEFAULT_SYSTEM_AGENT_SETTINGS_FILE.exists():
+        shutil.copy2(DEFAULT_SYSTEM_AGENT_SETTINGS_FILE, temp_sys_settings)
     if REAL_SYSTEM_AGENT_BACKUP_FILE.exists():
         shutil.copy2(REAL_SYSTEM_AGENT_BACKUP_FILE, temp_sys_backup)
+    elif DEFAULT_SYSTEM_AGENT_SETTINGS_FILE.exists():
+        shutil.copy2(DEFAULT_SYSTEM_AGENT_SETTINGS_FILE, temp_sys_backup)
 
     # Isolate workflows directory
     temp_workflows_dir = iso_dir / "workflows"

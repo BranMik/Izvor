@@ -64,6 +64,14 @@ def get_short_output_agents() -> set[str]:
     return set()
 
 
+DIALECTICAL_SYSTEM_AGENTS = {"Challenger", "RebuttalAdvocate"}
+
+
+def is_dialectical_system_agent(agent_key: str) -> bool:
+    """Checks whether an agent is a turn-taking dialectical system agent."""
+    return agent_key in DIALECTICAL_SYSTEM_AGENTS
+
+
 def is_short_output_agent(agent_key: str) -> bool:
     """Checks whether an agent is configured with is_short_output: true dynamically from SSOT."""
     try:
@@ -165,14 +173,15 @@ def build_agent_prompt(
     persona_file_sys = SYSTEM_AGENTS_DIR / f"{agent_key}.md"
     if persona_file_sys.exists():
         persona_content = _read_prompt_file(persona_file_sys)
-        return f"\n{persona_content}\n\n"
+        if not is_dialectical_system_agent(agent_key):
+            return f"\n{persona_content}\n\n"
+    else:
+        persona_file = PERSONAS_DIR / f"{agent_key}.md"
+        persona_content = _read_prompt_file(persona_file)
 
-    persona_file = PERSONAS_DIR / f"{agent_key}.md"
-    persona_content = _read_prompt_file(persona_file)
-
-    # Support agents with self-contained prompts driven by metadata
-    if is_system_agent(agent_key):
-        return f"\n{persona_content}\n\n"
+        # Support agents with self-contained prompts driven by metadata
+        if is_system_agent(agent_key) and not is_dialectical_system_agent(agent_key):
+            return f"\n{persona_content}\n\n"
 
     effective_max = max_words
     effective_min = min_words

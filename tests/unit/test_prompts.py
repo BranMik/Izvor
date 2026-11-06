@@ -12,7 +12,7 @@ AGENTS_CONFIG = get_agents_config()
 
 
 def test_all_agents_configured():
-    assert len(AGENTS_CONFIG) == 17
+    assert len(AGENTS_CONFIG) == 16
 
 
 def test_visionary_prompt_structure():
@@ -31,7 +31,6 @@ def test_cluster1_dialectical_core_xml_structure():
         "agent-10001": "The Visionary",
         "agent-10002": "Innovation Lead",
         "agent-10003": "The Sceptic",
-        "agent-10017": "Rebuttal & Defense Advocate",
     }
     for agent_key, expected_role in cluster1_roles.items():
         prompt = build_agent_prompt(agent_key)
@@ -121,8 +120,8 @@ def test_cluster4_product_ux_execution_revisor_creative_xml_structure():
         assert "You are" not in prompt
 
 
-def test_all_17_personas_enforce_2026_xml_and_zero_you_are():
-    assert len(AGENTS_CONFIG) == 17
+def test_all_16_personas_enforce_2026_xml_and_zero_you_are():
+    assert len(AGENTS_CONFIG) == 16
     for key in AGENTS_CONFIG:
         persona_path = PERSONAS_DIR / f"{key}.md"
         assert persona_path.exists(), f"Missing persona file: {persona_path}"
@@ -149,6 +148,8 @@ def test_all_system_agents_enforce_2026_xml_and_zero_you_are():
         "Intent_Extractor",
         "Language_Detector",
         "Pricing_Agent",
+        "Challenger",
+        "RebuttalAdvocate",
     ]
     for agent_name in system_agents:
         prompt = load_system_prompt(agent_name)
@@ -196,7 +197,7 @@ def test_system_agents_critical_runtime_contracts():
 
 
 def test_all_agents_contain_shared_skills():
-    assert len(AGENTS_CONFIG) == 17
+    assert len(AGENTS_CONFIG) == 16
     assert len(get_short_output_agents()) == 4
 
     for key in AGENTS_CONFIG:
@@ -299,3 +300,14 @@ def test_system_agent_detection_and_prompts():
     prompt = build_agent_prompt("InternalRevisor")
     assert "OUTPUT & LENGTH CONSTRAINTS:" not in prompt
     assert "nominate the next agent" not in prompt
+
+    # Dialectical system agents (Challenger and RebuttalAdvocate) must have shared debate constraints and nomination rules
+    prompt_challenger = build_agent_prompt("Challenger")
+    assert '<system_agent_specification id="Challenger" role="Dialectical Stress-Test Challenger"' in prompt_challenger
+    assert "Hard Limit: Your entire response must strictly NOT exceed 200 words." in prompt_challenger
+    assert "nominate the next agent" in prompt_challenger
+
+    prompt_rebuttal = build_agent_prompt("RebuttalAdvocate")
+    assert '<system_agent_specification id="RebuttalAdvocate" role="Rebuttal & Defense Advocate"' in prompt_rebuttal
+    assert "Hard Limit: Your entire response must strictly NOT exceed 200 words." in prompt_rebuttal
+    assert "nominate the next agent" in prompt_rebuttal

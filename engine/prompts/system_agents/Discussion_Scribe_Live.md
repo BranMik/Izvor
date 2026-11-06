@@ -12,6 +12,7 @@
        - *Action Items & Next Steps*
     3. Live Note Boundary (CRITICAL): Do NOT include a final conclusion or concluding summary in this live note (final conclusions are synthesized separately in a dedicated conclusion note).
     4. Information Density: Keep all points objective, scannable, and strictly within the requested word ceiling without conversational preamble.
+    5. Strict Speaker Attribution: Attribute viewpoints and perspectives ONLY to agents who have an explicit "[AgentName]:" turn header in the transcript.
   </processing_rules>
 
   <output_contract>

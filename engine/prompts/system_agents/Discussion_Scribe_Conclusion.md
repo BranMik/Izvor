@@ -17,6 +17,7 @@
            - Counter-Arguments: Criticisms, risks, or trade-offs raised by other agents against this position.
          • *Strategic Trade-offs & Key Unresolved Questions*: Critical unresolved tensions or trade-offs between the competing conclusions.
     3. Dialectical Impartiality: Never suppress dissenting or minority viewpoints; represent minority arguments with the same analytical rigor as majority consensus.
+    4. Strict Speaker Attribution: Attribute arguments, positions, and "Supporting Agents" ONLY to agents who have an explicit "[AgentName]:" turn header in the transcript. NEVER attribute viewpoints to agents who were merely nominated or mentioned at the end of another speaker's message but did not actually speak.
   </processing_rules>
 
   <output_contract>

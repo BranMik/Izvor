@@ -195,10 +195,11 @@ class ContextPrepStage:
         ctx.next_designated_agent = None
         ctx.eligible_remaining_agents = list(ctx.remaining)
         if not ctx.force_termination and ctx.remaining:
-            from orchestration.agent_settings import get_rebuttal_agent
+            from orchestration.agent_settings import get_challenger_agent, get_rebuttal_agent
 
+            challenger_agent_key = get_challenger_agent()
             rebuttal_agent_key = get_rebuttal_agent()
-            standby_set = {rebuttal_agent_key} if rebuttal_agent_key else set()
+            standby_set = {k for k in (challenger_agent_key, rebuttal_agent_key) if k}
 
             sandwich_cfg = wf_snap.get("sandwich_config") if wf_snap else get_sandwich_config()
             fixed_cfg = wf_snap.get("fixed_config") if wf_snap else settings_manager.get_fixed_config()
@@ -258,15 +259,17 @@ class ContextPrepStage:
 
         mapped_remaining_agents = []
         for k in ctx.eligible_remaining_agents:
-            if k in settings_manager.agents_config:
-                mapped_remaining_agents.append(settings_manager.agents_config[k].get("username", k))
+            agent_data = settings_manager.get_agent(k)
+            if agent_data:
+                mapped_remaining_agents.append(agent_data.get("username", k))
             else:
                 mapped_remaining_agents.append(k)
 
         mapped_next_designated = None
         if ctx.next_designated_agent:
-            if ctx.next_designated_agent in settings_manager.agents_config:
-                mapped_next_designated = settings_manager.agents_config[ctx.next_designated_agent].get("username", ctx.next_designated_agent)
+            agent_data = settings_manager.get_agent(ctx.next_designated_agent)
+            if agent_data:
+                mapped_next_designated = agent_data.get("username", ctx.next_designated_agent)
             else:
                 mapped_next_designated = ctx.next_designated_agent
 

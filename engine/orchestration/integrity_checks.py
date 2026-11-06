@@ -69,7 +69,6 @@ class AppIntegrityValidator:
         payload = copy.deepcopy(payload)
 
         payload = cls.check_required_settings_keys(payload)
-        payload = cls.check_special_roles(payload)
         payload = cls.check_agent_id_format(payload)
         payload = cls.check_duplicate_agent_names(payload)
         payload = cls.check_missing_prompt_files(payload, p_dir)
@@ -115,7 +114,7 @@ class AppIntegrityValidator:
     def check_system_agent_settings_integrity(cls, payload: dict) -> dict:
         """
         Validates system agent settings payload.
-        Ensures orchestrator and system_agents exist.
+        Ensures orchestrator and system_agents exist, and checks for dialectical system agents.
         """
         if not isinstance(payload, dict):
             logger.warning("[INTEGRITY] System agent settings payload is not a dictionary.")
@@ -125,60 +124,15 @@ class AppIntegrityValidator:
             logger.warning("[INTEGRITY] Required setting 'orchestrator' is missing from system_agent_settings.")
         if "system_agents" not in payload:
             logger.warning("[INTEGRITY] Required setting 'system_agents' is missing from system_agent_settings.")
-        return payload
-
-    # ------------------------------------------------------------------
-    # 0b. Agent special roles
-    # ------------------------------------------------------------------
-    @classmethod
-    def check_special_roles(cls, payload: dict) -> dict:
-        """
-        Validates that every agent has a valid special_role ('NONE', 'CHALLENGER', 'REBUTTAL').
-        Normalizes missing/invalid roles to 'NONE' with a WARNING.
-        Logs WARNING if zero CHALLENGER or zero REBUTTAL agents exist,
-        or if multiple REBUTTAL agents exist (noting only the first available will be used).
-        """
-        agents = payload.get("agents")
-        if not isinstance(agents, dict):
-            return payload
-
-        valid_roles = {"NONE", "CHALLENGER", "REBUTTAL"}
-        challengers: list[str] = []
-        rebuttals: list[str] = []
-
-        for aid, acfg in agents.items():
-            if not isinstance(acfg, dict):
-                continue
-            role = acfg.get("special_role")
-            if not role or role not in valid_roles:
-                logger.warning(
-                    "[INTEGRITY] Agent '%s' has missing or invalid special_role '%s'. Normalizing to 'NONE'.",
-                    aid,
-                    role,
-                )
-                acfg["special_role"] = "NONE"
-                role = "NONE"
-
-            if role == "CHALLENGER":
-                challengers.append(aid)
-            elif role == "REBUTTAL":
-                rebuttals.append(aid)
-
-        if not challengers:
-            logger.warning(
-                "[INTEGRITY] Zero agents configured with special_role 'CHALLENGER'. Dialectical stress testing will not activate."
-            )
-        if not rebuttals:
-            logger.warning(
-                "[INTEGRITY] Zero agents configured with special_role 'REBUTTAL'. Dialectical stress testing will not activate."
-            )
-        elif len(rebuttals) > 1:
-            logger.warning(
-                "[INTEGRITY] Multiple agents (%s) configured with special_role 'REBUTTAL'. Only the first available agent (%s) will be used.",
-                rebuttals,
-                rebuttals[0],
-            )
-
+        else:
+            sys_agents = payload.get("system_agents")
+            if isinstance(sys_agents, dict):
+                for req in ("Challenger", "RebuttalAdvocate"):
+                    if req not in sys_agents:
+                        logger.warning(
+                            "[INTEGRITY] Required dialectical system agent '%s' is missing from system_agent_settings.",
+                            req,
+                        )
         return payload
 
     # ------------------------------------------------------------------

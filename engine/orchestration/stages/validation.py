@@ -478,6 +478,7 @@ class ValidationStage:
                 ctx.agent_key = target_override
                 ctx.prompt = ctx.input.raw_text
                 ctx.was_explicit_target = True
+                thread_state_manager.remove_remaining_agent(ctx.input.channel_id, ctx.input.thread_ts, ctx.agent_key)
             else:
                 agent_key, prompt, was_explicit_target = parse_agent_and_prompt(
                     ctx.raw_text_cleaned, ctx.input.channel_id, ctx.input.thread_ts

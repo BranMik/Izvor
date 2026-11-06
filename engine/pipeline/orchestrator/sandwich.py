@@ -76,15 +76,19 @@ class SandwichOrchestrator:
         if not remaining_pool:
             return None, []
 
+        challenger_key: str | None = None
         rebuttal_key: str | None = None
         try:
-            from orchestration.agent_settings import get_rebuttal_agent
+            from orchestration.agent_settings import get_challenger_agent, get_rebuttal_agent
 
+            challenger_key = get_challenger_agent()
             rebuttal_key = get_rebuttal_agent()
         except Exception as e:  # noqa: BLE001
-            logger.debug("Failed to retrieve rebuttal agent: %s", e)
+            logger.debug("Failed to retrieve dialectical agents: %s", e)
 
         standby_set = set(self.standby_agents)
+        if challenger_key:
+            standby_set.add(challenger_key)
         if rebuttal_key:
             standby_set.add(rebuttal_key)
 

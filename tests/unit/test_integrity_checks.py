@@ -278,44 +278,46 @@ class TestRunAllChecks:
 
 
 # ---------------------------------------------------------------------------
-# 8. check_special_roles
+# 8. check_system_agent_settings_integrity
 # ---------------------------------------------------------------------------
 
-class TestSpecialRoles:
-    def test_valid_special_roles_pass(self, caplog):
-        payload = _make_payload("agent-10001", "agent-10002", "agent-10003")
-        payload["agents"]["agent-10001"]["special_role"] = "CHALLENGER"
-        payload["agents"]["agent-10002"]["special_role"] = "REBUTTAL"
-        payload["agents"]["agent-10003"]["special_role"] = "NONE"
-        AppIntegrityValidator.check_special_roles(payload)
+class TestSystemAgentSettingsIntegrity:
+    def test_valid_system_agents_pass(self, caplog):
+        payload = {
+            "orchestrator": {"fast_model": "gemini-flash"},
+            "system_agents": {
+                "Challenger": {"model": "gemini-flash"},
+                "RebuttalAdvocate": {"model": "gemini-flash"},
+            },
+        }
+        AppIntegrityValidator.check_system_agent_settings_integrity(payload)
         assert "INTEGRITY" not in caplog.text
 
-    def test_missing_special_role_warns(self, caplog):
-        payload = _make_payload("agent-10001")
-        # Missing special_role
-        AppIntegrityValidator.check_special_roles(payload)
-        assert "missing or invalid special_role" in caplog.text
+    def test_missing_orchestrator_warns(self, caplog):
+        payload = {
+            "system_agents": {
+                "Challenger": {"model": "gemini-flash"},
+                "RebuttalAdvocate": {"model": "gemini-flash"},
+            },
+        }
+        AppIntegrityValidator.check_system_agent_settings_integrity(payload)
+        assert "Required setting 'orchestrator' is missing" in caplog.text
 
-    def test_invalid_special_role_warns(self, caplog):
-        payload = _make_payload("agent-10001")
-        payload["agents"]["agent-10001"]["special_role"] = "SUPERVISOR"
-        AppIntegrityValidator.check_special_roles(payload)
-        assert "missing or invalid special_role" in caplog.text
+    def test_missing_system_agents_warns(self, caplog):
+        payload = {"orchestrator": {"fast_model": "gemini-flash"}}
+        AppIntegrityValidator.check_system_agent_settings_integrity(payload)
+        assert "Required setting 'system_agents' is missing" in caplog.text
 
-    def test_multiple_rebuttal_agents_warn(self, caplog):
-        payload = _make_payload("agent-10001", "agent-10002", "agent-10003")
-        payload["agents"]["agent-10001"]["special_role"] = "CHALLENGER"
-        payload["agents"]["agent-10002"]["special_role"] = "REBUTTAL"
-        payload["agents"]["agent-10003"]["special_role"] = "REBUTTAL"
-        AppIntegrityValidator.check_special_roles(payload)
-        assert "Multiple agents" in caplog.text and "special_role 'REBUTTAL'" in caplog.text
-
-    def test_zero_challenger_agents_warn(self, caplog):
-        payload = _make_payload("agent-10001", "agent-10002")
-        payload["agents"]["agent-10001"]["special_role"] = "NONE"
-        payload["agents"]["agent-10002"]["special_role"] = "REBUTTAL"
-        AppIntegrityValidator.check_special_roles(payload)
-        assert "Zero agents configured with special_role 'CHALLENGER'" in caplog.text
+    def test_missing_dialectical_system_agent_warns(self, caplog):
+        payload = {
+            "orchestrator": {"fast_model": "gemini-flash"},
+            "system_agents": {
+                "InternalRevisor": {"model": "gemini-flash"},
+            },
+        }
+        AppIntegrityValidator.check_system_agent_settings_integrity(payload)
+        assert "Required dialectical system agent 'Challenger' is missing" in caplog.text
+        assert "Required dialectical system agent 'RebuttalAdvocate' is missing" in caplog.text
 
 
 # ---------------------------------------------------------------------------

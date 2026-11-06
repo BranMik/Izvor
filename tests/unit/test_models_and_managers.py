@@ -302,7 +302,7 @@ def test_nomination_and_entity_resolver():
     # Initial agents with default settings (all enabled)
     initial = get_initial_agents()
     assert isinstance(initial, list)
-    assert len(initial) == 17
+    assert len(initial) == 16
 
     # Tag extraction with exact and partial tags
     tags = entity_resolver.extract_tagged_agents("Hello /[agent-10002] and /[agent-10011]")

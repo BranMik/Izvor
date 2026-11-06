@@ -17,6 +17,7 @@ from dotenv import load_dotenv
 
 from .paths import (
     AGENT_SETTINGS_FILE,
+    DEFAULT_SYSTEM_AGENT_SETTINGS_FILE,
     PROJECT_ROOT,
     PROMPTS_DIR,
     SYSTEM_AGENT_SETTINGS_FILE,
@@ -161,6 +162,8 @@ def _load_system_agents_from_ssot() -> dict[str, dict[str, Any]]:
     """Loads system_agents mapping directly from engine/settings/system_agent_settings.json SSOT."""
     settings_file = SYSTEM_AGENT_SETTINGS_FILE
     if not settings_file.exists():
+        settings_file = DEFAULT_SYSTEM_AGENT_SETTINGS_FILE
+    if not settings_file.exists():
         return {}
     try:
         import json
@@ -196,6 +199,8 @@ def _load_agents_from_ssot() -> dict[str, dict[str, Any]]:
 def _load_orchestrator_from_ssot() -> dict[str, Any]:
     """Loads orchestrator mapping directly from engine/settings/system_agent_settings.json SSOT."""
     settings_file = SYSTEM_AGENT_SETTINGS_FILE
+    if not settings_file.exists():
+        settings_file = DEFAULT_SYSTEM_AGENT_SETTINGS_FILE
     if not settings_file.exists():
         return {}
     try:

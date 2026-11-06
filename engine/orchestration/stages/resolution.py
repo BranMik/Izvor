@@ -64,9 +64,12 @@ class ResolutionStage:
         agents_map = settings_manager.agents_config or AGENTS_CONFIG
 
         if ctx.agent_key not in agents_map:
-            logger.error(
-                f"[ROUTER] Agent '{ctx.agent_key}' not found in configuration."
-            )
+            if ctx.agent_key and ctx.agent_key in settings_manager.system_agents_config:
+                ctx.agent_cfg = settings_manager.system_agents_config[ctx.agent_key]
+            else:
+                logger.error(
+                    f"[ROUTER] Agent '{ctx.agent_key}' not found in configuration."
+                )
             next_candidate = None
             while True:
                 candidate = thread_state_manager.pop_remaining_agent(
