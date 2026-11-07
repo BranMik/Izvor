@@ -3,7 +3,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
-from core.models import ActionDirective, ExtractedIntent, MediaAttachment
+from core.models import INT_MODIFIER_BOUNDS, ActionDirective, ExtractedIntent, MediaAttachment, coerce_int_modifier
 
 from .slash_parser import (
     parse_agent_list,
@@ -47,18 +47,18 @@ class ParsedDirectives:
     @property
     def max_words(self) -> int | None:
         val = self.modifiers.get("max_words")
-        try:
-            return int(val) if val is not None else None
-        except (ValueError, TypeError):
+        if val is None or val == "off":
             return None
+        min_b, max_b = INT_MODIFIER_BOUNDS["max_words"]
+        return coerce_int_modifier(val, min_b, max_b)
 
     @property
     def min_words(self) -> int | None:
         val = self.modifiers.get("min_words")
-        try:
-            return int(val) if val is not None else None
-        except (ValueError, TypeError):
+        if val is None or val == "off":
             return None
+        min_b, max_b = INT_MODIFIER_BOUNDS["min_words"]
+        return coerce_int_modifier(val, min_b, max_b)
 
     @property
     def scribe_max_words(self) -> int | None:
@@ -68,10 +68,10 @@ class ParsedDirectives:
                 if a.name == "scribe_max_words":
                     val = a.params.get("words") or a.params.get("value")
                     break
-        try:
-            return int(val) if val is not None else None
-        except (ValueError, TypeError):
+        if val is None or val == "off":
             return None
+        min_b, max_b = INT_MODIFIER_BOUNDS["scribe_max_words"]
+        return coerce_int_modifier(val, min_b, max_b)
 
     @property
     def scribe_min_words(self) -> int | None:
@@ -81,18 +81,18 @@ class ParsedDirectives:
                 if a.name == "scribe_min_words":
                     val = a.params.get("words") or a.params.get("value")
                     break
-        try:
-            return int(val) if val is not None else None
-        except (ValueError, TypeError):
+        if val is None or val == "off":
             return None
+        min_b, max_b = INT_MODIFIER_BOUNDS["scribe_min_words"]
+        return coerce_int_modifier(val, min_b, max_b)
 
     @property
     def history_limit(self) -> int | None:
         val = self.modifiers.get("history")
-        try:
-            return int(val) if val is not None else None
-        except (ValueError, TypeError):
+        if val is None:
             return None
+        min_b, max_b = INT_MODIFIER_BOUNDS["history"]
+        return coerce_int_modifier(val, min_b, max_b)
 
     @property
     def excluded_agents(self) -> list[str]:

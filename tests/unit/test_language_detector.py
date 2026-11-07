@@ -98,11 +98,11 @@ async def test_detect_language_reasoning_content_fallback():
 
 @pytest.mark.anyio
 async def test_detect_language_llm_fallback_on_error():
-    """When LLM call fails or times out, cleanly falls back to default."""
+    """When LLM call fails, falls back to the deterministic heuristic (then default) instead of blindly defaulting."""
     text = "wie geht es dir heute mein freund"
     with patch("nlp.language_detector.litellm.acompletion", side_effect=Exception("API connection timeout")):
         res = await detect_language_llm(text)
-        assert res == "English"
+        assert res == "English"  # heuristic finds <2 German keywords here, so default applies
 
 
 def test_thread_state_language_management():
@@ -174,3 +174,33 @@ def test_normalize_language_name():
     assert normalize_language_name("francais") == "French"
     assert normalize_language_name("`German`.") == "German"
     assert normalize_language_name("japanese") == "Japanese"
+
+
+@pytest.mark.anyio
+async def test_detect_language_llm_escalates_timeout_then_succeeds():
+    """First classification attempt times out -> re-run once with escalated (x1.5) timeout -> succeeds."""
+    import asyncio
+
+    with patch(
+        "core.llm_utils.execute_llm_with_retry",
+        AsyncMock(side_effect=[asyncio.TimeoutError(), _make_mock_response("Croatian")]),
+    ) as mock_exec:
+        res = await detect_language_llm("Ovo je test na hrvatskom jeziku.", timeout_seconds=0.01)
+
+    assert res == "Croatian"
+    assert mock_exec.call_count == 2  # base attempt + one escalated attempt
+
+
+@pytest.mark.anyio
+async def test_detect_language_llm_timeout_falls_back_to_heuristic():
+    """Both attempts time out -> deterministic heuristic (not a blind English default)."""
+    import asyncio
+
+    with patch(
+        "core.llm_utils.execute_llm_with_retry",
+        AsyncMock(side_effect=asyncio.TimeoutError()),
+    ) as mock_exec:
+        res = await detect_language_llm("Ovo je čisto hrvatski tekst, zar ne?", timeout_seconds=0.01)
+
+    assert res == "Croatian"  # via _heuristic_detect (distinctive č), despite LLM being down
+    assert mock_exec.call_count == 2

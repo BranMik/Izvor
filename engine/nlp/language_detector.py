@@ -246,20 +246,31 @@ def _heuristic_detect(text: str, default: str = "English") -> str:
 async def detect_language_llm(
     text: str,
     model: str | None = None,
-    timeout_seconds: float = 6.0,
+    timeout_seconds: float | None = None,
     default: str = "English",
     thread_key: tuple[str, str] | None = None,
 ) -> str:
     """
     Asynchronously classifies the natural language of input text using an LLM.
     Runs once on the first prompt of a thread.
-    Falls back cleanly to `default` ('English') on any error or timeout.
+    On LLM timeout the call is re-run once with an escalated timeout
+    (timeout_seconds * system_agent_inference_retry_timeout_multiplier).
+    Falls back to the deterministic heuristic, then to `default`, on any error or timeout.
     """
     if is_system_message(text):
         return default
     clean_text = clean_system_and_tags(text)
     if _is_empty_or_pure_code(clean_text):
         return default
+
+    from orchestration.system_settings import (
+        get_system_agent_inference_retry_timeout_multiplier,
+        get_system_agent_inference_timeout_seconds,
+    )
+
+    if timeout_seconds is None:
+        timeout_seconds = get_system_agent_inference_timeout_seconds()
+    retry_multiplier = get_system_agent_inference_retry_timeout_multiplier()
 
     selected_model = model or get_language_detector_model()
     logger.info(
@@ -274,16 +285,29 @@ async def detect_language_llm(
             {"role": "user", "content": clean_text},
         ]
 
-        resp = await asyncio.wait_for(
-            execute_llm_with_retry(
-                litellm.acompletion,
-                kwargs={"model": selected_model, "messages": messages, "num_retries": 1},
-                agent_key="language_detector",
-                thread_key=thread_key or ("system", "language_detector"),
-                max_attempts=2,
-            ),
-            timeout=timeout_seconds,
-        )
+        escalated_timeout = timeout_seconds * retry_multiplier
+        for attempt_timeout in (timeout_seconds, escalated_timeout):
+            try:
+                resp = await asyncio.wait_for(
+                    execute_llm_with_retry(
+                        litellm.acompletion,
+                        kwargs={"model": selected_model, "messages": messages, "num_retries": 1},
+                        agent_key="language_detector",
+                        thread_key=thread_key or ("system", "language_detector"),
+                        max_attempts=2,
+                    ),
+                    timeout=attempt_timeout,
+                )
+                break
+            except (TimeoutError, asyncio.TimeoutError):
+                logger.warning(
+                    f"[LANGUAGE DETECTOR LLM] Classification attempt timed out after {attempt_timeout:.1f}s."
+                )
+        else:
+            logger.warning(
+                f"[LANGUAGE DETECTOR LLM] Timed out even after escalation to {escalated_timeout:.1f}s. Falling back to heuristic."
+            )
+            return _heuristic_detect(clean_text, default=default)
 
         if not resp or not hasattr(resp, "choices") or not resp.choices:
             return default
@@ -320,9 +344,9 @@ async def detect_language_llm(
             f"[LANGUAGE DETECTOR LLM] Classified text ({len(clean_text)} chars) -> {detected} (via {selected_model})"
         )
         return detected or default
-    except Exception as e:  # noqa: BLE001 - Language detection error boundary falls back to default language
-        logger.warning(f"[LANGUAGE DETECTOR LLM] LLM classification failed ({e}). Defaulting to {default}.")
-        return default
+    except Exception as e:  # noqa: BLE001 - Language detection error boundary falls back to heuristic, then default
+        logger.warning(f"[LANGUAGE DETECTOR LLM] LLM classification failed ({e}). Falling back to heuristic.")
+        return _heuristic_detect(clean_text, default=default)
 
 
 def detect_language(text: str, default: str = "English") -> str:

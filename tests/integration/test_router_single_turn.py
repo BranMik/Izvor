@@ -1242,3 +1242,39 @@ async def test_multi_agent_nomination_syntax():
     assert "/[agent-10008]" not in captured_prompt
     assert "/[agent-10003]" not in captured_prompt
     assert "/[agent-10002]" not in captured_prompt
+
+
+@pytest.mark.anyio
+async def test_process_and_respond_persists_string_valued_max_words_from_intent():
+    """LLM-inferred max_words returned as a JSON string ("25") must still be coerced and persisted,
+    so both the prompt-level limit and the mechanical cutoff activate."""
+    thread_state_manager.reset_all()
+
+    channel_id = "C_STR_MAXWORDS"
+    thread_ts = "55555.0001"
+    thread_key = (channel_id, thread_ts)
+    thread_state_manager.discussion.set_remaining_agents(thread_key[0], thread_key[1], ["agent-10008"])
+
+    mock_response = MagicMock()
+    mock_choice = MagicMock()
+    mock_choice.message = MagicMock(content="Kratak odgovor /[agent-10008]", tool_calls=None)
+    mock_response.choices = [mock_choice]
+    mock_response.usage = MagicMock(prompt_tokens=10, completion_tokens=20)
+
+    configure_post_agent_response(AsyncMock(return_value={"ok": True, "ts": thread_ts}))
+    configure_llm_completion_fn(make_mock_acompletion(lambda *a, **k: mock_response))
+    configure_fetch_thread_history(AsyncMock(return_value=[]))
+    configure_record_thread_tokens(MagicMock())
+    configure_intent_extractor(
+        AsyncMock(return_value=ExtractedIntent(modifiers={"max_words": "25"}))
+    )
+
+    res = await process_and_respond(
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        raw_text="Novi test, do 25 rijeci.",
+        is_bot_trigger=False,
+    )
+
+    assert res.get("ok") is True
+    assert thread_state_manager.get_max_words(channel_id, thread_ts) == 25
