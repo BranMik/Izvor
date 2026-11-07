@@ -143,6 +143,38 @@ class ActionDirective:
         )
 
 
+# Clamping bounds for integer-valued prompt modifiers (shared by slash parser, intent extractor, directive handlers)
+INT_MODIFIER_BOUNDS: dict[str, tuple[int, int]] = {
+    "max_words": (1, 2000),
+    "min_words": (1, 1000),
+    "history": (0, 50),
+    "scribe_max_words": (1, 2000),
+    "scribe_min_words": (1, 2000),
+}
+
+
+def coerce_int_modifier(value: Any, min_val: int, max_val: int) -> int | None:
+    """
+    Coerces an LLM-extracted or slash-parsed modifier value to a clamped int.
+    Accepts ints, integral floats, and numeric strings (e.g. "10"); bools are rejected.
+    Returns None when the value is not numeric.
+    """
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        result = value
+    elif isinstance(value, float) and value.is_integer():
+        result = int(value)
+    elif isinstance(value, str):
+        try:
+            result = int(value.strip())
+        except ValueError:
+            return None
+    else:
+        return None
+    return max(min_val, min(max_val, result))
+
+
 @dataclass
 class ExtractedIntent:
     """Represents structured user directives and actions extracted by slash commands or LLM."""

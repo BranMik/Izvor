@@ -8,7 +8,7 @@ import litellm
 
 from core.config import get_intent_extractor_model
 from core.llm_utils import execute_llm_with_retry
-from core.models import ActionDirective, ExtractedIntent
+from core.models import INT_MODIFIER_BOUNDS, ActionDirective, ExtractedIntent, coerce_int_modifier
 from pipeline.directive_parser import is_stop_command
 from pipeline.entity_resolver import entity_resolver
 
@@ -43,6 +43,8 @@ _DEFAULT_EXTRACTOR_PROMPT_FALLBACK = """<system_agent_specification id="Intent_E
 </system_agent_specification>"""
 
 EXTRACTOR_SYSTEM_PROMPT = load_system_prompt("Intent_Extractor", fallback=_DEFAULT_EXTRACTOR_PROMPT_FALLBACK)
+
+_INT_MODIFIER_BOUNDS = INT_MODIFIER_BOUNDS
 
 
 _extractor_override: Any = None
@@ -105,13 +107,25 @@ class IntentExtractor:
         self,
         text: str,
         available_files: list[dict[str, Any]] | None = None,
-        timeout_seconds: float = 15.0,
+        timeout_seconds: float | None = None,
         thread_key: tuple[str, str] | None = None,
     ) -> ExtractedIntent:
         """
         Calls extractor model to parse structured constraints (max_words, history, file_use, target_file, excluded_agents).
         Returns an ExtractedIntent dataclass instance.
+
+        On LLM timeout the call is re-run once with an escalated timeout
+        (timeout_seconds * system_agent_inference_retry_timeout_multiplier) before falling back.
         """
+        from orchestration.system_settings import (
+            get_system_agent_inference_retry_timeout_multiplier,
+            get_system_agent_inference_timeout_seconds,
+        )
+
+        if timeout_seconds is None:
+            timeout_seconds = get_system_agent_inference_timeout_seconds()
+        retry_multiplier = get_system_agent_inference_retry_timeout_multiplier()
+
         if _extractor_override is not None:
             res = _extractor_override(text, available_files=available_files, timeout_seconds=timeout_seconds, thread_key=thread_key)
             if inspect.isawaitable(res):
@@ -137,21 +151,34 @@ class IntentExtractor:
         ]
 
         try:
-            resp = await asyncio.wait_for(
-                execute_llm_with_retry(
-                    func=litellm.acompletion,
-                    kwargs={
-                        "model": self.model,
-                        "messages": messages,
-                        "response_format": {"type": "json_object"},
-                        "num_retries": 1,
-                    },
-                    agent_key="intent_extractor",
-                    thread_key=thread_key or ("system", "intent_extractor"),
-                    max_attempts=2,
-                ),
-                timeout=timeout_seconds,
-            )
+            escalated_timeout = timeout_seconds * retry_multiplier
+            for attempt_timeout in (timeout_seconds, escalated_timeout):
+                try:
+                    resp = await asyncio.wait_for(
+                        execute_llm_with_retry(
+                            func=litellm.acompletion,
+                            kwargs={
+                                "model": self.model,
+                                "messages": messages,
+                                "response_format": {"type": "json_object"},
+                                "num_retries": 1,
+                            },
+                            agent_key="intent_extractor",
+                            thread_key=thread_key or ("system", "intent_extractor"),
+                            max_attempts=2,
+                        ),
+                        timeout=attempt_timeout,
+                    )
+                    break
+                except (TimeoutError, asyncio.TimeoutError):
+                    logger.warning(
+                        f"[INTENT EXTRACTOR] Extraction attempt timed out after {attempt_timeout:.1f}s."
+                    )
+            else:
+                logger.warning(
+                    f"[INTENT EXTRACTOR] Extraction timed out even after escalation to {escalated_timeout:.1f}s. Falling back."
+                )
+                return self._deterministic_fallback(text)
 
             if not resp or not getattr(resp, "choices", None):
                 return default_intent
@@ -182,11 +209,18 @@ class IntentExtractor:
             actions: list[ActionDirective] = []
             modifiers: dict[str, Any] = {}
 
-            # 1. Modifiers from structured "modifiers" sub-dict
+            # 1. Modifiers from structured "modifiers" sub-dict (int modifiers coerced + clamped)
             raw_mods = parsed.get("modifiers")
             if isinstance(raw_mods, dict):
                 for k, v in raw_mods.items():
-                    if v is not None:
+                    if v is None:
+                        continue
+                    bounds = _INT_MODIFIER_BOUNDS.get(k)
+                    if bounds is not None:
+                        coerced = coerce_int_modifier(v, bounds[0], bounds[1])
+                        if coerced is not None:
+                            modifiers[k] = coerced
+                    else:
                         modifiers[k] = v
 
             from core.registry import get_skill_registry
@@ -272,7 +306,7 @@ intent_extractor = IntentExtractor()
 async def extract_intent(
     text: str,
     available_files: list[dict[str, Any]] | None = None,
-    timeout_seconds: float = 15.0,
+    timeout_seconds: float | None = None,
     thread_key: tuple[str, str] | None = None,
 ) -> ExtractedIntent:
     """Module-level convenience delegating to default intent_extractor instance."""

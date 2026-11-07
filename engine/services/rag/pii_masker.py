@@ -290,6 +290,18 @@ class PIIMasker:
             return await asyncio.to_thread(self.mask, text, existing_mapping)
         return self.mask(text, existing_mapping)
 
+    async def warm_up(self) -> None:
+        """
+        Eagerly initializes Presidio/spaCy off the event loop at startup so the first
+        user turn's LLM inference timeout is not consumed by lazy cold-start init.
+        """
+        import asyncio
+
+        if self._presidio_initialized:
+            return
+        await asyncio.to_thread(self._init_presidio_if_available)
+        logger.info("[PII Masker] Warm-up complete (Presidio/spaCy pre-initialized).")
+
     def unmask(self, text: str, token_mapping: dict[str, str]) -> str:
         """
         Restores tokenized PII back to original values in the text using a single-pass compiled regex.

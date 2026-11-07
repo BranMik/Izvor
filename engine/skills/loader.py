@@ -356,6 +356,7 @@ class SkillRegistry:
         prompt_lines = [
             "You are a precise, language-agnostic intent, directive, and parameter extractor for an AI multi-agent Slack platform.",
             "Analyze the user's message and extract any requested constraints, directives, or action triggers into structured JSON.",
+            "Also detect the natural language of the user's message (e.g. \"Croatian\", \"English\", \"German\") and report it in the \"language\" field.",
             "",
             "AVAILABLE SYSTEM SKILLS & DIRECTIVES:",
         ]
@@ -412,7 +413,8 @@ class SkillRegistry:
                 "  },",
                 '  "actions": [',
                 '    { "name": "<skill_name>", "params": { ... } }',
-                "  ]",
+                "  ],",
+                '  "language": "<detected_language_name_or_code>"',
                 "}",
             ]
         )

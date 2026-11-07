@@ -101,6 +101,8 @@ class SystemSettingsModel(BaseModel):
     max_tool_iterations: int = 3
     tool_call_num_retries: int = 2
     word_limit_grace_buffer: int = 50
+    system_agent_inference_timeout_seconds: float = 20.0
+    system_agent_inference_retry_timeout_multiplier: float = 1.5
     guardrail_embedding_cache_size: int = 500
     thread_cleanup_interval_seconds: float = 600.0
     audit_integrity_check_interval_seconds: float = 43200.0
@@ -194,6 +196,8 @@ class SystemSettingsManager:
         self.max_tool_iterations: int = 3
         self.tool_call_num_retries: int = 2
         self.word_limit_grace_buffer: int = 50
+        self.system_agent_inference_timeout_seconds: float = 20.0
+        self.system_agent_inference_retry_timeout_multiplier: float = 1.5
         self.guardrail_embedding_cache_size: int = 500
         self.thread_cleanup_interval_seconds: float = 600.0
         self.audit_integrity_check_interval_seconds: float = 43200.0
@@ -348,6 +352,8 @@ class SystemSettingsManager:
         self.max_tool_iterations = int(model.max_tool_iterations)
         self.tool_call_num_retries = int(model.tool_call_num_retries)
         self.word_limit_grace_buffer = int(model.word_limit_grace_buffer)
+        self.system_agent_inference_timeout_seconds = float(model.system_agent_inference_timeout_seconds)
+        self.system_agent_inference_retry_timeout_multiplier = float(model.system_agent_inference_retry_timeout_multiplier)
         self.guardrail_embedding_cache_size = int(model.guardrail_embedding_cache_size)
         self.thread_cleanup_interval_seconds = float(model.thread_cleanup_interval_seconds)
         self.audit_integrity_check_interval_seconds = float(model.audit_integrity_check_interval_seconds)
@@ -446,6 +452,8 @@ class SystemSettingsManager:
             "max_tool_iterations": self.max_tool_iterations,
             "tool_call_num_retries": self.tool_call_num_retries,
             "word_limit_grace_buffer": self.word_limit_grace_buffer,
+            "system_agent_inference_timeout_seconds": self.system_agent_inference_timeout_seconds,
+            "system_agent_inference_retry_timeout_multiplier": self.system_agent_inference_retry_timeout_multiplier,
             "guardrail_embedding_cache_size": self.guardrail_embedding_cache_size,
             "thread_cleanup_interval_seconds": self.thread_cleanup_interval_seconds,
             "audit_integrity_check_interval_seconds": self.audit_integrity_check_interval_seconds,
@@ -809,6 +817,38 @@ class SystemSettingsManager:
         self.load()
         return int(self.word_limit_grace_buffer)
 
+    def get_system_agent_inference_timeout_seconds(self) -> float:
+        self.load()
+        env_val = os.getenv("IZVOR_SYSTEM_AGENT_INFERENCE_TIMEOUT_SECONDS")
+        if env_val is not None:
+            try:
+                return max(1.0, float(env_val))
+            except ValueError:
+                pass
+        return float(self.system_agent_inference_timeout_seconds)
+
+    def set_system_agent_inference_timeout_seconds(self, seconds: float, save: bool = True) -> None:
+        self.system_agent_inference_timeout_seconds = max(1.0, float(seconds))
+        if save:
+            self.save()
+        logger.info(f"[SYSTEM_SETTINGS] Set system_agent_inference_timeout_seconds to {self.system_agent_inference_timeout_seconds}.")
+
+    def get_system_agent_inference_retry_timeout_multiplier(self) -> float:
+        self.load()
+        env_val = os.getenv("IZVOR_SYSTEM_AGENT_INFERENCE_RETRY_MULTIPLIER")
+        if env_val is not None:
+            try:
+                return max(1.0, float(env_val))
+            except ValueError:
+                pass
+        return float(self.system_agent_inference_retry_timeout_multiplier)
+
+    def set_system_agent_inference_retry_timeout_multiplier(self, multiplier: float, save: bool = True) -> None:
+        self.system_agent_inference_retry_timeout_multiplier = max(1.0, float(multiplier))
+        if save:
+            self.save()
+        logger.info(f"[SYSTEM_SETTINGS] Set system_agent_inference_retry_timeout_multiplier to {self.system_agent_inference_retry_timeout_multiplier}.")
+
     def get_guardrail_embedding_cache_size(self) -> int:
         self.load()
         return int(self.guardrail_embedding_cache_size)
@@ -1118,6 +1158,14 @@ def get_tool_call_num_retries() -> int:
 
 def get_word_limit_grace_buffer() -> int:
     return system_settings_manager.get_word_limit_grace_buffer()
+
+
+def get_system_agent_inference_timeout_seconds() -> float:
+    return system_settings_manager.get_system_agent_inference_timeout_seconds()
+
+
+def get_system_agent_inference_retry_timeout_multiplier() -> float:
+    return system_settings_manager.get_system_agent_inference_retry_timeout_multiplier()
 
 
 def get_guardrail_embedding_cache_size() -> int:

@@ -8,6 +8,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
+from core.models import INT_MODIFIER_BOUNDS, coerce_int_modifier
 from orchestration.agent_settings import get_agents_config
 from orchestration.thread_state import thread_state_manager
 
@@ -396,8 +397,11 @@ async def handle_slash_directives(
             thread_state_manager.clear_max_words(ctx.input.channel_id, ctx.input.thread_ts)
         else:
             logger.warning(f"[VALIDATION] Non-admin '{ctx.input.user_id}' attempted to turn off max_words")
-    elif max_words_val is not None and isinstance(max_words_val, int):
-        thread_state_manager.set_max_words(ctx.input.channel_id, ctx.input.thread_ts, max_words_val)
+    else:
+        min_b, max_b = INT_MODIFIER_BOUNDS["max_words"]
+        coerced = coerce_int_modifier(max_words_val, min_b, max_b) if max_words_val is not None else None
+        if coerced is not None:
+            thread_state_manager.set_max_words(ctx.input.channel_id, ctx.input.thread_ts, coerced)
 
     min_words_val = (ctx.modifiers or {}).get("min_words")
     if min_words_val == "off":
@@ -405,8 +409,11 @@ async def handle_slash_directives(
             thread_state_manager.clear_min_words(ctx.input.channel_id, ctx.input.thread_ts)
         else:
             logger.warning(f"[VALIDATION] Non-admin '{ctx.input.user_id}' attempted to turn off min_words")
-    elif min_words_val is not None and isinstance(min_words_val, int):
-        thread_state_manager.set_min_words(ctx.input.channel_id, ctx.input.thread_ts, min_words_val)
+    else:
+        min_b, max_b = INT_MODIFIER_BOUNDS["min_words"]
+        coerced = coerce_int_modifier(min_words_val, min_b, max_b) if min_words_val is not None else None
+        if coerced is not None:
+            thread_state_manager.set_min_words(ctx.input.channel_id, ctx.input.thread_ts, coerced)
 
     scribe_max_val = (ctx.modifiers or {}).get("scribe_max_words")
     if scribe_max_val is None:
@@ -419,8 +426,11 @@ async def handle_slash_directives(
             thread_state_manager.clear_scribe_max_words(ctx.input.channel_id, ctx.input.thread_ts)
         else:
             logger.warning(f"[VALIDATION] Non-admin '{ctx.input.user_id}' attempted to turn off scribe_max_words")
-    elif scribe_max_val is not None and isinstance(scribe_max_val, int):
-        thread_state_manager.set_scribe_max_words(ctx.input.channel_id, ctx.input.thread_ts, scribe_max_val)
+    else:
+        min_b, max_b = INT_MODIFIER_BOUNDS["scribe_max_words"]
+        coerced = coerce_int_modifier(scribe_max_val, min_b, max_b) if scribe_max_val is not None else None
+        if coerced is not None:
+            thread_state_manager.set_scribe_max_words(ctx.input.channel_id, ctx.input.thread_ts, coerced)
 
     scribe_min_val = (ctx.modifiers or {}).get("scribe_min_words")
     if scribe_min_val is None:
@@ -433,8 +443,11 @@ async def handle_slash_directives(
             thread_state_manager.clear_scribe_min_words(ctx.input.channel_id, ctx.input.thread_ts)
         else:
             logger.warning(f"[VALIDATION] Non-admin '{ctx.input.user_id}' attempted to turn off scribe_min_words")
-    elif scribe_min_val is not None and isinstance(scribe_min_val, int):
-        thread_state_manager.set_scribe_min_words(ctx.input.channel_id, ctx.input.thread_ts, scribe_min_val)
+    else:
+        min_b, max_b = INT_MODIFIER_BOUNDS["scribe_min_words"]
+        coerced = coerce_int_modifier(scribe_min_val, min_b, max_b) if scribe_min_val is not None else None
+        if coerced is not None:
+            thread_state_manager.set_scribe_min_words(ctx.input.channel_id, ctx.input.thread_ts, coerced)
 
     exclude_off = any(a.name == "exclude_agents" and a.params.get("off") for a in ctx.actions)
     if exclude_off:

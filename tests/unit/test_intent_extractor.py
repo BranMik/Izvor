@@ -344,3 +344,122 @@ async def test_validation_stage_locks_language_from_unified_intent_extractor():
     assert thread_state_manager.get_language(channel_id, thread_ts) == "Croatian"
     assert not detect_llm_called, "detect_language_llm should NOT be called when intent extractor detected language"
 
+
+
+@pytest.mark.anyio
+async def test_extract_intent_escalates_timeout_then_succeeds():
+    """First inference attempt times out -> re-run once with escalated (x1.5) timeout -> succeeds."""
+    import asyncio
+
+    mock_resp = MagicMock()
+    mock_resp.choices = [
+        MagicMock(
+            message=MagicMock(
+                content=json.dumps({"language": "Croatian", "modifiers": {"max_words": 10}, "actions": []})
+            )
+        )
+    ]
+    mock_resp.usage = None
+
+    with patch(
+        "nlp.intent_extractor.execute_llm_with_retry",
+        AsyncMock(side_effect=[asyncio.TimeoutError(), mock_resp]),
+    ) as mock_exec:
+        intent = await intent_extractor.extract_intent("Novi test, do 10 rijeci.", timeout_seconds=0.01)
+
+    assert intent.modifiers["max_words"] == 10
+    assert intent.detected_language == "Croatian"
+    assert mock_exec.call_count == 2  # base attempt + one escalated attempt
+
+
+@pytest.mark.anyio
+async def test_extract_intent_timeout_on_all_attempts_falls_back_empty():
+    """Both the base and the escalated attempt time out -> empty deterministic fallback (no NL regex)."""
+    import asyncio
+
+    with patch(
+        "nlp.intent_extractor.execute_llm_with_retry",
+        AsyncMock(side_effect=asyncio.TimeoutError()),
+    ) as mock_exec:
+        intent = await intent_extractor.extract_intent("Novi test, do 10 rijeci.", timeout_seconds=0.01)
+
+    assert intent.modifiers == {}
+    assert intent.actions == []
+    assert mock_exec.call_count == 2
+
+
+@pytest.mark.anyio
+async def test_extract_intent_coerces_and_clamps_string_numeric_modifiers():
+    """LLM-returned numeric strings are coerced to int and clamped to slash-parser bounds."""
+    mock_resp = MagicMock()
+    mock_resp.choices = [
+        MagicMock(
+            message=MagicMock(
+                content=json.dumps(
+                    {
+                        "modifiers": {"max_words": "10", "min_words": "5", "history": "3", "custom_style": "brief"},
+                        "actions": [],
+                    }
+                )
+            )
+        )
+    ]
+    mock_resp.usage = None
+
+    with patch("nlp.intent_extractor.execute_llm_with_retry", AsyncMock(return_value=mock_resp)):
+        intent = await intent_extractor.extract_intent("test", timeout_seconds=0.01)
+
+    assert intent.modifiers["max_words"] == 10 and isinstance(intent.modifiers["max_words"], int)
+    assert intent.modifiers["min_words"] == 5
+    assert intent.modifiers["history"] == 3
+    assert intent.modifiers["custom_style"] == "brief"
+
+    mock_resp2 = MagicMock()
+    mock_resp2.choices = [
+        MagicMock(
+            message=MagicMock(content=json.dumps({"modifiers": {"max_words": "99999", "history": "abc"}, "actions": []}))
+        )
+    ]
+    mock_resp2.usage = None
+    with patch("nlp.intent_extractor.execute_llm_with_retry", AsyncMock(return_value=mock_resp2)):
+        intent2 = await intent_extractor.extract_intent("test", timeout_seconds=0.01)
+
+    assert intent2.modifiers["max_words"] == 2000  # clamped to upper bound
+    assert "history" not in intent2.modifiers  # non-numeric dropped
+
+
+@pytest.mark.anyio
+async def test_extract_intent_default_timeout_and_multiplier_come_from_settings(caplog):
+    """Default timeout (20s) and retry multiplier (x1.5) resolve from system settings, not hardcoded."""
+    import asyncio
+    import logging
+
+    with (
+        patch("orchestration.system_settings.get_system_agent_inference_timeout_seconds", return_value=3.0),
+        patch("orchestration.system_settings.get_system_agent_inference_retry_timeout_multiplier", return_value=2.0),
+        patch("nlp.intent_extractor.execute_llm_with_retry", AsyncMock(side_effect=asyncio.TimeoutError())),
+    ):
+        with caplog.at_level(logging.WARNING, logger="nlp.intent_extractor"):
+            intent = await intent_extractor.extract_intent("test")  # no explicit timeout_seconds
+
+    assert intent.modifiers == {}
+    assert any("timed out after 3.0s" in r.message for r in caplog.records)
+    assert any("escalation to 6.0s" in r.message for r in caplog.records)
+
+
+def test_system_agent_inference_timeout_settings_env_override():
+    """IZVOR_* env vars override the inference timeout settings (DI rule: no monkeypatching managers)."""
+    import os
+
+    from orchestration.system_settings import (
+        get_system_agent_inference_retry_timeout_multiplier,
+        get_system_agent_inference_timeout_seconds,
+    )
+
+    with patch.dict(os.environ, {"IZVOR_SYSTEM_AGENT_INFERENCE_TIMEOUT_SECONDS": "33"}):
+        assert get_system_agent_inference_timeout_seconds() == 33.0
+    with patch.dict(os.environ, {"IZVOR_SYSTEM_AGENT_INFERENCE_RETRY_MULTIPLIER": "2.5"}):
+        assert get_system_agent_inference_retry_timeout_multiplier() == 2.5
+    # Defaults when env vars are absent (patch.dict restores os.environ on exit)
+    assert get_system_agent_inference_timeout_seconds() >= 1.0
+    assert get_system_agent_inference_retry_timeout_multiplier() >= 1.0

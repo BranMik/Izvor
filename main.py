@@ -240,6 +240,7 @@ async def lifespan(app: FastAPI):
     if sys.platform == "win32":
         background_tasks.append(asyncio.create_task(keep_loop_alive(), name="keep_loop_alive"))
     background_tasks.append(asyncio.create_task(pricing_service.warm_up_cache(), name="warmup_cache"))
+    background_tasks.append(asyncio.create_task(pii_masker.warm_up(), name="warmup_pii_masker"))
     background_tasks.append(asyncio.create_task(periodic_thread_state_cleanup(), name="periodic_thread_cleanup"))
     background_tasks.append(asyncio.create_task(periodic_audit_integrity_guard(), name="periodic_audit_guard"))
     background_tasks.append(asyncio.create_task(periodic_retention_prune(), name="periodic_retention_prune"))
