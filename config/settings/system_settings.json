@@ -26,6 +26,8 @@
   "max_tool_iterations": 3,
   "tool_call_num_retries": 2,
   "word_limit_grace_buffer": 50,
+  "system_agent_inference_timeout_seconds": 20.0,
+  "system_agent_inference_retry_timeout_multiplier": 1.5,
   "guardrail_embedding_cache_size": 500,
   "thread_cleanup_interval_seconds": 600.0,
   "audit_integrity_check_interval_seconds": 43200.0,
