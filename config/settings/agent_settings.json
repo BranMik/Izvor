@@ -23,7 +23,7 @@
       "username": "Visionary",
       "model": "gemini/gemini-3.8-flash",
       "displayname": "Visionary",
-      "icon_url": "config/avatars/image_43.png",
+      "icon_url": "avatars/image_43.png",
       "is_short_output": false,
       "skills": []
     },
@@ -31,7 +31,7 @@
       "username": "Innovator",
       "model": "anthropic/claude-opus-5",
       "displayname": "Innovator",
-      "icon_url": "config/avatars/image_02.png",
+      "icon_url": "avatars/image_02.png",
       "is_short_output": false,
       "skills": []
     },
@@ -39,7 +39,7 @@
       "username": "Sceptic",
       "model": "anthropic/claude-opus-5",
       "displayname": "Sceptic",
-      "icon_url": "config/avatars/image_03.png",
+      "icon_url": "avatars/image_03.png",
       "is_short_output": false,
       "skills": []
     },
@@ -47,7 +47,7 @@
       "username": "CompliancePrivacyAndGovernanceOfficer",
       "model": "mistral/mistral-large-latest",
       "displayname": "Compliance, Privacy And Governance Officer",
-      "icon_url": "config/avatars/image_15.png",
+      "icon_url": "avatars/image_15.png",
       "is_short_output": true,
       "skills": []
     },
@@ -55,7 +55,7 @@
       "username": "ScopeOptimizer",
       "model": "mistral/mistral-large-latest",
       "displayname": "Scope Optimizer",
-      "icon_url": "config/avatars/image_24.png",
+      "icon_url": "avatars/image_24.png",
       "is_short_output": true,
       "skills": []
     },
@@ -63,7 +63,7 @@
       "username": "ROIStrategist",
       "model": "gemini/gemini-3.8-flash",
       "displayname": "ROI Strategist",
-      "icon_url": "config/avatars/image_45.png",
+      "icon_url": "avatars/image_45.png",
       "is_short_output": false,
       "skills": [
         "document_authoring",
@@ -75,7 +75,7 @@
       "username": "UserAdvocate",
       "model": "openai/gpt-5.6-terra",
       "displayname": "User Advocate",
-      "icon_url": "config/avatars/image_10.png",
+      "icon_url": "avatars/image_10.png",
       "is_short_output": false,
       "skills": []
     },
@@ -83,7 +83,7 @@
       "username": "SecurityArchitect",
       "model": "mistral/mistral-large-latest",
       "displayname": "Security Architect",
-      "icon_url": "config/avatars/image_34.png",
+      "icon_url": "avatars/image_34.png",
       "is_short_output": false,
       "skills": [
         "document_reader",
@@ -94,7 +94,7 @@
       "username": "MarketAndCompetitionResearchExpert",
       "model": "mistral/mistral-large-latest",
       "displayname": "Market & Competition Research Expert",
-      "icon_url": "config/avatars/image_09.png",
+      "icon_url": "avatars/image_09.png",
       "is_short_output": false,
       "skills": [
         "web_research"
@@ -104,7 +104,7 @@
       "username": "SalesAdvisor",
       "model": "gemini/gemini-3.8-flash",
       "displayname": "Sales Advisor",
-      "icon_url": "config/avatars/image_15.png",
+      "icon_url": "avatars/image_15.png",
       "is_short_output": true,
       "skills": [
         "knowledge_base_rag",
@@ -115,7 +115,7 @@
       "username": "LegalAdvisor",
       "model": "gemini/gemini-3.8-flash",
       "displayname": "Legal Advisor",
-      "icon_url": "config/avatars/image_21.png",
+      "icon_url": "avatars/image_21.png",
       "is_short_output": true,
       "skills": [
         "knowledge_base_rag",
@@ -126,7 +126,7 @@
       "username": "ProductStrategist",
       "model": "openai/gpt-5.6-terra",
       "displayname": "Product Strategist",
-      "icon_url": "config/avatars/image_08.png",
+      "icon_url": "avatars/image_08.png",
       "is_short_output": false,
       "skills": []
     },
@@ -134,7 +134,7 @@
       "username": "RiskAuditor",
       "model": "gemini/gemini-3.8-flash",
       "displayname": "Risk Auditor",
-      "icon_url": "config/avatars/image_17.png",
+      "icon_url": "avatars/image_17.png",
       "is_short_output": false,
       "skills": []
     },
@@ -142,7 +142,7 @@
       "username": "Tactician",
       "model": "gemini/gemini-3.8-flash",
       "displayname": "Tactician",
-      "icon_url": "config/avatars/image_22.png",
+      "icon_url": "avatars/image_22.png",
       "is_short_output": false,
       "skills": []
     },
@@ -150,7 +150,7 @@
       "username": "Revisor",
       "model": "gemini/gemini-3.8-flash",
       "displayname": "Revisor",
-      "icon_url": "config/avatars/image_02.png",
+      "icon_url": "avatars/image_02.png",
       "is_short_output": false,
       "skills": [
         "web_research",
@@ -161,7 +161,7 @@
       "username": "CreativeAdvisor",
       "model": "gemini/gemini-3.8-flash",
       "displayname": "Creative Advisor",
-      "icon_url": "config/avatars/image_12.png",
+      "icon_url": "avatars/image_12.png",
       "is_short_output": false,
       "skills": [
         "document_authoring",

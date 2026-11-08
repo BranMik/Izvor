@@ -4,7 +4,7 @@
       "username": "InternalRevisor",
       "model": "mistral/mistral-small-latest",
       "displayname": "Internal Revisor",
-      "icon_url": "config/avatars/image_99.png",
+      "icon_url": "avatars/image_99.png",
       "is_short_output": true,
       "skills": []
     },
@@ -12,14 +12,14 @@
       "username": "ListSkills",
       "model": "gemini/gemini-3.8-flash",
       "displayname": "Skills Directory Presenter",
-      "icon_url": "config/avatars/image_99.png",
+      "icon_url": "avatars/image_99.png",
       "skills": []
     },
     "Challenger": {
       "username": "Challenger",
       "model": "mistral/mistral-large-latest",
       "displayname": "Dialectical Challenger",
-      "icon_url": "config/avatars/image_18.png",
+      "icon_url": "avatars/image_18.png",
       "is_short_output": false,
       "skills": [
         "document_reader",
@@ -31,7 +31,7 @@
       "username": "RebuttalAdvocate",
       "model": "mistral/mistral-large-latest",
       "displayname": "Rebuttal & Defense Advocate",
-      "icon_url": "config/avatars/image_17.png",
+      "icon_url": "avatars/image_17.png",
       "is_short_output": false,
       "skills": [
         "document_reader",
@@ -45,6 +45,6 @@
     "reasoning_model": "mistral/mistral-large-latest",
     "username": "Orchestrator",
     "displayname": "Orchestrator",
-    "icon_url": "config/avatars/image_99.png"
+    "icon_url": "avatars/image_99.png"
   }
 }
