@@ -23,25 +23,66 @@ def _search_lance_table(table, query_vector: list[float]):
     return table.search(query_vector).metric("cosine").limit(1).to_pandas()
 
 
+# When the guardrail table is missing, re-check at most every N accesses instead of
+# reconnecting on every prompt, while still picking up a table seeded after startup.
+MISSING_TABLE_RETRY_INTERVAL = 20
+
+
 class GuardrailService:
-    def __init__(self, db_dir=LANCEDB_DIR, threshold: float = GUARDRAIL_THRESHOLD):
+    def __init__(
+        self,
+        db_dir=LANCEDB_DIR,
+        threshold: float = GUARDRAIL_THRESHOLD,
+        connect_fn=None,
+    ):
         self.db_dir = db_dir
         self.threshold = threshold
         self.table_name = "guardrail_signatures"
         self._table = None
+        self._connect_fn = connect_fn or lancedb.connect
+        self._table_missing = False
+        self._missing_checks = 0
+
+    @staticmethod
+    def _list_table_names(db) -> list[str]:
+        """Normalizes the lancedb table listing across versions.
+
+        lancedb >= 0.39 `list_tables()` returns a ListTablesResponse object exposing a
+        `.tables` list, while `table_names()` (deprecated) and older `list_tables()`
+        return a plain list of strings.
+        """
+        raw = db.list_tables() if hasattr(db, "list_tables") else db.table_names()
+        tables_attr = getattr(raw, "tables", None)
+        return list(tables_attr) if tables_attr is not None else list(raw)
 
     @property
     def table(self):
-        if self._table is None:
-            try:
-                db = lancedb.connect(str(self.db_dir))
-                tables = db.list_tables() if hasattr(db, "list_tables") else db.table_names()
-                if self.table_name in tables:
-                    self._table = db.open_table(self.table_name)
-                else:
-                    logger.warning(f"Guardrail table '{self.table_name}' not found. Seeding required.")
-            except Exception as e:  # noqa: BLE001
-                logger.error(f"Failed to connect to LanceDB guardrail table: {e}")
+        if self._table is not None:
+            return self._table
+        if self._table_missing and self._missing_checks < MISSING_TABLE_RETRY_INTERVAL:
+            self._missing_checks += 1
+            return None
+        self._missing_checks = 0
+        try:
+            db = self._connect_fn(str(self.db_dir))
+            tables = self._list_table_names(db)
+            if self.table_name in tables:
+                self._table = db.open_table(self.table_name)
+                self._table_missing = False
+                try:
+                    rows = self._table.count_rows()
+                except Exception:  # noqa: BLE001
+                    rows = "?"
+                logger.info(
+                    f"[GUARDRAIL] Prompt-injection guardrail active: table '{self.table_name}' "
+                    f"opened with {rows} signatures (threshold={self.threshold})."
+                )
+            else:
+                self._table_missing = True
+                logger.warning(f"Guardrail table '{self.table_name}' not found. Seeding required.")
+        except Exception as e:  # noqa: BLE001
+            self._table_missing = True
+            logger.error(f"Failed to connect to LanceDB guardrail table: {e}")
         return self._table
 
     async def _get_cached_embedding(self, text: str) -> list[float] | None:
