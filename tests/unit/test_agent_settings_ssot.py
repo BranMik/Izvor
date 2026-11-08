@@ -523,3 +523,43 @@ def test_single_challenger_and_rebuttal_system_agent_ssot():
 
 
 
+
+
+def test_all_ssot_icon_urls_resolve_to_served_avatar_files():
+    """Every icon_url in agent/system-agent SSOTs must point at a PNG served under /avatars or /static."""
+    from core.paths import (
+        AGENT_SETTINGS_FILE,
+        AVATARS_DIR,
+        DEFAULT_SYSTEM_AGENT_SETTINGS_FILE,
+        ENGINE_AVATARS_DIR,
+    )
+
+    served_prefixes = ("avatars/", "static/")
+    search_dirs = (AVATARS_DIR, ENGINE_AVATARS_DIR)
+
+    def iter_icon_urls(obj):
+        if isinstance(obj, dict):
+            for k, v in obj.items():
+                if k == "icon_url":
+                    yield v
+                else:
+                    yield from iter_icon_urls(v)
+        elif isinstance(obj, list):
+            for v in obj:
+                yield from iter_icon_urls(v)
+
+    checked = 0
+    for settings_file in (AGENT_SETTINGS_FILE, DEFAULT_SYSTEM_AGENT_SETTINGS_FILE):
+        data = json.loads(Path(settings_file).read_text(encoding="utf-8"))
+        for icon_url in iter_icon_urls(data):
+            assert isinstance(icon_url, str) and icon_url, f"{settings_file}: bad icon_url {icon_url!r}"
+            assert icon_url.startswith(served_prefixes), (
+                f"{settings_file}: icon_url {icon_url!r} is not under a served mount (/avatars, /static)"
+            )
+            filename = icon_url.rsplit("/", 1)[-1]
+            assert any((d / filename).exists() for d in search_dirs), (
+                f"{settings_file}: avatar file {filename!r} not found in {search_dirs}"
+            )
+            assert resolve_avatar_url(icon_url) == f"{BASE_AVATAR_URL}{icon_url}"
+            checked += 1
+    assert checked >= 20  # 16 panel agents + 5 system/orchestrator entries
