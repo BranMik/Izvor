@@ -524,3 +524,148 @@ async def test_send_admin_audit_alert_uses_admin_ids():
         assert mock_dm.await_count == 2
         called_users = [call[0][0] for call in mock_dm.call_args_list]
         assert called_users == sorted(["U_ADMIN_PRIMARY", "U_ADMIN_SECONDARY"])
+
+
+def test_context_prep_terminal_constraint_for_last_agent_in_fixed_chain():
+    """Plan 05: internal (bot-triggered) turn with exhausted chain must set
+    force_termination so the final agent gets the 'last agent' constraint and
+    answers instead of refusing."""
+    from orchestration.agent_settings import reset_enabled_agents
+    from orchestration.thread_state import thread_state_manager
+    from orchestration.stages.context_prep import ContextPrepStage
+
+    reset_enabled_agents()
+    thread_state_manager.reset_all()
+    channel_id, thread_ts = "C_TERM_BOT", "T_TERM_BOT"
+    thread_state_manager.set_remaining_agents(channel_id, thread_ts, [])
+
+    pipeline = TurnPipeline()
+    stage = ContextPrepStage(pipeline.deps)
+    ctx = TurnContext(
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        raw_text="agent-10014 /[agent-10012]",
+        bot_user_id="U_BOT",
+        agent_key="agent-10012",
+        is_bot_trigger=True,
+        was_explicit_target=True,
+        in_memory_history=[{"role": "user", "content": "what is your agent id, max 2 words"}],
+        agent_cfg={"username": "ProductStrategist", "displayname": "Product Strategist", "skills": [], "system_prompt": "sys"},
+    )
+    ctx.modifiers = {}
+
+    with patch("orchestration.stages.context_prep.build_agent_prompt", return_value="System prompt"), \
+         patch("orchestration.stages.context_prep.build_llm_messages", return_value=[]) as mock_build:
+        asyncio.run(stage.stage_prepare_context(ctx))
+
+    assert ctx.force_termination is True
+    assert mock_build.call_args.kwargs["force_termination"] is True
+    thread_state_manager.reset_all()
+
+
+def test_context_prep_no_terminal_constraint_for_multi_round_restart():
+    """Plan 05: with active_rounds > 1 and empty remaining, the next round must still
+    start (force_termination stays False, next_designated_agent = first of round sequence)."""
+    from orchestration.agent_settings import reset_enabled_agents
+    from orchestration.thread_state import thread_state_manager
+    from orchestration.stages.context_prep import ContextPrepStage
+
+    reset_enabled_agents()
+    thread_state_manager.reset_all()
+    channel_id, thread_ts = "C_TERM_ROUND", "T_TERM_ROUND"
+    thread_state_manager.set_remaining_agents(channel_id, thread_ts, [])
+    thread_state_manager.set_rounds(channel_id, thread_ts, 2)
+    thread_state_manager.set_round_sequence(channel_id, thread_ts, ["agent-10001", "agent-10012"])
+
+    pipeline = TurnPipeline()
+    stage = ContextPrepStage(pipeline.deps)
+    ctx = TurnContext(
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        raw_text="agent-10012 done",
+        bot_user_id="U_BOT",
+        agent_key="agent-10012",
+        is_bot_trigger=True,
+        was_explicit_target=True,
+        in_memory_history=[{"role": "user", "content": "discuss"}],
+        agent_cfg={"username": "ProductStrategist", "displayname": "Product Strategist", "skills": [], "system_prompt": "sys"},
+    )
+    ctx.modifiers = {}
+
+    with patch("orchestration.stages.context_prep.build_agent_prompt", return_value="System prompt"), \
+         patch("orchestration.stages.context_prep.build_llm_messages", return_value=[]):
+        asyncio.run(stage.stage_prepare_context(ctx))
+
+    assert ctx.force_termination is False
+    assert ctx.next_designated_agent == "agent-10001"
+    thread_state_manager.reset_all()
+
+
+def test_context_prep_plain_non_bot_turn_not_terminal():
+    """Plan 05: legacy behavior preserved - a plain non-bot-trigger turn with empty
+    remaining and no explicit target is not force-terminated."""
+    from orchestration.agent_settings import reset_enabled_agents
+    from orchestration.thread_state import thread_state_manager
+    from orchestration.stages.context_prep import ContextPrepStage
+
+    reset_enabled_agents()
+    thread_state_manager.reset_all()
+    channel_id, thread_ts = "C_TERM_PLAIN", "T_TERM_PLAIN"
+    thread_state_manager.set_remaining_agents(channel_id, thread_ts, [])
+
+    pipeline = TurnPipeline()
+    stage = ContextPrepStage(pipeline.deps)
+    ctx = TurnContext(
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        raw_text="hello",
+        bot_user_id="U_BOT",
+        agent_key="agent-10001",
+        is_bot_trigger=False,
+        was_explicit_target=False,
+        in_memory_history=[{"role": "user", "content": "hello"}],
+        agent_cfg={"username": "Visionary", "displayname": "Visionary", "skills": [], "system_prompt": "sys"},
+    )
+    ctx.modifiers = {}
+
+    with patch("orchestration.stages.context_prep.build_agent_prompt", return_value="System prompt"), \
+         patch("orchestration.stages.context_prep.build_llm_messages", return_value=[]):
+        asyncio.run(stage.stage_prepare_context(ctx))
+
+    assert ctx.force_termination is False
+    thread_state_manager.reset_all()
+
+def test_context_prep_bot_turn_with_pending_retry_not_terminal():
+    """Plan 05: a bot-triggered turn with empty remaining but a pending rate-limit retry
+    must NOT be force-terminated, so the retry nomination survives tag stripping."""
+    from orchestration.agent_settings import reset_enabled_agents
+    from orchestration.thread_state import thread_state_manager
+    from orchestration.stages.context_prep import ContextPrepStage
+
+    reset_enabled_agents()
+    thread_state_manager.reset_all()
+    channel_id, thread_ts = "C_TERM_RETRY", "T_TERM_RETRY"
+    thread_state_manager.set_remaining_agents(channel_id, thread_ts, [])
+    thread_state_manager.add_to_retry_queue(channel_id, thread_ts, "agent-10011")
+
+    pipeline = TurnPipeline()
+    stage = ContextPrepStage(pipeline.deps)
+    ctx = TurnContext(
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        raw_text="/[agent-10002] Your turn",
+        bot_user_id="U_BOT",
+        agent_key="agent-10002",
+        is_bot_trigger=True,
+        was_explicit_target=True,
+        in_memory_history=[{"role": "user", "content": "discuss"}],
+        agent_cfg={"username": "Innovator", "displayname": "Innovator", "skills": [], "system_prompt": "sys"},
+    )
+    ctx.modifiers = {}
+
+    with patch("orchestration.stages.context_prep.build_agent_prompt", return_value="System prompt"), \
+         patch("orchestration.stages.context_prep.build_llm_messages", return_value=[]):
+        asyncio.run(stage.stage_prepare_context(ctx))
+
+    assert ctx.force_termination is False
+    thread_state_manager.reset_all()
