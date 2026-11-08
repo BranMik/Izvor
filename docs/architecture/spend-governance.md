@@ -44,13 +44,13 @@ graph TD
 
 ## 🤖 Multi-Tier Pricing Resolution & Fail-Expensive Guardrails
 
-Implemented in [`services/pricing_service.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/services/pricing_service.py), Izvor resolves per-token costs through a hardened multi-tier lookup pipeline:
+Implemented in [`services/pricing_service.py`](file:///engine/services/pricing_service.py), Izvor resolves per-token costs through a hardened multi-tier lookup pipeline:
 
 1. **Tier 1 — Primary Registry Lookup (`litellm.model_cost`)**:
    - Queries LiteLLM's built-in `model_cost` registry first (checking both the full `provider/model` string and the normalized model slug) for immediate, zero-latency pricing.
 2. **Tier 2 — Disk Cache & Autonomous Pricing Researcher Agent**:
    - Checks `data/pricing/model_pricing_cache.json` (TTL configured via `pricing_cache_ttl_days`, default `7` days).
-   - For unindexed models, dispatches the autonomous **Pricing Researcher Agent** ([`prompts/system_agents/Pricing_Agent.md`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/prompts/system_agents/Pricing_Agent.md)), which researches rates from `pricing_benchmark_url` (`"https://artificialanalysis.ai/models"`). Token usage incurred by the Pricing Researcher Agent itself is also recorded in the spend ledger.
+   - For unindexed models, dispatches the autonomous **Pricing Researcher Agent** ([`prompts/system_agents/Pricing_Agent.md`](file:///engine/prompts/system_agents/Pricing_Agent.md)), which researches rates from `pricing_benchmark_url` (`"https://artificialanalysis.ai/models"`). Token usage incurred by the Pricing Researcher Agent itself is also recorded in the spend ledger.
 3. **Strict Price Bounds Validation (`$0.005` – `$500.00` per 1M tokens)**:
    - Any researched or cached rate outside the sanity bounds of **`$0.005` to `$500.00` per 1,000,000 tokens** (`MIN_VALID_PRICE_PER_1M` / `MAX_VALID_PRICE_PER_1M`) is rejected to prevent poisoned web results or zero-cost bypasses.
 4. **Conservative Fail-Expensive Fallback (`$15.00` / `$75.00` per 1M)**:
@@ -75,9 +75,9 @@ CREATE TABLE IF NOT EXISTS spend_ledger (
 );
 ```
 
-In addition to standard persona turns recorded by [`orchestration/stages/post_record.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/orchestration/stages/post_record.py), Izvor also records spend for:
-- **RAG Embedding Calls** ([`services/rag/embeddings.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/services/rag/embeddings.py))
-- **Autonomous Pricing Researcher Calls** ([`services/pricing_service.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/services/pricing_service.py))
+In addition to standard persona turns recorded by [`orchestration/stages/post_record.py`](file:///engine/orchestration/stages/post_record.py), Izvor also records spend for:
+- **RAG Embedding Calls** ([`services/rag/embeddings.py`](file:///engine/services/rag/embeddings.py))
+- **Autonomous Pricing Researcher Calls** ([`services/pricing_service.py`](file:///engine/services/pricing_service.py))
 
 $$\text{Cost} = \frac{\text{Prompt Tokens} \times \text{Rate}_{\text{prompt}} + \text{Completion Tokens} \times \text{Rate}_{\text{completion}}}{1{,}000{,}000}$$
 
@@ -85,13 +85,13 @@ $$\text{Cost} = \frac{\text{Prompt Tokens} \times \text{Rate}_{\text{prompt}} + 
 
 ## ⚡ Two-Tiered Circuit Breaker & Parallel Reservation Protection
 
-Managed by [`SpendGovernance`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/pipeline/spend_governance/circuit_breaker.py) and configured via `data/state/app_settings.json` (or Slack App Home):
+Managed by [`SpendGovernance`](file:///engine/pipeline/spend_governance/circuit_breaker.py) and configured via `data/state/app_settings.json` (or Slack App Home):
 - **`daily_budget_usd`**: Global cap on total workspace spending across all threads within a 24-hour UTC window (e.g., `$10.00`). **Enforced unconditionally on every turn**, even if the per-thread `circuit_breaker_enabled` toggle is set to `false`.
 - **`circuit_breaker_enabled`**: `true` (Enabled by default; controls per-thread threshold enforcement).
 - **`circuit_breaker_threshold_usd`**: Maximum allowed USD cost per individual thread (e.g., `$1.00`).
 
 ### 1. Pre-Turn Gatekeeping in Stage 2 (`ResolutionStage`)
-Before allocating compute or dispatching to an LLM, [`orchestration/stages/resolution.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/orchestration/stages/resolution.py) invokes `spend_governance.is_budget_exceeded()`:
+Before allocating compute or dispatching to an LLM, [`orchestration/stages/resolution.py`](file:///engine/orchestration/stages/resolution.py) invokes `spend_governance.is_budget_exceeded()`:
 1. Evaluates today's UTC aggregate spend (`timestamp >= midnight_utc`) + active in-flight reservations against `daily_budget_usd` (**unconditional**).
 2. If `circuit_breaker_enabled` is `true`, evaluates cumulative thread spend + active thread reservations against `circuit_breaker_threshold_usd`.
 3. If either threshold is breached:
@@ -100,13 +100,13 @@ Before allocating compute or dispatching to an LLM, [`orchestration/stages/resol
    - Terminates the turn immediately without dispatching an LLM call.
 
 ### 2. Parallel Dialectic Budget Reservations (`reserve_budget` / `release_reservation`)
-When running `OrchestrationMode.SCATTER_GATHER` in [`DiscussionLoop`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/orchestration/discussion_loop.py), multiple specialist branches execute concurrently in an `asyncio.TaskGroup`. To prevent N parallel branches from simultaneously passing the pre-turn check and overshooting the budget:
+When running `OrchestrationMode.SCATTER_GATHER` in [`DiscussionLoop`](file:///engine/orchestration/discussion_loop.py), multiple specialist branches execute concurrently in an `asyncio.TaskGroup`. To prevent N parallel branches from simultaneously passing the pre-turn check and overshooting the budget:
 - Each branch calls `reserve_id = spend_governance.reserve_budget(session_id, estimated_cost_usd)` prior to LLM execution.
 - In-flight reservations are included in all thread and daily budget checks.
 - Reservations are deterministically released in a `finally` block via `spend_governance.release_reservation(session_id, reserve_id)` once actual spend is committed to `spend_ledger`.
 
 ### 3. Administrative Override & Resume Action
-When a deliberation is paused by the circuit breaker, authorized workspace administrators (`is_slack_admin`) can click `"Continue Sequence"` (`resume_sequence_action`), handled via [`adapters/slack/actions/workflow_actions.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/adapters/slack/actions/workflow_actions.py), to grant an incremental budget override and resume the paused checkpoint or remaining agent queue.
+When a deliberation is paused by the circuit breaker, authorized workspace administrators (`is_slack_admin`) can click `"Continue Sequence"` (`resume_sequence_action`), handled via [`adapters/slack/actions/workflow_actions.py`](file:///engine/adapters/slack/actions/workflow_actions.py), to grant an incremental budget override and resume the paused checkpoint or remaining agent queue.
 
 ### 4. Intra-Turn Tool-Loop Governance in Stage 4 (`ExecutionStage`)
-To prevent multi-step tool iterations from exceeding budgets mid-turn, [`orchestration/stages/execution.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/orchestration/stages/execution.py) calculates incremental token spend after each tool invocation. If the circuit breaker threshold or daily budget is breached during execution, `ExecutionStage` saves a durable snapshot in `TurnCheckpointStore` and halts gracefully before the next LLM call.
+To prevent multi-step tool iterations from exceeding budgets mid-turn, [`orchestration/stages/execution.py`](file:///engine/orchestration/stages/execution.py) calculates incremental token spend after each tool invocation. If the circuit breaker threshold or daily budget is breached during execution, `ExecutionStage` saves a durable snapshot in `TurnCheckpointStore` and halts gracefully before the next LLM call.

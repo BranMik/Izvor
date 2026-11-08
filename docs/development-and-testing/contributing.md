@@ -22,8 +22,8 @@ Always create an implementation plan first before writing code or modifying exis
 If a requested solution represents poor engineering practice, an architectural antipattern, a security risk (e.g. path traversal, unverified webhooks), or a runaway token cost risk, **do not implement it blindly**. Warn about the downsides, explain why it is inadvisable, and propose 1–2 safer alternatives.
 
 ### 5. Strict Layer Boundaries & Async LLM Enforcement
-- Lower architectural layers (`core`, `nlp`, `pipeline`, `services`) must never import from `orchestration` or `adapters` (enforced by [`tests/unit/test_architecture_layers.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/tests/unit/test_architecture_layers.py)).
-- All runtime LLM and embedding invocations must use async `litellm.acompletion` and `litellm.aembedding` (enforced by [`tests/unit/test_async_llm_enforcement.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/tests/unit/test_async_llm_enforcement.py)).
+- Lower architectural layers (`core`, `nlp`, `pipeline`, `services`) must never import from `orchestration` or `adapters` (enforced by [`tests/unit/test_architecture_layers.py`](file:///tests/unit/test_architecture_layers.py)).
+- All runtime LLM and embedding invocations must use async `litellm.acompletion` and `litellm.aembedding` (enforced by [`tests/unit/test_async_llm_enforcement.py`](file:///tests/unit/test_async_llm_enforcement.py)).
 
 ---
 
@@ -38,9 +38,9 @@ If a requested solution represents poor engineering practice, an architectural a
 
 ### A. Debate Panel Persona (`config/`)
 To introduce or customize a debate panel persona:
-1. **System Prompt**: Add a dedicated markdown prompt file in [`config/personas/`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/config/personas) (e.g., `config/personas/agent-10018.md`) defining the persona's core perspective, biases, and tone.
-2. **Avatar Image**: Place the avatar PNG in [`config/avatars/`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/config/avatars).
-3. **Roster Registration**: Register the agent entry in [`config/settings/agent_settings.json`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/config/settings/agent_settings.json) under `"agents"` (and optionally add its ID to `"enabled_agents"`):
+1. **System Prompt**: Add a dedicated markdown prompt file in [`config/personas/`](file:///config/personas) (e.g., `config/personas/agent-10018.md`) defining the persona's core perspective, biases, and tone.
+2. **Avatar Image**: Place the avatar PNG in [`config/avatars/`](file:///config/avatars).
+3. **Roster Registration**: Register the agent entry in [`config/settings/agent_settings.json`](file:///config/settings/agent_settings.json) under `"agents"` (and optionally add its ID to `"enabled_agents"`):
    - `username`: Canonical identifier (e.g. `DataScientist`).
    - `displayname`: Formatted title (e.g. `Data Scientist`).
    - `model`: Default LLM router string.
@@ -48,37 +48,37 @@ To introduce or customize a debate panel persona:
    - `avatar`: Avatar filename (e.g. `image_18.png`).
    - `skills`: Initial tool permissions (e.g. `["knowledge_base_rag", "web_research"]`).
    - `special_role`: Dialectical role (`"NONE"`, `"CHALLENGER"`, or `"REBUTTAL"`).
-4. **Entity Resolution**: Add aliases or nickname mappings to [`engine/pipeline/entity_resolver`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/pipeline/entity_resolver).
-5. **Tests**: Add unit test verification to [`tests/unit/test_agent_settings_ssot.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/tests/unit/test_agent_settings_ssot.py).
+4. **Entity Resolution**: Add aliases or nickname mappings to [`engine/pipeline/entity_resolver`](file:///engine/pipeline/entity_resolver).
+5. **Tests**: Add unit test verification to [`tests/unit/test_agent_settings_ssot.py`](file:///tests/unit/test_agent_settings_ssot.py).
 
 ### B. Engine System Agent (`engine/`)
 Internal support agents (`Orchestrator`, `Discussion_Scribe`, `Intent_Extractor`, `Language_Detector`, `Pricing_Agent`, `Thread_Notes_Agent`, `Usage_Agent`, `InternalRevisor`, `List_Skills`) are part of the core engine:
-- Their configuration resides in [`engine/settings/system_agent_settings.json`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/settings/system_agent_settings.json).
-- Their prompt templates reside in [`engine/prompts/system_agents/`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/prompts/system_agents).
+- Their configuration resides in [`engine/settings/system_agent_settings.json`](file:///engine/settings/system_agent_settings.json).
+- Their prompt templates reside in [`engine/prompts/system_agents/`](file:///engine/prompts/system_agents).
 
 ---
 
 ## 🛠️ Adding a New Dynamic Skill or Directive
 
- [`SkillRegistry`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/skills/loader.py) discovers skills from two directories:
+ [`SkillRegistry`](file:///engine/skills/loader.py) discovers skills from two directories:
 - **Implementer Tool Skills (`config/skills/<skill_name>/`)**: Tool-backed capabilities (`scope: agent`) that debate personas invoke during deliberations (imported as `config.skills.<skill_name>.tools`).
 - **Engine Built-in Directives & Modifiers (`engine/skills/builtin/<skill_name>/`)**: Core orchestration actions (`scope: orchestrator`), prompt modifiers (`scope: prompt_modifier`), and `control_plane` tools (imported as `skills.builtin.<skill_name>.action` or `.tools`).
 
 To implement a new skill:
 1. **Directory Structure**:
-   - For a new agent tool skill, create [`config/skills/<skill_name>/`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/config/skills) (with an `__init__.py`, `SKILL.md`, and `tools.py`).
-   - For a core engine directive or prompt modifier, create [`engine/skills/builtin/<skill_name>/`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/skills/builtin).
+   - For a new agent tool skill, create [`config/skills/<skill_name>/`](file:///config/skills) (with an `__init__.py`, `SKILL.md`, and `tools.py`).
+   - For a core engine directive or prompt modifier, create [`engine/skills/builtin/<skill_name>/`](file:///engine/skills/builtin).
 2. **`SKILL.md` Manifest**: Define YAML frontmatter with `name`, `display_name`, `description`, `scope`, `triggers`, and tool schemas.
 3. **Execution Logic**:
    - If tool-backed (`scope: agent`), implement `tools.py` and ensure `ToolPrincipal` authorization is respected.
-   - If a slash directive, register the handler in [`engine/orchestration/stages/directive_handlers.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/orchestration/stages/directive_handlers.py) and gate privileged mutations with `require_directive_admin`.
-   - If adding a Slack interactive button or modal, register an `ActionSpec` in [`engine/adapters/slack/interactivity.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/adapters/slack/interactivity.py) and implement the handler under [`engine/adapters/slack/actions/`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/adapters/slack/actions/).
-4. **Validation Test**: Add corresponding test cases in [`tests/unit/test_agent_skills.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/tests/unit/test_agent_skills.py).
+   - If a slash directive, register the handler in [`engine/orchestration/stages/directive_handlers.py`](file:///engine/orchestration/stages/directive_handlers.py) and gate privileged mutations with `require_directive_admin`.
+   - If adding a Slack interactive button or modal, register an `ActionSpec` in [`engine/adapters/slack/interactivity.py`](file:///engine/adapters/slack/interactivity.py) and implement the handler under [`engine/adapters/slack/actions/`](file:///engine/adapters/slack/actions/).
+4. **Validation Test**: Add corresponding test cases in [`tests/unit/test_agent_skills.py`](file:///tests/unit/test_agent_skills.py).
 
 ---
 
 ## 🎨 Code Style & Quality
 
-- Python 3.11+ syntax with explicit type hints (`typing` / built-in generics) configured in [`pyproject.toml`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/pyproject.toml).
+- Python 3.11+ syntax with explicit type hints (`typing` / built-in generics) configured in [`pyproject.toml`](file:///pyproject.toml).
 - Format and lint code using `ruff` and adhere to PEP 8 standards.
 - Run `cmd /c .venv\Scripts\python.exe -u -m pytest` before finalizing any changes.

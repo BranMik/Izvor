@@ -1,15 +1,15 @@
 # Test Suite & Quality Assurance
 
-This document details the test suites, testing practices, and quality assurance mechanisms for **Izvor** located in [`tests/`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/tests).
+This document details the test suites, testing practices, and quality assurance mechanisms for **Izvor** located in [`tests/`](file:///tests).
 
 ---
 
 ## 🧪 Test Suite Overview
 
 Izvor organizes its tests into a clean, 3-tier hierarchy:
-1. **Unit Tests** ([`tests/unit/`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/tests/unit)): 55 fast, isolated component tests verifying models, parsers, policies, security sanitizers, pricing logic, and architectural rules.
-2. **Integration Tests** ([`tests/integration/`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/tests/integration)): 35 multi-component tests verifying SQLite engines, Turn Pipeline lifecycle, Slack interactivity endpoints, RAG Vector DB, HITL checkpoints, and multi-agent loops.
-3. **E2E Behavioral Simulation Harness** ([`tests/e2e/`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/tests/e2e)): 28 comprehensive Slack event, WebClient interception, and dialectical scenario simulations.
+1. **Unit Tests** ([`tests/unit/`](file:///tests/unit)): 55 fast, isolated component tests verifying models, parsers, policies, security sanitizers, pricing logic, and architectural rules.
+2. **Integration Tests** ([`tests/integration/`](file:///tests/integration)): 35 multi-component tests verifying SQLite engines, Turn Pipeline lifecycle, Slack interactivity endpoints, RAG Vector DB, HITL checkpoints, and multi-agent loops.
+3. **E2E Behavioral Simulation Harness** ([`tests/e2e/`](file:///tests/e2e)): 28 comprehensive Slack event, WebClient interception, and dialectical scenario simulations.
 
 ```
 tests/
@@ -102,7 +102,7 @@ cmd /c .venv\Scripts\python.exe -u -m pytest tests/unit/test_code_hygiene.py tes
 
 ## 🛡️ Testing Conventions & Principles
 
-1. **Deterministic Mocking & `InMemoryWorkspaceAdapter`**: Real LLM API calls and Slack HTTP calls must never be executed in standard unit tests. Use [`InMemoryWorkspaceAdapter`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/adapters/slack/workspace_adapter.py), [`PipelineDeps`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/orchestration/protocols.py), and `conftest.py` stubs.
+1. **Deterministic Mocking & `InMemoryWorkspaceAdapter`**: Real LLM API calls and Slack HTTP calls must never be executed in standard unit tests. Use [`InMemoryWorkspaceAdapter`](file:///engine/adapters/slack/workspace_adapter.py), [`PipelineDeps`](file:///engine/orchestration/protocols.py), and `conftest.py` stubs.
 2. **Generation Divergence Tests**: Concurrency tests must verify that incrementing thread generation aborts ongoing background tasks without dangling coroutines.
 3. **Clean Fixture Teardown**: Async tests using `ThreadStateManager`, `TurnTraceRecorder`, or SQLite connections must cleanly close background worker coroutines and reset database connections upon teardown.
-4. **Hygiene & Layer Asserts**: All source and documentation files must conform to [`test_code_hygiene.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/tests/unit/test_code_hygiene.py) and [`test_architecture_layers.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/tests/unit/test_architecture_layers.py), preventing debug print statements, broken markdown file links, legacy brand strings, and upward layer imports.
+4. **Hygiene & Layer Asserts**: All source and documentation files must conform to [`test_code_hygiene.py`](file:///tests/unit/test_code_hygiene.py) and [`test_architecture_layers.py`](file:///tests/unit/test_architecture_layers.py), preventing debug print statements, broken markdown file links, legacy brand strings, and upward layer imports.

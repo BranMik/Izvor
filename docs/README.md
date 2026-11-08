@@ -45,9 +45,9 @@ docs/
 
 ## 🚀 Quick Links
 
-- **New to Izvor?** Check the [Platform Overview](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/docs/getting-started/overview.md) and [Installation Guide](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/docs/getting-started/installation.md).
-- **Connecting Slack?** Follow the [Slack App Setup Guide](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/docs/getting-started/slack-app-setup.md).
-- **Exploring Personas?** Browse the [Personas Catalog](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/docs/agents-and-skills/personas-catalog.md) and [Built-in Skills Reference](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/docs/agents-and-skills/built-in-skills-reference.md).
-- **Understanding Orchestration?** Read [System Design](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/docs/architecture/system-design.md) and [Topologies & Routing](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/docs/architecture/topologies-and-routing.md).
-- **Securing Your Deployment?** Review [Security & Authentication](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/docs/administration-and-security/security-and-auth.md) and [Audit Logging Integrity](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/docs/administration-and-security/audit-logging-integrity.md).
-- **Running Tests?** See the [Test Suite Guide](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/docs/development-and-testing/test-suite.md) and [E2E Testing Harness](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/docs/development-and-testing/e2e-testing-harness.md).
+- **New to Izvor?** Check the [Platform Overview](file:///docs/getting-started/overview.md) and [Installation Guide](file:///docs/getting-started/installation.md).
+- **Connecting Slack?** Follow the [Slack App Setup Guide](file:///docs/getting-started/slack-app-setup.md).
+- **Exploring Personas?** Browse the [Personas Catalog](file:///docs/agents-and-skills/personas-catalog.md) and [Built-in Skills Reference](file:///docs/agents-and-skills/built-in-skills-reference.md).
+- **Understanding Orchestration?** Read [System Design](file:///docs/architecture/system-design.md) and [Topologies & Routing](file:///docs/architecture/topologies-and-routing.md).
+- **Securing Your Deployment?** Review [Security & Authentication](file:///docs/administration-and-security/security-and-auth.md) and [Audit Logging Integrity](file:///docs/administration-and-security/audit-logging-integrity.md).
+- **Running Tests?** See the [Test Suite Guide](file:///docs/development-and-testing/test-suite.md) and [E2E Testing Harness](file:///docs/development-and-testing/e2e-testing-harness.md).

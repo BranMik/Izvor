@@ -6,7 +6,7 @@ This document details how **Izvor** routes conversation turns across multi-agent
 
 ## 🥪 Topologies Supported
 
-Izvor supports three primary orchestration topologies configured via [`core/models.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/core/models.py), executed by [`DiscussionLoop`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/orchestration/discussion_loop.py), and selectable in the Slack App Home:
+Izvor supports three primary orchestration topologies configured via [`core/models.py`](file:///engine/core/models.py), executed by [`DiscussionLoop`](file:///engine/orchestration/discussion_loop.py), and selectable in the Slack App Home:
 
 ```mermaid
 graph TD
@@ -47,7 +47,7 @@ Fixed mode executes an immutable, sequential chain of personas:
 - Ideal for structured code reviews, policy audits, or formal sign-offs.
 
 ### 3. Parallel Dialectic Mode (`OrchestrationMode.SCATTER_GATHER`)
-Parallel dialectic mode executes concurrent exploration with zero anchor bias inside [`DiscussionLoop._run_scatter_gather_phase`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/orchestration/discussion_loop.py):
+Parallel dialectic mode executes concurrent exploration with zero anchor bias inside [`DiscussionLoop._run_scatter_gather_phase`](file:///engine/orchestration/discussion_loop.py):
 - **Parallel Specialists**: Multiple specialist personas explore the topic concurrently in isolated `asyncio.TaskGroup` branches.
 - **Spend Reservation Guard**: Before launching concurrent branches, `SpendGovernance.reserve_budget()` reserves estimated token spend per branch so concurrent execution cannot bypass thread circuit breakers or daily budget limits; reservations are released in a `finally` block via `release_reservation()`.
 - **Anchor Isolation Snapshot**: Each parallel branch receives an immutable snapshot of conversation context (`shared_history_snapshot`), guaranteeing that parallel specialists do not contaminate or bias each other's analysis.
@@ -82,7 +82,7 @@ To prevent premature groupthink while saving tokens once genuine consensus is re
 
 ### Single-Turn Deterministic Direct Tagging
 When a user explicitly tags a specific agent persona in their prompt (e.g., `/[Security Architect] what are the risks here?` or `/[Tactician] estimate the timeline`), the orchestration engine recognizes a targeted single-agent query:
-- In [`ValidationStage`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/orchestration/stages/validation.py), the tagged persona is resolved into `ctx.agent_key`, `ctx.remaining = []`, and `ctx.custom_flow = True`.
+- In [`ValidationStage`](file:///engine/orchestration/stages/validation.py), the tagged persona is resolved into `ctx.agent_key`, `ctx.remaining = []`, and `ctx.custom_flow = True`.
 - The pipeline executes solely that persona for a single, focused turn.
 - It halts cleanly without triggering sequential cascades, multi-turn panel debates, or Scribe synthesis.
 
@@ -101,7 +101,7 @@ Could /[Tactician] or /[Product Strategist] evaluate the migration effort?
 ```
 
 ### Extraction & Resolution
-- **Canonical Regex**: `NOMINATION_TAG_REGEX` (aliased as `NOMINATION_TAG_RE` in [`pipeline/entity_resolver/resolver.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/pipeline/entity_resolver/resolver.py)) matches `/[\s*([^\]\r\n]+?)\s*\]` compiled with `re.UNICODE`, safely recognizing international characters and diacritics (e.g., `č`, `ć`, `š`, `ž`).
+- **Canonical Regex**: `NOMINATION_TAG_REGEX` (aliased as `NOMINATION_TAG_RE` in [`pipeline/entity_resolver/resolver.py`](file:///engine/pipeline/entity_resolver/resolver.py)) matches `/[\s*([^\]\r\n]+?)\s*\]` compiled with `re.UNICODE`, safely recognizing international characters and diacritics (e.g., `č`, `ć`, `š`, `ž`).
 - **Formatting Helper**: `format_nomination(agent_key)` formats any raw agent key into canonical tag syntax (e.g., `/[agent_key]`).
 - **Candidate Filtering**:
   - The currently speaking persona cannot nominate itself.
@@ -110,7 +110,7 @@ Could /[Tactician] or /[Product Strategist] evaluate the migration effort?
 
 ### Candidate Validation Fallback Loop
 To prevent unhandled `KeyError` crashes when an agent accidentally nominates a nonexistent, misspelt, or disabled persona:
-1. [`ResolutionStage`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/orchestration/stages/resolution.py) checks if `ctx.agent_key` exists in `settings_manager.agents_config`.
+1. [`ResolutionStage`](file:///engine/orchestration/stages/resolution.py) checks if `ctx.agent_key` exists in `settings_manager.agents_config`.
 2. If absent, it enters an iterative fallback loop, continuously popping candidates from `ThreadStateManager.pop_remaining_agent()` until an active, configured agent is found.
 3. If no remaining candidates match, it safely falls back to default rotation or cleanly terminates the debate round.
 
@@ -118,7 +118,7 @@ To prevent unhandled `KeyError` crashes when an agent accidentally nominates a n
 
 ## 🎯 Entity Resolution Engine
 
-Users and agents may refer to personas by nick-names, partial titles, or informal roles. The [`EntityResolver`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/pipeline/entity_resolver/resolver.py) maps informal mentions to canonical persona identifiers:
+Users and agents may refer to personas by nick-names, partial titles, or informal roles. The [`EntityResolver`](file:///engine/pipeline/entity_resolver/resolver.py) maps informal mentions to canonical persona identifiers:
 
 | Input Mention | Resolved Persona | Matching Rule |
 |---|---|---|
@@ -135,8 +135,8 @@ Users and agents may refer to personas by nick-names, partial titles, or informa
 To prevent LLM API rate-limit spikes and avoid overwhelming Slack users with an instant wall of text, Izvor enforces controlled pacing between turns:
 
 1. **`debate_turn_pacing_seconds`** (default: `3.0`):
-   - Configured in [`config/settings/system_settings.json`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/config/settings/system_settings.json).
+   - Configured in [`config/settings/system_settings.json`](file:///config/settings/system_settings.json).
    - An asynchronous sleep between consecutive agent turns in a thread.
 2. **`slack_post_pause_seconds`** (default: `2.0`):
-   - Configured in [`config/settings/system_settings.json`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/config/settings/system_settings.json).
+   - Configured in [`config/settings/system_settings.json`](file:///config/settings/system_settings.json).
    - A brief deliberate pause immediately before posting to Slack, giving the visual appearance of real-time typing and conversational cadence.
