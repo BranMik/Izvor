@@ -103,6 +103,159 @@ _PII_PATTERNS: list[tuple[re.Pattern, str]] = [
     ),
 ]
 
+_PRESIDIO_ALLOWLIST_LOWER: set[str] = {
+    # Directive & modifier vocabulary
+    "max",
+    "min",
+    "maximum",
+    "minimum",
+    "words",
+    "word",
+    "rounds",
+    "round",
+    "history",
+    "first",
+    "stop",
+    "exclude",
+    "include",
+    "revoke",
+    "grant",
+    "scribe",
+    "off",
+    "all",
+    "int",
+    "int_or_off",
+    "target_file",
+    "file_use",
+    # Platform, provider & technical vocabulary
+    "izvor",
+    "slack",
+    "ai",
+    "llm",
+    "llms",
+    "json",
+    "yaml",
+    "markdown",
+    "pdf",
+    "api",
+    "apis",
+    "sql",
+    "sqlite",
+    "html",
+    "css",
+    "http",
+    "https",
+    "url",
+    "uri",
+    "cli",
+    "ui",
+    "ux",
+    "sdk",
+    "rag",
+    "mcp",
+    "pii",
+    "rbac",
+    "hitl",
+    "jwt",
+    "oauth",
+    "sso",
+    "tls",
+    "ssl",
+    "dns",
+    "tcp",
+    "udp",
+    "quic",
+    "ip",
+    "ipv4",
+    "ipv6",
+    "cpu",
+    "gpu",
+    "ram",
+    "windows",
+    "linux",
+    "docker",
+    "git",
+    "github",
+    "python",
+    "fastapi",
+    "pydantic",
+    "litellm",
+    "presidio",
+    "lancedb",
+    "gemini",
+    "claude",
+    "anthropic",
+    "openai",
+    "mistral",
+    "groq",
+    "meta",
+    "require",
+    "operations",
+}
+
+_PROTECTED_SPAN_PATTERNS: list[re.Pattern] = [
+    # Already-tokenized placeholders (e.g. <EMAIL_0>, <REDACTED_SECRET_1>)
+    re.compile(r"<[A-Z][A-Z0-9_]*_\d+>"),
+    # Slack user/channel/subteam mentions (<@U...>, <!subteam^...>, <#C...>)
+    re.compile(r"<[@#!][A-Za-z0-9_|.-]+>"),
+    # Bracketed agent tags and slash directives: /[Visionary], [agent-10001], /max, etc.
+    re.compile(r"/?\[[^\]\r\n]+\]"),
+    re.compile(r"(?:^|(?<=\s))/[a-zA-Z0-9_-]+"),
+    # Quantitative bound expressions where max/min precedes or follows numbers/units
+    re.compile(
+        r"\b(?:max|min|maximum|minimum)\b(?:\s*[:=]?\s*\d+|\s+(?:words?|chars?|characters?|lines?|sentences?|paragraphs?|tokens?|rounds?|messages?|turns?)\b)",
+        re.IGNORECASE,
+    ),
+]
+
+
+def _get_dynamic_protected_terms() -> set[str]:
+    """Collects lowercase agent keys, usernames, displaynames, and skill names to prevent masking."""
+    terms: set[str] = set()
+    try:
+        from core.config import AGENTS_CONFIG
+
+        for k, v in AGENTS_CONFIG.items():
+            terms.add(k.lower())
+            if isinstance(v, dict):
+                if v.get("username"):
+                    terms.add(v["username"].lower())
+                if v.get("displayname"):
+                    terms.add(v["displayname"].lower())
+                    for word in v["displayname"].lower().split():
+                        terms.add(word)
+    except Exception:
+        pass
+    try:
+        from orchestration.agent_settings import settings_manager
+
+        cfg = settings_manager.get_agents_config()
+        if cfg:
+            for k, v in cfg.items():
+                terms.add(k.lower())
+                if isinstance(v, dict):
+                    if v.get("username"):
+                        terms.add(v["username"].lower())
+                    if v.get("displayname"):
+                        terms.add(v["displayname"].lower())
+                        for word in v["displayname"].lower().split():
+                            terms.add(word)
+    except Exception:
+        pass
+    try:
+        from core.registry import get_skill_registry
+
+        reg = get_skill_registry()
+        for s in reg.list_skills():
+            terms.add(s.name.lower())
+            if s.display_name:
+                terms.add(s.display_name.lower())
+                for word in s.display_name.lower().split():
+                    terms.add(word)
+    except Exception:
+        pass
+    return terms
+
 
 class PIIMasker:
     """
@@ -130,10 +283,28 @@ class PIIMasker:
                     nlp_configuration={
                         "nlp_engine_name": "spacy",
                         "models": [{"lang_code": "en", "model_name": "en_core_web_sm"}],
+                        "ner_model_configuration": {
+                            "labels_to_ignore": [
+                                "CARDINAL",
+                                "ORDINAL",
+                                "MONEY",
+                                "QUANTITY",
+                                "PERCENT",
+                                "WORK_OF_ART",
+                                "LANGUAGE",
+                                "LAW",
+                                "EVENT",
+                                "FAC",
+                                "PRODUCT",
+                                "NORP",
+                                "DATE",
+                                "TIME",
+                            ]
+                        },
                     }
                 )
                 nlp_engine = provider.create_engine()
-                self._presidio_analyzer = AnalyzerEngine(nlp_engine=nlp_engine)
+                self._presidio_analyzer = AnalyzerEngine(nlp_engine=nlp_engine, supported_languages=["en"])
                 logger.info("[PII Masker] Microsoft Presidio (en_core_web_sm) successfully initialized.")
             except ImportError:
                 logger.debug("[PII Masker] Presidio not installed; using built-in high-performance regex engine.")
@@ -246,6 +417,41 @@ class PIIMasker:
                     language="en",
                 )
                 if results:
+                    # Pre-compute protected spans to avoid false positives or re-slicing
+                    protected_intervals: list[tuple[int, int]] = []
+                    for p_pat in _PROTECTED_SPAN_PATTERNS:
+                        for m in p_pat.finditer(masked_text):
+                            protected_intervals.append((m.start(), m.end()))
+
+                    dynamic_terms = _get_dynamic_protected_terms()
+                    effective_allowlist = _PRESIDIO_ALLOWLIST_LOWER | dynamic_terms
+
+                    filtered_results = []
+                    for res in results:
+                        original_str = masked_text[res.start : res.end]
+                        # Reject span if it overlaps any protected pattern interval
+                        if any(res.start < end and res.end > start for start, end in protected_intervals):
+                            continue
+
+                        # For named entities (PERSON, LOCATION, ORGANIZATION), apply syntactic & semantic guards
+                        if res.entity_type in ("PERSON", "LOCATION", "ORGANIZATION"):
+                            # 1. Require at least one uppercase letter (named entities must not be pure lowercase)
+                            if not any(ch.isupper() for ch in original_str):
+                                continue
+
+                            # 2. Reject code / syntax identifiers (containing underscores or kebab-case with digits)
+                            if "_" in original_str or re.search(r"[a-z0-9]-[a-z0-9]", original_str, re.IGNORECASE):
+                                continue
+
+                            # 3. Check against static and dynamic allowlist
+                            clean_norm = original_str.lower().strip(" \t\n\r`'\".,;:!?()[]{}<>/")
+                            if clean_norm in effective_allowlist:
+                                continue
+                            tokens = [t for t in re.split(r"[\s\W_]+", clean_norm) if t]
+                            if tokens and all(t in effective_allowlist for t in tokens):
+                                continue
+
+                        filtered_results.append(res)
 
                     def custom_anonymize(res) -> str:
                         entity_type = res.entity_type
@@ -260,7 +466,7 @@ class PIIMasker:
                         return token
 
                     # Deduplicate overlapping spans (keep longest/earliest)
-                    sorted_spans = sorted(results, key=lambda x: (x.start, -(x.end - x.start)))
+                    sorted_spans = sorted(filtered_results, key=lambda x: (x.start, -(x.end - x.start)))
                     non_overlapping = []
                     last_end = -1
                     for r in sorted_spans:

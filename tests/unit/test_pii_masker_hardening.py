@@ -107,3 +107,41 @@ def test_dynamic_agent_sets_and_predicates():
     assert "orchestrator" in get_system_agents()
     assert is_system_agent("orchestrator") is True
     assert is_system_agent("agent-10001") is False
+
+
+def test_pii_masker_preserves_directive_bounds_and_identifiers():
+    """
+    Verifies that Presidio NER does not falsely mask directive bounds (max 2 words, min 5 words),
+    Slack mentions, bracketed agent tags, code identifiers, technical terms, or agent names,
+    while still properly masking genuine person names and locations.
+    """
+    masker = PIIMasker()
+
+    text_clean_directive = "User message: <@U0BR4EH6XMY> Test again, want to see avatars, max 2 words"
+    masked_dir, map_dir = masker.mask(text_clean_directive)
+    assert masked_dir == text_clean_directive
+    assert map_dir == {}
+
+    text_complex = (
+        "Hello <@U123456> /[Visionary] and [agent-10001], please format in max 5 words or min 2 words. "
+        "Also notify Alice in New York using JSON on Slack via int_or_off."
+    )
+    masked_complex, map_complex = masker.mask(text_complex)
+
+    assert "<@U123456>" in masked_complex
+    assert "/[Visionary]" in masked_complex
+    assert "[agent-10001]" in masked_complex
+    assert "max 5 words" in masked_complex
+    assert "min 2 words" in masked_complex
+    assert "JSON" in masked_complex
+    assert "Slack" in masked_complex
+    assert "int_or_off" in masked_complex
+
+    # Genuine PII must still be masked
+    if masker._presidio_analyzer is not None:
+        assert "Alice" not in masked_complex
+        assert "<PERSON_0>" in masked_complex
+        assert map_complex["<PERSON_0>"] == "Alice"
+        assert "New York" not in masked_complex
+        assert "<LOCATION_0>" in masked_complex
+        assert map_complex["<LOCATION_0>"] == "New York"
