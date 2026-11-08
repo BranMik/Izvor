@@ -131,14 +131,39 @@ def get_admin_password() -> str:
         return _admin_password_override
     return os.getenv("ADMIN_PASSWORD", "")
 
-# Base URL for resolving relative avatar icon paths for Slack messages
-BASE_AVATAR_URL = os.getenv("BASE_AVATAR_URL", "https://izvor.local/").rstrip("/") + "/"
+# Placeholder default for the public base URL used to resolve relative avatar icon paths.
+# Slack fetches icon_url server-side, so this MUST be a publicly reachable URL (e.g. the
+# Cloudflare tunnel hostname); the placeholder never resolves from Slack's servers.
+DEFAULT_BASE_AVATAR_URL = "https://izvor.local/"
+
+_base_avatar_url_placeholder_warned = False
+
+
+def get_base_avatar_url() -> str:
+    """
+    Returns the public base URL (with trailing slash) for resolving relative avatar icon URLs.
+    Reads the BASE_AVATAR_URL env var at call time so tests/deployments can override it via env.
+    Warns once if the placeholder default is still in use, since Slack cannot fetch from it.
+    """
+    global _base_avatar_url_placeholder_warned
+    raw = os.getenv("BASE_AVATAR_URL", "")
+    if not raw or raw.rstrip("/") + "/" == DEFAULT_BASE_AVATAR_URL:
+        if not _base_avatar_url_placeholder_warned:
+            _base_avatar_url_placeholder_warned = True
+            logger.warning(
+                "[CONFIG] BASE_AVATAR_URL is not set (or still the placeholder '%s'). "
+                "Slack will NOT be able to load agent avatar icons. Set it to the public URL of this app "
+                "(e.g. the Cloudflare tunnel hostname).",
+                DEFAULT_BASE_AVATAR_URL,
+            )
+    return (raw or DEFAULT_BASE_AVATAR_URL).rstrip("/") + "/"
 
 
 def resolve_avatar_url(icon_url: str | None) -> str | None:
     """
     Resolves an agent's avatar icon URL.
-    If icon_url is a relative path (e.g. 'static/avatar_25.png'), prepends BASE_AVATAR_URL.
+    If icon_url is a relative path (e.g. 'avatars/image_43.png'), prepends the public
+    BASE_AVATAR_URL (see get_base_avatar_url).
     If icon_url is already an absolute HTTP/HTTPS URL, returns it as is.
     """
     if not icon_url:
@@ -146,7 +171,7 @@ def resolve_avatar_url(icon_url: str | None) -> str | None:
     icon_str = str(icon_url).strip()
     if icon_str.startswith(("http://", "https://")):
         return icon_str
-    return f"{BASE_AVATAR_URL}{icon_str.lstrip('/')}"
+    return f"{get_base_avatar_url()}{icon_str.lstrip('/')}"
 
 
 # Default system agent persona for warnings and moderation
@@ -463,7 +488,8 @@ __all__ = [
     "set_admin_credentials_override",
     "set_admin_slack_user_ids_override",
     "set_production_override",
-    "BASE_AVATAR_URL",
+    "DEFAULT_BASE_AVATAR_URL",
+    "get_base_avatar_url",
     "SYSTEM_AGENT_USERNAME",
     "SYSTEM_AGENT_AVATAR",
     "USAGE_CHANNEL_NAME",
