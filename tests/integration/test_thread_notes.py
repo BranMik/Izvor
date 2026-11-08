@@ -5,7 +5,9 @@ import pytest
 
 from agents.thread_notes_agent import (
     generate_thread_notes,
+    get_thread_conclusion_content,
     get_thread_note,
+    get_thread_note_content,
     reset_thread_notes,
     set_thread_conclusion_note,
     set_thread_note,
@@ -370,12 +372,12 @@ async def test_update_notes_for_thread_completed_unpins_live_and_pins_conclusion
         {"role": "assistant", "content": "[agent-10003]: NoSQL provides flexible schema and easy scaling."},
     ]
 
-    mock_live_notes = ("📋 *Live Strategic Synthesis*\n🎯 *Problem Statement*\nChoose DB.", {"prompt_tokens": 10, "completion_tokens": 10, "total_tokens": 20})
+    mock_live_notes = ("### **Live Strategic Synthesis**\n**Problem Statement**: Choose DB.", {"prompt_tokens": 10, "completion_tokens": 10, "total_tokens": 20})
     mock_conc_notes = (
-        "Part 1: *Problem Statement*\nChoose optimal database architecture.\n\n"
-        "Part 2: *Conclusion and Argumentation*\n"
-        "• *Consensus Decisions*: Need high availability.\n"
-        "• *Opposing Conclusions & Divergent Advice*:\n"
+        "---\n### **Part 1: Problem Statement**\nChoose optimal database architecture.\n\n"
+        "### **Part 2: Conclusion and Argumentation**\n"
+        "• **Consensus Decisions**: Need high availability.\n"
+        "• **Opposing Conclusions & Divergent Advice**:\n"
         "  - PostgreSQL (Supporting: [agent-10001]): Strong ACID guarantees.\n"
         "  - MongoDB (Supporting: [agent-10003]): Schema agility and horizontal scaling.",
         {"prompt_tokens": 20, "completion_tokens": 30, "total_tokens": 50},
@@ -386,7 +388,7 @@ async def test_update_notes_for_thread_completed_unpins_live_and_pins_conclusion
 
     async def mock_post_thread_note(channel_id, thread_ts, text, pin=True, username="Live Discussion Scribe", icon_emoji=":memo:", blocks=None):
         ts = f"mock_ts_{len(posted_notes) + 1}.000"
-        posted_notes.append({"channel_id": channel_id, "thread_ts": thread_ts, "text": text, "pin": pin, "username": username, "ts": ts})
+        posted_notes.append({"channel_id": channel_id, "thread_ts": thread_ts, "text": text, "pin": pin, "username": username, "ts": ts, "blocks": blocks})
         return {"ok": True, "ts": ts}
 
     async def mock_unpin_thread_note(channel_id, message_ts):
@@ -410,6 +412,18 @@ async def test_update_notes_for_thread_completed_unpins_live_and_pins_conclusion
         assert posted_notes[0]["pin"] is True
         assert unpinned_ts_list == []
 
+        # Live note posted to Slack must be Slack mrkdwn, not raw markdown
+        live_post = posted_notes[0]
+        assert "*Live Strategic Synthesis*" in live_post["text"]
+        assert "*Problem Statement*: Choose DB." in live_post["text"]
+        assert "###" not in live_post["text"]
+        assert "**" not in live_post["text"]
+        live_block_text = live_post["blocks"][0]["text"]["text"]
+        assert "*Live Strategic Synthesis*" in live_block_text
+        assert "###" not in live_block_text
+        # Cached/DB content keeps raw markdown for .txt downloads
+        assert "### **Live Strategic Synthesis**" in (get_thread_note_content(channel_id, thread_ts) or "")
+
         # 2. Final round completed (is_completed=True)
         res_completed = await update_notes_for_thread(channel_id, thread_ts, is_completed=True)
         assert res_completed["ok"] is True
@@ -423,10 +437,21 @@ async def test_update_notes_for_thread_completed_unpins_live_and_pins_conclusion
         conc_post = posted_notes[1]
         assert conc_post["username"] == "Discussion Conclusion"
         assert conc_post["pin"] is True
-        assert "Part 1: *Problem Statement*" in conc_post["text"]
-        assert "Part 2: *Conclusion and Argumentation*" in conc_post["text"]
+        # Conclusion posted to Slack must be Slack mrkdwn, not raw markdown
+        assert "*Part 1: Problem Statement*" in conc_post["text"]
+        assert "*Part 2: Conclusion and Argumentation*" in conc_post["text"]
+        assert "*Consensus Decisions*:" in conc_post["text"]
+        assert "###" not in conc_post["text"]
+        assert "**" not in conc_post["text"]
+        assert "──────────" in conc_post["text"]  # '---' converted to Slack divider
+        conc_block_text = conc_post["blocks"][0]["text"]["text"]
+        assert "*Part 1: Problem Statement*" in conc_block_text
+        assert "###" not in conc_block_text
         assert "PostgreSQL" in conc_post["text"]
         assert "MongoDB" in conc_post["text"]
+        # Cached/DB conclusion content keeps raw markdown for .txt downloads
+        cached_conc = get_thread_conclusion_content(channel_id, thread_ts) or ""
+        assert "### **Part 1: Problem Statement**" in cached_conc
 
 
 @pytest.mark.anyio

@@ -26,10 +26,12 @@ def markdown_to_slack(text: str) -> str:
 
     text = re.sub(r"`[^`\n]+`", _stash_inline, text)
 
+    # Headings: ### Title -> *Title* (strip surrounding asterisks so '### **Title**' -> '*Title*', not '**Title**')
+    text = re.sub(r"^#{1,6}\s*\**\s*(.+?)\s*\**\s*$", r"*\1*", text, flags=re.MULTILINE)
+    # Horizontal rules: a line of 3+ '-', '*' or '_' -> Slack divider line
+    text = re.sub(r"^\s*([-*_])(\s*\1){2,}\s*$", "──────────", text, flags=re.MULTILINE)
     # Bold: **text** -> *text*
     text = re.sub(r"\*\*(.*?)\*\*", r"*\1*", text)
-    # Headings: ### Title -> *Title*
-    text = re.sub(r"^#{1,6}\s*(.+)$", r"*\1*", text, flags=re.MULTILINE)
     # Links: [label](url) -> <url|label>
     text = re.sub(r"\[(.*?)\]\((.*?)\)", r"<\2|\1>", text)
 

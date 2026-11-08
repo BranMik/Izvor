@@ -480,6 +480,29 @@ def test_markdown_to_slack_preserves_code_blocks():
     assert "<https://example.com|link>" in converted  # outside link converted
 
 
+def test_markdown_to_slack_heading_with_bold_and_hr():
+    """TKT: '### **Title**' must become '*Title*' (not '**Title**'), and '---' lines become Slack dividers."""
+
+    from nlp.message_builder import markdown_to_slack
+
+    sample = (
+        "---\n"
+        "### **Glavni cilj i problemska tvrdnja**\n"
+        "- **Visionary**: Transformacija kao primarni cilj.\n"
+        "### Razmjene i kompromisi\n"
+        "---\n"
+    )
+    converted = markdown_to_slack(sample)
+
+    assert "*Glavni cilj i problemska tvrdnja*" in converted
+    assert "**" not in converted
+    assert "###" not in converted
+    assert "- *Visionary*: Transformacija kao primarni cilj." in converted
+    assert "*Razmjene i kompromisi*" in converted
+    assert "──────────" in converted  # '---' horizontal rules become Slack divider lines
+    assert "---" not in converted
+
+
 @pytest.mark.anyio
 async def test_send_admin_audit_alert_uses_admin_ids():
     """TKT-722: Verify send_admin_audit_alert respects multiple admin IDs."""

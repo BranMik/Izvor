@@ -5,6 +5,7 @@ from typing import Any
 
 from core.task_utils import safe_create_task
 from core.config import get_thread_notes_model
+from nlp.message_builder import markdown_to_slack
 from pipeline.discussion_scribe import discussion_scribe
 from services.slack import (
     fetch_thread_history,
@@ -322,7 +323,8 @@ async def generate_thread_notes(
 ) -> tuple[str, dict[str, int]]:
     """
     Generates structured strategic synthesis live notes of the conversation history
-    via the DiscussionScribe service. Returns (slack_mrkdwn_content, token_usage_dict).
+    via the DiscussionScribe service. Returns (raw_markdown_content, token_usage_dict);
+    Slack mrkdwn conversion happens at the posting boundary in update_notes_for_thread.
     """
     brief, tokens = await discussion_scribe.generate_brief(
         history,
@@ -363,7 +365,8 @@ async def generate_conclusion_notes(
     """
     Generates comprehensive Conclusion Notes analyzing problem statement,
     consensus, opposing viewpoints, and agent arguments via DiscussionScribe.
-    Returns (slack_mrkdwn_content, token_usage_dict).
+    Returns (raw_markdown_content, token_usage_dict);
+    Slack mrkdwn conversion happens at the posting boundary in update_notes_for_thread.
     """
     conclusion, tokens = await discussion_scribe.generate_conclusion(
         history,
@@ -460,8 +463,10 @@ async def update_notes_for_thread(
             footer = f"\n\n_Last updated: {timestamp_str} | Scribe tokens: {token_stats['total_tokens']}_"
             formatted_text = f"{notes_content.strip()}{footer}"
             formatted_text = _sanitize_note_text(formatted_text, "Live Discussion Scribe")
+            # Persist raw markdown for .txt downloads; convert to Slack mrkdwn only for the Slack-bound payload
             set_thread_note_content(channel_id, thread_ts, formatted_text)
-            blocks = build_scribe_note_blocks(formatted_text, channel_id, thread_ts)
+            slack_text = markdown_to_slack(formatted_text)
+            blocks = build_scribe_note_blocks(slack_text, channel_id, thread_ts)
 
             # 3. Post new note message or update existing note in-place
             note_ts = get_thread_note(channel_id, thread_ts)
@@ -469,7 +474,7 @@ async def update_notes_for_thread(
                 post_res = await post_thread_note(
                     channel_id=channel_id,
                     thread_ts=thread_ts,
-                    text=formatted_text,
+                    text=slack_text,
                     pin=True,
                     username="Live Discussion Scribe",
                     icon_emoji=":memo:",
@@ -486,7 +491,7 @@ async def update_notes_for_thread(
                 await update_thread_note(
                     channel_id=channel_id,
                     message_ts=note_ts,
-                    text=formatted_text,
+                    text=slack_text,
                     blocks=blocks,
                 )
                 logger.info(
@@ -520,8 +525,10 @@ async def update_notes_for_thread(
                 conc_footer = f"\n\n_Completed: {timestamp_str} | Conclusion tokens: {conc_tokens['total_tokens']}_"
                 formatted_conclusion_text = f"{conc_content.strip()}{conc_footer}"
                 formatted_conclusion_text = _sanitize_note_text(formatted_conclusion_text, "Discussion Conclusion")
+                # Persist raw markdown for .txt downloads; convert to Slack mrkdwn only for the Slack-bound payload
                 set_thread_conclusion_content(channel_id, thread_ts, formatted_conclusion_text)
-                conc_blocks = build_conclusion_note_blocks(formatted_conclusion_text, channel_id, thread_ts)
+                slack_conclusion_text = markdown_to_slack(formatted_conclusion_text)
+                conc_blocks = build_conclusion_note_blocks(slack_conclusion_text, channel_id, thread_ts)
 
                 # Post or update in-place Conclusion Note
                 conclusion_ts = get_thread_conclusion_note(channel_id, thread_ts)
@@ -529,7 +536,7 @@ async def update_notes_for_thread(
                     post_conc_res = await post_thread_note(
                         channel_id=channel_id,
                         thread_ts=thread_ts,
-                        text=formatted_conclusion_text,
+                        text=slack_conclusion_text,
                         pin=True,
                         username="Discussion Conclusion",
                         icon_emoji=":scales:",
@@ -545,7 +552,7 @@ async def update_notes_for_thread(
                     await update_thread_note(
                         channel_id=channel_id,
                         message_ts=conclusion_ts,
-                        text=formatted_conclusion_text,
+                        text=slack_conclusion_text,
                         blocks=conc_blocks,
                     )
                     logger.info(

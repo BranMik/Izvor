@@ -108,6 +108,46 @@ async def test_update_notes_for_thread_passes_blocks():
         assert "Synthesis Notes" in cached
 
 
+@pytest.mark.anyio
+async def test_update_notes_for_thread_converts_markdown_to_mrkdwn_for_slack_only():
+    """Raw markdown from the scribe must be posted to Slack as mrkdwn, while the cached content stays raw markdown."""
+    channel_id = "C_SCRIBE_MRKDWN"
+    thread_ts = "1710000000.000600"
+    clear_thread_note(channel_id, thread_ts)
+
+    mock_history = [{"role": "user", "content": "Discuss DB choice"}]
+    mock_notes = (
+        "### **Live Strategic Synthesis**\n- **Key point**: PostgreSQL.\n---",
+        {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
+    )
+
+    with patch("agents.thread_notes_agent.fetch_thread_history", new_callable=AsyncMock, return_value=mock_history), \
+         patch("agents.thread_notes_agent.generate_thread_notes", new_callable=AsyncMock, return_value=mock_notes), \
+         patch("agents.thread_notes_agent.post_thread_note", new_callable=AsyncMock, return_value={"ok": True, "ts": "1710000002.000000"}) as mock_post:
+
+        res = await update_notes_for_thread(channel_id, thread_ts)
+        assert res["ok"] is True
+
+        called_kwargs = mock_post.call_args.kwargs
+        posted_text = called_kwargs["text"]
+        assert "*Live Strategic Synthesis*" in posted_text
+        assert "- *Key point*: PostgreSQL." in posted_text
+        assert "──────────" in posted_text
+        assert "###" not in posted_text
+        assert "**" not in posted_text
+
+        block_text = called_kwargs["blocks"][0]["text"]["text"]
+        assert "*Live Strategic Synthesis*" in block_text
+        assert "###" not in block_text
+
+        # Cached content keeps raw markdown for .txt download
+        cached = get_thread_note_content(channel_id, thread_ts)
+        assert cached is not None
+        assert "### **Live Strategic Synthesis**" in cached
+
+    clear_thread_note(channel_id, thread_ts)
+
+
 def test_slack_interactivity_download_scribe_action():
     client = TestClient(app)
     channel_id = "C_INTERACTIVE"
