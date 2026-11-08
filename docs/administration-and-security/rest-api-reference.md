@@ -1,6 +1,6 @@
 # REST API Reference
 
-This document provides complete technical specifications for the HTTP endpoints exposed by **Izvor** in [`main.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/main.py).
+This document provides complete technical specifications for the HTTP endpoints exposed by **Izvor** in [`main.py`](file:///main.py).
 
 ---
 

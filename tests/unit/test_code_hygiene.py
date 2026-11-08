@@ -85,6 +85,7 @@ def test_all_docs_markdown_file_links_exist_on_disk():
     )
 
     broken_links = []
+    absolute_uri_links = []
     links_checked = 0
 
     for doc_file in md_files:
@@ -93,6 +94,9 @@ def test_all_docs_markdown_file_links_exist_on_disk():
             target = match.group(1).strip()
             if target.startswith(("http://", "https://", "mailto:")):
                 continue
+
+            if re.match(r"^file:///[a-zA-Z]:", target):
+                absolute_uri_links.append(f"{doc_file.relative_to(root_dir)} -> {target}")
 
             links_checked += 1
             if target.startswith("file:///"):
@@ -109,6 +113,10 @@ def test_all_docs_markdown_file_links_exist_on_disk():
 
     assert not broken_links, f"Found {len(broken_links)} broken file link(s) in documentation:\n" + "\n".join(
         broken_links
+    )
+    assert not absolute_uri_links, (
+        f"Found {len(absolute_uri_links)} absolute machine-specific file:/// URI(s) in documentation "
+        "(use repo-relative links like file:///path instead):\n" + "\n".join(absolute_uri_links)
     )
     assert links_checked > 0, "No markdown file links were checked!"
 

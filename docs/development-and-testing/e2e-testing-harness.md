@@ -1,6 +1,6 @@
 # E2E Behavioral Testing Harness
 
-This document describes the design, architecture, and operation of **Izvor**'s End-to-End (E2E) Behavioral Testing Harness located in [`tests/e2e/`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/tests/e2e).
+This document describes the design, architecture, and operation of **Izvor**'s End-to-End (E2E) Behavioral Testing Harness located in [`tests/e2e/`](file:///tests/e2e).
 
 ---
 
@@ -38,19 +38,19 @@ graph TD
 ## 🧩 Core Harness Components
 
 ### 1. The Protocol Client (`protocol_client.py`)
-- **File**: [`tests/e2e/protocol_client.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/tests/e2e/protocol_client.py)
+- **File**: [`tests/e2e/protocol_client.py`](file:///tests/e2e/protocol_client.py)
 - **Role**: Synthesizes authentic Slack Events API payloads (`app_mention`, `message`, `block_actions`).
 - Computes valid HMAC-SHA256 signatures with timestamps, exercising the complete security verification path.
 
 ### 2. The Hybrid Interceptor (`hybrid_interceptor.py`)
-- **File**: [`tests/e2e/hybrid_interceptor.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/tests/e2e/hybrid_interceptor.py)
+- **File**: [`tests/e2e/hybrid_interceptor.py`](file:///tests/e2e/hybrid_interceptor.py)
 - **Role**: Intercepts outbound calls to the Slack WebClient (`chat.postMessage`, `chat.update`, `views.publish`, etc.).
 - Records every posted message, placeholder, edit, and avatar override for post-test assertions.
 - Supports configurable latency injection to simulate slow or fast LLM/tool executions.
 
 ### 3. Scenario Catalog (`scenarios.py`)
-- **File**: [`tests/e2e/scenarios.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/tests/e2e/scenarios.py)
-- Implements comprehensive test suites mapped directly to [`SLACK_BEHAVIOURAL_TEST_CASES.md`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/tests/e2e/SLACK_BEHAVIOURAL_TEST_CASES.md).
+- **File**: [`tests/e2e/scenarios.py`](file:///tests/e2e/scenarios.py)
+- Implements comprehensive test suites mapped directly to [`SLACK_BEHAVIOURAL_TEST_CASES.md`](file:///tests/e2e/SLACK_BEHAVIOURAL_TEST_CASES.md).
 
 ---
 

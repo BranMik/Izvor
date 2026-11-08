@@ -35,7 +35,7 @@ This document provides a complete reference guide for all **21 built-in skills a
 ## 🛠️ Detailed Skill Specifications & Clamps
 
 ### `control_plane`
-- **Location**: [`skills/control_plane/SKILL.md`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/skills/builtin/control_plane/SKILL.md)
+- **Location**: [`skills/control_plane/SKILL.md`](file:///engine/skills/builtin/control_plane/SKILL.md)
 - **Scope**: `orchestrator` (`global: true` — automatically injected for all personas)
 - **Tools**:
   - `nominate_next_speaker(agent_name: str, reason: str)`: Structured handoff to nominate the next persona in the deliberation.
@@ -43,49 +43,49 @@ This document provides a complete reference guide for all **21 built-in skills a
   - `signal_consensus_convergence(summary_of_agreement: str, confidence: float)`: Signals that the panel has converged on consensus; when consecutive calls reach `convergence_consecutive_threshold` (`2`), triggers the Challenger + RebuttalAdvocate stress-test gate.
 
 ### `web_research`
-- **Location**: [`skills/web_research/SKILL.md`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/config/skills/web_research/SKILL.md)
+- **Location**: [`skills/web_research/SKILL.md`](file:///config/skills/web_research/SKILL.md)
 - **Tools**:
   - `web_search(query: str, max_results: int = 5)`: Searches the live web via DuckDuckGo (`max_results` clamped 1–10).
   - `fetch_web_page(url: str, max_chars: int = 4000)`: Fetches and extracts clean text from an HTTP/HTTPS URL (`max_chars` clamped up to 15,000), protected by `PinnedIPTransport` DNS-rebinding defense and a per-turn budget of 10 requests (`max_fetches_per_turn`).
 
 ### `knowledge_base_rag`
-- **Location**: [`skills/knowledge_base_rag/SKILL.md`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/config/skills/knowledge_base_rag/SKILL.md)
+- **Location**: [`skills/knowledge_base_rag/SKILL.md`](file:///config/skills/knowledge_base_rag/SKILL.md)
 - **Tool Name**: `search_knowledge_rag(query: str, scope: str = "all", max_results: int = 6)`
 - **Description**: Performs hybrid LanceDB semantic vector search and SQLite FTS5 BM25 search with Reciprocal Rank Fusion (RRF) across `config/rag_knowledge/shared/` and agent-private folders (`scope`: `"all"`, `"shared"`, or `"private"`).
 - **Result Clamping**: `max_results` is strictly clamped between `1` and `10` chunks to prevent context overflow. Cached in `RoundEvidenceStore` scoped by `agent_key`.
 
 ### `document_reader`
-- **Location**: [`skills/document_reader/SKILL.md`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/config/skills/document_reader/SKILL.md)
+- **Location**: [`skills/document_reader/SKILL.md`](file:///config/skills/document_reader/SKILL.md)
 - **Tools**:
   - `list_documents(rel_path: str = ".")`: Lists files and subdirectories inside `agents_resources/`.
   - `read_document(rel_path: str)`: Extracts text from PDFs, DOCX, XLSX, PPTX, Markdown, CSVs, and text files in `agents_resources/` or thread attachments. Wrapped in `<untrusted_file_content>` tags.
 
 ### `document_authoring`
-- **Location**: [`skills/document_authoring/SKILL.md`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/config/skills/document_authoring/SKILL.md)
+- **Location**: [`skills/document_authoring/SKILL.md`](file:///config/skills/document_authoring/SKILL.md)
 - **Tool Name**: `write_document(rel_path: str, content: str)`
 - **Security & HITL Gate**: Configured with `requires_human_ITL: true`. Invoking `write_document` pauses the turn via `TurnCheckpointStore` and posts an interactive Approve/Deny prompt to Slack. Confined to `agents_resources/`, blocked from writing to `DEFAULT_PROTECTED_WRITE_PATHS` or Windows reserved device names, and capped at `max_write_bytes` (1 MB).
 
 ### `min_words` & `max_words`
-- **Locations**: [`skills/min_words/SKILL.md`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/skills/builtin/min_words/SKILL.md), [`skills/max_words/SKILL.md`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/skills/builtin/max_words/SKILL.md)
+- **Locations**: [`skills/min_words/SKILL.md`](file:///engine/skills/builtin/min_words/SKILL.md), [`skills/max_words/SKILL.md`](file:///engine/skills/builtin/max_words/SKILL.md)
 - **Bounds**: `max_words` is clamped to $\le 2000$ words to prevent runaway token expenditure.
 - **Admin Gate on `off`**: Setting `/max_words off` or `/min_words off` requires Slack Admin privileges (`is_slack_admin`).
 
 ### `rounds`
-- **Location**: [`skills/rounds/SKILL.md`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/skills/builtin/rounds/SKILL.md)
+- **Location**: [`skills/rounds/SKILL.md`](file:///engine/skills/builtin/rounds/SKILL.md)
 - **Bounds**: Clamped between `1` and `5` rounds. System enforces a global maximum limit of `MAX_DISCUSSION_TURNS = 20`.
 - **Privilege Boundary**: Must have `origin: "slash"` (cannot be activated by inferred conversational text).
 
 ### `first`
-- **Location**: [`skills/first/SKILL.md`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/skills/builtin/first/SKILL.md)
+- **Location**: [`skills/first/SKILL.md`](file:///engine/skills/builtin/first/SKILL.md)
 - **Trigger**: `/first <Agent>`
 - **Description**: Sets the specified agent as the initial speaker to start the panel discussion, after which the debate continues in its normal workflow chain order.
 
 ### `open_debate`
-- **Location**: [`skills/open_debate/SKILL.md`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/skills/builtin/open_debate/SKILL.md)
+- **Location**: [`skills/open_debate/SKILL.md`](file:///engine/skills/builtin/open_debate/SKILL.md)
 - **Triggers**: `/open_debate <Agent>`, `/open-debate <Agent>`, or `/opendebate <Agent>`
 - **Description**: Designates the specified agent as the opening speaker and bypasses fixed start/end workflow chains. All agents participate in an open dynamic debate (up to 3 rounds) where each speaker nominates the next peer.
 
 ### `grant_skill`, `grant_skill_for_all`, `revoke_skill_for_all` & `revoke_constraint`
-- **Locations**: [`skills/grant_skill/SKILL.md`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/skills/builtin/grant_skill/SKILL.md), [`skills/grant_skill_for_all/SKILL.md`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/skills/builtin/grant_skill_for_all/SKILL.md), [`skills/revoke_skill_for_all/SKILL.md`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/skills/builtin/revoke_skill_for_all/SKILL.md), [`skills/revoke_constraint/SKILL.md`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/skills/builtin/revoke_constraint/SKILL.md)
-- **Privilege Boundary**: Enforced by `require_directive_admin` in [`orchestration/stages/directive_handlers.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/orchestration/stages/directive_handlers.py). Requires both `origin: "slash"` and **Slack Workspace Admin** membership (`is_slack_admin`).
+- **Locations**: [`skills/grant_skill/SKILL.md`](file:///engine/skills/builtin/grant_skill/SKILL.md), [`skills/grant_skill_for_all/SKILL.md`](file:///engine/skills/builtin/grant_skill_for_all/SKILL.md), [`skills/revoke_skill_for_all/SKILL.md`](file:///engine/skills/builtin/revoke_skill_for_all/SKILL.md), [`skills/revoke_constraint/SKILL.md`](file:///engine/skills/builtin/revoke_constraint/SKILL.md)
+- **Privilege Boundary**: Enforced by `require_directive_admin` in [`orchestration/stages/directive_handlers.py`](file:///engine/orchestration/stages/directive_handlers.py). Requires both `origin: "slash"` and **Slack Workspace Admin** membership (`is_slack_admin`).
 - **Persistence & Auditing**: Writes skill grants to SQLite table `thread_skills` and emits audit events (`THREAD_SKILL_GRANTED`, `THREAD_SKILL_REVOKED`, `ADMIN_DIRECTIVE_EXECUTED`, or `UNAUTHORIZED_DIRECTIVE_ATTEMPT` on denial).

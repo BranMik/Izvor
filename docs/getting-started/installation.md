@@ -44,7 +44,7 @@ pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-For local development and running the test suite (managed via [`pyproject.toml`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/pyproject.toml) and [`requirements-dev.txt`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/requirements-dev.txt)):
+For local development and running the test suite (managed via [`pyproject.toml`](file:///pyproject.toml) and [`requirements-dev.txt`](file:///requirements-dev.txt)):
 ```bash
 pip install -r requirements-dev.txt
 ```
@@ -61,10 +61,10 @@ Izvor utilizes:
 
 ## 🔐 Environment Configuration
 
-Create a `.env` file in the project root by copying [`.env.example`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/.env.example):
+Create a `.env` file in the project root by copying [`.env.example`](file:///.env.example):
 
 ### Configuration Variables Breakdown
-Refer to [`core/config.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/core/config.py) for the full definitions:
+Refer to [`core/config.py`](file:///engine/core/config.py) for the full definitions:
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
@@ -94,30 +94,30 @@ Izvor separates its codebase into three distinct directories so implementers kno
 
 ### 1. Implementer Configuration (`config/`) — *Customize Freely*
 All domain-specific customization lives inside `config/`:
-- **Debate Panel Roster ([`config/settings/agent_settings.json`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/config/settings/agent_settings.json))**: Define your debate panel agents (`agent-10001`..`agent-10017`), their display names, LLM models, assigned tool skills, dialectical `special_role` (`NONE`, `CHALLENGER`, `REBUTTAL`), `enabled_agents`, and active `workflow_config`.
-- **Debate Persona Prompts ([`config/personas/`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/config/personas))**: Edit or add markdown system prompts (e.g., `config/personas/agent-10001.md`) to shape each agent's personality, domain expertise, and analytical style.
-- **Workflow Topologies ([`config/workflows/`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/config/workflows))**: Create or modify multi-agent workflow JSON presets (Sandwich chains, Fixed sequences, Parallel Dialectic pools).
-- **Agent Tool Skills ([`config/skills/`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/config/skills))**: Add or customize tool-backed agent skills (`web_research`, `knowledge_base_rag`, `document_reader`, `document_authoring`).
-- **System Operational Settings ([`config/settings/system_settings.json`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/config/settings/system_settings.json))**: Tune global model defaults, RAG parameters, timeouts, and rate limits.
-- **Avatars & RAG Knowledge ([`config/avatars/`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/config/avatars), [`config/rag_knowledge/`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/config/rag_knowledge))**: Drop custom avatar PNGs into `config/avatars/` and domain markdown/text documents into `config/rag_knowledge/shared/` or `config/rag_knowledge/<agent_id>/`.
+- **Debate Panel Roster ([`config/settings/agent_settings.json`](file:///config/settings/agent_settings.json))**: Define your debate panel agents (`agent-10001`..`agent-10017`), their display names, LLM models, assigned tool skills, dialectical `special_role` (`NONE`, `CHALLENGER`, `REBUTTAL`), `enabled_agents`, and active `workflow_config`.
+- **Debate Persona Prompts ([`config/personas/`](file:///config/personas))**: Edit or add markdown system prompts (e.g., `config/personas/agent-10001.md`) to shape each agent's personality, domain expertise, and analytical style.
+- **Workflow Topologies ([`config/workflows/`](file:///config/workflows))**: Create or modify multi-agent workflow JSON presets (Sandwich chains, Fixed sequences, Parallel Dialectic pools).
+- **Agent Tool Skills ([`config/skills/`](file:///config/skills))**: Add or customize tool-backed agent skills (`web_research`, `knowledge_base_rag`, `document_reader`, `document_authoring`).
+- **System Operational Settings ([`config/settings/system_settings.json`](file:///config/settings/system_settings.json))**: Tune global model defaults, RAG parameters, timeouts, and rate limits.
+- **Avatars & RAG Knowledge ([`config/avatars/`](file:///config/avatars), [`config/rag_knowledge/`](file:///config/rag_knowledge))**: Drop custom avatar PNGs into `config/avatars/` and domain markdown/text documents into `config/rag_knowledge/shared/` or `config/rag_knowledge/<agent_id>/`.
 
 ### 2. Core Engine & Built-ins (`engine/`) — *Do Not Modify During Configuration*
 The `engine/` directory contains the core Python runtime and immutable system definitions. Avoid modifying files in `engine/` unless performing a deliberate architectural refactoring:
-- **System Agents & Orchestrator ([`engine/settings/system_agent_settings.json`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/settings/system_agent_settings.json))**: Engine equivalent of `agent_settings.json` for internal system agents (`Orchestrator`, `Discussion_Scribe`, `Intent_Extractor`, `Language_Detector`, `Pricing_Agent`, `Thread_Notes_Agent`, `Usage_Agent`, `InternalRevisor`, `List_Skills`).
-- **Built-in System Prompts ([`engine/prompts/system_agents/`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/prompts/system_agents) & [`engine/prompts/shared/`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/prompts/shared))**: Core prompt assembly rules, nomination syntax, and system agent instructions.
-- **Built-in Control & Modifier Skills ([`engine/skills/builtin/`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/skills/builtin))**: Core orchestration skills (`control_plane`, `first`, `rounds`, `max_words`, `min_words`, `open_debate`, `grant_skill`, `stop_discussion`, etc.).
-- **Seed Workflows ([`engine/workflows/`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/workflows))**: Factory-default workflow templates used to seed and validate `config/workflows/`.
+- **System Agents & Orchestrator ([`engine/settings/system_agent_settings.json`](file:///engine/settings/system_agent_settings.json))**: Engine equivalent of `agent_settings.json` for internal system agents (`Orchestrator`, `Discussion_Scribe`, `Intent_Extractor`, `Language_Detector`, `Pricing_Agent`, `Thread_Notes_Agent`, `Usage_Agent`, `InternalRevisor`, `List_Skills`).
+- **Built-in System Prompts ([`engine/prompts/system_agents/`](file:///engine/prompts/system_agents) & [`engine/prompts/shared/`](file:///engine/prompts/shared))**: Core prompt assembly rules, nomination syntax, and system agent instructions.
+- **Built-in Control & Modifier Skills ([`engine/skills/builtin/`](file:///engine/skills/builtin))**: Core orchestration skills (`control_plane`, `first`, `rounds`, `max_words`, `min_words`, `open_debate`, `grant_skill`, `stop_discussion`, etc.).
+- **Seed Workflows ([`engine/workflows/`](file:///engine/workflows))**: Factory-default workflow templates used to seed and validate `config/workflows/`.
 
 ### 3. Runtime & Slack UI State (`data/`) — *Managed Automatically at Runtime*
 The `data/` directory stores live databases, caches, audit logs, and Slack UI state:
-- **Slack App Home State ([`data/state/app_settings.json`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/data/state/app_settings.json))**: Stores runtime toggles (circuit breaker thresholds, daily USD budget, Scribe toggle, workspace baseline context). **Modify these via the Slack App Home UI rather than editing the JSON file directly.**
+- **Slack App Home State ([`data/state/app_settings.json`](file:///data/state/app_settings.json))**: Stores runtime toggles (circuit breaker thresholds, daily USD budget, Scribe toggle, workspace baseline context). **Modify these via the Slack App Home UI rather than editing the JSON file directly.**
 - **SQLite State Engine (`data/izvor.db`)**, **Audit Logs (`data/audit/`)**, **Backups (`data/backups/`)**, and **Transcripts (`data/flat-histories/`)**.
 
 ---
 
 ### ⚙️ System Settings (`config/settings/system_settings.json`)
 
-System operational parameters, security guardrails, and timeouts are managed by [`SystemSettingsManager`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/orchestration/system_settings.py) (backed by [`JsonSettingsStore`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/orchestration/settings_store.py)). These settings can be modified live without server restarts:
+System operational parameters, security guardrails, and timeouts are managed by [`SystemSettingsManager`](file:///engine/orchestration/system_settings.py) (backed by [`JsonSettingsStore`](file:///engine/orchestration/settings_store.py)). These settings can be modified live without server restarts:
 
 | Setting Key | Default | Description |
 |---|---|---|
@@ -175,7 +175,7 @@ uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 
 ### Windows Proactor Loop Notice
 
-On Windows platforms, Python's Proactor event loop can occasionally stall when no incoming HTTP sockets are active. Izvor automatically starts a background heartbeat coroutine [`keep_loop_alive`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/main.py#L50-L57) to keep the loop responsive without measurable CPU overhead.
+On Windows platforms, Python's Proactor event loop can occasionally stall when no incoming HTTP sockets are active. Izvor automatically starts a background heartbeat coroutine [`keep_loop_alive`](file:///main.py#L50-L57) to keep the loop responsive without measurable CPU overhead.
 
 ### Health Check Verification
 
@@ -210,4 +210,4 @@ Use a tunnel such as `ngrok` or `cloudflared`:
 ngrok http 8000
 ```
 
-Note your public HTTPS URL (e.g., `https://abcdef123.ngrok-free.app`). You will use this in the [Slack App Setup Guide](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/docs/getting-started/slack-app-setup.md).
+Note your public HTTPS URL (e.g., `https://abcdef123.ngrok-free.app`). You will use this in the [Slack App Setup Guide](file:///docs/getting-started/slack-app-setup.md).

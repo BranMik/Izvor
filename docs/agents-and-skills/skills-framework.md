@@ -66,7 +66,7 @@ graph TD
    - **Default is `false` (fail-closed / secure-by-default).**
    - It **does NOT** stop an agent from using an authorized tool during Layer 2.
 2. **Layer 2 (Agent Function Calling) is governed by `ToolPrincipal` permissions:**
-   - As long as a skill is authorized for an agent (via `agent_settings.json`, `global: true`, or an admin `/grant_skill`), the agent can autonomously invoke `load_skill` and execute its tools, enforced at runtime by [`ToolPrincipal`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/core/domain.py).
+   - As long as a skill is authorized for an agent (via `agent_settings.json`, `global: true`, or an admin `/grant_skill`), the agent can autonomously invoke `load_skill` and execute its tools, enforced at runtime by [`ToolPrincipal`](file:///engine/core/domain.py).
 
 ---
 
@@ -116,23 +116,23 @@ The `triggers:` dictionary configures how the skill is detected from user input 
 
 ## 🔍 Discovery & Registration Lifecycle
 
-### 1. Skill Discovery ([`skills/loader.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/skills/loader.py))
-During application boot, the loader scans both [`engine/skills/builtin/`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/skills/builtin) (built-in directives and modifiers) and [`config/skills/`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/config/skills) (implementer tool skills). Every subdirectory containing a valid `SKILL.md` file is evaluated.
+### 1. Skill Discovery ([`skills/loader.py`](file:///engine/skills/loader.py))
+During application boot, the loader scans both [`engine/skills/builtin/`](file:///engine/skills/builtin) (built-in directives and modifiers) and [`config/skills/`](file:///config/skills) (implementer tool skills). Every subdirectory containing a valid `SKILL.md` file is evaluated.
 
 ### 2. Manifest & Schema Parsing
 The loader extracts all top-level and trigger metadata, validates required fields, registers custom tools from `tools.py`, and checks for action handlers in `action.py`.
 
-### 3. Registry Storage ([`core/registry.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/core/registry.py))
+### 3. Registry Storage ([`core/registry.py`](file:///engine/core/registry.py))
 Valid skills are registered into the global `SkillRegistry`. They can be queried via the administrative REST endpoint (`GET /api/skills`) or listed inside Slack via `/list_skills` or `[list_skills]`.
 
 ---
 
 ## 🔄 Dynamic Grant, Revoke & Slack Admin Authorization
 
-Izvor provides fine-grained control over skill assignment through [`ThreadSkillsManager`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/orchestration/thread_skills_manager.py) and [`orchestration/stages/directive_handlers.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/orchestration/stages/directive_handlers.py):
+Izvor provides fine-grained control over skill assignment through [`ThreadSkillsManager`](file:///engine/orchestration/thread_skills_manager.py) and [`orchestration/stages/directive_handlers.py`](file:///engine/orchestration/stages/directive_handlers.py):
 
 ### 1. Static Configuration (Baseline)
-Personas can be assigned permanent baseline skills in [`config/settings/agent_settings.json`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/config/settings/agent_settings.json) (e.g., `SecurityArchitect` defaults with `knowledge_base_rag` and `document_reader`).
+Personas can be assigned permanent baseline skills in [`config/settings/agent_settings.json`](file:///config/settings/agent_settings.json) (e.g., `SecurityArchitect` defaults with `knowledge_base_rag` and `document_reader`).
 
 ### 2. Runtime Dynamic Granting (Slack Admin Only)
 Workspace administrators (`is_slack_admin`) can grant skills on the fly within an active thread using slash syntax:
@@ -145,7 +145,7 @@ Workspace administrators (`is_slack_admin`) can grant skills on the fly within a
 
 ### 4. Dual Privilege Boundary Enforcement (`origin == "slash"` + `is_slack_admin`)
 - **Origin Boundary**: Directives inferred heuristically from free-form user chatter (`origin: "inferred"`) are strictly prohibited from executing privileged operations.
-- **Slack Admin Gate (`require_directive_admin`)**: In [`directive_handlers.py`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/orchestration/stages/directive_handlers.py), `/grant_skill`, `/grant_skill_for_all`, `/revoke_skill_for_all`, `/revoke_constraint`, and turning active constraints `off` verify `is_slack_admin(ctx.user_id)`.
+- **Slack Admin Gate (`require_directive_admin`)**: In [`directive_handlers.py`](file:///engine/orchestration/stages/directive_handlers.py), `/grant_skill`, `/grant_skill_for_all`, `/revoke_skill_for_all`, `/revoke_constraint`, and turning active constraints `off` verify `is_slack_admin(ctx.user_id)`.
 - Non-admin attempts are rejected with a thread warning and emit an `UNAUTHORIZED_DIRECTIVE_ATTEMPT` security audit event; authorized executions emit `ADMIN_DIRECTIVE_EXECUTED`.
 
 ### 5. SQLite Persistence & Audit Logging
@@ -170,6 +170,6 @@ Every grant and revocation emits a non-repudiable audit event to `data/audit/`:
 ## 🛡️ Tool Sandboxing & Confinement
 
 Tool execution occurs inside a protected sandbox:
-- **Fail-Closed Identity Check**: [`ToolPrincipal`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/core/domain.py) verifies the calling agent's authorization before any tool handler executes.
+- **Fail-Closed Identity Check**: [`ToolPrincipal`](file:///engine/core/domain.py) verifies the calling agent's authorization before any tool handler executes.
 - **Filesystem Confinement**: File paths are validated via `validate_resource_filename` against `agents_resources/`, blocking Windows reserved device names (`CON`, `PRN`, `AUX`, `NUL`, `COM1–9`, `LPT1–9`), NTFS Alternate Data Streams (`:`), path traversal, and `DEFAULT_PROTECTED_WRITE_PATHS`, with writes capped at `max_write_bytes` (1 MB).
 - **Network Confinement**: Outbound web research enforces DNS-rebinding protection (`PinnedIPTransport`), IPv6/NAT64 private range blocking, port/domain rules, and a per-turn web fetch cap (`max_fetches_per_turn: 10`).
