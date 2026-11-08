@@ -295,6 +295,8 @@ async def execute_llm_with_retry(
         # Create a deep copy to avoid mutating the original message array referenced elsewhere
         kwargs = copy.deepcopy(kwargs)
         for msg in kwargs.get("messages", []):
+            if isinstance(msg, dict) and msg.get("role") == "system":
+                continue
             if "content" in msg and isinstance(msg["content"], str):
                 masked_content, mapping = await masker.async_mask(msg["content"], existing_mapping=active_mapping)
                 msg["content"] = masked_content

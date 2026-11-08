@@ -95,3 +95,60 @@ async def test_execute_llm_with_retry_masks_tool_calls_and_preserves_turn_mappin
         assert turn_mapping["<EMAIL_1>"] == "charlie@test.com"
     finally:
         set_privacy_mode_provider(None)
+
+
+@pytest.mark.anyio
+async def test_execute_llm_with_retry_skips_system_prompt_masking_and_preserves_directives():
+    set_privacy_mode_provider(lambda: True)
+    try:
+        turn_mapping = {}
+
+        kwargs = {
+            "messages": [
+                {
+                    "role": "system",
+                    "content": "You are Intent_Extractor for Slack. Extract 'max_words' (int_or_off). Output strictly JSON.",
+                },
+                {
+                    "role": "user",
+                    "content": "<@U0BR4EH6XMY> Test again for Alice (alice@example.com), max 2 words",
+                },
+            ]
+        }
+
+        mock_response = MagicMock()
+        mock_choice = MagicMock()
+        mock_choice.message.content = '{"modifiers": {"max_words": 2}}'
+        mock_choice.message.tool_calls = None
+        mock_response.choices = [mock_choice]
+
+        async def mock_litellm(**call_kwargs):
+            messages = call_kwargs.get("messages", [])
+            # System prompt must NOT be masked
+            assert messages[0]["content"] == "You are Intent_Extractor for Slack. Extract 'max_words' (int_or_off). Output strictly JSON."
+            # User message directive must NOT be masked, but genuine PII must be masked
+            user_content = messages[1]["content"]
+            assert "<@U0BR4EH6XMY>" in user_content
+            assert "max 2 words" in user_content
+            assert "<PERSON_0>" in user_content
+            assert "Alice" not in user_content
+            assert "<EMAIL_0>" in user_content
+            assert "alice@example.com" not in user_content
+            return mock_response
+
+        res = await execute_llm_with_retry(
+            func=mock_litellm,
+            kwargs=kwargs,
+            agent_key="intent_extractor",
+            thread_key=("C123", "T123"),
+            turn_token_mapping=turn_mapping,
+        )
+
+        assert res is not None
+        assert res.choices[0].message.content == '{"modifiers": {"max_words": 2}}'
+        assert "<PERSON_0>" in turn_mapping
+        assert turn_mapping["<PERSON_0>"] == "Alice"
+        assert "<EMAIL_0>" in turn_mapping
+        assert turn_mapping["<EMAIL_0>"] == "alice@example.com"
+    finally:
+        set_privacy_mode_provider(None)

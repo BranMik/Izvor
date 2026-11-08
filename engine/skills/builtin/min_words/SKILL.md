@@ -12,7 +12,7 @@ triggers:
     - /min
   arg_type: int_or_off
   param_name: min_words
-extraction_rule: "Extract integer floor only if user requested a minimum length (e.g. 'at least 100 words', 'minimalno 50 riječi')."
+extraction_rule: "Extract integer floor only if user requested a minimum length (e.g. 'min 2 words', 'at least 100 words', 'minimalno 50 riječi'). Do NOT extract maximum length (such as 'max N words', 'under N words', or 'at most N words') as min_words."
 requires_human_ITL: false
 ---
 
