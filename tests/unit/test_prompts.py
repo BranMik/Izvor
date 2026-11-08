@@ -187,13 +187,18 @@ def test_system_agents_critical_runtime_contracts():
 
     live_scribe_prompt = load_system_prompt("Discussion_Scribe_Live")
     assert "*Core Objective & Problem Statement*" in live_scribe_prompt
-    assert "*Key Perspectives & Emerging Consensus*" in live_scribe_prompt
-    assert "*Risks, Trade-offs & Open Questions*" in live_scribe_prompt
-    assert "*Action Items & Next Steps*" in live_scribe_prompt
+    assert "*Key Perspectives*" in live_scribe_prompt
+    assert "*Risks & Open Questions*" in live_scribe_prompt
+    assert "Skip Empty Sections" in live_scribe_prompt
+    assert "300 words" in live_scribe_prompt
 
     conclusion_scribe_prompt = load_system_prompt("Discussion_Scribe_Conclusion")
-    assert "Part 1: *Problem Statement*" in conclusion_scribe_prompt
-    assert "Part 2: *Conclusion and Argumentation*" in conclusion_scribe_prompt
+    assert "*Problem Statement*" in conclusion_scribe_prompt
+    assert "*Consensus Decisions*" in conclusion_scribe_prompt
+    assert "*Divergent Positions & Trade-offs*" in conclusion_scribe_prompt
+    assert "*Action Items & Next Steps*" in conclusion_scribe_prompt
+    assert "Skip Empty Sections" in conclusion_scribe_prompt
+    assert "320 words" in conclusion_scribe_prompt
 
 
 def test_all_agents_contain_shared_skills():

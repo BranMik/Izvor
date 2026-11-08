@@ -374,12 +374,12 @@ async def test_update_notes_for_thread_completed_unpins_live_and_pins_conclusion
 
     mock_live_notes = ("### **Live Strategic Synthesis**\n**Problem Statement**: Choose DB.", {"prompt_tokens": 10, "completion_tokens": 10, "total_tokens": 20})
     mock_conc_notes = (
-        "---\n### **Part 1: Problem Statement**\nChoose optimal database architecture.\n\n"
-        "### **Part 2: Conclusion and Argumentation**\n"
-        "• **Consensus Decisions**: Need high availability.\n"
-        "• **Opposing Conclusions & Divergent Advice**:\n"
-        "  - PostgreSQL (Supporting: [agent-10001]): Strong ACID guarantees.\n"
-        "  - MongoDB (Supporting: [agent-10003]): Schema agility and horizontal scaling.",
+        "---\n### **Problem Statement**\nChoose optimal database architecture.\n\n"
+        "### **Consensus Decisions**\n• Need high availability.\n\n"
+        "### **Divergent Positions & Trade-offs**\n"
+        "• **PostgreSQL** ([agent-10001]): Strong ACID guarantees.\n"
+        "• **MongoDB** ([agent-10003]): Schema agility and horizontal scaling.\n\n"
+        "### **Action Items & Next Steps**\n• Benchmark connection pooling.",
         {"prompt_tokens": 20, "completion_tokens": 30, "total_tokens": 50},
     )
 
@@ -438,20 +438,21 @@ async def test_update_notes_for_thread_completed_unpins_live_and_pins_conclusion
         assert conc_post["username"] == "Discussion Conclusion"
         assert conc_post["pin"] is True
         # Conclusion posted to Slack must be Slack mrkdwn, not raw markdown
-        assert "*Part 1: Problem Statement*" in conc_post["text"]
-        assert "*Part 2: Conclusion and Argumentation*" in conc_post["text"]
-        assert "*Consensus Decisions*:" in conc_post["text"]
+        assert "*Problem Statement*" in conc_post["text"]
+        assert "*Consensus Decisions*" in conc_post["text"]
+        assert "*Divergent Positions & Trade-offs*" in conc_post["text"]
+        assert "*Action Items & Next Steps*" in conc_post["text"]
         assert "###" not in conc_post["text"]
         assert "**" not in conc_post["text"]
         assert "──────────" in conc_post["text"]  # '---' converted to Slack divider
         conc_block_text = conc_post["blocks"][0]["text"]["text"]
-        assert "*Part 1: Problem Statement*" in conc_block_text
+        assert "*Problem Statement*" in conc_block_text
         assert "###" not in conc_block_text
         assert "PostgreSQL" in conc_post["text"]
         assert "MongoDB" in conc_post["text"]
         # Cached/DB conclusion content keeps raw markdown for .txt downloads
         cached_conc = get_thread_conclusion_content(channel_id, thread_ts) or ""
-        assert "### **Part 1: Problem Statement**" in cached_conc
+        assert "### **Problem Statement**" in cached_conc
 
 
 @pytest.mark.anyio

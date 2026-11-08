@@ -40,12 +40,33 @@ def test_build_scribe_note_blocks():
     assert "Download Notes" in btn["text"]["text"]
 
 
-def test_build_scribe_note_blocks_truncates_long_text():
-    very_long_text = "A" * 3500
+def test_build_scribe_note_blocks_splits_long_text_across_sections():
+    # Text between 2,901 and 3,800 chars splits across section blocks without truncation
+    para1 = "A" * 2000
+    para2 = "B" * 1500
+    long_text = f"{para1}\n\n{para2}"
+    blocks = build_scribe_note_blocks(long_text, "C1", "123.456")
+    assert len(blocks) == 3
+    assert blocks[0]["type"] == "section"
+    assert blocks[1]["type"] == "section"
+    assert blocks[2]["type"] == "actions"
+    assert len(blocks[0]["text"]["text"]) <= 2900
+    assert len(blocks[1]["text"]["text"]) <= 2900
+    assert "...[truncated]" not in blocks[0]["text"]["text"]
+    assert "...[truncated]" not in blocks[1]["text"]["text"]
+
+
+def test_build_scribe_note_blocks_truncates_text_exceeding_total_limit():
+    very_long_text = "A" * 4500
     blocks = build_scribe_note_blocks(very_long_text, "C1", "123.456")
-    sec_text = blocks[0]["text"]["text"]
-    assert len(sec_text) <= 3000
-    assert "...[truncated]" in sec_text
+    assert len(blocks) >= 2
+    assert blocks[-1]["type"] == "actions"
+    for sec in blocks[:-1]:
+        assert sec["type"] == "section"
+        assert len(sec["text"]["text"]) <= 2900
+    combined_text = "".join(sec["text"]["text"] for sec in blocks[:-1])
+    assert len(combined_text) <= 3800
+    assert "...[truncated]" in combined_text
 
 
 def test_thread_note_content_cache():
@@ -235,7 +256,7 @@ def test_slack_interactivity_download_scribe_fallback_to_payload():
 
 
 def test_build_conclusion_note_blocks():
-    text = "Part 1: *Problem Statement*\nDefine DB.\n\nPart 2: *Conclusion and Argumentation*\nPostgreSQL wins."
+    text = "*Problem Statement*\nDefine DB.\n\n*Consensus Decisions*\nPostgreSQL wins."
     channel_id = "C_TEST_CONC"
     thread_ts = "1710000000.000999"
 
@@ -258,7 +279,7 @@ def test_slack_interactivity_download_conclusion_action():
     channel_id = "C_INTERACTIVE_CONC"
     thread_ts = "1710000000.000600"
     user_id = "U_CLICKER_77"
-    conclusion_content = "Part 1: Problem statement.\nPart 2: Dialectical argumentation."
+    conclusion_content = "*Problem Statement*\nProblem statement.\n\n*Consensus Decisions*\nDialectical consensus."
 
     set_thread_conclusion_content(channel_id, thread_ts, conclusion_content)
 

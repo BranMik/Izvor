@@ -15,51 +15,48 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_SCRIBE_PROMPT_FALLBACK = """<system_agent_specification id="Discussion_Scribe_Live" role="Live Strategic Synthesis Scribe">
   <task_objective>
-    Analyze the ongoing multi-agent discussion transcript and synthesize a structured, high-density live strategic brief in Slack.
+    Analyze the ongoing multi-agent discussion transcript and synthesize a concise, high-density live strategic brief in Slack that always fits comfortably within Slack message limits.
   </task_objective>
 
   <processing_rules>
     1. Language Invariant: Write ALL headers, section titles, status indicators, and bullet points strictly in the designated thread language. Never switch languages mid-note.
-    2. Mandatory Section Structure (translate section titles into the designated thread language):
-       - *Core Objective & Problem Statement*
-       - *Key Perspectives & Emerging Consensus*
-       - *Risks, Trade-offs & Open Questions*
-       - *Action Items & Next Steps*
-    3. Live Note Boundary (CRITICAL): Do NOT include a final conclusion or concluding summary in this live note (final conclusions are synthesized separately in a dedicated conclusion note).
-    4. Information Density: Keep all points objective, scannable, and strictly within the requested word ceiling without conversational preamble.
-    5. Strict Speaker Attribution: Attribute viewpoints and perspectives ONLY to agents who have an explicit "[AgentName]:" turn header in the transcript.
+    2. Section Structure & Strict Word Limits (translate section titles into the designated thread language):
+       - *Core Objective & Problem Statement* (max 35 words): 1–2 concise sentences stating the core problem and goal.
+       - *Key Perspectives* (max 190 words total; max 30 words per bullet): 1 compact bullet per speaking agent ("• **[AgentName]**: core proposal and key rationale").
+       - *Risks & Open Questions* (max 75 words): Concise bullets for critical risks or unresolved questions surfaced during the discussion.
+    3. Skip Empty Sections (CRITICAL): NEVER write a section title with empty content or placeholder text (such as "None", "N/A", or "Nothing identified yet"). If there is nothing substantive to write for a section, omit that section completely.
+    4. Live Note Boundary (CRITICAL): Do NOT include consensus decisions, final conclusions, or action items in this live note (those belong exclusively in the separate Conclusion Note).
+    5. Hard Total Ceiling: Keep the entire note strictly under 300 words (under 220 words while ongoing; under 50 words on the initial turn) unless overridden by an explicit user word-count directive.
+    6. Strict Speaker Attribution: Attribute viewpoints and perspectives ONLY to agents who have an explicit "[AgentName]:" turn header in the transcript.
   </processing_rules>
 
   <output_contract>
-    - Output ONLY the structured markdown live synthesis note containing the 4 translated sections above.
+    - Output ONLY the structured markdown live synthesis note containing the applicable non-empty translated sections above.
     - Zero introductory or closing meta-commentary.
   </output_contract>
 </system_agent_specification>"""
 
 _DEFAULT_CONCLUSION_PROMPT_FALLBACK = """<system_agent_specification id="Discussion_Scribe_Conclusion" role="Dialectical Conclusion Synthesizer">
   <task_objective>
-    Analyze the complete multi-agent deliberation transcript and synthesize the definitive, executive-level Conclusion Note capturing both consensus decisions and opposing dialectical viewpoints.
+    Analyze the completed multi-agent deliberation transcript and synthesize a compact, executive-level Conclusion Note capturing consensus decisions, divergent positions with trade-offs, and concrete next steps within Slack message limits.
   </task_objective>
 
   <processing_rules>
-    1. Language Invariant: Write ALL headers, section titles, status indicators, and bullet points strictly in the designated thread language. Never switch languages.
-    2. Mandatory Two-Part Structure (translate titles into the designated thread language):
-       - Part 1: *Problem Statement*
-         • Concise executive summary of the core objective, problem statement, and scope addressed by the panel.
-       - Part 2: *Conclusion and Argumentation*
-         • *Consensus Decisions*: Clear statement of decisions and propositions where participating agents reached broad agreement.
-         • *Opposing Conclusions & Divergent Advice*: Detail all opposing conclusions, divergent solutions, or alternative recommendations surfaced during deliberation (including both majority and minority/contrarian positions). For each opposing position, specify:
-           - Clearly identified conclusion or recommendation.
-           - Supporting Agents: Participating agents who advocated for this position.
-           - Arguments: Core evidence, reasoning, and justifications supporting this position.
-           - Counter-Arguments: Criticisms, risks, or trade-offs raised by other agents against this position.
-         • *Strategic Trade-offs & Key Unresolved Questions*: Critical unresolved tensions or trade-offs between the competing conclusions.
-    3. Dialectical Impartiality: Never suppress dissenting or minority viewpoints; represent minority arguments with the same analytical rigor as majority consensus.
-    4. Strict Speaker Attribution: Attribute arguments, positions, and "Supporting Agents" ONLY to agents who have an explicit "[AgentName]:" turn header in the transcript. NEVER attribute viewpoints to agents who were merely nominated or mentioned at the end of another speaker's message but did not actually speak.
+    1. Language Invariant: Write ALL headers, section titles, and bullet points strictly in the designated thread language. Never switch languages.
+    2. Section Structure & Strict Word Limits (translate section titles into the designated thread language):
+       - *Problem Statement* (max 25 words): Exactly 1 concise sentence stating the core question or objective addressed.
+       - *Consensus Decisions* (max 85 words): Concise bullets stating decisions and propositions where participating agents reached broad agreement.
+       - *Divergent Positions & Trade-offs* (max 140 words): Represent each opposing, minority, or alternative position as a single compact bullet combining attribution, rationale, and trade-offs:
+         • **[Position / Recommendation]** ([Supporting Agents]): Core argument and evidence — *Trade-off / Counter:* key criticism or risk raised.
+       - *Action Items & Next Steps* (max 70 words): Concrete, prioritized follow-up actions resulting from the deliberation.
+    3. Skip Empty Sections (CRITICAL): NEVER write a section title with empty content or placeholder text (such as "None", "N/A", or "No opposing views"). If a section has nothing substantive to report (e.g., unanimous agreement with no divergent positions, or no action items), omit that section completely.
+    4. Hard Total Ceiling: Keep the entire Conclusion Note strictly under 320 words unless overridden by an explicit user word-count directive.
+    5. Dialectical Impartiality: Never suppress dissenting or minority viewpoints; represent minority arguments with the same analytical rigor as majority consensus.
+    6. Strict Speaker Attribution: Attribute arguments, positions, and supporting agents ONLY to agents who have an explicit "[AgentName]:" turn header in the transcript. NEVER attribute viewpoints to agents who were merely nominated or mentioned at the end of another speaker's message but did not actually speak.
   </processing_rules>
 
   <output_contract>
-    - Output ONLY the structured two-part Conclusion Note in clean, scannable markdown.
+    - Output ONLY the structured Conclusion Note in clean, scannable markdown containing the applicable non-empty translated sections.
     - Zero conversational filler or meta-commentary.
   </output_contract>
 </system_agent_specification>"""
@@ -94,7 +91,8 @@ def _extract_brief_fields(raw_text: str) -> dict[str, Any]:
     for line in lines:
         l_str = line.strip()
         lower = l_str.lower()
-        is_header = l_str.startswith(("#", "**", "Part", "part", "PART")) or (l_str.endswith(":") and len(l_str) < 60)
+        is_star_header = (l_str.startswith("*") and l_str.endswith("*") and not l_str.startswith("**") and len(l_str) < 80)
+        is_header = l_str.startswith(("#", "**", "Part", "part", "PART")) or is_star_header or (l_str.endswith(":") and len(l_str) < 60)
         if is_header:
             if any(k in lower for k in ("objective", "problem statement", "cilj", "problem", "svrha")):
                 current_section = "objective"
@@ -105,7 +103,7 @@ def _extract_brief_fields(raw_text: str) -> dict[str, Any]:
             elif any(k in lower for k in ("perspective", "perspektiv", "gledište", "stajališt")):
                 current_section = "perspectives"
                 continue
-            elif any(k in lower for k in ("risk", "trade-off", "open question", "rizik", "kompromis", "otvoreno pitanje")):
+            elif any(k in lower for k in ("risk", "trade-off", "tradeoff", "open question", "rizik", "kompromis", "otvoreno pitanje")):
                 current_section = "risks"
                 continue
             elif any(k in lower for k in ("action item", "next step", "akcijsk", "sljedeći korak", "koraci")):
@@ -157,13 +155,15 @@ def _extract_conclusion_fields(raw_text: str) -> dict[str, Any]:
     problem_statement = ""
     consensus = ""
     opposing_conclusions: list[dict[str, Any]] = []
+    action_items: list[str] = []
 
     current_section = None
     lines = raw_text.splitlines()
     for line in lines:
         l_str = line.strip()
         lower = l_str.lower()
-        is_header = l_str.startswith(("#", "**", "Part", "part", "PART")) or (l_str.endswith(":") and len(l_str) < 60)
+        is_star_header = (l_str.startswith("*") and l_str.endswith("*") and not l_str.startswith("**") and len(l_str) < 80)
+        is_header = l_str.startswith(("#", "**", "Part", "part", "PART")) or is_star_header or (l_str.endswith(":") and len(l_str) < 60)
         if is_header:
             if any(k in lower for k in ("problem statement", "problem", "cilj", "pitanje")):
                 current_section = "problem"
@@ -171,8 +171,11 @@ def _extract_conclusion_fields(raw_text: str) -> dict[str, Any]:
             elif any(k in lower for k in ("consensus", "konsenzus", "zaključak", "slaganje")):
                 current_section = "consensus"
                 continue
-            elif any(k in lower for k in ("opposing", "divergent", "suprotn", "različit", "drugačij")):
+            elif any(k in lower for k in ("opposing", "divergent", "suprotn", "različit", "drugačij", "trade-off", "tradeoff")):
                 current_section = "opposing"
+                continue
+            elif any(k in lower for k in ("action item", "next step", "akcijsk", "sljedeći korak", "koraci")):
+                current_section = "action_items"
                 continue
             elif l_str.startswith("#"):
                 current_section = None
@@ -193,11 +196,17 @@ def _extract_conclusion_fields(raw_text: str) -> dict[str, Any]:
                 opposing_conclusions.append({"text": cleaned_bullet})
             else:
                 opposing_conclusions.append({"text": l_str})
+        elif current_section == "action_items":
+            if m:
+                action_items.append(cleaned_bullet)
+            else:
+                action_items.append(l_str)
 
     return {
         "problem_statement": problem_statement.strip(),
         "consensus": consensus.strip(),
         "opposing_conclusions": opposing_conclusions,
+        "action_items": action_items,
     }
 
 
@@ -283,13 +292,14 @@ class DiscussionScribe:
                 )
             else:
                 structure_req = (
-                    "Include Core Objective & Problem Statement, Key Perspectives & Emerging Consensus, "
-                    "Risks & Trade-offs, and Action Items & Next Steps. Do NOT include a conclusion section."
+                    "Include *Core Objective & Problem Statement* (<=35 words), *Key Perspectives* (<=190 words total, <=30 words per bullet), "
+                    "and *Risks & Open Questions* (<=75 words). Do NOT include consensus decisions, final conclusions, or action items (those belong in the dedicated Conclusion Note). "
+                    "CRITICAL: If there is nothing substantive for a section, omit that section completely (never output empty sections)."
                 )
             ceiling_text = (
                 f"strictly under {scribe_max_words} words"
                 if scribe_max_words is not None
-                else "strictly under 500 words maximum ceiling"
+                else "strictly under 300 words maximum ceiling"
             )
             status_directive = (
                 f"The discussion has finished. Generate the FINAL concise strategic synthesis live notes ({ceiling_text}). "
@@ -298,25 +308,31 @@ class DiscussionScribe:
                 "Use an appropriate natural status indicator translated into the thread language in the header (e.g. Completed ✅)."
                 f"{extra_len_instruction}"
             )
-            max_tokens = 1500
+            max_tokens = 1000
         elif assistant_turns <= 1:
             status_directive = (
                 "This is the initial turn of the discussion. Generate the initial concise strategic synthesis note (strictly under 50 words total). "
-                "State the initial core objective and initial key perspective. "
+                "State the initial core objective and initial key perspective. Omit any empty sections. "
                 f"CRITICAL: Write ALL titles and content strictly in {thread_language}. "
                 "Use an appropriate natural status indicator translated into the thread language in the header (e.g. Updating live...)."
                 f"{extra_len_instruction}"
             )
             max_tokens = 350
         else:
+            ceiling_text = (
+                f"strictly under {scribe_max_words} words"
+                if scribe_max_words is not None
+                else "strictly under 220 words maximum ceiling"
+            )
             status_directive = (
-                "The discussion is actively ongoing. Generate the updated, concise strategic synthesis notes (strictly under 300 words maximum ceiling). "
-                "Synthesize current key perspectives, emerging consensus, identified risks, and preliminary action items. "
+                f"The discussion is actively ongoing. Generate the updated, concise strategic synthesis notes ({ceiling_text}). "
+                "Include *Core Objective & Problem Statement* (<=35 words), *Key Perspectives* (<=140 words total), and *Risks & Open Questions* (<=45 words). "
+                "CRITICAL: If there is nothing substantive for a section, omit that section completely (never output empty sections). "
                 f"CRITICAL: Write ALL titles and content strictly in {thread_language}. "
                 "Use an appropriate natural status indicator translated into the thread language in the header (e.g. Updating live...)."
                 f"{extra_len_instruction}"
             )
-            max_tokens = 800
+            max_tokens = 700
 
         if scribe_min_words is not None:
             max_tokens = max(max_tokens, int(scribe_min_words * 3))
@@ -447,15 +463,20 @@ class DiscussionScribe:
             )
         extra_len_instruction = f" {' '.join(length_directives)}" if length_directives else ""
 
+        ceiling_text = (
+            f"strictly under {scribe_max_words} words"
+            if scribe_max_words is not None
+            else "strictly under 320 words maximum ceiling"
+        )
         status_directive = (
-            f"The discussion has fully concluded. Analyze the complete debate and generate the comprehensive Conclusion Note. "
-            f"Structure strictly into Part 1: Problem Statement and Part 2: Conclusion and Argumentation. "
-            f"Ensure ALL opposing/divergent viewpoints from the debate are explicitly articulated with supporting agents, arguments, and counter-arguments. "
+            f"The discussion has fully concluded. Analyze the complete debate and generate the compact Conclusion Note ({ceiling_text}). "
+            f"Structure into: *Problem Statement* (<=25 words), *Consensus Decisions* (<=85 words), *Divergent Positions & Trade-offs* (<=140 words, 1 compact bullet per position), and *Action Items & Next Steps* (<=70 words). "
+            f"CRITICAL: If there is nothing substantive for a section (e.g. unanimous agreement with no divergent positions, or no action items), omit that section completely (never output empty sections). "
             f"CRITICAL: Write ALL headers, titles, and text strictly in {thread_language}. "
             f"{extra_len_instruction}"
         )
 
-        max_tokens = 2500
+        max_tokens = 1100
         if scribe_min_words is not None:
             max_tokens = max(max_tokens, int(scribe_min_words * 4))
 
@@ -525,6 +546,7 @@ class DiscussionScribe:
                 problem_statement=extracted_fields.get("problem_statement", ""),
                 consensus=extracted_fields.get("consensus", ""),
                 opposing_conclusions=extracted_fields.get("opposing_conclusions", []),
+                action_items=extracted_fields.get("action_items", []),
                 raw_markdown=raw_text.strip(),
                 is_completed=True,
                 language=thread_language,
