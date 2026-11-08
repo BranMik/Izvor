@@ -71,7 +71,7 @@ async def test_scribe_brief_strips_nominations_and_injects_speaker_roster():
 async def test_scribe_conclusion_strips_nominations_and_injects_speaker_roster():
     mock_resp = MagicMock()
     mock_resp.choices = [
-        MagicMock(message=MagicMock(content="Part 1: *Problem Statement*\nProblem.\nPart 2: *Conclusion and Argumentation*\nConsensus."))
+        MagicMock(message=MagicMock(content="*Problem Statement*\nProblem.\n*Consensus Decisions*\nConsensus."))
     ]
     mock_resp.usage = MagicMock(prompt_tokens=200, completion_tokens=100)
     mock_completion_fn = AsyncMock(return_value=mock_resp)

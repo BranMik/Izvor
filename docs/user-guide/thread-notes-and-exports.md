@@ -9,15 +9,20 @@ This guide explains how **Izvor** captures debate history, generates live and cl
 When a deliberation is initiated, progresses, or reaches its configured round limit, Izvor engages the **Scribe** persona:
 
 ### 1. Live Discussion Notes & Real-Time Tracking
-- During active debates, the Scribe can maintain a rolling live summary message tracking key discussion points as arguments evolve.
+- During active debates, the Scribe maintains a rolling live summary message tracking key discussion points as arguments evolve (strictly under 300 words final, 220 words ongoing, 50 words on initial turn):
+  - **Core Objective & Problem Statement** (max 35 words): 1–2 concise sentences.
+  - **Key Perspectives** (max 190 words total; max 30 words per bullet): 1 compact bullet per speaking agent.
+  - **Risks & Open Questions** (max 75 words): Unresolved risks or questions raised during deliberation.
+- Empty sections are automatically omitted if no substantive points exist.
 - Word constraints (`scribe_min_words`, `scribe_max_words`) can be specified to tune synthesis depth.
 
 ### 2. Conclusion Note & Decision Pinning
-- When a debate concludes (either by reaching round limits or upon `/stop`), the Scribe produces an authoritative closing synthesis:
-  - **Key Decision Points**: Options and architectural alternatives weighed.
-  - **Consensus & Tradeoffs**: Points of consensus, dissenting opinions, and accepted risks.
-  - **Action Items & Owners**: Assigned follow-ups and immediate next steps.
-- The conclusion note is formatted with high-contrast Slack Block Kit headers and can be pinned to the thread for executive review.
+- When a debate concludes (either by reaching round limits or upon `/stop`), the Scribe produces an authoritative closing synthesis (strictly under 320 words):
+  - **Problem Statement** (max 25 words): Single-sentence executive framing.
+  - **Consensus Decisions** (max 85 words): Unanimous or broad-agreement positions.
+  - **Divergent Positions & Trade-offs** (max 140 words): Compact bullet per dissenting or alternative recommendation with agent attribution, evidence, and counter-arguments.
+  - **Action Items & Next Steps** (max 70 words): Concrete, prioritized follow-up steps.
+- The conclusion note is formatted with high-contrast Slack Block Kit headers, supports multi-block splitting up to 3,800 characters to prevent truncation, and is pinned to the thread for executive review.
 
 ### 3. Thread Notes Disk Persistence ([`services/thread_notes_writer.py`](file:///engine/services/thread_notes_writer.py))
 In addition to posting inside Slack, thread notes are automatically saved to disk in `agents_resources/thread_notes/`:

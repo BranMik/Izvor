@@ -183,26 +183,99 @@ def set_thread_conclusion_content(channel_id: str, thread_ts: str, content: str)
     _upsert_notes_state(channel_id, thread_ts, conclusion_note_content=content)
 
 
+def _split_note_into_section_blocks(
+    formatted_text: str,
+    max_total_chars: int = 3800,
+    max_block_chars: int = 2900,
+) -> list[dict[str, Any]]:
+    """
+    Splits note text into one or more Slack section blocks (up to max_total_chars total)
+    so each block strictly respects Slack's 3,000-character section block limit.
+    """
+    clean_text = formatted_text.strip()
+    if len(clean_text) > max_total_chars:
+        cutoff = max_total_chars - 30
+        truncated = clean_text[:cutoff]
+        last_nl = truncated.rfind("\n")
+        if last_nl > cutoff - 200:
+            truncated = truncated[:last_nl]
+        clean_text = f"{truncated.strip()}\n_...[truncated]_"
+
+    if len(clean_text) <= max_block_chars:
+        return [
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": clean_text,
+                },
+            }
+        ]
+
+    # Split across multiple section blocks on newline boundaries
+    blocks: list[dict[str, Any]] = []
+    lines = clean_text.splitlines(keepends=True)
+    current_chunk = ""
+
+    for line in lines:
+        if len(current_chunk) + len(line) <= max_block_chars:
+            current_chunk += line
+        else:
+            if current_chunk:
+                blocks.append(
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": current_chunk.strip(),
+                        },
+                    }
+                )
+                current_chunk = ""
+            while len(line) > max_block_chars:
+                blocks.append(
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": line[:max_block_chars].strip(),
+                        },
+                    }
+                )
+                line = line[max_block_chars:]
+            current_chunk = line
+
+    if current_chunk and current_chunk.strip():
+        blocks.append(
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": current_chunk.strip(),
+                },
+            }
+        )
+
+    return blocks if blocks else [
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": clean_text,
+            },
+        }
+    ]
+
+
 def build_scribe_note_blocks(
     formatted_text: str, channel_id: str, thread_ts: str
 ) -> list[dict[str, Any]]:
     """
     Constructs Slack Block Kit blocks for Live Discussion Scribe message,
-    including a section with the notes and an action button to download as .txt.
+    supporting multi-block splitting up to 3,800 chars and an action button to download as .txt.
     """
-    section_text = (
-        formatted_text
-        if len(formatted_text) <= 2900
-        else formatted_text[:2890] + "\n_...[truncated]_"
-    )
-    return [
-        {
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": section_text,
-            },
-        },
+    blocks = _split_note_into_section_blocks(formatted_text)
+    blocks.append(
         {
             "type": "actions",
             "block_id": "scribe_actions_block",
@@ -218,8 +291,9 @@ def build_scribe_note_blocks(
                     "value": f"{channel_id}:{thread_ts}",
                 }
             ],
-        },
-    ]
+        }
+    )
+    return blocks
 
 
 def build_conclusion_note_blocks(
@@ -227,21 +301,10 @@ def build_conclusion_note_blocks(
 ) -> list[dict[str, Any]]:
     """
     Constructs Slack Block Kit blocks for Discussion Conclusion message,
-    including a section with the conclusion and an action button to download as .txt.
+    supporting multi-block splitting up to 3,800 chars and an action button to download as .txt.
     """
-    section_text = (
-        formatted_text
-        if len(formatted_text) <= 2900
-        else formatted_text[:2890] + "\n_...[truncated]_"
-    )
-    return [
-        {
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": section_text,
-            },
-        },
+    blocks = _split_note_into_section_blocks(formatted_text)
+    blocks.append(
         {
             "type": "actions",
             "block_id": "conclusion_actions_block",
@@ -257,8 +320,9 @@ def build_conclusion_note_blocks(
                     "value": f"{channel_id}:{thread_ts}",
                 }
             ],
-        },
-    ]
+        }
+    )
+    return blocks
 
 
 def evict_thread_note_cache(channel_id: str, thread_ts: str) -> None:

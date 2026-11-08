@@ -113,20 +113,24 @@ Consensus is leaning towards SQLite.
     assert len(extracted["action_items"]) >= 2
 
     sample_conclusion = """
-Part 1: Problem Statement
+*Problem Statement*
 Resolve local database persistence strategy for single-node deployments.
 
-Part 2: Conclusion and Argumentation
-Consensus Decisions:
-Adopt SQLite in WAL mode with immediate transactions.
+*Consensus Decisions*
+• Adopt SQLite in WAL mode with immediate transactions.
 
-Opposing Conclusions & Divergent Advice:
-- Use PostgreSQL via Docker container for distributed scaling.
+*Divergent Positions & Trade-offs*
+• **PostgreSQL Container** ([Architect]): Distributed scaling — *Trade-off / Counter:* High operational overhead.
+
+*Action Items & Next Steps*
+1. Run benchmark suite with WAL mode.
+2. Configure checkpoint interval.
 """
     conclusion_extracted = _extract_conclusion_fields(sample_conclusion)
     assert "single-node deployments" in conclusion_extracted["problem_statement"]
     assert "Adopt SQLite in WAL mode" in conclusion_extracted["consensus"]
     assert len(conclusion_extracted["opposing_conclusions"]) >= 1
+    assert len(conclusion_extracted["action_items"]) == 2
 
 
 def test_telemetry_span_recording_and_retrieval():

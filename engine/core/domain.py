@@ -122,6 +122,7 @@ class DiscussionConclusion:
     problem_statement: str = ""
     consensus: str = ""
     opposing_conclusions: list[dict[str, Any]] = field(default_factory=list)
+    action_items: list[str] = field(default_factory=list)
     raw_markdown: str = ""
     is_completed: bool = True
     language: str = "en"  # "en" or "hr"
@@ -131,6 +132,7 @@ class DiscussionConclusion:
             "problem_statement": self.problem_statement,
             "consensus": self.consensus,
             "opposing_conclusions": self.opposing_conclusions,
+            "action_items": self.action_items,
             "raw_markdown": self.raw_markdown,
             "is_completed": self.is_completed,
             "language": self.language,
