@@ -8,7 +8,7 @@ from unittest.mock import patch
 import pytest
 
 from core.config import (
-    BASE_AVATAR_URL,
+    get_base_avatar_url,
     resolve_avatar_url,
 )
 from orchestration.agent_settings import AgentSettingsManager, settings_manager
@@ -18,10 +18,10 @@ from services.slack_home import build_app_home_view
 def test_relative_avatar_url_resolution():
     # Relative path resolution
     res_rel = resolve_avatar_url("static/avatar_25.png")
-    assert res_rel == f"{BASE_AVATAR_URL}static/avatar_25.png"
+    assert res_rel == f"{get_base_avatar_url()}static/avatar_25.png"
 
     res_slash = resolve_avatar_url("/static/avatar_33.png")
-    assert res_slash == f"{BASE_AVATAR_URL}static/avatar_33.png"
+    assert res_slash == f"{get_base_avatar_url()}static/avatar_33.png"
 
     # Absolute URL preservation
     res_abs = resolve_avatar_url("https://example.com/my_avatar.png")
@@ -560,6 +560,26 @@ def test_all_ssot_icon_urls_resolve_to_served_avatar_files():
             assert any((d / filename).exists() for d in search_dirs), (
                 f"{settings_file}: avatar file {filename!r} not found in {search_dirs}"
             )
-            assert resolve_avatar_url(icon_url) == f"{BASE_AVATAR_URL}{icon_url}"
+            assert resolve_avatar_url(icon_url) == f"{get_base_avatar_url()}{icon_url}"
             checked += 1
     assert checked >= 20  # 16 panel agents + 5 system/orchestrator entries
+
+
+def test_base_avatar_url_env_override_and_resolve():
+    """BASE_AVATAR_URL must be read from env at call time; resolve_avatar_url must use it (Slack fetches icon_url server-side)."""
+    import os as _os
+    from unittest.mock import patch as _patch
+
+    from core.config import DEFAULT_BASE_AVATAR_URL, get_base_avatar_url, resolve_avatar_url
+
+    with _patch.dict(_os.environ, {"BASE_AVATAR_URL": "https://avatars.example.com/"}):
+        assert get_base_avatar_url() == "https://avatars.example.com/"
+        assert resolve_avatar_url("avatars/image_43.png") == "https://avatars.example.com/avatars/image_43.png"
+        assert resolve_avatar_url("/avatars/image_17.png") == "https://avatars.example.com/avatars/image_17.png"
+        # absolute URLs pass through untouched
+        assert resolve_avatar_url("https://cdn.example.com/a.png") == "https://cdn.example.com/a.png"
+
+    with _patch.dict(_os.environ, {}, clear=False):
+        _os.environ.pop("BASE_AVATAR_URL", None)
+        assert get_base_avatar_url() == DEFAULT_BASE_AVATAR_URL
+        assert resolve_avatar_url("avatars/image_43.png") == f"{DEFAULT_BASE_AVATAR_URL}avatars/image_43.png"
