@@ -172,10 +172,12 @@ class ContextPrepStage:
         )
 
         active_rounds = thread_state_manager.get_rounds(ctx.input.channel_id, ctx.input.thread_ts)
+        pending_retries = thread_state_manager.get_retry_queue(ctx.input.channel_id, ctx.input.thread_ts)
         ctx.force_termination = bool(
             (
                 (ctx.was_explicit_target and not ctx.input.is_bot_trigger and not ctx.remaining)
                 or (ctx.is_custom_flow and not ctx.remaining)
+                or (ctx.input.is_bot_trigger and not ctx.remaining and not pending_retries)
             )
             and active_rounds <= 1
             or thread_state_manager.is_stopped(ctx.input.channel_id, ctx.input.thread_ts)
