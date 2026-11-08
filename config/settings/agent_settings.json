@@ -31,7 +31,7 @@
       "username": "Innovator",
       "model": "anthropic/claude-opus-5",
       "displayname": "Innovator",
-      "icon_url": "avatars/image_02.png",
+      "icon_url": "avatars/image_01.png",
       "is_short_output": false,
       "skills": []
     },
@@ -47,7 +47,7 @@
       "username": "CompliancePrivacyAndGovernanceOfficer",
       "model": "mistral/mistral-large-latest",
       "displayname": "Compliance, Privacy And Governance Officer",
-      "icon_url": "avatars/image_15.png",
+      "icon_url": "avatars/image_02.png",
       "is_short_output": true,
       "skills": []
     },
@@ -83,7 +83,7 @@
       "username": "SecurityArchitect",
       "model": "mistral/mistral-large-latest",
       "displayname": "Security Architect",
-      "icon_url": "avatars/image_34.png",
+      "icon_url": "avatars/image_06.png",
       "is_short_output": false,
       "skills": [
         "document_reader",
@@ -150,7 +150,7 @@
       "username": "Revisor",
       "model": "gemini/gemini-3.8-flash",
       "displayname": "Revisor",
-      "icon_url": "avatars/image_02.png",
+      "icon_url": "avatars/image_34.png",
       "is_short_output": false,
       "skills": [
         "web_research",

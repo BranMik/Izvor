@@ -4,7 +4,7 @@
       "username": "InternalRevisor",
       "model": "mistral/mistral-small-latest",
       "displayname": "Internal Revisor",
-      "icon_url": "avatars/image_99.png",
+      "icon_url": "avatars/image_98.png",
       "is_short_output": true,
       "skills": []
     },
@@ -19,7 +19,7 @@
       "username": "Challenger",
       "model": "mistral/mistral-large-latest",
       "displayname": "Dialectical Challenger",
-      "icon_url": "avatars/image_18.png",
+      "icon_url": "avatars/image_96.png",
       "is_short_output": false,
       "skills": [
         "document_reader",
@@ -31,7 +31,7 @@
       "username": "RebuttalAdvocate",
       "model": "mistral/mistral-large-latest",
       "displayname": "Rebuttal & Defense Advocate",
-      "icon_url": "avatars/image_17.png",
+      "icon_url": "avatars/image_97.png",
       "is_short_output": false,
       "skills": [
         "document_reader",

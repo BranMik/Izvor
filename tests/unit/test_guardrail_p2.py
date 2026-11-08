@@ -149,3 +149,107 @@ async def test_agent_router_guardrail_exception_fail_open():
         assert res == {"ok": True}
         mock_audit.assert_not_called()
 
+class _FakeListTablesResponse:
+    """Mimics lancedb >= 0.39 ListTablesResponse: list_tables() returns an object with .tables."""
+
+    def __init__(self, tables):
+        self.tables = list(tables)
+
+
+class _FakeDB:
+    def __init__(self, names, response_style="response"):
+        self._names = list(names)
+        self._response_style = response_style
+        self.opened = []
+
+    def list_tables(self):
+        if self._response_style == "response":
+            return _FakeListTablesResponse(self._names)
+        return list(self._names)
+
+    def table_names(self):
+        return list(self._names)
+
+    def open_table(self, name):
+        self.opened.append(name)
+        return MagicMock(name=name)
+
+
+class _FakeDBLegacyNamesOnly:
+    """Mimics old lancedb where only table_names() exists."""
+
+    def __init__(self, names):
+        self._names = list(names)
+
+    def table_names(self):
+        return list(self._names)
+
+    def open_table(self, name):
+        return MagicMock(name=name)
+
+
+def test_guardrail_table_discovery_list_tables_response_shape():
+    """Plan 06: lancedb >= 0.39 list_tables() returns a response object with .tables."""
+    fake_db = _FakeDB(["agent_knowledge", "guardrail_signatures"], response_style="response")
+    connect = MagicMock(return_value=fake_db)
+    svc = GuardrailService(db_dir="/nonexistent", connect_fn=connect)
+
+    assert svc.table is not None
+    assert fake_db.opened == ["guardrail_signatures"]
+
+
+def test_guardrail_table_discovery_legacy_list_shape():
+    """Plan 06: older lancedb where list_tables() returns a plain list of names."""
+    fake_db = _FakeDB(["guardrail_signatures"], response_style="list")
+    connect = MagicMock(return_value=fake_db)
+    svc = GuardrailService(db_dir="/nonexistent", connect_fn=connect)
+
+    assert svc.table is not None
+    assert fake_db.opened == ["guardrail_signatures"]
+
+
+def test_guardrail_table_discovery_table_names_only():
+    """Plan 06: fallback to deprecated table_names() when list_tables() is absent."""
+    fake_db = _FakeDBLegacyNamesOnly(["guardrail_signatures"])
+    connect = MagicMock(return_value=fake_db)
+    svc = GuardrailService(db_dir="/nonexistent", connect_fn=connect)
+
+    assert svc.table is not None
+
+
+def test_guardrail_table_missing_negative_cache_and_retry():
+    """Plan 06: a missing table is cached (no reconnect per prompt) but re-checked
+    periodically so a table seeded after startup is picked up."""
+    from services.security.guardrail import MISSING_TABLE_RETRY_INTERVAL
+
+    fake_db = _FakeDB([], response_style="response")
+    connect = MagicMock(return_value=fake_db)
+    svc = GuardrailService(db_dir="/nonexistent", connect_fn=connect)
+
+    assert svc.table is None
+    for _ in range(5):
+        assert svc.table is None
+    assert connect.call_count == 1  # negative result cached, no reconnect per prompt
+
+    for _ in range(MISSING_TABLE_RETRY_INTERVAL + 1):
+        svc.table
+    assert connect.call_count == 2  # periodic re-check happened
+
+    # Simulate the table being seeded after startup -> next re-check opens it
+    fake_db._names.append("guardrail_signatures")
+    for _ in range(MISSING_TABLE_RETRY_INTERVAL + 1):
+        if svc.table is not None:
+            break
+        svc.table
+    assert svc.table is not None
+    assert fake_db.opened == ["guardrail_signatures"]
+
+
+def test_guardrail_table_discovery_real_lancedb_dir():
+    """Plan 06: against the real LANCEDB_DIR, the seeded guardrail_signatures table
+    must be discovered (regression for the lancedb 0.39 ListTablesResponse mismatch)."""
+    from services.rag.config import LANCEDB_DIR
+
+    svc = GuardrailService(db_dir=LANCEDB_DIR)
+    table = svc.table
+    assert table is not None, f"guardrail_signatures not found in {LANCEDB_DIR}"
