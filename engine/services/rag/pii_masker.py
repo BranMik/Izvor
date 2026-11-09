@@ -1,8 +1,13 @@
+import json
 import logging
+from pathlib import Path
 import re
 import threading
+from datetime import datetime, timezone
 from typing import Any
 
+from core.paths import PRESIDIO_SKILL_EXCLUSIONS_FILE
+from orchestration.settings_store import atomic_write_json
 from .config import get_pii_masking_mode
 
 logger = logging.getLogger(__name__)
@@ -103,30 +108,7 @@ _PII_PATTERNS: list[tuple[re.Pattern, str]] = [
     ),
 ]
 
-_PRESIDIO_ALLOWLIST_LOWER: set[str] = {
-    # Directive & modifier vocabulary
-    "max",
-    "min",
-    "maximum",
-    "minimum",
-    "words",
-    "word",
-    "rounds",
-    "round",
-    "history",
-    "first",
-    "stop",
-    "exclude",
-    "include",
-    "revoke",
-    "grant",
-    "scribe",
-    "off",
-    "all",
-    "int",
-    "int_or_off",
-    "target_file",
-    "file_use",
+_STATIC_GLOBAL_ALLOWLIST_LOWER: frozenset[str] = frozenset({
     # Platform, provider & technical vocabulary
     "izvor",
     "slack",
@@ -189,9 +171,94 @@ _PRESIDIO_ALLOWLIST_LOWER: set[str] = {
     "mistral",
     "groq",
     "meta",
+    "int",
+    "int_or_off",
+    "target_file",
+    "file_use",
+})
+
+_STATIC_SENTENCE_START_ALLOWLIST_LOWER: frozenset[str] = frozenset({
+    # Directive & modifier vocabulary
+    "max",
+    "min",
+    "maximum",
+    "minimum",
+    "words",
+    "word",
+    "rounds",
+    "round",
+    "history",
+    "first",
+    "stop",
+    "exclude",
+    "include",
+    "revoke",
+    "grant",
+    "scribe",
+    "off",
+    "all",
     "require",
     "operations",
-}
+})
+
+_SKILL_STOPWORDS: frozenset[str] = frozenset({
+    "the",
+    "a",
+    "an",
+    "and",
+    "or",
+    "for",
+    "of",
+    "to",
+    "in",
+    "on",
+    "at",
+    "by",
+    "with",
+    "from",
+    "into",
+    "as",
+    "is",
+    "are",
+    "was",
+    "were",
+    "be",
+    "been",
+    "being",
+    "have",
+    "has",
+    "had",
+    "do",
+    "does",
+    "did",
+    "can",
+    "could",
+    "should",
+    "would",
+    "will",
+    "this",
+    "that",
+    "these",
+    "those",
+    "if",
+    "then",
+    "not",
+    "no",
+    "such",
+    "than",
+    "please",
+    "use",
+    "using",
+    "used",
+    "via",
+    "make",
+    "take",
+    "give",
+    "also",
+    "just",
+})
+
+MAX_SKILL_KEYWORDS: int = 5
 
 _PROTECTED_SPAN_PATTERNS: list[re.Pattern] = [
     # Already-tokenized placeholders (e.g. <EMAIL_0>, <REDACTED_SECRET_1>)
@@ -209,52 +276,130 @@ _PROTECTED_SPAN_PATTERNS: list[re.Pattern] = [
 ]
 
 
-def _get_dynamic_protected_terms() -> set[str]:
-    """Collects lowercase agent keys, usernames, displaynames, and skill names to prevent masking."""
-    terms: set[str] = set()
-    try:
-        from core.config import AGENTS_CONFIG
+def extract_skill_exclusion_terms(skill: Any) -> tuple[list[str], list[str]]:
+    """
+    Extracts (global_terms, sentence_start_keywords) for a SkillDefinition.
+    - global_terms: exact skill name, multi-word display name, and all-caps acronyms.
+    - sentence_start_keywords: bare slash triggers and natural language keywords (max 5).
+    """
+    global_terms: list[str] = []
+    s_name = getattr(skill, "name", "").strip().lower()
+    if s_name and s_name not in global_terms:
+        global_terms.append(s_name)
 
-        for k, v in AGENTS_CONFIG.items():
-            terms.add(k.lower())
-            if isinstance(v, dict):
-                if v.get("username"):
-                    terms.add(v["username"].lower())
-                if v.get("displayname"):
-                    terms.add(v["displayname"].lower())
-                    for word in v["displayname"].lower().split():
-                        terms.add(word)
-    except Exception:
-        pass
-    try:
-        from orchestration.agent_settings import settings_manager
+    d_name = getattr(skill, "display_name", "").strip()
+    if d_name:
+        d_lower = d_name.lower()
+        if d_lower not in global_terms:
+            global_terms.append(d_lower)
+        # Acronyms (e.g. RAG, PDF, API, SQL) in display name
+        for word in d_name.split():
+            clean_word = word.strip(" \t\r\n`'\".,;:!?()[]{}<>/")
+            if clean_word.isupper() and len(clean_word) >= 2:
+                w_lower = clean_word.lower()
+                if w_lower not in global_terms:
+                    global_terms.append(w_lower)
 
-        cfg = settings_manager.get_agents_config()
-        if cfg:
-            for k, v in cfg.items():
-                terms.add(k.lower())
-                if isinstance(v, dict):
-                    if v.get("username"):
-                        terms.add(v["username"].lower())
-                    if v.get("displayname"):
-                        terms.add(v["displayname"].lower())
-                        for word in v["displayname"].lower().split():
-                            terms.add(word)
-    except Exception:
-        pass
-    try:
-        from core.registry import get_skill_registry
+    # Collect sentence-start keyword candidates
+    candidates: list[str] = []
 
-        reg = get_skill_registry()
-        for s in reg.list_skills():
-            terms.add(s.name.lower())
-            if s.display_name:
-                terms.add(s.display_name.lower())
-                for word in s.display_name.lower().split():
-                    terms.add(word)
-    except Exception:
-        pass
-    return terms
+    # 1. Explicit triggers.keywords
+    triggers = getattr(skill, "triggers", {}) or {}
+    explicit_kw = triggers.get("keywords") or []
+    if isinstance(explicit_kw, (list, tuple)):
+        for kw in explicit_kw:
+            if isinstance(kw, str):
+                candidates.append(kw.strip().lower())
+
+    # 2. Slash command stems
+    slash_list = triggers.get("slash") or []
+    if isinstance(slash_list, str):
+        slash_list = [slash_list]
+    for slash_cmd in slash_list:
+        bare = str(slash_cmd).strip().lstrip("/")
+        if bare:
+            candidates.append(bare.lower())
+            for sub in re.split(r"[_\-]+", bare):
+                if sub:
+                    candidates.append(sub.lower())
+
+    # 3. Meaningful non-stopword tokens from display_name
+    if d_name:
+        for word in re.split(r"[\s\W_]+", d_name):
+            if word:
+                candidates.append(word.lower())
+
+    # 4. Name subtokens
+    if s_name:
+        for sub in re.split(r"[_\-]+", s_name):
+            if sub:
+                candidates.append(sub.lower())
+
+    # 5. Extraction rule / description words for auto-detect or agent skills
+    scope = getattr(skill, "scope", "")
+    is_auto = bool(triggers.get("auto_detect", False))
+    if is_auto or scope == "agent":
+        ext_rule = getattr(skill, "extraction_rule", "") or ""
+        quoted = re.findall(r"['\"]([^'\"]+)['\"]", ext_rule)
+        for q in quoted:
+            for w in re.split(r"[\s\W_]+", q):
+                if w:
+                    candidates.append(w.lower())
+        desc = getattr(skill, "description", "") or ""
+        for w in re.split(r"[\s\W_]+", desc)[:15]:
+            if w:
+                candidates.append(w.lower())
+
+    # Filter & deduplicate
+    sentence_start_keywords: list[str] = []
+    seen: set[str] = set()
+
+    for cand in candidates:
+        token = cand.strip(" \t\r\n`'\".,;:!?()[]{}<>/")
+        if (
+            len(token) >= 3
+            and token.isalpha()
+            and token not in seen
+            and token not in _SKILL_STOPWORDS
+            and token not in _STATIC_GLOBAL_ALLOWLIST_LOWER
+            and token not in global_terms
+        ):
+            seen.add(token)
+            sentence_start_keywords.append(token)
+            if len(sentence_start_keywords) >= MAX_SKILL_KEYWORDS:
+                break
+
+    return global_terms, sentence_start_keywords
+
+
+def _is_at_sentence_or_clause_start(text: str, span_start: int) -> bool:
+    """
+    Checks whether span_start in text is at the beginning of the prompt or following
+    a sentence or clause boundary, ignoring leading whitespace, Slack mentions,
+    bracketed agent tags, and common prompt prefixes.
+    """
+    prefix = text[:span_start]
+    # Strip optional 'User message:' prompt wrapper prefix
+    prefix = re.sub(r"^\s*User(?:\s+message)?:\s*", "", prefix, flags=re.IGNORECASE)
+
+    # Iteratively strip trailing Slack mentions and bracketed tags
+    while True:
+        stripped = prefix.rstrip(" \t")
+        m_slack = re.search(r"<[@#!][A-Za-z0-9_|.-]+>\s*$", stripped)
+        if m_slack:
+            prefix = stripped[:m_slack.start()]
+            continue
+        m_tag = re.search(r"/?\[[^\]\r\n]+\]\s*$", stripped)
+        if m_tag:
+            prefix = stripped[:m_tag.start()]
+            continue
+        break
+
+    clean_prefix = prefix.rstrip(" \t")
+    if not clean_prefix:
+        return True
+    last_char = clean_prefix[-1]
+    return last_char in {".", "!", "?", "\n", "\r", ":", ";", "-", "—", "(", "[", '"', "'", "`", "*"}
 
 
 class PIIMasker:
@@ -267,6 +412,183 @@ class PIIMasker:
         self._presidio_analyzer: Any = None
         self._presidio_initialized = False
         self._init_lock = threading.Lock()
+        self._custom_exclusions_file: Path | None = None
+        self._exclusions_data: dict[str, Any] = {}
+        self._global_allowlist: frozenset[str] = _STATIC_GLOBAL_ALLOWLIST_LOWER
+        self._sentence_start_allowlist: frozenset[str] = _STATIC_SENTENCE_START_ALLOWLIST_LOWER
+        self.refresh_allowlist()
+
+    @property
+    def active_exclusions_file(self) -> Path:
+        return self._custom_exclusions_file or PRESIDIO_SKILL_EXCLUSIONS_FILE
+
+    def configure_paths(self, exclusions_file: Path | str | None = None) -> None:
+        """Configures an in-memory exclusions file override for test isolation."""
+        self._custom_exclusions_file = Path(exclusions_file) if exclusions_file else None
+        self._exclusions_data = {}
+        self.refresh_allowlist()
+
+    def reset_paths(self) -> None:
+        """Resets the exclusions file back to the canonical state file."""
+        self._custom_exclusions_file = None
+        self._exclusions_data = {}
+        self.refresh_allowlist()
+
+    def refresh_allowlist(self) -> None:
+        """
+        Reconstructs in-memory frozenset allowlists by combining:
+        1. Static technical & directive vocabularies
+        2. Configured agent IDs, usernames, and display names
+        3. Persisted skill keywords from presidio_skill_exclusions.json
+        4. Any user manual_include / manual_exclude overrides
+        """
+        global_terms: set[str] = set(_STATIC_GLOBAL_ALLOWLIST_LOWER)
+        sentence_terms: set[str] = set(_STATIC_SENTENCE_START_ALLOWLIST_LOWER)
+        manual_excludes: set[str] = set()
+
+        # 1. Agent names from config
+        try:
+            from core.config import AGENTS_CONFIG
+
+            for k, v in AGENTS_CONFIG.items():
+                global_terms.add(k.lower())
+                if isinstance(v, dict):
+                    if v.get("username"):
+                        global_terms.add(v["username"].lower())
+                    if v.get("displayname"):
+                        global_terms.add(v["displayname"].lower())
+                        for word in v["displayname"].lower().split():
+                            global_terms.add(word)
+        except Exception:
+            pass
+
+        try:
+            from orchestration.agent_settings import settings_manager
+
+            cfg = settings_manager.get_agents_config()
+            if cfg:
+                for k, v in cfg.items():
+                    global_terms.add(k.lower())
+                    if isinstance(v, dict):
+                        if v.get("username"):
+                            global_terms.add(v["username"].lower())
+                        if v.get("displayname"):
+                            global_terms.add(v["displayname"].lower())
+                            for word in v["displayname"].lower().split():
+                                global_terms.add(word)
+        except Exception:
+            pass
+
+        # 2. Skill terms from exclusions registry
+        ex_file = self.active_exclusions_file
+        if ex_file.exists():
+            try:
+                with open(ex_file, "r", encoding="utf-8") as f:
+                    self._exclusions_data = json.load(f)
+            except Exception as e:
+                logger.debug(f"[PII Masker] Could not read exclusions file {ex_file}: {e}")
+
+        skills_dict = self._exclusions_data.get("skills", {})
+        if isinstance(skills_dict, dict):
+            for s_name, s_info in skills_dict.items():
+                if isinstance(s_info, dict):
+                    for gt in s_info.get("global_terms", []):
+                        global_terms.add(gt.lower())
+                    for st in s_info.get("sentence_start_keywords", []):
+                        sentence_terms.add(st.lower())
+                    for mi in s_info.get("manual_include", []):
+                        sentence_terms.add(mi.lower())
+                    for me in s_info.get("manual_exclude", []):
+                        manual_excludes.add(me.lower())
+
+        self._global_allowlist = frozenset(global_terms)
+        self._sentence_start_allowlist = frozenset(sentence_terms - manual_excludes)
+
+    def sync_skill_exclusions(self, force: bool = False) -> dict[str, Any]:
+        """
+        Scans registered skills, updates presidio_skill_exclusions.json atomically
+        if new or modified skills are detected, and refreshes in-memory frozenset caches.
+        """
+        ex_file = self.active_exclusions_file
+        existing: dict[str, Any] = {}
+        if ex_file.exists():
+            try:
+                with open(ex_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    if isinstance(data, dict):
+                        existing = data
+            except Exception as e:
+                logger.warning(f"[PII Masker] Failed to read {ex_file}: {e}")
+
+        skills_data = existing.get("skills", {}) if isinstance(existing.get("skills"), dict) else {}
+        stats = {"new": 0, "updated": 0, "deleted": 0, "unchanged": 0}
+        has_changes = False
+
+        try:
+            from core.registry import get_skill_registry
+
+            skill_registry = get_skill_registry()
+            current_skills = skill_registry.list_skills()
+        except Exception as e:
+            logger.warning(f"[PII Masker] Could not get skill registry for exclusions sync: {e}")
+            current_skills = []
+
+        current_names = set()
+
+        for skill in current_skills:
+            current_names.add(skill.name)
+            rec = skills_data.get(skill.name)
+            if rec and not force and rec.get("content_hash") == skill.content_hash:
+                stats["unchanged"] += 1
+                continue
+
+            # Extract terms
+            global_terms, sentence_start_kw = extract_skill_exclusion_terms(skill)
+            existing_rec = rec or {}
+            skills_data[skill.name] = {
+                "content_hash": skill.content_hash,
+                "display_name": skill.display_name,
+                "scope": skill.scope,
+                "auto_detect": bool(skill.triggers.get("auto_detect", False)),
+                "global_terms": global_terms,
+                "sentence_start_keywords": sentence_start_kw,
+                "manual_include": existing_rec.get("manual_include", []),
+                "manual_exclude": existing_rec.get("manual_exclude", []),
+            }
+            if rec:
+                stats["updated"] += 1
+            else:
+                stats["new"] += 1
+            has_changes = True
+
+        # Check for deleted skills
+        for old_name in list(skills_data.keys()):
+            if old_name not in current_names:
+                del skills_data[old_name]
+                stats["deleted"] += 1
+                has_changes = True
+
+        if has_changes or not ex_file.exists():
+            payload = {
+                "last_synced_at": datetime.now(timezone.utc).isoformat(),
+                "skills": skills_data,
+            }
+            try:
+                atomic_write_json(ex_file, payload)
+                self._exclusions_data = payload
+                logger.info(
+                    f"[PII Masker] Synced skill exclusions ({stats['new']} new, {stats['updated']} updated, "
+                    f"{stats['deleted']} deleted, {len(skills_data)} total) to {ex_file.name}"
+                )
+            except Exception as e:
+                logger.error(f"[PII Masker] Failed to persist skill exclusions: {e}")
+                self._exclusions_data = payload
+        else:
+            self._exclusions_data = existing
+
+        self.refresh_allowlist()
+        stats["total"] = len(skills_data)
+        return stats
 
     def _init_presidio_if_available(self) -> None:
         if self._presidio_initialized:
@@ -423,9 +745,6 @@ class PIIMasker:
                         for m in p_pat.finditer(masked_text):
                             protected_intervals.append((m.start(), m.end()))
 
-                    dynamic_terms = _get_dynamic_protected_terms()
-                    effective_allowlist = _PRESIDIO_ALLOWLIST_LOWER | dynamic_terms
-
                     filtered_results = []
                     for res in results:
                         original_str = masked_text[res.start : res.end]
@@ -443,12 +762,11 @@ class PIIMasker:
                             if "_" in original_str or re.search(r"[a-z0-9]-[a-z0-9]", original_str, re.IGNORECASE):
                                 continue
 
-                            # 3. Check against static and dynamic allowlist
+                            # 3. Check against static and dynamic allowlists
                             clean_norm = original_str.lower().strip(" \t\n\r`'\".,;:!?()[]{}<>/")
-                            if clean_norm in effective_allowlist:
+                            if clean_norm in self._global_allowlist:
                                 continue
-                            tokens = [t for t in re.split(r"[\s\W_]+", clean_norm) if t]
-                            if tokens and all(t in effective_allowlist for t in tokens):
+                            if clean_norm in self._sentence_start_allowlist and _is_at_sentence_or_clause_start(masked_text, res.start):
                                 continue
 
                         filtered_results.append(res)
@@ -498,15 +816,15 @@ class PIIMasker:
 
     async def warm_up(self) -> None:
         """
-        Eagerly initializes Presidio/spaCy off the event loop at startup so the first
-        user turn's LLM inference timeout is not consumed by lazy cold-start init.
+        Eagerly initializes Presidio/spaCy and syncs skill exclusions off the event loop
+        at startup so user turn latency is never impacted.
         """
         import asyncio
 
-        if self._presidio_initialized:
-            return
-        await asyncio.to_thread(self._init_presidio_if_available)
-        logger.info("[PII Masker] Warm-up complete (Presidio/spaCy pre-initialized).")
+        if not self._presidio_initialized:
+            await asyncio.to_thread(self._init_presidio_if_available)
+        await asyncio.to_thread(self.sync_skill_exclusions)
+        logger.info("[PII Masker] Warm-up complete (Presidio/spaCy pre-initialized & skill exclusions synced).")
 
     def unmask(self, text: str, token_mapping: dict[str, str]) -> str:
         """

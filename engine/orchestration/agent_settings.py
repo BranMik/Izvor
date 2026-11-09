@@ -710,6 +710,11 @@ class AgentSettingsManager:
                     except OSError as e:
                         logger.debug(f"[SETTINGS] Error checking settings file mtime: {e}")
                     self.check_and_update_backup()
+                    try:
+                        from services.rag.pii_masker import pii_masker
+                        pii_masker.refresh_allowlist()
+                    except Exception:
+                        pass
                     return set(self.enabled_agents)
                 else:
                     err_reason = f"Schema validation failed in {target_file.name}"
@@ -735,6 +740,11 @@ class AgentSettingsManager:
                         f"[SETTINGS] System is running in EMERGENCY BACKUP MODE using {backup_file.name}. "
                         f"Original file '{target_file.name}' was left untouched."
                     )
+                    try:
+                        from services.rag.pii_masker import pii_masker
+                        pii_masker.refresh_allowlist()
+                    except Exception:
+                        pass
                     return set(self.enabled_agents)
             except (OSError, json.JSONDecodeError, TypeError, ValueError) as backup_err:
                 logger.critical(f"[SETTINGS] Failed reading emergency backup: {backup_err}")
@@ -828,6 +838,11 @@ class AgentSettingsManager:
                     f"workflow_config='{wf_ref}') to {target_file.name}"
                 )
                 self.check_and_update_backup()
+                try:
+                    from services.rag.pii_masker import pii_masker
+                    pii_masker.refresh_allowlist()
+                except Exception:
+                    pass
             except (OSError, TypeError, ValueError) as e:
                 logger.error(f"[SETTINGS] Error saving agent settings: {e}")
 

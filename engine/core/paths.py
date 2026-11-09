@@ -93,6 +93,9 @@ ENGINE_AVATARS_DIR = ENGINE_DIR / "avatars"
 # 3. data/ Pillar (Runtime & UI-Managed State)
 STATE_DIR = _resolve_env_path("IZVOR_STATE_DIR", DATA_DIR / "state")
 APP_SETTINGS_FILE = _resolve_env_path("IZVOR_APP_SETTINGS_FILE", STATE_DIR / "app_settings.json")
+PRESIDIO_SKILL_EXCLUSIONS_FILE = _resolve_env_path(
+    "IZVOR_PRESIDIO_SKILL_EXCLUSIONS_FILE", STATE_DIR / "presidio_skill_exclusions.json"
+)
 DB_PATH = _resolve_env_path("IZVOR_DB_PATH", DATA_DIR / "izvor.db")
 BACKUPS_DIR = _resolve_env_path("IZVOR_BACKUPS_DIR", DATA_DIR / "backups")
 SYSTEM_BACKUP_FILE = BACKUPS_DIR / "system_settings_backup.json"
@@ -168,6 +171,7 @@ __all__ = [
     "MANIFEST_PATH",
     "MODEL_PROVIDER_CATALOG_FILE",
     "PERSONAS_DIR",
+    "PRESIDIO_SKILL_EXCLUSIONS_FILE",
     "PRICING_CACHE_FILE",
     "PRICING_DIR",
     "PROJECT_ROOT",

@@ -137,6 +137,30 @@ async def periodic_retention_prune():
             logger.exception("[RETENTION] Error during periodic retention prune")
 
 
+async def periodic_skill_exclusions_sync():
+    """
+    Periodically checks for newly added or modified skills and syncs Presidio
+    exclusions every 24 hours (or configured interval).
+    """
+    from core.registry import get_skill_registry
+
+    while True:
+        try:
+            await asyncio.sleep(system_settings_manager.get_skill_exclusions_sync_interval_seconds())
+            reg = get_skill_registry()
+            await asyncio.to_thread(reg.reload)
+            stats = await asyncio.to_thread(pii_masker.sync_skill_exclusions)
+            if stats.get("new", 0) > 0 or stats.get("updated", 0) > 0 or stats.get("deleted", 0) > 0:
+                logger.info(
+                    f"[SKILL SYNC] Periodic sync updated skill exclusions: {stats['new']} new, "
+                    f"{stats['updated']} updated, {stats['deleted']} deleted."
+                )
+        except asyncio.CancelledError:
+            break
+        except Exception:
+            logger.exception("[SKILL SYNC] Error during periodic skill exclusions sync")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Ensure SQLite schema and WAL mode are initialized before any queries execute
@@ -244,6 +268,7 @@ async def lifespan(app: FastAPI):
     background_tasks.append(asyncio.create_task(periodic_thread_state_cleanup(), name="periodic_thread_cleanup"))
     background_tasks.append(asyncio.create_task(periodic_audit_integrity_guard(), name="periodic_audit_guard"))
     background_tasks.append(asyncio.create_task(periodic_retention_prune(), name="periodic_retention_prune"))
+    background_tasks.append(asyncio.create_task(periodic_skill_exclusions_sync(), name="periodic_skill_exclusions_sync"))
     background_tasks.append(asyncio.create_task(rag_sync_engine.reconcile(), name="rag_sync"))
     from services.mcp import mcp_client_manager
 

@@ -77,6 +77,7 @@ def test_default_paths_exist_or_resolve_to_repo_layout():
     assert paths.RAG_CACHE_DIR == root / "data" / ".rag_cache"
     assert paths.DB_PATH == root / "data" / "izvor.db"
     assert paths.APP_SETTINGS_FILE == root / "data" / "state" / "app_settings.json"
+    assert paths.PRESIDIO_SKILL_EXCLUSIONS_FILE == root / "data" / "state" / "presidio_skill_exclusions.json"
     assert paths.SYSTEM_AGENT_SETTINGS_FILE == root / "data" / "settings" / "system_agent_settings.json"
     assert paths.AGENT_BACKUP_FILE == root / "data" / "backups" / "agent_settings_backup.json"
     assert paths.SYSTEM_AGENT_BACKUP_FILE == root / "data" / "backups" / "system_agent_settings_backup.json"
@@ -105,6 +106,7 @@ def test_environment_variable_overrides(tmp_path):
     custom_personas = tmp_path / "custom_personas"
     custom_notes = tmp_path / "custom_notes"
     custom_histories = tmp_path / "custom_histories"
+    custom_exclusions = tmp_path / "custom_exclusions.json"
 
     custom_env = {
         "IZVOR_DATA_DIR": str(custom_data),
@@ -116,6 +118,7 @@ def test_environment_variable_overrides(tmp_path):
         "IZVOR_PERSONAS_DIR": str(custom_personas),
         "IZVOR_THREAD_NOTES_DIR": str(custom_notes),
         "IZVOR_HISTORIES_DIR": str(custom_histories),
+        "IZVOR_PRESIDIO_SKILL_EXCLUSIONS_FILE": str(custom_exclusions),
     }
 
     assert paths._resolve_env_path("IZVOR_DATA_DIR", paths.DATA_DIR, env=custom_env) == custom_data
@@ -127,6 +130,7 @@ def test_environment_variable_overrides(tmp_path):
     assert paths._resolve_env_path("IZVOR_PERSONAS_DIR", paths.PERSONAS_DIR, env=custom_env) == custom_personas
     assert paths._resolve_env_path("IZVOR_THREAD_NOTES_DIR", paths.THREAD_NOTES_DIR, env=custom_env) == custom_notes
     assert paths._resolve_env_path("IZVOR_HISTORIES_DIR", paths.FLAT_HISTORIES_DIR, env=custom_env) == custom_histories
+    assert paths._resolve_env_path("IZVOR_PRESIDIO_SKILL_EXCLUSIONS_FILE", paths.PRESIDIO_SKILL_EXCLUSIONS_FILE, env=custom_env) == custom_exclusions
 
 
 def test_circular_import_resilience():

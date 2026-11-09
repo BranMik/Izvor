@@ -145,3 +145,118 @@ def test_pii_masker_preserves_directive_bounds_and_identifiers():
         assert "New York" not in masked_complex
         assert "<LOCATION_0>" in masked_complex
         assert map_complex["<LOCATION_0>"] == "New York"
+
+
+def test_sync_skill_exclusions_creates_json_and_caps_keywords(tmp_path):
+    """
+    Verifies that sync_skill_exclusions generates a valid JSON file with
+    at most 5 sentence_start_keywords per skill, and respects idempotency.
+    """
+    masker = PIIMasker()
+    test_exclusions_file = tmp_path / "test_skill_exclusions.json"
+    masker.configure_paths(exclusions_file=test_exclusions_file)
+
+    try:
+        stats1 = masker.sync_skill_exclusions()
+        assert test_exclusions_file.exists()
+        assert stats1["new"] > 0
+        assert stats1["total"] > 0
+
+        # Verify JSON contents and keyword limit
+        import json
+
+        with open(test_exclusions_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        assert "skills" in data
+        assert "max_words" in data["skills"]
+        for s_name, s_info in data["skills"].items():
+            assert len(s_info["sentence_start_keywords"]) <= 5
+            assert "content_hash" in s_info
+            assert "global_terms" in s_info
+
+        # Second sync without changes should be a no-op
+        stats2 = masker.sync_skill_exclusions()
+        assert stats2["new"] == 0
+        assert stats2["updated"] == 0
+        assert stats2["unchanged"] == stats1["total"]
+    finally:
+        masker.reset_paths()
+
+
+def test_manual_include_and_exclude_overrides(tmp_path):
+    """
+    Verifies that manual_include and manual_exclude in presidio_skill_exclusions.json
+    are honored by the allowlists and preserved across automatic syncs.
+    """
+    masker = PIIMasker()
+    test_exclusions_file = tmp_path / "test_skill_exclusions.json"
+    masker.configure_paths(exclusions_file=test_exclusions_file)
+
+    try:
+        masker.sync_skill_exclusions()
+
+        import json
+
+        with open(test_exclusions_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        # Add manual overrides to max_words
+        data["skills"]["max_words"]["manual_include"] = ["customdirective"]
+        data["skills"]["max_words"]["manual_exclude"] = ["maxwords"]
+
+        with open(test_exclusions_file, "w", encoding="utf-8") as f:
+            json.dump(data, f)
+
+        masker.refresh_allowlist()
+
+        assert "customdirective" in masker._sentence_start_allowlist
+        assert "maxwords" not in masker._sentence_start_allowlist
+
+        # Re-sync must preserve manual overrides
+        masker.sync_skill_exclusions()
+
+        with open(test_exclusions_file, "r", encoding="utf-8") as f:
+            data_after = json.load(f)
+
+        assert data_after["skills"]["max_words"]["manual_include"] == ["customdirective"]
+        assert data_after["skills"]["max_words"]["manual_exclude"] == ["maxwords"]
+    finally:
+        masker.reset_paths()
+
+
+def test_sentence_start_boundary_filtering():
+    """
+    Verifies that capitalized single-word skill keywords are skipped by Presidio
+    at sentence or clause boundaries, but properly masked as PERSON mid-sentence.
+    """
+    masker = PIIMasker()
+    masker.sync_skill_exclusions()
+
+    # 1. At start of prompt -> Grant is not masked
+    text_start = "Grant skill web_research to [Visionary]"
+    masked_start, map_start = masker.mask(text_start)
+    assert "Grant" in masked_start
+    assert "<PERSON_" not in masked_start
+
+    # 2. After leading Slack mention & agent tag -> Grant is not masked
+    text_mention = "<@U123456> /[Visionary] Grant skill web_research"
+    masked_mention, _ = masker.mask(text_mention)
+    assert "Grant" in masked_mention
+    assert "<PERSON_" not in masked_mention
+
+    # 3. After sentence boundary (period / exclamation) -> Grant is not masked
+    text_clause = "Analysis complete. Grant skill web_research immediately!"
+    masked_clause, _ = masker.mask(text_clause)
+    assert "Grant" in masked_clause
+
+    # 4. Mid-sentence -> Grant and Max as person names ARE masked
+    if masker._presidio_analyzer is not None:
+        text_mid = "Please ask Grant and Max about the budget in New York."
+        masked_mid, map_mid = masker.mask(text_mid)
+        assert "Grant" not in masked_mid
+        assert "Max" not in masked_mid
+        assert "New York" not in masked_mid
+        assert any("Grant" in v for v in map_mid.values())
+        assert any("Max" in v for v in map_mid.values())
+        assert any("New York" in v for v in map_mid.values())
