@@ -9,7 +9,7 @@ import pytest
 from services.rag.document_parser import DocumentParser
 from services.rag.embeddings import EmbeddingService
 from services.rag.manifest_manager import ManifestManager
-from services.rag.pii_masker import PIIMasker, pii_masker
+from services.security.pii_masker import PIIMasker, pii_masker
 from services.rag.service import RAGService
 from services.rag.sync_engine import SyncReconciliationEngine
 from services.rag.vector_store import VectorStore
@@ -233,12 +233,12 @@ def test_pii_masking_integration():
     sample_raw = "Deploy keys: sk-proj-1234567890abcdef123456 and email dev@org.internal"
 
     # 1. Test NONE mode
-    with patch("services.rag.pii_masker.get_pii_masking_mode", return_value="NONE"):
+    with patch("services.security.pii_masker.get_pii_masking_mode", return_value="NONE"):
         assert not pii_masker.should_mask_at_ingestion()
         assert not pii_masker.should_mask_at_retrieval()
 
     # 2. Test AT_INGESTION mode
-    with patch("services.rag.pii_masker.get_pii_masking_mode", return_value="AT_INGESTION"):
+    with patch("services.security.pii_masker.get_pii_masking_mode", return_value="AT_INGESTION"):
         assert pii_masker.should_mask_at_ingestion()
         assert not pii_masker.should_mask_at_retrieval()
 
@@ -250,7 +250,7 @@ def test_pii_masking_integration():
         assert "<API_KEY_0>" in chunks[0]
 
     # 3. Test AT_RETRIEVAL mode (default)
-    with patch("services.rag.pii_masker.get_pii_masking_mode", return_value="AT_RETRIEVAL"):
+    with patch("services.security.pii_masker.get_pii_masking_mode", return_value="AT_RETRIEVAL"):
         assert not pii_masker.should_mask_at_ingestion()
         assert pii_masker.should_mask_at_retrieval()
 

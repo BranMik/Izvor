@@ -126,12 +126,12 @@ The loader extracts all top-level and trigger metadata, validates required field
 ### 3. Registry Storage ([`core/registry.py`](file:///engine/core/registry.py))
 Valid skills are registered into the global `SkillRegistry`. They can be queried via the administrative REST endpoint (`GET /api/skills`) or listed inside Slack via `/list_skills` or `[list_skills]`.
 
-### 4. Automated PII Keyword Exclusion & Content Hashing ([`services/rag/pii_masker.py`](file:///engine/services/rag/pii_masker.py))
-To prevent newly added skills from having their directive keywords accidentally masked by Microsoft Presidio as sensitive personal data (e.g., mistaking directive words like `"Max"`, `"Grant"`, or `"First"` for `PERSON`):
+### 4. Automated PII Keyword Exclusion & Content Hashing ([`services/security/pii_masker.py`](file:///engine/services/security/pii_masker.py))
+To prevent newly added skills from having their directive keywords accidentally masked by Microsoft Presidio as sensitive personal data (e.g., mistaking directive words like `"Max"`, `"Min"`, or `"Exclude"` for `PERSON`):
 - **Deterministic Content Hashing**: [`SkillLoader`](file:///engine/skills/loader.py) computes a deterministic SHA-256 `content_hash` over each skill's frontmatter manifest attributes (`name`, `display_name`, `description`, `scope`, `triggers`, `extraction_rule`, `tools`).
-- **Automated Extraction**: When new skills are parsed or modified, [`extract_skill_exclusion_terms()`](file:///engine/services/rag/pii_masker.py) extracts global identifiers (`skill.name`, multi-word display name, uppercase acronyms) and up to 5 natural language sentence-start keywords (stripped slash stems, explicit `triggers.keywords`, and description tokens).
+- **Automated Extraction**: When new skills are parsed or modified, [`extract_skill_exclusion_terms()`](file:///engine/services/security/pii_masker.py) extracts global identifiers (`skill.name`, multi-word display name, uppercase acronyms) and up to 5 natural language sentence-start keywords strictly for auto-detected skills (`auto_detect: true`) and agent skills. Privileged slash-only skills are omitted to eliminate PII false negatives.
 - **Persistent State Storage**: Persisted atomically to [`data/state/presidio_skill_exclusions.json`](file:///data/state/presidio_skill_exclusions.json). Custom administrative overrides (`manual_include` / `manual_exclude`) on existing skills are preserved across syncs.
-- **Scheduled Sync**: Re-evaluated on startup via [`pii_masker.warm_up()`](file:///engine/services/rag/pii_masker.py) and every 24 hours via `periodic_skill_exclusions_sync()` in [`main.py`](file:///main.py), compiling zero-latency in-memory `frozenset` allowlists.
+- **Scheduled Sync**: Re-evaluated on startup via [`pii_masker.warm_up()`](file:///engine/services/security/pii_masker.py) and every 24 hours via `periodic_skill_exclusions_sync()` in [`main.py`](file:///main.py), compiling zero-latency in-memory `frozenset` allowlists.
 
 ---
 

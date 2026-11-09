@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import MagicMock
 
-from services.rag.pii_masker import PIIMasker
+from services.security.pii_masker import PIIMasker
 from core.llm_utils import execute_llm_with_retry, set_privacy_mode_provider
 
 

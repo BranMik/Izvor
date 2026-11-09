@@ -33,7 +33,7 @@ def sanitize_outbound_mcp_arguments(
     if not mask_enabled or not arguments:
         return copy.deepcopy(arguments) if arguments else {}
 
-    from services.rag.pii_masker import pii_masker
+    from services.security.pii_masker import pii_masker
 
     def _sanitize(val: Any) -> Any:
         if isinstance(val, str):
@@ -57,7 +57,7 @@ def sanitize_inbound_mcp_result(raw_result: str) -> str:
         return raw_result
 
     from services.security import scan_output_for_secrets
-    from services.rag.pii_masker import pii_masker
+    from services.security.pii_masker import pii_masker
 
     # 1. Secret leakage detection (fail-closed if sensitive keys/tokens detected)
     matched_rule = scan_output_for_secrets(raw_result, user_id="mcp_server")

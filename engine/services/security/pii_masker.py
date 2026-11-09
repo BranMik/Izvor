@@ -8,7 +8,7 @@ from typing import Any
 
 from core.paths import PRESIDIO_SKILL_EXCLUSIONS_FILE
 from orchestration.settings_store import atomic_write_json
-from .config import get_pii_masking_mode
+from services.rag.config import get_pii_masking_mode
 
 logger = logging.getLogger(__name__)
 
@@ -178,23 +178,7 @@ _STATIC_GLOBAL_ALLOWLIST_LOWER: frozenset[str] = frozenset({
 })
 
 _STATIC_SENTENCE_START_ALLOWLIST_LOWER: frozenset[str] = frozenset({
-    # Directive & modifier vocabulary
-    "max",
-    "min",
-    "maximum",
-    "minimum",
-    "words",
-    "word",
-    "rounds",
-    "round",
-    "history",
-    "first",
-    "stop",
-    "exclude",
-    "include",
-    "revoke",
-    "grant",
-    "scribe",
+    # Non-skill generic syntax and directive vocabulary
     "off",
     "all",
     "require",
@@ -281,7 +265,14 @@ def extract_skill_exclusion_terms(skill: Any) -> tuple[list[str], list[str]]:
     Extracts (global_terms, sentence_start_keywords) for a SkillDefinition.
     - global_terms: exact skill name, multi-word display name, and all-caps acronyms.
     - sentence_start_keywords: bare slash triggers and natural language keywords (max 5).
+    Only extracts terms for auto-detected skills or agent-scoped skills.
     """
+    triggers = getattr(skill, "triggers", {}) or {}
+    is_auto = bool(triggers.get("auto_detect", False))
+    scope = getattr(skill, "scope", "")
+    if not (is_auto or scope == "agent"):
+        return [], []
+
     global_terms: list[str] = []
     s_name = getattr(skill, "name", "").strip().lower()
     if s_name and s_name not in global_terms:
@@ -533,10 +524,14 @@ class PIIMasker:
             logger.warning(f"[PII Masker] Could not get skill registry for exclusions sync: {e}")
             current_skills = []
 
-        current_names = set()
+        eligible_names = set()
 
         for skill in current_skills:
-            current_names.add(skill.name)
+            is_auto = bool(skill.triggers.get("auto_detect", False))
+            is_agent = getattr(skill, "scope", "") == "agent"
+            if not (is_auto or is_agent):
+                continue
+            eligible_names.add(skill.name)
             rec = skills_data.get(skill.name)
             if rec and not force and rec.get("content_hash") == skill.content_hash:
                 stats["unchanged"] += 1
@@ -549,7 +544,7 @@ class PIIMasker:
                 "content_hash": skill.content_hash,
                 "display_name": skill.display_name,
                 "scope": skill.scope,
-                "auto_detect": bool(skill.triggers.get("auto_detect", False)),
+                "auto_detect": is_auto,
                 "global_terms": global_terms,
                 "sentence_start_keywords": sentence_start_kw,
                 "manual_include": existing_rec.get("manual_include", []),
@@ -561,9 +556,9 @@ class PIIMasker:
                 stats["new"] += 1
             has_changes = True
 
-        # Check for deleted skills
+        # Check for deleted or ineligible skills
         for old_name in list(skills_data.keys()):
-            if old_name not in current_names:
+            if old_name not in eligible_names:
                 del skills_data[old_name]
                 stats["deleted"] += 1
                 has_changes = True

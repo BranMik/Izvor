@@ -15,7 +15,7 @@ from orchestration.agent_settings import (
 )
 from services.pricing_service import PRICING_CACHE_FILE as REAL_PRICING_CACHE_FILE
 from services.audit_logger import audit_logger, log_audit_event
-from services.rag.pii_masker import pii_masker
+from services.security.pii_masker import pii_masker
 from services.security import scan_output_for_secrets
 import skills.loader
 from core.llm_utils import set_pii_masker_instance
@@ -306,7 +306,7 @@ def isolate_pii_masker_exclusions_for_tests(tmp_path):
     Each test gets an isolated copy in tmp_path / "_conftest_iso".
     """
     from core.paths import PRESIDIO_SKILL_EXCLUSIONS_FILE as REAL_EXCLUSIONS_FILE
-    from services.rag.pii_masker import pii_masker
+    from services.security.pii_masker import pii_masker
 
     iso_dir = tmp_path / "_conftest_iso"
     iso_dir.mkdir(parents=True, exist_ok=True)

@@ -39,7 +39,7 @@ import skills.loader
 from core.llm_utils import set_pii_masker_instance
 from core.slack_security import set_audit_logger_hook, set_secret_scanner_hook
 from services.audit_logger import log_audit_event
-from services.rag.pii_masker import pii_masker
+from services.security.pii_masker import pii_masker
 from services.security import scan_output_for_secrets
 
 # Wire IoC hooks from core to services
