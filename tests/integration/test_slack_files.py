@@ -208,7 +208,10 @@ def test_build_llm_messages_file_context_missing_skill_notice():
     assert "ATTACHED SLACK FILE" not in user_turn
     assert "--- [FILE ACCESS RESTRICTED: MISSING SKILL] ---" in user_turn
     assert "document_reader" in user_turn
+    assert "at most 50 words" in user_turn
+    assert "/grant_skill" in user_turn
     assert "Do NOT report that the file was not found." in user_turn
+    assert "Do NOT reflect on platform skills architecture." in user_turn
 
     # Agent equipped with document_reader gets full file content
     msgs_ok = build_llm_messages(
@@ -239,7 +242,32 @@ def test_build_llm_messages_required_skills_missing_notice():
     user_turn = msgs[-1]["content"]
     assert "--- [PERMISSION RESTRICTED: MISSING REQUIRED SKILL(S)] ---" in user_turn
     assert "document_authoring" in user_turn
+    assert "at most 50 words" in user_turn
+    assert "/grant_skill" in user_turn
     assert "Do NOT report that the file or resource was not found." in user_turn
+
+
+def test_build_llm_messages_bot_trigger_anti_echo_and_partial_prompt_rules():
+    file_context = {
+        "file_name": "data.csv",
+        "content": "id,name\n1,Alice",
+        "size": 15,
+        "authorized_agents": None,
+        "required_skill": "document_reader",
+    }
+    msgs = build_llm_messages(
+        system_prompt="You are Innovator.",
+        effective_history=[{"role": "user", "content": "Analyze data.csv"}],
+        prompt="",
+        is_bot_trigger=True,
+        agent_key="agent-10002",
+        agent_cfg={"username": "Innovator", "skills": []},
+        file_context=file_context,
+    )
+    user_turn = msgs[-1]["content"]
+    assert "ANTI-ECHO RULE:" in user_turn
+    assert "Do NOT debate, critique, or expand on previous agents' missing-skill notices" in user_turn
+    assert "<= 50 words" in user_turn
 
 
 @pytest.mark.anyio

@@ -11,6 +11,21 @@ from services.slack import post_agent_response
 
 logger = logging.getLogger(__name__)
 
+def _is_pure_missing_skill_notice(ctx: TurnContext) -> bool:
+    """Checks if the turn was a compressed missing-skill refusal with no tool execution."""
+    missing = getattr(ctx, "missing_required_skills", None)
+    if not missing:
+        return False
+    if getattr(ctx.output, "skills_used", None):
+        return False
+    final_text = getattr(ctx.output, "final_text", "") or ""
+    import re
+    cleaned = re.sub(r"\{[^{}]+:\s*\d+/\d+\}", "", final_text)
+    cleaned = re.sub(r"/\[[^\]]+\](?:\s+next)?", "", cleaned).strip()
+    words = cleaned.split()
+    return len(words) <= 55
+
+
 async def run_internal_revisor(ctx: TurnContext):
     """
     Background task to run the InternalRevisor.
@@ -23,6 +38,12 @@ async def run_internal_revisor(ctx: TurnContext):
 
         if turn_count % 2 != 0:
             return None  # Only run on multiples of 2
+
+        if _is_pure_missing_skill_notice(ctx):
+            logger.info(
+                f"[REVISOR] Skipping InternalRevisor on turn {turn_count} (compressed missing-skill notice with no tool execution)."
+            )
+            return None
 
         logger.info(f"[REVISOR] Triggering InternalRevisor on turn {turn_count}")
 

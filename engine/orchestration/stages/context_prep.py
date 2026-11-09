@@ -259,6 +259,10 @@ class ContextPrepStage:
             if req_s and req_s not in required_skills:
                 required_skills.append(req_s)
 
+        ctx.required_skills = list(required_skills)
+        agent_skills = (ctx.agent_cfg.get("skills") if ctx.agent_cfg else None) or []
+        ctx.missing_required_skills = [s for s in required_skills if s not in agent_skills]
+
         mapped_remaining_agents = []
         for k in ctx.eligible_remaining_agents:
             agent_data = settings_manager.get_agent(k)
@@ -311,5 +315,7 @@ class ContextPrepStage:
             required_skills=required_skills,
             episodic_summary=ctx.episodic_summary,
             shared_round_evidence=ctx.shared_round_evidence,
+            channel_id=ctx.input.channel_id,
+            thread_ts=ctx.input.thread_ts,
         )
         return None

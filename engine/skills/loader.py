@@ -595,6 +595,44 @@ class SkillRegistry:
         )
         return "\n".join(lines)
 
+    def get_skill_resolution_hint(
+        self,
+        skill_names: list[str] | str,
+        channel_id: str | None = None,
+        thread_ts: str | None = None,
+    ) -> str:
+        """
+        Generates a concise 1-line resolution hint naming authorized agents (if any)
+        and how to grant the skill via /grant_skill or /grant_skill_for_all.
+        """
+        if isinstance(skill_names, str):
+            skill_list = [skill_names.strip()]
+        else:
+            skill_list = [str(s).strip() for s in skill_names if str(s).strip()]
+
+        if not skill_list:
+            return "Grant access via '/grant_skill <skill> <agent>' or '/grant_skill_for_all <skill>'."
+
+        mapping = self.get_skill_agent_mapping(channel_id=channel_id, thread_ts=thread_ts)
+        hints = []
+        for s_name in skill_list:
+            info = mapping.get(s_name)
+            raw_auth = info.get("authorized_agents", []) if info else []
+            auth_agents = [
+                a for a in raw_auth
+                if not a.startswith("All Agents") and not a.startswith("System") and not a.startswith("No agents")
+            ]
+            if auth_agents:
+                agents_str = ", ".join(auth_agents)
+                hints.append(
+                    f"Authorized for '{s_name}': {agents_str} — or grant via '/grant_skill {s_name} <agent>' or '/grant_skill_for_all {s_name}'."
+                )
+            else:
+                hints.append(
+                    f"Grant '{s_name}' via '/grant_skill {s_name} <agent>' or '/grant_skill_for_all {s_name}'."
+                )
+        return " ".join(hints)
+
     def get_skills_directory_prompt(self) -> str:
         """
         Generates the comprehensive application skills directory for injection into agent system prompts.
@@ -615,7 +653,7 @@ class SkillRegistry:
                 "PERMISSION BOUNDARIES & USAGE RESTRICTIONS:",
                 "- Reference this directory to answer user inquiries regarding platform capabilities and agent skill assignments.",
                 "- Agents are strictly limited in tool usage: load and execute tools ONLY for skills explicitly authorized for the assigned agent role.",
-                "- When a user requests an action requiring an unauthorized skill, explicitly report lack of permission and direct the user to an authorized agent.",
+                "- When a user requests an action requiring an unauthorized skill, explicitly report lack of permission in at most 50 words (including a 1-line hint naming an authorized agent or /grant_skill) without reflecting on skills architecture, and proceed normally with any other parts of the prompt that do not require the missing skill.",
                 "- Never attempt to circumvent permission boundaries.",
             ]
         )
@@ -680,6 +718,7 @@ class SkillRegistry:
                         effective_authorized_skills,
                     )
                 allowed_str = ", ".join(f"'{s}'" for s in effective_authorized_skills) or "none"
+                hint_str = self.get_skill_resolution_hint(skill_name)
                 log_audit_event(
                     event_type="SECURITY_POLICY_VIOLATION",
                     actor={"type": actor_kind, "id": actor_id},
@@ -699,9 +738,10 @@ class SkillRegistry:
                             "error": (
                                 f"Permission denied: Agent is not authorized to load skill '{skill_name}'. "
                                 f"Permitted skills: {allowed_str}. "
-                                f"CRITICAL INSTRUCTION: You do NOT have permission to load or use the skill '{skill_name}'. "
-                                f"You must explicitly state to the user that you do not have permission / the required skill '{skill_name}' to access or process this resource. "
-                                f"Do NOT report that the file or resource was not found."
+                                f"CRITICAL INSTRUCTION: State in at most 50 words that permission / the required skill '{skill_name}' is lacking, "
+                                f"including this 1-line hint: {hint_str} "
+                                f"Do NOT report that the file or resource was not found. Do NOT reflect on skills architecture. "
+                                f"If the prompt contains other assessable parts not requiring '{skill_name}', proceed normally with those; otherwise stop."
                             )
                         }
                     ),
@@ -766,6 +806,8 @@ class SkillRegistry:
 
             if tool_name not in permitted_tools:
                 allowed_tools_str = ", ".join(f"'{t}'" for t in sorted(permitted_tools)) or "none"
+                s_name = self.find_skill_for_tool(tool_name) or tool_name
+                hint_str = self.get_skill_resolution_hint(s_name)
                 from services.audit_logger import log_audit_event
 
                 log_audit_event(
@@ -787,9 +829,10 @@ class SkillRegistry:
                             "error": (
                                 f"Permission denied: Agent is not authorized to execute tool '{tool_name}'. "
                                 f"Permitted tools: {allowed_tools_str}. "
-                                f"CRITICAL INSTRUCTION: You do NOT have permission to execute tool '{tool_name}'. "
-                                f"You must explicitly state to the user that you do not have permission to execute this tool. "
-                                f"Do NOT report that the file or resource was not found."
+                                f"CRITICAL INSTRUCTION: State in at most 50 words that permission to execute tool '{tool_name}' is lacking, "
+                                f"including this 1-line hint: {hint_str} "
+                                f"Do NOT report that the file or resource was not found. Do NOT reflect on skills architecture. "
+                                f"If the prompt contains other assessable parts not requiring '{tool_name}', proceed normally with those; otherwise stop."
                             )
                         }
                     ),
