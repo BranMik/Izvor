@@ -86,8 +86,30 @@ When downloading files attached to Slack threads in [`services/slack/files.py`](
 - Any executable or code file extension (e.g., `.py`, `.sh`, `.exe`, `.bat`, `.js`) is automatically neutralized by appending `.txt` (e.g., `exploit.py.txt`) and stored with restrictive `0o600` file permissions.
 - Extracted file text is wrapped in `<untrusted_file_content>` tags before prompt injection.
 
-### 3. Single-Pass PII Masking & Unmasking
-[`services/rag/pii_masker.py`](file:///engine/services/rag/pii_masker.py) provides `async_mask()` (offloading regex scanning of large texts to a worker thread) and single-pass `unmask()` using a unified alternation regex. Single-pass unmasking prevents recursive token-expansion attacks where one synthetic token's original value contains another synthetic token string.
+### 3. PII Masking, Dynamic Allowlisting & Automated Skill Exclusions
+[`services/rag/pii_masker.py`](file:///engine/services/rag/pii_masker.py) provides non-blocking, worker-thread-offloaded `async_mask()` and single-pass `unmask()` using a unified alternation regex. Single-pass unmasking prevents recursive token-expansion attacks where one synthetic token's original value contains another synthetic token string.
+
+To prevent over-redaction where genuine system commands, persona names, or skill triggers are accidentally masked as sensitive PII entities (e.g., Presidio mistaking capitalized words like `"Max"`, `"Grant"`, or `"First"` for `PERSON`, or technical terms for `ORGANIZATION`), Izvor implements an automated, observable keyword exclusion and allowlisting pipeline:
+
+#### A. Automated Skill Keyword Extraction & Hashing
+When skills are registered or parsed from [`engine/skills/builtin/`](file:///engine/skills/builtin/) or [`config/skills/`](file:///config/skills/), [`SkillLoader`](file:///engine/skills/loader.py) calculates a deterministic SHA-256 `content_hash` over skill metadata. During startup ([`pii_masker.warm_up()`](file:///engine/services/rag/pii_masker.py)) and periodic background checks, [`extract_skill_exclusion_terms()`](file:///engine/services/rag/pii_masker.py) extracts:
+1. **Global Terms (`global_terms`)**: Exact skill names (`skill.name.lower()`), multi-word display names (`skill.display_name.lower()`), and uppercase acronyms ($\ge 2$ characters, e.g., `"RAG"`, `"PDF"`, `"MCP"`).
+2. **Sentence-Start Keywords (`sentence_start_keywords`)**: Up to 5 lowercase tokens per skill (length $\ge 3$) extracted from bare slash command stems (e.g., `["max", "words"]` from `/max_words`), explicit `triggers.keywords`, and key terms from descriptions or extraction rules, filtered against stopwords and global allowlists.
+
+#### B. Observable State Storage (`presidio_skill_exclusions.json`)
+- **Canonical Path**: Excluded terms are persisted to [`data/state/presidio_skill_exclusions.json`](file:///data/state/presidio_skill_exclusions.json), resolved canonically via `PRESIDIO_SKILL_EXCLUSIONS_FILE` in [`core/paths.py`](file:///engine/core/paths.py).
+- **Environment Override**: The storage path can be redirected using the `IZVOR_PRESIDIO_SKILL_EXCLUSIONS_FILE` environment variable.
+- **Write-Protection**: Added to `DEFAULT_PROTECTED_WRITE_PATHS` in [`orchestration/system_settings.py`](file:///engine/orchestration/system_settings.py) to prevent unauthorized writes from tool agents.
+- **Human Overrides**: Human administrators can define custom `manual_include` and `manual_exclude` lists per skill in `presidio_skill_exclusions.json`; these entries are preserved across automated re-syncs.
+
+#### C. Context-Aware Sentence-Start Boundary Rule
+Capitalized single-word skill keywords (e.g., `"Grant"`, `"Max"`, `"First"`, `"Round"`, `"Scribe"`) can easily collide with real people's names. To eliminate false-positive directive masking while preserving data privacy, [`PIIMasker.mask()`](file:///engine/services/rag/pii_masker.py) employs [`_is_at_sentence_or_clause_start()`](file:///engine/services/rag/pii_masker.py):
+- **Clause/Sentence-Start Protection**: If a term is in `_sentence_start_allowlist` and appears at prompt start (ignoring leading Slack mentions `<@...>` or agent tags `/[...]`) or immediately after a clause boundary (`.`, `!`, `?`, `:`, `;`, `-`, `\n`), it is excluded from Presidio masking.
+- **Mid-Sentence Privacy Enforcement**: If the same word appears mid-sentence without clause separation (e.g., *"Please ask Grant and Max about the budget in New York"*), Presidio's recognizer is permitted to mask the names as `<PERSON_*>`.
+
+#### D. Periodic Synchronization & Low-Latency In-Memory Caching
+- **Synchronization**: [`PIIMasker.sync_skill_exclusions()`](file:///engine/services/rag/pii_masker.py) runs upon server boot and every 24 hours via an asynchronous background task `periodic_skill_exclusions_sync()` in [`main.py`](file:///main.py), governed by `skill_exclusions_sync_interval_seconds` (default: `86400.0`s). Disk writes occur only if skills were added, modified (hash mismatch), or removed.
+- **Zero-Latency In-Memory Lookups**: Eliminating expensive dynamic registry traversals on the turn critical path, `PIIMasker` compiles precomputed `_global_allowlist: frozenset[str]` and `_sentence_start_allowlist: frozenset[str]`. Agent setting updates (e.g., adding/modifying agent display names or usernames) immediately invoke `pii_masker.refresh_allowlist()`.
 
 ### 4. LanceDB SQL Filter Validation (`_sql_literal`)
 In [`services/rag/vector_store.py`](file:///engine/services/rag/vector_store.py), all metadata filter values passed to LanceDB `where` clauses are validated against a strict `[A-Za-z0-9_.\-/]+` allowlist in `_sql_literal()` to prevent filter-expression injection.

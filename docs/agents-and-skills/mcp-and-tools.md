@@ -136,7 +136,7 @@ Configured in [`orchestration/system_settings.py`](file:///engine/orchestration/
 - `.git/` (version control repository integrity)
 - `data/audit/` (tamper-evident audit logs and backups)
 - `system_resources/` (internal project configurations)
-- `config/settings/agent_settings.json`, `engine/settings/system_agent_settings.json`, `config/settings/system_settings.json`, `data/state/app_settings.json`
+- `config/settings/agent_settings.json`, `engine/settings/system_agent_settings.json`, `config/settings/system_settings.json`, `data/state/app_settings.json`, `data/state/presidio_skill_exclusions.json`
 
 ---
 

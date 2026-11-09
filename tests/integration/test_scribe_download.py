@@ -308,3 +308,74 @@ def test_slack_interactivity_download_conclusion_action():
         assert mock_upload.call_args.kwargs["channel_id"] == "D_USER_CONC_DM"
         assert mock_upload.call_args.kwargs["content"] == conclusion_content
         assert mock_upload.call_args.kwargs["filename"] == "conclusion_notes_1710000000_000600.txt"
+
+
+def test_slack_interactivity_download_scribe_dm_open_failure():
+    """When opening the DM channel fails (e.g. missing im:write scope), no upload occurs and an error is sent."""
+    client = TestClient(app)
+    channel_id = "C_FAIL_DM"
+    thread_ts = "1710000000.000700"
+    user_id = "U_FAIL_USER"
+    set_thread_note_content(channel_id, thread_ts, "Sample notes for failure test")
+
+    payload = {
+        "type": "block_actions",
+        "user": {"id": user_id},
+        "actions": [
+            {
+                "action_id": "download_scribe_notes_txt",
+                "value": f"{channel_id}:{thread_ts}",
+            }
+        ],
+    }
+
+    with patch("adapters.slack.interactivity.verify_slack_signature", return_value=True), \
+         patch("adapters.slack.actions.workflow_actions.post_ephemeral_to_slack", new_callable=AsyncMock) as mock_ephemeral, \
+         patch("adapters.slack.actions.workflow_actions.open_dm_channel", new_callable=AsyncMock, return_value=None) as mock_open_dm, \
+         patch("adapters.slack.actions.workflow_actions.upload_text_file_to_slack", new_callable=AsyncMock) as mock_upload:
+
+        resp = client.post("/slack/interactivity", json=payload)
+        assert resp.status_code == 200
+
+        assert mock_open_dm.called
+        assert not mock_upload.called
+        assert mock_ephemeral.called
+        ephemeral_text = mock_ephemeral.call_args.kwargs["text"]
+        assert "Could not open a direct message channel" in ephemeral_text
+        assert "im:write" in ephemeral_text
+
+
+def test_slack_interactivity_download_scribe_upload_failure():
+    """When file upload fails, an ephemeral error is delivered to the user with the failure reason."""
+    client = TestClient(app)
+    channel_id = "C_FAIL_UPLOAD"
+    thread_ts = "1710000000.000800"
+    user_id = "U_FAIL_UPLOAD_USER"
+    set_thread_note_content(channel_id, thread_ts, "Sample notes for upload error test")
+
+    payload = {
+        "type": "block_actions",
+        "user": {"id": user_id},
+        "actions": [
+            {
+                "action_id": "download_scribe_notes_txt",
+                "value": f"{channel_id}:{thread_ts}",
+            }
+        ],
+    }
+
+    with patch("adapters.slack.interactivity.verify_slack_signature", return_value=True), \
+         patch("adapters.slack.actions.workflow_actions.post_ephemeral_to_slack", new_callable=AsyncMock) as mock_ephemeral, \
+         patch("adapters.slack.actions.workflow_actions.open_dm_channel", new_callable=AsyncMock, return_value="D_VALID_DM") as mock_open_dm, \
+         patch("adapters.slack.actions.workflow_actions.upload_text_file_to_slack", new_callable=AsyncMock, return_value={"ok": False, "error": "file_upload_error"}) as mock_upload:
+
+        resp = client.post("/slack/interactivity", json=payload)
+        assert resp.status_code == 200
+
+        assert mock_open_dm.called
+        assert mock_upload.called
+        assert mock_ephemeral.called
+        ephemeral_text = mock_ephemeral.call_args.kwargs["text"]
+        assert "Failed to deliver notes file to your direct message" in ephemeral_text
+        assert "file_upload_error" in ephemeral_text
+
