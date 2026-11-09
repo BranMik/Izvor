@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from core.config import set_internal_revisor_enabled_override
 from orchestration.agent_router import continue_discussion_from_turn_result
@@ -62,3 +62,85 @@ async def test_revisor_warning_injected_into_accumulated_history_before_next_spe
     system_msgs = [m for m in history if m.get("role") == "system" and "[Internal Revisor Warning]:" in m.get("content", "")]
     assert len(system_msgs) == 1
     assert revisor_warning in system_msgs[0]["content"]
+
+
+@pytest.mark.anyio
+async def test_revisor_skips_on_pure_missing_skill_notice():
+    """Verifies Way 3: InternalRevisor skips execution on pure <= 65 word missing-skill notice without tools."""
+    from orchestration.revisor_service import run_internal_revisor
+
+    channel_id = "C_REVISOR_SKIP_TEST"
+    thread_ts = "99999.0001"
+    thread_state_manager.clear_state(channel_id, thread_ts)
+
+    ctx = TurnContext(
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        raw_text="Read file database.sql",
+        is_bot_trigger=True,
+    )
+    # Turn 2 (assistant_msgs count = 1 -> turn_count = 2)
+    ctx.full_history = [
+        {"role": "user", "content": "Read file database.sql"},
+        {"role": "assistant", "content": "First response."},
+    ]
+    ctx.agent_key = "agent-10001"
+    ctx.agent_cfg = {"model": "test-model", "username": "Visionary", "skills": []}
+    ctx.missing_required_skills = ["document_reader"]
+    ctx.output.skills_used = []
+    # Short <= 50-word notice with next tag and token footer
+    ctx.output.final_text = (
+        "I do not have the 'document_reader' skill required to read database.sql. "
+        "Authorized for 'document_reader': ROIStrategist, SecurityArchitect. "
+        "/[agent-10008] next {test-model : 15/25}"
+    )
+
+    with patch("orchestration.revisor_service.execute_llm_with_retry") as mock_exec:
+        result = await run_internal_revisor(ctx)
+        assert result is None
+        mock_exec.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_revisor_executes_on_partial_prompt_continuation():
+    """Verifies Way 3: InternalRevisor runs when the agent also evaluates other parts of the prompt (> 65 words)."""
+    from orchestration.revisor_service import run_internal_revisor
+
+    channel_id = "C_REVISOR_PARTIAL_TEST"
+    thread_ts = "99999.0002"
+    thread_state_manager.clear_state(channel_id, thread_ts)
+
+    ctx = TurnContext(
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        raw_text="Read database.sql and evaluate our market expansion plan.",
+        is_bot_trigger=True,
+    )
+    ctx.full_history = [
+        {"role": "user", "content": "Read database.sql and evaluate our market expansion plan."},
+        {"role": "assistant", "content": "First response."},
+    ]
+    ctx.agent_key = "agent-10001"
+    ctx.agent_cfg = {"model": "test-model", "username": "Visionary", "skills": []}
+    ctx.missing_required_skills = ["document_reader"]
+    ctx.output.skills_used = []
+    # Partial prompt: missing skill notice + long evaluation of market expansion (> 55 words)
+    ctx.output.final_text = (
+        "I lack the document_reader skill to read database.sql. "
+        "However, evaluating the market expansion plan directly: "
+        "The proposed timeline demonstrates strong strategic viability across emerging markets. "
+        "Core growth metrics indicate a 40% target expansion rate, which aligns with baseline industry benchmarks. "
+        "Key operational dependencies require cross-regional alignment before proceeding with deployment. "
+        "We recommend prioritizing initial pilot rollouts in tier-one territories to minimize friction, "
+        "establishing robust feedback loops with localized customer segments, and ensuring continuous metric tracking. "
+        "/[agent-10002] next {test-model : 100/120}"
+    )
+
+    mock_resp = MagicMock()
+    mock_resp.choices = [MagicMock(message=MagicMock(content="NO_HALLUCINATION"))]
+    mock_resp.usage = MagicMock(prompt_tokens=10, completion_tokens=5)
+
+    with patch("orchestration.revisor_service.execute_llm_with_retry", AsyncMock(return_value=mock_resp)) as mock_exec:
+        result = await run_internal_revisor(ctx)
+        assert result is None  # NO_HALLUCINATION returns None
+        mock_exec.assert_called_once()

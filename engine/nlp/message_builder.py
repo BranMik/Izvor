@@ -46,6 +46,26 @@ def markdown_to_slack(text: str) -> str:
     return text
 
 
+def build_skill_resolution_hint(
+    skill_names: list[str] | str | None,
+    channel_id: str | None = None,
+    thread_ts: str | None = None,
+) -> str:
+    """Helper to query SkillRegistry for a 1-line resolution hint naming authorized agents and /grant_skill."""
+    if not skill_names:
+        return "Grant access via '/grant_skill <skill> <agent>' or '/grant_skill_for_all <skill>'."
+    try:
+        from core.registry import get_skill_registry
+
+        reg = get_skill_registry()
+        if hasattr(reg, "get_skill_resolution_hint"):
+            return reg.get_skill_resolution_hint(skill_names, channel_id=channel_id, thread_ts=thread_ts)
+    except Exception:
+        pass
+    s_str = skill_names if isinstance(skill_names, str) else ", ".join(str(s) for s in skill_names)
+    return f"Grant access via '/grant_skill {s_str} <agent>' or '/grant_skill_for_all {s_str}'."
+
+
 def build_llm_messages(
     system_prompt: str,
     effective_history: list[dict[str, Any]],
@@ -61,6 +81,8 @@ def build_llm_messages(
     required_skills: list[str] | None = None,
     episodic_summary: str | None = None,
     shared_round_evidence: str | None = None,
+    channel_id: str | None = None,
+    thread_ts: str | None = None,
 ) -> list[dict[str, Any]]:
     """
     Constructs a normalized, provider-safe message sequence for LiteLLM.
@@ -115,19 +137,27 @@ def build_llm_messages(
         has_skill = (required_skill in agent_skills) if required_skill else True
 
         if not is_agent_authorized:
+            auth_str = ", ".join(sorted(authorized_agents)) if authorized_agents else "none"
             file_block = (
                 f"\n\n--- [FILE ACCESS RESTRICTED: NOT AUTHORIZED] ---\n"
-                f"The file '{file_name}' was provided in this thread, but you ({agent_display}) are not in the authorized agents list to access it.\n"
-                f"You must explicitly inform the user that you do not have permission / authorization to access or read this file. "
-                f"Do NOT report that the file was not found.\n"
+                f"The file '{file_name}' was provided in this thread, but you ({agent_display}) are not in the authorized agents list to access it (Authorized: {auth_str}).\n"
+                f"INSTRUCTION: State in at most 50 words that you do not have permission / authorization to access or read this file. "
+                f"Include a 1-line hint naming an authorized agent or '/grant_skill'. "
+                f"Do NOT report that the file was not found. Do NOT reflect on platform skills architecture. "
+                f"If the prompt contains other questions or tasks not requiring this file, proceed normally to evaluate and answer those after the <= 50-word notice; "
+                f"if the prompt only asks about the file, output ONLY the <= 50-word notice and stop.\n"
                 f"--- [END OF NOTICE] ---"
             )
         elif not has_skill:
+            hint = build_skill_resolution_hint(required_skill, channel_id=channel_id, thread_ts=thread_ts)
             file_block = (
                 f"\n\n--- [FILE ACCESS RESTRICTED: MISSING SKILL] ---\n"
                 f"The file '{file_name}' is available, but you ({agent_display}) do not have the required '{required_skill}' skill assigned to access or read files.\n"
-                f"You must explicitly state to the user that you do not have permission / the required '{required_skill}' skill to access or read this file. "
-                f"Do NOT report that the file was not found.\n"
+                f"INSTRUCTION: State in at most 50 words that you do not have permission / the required '{required_skill}' skill to access or read this file. "
+                f"Include this 1-line resolution hint: {hint}\n"
+                f"Do NOT report that the file was not found. Do NOT reflect on platform skills architecture. "
+                f"If the prompt contains other questions or tasks not requiring this file, proceed normally to evaluate and answer those after the <= 50-word notice; "
+                f"if the prompt only asks about the file, output ONLY the <= 50-word notice and stop.\n"
                 f"--- [END OF NOTICE] ---"
             )
         else:
@@ -149,12 +179,16 @@ def build_llm_messages(
             missing = [s for s in missing if s != required_skill]
         if missing:
             missing_str = ", ".join(f"'{s}'" for s in missing)
+            hint = build_skill_resolution_hint(missing, channel_id=channel_id, thread_ts=thread_ts)
             skill_notice_block = (
                 f"\n\n--- [PERMISSION RESTRICTED: MISSING REQUIRED SKILL(S)] ---\n"
                 f"The requested task requires or infers the following skill(s): {missing_str}, "
                 f"but you ({agent_display}) do not have permission or this skill assigned.\n"
-                f"You must explicitly state to the user that you do not have permission / the required skill(s) ({missing_str}) "
-                f"to perform this action. Do NOT report that the file or resource was not found.\n"
+                f"INSTRUCTION: State in at most 50 words that you do not have permission / the required skill(s) ({missing_str}) to perform this action. "
+                f"Include this 1-line resolution hint: {hint}\n"
+                f"Do NOT report that the file or resource was not found. Do NOT reflect on platform skills architecture. "
+                f"If the prompt contains other questions or tasks not requiring these skills, proceed normally to evaluate and answer those after the <= 50-word notice; "
+                f"if the prompt only asks for this skill-based action, output ONLY the <= 50-word notice and stop.\n"
                 f"--- [END OF NOTICE] ---"
             )
 
@@ -182,6 +216,18 @@ def build_llm_messages(
         lang_directive = (
             f"CRITICAL: You MUST write your entire response strictly in {thread_language}, "
             "including all section labels, headings, and bullet points."
+        )
+
+    has_permission_restriction = bool(
+        (file_block and ("RESTRICTED" in file_block or "MISSING SKILL" in file_block))
+        or skill_notice_block
+    )
+    anti_echo_directive = ""
+    if has_permission_restriction:
+        anti_echo_directive = (
+            "\n\nANTI-ECHO RULE: Do NOT debate, critique, or expand on previous agents' missing-skill notices or skills architecture. "
+            "Keep your own missing-skill notice + 1-line hint strictly <= 50 words, then either evaluate any remaining non-skill parts "
+            "of the user prompt normally, or—if the prompt has no other assessable parts—stop immediately and nominate the next agent."
         )
 
     if not is_bot_trigger:
@@ -227,7 +273,7 @@ def build_llm_messages(
                 "Please evaluate the discussion above and provide your response in accordance with your role and instructions."
                 f"{lang_part}"
             )
-            instruction = f"{instruction}{file_block}{skill_notice_block}{orchestration_block}"
+            instruction = f"{instruction}{file_block}{skill_notice_block}{anti_echo_directive}{orchestration_block}"
             conversation.append(
                 {
                     "role": "user",
@@ -237,7 +283,7 @@ def build_llm_messages(
         else:
             lang_part = f"\n\n{lang_directive}" if lang_directive else ""
             mem_part = f"{memory_prefix}\n\n" if memory_prefix else ""
-            user_prompt = f"{mem_part}{prompt}{lang_part}{file_block}{skill_notice_block}{orchestration_block}"
+            user_prompt = f"{mem_part}{prompt}{lang_part}{file_block}{skill_notice_block}{anti_echo_directive}{orchestration_block}"
             conversation.append({"role": "user", "content": user_prompt})
 
 
@@ -259,7 +305,7 @@ def build_llm_messages(
             "Please evaluate the discussion above and provide your response in accordance with your role and instructions. "
             f"{lang_directive}"
         )
-        instruction = f"{instruction}{file_block}{orchestration_block}"
+        instruction = f"{instruction}{file_block}{skill_notice_block}{anti_echo_directive}{orchestration_block}"
         conversation.append(
             {
                 "role": "user",

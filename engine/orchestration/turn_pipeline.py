@@ -124,6 +124,8 @@ class TurnContext:
     thread_files: list[dict[str, Any]]
     is_file_req: bool
     target_filename: str | None
+    required_skills: list[str]
+    missing_required_skills: list[str]
 
     # Resolved routing
     agent_key: str
@@ -240,6 +242,8 @@ class TurnContext:
         self.thread_files: list[dict[str, Any]] = list(kwargs.get("thread_files", []))
         self.is_file_req: bool = bool(kwargs.get("is_file_req", False))
         self.target_filename: str | None = kwargs.get("target_filename")
+        self.required_skills: list[str] = list(kwargs.get("required_skills", []))
+        self.missing_required_skills: list[str] = list(kwargs.get("missing_required_skills", []))
 
         # Resolved routing
         self.agent_key: str = kwargs.get("agent_key", "")

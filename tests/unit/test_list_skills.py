@@ -236,3 +236,11 @@ async def test_runtime_permission_enforcement():
     data3 = json.loads(res3)
     assert data3.get("status") == "loaded"
     assert data3.get("skill") == "document_reader"
+
+
+def test_get_skill_resolution_hint():
+    """Verify that get_skill_resolution_hint lists authorized agents and /grant_skill."""
+    hint = skill_registry.get_skill_resolution_hint("document_reader")
+    assert "Authorized for 'document_reader':" in hint
+    assert "agent-10006" in hint or "agent-10008" in hint
+    assert "/grant_skill" in hint
