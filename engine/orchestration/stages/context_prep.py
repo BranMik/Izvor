@@ -197,11 +197,11 @@ class ContextPrepStage:
         ctx.next_designated_agent = None
         ctx.eligible_remaining_agents = list(ctx.remaining)
         if not ctx.force_termination and ctx.remaining:
-            from orchestration.agent_settings import get_challenger_agent, get_rebuttal_agent
+            from orchestration.agent_settings import get_challenger_agent, get_arbitrator_agent
 
             challenger_agent_key = get_challenger_agent()
-            rebuttal_agent_key = get_rebuttal_agent()
-            standby_set = {k for k in (challenger_agent_key, rebuttal_agent_key) if k}
+            arbitrator_agent_key = get_arbitrator_agent()
+            standby_set = {k for k in (challenger_agent_key, arbitrator_agent_key) if k}
 
             sandwich_cfg = wf_snap.get("sandwich_config") if wf_snap else get_sandwich_config()
             fixed_cfg = wf_snap.get("fixed_config") if wf_snap else settings_manager.get_fixed_config()

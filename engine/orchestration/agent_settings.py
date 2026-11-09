@@ -114,7 +114,7 @@ class AgentSettingsManager:
         self._last_workflow_mtime: float = 0.0
         self._raw_data: dict[str, Any] = {}
         self._custom_challenger_agent: str | None = None
-        self._custom_rebuttal_agent: str | None = None
+        self._custom_arbitrator_agent: str | None = None
 
         if auto_load:
             self.load()
@@ -170,13 +170,13 @@ class AgentSettingsManager:
     def set_challenger_agent(self, agent_id: str | None, save: bool = False) -> None:
         self._custom_challenger_agent = agent_id
 
-    def get_rebuttal_agent(self) -> str:
-        if getattr(self, "_custom_rebuttal_agent", None):
-            return self._custom_rebuttal_agent
-        return "RebuttalAdvocate"
+    def get_arbitrator_agent(self) -> str:
+        if getattr(self, "_custom_arbitrator_agent", None):
+            return self._custom_arbitrator_agent
+        return "Arbitrator"
 
-    def set_rebuttal_agent(self, agent_id: str | None, save: bool = False) -> None:
-        self._custom_rebuttal_agent = agent_id
+    def set_arbitrator_agent(self, agent_id: str | None, save: bool = False) -> None:
+        self._custom_arbitrator_agent = agent_id
 
     def configure_paths(
         self,
@@ -216,7 +216,7 @@ class AgentSettingsManager:
         self.default_system_agent_settings_file = DEFAULT_SYSTEM_AGENT_SETTINGS_FILE
         self.default_system_agent_backup_file = SYSTEM_AGENT_BACKUP_FILE
         self._custom_challenger_agent = None
-        self._custom_rebuttal_agent = None
+        self._custom_arbitrator_agent = None
         self.workflow_manager.reset_paths()
 
     @property
@@ -1036,7 +1036,7 @@ class AgentSettingsManager:
         self.workflow_config = DEFAULT_WORKFLOW_ID
         self.active_workflow_id = DEFAULT_WORKFLOW_ID
         self._custom_challenger_agent = None
-        self._custom_rebuttal_agent = None
+        self._custom_arbitrator_agent = None
         if save:
             self.save()
         logger.info(f"[SETTINGS] Reset all {len(self.enabled_agents)} agents to ENABLED and mode to default review sandwich.")
@@ -1353,9 +1353,9 @@ def set_challenger_agent(agent_id: str | None, save: bool = False) -> None:
     settings_manager.set_challenger_agent(agent_id, save=save)
 
 
-def get_rebuttal_agent() -> str:
-    return settings_manager.get_rebuttal_agent()
+def get_arbitrator_agent() -> str:
+    return settings_manager.get_arbitrator_agent()
 
 
-def set_rebuttal_agent(agent_id: str | None, save: bool = False) -> None:
-    settings_manager.set_rebuttal_agent(agent_id, save=save)
+def set_arbitrator_agent(agent_id: str | None, save: bool = False) -> None:
+    settings_manager.set_arbitrator_agent(agent_id, save=save)

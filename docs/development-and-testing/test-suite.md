@@ -31,12 +31,12 @@ tests/
 │   ├── test_db_migrations.py                  # SQLite PRAGMA user_version numbered MIGRATIONS tests
 │   ├── test_discussion_loop.py                # DiscussionLoop multi-turn routing & continuation tests
 │   ├── test_domain_state_stores.py            # SQLite discussion & context domain stores
-│   ├── test_fast_forward_convergence.py       # Convergence threshold & Challenger/Rebuttal fast-forward
+│   ├── test_fast_forward_convergence.py       # Convergence threshold & Challenger/Arbitrator fast-forward
 │   ├── test_hitl_checkpoint_resume.py         # Durable TurnCheckpoint pause/resume & atomic HITL transitions
 │   ├── test_integration.py                    # Multi-agent turn integration tests
 │   ├── test_local_tools.py                    # Local tool sandbox & directory traversal guards
 │   ├── test_local_tools_security.py           # Windows device names, ADS blocking & max_write_bytes cap
-│   ├── test_phase4_control_plane_and_dialectic.py # control_plane tools & RebuttalAdvocate verdict gate
+│   ├── test_phase4_control_plane_and_dialectic.py # control_plane tools & Arbitrator verdict gate
 │   ├── test_phase5_parallel_dialectic.py      # Parallel Dialectic (scatter_gather) & anchor isolation
 │   ├── test_rag.py                            # LanceDB vector search & retrieval tests
 │   ├── test_slack_client.py                   # Modular Slack WebClient wrapper tests

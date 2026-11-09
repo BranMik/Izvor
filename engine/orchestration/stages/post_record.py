@@ -286,10 +286,10 @@ class PostRecordStage:
             formatted = self.workspace_adapter.format_outbound_text(ctx.output.final_text)
             if isinstance(formatted, str):
                 ctx.output.final_text = formatted
-            from orchestration.agent_settings import get_rebuttal_agent, get_sandwich_config
+            from orchestration.agent_settings import get_arbitrator_agent, get_sandwich_config
 
-            rebuttal_k = get_rebuttal_agent()
-            if ctx.agent_key == rebuttal_k and (
+            arbitrator_k = get_arbitrator_agent()
+            if ctx.agent_key == arbitrator_k and (
                 getattr(ctx.control, "consensus_signaled", False)
                 or getattr(ctx, "convergence_signaled", False)
             ):
@@ -534,7 +534,7 @@ class PostRecordStage:
                         ctx.input.channel_id, ctx.input.thread_ts, ctx.remaining
                     )
                 standby_exclusions = {
-                    k for k in (settings_manager.get_challenger_agent(), settings_manager.get_rebuttal_agent()) if k
+                    k for k in (settings_manager.get_challenger_agent(), settings_manager.get_arbitrator_agent()) if k
                 }
                 other_candidates = [
                     a for a in ctx.remaining if a != ctx.agent_key and a not in standby_exclusions
@@ -555,7 +555,7 @@ class PostRecordStage:
         if not stop_requested:
             if is_first_503_skip:
                 standby_exclusions = {
-                    k for k in (settings_manager.get_challenger_agent(), settings_manager.get_rebuttal_agent()) if k
+                    k for k in (settings_manager.get_challenger_agent(), settings_manager.get_arbitrator_agent()) if k
                 }
                 other_candidates = [
                     a for a in ctx.remaining if a != ctx.agent_key and a not in standby_exclusions

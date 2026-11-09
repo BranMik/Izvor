@@ -49,7 +49,7 @@ To prevent unauthorized workspace members from tampering with agent settings, mo
 The App Home dashboard organizes controls into structured blocks (strictly capped at <100 blocks to comply with Slack Block Kit limits):
 
 ### 1. Active Personas Roster (`agents_tab.py`)
-- **Enable / Disable Toggles**: Enable or disable any of the **17 debate personas** (including `Rebuttal & Defense Advocate`).
+- **Enable / Disable Toggles**: Enable or disable any of the **16 debate personas**.
 - **Model Overrides & Custom Prompts**: Assign custom LLM models and edit system instructions per persona.
 - **Assigned Skills & Concise Output Toggles**: Configure default persona skills and toggle `is_short_output`.
 
@@ -62,7 +62,7 @@ The App Home dashboard organizes controls into structured blocks (strictly cappe
   - **Turn 1 Workflow Snapshotting**: At Turn 1, each thread freezes a local snapshot of the active workflow configuration (`workflow_id`, `mode`, `sandwich_config`, `fixed_config`). This guarantees that concurrent thread deliberations are isolated and unaffected if another user switches the workspace preset in App Home.
 
 ### 3. Governance, Scribe & Dialectical Controls (`governance_tab.py`)
-- **Consensus Convergence Fast-Forward (`fast_forward_on_convergence`)**: Toggle (`🟢 ON` / `🔴 OFF`) whether consecutive `signal_consensus_convergence` calls trigger the Challenger + RebuttalAdvocate stress-test gate to fast-forward to `end_chain`.
+- **Consensus Convergence Fast-Forward (`fast_forward_on_convergence`)**: Toggle (`🟢 ON` / `🔴 OFF`) whether consecutive `signal_consensus_convergence` calls trigger the Challenger + Arbitrator stress-test gate to fast-forward to `end_chain`.
 - **Live Discussion Scribe (`scribe_Consolidation_enabled`)**: Toggle automated live and final Scribe synthesis notes (`ThreadNotesAgent`).
 - **Weekly Model Pricing Update (`weekly_pricing_update_enabled`)**: Toggle automatic 7-day background pricing refreshes.
 - **Thread Skill Expiration (`skill_expiration_hours`)**: Configure the default TTL in hours for dynamic `/grant_skill` grants.

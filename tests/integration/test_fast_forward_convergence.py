@@ -1,5 +1,5 @@
 """
-Tests for Consensus Convergence Fast-Forward, Conditional Rebuttal Verdict Gate,
+Tests for Consensus Convergence Fast-Forward, Conditional Arbitrator Verdict Gate,
 and Slack Admin Toggle (Tickets TKT-823 and TKT-824).
 """
 
@@ -16,9 +16,9 @@ from orchestration.app_settings import (
 )
 from orchestration.agent_settings import (
     get_challenger_agent,
-    get_rebuttal_agent,
+    get_arbitrator_agent,
     set_challenger_agent,
-    set_rebuttal_agent,
+    set_arbitrator_agent,
 )
 from orchestration.system_settings import (
     get_convergence_consecutive_threshold,
@@ -34,13 +34,13 @@ def reset_settings_and_thread_state():
     orig_ff_enabled = is_convergence_fast_forward_enabled()
     orig_threshold = get_convergence_consecutive_threshold()
     orig_challenger = get_challenger_agent()
-    orig_rebuttal = get_rebuttal_agent()
+    orig_arbitrator = get_arbitrator_agent()
 
     # Reset default test values
     set_convergence_fast_forward_enabled(True, save=False)
     set_convergence_consecutive_threshold(2, save=False)
     set_challenger_agent("Challenger", save=False)
-    set_rebuttal_agent("RebuttalAdvocate", save=False)
+    set_arbitrator_agent("Arbitrator", save=False)
 
     yield
 
@@ -48,10 +48,10 @@ def reset_settings_and_thread_state():
     set_convergence_fast_forward_enabled(orig_ff_enabled, save=False)
     set_convergence_consecutive_threshold(orig_threshold, save=False)
     set_challenger_agent(orig_challenger, save=False)
-    set_rebuttal_agent(orig_rebuttal, save=False)
+    set_arbitrator_agent(orig_arbitrator, save=False)
 
 
-def test_consecutive_convergence_triggers_challenger_rebuttal_stress_test():
+def test_consecutive_convergence_triggers_challenger_arbitrator_stress_test():
     channel_id = "C_TEST_CONV"
     thread_ts = "100.1"
 
@@ -79,12 +79,12 @@ def test_consecutive_convergence_triggers_challenger_rebuttal_stress_test():
         )
 
         assert new_queue[0] == get_challenger_agent()  # Challenger
-        assert new_queue[1] == get_rebuttal_agent()  # RebuttalAdvocate
+        assert new_queue[1] == get_arbitrator_agent()  # Arbitrator
         assert "agent-10005" in new_queue
         assert "agent-10006" in new_queue
 
 
-def test_rebuttal_advocate_verdict_a_fast_forwards_to_end_chain():
+def test_arbitrator_verdict_a_fast_forwards_to_end_chain():
     channel_id = "C_TEST_VERDICT_A"
     thread_ts = "100.2"
 
@@ -94,19 +94,19 @@ def test_rebuttal_advocate_verdict_a_fast_forwards_to_end_chain():
         ["agent-10004", "agent-10005", "agent-10006"],
     )
 
-    spoken_agents = {"agent-10001", "Challenger", "RebuttalAdvocate"}
+    spoken_agents = {"agent-10001", "Challenger", "Arbitrator"}
 
     with patch(
         "orchestration.agent_settings.get_sandwich_config",
         return_value={"end_chain": ["agent-10006"]},
     ):
-        # Rebuttal advocate signals convergence (Verdict A)
+        # Arbitrator signals convergence (Verdict A)
         new_queue, count = _apply_convergence_stress_test_or_fast_forward(
             channel_id=channel_id,
             thread_ts=thread_ts,
             spoken_agents=spoken_agents,
             consecutive_convergence_count=1,
-            last_speaker="RebuttalAdvocate",
+            last_speaker="Arbitrator",
             last_turn_converged=True,
         )
 
@@ -115,26 +115,26 @@ def test_rebuttal_advocate_verdict_a_fast_forwards_to_end_chain():
         assert thread_state_manager.get_remaining_agents(channel_id, thread_ts) == ["agent-10006"]
 
 
-def test_rebuttal_advocate_verdict_b_cancels_fast_forward_and_resumes_middle_pool():
+def test_arbitrator_verdict_b_cancels_fast_forward_and_resumes_middle_pool():
     channel_id = "C_TEST_VERDICT_B"
     thread_ts = "100.3"
 
     initial_queue = ["agent-10004", "agent-10005", "agent-10006"]
     thread_state_manager.set_remaining_agents(channel_id, thread_ts, list(initial_queue))
 
-    spoken_agents = {"agent-10001", "Challenger", "RebuttalAdvocate"}
+    spoken_agents = {"agent-10001", "Challenger", "Arbitrator"}
 
     with patch(
         "orchestration.agent_settings.get_sandwich_config",
         return_value={"end_chain": ["agent-10006"]},
     ):
-        # Rebuttal advocate rejects consensus (Verdict B: last_turn_converged=False)
+        # Arbitrator rejects consensus (Verdict B: last_turn_converged=False)
         new_queue, count = _apply_convergence_stress_test_or_fast_forward(
             channel_id=channel_id,
             thread_ts=thread_ts,
             spoken_agents=spoken_agents,
             consecutive_convergence_count=2,
-            last_speaker="RebuttalAdvocate",
+            last_speaker="Arbitrator",
             last_turn_converged=False,
         )
 
@@ -308,11 +308,11 @@ def test_consecutive_threshold_three_and_sceptic_early_kickoff_speech():
         )
         assert count == 0
         assert queue[0] == "Challenger"
-        assert queue[1] == "RebuttalAdvocate"
+        assert queue[1] == "Arbitrator"
 
 
-def test_case_b_direct_rebuttal_when_challenger_converged():
-    """Verify that when Challenger was part of the convergence streak, RebuttalAdvocate is injected directly (Case B)."""
+def test_case_b_direct_arbitrator_when_challenger_converged():
+    """Verify that when Challenger was part of the convergence streak, Arbitrator is injected directly (Case B)."""
     channel_id = "C_TEST_CHALLENGER_CONV"
     thread_ts = "200.2"
     thread_state_manager.cleanup_thread(channel_id, thread_ts)
@@ -350,8 +350,8 @@ def test_case_b_direct_rebuttal_when_challenger_converged():
             last_turn_converged=True,
         )
         assert count == 0
-        # Challenger participated in the convergence streak, so RebuttalAdvocate is injected directly!
-        assert queue[0] == "RebuttalAdvocate"
+        # Challenger participated in the convergence streak, so Arbitrator is injected directly!
+        assert queue[0] == "Arbitrator"
         assert "agent-10005" in queue
 
 

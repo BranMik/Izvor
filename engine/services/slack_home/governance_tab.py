@@ -288,7 +288,7 @@ def build_governance_blocks(
                 "text": (
                     f"\n *────────⚡ Consensus Convergence Fast-Forward:────────* \n"
                     f"Status: {ff_status_str}\n"
-                    f"_When ON, consecutive consensus signals trigger the Challenger → Rebuttal stress-test and fast-forward to closing if the consensus holds._"
+                    f"_When ON, consecutive consensus signals trigger the Challenger → Arbitrator stress-test and fast-forward to closing if the consensus holds._"
                 ),
             },
             "accessory": {

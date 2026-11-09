@@ -94,7 +94,7 @@ Izvor separates its codebase into three distinct directories so implementers kno
 
 ### 1. Implementer Configuration (`config/`) — *Customize Freely*
 All domain-specific customization lives inside `config/`:
-- **Debate Panel Roster ([`config/settings/agent_settings.json`](file:///config/settings/agent_settings.json))**: Define your debate panel agents (`agent-10001`..`agent-10017`), their display names, LLM models, assigned tool skills, dialectical `special_role` (`NONE`, `CHALLENGER`, `REBUTTAL`), `enabled_agents`, and active `workflow_config`.
+- **Debate Panel Roster ([`config/settings/agent_settings.json`](file:///config/settings/agent_settings.json))**: Define your debate panel agents (`agent-10001`..`agent-10016`), their display names, LLM models, assigned tool skills, `enabled_agents`, and active `workflow_config`.
 - **Debate Persona Prompts ([`config/personas/`](file:///config/personas))**: Edit or add markdown system prompts (e.g., `config/personas/agent-10001.md`) to shape each agent's personality, domain expertise, and analytical style.
 - **Workflow Topologies ([`config/workflows/`](file:///config/workflows))**: Create or modify multi-agent workflow JSON presets (Sandwich chains, Fixed sequences, Parallel Dialectic pools).
 - **Agent Tool Skills ([`config/skills/`](file:///config/skills))**: Add or customize tool-backed agent skills (`web_research`, `knowledge_base_rag`, `document_reader`, `document_authoring`).
@@ -153,7 +153,7 @@ System operational parameters, security guardrails, and timeouts are managed by 
 | `web_fetch_user_agent` | Izvor Bot string | HTTP `User-Agent` header for outbound web fetching. |
 | `web_security` | `{...}` | Outbound web safety rules (`max_url_length: 2048`, `max_query_length: 1024`, `max_redirects: 5`, `max_body_bytes: 2097152`, `allowed_ports: [80, 443]`, `allowed_domains: []`, `strip_query_on_untrusted_domains: true`, `max_fetches_per_turn: 10`). |
 | `security_burst_limits` | `{...}` | Sliding-window rate limiters for failed authentication (`auth_failure_window_seconds: 60.0`, `auth_failure_burst_limit: 5`, `global_auth_failure_burst_limit: 25`, `max_tracker_entries: 1000`). |
-| `convergence_consecutive_threshold` | `2` | Number of consecutive `signal_consensus_convergence` calls required before triggering the Challenger/Rebuttal fast-forward gate. |
+| `convergence_consecutive_threshold` | `2` | Number of consecutive `signal_consensus_convergence` calls required before triggering the Challenger/Arbitrator fast-forward gate. |
 | `dialectical_stress_test` | `{...}` | Dialectical stress-test parameters (`enabled: true`, `consecutive_threshold: 2`, `max_stress_rounds: 1`). |
 | `retention_checkpoints_days` | `7` | Retention window in days before resolved `turn_checkpoints` rows are deleted. |
 | `retention_traces_days` | `30` | Retention window in days before `turn_traces` telemetry spans are deleted. |

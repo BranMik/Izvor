@@ -287,7 +287,7 @@ class TestSystemAgentSettingsIntegrity:
             "orchestrator": {"fast_model": "gemini-flash"},
             "system_agents": {
                 "Challenger": {"model": "gemini-flash"},
-                "RebuttalAdvocate": {"model": "gemini-flash"},
+                "Arbitrator": {"model": "gemini-flash"},
             },
         }
         AppIntegrityValidator.check_system_agent_settings_integrity(payload)
@@ -297,7 +297,7 @@ class TestSystemAgentSettingsIntegrity:
         payload = {
             "system_agents": {
                 "Challenger": {"model": "gemini-flash"},
-                "RebuttalAdvocate": {"model": "gemini-flash"},
+                "Arbitrator": {"model": "gemini-flash"},
             },
         }
         AppIntegrityValidator.check_system_agent_settings_integrity(payload)
@@ -317,7 +317,7 @@ class TestSystemAgentSettingsIntegrity:
         }
         AppIntegrityValidator.check_system_agent_settings_integrity(payload)
         assert "Required dialectical system agent 'Challenger' is missing" in caplog.text
-        assert "Required dialectical system agent 'RebuttalAdvocate' is missing" in caplog.text
+        assert "Required dialectical system agent 'Arbitrator' is missing" in caplog.text
 
 
 # ---------------------------------------------------------------------------

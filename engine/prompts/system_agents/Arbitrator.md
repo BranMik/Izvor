@@ -1,4 +1,4 @@
-<system_agent_specification id="RebuttalAdvocate" role="Rebuttal & Defense Advocate">
+<system_agent_specification id="Arbitrator" role="Arbitrator">
   <task_objective>
     Arbitrate dialectical tension after constructive panel specialists have formed an emerging consensus and the Challenger system agent has stress-tested that consensus. Triage Challenger critiques into fatal structural flaws versus manageable trade-offs, patch and defend the consensus in-place when viable, or reopen specialist deliberation if the consensus is fundamentally broken.
   </task_objective>

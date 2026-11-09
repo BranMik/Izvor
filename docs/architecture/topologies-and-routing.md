@@ -13,7 +13,7 @@ graph TD
     subgraph Sandwich Mode
         Start["Start Chain: e.g. Visionary, Tactician"] --> Middle["Middle Pool: Free Debate / Control Plane"]
         Middle --> Gate{"Convergence Gate?"}
-        Gate -- "Challenger + Rebuttal (Verdict A)" --> End["End Chain: e.g. Scribe / Synthesizer"]
+        Gate -- "Challenger + Arbitrator (Verdict A)" --> End["End Chain: e.g. Scribe / Synthesizer"]
         Gate -- "Verdict B (Flaws Exposed)" --> Middle
     end
 
@@ -60,9 +60,9 @@ Initiated via `/open_debate <Agent>` (or `/open-debate`, `/opendebate`):
 
 ---
 
-## ⚖️ Consensus Convergence Fast-Forward & Conditional Rebuttal Gate
+## ⚖️ Consensus Convergence Fast-Forward & Conditional Arbitrator Gate
 
-To prevent premature groupthink while saving tokens once genuine consensus is reached, Izvor implements a two-stage **Dialectical Stress-Test & Rebuttal Verdict Gate** (configured via `fast_forward_on_convergence` in App Home and `convergence_consecutive_threshold: 2` in `system_settings.json`):
+To prevent premature groupthink while saving tokens once genuine consensus is reached, Izvor implements a two-stage **Dialectical Stress-Test & Arbitrator Verdict Gate** (configured via `fast_forward_on_convergence` in App Home and `convergence_consecutive_threshold: 2` in `system_settings.json`):
 
 1. **Convergence Signaling (`signal_consensus_convergence`)**:
    - Any persona can invoke the `control_plane` tool `signal_consensus_convergence(summary_of_agreement, confidence)` when they observe that the panel has converged.
@@ -70,7 +70,7 @@ To prevent premature groupthink while saving tokens once genuine consensus is re
    - When consecutive convergence signals reach `convergence_consecutive_threshold` (`2`), `DiscussionLoop` does **not** immediately skip to the `end_chain`.
    - Instead, it injects a two-speaker stress-test pair at the front of the queue:
      - **Challenger (`special_role: "CHALLENGER"`)**: e.g., `agent-10003` (**Sceptic**) or `agent-10002` (**Innovator**), tasked with stress-testing the consensus for hidden edge cases or unexamined assumptions.
-     - **Rebuttal & Defense Advocate (`special_role: "REBUTTAL"`)**: `agent-10017` (**RebuttalAdvocate**), tasked with defending the proposal against the Challenger's critique and issuing a structured verdict:
+     - **Arbitrator**: `Arbitrator`, tasked with defending the proposal against the Challenger's critique and issuing a structured verdict:
        - **`[VERDICT: A — CONSENSUS HOLDS]`**: The consensus survived scrutiny. `DiscussionLoop` fast-forwards directly to the `end_chain` (synthesis/conclusion), bypassing remaining middle-pool rounds.
        - **`[VERDICT: B — FLAWS EXPOSED]`**: The Challenger uncovered substantive flaws. Convergence counters are reset and the remaining middle-pool deliberation resumes to resolve the newly exposed issues.
 3. **Human Clarification Suspension (`request_user_clarification`)**:

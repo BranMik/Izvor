@@ -27,10 +27,10 @@
         "control_plane"
       ]
     },
-    "RebuttalAdvocate": {
-      "username": "RebuttalAdvocate",
+    "Arbitrator": {
+      "username": "Arbitrator",
       "model": "mistral/mistral-large-latest",
-      "displayname": "Rebuttal & Defense Advocate",
+      "displayname": "Arbitrator",
       "icon_url": "static/image_17.png",
       "is_short_output": false,
       "skills": [

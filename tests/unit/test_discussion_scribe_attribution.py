@@ -24,7 +24,7 @@ def test_clean_turn_content_for_scribe():
     assert _clean_turn_content_for_scribe(text3) == "Here is my analysis."
 
     # Strips both nomination tag and token footer
-    text4 = "Analysis complete. /[RebuttalAdvocate] {gemini-3.8-flash : 150}"
+    text4 = "Analysis complete. /[Arbitrator] {gemini-3.8-flash : 150}"
     assert _clean_turn_content_for_scribe(text4) == "Analysis complete."
 
     # Empty / None handling
@@ -46,7 +46,7 @@ async def test_scribe_brief_strips_nominations_and_injects_speaker_roster():
     history = [
         {"role": "user", "username": "Alice", "content": "Let us discuss the architecture."},
         {"role": "assistant", "username": "Innovator", "content": "I propose microservices. /[Sceptic]"},
-        {"role": "assistant", "username": "Challenger", "content": "Monolith is much simpler. /[RebuttalAdvocate]"},
+        {"role": "assistant", "username": "Challenger", "content": "Monolith is much simpler. /[Arbitrator]"},
     ]
 
     brief, tokens = await scribe.generate_brief(history)
@@ -62,7 +62,7 @@ async def test_scribe_brief_strips_nominations_and_injects_speaker_roster():
 
     # Verify trailing nomination tags were stripped from transcript text
     assert "/[Sceptic]" not in user_msg
-    assert "/[RebuttalAdvocate]" not in user_msg
+    assert "/[Arbitrator]" not in user_msg
     assert "[Innovator]: I propose microservices." in user_msg
     assert "[Challenger]: Monolith is much simpler." in user_msg
 

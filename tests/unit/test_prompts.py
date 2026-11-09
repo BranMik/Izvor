@@ -149,7 +149,7 @@ def test_all_system_agents_enforce_2026_xml_and_zero_you_are():
         "Language_Detector",
         "Pricing_Agent",
         "Challenger",
-        "RebuttalAdvocate",
+        "Arbitrator",
     ]
     for agent_name in system_agents:
         prompt = load_system_prompt(agent_name)
@@ -306,13 +306,13 @@ def test_system_agent_detection_and_prompts():
     assert "OUTPUT & LENGTH CONSTRAINTS:" not in prompt
     assert "nominate the next agent" not in prompt
 
-    # Dialectical system agents (Challenger and RebuttalAdvocate) must have shared debate constraints and nomination rules
+    # Dialectical system agents (Challenger and Arbitrator) must have shared debate constraints and nomination rules
     prompt_challenger = build_agent_prompt("Challenger")
     assert '<system_agent_specification id="Challenger" role="Dialectical Stress-Test Challenger"' in prompt_challenger
     assert "Hard Limit: Your entire response must strictly NOT exceed 200 words." in prompt_challenger
     assert "nominate the next agent" in prompt_challenger
 
-    prompt_rebuttal = build_agent_prompt("RebuttalAdvocate")
-    assert '<system_agent_specification id="RebuttalAdvocate" role="Rebuttal & Defense Advocate"' in prompt_rebuttal
-    assert "Hard Limit: Your entire response must strictly NOT exceed 200 words." in prompt_rebuttal
-    assert "nominate the next agent" in prompt_rebuttal
+    prompt_arbitrator = build_agent_prompt("Arbitrator")
+    assert '<system_agent_specification id="Arbitrator" role="Arbitrator"' in prompt_arbitrator
+    assert "Hard Limit: Your entire response must strictly NOT exceed 200 words." in prompt_arbitrator
+    assert "nominate the next agent" in prompt_arbitrator

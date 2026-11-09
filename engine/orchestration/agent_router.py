@@ -130,9 +130,9 @@ def _apply_convergence_stress_test_or_fast_forward(
     challenger_key = raw_challenger if raw_challenger and raw_challenger not in excluded else None
     challenger_name = (settings_manager.get_agent(challenger_key) or {}).get("displayname") or "Challenger"
 
-    raw_rebuttal = settings_manager.get_rebuttal_agent()
-    rebuttal_key = raw_rebuttal if raw_rebuttal and raw_rebuttal not in excluded else None
-    rebuttal_name = (settings_manager.get_agent(rebuttal_key) or {}).get("displayname") or "Rebuttal Advocate"
+    raw_arbitrator = settings_manager.get_arbitrator_agent()
+    arbitrator_key = raw_arbitrator if raw_arbitrator and raw_arbitrator not in excluded else None
+    arbitrator_name = (settings_manager.get_agent(arbitrator_key) or {}).get("displayname") or "Arbitrator"
     threshold = get_convergence_consecutive_threshold()
     wf_snap = thread_state_manager.get_workflow_snapshot(channel_id, thread_ts)
     sandwich_cfg = (wf_snap.get("sandwich_config") if wf_snap else None) or get_sandwich_config() or {}
@@ -163,8 +163,8 @@ def _apply_convergence_stress_test_or_fast_forward(
             return new_queue, consecutive_convergence_count
         return remaining, consecutive_convergence_count
 
-    # Step 1: When last_speaker == rebuttal_key — Evaluating Rebuttal Verdict
-    if rebuttal_key and last_speaker == rebuttal_key:
+    # Step 1: When last_speaker == arbitrator_key — Evaluating Arbitrator Verdict
+    if arbitrator_key and last_speaker == arbitrator_key:
         if last_turn_converged:
             # Verdict A — Consensus Defended/Patched: truncate remaining_agents to end_chain and prune middle remaining
             new_queue = [e for e in end_chain if e in remaining or e not in spoken_agents]
@@ -173,23 +173,23 @@ def _apply_convergence_stress_test_or_fast_forward(
             thread_state_manager.set_remaining_agents(channel_id, thread_ts, new_queue)
             thread_state_manager.clear_convergence_speakers(channel_id, thread_ts)
             logger.info(
-                f"[CONVERGENCE_FF] Verdict A reached by {rebuttal_name} ({rebuttal_key}). Fast-forwarding to end chain: {new_queue}"
+                f"[CONVERGENCE_FF] Verdict A reached by {arbitrator_name} ({arbitrator_key}). Fast-forwarding to end chain: {new_queue}"
             )
             return new_queue, consecutive_convergence_count
         else:
-            # Verdict B — Rebuttal Agent Agrees That Consensus Failed:
+            # Verdict B — Arbitrator Agrees That Consensus Failed:
             # Do NOT truncate remaining_agents! Reset count = 0 and normal dialectic continues.
             logger.info(
-                f"[CONVERGENCE_FF] Verdict B reached by {rebuttal_name} ({rebuttal_key}). Fast-forward cancelled, normal dialectic continues."
+                f"[CONVERGENCE_FF] Verdict B reached by {arbitrator_name} ({arbitrator_key}). Fast-forward cancelled, normal dialectic continues."
             )
             return remaining, 0
 
-    # If last speaker was the Challenger, ensure rebuttal_key is queued next if not already spoken
+    # If last speaker was the Challenger, ensure arbitrator_key is queued next if not already spoken
     if challenger_key and last_speaker == challenger_key:
-        if rebuttal_key and rebuttal_key not in spoken_agents:
-            if not remaining or remaining[0] != rebuttal_key:
-                preserved_tail = [a for a in remaining if a != rebuttal_key]
-                new_queue = [rebuttal_key] + preserved_tail
+        if arbitrator_key and arbitrator_key not in spoken_agents:
+            if not remaining or remaining[0] != arbitrator_key:
+                preserved_tail = [a for a in remaining if a != arbitrator_key]
+                new_queue = [arbitrator_key] + preserved_tail
                 thread_state_manager.set_remaining_agents(channel_id, thread_ts, new_queue)
                 return new_queue, consecutive_convergence_count
         return remaining, consecutive_convergence_count
@@ -201,32 +201,32 @@ def _apply_convergence_stress_test_or_fast_forward(
         # Case A — Challenger is eligible (was not part of the current convergence streak and hasn't spoken yet in this streak)
         if challenger_key and challenger_key not in converged_speakers and challenger_key not in spoken_agents:
             preserved_tail = [
-                a for a in remaining if a not in (challenger_key, rebuttal_key)
+                a for a in remaining if a not in (challenger_key, arbitrator_key)
             ]
             new_queue = (
                 [challenger_key]
-                + ([rebuttal_key] if rebuttal_key and rebuttal_key not in spoken_agents else [])
+                + ([arbitrator_key] if arbitrator_key and arbitrator_key not in spoken_agents else [])
                 + preserved_tail
             )
             thread_state_manager.set_remaining_agents(channel_id, thread_ts, new_queue)
             thread_state_manager.clear_convergence_speakers(channel_id, thread_ts)
             logger.info(
-                f"[CONVERGENCE_FF] Consecutive threshold ({threshold}) met. Stress testing with {challenger_key} -> {rebuttal_key}"
+                f"[CONVERGENCE_FF] Consecutive threshold ({threshold}) met. Stress testing with {challenger_key} -> {arbitrator_key}"
             )
             return new_queue, 0
 
-        # Case B — Challenger has already spoken or participated, but rebuttal_key has NOT spoken yet
-        if rebuttal_key and rebuttal_key not in spoken_agents:
-            preserved_tail = [a for a in remaining if a != rebuttal_key]
-            new_queue = [rebuttal_key] + preserved_tail
+        # Case B — Challenger has already spoken or participated, but arbitrator_key has NOT spoken yet
+        if arbitrator_key and arbitrator_key not in spoken_agents:
+            preserved_tail = [a for a in remaining if a != arbitrator_key]
+            new_queue = [arbitrator_key] + preserved_tail
             thread_state_manager.set_remaining_agents(channel_id, thread_ts, new_queue)
             thread_state_manager.clear_convergence_speakers(channel_id, thread_ts)
             logger.info(
-                f"[CONVERGENCE_FF] Consecutive threshold ({threshold}) met. Injecting rebuttal {rebuttal_key}"
+                f"[CONVERGENCE_FF] Consecutive threshold ({threshold}) met. Injecting arbitrator {arbitrator_key}"
             )
             return new_queue, 0
 
-        # Case C — Both Challenger and rebuttal_key have already spoken / participated
+        # Case C — Both Challenger and arbitrator_key have already spoken / participated
         new_queue = [e for e in end_chain if e in remaining or e not in spoken_agents]
         if not new_queue and end_chain:
             new_queue = list(end_chain)

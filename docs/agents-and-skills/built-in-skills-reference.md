@@ -40,7 +40,7 @@ This document provides a complete reference guide for all **21 built-in skills a
 - **Tools**:
   - `nominate_next_speaker(agent_name: str, reason: str)`: Structured handoff to nominate the next persona in the deliberation.
   - `request_user_clarification(question: str, blocking_reason: str)`: Suspends automated debate turns and prompts the human user in Slack when critical requirements are ambiguous.
-  - `signal_consensus_convergence(summary_of_agreement: str, confidence: float)`: Signals that the panel has converged on consensus; when consecutive calls reach `convergence_consecutive_threshold` (`2`), triggers the Challenger + RebuttalAdvocate stress-test gate.
+  - `signal_consensus_convergence(summary_of_agreement: str, confidence: float)`: Signals that the panel has converged on consensus; when consecutive calls reach `convergence_consecutive_threshold` (`2`), triggers the Challenger + Arbitrator stress-test gate.
 
 ### `web_research`
 - **Location**: [`skills/web_research/SKILL.md`](file:///config/skills/web_research/SKILL.md)
