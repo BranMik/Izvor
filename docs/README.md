@@ -18,7 +18,7 @@ docs/
 ├── architecture/                          # Architecture & Core Engine
 │   ├── system-design.md                   # Event Lifecycle, FastAPI Lifespan & Heartbeats
 │   ├── orchestration-pipeline.md          # 5-Stage Turn Pipeline, DiscussionLoop & Checkpoints
-│   ├── topologies-and-routing.md          # Sandwich, Fixed, Parallel Dialectic & Rebuttal Gate
+│   ├── topologies-and-routing.md          # Sandwich, Fixed, Parallel Dialectic & Arbitrator Gate
 │   ├── thread-state-memory.md             # 11 SQLite Tables, 3-Tier Memory & Data Retention
 │   └── spend-governance.md                # Pricing Service, Token Tracking & Circuit Breakers
 ├── agents-and-skills/                     # Personas, Prompts & Tools

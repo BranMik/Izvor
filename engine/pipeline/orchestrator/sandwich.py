@@ -77,25 +77,25 @@ class SandwichOrchestrator:
             return None, []
 
         challenger_key: str | None = None
-        rebuttal_key: str | None = None
+        arbitrator_key: str | None = None
         try:
-            from orchestration.agent_settings import get_challenger_agent, get_rebuttal_agent
+            from orchestration.agent_settings import get_challenger_agent, get_arbitrator_agent
 
             challenger_key = get_challenger_agent()
-            rebuttal_key = get_rebuttal_agent()
+            arbitrator_key = get_arbitrator_agent()
         except Exception as e:  # noqa: BLE001
             logger.debug("Failed to retrieve dialectical agents: %s", e)
 
         standby_set = set(self.standby_agents)
         if challenger_key:
             standby_set.add(challenger_key)
-        if rebuttal_key:
-            standby_set.add(rebuttal_key)
+        if arbitrator_key:
+            standby_set.add(arbitrator_key)
 
-        # 1. Handoff Enforcement Between Challenger and RebuttalAdvocate (TKT-823)
-        # When remaining_pool begins with rebuttal_key (Challenger is currently speaking and rebuttal_key is at remaining_pool[0])
+        # 1. Handoff Enforcement Between Challenger and Arbitrator (TKT-823)
+        # When remaining_pool begins with arbitrator_key (Challenger is currently speaking and arbitrator_key is at remaining_pool[0])
         if remaining_pool and (
-            (rebuttal_key and remaining_pool[0] == rebuttal_key) or remaining_pool[0] in standby_set
+            (arbitrator_key and remaining_pool[0] == arbitrator_key) or remaining_pool[0] in standby_set
         ):
             return remaining_pool[0], [remaining_pool[0]]
 
@@ -109,9 +109,9 @@ class SandwichOrchestrator:
         start_set = set(self.start_chain)
         end_set = set(self.end_chain)
 
-        # 2. When RebuttalAdvocate is currently speaking and middle pool specialists remain:
+        # 2. When Arbitrator is currently speaking and middle pool specialists remain:
         # Allow nominating any remaining middle-pool specialist (Verdict B) or closing chain (Verdict A)
-        if current_speaker and (current_speaker in standby_set or current_speaker == rebuttal_key):
+        if current_speaker and (current_speaker in standby_set or current_speaker == arbitrator_key):
             remaining_middle = [
                 k for k in remaining_pool if k not in start_set and k not in end_set and k not in standby_set
             ]

@@ -58,7 +58,7 @@ Izvor does not rely on rigid turn-taking. It supports distinct workflow topologi
 - **🎯 Fixed Mode**: Executes an ordered, sequential chain of personas defined by the operator or preset.
 - **⚡ Open Debate Mode (`/open_debate`)**: Designates an initial speaker and runs an open debate without fixed start/end chains.
 - **📝 Live Discussion Scribe**: Live synthesis and real-time pinned summary generation in discussion threads.
-- **⚡ Consensus Convergence Fast-Forward**: Early consensus detection and stress-testing (Challenger → Rebuttal) to fast-forward resolved deliberations.
+- **⚡ Consensus Convergence Fast-Forward**: Early consensus detection and stress-testing (Challenger → Arbitrator) to fast-forward resolved deliberations.
 - **Dynamic Peer Nomination**: Personas pass the baton using unicode-safe tags (e.g., `/[Security Architect]`, `/[Scope Optimizer]`, or `/[Tactician]`), parsed automatically by the [`EntityResolver`](file:///engine/pipeline/entity_resolver/resolver.py).
 
 ### 2. Thread State & Memory Safety (Hybrid In-Memory + SQLite)

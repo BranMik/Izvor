@@ -60,29 +60,29 @@ def test_enforce_valid_nomination_with_control_plane_override():
     assert "/[agent-10002]" in result or "[agent-10002]" in result
 
 
-def test_rebuttal_advocate_persona_and_standby_topology():
-    from orchestration.agent_settings import get_challenger_agent, get_rebuttal_agent
+def test_arbitrator_persona_and_standby_topology():
+    from orchestration.agent_settings import get_challenger_agent, get_arbitrator_agent
 
-    assert get_rebuttal_agent() == "RebuttalAdvocate"
+    assert get_arbitrator_agent() == "Arbitrator"
     assert get_challenger_agent() == "Challenger"
 
     from prompts import build_agent_prompt
 
-    prompt = build_agent_prompt("RebuttalAdvocate")
-    assert "Rebuttal & Defense Advocate" in prompt
+    prompt = build_agent_prompt("Arbitrator")
+    assert "Arbitrator" in prompt
     assert "VERDICT A" in prompt.upper()
     assert "VERDICT B" in prompt.upper()
 
     orchestrator = SandwichOrchestrator(
         start_chain=["agent-10001"],
         end_chain=["agent-10006"],
-        standby_agents={"RebuttalAdvocate", "Challenger"},
+        standby_agents={"Arbitrator", "Challenger"},
     )
-    all_available = ["agent-10001", "agent-10002", "RebuttalAdvocate", "Challenger", "agent-10006"]
+    all_available = ["agent-10001", "agent-10002", "Arbitrator", "Challenger", "agent-10006"]
     seq = orchestrator.build_initial_sequence(all_available)
 
     # Dialectical system agents are standby agents, so they are excluded from the initial sequence
-    assert "RebuttalAdvocate" not in seq
+    assert "Arbitrator" not in seq
     assert "Challenger" not in seq
     assert seq[0] == "agent-10001"
     assert seq[-1] == "agent-10006"

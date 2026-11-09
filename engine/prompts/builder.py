@@ -64,7 +64,7 @@ def get_short_output_agents() -> set[str]:
     return set()
 
 
-DIALECTICAL_SYSTEM_AGENTS = {"Challenger", "RebuttalAdvocate"}
+DIALECTICAL_SYSTEM_AGENTS = {"Challenger", "Arbitrator"}
 
 
 def is_dialectical_system_agent(agent_key: str) -> bool:

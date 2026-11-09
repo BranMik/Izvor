@@ -127,7 +127,7 @@ class AppIntegrityValidator:
         else:
             sys_agents = payload.get("system_agents")
             if isinstance(sys_agents, dict):
-                for req in ("Challenger", "RebuttalAdvocate"):
+                for req in ("Challenger", "Arbitrator"):
                     if req not in sys_agents:
                         logger.warning(
                             "[INTEGRITY] Required dialectical system agent '%s' is missing from system_agent_settings.",

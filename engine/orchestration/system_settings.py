@@ -978,12 +978,12 @@ class SystemSettingsManager:
         from orchestration.agent_settings import set_challenger_agent as _set
         _set(agent, save=save)
 
-    def get_rebuttal_agent(self) -> str:
-        from orchestration.agent_settings import get_rebuttal_agent as _get
+    def get_arbitrator_agent(self) -> str:
+        from orchestration.agent_settings import get_arbitrator_agent as _get
         return _get()
 
-    def set_rebuttal_agent(self, agent: str | None, save: bool = False) -> None:
-        from orchestration.agent_settings import set_rebuttal_agent as _set
+    def set_arbitrator_agent(self, agent: str | None, save: bool = False) -> None:
+        from orchestration.agent_settings import set_arbitrator_agent as _set
         _set(agent, save=save)
 
     # --- MCP Servers Settings ---
@@ -1254,11 +1254,11 @@ def get_security_burst_limits() -> dict[str, Any]:
 
 
 def get_dialectical_stress_test_config() -> dict[str, Any]:
-    from orchestration.agent_settings import get_challenger_agent as _get_challenger, get_rebuttal_agent as _get_rebuttal
+    from orchestration.agent_settings import get_challenger_agent as _get_challenger, get_arbitrator_agent as _get_arbitrator
     system_settings_manager.load()
     cfg = dict(system_settings_manager.dialectical_stress_test)
     cfg["challenger_agent"] = _get_challenger() or ""
-    cfg["rebuttal_agent"] = _get_rebuttal() or ""
+    cfg["arbitrator_agent"] = _get_arbitrator() or ""
     return cfg
 
 
@@ -1285,13 +1285,13 @@ def set_challenger_agent(agent: str | None, save: bool = False) -> None:
     _set(agent, save=save)
 
 
-def get_rebuttal_agent() -> str:
-    from orchestration.agent_settings import get_rebuttal_agent as _get
+def get_arbitrator_agent() -> str:
+    from orchestration.agent_settings import get_arbitrator_agent as _get
     return _get()
 
 
-def set_rebuttal_agent(agent: str | None, save: bool = False) -> None:
-    from orchestration.agent_settings import set_rebuttal_agent as _set
+def set_arbitrator_agent(agent: str | None, save: bool = False) -> None:
+    from orchestration.agent_settings import set_arbitrator_agent as _set
     _set(agent, save=save)
 
 

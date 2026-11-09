@@ -29,7 +29,7 @@ class EntityResolver:
         try:
             from orchestration.agent_settings import settings_manager
             agents = dict(settings_manager.agents_config or {})
-            for k in ("Challenger", "RebuttalAdvocate"):
+            for k in ("Challenger", "Arbitrator"):
                 if k in settings_manager.system_agents_config:
                     agents[k] = settings_manager.system_agents_config[k]
             if agents:
@@ -39,7 +39,7 @@ class EntityResolver:
         try:
             from core.config import AGENTS_CONFIG, SYSTEM_AGENTS_CONFIG
             agents = dict(AGENTS_CONFIG or {})
-            for k in ("Challenger", "RebuttalAdvocate"):
+            for k in ("Challenger", "Arbitrator"):
                 if k in SYSTEM_AGENTS_CONFIG:
                     agents[k] = SYSTEM_AGENTS_CONFIG[k]
             if agents:

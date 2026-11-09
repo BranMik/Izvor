@@ -10,7 +10,7 @@ In Izvor, personas are not simply "chatbots" with different system instructions.
 1. A distinct domain perspective (e.g., technical risk vs. commercial ROI).
 2. A specific default reasoning model (e.g., Gemini 3.8 Flash, Mistral Large, Claude Opus, GPT-5).
 3. A set of authorized tools and skills (e.g., web search, RAG document retrieval).
-4. Autonomous consensus convergence stress-testing handled by dedicated dialectical system agents (`Challenger` and `RebuttalAdvocate`).
+4. Autonomous consensus convergence stress-testing handled by dedicated dialectical system agents (`Challenger` and `Arbitrator`).
 5. Custom visual identities (avatar icons and display names) inside Slack.
 
 ---
@@ -52,8 +52,8 @@ In addition to the 16-persona debate roster in `config/settings/agent_settings.j
 - **Prompt**: [`prompts/system_agents/Challenger.md`](file:///engine/prompts/system_agents/Challenger.md)
 - **Role**: Automatically injected when consecutive convergence signals reach `convergence_consecutive_threshold` to stress-test emerging consensus for fatal edge-cases, hidden assumptions, and structural failure modes.
 
-### 3. Rebuttal & Defense Advocate (`RebuttalAdvocate`)
-- **Prompt**: [`prompts/system_agents/RebuttalAdvocate.md`](file:///engine/prompts/system_agents/RebuttalAdvocate.md)
+### 3. Arbitrator (`Arbitrator`)
+- **Prompt**: [`prompts/system_agents/Arbitrator.md`](file:///engine/prompts/system_agents/Arbitrator.md)
 - **Role**: Follows the Challenger during convergence stress-testing to defend the proposal and emit a binding verdict (`[VERDICT: A — CONSENSUS HOLDS]` to fast-forward to `end_chain`, or `[VERDICT: B — FLAWS EXPOSED]` to reset convergence and resume middle-pool debate).
 
 ### 4. Pricing Research Agent (`Pricing_Agent`)
