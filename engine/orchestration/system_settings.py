@@ -28,6 +28,7 @@ DEFAULT_PROTECTED_WRITE_PATHS: list[str] = [
     "config/settings/system_settings.json",
     "engine/settings/system_agent_settings.json",
     "data/state/app_settings.json",
+    "data/state/presidio_skill_exclusions.json",
 ]
 
 
@@ -106,6 +107,7 @@ class SystemSettingsModel(BaseModel):
     guardrail_embedding_cache_size: int = 500
     thread_cleanup_interval_seconds: float = 600.0
     audit_integrity_check_interval_seconds: float = 43200.0
+    skill_exclusions_sync_interval_seconds: float = 86400.0
     pricing_cache_ttl_days: int = 7
     slack_file_download_timeout_seconds: float = 30.0
     web_search_timeout_seconds: float = 10.0
@@ -201,6 +203,7 @@ class SystemSettingsManager:
         self.guardrail_embedding_cache_size: int = 500
         self.thread_cleanup_interval_seconds: float = 600.0
         self.audit_integrity_check_interval_seconds: float = 43200.0
+        self.skill_exclusions_sync_interval_seconds: float = 86400.0
         self.pricing_cache_ttl_days: int = 7
         self.slack_file_download_timeout_seconds: float = 30.0
         self.web_search_timeout_seconds: float = 10.0
@@ -861,6 +864,16 @@ class SystemSettingsManager:
         self.load()
         return float(self.audit_integrity_check_interval_seconds)
 
+    def get_skill_exclusions_sync_interval_seconds(self) -> float:
+        self.load()
+        return float(self.skill_exclusions_sync_interval_seconds)
+
+    def set_skill_exclusions_sync_interval_seconds(self, seconds: float, save: bool = True) -> None:
+        self.skill_exclusions_sync_interval_seconds = max(60.0, float(seconds))
+        if save:
+            self.save()
+        logger.info(f"[SYSTEM_SETTINGS] Set skill_exclusions_sync_interval_seconds to {self.skill_exclusions_sync_interval_seconds}.")
+
     def get_pricing_cache_ttl_days(self) -> int:
         self.load()
         return int(self.pricing_cache_ttl_days)
@@ -1292,6 +1305,10 @@ def get_retention_traces_days() -> int:
 
 def get_retention_event_dedup_days() -> int:
     return system_settings_manager.get_retention_event_dedup_days()
+
+
+def get_skill_exclusions_sync_interval_seconds() -> float:
+    return system_settings_manager.get_skill_exclusions_sync_interval_seconds()
 
 
 def get_mcp_servers() -> dict[str, McpServerConfig]:

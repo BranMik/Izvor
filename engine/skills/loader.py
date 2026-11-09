@@ -5,6 +5,7 @@ and binds low-level MCP execution backends.
 """
 
 import asyncio
+import hashlib
 import inspect
 import json
 import logging
@@ -73,6 +74,7 @@ class SkillDefinition:
     tool_handlers: dict[str, Callable[..., Any]] = field(default_factory=dict)
     mcp_server: str = ""
     mcp_tools: list[str] = field(default_factory=list)
+    content_hash: str = ""
 
     def get_tool_schemas(self) -> list[dict[str, Any]]:
         """Returns the LiteLLM tool schemas for the tools declared by this skill."""
@@ -167,6 +169,7 @@ class SkillRegistry:
 
         frontmatter_str = parts[1]
         body_markdown = parts[2].strip()
+        content_hash = hashlib.sha256(frontmatter_str.strip().encode("utf-8")).hexdigest()
 
         meta = yaml.safe_load(frontmatter_str) or {}
 
@@ -267,6 +270,7 @@ class SkillRegistry:
             tool_handlers=tool_handlers,
             mcp_server=mcp_server,
             mcp_tools=mcp_tools,
+            content_hash=content_hash,
         )
 
     def get(self, name: str) -> SkillDefinition | None:

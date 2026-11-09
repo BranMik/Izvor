@@ -300,6 +300,29 @@ def isolate_system_settings_for_tests(tmp_path):
 
 
 @pytest.fixture(autouse=True)
+def isolate_pii_masker_exclusions_for_tests(tmp_path):
+    """
+    Prevents tests from modifying or overwriting production data/state/presidio_skill_exclusions.json.
+    Each test gets an isolated copy in tmp_path / "_conftest_iso".
+    """
+    from core.paths import PRESIDIO_SKILL_EXCLUSIONS_FILE as REAL_EXCLUSIONS_FILE
+    from services.rag.pii_masker import pii_masker
+
+    iso_dir = tmp_path / "_conftest_iso"
+    iso_dir.mkdir(parents=True, exist_ok=True)
+    temp_exclusions = iso_dir / "presidio_skill_exclusions.json"
+
+    if REAL_EXCLUSIONS_FILE.exists():
+        shutil.copy2(REAL_EXCLUSIONS_FILE, temp_exclusions)
+
+    pii_masker.configure_paths(exclusions_file=temp_exclusions)
+
+    yield
+
+    pii_masker.reset_paths()
+
+
+@pytest.fixture(autouse=True)
 def isolate_downloads_dir_for_tests(request, tmp_path):
     """
     Prevents tests from leaking downloaded test files into data/downloads.
