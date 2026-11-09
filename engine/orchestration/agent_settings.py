@@ -711,7 +711,7 @@ class AgentSettingsManager:
                         logger.debug(f"[SETTINGS] Error checking settings file mtime: {e}")
                     self.check_and_update_backup()
                     try:
-                        from services.rag.pii_masker import pii_masker
+                        from services.security.pii_masker import pii_masker
                         pii_masker.refresh_allowlist()
                     except Exception:
                         pass
@@ -741,7 +741,7 @@ class AgentSettingsManager:
                         f"Original file '{target_file.name}' was left untouched."
                     )
                     try:
-                        from services.rag.pii_masker import pii_masker
+                        from services.security.pii_masker import pii_masker
                         pii_masker.refresh_allowlist()
                     except Exception:
                         pass
@@ -839,7 +839,7 @@ class AgentSettingsManager:
                 )
                 self.check_and_update_backup()
                 try:
-                    from services.rag.pii_masker import pii_masker
+                    from services.security.pii_masker import pii_masker
                     pii_masker.refresh_allowlist()
                 except Exception:
                     pass

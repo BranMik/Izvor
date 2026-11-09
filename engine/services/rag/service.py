@@ -3,7 +3,6 @@ import logging
 
 from .config import DEFAULT_TOP_K
 from .embeddings import EmbeddingService, embedding_service
-from .pii_masker import pii_masker
 from .vector_store import VectorStore, vector_store
 
 logger = logging.getLogger(__name__)
@@ -92,6 +91,7 @@ class RAGService:
 
         # Format results as readable markdown citations
         output_blocks = [f'### Knowledge Base Search Results for: *"{cleaned_query}"*\n']
+        from services.security.pii_masker import pii_masker
 
         for idx, item in enumerate(results, start=1):
             doc_id = item.get("doc_id", "Unknown")

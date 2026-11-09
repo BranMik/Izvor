@@ -5,6 +5,7 @@ import re
 from core.paths import SYSTEM_SETTINGS_FILE
 from services.audit_logger import log_audit_event
 from services.security.guardrail import GuardrailService, guardrail_service
+from services.security.pii_masker import PIIMasker, extract_skill_exclusion_terms, pii_masker
 
 logger = logging.getLogger(__name__)
 
@@ -65,4 +66,7 @@ __all__ = [
     "scan_output_for_secrets",
     "MAIN_PATTERNS",
     "load_additional_patterns",
+    "PIIMasker",
+    "pii_masker",
+    "extract_skill_exclusion_terms",
 ]

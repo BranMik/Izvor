@@ -47,7 +47,7 @@ def _unmask_argument_values(val: Any, mapping: dict[str, str]) -> Any:
     """Recursively unmasks string argument values if any PII token mappings exist."""
     if not mapping or val is None:
         return val
-    from services.rag.pii_masker import pii_masker
+    from services.security.pii_masker import pii_masker
 
     if isinstance(val, str):
         return pii_masker.unmask(val, mapping)

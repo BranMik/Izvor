@@ -17,7 +17,7 @@ from prompts.builder import (
     is_short_output_agent,
     is_system_agent,
 )
-from services.rag.pii_masker import PIIMasker
+from services.security.pii_masker import PIIMasker, _STATIC_SENTENCE_START_ALLOWLIST_LOWER
 
 
 def test_pii_masker_single_pass_unmask_no_recursion():
@@ -174,6 +174,17 @@ def test_sync_skill_exclusions_creates_json_and_caps_keywords(tmp_path):
             assert len(s_info["sentence_start_keywords"]) <= 5
             assert "content_hash" in s_info
             assert "global_terms" in s_info
+            # Must only include auto-detect or agent skills
+            assert s_info.get("auto_detect") is True or s_info.get("scope") == "agent"
+
+        # Non-auto-detect skills must NEVER be in presidio_skill_exclusions.json
+        non_auto_skills = {
+            "grant_skill", "grant_skill_for_all", "revoke_skill_for_all",
+            "revoke_constraint", "rounds", "stop_discussion", "first",
+            "open_debate", "list_skills", "control_plane"
+        }
+        for s in non_auto_skills:
+            assert s not in data["skills"]
 
         # Second sync without changes should be a no-op
         stats2 = masker.sync_skill_exclusions()
@@ -225,32 +236,54 @@ def test_manual_include_and_exclude_overrides(tmp_path):
         masker.reset_paths()
 
 
+def test_static_sentence_start_allowlist_contains_zero_skill_keywords():
+    """
+    Verifies that _STATIC_SENTENCE_START_ALLOWLIST_LOWER contains only generic syntax tokens
+    and zero skill stems, establishing presidio_skill_exclusions.json as the single source of truth.
+    """
+    forbidden_stems = {
+        "grant", "first", "rounds", "round", "stop", "revoke",
+        "max", "min", "maximum", "minimum", "words", "word",
+        "history", "exclude", "include", "scribe"
+    }
+    assert _STATIC_SENTENCE_START_ALLOWLIST_LOWER.isdisjoint(forbidden_stems)
+
+
 def test_sentence_start_boundary_filtering():
     """
-    Verifies that capitalized single-word skill keywords are skipped by Presidio
+    Verifies that capitalized single-word auto-detected skill keywords are skipped by Presidio
     at sentence or clause boundaries, but properly masked as PERSON mid-sentence.
+    Also verifies that non-auto-detect words like 'Grant' are NOT exempted and are masked as PERSON.
     """
     masker = PIIMasker()
     masker.sync_skill_exclusions()
 
-    # 1. At start of prompt -> Grant is not masked
-    text_start = "Grant skill web_research to [Visionary]"
+    # 1. At start of prompt -> Max (auto-detect directive keyword) is not masked
+    text_start = "Max 5 words for summary"
     masked_start, map_start = masker.mask(text_start)
-    assert "Grant" in masked_start
+    assert "Max" in masked_start
     assert "<PERSON_" not in masked_start
 
-    # 2. After leading Slack mention & agent tag -> Grant is not masked
-    text_mention = "<@U123456> /[Visionary] Grant skill web_research"
+    # 2. After leading Slack mention & agent tag -> Max is not masked
+    text_mention = "<@U123456> /[Visionary] Max 5 words"
     masked_mention, _ = masker.mask(text_mention)
-    assert "Grant" in masked_mention
+    assert "Max" in masked_mention
     assert "<PERSON_" not in masked_mention
 
-    # 3. After sentence boundary (period / exclamation) -> Grant is not masked
-    text_clause = "Analysis complete. Grant skill web_research immediately!"
+    # 3. After sentence boundary (period / exclamation) -> Exclude (auto-detect keyword) is not masked
+    text_clause = "Analysis complete. Exclude [agent-10001] immediately!"
     masked_clause, _ = masker.mask(text_clause)
-    assert "Grant" in masked_clause
+    assert "Exclude" in masked_clause
 
-    # 4. Mid-sentence -> Grant and Max as person names ARE masked
+    # 4. Sentence starting with 'Grant Morrison' as a person name MUST be masked (grant_skill is not auto-detected)
+    if masker._presidio_analyzer is not None:
+        text_grant = "Grant Morrison submitted the budget report yesterday."
+        masked_grant, map_grant = masker.mask(text_grant)
+        assert "Grant Morrison" not in masked_grant
+        assert "<PERSON_0>" in masked_grant
+        assert map_grant["<PERSON_0>"] == "Grant Morrison"
+
+    # 5. Mid-sentence -> Grant and Max as person names ARE masked
     if masker._presidio_analyzer is not None:
         text_mid = "Please ask Grant and Max about the budget in New York."
         masked_mid, map_mid = masker.mask(text_mid)
