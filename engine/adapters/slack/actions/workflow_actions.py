@@ -83,10 +83,45 @@ async def _handle_scribe_download(
 ) -> None:
     """
     Delivers notes privately to the requesting user:
-    1. Sends an ephemeral confirmation in the thread visible only to user.
+    1. Resolves/opens the user's private DM channel.
     2. Uploads the .txt file directly to the user's private DM channel.
+    3. Sends an ephemeral confirmation (or failure notification) in the thread visible only to user.
     """
     try:
+        dm_channel_id = await open_dm_channel(user_id)
+        if not dm_channel_id:
+            logger.error(f"[INTERACTIVITY] Could not resolve DM channel for user {user_id}")
+            if channel_id and thread_ts:
+                await post_ephemeral_to_slack(
+                    channel_id=channel_id,
+                    user_id=user_id,
+                    text="❌ Could not open a direct message channel to deliver your notes. Please ensure direct messages from apps are allowed and the bot has the 'im:write' permission.",
+                    thread_ts=thread_ts,
+                )
+            return
+
+        clean_ts = thread_ts.replace(".", "_") if thread_ts else "notes"
+        filename = f"{filename_prefix}_{clean_ts}.txt"
+        upload_res = await upload_text_file_to_slack(
+            channel_id=dm_channel_id,
+            content=content,
+            filename=filename,
+            title=f"{title_prefix} ({thread_ts})",
+            initial_comment=f"Here are your requested {title_prefix} as a .txt file:",
+        )
+
+        if not upload_res.get("ok"):
+            err_msg = upload_res.get("error", "Unknown error")
+            logger.error(f"[INTERACTIVITY] Failed to upload notes file to DM for {user_id}: {err_msg}")
+            if channel_id and thread_ts:
+                await post_ephemeral_to_slack(
+                    channel_id=channel_id,
+                    user_id=user_id,
+                    text=f"❌ Failed to deliver notes file to your direct message: {err_msg}",
+                    thread_ts=thread_ts,
+                )
+            return
+
         if channel_id and thread_ts:
             await post_ephemeral_to_slack(
                 channel_id=channel_id,
@@ -94,30 +129,18 @@ async def _handle_scribe_download(
                 text="✅ Prepared notes have been sent as a `.txt` file to your direct message (DM).",
                 thread_ts=thread_ts,
             )
-
-        dm_channel_id = await open_dm_channel(user_id) or user_id
-        if not dm_channel_id:
-            logger.error(f"[INTERACTIVITY] Could not resolve DM channel for user {user_id}")
-            if channel_id and thread_ts:
+    except Exception as e:  # noqa: BLE001 - Interactivity action handler isolates download delivery failure
+        logger.error(f"[INTERACTIVITY] Error delivering scribe download to {user_id}: {e}")
+        if channel_id and thread_ts:
+            try:
                 await post_ephemeral_to_slack(
                     channel_id=channel_id,
                     user_id=user_id,
-                    text="❌ Could not open a direct message channel to deliver your notes. Please ensure you allow direct messages from apps.",
+                    text=f"❌ An unexpected error occurred while preparing your notes download: {e}",
                     thread_ts=thread_ts,
                 )
-            return
-
-        clean_ts = thread_ts.replace(".", "_") if thread_ts else "notes"
-        filename = f"{filename_prefix}_{clean_ts}.txt"
-        await upload_text_file_to_slack(
-            channel_id=dm_channel_id,
-            content=content,
-            filename=filename,
-            title=f"{title_prefix} ({thread_ts})",
-            initial_comment=f"Here are your requested {title_prefix} as a .txt file:",
-        )
-    except Exception as e:  # noqa: BLE001 - Interactivity action handler isolates download delivery failure
-        logger.error(f"[INTERACTIVITY] Error delivering scribe download to {user_id}: {e}")
+            except Exception as eph_err:  # noqa: BLE001
+                logger.debug(f"[INTERACTIVITY] Ephemeral error notification failed: {eph_err}")
 
 
 async def _handle_download_scribe_notes(

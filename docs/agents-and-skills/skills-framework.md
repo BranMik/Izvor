@@ -100,6 +100,7 @@ The `triggers:` dictionary configures how the skill is detected from user input 
 | `slash` | `list[str]` | `[]` | List of slash command aliases (e.g. `["/web_research", "/webresearch"]`). | Deterministic slash parser in `DirectiveParser` (`origin="slash"`). | Natural language prompts without slash prefixes. |
 | `arg_type` | `string` | `"string"` | Parser strategy for extracting arguments following the slash command. Supported: `terminal_flag`, `int`, `int_or_off`, `agent_list`, `token`, `agent_token`, `grant_skill`, `list`, `file_target`, `none`. | `DirectiveParser` parameter extraction. | Agent LLM internal reasoning. |
 | `param_name` | `string` | `None` | Parameter key under which parsed argument is stored in `ActionDirective.params`. | Parameter dictionary construction in `DirectiveParser`. | Unparameterized flag skills. |
+| `keywords` | `list[str]` | `[]` | Explicit natural-language trigger terms allowlisted against PII over-redaction and registered for pre-flight intent detection. | Layer 1 `IntentExtractor` & `PIIMasker` automated keyword extraction. | Parameterized slash command extraction. |
 | `terminal` | `boolean` | `false` | If `true`, halts debate immediately upon detection (e.g. `/stop`). | Short-circuit stop check in `DirectiveParser` & Slack event adapter. | Non-terminal conversational skills. |
 
 ---
@@ -124,6 +125,13 @@ The loader extracts all top-level and trigger metadata, validates required field
 
 ### 3. Registry Storage ([`core/registry.py`](file:///engine/core/registry.py))
 Valid skills are registered into the global `SkillRegistry`. They can be queried via the administrative REST endpoint (`GET /api/skills`) or listed inside Slack via `/list_skills` or `[list_skills]`.
+
+### 4. Automated PII Keyword Exclusion & Content Hashing ([`services/rag/pii_masker.py`](file:///engine/services/rag/pii_masker.py))
+To prevent newly added skills from having their directive keywords accidentally masked by Microsoft Presidio as sensitive personal data (e.g., mistaking directive words like `"Max"`, `"Grant"`, or `"First"` for `PERSON`):
+- **Deterministic Content Hashing**: [`SkillLoader`](file:///engine/skills/loader.py) computes a deterministic SHA-256 `content_hash` over each skill's frontmatter manifest attributes (`name`, `display_name`, `description`, `scope`, `triggers`, `extraction_rule`, `tools`).
+- **Automated Extraction**: When new skills are parsed or modified, [`extract_skill_exclusion_terms()`](file:///engine/services/rag/pii_masker.py) extracts global identifiers (`skill.name`, multi-word display name, uppercase acronyms) and up to 5 natural language sentence-start keywords (stripped slash stems, explicit `triggers.keywords`, and description tokens).
+- **Persistent State Storage**: Persisted atomically to [`data/state/presidio_skill_exclusions.json`](file:///data/state/presidio_skill_exclusions.json). Custom administrative overrides (`manual_include` / `manual_exclude`) on existing skills are preserved across syncs.
+- **Scheduled Sync**: Re-evaluated on startup via [`pii_masker.warm_up()`](file:///engine/services/rag/pii_masker.py) and every 24 hours via `periodic_skill_exclusions_sync()` in [`main.py`](file:///main.py), compiling zero-latency in-memory `frozenset` allowlists.
 
 ---
 

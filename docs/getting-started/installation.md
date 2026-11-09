@@ -111,6 +111,7 @@ The `engine/` directory contains the core Python runtime and immutable system de
 ### 3. Runtime & Slack UI State (`data/`) — *Managed Automatically at Runtime*
 The `data/` directory stores live databases, caches, audit logs, and Slack UI state:
 - **Slack App Home State ([`data/state/app_settings.json`](file:///data/state/app_settings.json))**: Stores runtime toggles (circuit breaker thresholds, daily USD budget, Scribe toggle, workspace baseline context). **Modify these via the Slack App Home UI rather than editing the JSON file directly.**
+- **Presidio Skill Exclusions ([`data/state/presidio_skill_exclusions.json`](file:///data/state/presidio_skill_exclusions.json))**: Automatically extracted keyword allowlists and administrative overrides for registered skills.
 - **SQLite State Engine (`data/izvor.db`)**, **Audit Logs (`data/audit/`)**, **Backups (`data/backups/`)**, and **Transcripts (`data/flat-histories/`)**.
 
 ---
@@ -137,6 +138,7 @@ System operational parameters, security guardrails, and timeouts are managed by 
 | `word_limit_grace_buffer` | `50` | Word count buffer above `max_words` before mechanical truncation is applied. |
 | `thread_cleanup_interval_seconds` | `600.0` | Frequency in seconds for pruning idle in-memory thread states (10 minutes). |
 | `audit_integrity_check_interval_seconds` | `43200.0` | Frequency in seconds for verifying the cryptographic hash chain of audit logs (12 hours). |
+| `skill_exclusions_sync_interval_seconds` | `86400.0` | Frequency in seconds for periodic synchronization of Presidio skill keyword exclusions (24 hours). |
 | `pricing_cache_ttl_days` | `7` | Cache lifespan in days for LLM token pricing benchmarks. |
 | `slack_file_download_timeout_seconds` | `30.0` | Timeout in seconds for downloading attached files from Slack. |
 | `web_search_timeout_seconds` | `10.0` | Timeout in seconds for outbound DuckDuckGo MCP web searches. |
