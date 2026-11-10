@@ -128,3 +128,146 @@ async def test_post_record_omits_skills_used_when_none():
     text = posted_payload["text"]
     assert "Skills used" not in text
     assert text.endswith("\n\n{gemini/gemini-3.8-flash : 300/50}")
+
+
+@pytest.mark.anyio
+async def test_context_prep_records_passively_injected_file_skill():
+    """Verify that when an agent equipped with document_reader accesses file_context,
+    the skill is added to skills_used, round evidence is recorded, and post_record renders the rubric."""
+    from orchestration.thread_state import thread_state_manager
+
+    channel_id = "C_SKILL_TEST_INJECT"
+    thread_ts = "9999.0001"
+    thread_state_manager.clear_round_execution_state(channel_id, thread_ts)
+    thread_state_manager.evidence.clear_thread_evidence(channel_id, thread_ts)
+
+    posted_payload = {}
+
+    async def mock_post(channel_id, thread_ts, text, username=None, icon_url=None, **kwargs):
+        posted_payload["text"] = text
+        return {"ok": True, "ts": "9999.9999"}
+
+    pipeline = TurnPipeline(
+        slack_poster=mock_post,
+        debate_turn_pacing_seconds=0,
+        slack_post_pause_seconds=0,
+    )
+    ctx = TurnContext(
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        raw_text="Read playbook",
+        in_memory_history=[{"role": "user", "content": "Read playbook"}],
+    )
+    ctx.thread_key = (channel_id, thread_ts)
+    ctx.agent_key = "agent-10002"
+    ctx.agent_cfg = {"username": "Innovator", "model": "anthropic/claude-opus-5", "skills": ["document_reader"]}
+    ctx.eligible_remaining_agents = ["agent-10003"]
+    ctx.remaining = ["agent-10003"]
+    ctx.file_context = {
+        "file_name": "05_Use_Case_Playbook.pdf",
+        "content": "Sales use cases: 1. Pre-call research briefs",
+        "size": 1500,
+        "authorized_agents": None,
+        "required_skill": "document_reader",
+    }
+    thread_state_manager.set_file_context(channel_id, thread_ts, ctx.file_context)
+
+    # Execute Stage 3 Context Preparation
+    await pipeline.context_prep_stage.stage_prepare_context(ctx)
+
+    # Verify skill was recorded into skills_used
+    assert "document_reader" in ctx.output.skills_used
+
+    # Verify round evidence was registered
+    evidence_block = thread_state_manager.format_round_evidence(channel_id, thread_ts)
+    assert evidence_block is not None
+    assert "document_reader" in evidence_block
+    assert "05_Use_Case_Playbook.pdf" in evidence_block
+
+    # Execute Stage 5 Post & Record to ensure rubric renders
+    ctx.output.final_text = "Analysis from playbook.\n\n/[agent-10003]"
+    ctx.output.total_prompt_tokens = 7000
+    ctx.output.total_completion_tokens = 500
+
+    await pipeline.post_record_stage.stage_post_and_record(ctx)
+
+    rendered_text = posted_payload["text"]
+    assert "Skills used: [document_reader]" in rendered_text
+    idx_skill = rendered_text.index("Skills used: [document_reader]")
+    idx_footer = rendered_text.index("{anthropic/claude-opus-5 : 7000/500}")
+    assert idx_skill < idx_footer
+    assert "/[" in rendered_text[:idx_skill]
+
+
+@pytest.mark.anyio
+async def test_context_prep_does_not_record_file_skill_when_agent_lacks_skill():
+    """Verify that when an agent lacks the required file skill, it is NOT added to skills_used."""
+    from orchestration.thread_state import thread_state_manager
+
+    channel_id = "C_SKILL_TEST_NOAUTH"
+    thread_ts = "9999.0002"
+    thread_state_manager.clear_round_execution_state(channel_id, thread_ts)
+    thread_state_manager.evidence.clear_thread_evidence(channel_id, thread_ts)
+
+    pipeline = TurnPipeline(
+        debate_turn_pacing_seconds=0,
+        slack_post_pause_seconds=0,
+    )
+    ctx = TurnContext(
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        raw_text="Read playbook",
+        in_memory_history=[{"role": "user", "content": "Read playbook"}],
+    )
+    ctx.thread_key = (channel_id, thread_ts)
+    ctx.agent_key = "agent-10003"
+    ctx.agent_cfg = {"username": "Sceptic", "model": "anthropic/claude-opus-5", "skills": []}
+    ctx.file_context = {
+        "file_name": "05_Use_Case_Playbook.pdf",
+        "content": "Sales use cases: 1. Pre-call research briefs",
+        "size": 1500,
+        "authorized_agents": None,
+        "required_skill": "document_reader",
+    }
+    thread_state_manager.set_file_context(channel_id, thread_ts, ctx.file_context)
+
+    await pipeline.context_prep_stage.stage_prepare_context(ctx)
+
+    assert "document_reader" not in ctx.output.skills_used
+    assert ctx.output.skills_used == []
+    evidence = thread_state_manager.format_round_evidence(channel_id, thread_ts)
+    assert evidence is None
+
+
+@pytest.mark.anyio
+async def test_context_prep_does_not_record_file_skill_on_error_content():
+    """Verify that file error placeholder content does not trigger skill tracking."""
+    channel_id = "C_SKILL_TEST_ERR"
+    thread_ts = "9999.0003"
+
+    pipeline = TurnPipeline(
+        debate_turn_pacing_seconds=0,
+        slack_post_pause_seconds=0,
+    )
+    ctx = TurnContext(
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        raw_text="Read playbook",
+        in_memory_history=[{"role": "user", "content": "Read playbook"}],
+    )
+    ctx.thread_key = (channel_id, thread_ts)
+    ctx.agent_key = "agent-10002"
+    ctx.agent_cfg = {"username": "Innovator", "skills": ["document_reader"]}
+    ctx.file_context = {
+        "file_name": "missing.pdf",
+        "content": "[Error reading file: not found]",
+        "size": 0,
+        "authorized_agents": None,
+        "required_skill": "document_reader",
+    }
+
+    await pipeline.context_prep_stage.stage_prepare_context(ctx)
+
+    assert "document_reader" not in ctx.output.skills_used
+    assert ctx.output.skills_used == []
+

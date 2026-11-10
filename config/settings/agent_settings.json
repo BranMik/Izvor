@@ -33,7 +33,11 @@
       "displayname": "Innovator",
       "icon_url": "avatars/image_01.png",
       "is_short_output": false,
-      "skills": []
+      "skills": [
+        "document_authoring",
+        "document_reader",
+        "knowledge_base_rag"
+      ]
     },
     "agent-10003": {
       "username": "Sceptic",

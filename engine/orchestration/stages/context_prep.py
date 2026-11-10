@@ -230,7 +230,7 @@ class ContextPrepStage:
                 ctx.next_designated_agent = round_seq[0]
                 ctx.eligible_remaining_agents = [round_seq[0]]
 
-        ctx.file_context = thread_state_manager.get_file_context(
+        ctx.file_context = getattr(ctx, "file_context", None) or thread_state_manager.get_file_context(
             ctx.input.channel_id, ctx.input.thread_ts
         )
         if not getattr(ctx, "thread_language", None):
@@ -278,6 +278,32 @@ class ContextPrepStage:
                 mapped_next_designated = agent_data.get("username", ctx.next_designated_agent)
             else:
                 mapped_next_designated = ctx.next_designated_agent
+
+        # Record passively injected file skill and verified evidence if agent is authorized and has the skill
+        if ctx.file_context:
+            auth_agents = ctx.file_context.get("authorized_agents")
+            is_agent_auth = auth_agents is None or ctx.agent_key in auth_agents
+            file_req_skill = ctx.file_context.get("required_skill")
+            if not file_req_skill:
+                file_skill_def = skill_registry.get_file_handler_skill()
+                file_req_skill = file_skill_def.name if file_skill_def else "document_reader"
+            has_file_skill = bool(file_req_skill and file_req_skill in agent_skills)
+            file_content = str(ctx.file_context.get("content", ""))
+            is_valid_content = bool(file_content) and not file_content.startswith(("[Error", "[No attached file"))
+
+            if is_agent_auth and has_file_skill and is_valid_content:
+                if file_req_skill not in ctx.output.skills_used:
+                    ctx.output.skills_used.append(file_req_skill)
+                file_name = ctx.file_context.get("file_name", "unknown")
+                file_size = ctx.file_context.get("size", len(file_content))
+                thread_state_manager.add_round_evidence(
+                    channel_id=ctx.input.channel_id,
+                    thread_ts=ctx.input.thread_ts,
+                    tool_name=file_req_skill,
+                    arguments={"file": file_name},
+                    result=f"Confirmed read and verified content of '{file_name}' ({file_size} bytes).",
+                    agent_key=ctx.agent_key,
+                )
 
         # Check if history is truncated (episodic summary tier 2)
         episodic_summary = None

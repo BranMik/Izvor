@@ -20,6 +20,7 @@ READ_ONLY_CACHEABLE_TOOLS: frozenset[str] = frozenset({
     "fetch_web_page",
     "list_documents",
     "read_document",
+    "document_reader",
     "search_knowledge_rag",
 })
 
