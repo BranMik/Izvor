@@ -969,13 +969,14 @@ async def send_admin_audit_alert(
     using SLACK_ADMIN_USER_IDS in deterministic sorted order, with fallback to SLACK_TEST_CHANNEL_ID.
     """
     from core.config import (
-        SLACK_BOT_TOKEN,
         SLACK_TEST_CHANNEL_ID,
         get_admin_slack_user_ids,
+        get_slack_bot_token,
     )
     from services.slack import open_dm_channel, post_agent_response
 
-    if not SLACK_BOT_TOKEN or SLACK_BOT_TOKEN == "xoxb-your-bot-user-oauth-token":
+    token = get_slack_bot_token()
+    if not token or token == "xoxb-your-bot-user-oauth-token":
         logger.warning(f"[MOCK SLACK ALERT] {title}\n{message}\nDetails: {details}")
         return True
 

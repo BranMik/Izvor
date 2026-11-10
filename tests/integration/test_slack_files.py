@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from core.config import configure_token, reset_token
 from nlp.message_builder import build_llm_messages
 from orchestration.agent_router import process_and_respond
 from orchestration.nomination import resolve_target_file
@@ -277,12 +278,15 @@ async def test_download_slack_file_mock_mode():
         "url_private_download": "https://files.slack.com/files-pri/T1/sample.py",
         "size": 100,
     }
-    with patch("services.slack.files.get_slack_bot_token", return_value=""):
+    configure_token("")
+    try:
         res = await download_slack_file(file_info)
         assert res["ok"] is True
         assert res["file_name"] == "sample.py"
         assert res["size"] == 100
         assert "Mock file content" in res["content"]
+    finally:
+        reset_token()
 
 
 class AsyncMockStreamResponse:
@@ -314,15 +318,16 @@ async def test_download_slack_file_http_mock():
     }
     mock_resp = AsyncMockStreamResponse(status_code=200, content=b"def add(a, b):\n    return a + b\n")
 
-    with (
-        patch("services.slack.files.get_slack_bot_token", return_value="xoxb-real-mock-token"),
-        patch("httpx.AsyncClient.stream", return_value=mock_resp),
-    ):
-        res = await download_slack_file(file_info)
-        assert res["ok"] is True
-        assert res["file_name"] == "calc.py"
-        assert "def add(a, b):" in res["content"]
-        assert res["truncated"] is False
+    configure_token("xoxb-real-mock-token")
+    try:
+        with patch("httpx.AsyncClient.stream", return_value=mock_resp):
+            res = await download_slack_file(file_info)
+            assert res["ok"] is True
+            assert res["file_name"] == "calc.py"
+            assert "def add(a, b):" in res["content"]
+            assert res["truncated"] is False
+    finally:
+        reset_token()
 
 
 @pytest.mark.anyio
@@ -345,15 +350,16 @@ async def test_download_slack_file_pdf_mock():
     }
     mock_resp = AsyncMockStreamResponse(status_code=200, content=pdf_bytes)
 
-    with (
-        patch("services.slack.files.get_slack_bot_token", return_value="xoxb-real-mock-token"),
-        patch("httpx.AsyncClient.stream", return_value=mock_resp),
-    ):
-        res = await download_slack_file(file_info)
-        assert res["ok"] is True
-        assert res["file_name"] == "spec.pdf"
-        assert "--- Page 1 ---" in res["content"]
-        assert res["truncated"] is False
+    configure_token("xoxb-real-mock-token")
+    try:
+        with patch("httpx.AsyncClient.stream", return_value=mock_resp):
+            res = await download_slack_file(file_info)
+            assert res["ok"] is True
+            assert res["file_name"] == "spec.pdf"
+            assert "--- Page 1 ---" in res["content"]
+            assert res["truncated"] is False
+    finally:
+        reset_token()
 
 
 @pytest.mark.anyio
@@ -363,11 +369,14 @@ async def test_download_slack_file_non_slack_domain_blocked():
         "url_private_download": "https://malicious-exfiltration.com/steal-token",
         "size": 50,
     }
-    with patch("services.slack.files.get_slack_bot_token", return_value="xoxb-secret-bot-token"):
+    configure_token("xoxb-secret-bot-token")
+    try:
         res = await download_slack_file(file_info)
         assert res["ok"] is False
         assert "Security violation" in res["error"]
         assert "not a recognized Slack domain" in res["error"]
+    finally:
+        reset_token()
 
 
 @pytest.mark.anyio
@@ -385,13 +394,14 @@ async def test_download_slack_file_streaming_byte_cap():
         "url_private_download": "https://files.slack.com/files-pri/T1/overflow.bin",
         "size": 100,  # Header claimed small, but stream exceeds
     }
-    with (
-        patch("services.slack.files.get_slack_bot_token", return_value="xoxb-real-mock-token"),
-        patch("httpx.AsyncClient.stream", return_value=mock_resp),
-    ):
-        res = await download_slack_file(file_info)
-        assert res["ok"] is False
-        assert "exceeds maximum allowed size" in res["error"]
+    configure_token("xoxb-real-mock-token")
+    try:
+        with patch("httpx.AsyncClient.stream", return_value=mock_resp):
+            res = await download_slack_file(file_info)
+            assert res["ok"] is False
+            assert "exceeds maximum allowed size" in res["error"]
+    finally:
+        reset_token()
 
 
 @pytest.mark.anyio
@@ -412,14 +422,17 @@ async def test_download_slack_file_pdf_async_to_thread():
     }
     mock_resp = AsyncMockStreamResponse(status_code=200, content=pdf_bytes)
 
-    with (
-        patch("services.slack.files.get_slack_bot_token", return_value="xoxb-real-mock-token"),
-        patch("httpx.AsyncClient.stream", return_value=mock_resp),
-        patch("asyncio.to_thread", wraps=asyncio.to_thread) as spy_to_thread,
-    ):
-        res = await download_slack_file(file_info)
-        assert res["ok"] is True
-        assert spy_to_thread.call_count >= 1
+    configure_token("xoxb-real-mock-token")
+    try:
+        with (
+            patch("httpx.AsyncClient.stream", return_value=mock_resp),
+            patch("asyncio.to_thread", wraps=asyncio.to_thread) as spy_to_thread,
+        ):
+            res = await download_slack_file(file_info)
+            assert res["ok"] is True
+            assert spy_to_thread.call_count >= 1
+    finally:
+        reset_token()
 
 
 @pytest.mark.anyio
@@ -564,22 +577,23 @@ async def test_download_slack_file_saves_safely_inside_downloads():
     }
     mock_resp = AsyncMockStreamResponse(status_code=200, content=b"print('malicious injection attempt')")
 
-    with (
-        patch("services.slack.files.get_slack_bot_token", return_value="xoxb-real-mock-token"),
-        patch("httpx.AsyncClient.stream", return_value=mock_resp),
-    ):
-        res = await download_slack_file(file_info)
-        assert res["ok"] is True
+    configure_token("xoxb-real-mock-token")
+    try:
+        with patch("httpx.AsyncClient.stream", return_value=mock_resp):
+            res = await download_slack_file(file_info)
+            assert res["ok"] is True
 
-        # Verify nothing was created in parent directories
-        parent_file = downloads_dir.parent / "traversal_attack.py"
-        assert not parent_file.exists()
+            # Verify nothing was created in parent directories
+            parent_file = downloads_dir.parent / "traversal_attack.py"
+            assert not parent_file.exists()
 
-        # Verify file is inside downloads_dir with neutralized extension .py.txt
-        found = list(downloads_dir.glob("*_traversal_attack.py.txt"))
-        assert len(found) >= 1
-        for f in found:
-            assert f.is_relative_to(downloads_dir)
-            f.unlink()
+            # Verify file is inside downloads_dir with neutralized extension .py.txt
+            found = list(downloads_dir.glob("*_traversal_attack.py.txt"))
+            assert len(found) >= 1
+            for f in found:
+                assert f.is_relative_to(downloads_dir)
+                f.unlink()
+    finally:
+        reset_token()
 
 

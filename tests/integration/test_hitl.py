@@ -115,14 +115,15 @@ def test_hitl_expiration_ttl():
 def test_hitl_slack_interactivity_authorization():
     """Test Slack Block Kit approval/denial authorization: only initiator or admin can approve/deny."""
     from core.config import set_admin_slack_user_ids_override
+    from services.slack import configure_slack_async_client, reset_slack_async_client
 
     set_admin_slack_user_ids_override("U_WORKSPACE_ADMIN")
+    mock_client = AsyncMock()
+    mock_client.chat_postEphemeral = AsyncMock(return_value={"ok": True})
+    mock_client.chat_update = AsyncMock(return_value={"ok": True})
+    configure_slack_async_client(mock_client)
     try:
-        with (
-            patch("adapters.slack.interactivity.verify_slack_signature", return_value=True),
-            patch("adapters.slack.interactivity.slack_async_client.chat_postEphemeral", AsyncMock(return_value={"ok": True})),
-            patch("adapters.slack.interactivity.slack_async_client.chat_update", AsyncMock(return_value={"ok": True})),
-        ):
+        with patch("adapters.slack.interactivity.verify_slack_signature", return_value=True):
             req = register_hitl_request(
                 channel_id="C_SLACK_HITL",
                 thread_ts="1700000000.004",
@@ -169,6 +170,7 @@ def test_hitl_slack_interactivity_authorization():
                 assert row is not None
                 assert row["status"] == "CONSUMED"
     finally:
+        reset_slack_async_client()
         set_admin_slack_user_ids_override(None)
 
 
@@ -198,21 +200,26 @@ def test_hitl_atomic_status_transition():
 
 def test_hitl_slack_action_expired_or_handled_notice():
     """TKT-908: Post ephemeral warning when approval/denial action references non-existent or handled request."""
-    mock_ephemeral = AsyncMock(return_value={"ok": True})
-    with (
-        patch("adapters.slack.interactivity.verify_slack_signature", return_value=True),
-        patch("adapters.slack.interactivity.slack_async_client.chat_postEphemeral", mock_ephemeral),
-    ):
-        payload_missing = {
-            "type": "block_actions",
-            "user": {"id": "U_ANY_USER"},
-            "actions": [{"action_id": "hitl_approve_tool", "value": "non-existent-or-expired-id"}],
-            "channel": {"id": "C_SLACK_HITL"},
-        }
-        resp = client.post("/slack/actions", json=payload_missing)
-        assert resp.status_code == 200
+    from services.slack import configure_slack_async_client, reset_slack_async_client
 
-        time.sleep(0.05)
-        mock_ephemeral.assert_called_once()
-        assert "Request Expired or Handled" in mock_ephemeral.call_args[1]["text"]
+    mock_ephemeral = AsyncMock(return_value={"ok": True})
+    mock_client = AsyncMock()
+    mock_client.chat_postEphemeral = mock_ephemeral
+    configure_slack_async_client(mock_client)
+    try:
+        with patch("adapters.slack.interactivity.verify_slack_signature", return_value=True):
+            payload_missing = {
+                "type": "block_actions",
+                "user": {"id": "U_ANY_USER"},
+                "actions": [{"action_id": "hitl_approve_tool", "value": "non-existent-or-expired-id"}],
+                "channel": {"id": "C_SLACK_HITL"},
+            }
+            resp = client.post("/slack/actions", json=payload_missing)
+            assert resp.status_code == 200
+
+            time.sleep(0.05)
+            mock_ephemeral.assert_called_once()
+            assert "Request Expired or Handled" in mock_ephemeral.call_args[1]["text"]
+    finally:
+        reset_slack_async_client()
 

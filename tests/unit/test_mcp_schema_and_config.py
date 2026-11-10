@@ -4,7 +4,6 @@ tool schema translation, and subprocess environment isolation.
 """
 
 import os
-from unittest.mock import patch
 import pytest
 
 from orchestration.system_settings import (
@@ -47,50 +46,50 @@ def test_mcp_server_config_defaults():
 
 def test_env_var_expansion():
     """Validates ${VAR} expansion in strings and nested dictionaries."""
-    with patch.dict(os.environ, {"TEST_TOKEN": "secret_abc123", "SERVER_PORT": "8080"}):
-        expanded_str = _expand_env_vars_in_str("Bearer ${TEST_TOKEN}")
-        assert expanded_str == "Bearer secret_abc123"
+    test_env = {"TEST_TOKEN": "secret_abc123", "SERVER_PORT": "8080"}
+    expanded_str = _expand_env_vars_in_str("Bearer ${TEST_TOKEN}", env=test_env)
+    assert expanded_str == "Bearer secret_abc123"
 
-        d = {
-            "auth": "Bearer ${TEST_TOKEN}",
-            "url": "http://localhost:${SERVER_PORT}/sse",
-            "nested": {"key": "${TEST_TOKEN}"},
-            "list": ["val", "${SERVER_PORT}"],
-        }
-        res = _expand_env_vars_in_dict(d)
-        assert res["auth"] == "Bearer secret_abc123"
-        assert res["url"] == "http://localhost:8080/sse"
-        assert res["nested"]["key"] == "secret_abc123"
-        assert res["list"] == ["val", "8080"]
+    d = {
+        "auth": "Bearer ${TEST_TOKEN}",
+        "url": "http://localhost:${SERVER_PORT}/sse",
+        "nested": {"key": "${TEST_TOKEN}"},
+        "list": ["val", "${SERVER_PORT}"],
+    }
+    res = _expand_env_vars_in_dict(d, env=test_env)
+    assert res["auth"] == "Bearer secret_abc123"
+    assert res["url"] == "http://localhost:8080/sse"
+    assert res["nested"]["key"] == "secret_abc123"
+    assert res["list"] == ["val", "8080"]
 
 
 def test_system_settings_mcp_servers():
     """Validates getting and setting MCP servers in SystemSettingsManager."""
-    with patch.dict(os.environ, {"GITHUB_TOKEN": "ghp_mock_12345"}):
-        servers_payload = {
-            "github": {
-                "enabled": True,
-                "transport": "stdio",
-                "command": "npx",
-                "args": ["-y", "@modelcontextprotocol/server-github"],
-                "env": {"GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_TOKEN}"},
-                "mutating_tools": ["create_issue", "push_files"],
-            }
+    test_env = {"GITHUB_TOKEN": "ghp_mock_12345"}
+    servers_payload = {
+        "github": {
+            "enabled": True,
+            "transport": "stdio",
+            "command": "npx",
+            "args": ["-y", "@modelcontextprotocol/server-github"],
+            "env": {"GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_TOKEN}"},
+            "mutating_tools": ["create_issue", "push_files"],
         }
-        set_mcp_servers(servers_payload, save=False)
+    }
+    set_mcp_servers(servers_payload, save=False)
 
-        servers = get_mcp_servers()
-        assert "github" in servers
-        gh_cfg = servers["github"]
-        assert gh_cfg.command == "npx"
-        assert gh_cfg.env["GITHUB_PERSONAL_ACCESS_TOKEN"] == "ghp_mock_12345"
-        assert "create_issue" in gh_cfg.mutating_tools
+    servers = get_mcp_servers(env=test_env)
+    assert "github" in servers
+    gh_cfg = servers["github"]
+    assert gh_cfg.command == "npx"
+    assert gh_cfg.env["GITHUB_PERSONAL_ACCESS_TOKEN"] == "ghp_mock_12345"
+    assert "create_issue" in gh_cfg.mutating_tools
 
-        cfg = get_mcp_server_config("github")
-        assert cfg is not None
-        assert cfg.enabled is True
+    cfg = get_mcp_server_config("github", env=test_env)
+    assert cfg is not None
+    assert cfg.enabled is True
 
-        assert get_mcp_server_config("nonexistent") is None
+    assert get_mcp_server_config("nonexistent", env=test_env) is None
 
 
 def test_format_and_parse_mcp_tool_name():
@@ -155,26 +154,23 @@ def test_is_mcp_tool_destructive():
 
 def test_build_safe_stdio_env_strips_internal_secrets():
     """Validates that build_safe_stdio_env strips sensitive Izvor secrets."""
-    with patch.dict(
-        os.environ,
-        {
-            "PATH": "C:\\Windows\\System32",
-            "SLACK_BOT_TOKEN": "xoxb-leaked-token",
-            "SLACK_SIGNING_SECRET": "leaked-secret",
-            "SLACK_APP_TOKEN": "xapp-leaked",
-            "AUDIT_HMAC_SECRET": "super-hmac-secret",
-            "ADMIN_PASSWORD": "admin-password",
-        },
-    ):
-        child_env = build_safe_stdio_env({"CUSTOM_API_KEY": "val123"})
+    base_env = {
+        "PATH": "C:\\Windows\\System32",
+        "SLACK_BOT_TOKEN": "xoxb-leaked-token",
+        "SLACK_SIGNING_SECRET": "leaked-secret",
+        "SLACK_APP_TOKEN": "xapp-leaked",
+        "AUDIT_HMAC_SECRET": "super-hmac-secret",
+        "ADMIN_PASSWORD": "admin-password",
+    }
+    child_env = build_safe_stdio_env({"CUSTOM_API_KEY": "val123"}, base_env=base_env)
 
-        # Preserved system vars
-        assert "PATH" in child_env
-        assert child_env["PYTHONIOENCODING"] == "utf-8"
-        assert child_env["PYTHONUTF8"] == "1"
-        assert child_env["CUSTOM_API_KEY"] == "val123"
+    # Preserved system vars
+    assert "PATH" in child_env
+    assert child_env["PYTHONIOENCODING"] == "utf-8"
+    assert child_env["PYTHONUTF8"] == "1"
+    assert child_env["CUSTOM_API_KEY"] == "val123"
 
-        # Blocked secrets must NEVER be present
-        for blocked in BLOCKED_ENV_VARS:
-            assert blocked not in child_env
+    # Blocked secrets must NEVER be present
+    for blocked in BLOCKED_ENV_VARS:
+        assert blocked not in child_env
 

@@ -18,12 +18,9 @@ def reset_guardrail_state():
 
 @pytest.mark.anyio
 async def test_guardrail_fail_mode_open():
-    svc = GuardrailService()
-    # Mock table to None (connection failure)
-    with (
-        patch.object(GuardrailService, "table", new_callable=lambda: None),
-        patch("services.audit_logger.log_audit_event") as mock_audit,
-    ):
+    svc = GuardrailService(table=False)
+    # Mock table to False (connection failure)
+    with patch("services.audit_logger.log_audit_event") as mock_audit:
         set_guardrail_fail_mode("open", save=False)
         is_blocked = await svc.is_prompt_injection("Hello world test prompt")
         # Fail-open allows the prompt
@@ -35,12 +32,9 @@ async def test_guardrail_fail_mode_open():
 
 @pytest.mark.anyio
 async def test_guardrail_fail_mode_closed():
-    svc = GuardrailService()
-    # Mock table to None (connection failure)
-    with (
-        patch.object(GuardrailService, "table", new_callable=lambda: None),
-        patch("services.audit_logger.log_audit_event") as mock_audit,
-    ):
+    svc = GuardrailService(table=False)
+    # Mock table to False (connection failure)
+    with patch("services.audit_logger.log_audit_event") as mock_audit:
         set_guardrail_fail_mode("closed", save=False)
         is_blocked = await svc.is_prompt_injection("Hello world test prompt")
         # Fail-closed blocks the prompt
@@ -52,15 +46,12 @@ async def test_guardrail_fail_mode_closed():
 
 @pytest.mark.anyio
 async def test_guardrail_embedding_lru_cache():
-    svc = GuardrailService()
     mock_table = MagicMock()
     mock_df = pd.DataFrame([{"_distance": 0.8, "text": "non matching safe text"}])
     mock_table.search.return_value.metric.return_value.limit.return_value.to_pandas.return_value = mock_df
+    svc = GuardrailService(table=mock_table)
 
-    with (
-        patch.object(GuardrailService, "table", mock_table),
-        patch("services.rag.embeddings.embedding_service.get_embeddings", new_callable=AsyncMock) as mock_embed,
-    ):
+    with patch("services.rag.embeddings.embedding_service.get_embeddings", new_callable=AsyncMock) as mock_embed:
         mock_embed.return_value = [[0.1, 0.2, 0.3]]
 
         # Turn 1: text is embedded and cached
@@ -76,13 +67,12 @@ async def test_guardrail_embedding_lru_cache():
 
 @pytest.mark.anyio
 async def test_guardrail_async_threadpool_offloading():
-    svc = GuardrailService()
     mock_table = MagicMock()
     mock_df = pd.DataFrame([{"_distance": 0.05, "text": "known injection signature"}])
     mock_table.search.return_value.metric.return_value.limit.return_value.to_pandas.return_value = mock_df
+    svc = GuardrailService(table=mock_table)
 
     with (
-        patch.object(GuardrailService, "table", mock_table),
         patch("services.rag.embeddings.embedding_service.get_embeddings", new_callable=AsyncMock) as mock_embed,
         patch("asyncio.to_thread", wraps=asyncio.to_thread) as spy_to_thread,
     ):
@@ -97,57 +87,78 @@ async def test_guardrail_async_threadpool_offloading():
 @pytest.mark.anyio
 async def test_agent_router_guardrail_exception_fail_closed():
     """TKT-905: Unexpected exception in guardrail_service halts turn and emits audit event in closed mode."""
-    from orchestration.agent_router import process_and_respond
+    from orchestration.agent_router import (
+        configure_guardrail_checker,
+        configure_post_system_message,
+        process_and_respond,
+        reset_guardrail_checker,
+        reset_post_system_message,
+    )
     from orchestration.system_settings import set_guardrail_fail_mode
+    from orchestration.thread_state import thread_state_manager
 
     set_guardrail_fail_mode("closed", save=False)
+    thread_state_manager.clear_stop("C_GUARDRAIL", "11111.0001")
+    mock_post_sys = AsyncMock()
+    configure_post_system_message(mock_post_sys)
+    configure_guardrail_checker(AsyncMock(side_effect=RuntimeError("lance_db_corrupted")))
 
-    with (
-        patch("services.security.guardrail.guardrail_service.is_prompt_injection", side_effect=RuntimeError("lance_db_corrupted")),
-        patch("services.audit_logger.log_audit_event") as mock_audit,
-        patch("orchestration.agent_router.post_system_message", new_callable=AsyncMock) as mock_post_sys,
-        patch("orchestration.thread_state.thread_state_manager.request_stop") as mock_stop,
-    ):
-        res = await process_and_respond(
-            channel_id="C_GUARDRAIL",
-            thread_ts="11111.0001",
-            raw_text="Hello bot",
-            user_id="U_TESTER",
-        )
+    try:
+        with patch("services.audit_logger.log_audit_event") as mock_audit:
+            res = await process_and_respond(
+                channel_id="C_GUARDRAIL",
+                thread_ts="11111.0001",
+                raw_text="Hello bot",
+                user_id="U_TESTER",
+            )
 
-        assert res == {"status": "blocked_by_guardrail"}
-        mock_audit.assert_called_once()
-        assert mock_audit.call_args[1]["event_type"] == "GUARDRAIL_FAIL_CLOSED_BLOCKED"
-        assert mock_audit.call_args[1]["severity"] == "CRITICAL"
-        assert mock_audit.call_args[1]["status"] == "BLOCKED"
-        mock_post_sys.assert_called_once()
-        mock_stop.assert_called_once_with("C_GUARDRAIL", "11111.0001")
+            assert res == {"status": "blocked_by_guardrail"}
+            mock_audit.assert_called_once()
+            assert mock_audit.call_args[1]["event_type"] == "GUARDRAIL_FAIL_CLOSED_BLOCKED"
+            assert mock_audit.call_args[1]["severity"] == "CRITICAL"
+            assert mock_audit.call_args[1]["status"] == "BLOCKED"
+            mock_post_sys.assert_called_once()
+            assert thread_state_manager.is_stopped("C_GUARDRAIL", "11111.0001") is True
+    finally:
+        reset_guardrail_checker()
+        reset_post_system_message()
 
 
 @pytest.mark.anyio
 async def test_agent_router_guardrail_exception_fail_open():
     """TKT-905: Unexpected exception in guardrail_service allows turn in open mode."""
-    from orchestration.agent_router import process_and_respond
+    from orchestration.agent_router import (
+        configure_guardrail_checker,
+        process_and_respond,
+        reset_guardrail_checker,
+    )
+    from orchestration.protocols import PipelineDeps
     from orchestration.system_settings import set_guardrail_fail_mode
 
     set_guardrail_fail_mode("open", save=False)
+    configure_guardrail_checker(AsyncMock(side_effect=RuntimeError("lance_db_corrupted")))
 
-    with (
-        patch("services.security.guardrail.guardrail_service.is_prompt_injection", side_effect=RuntimeError("lance_db_corrupted")),
-        patch("services.audit_logger.log_audit_event") as mock_audit,
-        patch("orchestration.agent_router.orchestrate_discussion", new_callable=AsyncMock) as mock_orch,
-    ):
-        mock_orch.return_value = {"ok": True}
-        res = await process_and_respond(
-            channel_id="C_GUARDRAIL",
-            thread_ts="11111.0001",
-            raw_text="Hello bot",
-            user_id="U_TESTER",
-            run_internal_loop=True,
-        )
+    try:
+        with patch("services.audit_logger.log_audit_event") as mock_audit:
+            res = await process_and_respond(
+                channel_id="C_GUARDRAIL",
+                thread_ts="11111.0001",
+                raw_text="Hello bot",
+                user_id="U_TESTER",
+                run_internal_loop=False,
+                deps=PipelineDeps(
+                    llm_executor=AsyncMock(return_value=MagicMock(choices=[MagicMock(message=MagicMock(content="Hi"))], usage={"prompt_tokens": 1, "completion_tokens": 1})),
+                    slack_poster=AsyncMock(return_value={"ok": True}),
+                    notes_updater=lambda *a, **k: None,
+                    usage_updater=lambda *a, **k: None,
+                    token_recorder=lambda *a, **k: None,
+                ),
+            )
 
-        assert res == {"ok": True}
-        mock_audit.assert_not_called()
+            assert res.get("status") != "blocked_by_guardrail"
+            mock_audit.assert_not_called()
+    finally:
+        reset_guardrail_checker()
 
 class _FakeListTablesResponse:
     """Mimics lancedb >= 0.39 ListTablesResponse: list_tables() returns an object with .tables."""

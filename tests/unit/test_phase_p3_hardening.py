@@ -27,11 +27,16 @@ from skills.loader import SkillDefinition, SkillRegistry
 def test_tkt_723_mid_turn_budget_check():
     async def _test():
         from orchestration.stages.execution import ExecutionStage
+        from orchestration.protocols import PipelineDeps
         from orchestration.turn_pipeline import TurnContext
 
-        pipeline = MagicMock()
-        pipeline._get_hook.side_effect = lambda name, default: (lambda c, t: {"grand_total_cost_usd": 10.0}) if name == "calculate_thread_costs" else default
-        stage = ExecutionStage(pipeline)
+        mock_spend_gov = MagicMock()
+        mock_spend_gov.is_budget_exceeded.return_value = (True, 15.0, "Budget limit")
+        deps = PipelineDeps(
+            calc_costs_fn=lambda c, t: {"grand_total_cost_usd": 10.0},
+            spend_governance=mock_spend_gov,
+        )
+        stage = ExecutionStage(deps)
 
         ctx = TurnContext(
             channel_id="C_TEST",
@@ -45,11 +50,7 @@ def test_tkt_723_mid_turn_budget_check():
         ctx.output.total_prompt_tokens = 50000
         ctx.output.total_completion_tokens = 10000
 
-        with (
-            patch("pipeline.spend_governance.spend_governance.is_budget_exceeded", return_value=(True, "Budget limit", 15.0)),
-            patch("services.pricing_service.pricing_service.get_pricing", return_value={"input_cost_per_token": 0.000001, "output_cost_per_token": 0.000002}),
-        ):
-            assert stage._is_mid_turn_budget_exceeded(ctx) is True
+        assert stage._is_mid_turn_budget_exceeded(ctx) is True
 
     asyncio.run(_test())
 
@@ -125,7 +126,8 @@ def test_tkt_725_thread_state_eviction_liveness_and_lru():
 
     # 3. LRU capacity enforcement
     mgr.reset_all()
-    with patch.object(ThreadStateManager, "max_tracked_threads", 3):
+    mgr.configure_capacity(max_tracked_threads=3)
+    try:
         # Add 4 threads with increasing timestamps
         mgr._touch("C", "10")
         mgr.thread_last_activity[("C", "10")] = 100.0
@@ -142,6 +144,8 @@ def test_tkt_725_thread_state_eviction_liveness_and_lru():
         # Oldest ("C", "10") must have been evicted first
         assert ("C", "10") not in mgr.thread_last_activity
         assert ("C", "40") in mgr.thread_last_activity
+    finally:
+        mgr.reset_capacity()
 
 
 # =========================================================================
@@ -203,13 +207,23 @@ def test_tkt_726_skill_registry_execute_tool_async():
 # =========================================================================
 def test_tkt_727_proxy_header_trust_and_auth_tracker():
     # 1. When TRUST_PROXY_HEADERS is unset/false, returns direct_client
-    with patch.dict(os.environ, {"TRUST_PROXY_HEADERS": "0"}, clear=False):
-        assert _extract_client_ip({"x-forwarded-for": "203.0.113.195, 70.41.3.18"}) == "direct_client"
+    assert (
+        _extract_client_ip(
+            {"x-forwarded-for": "203.0.113.195, 70.41.3.18"},
+            env={"TRUST_PROXY_HEADERS": "0"},
+        )
+        == "direct_client"
+    )
 
     # 2. When TRUST_PROXY_HEADERS is true, extracts first client IP
-    with patch.dict(os.environ, {"TRUST_PROXY_HEADERS": "1"}, clear=False):
-        assert _extract_client_ip({"x-forwarded-for": "203.0.113.195, 70.41.3.18"}) == "203.0.113.195"
-        assert _extract_client_ip({}) == "direct_client"
+    assert (
+        _extract_client_ip(
+            {"x-forwarded-for": "203.0.113.195, 70.41.3.18"},
+            env={"TRUST_PROXY_HEADERS": "1"},
+        )
+        == "203.0.113.195"
+    )
+    assert _extract_client_ip({}, env={"TRUST_PROXY_HEADERS": "1"}) == "direct_client"
 
     # 3. Auth failure tracker bounding
     from core.slack_security import _MAX_TRACKER_ENTRIES, _auth_failure_lock, _auth_failure_tracker
@@ -339,8 +353,8 @@ def test_tkt_729_pricing_service_mem_cache_and_atomic_save(tmp_path: Path):
     loaded1 = service.load_cache()
     assert loaded1 == data
 
-    # Patch read_text to verify subsequent load uses memory cache without disk read
-    with patch.object(Path, "read_text") as mock_read:
-        loaded2 = service.load_cache()
-        assert loaded2 == data
-        mock_read.assert_not_called()
+    # Provide custom read_text_fn to verify subsequent load uses memory cache without disk read
+    mock_read = MagicMock(side_effect=RuntimeError("Disk read should not occur when mtime cache is valid"))
+    loaded2 = service.load_cache(read_text_fn=mock_read)
+    assert loaded2 == data
+    mock_read.assert_not_called()

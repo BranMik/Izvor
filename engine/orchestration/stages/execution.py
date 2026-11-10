@@ -27,7 +27,7 @@ from orchestration.protocols import PipelineDeps
 from orchestration.thread_state import thread_state_manager
 from services.local_tools import execute_local_tool
 from services.slack import post_agent_response
-from skills.loader import LOAD_SKILL_SCHEMA, skill_registry
+from skills.loader import LOAD_SKILL_SCHEMA
 
 if TYPE_CHECKING:
     from orchestration.turn_pipeline import TurnContext
@@ -81,6 +81,24 @@ class ExecutionStage:
     def __init__(self, deps: PipelineDeps):
         self.deps = deps
 
+    @property
+    def skill_registry(self) -> Any:
+        reg = getattr(self.deps, "skill_registry", None)
+        if reg is None:
+            from skills.loader import get_skill_registry
+
+            reg = get_skill_registry()
+        return reg
+
+    @property
+    def spend_governance(self) -> Any:
+        sg = getattr(self.deps, "spend_governance", None)
+        if sg is None:
+            from services.spend_governance import spend_governance as default_sg
+
+            sg = default_sg
+        return sg
+
     def _is_mid_turn_budget_exceeded(self, ctx: TurnContext) -> bool:
         """
         Calculates thread cost plus current turn's accumulated token usage,
@@ -93,7 +111,6 @@ class ExecutionStage:
                 get_daily_budget_usd,
                 is_circuit_breaker_enabled,
             )
-            from pipeline.spend_governance import spend_governance
             from services.pricing_service import pricing_service
 
             model = ctx.agent_cfg.get("model", "") if ctx.agent_cfg else ""
@@ -116,7 +133,7 @@ class ExecutionStage:
             session_id = f"{ctx.input.channel_id}:{ctx.input.thread_ts}"
             daily_budget = get_daily_budget_usd()
 
-            tripped, _, _ = spend_governance.is_budget_exceeded(
+            tripped, _, _ = self.spend_governance.is_budget_exceeded(
                 session_id=session_id,
                 threshold_usd=threshold,
                 enabled=is_circuit_breaker_enabled(),
@@ -179,6 +196,7 @@ class ExecutionStage:
             f"[LLM] Dispatching litellm.completion for {ctx.agent_key} (already_503_errored={already_503_errored})..."
         )
         llm_start = time.time()
+        skill_registry = self.skill_registry
         # Resolve initial tools via Skills Framework (Progressive Disclosure)
         agent_skills = ctx.agent_cfg.get("skills")
         if agent_skills is None:

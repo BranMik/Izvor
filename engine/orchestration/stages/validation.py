@@ -352,9 +352,11 @@ class ValidationStage:
                 thread_state_manager.set_round_sequence(ctx.input.channel_id, ctx.input.thread_ts, current_seq)
 
             if ctx.is_file_req:
-                from core.registry import get_skill_registry
+                skill_registry = getattr(self.deps, "skill_registry", None)
+                if skill_registry is None:
+                    from core.registry import get_skill_registry
 
-                skill_registry = get_skill_registry()
+                    skill_registry = get_skill_registry()
 
                 file_skill = skill_registry.get_file_handler_skill()
                 file_skill_name = file_skill.name if file_skill else None

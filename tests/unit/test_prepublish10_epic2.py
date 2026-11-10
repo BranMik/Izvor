@@ -107,14 +107,18 @@ async def test_hitl_resumption_effective_skills():
     )
     turn_checkpoint_store.save_checkpoint(chk)
 
-    pipeline = TurnPipeline()
+    pipeline = TurnPipeline(
+        slack_poster=AsyncMock(return_value={"ok": True}),
+        notes_updater=lambda *a, **k: None,
+        usage_updater=lambda *a, **k: None,
+        token_recorder=lambda *a, **k: None,
+    )
 
     mock_resp = MagicMock()
     mock_resp.choices = [MagicMock(message=MagicMock(content="Resumed successfully"))]
     mock_resp.usage = MagicMock(prompt_tokens=10, completion_tokens=10)
 
-    with patch("litellm.acompletion", AsyncMock(return_value=mock_resp)), \
-         patch.object(pipeline.post_record_stage, "stage_post_and_record", AsyncMock(return_value={"ok": True})):
+    with patch("litellm.acompletion", AsyncMock(return_value=mock_resp)):
         await pipeline.resume_from_checkpoint(
             checkpoint=chk,
             tool_result="approved_result",
@@ -164,14 +168,22 @@ async def test_hitl_denial_synthetic_tool_result():
         fn_name="delete_all",
     )
 
-    with patch("orchestration.turn_pipeline.TurnPipeline.resume_from_checkpoint", AsyncMock(return_value={"ok": True})) as mock_resume, \
-         patch("orchestration.thread_state.thread_state_manager.dispatch_discussion_task") as mock_dispatch:
-        await _resume_hitl_denial(mock_req, user_id="U_ADMIN_1")
-        # Verify discussion task was dispatched and await it
-        assert mock_dispatch.called
-        coro = mock_dispatch.call_args[0][2]
-        await coro
-        mock_resume.assert_called_once()
+    dispatched = []
+    def mock_dispatch(cid, ts, coro):
+        dispatched.append((cid, ts, coro))
+
+    from orchestration.thread_state import thread_state_manager
+    thread_state_manager.configure_task_dispatcher(mock_dispatch)
+    try:
+        with patch("orchestration.turn_pipeline.TurnPipeline.resume_from_checkpoint", AsyncMock(return_value={"ok": True})) as mock_resume:
+            await _resume_hitl_denial(mock_req, user_id="U_ADMIN_1")
+            # Verify discussion task was dispatched and await it
+            assert len(dispatched) == 1
+            coro = dispatched[0][2]
+            await coro
+            mock_resume.assert_called_once()
+    finally:
+        thread_state_manager.reset_task_dispatcher()
 
 
 @pytest.mark.anyio
@@ -179,8 +191,14 @@ async def test_tool_loop_pause_disables_tool_choice():
     """TKT-1005: Execution stage sets tool_choice='none' and disables tools when turn is paused."""
     from orchestration.turn_pipeline import TurnPipeline
 
-    pipeline = TurnPipeline()
-    stage = pipeline.execution_stage
+    mock_skill = MagicMock()
+    mock_skill.name = "sensitive_skill"
+    mock_skill.requires_human_ITL = True
+
+    mock_reg = MagicMock()
+    mock_reg.find_skill_for_tool.return_value = "sensitive_skill"
+    mock_reg.get.return_value = mock_skill
+    mock_reg.get_global_skills.return_value = []
 
     ctx = TurnContext(
         channel_id="C_EXEC",
@@ -217,16 +235,10 @@ async def test_tool_loop_pause_disables_tool_choice():
             return first_resp
         return follow_up_resp
 
-    pipeline = TurnPipeline(llm_executor=mock_exec_fn)
+    pipeline = TurnPipeline(llm_executor=mock_exec_fn, skill_registry=mock_reg)
     stage = pipeline.execution_stage
 
-    mock_skill = MagicMock()
-    mock_skill.name = "sensitive_skill"
-    mock_skill.requires_human_ITL = True
-
-    with patch("skills.loader.skill_registry.find_skill_for_tool", return_value="sensitive_skill"), \
-         patch("skills.loader.skill_registry.get", return_value=mock_skill), \
-         patch("services.hitl.consume_tool_approval", return_value=False), \
+    with patch("services.hitl.consume_tool_approval", return_value=False), \
          patch("services.hitl.request_human_approval", new_callable=AsyncMock, return_value="req-123"), \
          patch("services.local_tools.is_agent_authorized_for_tool", return_value=True):
         await stage.stage_execute_llm(ctx)

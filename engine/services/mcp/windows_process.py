@@ -7,6 +7,7 @@ Ensures that child MCP server processes:
    guaranteeing they are automatically terminated by the Windows kernel if the parent process dies.
 """
 
+from collections.abc import Mapping
 import logging
 import os
 import sys
@@ -49,7 +50,10 @@ SAFE_INHERITED_VARS: set[str] = {
 _ACTIVE_JOB_HANDLES: list[Any] = []
 
 
-def build_safe_stdio_env(extra_env: dict[str, str] | None = None) -> dict[str, str]:
+def build_safe_stdio_env(
+    extra_env: dict[str, str] | None = None,
+    base_env: Mapping[str, str] | None = None,
+) -> dict[str, str]:
     """
     Builds a sanitized environment dictionary for an MCP stdio subprocess.
 
@@ -58,11 +62,12 @@ def build_safe_stdio_env(extra_env: dict[str, str] | None = None) -> dict[str, s
     strips Izvor internal secrets.
     """
     clean_env: dict[str, str] = {}
+    active_base = base_env if base_env is not None else os.environ
 
     # 1. Inherit safe system variables from current environment
     for var in SAFE_INHERITED_VARS:
-        if var in os.environ:
-            clean_env[var] = os.environ[var]
+        if var in active_base:
+            clean_env[var] = active_base[var]
 
     # 2. Set default UTF-8 encoding for Python / CLI children
     clean_env["PYTHONIOENCODING"] = "utf-8"

@@ -1,6 +1,6 @@
 import pytest
 import time
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from fastapi.testclient import TestClient
 
@@ -44,8 +44,13 @@ def test_is_slack_admin_config_resolution():
 
 def test_non_admin_blocked_from_system_actions():
     """Test that non-admin users receive 403 Forbidden and audit event on admin Block Kit actions."""
+    from services.slack import configure_slack_async_client, reset_slack_async_client
+
     mock_ephemeral = AsyncMock(return_value={"ok": True})
-    with patch("adapters.slack.interactivity.slack_async_client.chat_postEphemeral", mock_ephemeral):
+    mock_client = AsyncMock()
+    mock_client.chat_postEphemeral = mock_ephemeral
+    configure_slack_async_client(mock_client)
+    try:
         payload = {
             "type": "block_actions",
             "user": {"id": "U_INTRUDER_99"},
@@ -77,6 +82,8 @@ def test_non_admin_blocked_from_system_actions():
         assert len(denied_events) > 0
         assert denied_events[-1]["severity"] == "CRITICAL"
         assert denied_events[-1]["action"] == "toggle_agent_radio:agent-10011"
+    finally:
+        reset_slack_async_client()
 
 
 def test_admin_allowed_system_actions():
@@ -102,85 +109,99 @@ def test_admin_allowed_system_actions():
 
 def test_non_admin_blocked_from_workspace_modal():
     """Test that modal submission and opening is restricted to admins with modal feedback for UI actions."""
+    from services.slack import configure_slack_async_client, reset_slack_async_client
+
     mock_views_open = AsyncMock(return_value={"ok": True})
-    with patch("adapters.slack.actions.agent_actions.slack_async_client.views_open", mock_views_open), \
-         patch("services.slack.views.publish_app_home", AsyncMock(return_value={"ok": True})):
+    mock_client = AsyncMock()
+    mock_client.views_open = mock_views_open
+    mock_client.views_publish = AsyncMock(return_value=MagicMock(data={"ok": True}))
+    configure_slack_async_client(mock_client)
+    try:
+        with patch("services.slack.views.publish_app_home", AsyncMock(return_value={"ok": True})):
+            # 1. Interactive action attempt by non-admin (trigger_id present -> returns 200 and pops modal)
+            open_payload = {
+                "type": "block_actions",
+                "user": {"id": "U_NON_ADMIN"},
+                "actions": [{"action_id": "open_edit_workspace_context_modal"}],
+                "trigger_id": "trig_123",
+            }
+            resp = client.post("/slack/actions", json=open_payload)
+            assert resp.status_code == 200
+            mock_views_open.assert_called_once()
+            modal_arg = mock_views_open.call_args.kwargs
+            assert modal_arg["trigger_id"] == "trig_123"
+            assert modal_arg["view"]["title"]["text"] == "Admin Access Required"
 
-        # 1. Interactive action attempt by non-admin (trigger_id present -> returns 200 and pops modal)
-        open_payload = {
-            "type": "block_actions",
-            "user": {"id": "U_NON_ADMIN"},
-            "actions": [{"action_id": "open_edit_workspace_context_modal"}],
-            "trigger_id": "trig_123",
-        }
-        resp = client.post("/slack/actions", json=open_payload)
-        assert resp.status_code == 200
-        mock_views_open.assert_called_once()
-        modal_arg = mock_views_open.call_args.kwargs
-        assert modal_arg["trigger_id"] == "trig_123"
-        assert modal_arg["view"]["title"]["text"] == "Admin Access Required"
+            # 2. Headless action attempt by non-admin (no trigger_id -> returns 403 fail-closed)
+            headless_payload = {
+                "type": "block_actions",
+                "user": {"id": "U_NON_ADMIN"},
+                "actions": [{"action_id": "open_edit_workspace_context_modal"}],
+            }
+            resp_headless = client.post("/slack/actions", json=headless_payload)
+            assert resp_headless.status_code == 403
 
-        # 2. Headless action attempt by non-admin (no trigger_id -> returns 403 fail-closed)
-        headless_payload = {
-            "type": "block_actions",
-            "user": {"id": "U_NON_ADMIN"},
-            "actions": [{"action_id": "open_edit_workspace_context_modal"}],
-        }
-        resp_headless = client.post("/slack/actions", json=headless_payload)
-        assert resp_headless.status_code == 403
-
-        # 3. Submit modal attempt by non-admin
-        submit_payload = {
-            "type": "view_submission",
-            "user": {"id": "U_NON_ADMIN"},
-            "view": {
-                "callback_id": "submit_workspace_context_modal",
-                "state": {
-                    "values": {
-                        "workspace_context_input_block": {
-                            "workspace_context_input": {"value": "Malicious context override"}
+            # 3. Submit modal attempt by non-admin
+            submit_payload = {
+                "type": "view_submission",
+                "user": {"id": "U_NON_ADMIN"},
+                "view": {
+                    "callback_id": "submit_workspace_context_modal",
+                    "state": {
+                        "values": {
+                            "workspace_context_input_block": {
+                                "workspace_context_input": {"value": "Malicious context override"}
+                            }
                         }
-                    }
+                    },
                 },
-            },
-        }
-        resp_sub = client.post("/slack/actions", json=submit_payload)
-        assert resp_sub.status_code == 403
+            }
+            resp_sub = client.post("/slack/actions", json=submit_payload)
+            assert resp_sub.status_code == 403
+    finally:
+        reset_slack_async_client()
 
 
 def test_workflow_delete_non_admin_opens_admin_required_modal():
     """Test that attempting admin-only workflow mutation (e.g. delete preset) as non-admin opens Admin Access Required modal."""
+    from services.slack import configure_slack_async_client, reset_slack_async_client
+
     mock_views_open = AsyncMock(return_value={"ok": True})
-    with patch("adapters.slack.actions.agent_actions.slack_async_client.views_open", mock_views_open), \
-         patch("services.slack.views.publish_app_home", AsyncMock(return_value={"ok": True})):
+    mock_client = AsyncMock()
+    mock_client.views_open = mock_views_open
+    configure_slack_async_client(mock_client)
+    try:
+        with patch("services.slack.views.publish_app_home", AsyncMock(return_value={"ok": True})):
+            wf_payload = {
+                "type": "block_actions",
+                "user": {"id": "U0BGW69LT08"},
+                "trigger_id": "trig_wf_delete_999",
+                "actions": [
+                    {
+                        "action_id": "delete_workflow_preset_button",
+                    }
+                ],
+            }
+            resp = client.post("/slack/actions", json=wf_payload)
+            assert resp.status_code == 200
 
-        wf_payload = {
-            "type": "block_actions",
-            "user": {"id": "U0BGW69LT08"},
-            "trigger_id": "trig_wf_delete_999",
-            "actions": [
-                {
-                    "action_id": "delete_workflow_preset_button",
-                }
-            ],
-        }
-        resp = client.post("/slack/actions", json=wf_payload)
-        assert resp.status_code == 200
-
-        mock_views_open.assert_called_once()
-        modal_call = mock_views_open.call_args.kwargs
-        assert modal_call["trigger_id"] == "trig_wf_delete_999"
-        modal_view = modal_call["view"]
-        assert modal_view["title"]["text"] == "Admin Access Required"
-        # Ensure User ID is embedded in modal instructions
-        block_texts = [b["text"]["text"] for b in modal_view["blocks"] if "text" in b and isinstance(b["text"], dict)]
-        assert any("U0BGW69LT08" in t for t in block_texts)
-        assert any("Delete Workflow Preset Button" in t for t in block_texts)
+            mock_views_open.assert_called_once()
+            modal_call = mock_views_open.call_args.kwargs
+            assert modal_call["trigger_id"] == "trig_wf_delete_999"
+            modal_view = modal_call["view"]
+            assert modal_view["title"]["text"] == "Admin Access Required"
+            # Ensure User ID is embedded in modal instructions
+            block_texts = [b["text"]["text"] for b in modal_view["blocks"] if "text" in b and isinstance(b["text"], dict)]
+            assert any("U0BGW69LT08" in t for t in block_texts)
+            assert any("Delete Workflow Preset Button" in t for t in block_texts)
+    finally:
+        reset_slack_async_client()
 
 
 def test_workflow_delete_non_admin_expired_trigger_id_fallback_dm():
     """Test that when trigger_id expires on views.open for admin actions, the server sends a fallback DM and re-syncs App Home."""
     from slack_sdk.errors import SlackApiError
+    from services.slack import configure_slack_async_client, reset_slack_async_client
 
     mock_resp = {"ok": False, "error": "expired_trigger_id"}
     mock_views_open = AsyncMock(side_effect=SlackApiError(message="expired_trigger_id", response=mock_resp))
@@ -188,29 +209,32 @@ def test_workflow_delete_non_admin_expired_trigger_id_fallback_dm():
     mock_post_msg = AsyncMock(return_value={"ok": True})
     mock_publish_home = AsyncMock(return_value={"ok": True})
 
-    with patch("adapters.slack.actions.agent_actions.slack_async_client.views_open", mock_views_open), \
-         patch("adapters.slack.actions.agent_actions.open_dm_channel", mock_open_dm), \
-         patch("adapters.slack.actions.agent_actions.post_message_to_slack", mock_post_msg), \
-         patch("services.slack.views.publish_app_home", mock_publish_home):
+    mock_client = AsyncMock()
+    mock_client.views_open = mock_views_open
+    configure_slack_async_client(mock_client)
+    try:
+        with patch("adapters.slack.actions.agent_actions.open_dm_channel", mock_open_dm), \
+             patch("adapters.slack.actions.agent_actions.post_message_to_slack", mock_post_msg), \
+             patch("services.slack.views.publish_app_home", mock_publish_home):
 
-        wf_payload = {
-            "type": "block_actions",
-            "user": {"id": "U0BGW69LT08"},
-            "trigger_id": "trig_wf_expired_123",
-            "actions": [
-                {
-                    "action_id": "delete_workflow_preset_button",
-                }
-            ],
-        }
-        resp = client.post("/slack/actions", json=wf_payload)
-        assert resp.status_code == 200
+            wf_payload = {
+                "type": "block_actions",
+                "user": {"id": "U0BGW69LT08"},
+                "trigger_id": "trig_wf_expired_123",
+                "actions": [
+                    {
+                        "action_id": "delete_workflow_preset_button",
+                    }
+                ],
+            }
+            resp = client.post("/slack/actions", json=wf_payload)
+            assert resp.status_code == 200
 
-        # 1. views.open was attempted
-        mock_views_open.assert_called_once()
-        assert mock_views_open.call_args.kwargs["trigger_id"] == "trig_wf_expired_123"
+            # 1. views.open was attempted
+            mock_views_open.assert_called_once()
+            assert mock_views_open.call_args.kwargs["trigger_id"] == "trig_wf_expired_123"
 
-        # 2. Fallback DM was sent because modal failed with expired_trigger_id
+            # 2. Fallback DM was sent because modal failed with expired_trigger_id
         mock_open_dm.assert_called_once_with("U0BGW69LT08")
         mock_post_msg.assert_called_once()
         dm_call_kwargs = mock_post_msg.call_args.kwargs
@@ -221,6 +245,8 @@ def test_workflow_delete_non_admin_expired_trigger_id_fallback_dm():
 
         # 3. App Home view was still safely published/refreshed
         mock_publish_home.assert_called_once_with(user_id="U0BGW69LT08")
+    finally:
+        reset_slack_async_client()
 
 
 def test_workflow_dropdown_admin_rbac():

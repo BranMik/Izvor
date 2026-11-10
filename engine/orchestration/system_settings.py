@@ -1,3 +1,4 @@
+from collections.abc import Mapping
 import copy
 import fnmatch
 import logging
@@ -35,23 +36,24 @@ DEFAULT_PROTECTED_WRITE_PATHS: list[str] = [
 _ENV_VAR_REGEX = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)")
 
 
-def _expand_env_vars_in_str(val: str) -> str:
-    """Replaces ${VAR} or $VAR in a string with os.environ.get(VAR, '')."""
+def _expand_env_vars_in_str(val: str, env: Mapping[str, str] | None = None) -> str:
+    """Replaces ${VAR} or $VAR in a string with os.environ.get(VAR, '') or from injected env."""
     if not isinstance(val, str):
         return val
-    return _ENV_VAR_REGEX.sub(lambda m: os.environ.get(m.group(1) or m.group(2), ""), val)
+    active_env = env if env is not None else os.environ
+    return _ENV_VAR_REGEX.sub(lambda m: active_env.get(m.group(1) or m.group(2), ""), val)
 
 
-def _expand_env_vars_in_dict(d: dict[str, Any]) -> dict[str, Any]:
+def _expand_env_vars_in_dict(d: dict[str, Any], env: Mapping[str, str] | None = None) -> dict[str, Any]:
     """Recursively expands ${VAR} or $VAR in dict keys and values."""
     res: dict[str, Any] = {}
     for k, v in d.items():
         if isinstance(v, str):
-            res[k] = _expand_env_vars_in_str(v)
+            res[k] = _expand_env_vars_in_str(v, env=env)
         elif isinstance(v, dict):
-            res[k] = _expand_env_vars_in_dict(v)
+            res[k] = _expand_env_vars_in_dict(v, env=env)
         elif isinstance(v, list):
-            res[k] = [_expand_env_vars_in_str(item) if isinstance(item, str) else item for item in v]
+            res[k] = [_expand_env_vars_in_str(item, env=env) if isinstance(item, str) else item for item in v]
         else:
             res[k] = v
     return res
@@ -820,9 +822,10 @@ class SystemSettingsManager:
         self.load()
         return int(self.word_limit_grace_buffer)
 
-    def get_system_agent_inference_timeout_seconds(self) -> float:
+    def get_system_agent_inference_timeout_seconds(self, env: Mapping[str, str] | None = None) -> float:
         self.load()
-        env_val = os.getenv("IZVOR_SYSTEM_AGENT_INFERENCE_TIMEOUT_SECONDS")
+        active_env = env if env is not None else os.environ
+        env_val = active_env.get("IZVOR_SYSTEM_AGENT_INFERENCE_TIMEOUT_SECONDS")
         if env_val is not None:
             try:
                 return max(1.0, float(env_val))
@@ -836,9 +839,10 @@ class SystemSettingsManager:
             self.save()
         logger.info(f"[SYSTEM_SETTINGS] Set system_agent_inference_timeout_seconds to {self.system_agent_inference_timeout_seconds}.")
 
-    def get_system_agent_inference_retry_timeout_multiplier(self) -> float:
+    def get_system_agent_inference_retry_timeout_multiplier(self, env: Mapping[str, str] | None = None) -> float:
         self.load()
-        env_val = os.getenv("IZVOR_SYSTEM_AGENT_INFERENCE_RETRY_MULTIPLIER")
+        active_env = env if env is not None else os.environ
+        env_val = active_env.get("IZVOR_SYSTEM_AGENT_INFERENCE_RETRY_MULTIPLIER")
         if env_val is not None:
             try:
                 return max(1.0, float(env_val))
@@ -987,31 +991,31 @@ class SystemSettingsManager:
         _set(agent, save=save)
 
     # --- MCP Servers Settings ---
-    def get_mcp_servers(self) -> dict[str, McpServerConfig]:
+    def get_mcp_servers(self, env: Mapping[str, str] | None = None) -> dict[str, McpServerConfig]:
         """Returns validated McpServerConfig objects with env vars expanded."""
         self.load()
         result: dict[str, McpServerConfig] = {}
         for name, raw_cfg in self.mcp_servers.items():
             if not isinstance(raw_cfg, dict):
                 continue
-            cfg_dict = _expand_env_vars_in_dict(raw_cfg)
+            cfg_dict = _expand_env_vars_in_dict(raw_cfg, env=env)
             if "command" in cfg_dict and isinstance(cfg_dict["command"], str):
-                cfg_dict["command"] = _expand_env_vars_in_str(cfg_dict["command"])
+                cfg_dict["command"] = _expand_env_vars_in_str(cfg_dict["command"], env=env)
             if "url" in cfg_dict and isinstance(cfg_dict["url"], str):
-                cfg_dict["url"] = _expand_env_vars_in_str(cfg_dict["url"])
+                cfg_dict["url"] = _expand_env_vars_in_str(cfg_dict["url"], env=env)
             if "cwd" in cfg_dict and isinstance(cfg_dict["cwd"], str):
-                cfg_dict["cwd"] = _expand_env_vars_in_str(cfg_dict["cwd"])
+                cfg_dict["cwd"] = _expand_env_vars_in_str(cfg_dict["cwd"], env=env)
             if "args" in cfg_dict and isinstance(cfg_dict["args"], list):
-                cfg_dict["args"] = [_expand_env_vars_in_str(a) if isinstance(a, str) else str(a) for a in cfg_dict["args"]]
+                cfg_dict["args"] = [_expand_env_vars_in_str(a, env=env) if isinstance(a, str) else str(a) for a in cfg_dict["args"]]
             try:
                 result[name] = McpServerConfig(**cfg_dict)
             except Exception as e:
                 logger.warning(f"[SYSTEM_SETTINGS] Invalid MCP server config for '{name}': {e}")
         return result
 
-    def get_mcp_server_config(self, server_name: str) -> McpServerConfig | None:
+    def get_mcp_server_config(self, server_name: str, env: Mapping[str, str] | None = None) -> McpServerConfig | None:
         """Returns the McpServerConfig for server_name or None if not found."""
-        return self.get_mcp_servers().get(server_name)
+        return self.get_mcp_servers(env=env).get(server_name)
 
     def set_mcp_servers(self, servers: dict[str, Any], save: bool = True) -> None:
         """Sets MCP servers dictionary and optionally persists to disk."""
@@ -1173,12 +1177,12 @@ def get_word_limit_grace_buffer() -> int:
     return system_settings_manager.get_word_limit_grace_buffer()
 
 
-def get_system_agent_inference_timeout_seconds() -> float:
-    return system_settings_manager.get_system_agent_inference_timeout_seconds()
+def get_system_agent_inference_timeout_seconds(env: Mapping[str, str] | None = None) -> float:
+    return system_settings_manager.get_system_agent_inference_timeout_seconds(env=env)
 
 
-def get_system_agent_inference_retry_timeout_multiplier() -> float:
-    return system_settings_manager.get_system_agent_inference_retry_timeout_multiplier()
+def get_system_agent_inference_retry_timeout_multiplier(env: Mapping[str, str] | None = None) -> float:
+    return system_settings_manager.get_system_agent_inference_retry_timeout_multiplier(env=env)
 
 
 def get_guardrail_embedding_cache_size() -> int:
@@ -1311,12 +1315,12 @@ def get_skill_exclusions_sync_interval_seconds() -> float:
     return system_settings_manager.get_skill_exclusions_sync_interval_seconds()
 
 
-def get_mcp_servers() -> dict[str, McpServerConfig]:
-    return system_settings_manager.get_mcp_servers()
+def get_mcp_servers(env: Mapping[str, str] | None = None) -> dict[str, McpServerConfig]:
+    return system_settings_manager.get_mcp_servers(env=env)
 
 
-def get_mcp_server_config(server_name: str) -> McpServerConfig | None:
-    return system_settings_manager.get_mcp_server_config(server_name)
+def get_mcp_server_config(server_name: str, env: Mapping[str, str] | None = None) -> McpServerConfig | None:
+    return system_settings_manager.get_mcp_server_config(server_name, env=env)
 
 
 def set_mcp_servers(servers: dict[str, Any], save: bool = True) -> None:

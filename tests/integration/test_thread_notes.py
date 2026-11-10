@@ -180,17 +180,19 @@ async def test_slack_client_post_and_update_thread_note_mock_mode():
 @pytest.mark.anyio
 async def test_slack_client_note_api_calls():
     from services import slack as slack_client
+    from services.slack import configure_slack_async_client, reset_slack_async_client
     slack_client.configure_token("xoxb-valid-test-token")
     try:
         mock_post = AsyncMock(return_value={"ok": True, "ts": "1700000000.888"})
         mock_pin = AsyncMock(return_value={"ok": True})
         mock_update = AsyncMock(return_value={"ok": True, "ts": "1700000000.888"})
 
-        with (
-            patch.object(slack_client.slack_async_client, "chat_postMessage", mock_post),
-            patch.object(slack_client.slack_async_client, "pins_add", mock_pin),
-            patch.object(slack_client.slack_async_client, "chat_update", mock_update),
-        ):
+        mock_client = AsyncMock()
+        mock_client.chat_postMessage = mock_post
+        mock_client.pins_add = mock_pin
+        mock_client.chat_update = mock_update
+        configure_slack_async_client(mock_client)
+        try:
             res_post = await post_thread_note(
                 channel_id="C12345",
                 thread_ts="1700000000.001",
@@ -225,6 +227,8 @@ async def test_slack_client_note_api_calls():
                 unfurl_links=False,
                 unfurl_media=False,
             )
+        finally:
+            reset_slack_async_client()
     finally:
         slack_client.reset_token()
 
@@ -311,9 +315,15 @@ async def test_fetch_thread_history_excludes_scribe_notes():
             {"user": "U1", "text": "👤 *Follow-up Prompt:*\n> What about SQLite?", "subtype": None},
         ]
 
-        mock_replies = AsyncMock(return_value={"ok": True, "messages": fake_messages})
-        with patch.object(slack_client.slack_async_client, "conversations_replies", mock_replies):
+        mock_client = AsyncMock()
+        mock_client.conversations_replies.return_value = {"ok": True, "messages": fake_messages}
+        from services.slack import configure_slack_async_client, reset_slack_async_client
+
+        configure_slack_async_client(mock_client)
+        try:
             history = await slack_client.fetch_thread_history("C123", "1700000000.001")
+        finally:
+            reset_slack_async_client()
             contents = [m["content"] for m in history]
 
             # Status indicator messages, live scribe, and conclusion notes should be excluded

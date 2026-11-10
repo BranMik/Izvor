@@ -449,17 +449,17 @@ async def test_extract_intent_default_timeout_and_multiplier_come_from_settings(
 
 def test_system_agent_inference_timeout_settings_env_override():
     """IZVOR_* env vars override the inference timeout settings (DI rule: no monkeypatching managers)."""
-    import os
-
     from orchestration.system_settings import (
         get_system_agent_inference_retry_timeout_multiplier,
         get_system_agent_inference_timeout_seconds,
     )
 
-    with patch.dict(os.environ, {"IZVOR_SYSTEM_AGENT_INFERENCE_TIMEOUT_SECONDS": "33"}):
-        assert get_system_agent_inference_timeout_seconds() == 33.0
-    with patch.dict(os.environ, {"IZVOR_SYSTEM_AGENT_INFERENCE_RETRY_MULTIPLIER": "2.5"}):
-        assert get_system_agent_inference_retry_timeout_multiplier() == 2.5
-    # Defaults when env vars are absent (patch.dict restores os.environ on exit)
-    assert get_system_agent_inference_timeout_seconds() >= 1.0
-    assert get_system_agent_inference_retry_timeout_multiplier() >= 1.0
+    env_timeout = {"IZVOR_SYSTEM_AGENT_INFERENCE_TIMEOUT_SECONDS": "33"}
+    assert get_system_agent_inference_timeout_seconds(env=env_timeout) == 33.0
+
+    env_multiplier = {"IZVOR_SYSTEM_AGENT_INFERENCE_RETRY_MULTIPLIER": "2.5"}
+    assert get_system_agent_inference_retry_timeout_multiplier(env=env_multiplier) == 2.5
+
+    empty_env: dict[str, str] = {}
+    assert get_system_agent_inference_timeout_seconds(env=empty_env) >= 1.0
+    assert get_system_agent_inference_retry_timeout_multiplier(env=empty_env) >= 1.0

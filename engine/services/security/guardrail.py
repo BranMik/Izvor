@@ -34,11 +34,12 @@ class GuardrailService:
         db_dir=LANCEDB_DIR,
         threshold: float = GUARDRAIL_THRESHOLD,
         connect_fn=None,
+        table=None,
     ):
         self.db_dir = db_dir
         self.threshold = threshold
         self.table_name = "guardrail_signatures"
-        self._table = None
+        self._table = table
         self._connect_fn = connect_fn or lancedb.connect
         self._table_missing = False
         self._missing_checks = 0
@@ -57,6 +58,8 @@ class GuardrailService:
 
     @property
     def table(self):
+        if self._table is False:
+            return None
         if self._table is not None:
             return self._table
         if self._table_missing and self._missing_checks < MISSING_TABLE_RETRY_INTERVAL:

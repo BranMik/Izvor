@@ -230,52 +230,54 @@ def test_pii_masker_patterns():
 
 
 def test_pii_masking_integration():
+    from orchestration.system_settings import set_rag_setting
+
     sample_raw = "Deploy keys: sk-proj-1234567890abcdef123456 and email dev@org.internal"
 
     # 1. Test NONE mode
-    with patch("services.security.pii_masker.get_pii_masking_mode", return_value="NONE"):
-        assert not pii_masker.should_mask_at_ingestion()
-        assert not pii_masker.should_mask_at_retrieval()
+    set_rag_setting("pii_masking", "NONE", save=False)
+    assert not pii_masker.should_mask_at_ingestion()
+    assert not pii_masker.should_mask_at_retrieval()
 
     # 2. Test AT_INGESTION mode
-    with patch("services.security.pii_masker.get_pii_masking_mode", return_value="AT_INGESTION"):
-        assert pii_masker.should_mask_at_ingestion()
-        assert not pii_masker.should_mask_at_retrieval()
+    set_rag_setting("pii_masking", "AT_INGESTION", save=False)
+    assert pii_masker.should_mask_at_ingestion()
+    assert not pii_masker.should_mask_at_retrieval()
 
-        parser = DocumentParser()
-        chunks = parser._chunk_text(sample_raw)
-        assert len(chunks) > 0
-        assert "dev@org.internal" not in chunks[0]
-        assert "<EMAIL_0>" in chunks[0]
-        assert "<API_KEY_0>" in chunks[0]
+    parser = DocumentParser()
+    chunks = parser._chunk_text(sample_raw)
+    assert len(chunks) > 0
+    assert "dev@org.internal" not in chunks[0]
+    assert "<EMAIL_0>" in chunks[0]
+    assert "<API_KEY_0>" in chunks[0]
 
     # 3. Test AT_RETRIEVAL mode (default)
-    with patch("services.security.pii_masker.get_pii_masking_mode", return_value="AT_RETRIEVAL"):
-        assert not pii_masker.should_mask_at_ingestion()
-        assert pii_masker.should_mask_at_retrieval()
+    set_rag_setting("pii_masking", "AT_RETRIEVAL", save=False)
+    assert not pii_masker.should_mask_at_ingestion()
+    assert pii_masker.should_mask_at_retrieval()
 
-        # Ingestion leaves raw content intact
-        parser = DocumentParser()
-        raw_chunks = parser._chunk_text(sample_raw)
-        assert "dev@org.internal" in raw_chunks[0]
+    # Ingestion leaves raw content intact
+    parser = DocumentParser()
+    raw_chunks = parser._chunk_text(sample_raw)
+    assert "dev@org.internal" in raw_chunks[0]
 
-        # RAGService search masks it on output
-        mock_store = MagicMock()
-        mock_store.search.return_value = [
-            {"doc_id": "test_doc", "section_header": "Secrets", "text": sample_raw}
-        ]
-        mock_embedder = AsyncMock()
-        mock_embedder.get_embeddings.return_value = [[0.1] * 10]
+    # RAGService search masks it on output
+    mock_store = MagicMock()
+    mock_store.search.return_value = [
+        {"doc_id": "test_doc", "section_header": "Secrets", "text": sample_raw}
+    ]
+    mock_embedder = AsyncMock()
+    mock_embedder.get_embeddings.return_value = [[0.1] * 10]
 
-        service = RAGService(store=mock_store, embedder=mock_embedder)
+    service = RAGService(store=mock_store, embedder=mock_embedder)
 
-        async def _run_search():
-            return await service.search(query="keys", agent_name="Admin")
+    async def _run_search():
+        return await service.search(query="keys", agent_name="Admin")
 
-        result = asyncio.run(_run_search())
-        assert "dev@org.internal" not in result
-        assert "<EMAIL_0>" in result
-        assert "<API_KEY_0>" in result
+    result = asyncio.run(_run_search())
+    assert "dev@org.internal" not in result
+    assert "<EMAIL_0>" in result
+    assert "<API_KEY_0>" in result
 
 
 def test_vector_store_sql_literal_validation():

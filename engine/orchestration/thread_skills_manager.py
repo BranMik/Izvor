@@ -22,7 +22,7 @@ class ThreadSkillsManager:
     Reads TTL dynamically from app_settings_manager.get_thread_skill_expiration_time().
     """
 
-    def __init__(self, *args: Any, auto_load: bool = True, **kwargs: Any) -> None:
+    def __init__(self, auto_load: bool = True) -> None:
         self._last_cleanup_time: float = 0.0
         if auto_load:
             self._maybe_run_cleanup()
@@ -40,12 +40,6 @@ class ThreadSkillsManager:
                 conn.execute("DELETE FROM thread_skills WHERE expires_at + 86400.0 < ?;", (now,))
         except Exception as e:  # noqa: BLE001
             logger.error(f"[THREAD_SKILLS] SQLite _cleanup_expired failed: {e}")
-
-    def load(self) -> None:
-        self._maybe_run_cleanup()
-
-    def save(self) -> None:
-        pass
 
     def get_ttl_seconds(self) -> float:
         ttl_hours = app_settings_manager.get_thread_skill_expiration_time()

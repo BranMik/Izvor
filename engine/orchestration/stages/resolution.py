@@ -23,7 +23,6 @@ from orchestration.app_settings import (
 )
 from orchestration.protocols import PipelineDeps, WorkspaceAdapter
 from orchestration.thread_state import thread_state_manager
-from pipeline.spend_governance import spend_governance
 from services.slack import (
     post_system_message,
 )
@@ -39,6 +38,15 @@ class ResolutionStage:
 
     def __init__(self, deps: PipelineDeps):
         self.deps = deps
+
+    @property
+    def spend_governance(self) -> Any:
+        sg = getattr(self.deps, "spend_governance", None)
+        if sg is None:
+            from services.spend_governance import spend_governance as default_sg
+
+            sg = default_sg
+        return sg
 
     async def _sleep(self, seconds: float) -> None:
         sleep_fn = getattr(self.deps, "sleep_fn", None)
@@ -157,7 +165,7 @@ class ResolutionStage:
 
         daily_budget = get_daily_budget_usd()
         tripped, current_cost, threshold = (
-            spend_governance.is_budget_exceeded(
+            self.spend_governance.is_budget_exceeded(
                 session_id=session_id,
                 threshold_usd=threshold,
                 enabled=is_circuit_breaker_enabled(),

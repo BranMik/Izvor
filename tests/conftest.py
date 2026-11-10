@@ -37,16 +37,13 @@ def isolate_audit_logger_for_tests(tmp_path):
     test_audit_dir = tmp_path / "audit"
     test_audit_dir.mkdir(parents=True, exist_ok=True)
 
-    # Hijack the singleton's directories
-    old_dir = audit_logger.audit_dir
-
-    audit_logger.audit_dir = test_audit_dir
+    audit_logger.configure_paths(audit_dir=test_audit_dir)
     audit_logger.invalidate_cache()
 
     yield
 
     # Restore (optional, but good practice)
-    audit_logger.audit_dir = old_dir
+    audit_logger.reset_paths()
     audit_logger.invalidate_cache()
 
 
@@ -286,8 +283,6 @@ def isolate_system_settings_for_tests(tmp_path):
     if REAL_SYS_BACKUP_FILE.exists():
         shutil.copy2(REAL_SYS_BACKUP_FILE, temp_sys_backup)
 
-    orig_raw_data = copy.deepcopy(getattr(system_settings_manager, "_raw_data", {}))
-
     system_settings_manager.configure_paths(
         settings_file=temp_sys_settings,
         backup_file=temp_sys_backup,
@@ -295,7 +290,6 @@ def isolate_system_settings_for_tests(tmp_path):
 
     yield
 
-    system_settings_manager._raw_data = orig_raw_data
     system_settings_manager.reset_paths()
 
 
@@ -457,12 +451,19 @@ async def async_noop_sleep(*args, **kwargs):
 def reset_router_and_llm_di_for_tests():
     """Guarantees that all in-memory DI overrides for router, LLM, slack messages, and usage tracking are cleanly reset."""
     from core.llm_utils import reset_llm_completion_fn, reset_llm_sleep_fn
-    from orchestration.agent_router import reset_router_deps, reset_router_sleep_fn
+    from core.config import reset_token, set_internal_revisor_enabled_override
+    from orchestration.agent_router import (
+        reset_guardrail_checker,
+        reset_router_deps,
+        reset_router_sleep_fn,
+    )
+    from orchestration.thread_state import thread_state_manager
     from services.slack import (
         reset_fetch_thread_files,
         reset_fetch_thread_history,
         reset_post_agent_response,
         reset_post_system_message,
+        reset_slack_async_client,
     )
     from agents import (
         reset_calculate_thread_costs,
@@ -472,15 +473,19 @@ def reset_router_and_llm_di_for_tests():
     )
     from nlp import reset_intent_extractor
     from services.rag.embeddings import EmbeddingService
-    from core.config import set_internal_revisor_enabled_override
 
     yield
 
     set_internal_revisor_enabled_override(None)
+    reset_token()
+    reset_slack_async_client()
     reset_llm_completion_fn()
     reset_llm_sleep_fn()
     reset_router_deps()
     reset_router_sleep_fn()
+    reset_guardrail_checker()
+    thread_state_manager.reset_capacity()
+    thread_state_manager.reset_task_dispatcher()
     reset_post_agent_response()
     reset_fetch_thread_history()
     reset_fetch_thread_files()

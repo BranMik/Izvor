@@ -45,29 +45,13 @@ async def test_resolution_fallback_unconfigured_loop():
         agent_key="ghost_agent",
     )
 
-    # Mock remaining queue to first return 2 invalid agents, then a valid agent
-    with patch(
-        "orchestration.stages.resolution.thread_state_manager.pop_remaining_agent",
-        side_effect=["missing_1", "missing_2", "agent-10002", None],
-    ), patch(
-        "orchestration.stages.resolution.is_circuit_breaker_enabled",
-        return_value=False,
-    ), patch.dict(
-        "orchestration.stages.resolution.settings_manager._agents_config",
-        {"agent-10002": {"model": "mock-model", "username": "Security Architect"}},
-        clear=True,
-    ):
-        res = await stage.stage_resolve_agent_and_governance(ctx)
-        assert res is None  # Successful resolution, didn't halt
-        assert ctx.agent_key == "agent-10002"
-        assert ctx.agent_cfg["username"] == "Security Architect"
-        post_sys_msg_mock.assert_awaited_once()
-        assert "Handing off to [agent-10002]" in post_sys_msg_mock.call_args[1]["text"]
-
-
 @pytest.mark.anyio
-async def test_resolution_fallback_all_missing_halts():
-    """N9: Verify resolution stage cleanly halts when all candidates are unconfigured."""
+async def test_resolution_fallback_to_next_valid_agent():
+    """N9: Verify resolution stage falls back through remaining agents if primary is not configured."""
+    from orchestration.agent_settings import settings_manager
+    from orchestration.app_settings import set_circuit_breaker_enabled
+    from orchestration.thread_state import thread_state_manager
+
     post_sys_msg_mock = AsyncMock()
     pipeline = TurnPipeline(post_system_message_fn=post_sys_msg_mock)
     stage = ResolutionStage(pipeline.deps)
@@ -80,28 +64,59 @@ async def test_resolution_fallback_all_missing_halts():
         agent_key="ghost_agent",
     )
 
-    with patch(
-        "orchestration.stages.resolution.thread_state_manager.pop_remaining_agent",
-        side_effect=["missing_1", None],
-    ), patch.dict(
-        "orchestration.stages.resolution.settings_manager._agents_config",
-        {"agent-10002": {"model": "mock-model", "username": "Security Architect"}},
-        clear=True,
-    ), patch(
-        "orchestration.stages.resolution.settings_manager.get_enabled_agents",
-        return_value=[],
-    ), patch(
-        "orchestration.stages.resolution.settings_manager.get_orchestration_mode",
-        return_value=OrchestrationMode.SANDWICH,
-    ), patch(
-        "orchestration.stages.resolution.settings_manager.get_sandwich_config",
-        return_value={"end_chain": []},
-    ):
-        res = await stage.stage_resolve_agent_and_governance(ctx)
-        assert res is not None
-        assert res.get("halted") is True
-        assert res.get("reason") == "agent_not_configured"
-        assert "no other agents are available" in post_sys_msg_mock.call_args[1]["text"]
+    set_circuit_breaker_enabled(False, save=False)
+    thread_state_manager.set_remaining_agents(
+        ctx.input.channel_id,
+        ctx.input.thread_ts,
+        ["missing_1", "missing_2", "agent-10002"],
+    )
+    settings_manager.agents_config = {
+        "agent-10002": {"model": "mock-model", "username": "Security Architect"}
+    }
+
+    res = await stage.stage_resolve_agent_and_governance(ctx)
+    assert res is None  # Successful resolution, didn't halt
+    assert ctx.agent_key == "agent-10002"
+    assert ctx.agent_cfg["username"] == "Security Architect"
+    post_sys_msg_mock.assert_awaited_once()
+    assert "Handing off to [agent-10002]" in post_sys_msg_mock.call_args[1]["text"]
+
+
+@pytest.mark.anyio
+async def test_resolution_fallback_all_missing_halts():
+    """N9: Verify resolution stage cleanly halts when all candidates are unconfigured."""
+    from orchestration.agent_settings import settings_manager
+    from orchestration.thread_state import thread_state_manager
+
+    post_sys_msg_mock = AsyncMock()
+    pipeline = TurnPipeline(post_system_message_fn=post_sys_msg_mock)
+    stage = ResolutionStage(pipeline.deps)
+
+    ctx = TurnContext(
+        channel_id="C_P2_TEST",
+        thread_ts="1700000001.000100",
+        raw_text="Hello team",
+        bot_user_id="U_BOT",
+        agent_key="ghost_agent",
+    )
+
+    thread_state_manager.set_remaining_agents(
+        ctx.input.channel_id,
+        ctx.input.thread_ts,
+        ["missing_1"],
+    )
+    settings_manager.agents_config = {
+        "agent-10002": {"model": "mock-model", "username": "Security Architect"}
+    }
+    settings_manager.set_agent_enabled("agent-10002", False, save=False)
+    settings_manager.set_orchestration_mode(OrchestrationMode.SANDWICH, save=False)
+    settings_manager.set_sandwich_config(start_chain=[], end_chain=[], save=False)
+
+    res = await stage.stage_resolve_agent_and_governance(ctx)
+    assert res is not None
+    assert res.get("halted") is True
+    assert res.get("reason") == "agent_not_configured"
+    assert "no other agents are available" in post_sys_msg_mock.call_args[1]["text"]
 
 
 def test_nomination_unicode_and_format_helpers():
@@ -422,10 +437,13 @@ def test_credential_redaction_and_traceback():
     token = "xoxb-987654321098-abcdef1234567890"
     assert "[REDACTED_SLACK_TOKEN]" in redact_text(f"Token is {token}")
 
-    with patch.dict("os.environ", {"AUDIT_HMAC_SECRET": "super_secret_hmac_key_12345"}):
-        redacted = redact_text("Used key super_secret_hmac_key_12345 for audit signing")
-        assert "super_secret_hmac_key_12345" not in redacted
-        assert "[REDACTED_ENV_SECRET]" in redacted
+    custom_env = {"AUDIT_HMAC_SECRET": "super_secret_hmac_key_12345"}
+    redacted = redact_text(
+        "Used key super_secret_hmac_key_12345 for audit signing",
+        env=custom_env,
+    )
+    assert "super_secret_hmac_key_12345" not in redacted
+    assert "[REDACTED_ENV_SECRET]" in redacted
 
     # Exception traceback redaction
     log_filter = CredentialRedactionFilter()
@@ -506,10 +524,11 @@ def test_markdown_to_slack_heading_with_bold_and_hr():
 @pytest.mark.anyio
 async def test_send_admin_audit_alert_uses_admin_ids():
     """TKT-722: Verify send_admin_audit_alert respects multiple admin IDs."""
+    from core.config import configure_token
     from services.audit_logger import send_admin_audit_alert
 
+    configure_token("xoxb-real-token-123")
     with patch("core.config.get_admin_slack_user_ids", return_value={"U_ADMIN_PRIMARY", "U_ADMIN_SECONDARY"}), \
-         patch("core.config.SLACK_BOT_TOKEN", "xoxb-real-token-123"), \
          patch("services.slack.open_dm_channel", new_callable=AsyncMock) as mock_dm, \
          patch("services.slack.post_agent_response", new_callable=AsyncMock) as mock_post:
         mock_dm.return_value = "D_ADMIN_CHANNEL"

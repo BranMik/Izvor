@@ -55,12 +55,38 @@ class ThreadStateManager:
         self.register_cleanup_hook(_spend_cleanup)
         self.register_reset_hook(_spend_reset)
 
+        self._max_tracked_threads_override: int | None = None
+        self._ttl_seconds_override: float | None = None
+        self._task_dispatcher_override: Any = None
+
+    def configure_capacity(
+        self,
+        max_tracked_threads: int | None = None,
+        ttl_seconds: float | None = None,
+    ) -> None:
+        self._max_tracked_threads_override = max_tracked_threads
+        self._ttl_seconds_override = ttl_seconds
+
+    def reset_capacity(self) -> None:
+        self._max_tracked_threads_override = None
+        self._ttl_seconds_override = None
+
+    def configure_task_dispatcher(self, fn: Any) -> None:
+        self._task_dispatcher_override = fn
+
+    def reset_task_dispatcher(self) -> None:
+        self._task_dispatcher_override = None
+
     @property
     def ttl_seconds(self) -> float:
+        if self._ttl_seconds_override is not None:
+            return float(self._ttl_seconds_override)
         return float(os.getenv("THREAD_STATE_TTL_SECONDS", "3600.0"))
 
     @property
     def max_tracked_threads(self) -> int:
+        if self._max_tracked_threads_override is not None:
+            return int(self._max_tracked_threads_override)
         return int(os.getenv("MAX_TRACKED_THREADS", "500"))
 
     def _check_capacity(self) -> None:
@@ -328,6 +354,8 @@ class ThreadStateManager:
 
     def dispatch_discussion_task(self, channel_id: str, thread_ts: str, coro: Any) -> None:
         """Dispatches an asynchronous discussion agent loop, attaching error tracking and state registry natively."""
+        if self._task_dispatcher_override is not None:
+            return self._task_dispatcher_override(channel_id, thread_ts, coro)
         from core.task_utils import safe_create_task
 
         self._touch(channel_id, thread_ts)
