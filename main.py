@@ -123,11 +123,6 @@ async def periodic_retention_prune():
     """
     from services.retention_service import prune_expired_records
 
-    try:
-        await asyncio.to_thread(prune_expired_records)
-    except Exception:
-        logger.exception("[RETENTION] Error during startup retention prune")
-
     while True:
         try:
             await asyncio.sleep(RETENTION_PRUNE_INTERVAL_SECONDS)
@@ -258,22 +253,33 @@ async def lifespan(app: FastAPI):
         )
 
     from services.audit_logger import set_main_event_loop
+    from services.retention_service import prune_expired_records
+    from services.mcp import mcp_client_manager
 
     set_main_event_loop(asyncio.get_running_loop())
+
+    # Eager startup warm-ups and reconciliations awaited concurrently before signaling readiness
+    warmup_results = await asyncio.gather(
+        pricing_service.warm_up_cache(),
+        rag_sync_engine.reconcile(),
+        asyncio.to_thread(prune_expired_records),
+        pii_masker.warm_up(),
+        mcp_client_manager.discover_all_enabled_servers(),
+        return_exceptions=True,
+    )
+    for res in warmup_results:
+        if isinstance(res, Exception):
+            logger.warning(f"[STARTUP] Non-fatal exception during startup warm-up: {res}")
+
+    logger.info("[STARTUP] Application Startup Complete")
 
     background_tasks: list[asyncio.Task] = []
     if sys.platform == "win32":
         background_tasks.append(asyncio.create_task(keep_loop_alive(), name="keep_loop_alive"))
-    background_tasks.append(asyncio.create_task(pricing_service.warm_up_cache(), name="warmup_cache"))
-    background_tasks.append(asyncio.create_task(pii_masker.warm_up(), name="warmup_pii_masker"))
     background_tasks.append(asyncio.create_task(periodic_thread_state_cleanup(), name="periodic_thread_cleanup"))
     background_tasks.append(asyncio.create_task(periodic_audit_integrity_guard(), name="periodic_audit_guard"))
     background_tasks.append(asyncio.create_task(periodic_retention_prune(), name="periodic_retention_prune"))
     background_tasks.append(asyncio.create_task(periodic_skill_exclusions_sync(), name="periodic_skill_exclusions_sync"))
-    background_tasks.append(asyncio.create_task(rag_sync_engine.reconcile(), name="rag_sync"))
-    from services.mcp import mcp_client_manager
-
-    background_tasks.append(asyncio.create_task(mcp_client_manager.discover_all_enabled_servers(), name="mcp_discovery"))
     try:
         yield
     finally:
