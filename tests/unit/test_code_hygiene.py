@@ -198,6 +198,10 @@ def test_no_monkeypatch_setattr_on_module_paths_or_managers():
         "local_tools",
         "mcp_client_manager",
         "store_file",
+        "thread_skills_manager",
+        "spend_governance",
+        "audit_logger",
+        "slack_async_client",
     }
 
     violations = []
@@ -380,4 +384,135 @@ def test_consistent_fastapi_testclient_imports():
         + "\n".join(starlette_testclient_usages)
         + "\nImport from fastapi.testclient instead."
     )
+
+
+def test_zero_patch_object_and_patch_dict_in_test_suite():
+    """
+    Plan 173 AST Hygiene Guardrail:
+    Enforces repository-wide prohibition of `patch.object` and `patch.dict`.
+    Tests must use pure dependency injection, constructor parameters, manager configure_paths(),
+    or config override APIs instead.
+    """
+    root_dir = Path(__file__).resolve().parents[2]
+    tests_dir = root_dir / "tests"
+
+    violations: list[str] = []
+
+    for py_file in tests_dir.rglob("*.py"):
+        if py_file.name == "test_code_hygiene.py":
+            continue
+
+        try:
+            tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
+        except SyntaxError:
+            continue
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                func = node.func
+                # Detect patch.object or patch.dict or mock.patch.object / mock.patch.dict
+                if isinstance(func, ast.Attribute) and func.attr in ("object", "dict"):
+                    val = func.value
+                    is_patch_call = False
+                    if isinstance(val, ast.Name) and val.id == "patch":
+                        is_patch_call = True
+                    elif isinstance(val, ast.Attribute) and val.attr == "patch":
+                        is_patch_call = True
+
+                    if is_patch_call:
+                        violations.append(
+                            f"{py_file.relative_to(root_dir)}:{node.lineno} uses forbidden 'patch.{func.attr}'"
+                        )
+
+    assert not violations, (
+        f"Found {len(violations)} forbidden patch.object/patch.dict call(s) in test suite:\n"
+        + "\n".join(violations)
+        + "\nReplace with pure dependency injection, manager configure_paths(), or configure_* overrides."
+    )
+
+
+def test_no_patch_on_module_paths_or_managers():
+    """
+    Plan 173 AST Hygiene Guardrail:
+    Guarantees that `patch(...)` is never used to target module-level path constants,
+    security constants, or manager/service singletons. Tests must use manager configure_paths(),
+    configure_* overrides, or pure dependency injection instead.
+    """
+    root_dir = Path(__file__).resolve().parents[2]
+    tests_dir = root_dir / "tests"
+
+    forbidden_targets = {
+        "DOWNLOADS_DIR",
+        "SETTINGS_FILE",
+        "SYSTEM_SETTINGS_FILE",
+        "SYSTEM_BACKUP_FILE",
+        "SYSTEM_AGENT_SETTINGS_FILE",
+        "SYSTEM_AGENT_BACKUP_FILE",
+        "APP_SETTINGS_FILE",
+        "APP_BACKUP_FILE",
+        "PRICING_CACHE_FILE",
+        "USAGE_STORE_FILE",
+        "WORKFLOWS_DIR",
+        "ENGINE_WORKFLOWS_DIR",
+        "THREAD_NOTES_DIR",
+        "AGENTS_RESOURCES_DIR",
+        "WORKSPACE_DIR",
+        "SLACK_BOT_TOKEN",
+        "SLACK_SIGNING_SECRET",
+        "ADMIN_USERNAME",
+        "ADMIN_PASSWORD",
+        "AUDIT_HMAC_SECRET",
+        "system_settings_manager",
+        "app_settings_manager",
+        "workflow_manager",
+        "db_manager",
+        "usage_tracker",
+        "thread_notes_writer",
+        "flat_history_recorder",
+        "mcp_client_manager",
+        "thread_skills_manager",
+        "spend_governance",
+        "audit_logger",
+        "slack_async_client",
+    }
+
+    violations: list[str] = []
+
+    for py_file in tests_dir.rglob("*.py"):
+        if py_file.name == "test_code_hygiene.py":
+            continue
+
+        try:
+            tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
+        except SyntaxError:
+            continue
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                func = node.func
+                is_patch = False
+                if isinstance(func, ast.Name) and func.id == "patch":
+                    is_patch = True
+                elif isinstance(func, ast.Attribute) and func.attr == "patch":
+                    is_patch = True
+
+                if is_patch and node.args:
+                    first_arg = node.args[0]
+                    target_str = None
+                    if isinstance(first_arg, ast.Constant) and isinstance(first_arg.value, str):
+                        target_str = first_arg.value
+
+                    if target_str:
+                        leaf = target_str.split(".")[-1]
+                        if leaf in forbidden_targets:
+                            violations.append(
+                                f"{py_file.relative_to(root_dir)}:{node.lineno} uses forbidden patch('{target_str}')"
+                            )
+
+    assert not violations, (
+        f"Found {len(violations)} forbidden patch() calls on path constants or singletons:\n"
+        + "\n".join(violations)
+        + "\nUse manager configure_paths(), parameter injection, or configure_* overrides instead."
+    )
+
 

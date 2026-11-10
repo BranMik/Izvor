@@ -54,14 +54,13 @@ def test_tkt_702_spend_ledger_unification_and_preservation(tmp_path):
         circuit_breaker = SpendGovernance()
 
         # 1. Record usage directly via record_thread_tokens
-        with patch("pipeline.spend_governance.spend_governance", circuit_breaker):
-            record_thread_tokens(
-                channel_id="C_SPEND_1",
-                thread_ts="1700000000.100",
-                model_name="gemini/gemini-2.5-flash",
-                prompt_tokens=1000,
-                completion_tokens=500,
-            )
+        record_thread_tokens(
+            channel_id="C_SPEND_1",
+            thread_ts="1700000000.100",
+            model_name="gemini/gemini-2.5-flash",
+            prompt_tokens=1000,
+            completion_tokens=500,
+        )
 
         # Check that spend_ledger has 1 record
         with get_connection() as conn:
@@ -174,33 +173,38 @@ def test_tkt_908_legacy_colon_format_rejected():
     """
     TKT-908: Verify legacy colon format bypass has been removed and triggers invalid/expired notice.
     """
-    mock_ephemeral = AsyncMock(return_value={"ok": True})
-    with (
-        patch("adapters.slack.interactivity.verify_slack_signature", return_value=True),
-        patch("adapters.slack.interactivity.slack_async_client.chat_postEphemeral", mock_ephemeral),
-    ):
-        # Legacy colon approval attempt is treated as invalid/expired request
-        payload_colon = {
-            "type": "block_actions",
-            "user": {"id": "U_USER"},
-            "actions": [{"action_id": "hitl_approve_tool", "value": "C_CHAN:1700000000.001:write_file"}],
-            "channel": {"id": "C_CHAN"},
-        }
-        resp = client.post("/slack/actions", json=payload_colon)
-        assert resp.status_code == 200
-        mock_ephemeral.assert_called()
-        assert "Request Expired or Handled" in mock_ephemeral.call_args[1]["text"]
+    from services.slack import configure_slack_async_client, reset_slack_async_client
 
-        mock_ephemeral.reset_mock()
-        # Legacy colon denial attempt is treated as invalid/expired request
-        payload_colon_deny = {
-            "type": "block_actions",
-            "user": {"id": "U_USER"},
-            "actions": [{"action_id": "hitl_deny_tool", "value": "C_CHAN:1700000000.001:write_file"}],
-            "channel": {"id": "C_CHAN"},
-        }
-        resp_deny = client.post("/slack/actions", json=payload_colon_deny)
-        assert resp_deny.status_code == 200
-        mock_ephemeral.assert_called()
-        assert "Request Expired or Handled" in mock_ephemeral.call_args[1]["text"]
+    mock_ephemeral = AsyncMock(return_value={"ok": True})
+    mock_client = AsyncMock()
+    mock_client.chat_postEphemeral = mock_ephemeral
+    configure_slack_async_client(mock_client)
+    try:
+        with patch("adapters.slack.interactivity.verify_slack_signature", return_value=True):
+            # Legacy colon approval attempt is treated as invalid/expired request
+            payload_colon = {
+                "type": "block_actions",
+                "user": {"id": "U_USER"},
+                "actions": [{"action_id": "hitl_approve_tool", "value": "C_CHAN:1700000000.001:write_file"}],
+                "channel": {"id": "C_CHAN"},
+            }
+            resp = client.post("/slack/actions", json=payload_colon)
+            assert resp.status_code == 200
+            mock_ephemeral.assert_called()
+            assert "Request Expired or Handled" in mock_ephemeral.call_args[1]["text"]
+
+            mock_ephemeral.reset_mock()
+            # Legacy colon denial attempt is treated as invalid/expired request
+            payload_colon_deny = {
+                "type": "block_actions",
+                "user": {"id": "U_USER"},
+                "actions": [{"action_id": "hitl_deny_tool", "value": "C_CHAN:1700000000.001:write_file"}],
+                "channel": {"id": "C_CHAN"},
+            }
+            resp_deny = client.post("/slack/actions", json=payload_colon_deny)
+            assert resp_deny.status_code == 200
+            mock_ephemeral.assert_called()
+            assert "Request Expired or Handled" in mock_ephemeral.call_args[1]["text"]
+    finally:
+        reset_slack_async_client()
 

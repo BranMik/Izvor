@@ -9,7 +9,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import litellm
 
@@ -252,7 +252,10 @@ def _extract_pricing_from_search_text(
     return input_price, output_price
 
 
-def get_baseline_for_model(model_name: str) -> dict[str, Any]:
+def get_baseline_for_model(
+    model_name: str,
+    model_cost_registry: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """
     Returns baseline fallback pricing for a given model identifier.
     Priority order:
@@ -271,9 +274,9 @@ def get_baseline_for_model(model_name: str) -> dict[str, Any]:
             if _is_valid_price_pair(p.get("input_price_per_1m"), p.get("output_price_per_1m")):
                 return dict(p)
 
-    # Primary registry lookup: litellm.model_cost
+    # Primary registry lookup: litellm.model_cost or injected model_cost_registry
     try:
-        model_cost = getattr(litellm, "model_cost", {}) or {}
+        model_cost = model_cost_registry if model_cost_registry is not None else (getattr(litellm, "model_cost", {}) or {})
         provider_stripped = norm.split("/", 1)[-1] if "/" in norm else norm
         matched_info = (
             model_cost.get(model_name)
@@ -343,7 +346,10 @@ class PricingService:
         from core.paths import get_pricing_cache_file
         return get_pricing_cache_file()
 
-    def load_cache(self) -> dict[str, dict[str, Any]]:
+    def load_cache(
+        self,
+        read_text_fn: Callable[[Path], str] | None = None,
+    ) -> dict[str, dict[str, Any]]:
         """Loads cached pricing data from JSON file with mtime-based memory cache."""
         target = self.active_cache_file
         if not target.exists():
@@ -356,7 +362,11 @@ class PricingService:
             if self._mem_cache is not None and self._mem_cache_key == current_key:
                 return dict(self._mem_cache)
 
-            data = json.loads(target.read_text(encoding="utf-8"))
+            if read_text_fn is not None:
+                raw_text = read_text_fn(target)
+            else:
+                raw_text = target.read_text(encoding="utf-8")
+            data = json.loads(raw_text)
             if isinstance(data, dict):
                 self._mem_cache = data
                 self._mem_cache_key = current_key
@@ -560,11 +570,19 @@ class PricingService:
             "updated_at_str": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()),
         }
 
-    async def fetch_pricing_from_web(self, model_name: str) -> dict[str, Any]:
+    async def fetch_pricing_from_web(
+        self,
+        model_name: str,
+        agent_fetcher: Any = None,
+        search_fn: Any = None,
+    ) -> dict[str, Any]:
         """Researches pricing for a given model via agent with fallback to direct search."""
         baseline = get_baseline_for_model(model_name)
         try:
-            call_res = self.fetch_pricing_with_agent(model_name)
+            if agent_fetcher is not None:
+                call_res = agent_fetcher(model_name)
+            else:
+                call_res = self.fetch_pricing_with_agent(model_name)
             return await call_res if asyncio.iscoroutine(call_res) else call_res
         except (TimeoutError, asyncio.TimeoutError) as e:
             logger.warning(f"[PRICING] Agent research timed out for '{model_name}': {e}. Trying direct search.")
@@ -576,7 +594,11 @@ class PricingService:
         # Fallback to direct web search extraction
         try:
             clean_query = re.sub(r"^[a-zA-Z0-9_-]+/", "", model_name)
-            search_raw = await web_search(query=f"{clean_query} api pricing tokens million official", max_results=5)
+            if search_fn is not None:
+                call_res = search_fn(query=f"{clean_query} api pricing tokens million official", max_results=5)
+                search_raw = await call_res if asyncio.iscoroutine(call_res) else call_res
+            else:
+                search_raw = await web_search(query=f"{clean_query} api pricing tokens million official", max_results=5)
             in_val, out_val = _extract_pricing_from_search_text(search_raw, model_name)
             cand_in = in_val if in_val is not None else float(baseline["input_price_per_1m"])
             cand_out = out_val if out_val is not None else float(baseline["output_price_per_1m"])
@@ -623,7 +645,12 @@ class PricingService:
             "updated_at_str": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()),
         }
 
-    async def refresh_pricing(self, model_name: str, force: bool = False) -> dict[str, Any]:
+    async def refresh_pricing(
+        self,
+        model_name: str,
+        force: bool = False,
+        web_fetcher: Any = None,
+    ) -> dict[str, Any]:
         """
         Returns pricing dictionary for a given model with 7-day TTL check.
         Performs web search only if stale or missing, governed by weekly_pricing_update_enabled setting.
@@ -675,7 +702,11 @@ class PricingService:
                         )
                     return copy.deepcopy(cached_entry)
 
-            fresh_pricing = await self.fetch_pricing_from_web(model_name)
+            if web_fetcher is not None:
+                call_res = web_fetcher(model_name)
+                fresh_pricing = await call_res if asyncio.iscoroutine(call_res) else call_res
+            else:
+                fresh_pricing = await self.fetch_pricing_from_web(model_name)
 
             cache[norm] = fresh_pricing
             self.save_cache(cache)

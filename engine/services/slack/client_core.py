@@ -9,38 +9,53 @@ from core.config import (
     SLACK_BOT_TOKEN,
     USAGE_CHANNEL_ID,
     USAGE_CHANNEL_NAME,
+    configure_token,
+    get_slack_bot_token,
+    reset_token,
 )
 from services.rate_limiter import slack_rate_limiter
 
 logger = logging.getLogger(__name__)
 
 # Initialize async web client
-slack_async_client = AsyncWebClient(token=SLACK_BOT_TOKEN)
+_raw_slack_async_client = AsyncWebClient(token=SLACK_BOT_TOKEN)
 
-_slack_bot_token_override: str | None = None
-
-
-def configure_token(token: str | None) -> None:
-    """Configures or clears an in-memory Slack bot token override for test isolation."""
-    global _slack_bot_token_override
-    _slack_bot_token_override = token
+_slack_async_client_override: Any = None
 
 
-def reset_token() -> None:
-    """Resets the in-memory Slack bot token override."""
-    configure_token(None)
+def configure_slack_async_client(client: Any) -> None:
+    """Configures or clears an in-memory AsyncWebClient override for test isolation."""
+    global _slack_async_client_override
+    _slack_async_client_override = client
 
 
-def get_slack_bot_token() -> str:
-    """Returns the configured Slack bot token, checking in-memory override first."""
-    if _slack_bot_token_override is not None:
-        return _slack_bot_token_override
-    return SLACK_BOT_TOKEN
+def reset_slack_async_client() -> None:
+    """Resets the in-memory AsyncWebClient override."""
+    configure_slack_async_client(None)
 
 
 def get_slack_async_client() -> AsyncWebClient:
-    """Returns the canonical AsyncWebClient instance."""
-    return slack_async_client
+    """Returns the canonical AsyncWebClient instance or configured test override."""
+    if _slack_async_client_override is not None:
+        return _slack_async_client_override
+    return _raw_slack_async_client
+
+
+class _SlackAsyncClientProxy:
+    """Dynamic proxy delegating all attribute lookups to the canonical or overridden client."""
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(get_slack_async_client(), name)
+
+    def __repr__(self) -> str:
+        return repr(get_slack_async_client())
+
+    def __bool__(self) -> bool:
+        return bool(get_slack_async_client())
+
+
+# Canonical singleton proxy instance
+slack_async_client: Any = _SlackAsyncClientProxy()
 
 # In-memory caches for channel metadata
 CHANNEL_CACHE_TTL_SECONDS = 3600.0

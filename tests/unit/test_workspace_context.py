@@ -107,14 +107,16 @@ async def test_interactivity_open_modal_and_submit():
     from fastapi import BackgroundTasks, Request
     from core.config import set_admin_slack_user_ids_override
 
+    from services.slack import configure_slack_async_client, reset_slack_async_client
     set_admin_slack_user_ids_override("U_ADMIN_123")
+    mock_views_open = AsyncMock()
+    mock_client = AsyncMock()
+    mock_client.views_open = mock_views_open
+    mock_client.views_publish = AsyncMock(return_value=MagicMock(data={"ok": True}))
+    configure_slack_async_client(mock_client)
     try:
-        mock_views_open = AsyncMock()
         with (
             patch("adapters.slack.interactivity.verify_slack_signature", return_value=True),
-            patch("services.slack.slack_async_client.views_open", mock_views_open),
-            patch("adapters.slack.actions.workflow_actions.slack_async_client.views_open", mock_views_open),
-            patch("adapters.slack.actions.agent_actions.slack_async_client.views_open", mock_views_open),
             patch("services.slack.views.publish_app_home", AsyncMock(return_value={"ok": True})),
         ):
             # 1. Non-admin tries to click open_edit_workspace_context_modal -> returns 200 and opens Admin Access Required modal
@@ -228,4 +230,5 @@ async def test_interactivity_open_modal_and_submit():
             assert resp_data["response_action"] == "errors"
             assert "workspace_context_input_block" in resp_data["errors"]
     finally:
+        reset_slack_async_client()
         set_admin_slack_user_ids_override(None)

@@ -368,7 +368,13 @@ async def test_turn_pipeline_propagates_agent_avatar_icon():
 
     from orchestration.turn_pipeline import TurnContext, TurnPipeline
 
-    pipeline = TurnPipeline()
+    mock_post = AsyncMock(return_value={"ok": True, "ts": "12345.9999"})
+    pipeline = TurnPipeline(
+        slack_poster=mock_post,
+        notes_updater=lambda *a, **k: None,
+        usage_updater=lambda *a, **k: None,
+        token_recorder=lambda *a, **k: None,
+    )
     ctx = TurnContext(
         channel_id="C_TEST",
         thread_ts="12345.6789",
@@ -390,23 +396,14 @@ async def test_turn_pipeline_propagates_agent_avatar_icon():
     assert ctx.icon_url == expected_icon
 
     # Stage 5: post to Slack and verify icon_url passed
-    mock_post = AsyncMock(return_value={"ok": True, "ts": "12345.9999"})
-    pipeline.slack_poster = mock_post
-    with patch("adapters.slack.workspace_adapter.post_agent_response", mock_post), \
-         patch("services.slack.post_agent_response", mock_post), \
-         patch("services.slack.messages.post_agent_response", mock_post), \
-         patch("orchestration.agent_router.post_agent_response", mock_post), \
-         patch("orchestration.agent_router.trigger_thread_notes_update"), \
-         patch("orchestration.agent_router.trigger_usage_update"), \
-         patch("orchestration.agent_router.record_thread_tokens"):
-        ctx.output.final_text = "Visionary response."
-        res5 = await pipeline.post_record_stage.stage_post_and_record(ctx)
+    ctx.output.final_text = "Visionary response."
+    res5 = await pipeline.post_record_stage.stage_post_and_record(ctx)
 
-        assert mock_post.called
-        call_kwargs = mock_post.call_args.kwargs
-        assert call_kwargs["username"] == "Visionary"
-        assert call_kwargs["icon_url"] == expected_icon
-        assert res5["icon_url"] == expected_icon
+    assert mock_post.called
+    call_kwargs = mock_post.call_args.kwargs
+    assert call_kwargs["username"] == "Visionary"
+    assert call_kwargs["icon_url"] == expected_icon
+    assert res5["icon_url"] == expected_icon
 
 
 def test_scribe_settings_toggle_and_app_home_view():
@@ -567,19 +564,27 @@ def test_all_ssot_icon_urls_resolve_to_served_avatar_files():
 
 def test_base_avatar_url_env_override_and_resolve():
     """BASE_AVATAR_URL must be read from env at call time; resolve_avatar_url must use it (Slack fetches icon_url server-side)."""
-    import os as _os
-    from unittest.mock import patch as _patch
-
     from core.config import DEFAULT_BASE_AVATAR_URL, get_base_avatar_url, resolve_avatar_url
 
-    with _patch.dict(_os.environ, {"BASE_AVATAR_URL": "https://avatars.example.com/"}):
-        assert get_base_avatar_url() == "https://avatars.example.com/"
-        assert resolve_avatar_url("avatars/image_43.png") == "https://avatars.example.com/avatars/image_43.png"
-        assert resolve_avatar_url("/avatars/image_17.png") == "https://avatars.example.com/avatars/image_17.png"
-        # absolute URLs pass through untouched
-        assert resolve_avatar_url("https://cdn.example.com/a.png") == "https://cdn.example.com/a.png"
+    custom_env = {"BASE_AVATAR_URL": "https://avatars.example.com/"}
+    assert get_base_avatar_url(env=custom_env) == "https://avatars.example.com/"
+    assert (
+        resolve_avatar_url("avatars/image_43.png", env=custom_env)
+        == "https://avatars.example.com/avatars/image_43.png"
+    )
+    assert (
+        resolve_avatar_url("/avatars/image_17.png", env=custom_env)
+        == "https://avatars.example.com/avatars/image_17.png"
+    )
+    # absolute URLs pass through untouched
+    assert (
+        resolve_avatar_url("https://cdn.example.com/a.png", env=custom_env)
+        == "https://cdn.example.com/a.png"
+    )
 
-    with _patch.dict(_os.environ, {}, clear=False):
-        _os.environ.pop("BASE_AVATAR_URL", None)
-        assert get_base_avatar_url() == DEFAULT_BASE_AVATAR_URL
-        assert resolve_avatar_url("avatars/image_43.png") == f"{DEFAULT_BASE_AVATAR_URL}avatars/image_43.png"
+    empty_env: dict[str, str] = {}
+    assert get_base_avatar_url(env=empty_env) == DEFAULT_BASE_AVATAR_URL
+    assert (
+        resolve_avatar_url("avatars/image_43.png", env=empty_env)
+        == f"{DEFAULT_BASE_AVATAR_URL}avatars/image_43.png"
+    )

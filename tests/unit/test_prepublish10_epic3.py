@@ -6,8 +6,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from core.config import configure_token, reset_token
 from core.domain import SYSTEM_PRINCIPAL, ToolPrincipal
 from core.slack_security import sanitize_slack_broadcast_mentions
+from services.slack import configure_slack_async_client, reset_slack_async_client
 from services.audit_logger import (
     AuditLogger,
     _dispatch_critical_alert,
@@ -43,10 +45,9 @@ async def test_post_message_to_slack_dlp_and_broadcast_mentions():
     mock_post = AsyncMock(return_value=MagicMock(data={"ok": True, "ts": "123.456"}))
     mock_client = MagicMock(chat_postMessage=mock_post)
 
-    with (
-        patch("services.slack.messages.get_slack_bot_token", return_value="xoxb-real-token"),
-        patch("services.slack.messages.get_slack_async_client", return_value=mock_client),
-    ):
+    configure_token("xoxb-real-token")
+    configure_slack_async_client(mock_client)
+    try:
         # 1. Mention neutralization in text and blocks
         blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": "<!here|here> alert"}}]
         await post_message_to_slack(
@@ -67,6 +68,9 @@ async def test_post_message_to_slack_dlp_and_broadcast_mentions():
         )
         call_kwargs2 = mock_post.call_args.kwargs
         assert "Message blocked by security policy" in call_kwargs2["text"]
+    finally:
+        reset_token()
+        reset_slack_async_client()
 
 
 def test_audit_logger_production_mode_requires_hmac_secret():

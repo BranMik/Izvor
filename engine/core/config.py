@@ -6,7 +6,7 @@ specifications (from data/system_settings.json SSOT), and dynamic model getter
 functions that read from agent_settings.json SSOT without circular dependencies.
 """
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 import logging
 import os
 import sys
@@ -36,6 +36,26 @@ logger = logging.getLogger(__name__)
 SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN", "")
 SLACK_SIGNING_SECRET = os.getenv("SLACK_SIGNING_SECRET", "")
 SLACK_TEST_CHANNEL_ID = os.getenv("SLACK_TEST_CHANNEL_ID", "").strip()
+
+_slack_bot_token_override: str | None = None
+
+
+def configure_token(token: str | None) -> None:
+    """Configures or clears an in-memory Slack bot token override for test isolation."""
+    global _slack_bot_token_override
+    _slack_bot_token_override = token
+
+
+def reset_token() -> None:
+    """Resets the in-memory Slack bot token override."""
+    configure_token(None)
+
+
+def get_slack_bot_token() -> str:
+    """Returns the configured Slack bot token, checking in-memory override first."""
+    if _slack_bot_token_override is not None:
+        return _slack_bot_token_override
+    return SLACK_BOT_TOKEN
 
 
 _admin_slack_user_ids_override: set[str] | None = None
@@ -139,14 +159,16 @@ DEFAULT_BASE_AVATAR_URL = "https://izvor.local/"
 _base_avatar_url_placeholder_warned = False
 
 
-def get_base_avatar_url() -> str:
+def get_base_avatar_url(env: Mapping[str, str] | None = None) -> str:
     """
     Returns the public base URL (with trailing slash) for resolving relative avatar icon URLs.
-    Reads the BASE_AVATAR_URL env var at call time so tests/deployments can override it via env.
+    Reads the BASE_AVATAR_URL env var at call time (or from injected env) so tests/deployments
+    can override it via env.
     Warns once if the placeholder default is still in use, since Slack cannot fetch from it.
     """
     global _base_avatar_url_placeholder_warned
-    raw = os.getenv("BASE_AVATAR_URL", "")
+    active_env = env if env is not None else os.environ
+    raw = active_env.get("BASE_AVATAR_URL", "")
     if not raw or raw.rstrip("/") + "/" == DEFAULT_BASE_AVATAR_URL:
         if not _base_avatar_url_placeholder_warned:
             _base_avatar_url_placeholder_warned = True
@@ -159,7 +181,7 @@ def get_base_avatar_url() -> str:
     return (raw or DEFAULT_BASE_AVATAR_URL).rstrip("/") + "/"
 
 
-def resolve_avatar_url(icon_url: str | None) -> str | None:
+def resolve_avatar_url(icon_url: str | None, env: Mapping[str, str] | None = None) -> str | None:
     """
     Resolves an agent's avatar icon URL.
     If icon_url is a relative path (e.g. 'avatars/image_43.png'), prepends the public
@@ -171,7 +193,7 @@ def resolve_avatar_url(icon_url: str | None) -> str | None:
     icon_str = str(icon_url).strip()
     if icon_str.startswith(("http://", "https://")):
         return icon_str
-    return f"{get_base_avatar_url()}{icon_str.lstrip('/')}"
+    return f"{get_base_avatar_url(env=env)}{icon_str.lstrip('/')}"
 
 
 # Default system agent persona for warnings and moderation
@@ -478,6 +500,9 @@ __all__ = [
     "PROJECT_ROOT",
     "logger",
     "SLACK_BOT_TOKEN",
+    "configure_token",
+    "reset_token",
+    "get_slack_bot_token",
     "SLACK_SIGNING_SECRET",
     "SLACK_TEST_CHANNEL_ID",
     "TOOLS_WORKSPACE_DIR",

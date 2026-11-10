@@ -361,9 +361,10 @@ class PostRecordStage:
             return {"ok": False, "cancelled": True, "reason": "superseded"}
 
         resolved_turn_icon = ctx.icon_url or ctx.agent_cfg.get("icon_url")
+        resolved_username = ctx.agent_cfg.get("username", ctx.agent_key) if ctx.agent_cfg else ctx.agent_key
         if ctx.intermediate_msg_ts:
             logger.info(
-                f"[WORKSPACE] Updating in-place intermediate message {ctx.intermediate_msg_ts} with final text for {ctx.agent_cfg['username']}"
+                f"[WORKSPACE] Updating in-place intermediate message {ctx.intermediate_msg_ts} with final text for {resolved_username}"
             )
             slack_res = await self.workspace_adapter.update_agent_turn(
                 channel_id=ctx.input.channel_id,
@@ -378,14 +379,13 @@ class PostRecordStage:
                     channel_id=ctx.input.channel_id,
                     thread_ts=ctx.input.thread_ts,
                     text=ctx.output.final_text,
-                    username=ctx.agent_cfg["username"],
+                    username=resolved_username,
                     icon_url=resolved_turn_icon,
                 )
                 posted_ts = slack_res.get("ts") if isinstance(slack_res, dict) else None
             else:
                 posted_ts = ctx.intermediate_msg_ts
         else:
-            resolved_username = ctx.agent_cfg.get("username", ctx.agent_key) if ctx.agent_cfg else ctx.agent_key
             logger.info(
                 f"[WORKSPACE] Posting agent response to channel {ctx.input.channel_id}, thread_ts {ctx.input.thread_ts} as {resolved_username} (icon: {resolved_turn_icon})"
             )
@@ -444,8 +444,9 @@ class PostRecordStage:
             slack_res["halted"] = getattr(ctx.output, "halted", False)
             slack_res["waiting_hitl"] = getattr(ctx.output, "waiting_hitl", False)
             slack_res["final_text"] = ctx.output.final_text
-            slack_res["username"] = ctx.agent_cfg["username"]
-            slack_res["displayname"] = ctx.agent_cfg.get("displayname", ctx.agent_cfg["username"])
+            resolved_user = ctx.agent_cfg.get("username", ctx.agent_key) if ctx.agent_cfg else ctx.agent_key
+            slack_res["username"] = resolved_user
+            slack_res["displayname"] = ctx.agent_cfg.get("displayname", resolved_user) if ctx.agent_cfg else resolved_user
             slack_res["agent_key"] = ctx.agent_key
             slack_res["icon_url"] = resolved_turn_icon
             slack_res["generated_tags"] = ctx.output.generated_tags

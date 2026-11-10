@@ -5,6 +5,7 @@ from application log messages and arguments.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 import logging
 import os
 import re
@@ -65,7 +66,7 @@ _CREDENTIAL_PATTERNS: list[tuple[re.Pattern, str]] = [
 ]
 
 
-def redact_text(text: str) -> str:
+def redact_text(text: str, env: Mapping[str, str] | None = None) -> str:
     """Sanitizes text by replacing sensitive credentials and tokens with redaction tags."""
     if not text or not isinstance(text, str):
         return text
@@ -75,22 +76,23 @@ def redact_text(text: str) -> str:
         sanitized = pattern.sub(replacement, sanitized)
 
     # Dynamically redact sensitive environment variable values if configured
+    active_env = env if env is not None else os.environ
     env_secrets = [
-        os.getenv("SLACK_BOT_TOKEN"),
-        os.getenv("SLACK_SIGNING_SECRET"),
-        os.getenv("ADMIN_PASSWORD"),
-        os.getenv("OPENAI_API_KEY"),
-        os.getenv("ANTHROPIC_API_KEY"),
-        os.getenv("GEMINI_API_KEY"),
-        os.getenv("MISTRAL_API_KEY"),
-        os.getenv("GROQ_API_KEY"),
-        os.getenv("META_API_KEY"),
-        os.getenv("DEEPSEEK_API_KEY"),
-        os.getenv("OPENROUTER_API_KEY"),
-        os.getenv("COHERE_API_KEY"),
-        os.getenv("PERPLEXITY_API_KEY"),
-        os.getenv("TOGETHER_API_KEY"),
-        os.getenv("AUDIT_HMAC_SECRET"),
+        active_env.get("SLACK_BOT_TOKEN"),
+        active_env.get("SLACK_SIGNING_SECRET"),
+        active_env.get("ADMIN_PASSWORD"),
+        active_env.get("OPENAI_API_KEY"),
+        active_env.get("ANTHROPIC_API_KEY"),
+        active_env.get("GEMINI_API_KEY"),
+        active_env.get("MISTRAL_API_KEY"),
+        active_env.get("GROQ_API_KEY"),
+        active_env.get("META_API_KEY"),
+        active_env.get("DEEPSEEK_API_KEY"),
+        active_env.get("OPENROUTER_API_KEY"),
+        active_env.get("COHERE_API_KEY"),
+        active_env.get("PERPLEXITY_API_KEY"),
+        active_env.get("TOGETHER_API_KEY"),
+        active_env.get("AUDIT_HMAC_SECRET"),
     ]
     for secret in env_secrets:
         if secret and len(secret) > 5 and secret in sanitized:

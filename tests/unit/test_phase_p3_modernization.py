@@ -3,8 +3,6 @@ Unit tests for Phase P3: Brand Consistency, Hygiene, Architecture Modernization,
 and Background Worker Warning Mitigation.
 """
 
-from unittest.mock import patch
-
 from fastapi.testclient import TestClient
 
 from main import app
@@ -58,10 +56,10 @@ def test_sandwich_orchestration_simplification():
     thread_state_manager.clear_state(channel, ts)
     thread_state_manager.discussion.set_remaining_agents(channel, ts, ["agent-10001", "agent-10002"])
 
-    with patch.object(settings_manager, "get_orchestration_mode", return_value=OrchestrationMode.SANDWICH):
-        agent, cleaned, was_explicit = parse_agent_and_prompt("hello team", channel, ts)
-        assert agent == "agent-10001"
-        assert was_explicit is False
+    settings_manager.set_orchestration_mode(OrchestrationMode.SANDWICH, save=False)
+    agent, cleaned, was_explicit = parse_agent_and_prompt("hello team", channel, ts)
+    assert agent == "agent-10001"
+    assert was_explicit is False
 
     thread_state_manager.clear_state(channel, ts)
 

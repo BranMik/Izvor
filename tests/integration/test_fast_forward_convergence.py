@@ -217,7 +217,6 @@ def test_slack_app_home_toggle_interactivity_handler():
         with (
             patch("adapters.slack.interactivity.verify_slack_signature", return_value=True),
             patch("services.slack.views.publish_app_home", new_callable=AsyncMock),
-            patch.object(app_settings_manager, "save"),
         ):
             res = await handle_slack_interactivity(req_off, bg)
             assert res.status_code == 200

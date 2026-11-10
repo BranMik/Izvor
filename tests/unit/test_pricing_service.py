@@ -73,18 +73,16 @@ def test_get_baseline_for_model():
 
 def test_get_baseline_from_litellm_model_cost():
     """TKT-907: If not in baseline JSON, query litellm.model_cost community registry."""
-    import litellm
     mock_cost = {
         "special-unlisted-model": {
             "input_cost_per_token": 0.000003,   # $3.00 / 1M
             "output_cost_per_token": 0.000015,  # $15.00 / 1M
         }
     }
-    with patch.object(litellm, "model_cost", mock_cost):
-        res = get_baseline_for_model("special-unlisted-model")
-        assert res["input_price_per_1m"] == 3.00
-        assert res["output_price_per_1m"] == 15.00
-        assert "LiteLLM Community Registry" in res["source"]
+    res = get_baseline_for_model("special-unlisted-model", model_cost_registry=mock_cost)
+    assert res["input_price_per_1m"] == 3.00
+    assert res["output_price_per_1m"] == 15.00
+    assert "LiteLLM Community Registry" in res["source"]
 
 
 def test_pricing_bounds_validation():
@@ -215,15 +213,16 @@ async def test_fetch_pricing_from_web_agent_fallback():
         }
     )
 
-    with patch.object(pricing_service, "fetch_pricing_with_agent", side_effect=Exception("LiteLLM connection error")), \
-         patch("services.pricing_service.web_search", new_callable=AsyncMock, return_value=mock_search_json):
-
-        res = await pricing_service.fetch_pricing_from_web("gemini/gemini-3.8-flash")
-        assert res["input_price_per_1m"] == 0.75
-        assert res["output_price_per_1m"] == 3.75
-        assert "Web Search" in res["source"]
-        assert res["source_url"] == "https://ai.google.dev/pricing"
-        assert "updated_at" in res
+    res = await pricing_service.fetch_pricing_from_web(
+        "gemini/gemini-3.8-flash",
+        agent_fetcher=AsyncMock(side_effect=Exception("LiteLLM connection error")),
+        search_fn=AsyncMock(return_value=mock_search_json),
+    )
+    assert res["input_price_per_1m"] == 0.75
+    assert res["output_price_per_1m"] == 3.75
+    assert "Web Search" in res["source"]
+    assert res["source_url"] == "https://ai.google.dev/pricing"
+    assert "updated_at" in res
 
 
 @pytest.mark.anyio
@@ -243,10 +242,10 @@ async def test_7_day_cache_ttl():
     }
     pricing_service.save_cache(cached_data)
 
-    with patch.object(pricing_service, "fetch_pricing_from_web") as mock_fetch:
-        pricing = await pricing_service.refresh_pricing(model, force=False)
-        assert pricing["source"] == "Initial Test Cache"
-        mock_fetch.assert_not_called()
+    mock_fetch = AsyncMock()
+    pricing = await pricing_service.refresh_pricing(model, force=False, web_fetcher=mock_fetch)
+    assert pricing["source"] == "Initial Test Cache"
+    mock_fetch.assert_not_called()
 
     # If cache is 8 days old (> 7 days), it must trigger fresh web fetch
     stale_data = {
@@ -267,10 +266,10 @@ async def test_7_day_cache_ttl():
         "source": "Refreshed Web Search",
         "updated_at": now,
     }
-    with patch.object(pricing_service, "fetch_pricing_from_web", return_value=mock_fresh) as mock_fetch:
-        refreshed = await pricing_service.refresh_pricing(model, force=False)
-        assert refreshed["source"] == "Refreshed Web Search"
-        mock_fetch.assert_called_once()
+    mock_fetch = AsyncMock(return_value=mock_fresh)
+    refreshed = await pricing_service.refresh_pricing(model, force=False, web_fetcher=mock_fetch)
+    assert refreshed["source"] == "Refreshed Web Search"
+    mock_fetch.assert_called_once()
 
 
 @pytest.mark.anyio
@@ -279,6 +278,9 @@ async def test_refresh_pricing_when_weekly_update_disabled_and_price_already_set
     When weekly pricing update is OFF, if price is already set per model,
     it must NOT update from web even if cache is older than 7 days.
     """
+    from orchestration.app_settings import app_settings_manager
+
+    app_settings_manager.set_weekly_pricing_update_enabled(False, save=False)
     model = "openai/gpt-5.6-terra"
     now = time.time()
 
@@ -293,13 +295,12 @@ async def test_refresh_pricing_when_weekly_update_disabled_and_price_already_set
     }
     pricing_service.save_cache(cached_data)
 
-    with patch("orchestration.app_settings.is_weekly_pricing_update_enabled", return_value=False), \
-         patch.object(pricing_service, "fetch_pricing_from_web") as mock_fetch:
-        pricing = await pricing_service.refresh_pricing(model, force=False)
-        assert pricing["source"] == "Cached Terra Pricing"
-        assert pricing["input_price_per_1m"] == 2.0
-        assert pricing["output_price_per_1m"] == 12.0
-        mock_fetch.assert_not_called()
+    mock_fetch = AsyncMock()
+    pricing = await pricing_service.refresh_pricing(model, force=False, web_fetcher=mock_fetch)
+    assert pricing["source"] == "Cached Terra Pricing"
+    assert pricing["input_price_per_1m"] == 2.0
+    assert pricing["output_price_per_1m"] == 12.0
+    mock_fetch.assert_not_called()
 
 
 @pytest.mark.anyio
@@ -308,6 +309,9 @@ async def test_refresh_pricing_when_weekly_update_disabled_but_no_price_set():
     When weekly pricing update is OFF, but there is NO price per token set
     for the model (missing from cache or null price), it MUST still update from web.
     """
+    from orchestration.app_settings import app_settings_manager
+
+    app_settings_manager.set_weekly_pricing_update_enabled(False, save=False)
     model = "custom/new-unpriced-model"
     now = time.time()
 
@@ -320,13 +324,12 @@ async def test_refresh_pricing_when_weekly_update_disabled_but_no_price_set():
         "updated_at": now,
     }
 
-    with patch("orchestration.app_settings.is_weekly_pricing_update_enabled", return_value=False), \
-         patch.object(pricing_service, "fetch_pricing_from_web", return_value=mock_fresh) as mock_fetch:
-        pricing = await pricing_service.refresh_pricing(model, force=False)
-        assert pricing["source"] == "Web Search Fetched"
-        assert pricing["input_price_per_1m"] == 1.50
-        assert pricing["output_price_per_1m"] == 4.50
-        mock_fetch.assert_called_once()
+    mock_fetch = AsyncMock(return_value=mock_fresh)
+    pricing = await pricing_service.refresh_pricing(model, force=False, web_fetcher=mock_fetch)
+    assert pricing["source"] == "Web Search Fetched"
+    assert pricing["input_price_per_1m"] == 1.50
+    assert pricing["output_price_per_1m"] == 4.50
+    mock_fetch.assert_called_once()
 
     # Model in cache but price is None
     cached_data = {
@@ -348,12 +351,11 @@ async def test_refresh_pricing_when_weekly_update_disabled_but_no_price_set():
         "updated_at": now,
     }
 
-    with patch("orchestration.app_settings.is_weekly_pricing_update_enabled", return_value=False), \
-         patch.object(pricing_service, "fetch_pricing_from_web", return_value=mock_fresh2) as mock_fetch:
-        pricing = await pricing_service.refresh_pricing(model, force=False)
-        assert pricing["source"] == "Web Search Second Fetch"
-        assert pricing["input_price_per_1m"] == 1.75
-        mock_fetch.assert_called_once()
+    mock_fetch2 = AsyncMock(return_value=mock_fresh2)
+    pricing = await pricing_service.refresh_pricing(model, force=False, web_fetcher=mock_fetch2)
+    assert pricing["source"] == "Web Search Second Fetch"
+    assert pricing["input_price_per_1m"] == 1.75
+    mock_fetch2.assert_called_once()
 
 
 @pytest.mark.anyio
@@ -361,6 +363,9 @@ async def test_refresh_pricing_force_overrides_disabled_weekly_update():
     """
     Even when weekly pricing update is OFF, calling with force=True must fetch fresh pricing.
     """
+    from orchestration.app_settings import app_settings_manager
+
+    app_settings_manager.set_weekly_pricing_update_enabled(False, save=False)
     model = "anthropic/claude-opus-5"
     now = time.time()
 
@@ -383,10 +388,9 @@ async def test_refresh_pricing_force_overrides_disabled_weekly_update():
         "updated_at": now,
     }
 
-    with patch("orchestration.app_settings.is_weekly_pricing_update_enabled", return_value=False), \
-         patch.object(pricing_service, "fetch_pricing_from_web", return_value=mock_forced) as mock_fetch:
-        pricing = await pricing_service.refresh_pricing(model, force=True)
-        assert pricing["source"] == "Forced Refresh"
-        assert pricing["input_price_per_1m"] == 10.0
-        mock_fetch.assert_called_once()
+    mock_fetch = AsyncMock(return_value=mock_forced)
+    pricing = await pricing_service.refresh_pricing(model, force=True, web_fetcher=mock_fetch)
+    assert pricing["source"] == "Forced Refresh"
+    assert pricing["input_price_per_1m"] == 10.0
+    mock_fetch.assert_called_once()
 

@@ -1,37 +1,44 @@
+import time
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from core.database import get_connection, get_db_transaction
 from core.llm_utils import execute_llm_with_retry
 from pipeline.spend_governance.circuit_breaker import SpendGovernance
 
 
 def test_daily_budget_enforced_when_circuit_breaker_disabled():
-    sg = SpendGovernance()
-    # Mock get_daily_spend to return $15.00
-    with patch.object(sg, "get_daily_spend", return_value=15.00):
-        # Even with enabled=False, daily_budget_usd=10.0 should trip
-        tripped, spend, limit = sg.is_budget_exceeded(
-            session_id="test_sess",
-            threshold_usd=50.0,
-            enabled=False,
-            daily_budget_usd=10.0,
+    now_ts = time.time()
+    with get_db_transaction(immediate=True) as conn:
+        conn.execute(
+            "INSERT INTO spend_ledger (channel_id, thread_ts, model_name, prompt_tokens, completion_tokens, cost_usd, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            ("C_DAILY_TEST", "T_DAILY_TEST", "mock-model", 1000, 1000, 15.00, now_ts),
         )
-        assert tripped is True
-        assert spend == 15.00
-        assert limit == 10.00
 
-        # With daily_budget_usd=20.0, daily spend ($15) does not exceed limit
-        # And because enabled=False, per-thread check returns False
-        tripped2, spend2, limit2 = sg.is_budget_exceeded(
-            session_id="test_sess",
-            threshold_usd=5.0,
-            current_cost_usd=8.0,
-            enabled=False,
-            daily_budget_usd=20.0,
-        )
-        assert tripped2 is False
-        assert spend2 == 0.0
-        assert limit2 == 0.0
+    sg = SpendGovernance()
+    # Even with enabled=False, daily_budget_usd=10.0 should trip
+    tripped, spend, limit = sg.is_budget_exceeded(
+        session_id="test_sess",
+        threshold_usd=50.0,
+        enabled=False,
+        daily_budget_usd=10.0,
+    )
+    assert tripped is True
+    assert spend >= 15.00
+    assert limit == 10.00
+
+    # With daily_budget_usd=20.0, daily spend ($15) does not exceed limit
+    # And because enabled=False, per-thread check returns False
+    tripped2, spend2, limit2 = sg.is_budget_exceeded(
+        session_id="test_sess",
+        threshold_usd=5.0,
+        current_cost_usd=8.0,
+        enabled=False,
+        daily_budget_usd=20.0,
+    )
+    assert tripped2 is False
+    assert spend2 == 0.0
+    assert limit2 == 0.0
 
 
 @pytest.mark.anyio
@@ -56,29 +63,29 @@ async def test_execute_llm_with_retry_defaults_num_retries_zero():
 
 @pytest.mark.anyio
 async def test_embeddings_records_usage_to_spend_governance():
-    from pipeline.spend_governance import spend_governance
     from services.rag.embeddings import EmbeddingService
 
     mock_resp = MagicMock()
     mock_resp.data = [{"embedding": [0.1, 0.2]}]
     mock_resp.usage = MagicMock(prompt_tokens=55)
 
-    with patch("services.rag.embeddings.litellm.aembedding", AsyncMock(return_value=mock_resp)), patch.object(
-        spend_governance, "record_usage"
-    ) as mock_record:
+    with patch("services.rag.embeddings.litellm.aembedding", AsyncMock(return_value=mock_resp)):
         svc = EmbeddingService()
         await svc._embed_batch(["text1", "text2"])
-        mock_record.assert_called_once_with(
-            session_id="system:embeddings",
-            model_name=svc.model,
-            prompt_tokens=55,
-            completion_tokens=0,
-        )
+
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM spend_ledger WHERE channel_id = ? AND thread_ts = ? ORDER BY id DESC LIMIT 1",
+            ("system", "embeddings"),
+        ).fetchone()
+        assert row is not None
+        assert row["prompt_tokens"] == 55
+        assert row["completion_tokens"] == 0
+        assert row["model_name"] == svc.model
 
 
 @pytest.mark.anyio
 async def test_pricing_service_records_spend_to_spend_governance():
-    from pipeline.spend_governance import spend_governance
     from services.pricing_service import PricingService, get_pricing_agent_model
 
     mock_resp = MagicMock()
@@ -93,11 +100,15 @@ async def test_pricing_service_records_spend_to_spend_governance():
     with patch(
         "services.pricing_service.execute_llm_with_retry",
         AsyncMock(return_value=mock_resp),
-    ), patch.object(spend_governance, "record_usage") as mock_record:
+    ):
         await pricing_svc.fetch_pricing_with_agent("test-model")
-        mock_record.assert_called_once_with(
-            session_id="system:pricing:test-model",
-            model_name=expected_model,
-            prompt_tokens=120,
-            completion_tokens=40,
-        )
+
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM spend_ledger WHERE channel_id = ? AND thread_ts = ? ORDER BY id DESC LIMIT 1",
+            ("system", "pricing:test-model"),
+        ).fetchone()
+        assert row is not None
+        assert row["prompt_tokens"] == 120
+        assert row["completion_tokens"] == 40
+        assert row["model_name"] == expected_model

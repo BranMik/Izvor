@@ -36,6 +36,7 @@ __all__ = [
     "_apply_convergence_stress_test_or_fast_forward",
     "configure_fetch_thread_files",
     "configure_fetch_thread_history",
+    "configure_guardrail_checker",
     "configure_post_agent_response",
     "configure_post_system_message",
     "configure_router_deps",
@@ -47,6 +48,7 @@ __all__ = [
     "process_and_respond",
     "reset_fetch_thread_files",
     "reset_fetch_thread_history",
+    "reset_guardrail_checker",
     "reset_post_agent_response",
     "reset_post_system_message",
     "reset_router_deps",
@@ -61,6 +63,19 @@ litellm.drop_params = True
 
 _router_deps_override: PipelineDeps | None = None
 _router_sleep_fn_override: Any = None
+_guardrail_checker_override: Any = None
+
+
+def configure_guardrail_checker(checker: Any = None) -> None:
+    """Configures an in-memory guardrail checker override for agent_router."""
+    global _guardrail_checker_override
+    _guardrail_checker_override = checker
+
+
+def reset_guardrail_checker() -> None:
+    """Resets the in-memory guardrail checker override for agent_router."""
+    global _guardrail_checker_override
+    _guardrail_checker_override = None
 
 
 def configure_router_deps(deps: PipelineDeps | None = None) -> None:
@@ -278,8 +293,12 @@ async def process_and_respond(
     # Guardrail Check for user inputs
     if not is_bot_trigger:
         try:
-            from services.security.guardrail import guardrail_service
-            is_injection = await guardrail_service.is_prompt_injection(raw_text)
+            if _guardrail_checker_override is not None:
+                is_injection = await _guardrail_checker_override(raw_text)
+            else:
+                from services.security.guardrail import guardrail_service
+
+                is_injection = await guardrail_service.is_prompt_injection(raw_text)
             if is_injection:
                 logger.warning(f"[GUARDRAIL] Blocked malicious request in {channel_id}")
                 post_sys_fn = getattr(active_deps, "post_system_message_fn", None) or post_system_message

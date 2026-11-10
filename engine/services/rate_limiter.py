@@ -1,7 +1,7 @@
 import asyncio
 import time
 
-from core.config import SLACK_BOT_TOKEN
+from core.config import get_slack_bot_token
 
 
 def _get_rate_limiter_defaults() -> tuple[float, float]:
@@ -37,9 +37,10 @@ class SlackRateLimiter:
         return self._lock
 
     async def acquire(self) -> None:
+        token = get_slack_bot_token()
         if (
-            not SLACK_BOT_TOKEN
-            or SLACK_BOT_TOKEN == "xoxb-your-bot-user-oauth-token"
+            not token
+            or token == "xoxb-your-bot-user-oauth-token"
         ):
             return
 

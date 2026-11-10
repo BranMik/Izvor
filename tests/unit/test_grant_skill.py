@@ -5,19 +5,11 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from orchestration.thread_skills_manager import ThreadSkillsManager
+from orchestration.thread_skills_manager import ThreadSkillsManager, thread_skills_manager
 from orchestration.turn_pipeline import TurnContext, TurnPipeline
 from pipeline.directive_parser import directive_parser
 from core.registry import get_skill_registry
 skill_registry = get_skill_registry()
-
-
-@pytest.fixture
-def temp_skills_mgr():
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        storage_file = Path(tmp_dir) / "thread_skills.json"
-        mgr = ThreadSkillsManager(storage_file=storage_file, auto_load=True)
-        yield mgr
 
 
 # ---------------------------------------------------------------------------
@@ -375,8 +367,8 @@ async def test_revoke_constraint_non_admin_denied():
 # ---------------------------------------------------------------------------
 
 
-def test_thread_skills_manager_agent_grants(temp_skills_mgr):
-    mgr = temp_skills_mgr
+def test_thread_skills_manager_agent_grants():
+    mgr = thread_skills_manager
     channel_id = "C_TEST"
     thread_ts = "1726000000.8"
 
@@ -396,22 +388,28 @@ def test_thread_skills_manager_agent_grants(temp_skills_mgr):
     assert "agent-10001" not in all_active
 
 
-def test_thread_skills_manager_agent_expiry(temp_skills_mgr):
-    mgr = temp_skills_mgr
+def test_thread_skills_manager_agent_expiry():
+    from core.database import get_db_transaction
+
+    mgr = thread_skills_manager
     channel_id = "C_TEST"
     thread_ts = "1726000000.9"
 
     mgr.grant_agent_skills(channel_id, thread_ts, "web_research", ["agent-10008"])
 
-    # Simulate 13 hours later (TTL is default 12h)
-    future_time = time.time() + (13 * 3600)
-    with patch("time.time", return_value=future_time):
-        assert mgr.get_active_agent_skills(channel_id, thread_ts, "agent-10008") == []
-        assert mgr.get_expired_agent_skills(channel_id, thread_ts, "agent-10008") == ["web_research"]
+    # Simulate expiry by backdating SQLite record
+    with get_db_transaction(immediate=True) as conn:
+        conn.execute(
+            "UPDATE thread_skills SET expires_at = ? WHERE channel_id = ? AND thread_ts = ?",
+            (time.time() - 3600.0, channel_id, thread_ts),
+        )
+
+    assert mgr.get_active_agent_skills(channel_id, thread_ts, "agent-10008") == []
+    assert mgr.get_expired_agent_skills(channel_id, thread_ts, "agent-10008") == ["web_research"]
 
 
-def test_thread_skills_manager_agent_revocation(temp_skills_mgr):
-    mgr = temp_skills_mgr
+def test_thread_skills_manager_agent_revocation():
+    mgr = thread_skills_manager
     channel_id = "C_TEST"
     thread_ts = "1726000000.10"
 
@@ -431,13 +429,12 @@ def test_thread_skills_manager_agent_revocation(temp_skills_mgr):
 # ---------------------------------------------------------------------------
 
 
-def test_loader_authorizations_with_agent_grant(temp_skills_mgr):
+def test_loader_authorizations_with_agent_grant():
     channel_id = "C_TEST"
     thread_ts = "1726000000.11"
 
-    temp_skills_mgr.grant_agent_skills(channel_id, thread_ts, "web_research", ["agent-10008"])
+    thread_skills_manager.grant_agent_skills(channel_id, thread_ts, "web_research", ["agent-10008"])
 
-    with patch("orchestration.thread_skills_manager.thread_skills_manager", temp_skills_mgr):
-        auth_map = skill_registry.get_skill_agent_mapping(channel_id, thread_ts)
-        wr_agents = auth_map.get("web_research", {}).get("authorized_agents", [])
-        assert any("agent-10008" in a for a in wr_agents)
+    auth_map = skill_registry.get_skill_agent_mapping(channel_id, thread_ts)
+    wr_agents = auth_map.get("web_research", {}).get("authorized_agents", [])
+    assert any("agent-10008" in a for a in wr_agents)

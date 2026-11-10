@@ -1,8 +1,9 @@
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from slack_sdk.errors import SlackApiError
 from services import slack as slack_client
+from services.slack import configure_slack_async_client, reset_slack_async_client
 
 
 @pytest.fixture(autouse=True)
@@ -36,13 +37,17 @@ async def test_fetch_thread_history_filters_and_formats():
         {"user": "U_BOT_APP_ID", "text": "I agree with SecurityArchitect.", "subtype": None},
     ]
 
-    mock_replies = AsyncMock(return_value={"ok": True, "messages": raw_messages})
-    with patch.object(slack_client.slack_async_client, "conversations_replies", mock_replies):
+    mock_client = AsyncMock()
+    mock_client.conversations_replies.return_value = {"ok": True, "messages": raw_messages}
+    configure_slack_async_client(mock_client)
+    try:
         history = await slack_client.fetch_thread_history(
             channel_id="C_TEST",
             thread_ts="1234567890.123456",
             bot_user_id="U_BOT_APP_ID",
         )
+    finally:
+        reset_slack_async_client()
 
     # Status indicators, scribe notes, and system cards must be filtered out
     contents = [m["content"] for m in history]
@@ -71,20 +76,30 @@ async def test_fetch_thread_history_filters_and_formats():
 @pytest.mark.anyio
 async def test_fetch_thread_history_handles_slack_api_error():
     """Verifies that SlackApiError is caught and returns empty list gracefully."""
-    mock_error_replies = AsyncMock(
-        side_effect=SlackApiError("channel_not_found", response={"error": "channel_not_found"})
+    mock_client = AsyncMock()
+    mock_client.conversations_replies.side_effect = SlackApiError(
+        "channel_not_found", response={"error": "channel_not_found"}
     )
-    with patch.object(slack_client.slack_async_client, "conversations_replies", mock_error_replies):
+    configure_slack_async_client(mock_client)
+    try:
         result = await slack_client.fetch_thread_history("C_NOT_FOUND", "123.456")
+    finally:
+        reset_slack_async_client()
     assert result == []
 
 
 @pytest.mark.anyio
 async def test_fetch_thread_history_handles_generic_exception():
     """Verifies that any unexpected exception does not crash the calling background task."""
-    mock_crashed_replies = AsyncMock(side_effect=RuntimeError("Connection socket reset by peer"))
-    with patch.object(slack_client.slack_async_client, "conversations_replies", mock_crashed_replies):
+    mock_client = AsyncMock()
+    mock_client.conversations_replies.side_effect = RuntimeError(
+        "Connection socket reset by peer"
+    )
+    configure_slack_async_client(mock_client)
+    try:
         result = await slack_client.fetch_thread_history("C_ERR", "123.456")
+    finally:
+        reset_slack_async_client()
     assert result == []
 
 
@@ -127,8 +142,13 @@ async def test_fetch_thread_history_pagination():
             }
         return {"ok": True, "messages": [], "has_more": False}
 
-    with patch.object(slack_client.slack_async_client, "conversations_replies", mock_replies):
+    mock_client = AsyncMock()
+    mock_client.conversations_replies.side_effect = mock_replies
+    configure_slack_async_client(mock_client)
+    try:
         result = await slack_client.fetch_thread_history("C1", "T1", max_messages=500)
+    finally:
+        reset_slack_async_client()
     assert call_count == 2
     assert len(result) == 130
     assert result[0]["content"] == "Msg 0"
@@ -160,8 +180,13 @@ async def test_fetch_thread_files_pagination():
             "response_metadata": {},
         }
 
-    with patch.object(slack_client.slack_async_client, "conversations_replies", mock_replies):
+    mock_client = AsyncMock()
+    mock_client.conversations_replies.side_effect = mock_replies
+    configure_slack_async_client(mock_client)
+    try:
         files = await slack_client.fetch_thread_files("C1", "T1", max_messages=500)
+    finally:
+        reset_slack_async_client()
     assert len(files) == 2
     file_names = [f["name"] for f in files]
     assert "doc1.txt" in file_names
@@ -189,13 +214,18 @@ async def test_post_agent_response_unfurl_and_sanitize():
         captured_kwargs.update(kwargs)
         return MagicMock(data={"ok": True, "ts": "123.456"})
 
-    with patch.object(slack_client.slack_async_client, "chat_postMessage", mock_post):
+    mock_client = AsyncMock()
+    mock_client.chat_postMessage.side_effect = mock_post
+    configure_slack_async_client(mock_client)
+    try:
         res = await slack_client.post_agent_response(
             channel_id="C_TEST",
             thread_ts="123.456",
             text="Attention <!channel>! Check https://example.com",
             username="TestAgent",
         )
+    finally:
+        reset_slack_async_client()
 
     assert res["ok"] is True
     assert captured_kwargs["unfurl_links"] is False

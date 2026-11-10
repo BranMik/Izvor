@@ -91,12 +91,12 @@ async def test_validation_stage_blocks_inferred_grant_skill_for_all():
     mock_intent.cleaned_prompt = "Please grant skill web_research"
     mock_intent.is_stop = False
 
+    thread_skills_manager.clear_thread("C_TEST_P1", "123.456")
     with patch("orchestration.stages.validation.directive_parser.parse", AsyncMock(return_value=mock_intent)), \
-         patch.object(thread_skills_manager, "grant_skills") as mock_grant, \
          patch("orchestration.stages.validation.fetch_thread_files", AsyncMock(return_value=[])):
         res = await stage.stage_validate_and_parse(ctx)
         # Inferred grant must NOT be executed and stage must not halt with grant_skill_for_all
-        mock_grant.assert_not_called()
+        assert thread_skills_manager.get_active_skills("C_TEST_P1", "123.456") == []
         assert res is None or res.get("action") != "grant_skill_for_all"
 
 
@@ -115,13 +115,10 @@ async def test_validation_stage_allows_slash_grant_skill_for_all():
         is_bot_trigger=False,
     )
 
-    with (
-        patch("core.config.is_slack_admin", return_value=True),
-        patch.object(thread_skills_manager, "grant_skills", return_value=(["web_research"], 1234567.0)) as mock_grant,
-    ):
-
+    thread_skills_manager.clear_thread("C_TEST_P1", "123.456")
+    with patch("core.config.is_slack_admin", return_value=True):
         res = await stage.stage_validate_and_parse(ctx)
-        mock_grant.assert_called_once()
+        assert "web_research" in thread_skills_manager.get_active_skills("C_TEST_P1", "123.456")
         assert res is not None
         assert res.get("action") == "grant_skill_for_all"
         assert res.get("halted") is True
@@ -160,24 +157,27 @@ async def test_validation_stage_blocks_inferred_revoke_skill_for_all():
     mock_intent.cleaned_prompt = "revoke web_research"
     mock_intent.is_stop = False
 
+    thread_skills_manager.grant_skills("C_TEST_P1", "123.456", ["web_research"])
     with patch("orchestration.stages.validation.directive_parser.parse", AsyncMock(return_value=mock_intent)), \
-         patch.object(thread_skills_manager, "revoke_skills") as mock_revoke, \
          patch("orchestration.stages.validation.fetch_thread_files", AsyncMock(return_value=[])):
         res = await stage.stage_validate_and_parse(ctx)
-        mock_revoke.assert_not_called()
+        assert "web_research" in thread_skills_manager.get_active_skills("C_TEST_P1", "123.456")
         assert res is None or res.get("action") != "revoke_skill_for_all"
 
 
 @pytest.mark.anyio
 async def test_validation_stage_blocks_inferred_non_auto_detect_skill():
     """Inferred invocation of a skill with auto_detect=False is blocked from executing handler."""
-    pipeline = TurnPipeline()
-    stage = pipeline.validation_stage
     mock_handler = AsyncMock()
     mock_skill = MagicMock()
     mock_skill.name = "admin_only_skill"
     mock_skill.triggers = {"auto_detect": False}
     mock_skill.action_handler = mock_handler
+
+    mock_reg = MagicMock()
+    mock_reg.get.return_value = mock_skill
+    pipeline = TurnPipeline(skill_registry=mock_reg)
+    stage = pipeline.validation_stage
 
     ctx = TurnContext(
         channel_id="C_TEST_P1",
@@ -187,25 +187,23 @@ async def test_validation_stage_blocks_inferred_non_auto_detect_skill():
         actions=[ActionDirective(name="admin_only_skill", params={}, origin="inferred")],
     )
 
-    with patch("core.registry.get_skill_registry") as mock_get_reg:
-        mock_reg = MagicMock()
-        mock_reg.get.return_value = mock_skill
-        mock_get_reg.return_value = mock_reg
-
-        await stage.stage_validate_and_parse(ctx)
-        mock_handler.assert_not_called()
+    await stage.stage_validate_and_parse(ctx)
+    mock_handler.assert_not_called()
 
 
 @pytest.mark.anyio
 async def test_validation_stage_blocks_inferred_when_auto_detect_omitted():
     """Inferred invocation of a skill with omitted auto_detect is blocked (defaults to False / fail-closed)."""
-    pipeline = TurnPipeline()
-    stage = pipeline.validation_stage
     mock_handler = AsyncMock()
     mock_skill = MagicMock()
     mock_skill.name = "default_gated_skill"
     mock_skill.triggers = {}  # auto_detect omitted!
     mock_skill.action_handler = mock_handler
+
+    mock_reg = MagicMock()
+    mock_reg.get.return_value = mock_skill
+    pipeline = TurnPipeline(skill_registry=mock_reg)
+    stage = pipeline.validation_stage
 
     ctx = TurnContext(
         channel_id="C_TEST_P1",
@@ -215,13 +213,8 @@ async def test_validation_stage_blocks_inferred_when_auto_detect_omitted():
         actions=[ActionDirective(name="default_gated_skill", params={}, origin="inferred")],
     )
 
-    with patch("core.registry.get_skill_registry") as mock_get_reg:
-        mock_reg = MagicMock()
-        mock_reg.get.return_value = mock_skill
-        mock_get_reg.return_value = mock_reg
-
-        await stage.stage_validate_and_parse(ctx)
-        mock_handler.assert_not_called()
+    await stage.stage_validate_and_parse(ctx)
+    mock_handler.assert_not_called()
 
 
 def test_skill_registry_auto_detect_defaults_to_false(tmp_path):
@@ -435,18 +428,22 @@ async def test_slack_client_short_history_truncation():
 
     mock_client = MagicMock()
     mock_client.conversations_replies = AsyncMock(return_value=mock_slack_resp)
+    from services.slack import configure_slack_async_client, reset_slack_async_client
 
-    with patch("services.slack.messages.get_slack_async_client", return_value=mock_client), \
-         patch("services.slack.messages.logger.info") as mock_info:
-        await slack_mod.fetch_thread_history(channel_id="C1", thread_ts="123.456")
+    configure_slack_async_client(mock_client)
+    try:
+        with patch("services.slack.messages.logger.info") as mock_info:
+            await slack_mod.fetch_thread_history(channel_id="C1", thread_ts="123.456")
 
-        logged_strings = [str(c[0][0]) for c in mock_info.call_args_list if c[0]]
-        history_logs = [s for s in logged_strings if "short_history" in s]
-        assert len(history_logs) >= 1
-        # Full secret must NOT appear in short_history log line
-        assert long_secret not in history_logs[0]
-        # Truncated prefix must appear
-        assert f"{long_secret[:20]}..." in history_logs[0]
+            logged_strings = [str(c[0][0]) for c in mock_info.call_args_list if c[0]]
+            history_logs = [s for s in logged_strings if "short_history" in s]
+            assert len(history_logs) >= 1
+            # Full secret must NOT appear in short_history log line
+            assert long_secret not in history_logs[0]
+            # Truncated prefix must appear
+            assert f"{long_secret[:20]}..." in history_logs[0]
+    finally:
+        reset_slack_async_client()
 
 
 # ---------------------------------------------------------------------------
@@ -535,7 +532,12 @@ def test_circuit_breaker_enabled_by_default_in_settings():
 @pytest.mark.anyio
 async def test_resolution_passes_daily_budget_to_spend_governance():
     """ResolutionStage passes daily_budget_usd to is_budget_exceeded."""
-    pipeline = TurnPipeline()
+    mock_budget = MagicMock()
+    mock_budget.is_budget_exceeded.return_value = (False, 10.0, 50.0)
+    pipeline = TurnPipeline(
+        spend_governance=mock_budget,
+        post_system_message_fn=AsyncMock(),
+    )
     stage = pipeline.resolution_stage
     ctx = TurnContext(
         channel_id="C_RES_TEST",
@@ -545,14 +547,18 @@ async def test_resolution_passes_daily_budget_to_spend_governance():
         agent_key="agent-10001",
     )
 
-    with patch("orchestration.stages.resolution.spend_governance.is_budget_exceeded", return_value=(False, 10.0, 50.0)) as mock_budget, \
-         patch("orchestration.app_settings.get_daily_budget_usd", return_value=42.5), \
-         patch("orchestration.stages.resolution.is_circuit_breaker_enabled", return_value=True), \
-         patch("orchestration.stages.resolution.post_system_message", AsyncMock()):
-        await stage.stage_resolve_agent_and_governance(ctx)
-        mock_budget.assert_called_once()
-        _, kwargs = mock_budget.call_args
-        assert kwargs.get("daily_budget_usd") == 42.5
+    from orchestration.app_settings import (
+        set_circuit_breaker_enabled,
+        set_daily_budget_usd,
+    )
+
+    set_daily_budget_usd(42.5, save=False)
+    set_circuit_breaker_enabled(True, save=False)
+
+    await stage.stage_resolve_agent_and_governance(ctx)
+    mock_budget.is_budget_exceeded.assert_called_once()
+    _, kwargs = mock_budget.is_budget_exceeded.call_args
+    assert kwargs.get("daily_budget_usd") == 42.5
 
 
 # ---------------------------------------------------------------------------
@@ -584,10 +590,9 @@ def test_usage_agent_atomic_write():
 @pytest.mark.anyio
 async def test_guardrail_handle_failure_passes_valid_audit_parameters():
     """GuardrailService._handle_failure calls log_audit_event with actor, action, target."""
-    svc = GuardrailService()
+    svc = GuardrailService(table=False)
 
-    with patch.object(GuardrailService, "table", new_callable=lambda: None), \
-         patch("services.audit_logger.log_audit_event") as mock_audit:
+    with patch("services.audit_logger.log_audit_event") as mock_audit:
         try:
             set_guardrail_fail_mode("closed", save=False)
             is_blocked = await svc.is_prompt_injection("Test guardrail failure handling")
@@ -666,40 +671,45 @@ async def test_resume_sequence_action_succeeds_for_admin():
     def mock_dispatch(cid, ts, coro):
         dispatched.append((cid, ts, coro))
 
-    with (
-        patch("adapters.slack.interactivity.verify_slack_signature", return_value=True),
-        patch("adapters.slack.interactivity.is_slack_admin", return_value=True),
-        patch("orchestration.app_settings.is_circuit_breaker_enabled", return_value=False),
-        patch("orchestration.app_settings.get_circuit_breaker_threshold", return_value=0.0),
-        patch("orchestration.app_settings.get_daily_budget_usd", return_value=50.0),
-        patch("adapters.slack.actions.workflow_actions.log_audit_event", side_effect=mock_log),
-        patch("services.audit_logger.log_audit_event", side_effect=mock_log),
-        patch("orchestration.thread_state.thread_state_manager.dispatch_discussion_task", side_effect=mock_dispatch),
-    ):
-        payload = {
-            "type": "block_actions",
-            "user": {"id": "U_ADMIN_USER"},
-            "actions": [{"action_id": "resume_sequence_action"}],
-            "channel": {"id": "C_TEST"},
-            "container": {"thread_ts": "1700000001.0001"},
-            "message": {"ts": "1700000001.0002"},
-        }
+    from orchestration.thread_state import thread_state_manager
+    thread_state_manager.configure_task_dispatcher(mock_dispatch)
 
-        async def mock_receive():
-            return {"type": "http.request", "body": json.dumps(payload).encode("utf-8")}
+    try:
+        with (
+            patch("adapters.slack.interactivity.verify_slack_signature", return_value=True),
+            patch("adapters.slack.interactivity.is_slack_admin", return_value=True),
+            patch("orchestration.app_settings.is_circuit_breaker_enabled", return_value=False),
+            patch("orchestration.app_settings.get_circuit_breaker_threshold", return_value=0.0),
+            patch("orchestration.app_settings.get_daily_budget_usd", return_value=50.0),
+            patch("adapters.slack.actions.workflow_actions.log_audit_event", side_effect=mock_log),
+            patch("services.audit_logger.log_audit_event", side_effect=mock_log),
+        ):
+            payload = {
+                "type": "block_actions",
+                "user": {"id": "U_ADMIN_USER"},
+                "actions": [{"action_id": "resume_sequence_action"}],
+                "channel": {"id": "C_TEST"},
+                "container": {"thread_ts": "1700000001.0001"},
+                "message": {"ts": "1700000001.0002"},
+            }
 
-        scope = {
-            "type": "http",
-            "method": "POST",
-            "headers": [(b"content-type", b"application/json")],
-        }
-        request = Request(scope, mock_receive)
-        bg_tasks = BackgroundTasks()
+            async def mock_receive():
+                return {"type": "http.request", "body": json.dumps(payload).encode("utf-8")}
 
-        resp = await handle_slack_interactivity(request, bg_tasks)
-        assert resp.status_code == 200
-        assert any(e.get("event_type") == "SEQUENCE_RESUMED" for e in logged_events)
-        assert len(dispatched) == 1
-        assert dispatched[0][0] == "C_TEST"
-        assert dispatched[0][1] == "1700000001.0001"
+            scope = {
+                "type": "http",
+                "method": "POST",
+                "headers": [(b"content-type", b"application/json")],
+            }
+            request = Request(scope, mock_receive)
+            bg_tasks = BackgroundTasks()
+
+            resp = await handle_slack_interactivity(request, bg_tasks)
+            assert resp.status_code == 200
+            assert any(e.get("event_type") == "SEQUENCE_RESUMED" for e in logged_events)
+            assert len(dispatched) == 1
+            assert dispatched[0][0] == "C_TEST"
+            assert dispatched[0][1] == "1700000001.0001"
+    finally:
+        thread_state_manager.reset_task_dispatcher()
 

@@ -53,12 +53,6 @@ async def test_hitl_pause_creates_durable_turn_checkpoint():
     ]
     mock_llm_response.usage = MagicMock(prompt_tokens=100, completion_tokens=50)
 
-    # Mock execution stage dependencies
-    pipeline = TurnPipeline(
-        llm_executor=AsyncMock(return_value=mock_llm_response)
-    )
-    exec_stage = ExecutionStage(pipeline.deps)
-
     skill_def = MagicMock()
     skill_def.name = "db_admin"
     skill_def.tools = ["execute_db_deletion"]
@@ -67,11 +61,16 @@ async def test_hitl_pause_creates_durable_turn_checkpoint():
     mock_skill_registry = MagicMock()
     mock_skill_registry.find_skill_for_tool.return_value = "db_admin"
     mock_skill_registry.get.return_value = skill_def
+    mock_skill_registry.get_global_skills.return_value = []
 
-    with (
-        patch("orchestration.stages.execution.skill_registry", mock_skill_registry),
-        patch("services.hitl.post_message_to_slack", AsyncMock(return_value={"ok": True, "ts": "11111"})),
-    ):
+    # Mock execution stage dependencies
+    pipeline = TurnPipeline(
+        llm_executor=AsyncMock(return_value=mock_llm_response),
+        skill_registry=mock_skill_registry,
+    )
+    exec_stage = ExecutionStage(pipeline.deps)
+
+    with patch("services.hitl.post_message_to_slack", AsyncMock(return_value={"ok": True, "ts": "11111"})):
         # Run execution stage
         await exec_stage.stage_execute_llm(ctx)
 
@@ -257,11 +256,6 @@ async def test_hitl_pause_synthesizes_deferred_sibling_responses():
     ]
     mock_llm_response.usage = MagicMock(prompt_tokens=100, completion_tokens=50)
 
-    pipeline = TurnPipeline(
-        llm_executor=AsyncMock(return_value=mock_llm_response)
-    )
-    exec_stage = ExecutionStage(pipeline.deps)
-
     skill_def = MagicMock()
     skill_def.name = "danger_skill"
     skill_def.tools = ["execute_danger", "read_document"]
@@ -270,11 +264,15 @@ async def test_hitl_pause_synthesizes_deferred_sibling_responses():
     mock_skill_registry = MagicMock()
     mock_skill_registry.find_skill_for_tool.return_value = "danger_skill"
     mock_skill_registry.get.return_value = skill_def
+    mock_skill_registry.get_global_skills.return_value = []
 
-    with (
-        patch("orchestration.stages.execution.skill_registry", mock_skill_registry),
-        patch("services.hitl.post_message_to_slack", AsyncMock(return_value={"ok": True, "ts": "44444"})),
-    ):
+    pipeline = TurnPipeline(
+        llm_executor=AsyncMock(return_value=mock_llm_response),
+        skill_registry=mock_skill_registry,
+    )
+    exec_stage = ExecutionStage(pipeline.deps)
+
+    with patch("services.hitl.post_message_to_slack", AsyncMock(return_value={"ok": True, "ts": "44444"})):
         await exec_stage.stage_execute_llm(ctx)
 
     assert ctx.output.waiting_hitl is True

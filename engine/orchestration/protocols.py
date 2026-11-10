@@ -213,6 +213,8 @@ class PipelineDeps:
     max_tool_iterations: int | None = None
     timeout_secs: float | None = None
     intermediate_delay_secs: float | None = None
+    skill_registry: Any = None
+    spend_governance: Any = None
 
 
 def resolve_pipeline_deps(
@@ -313,6 +315,18 @@ def resolve_pipeline_deps(
         or _get("intermediate_delay_seconds")
     )
 
+    skill_reg = _get("skill_registry")
+    if skill_reg is None:
+        from skills.loader import get_skill_registry
+
+        skill_reg = get_skill_registry()
+
+    spend_gov = _get("spend_governance")
+    if spend_gov is None:
+        from pipeline.spend_governance import spend_governance as default_spend_governance
+
+        spend_gov = default_spend_governance
+
     return PipelineDeps(
         llm_executor=llm_executor,
         tool_executor=tool_executor,
@@ -334,6 +348,8 @@ def resolve_pipeline_deps(
         max_tool_iterations=max_tool_iters,
         timeout_secs=timeout_s,
         intermediate_delay_secs=intermediate_delay_s,
+        skill_registry=skill_reg,
+        spend_governance=spend_gov,
     )
 
 

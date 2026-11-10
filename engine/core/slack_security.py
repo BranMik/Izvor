@@ -1,4 +1,4 @@
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 import hashlib
 import hmac
 import json
@@ -73,12 +73,13 @@ _global_burst_window_start: float = 0.0
 _global_burst_count: int = 0
 
 
-def _extract_client_ip(headers: dict) -> str:
+def _extract_client_ip(headers: dict, env: Mapping[str, str] | None = None) -> str:
     """
     Extracts client IP from headers safely.
     Only trusts proxy headers (X-Forwarded-For, X-Real-IP) if TRUST_PROXY_HEADERS is explicitly enabled.
     """
-    trust_proxy = os.getenv("TRUST_PROXY_HEADERS", "false").lower() in ("1", "true", "yes")
+    active_env = env if env is not None else os.environ
+    trust_proxy = active_env.get("TRUST_PROXY_HEADERS", "false").lower() in ("1", "true", "yes")
     if not trust_proxy:
         return "direct_client"
 

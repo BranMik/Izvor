@@ -10,6 +10,7 @@ if str(_engine_dir) not in sys.path:
 import threading
 import time
 from contextlib import asynccontextmanager
+from typing import Any
 
 import secrets
 from fastapi import Depends, FastAPI, HTTPException, Request, status
@@ -463,13 +464,20 @@ async def get_rag_status():
     return await asyncio.to_thread(_read_manifest)
 
 
+def get_rag_sync_engine():
+    return rag_sync_engine
+
+
 @app.post("/api/rag/reconcile")
-async def trigger_rag_reconciliation(admin_user: str = Depends(verify_admin_basic_auth)):
+async def trigger_rag_reconciliation(
+    admin_user: str = Depends(verify_admin_basic_auth),
+    sync_engine: Any = Depends(get_rag_sync_engine),
+):
     """Triggers an on-demand reconciliation scan of rag_knowledge/."""
     from services.audit_logger import log_audit_event
 
     try:
-        stats = await rag_sync_engine.reconcile()
+        stats = await sync_engine.reconcile()
         log_audit_event(
             event_type="RAG_RECONCILE_COMPLETED",
             actor={"type": "admin_user", "id": admin_user},
