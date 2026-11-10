@@ -11,7 +11,6 @@ logger = logging.getLogger(__name__)
 
 
 async def run(ctx: Any, params: dict[str, Any] | None = None) -> dict[str, Any] | None:
-    from core.config import is_slack_admin
     from orchestration.thread_state import thread_state_manager
     from services.slack import post_system_message
 
@@ -19,33 +18,6 @@ async def run(ctx: Any, params: dict[str, Any] | None = None) -> dict[str, Any] 
     inp = getattr(ctx, "input", ctx)
     channel_id = getattr(inp, "channel_id", "")
     thread_ts = getattr(inp, "thread_ts", "")
-    user_id = getattr(inp, "user_id", None)
-
-    if not is_slack_admin(user_id):
-        logger.warning(
-            f"[REVOKE CONSTRAINT ACTION] Non-admin user '{user_id}' denied execution of revoke_constraint"
-        )
-        try:
-            from services.audit_logger import log_audit_event
-            log_audit_event(
-                event_type="UNAUTHORIZED_DIRECTIVE_ATTEMPT",
-                actor={"type": "slack_user", "id": user_id or "unknown"},
-                action="revoke_constraint",
-                target=f"{channel_id}:{thread_ts}",
-                details=params,
-                severity="CRITICAL",
-                status="BLOCKED",
-            )
-        except Exception as ae:  # noqa: BLE001
-            logger.error(f"[REVOKE CONSTRAINT ACTION] Failed to log audit event: {ae}")
-
-        if channel_id and thread_ts:
-            await post_system_message(
-                channel_id=channel_id,
-                thread_ts=thread_ts,
-                text="⛔ *Permission Denied*: Only workspace administrators can execute `/revoke_constraint`.",
-            )
-        return {"ok": False, "halted": True, "action": "revoke_constraint", "reason": "unauthorized"}
 
     target = str(params.get("target", "")).strip().lower()
 

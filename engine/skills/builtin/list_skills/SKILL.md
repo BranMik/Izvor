@@ -11,6 +11,7 @@ triggers:
   arg_type: none
   auto_detect: false
 requires_human_ITL: false
+requires_admin: false
 ---
 
 ### LIST SKILLS

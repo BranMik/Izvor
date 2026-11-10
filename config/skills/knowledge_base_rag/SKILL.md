@@ -13,6 +13,7 @@ extraction_rule: "If user asks to search or query internal documentation, knowle
 tools:
   - search_knowledge_rag
 requires_human_ITL: false
+requires_admin: false
 ---
 
 # Knowledge Base RAG Operational Guidelines

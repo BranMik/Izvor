@@ -204,6 +204,7 @@ class ExecutionStage:
 
         from orchestration.app_settings import app_settings_manager
         from orchestration.thread_skills_manager import thread_skills_manager
+        from core.config import is_slack_admin
 
         global_skills = skill_registry.get_global_skills()
         active_thread_skills = thread_skills_manager.get_active_skills(ctx.input.channel_id, ctx.input.thread_ts)
@@ -217,6 +218,18 @@ class ExecutionStage:
                 if s not in merged:
                     merged.append(s)
             agent_skills = merged
+
+        if agent_skills:
+            is_caller_admin = is_slack_admin(getattr(ctx.input, "user_id", None))
+            thread_granted = set(active_thread_skills) | set(active_agent_skills)
+            filtered = skill_registry.filter_skills_for_caller(
+                agent_skills,
+                is_admin=is_caller_admin,
+                thread_granted_skills=thread_granted,
+            )
+            if isinstance(filtered, list):
+                agent_skills = filtered
+        ctx.authorized_skills = list(agent_skills or [])
 
         expired_thread_skills = list(
             dict.fromkeys(

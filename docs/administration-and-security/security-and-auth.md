@@ -74,11 +74,14 @@ Human-in-the-Loop approvals in [`services/hitl.py`](file:///engine/services/hitl
 
 ## 🔒 Privilege Boundaries, File Neutralization & Prompt Safety
 
-### 1. Dual Gate on Privileged Directives (`origin == "slash"` + `is_slack_admin`)
-All directive actions in [`TurnContext`](file:///engine/orchestration/turn_pipeline.py) carry an explicit `origin` attribute (`"slash"` vs `"inferred"`). In [`orchestration/stages/directive_handlers.py`](file:///engine/orchestration/stages/directive_handlers.py), privileged directives (`/grant_skill`, `/grant_skill_for_all`, `/revoke_skill_for_all`, `/revoke_constraint`, and disabling constraints via `=off`) require **both**:
-1. Explicit slash invocation (`origin == "slash"`).
-2. Slack Workspace Admin authorization (`is_slack_admin(ctx.user_id)`).
-Unauthorized attempts are blocked and emit an `UNAUTHORIZED_DIRECTIVE_ATTEMPT` audit event.
+### 1. Declarative Admin Authorization SSOT & Dual Gate (`origin == "slash"` + `is_slack_admin`)
+Administrative privilege requirements are defined directly in `SKILL.md` frontmatter via `requires_admin: true` as the Single Source of Truth (SSOT), and enforced across two architectural layers:
+- **Fail-Closed Startup Abort**: `SkillLoader` mandates `requires_admin: boolean` on every skill; missing or non-boolean properties raise `SkillIntegrityError` and abort boot.
+- **Layer 1 (Directives)**: All directive actions in [`TurnContext`](file:///engine/orchestration/turn_pipeline.py) carry an explicit `origin` attribute (`"slash"` vs `"inferred"`). In [`orchestration/stages/directive_handlers.py`](file:///engine/orchestration/stages/directive_handlers.py), actions with `sk.requires_admin == True` (such as `/grant_skill`, `/grant_skill_for_all`, `/revoke_skill_for_all`, `/revoke_constraint`, and disabling constraints via `=off`) require **both**:
+  1. Explicit slash invocation (`origin == "slash"`).
+  2. Slack Workspace Admin authorization (`is_slack_admin(ctx.input.user_id)`).
+  Unauthorized attempts are blocked immediately at Stage 1 and emit an `UNAUTHORIZED_DIRECTIVE_ATTEMPT` audit event.
+- **Layer 2 (Agent Tool RBAC)**: Agent-scoped skills with `requires_admin: true` are withheld from non-admin user turns during prompt building and tool execution unless explicitly granted for that thread by an admin, preventing unauthorized tool invocations and token spend.
 
 ### 2. Slack Upload Extension Neutralization (`SAFE_DOWNLOAD_EXTENSIONS`)
 When downloading files attached to Slack threads in [`services/slack/files.py`](file:///engine/services/slack/files.py):

@@ -235,3 +235,155 @@ async def test_dynamic_slash_parsing_grant_and_revoke_for_all():
     assert len(revoke_acts4) == 1
     assert revoke_acts4[0].params.get("skills") == ["all"]
 
+
+def test_declarative_requires_admin_all_skills():
+    """Verifies that all 21 skills in the registry define a boolean requires_admin,
+    and get_admin_skills() returns exactly the expected administrative directives."""
+    all_skills = skill_registry.list_skills()
+    assert len(all_skills) >= 21
+    for s in all_skills:
+        assert isinstance(s.requires_admin, bool), f"Skill {s.name} requires_admin is not bool: {s.requires_admin}"
+
+    admin_skills = skill_registry.get_admin_skills()
+    admin_names = {s.name for s in admin_skills}
+    expected_admins = {
+        "grant_skill",
+        "grant_skill_for_all",
+        "revoke_skill_for_all",
+        "revoke_constraint",
+    }
+    assert admin_names == expected_admins
+    for s in admin_skills:
+        assert s.requires_admin is True
+
+    # Check non-admin skills
+    non_admin_names = {s.name for s in all_skills if not s.requires_admin}
+    assert "web_research" in non_admin_names
+    assert "document_reader" in non_admin_names
+    assert "max_words" in non_admin_names
+    assert "stop_discussion" in non_admin_names
+
+
+def test_missing_or_invalid_requires_admin_raises_integrity_error(tmp_path):
+    """Verifies that missing or non-boolean requires_admin in SKILL.md raises SkillIntegrityError."""
+    from skills.loader import SkillIntegrityError, SkillRegistry
+
+    registry = SkillRegistry()
+
+    # 1. Missing requires_admin
+    bad_skill1 = tmp_path / "skill1" / "SKILL.md"
+    bad_skill1.parent.mkdir(parents=True, exist_ok=True)
+    bad_skill1.write_text(
+        "---\n"
+        "name: test_missing\n"
+        "display_name: Test Missing\n"
+        "description: Testing missing requires_admin\n"
+        "---\n"
+        "Instructions.\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(SkillIntegrityError) as exc1:
+        registry._parse_skill_file(bad_skill1)
+    assert "missing mandatory boolean 'requires_admin'" in str(exc1.value)
+
+    # 2. Non-boolean string requires_admin: 'true'
+    bad_skill2 = tmp_path / "skill2" / "SKILL.md"
+    bad_skill2.parent.mkdir(parents=True, exist_ok=True)
+    bad_skill2.write_text(
+        "---\n"
+        "name: test_str_bool\n"
+        "display_name: Test Str\n"
+        "description: Testing string bool\n"
+        "requires_admin: 'true'\n"
+        "---\n"
+        "Instructions.\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(SkillIntegrityError) as exc2:
+        registry._parse_skill_file(bad_skill2)
+    assert "'requires_admin' must be a boolean" in str(exc2.value)
+
+    # 3. reload() during init must re-raise SkillIntegrityError rather than swallowing it as non-fatal
+    with pytest.raises(SkillIntegrityError):
+        SkillRegistry(root_dir=tmp_path)
+
+
+def test_skills_directory_admin_lock_indicator():
+    """Verifies format_skills_directory_markdown appends lock icon to requires_admin skills."""
+    doc = skill_registry.format_skills_directory_markdown()
+    assert "grant_skill" in doc
+    assert "🔒 *Admin Only*" in doc
+    grant_line = next((line for line in doc.splitlines() if line.startswith("• `grant_skill`")), "")
+    assert "🔒 *Admin Only*" in grant_line
+    max_words_line = next((line for line in doc.splitlines() if line.startswith("• `max_words`")), "")
+    assert "🔒 *Admin Only*" not in max_words_line
+
+
+def test_resolve_skill_aliases():
+    """Verifies resolve_skill resolves canonical names and slash command aliases."""
+    # Canonical
+    sk1 = skill_registry.resolve_skill("grant_skill")
+    assert sk1 is not None and sk1.name == "grant_skill"
+
+    # Alias /grant_for_all
+    sk2 = skill_registry.resolve_skill("grant_for_all")
+    assert sk2 is not None and sk2.name == "grant_skill_for_all"
+
+    # Alias with leading slash /revoke
+    sk3 = skill_registry.resolve_skill("/revoke")
+    assert sk3 is not None and sk3.name == "revoke_constraint"
+
+    # Alias with hyphen
+    sk4 = skill_registry.resolve_skill("max-words")
+    assert sk4 is not None and sk4.name == "max_words"
+
+    # Unknown
+    assert skill_registry.resolve_skill("nonexistent_skill_xyz") is None
+
+
+def test_filter_skills_for_caller():
+    """Verifies filter_skills_for_caller correctly restricts admin skills unless caller is admin or thread-granted."""
+    from skills.loader import SkillDefinition
+
+    mock_admin_skill = SkillDefinition(
+        name="admin_only_skill",
+        display_name="Admin Skill",
+        description="Exclusive admin skill",
+        scope="agent",
+        requires_admin=True,
+    )
+    mock_public_skill = SkillDefinition(
+        name="public_skill",
+        display_name="Public Skill",
+        description="Public skill",
+        scope="agent",
+        requires_admin=False,
+    )
+
+    skill_registry._skills["admin_only_skill"] = mock_admin_skill
+    skill_registry._skills["public_skill"] = mock_public_skill
+    try:
+        candidate_skills = ["admin_only_skill", "public_skill"]
+
+        # Case 1: Non-admin caller -> admin skill filtered out
+        filtered_user = skill_registry.filter_skills_for_caller(
+            candidate_skills, is_admin=False, thread_granted_skills=set()
+        )
+        assert filtered_user == ["public_skill"]
+
+        # Case 2: Admin caller -> admin skill preserved
+        filtered_admin = skill_registry.filter_skills_for_caller(
+            candidate_skills, is_admin=True, thread_granted_skills=set()
+        )
+        assert filtered_admin == ["admin_only_skill", "public_skill"]
+
+        # Case 3: Non-admin caller, but skill was explicitly thread-granted by an admin
+        filtered_granted = skill_registry.filter_skills_for_caller(
+            candidate_skills, is_admin=False, thread_granted_skills={"admin_only_skill"}
+        )
+        assert filtered_granted == ["admin_only_skill", "public_skill"]
+    finally:
+        skill_registry._skills.pop("admin_only_skill", None)
+        skill_registry._skills.pop("public_skill", None)
+
+

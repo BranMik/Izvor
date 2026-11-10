@@ -110,18 +110,38 @@ async def handle_slash_directives(
 
     thread_state_manager.clear_stop(ctx.input.channel_id, ctx.input.thread_ts)
 
+    # Centralized declarative admin gate for all directive actions
+    from core.registry import get_skill_registry
+
+    skill_registry = get_skill_registry()
+
+    validated_actions = []
+    for act in list(ctx.actions or []):
+        sk = (
+            skill_registry.resolve_skill(act.name)
+            if hasattr(skill_registry, "resolve_skill")
+            else skill_registry.get(act.name)
+        )
+        if sk and getattr(sk, "requires_admin", False) is True:
+            if getattr(act, "origin", "slash") != "slash":
+                logger.warning(
+                    f"[VALIDATION] Refusing to execute inferred admin-required action '{act.name}' (origin='{getattr(act, 'origin', 'unknown')}')"
+                )
+                continue
+            admin_check = await require_directive_admin(
+                ctx,
+                directive_name=sk.name,
+                post_sys_msg=post_sys_msg,
+                details=act.params or {},
+            )
+            if admin_check:
+                return admin_check
+        validated_actions.append(act)
+    ctx.actions = validated_actions
+
     # Process /grant_skill_for_all action
     grant_act = next((a for a in ctx.actions if a.name in ("grant_skill_for_all", "grant_for_all")), None)
     if grant_act and getattr(grant_act, "origin", "slash") == "slash":
-        admin_check = await require_directive_admin(
-            ctx,
-            directive_name="grant_skill_for_all",
-            post_sys_msg=post_sys_msg,
-            details={"skills": grant_act.params.get("skills", [])},
-        )
-        if admin_check:
-            return admin_check
-
         from orchestration.app_settings import app_settings_manager
         from orchestration.thread_skills_manager import thread_skills_manager
         from core.registry import get_skill_registry
@@ -164,15 +184,6 @@ async def handle_slash_directives(
     # Process /grant_skill action
     grant_skill_act = next((a for a in ctx.actions if a.name == "grant_skill"), None)
     if grant_skill_act and getattr(grant_skill_act, "origin", "slash") == "slash":
-        admin_check = await require_directive_admin(
-            ctx,
-            directive_name="grant_skill",
-            post_sys_msg=post_sys_msg,
-            details=grant_skill_act.params or {},
-        )
-        if admin_check:
-            return admin_check
-
         from orchestration.app_settings import app_settings_manager
         from orchestration.thread_skills_manager import thread_skills_manager
         from core.registry import get_skill_registry
@@ -253,15 +264,6 @@ async def handle_slash_directives(
     # Process /revoke_skill_for_all action
     revoke_act = next((a for a in ctx.actions if a.name in ("revoke_skill_for_all", "revoke_for_all")), None)
     if revoke_act and getattr(revoke_act, "origin", "slash") == "slash":
-        admin_check = await require_directive_admin(
-            ctx,
-            directive_name="revoke_skill_for_all",
-            post_sys_msg=post_sys_msg,
-            details={"skills": revoke_act.params.get("skills", [])},
-        )
-        if admin_check:
-            return admin_check
-
         from orchestration.thread_skills_manager import thread_skills_manager
 
         skills_to_revoke = revoke_act.params.get("skills", [])
@@ -303,73 +305,22 @@ async def handle_slash_directives(
 
         skill_registry = get_skill_registry()
         for act in ctx.actions:
-            sk = skill_registry.get(act.name)
+            sk = (
+                skill_registry.resolve_skill(act.name)
+                if hasattr(skill_registry, "resolve_skill")
+                else skill_registry.get(act.name)
+            )
             if sk and sk.action_handler:
                 if sk.triggers.get("auto_detect", False) is False and getattr(act, "origin", "slash") != "slash":
                     logger.warning(
                         f"[VALIDATION] Refusing to execute privileged action '{act.name}' because origin is '{getattr(act, 'origin', 'unknown')}'"
                     )
                     continue
-                if act.name == "revoke_constraint":
-                    admin_check = await require_directive_admin(
-                        ctx,
-                        directive_name="revoke_constraint",
-                        post_sys_msg=post_sys_msg,
-                        details=act.params or {},
-                    )
-                    if admin_check:
-                        return admin_check
                 act_res = await sk.action_handler(ctx, act.params)
                 if act_res and isinstance(act_res, dict) and act_res.get("halted"):
                     return act_res
     except Exception as e:  # noqa: BLE001 - Error boundary isolates dynamic skill action execution from pipeline validation
         logger.error(f"[VALIDATION] Error executing skill action handler: {e}")
-
-    # Process /revoke_constraint action
-    revoke_act = next((a for a in (ctx.actions or []) if a.name in ("revoke", "revoke_constraint")), None)
-    revoke_target = revoke_act.params.get("target") if revoke_act else None
-    if revoke_target:
-        admin_check = await require_directive_admin(
-            ctx,
-            directive_name="revoke_constraint",
-            post_sys_msg=post_sys_msg,
-            details={"target": revoke_target},
-        )
-        if admin_check:
-            return admin_check
-
-        target = str(revoke_target).lower()
-        if target in ("all", "everything"):
-            thread_state_manager.revoke_all(ctx.input.channel_id, ctx.input.thread_ts)
-            msg = "🗑️ *Revoked all thread constraints* (word limits, language lock, inclusions, and exclusions) for this thread."
-        elif target in ("max_words", "max-words", "maxwords"):
-            thread_state_manager.clear_max_words(ctx.input.channel_id, ctx.input.thread_ts)
-            msg = "🗑️ *Revoked constraint*: `max_words` cleared for this thread."
-        elif target in ("min_words", "min-words", "minwords"):
-            thread_state_manager.clear_min_words(ctx.input.channel_id, ctx.input.thread_ts)
-            msg = "🗑️ *Revoked constraint*: `min_words` cleared for this thread."
-        elif target in ("scribe_max_words", "scribe-max-words", "scribemaxwords"):
-            thread_state_manager.clear_scribe_max_words(ctx.input.channel_id, ctx.input.thread_ts)
-            msg = "🗑️ *Revoked constraint*: `scribe_max_words` cleared for this thread."
-        elif target in ("scribe_min_words", "scribe-min-words", "scribeminwords"):
-            thread_state_manager.clear_scribe_min_words(ctx.input.channel_id, ctx.input.thread_ts)
-            msg = "🗑️ *Revoked constraint*: `scribe_min_words` cleared for this thread."
-        elif target in ("exclude", "exclude_agents", "excluded"):
-            thread_state_manager.clear_excluded_agents(ctx.input.channel_id, ctx.input.thread_ts)
-            msg = "🗑️ *Revoked constraint*: Agent exclusions cleared for this thread."
-        elif target in ("include", "include_agents", "included"):
-            thread_state_manager.clear_included_agents(ctx.input.channel_id, ctx.input.thread_ts)
-            msg = "🗑️ *Revoked constraint*: Forced agent inclusions cleared for this thread."
-        elif target in ("language", "lang"):
-            thread_state_manager.clear_language(ctx.input.channel_id, ctx.input.thread_ts)
-            msg = "🗑️ *Revoked language lock*: Thread language cleared."
-        elif target in ("modifiers", "modifier"):
-            thread_state_manager.clear_format_modifiers(ctx.input.channel_id, ctx.input.thread_ts)
-            msg = "🗑️ *Revoked constraint*: `format_modifiers` cleared for this thread."
-        else:
-            msg = f"⚠️ *Unknown Revoke Target*: `{target}`. Available: `max_words`, `min_words`, `scribe_max_words`, `scribe_min_words`, `exclude`, `include`, `language`, `modifiers`, `all`."
-        await post_sys_msg(channel_id=ctx.input.channel_id, thread_ts=ctx.input.thread_ts, text=msg)
-        return {"ok": True, "halted": True, "action": "revoke_constraint"}
 
     # Update persistent word limits and off toggles
     from core.config import is_slack_admin

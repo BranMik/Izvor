@@ -81,6 +81,7 @@ Every skill is defined by a `SKILL.md` file located in `config/skills/<skill_nam
 | `name` | `string` | Directory name | Unique technical identifier for the skill (e.g., `web_research`). | Everywhere (Registry, Directives, Tool calls). | N/A |
 | `display_name` | `string` | Capitalized name | User-facing display name in Slack messages and UI directory. | Slack formatted messages and directory listings. | Internal code routing. |
 | `description` | `string` | `""` | Description of what the skill does. | Injected into agent Skills Catalogs and `IntentExtractor` prompt. | Tool argument validation. |
+| `requires_admin` | `boolean` | **Mandatory** | **Declarative Access Control SSOT.** If `true`, requires caller to be a verified Slack admin. Evaluated at Layer 1 (orchestrator directives) and Layer 2 (caller-delegated agent tool RBAC). Missing or non-boolean value aborts boot with `SkillIntegrityError`. | Layer 1 Directive Gating & Layer 2 Tool Progressive Disclosure. | N/A |
 | `scope` | `string` | `"agent"` | Architectural domain of the skill (`agent`, `orchestrator`, or `prompt_modifier`). | Determines pipeline execution path. See Scope Matrix below. | Does not restrict tool parameter types. |
 | `tools` | `list[str]` | `[]` | List of tool names exposed by this skill (implemented in `tools.py`). | Agent function-calling loop and sandbox authorization. | Orchestrator actions (`action.py`). |
 | `requires_human_ITL` | `boolean` | `false` | Human-in-the-Loop gate. If `true`, tool execution saves a `TurnCheckpoint` and sends an Approve/Deny button to Slack. | Layer 2 tool execution in `execution.py`. | Orchestrator pipeline actions or Layer 1 parsing. |
@@ -151,10 +152,11 @@ Workspace administrators (`is_slack_admin`) can grant skills on the fly within a
 - `/revoke_skill_for_all web_research` — Revokes the tool thread-wide from all participating personas.
 - `/revoke_constraint max_words` (or `/max_words off`, `/min_words off`, `/scribe_max_words off`, `/scribe_min_words off`, `/exclude off`, `/include off`) — Clears active thread constraints.
 
-### 4. Dual Privilege Boundary Enforcement (`origin == "slash"` + `is_slack_admin`)
-- **Origin Boundary**: Directives inferred heuristically from free-form user chatter (`origin: "inferred"`) are strictly prohibited from executing privileged operations.
-- **Slack Admin Gate (`require_directive_admin`)**: In [`directive_handlers.py`](file:///engine/orchestration/stages/directive_handlers.py), `/grant_skill`, `/grant_skill_for_all`, `/revoke_skill_for_all`, `/revoke_constraint`, and turning active constraints `off` verify `is_slack_admin(ctx.user_id)`.
-- Non-admin attempts are rejected with a thread warning and emit an `UNAUTHORIZED_DIRECTIVE_ATTEMPT` security audit event; authorized executions emit `ADMIN_DIRECTIVE_EXECUTED`.
+### 4. Declarative Two-Layer Privilege Boundary Enforcement
+Administrative authorization is governed by `requires_admin: true` in `SKILL.md` frontmatter as the single source of truth (SSOT):
+- **Fail-Closed Boot Validation**: During application startup, `SkillLoader` validates that every `SKILL.md` defines a boolean `requires_admin` attribute; missing or invalid values immediately abort boot with `SkillIntegrityError`.
+- **Layer 1 (Orchestrator Directives)**: In [`directive_handlers.py`](file:///engine/orchestration/stages/directive_handlers.py), before executing any directive action, the centralized gate checks `skill_registry.resolve_skill(a.name).requires_admin`. If `true`, the action requires both explicit slash invocation (`origin == "slash"`) and verified admin membership (`is_slack_admin(user_id)`). Non-admin attempts are blocked, rejected with an in-thread warning, and emit an `UNAUTHORIZED_DIRECTIVE_ATTEMPT` security audit event; authorized executions emit `ADMIN_DIRECTIVE_EXECUTED`. Disabling constraints via `=off` enforces the same admin boundary.
+- **Layer 2 (Caller-Delegated Agent Tool RBAC)**: For agent-scoped skills, if `requires_admin: true`, the skill is withheld from non-admin user turns during progressive disclosure context preparation and tool execution unless explicitly thread-granted by an admin via `/grant_skill` or `/grant_skill_for_all`. This prevents non-admin callers from triggering costly agent tool operations.
 
 ### 5. SQLite Persistence & Audit Logging
 All dynamic grants are persisted into the SQLite database (`data/izvor.db`) in table `thread_skills`:

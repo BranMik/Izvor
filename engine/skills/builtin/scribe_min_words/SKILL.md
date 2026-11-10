@@ -13,6 +13,7 @@ triggers:
   param_name: words
 extraction_rule: "Extract integer floor if user requested a minimum length specifically for the scribe/summary (e.g. '/scribe_min_words 100')."
 requires_human_ITL: false
+requires_admin: false
 ---
 
 ### DISCUSSION SCRIBE MINIMUM WORDS

@@ -402,17 +402,18 @@ class DirectiveParser:
             logger.debug(f"[DIRECTIVE PARSER] Skill registry slash check error: {e}")
 
         # If an exclusive control/grant/revoke/list command is present, skip micro-LLM intent extraction entirely
-        has_exclusive_cmd = any(
-            a.name
-            in (
-                "grant_skill_for_all",
-                "grant_skill",
-                "revoke_skill_for_all",
-                "revoke_constraint",
-                "list_skills",
-            )
-            for a in actions
-        )
+        def _is_exclusive_action(a_name: str) -> bool:
+            try:
+                sk = (
+                    skill_registry.resolve_skill(a_name)
+                    if hasattr(skill_registry, "resolve_skill")
+                    else skill_registry.get(a_name)
+                )
+                return bool(sk and (getattr(sk, "requires_admin", False) or sk.name == "list_skills"))
+            except Exception:
+                return False
+
+        has_exclusive_cmd = any(_is_exclusive_action(a.name) for a in actions)
 
         # 3. Check if micro-LLM intent extraction should run
         from nlp.intent_extractor import intent_extractor

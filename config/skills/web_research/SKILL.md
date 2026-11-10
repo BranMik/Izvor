@@ -14,6 +14,7 @@ tools:
   - web_search
   - fetch_web_page
 requires_human_ITL: false
+requires_admin: false
 ---
 
 # Web Research Skill

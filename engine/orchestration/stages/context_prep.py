@@ -117,18 +117,30 @@ class ContextPrepStage:
         # System prompt generation & Thread-Global & Agent Skills
         from orchestration.thread_skills_manager import thread_skills_manager
         from core.registry import get_skill_registry
+        from core.config import is_slack_admin
+
         skill_registry = get_skill_registry()
         global_skills = skill_registry.get_global_skills()
         active_thread_skills = thread_skills_manager.get_active_skills(ctx.input.channel_id, ctx.input.thread_ts)
         active_agent_skills = thread_skills_manager.get_active_agent_skills(ctx.input.channel_id, ctx.input.thread_ts, ctx.agent_key)
         extra_skills = list(dict.fromkeys(global_skills + active_thread_skills + active_agent_skills))
-        effective_skills = None
-        if extra_skills:
-            base_skills = ctx.agent_cfg.get("skills")
-            if base_skills is None:
-                base_skills = settings_manager.get_agent_skills(ctx.agent_key)
-            effective_skills = list(dict.fromkeys((base_skills or []) + extra_skills))
-            ctx.agent_cfg = dict(ctx.agent_cfg, skills=effective_skills)
+
+        base_skills = list(
+            ctx.agent_cfg.get("skills")
+            if ctx.agent_cfg.get("skills") is not None
+            else (settings_manager.get_agent_skills(ctx.agent_key) or [])
+        )
+        thread_granted = set(active_thread_skills) | set(active_agent_skills)
+        all_candidate_skills = list(dict.fromkeys(base_skills + extra_skills))
+        is_caller_admin = is_slack_admin(getattr(ctx.input, "user_id", None))
+
+        filtered = skill_registry.filter_skills_for_caller(
+            all_candidate_skills,
+            is_admin=is_caller_admin,
+            thread_granted_skills=thread_granted,
+        )
+        effective_skills = filtered if isinstance(filtered, list) else all_candidate_skills
+        ctx.agent_cfg = dict(ctx.agent_cfg, skills=effective_skills)
 
         active_max_words = thread_state_manager.get_max_words(ctx.input.channel_id, ctx.input.thread_ts)
         active_min_words = thread_state_manager.get_min_words(ctx.input.channel_id, ctx.input.thread_ts)
@@ -146,9 +158,16 @@ class ContextPrepStage:
                 effective_modifiers[str(m)] = True
         ctx.modifiers = effective_modifiers
 
-        if active_max_words is not None or active_min_words is not None or ctx.modifiers or extra_skills:
+        needs_prompt_rebuild = bool(
+            active_max_words is not None
+            or active_min_words is not None
+            or ctx.modifiers
+            or extra_skills
+            or effective_skills != base_skills
+        )
+        if needs_prompt_rebuild:
             logger.info(
-                f"[ROUTER] Applying active prompt modifiers (min_words={active_min_words}, max_words={active_max_words}, modifiers={ctx.modifiers}, extra_skills={extra_skills}) for agent {ctx.agent_key}."
+                f"[ROUTER] Applying active prompt modifiers (min_words={active_min_words}, max_words={active_max_words}, modifiers={ctx.modifiers}, effective_skills={effective_skills}) for agent {ctx.agent_key}."
             )
             ctx.system_prompt = build_agent_prompt(
                 ctx.agent_key,
@@ -159,7 +178,7 @@ class ContextPrepStage:
                 is_short_output=bool(ctx.agent_cfg.get("is_short_output", False)),
             )
         else:
-            ctx.system_prompt = ctx.agent_cfg["system_prompt"]
+            ctx.system_prompt = ctx.agent_cfg.get("system_prompt") or build_agent_prompt(ctx.agent_key)
 
         ctx.remaining = thread_state_manager.get_remaining_agents(
             ctx.input.channel_id, ctx.input.thread_ts, default=get_initial_agents(ctx.input.channel_id, ctx.input.thread_ts)

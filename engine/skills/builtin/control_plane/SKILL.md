@@ -11,6 +11,7 @@ tools:
   - request_user_clarification
   - signal_consensus_convergence
 requires_human_ITL: false
+requires_admin: false
 ---
 
 # Discussion Control Plane Skill

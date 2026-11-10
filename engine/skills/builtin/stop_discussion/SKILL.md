@@ -10,6 +10,7 @@ triggers:
   terminal: true
   arg_type: terminal_flag
 requires_human_ITL: false
+requires_admin: false
 ---
 
 ### STOP DISCUSSION

@@ -11,6 +11,7 @@ triggers:
   param_name: history_limit
 extraction_rule: "Extract integer message limit if requested (e.g. 'last 3 messages', 'zadnje 2 poruke')."
 requires_human_ITL: false
+requires_admin: false
 ---
 
 ### THREAD HISTORY LIMIT

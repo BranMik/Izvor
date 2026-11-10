@@ -713,3 +713,100 @@ async def test_resume_sequence_action_succeeds_for_admin():
     finally:
         thread_state_manager.reset_task_dispatcher()
 
+
+@pytest.mark.anyio
+async def test_layer2_caller_delegated_agent_skill_rbac():
+    """Validates Layer 2 caller-delegated RBAC:
+    - Agent skills with requires_admin: true are withheld from non-admin callers during context prep.
+    - Preserved for admin callers.
+    - Unlocked for non-admin callers if explicitly granted in thread.
+    """
+    from skills.loader import SkillDefinition, skill_registry
+    from orchestration.thread_skills_manager import thread_skills_manager
+
+    mock_admin_agent_skill = SkillDefinition(
+        name="admin_crawler",
+        display_name="Admin Crawler",
+        description="High token cost admin crawler",
+        instructions="Instructions for admin crawler",
+        scope="agent",
+        requires_admin=True,
+    )
+    skill_registry._skills["admin_crawler"] = mock_admin_agent_skill
+
+    pipeline = TurnPipeline()
+    context_prep = pipeline.context_prep_stage
+
+    channel_id = "C_TEST_LAYER2"
+    thread_ts = "1720000000.123"
+
+    try:
+        # Case 1: Non-admin caller -> admin_crawler stripped
+        ctx_user = TurnContext(
+            channel_id=channel_id,
+            thread_ts=thread_ts,
+            user_id="U_REGULAR_USER",
+            raw_text="Run crawler",
+        )
+        ctx_user.agent_key = "agent-10008"
+        ctx_user.agent_cfg = {
+            "name": "SecurityArchitect",
+            "skills": ["web_research", "admin_crawler"],
+            "model": "gpt-4o",
+        }
+        with patch("core.config.is_slack_admin", return_value=False):
+            await context_prep.stage_prepare_context(ctx_user)
+            assert "admin_crawler" not in ctx_user.agent_cfg["skills"]
+            assert "web_research" in ctx_user.agent_cfg["skills"]
+            loadable_user = ctx_user.system_prompt.split("AVAILABLE SKILLS (ON DEMAND VIA `load_skill`)")[1].split("SKILL INFERENCE RULE:")[0]
+            assert "admin_crawler" not in loadable_user
+            assert "web_research" in loadable_user
+
+        # Case 2: Admin caller -> admin_crawler preserved
+        ctx_admin = TurnContext(
+            channel_id=channel_id,
+            thread_ts=thread_ts,
+            user_id="U_ADMIN_USER",
+            raw_text="Run crawler",
+        )
+        ctx_admin.agent_key = "agent-10008"
+        ctx_admin.agent_cfg = {
+            "name": "SecurityArchitect",
+            "skills": ["web_research", "admin_crawler"],
+            "model": "gpt-4o",
+        }
+        with patch("core.config.is_slack_admin", return_value=True):
+            await context_prep.stage_prepare_context(ctx_admin)
+            assert "admin_crawler" in ctx_admin.agent_cfg["skills"]
+            assert "web_research" in ctx_admin.agent_cfg["skills"]
+            loadable_admin = ctx_admin.system_prompt.split("AVAILABLE SKILLS (ON DEMAND VIA `load_skill`)")[1].split("SKILL INFERENCE RULE:")[0]
+            assert "admin_crawler" in loadable_admin
+            assert "web_research" in loadable_admin
+
+        # Case 3: Non-admin caller, but admin_crawler was explicitly granted in thread
+        thread_skills_manager.grant_skills(channel_id, thread_ts, ["admin_crawler"])
+        try:
+            ctx_granted = TurnContext(
+                channel_id=channel_id,
+                thread_ts=thread_ts,
+                user_id="U_REGULAR_USER",
+                raw_text="Run crawler",
+            )
+            ctx_granted.agent_key = "agent-10008"
+            ctx_granted.agent_cfg = {
+                "name": "SecurityArchitect",
+                "skills": ["web_research"],
+                "model": "gpt-4o",
+            }
+            with patch("core.config.is_slack_admin", return_value=False):
+                await context_prep.stage_prepare_context(ctx_granted)
+                assert "admin_crawler" in ctx_granted.agent_cfg["skills"]
+                loadable_granted = ctx_granted.system_prompt.split("AVAILABLE SKILLS (ON DEMAND VIA `load_skill`)")[1].split("SKILL INFERENCE RULE:")[0]
+                assert "admin_crawler" in loadable_granted
+        finally:
+            thread_skills_manager.clear_thread(channel_id, thread_ts)
+
+    finally:
+        skill_registry._skills.pop("admin_crawler", None)
+
+

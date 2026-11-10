@@ -68,7 +68,7 @@ Workspace administrators (`SLACK_ADMIN_USER_IDS`) can grant or revoke tool capab
 | `/revoke_constraint max_words` | `/revoke max_words` | **Slack Admin + Slash Origin** |
 
 > [!CAUTION]
-> Enforced by `require_directive_admin` in [`orchestration/stages/directive_handlers.py`](file:///engine/orchestration/stages/directive_handlers.py), `/grant_skill`, `/grant_skill_for_all`, `/revoke_skill_for_all`, `/revoke_constraint`, and disabling constraints via `=off` require **Slack Workspace Admin** privileges (`is_slack_admin(user_id)`) AND explicit slash invocation (`origin: "slash"`). Unauthorized attempts are rejected and emit an `UNAUTHORIZED_DIRECTIVE_ATTEMPT` security audit log; authorized executions emit `ADMIN_DIRECTIVE_EXECUTED`.
+> Governed declaratively by `requires_admin: true` in `SKILL.md` frontmatter and enforced centrally in [`orchestration/stages/directive_handlers.py`](file:///engine/orchestration/stages/directive_handlers.py), `/grant_skill`, `/grant_skill_for_all`, `/revoke_skill_for_all`, `/revoke_constraint`, and disabling constraints via `=off` require **Slack Workspace Admin** privileges (`is_slack_admin(user_id)`) AND explicit slash invocation (`origin: "slash"`). Unauthorized attempts are rejected and emit an `UNAUTHORIZED_DIRECTIVE_ATTEMPT` security audit log; authorized executions emit `ADMIN_DIRECTIVE_EXECUTED`.
 
 ---
 

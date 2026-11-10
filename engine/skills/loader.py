@@ -52,6 +52,10 @@ LOAD_SKILL_SCHEMA = {
 }
 
 
+class SkillIntegrityError(ValueError):
+    """Raised when a SKILL.md file violates mandatory schema requirements."""
+
+
 @dataclass
 class SkillDefinition:
     """Represents a declarative Skill parsed from a SKILL.md file."""
@@ -68,6 +72,7 @@ class SkillDefinition:
     is_global: bool = False
     is_terminal: bool = False
     requires_human_ITL: bool = False
+    requires_admin: bool = False
     extraction_rule: str = ""
     handles_files: bool = False
     custom_tool_schemas: list[dict[str, Any]] = field(default_factory=list)
@@ -153,6 +158,8 @@ class SkillRegistry:
                         logger.debug(
                             f"[SKILLS] Loaded declarative skill '{skill_def.name}' ({skill_def.scope}) from {skill_file}"
                         )
+                except SkillIntegrityError:
+                    raise
                 except (OSError, yaml.YAMLError, ValueError, TypeError, KeyError, AttributeError) as e:
                     logger.error(f"[SKILLS] Failed to parse {skill_file}: {e}")
 
@@ -212,6 +219,17 @@ class SkillRegistry:
         is_global = bool(meta.get("global", False))
         requires_human_ITL = bool(meta.get("requires_human_ITL", False))
 
+        # Validate mandatory requires_admin boolean (fail-closed)
+        if "requires_admin" not in meta:
+            raise SkillIntegrityError(
+                f"[SKILLS INTEGRITY ERROR] {file_path} is missing mandatory boolean 'requires_admin' in YAML frontmatter."
+            )
+        if not isinstance(meta.get("requires_admin"), bool):
+            raise SkillIntegrityError(
+                f"[SKILLS INTEGRITY ERROR] {file_path} field 'requires_admin' must be a boolean (true/false), got {type(meta.get('requires_admin')).__name__}."
+            )
+        requires_admin = bool(meta.get("requires_admin"))
+
         # Check for action.py handler
         action_handler = None
         action_file = file_path.parent / "action.py"
@@ -264,6 +282,7 @@ class SkillRegistry:
             is_global=is_global,
             is_terminal=is_terminal,
             requires_human_ITL=requires_human_ITL,
+            requires_admin=requires_admin,
             extraction_rule=extraction_rule,
             handles_files=handles_files,
             custom_tool_schemas=custom_tool_schemas,
@@ -276,6 +295,50 @@ class SkillRegistry:
     def get(self, name: str) -> SkillDefinition | None:
         """Retrieve a skill by name."""
         return self._skills.get(name)
+
+    def resolve_skill(self, name_or_alias: str) -> SkillDefinition | None:
+        """Resolves a skill by its canonical name or slash command alias (e.g. 'grant_for_all' or '/grant_for_all')."""
+        if not name_or_alias:
+            return None
+        target = str(name_or_alias).strip().lower()
+        if target in self._skills:
+            return self._skills[target]
+        cmd = target if target.startswith("/") else f"/{target}"
+        slash_triggers = self.get_slash_triggers()
+        if cmd in slash_triggers:
+            return slash_triggers[cmd][0]
+        bare_cmd = target.lstrip("/")
+        for trigger_cmd, (sk_def, _) in slash_triggers.items():
+            if trigger_cmd.lstrip("/").lower() == bare_cmd:
+                return sk_def
+        return None
+
+    def get_admin_skills(self) -> list[SkillDefinition]:
+        """Returns all registered skills that require admin privileges."""
+        return [s for s in self._skills.values() if getattr(s, "requires_admin", False)]
+
+    def filter_skills_for_caller(
+        self,
+        skill_names: list[str] | set[str] | None,
+        is_admin: bool,
+        thread_granted_skills: set[str] | list[str] | None = None,
+    ) -> list[str]:
+        """
+        Filters a list of skill names based on whether the turn caller is a Slack Workspace Admin.
+        If caller is not an admin, skills with requires_admin=True are stripped unless explicitly
+        granted to the thread by an admin.
+        """
+        raw_list = list(skill_names or [])
+        if is_admin:
+            return raw_list
+        granted = set(thread_granted_skills or ())
+        filtered: list[str] = []
+        for s in raw_list:
+            sk = self.get(s)
+            if sk and getattr(sk, "requires_admin", False) and s not in granted:
+                continue
+            filtered.append(s)
+        return filtered
 
     def list_skills(self) -> list[SkillDefinition]:
         """Returns all registered skills."""
@@ -548,6 +611,7 @@ class SkillRegistry:
                 "scope": skill.scope,
                 "tools": skill.tools,
                 "is_global": skill.is_global,
+                "requires_admin": getattr(skill, "requires_admin", False),
                 "authorized_agents": auth_agents,
             }
         return mapping
@@ -567,7 +631,8 @@ class SkillRegistry:
         for name, info in sorted(mapping.items()):
             agents_str = ", ".join(info["authorized_agents"])
             desc = info["description"] or "No description provided."
-            entry = f"• `{name}`: {desc}\n   ↳ *Authorized*: {agents_str}"
+            admin_badge = " (🔒 *Admin Only*)" if info.get("requires_admin") else ""
+            entry = f"• `{name}`{admin_badge}: {desc}\n   ↳ *Authorized*: {agents_str}"
             if info["scope"] == "agent":
                 agent_skills.append(entry)
             elif info["scope"] == "prompt_modifier":
@@ -961,7 +1026,7 @@ def get_permitted_tools_for_principal(
     skills_list = normalize_skills_list(authorized_skills)
 
     static_skills: list[str] = []
-    if actor_id and actor_id != "system":
+    if authorized_skills is None and actor_id and actor_id != "system":
         try:
             from orchestration.agent_settings import get_agent_skills
 
@@ -999,6 +1064,8 @@ def get_permitted_tools_for_principal(
     )
     for s_def in skills_iter:
         if getattr(s_def, "is_global", False):
+            if getattr(s_def, "requires_admin", False) and s_def.name not in combined_skills:
+                continue
             permitted.update(getattr(s_def, "tools", []))
             for schema in getattr(s_def, "custom_tool_schemas", []):
                 fn = schema.get("function", {}).get("name")

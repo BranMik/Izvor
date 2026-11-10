@@ -14,6 +14,7 @@ triggers:
   arg_type: int
   param_name: rounds
 requires_human_ITL: false
+requires_admin: false
 ---
 
 ### DISCUSSION ROUNDS
