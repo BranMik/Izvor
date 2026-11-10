@@ -19,6 +19,7 @@ tools:
   - list_documents
   - read_document
 requires_human_ITL: false
+requires_admin: false
 ---
 
 # Document Reader Skill

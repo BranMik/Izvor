@@ -68,10 +68,10 @@ To implement a new skill:
 1. **Directory Structure**:
    - For a new agent tool skill, create [`config/skills/<skill_name>/`](file:///config/skills) (with an `__init__.py`, `SKILL.md`, and `tools.py`).
    - For a core engine directive or prompt modifier, create [`engine/skills/builtin/<skill_name>/`](file:///engine/skills/builtin).
-2. **`SKILL.md` Manifest**: Define YAML frontmatter with `name`, `display_name`, `description`, `scope`, `triggers`, and tool schemas.
+2. **`SKILL.md` Manifest**: Define YAML frontmatter with `name`, `display_name`, `description`, `scope`, mandatory `requires_admin: true/false`, `triggers`, and tool schemas.
 3. **Execution Logic**:
    - If tool-backed (`scope: agent`), implement `tools.py` and ensure `ToolPrincipal` authorization is respected.
-   - If a slash directive, register the handler in [`engine/orchestration/stages/directive_handlers.py`](file:///engine/orchestration/stages/directive_handlers.py) and gate privileged mutations with `require_directive_admin`.
+   - If a slash directive, register the handler in [`engine/orchestration/stages/directive_handlers.py`](file:///engine/orchestration/stages/directive_handlers.py) (privileged directives set `requires_admin: true` in `SKILL.md` frontmatter which is centrally enforced by the Stage 1 gate).
    - If adding a Slack interactive button or modal, register an `ActionSpec` in [`engine/adapters/slack/interactivity.py`](file:///engine/adapters/slack/interactivity.py) and implement the handler under [`engine/adapters/slack/actions/`](file:///engine/adapters/slack/actions/).
 4. **Validation Test**: Add corresponding test cases in [`tests/unit/test_agent_skills.py`](file:///tests/unit/test_agent_skills.py).
 

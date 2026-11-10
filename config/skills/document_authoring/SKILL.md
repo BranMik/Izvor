@@ -16,6 +16,7 @@ extraction_rule: "If user asks to draft, write, or save a document/file locally 
 tools:
   - write_document
 requires_human_ITL: true
+requires_admin: false
 ---
 
 # Document Authoring Skill

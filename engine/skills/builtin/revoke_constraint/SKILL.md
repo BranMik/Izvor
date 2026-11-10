@@ -12,6 +12,7 @@ triggers:
   param_name: target
   auto_detect: false
 requires_human_ITL: false
+requires_admin: true
 ---
 
 ### REVOKE CONSTRAINT

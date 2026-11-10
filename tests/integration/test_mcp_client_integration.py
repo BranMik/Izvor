@@ -130,6 +130,7 @@ async def test_mcp_skill_declarative_binding_and_schemas(mock_mcp_server, tmp_pa
         "name: github_management\n"
         "display_name: GitHub Management\n"
         "description: Manage GitHub issues and repositories\n"
+        "requires_admin: false\n"
         "mcp_server: github\n"
         "mcp_tools:\n"
         "  - search_repos\n"

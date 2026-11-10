@@ -362,6 +362,50 @@ async def test_revoke_constraint_non_admin_denied():
         assert len(audit_calls) >= 1
 
 
+@pytest.mark.anyio
+async def test_custom_skill_requires_admin_blocked_for_non_admin():
+    from skills.loader import SkillDefinition
+    pipeline = TurnPipeline()
+    post_mock = AsyncMock()
+    pipeline.post_system_message_fn = post_mock
+
+    custom_admin_skill = SkillDefinition(
+        name="custom_admin_op",
+        display_name="Custom Admin Op",
+        description="Dangerous admin operation",
+        scope="orchestrator",
+        requires_admin=True,
+        triggers={"slash": ["/custom_admin_op"]},
+    )
+    skill_registry._skills["custom_admin_op"] = custom_admin_skill
+    try:
+        ctx = TurnContext(
+            channel_id="C_TEST",
+            thread_ts="1726000000.999",
+            user_id="U_REGULAR",
+            raw_text="/custom_admin_op",
+        )
+
+        with (
+            patch("services.audit_logger.log_audit_event") as mock_audit,
+            patch("orchestration.stages.validation.fetch_thread_files", AsyncMock(return_value=[])),
+        ):
+            res = await pipeline.validation_stage.stage_validate_and_parse(ctx)
+            assert res is not None
+            assert res.get("ok") is False
+            assert res.get("halted") is True
+            assert res.get("reason") == "unauthorized"
+            post_mock.assert_awaited_once()
+            assert "Permission Denied" in post_mock.call_args.kwargs["text"]
+            assert any(
+                c.kwargs.get("event_type") == "UNAUTHORIZED_DIRECTIVE_ATTEMPT"
+                and c.kwargs.get("action") == "custom_admin_op"
+                for c in mock_audit.call_args_list
+            )
+    finally:
+        skill_registry._skills.pop("custom_admin_op", None)
+
+
 # ---------------------------------------------------------------------------
 # 4. ThreadSkillsManager Per-Agent Tests
 # ---------------------------------------------------------------------------

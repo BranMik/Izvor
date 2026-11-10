@@ -600,6 +600,7 @@ class TurnPipeline:
 
         from orchestration.thread_skills_manager import thread_skills_manager
         from skills.loader import skill_registry
+        from core.config import is_slack_admin
 
         base_skills = list(ctx.agent_cfg.get("skills") or settings_manager.get_agent_skills(ctx.agent_key) or [])
         global_skills = skill_registry.get_global_skills()
@@ -607,9 +608,17 @@ class TurnPipeline:
         active_agent_skills = thread_skills_manager.get_active_agent_skills(
             ctx.input.channel_id, ctx.input.thread_ts, ctx.agent_key
         )
-        ctx.authorized_skills = list(
+        all_candidate_skills = list(
             dict.fromkeys(base_skills + global_skills + active_thread_skills + active_agent_skills)
         )
+        is_caller_admin = is_slack_admin(getattr(ctx.input, "user_id", None))
+        thread_granted = set(active_thread_skills) | set(active_agent_skills)
+        filtered = skill_registry.filter_skills_for_caller(
+            all_candidate_skills,
+            is_admin=is_caller_admin,
+            thread_granted_skills=thread_granted,
+        )
+        ctx.authorized_skills = filtered if isinstance(filtered, list) else all_candidate_skills
 
         active_tools = list(chk.active_tools or [])
         pending_tool = chk.pending_tool_call

@@ -12,6 +12,7 @@ triggers:
   arg_type: agent_token
   param_name: first_agent
 requires_human_ITL: false
+requires_admin: false
 ---
 
 ### OPEN DEBATE

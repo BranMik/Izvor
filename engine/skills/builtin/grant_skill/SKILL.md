@@ -10,6 +10,7 @@ triggers:
   arg_type: grant_skill
   auto_detect: false
 requires_human_ITL: false
+requires_admin: true
 ---
 
 ### GRANT SKILL
