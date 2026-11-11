@@ -160,6 +160,8 @@ def build_agent_prompt(
     skills: list[str] | None = None,
     modifiers: dict[str, Any] | None = None,
     is_short_output: bool | None = None,
+    channel_id: str | None = None,
+    thread_ts: str | None = None,
 ) -> str:
     """
     Builds the complete system prompt for a given agent by combining
@@ -262,7 +264,9 @@ def build_agent_prompt(
             skill_registry = get_skill_registry()
 
         # Inject comprehensive skills directory so any agent asked can accurately list all skills and authorized agents
-        skills_dir_prompt = skill_registry.get_skills_directory_prompt()
+        skills_dir_prompt = skill_registry.get_skills_directory_prompt(
+            channel_id=channel_id, thread_ts=thread_ts
+        )
         if skills_dir_prompt:
             prompt += f"\n{skills_dir_prompt}\n"
 

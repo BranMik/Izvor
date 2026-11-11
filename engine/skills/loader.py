@@ -702,12 +702,15 @@ class SkillRegistry:
                 )
         return " ".join(hints)
 
-    def get_skills_directory_prompt(self) -> str:
+    def get_skills_directory_prompt(
+        self, channel_id: str | None = None, thread_ts: str | None = None
+    ) -> str:
         """
         Generates the comprehensive application skills directory for injection into agent system prompts.
         Informs all agents of platform skills and which agents can use them, while enforcing boundary awareness.
+        Reflects active thread-level skill grants when channel_id and thread_ts are provided.
         """
-        mapping = self.get_skill_agent_mapping()
+        mapping = self.get_skill_agent_mapping(channel_id=channel_id, thread_ts=thread_ts)
         lines = [
             "### APPLICATION SKILLS DIRECTORY",
             "The platform provides the following skills. Beside each skill is the list of agents authorized to use it:",
@@ -721,8 +724,9 @@ class SkillRegistry:
                 "",
                 "PERMISSION BOUNDARIES & USAGE RESTRICTIONS:",
                 "- Reference this directory to answer user inquiries regarding platform capabilities and agent skill assignments.",
-                "- Agents are strictly limited in tool usage: load and execute tools ONLY for skills explicitly authorized for the assigned agent role.",
-                "- When a user requests an action requiring an unauthorized skill, explicitly report lack of permission in at most 50 words (including a 1-line hint naming an authorized agent or /grant_skill) without reflecting on skills architecture, and proceed normally with any other parts of the prompt that do not require the missing skill.",
+                "- Agents are strictly limited in tool usage: load and execute tools ONLY for skills explicitly authorized for your agent role, granted thread-actively, or listed under '### AVAILABLE SKILLS'.",
+                "- Any skill marked with '(Authorized: All Agents (Thread-Global Active))', '(Thread Active)', or listed under '### AVAILABLE SKILLS' IS authorized for you to use in this thread.",
+                "- When a user requests an action requiring an unauthorized skill that is not authorized for you in this thread, explicitly report lack of permission in at most 50 words (including a 1-line hint naming an authorized agent or /grant_skill) without reflecting on skills architecture, and proceed normally with any other parts of the prompt that do not require the missing skill.",
                 "- Never attempt to circumvent permission boundaries.",
             ]
         )
