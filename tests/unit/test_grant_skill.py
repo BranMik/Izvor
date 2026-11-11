@@ -82,7 +82,7 @@ def configure_admin_env():
 
 
 @pytest.mark.anyio
-async def test_grant_skill_for_all_unconditionally_halts():
+async def test_grant_skill_for_all_standalone_halts():
     pipeline = TurnPipeline()
     channel_id = "C_TEST"
     thread_ts = "1726000000.1"
@@ -90,12 +90,12 @@ async def test_grant_skill_for_all_unconditionally_halts():
     post_mock = AsyncMock()
     pipeline.post_system_message_fn = post_mock
 
-    # Test with extra trailing prompt text
+    # Pure directive without prompt halts cleanly
     ctx = TurnContext(
         channel_id=channel_id,
         thread_ts=thread_ts,
         user_id="U_ADMIN",
-        raw_text="/grant_skill_for_all web_research Now discuss everything",
+        raw_text="/grant_skill_for_all web_research",
     )
     directives = await directive_parser.parse(ctx.input.raw_text)
     ctx.actions = directives.actions
@@ -107,6 +107,35 @@ async def test_grant_skill_for_all_unconditionally_halts():
     assert res.get("halted") is True
     assert res.get("action") == "grant_skill_for_all"
     post_mock.assert_awaited_once()
+    assert "Thread-Global Skills Granted" in post_mock.call_args.kwargs["text"]
+
+
+@pytest.mark.anyio
+async def test_grant_skill_for_all_with_prompt_continues():
+    pipeline = TurnPipeline()
+    channel_id = "C_TEST"
+    thread_ts = "1726000000.15"
+
+    post_mock = AsyncMock()
+    pipeline.post_system_message_fn = post_mock
+
+    # Combined directive with substantive prompt must not halt
+    ctx = TurnContext(
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        user_id="U_ADMIN",
+        raw_text="/grant_skill_for_all web_research Now discuss everything",
+    )
+    directives = await directive_parser.parse(ctx.input.raw_text)
+    ctx.actions = directives.actions
+    ctx.raw_text_cleaned = directives.cleaned_prompt
+
+    res = await pipeline.validation_stage.stage_validate_and_parse(ctx)
+    assert res is None
+    post_mock.assert_awaited_once()
+    assert "Thread-Global Skills Granted" in post_mock.call_args.kwargs["text"]
+    assert "web_research" in thread_skills_manager.get_active_skills(channel_id, thread_ts)
+    assert ctx.raw_text_cleaned == "Now discuss everything"
 
 
 @pytest.mark.anyio
@@ -136,7 +165,7 @@ async def test_grant_skill_for_all_halts_on_bot_mention():
 
 
 @pytest.mark.anyio
-async def test_grant_skill_unconditionally_halts():
+async def test_grant_skill_standalone_halts():
     pipeline = TurnPipeline()
     channel_id = "C_TEST"
     thread_ts = "1726000000.3"
@@ -144,11 +173,12 @@ async def test_grant_skill_unconditionally_halts():
     post_mock = AsyncMock()
     pipeline.post_system_message_fn = post_mock
 
+    # Pure directive without prompt halts cleanly
     ctx = TurnContext(
         channel_id=channel_id,
         thread_ts=thread_ts,
         user_id="U_ADMIN",
-        raw_text="/grant_skill web_research SecurityArchitect And continue debate",
+        raw_text="/grant_skill web_research SecurityArchitect",
     )
     directives = await directive_parser.parse(ctx.input.raw_text)
     ctx.actions = directives.actions
@@ -161,6 +191,92 @@ async def test_grant_skill_unconditionally_halts():
     assert res.get("action") == "grant_skill"
     post_mock.assert_awaited_once()
     assert "Agent Skill Granted" in post_mock.call_args.kwargs["text"]
+
+
+@pytest.mark.anyio
+async def test_grant_skill_with_prompt_continues():
+    pipeline = TurnPipeline()
+    channel_id = "C_TEST"
+    thread_ts = "1726000000.35"
+
+    post_mock = AsyncMock()
+    pipeline.post_system_message_fn = post_mock
+
+    # Combined directive with prompt must not halt
+    ctx = TurnContext(
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        user_id="U_ADMIN",
+        raw_text="/grant_skill web_research SecurityArchitect And continue debate",
+    )
+    directives = await directive_parser.parse(ctx.input.raw_text)
+    ctx.actions = directives.actions
+    ctx.raw_text_cleaned = directives.cleaned_prompt
+
+    res = await pipeline.validation_stage.stage_validate_and_parse(ctx)
+    assert res is None
+    post_mock.assert_awaited_once()
+    assert "Agent Skill Granted" in post_mock.call_args.kwargs["text"]
+    assert "web_research" in thread_skills_manager.get_active_agent_skills(channel_id, thread_ts, "agent-10008")
+    assert ctx.raw_text_cleaned == "And continue debate"
+
+
+@pytest.mark.anyio
+async def test_revoke_skill_for_all_standalone_halts():
+    pipeline = TurnPipeline()
+    channel_id = "C_TEST"
+    thread_ts = "1726000000.36"
+
+    post_mock = AsyncMock()
+    pipeline.post_system_message_fn = post_mock
+
+    thread_skills_manager.grant_skills(channel_id, thread_ts, ["web_research"])
+    ctx = TurnContext(
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        user_id="U_ADMIN",
+        raw_text="/revoke_skill_for_all web_research",
+    )
+    directives = await directive_parser.parse(ctx.input.raw_text)
+    ctx.actions = directives.actions
+    ctx.raw_text_cleaned = directives.cleaned_prompt
+
+    res = await pipeline.validation_stage.stage_validate_and_parse(ctx)
+    assert res is not None
+    assert res.get("ok") is True
+    assert res.get("halted") is True
+    assert res.get("action") == "revoke_skill_for_all"
+    post_mock.assert_awaited_once()
+    assert "Revoked" in post_mock.call_args.kwargs["text"]
+    assert "web_research" not in thread_skills_manager.get_active_skills(channel_id, thread_ts)
+
+
+@pytest.mark.anyio
+async def test_revoke_skill_for_all_with_prompt_continues():
+    pipeline = TurnPipeline()
+    channel_id = "C_TEST"
+    thread_ts = "1726000000.37"
+
+    post_mock = AsyncMock()
+    pipeline.post_system_message_fn = post_mock
+
+    thread_skills_manager.grant_skills(channel_id, thread_ts, ["web_research"])
+    ctx = TurnContext(
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        user_id="U_ADMIN",
+        raw_text="/revoke_skill_for_all web_research Now discuss from memory",
+    )
+    directives = await directive_parser.parse(ctx.input.raw_text)
+    ctx.actions = directives.actions
+    ctx.raw_text_cleaned = directives.cleaned_prompt
+
+    res = await pipeline.validation_stage.stage_validate_and_parse(ctx)
+    assert res is None
+    post_mock.assert_awaited_once()
+    assert "Revoked" in post_mock.call_args.kwargs["text"]
+    assert "web_research" not in thread_skills_manager.get_active_skills(channel_id, thread_ts)
+    assert ctx.raw_text_cleaned == "Now discuss from memory"
 
 
 # ---------------------------------------------------------------------------
