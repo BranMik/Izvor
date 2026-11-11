@@ -47,6 +47,7 @@ from adapters.slack.actions.workflow_actions import (
     _handle_toggle_circuit_breaker,
     _handle_toggle_convergence_ff,
     _handle_toggle_scribe,
+    _handle_toggle_skill_filter,
     _handle_toggle_weekly_pricing,
     _validate_chain_agent_keys,
 )
@@ -89,6 +90,7 @@ __all__ = [
     "_handle_toggle_circuit_breaker",
     "_handle_toggle_convergence_ff",
     "_handle_toggle_scribe",
+    "_handle_toggle_skill_filter",
     "_handle_toggle_weekly_pricing",
     "_resume_hitl_denial",
     "_safe_publish_home_task",

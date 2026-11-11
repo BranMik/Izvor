@@ -144,3 +144,39 @@ async def test_revisor_executes_on_partial_prompt_continuation():
         result = await run_internal_revisor(ctx)
         assert result is None  # NO_HALLUCINATION returns None
         mock_exec.assert_called_once()
+
+
+@pytest.mark.anyio
+async def test_revisor_runs_on_terminating_single_agent_rag_turn():
+    """Verifies Fix 5: InternalRevisor runs on terminating single-agent RAG/skill turn (turn_count == 1, no remaining agents)."""
+    from orchestration.revisor_service import run_internal_revisor
+
+    channel_id = "C_REVISOR_SINGLE_AGENT"
+    thread_ts = "99999.0003"
+    thread_state_manager.clear_state(channel_id, thread_ts)
+    thread_state_manager.set_remaining_agents(channel_id, thread_ts, [])
+
+    ctx = TurnContext(
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        raw_text="Iz fajla spec.pdf reci mi koji je Stage 2?",
+        is_bot_trigger=False,
+    )
+    ctx.full_history = [
+        {"role": "user", "content": "Iz fajla spec.pdf reci mi koji je Stage 2?"},
+    ]
+    ctx.agent_key = "agent-10001"
+    ctx.agent_cfg = {"model": "test-model", "username": "Visionary", "skills": ["document_reader"]}
+    ctx.output.skills_used = ["document_reader"]
+    ctx.output.final_text = "Stage 2 of AI Maturity is Strategic Alignment, focusing on foundational readiness."
+
+    mock_resp = MagicMock()
+    mock_resp.choices = [MagicMock(message=MagicMock(content="NO_HALLUCINATION"))]
+    mock_resp.usage = MagicMock(prompt_tokens=10, completion_tokens=5)
+
+    with patch("orchestration.revisor_service.execute_llm_with_retry", AsyncMock(return_value=mock_resp)) as mock_exec:
+        result = await run_internal_revisor(ctx)
+        assert result is None
+        # Must execute on terminating turn 1 when RAG/skills were used!
+        mock_exec.assert_called_once()
+

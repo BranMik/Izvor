@@ -47,6 +47,7 @@ from adapters.slack.actions import (
     _handle_toggle_circuit_breaker,
     _handle_toggle_convergence_ff,
     _handle_toggle_scribe,
+    _handle_toggle_skill_filter,
     _handle_toggle_weekly_pricing,
     _resume_hitl_denial,
     _validate_chain_agent_keys,
@@ -113,6 +114,12 @@ ACTION_REGISTRY: dict[str, ActionSpec] = {
     ),
     "toggle_convergence_fast_forward_radio": ActionSpec(
         handler=_handle_toggle_convergence_ff,
+        admin_required=True,
+        audit_action="ADMIN_CONFIG_CHANGE",
+        publish_home=True,
+    ),
+    "toggle_skill_filter_radio": ActionSpec(
+        handler=_handle_toggle_skill_filter,
         admin_required=True,
         audit_action="ADMIN_CONFIG_CHANGE",
         publish_home=True,

@@ -183,6 +183,7 @@ class ExtractedIntent:
     modifiers: dict[str, Any] = field(default_factory=dict)
     attachments: list[MediaAttachment] = field(default_factory=list)
     detected_language: str | None = None
+    is_pure_skill_task: bool = False
 
     def has_action(self, name: str) -> bool:
         """Check if an action is present in actions list."""
@@ -202,6 +203,7 @@ class ExtractedIntent:
             "modifiers": dict(self.modifiers),
             "attachments": [att.to_dict() for att in self.attachments],
             "detected_language": self.detected_language,
+            "is_pure_skill_task": self.is_pure_skill_task,
         }
 
     @classmethod
@@ -219,6 +221,7 @@ class ExtractedIntent:
             modifiers=modifiers,
             attachments=attachments,
             detected_language=data.get("detected_language"),
+            is_pure_skill_task=bool(data.get("is_pure_skill_task", False)),
         )
 
 

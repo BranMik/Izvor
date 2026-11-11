@@ -31,6 +31,7 @@ from orchestration.app_settings import (
     set_circuit_breaker_threshold,
     set_convergence_fast_forward_enabled,
     set_daily_budget_usd,
+    set_filter_unauthorized_skill_agents_enabled,
     set_scribe_enabled,
     set_weekly_pricing_update_enabled,
 )
@@ -366,6 +367,28 @@ async def _handle_toggle_convergence_ff(
         actor={"type": "slack_admin", "id": user_id or "unknown"},
         action="toggle_convergence_fast_forward",
         target="convergence_fast_forward.enabled",
+        details={"enabled": is_on},
+        severity="CRITICAL",
+    )
+    return None
+
+
+async def _handle_toggle_skill_filter(
+    action: dict[str, Any],
+    payload: dict[str, Any],
+    user_id: str | None,
+    background_tasks: BackgroundTasks,
+    view_state: dict[str, Any],
+) -> Response | None:
+    selected_option = action.get("selected_option", {})
+    val = selected_option.get("value", "")
+    is_on = val == "skill_filter:on"
+    set_filter_unauthorized_skill_agents_enabled(is_on)
+    log_audit_event(
+        event_type="ADMIN_CONFIG_CHANGE",
+        actor={"type": "slack_admin", "id": user_id or "unknown"},
+        action="toggle_skill_filter",
+        target="skill_routing.filter_unauthorized_agents_enabled",
         details={"enabled": is_on},
         severity="CRITICAL",
     )

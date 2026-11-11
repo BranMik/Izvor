@@ -345,10 +345,21 @@ class ContextPrepStage:
             ctx.input.channel_id, ctx.input.thread_ts
         )
 
+        active_prompt = ctx.prompt
+        if ctx.input.is_bot_trigger:
+            stored_prompt = thread_state_manager.get_initial_prompt(ctx.input.channel_id, ctx.input.thread_ts)
+            if stored_prompt and stored_prompt.strip():
+                active_prompt = stored_prompt
+            elif ctx.effective_history:
+                for h_msg in reversed(ctx.effective_history):
+                    if h_msg.get("role") == "user" and h_msg.get("content"):
+                        active_prompt = h_msg.get("content")
+                        break
+
         ctx.messages = build_llm_messages(
             system_prompt=ctx.system_prompt,
             effective_history=ctx.effective_history,
-            prompt=ctx.prompt,
+            prompt=active_prompt,
             is_bot_trigger=ctx.input.is_bot_trigger,
             agent_key=ctx.agent_key,
             agent_cfg=ctx.agent_cfg,
