@@ -396,6 +396,51 @@ async def test_local_tools_execute_tool_agent_authorization():
     tech_json = json.loads(tech_res)
     assert "contents" in tech_json
 
+    # Dynamic skill grant: Sceptic (agent-10003, static skills: []) with authorized_skills must be allowed
+    dyn_list_res = await execute_local_tool(
+        "list_documents",
+        {"rel_path": "."},
+        agent_name="agent-10003",
+        authorized_skills=["document_reader"],
+    )
+    dyn_list_json = json.loads(dyn_list_res)
+    assert "contents" in dyn_list_json
+
+    dyn_read_res = await execute_local_tool(
+        "read_document",
+        {"rel_path": "sys_spec.txt"},
+        agent_name="agent-10003",
+        authorized_skills=["document_reader"],
+    )
+    dyn_read_json = json.loads(dyn_read_res)
+    assert "Permission denied" not in dyn_read_json.get("error", "")
+
+    # Sceptic without authorized_skills must fail closed on read_document
+    unauth_read_res = await execute_local_tool(
+        "read_document",
+        {"rel_path": "sys_spec.txt"},
+        agent_name="agent-10003",
+    )
+    unauth_read_json = json.loads(unauth_read_res)
+    assert "Permission denied" in unauth_read_json.get("error", "")
+    assert "agent-10003" in unauth_read_json.get("error", "")
+
+    # Dynamic write_document with document_authoring
+    from core.paths import AGENTS_RESOURCES_DIR
+    dyn_file = AGENTS_RESOURCES_DIR / "dynamic_auth_test.txt"
+    try:
+        dyn_write_res = await execute_local_tool(
+            "write_document",
+            {"rel_path": "dynamic_auth_test.txt", "content": "dynamic skill write"},
+            agent_name="agent-10003",
+            authorized_skills=["document_authoring"],
+        )
+        dyn_write_json = json.loads(dyn_write_res)
+        assert "error" not in dyn_write_json
+    finally:
+        if dyn_file.exists():
+            dyn_file.unlink(missing_ok=True)
+
 
 def test_local_tools_system_resources_boundary_enforcement():
     from services.local_tools import read_document, write_document

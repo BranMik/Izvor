@@ -134,6 +134,7 @@ def _resolve_resource_path(rel_path: str) -> Path:
 def list_documents(
     rel_path: str = ".",
     principal: ToolPrincipal | str | None = None,
+    authorized_skills: list[str] | set[str] | str | None = None,
 ) -> str:
     """
     Lists the contents of a directory inside the agents_resources/ directory.
@@ -143,7 +144,7 @@ def list_documents(
         return json.dumps({
             "error": "Permission denied: Principal identity is required to list documents."
         })
-    if not is_agent_authorized_for_tool(principal, "list_documents"):
+    if not is_agent_authorized_for_tool(principal, "list_documents", authorized_skills=authorized_skills):
         actor_id = principal.id if hasattr(principal, "id") else str(principal)
         return json.dumps({
             "error": f"Permission denied: Principal '{actor_id}' is not authorized to list documents."
@@ -180,6 +181,7 @@ def read_document(
     rel_path: str,
     principal: ToolPrincipal | str | None = None,
     authorized_agents: set[str] | None = None,
+    authorized_skills: list[str] | set[str] | str | None = None,
 ) -> str:
     """
     Reads the content of a text or PDF document inside the agents_resources/ directory.
@@ -190,7 +192,7 @@ def read_document(
         return json.dumps({
             "error": "Permission denied: Principal identity is required to read documents."
         })
-    if not is_agent_authorized_for_tool(principal, "read_document"):
+    if not is_agent_authorized_for_tool(principal, "read_document", authorized_skills=authorized_skills):
         actor_id = principal.id if hasattr(principal, "id") else str(principal)
         return json.dumps({
             "error": f"Permission denied: Principal '{actor_id}' is not authorized to read documents."
@@ -270,6 +272,7 @@ def write_document(
     rel_path: str,
     content: str,
     principal: ToolPrincipal | str | None = None,
+    authorized_skills: list[str] | set[str] | str | None = None,
 ) -> str:
     """
     Writes or overwrites content to a text document inside the agents_resources/ directory.
@@ -279,7 +282,7 @@ def write_document(
         return json.dumps({
             "error": "Permission denied: Principal identity is required to write documents."
         })
-    if not is_agent_authorized_for_tool(principal, "write_document"):
+    if not is_agent_authorized_for_tool(principal, "write_document", authorized_skills=authorized_skills):
         actor_id = principal.id if hasattr(principal, "id") else str(principal)
         return json.dumps({
             "error": f"Permission denied: Principal '{actor_id}' is not authorized to write documents."
@@ -477,9 +480,23 @@ LOCAL_TOOLS_SCHEMAS = [
 
 
 TOOL_DISPATCHER: dict[str, Any] = {
-    "list_documents": lambda args, **kw: list_documents(args.get("rel_path", "."), principal=kw.get("principal")),
-    "read_document": lambda args, **kw: read_document(args.get("rel_path", ""), principal=kw.get("principal"), authorized_agents=kw.get("authorized_agents")),
-    "write_document": lambda args, **kw: write_document(args.get("rel_path", ""), args.get("content", ""), principal=kw.get("principal")),
+    "list_documents": lambda args, **kw: list_documents(
+        args.get("rel_path", "."),
+        principal=kw.get("principal"),
+        authorized_skills=kw.get("authorized_skills"),
+    ),
+    "read_document": lambda args, **kw: read_document(
+        args.get("rel_path", ""),
+        principal=kw.get("principal"),
+        authorized_agents=kw.get("authorized_agents"),
+        authorized_skills=kw.get("authorized_skills"),
+    ),
+    "write_document": lambda args, **kw: write_document(
+        args.get("rel_path", ""),
+        args.get("content", ""),
+        principal=kw.get("principal"),
+        authorized_skills=kw.get("authorized_skills"),
+    ),
     "web_search": lambda args, **kw: web_search(query=args.get("query", ""), max_results=args.get("max_results", 5)),
     "fetch_web_page": lambda args, **kw: fetch_web_page(url=args.get("url", ""), max_chars=args.get("max_chars", 4000)),
 }
@@ -580,6 +597,10 @@ async def execute_local_tool(
                 p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
             ):
                 kwargs["principal"] = agent_name
+            if "authorized_skills" in sig.parameters or any(
+                p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
+            ):
+                kwargs["authorized_skills"] = authorized_skills
 
             if inspect.iscoroutinefunction(handler):
                 return await handler(raw_args, **kwargs)

@@ -293,3 +293,37 @@ def test_sentence_start_boundary_filtering():
         assert any("Grant" in v for v in map_mid.values())
         assert any("Max" in v for v in map_mid.values())
         assert any("New York" in v for v in map_mid.values())
+
+
+def test_pii_masker_excludes_organization_entities():
+    """
+    Verifies that ORGANIZATION entities (such as 'The AI First Company') remain unmasked,
+    avoiding synthetic placeholder tokens in business documents, while PERSON entities
+    and high-risk PII remain masked. Also asserts labels_to_ignore includes ORGANIZATION and ORG.
+    """
+    masker = PIIMasker()
+    masker._init_presidio_if_available()
+    if masker._presidio_analyzer is not None:
+        nlp_engine = getattr(masker._presidio_analyzer, "nlp_engine", None)
+        if nlp_engine and hasattr(nlp_engine, "ner_model_configuration"):
+            ner_cfg = nlp_engine.ner_model_configuration
+            ignored = getattr(ner_cfg, "labels_to_ignore", None) or (
+                ner_cfg.get("labels_to_ignore", []) if isinstance(ner_cfg, dict) else []
+            )
+            assert "ORGANIZATION" in ignored
+            assert "ORG" in ignored
+
+        text = "The AI First Company by Benjamin Simkin contains 4 foundations. Contact: secret@corp.com"
+        masked, mapping = masker.mask(text)
+
+        # Organization remains unmasked
+        assert "The AI First Company" in masked
+        assert "<ORGANIZATION" not in masked
+
+        # Person name is masked
+        assert "Benjamin Simkin" not in masked
+        assert any("Benjamin Simkin" in v for v in mapping.values())
+
+        # Email is strictly masked
+        assert "secret@corp.com" not in masked
+        assert any("secret@corp.com" in v for v in mapping.values())
