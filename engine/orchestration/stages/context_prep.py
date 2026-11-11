@@ -176,9 +176,15 @@ class ContextPrepStage:
                 skills=effective_skills,
                 modifiers=ctx.modifiers,
                 is_short_output=bool(ctx.agent_cfg.get("is_short_output", False)),
+                channel_id=ctx.input.channel_id,
+                thread_ts=ctx.input.thread_ts,
             )
         else:
-            ctx.system_prompt = ctx.agent_cfg.get("system_prompt") or build_agent_prompt(ctx.agent_key)
+            ctx.system_prompt = ctx.agent_cfg.get("system_prompt") or build_agent_prompt(
+                ctx.agent_key,
+                channel_id=ctx.input.channel_id,
+                thread_ts=ctx.input.thread_ts,
+            )
 
         ctx.remaining = thread_state_manager.get_remaining_agents(
             ctx.input.channel_id, ctx.input.thread_ts, default=get_initial_agents(ctx.input.channel_id, ctx.input.thread_ts)

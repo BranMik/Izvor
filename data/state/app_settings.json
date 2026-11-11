@@ -6,5 +6,6 @@
   "scribe_enabled": true,
   "convergence_fast_forward_enabled": true,
   "weekly_pricing_update_enabled": true,
-  "workspace_context": "We are a multi-agent ai discussion and orchestration panel for Slack with configurable backend. System has RAG integration, configurable agent system, extensible skills engine and more. Part of it can be configured through settings in Slacks' UI app hub, and rest can be configured through the application code-base which is open source and on Github."
+  "workspace_context": "We are a multi-agent ai discussion and orchestration panel for Slack with configurable backend. System has RAG integration, configurable agent system, extensible skills engine and more. Part of it can be configured through settings in Slacks' UI app hub, and rest can be configured through the application code-base which is open source and on Github.",
+  "filter_unauthorized_skill_agents_enabled": false
 }

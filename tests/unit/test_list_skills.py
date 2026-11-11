@@ -244,3 +244,61 @@ def test_get_skill_resolution_hint():
     assert "Authorized for 'document_reader':" in hint
     assert "agent-10006" in hint or "agent-10008" in hint
     assert "/grant_skill" in hint
+
+
+def test_skills_directory_prompt_thread_global_active():
+    """
+    Verify that when a skill is granted thread-globally, get_skills_directory_prompt
+    renders '(Authorized: All Agents (Thread-Global Active))' and updated permission text.
+    """
+    from orchestration.thread_skills_manager import thread_skills_manager
+
+    channel_id = "C_TEST_THREAD_DIR"
+    thread_ts = "1794900001.0001"
+
+    thread_skills_manager.grant_skills(channel_id, thread_ts, ["document_reader"])
+
+    dir_prompt = skill_registry.get_skills_directory_prompt(channel_id=channel_id, thread_ts=thread_ts)
+    assert "(Authorized: All Agents (Thread-Global Active))" in dir_prompt
+    assert "Any skill marked with '(Authorized: All Agents (Thread-Global Active))'" in dir_prompt
+
+
+def test_skills_directory_prompt_agent_thread_active():
+    """
+    Verify that when a skill is granted to a specific agent in a thread,
+    get_skills_directory_prompt renders that agent as '(Thread Active)'.
+    """
+    from orchestration.thread_skills_manager import thread_skills_manager
+
+    channel_id = "C_TEST_AGENT_DIR"
+    thread_ts = "1794900002.0002"
+
+    thread_skills_manager.grant_agent_skills(channel_id, thread_ts, "document_reader", ["agent-10001"])
+
+    dir_prompt = skill_registry.get_skills_directory_prompt(channel_id=channel_id, thread_ts=thread_ts)
+    assert "agent-10001 (Thread Active)" in dir_prompt
+
+
+def test_build_agent_prompt_with_thread_context():
+    """
+    Verify that build_agent_prompt forwards thread context to get_skills_directory_prompt,
+    producing an internally coherent system prompt for dynamic skills.
+    """
+    from orchestration.thread_skills_manager import thread_skills_manager
+
+    channel_id = "C_TEST_BUILD_DIR"
+    thread_ts = "1794900003.0003"
+
+    thread_skills_manager.grant_skills(channel_id, thread_ts, ["document_reader"])
+
+    prompt = build_agent_prompt(
+        "agent-10001",
+        skills=["document_reader"],
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+    )
+    assert "APPLICATION SKILLS DIRECTORY" in prompt
+    assert "(Authorized: All Agents (Thread-Global Active))" in prompt
+    assert "AVAILABLE SKILLS (ON DEMAND VIA `load_skill`)" in prompt
+    assert "`document_reader`" in prompt
+
