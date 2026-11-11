@@ -68,6 +68,7 @@ class ValidationStage:
             ctx.raw_text_cleaned = directives.cleaned_prompt
             ctx.is_file_req = directives.is_file_req
             ctx.target_filename = directives.target_filename
+            ctx.is_pure_skill_task = bool(getattr(directives, "is_pure_skill_task", False))
 
             # Record initial prompt for flat history if not already recorded for this thread
             if not thread_state_manager.get_initial_prompt(ctx.input.channel_id, ctx.input.thread_ts):
@@ -321,6 +322,135 @@ class ValidationStage:
                             "halted": True,
                             "reason": "all_agents_excluded",
                         }
+
+                # --- Pure Skill Task Chain Filtering & Prioritization ---
+                skill_reg = getattr(self.deps, "skill_registry", None)
+                if skill_reg is None:
+                    from core.registry import get_skill_registry
+
+                    skill_reg = get_skill_registry()
+
+                required_agent_skills: set[str] = set()
+                if ctx.is_file_req:
+                    file_skill = skill_reg.get_file_handler_skill()
+                    file_skill_name = file_skill.name if file_skill else "document_reader"
+                    required_agent_skills.add(file_skill_name)
+
+                if hasattr(ctx, "actions") and ctx.actions:
+                    known_skills = {s.name for s in skill_reg.get_agent_skills()}
+                    for act in ctx.actions:
+                        if act.name in known_skills:
+                            required_agent_skills.add(act.name)
+
+                global_skill_names = set(skill_reg.get_global_skills())
+                required_agent_skills = required_agent_skills - global_skill_names
+
+                if required_agent_skills:
+                    from core.config import is_slack_admin
+                    from orchestration.agent_settings import AGENTS_CONFIG
+                    from orchestration.app_settings import is_filter_unauthorized_skill_agents_enabled
+                    from orchestration.thread_skills_manager import thread_skills_manager
+
+                    is_caller_admin = is_slack_admin(getattr(ctx.input, "user_id", None))
+                    agents_map = getattr(settings_manager, "agents_config", None) or AGENTS_CONFIG
+                    active_thread_skills = thread_skills_manager.get_active_skills(
+                        ctx.input.channel_id, ctx.input.thread_ts
+                    )
+
+                    chain_candidates = [ctx.agent_key] + [a for a in curr_remaining if a != ctx.agent_key]
+                    full_chain = []
+                    for c in chain_candidates:
+                        if c and c not in full_chain:
+                            full_chain.append(c)
+
+                    authorized_chain: list[str] = []
+                    unauthorized_chain: list[str] = []
+
+                    for ag in full_chain:
+                        base_skills = list(
+                            agents_map.get(ag, {}).get("skills")
+                            or settings_manager.get_agent_skills(ag)
+                            or []
+                        )
+                        active_agent_skills = thread_skills_manager.get_active_agent_skills(
+                            ctx.input.channel_id, ctx.input.thread_ts, ag
+                        )
+                        all_candidate_skills = list(
+                            dict.fromkeys(base_skills + list(global_skill_names) + active_thread_skills + active_agent_skills)
+                        )
+                        thread_granted = set(active_thread_skills) | set(active_agent_skills)
+                        filtered = skill_reg.filter_skills_for_caller(
+                            all_candidate_skills,
+                            is_admin=is_caller_admin,
+                            thread_granted_skills=thread_granted,
+                        )
+                        ag_auth_skills = set(filtered if isinstance(filtered, list) else all_candidate_skills)
+                        if ag_auth_skills & required_agent_skills:
+                            authorized_chain.append(ag)
+                        else:
+                            unauthorized_chain.append(ag)
+
+                    filter_on = is_filter_unauthorized_skill_agents_enabled()
+                    skills_fmt = ", ".join(f"'{s}'" for s in sorted(required_agent_skills))
+                    unauth_names = ", ".join(agents_map.get(a, {}).get("username", a) for a in unauthorized_chain)
+                    auth_names = ", ".join(agents_map.get(a, {}).get("username", a) for a in authorized_chain)
+
+                    if filter_on and getattr(ctx, "is_pure_skill_task", False):
+                        if not authorized_chain:
+                            hint = skill_reg.get_skill_resolution_hint(
+                                list(required_agent_skills),
+                                channel_id=ctx.input.channel_id,
+                                thread_ts=ctx.input.thread_ts,
+                            )
+                            logger.warning(
+                                f"[ROUTER] 0 agents in active chain {full_chain} authorized for skill(s) {required_agent_skills}. Halting turn."
+                            )
+                            notice_msg = (
+                                f"ℹ️ *Skill Routing Filter*: Filtered out unauthorized agent(s) (*{unauth_names}*) lacking required skill(s): {skills_fmt}. "
+                                f"No agents in the active workflow are authorized for this skill.\n{hint}"
+                            )
+                            await post_sys_msg(
+                                channel_id=ctx.input.channel_id,
+                                thread_ts=ctx.input.thread_ts,
+                                text=notice_msg,
+                            )
+                            thread_state_manager.set_remaining_agents(ctx.input.channel_id, ctx.input.thread_ts, [])
+                            return {
+                                "ok": True,
+                                "halted": True,
+                                "reason": "no_skill_authorized_agents_in_chain",
+                            }
+                        else:
+                            if unauthorized_chain:
+                                logger.info(
+                                    f"[ROUTER] Pure skill task: filtering out unauthorized agents {unauthorized_chain}. Routing to authorized {authorized_chain}."
+                                )
+                                notice_msg = (
+                                    f"ℹ️ *Skill Routing Filter*: Filtering out unauthorized agent(s) (*{unauth_names}*) lacking required skill(s): {skills_fmt}. "
+                                    f"Routing to authorized agent(s): *{auth_names}*."
+                                )
+                                await post_sys_msg(
+                                    channel_id=ctx.input.channel_id,
+                                    thread_ts=ctx.input.thread_ts,
+                                    text=notice_msg,
+                                )
+                            ctx.agent_key = authorized_chain[0]
+                            curr_remaining = authorized_chain[1:]
+                            thread_state_manager.set_remaining_agents(
+                                ctx.input.channel_id, ctx.input.thread_ts, curr_remaining
+                            )
+                    else:
+                        # Toggle is OFF or mixed skill+debate task: prioritize authorized agents first
+                        if authorized_chain and unauthorized_chain:
+                            logger.info(
+                                f"[ROUTER] Reordering chain to place authorized agents {authorized_chain} before unauthorized {unauthorized_chain}."
+                            )
+                            reordered = authorized_chain + unauthorized_chain
+                            ctx.agent_key = reordered[0]
+                            curr_remaining = reordered[1:]
+                            thread_state_manager.set_remaining_agents(
+                                ctx.input.channel_id, ctx.input.thread_ts, curr_remaining
+                            )
 
             # Save and maintain round sequence for multi-round debate topologies
             if tagged and not (first_act or open_debate_act):

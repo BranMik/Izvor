@@ -29,6 +29,7 @@ def build_app_home_view(
     scribe_enabled: bool | None = None,
     weekly_pricing_update_enabled: bool | None = None,
     convergence_fast_forward_enabled: bool | None = None,
+    skill_filter_enabled: bool | None = None,
     user_id: str | None = None,
 ) -> dict[str, Any]:
     """
@@ -53,6 +54,7 @@ def build_app_home_view(
         get_thread_skill_expiration_time,
         get_workspace_context,
         is_convergence_fast_forward_enabled,
+        is_filter_unauthorized_skill_agents_enabled,
         is_scribe_enabled,
         is_weekly_pricing_update_enabled,
     )
@@ -106,6 +108,13 @@ def build_app_home_view(
         weekly_pricing_on = bool(weekly_pricing_update_enabled)
 
     weekly_pricing_status_str = "🟢 *Enabled (ON)*" if weekly_pricing_on else "🔴 *Disabled (OFF)*"
+
+    if skill_filter_enabled is None:
+        skill_filter_on = is_filter_unauthorized_skill_agents_enabled()
+    else:
+        skill_filter_on = bool(skill_filter_enabled)
+
+    skill_filter_status_str = "🟢 *Enabled (ON)*" if skill_filter_on else "🔴 *Disabled (OFF)*"
 
     if hasattr(circuit_breaker_config, "to_dict"):
         cb_dict = circuit_breaker_config.to_dict()
@@ -224,6 +233,8 @@ def build_app_home_view(
             weekly_pricing_status_str=weekly_pricing_status_str,
             expiry_hours=expiry_hours,
             daily_budget=daily_budget,
+            skill_filter_on=skill_filter_on,
+            skill_filter_status_str=skill_filter_status_str,
         )
     )
 

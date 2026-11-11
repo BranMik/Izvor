@@ -454,6 +454,9 @@ class SkillRegistry:
         for skill in skills:
             if skill.extraction_rule:
                 special_rules.append(f"- '{skill.name}': {skill.extraction_rule}")
+        special_rules.append(
+            "- 'is_pure_skill_task': Set true if the user's prompt is purely an informational request, file lookup, or action to be executed via a skill without asking the panel to debate, critique, or brainstorm broader strategic alternatives. Set false if the user asks for a conceptual debate, critique, or brainstorming alongside or without the skill."
+        )
 
         if special_rules:
             prompt_lines.append("SPECIAL RULES:")
@@ -481,7 +484,8 @@ class SkillRegistry:
                 '  "actions": [',
                 '    { "name": "<skill_name>", "params": { ... } }',
                 "  ],",
-                '  "language": "<detected_language_name_or_code>"',
+                '  "language": "<detected_language_name_or_code>",',
+                '  "is_pure_skill_task": <true if the prompt asks ONLY to perform the skill/file action without a broader strategic debate topic, else false>',
                 "}",
             ]
         )

@@ -274,14 +274,17 @@ class IntentExtractor:
             else:
                 detected_lang = None
 
+            is_pure_skill = bool(parsed.get("is_pure_skill_task", False))
+
             logger.info(
-                f"[INTENT EXTRACTOR] Extracted: language={detected_lang}, modifiers={modifiers}, actions={[a.name for a in actions]}"
+                f"[INTENT EXTRACTOR] Extracted: language={detected_lang}, modifiers={modifiers}, actions={[a.name for a in actions]}, is_pure_skill_task={is_pure_skill}"
             )
 
             return ExtractedIntent(
                 actions=actions,
                 modifiers=modifiers,
                 detected_language=detected_lang,
+                is_pure_skill_task=is_pure_skill,
             )
 
         except (TimeoutError, asyncio.TimeoutError):

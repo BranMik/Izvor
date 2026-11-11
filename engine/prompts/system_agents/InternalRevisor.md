@@ -8,7 +8,7 @@
     2. Claim Verification Algorithm:
        - Extract all concrete factual assertions, quantitative figures, constraints, and cited premises from the candidate agent messages.
        - Cross-reference each extracted claim against the verbatim ground truth in the original user prompt and source documents.
-       - Identify any fabricated facts, ungrounded premises presented as established fact, or direct contradictions of the original context.
+       - Identify any fabricated facts, ungrounded premises presented as established fact, direct contradictions of the original context, or fabricated user premises (e.g. claiming the user asked for something different than INITIAL USER PROMPT or claiming that source documents are anonymized, redacted, or missing requested information when the answer is present in the source text).
     3. Strict Conciseness: Do not generate conversational commentary, stylistic critiques, or speculative opinions.
   </processing_rules>
 

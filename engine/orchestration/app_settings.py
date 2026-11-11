@@ -26,6 +26,7 @@ class AppSettingsModel(BaseModel):
     convergence_fast_forward_enabled: bool = True
     weekly_pricing_update_enabled: bool = True
     workspace_context: str = ""
+    filter_unauthorized_skill_agents_enabled: bool = True
 
 
 class AppSettingsManager:
@@ -63,6 +64,7 @@ class AppSettingsManager:
         self.convergence_fast_forward_enabled: bool = True
         self.weekly_pricing_update_enabled: bool = True
         self.workspace_context: str = ""
+        self.filter_unauthorized_skill_agents_enabled: bool = True
         self._raw_data: dict[str, Any] = {}
         self._last_loaded_mtime: float = 0.0
 
@@ -106,6 +108,7 @@ class AppSettingsManager:
         self.convergence_fast_forward_enabled = bool(model.convergence_fast_forward_enabled)
         self.weekly_pricing_update_enabled = bool(model.weekly_pricing_update_enabled)
         self.workspace_context = str(model.workspace_context).strip()[:1000]
+        self.filter_unauthorized_skill_agents_enabled = bool(model.filter_unauthorized_skill_agents_enabled)
         self._raw_data = self._store.get_raw_data() if hasattr(self._store, "get_raw_data") else {}
 
     def reset_paths(self) -> None:
@@ -159,6 +162,7 @@ class AppSettingsManager:
             "convergence_fast_forward_enabled": self.convergence_fast_forward_enabled,
             "weekly_pricing_update_enabled": self.weekly_pricing_update_enabled,
             "workspace_context": self.workspace_context,
+            "filter_unauthorized_skill_agents_enabled": self.filter_unauthorized_skill_agents_enabled,
         })
         self._store.settings_file = target_file
         self._store.backup_file = self.default_backup_file
@@ -289,6 +293,18 @@ class AppSettingsManager:
         logger.info(f"[APP_SETTINGS] Set convergence_fast_forward_enabled to {self.convergence_fast_forward_enabled}.")
 
 
+    # --- Skill-Authorized Agent Filtering ---
+    def is_filter_unauthorized_skill_agents_enabled(self) -> bool:
+        self.load()
+        return bool(self.filter_unauthorized_skill_agents_enabled)
+
+    def set_filter_unauthorized_skill_agents_enabled(self, enabled: bool, save: bool = True) -> None:
+        self.filter_unauthorized_skill_agents_enabled = bool(enabled)
+        if save:
+            self.save()
+        logger.info(f"[APP_SETTINGS] Set filter_unauthorized_skill_agents_enabled to {self.filter_unauthorized_skill_agents_enabled}.")
+
+
     # --- Workspace Baseline Context ---
     def get_workspace_context(self) -> str:
         self.load()
@@ -377,5 +393,13 @@ def is_convergence_fast_forward_enabled() -> bool:
 
 def set_convergence_fast_forward_enabled(enabled: bool, save: bool = True) -> None:
     app_settings_manager.set_convergence_fast_forward_enabled(enabled, save=save)
+
+
+def is_filter_unauthorized_skill_agents_enabled() -> bool:
+    return app_settings_manager.is_filter_unauthorized_skill_agents_enabled()
+
+
+def set_filter_unauthorized_skill_agents_enabled(enabled: bool, save: bool = True) -> None:
+    app_settings_manager.set_filter_unauthorized_skill_agents_enabled(enabled, save=save)
 
 

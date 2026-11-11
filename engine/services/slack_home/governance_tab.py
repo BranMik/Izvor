@@ -48,6 +48,8 @@ def build_governance_blocks(
     weekly_pricing_status_str: str,
     expiry_hours: float,
     daily_budget: float = 10.0,
+    skill_filter_on: bool = True,
+    skill_filter_status_str: str = "🟢 *Enabled (ON)*",
 ) -> list[dict[str, Any]]:
     """Generates Block Kit elements for spend circuit-breaker, scribe, and TTL governance."""
     return [
@@ -405,6 +407,49 @@ def build_governance_blocks(
                     **({"style": "primary"} if expiry_hours == 24.0 else {}),
                 },
             ],
+        },
+        {"type": "divider"},
+        {
+            "type": "section",
+            "block_id": f"skill_filter_toggle_section_{'on' if skill_filter_on else 'off'}",
+            "text": {
+                "type": "mrkdwn",
+                "text": (
+                    f"\n *────────🎯 Pure Skill Task Chain Filter:────────* \n"
+                    f"Status: {skill_filter_status_str}\n"
+                    f"_When ON, untagged pure skill tasks filter out unauthorized agents in discussion chains and route directly to authorized agents. When OFF, authorized agents are prioritized to speak first, followed by unauthorized agents to debate findings._"
+                ),
+            },
+            "accessory": {
+                "type": "radio_buttons",
+                "action_id": "toggle_skill_filter_radio",
+                "options": [
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "🟢 ON",
+                            "emoji": True,
+                        },
+                        "value": "skill_filter:on",
+                    },
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "🔴 OFF",
+                            "emoji": True,
+                        },
+                        "value": "skill_filter:off",
+                    },
+                ],
+                "initial_option": {
+                    "text": {
+                        "type": "plain_text",
+                        "text": "🟢 ON" if skill_filter_on else "🔴 OFF",
+                        "emoji": True,
+                    },
+                    "value": "skill_filter:on" if skill_filter_on else "skill_filter:off",
+                },
+            },
         },
     ]
 

@@ -126,6 +126,26 @@ def build_llm_messages(
 
     agent_display = agent_cfg.get("username", agent_key)
 
+    has_prior_verified_skill_output = bool(
+        (shared_round_evidence and shared_round_evidence.strip())
+        or any(
+            isinstance(m, dict)
+            and m.get("role") == "assistant"
+            and "Skills used:" in str(m.get("content", ""))
+            for m in (effective_history or [])
+        )
+    )
+    downstream_file_clause = (
+        "If an authorized agent earlier in the discussion above has already accessed the resource and presented findings (indicated by 'Skills used:' or '<shared_round_evidence>'), output your <= 50-word missing-skill notice + 1-line hint first, and then proceed to dialectically evaluate, stress-test, and debate those findings and arguments in accordance with your role; if no authorized agent has spoken yet and the prompt only asks about the file, output ONLY the <= 50-word notice and stop."
+        if has_prior_verified_skill_output
+        else "if the prompt only asks about the file, output ONLY the <= 50-word notice and stop."
+    )
+    downstream_skill_clause = (
+        "If an authorized agent earlier in the discussion above has already executed the skill action and presented findings (indicated by 'Skills used:' or '<shared_round_evidence>'), output your <= 50-word missing-skill notice + 1-line hint first, and then proceed to dialectically evaluate, stress-test, and debate those findings and arguments in accordance with your role; if no authorized agent has spoken yet and the prompt only asks for this skill-based action, output ONLY the <= 50-word notice and stop."
+        if has_prior_verified_skill_output
+        else "if the prompt only asks for this skill-based action, output ONLY the <= 50-word notice and stop."
+    )
+
     if file_context:
         authorized_agents = file_context.get("authorized_agents")
         file_name = file_context.get("file_name", "unknown")
@@ -145,7 +165,7 @@ def build_llm_messages(
                 f"Include a 1-line hint naming an authorized agent or '/grant_skill'. "
                 f"Do NOT report that the file was not found. Do NOT reflect on platform skills architecture. "
                 f"If the prompt contains other questions or tasks not requiring this file, proceed normally to evaluate and answer those after the <= 50-word notice; "
-                f"if the prompt only asks about the file, output ONLY the <= 50-word notice and stop.\n"
+                f"{downstream_file_clause}\n"
                 f"--- [END OF NOTICE] ---"
             )
         elif not has_skill:
@@ -157,7 +177,7 @@ def build_llm_messages(
                 f"Include this 1-line resolution hint: {hint}\n"
                 f"Do NOT report that the file was not found. Do NOT reflect on platform skills architecture. "
                 f"If the prompt contains other questions or tasks not requiring this file, proceed normally to evaluate and answer those after the <= 50-word notice; "
-                f"if the prompt only asks about the file, output ONLY the <= 50-word notice and stop.\n"
+                f"{downstream_file_clause}\n"
                 f"--- [END OF NOTICE] ---"
             )
         else:
@@ -188,7 +208,7 @@ def build_llm_messages(
                 f"Include this 1-line resolution hint: {hint}\n"
                 f"Do NOT report that the file or resource was not found. Do NOT reflect on platform skills architecture. "
                 f"If the prompt contains other questions or tasks not requiring these skills, proceed normally to evaluate and answer those after the <= 50-word notice; "
-                f"if the prompt only asks for this skill-based action, output ONLY the <= 50-word notice and stop.\n"
+                f"{downstream_skill_clause}\n"
                 f"--- [END OF NOTICE] ---"
             )
 
@@ -222,6 +242,7 @@ def build_llm_messages(
         (file_block and ("RESTRICTED" in file_block or "MISSING SKILL" in file_block))
         or skill_notice_block
     )
+    has_skill_context = bool(file_block or required_skills)
     anti_echo_directive = ""
     if has_permission_restriction:
         anti_echo_directive = (
@@ -229,6 +250,15 @@ def build_llm_messages(
             "Keep your own missing-skill notice + 1-line hint strictly <= 50 words, then either evaluate any remaining non-skill parts "
             "of the user prompt normally, or—if the prompt has no other assessable parts—stop immediately and nominate the next agent."
         )
+    elif has_skill_context:
+        anti_echo_directive = (
+            "\n\nANTI-ECHO RULE: If any previous agent in the discussion history reported lacking permission or a skill that you possess, "
+            "do NOT debate, invert, or comment on their refusal notice. Ignore their refusal completely and directly fulfill the user's primary "
+            "request using your authorized access and the provided document/tool data."
+        )
+
+    clean_prompt = prompt.strip() if prompt else ""
+    prompt_anchor = f"\n\nPRIMARY USER REQUEST TO ADDRESS:\n{clean_prompt}" if clean_prompt else ""
 
     if not is_bot_trigger:
         if effective_history:
@@ -248,7 +278,8 @@ def build_llm_messages(
             conversation.extend(effective_history)
         lang_part = f"\n\n{lang_directive}" if lang_directive else ""
         mem_part = f"{memory_prefix}\n\n" if memory_prefix and not effective_history else ""
-        user_prompt = f"{mem_part}{prompt}{lang_part}{file_block}{skill_notice_block}{orchestration_block}"
+        long_file_anchor = prompt_anchor if (file_block and "<untrusted_file_content>" in file_block and len(file_block) > 500) else ""
+        user_prompt = f"{mem_part}{prompt}{lang_part}{file_block}{long_file_anchor}{skill_notice_block}{anti_echo_directive}{orchestration_block}"
         conversation.append({"role": "user", "content": user_prompt})
     else:
         if effective_history:
@@ -273,7 +304,10 @@ def build_llm_messages(
                 "Please evaluate the discussion above and provide your response in accordance with your role and instructions."
                 f"{lang_part}"
             )
-            instruction = f"{instruction}{file_block}{skill_notice_block}{anti_echo_directive}{orchestration_block}"
+            if file_block and "<untrusted_file_content>" in file_block:
+                instruction = f"{file_block}\n\n{instruction}{prompt_anchor}{skill_notice_block}{anti_echo_directive}{orchestration_block}"
+            else:
+                instruction = f"{instruction}{prompt_anchor}{file_block}{skill_notice_block}{anti_echo_directive}{orchestration_block}"
             conversation.append(
                 {
                     "role": "user",
@@ -283,7 +317,8 @@ def build_llm_messages(
         else:
             lang_part = f"\n\n{lang_directive}" if lang_directive else ""
             mem_part = f"{memory_prefix}\n\n" if memory_prefix else ""
-            user_prompt = f"{mem_part}{prompt}{lang_part}{file_block}{skill_notice_block}{anti_echo_directive}{orchestration_block}"
+            long_file_anchor = prompt_anchor if (file_block and "<untrusted_file_content>" in file_block and len(file_block) > 500) else ""
+            user_prompt = f"{mem_part}{prompt}{lang_part}{file_block}{long_file_anchor}{skill_notice_block}{anti_echo_directive}{orchestration_block}"
             conversation.append({"role": "user", "content": user_prompt})
 
 
@@ -305,7 +340,10 @@ def build_llm_messages(
             "Please evaluate the discussion above and provide your response in accordance with your role and instructions. "
             f"{lang_directive}"
         )
-        instruction = f"{instruction}{file_block}{skill_notice_block}{anti_echo_directive}{orchestration_block}"
+        if file_block and "<untrusted_file_content>" in file_block:
+            instruction = f"{file_block}\n\n{instruction}{prompt_anchor}{skill_notice_block}{anti_echo_directive}{orchestration_block}"
+        else:
+            instruction = f"{instruction}{prompt_anchor}{file_block}{skill_notice_block}{anti_echo_directive}{orchestration_block}"
         conversation.append(
             {
                 "role": "user",

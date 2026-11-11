@@ -123,6 +123,7 @@ class TurnContext:
     included_agents: list[str]
     thread_files: list[dict[str, Any]]
     is_file_req: bool
+    is_pure_skill_task: bool
     target_filename: str | None
     required_skills: list[str]
     missing_required_skills: list[str]
@@ -241,6 +242,7 @@ class TurnContext:
         self.included_agents: list[str] = list(kwargs.get("included_agents", []))
         self.thread_files: list[dict[str, Any]] = list(kwargs.get("thread_files", []))
         self.is_file_req: bool = bool(kwargs.get("is_file_req", False))
+        self.is_pure_skill_task: bool = bool(kwargs.get("is_pure_skill_task", False))
         self.target_filename: str | None = kwargs.get("target_filename")
         self.required_skills: list[str] = list(kwargs.get("required_skills", []))
         self.missing_required_skills: list[str] = list(kwargs.get("missing_required_skills", []))

@@ -43,6 +43,7 @@ class ParsedDirectives:
     attachments: list[MediaAttachment] = field(default_factory=list)
 
     detected_language: str | None = None
+    is_pure_skill_task: bool = False
 
     @property
     def max_words(self) -> int | None:
@@ -419,8 +420,9 @@ class DirectiveParser:
         from nlp.intent_extractor import intent_extractor
 
         detected_language = None
+        intent: ExtractedIntent | None = None
         if not has_exclusive_cmd and not intent_extractor.should_skip(raw_text=raw_text) and text_cleaned.strip():
-            intent: ExtractedIntent = await intent_extractor.extract_intent(
+            intent = await intent_extractor.extract_intent(
                 text_cleaned, available_files=available_files, thread_key=thread_key
             )
             detected_language = getattr(intent, "detected_language", None)
@@ -484,11 +486,23 @@ class DirectiveParser:
                 if act_name and act_name != "stop_discussion" and not any(a.name == act_name for a in actions):
                     actions.append(ActionDirective(name=act_name, params=act_params, origin=act_origin))
 
+        is_pure_skill = False
+        if intent:
+            is_pure_skill = bool(getattr(intent, "is_pure_skill_task", False))
+        if not is_pure_skill and actions:
+            skill_actions = [
+                a for a in actions
+                if a.name in ("document_reader", "read_file", "file", "document_authoring", "web_research", "knowledge_base_rag")
+            ]
+            if skill_actions and len(text_cleaned.strip().split()) <= 4:
+                is_pure_skill = True
+
         return ParsedDirectives(
             cleaned_prompt=text_cleaned.strip(),
             actions=actions,
             modifiers=modifiers,
             detected_language=detected_language,
+            is_pure_skill_task=is_pure_skill,
         )
 
 

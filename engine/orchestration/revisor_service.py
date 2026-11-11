@@ -36,8 +36,18 @@ async def run_internal_revisor(ctx: TurnContext):
         assistant_msgs = [m for m in ctx.full_history if m.get("role") == "assistant"]
         turn_count = len(assistant_msgs) + 1  # include the current turn
 
-        if turn_count % 2 != 0:
-            return None  # Only run on multiples of 2
+        rag_used = any(s in getattr(ctx.output, "skills_used", []) for s in ["knowledge_base_rag", "document_reader"])
+        is_terminating_single_rag = (
+            turn_count == 1
+            and rag_used
+            and (
+                getattr(ctx, "force_termination", False)
+                or not thread_state_manager.get_remaining_agents(ctx.input.channel_id, ctx.input.thread_ts)
+            )
+        )
+
+        if turn_count % 2 != 0 and not is_terminating_single_rag:
+            return None  # Only run on multiples of 2 or terminating single-agent RAG turns
 
         if _is_pure_missing_skill_notice(ctx):
             logger.info(
@@ -53,7 +63,7 @@ async def run_internal_revisor(ctx: TurnContext):
             initial_prompt = ctx.input.raw_text
 
         # 3. Get the last two agent messages
-        prev_msg = assistant_msgs[-1].get("content", "") if len(assistant_msgs) >= 1 else ""
+        prev_msg = assistant_msgs[-1].get("content", "") if len(assistant_msgs) >= 1 else "(No prior agent message; single-turn response)"
         current_msg = f"[{ctx.agent_cfg.get('username', ctx.agent_key)}]: {ctx.output.final_text}"
 
         # Check if RAG/documents or tools were used in the current turn
