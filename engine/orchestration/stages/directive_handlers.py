@@ -6,6 +6,7 @@ Processes administrative slash directives (/grant_skill, /revoke_skill, /rounds,
 from __future__ import annotations
 
 import logging
+import re
 from typing import TYPE_CHECKING, Any
 
 from core.models import INT_MODIFIER_BOUNDS, coerce_int_modifier
@@ -91,6 +92,17 @@ async def require_directive_admin(
         logger.error(f"[VALIDATION] Failed to emit admin directive audit event: {ae}")
 
     return None
+
+
+def has_substantive_prompt(text: str | None) -> bool:
+    """
+    Returns True if text contains substantive prompt characters beyond Slack user/bot
+    mentions (<@U...>), whitespace, or mention wrappers.
+    """
+    if not text:
+        return False
+    cleaned = re.sub(r"<@[A-Za-z0-9_]+>", " ", text).strip()
+    return bool(cleaned)
 
 
 async def handle_slash_directives(
@@ -179,7 +191,8 @@ async def handle_slash_directives(
             if lines:
                 await post_sys_msg(channel_id=ctx.input.channel_id, thread_ts=ctx.input.thread_ts, text="\n\n".join(lines))
 
-            return {"ok": True, "halted": True, "action": "grant_skill_for_all"}
+            if not valid_skills or not has_substantive_prompt(ctx.raw_text_cleaned):
+                return {"ok": True, "halted": True, "action": "grant_skill_for_all"}
 
     # Process /grant_skill action
     grant_skill_act = next((a for a in ctx.actions if a.name == "grant_skill"), None)
@@ -259,7 +272,8 @@ async def handle_slash_directives(
         if lines:
             await post_sys_msg(channel_id=ctx.input.channel_id, thread_ts=ctx.input.thread_ts, text="\n\n".join(lines))
 
-        return {"ok": True, "halted": True, "action": "grant_skill"}
+        if not (is_valid_skill and resolved_agents) or not has_substantive_prompt(ctx.raw_text_cleaned):
+            return {"ok": True, "halted": True, "action": "grant_skill"}
 
     # Process /revoke_skill_for_all action
     revoke_act = next((a for a in ctx.actions if a.name in ("revoke_skill_for_all", "revoke_for_all")), None)
@@ -279,7 +293,8 @@ async def handle_slash_directives(
                 rem_str = ", ".join(f"`{s}`" for s in remaining)
                 msg = f"🗑️ *Revoked specified thread-global skills*. Remaining active in thread: {rem_str}"
             await post_sys_msg(channel_id=ctx.input.channel_id, thread_ts=ctx.input.thread_ts, text=msg)
-            return {"ok": True, "halted": True, "action": "revoke_skill_for_all"}
+            if not has_substantive_prompt(ctx.raw_text_cleaned):
+                return {"ok": True, "halted": True, "action": "revoke_skill_for_all"}
 
     # Check if user prompt attempts to refer to an expired thread skill
     from orchestration.thread_skills_manager import thread_skills_manager
@@ -455,7 +470,7 @@ async def handle_slash_directives(
             or exclude_off
             or include_off
         )
-        and not ctx.raw_text_cleaned
+        and not has_substantive_prompt(ctx.raw_text_cleaned)
     )
     if is_pure_toggle:
         msg = "⚙️ *Thread Configuration Updated*: Requested directive constraints have been turned off for this thread."
