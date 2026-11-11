@@ -201,25 +201,37 @@ async def test_slack_app_home_governance_block_and_action_handler():
     assert accessory.get("action_id") == "toggle_skill_filter_radio"
     assert accessory.get("initial_option", {}).get("value") == "skill_filter:on"
 
-    # Test toggling OFF via handler
+    # Test toggling OFF via handler (demoted to WARNING since guardrail is disabled)
     action_payload = {"selected_option": {"value": "skill_filter:off"}}
     bg_tasks = MagicMock()
-    await _handle_toggle_skill_filter(
-        action=action_payload,
-        payload={},
-        user_id="U_ADMIN",
-        background_tasks=bg_tasks,
-        view_state={},
-    )
-    assert is_filter_unauthorized_skill_agents_enabled() is False
+    with patch("adapters.slack.actions.workflow_actions.log_audit_event") as mock_audit:
+        await _handle_toggle_skill_filter(
+            action=action_payload,
+            payload={},
+            user_id="U_ADMIN",
+            background_tasks=bg_tasks,
+            view_state={},
+        )
+        assert is_filter_unauthorized_skill_agents_enabled() is False
+        mock_audit.assert_called_once()
+        _, kwargs = mock_audit.call_args
+        assert kwargs["action"] == "toggle_skill_filter"
+        assert kwargs["details"] == {"enabled": False}
+        assert kwargs["severity"] == "WARNING"
 
-    # Test toggling ON via handler
+    # Test toggling ON via handler (demoted to INFO since guardrail is restored)
     action_payload_on = {"selected_option": {"value": "skill_filter:on"}}
-    await _handle_toggle_skill_filter(
-        action=action_payload_on,
-        payload={},
-        user_id="U_ADMIN",
-        background_tasks=bg_tasks,
-        view_state={},
-    )
-    assert is_filter_unauthorized_skill_agents_enabled() is True
+    with patch("adapters.slack.actions.workflow_actions.log_audit_event") as mock_audit_on:
+        await _handle_toggle_skill_filter(
+            action=action_payload_on,
+            payload={},
+            user_id="U_ADMIN",
+            background_tasks=bg_tasks,
+            view_state={},
+        )
+        assert is_filter_unauthorized_skill_agents_enabled() is True
+        mock_audit_on.assert_called_once()
+        _, kwargs_on = mock_audit_on.call_args
+        assert kwargs_on["action"] == "toggle_skill_filter"
+        assert kwargs_on["details"] == {"enabled": True}
+        assert kwargs_on["severity"] == "INFO"

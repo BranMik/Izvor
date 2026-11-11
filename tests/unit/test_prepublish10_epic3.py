@@ -12,7 +12,7 @@ from core.slack_security import sanitize_slack_broadcast_mentions
 from services.slack import configure_slack_async_client, reset_slack_async_client
 from services.audit_logger import (
     AuditLogger,
-    _dispatch_critical_alert,
+    _dispatch_security_alert,
     set_main_event_loop,
     validate_audit_configuration,
 )
@@ -104,7 +104,7 @@ async def test_audit_logger_cross_thread_alerting():
     with patch("services.audit_logger.send_admin_audit_alert", side_effect=mock_send_alert):
         # Invoke from a worker thread where get_running_loop() normally raises RuntimeError
         def worker_thread_action():
-            _dispatch_critical_alert({
+            _dispatch_security_alert({
                 "event_type": "SECURITY_POLICY_VIOLATION",
                 "action": "execute_tool",
                 "target": "write_document",

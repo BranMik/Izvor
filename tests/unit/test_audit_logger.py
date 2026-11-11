@@ -5,6 +5,7 @@ Comprehensive test suite for the non-repudiable audit logging system in Izvor.
 import datetime
 import json
 from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -524,6 +525,105 @@ def test_log_audit_event_async(temp_audit_dir):
         assert rec["event_type"] == "ASYNC_EVENT"
 
     asyncio.run(run_async_test())
+
+
+@pytest.mark.anyio
+async def test_send_admin_audit_alert_severity_tiers():
+    """Verifies that send_admin_audit_alert formats CRITICAL, WARNING, and INFO tiers correctly."""
+    from core.config import configure_token, reset_token
+    from services.audit_logger import send_admin_audit_alert
+
+    configure_token("xoxb-real-token-test")
+    try:
+        with patch("core.config.get_admin_slack_user_ids", return_value={"U_ADMIN"}), \
+             patch("services.slack.open_dm_channel", new_callable=AsyncMock, return_value="D_ADMIN"), \
+             patch("services.slack.post_agent_response", new_callable=AsyncMock, return_value={"ok": True}) as mock_post:
+
+            # Tier 1: CRITICAL
+            await send_admin_audit_alert(
+                title="TAMPER_DETECTED",
+                message="Hash chain broken",
+                details={"seq": 10},
+                severity="CRITICAL",
+            )
+            crit_text = mock_post.call_args[1]["text"]
+            assert "🚨 *[SECURITY CRITICAL] TAMPER_DETECTED*" in crit_text
+            assert "👉 _Action Required: Run `python -m services.audit_logger --verify` for forensic diagnostics._" in crit_text
+            assert "• *seq:* `10`" in crit_text
+
+            # Tier 2: WARNING (Option A validation action)
+            mock_post.reset_mock()
+            await send_admin_audit_alert(
+                title="ADMIN_CONFIG_CHANGE",
+                message="Skill filter disabled",
+                details={"enabled": False},
+                severity="WARNING",
+            )
+            warn_text = mock_post.call_args[1]["text"]
+            assert "⚠️ *[SECURITY WARNING] ADMIN_CONFIG_CHANGE*" in warn_text
+            assert "🔍 _Validation Action: Run `python -m services.audit_logger --verify` to verify audit trail integrity._" in warn_text
+            assert "• *enabled:* `False`" in warn_text
+
+            # Tier 3: INFO
+            mock_post.reset_mock()
+            await send_admin_audit_alert(
+                title="ADMIN_CONFIG_CHANGE",
+                message="Skill filter enabled",
+                details={"enabled": True},
+                severity="INFO",
+            )
+            info_text = mock_post.call_args[1]["text"]
+            assert "ℹ️ *[ADMIN NOTICE] ADMIN_CONFIG_CHANGE*" in info_text
+            assert "📋 _Audit Trail: Event signed and recorded._" in info_text
+    finally:
+        reset_token()
+
+
+def test_audit_logger_dispatch_severity_filtering(temp_audit_dir):
+    """Verifies AuditLogger.log_event dispatches alerts for CRITICAL and WARNING, and suppresses for INFO."""
+    test_dir, logger_inst = temp_audit_dir
+
+    with patch("services.audit_logger._dispatch_security_alert") as mock_dispatch, \
+         patch("services.audit_logger._persist_audit_anchor") as mock_anchor:
+
+        # 1. Log INFO: should NOT trigger alert dispatch, should NOT anchor (seq=1)
+        rec_info = logger_inst.log_event(
+            event_type="ADMIN_CONFIG_CHANGE",
+            actor={"type": "slack_admin", "id": "U_ADMIN"},
+            action="toggle_skill_filter",
+            target="skill_routing",
+            severity="INFO",
+        )
+        assert rec_info["severity"] == "INFO"
+        mock_dispatch.assert_not_called()
+        mock_anchor.assert_not_called()
+
+        # 2. Log WARNING: MUST trigger alert dispatch and MUST persist anchor
+        rec_warn = logger_inst.log_event(
+            event_type="ADMIN_CONFIG_CHANGE",
+            actor={"type": "slack_admin", "id": "U_ADMIN"},
+            action="toggle_skill_filter",
+            target="skill_routing",
+            severity="WARNING",
+        )
+        assert rec_warn["severity"] == "WARNING"
+        assert mock_dispatch.call_count == 1
+        assert mock_anchor.call_count == 1
+
+        # 3. Log CRITICAL: MUST trigger alert dispatch and MUST persist anchor
+        mock_dispatch.reset_mock()
+        mock_anchor.reset_mock()
+        rec_crit = logger_inst.log_event(
+            event_type="TAMPER_DETECTED",
+            actor={"type": "system", "id": "guard"},
+            action="verify_trail",
+            target="audit_log",
+            severity="CRITICAL",
+        )
+        assert rec_crit["severity"] == "CRITICAL"
+        assert mock_dispatch.call_count == 1
+        assert mock_anchor.call_count == 1
+
 
 
 

@@ -302,7 +302,7 @@ async def _handle_toggle_circuit_breaker(
         action="toggle_circuit_breaker",
         target="circuit_breaker.enabled",
         details={"enabled": is_on},
-        severity="CRITICAL",
+        severity="INFO" if is_on else "WARNING",
     )
     return None
 
@@ -324,7 +324,7 @@ async def _handle_toggle_scribe(
         action="toggle_scribe",
         target="discussion_scribe.enabled",
         details={"enabled": is_on},
-        severity="CRITICAL",
+        severity="INFO",
     )
     return None
 
@@ -346,7 +346,7 @@ async def _handle_toggle_weekly_pricing(
         action="toggle_weekly_pricing_update",
         target="pricing_service.weekly_update",
         details={"enabled": is_on},
-        severity="CRITICAL",
+        severity="INFO",
     )
     return None
 
@@ -368,7 +368,7 @@ async def _handle_toggle_convergence_ff(
         action="toggle_convergence_fast_forward",
         target="convergence_fast_forward.enabled",
         details={"enabled": is_on},
-        severity="CRITICAL",
+        severity="INFO",
     )
     return None
 
@@ -390,7 +390,7 @@ async def _handle_toggle_skill_filter(
         action="toggle_skill_filter",
         target="skill_routing.filter_unauthorized_agents_enabled",
         details={"enabled": is_on},
-        severity="CRITICAL",
+        severity="INFO" if is_on else "WARNING",
     )
     return None
 
@@ -420,7 +420,7 @@ async def _handle_set_circuit_breaker_threshold_input(
             action="set_circuit_breaker_threshold",
             target="circuit_breaker.threshold",
             details={"threshold_input": val_clean, "parsed_threshold": val_float},
-            severity="CRITICAL",
+            severity="INFO" if val_float > 0 else "WARNING",
         )
     except (ValueError, TypeError):
         logger.warning(f"[INTERACTIVITY] Could not parse threshold from input: '{val_str}'")
@@ -476,13 +476,14 @@ async def _handle_save_circuit_breaker_threshold_button(
             set_circuit_breaker_threshold(0.0)
             set_circuit_breaker_enabled(False)
 
+    effective_thresh = val_float if val_float is not None else get_circuit_breaker_threshold()
     log_audit_event(
         event_type="ADMIN_CONFIG_CHANGE",
         actor={"type": "slack_admin", "id": user_id or "unknown"},
         action="save_circuit_breaker_threshold",
         target="circuit_breaker.threshold",
         details={"saved_threshold": val_float},
-        severity="CRITICAL",
+        severity="INFO" if (effective_thresh and effective_thresh > 0) else "WARNING",
     )
     return None
 
@@ -512,7 +513,7 @@ async def _handle_set_circuit_breaker_preset(
             action="set_circuit_breaker_preset",
             target="circuit_breaker.threshold",
             details={"preset_value": val_float},
-            severity="CRITICAL",
+            severity="INFO" if val_float > 0 else "WARNING",
         )
     except (ValueError, TypeError):
         pass
@@ -540,7 +541,7 @@ async def _handle_set_daily_budget_input(
                 action="set_daily_budget_input",
                 target="daily_budget.usd",
                 details={"budget_input": val_clean, "parsed_budget": val_float},
-                severity="CRITICAL",
+                severity="INFO",
             )
     except (ValueError, TypeError):
         logger.warning(f"[INTERACTIVITY] Could not parse daily budget from input: '{val_str}'")
@@ -590,7 +591,7 @@ async def _handle_save_daily_budget_button(
             action="save_daily_budget",
             target="daily_budget.usd",
             details={"saved_daily_budget": val_float},
-            severity="CRITICAL",
+            severity="INFO",
         )
     return None
 
@@ -616,7 +617,7 @@ async def _handle_set_daily_budget_preset(
                 action="set_daily_budget_preset",
                 target="daily_budget.usd",
                 details={"preset_value": val_float},
-                severity="CRITICAL",
+                severity="INFO",
             )
     except (ValueError, TypeError):
         pass
@@ -644,7 +645,7 @@ async def _handle_set_thread_skill_expiry_preset(
                 action="set_thread_skill_expiry_preset",
                 target="thread_skill_expiration_time",
                 details={"hours": val_float},
-                severity="CRITICAL",
+                severity="INFO",
             )
     except (ValueError, TypeError):
         pass
@@ -742,7 +743,7 @@ async def _handle_delete_workflow_preset_button(
             action="delete_workflow_preset",
             target=f"workflow:{selected_wf_id}",
             details={"workflow_id": selected_wf_id},
-            severity="CRITICAL",
+            severity="INFO",
         )
     return None
 
@@ -820,7 +821,7 @@ async def _handle_save_workflow_preset_button(
                 action="save_workflow_preset",
                 target=f"workflow:{saved.id}",
                 details={"name": preset_name, "mode": mode, "workflow_id": saved.id},
-                severity="CRITICAL",
+                severity="INFO",
             )
         except ValueError as ve:
             logger.warning(f"[WORKFLOW] Cannot save preset '{preset_name}': {ve}")
@@ -853,7 +854,7 @@ async def _handle_select_orchestration_mode(
             action="select_orchestration_mode",
             target="orchestration.mode",
             details={"mode": mode},
-            severity="CRITICAL",
+            severity="INFO",
         )
     return None
 
@@ -889,7 +890,7 @@ async def _handle_save_sandwich_chains_button(
         action="save_sandwich_chains_button",
         target="orchestration.sandwich_config",
         details={"start_chain": start_valid, "end_chain": end_valid, "invalid_keys": start_invalid + end_invalid},
-        severity="CRITICAL",
+        severity="INFO",
     )
     return None
 
@@ -909,7 +910,7 @@ async def _handle_clear_sandwich_chains_button(
         action="clear_sandwich_chains_button",
         target="orchestration.sandwich_config",
         details={"cleared": True},
-        severity="CRITICAL",
+        severity="INFO",
     )
     return None
 
@@ -933,7 +934,7 @@ async def _handle_set_start_chain_input(
         action="set_start_chain_input",
         target="orchestration.sandwich_config.start_chain",
         details={"start_chain": valid, "invalid_keys": invalid},
-        severity="CRITICAL",
+        severity="INFO",
     )
     return None
 
@@ -957,7 +958,7 @@ async def _handle_set_end_chain_input(
         action="set_end_chain_input",
         target="orchestration.sandwich_config.end_chain",
         details={"end_chain": valid, "invalid_keys": invalid},
-        severity="CRITICAL",
+        severity="INFO",
     )
     return None
 
@@ -985,7 +986,7 @@ async def _handle_save_fixed_chain_button(
         action="save_fixed_chain_button",
         target="orchestration.fixed_config",
         details={"fixed_chain": valid, "invalid_keys": invalid},
-        severity="CRITICAL",
+        severity="INFO",
     )
     return None
 
@@ -1005,7 +1006,7 @@ async def _handle_clear_fixed_chain_button(
         action="clear_fixed_chain_button",
         target="orchestration.fixed_config",
         details={"cleared": True},
-        severity="CRITICAL",
+        severity="INFO",
     )
     return None
 
@@ -1028,7 +1029,7 @@ async def _handle_set_fixed_chain_input(
         action="set_fixed_chain_input",
         target="orchestration.fixed_config",
         details={"fixed_chain": valid, "invalid_keys": invalid},
-        severity="CRITICAL",
+        severity="INFO",
     )
     return None
 

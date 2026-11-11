@@ -543,6 +543,23 @@ async def test_send_admin_audit_alert_uses_admin_ids():
         assert mock_dm.await_count == 2
         called_users = [call[0][0] for call in mock_dm.call_args_list]
         assert called_users == sorted(["U_ADMIN_PRIMARY", "U_ADMIN_SECONDARY"])
+        posted_text = mock_post.call_args_list[0][1]["text"]
+        assert "🚨 *[SECURITY CRITICAL] Integrity Failure*" in posted_text
+        assert "Action Required: Run `python -m services.audit_logger --verify` for forensic diagnostics." in posted_text
+
+        # Also verify WARNING severity tier delivery and Option A footer
+        mock_post.reset_mock()
+        mock_dm.reset_mock()
+        res_warn = await send_admin_audit_alert(
+            title="ADMIN_CONFIG_CHANGE",
+            message="Action 'toggle_skill_filter' recorded",
+            details={"enabled": False},
+            severity="WARNING",
+        )
+        assert res_warn is True
+        warn_posted_text = mock_post.call_args_list[0][1]["text"]
+        assert "⚠️ *[SECURITY WARNING] ADMIN_CONFIG_CHANGE*" in warn_posted_text
+        assert "Validation Action: Run `python -m services.audit_logger --verify` to verify audit trail integrity." in warn_posted_text
 
 
 def test_context_prep_terminal_constraint_for_last_agent_in_fixed_chain():

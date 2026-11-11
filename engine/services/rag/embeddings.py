@@ -20,7 +20,7 @@ class EmbeddingService:
 
     @classmethod
     def configure_embeddings_fn(cls, fn: Any) -> None:
-        cls._get_embeddings_override = fn
+        cls._get_embeddings_override = staticmethod(fn) if fn is not None else None
 
     @classmethod
     def reset_embeddings_fn(cls) -> None:
@@ -33,8 +33,8 @@ class EmbeddingService:
         """
         Embeds a list of texts in batches and returns list of embedding float vectors.
         """
-        if self._get_embeddings_override is not None:
-            res = self._get_embeddings_override(texts)
+        if EmbeddingService._get_embeddings_override is not None:
+            res = EmbeddingService._get_embeddings_override(texts)
             if inspect.isawaitable(res):
                 return await res
             return res
