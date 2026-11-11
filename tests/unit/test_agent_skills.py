@@ -9,7 +9,7 @@ import pytest
 
 from orchestration.agent_settings import settings_manager
 from prompts import build_agent_prompt
-from skills import (
+from skills.loader import (
     ALL_INTERNAL_SKILLS,
     LOAD_SKILL_SCHEMA,
     skill_registry,

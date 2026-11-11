@@ -1270,24 +1270,8 @@ def get_agent_skills(agent_key: str) -> list[str]:
     return settings_manager.get_agent_skills(agent_key)
 
 
-def set_agent_skills(agent_key: str, skills: list[str], save: bool = True) -> bool:
-    return settings_manager.set_agent_skills(agent_key, skills, save=save)
-
-
 def set_agent_model(agent_key: str, model: str, save: bool = True) -> bool:
     return settings_manager.set_agent_model(agent_key, model, save=save)
-
-
-def set_system_agent_model(sys_agent_key: str, model: str, save: bool = True) -> bool:
-    return settings_manager.set_system_agent_model(sys_agent_key, model, save=save)
-
-
-def get_workflow_config() -> str | None:
-    return settings_manager.get_workflow_config()
-
-
-def set_workflow_config(workflow_config: str | None, save: bool = True) -> None:
-    settings_manager.set_workflow_config(workflow_config, save=save)
 
 
 def get_active_workflow_id() -> str | None:
@@ -1313,36 +1297,6 @@ def get_workflow_snapshot() -> dict[str, Any]:
 
 def persist_active_workflow() -> None:
     settings_manager.persist_active_workflow()
-
-
-def get_orchestrator_fast_model() -> str:
-    return settings_manager.get_orchestrator_fast_model()
-
-
-def get_orchestrator_reasoning_model() -> str:
-    return settings_manager.get_orchestrator_reasoning_model()
-
-
-def set_orchestrator_fast_model(model: str, save: bool = True) -> bool:
-    return settings_manager.set_orchestrator_fast_model(model, save=save)
-
-
-def set_orchestrator_reasoning_model(model: str, save: bool = True) -> bool:
-    return settings_manager.set_orchestrator_reasoning_model(model, save=save)
-
-
-def set_orchestrator_models(
-    fast_model: str | None = None,
-    reasoning_model: str | None = None,
-    save: bool = True,
-) -> bool:
-    return settings_manager.set_orchestrator_models(fast_model=fast_model, reasoning_model=reasoning_model, save=save)
-
-
-def save_system_agent_settings() -> None:
-    settings_manager.save_system_agent_settings()
-
-
 
 
 def get_challenger_agent() -> str:

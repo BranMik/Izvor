@@ -13,7 +13,7 @@ from typing import Any, Callable
 
 import litellm
 
-from core.config import get_pricing_agent_model, get_pricing_agent_prompt
+from core.config import get_orchestrator_fast_model, get_pricing_agent_prompt
 from core.llm_utils import execute_llm_with_retry
 
 from .web_tools import fetch_web_page, web_search
@@ -434,7 +434,7 @@ class PricingService:
         resp = await execute_llm_with_retry(
             func=litellm.acompletion,
             kwargs={
-                "model": get_pricing_agent_model(),
+                "model": get_orchestrator_fast_model(),
                 "messages": messages,
                 "tools": PRICING_TOOL_SCHEMAS,
                 "tool_choice": "auto",
@@ -457,7 +457,7 @@ class PricingService:
             if usage:
                 spend_governance.record_usage(
                     session_id=f"system:pricing:{model_name}",
-                    model_name=get_pricing_agent_model(),
+                    model_name=get_orchestrator_fast_model(),
                     prompt_tokens=getattr(usage, "prompt_tokens", 0) or 0,
                     completion_tokens=getattr(usage, "completion_tokens", 0) or 0,
                 )
@@ -505,7 +505,7 @@ class PricingService:
             final_resp = await execute_llm_with_retry(
                 func=litellm.acompletion,
                 kwargs={
-                    "model": get_pricing_agent_model(),
+                    "model": get_orchestrator_fast_model(),
                     "messages": messages,
                     "response_format": {"type": "json_object"},
                 },
@@ -527,7 +527,7 @@ class PricingService:
                 if usage_final:
                     spend_governance.record_usage(
                         session_id=f"system:pricing:{model_name}",
-                        model_name=get_pricing_agent_model(),
+                        model_name=get_orchestrator_fast_model(),
                         prompt_tokens=getattr(usage_final, "prompt_tokens", 0) or 0,
                         completion_tokens=getattr(usage_final, "completion_tokens", 0) or 0,
                     )
@@ -715,11 +715,11 @@ class PricingService:
     async def warm_up_cache(self, models: list[str] | None = None) -> None:
         """Warms up pricing cache at server startup for all known models."""
         if models is None:
-            from core.config import get_thread_notes_model
+            from core.config import get_orchestrator_reasoning_model
             from orchestration.agent_settings import get_agents_config
 
             models_to_check = {cfg["model"] for cfg in get_agents_config().values() if "model" in cfg}
-            thread_notes_m = get_thread_notes_model()
+            thread_notes_m = get_orchestrator_reasoning_model()
             if thread_notes_m:
                 models_to_check.add(thread_notes_m)
         else:

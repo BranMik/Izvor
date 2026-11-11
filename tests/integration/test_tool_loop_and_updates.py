@@ -4,10 +4,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from orchestration.stages.tool_status import _build_tool_status_text
 from orchestration.turn_pipeline import (
     TurnContext,
     TurnPipeline,
-    _build_tool_status_text,
 )
 
 

@@ -254,7 +254,7 @@ async def lifespan(app: FastAPI):
 
     from services.audit_logger import set_main_event_loop
     from services.retention_service import prune_expired_records
-    from services.mcp import mcp_client_manager
+    from services.mcp.client_manager import mcp_client_manager
 
     set_main_event_loop(asyncio.get_running_loop())
 

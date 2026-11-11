@@ -57,8 +57,7 @@ async def safe_publish_home(user_id: str) -> None:
         from orchestration.agent_settings import sync_settings_if_modified
 
         sync_settings_if_modified()
-        import services.slack.views as ssv
-        await ssv.publish_app_home(user_id=user_id)
+        await publish_app_home(user_id=user_id)
     except SlackApiError as e:
         logger.error(f"[SLACK] SlackApiError publishing App Home for {user_id}: {e}")
     except Exception as e:  # noqa: BLE001 - Resilient to Slack errors in background tasks

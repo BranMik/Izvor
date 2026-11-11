@@ -3,9 +3,6 @@ agents package - Special purpose background and support agents for Izvor Slack P
 """
 
 from .thread_notes_agent import (
-    THREAD_LOCKS as NOTES_THREAD_LOCKS,
-)
-from .thread_notes_agent import (
     build_conclusion_note_blocks,
     build_scribe_note_blocks,
     clear_thread_note,
@@ -27,9 +24,6 @@ from .thread_notes_agent import (
     trigger_thread_notes_update,
     update_notes_for_thread,
 )
-from .thread_notes_agent import (
-    get_thread_lock as get_notes_thread_lock,
-)
 from .usage_agent import (
     calculate_thread_costs,
     configure_calculate_thread_costs,
@@ -46,7 +40,6 @@ from .usage_agent import (
 
 # Exports: Thread Notes / Scribe Agent and Usage / Cost Calculator Agent
 __all__ = [
-    "NOTES_THREAD_LOCKS",
     "build_conclusion_note_blocks",
     "build_scribe_note_blocks",
     "calculate_thread_costs",
@@ -58,7 +51,6 @@ __all__ = [
     "format_usage_slack_message",
     "generate_conclusion_notes",
     "generate_thread_notes",
-    "get_notes_thread_lock",
     "get_thread_conclusion_content",
     "get_thread_conclusion_note",
     "get_thread_note",

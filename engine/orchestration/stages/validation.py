@@ -8,7 +8,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from core.config import AGENTS_CONFIG
-from nlp import clean_system_and_tags, detect_language_llm, is_system_message
+from nlp.language_detector import clean_system_and_tags, detect_language_llm, is_system_message
 from orchestration.agent_settings import settings_manager
 from orchestration.nomination import (
     get_initial_agents,

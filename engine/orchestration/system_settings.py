@@ -664,8 +664,6 @@ class SystemSettingsManager:
                     return max(0.0, float(env_val))
                 except ValueError:
                     pass
-            if "pytest" in sys.modules:
-                return 0.01
         return self.debate_turn_pacing_seconds
 
     def set_debate_turn_pacing_seconds(self, seconds: float, save: bool = True) -> None:
@@ -684,8 +682,6 @@ class SystemSettingsManager:
                     return max(0.0, float(env_val))
                 except ValueError:
                     pass
-            if "pytest" in sys.modules:
-                return 0.01
         return self.slack_post_pause_seconds
 
     def set_slack_post_pause_seconds(self, seconds: float, save: bool = True) -> None:
@@ -974,22 +970,6 @@ class SystemSettingsManager:
         if save:
             self.save()
 
-    def get_challenger_agent(self) -> str:
-        from orchestration.agent_settings import get_challenger_agent as _get
-        return _get()
-
-    def set_challenger_agent(self, agent: str | None, save: bool = False) -> None:
-        from orchestration.agent_settings import set_challenger_agent as _set
-        _set(agent, save=save)
-
-    def get_arbitrator_agent(self) -> str:
-        from orchestration.agent_settings import get_arbitrator_agent as _get
-        return _get()
-
-    def set_arbitrator_agent(self, agent: str | None, save: bool = False) -> None:
-        from orchestration.agent_settings import set_arbitrator_agent as _set
-        _set(agent, save=save)
-
     # --- MCP Servers Settings ---
     def get_mcp_servers(self, env: Mapping[str, str] | None = None) -> dict[str, McpServerConfig]:
         """Returns validated McpServerConfig objects with env vars expanded."""
@@ -1105,48 +1085,16 @@ def is_internal_revisor_enabled() -> bool:
     return system_settings_manager.get_internal_revisor_enabled()
 
 
-def set_internal_revisor_enabled(enabled: bool, save: bool = True) -> None:
-    system_settings_manager.set_internal_revisor_enabled(enabled, save=save)
-
-
-def is_strict_privacy_mode_enabled() -> bool:
-    return system_settings_manager.is_strict_privacy_mode_enabled()
-
-
-def set_strict_privacy_mode_enabled(enabled: bool, save: bool = True) -> None:
-    system_settings_manager.set_strict_privacy_mode_enabled(enabled, save=save)
-
-
-def get_log_level() -> str:
-    return system_settings_manager.get_log_level()
-
-
-def set_log_level(level: str, save: bool = True) -> None:
-    system_settings_manager.set_log_level(level, save=save)
-
-
 def get_debate_turn_pacing_seconds() -> float:
     return system_settings_manager.get_debate_turn_pacing_seconds()
-
-
-def set_debate_turn_pacing_seconds(seconds: float, save: bool = True) -> None:
-    system_settings_manager.set_debate_turn_pacing_seconds(seconds, save=save)
 
 
 def get_slack_post_pause_seconds() -> float:
     return system_settings_manager.get_slack_post_pause_seconds()
 
 
-def set_slack_post_pause_seconds(seconds: float, save: bool = True) -> None:
-    system_settings_manager.set_slack_post_pause_seconds(seconds, save=save)
-
-
 def get_tool_call_loop_timeout_seconds() -> float:
     return system_settings_manager.get_tool_call_loop_timeout_seconds()
-
-
-def set_tool_call_loop_timeout_seconds(seconds: float, save: bool = True) -> None:
-    system_settings_manager.set_tool_call_loop_timeout_seconds(seconds, save=save)
 
 
 def get_guardrail_fail_mode() -> str:
@@ -1159,10 +1107,6 @@ def set_guardrail_fail_mode(mode: str, save: bool = True) -> None:
 
 def get_max_discussion_turns() -> int:
     return system_settings_manager.get_max_discussion_turns()
-
-
-def set_max_discussion_turns(val: int, save: bool = True) -> None:
-    system_settings_manager.set_max_discussion_turns(val, save=save)
 
 
 def get_max_tool_iterations() -> int:
@@ -1225,10 +1169,6 @@ def get_llm_max_retries() -> int:
     return system_settings_manager.get_llm_max_retries()
 
 
-def get_llm_retry_backoff_base() -> float:
-    return system_settings_manager.get_llm_retry_backoff_base()
-
-
 def get_slack_rate_limit_per_second() -> float:
     return system_settings_manager.get_slack_rate_limit_per_second()
 
@@ -1257,15 +1197,6 @@ def get_security_burst_limits() -> dict[str, Any]:
     return system_settings_manager.get_security_burst_limits()
 
 
-def get_dialectical_stress_test_config() -> dict[str, Any]:
-    from orchestration.agent_settings import get_challenger_agent as _get_challenger, get_arbitrator_agent as _get_arbitrator
-    system_settings_manager.load()
-    cfg = dict(system_settings_manager.dialectical_stress_test)
-    cfg["challenger_agent"] = _get_challenger() or ""
-    cfg["arbitrator_agent"] = _get_arbitrator() or ""
-    return cfg
-
-
 def is_dialectical_stress_test_enabled() -> bool:
     system_settings_manager.load()
     return bool(system_settings_manager.dialectical_stress_test.get("enabled", True))
@@ -1279,26 +1210,6 @@ def set_convergence_consecutive_threshold(val: int, save: bool = True) -> None:
     system_settings_manager.set_convergence_consecutive_threshold(val, save=save)
 
 
-def get_challenger_agent() -> str:
-    from orchestration.agent_settings import get_challenger_agent as _get
-    return _get()
-
-
-def set_challenger_agent(agent: str | None, save: bool = False) -> None:
-    from orchestration.agent_settings import set_challenger_agent as _set
-    _set(agent, save=save)
-
-
-def get_arbitrator_agent() -> str:
-    from orchestration.agent_settings import get_arbitrator_agent as _get
-    return _get()
-
-
-def set_arbitrator_agent(agent: str | None, save: bool = False) -> None:
-    from orchestration.agent_settings import set_arbitrator_agent as _set
-    _set(agent, save=save)
-
-
 def get_retention_checkpoints_days() -> int:
     return system_settings_manager.get_retention_checkpoints_days()
 
@@ -1309,10 +1220,6 @@ def get_retention_traces_days() -> int:
 
 def get_retention_event_dedup_days() -> int:
     return system_settings_manager.get_retention_event_dedup_days()
-
-
-def get_skill_exclusions_sync_interval_seconds() -> float:
-    return system_settings_manager.get_skill_exclusions_sync_interval_seconds()
 
 
 def get_mcp_servers(env: Mapping[str, str] | None = None) -> dict[str, McpServerConfig]:

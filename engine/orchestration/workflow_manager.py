@@ -236,10 +236,6 @@ class WorkflowManager:
 workflow_manager = WorkflowManager()
 
 
-def list_workflows() -> list[WorkflowPreset]:
-    return workflow_manager.list_workflows()
-
-
 def get_workflow(workflow_id: str) -> WorkflowPreset | None:
     return workflow_manager.get_workflow(workflow_id)
 

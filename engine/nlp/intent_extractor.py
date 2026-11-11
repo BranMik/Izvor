@@ -6,7 +6,7 @@ from typing import Any
 
 import litellm
 
-from core.config import get_intent_extractor_model
+from core.config import get_orchestrator_fast_model
 from core.llm_utils import execute_llm_with_retry
 from core.models import INT_MODIFIER_BOUNDS, ActionDirective, ExtractedIntent, coerce_int_modifier
 from pipeline.directive_parser import is_stop_command
@@ -44,8 +44,6 @@ _DEFAULT_EXTRACTOR_PROMPT_FALLBACK = """<system_agent_specification id="Intent_E
 
 EXTRACTOR_SYSTEM_PROMPT = load_system_prompt("Intent_Extractor", fallback=_DEFAULT_EXTRACTOR_PROMPT_FALLBACK)
 
-_INT_MODIFIER_BOUNDS = INT_MODIFIER_BOUNDS
-
 
 _extractor_override: Any = None
 
@@ -75,7 +73,7 @@ class IntentExtractor:
 
     @property
     def model(self) -> str:
-        return self._custom_model or get_intent_extractor_model()
+        return self._custom_model or get_orchestrator_fast_model()
 
     @model.setter
     def model(self, val: str | None) -> None:
@@ -215,7 +213,7 @@ class IntentExtractor:
                 for k, v in raw_mods.items():
                     if v is None:
                         continue
-                    bounds = _INT_MODIFIER_BOUNDS.get(k)
+                    bounds = INT_MODIFIER_BOUNDS.get(k)
                     if bounds is not None:
                         coerced = coerce_int_modifier(v, bounds[0], bounds[1])
                         if coerced is not None:

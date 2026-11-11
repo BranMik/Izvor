@@ -159,10 +159,6 @@ def set_main_event_loop(loop: Any) -> None:
     _main_event_loop = loop
 
 
-def get_main_event_loop() -> Any:
-    return _main_event_loop
-
-
 def validate_audit_configuration() -> None:
     """Validates that audit security settings (such as AUDIT_HMAC_SECRET) are valid at startup."""
     secret = get_audit_hmac_secret()
@@ -612,7 +608,7 @@ def check_hmac_secret_continuity(
     Returns:
         dict with keys: has_records, matches, status, message, last_seq, last_file, recorded_hash, computed_hash
     """
-    base_dir = audit_dir or getattr(audit_logger, "audit_dir", DEFAULT_AUDIT_DIR)
+    base_dir = audit_dir or audit_logger.audit_dir
     if not base_dir.exists():
         return {
             "has_records": False,
@@ -763,7 +759,7 @@ def verify_audit_log_integrity(
         month: Optional specific month to check (e.g., '2026_10' or '2026-10').
         check_anchors: Whether to verify tail truncation against SQLite head-hash anchors.
     """
-    base_dir = audit_dir or getattr(audit_logger, "audit_dir", DEFAULT_AUDIT_DIR)
+    base_dir = audit_dir or audit_logger.audit_dir
     if not base_dir.exists():
         return AuditVerificationResult(
             valid=True,

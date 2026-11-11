@@ -217,22 +217,6 @@ async def get_or_create_usage_channel() -> str | None:
     return None
 
 
-async def get_bot_user_id() -> str | None:
-    bot_token = get_slack_bot_token()
-    if not bot_token or bot_token == "xoxb-your-bot-user-oauth-token":
-        return "U_MOCK_BOT"
-    try:
-        client = get_slack_async_client()
-        auth_info = await client.auth_test()
-        return auth_info.get("user_id")
-    except SlackApiError as e:
-        logger.error(f"Slack API error fetching bot user ID: {e}")
-        return None
-    except Exception as e:  # noqa: BLE001 - Bot user ID lookup boundary returns None
-        logger.error(f"Error fetching bot user ID: {e}")
-        return None
-
-
 async def open_dm_channel(user_id: str) -> str | None:
     bot_token = get_slack_bot_token()
     if not bot_token or bot_token == "xoxb-your-bot-user-oauth-token":

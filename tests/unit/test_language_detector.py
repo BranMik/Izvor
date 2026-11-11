@@ -68,9 +68,9 @@ async def test_detect_language_llm_mocked_success():
 @pytest.mark.anyio
 async def test_detect_language_llm_uses_configured_model():
     """Verifies that detect_language_llm uses the model configured in SSOT."""
-    from core.config import get_language_detector_model
+    from core.config import get_orchestrator_fast_model
 
-    expected_model = get_language_detector_model()
+    expected_model = get_orchestrator_fast_model()
     text = "kratki test"
     with patch("nlp.language_detector.litellm.acompletion", AsyncMock(return_value=_make_mock_response("Croatian"))) as mock_comp:
         res = await detect_language_llm(text)

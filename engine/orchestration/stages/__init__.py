@@ -8,7 +8,6 @@ from .context_prep import ContextPrepStage
 from .execution import ExecutionStage
 from .post_record import PostRecordStage
 from .resolution import ResolutionStage
-from .tool_status import _build_tool_status_text
 from .validation import ValidationStage
 
 __all__ = [
@@ -17,5 +16,4 @@ __all__ = [
     "PostRecordStage",
     "ResolutionStage",
     "ValidationStage",
-    "_build_tool_status_text",
 ]

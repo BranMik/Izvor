@@ -94,7 +94,7 @@ class ExecutionStage:
     def spend_governance(self) -> Any:
         sg = getattr(self.deps, "spend_governance", None)
         if sg is None:
-            from services.spend_governance import spend_governance as default_sg
+            from pipeline.spend_governance import spend_governance as default_sg
 
             sg = default_sg
         return sg

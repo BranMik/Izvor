@@ -111,18 +111,3 @@ class RAGService:
 
 # Global singleton facade
 rag_service = RAGService()
-
-
-async def search_knowledge_rag(
-    query: str,
-    agent_name: str = "",
-    scope: str = "all",
-    max_results: int = DEFAULT_TOP_K,
-) -> str:
-    """Convenience function for searching knowledge base."""
-    return await rag_service.search(
-        query=query,
-        agent_name=agent_name,
-        scope=scope,
-        max_results=max_results,
-    )

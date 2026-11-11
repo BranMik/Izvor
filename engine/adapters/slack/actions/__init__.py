@@ -12,7 +12,6 @@ from adapters.slack.actions.agent_actions import (
     _handle_select_agent_model,
     _handle_toggle_agent,
     _handle_toggle_agent_radio,
-    _safe_publish_home_task,
 )
 from adapters.slack.actions.hitl_actions import (
     _execute_and_resume_hitl_approval,
@@ -93,6 +92,5 @@ __all__ = [
     "_handle_toggle_skill_filter",
     "_handle_toggle_weekly_pricing",
     "_resume_hitl_denial",
-    "_safe_publish_home_task",
     "_validate_chain_agent_keys",
 ]

@@ -14,7 +14,7 @@ from typing import Final
 import litellm
 
 
-from core.config import get_language_detector_model
+from core.config import get_orchestrator_fast_model
 from prompts.builder import load_system_prompt
 
 logger = logging.getLogger(__name__)
@@ -272,7 +272,7 @@ async def detect_language_llm(
         timeout_seconds = get_system_agent_inference_timeout_seconds()
     retry_multiplier = get_system_agent_inference_retry_timeout_multiplier()
 
-    selected_model = model or get_language_detector_model()
+    selected_model = model or get_orchestrator_fast_model()
     logger.info(
         f"[LANGUAGE DETECTOR] Starting LLM language detection ({len(clean_text)} chars, model={selected_model})"
     )

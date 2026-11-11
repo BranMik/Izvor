@@ -4,7 +4,7 @@ from unittest.mock import patch
 import pytest
 
 from adapters.slack.events import EventDeduplicationCache
-from core.task_utils import safe_create_task, get_active_tasks_count, _ACTIVE_TASKS
+from core.task_utils import safe_create_task, _ACTIVE_TASKS
 
 
 def test_dedup_cache_partial_eviction_when_maxsize_exceeded():
@@ -36,7 +36,7 @@ def test_dedup_cache_partial_eviction_when_maxsize_exceeded():
 
 @pytest.mark.anyio
 async def test_safe_create_task_lifecycle_normal():
-    initial_count = get_active_tasks_count()
+    initial_count = len(_ACTIVE_TASKS)
 
     async def normal_task():
         await asyncio.sleep(0.01)
@@ -44,19 +44,19 @@ async def test_safe_create_task_lifecycle_normal():
 
     task = safe_create_task(normal_task(), name="test_normal")
     assert task in _ACTIVE_TASKS
-    assert get_active_tasks_count() == initial_count + 1
+    assert len(_ACTIVE_TASKS) == initial_count + 1
 
     await task
     # Allow callback to run
     await asyncio.sleep(0.01)
 
     assert task not in _ACTIVE_TASKS
-    assert get_active_tasks_count() == initial_count
+    assert len(_ACTIVE_TASKS) == initial_count
 
 
 @pytest.mark.anyio
 async def test_safe_create_task_exception_logged():
-    initial_count = get_active_tasks_count()
+    initial_count = len(_ACTIVE_TASKS)
 
     async def failing_task():
         await asyncio.sleep(0.01)
@@ -76,7 +76,7 @@ async def test_safe_create_task_exception_logged():
 
         # Verified strong reference cleaned up
         assert task not in _ACTIVE_TASKS
-        assert get_active_tasks_count() == initial_count
+        assert len(_ACTIVE_TASKS) == initial_count
 
         # Verified logger intercepted and logged the error
         mock_logger_error.assert_called_once()

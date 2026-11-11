@@ -30,10 +30,6 @@ __all__ = [
     "TurnInput",
     "TurnOutput",
     "TurnPipeline",
-    "_build_tool_status_text",
-    "record_thread_tokens",
-    "trigger_thread_notes_update",
-    "trigger_usage_update",
 ]
 from core.models import ActionDirective, MediaAttachment
 from orchestration.protocols import (
@@ -45,7 +41,6 @@ from orchestration.stages import (
     PostRecordStage,
     ResolutionStage,
     ValidationStage,
-    _build_tool_status_text,
 )
 from orchestration.thread_state import thread_state_manager
 
@@ -176,14 +171,10 @@ class TurnContext:
         input: TurnInput | None = None,
         control: TurnControlPlane | None = None,
         output: TurnOutput | None = None,
-        inp: TurnInput | None = None,
-        control_plane: TurnControlPlane | None = None,
-        out: TurnOutput | None = None,
         **kwargs: Any,
     ):
-        effective_input = input or inp
-        if effective_input is not None:
-            self.input = effective_input
+        if input is not None:
+            self.input = input
         else:
             if channel_id is None or thread_ts is None:
                 raise ValueError("TurnContext requires channel_id and thread_ts or TurnInput.")
@@ -203,7 +194,7 @@ class TurnContext:
                 start_time=start_time or time.time(),
             )
 
-        self.control = control or control_plane or TurnControlPlane(
+        self.control = control or TurnControlPlane(
             consensus_signaled=kwargs.get("consensus_signaled", False) or kwargs.get("control_plane_consensus_signaled", False),
             consensus_summary=kwargs.get("consensus_summary") or kwargs.get("control_plane_consensus_summary"),
             nomination=kwargs.get("nomination") or kwargs.get("control_plane_nomination"),
@@ -212,7 +203,7 @@ class TurnContext:
             clarification_question=kwargs.get("clarification_question") or kwargs.get("control_plane_clarification_question"),
             convergence_summary=kwargs.get("convergence_summary"),
         )
-        self.output = output or out or TurnOutput(
+        self.output = output or TurnOutput(
             final_text=kwargs.get("final_text", ""),
             total_prompt_tokens=kwargs.get("total_prompt_tokens", 0),
             total_completion_tokens=kwargs.get("total_completion_tokens", 0),

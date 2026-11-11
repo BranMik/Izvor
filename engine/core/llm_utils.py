@@ -74,11 +74,6 @@ def reset_llm_completion_fn() -> None:
     _llm_completion_fn = None
 
 
-def get_llm_completion_fn() -> Any:
-    """Returns the currently configured LLM completion function override, if any."""
-    return _llm_completion_fn
-
-
 def configure_llm_sleep_fn(fn: Any) -> None:
     """Configures an in-memory sleep function for LLM backoff retries."""
     global _llm_sleep_fn
@@ -101,28 +96,6 @@ def set_pii_masker_instance(masker: Any) -> None:
     """Injectable PII masker, decoupling core from services."""
     global _pii_masker_instance
     _pii_masker_instance = masker
-
-
-def is_anthropic_model(model: str | None) -> bool:
-    """Checks whether the given model name targets Anthropic (Claude)."""
-    if not model or not isinstance(model, str):
-        return False
-    m = model.lower().strip()
-    return m.startswith("anthropic/") or "claude" in m
-
-
-def is_openai_model(model: str | None) -> bool:
-    """Checks whether the given model name targets OpenAI."""
-    if not model or not isinstance(model, str):
-        return False
-    m = model.lower().strip()
-    return (
-        m.startswith(("openai/", "o1", "o3"))
-        or "gpt" in m
-        or "chatgpt" in m
-        or "/o1" in m
-        or "/o3" in m
-    )
 
 
 def classify_agent_error(e: Exception) -> str:

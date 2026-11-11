@@ -454,7 +454,6 @@ def reset_router_and_llm_di_for_tests():
     from core.config import reset_token, set_internal_revisor_enabled_override
     from orchestration.agent_router import (
         reset_guardrail_checker,
-        reset_router_deps,
         reset_router_sleep_fn,
     )
     from orchestration.thread_state import thread_state_manager
@@ -471,7 +470,7 @@ def reset_router_and_llm_di_for_tests():
         reset_trigger_thread_notes_update,
         reset_trigger_usage_update,
     )
-    from nlp import reset_intent_extractor
+    from nlp.intent_extractor import reset_intent_extractor
     from services.rag.embeddings import EmbeddingService
 
     yield
@@ -481,7 +480,6 @@ def reset_router_and_llm_di_for_tests():
     reset_slack_async_client()
     reset_llm_completion_fn()
     reset_llm_sleep_fn()
-    reset_router_deps()
     reset_router_sleep_fn()
     reset_guardrail_checker()
     thread_state_manager.reset_capacity()

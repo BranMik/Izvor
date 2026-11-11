@@ -10,11 +10,6 @@ from typing import Any
 from pipeline.entity_resolver import entity_resolver
 
 
-def clean_spaces(text: str) -> str:
-    """Collapses multiple spaces/tabs into a single space and strips ends."""
-    return re.sub(r"[ \t]+", " ", text).strip()
-
-
 def remove_command_span(text: str, start: int, end: int) -> str:
     """
     Removes a command span [start, end] from text while strictly preserving

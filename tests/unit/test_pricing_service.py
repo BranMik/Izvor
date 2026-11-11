@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from core.config import get_pricing_agent_model
+from core.config import get_orchestrator_fast_model
 import services.pricing_service as pricing_module
 from services.pricing_service import (
     MAX_VALID_PRICE_PER_1M,
@@ -186,7 +186,7 @@ async def test_fetch_pricing_with_agent_success():
         # Verify litellm called with configured pricing agent model
         assert mock_completion.call_count == 2
         first_call_kwargs = mock_completion.call_args_list[0].kwargs
-        assert first_call_kwargs["model"] == get_pricing_agent_model()
+        assert first_call_kwargs["model"] == get_orchestrator_fast_model()
         assert first_call_kwargs["tools"] == PRICING_TOOL_SCHEMAS
 
         # Verify web_search was called with query requested by agent

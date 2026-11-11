@@ -469,7 +469,3 @@ def get_db_transaction(immediate: bool = True) -> Generator[sqlite3.Connection, 
 
 def init_db(db_path: Path | None = None) -> None:
     db_manager.init_db(db_path=db_path)
-
-
-def close_all_connections() -> None:
-    db_manager.close_all_connections()

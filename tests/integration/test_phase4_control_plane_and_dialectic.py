@@ -14,7 +14,7 @@ from pipeline.discussion_scribe.scribe import (
 )
 from pipeline.orchestrator.sandwich import SandwichOrchestrator
 from services.telemetry import get_turn_traces, record_turn_trace
-from skills import skill_registry
+from skills.loader import skill_registry
 
 
 @pytest.mark.anyio

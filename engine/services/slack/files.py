@@ -360,25 +360,6 @@ async def download_slack_file(file_info: dict[str, Any], max_chars: int = 50000)
         }
 
 
-def extract_thread_files_metadata(
-    files_list: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    return [
-        {
-            "id": f.get("id"),
-            "name": f.get("name"),
-            "size": f.get("size"),
-            "filetype": f.get("filetype"),
-        }
-        for f in files_list
-    ]
-
-
-async def read_slack_file_text(file_info: dict[str, Any], max_chars: int = 50000) -> str:
-    res = await download_slack_file(file_info, max_chars=max_chars)
-    return res.get("content", "")
-
-
 async def upload_text_file_to_slack(
     channel_id: str,
     content: str,
