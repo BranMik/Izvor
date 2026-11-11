@@ -35,8 +35,3 @@ def safe_create_task(
     return task
 
 
-def get_active_tasks_count() -> int:
-    """Returns the current number of actively tracked background tasks."""
-    return len(_ACTIVE_TASKS)
-
-

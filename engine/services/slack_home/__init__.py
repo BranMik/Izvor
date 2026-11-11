@@ -38,14 +38,15 @@ def build_app_home_view(
     Live Discussion Scribe toggle, emergency backup warning if active settings file is unreadable,
     and Workspace Baseline Context.
     """
-    import orchestration.agent_settings as agent_settings_module
     from orchestration.agent_settings import (
         get_active_workflow_id,
         get_agents_config,
+        get_backup_error_reason,
         get_enabled_agents,
         get_fixed_config,
         get_orchestration_mode,
         get_sandwich_config,
+        is_running_from_backup,
         sync_settings_if_modified,
     )
     from orchestration.app_settings import (
@@ -58,7 +59,7 @@ def build_app_home_view(
         is_scribe_enabled,
         is_weekly_pricing_update_enabled,
     )
-    from orchestration.workflow_manager import list_workflows
+    from orchestration.workflow_manager import workflow_manager
 
     sync_settings_if_modified()
     expiry_hours = get_thread_skill_expiration_time()
@@ -159,8 +160,8 @@ def build_app_home_view(
         )
 
     # Emergency Backup Alert Banner if running from backup
-    if agent_settings_module.is_running_from_backup():
-        err_reason = agent_settings_module.get_backup_error_reason() or "Settings file unavailable."
+    if is_running_from_backup():
+        err_reason = get_backup_error_reason() or "Settings file unavailable."
         blocks.extend(
             [
                 {
@@ -239,7 +240,7 @@ def build_app_home_view(
     )
 
     # Workflows blocks
-    workflows = list_workflows()
+    workflows = workflow_manager.list_workflows()
     active_wf_id = get_active_workflow_id()
     blocks.extend(
         build_workflows_blocks(

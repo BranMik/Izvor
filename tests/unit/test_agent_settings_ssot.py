@@ -328,9 +328,6 @@ def test_dynamic_config_getter_resolution():
         }
         assert core.config.get_orchestrator_fast_model() == "gemini/gemini-3.8-flash"
         assert core.config.get_orchestrator_reasoning_model() == "mistral/mistral-large-latest"
-        assert core.config.get_thread_notes_model() == "mistral/mistral-large-latest"
-        assert core.config.get_intent_extractor_model() == "gemini/gemini-3.8-flash"
-        assert core.config.get_language_detector_model() == "gemini/gemini-3.8-flash"
 
         settings_manager.set_orchestrator_models(
             fast_model="groq/llama-3.3-70b-versatile-dynamic",
@@ -339,8 +336,6 @@ def test_dynamic_config_getter_resolution():
         )
         assert core.config.get_orchestrator_fast_model() == "groq/llama-3.3-70b-versatile-dynamic"
         assert core.config.get_orchestrator_reasoning_model() == "anthropic/claude-3-7-sonnet-dynamic"
-        assert core.config.get_thread_notes_model() == "anthropic/claude-3-7-sonnet-dynamic"
-        assert core.config.get_intent_extractor_model() == "groq/llama-3.3-70b-versatile-dynamic"
     finally:
         settings_manager.orchestrator_config = original_orchestrator
 

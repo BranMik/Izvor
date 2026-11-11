@@ -61,7 +61,6 @@ logger = logging.getLogger(__name__)
 litellm.suppress_debug_info = True
 litellm.drop_params = True
 
-_router_deps_override: PipelineDeps | None = None
 _router_sleep_fn_override: Any = None
 _guardrail_checker_override: Any = None
 
@@ -76,23 +75,6 @@ def reset_guardrail_checker() -> None:
     """Resets the in-memory guardrail checker override for agent_router."""
     global _guardrail_checker_override
     _guardrail_checker_override = None
-
-
-def configure_router_deps(deps: PipelineDeps | None = None) -> None:
-    """Configures global default PipelineDeps for agent_router."""
-    global _router_deps_override
-    _router_deps_override = deps
-
-
-def reset_router_deps() -> None:
-    """Resets global default PipelineDeps for agent_router."""
-    global _router_deps_override
-    _router_deps_override = None
-
-
-def get_router_deps() -> PipelineDeps | None:
-    """Returns the currently configured PipelineDeps override, if any."""
-    return _router_deps_override
 
 
 def configure_router_sleep_fn(fn: Any) -> None:
@@ -275,7 +257,7 @@ async def process_and_respond(
     calls LiteLLM with agent parameters & tools, and posts response back to Slack thread.
     If run_internal_loop is True, executes the entire multi-agent discussion loop internally.
     """
-    target_deps = deps or _router_deps_override
+    target_deps = deps
     active_deps = resolve_pipeline_deps(
         target_deps,
         llm_executor=(target_deps.llm_executor if target_deps and target_deps.llm_executor is not None else execute_llm_with_retry),
@@ -377,7 +359,7 @@ async def process_and_respond(
 def _build_discussion_loop(sleep_fn: Any = None, deps: PipelineDeps | None = None) -> Any:
     from orchestration.discussion_loop import DiscussionLoop
 
-    active_deps = deps or _router_deps_override
+    active_deps = deps
     effective_sleep = (
         sleep_fn
         or _router_sleep_fn_override

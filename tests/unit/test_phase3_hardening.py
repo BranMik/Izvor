@@ -21,7 +21,7 @@ from orchestration.app_settings import AppSettingsManager
 from orchestration.stages.execution import _unmask_argument_values
 from orchestration.system_settings import SystemSettingsManager
 from services.audit_logger import GENESIS_HASH, AuditLogger
-from skills import ALL_INTERNAL_SKILLS, skill_registry
+from skills.loader import ALL_INTERNAL_SKILLS, skill_registry
 
 
 # ---------------------------------------------------------------------------

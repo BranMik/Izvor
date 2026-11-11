@@ -4,7 +4,7 @@ import time
 from typing import Any
 
 from core.task_utils import safe_create_task
-from core.config import get_thread_notes_model
+from core.config import get_orchestrator_reasoning_model
 from nlp.message_builder import markdown_to_slack
 from pipeline.discussion_scribe import discussion_scribe
 from services.slack import (
@@ -638,7 +638,7 @@ async def update_notes_for_thread(
                     )
 
             duration = time.time() - start_time
-            thread_notes_model = get_thread_notes_model()
+            thread_notes_model = get_orchestrator_reasoning_model()
 
             # Mandatory Log: Tokens spent and latency
             logger.info(

@@ -641,10 +641,6 @@ def calculate_thread_costs(channel_id: str, thread_ts: str) -> dict[str, Any]:
     return usage_tracker.calculate_thread_costs(channel_id, thread_ts)
 
 
-def get_thread_total_cost_usd(channel_id: str, thread_ts: str) -> float:
-    return usage_tracker.get_thread_total_cost_usd(channel_id, thread_ts)
-
-
 async def format_usage_slack_message(
     channel_id: str, thread_ts: str, is_completed: bool = False
 ) -> str:

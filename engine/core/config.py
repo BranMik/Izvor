@@ -399,43 +399,16 @@ def get_orchestrator_reasoning_model(fallback: str | None = None) -> str:
 
 # System / Utility Agent prompts (lazily built to prevent circular imports with prompts)
 _CACHED_PROMPTS: dict[str, str] = {}
-_prompt_builder_provider: Callable[[str], str] | None = None
-
-
-def set_prompt_builder_provider(builder: Callable[[str], str] | None) -> None:
-    """Injectable prompt builder, decoupling core/config from prompts layer."""
-    global _prompt_builder_provider
-    _prompt_builder_provider = builder
 
 
 def get_pricing_agent_prompt() -> str:
     if "pricing_agent" not in _CACHED_PROMPTS:
-        if _prompt_builder_provider is not None:
-            _CACHED_PROMPTS["pricing_agent"] = _prompt_builder_provider("Pricing_Agent")
+        prompt_file = PROMPTS_DIR / "system_agents" / "Pricing_Agent.md"
+        if prompt_file.exists():
+            _CACHED_PROMPTS["pricing_agent"] = prompt_file.read_text(encoding="utf-8")
         else:
-            prompt_file = PROMPTS_DIR / "system_agents" / "Pricing_Agent.md"
-            if prompt_file.exists():
-                _CACHED_PROMPTS["pricing_agent"] = prompt_file.read_text(encoding="utf-8")
-            else:
-                _CACHED_PROMPTS["pricing_agent"] = "You are a pricing analyst."
+            _CACHED_PROMPTS["pricing_agent"] = "You are a pricing analyst."
     return _CACHED_PROMPTS["pricing_agent"]
-
-
-# Module-level getters (dynamically resolved from SSOT)
-def get_thread_notes_model() -> str:
-    return get_orchestrator_reasoning_model()
-
-
-def get_pricing_agent_model() -> str:
-    return get_orchestrator_fast_model()
-
-
-def get_intent_extractor_model() -> str:
-    return get_orchestrator_fast_model()
-
-
-def get_language_detector_model() -> str:
-    return get_orchestrator_fast_model()
 
 
 _max_discussion_turns_provider: Callable[[], int] | None = None
@@ -529,10 +502,6 @@ __all__ = [
     "get_system_agent_model",
     "get_orchestrator_fast_model",
     "get_orchestrator_reasoning_model",
-    "get_thread_notes_model",
-    "get_pricing_agent_model",
-    "get_intent_extractor_model",
-    "get_language_detector_model",
     "get_pricing_agent_prompt",
     "is_internal_revisor_enabled",
     "set_internal_revisor_enabled_override",

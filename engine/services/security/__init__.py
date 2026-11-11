@@ -9,8 +9,6 @@ from services.security.pii_masker import PIIMasker, extract_skill_exclusion_term
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_CONFIG_PATH = SYSTEM_SETTINGS_FILE
-
 # Hardcoded main patterns
 MAIN_PATTERNS = {
     "slack_token": r"xox[baprs]-[a-zA-Z0-9\-]+",
@@ -25,13 +23,13 @@ MAIN_PATTERNS = {
 }
 
 def load_additional_patterns() -> dict[str, str]:
-    if DEFAULT_CONFIG_PATH.exists():
+    if SYSTEM_SETTINGS_FILE.exists():
         try:
-            with open(DEFAULT_CONFIG_PATH, "r", encoding="utf-8") as f:
+            with open(SYSTEM_SETTINGS_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
                 return data.get("security_guardrail_patterns", {})
         except (OSError, json.JSONDecodeError, ValueError) as e:
-            logger.error(f"Error reading {DEFAULT_CONFIG_PATH}: {e}")
+            logger.error(f"Error reading {SYSTEM_SETTINGS_FILE}: {e}")
     return {}
 
 def scan_output_for_secrets(text: str, user_id: str = "agent") -> str | None:

@@ -638,28 +638,11 @@ class ThreadStateManager:
 # Default singleton instance
 thread_state_manager = ThreadStateManager()
 
-register_cleanup_hook = thread_state_manager.register_cleanup_hook
-register_reset_hook = thread_state_manager.register_reset_hook
-cleanup_thread = thread_state_manager.cleanup_thread
-clear_round_execution_state = thread_state_manager.clear_round_execution_state
-reset_all_thread_states = thread_state_manager.reset_all
-record_convergence_speaker = thread_state_manager.record_convergence_speaker
-get_convergence_speakers = thread_state_manager.get_convergence_speakers
-clear_convergence_speakers = thread_state_manager.clear_convergence_speakers
-
 __all__ = [
     "DiscussionStateStore",
     "ThreadContextStore",
     "ThreadStateManager",
     "TurnRetryStateStore",
-    "cleanup_thread",
-    "clear_convergence_speakers",
-    "clear_round_execution_state",
-    "get_convergence_speakers",
-    "record_convergence_speaker",
-    "register_cleanup_hook",
-    "register_reset_hook",
-    "reset_all_thread_states",
     "thread_state_manager",
 ]
 

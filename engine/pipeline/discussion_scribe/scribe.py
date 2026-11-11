@@ -6,7 +6,7 @@ from typing import Any
 
 import litellm
 
-from core.config import get_thread_notes_model
+from core.config import get_orchestrator_reasoning_model
 from core.domain import DiscussionBrief, DiscussionConclusion, Turn
 
 from prompts.builder import load_system_prompt
@@ -228,7 +228,7 @@ class DiscussionScribe:
 
     @property
     def model(self) -> str:
-        return self._custom_model or get_thread_notes_model()
+        return self._custom_model or get_orchestrator_reasoning_model()
 
     @model.setter
     def model(self, val: str | None) -> None:

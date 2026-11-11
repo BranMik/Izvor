@@ -54,9 +54,9 @@ def test_system_settings_defaults():
         assert mgr.log_level == "INFO"
         assert mgr.get_tool_call_loop_timeout_seconds() == 60.0
         assert mgr.get_log_level() == "INFO"
-        # Under pytest, getters scale down pacing unless explicitly set
-        assert mgr.get_debate_turn_pacing_seconds() == 0.01
-        assert mgr.get_slack_post_pause_seconds() == 0.01
+        # Getters return configured values when not manually overridden or env var set
+        assert mgr.get_debate_turn_pacing_seconds() == 3.0
+        assert mgr.get_slack_post_pause_seconds() == 2.0
 
 
 def test_system_settings_custom_persistence():

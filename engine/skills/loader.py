@@ -1150,9 +1150,3 @@ def get_skill_registry() -> SkillRegistry:
 
 # Global singleton registry instance
 skill_registry: SkillRegistry = get_skill_registry()
-try:
-    from core.registry import set_skill_registry_provider
-
-    set_skill_registry_provider(get_skill_registry)
-except Exception:  # noqa: BLE001
-    pass

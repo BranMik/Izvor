@@ -98,7 +98,7 @@ async def _deliver_admin_denial_feedback(
                 logger.warning(f"[INTERACTIVITY] Fallback DM delivery failed for user {user_id}: {e}")
 
 
-from services.slack.views import safe_publish_home as _safe_publish_home_task
+from services.slack.views import safe_publish_home
 
 
 def _deny_non_admin_action(
@@ -133,7 +133,7 @@ def _deny_non_admin_action(
 
     # Re-sync App Home for user_id to reset uncommitted client-side widgets (e.g. dropdowns, radios)
     if user_id:
-        background_tasks.add_task(_safe_publish_home_task, user_id=user_id)
+        background_tasks.add_task(safe_publish_home, user_id=user_id)
 
 
 async def _handle_select_agent_model(
