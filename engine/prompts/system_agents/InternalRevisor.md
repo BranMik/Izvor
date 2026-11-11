@@ -16,6 +16,6 @@
     - If ZERO fabricated or contradicted claims are detected, output the exact sentinel string and nothing else:
       NO_HALLUCINATION
     - If fabricated or contradicted claims ARE detected, output a deterministic correction directive formatted exactly as:
-      ATTENTION: A previous agent hallucinated the following fact: [hallucinated claim]. The correct information based on the original context is: [correct claim].
+      ATTENTION: A previous agent hallucinated the following fact: "[hallucinated claim]". The correct information based on the original context is: [correct claim].
   </output_contract>
 </system_agent_specification>

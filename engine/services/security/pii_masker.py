@@ -616,6 +616,8 @@ class PIIMasker:
                                 "NORP",
                                 "DATE",
                                 "TIME",
+                                "ORGANIZATION",
+                                "ORG",
                             ]
                         },
                     }
@@ -723,7 +725,6 @@ class PIIMasker:
                     entities=[
                         "PERSON",
                         "LOCATION",
-                        "ORGANIZATION",
                         "PHONE_NUMBER",
                         "EMAIL_ADDRESS",
                         "IP_ADDRESS",
@@ -747,8 +748,8 @@ class PIIMasker:
                         if any(res.start < end and res.end > start for start, end in protected_intervals):
                             continue
 
-                        # For named entities (PERSON, LOCATION, ORGANIZATION), apply syntactic & semantic guards
-                        if res.entity_type in ("PERSON", "LOCATION", "ORGANIZATION"):
+                        # For named entities (PERSON, LOCATION), apply syntactic & semantic guards
+                        if res.entity_type in ("PERSON", "LOCATION"):
                             # 1. Require at least one uppercase letter (named entities must not be pure lowercase)
                             if not any(ch.isupper() for ch in original_str):
                                 continue
