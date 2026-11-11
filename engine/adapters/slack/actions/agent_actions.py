@@ -156,7 +156,7 @@ async def _handle_select_agent_model(
             action="set_agent_model",
             target=f"agent:{agent_key}.model",
             details={"agent": agent_key, "model": val},
-            severity="CRITICAL",
+            severity="INFO",
         )
     return None
 
@@ -179,7 +179,7 @@ async def _handle_toggle_agent_radio(
             action="toggle_agent",
             target=f"agent:{agent_key}.enabled",
             details={"agent": agent_key, "enabled": state == "on"},
-            severity="CRITICAL",
+            severity="INFO",
         )
     return None
 
@@ -200,7 +200,7 @@ async def _handle_toggle_agent(
             action="toggle_agent",
             target=f"agent:{agent_key}.enabled",
             details={"agent": agent_key},
-            severity="CRITICAL",
+            severity="INFO",
         )
     return None
 
@@ -219,7 +219,7 @@ async def _handle_bulk_enable_all(
         action="bulk_enable_all_agents",
         target="agents.enabled",
         details={"action": "reset_enabled_agents"},
-        severity="CRITICAL",
+        severity="INFO",
     )
     return None
 
@@ -241,7 +241,7 @@ async def _handle_bulk_disable(
         action="bulk_disable_agents",
         target="agents.enabled",
         details={"mode": action_id},
-        severity="CRITICAL",
+        severity="WARNING",
     )
     return None
 
@@ -263,6 +263,6 @@ async def _handle_restore_from_backup(
         action="restore_from_backup",
         target="agent_settings_backup",
         details={"success": success},
-        severity="CRITICAL",
+        severity="WARNING",
     )
     return None

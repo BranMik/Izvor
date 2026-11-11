@@ -193,9 +193,9 @@ def _persist_audit_anchor(month: str, seq: int, entry_hash: str, timestamp: str)
         logger.error(f"[AUDIT] Failed to persist audit anchor (seq={seq}, month={month}): {e}")
 
 
-def _dispatch_critical_alert(record: AuditRecord | dict[str, Any]) -> None:
+def _dispatch_security_alert(record: AuditRecord | dict[str, Any]) -> None:
     """
-    Dispatches an asynchronous critical alert.
+    Dispatches an asynchronous security alert (CRITICAL or WARNING).
     Supports invocation from both the main async event loop and worker threads
     (e.g., inside asyncio.to_thread) via asyncio.run_coroutine_threadsafe.
     """
@@ -203,11 +203,14 @@ def _dispatch_critical_alert(record: AuditRecord | dict[str, Any]) -> None:
     try:
         import asyncio
 
+        sev = str(rec.get("severity") or "CRITICAL").upper()
+
         def _make_coro():
             return send_admin_audit_alert(
                 title=f"Security Alert: {rec.get('event_type')}",
                 message=f"Action '{rec.get('action')}' on target '{rec.get('target')}' recorded with status '{rec.get('status')}'.",
                 details=rec.get("details"),
+                severity=sev,
             )
 
         try:
@@ -224,9 +227,9 @@ def _dispatch_critical_alert(record: AuditRecord | dict[str, Any]) -> None:
             _background_audit_tasks.add(fut)
             fut.add_done_callback(_background_audit_tasks.discard)
         else:
-            logger.debug("[AUDIT] No running event loop available to dispatch critical alert.")
+            logger.debug("[AUDIT] No running event loop available to dispatch security alert.")
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"[AUDIT] Failed to dispatch background critical alert: {e}")
+        logger.warning(f"[AUDIT] Failed to dispatch background security alert: {e}")
 
 
 def compute_entry_hash(prev_hash: str, canonical_json: str, secret_key: bytes | None = None) -> str:
@@ -473,12 +476,15 @@ class AuditLogger:
             self._cached_file_size = target_file.stat().st_size
             self._cached_last_state = (record.seq, record.entry_hash)
 
-            if record.severity == "CRITICAL" or record.seq % 10 == 0:
+            if record.severity in ("CRITICAL", "WARNING") or record.seq % 10 == 0:
                 month_str = now.strftime("%Y_%m")
                 _persist_audit_anchor(month_str, record.seq, record.entry_hash, record.timestamp)
 
-            if record.severity == "CRITICAL":
-                _dispatch_critical_alert(record)
+            if record.severity == "CRITICAL" or (
+                record.severity == "WARNING"
+                and record.event_type in ("ADMIN_CONFIG_CHANGE", "WORKFLOW_PRESET_MUTATION")
+            ):
+                _dispatch_security_alert(record)
 
             logger.info(
                 f"[AUDIT] Seq {record.seq} ({record.event_type}) recorded by {actor_dict.get('id')} -> {target_file.name}"
@@ -963,10 +969,12 @@ async def send_admin_audit_alert(
     title: str,
     message: str,
     details: dict[str, Any] | None = None,
+    severity: str = "CRITICAL",
 ) -> bool:
     """
-    Sends an urgent security alert in English directly to all administrators' Slack DMs
+    Sends a security alert in English directly to all administrators' Slack DMs
     using SLACK_ADMIN_USER_IDS in deterministic sorted order, with fallback to SLACK_TEST_CHANNEL_ID.
+    Formats the alert text according to severity (CRITICAL, WARNING, INFO).
     """
     from core.config import (
         SLACK_TEST_CHANNEL_ID,
@@ -975,19 +983,30 @@ async def send_admin_audit_alert(
     )
     from services.slack import open_dm_channel, post_agent_response
 
+    sev = str(severity or "CRITICAL").upper()
+    if sev == "WARNING":
+        header_line = f"⚠️ *[SECURITY WARNING] {title}*"
+        footer_line = "🔍 _Validation Action: Run `python -m services.audit_logger --verify` to verify audit trail integrity._"
+    elif sev == "INFO":
+        header_line = f"ℹ️ *[ADMIN NOTICE] {title}*"
+        footer_line = "📋 _Audit Trail: Event signed and recorded._"
+    else:
+        header_line = f"🚨 *[SECURITY CRITICAL] {title}*"
+        footer_line = "👉 _Action Required: Run `python -m services.audit_logger --verify` for forensic diagnostics._"
+
     token = get_slack_bot_token()
     if not token or token == "xoxb-your-bot-user-oauth-token":
-        logger.warning(f"[MOCK SLACK ALERT] {title}\n{message}\nDetails: {details}")
+        logger.warning(f"[MOCK SLACK ALERT] [{sev}] {title}\n{message}\nDetails: {details}")
         return True
 
     text_parts = [
-        f"🚨 *[SECURITY CRITICAL] {title}*",
+        header_line,
         message,
     ]
     if details:
         for k, v in details.items():
             text_parts.append(f"• *{k}:* `{v}`")
-    text_parts.append("👉 _Action Required: Run `python -m services.audit_logger --verify` for forensic diagnostics._")
+    text_parts.append(footer_line)
     alert_text = "\n".join(text_parts)
 
     admin_ids = get_admin_slack_user_ids()
