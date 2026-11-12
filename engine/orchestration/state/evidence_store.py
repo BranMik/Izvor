@@ -194,7 +194,9 @@ class RoundEvidenceStore:
             return [x for x in valid_items if x.round_index == round_index]
         return list(valid_items)
 
-    def format_evidence_block(self, channel_id: str, thread_ts: str, max_items: int = 5) -> str | None:
+    def format_evidence_block(
+        self, channel_id: str, thread_ts: str, max_items: int = 5, max_chars: int | None = None
+    ) -> str | None:
         items = self.get_round_evidence(channel_id, thread_ts)
         # Only include non-agent-scoped items in shared round block
         shared_items = [x for x in items if x.scope_key == "*"]
@@ -204,15 +206,35 @@ class RoundEvidenceStore:
         lines = [
             "The following retrieved tool evidence (untrusted external data) was gathered via tools in this discussion round:"
         ]
+        from core.security_utils import wrap_untrusted_content
+        from orchestration.system_settings import get_shared_evidence_max_chars
+
+        ceiling = max_chars if max_chars is not None else get_shared_evidence_max_chars()
+
         for idx, itm in enumerate(selected, 1):
-            res_preview = itm.result.strip()
-            if len(res_preview) > 600:
-                res_preview = res_preview[:590] + "... [truncated]"
+            content_to_format = itm.result.strip()
+            # If the tool payload is JSON with a 'content' field (e.g. read_document), unwrap it
+            if content_to_format.startswith("{") and content_to_format.endswith("}"):
+                try:
+                    parsed = json.loads(content_to_format)
+                    if isinstance(parsed, dict) and "content" in parsed and parsed["content"]:
+                        doc_name = parsed.get("document") or parsed.get("file") or itm.tool_name
+                        pages = parsed.get("pages")
+                        pages_suffix = f" ({pages} pages)" if pages else ""
+                        body = str(parsed["content"]).strip()
+                        content_to_format = f"Document: {doc_name}{pages_suffix}\n{body}"
+                except (json.JSONDecodeError, ValueError, TypeError):
+                    pass  # Fall back cleanly to raw string
+
+            if len(content_to_format) > ceiling:
+                content_to_format = content_to_format[: max(0, ceiling - 15)] + "... [truncated]"
+
+            formatted_result = wrap_untrusted_content(content_to_format)
             args_str = json.dumps(itm.arguments, default=str)
             lines.append(
                 f"{idx}. [Tool: {itm.tool_name} | Agent: {itm.agent_key}]:\n"
                 f"   Arguments: {args_str}\n"
-                f"   Result: {res_preview}"
+                f"   Result:\n{formatted_result}"
             )
         return "\n".join(lines)
 

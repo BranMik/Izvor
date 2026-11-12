@@ -554,9 +554,11 @@ class ThreadStateManager:
         """Returns all shared evidence items recorded for this thread."""
         return self.evidence.get_round_evidence(channel_id, thread_ts)
 
-    def format_round_evidence(self, channel_id: str, thread_ts: str) -> str | None:
+    def format_round_evidence(
+        self, channel_id: str, thread_ts: str, max_items: int = 5, max_chars: int | None = None
+    ) -> str | None:
         """Formats the latest verified round evidence into a structured string block."""
-        return self.evidence.format_evidence_block(channel_id, thread_ts)
+        return self.evidence.format_evidence_block(channel_id, thread_ts, max_items=max_items, max_chars=max_chars)
 
     def add_round_evidence(
         self,

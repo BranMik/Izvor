@@ -180,3 +180,105 @@ async def test_revisor_runs_on_terminating_single_agent_rag_turn():
         # Must execute on terminating turn 1 when RAG/skills were used!
         mock_exec.assert_called_once()
 
+
+@pytest.mark.anyio
+async def test_revisor_hydrates_from_evidence_store_and_attributes_speakers():
+    """Verifies that InternalRevisor hydrates context from evidence_store and labels speakers with persona names."""
+    import json
+    from orchestration.revisor_service import run_internal_revisor
+
+    channel_id = "C_REVISOR_HYDRATE"
+    thread_ts = "99999.0004"
+    thread_state_manager.clear_state(channel_id, thread_ts)
+
+    # Pre-populate round evidence from a previous turn (e.g. Visionary)
+    doc_content = json.dumps({
+        "status": "success",
+        "document": "blueprint.pdf",
+        "pages": 5,
+        "content": "Foundation 1: Real AI Understanding\nFoundation 2: Context Over Prompts",
+    })
+    thread_state_manager.add_round_evidence(
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        tool_name="read_document",
+        arguments={"document_name": "blueprint.pdf"},
+        result=doc_content,
+        agent_key="Visionary",
+    )
+
+    ctx = TurnContext(
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        raw_text="Summarize the foundations from blueprint.pdf",
+        is_bot_trigger=False,
+    )
+    # Turn 2: assistant_msgs has 1 message (from Visionary)
+    ctx.full_history = [
+        {"role": "user", "content": "Summarize the foundations from blueprint.pdf"},
+        {"role": "assistant", "content": "[Visionary]: Foundation 1 is Real AI and Foundation 2 is Context Over Prompts."},
+    ]
+    # Current agent is Tactician, who called NO tools
+    ctx.agent_key = "agent-10002"
+    ctx.agent_cfg = {"model": "test-model", "username": "Tactician", "skills": []}
+    ctx.output.skills_used = []
+    ctx.output.final_text = "I believe Foundation 1 is A Specific Repetitive Problem."
+
+    mock_resp = MagicMock()
+    mock_resp.choices = [MagicMock(message=MagicMock(content="NO_HALLUCINATION"))]
+    mock_resp.usage = MagicMock(prompt_tokens=50, completion_tokens=10)
+
+    with patch("orchestration.revisor_service.execute_llm_with_retry", AsyncMock(return_value=mock_resp)) as mock_exec:
+        await run_internal_revisor(ctx)
+        mock_exec.assert_called_once()
+        call_kwargs = mock_exec.call_args.kwargs
+        messages = call_kwargs["kwargs"]["messages"]
+        user_msg = next(m["content"] for m in messages if m["role"] == "user")
+
+        # Verify evidence hydration
+        assert "VERIFIED EVIDENCE [read_document by Visionary]:" in user_msg
+        assert "DOCUMENT (blueprint.pdf):" in user_msg
+        assert "Foundation 1: Real AI Understanding" in user_msg
+
+        # Verify persona attribution
+        assert "CANDIDATE MESSAGE FROM [Visionary]:" in user_msg
+        assert "CANDIDATE MESSAGE FROM [Tactician] (Latest):" in user_msg
+
+
+@pytest.mark.anyio
+async def test_revisor_runs_on_odd_terminating_turn():
+    """Verifies that InternalRevisor runs on odd turns (e.g. turn 3) when discussion is terminating."""
+    from orchestration.revisor_service import run_internal_revisor
+
+    channel_id = "C_REVISOR_ODD_TERM"
+    thread_ts = "99999.0005"
+    thread_state_manager.clear_state(channel_id, thread_ts)
+
+    ctx = TurnContext(
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        raw_text="Provide final architecture plan.",
+        is_bot_trigger=False,
+    )
+    # Turn 3: 2 assistant messages in history
+    ctx.full_history = [
+        {"role": "user", "content": "Provide final architecture plan."},
+        {"role": "assistant", "content": "[Visionary]: First perspective."},
+        {"role": "assistant", "content": "[Tactician]: Second perspective."},
+    ]
+    ctx.agent_key = "agent-10003"
+    ctx.agent_cfg = {"model": "test-model", "username": "SecurityArchitect", "skills": []}
+    ctx.output.skills_used = []
+    ctx.output.final_text = "Here is the final consensus plan."
+    ctx.output.is_completed = True  # Terminating!
+
+    mock_resp = MagicMock()
+    mock_resp.choices = [MagicMock(message=MagicMock(content="NO_HALLUCINATION"))]
+    mock_resp.usage = MagicMock(prompt_tokens=20, completion_tokens=5)
+
+    with patch("orchestration.revisor_service.execute_llm_with_retry", AsyncMock(return_value=mock_resp)) as mock_exec:
+        result = await run_internal_revisor(ctx)
+        assert result is None
+        mock_exec.assert_called_once()
+
+

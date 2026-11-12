@@ -123,3 +123,51 @@ async def test_discussion_loop_handles_exception_and_cleans_up_task():
     assert res.get("ok") is False
     assert "Fatal turn pipeline crash" in res.get("error", "")
     assert thread_state_manager.get_active_task(channel_id, thread_ts) is None
+
+
+@pytest.mark.anyio
+async def test_discussion_loop_appends_final_turn_and_revisor_warning_before_break(tmp_path):
+    """Verifies that when a turn completes discussion (is_completed: True), its final_text and revisor_warning are appended to accumulated_history and written to flat history."""
+    from services.flat_history_recorder import configure_paths, reset_paths
+
+    channel_id = "C_TEST_COMPLETED"
+    thread_ts = "1000.0004"
+
+    custom_flat_dir = tmp_path / "flat-histories"
+    custom_flat_dir.mkdir(parents=True, exist_ok=True)
+    configure_paths(custom_flat_dir)
+
+    try:
+        async def mock_turn_executor(**kwargs):
+            return {
+                "ok": True,
+                "agent_key": "agent-10002",
+                "final_text": "Final concluding statement by Tactician",
+                "username": "Tactician",
+                "is_completed": True,
+                "revisor_warning": "ATTENTION: Agent [Tactician] hallucinated the following fact: ...",
+            }
+
+        loop = DiscussionLoop(turn_executor=mock_turn_executor)
+        with patch(
+            "orchestration.discussion_loop.fetch_thread_history",
+            AsyncMock(return_value=[]),
+        ), patch("orchestration.discussion_loop.get_orchestration_mode", return_value="sandwich"):
+            res = await loop.run(
+                channel_id=channel_id,
+                thread_ts=thread_ts,
+                initial_raw_text="Initial problem query",
+                max_turns=3,
+            )
+
+        assert res.get("is_completed") is True
+
+        files = list(custom_flat_dir.glob("*.md"))
+        assert len(files) == 1
+        content = files[0].read_text(encoding="utf-8")
+        assert "Final concluding statement by Tactician" in content
+        assert "Internal Revisor Warning" in content
+        assert "ATTENTION: Agent [Tactician] hallucinated" in content
+    finally:
+        reset_paths()
+

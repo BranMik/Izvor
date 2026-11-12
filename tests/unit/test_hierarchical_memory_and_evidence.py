@@ -223,3 +223,61 @@ async def test_execution_stage_evidence_caching():
     assert cached is not None
     assert cached.result == "Specs document v2 found"
     assert cached.agent_key == "agent-1"
+
+
+def test_round_evidence_unwrapping_and_fallback():
+    store = RoundEvidenceStore()
+    channel_id = "C_UNWRAP"
+    thread_ts = "999.0"
+
+    # 1. JSON payload with 'content' unwrapped
+    doc_payload = json.dumps({
+        "status": "success",
+        "document": "blueprint.pdf",
+        "pages": 5,
+        "content": "Foundation 1: Real AI\nFoundation 2: Context",
+    })
+    store.add_evidence(
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        tool_name="read_document",
+        arguments={"document_name": "blueprint.pdf"},
+        result=doc_payload,
+        agent_key="Visionary",
+    )
+    block = store.format_evidence_block(channel_id, thread_ts)
+    assert block is not None
+    assert "Document: blueprint.pdf (5 pages)" in block
+    assert "Foundation 1: Real AI" in block
+    assert "Foundation 2: Context" in block
+    assert '"status": "success"' not in block
+
+    # 2. Raw fallback for non-content or invalid JSON
+    store.clear_thread_evidence(channel_id, thread_ts)
+    raw_payload = "Direct raw string without any json formatting"
+    store.add_evidence(
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        tool_name="web_search",
+        arguments={"query": "test"},
+        result=raw_payload,
+        agent_key="Tactician",
+    )
+    block2 = store.format_evidence_block(channel_id, thread_ts)
+    assert block2 is not None
+    assert "Direct raw string without any json formatting" in block2
+
+    # 3. Dynamic ceiling truncation
+    store.clear_thread_evidence(channel_id, thread_ts)
+    long_text = "Z" * 500
+    store.add_evidence(
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        tool_name="web_search",
+        arguments={"query": "test"},
+        result=long_text,
+        agent_key="Tactician",
+    )
+    block3 = store.format_evidence_block(channel_id, thread_ts, max_chars=100)
+    assert "... [truncated]" in block3
+

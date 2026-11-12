@@ -506,12 +506,12 @@ class TurnPipeline:
                 if is_internal_revisor_enabled():
                     from orchestration.revisor_service import run_internal_revisor
 
-                    warning = await asyncio.wait_for(run_internal_revisor(ctx), timeout=3.5)
+                    warning = await asyncio.wait_for(run_internal_revisor(ctx), timeout=6.0)
                     if warning and isinstance(slack_res, dict):
                         slack_res["revisor_warning"] = warning
                         ctx.output.revisor_warning = warning
             except asyncio.TimeoutError:
-                logger.warning(f"[REVISOR] InternalRevisor barrier timed out after 3.5s on {ctx.thread_key}")
+                logger.warning(f"[REVISOR] InternalRevisor barrier timed out after 6.0s on {ctx.thread_key}")
             except Exception as e:  # noqa: BLE001
                 logger.error(f"[REVISOR] Failed to execute internal revisor: {e}")
 
@@ -732,12 +732,12 @@ class TurnPipeline:
             if is_internal_revisor_enabled():
                 from orchestration.revisor_service import run_internal_revisor
 
-                warning = await asyncio.wait_for(run_internal_revisor(ctx), timeout=3.5)
+                warning = await asyncio.wait_for(run_internal_revisor(ctx), timeout=6.0)
                 if warning and isinstance(slack_res, dict):
                     slack_res["revisor_warning"] = warning
                     ctx.output.revisor_warning = warning
         except asyncio.TimeoutError:
-            logger.warning(f"[REVISOR] InternalRevisor barrier timed out after 3.5s on {ctx.thread_key}")
+            logger.warning(f"[REVISOR] InternalRevisor barrier timed out after 6.0s on {ctx.thread_key}")
         except Exception as e:  # noqa: BLE001
             logger.error(f"[REVISOR] Failed to execute internal revisor: {e}")
 
