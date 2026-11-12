@@ -79,6 +79,7 @@ class SystemSettingsModel(BaseModel):
     default_fast_model: str = "gemini/gemini-3.8-flash"
     default_reasoning_model: str = "mistral/mistral-large-latest"
     internal_revisor_enabled: bool = True
+    shared_evidence_max_chars: int = 40_000
     max_file_size_mb: float = 50.0
     rag: dict[str, Any] = Field(
         default_factory=lambda: {
@@ -186,6 +187,8 @@ class SystemSettingsManager:
         self.default_fast_model: str = "gemini/gemini-3.8-flash"
         self.default_reasoning_model: str = "mistral/mistral-large-latest"
         self.internal_revisor_enabled: bool = True
+        self.shared_evidence_max_chars: int = 40_000
+        self._shared_evidence_max_chars_manually_set: bool = False
         self.max_file_size_mb: float = 50.0
         self.workspace_write_blacklist_additional: list[str] = []
         self.strict_privacy_mode_enabled: bool = True
@@ -338,6 +341,7 @@ class SystemSettingsManager:
             str(model.default_reasoning_model).strip() or "mistral/mistral-large-latest"
         )
         self.internal_revisor_enabled = bool(getattr(model, "internal_revisor_enabled", True))
+        self.shared_evidence_max_chars = int(getattr(model, "shared_evidence_max_chars", 40_000))
         self.max_file_size_mb = float(model.max_file_size_mb)
         self._parse_rag_section(model.rag)
         raw_bl = model.workspace_write_blacklist_additional
@@ -439,6 +443,7 @@ class SystemSettingsManager:
             "default_fast_model": self.default_fast_model,
             "default_reasoning_model": self.default_reasoning_model,
             "internal_revisor_enabled": self.internal_revisor_enabled,
+            "shared_evidence_max_chars": self.shared_evidence_max_chars,
             "max_file_size_mb": self.max_file_size_mb,
             "rag": self.rag_config,
             "_comment_workspace_write_blacklist_additional": (
@@ -710,6 +715,24 @@ class SystemSettingsManager:
         if save:
             self.save()
         logger.info(f"[SYSTEM_SETTINGS] Set max_discussion_turns to {self.max_discussion_turns}.")
+
+    def get_shared_evidence_max_chars(self) -> int:
+        self.load()
+        if not getattr(self, "_shared_evidence_max_chars_manually_set", False):
+            env_val = os.getenv("IZVOR_SHARED_EVIDENCE_MAX_CHARS")
+            if env_val is not None:
+                try:
+                    return max(100, int(env_val))
+                except ValueError:
+                    pass
+        return int(self.shared_evidence_max_chars)
+
+    def set_shared_evidence_max_chars(self, max_chars: int, save: bool = True) -> None:
+        self.shared_evidence_max_chars = max(100, int(max_chars))
+        self._shared_evidence_max_chars_manually_set = True
+        if save:
+            self.save()
+        logger.info(f"[SYSTEM_SETTINGS] Set shared_evidence_max_chars to {self.shared_evidence_max_chars}.")
 
     def is_path_write_blocked(
         self,
@@ -1107,6 +1130,14 @@ def set_guardrail_fail_mode(mode: str, save: bool = True) -> None:
 
 def get_max_discussion_turns() -> int:
     return system_settings_manager.get_max_discussion_turns()
+
+
+def get_shared_evidence_max_chars() -> int:
+    return system_settings_manager.get_shared_evidence_max_chars()
+
+
+def set_shared_evidence_max_chars(max_chars: int, save: bool = True) -> None:
+    system_settings_manager.set_shared_evidence_max_chars(max_chars, save=save)
 
 
 def get_max_tool_iterations() -> int:

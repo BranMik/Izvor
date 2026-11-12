@@ -6,6 +6,7 @@ Only covers system-level settings changeable only in file (not through UI):
 """
 
 import json
+import os
 import tempfile
 from pathlib import Path
 
@@ -17,12 +18,14 @@ from orchestration.system_settings import (
     get_max_file_size_mb,
     get_rag_config,
     get_rag_setting,
+    get_shared_evidence_max_chars,
     get_workspace_write_blacklist_additional,
     is_path_write_blocked,
     set_default_fast_model,
     set_default_reasoning_model,
     set_max_file_size_mb,
     set_rag_setting,
+    set_shared_evidence_max_chars,
     set_workspace_write_blacklist_additional,
 )
 
@@ -57,6 +60,8 @@ def test_system_settings_defaults():
         # Getters return configured values when not manually overridden or env var set
         assert mgr.get_debate_turn_pacing_seconds() == 3.0
         assert mgr.get_slack_post_pause_seconds() == 2.0
+        assert mgr.shared_evidence_max_chars == 40000
+        assert mgr.get_shared_evidence_max_chars() == 40000
 
 
 def test_system_settings_custom_persistence():
@@ -252,5 +257,37 @@ def test_timing_and_guardrail_settings(tmp_path):
     assert mgr2.slack_post_pause_seconds == 4.2
     assert mgr2.tool_call_loop_timeout_seconds == 45.0
     assert mgr2.log_level == "DEBUG"
+
+
+def test_shared_evidence_max_chars_persistence_and_env(tmp_path):
+    settings_file = tmp_path / "system_settings.json"
+    mgr = SystemSettingsManager(settings_file=settings_file, auto_load=True)
+
+    assert mgr.get_shared_evidence_max_chars() == 40000
+    mgr.set_shared_evidence_max_chars(25000)
+    assert mgr.get_shared_evidence_max_chars() == 25000
+
+    # Reload from disk
+    mgr2 = SystemSettingsManager(settings_file=settings_file, auto_load=True)
+    assert mgr2.shared_evidence_max_chars == 25000
+    assert mgr2.get_shared_evidence_max_chars() == 25000
+
+    # Verify JSON content on disk
+    with open(settings_file, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    assert data["shared_evidence_max_chars"] == 25000
+
+    # Test environment variable override when not manually set
+    old_env = os.environ.get("IZVOR_SHARED_EVIDENCE_MAX_CHARS")
+    try:
+        os.environ["IZVOR_SHARED_EVIDENCE_MAX_CHARS"] = "32000"
+        mgr3 = SystemSettingsManager(settings_file=settings_file, auto_load=True)
+        assert mgr3.get_shared_evidence_max_chars() == 32000
+    finally:
+        if old_env is None:
+            os.environ.pop("IZVOR_SHARED_EVIDENCE_MAX_CHARS", None)
+        else:
+            os.environ["IZVOR_SHARED_EVIDENCE_MAX_CHARS"] = old_env
+
 
 

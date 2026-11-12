@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 import litellm
 
 from core.config import SYSTEM_AGENTS_CONFIG, get_system_agent_model
@@ -10,6 +11,13 @@ from prompts.builder import build_agent_prompt
 from services.slack import post_agent_response
 
 logger = logging.getLogger(__name__)
+
+CONTROL_PLANE_TOOLS: frozenset[str] = frozenset({
+    "load_skill",
+    "nominate_next_speaker",
+    "request_user_clarification",
+    "signal_consensus_convergence",
+})
 
 def _is_pure_missing_skill_notice(ctx: TurnContext) -> bool:
     """Checks if the turn was a compressed missing-skill refusal with no tool execution."""
@@ -29,25 +37,22 @@ def _is_pure_missing_skill_notice(ctx: TurnContext) -> bool:
 async def run_internal_revisor(ctx: TurnContext):
     """
     Background task to run the InternalRevisor.
-    Checks the last 2 agent messages against the initial user prompt.
+    Checks the last 2 agent messages against the initial user prompt and verified round evidence.
     """
     try:
-        # 1. Count assistant messages to determine if we are on a 2nd turn
+        # 1. Count assistant messages to determine if we are on a 2nd turn or terminating turn
         assistant_msgs = [m for m in ctx.full_history if m.get("role") == "assistant"]
         turn_count = len(assistant_msgs) + 1  # include the current turn
 
         rag_used = any(s in getattr(ctx.output, "skills_used", []) for s in ["knowledge_base_rag", "document_reader"])
-        is_terminating_single_rag = (
-            turn_count == 1
-            and rag_used
-            and (
-                getattr(ctx, "force_termination", False)
-                or not thread_state_manager.get_remaining_agents(ctx.input.channel_id, ctx.input.thread_ts)
-            )
+        is_terminating = (
+            getattr(ctx, "force_termination", False)
+            or getattr(ctx.output, "is_completed", False)
+            or not thread_state_manager.get_remaining_agents(ctx.input.channel_id, ctx.input.thread_ts)
         )
 
-        if turn_count % 2 != 0 and not is_terminating_single_rag:
-            return None  # Only run on multiples of 2 or terminating single-agent RAG turns
+        if turn_count % 2 != 0 and not (is_terminating and (turn_count > 1 or rag_used)):
+            return None  # Only run on multiples of 2 or terminating turns with context
 
         if _is_pure_missing_skill_notice(ctx):
             logger.info(
@@ -62,38 +67,76 @@ async def run_internal_revisor(ctx: TurnContext):
         if not initial_prompt:
             initial_prompt = ctx.input.raw_text
 
-        # 3. Get the last two agent messages
+        # 3. Get the last two agent messages with speaker attribution
         prev_msg = assistant_msgs[-1].get("content", "") if len(assistant_msgs) >= 1 else "(No prior agent message; single-turn response)"
-        current_msg = f"[{ctx.agent_cfg.get('username', ctx.agent_key)}]: {ctx.output.final_text}"
+        prev_speaker = "Previous Agent"
+        if assistant_msgs:
+            raw_prev = assistant_msgs[-1].get("content", "")
+            match = re.match(r"^\[([^\]]+)\]:", str(raw_prev).strip())
+            if match:
+                prev_speaker = match.group(1).strip()
 
-        # Check if RAG/documents or tools were used in the current turn
-        rag_used = any(s in ctx.output.skills_used for s in ["knowledge_base_rag", "document_reader"])
-        context_block = ""
+        curr_speaker = ctx.agent_cfg.get("username", ctx.agent_key)
+        current_msg = f"[{curr_speaker}]: {ctx.output.final_text}"
+
+        # 4. Collect context: current turn files/tools + thread-level verified evidence
         retrieved_parts = []
-        if rag_used and ctx.file_context:
-            if isinstance(ctx.file_context, dict):
-                f_name = ctx.file_context.get("filename") or ctx.file_context.get("name") or "Document"
-                f_body = ctx.file_context.get("content") or ctx.file_context.get("text") or json.dumps(ctx.file_context, indent=2)
+
+        file_ctx = ctx.file_context or thread_state_manager.get_file_context(ctx.input.channel_id, ctx.input.thread_ts)
+        if file_ctx:
+            if isinstance(file_ctx, dict):
+                f_name = file_ctx.get("file_name") or file_ctx.get("filename") or file_ctx.get("name") or "Document"
+                f_body = file_ctx.get("content") or file_ctx.get("text") or json.dumps(file_ctx, indent=2)
                 retrieved_parts.append(f"DOCUMENT/RAG CONTEXT ({f_name}):\n{f_body}")
             else:
-                retrieved_parts.append(f"DOCUMENT/RAG CONTEXT:\n{ctx.file_context}")
+                retrieved_parts.append(f"DOCUMENT/RAG CONTEXT:\n{file_ctx}")
 
         for msg in (getattr(ctx, "messages", None) or []):
             if isinstance(msg, dict) and msg.get("role") == "tool":
                 tool_name = msg.get("name") or "tool"
+                if tool_name in CONTROL_PLANE_TOOLS:
+                    continue
                 tool_content = msg.get("content", "")
                 if tool_content:
                     retrieved_parts.append(f"TOOL OUTPUT [{tool_name}]:\n{tool_content}")
 
+        # Hydrate from thread-level evidence store (previous agents in the round/thread)
+        from orchestration.state.evidence_store import READ_ONLY_CACHEABLE_TOOLS
+        evidence_items = thread_state_manager.get_round_evidence(ctx.input.channel_id, ctx.input.thread_ts)
+        seen_evidence = set()
+        for ev in evidence_items:
+            if ev.scope_key == "*" and ev.tool_name in READ_ONLY_CACHEABLE_TOOLS:
+                ev_key = (ev.tool_name, getattr(ev, "args_hash", ""))
+                if ev_key in seen_evidence:
+                    continue
+                seen_evidence.add(ev_key)
+                ev_res = str(ev.result).strip()
+                ev_body = ev_res
+                if ev_res.startswith("{") and ev_res.endswith("}"):
+                    try:
+                        parsed = json.loads(ev_res)
+                        if isinstance(parsed, dict) and "content" in parsed and parsed["content"]:
+                            doc_name = parsed.get("document") or parsed.get("file") or ev.tool_name
+                            ev_body = f"DOCUMENT ({doc_name}):\n{parsed['content']}"
+                    except (json.JSONDecodeError, ValueError, TypeError):
+                        pass
+                retrieved_parts.append(f"VERIFIED EVIDENCE [{ev.tool_name} by {ev.agent_key}]:\n{ev_body}")
+
         if retrieved_parts:
             context_block = "\n\nRETRIEVED CONTEXT FROM SKILLS / TOOLS:\n" + "\n\n".join(retrieved_parts)
+        else:
+            context_block = (
+                "\n\nRETRIEVED CONTEXT FROM SKILLS / TOOLS: "
+                "[None — No external document or tool output was retrieved. "
+                "Verify claims strictly against INITIAL USER PROMPT; do NOT guess external file contents.]"
+            )
 
         sys_prompt = build_agent_prompt("InternalRevisor")
 
         user_content = (
             f"INITIAL USER PROMPT:\n{initial_prompt}{context_block}\n\n"
-            f"AGENT MESSAGE 1:\n{prev_msg}\n\n"
-            f"AGENT MESSAGE 2 (Latest):\n{current_msg}\n"
+            f"CANDIDATE MESSAGE FROM [{prev_speaker}]:\n{prev_msg}\n\n"
+            f"CANDIDATE MESSAGE FROM [{curr_speaker}] (Latest):\n{current_msg}\n"
         )
 
         messages = [

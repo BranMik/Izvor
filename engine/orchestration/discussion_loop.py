@@ -143,22 +143,6 @@ class DiscussionLoop:
                 if "agent_key" in turn_res and turn_res["agent_key"]:
                     spoken_agents.add(turn_res["agent_key"])
 
-                if turn_res.get("clarification_question"):
-                    logger.info(
-                        f"[ORCHESTRATOR] Clarification requested by {turn_res.get('agent_key')} in thread {thread_key}. Suspending thread."
-                    )
-                    thread_state_manager.suspend_thread(channel_id, thread_ts)
-                    return turn_res
-
-                if (
-                    turn_res.get("halted")
-                    or turn_res.get("cancelled")
-                    or turn_res.get("is_completed")
-                    or (not turn_res.get("ok", True) and not turn_res.get("final_text"))
-                ):
-                    logger.info(f"[ORCHESTRATOR] Turn 1 completed or ended discussion for thread {thread_key}.")
-                    return turn_res
-
                 if "final_text" in turn_res:
                     agent_name = turn_res.get("displayname", turn_res.get("username", "Unknown Agent"))
                     accumulated_history.append(
@@ -174,6 +158,35 @@ class DiscussionLoop:
                             "content": f"[Internal Revisor Warning]: {turn_res['revisor_warning']}",
                         }
                     )
+
+                try:
+                    from services.flat_history_recorder import record_flat_history
+
+                    init_p = thread_state_manager.get_initial_prompt(channel_id, thread_ts) or initial_raw_text
+                    record_flat_history(
+                        channel_id=channel_id,
+                        thread_ts=thread_ts,
+                        initial_prompt=init_p,
+                        messages=accumulated_history,
+                    )
+                except Exception as e:  # noqa: BLE001
+                    logger.debug(f"[ORCHESTRATOR] Flat history sync exception: {e}")
+
+                if turn_res.get("clarification_question"):
+                    logger.info(
+                        f"[ORCHESTRATOR] Clarification requested by {turn_res.get('agent_key')} in thread {thread_key}. Suspending thread."
+                    )
+                    thread_state_manager.suspend_thread(channel_id, thread_ts)
+                    return turn_res
+
+                if (
+                    turn_res.get("halted")
+                    or turn_res.get("cancelled")
+                    or turn_res.get("is_completed")
+                    or (not turn_res.get("ok", True) and not turn_res.get("final_text"))
+                ):
+                    logger.info(f"[ORCHESTRATOR] Turn 1 completed or ended discussion for thread {thread_key}.")
+                    return turn_res
 
                 # Scatter-Gather Topology Check
                 wf_snap = thread_state_manager.get_workflow_snapshot(channel_id, thread_ts)
@@ -358,8 +371,6 @@ class DiscussionLoop:
                 # --- RESUMPTION FROM PRIOR TURN ---
                 turn_res = initial_turn_res
                 last_res = turn_res
-                if turn_res.get("halted") or turn_res.get("cancelled") or turn_res.get("is_completed"):
-                    return turn_res
 
                 if accumulated_history is None:
                     history_list = await fetch_thread_history(channel_id, thread_ts, bot_user_id=bot_user_id)
@@ -367,11 +378,6 @@ class DiscussionLoop:
 
                 if "agent_key" in turn_res and turn_res["agent_key"]:
                     spoken_agents.add(turn_res["agent_key"])
-
-                if turn_res.get("clarification_question"):
-                    logger.info(f"[ORCHESTRATOR] Clarification requested in thread {thread_key}. Suspending thread.")
-                    thread_state_manager.suspend_thread(channel_id, thread_ts)
-                    return turn_res
 
                 if "final_text" in turn_res:
                     agent_name = turn_res.get("displayname", turn_res.get("username", "Unknown Agent"))
@@ -388,6 +394,26 @@ class DiscussionLoop:
                             "content": f"[Internal Revisor Warning]: {turn_res['revisor_warning']}",
                         }
                     )
+
+                if turn_res.get("clarification_question"):
+                    logger.info(f"[ORCHESTRATOR] Clarification requested in thread {thread_key}. Suspending thread.")
+                    thread_state_manager.suspend_thread(channel_id, thread_ts)
+                    return turn_res
+
+                if turn_res.get("halted") or turn_res.get("cancelled") or turn_res.get("is_completed"):
+                    try:
+                        from services.flat_history_recorder import record_flat_history
+
+                        init_p = thread_state_manager.get_initial_prompt(channel_id, thread_ts) or initial_raw_text
+                        record_flat_history(
+                            channel_id=channel_id,
+                            thread_ts=thread_ts,
+                            initial_prompt=init_p,
+                            messages=accumulated_history,
+                        )
+                    except Exception as e:  # noqa: BLE001
+                        logger.debug(f"[ORCHESTRATOR] Flat history sync exception: {e}")
+                    return turn_res
 
             # Determine max_turns based on rounds configuration
             active_rounds = thread_state_manager.get_rounds(channel_id, thread_ts)
@@ -456,22 +482,6 @@ class DiscussionLoop:
                 if "agent_key" in turn_res and turn_res["agent_key"]:
                     spoken_agents.add(turn_res["agent_key"])
 
-                if turn_res.get("clarification_question"):
-                    logger.info(f"[ORCHESTRATOR] Clarification requested in thread {thread_key}. Suspending thread.")
-                    thread_state_manager.suspend_thread(channel_id, thread_ts)
-                    break
-
-                if (
-                    turn_res.get("halted")
-                    or turn_res.get("cancelled")
-                    or turn_res.get("is_completed")
-                    or (not turn_res.get("ok", True) and not turn_res.get("final_text"))
-                ):
-                    logger.info(
-                        f"[ORCHESTRATOR] Turn {turn_num} completed or ended discussion for thread {thread_key}."
-                    )
-                    break
-
                 if "final_text" in turn_res:
                     agent_name = turn_res.get("displayname", turn_res.get("username", "Unknown Agent"))
                     accumulated_history.append(
@@ -487,6 +497,22 @@ class DiscussionLoop:
                             "content": f"[Internal Revisor Warning]: {turn_res['revisor_warning']}",
                         }
                     )
+
+                if turn_res.get("clarification_question"):
+                    logger.info(f"[ORCHESTRATOR] Clarification requested in thread {thread_key}. Suspending thread.")
+                    thread_state_manager.suspend_thread(channel_id, thread_ts)
+                    break
+
+                if (
+                    turn_res.get("halted")
+                    or turn_res.get("cancelled")
+                    or turn_res.get("is_completed")
+                    or (not turn_res.get("ok", True) and not turn_res.get("final_text"))
+                ):
+                    logger.info(
+                        f"[ORCHESTRATOR] Turn {turn_num} completed or ended discussion for thread {thread_key}."
+                    )
+                    break
 
                 prev_queue = list(thread_state_manager.get_remaining_agents(channel_id, thread_ts))
                 updated_queue, consecutive_convergence_count = self.convergence_helper(

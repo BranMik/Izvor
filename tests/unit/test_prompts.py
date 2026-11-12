@@ -184,7 +184,7 @@ def test_system_agents_critical_runtime_contracts():
     revisor_prompt = load_system_prompt("InternalRevisor")
     assert "NO_HALLUCINATION" in revisor_prompt
     assert "ATTENTION:" in revisor_prompt
-    assert 'ATTENTION: A previous agent hallucinated the following fact: "[hallucinated claim]"' in revisor_prompt
+    assert 'ATTENTION: Agent [AgentName] hallucinated the following fact: "[hallucinated claim]"' in revisor_prompt
 
     live_scribe_prompt = load_system_prompt("Discussion_Scribe_Live")
     assert "*Core Objective & Problem Statement*" in live_scribe_prompt
