@@ -12,7 +12,7 @@
       "username": "ListSkills",
       "model": "gemini/gemini-3.8-flash",
       "displayname": "Skills Directory Presenter",
-      "icon_url": "avatars/image_99.png",
+      "icon_url": "avatars/image_98.png",
       "skills": []
     },
     "Challenger": {
@@ -43,7 +43,7 @@
       "username": "DiscussionScribe",
       "model": "mistral/mistral-small-latest",
       "displayname": "Discussion Scribe",
-      "icon_url": "avatars/image_99.png",
+      "icon_url": "avatars/image_98.png",
       "is_short_output": true,
       "skills": []
     }
