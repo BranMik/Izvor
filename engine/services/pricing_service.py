@@ -715,13 +715,25 @@ class PricingService:
     async def warm_up_cache(self, models: list[str] | None = None) -> None:
         """Warms up pricing cache at server startup for all known models."""
         if models is None:
-            from core.config import get_orchestrator_reasoning_model
+            from core.config import (
+                SYSTEM_AGENTS_CONFIG,
+                get_orchestrator_reasoning_model,
+                get_system_agent_model,
+            )
             from orchestration.agent_settings import get_agents_config
 
             models_to_check = {cfg["model"] for cfg in get_agents_config().values() if "model" in cfg}
-            thread_notes_m = get_orchestrator_reasoning_model()
-            if thread_notes_m:
-                models_to_check.add(thread_notes_m)
+            models_to_check.update(
+                cfg["model"]
+                for cfg in SYSTEM_AGENTS_CONFIG.values()
+                if isinstance(cfg, dict) and cfg.get("model")
+            )
+            scribe_m = get_system_agent_model("DiscussionScribe", fallback="mistral/mistral-small-latest")
+            if scribe_m:
+                models_to_check.add(scribe_m)
+            reasoning_m = get_orchestrator_reasoning_model()
+            if reasoning_m:
+                models_to_check.add(reasoning_m)
         else:
             models_to_check = set(models)
 

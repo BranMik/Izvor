@@ -394,3 +394,26 @@ async def test_refresh_pricing_force_overrides_disabled_weekly_update():
     assert pricing["input_price_per_1m"] == 10.0
     mock_fetch.assert_called_once()
 
+
+@pytest.mark.anyio
+async def test_warm_up_cache_includes_discussion_scribe_model(tmp_path):
+    """Verify startup warm_up_cache includes the dedicated DiscussionScribe SSOT model."""
+    from core.config import get_system_agent_model
+    from services.pricing_service import PricingService
+
+    class RecordingPricingService(PricingService):
+        def __init__(self, cache_file):
+            super().__init__(cache_file=cache_file)
+            self.checked_models: list[str] = []
+
+        async def refresh_pricing(self, model_name: str, force: bool = False, web_fetcher=None):
+            self.checked_models.append(model_name)
+            return {}
+
+    svc = RecordingPricingService(cache_file=tmp_path / "warmup_pricing_cache.json")
+    await svc.warm_up_cache()
+
+    expected_scribe_model = get_system_agent_model("DiscussionScribe", fallback="mistral/mistral-small-latest")
+    assert expected_scribe_model in svc.checked_models
+
+

@@ -6,6 +6,9 @@ This guide explains how **Izvor** captures debate history, generates live and cl
 
 ## ✍️ The Scribe Persona & Debate Closure
 
+> [!NOTE]
+> The Discussion Scribe uses the dedicated `DiscussionScribe` system-agent configuration in [`engine/settings/system_agent_settings.json`](file:///engine/settings/system_agent_settings.json) (default: `mistral/mistral-small-latest`), independent of heavy reasoning models, with automatic fallback and empty-output protection.
+
 When a deliberation is initiated, progresses, or reaches its configured round limit, Izvor engages the **Scribe** persona:
 
 ### 1. Live Discussion Notes & Real-Time Tracking

@@ -4,7 +4,6 @@ import time
 from typing import Any
 
 from core.task_utils import safe_create_task
-from core.config import get_orchestrator_reasoning_model
 from nlp.message_builder import markdown_to_slack
 from pipeline.discussion_scribe import discussion_scribe
 from services.slack import (
@@ -38,6 +37,37 @@ def _sanitize_note_text(text: str, persona_name: str = "Live Discussion Scribe")
         logger.warning(f"[SECURITY] Scribe note blocked by guardrail rule: {matched_rule}")
         return f"⚠️ *Note content redacted by security policy.* (Rule: {matched_rule})"
     return sanitize_slack_broadcast_mentions(text)
+
+
+def _is_usable_scribe_output(content: str | None) -> bool:
+    """Returns True when generated scribe/conclusion text contains substantive content."""
+    if not content or not content.strip():
+        return False
+    stripped = content.strip()
+    return not stripped.startswith(("*(Synthesis unavailable:", "*(Conclusion unavailable:"))
+
+
+def _extract_note_payload(raw_content: str, tokens: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    """Strips markdown code fences from Scribe output and normalizes token stats with model attribution."""
+    cleaned_content = (raw_content or "").strip()
+    if cleaned_content.startswith("```markdown"):
+        cleaned_content = cleaned_content[len("```markdown") :].strip()
+    elif cleaned_content.startswith("```"):
+        cleaned_content = cleaned_content[len("```") :].strip()
+    if cleaned_content.endswith("```"):
+        cleaned_content = cleaned_content[:-3].strip()
+
+    prompt_tokens = tokens.get("prompt_tokens", 0)
+    completion_tokens = tokens.get("completion_tokens", 0)
+    total_tokens = prompt_tokens + completion_tokens
+    token_stats: dict[str, Any] = {
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens": total_tokens,
+    }
+    if tokens.get("model"):
+        token_stats["model"] = tokens["model"]
+    return cleaned_content, token_stats
 
 
 
@@ -384,7 +414,7 @@ async def generate_thread_notes(
     thread_language: str = "English",
     scribe_max_words: int | None = None,
     scribe_min_words: int | None = None,
-) -> tuple[str, dict[str, int]]:
+) -> tuple[str, dict[str, Any]]:
     """
     Generates structured strategic synthesis live notes of the conversation history
     via the DiscussionScribe service. Returns (raw_markdown_content, token_usage_dict);
@@ -397,27 +427,7 @@ async def generate_thread_notes(
         scribe_max_words=scribe_max_words,
         scribe_min_words=scribe_min_words,
     )
-    raw_content = brief.raw_markdown or ""
-
-    # Clean markdown code-blocks if model wrapped in ```
-    cleaned_content = raw_content.strip()
-    if cleaned_content.startswith("```markdown"):
-        cleaned_content = cleaned_content[len("```markdown") :].strip()
-    elif cleaned_content.startswith("```"):
-        cleaned_content = cleaned_content[len("```") :].strip()
-    if cleaned_content.endswith("```"):
-        cleaned_content = cleaned_content[:-3].strip()
-
-    prompt_tokens = tokens.get("prompt_tokens", 0)
-    completion_tokens = tokens.get("completion_tokens", 0)
-    total_tokens = prompt_tokens + completion_tokens
-    token_stats = {
-        "prompt_tokens": prompt_tokens,
-        "completion_tokens": completion_tokens,
-        "total_tokens": total_tokens,
-    }
-
-    return cleaned_content, token_stats
+    return _extract_note_payload(brief.raw_markdown or "", tokens)
 
 
 async def generate_conclusion_notes(
@@ -425,7 +435,7 @@ async def generate_conclusion_notes(
     thread_language: str = "English",
     scribe_max_words: int | None = None,
     scribe_min_words: int | None = None,
-) -> tuple[str, dict[str, int]]:
+) -> tuple[str, dict[str, Any]]:
     """
     Generates comprehensive Conclusion Notes analyzing problem statement,
     consensus, opposing viewpoints, and agent arguments via DiscussionScribe.
@@ -438,26 +448,7 @@ async def generate_conclusion_notes(
         scribe_max_words=scribe_max_words,
         scribe_min_words=scribe_min_words,
     )
-    raw_content = conclusion.raw_markdown or ""
-
-    cleaned_content = raw_content.strip()
-    if cleaned_content.startswith("```markdown"):
-        cleaned_content = cleaned_content[len("```markdown") :].strip()
-    elif cleaned_content.startswith("```"):
-        cleaned_content = cleaned_content[len("```") :].strip()
-    if cleaned_content.endswith("```"):
-        cleaned_content = cleaned_content[:-3].strip()
-
-    prompt_tokens = tokens.get("prompt_tokens", 0)
-    completion_tokens = tokens.get("completion_tokens", 0)
-    total_tokens = prompt_tokens + completion_tokens
-    token_stats = {
-        "prompt_tokens": prompt_tokens,
-        "completion_tokens": completion_tokens,
-        "total_tokens": total_tokens,
-    }
-
-    return cleaned_content, token_stats
+    return _extract_note_payload(conclusion.raw_markdown or "", tokens)
 
 
 async def update_notes_for_thread(
@@ -521,49 +512,69 @@ async def update_notes_for_thread(
                 scribe_max_words=scribe_max_words,
                 scribe_min_words=scribe_min_words,
             )
+            live_prompt_tokens = token_stats.get("prompt_tokens", 0)
+            live_completion_tokens = token_stats.get("completion_tokens", 0)
+            live_model = token_stats.get("model") or discussion_scribe.model
 
-            # Append timestamp / token footnote
             timestamp_str = time.strftime("%H:%M:%S")
-            footer = f"\n\n_Last updated: {timestamp_str} | Scribe tokens: {token_stats['total_tokens']}_"
-            formatted_text = f"{notes_content.strip()}{footer}"
-            formatted_text = _sanitize_note_text(formatted_text, "Live Discussion Scribe")
-            # Persist raw markdown for .txt downloads; convert to Slack mrkdwn only for the Slack-bound payload
-            set_thread_note_content(channel_id, thread_ts, formatted_text)
-            slack_text = markdown_to_slack(formatted_text)
-            blocks = build_scribe_note_blocks(slack_text, channel_id, thread_ts)
-
-            # 3. Post new note message or update existing note in-place
             note_ts = get_thread_note(channel_id, thread_ts)
-            if not note_ts:
-                post_res = await post_thread_note(
-                    channel_id=channel_id,
-                    thread_ts=thread_ts,
-                    text=slack_text,
-                    pin=True,
-                    username="Live Discussion Scribe",
-                    icon_emoji=":memo:",
-                    blocks=blocks,
-                )
-                note_ts = post_res.get("ts")
-                if note_ts:
-                    set_thread_note(channel_id, thread_ts, note_ts)
-                    set_live_note_pinned(channel_id, thread_ts, True)
+            formatted_text: str | None = None
+
+            # 3. Post/update live note ONLY when substantive output was generated
+            if _is_usable_scribe_output(notes_content):
+                footer = f"\n\n_Last updated: {timestamp_str} | Scribe tokens: {token_stats['total_tokens']}_"
+                formatted_text = _sanitize_note_text(f"{notes_content.strip()}{footer}", "Live Discussion Scribe")
+                # Persist raw markdown for .txt downloads; convert to Slack mrkdwn only for the Slack-bound payload
+                set_thread_note_content(channel_id, thread_ts, formatted_text)
+                slack_text = markdown_to_slack(formatted_text)
+                blocks = build_scribe_note_blocks(slack_text, channel_id, thread_ts)
+
+                if not note_ts:
+                    post_res = await post_thread_note(
+                        channel_id=channel_id,
+                        thread_ts=thread_ts,
+                        text=slack_text,
+                        pin=True,
+                        username="Live Discussion Scribe",
+                        icon_emoji=":memo:",
+                        blocks=blocks,
+                    )
+                    note_ts = post_res.get("ts")
+                    if note_ts:
+                        set_thread_note(channel_id, thread_ts, note_ts)
+                        set_live_note_pinned(channel_id, thread_ts, True)
+                        logger.info(
+                            f"[THREAD NOTES] Created and pinned live synthesis note {note_ts} for thread {thread_ts}"
+                        )
+                else:
+                    await update_thread_note(
+                        channel_id=channel_id,
+                        message_ts=note_ts,
+                        text=slack_text,
+                        blocks=blocks,
+                    )
                     logger.info(
-                        f"[THREAD NOTES] Created and pinned live synthesis note {note_ts} for thread {thread_ts}"
+                        f"[THREAD NOTES] Updated live synthesis note {note_ts} in thread {thread_ts}"
                     )
             else:
-                await update_thread_note(
-                    channel_id=channel_id,
-                    message_ts=note_ts,
-                    text=slack_text,
-                    blocks=blocks,
-                )
-                logger.info(
-                    f"[THREAD NOTES] Updated live synthesis note {note_ts} in thread {thread_ts}"
-                )
+                existing_live = get_thread_note_content(channel_id, thread_ts)
+                if existing_live and existing_live.strip():
+                    formatted_text = existing_live
+                    logger.warning(
+                        f"[THREAD NOTES] Live synthesis returned empty/unavailable output for thread {thread_ts}; "
+                        "preserving existing live note."
+                    )
+                else:
+                    logger.warning(
+                        f"[THREAD NOTES] Live synthesis returned empty/unavailable output for thread {thread_ts}; "
+                        "skipping empty live note post."
+                    )
 
             conclusion_ts = None
             formatted_conclusion_text = None
+            conc_model: str | None = None
+            conc_prompt_tokens = 0
+            conc_completion_tokens = 0
 
             # 4. If conversation rounds have concluded, unpin live note, generate conclusion note, pin it, and persist
             if is_completed:
@@ -582,63 +593,78 @@ async def update_notes_for_thread(
                     scribe_max_words=scribe_max_words,
                     scribe_min_words=scribe_min_words,
                 )
-                token_stats["prompt_tokens"] += conc_tokens.get("prompt_tokens", 0)
-                token_stats["completion_tokens"] += conc_tokens.get("completion_tokens", 0)
+                conc_prompt_tokens = conc_tokens.get("prompt_tokens", 0)
+                conc_completion_tokens = conc_tokens.get("completion_tokens", 0)
+                conc_model = conc_tokens.get("model") or discussion_scribe.model
+                token_stats["prompt_tokens"] += conc_prompt_tokens
+                token_stats["completion_tokens"] += conc_completion_tokens
                 token_stats["total_tokens"] += conc_tokens.get("total_tokens", 0)
 
-                conc_footer = f"\n\n_Completed: {timestamp_str} | Conclusion tokens: {conc_tokens['total_tokens']}_"
-                formatted_conclusion_text = f"{conc_content.strip()}{conc_footer}"
-                formatted_conclusion_text = _sanitize_note_text(formatted_conclusion_text, "Discussion Conclusion")
-                # Persist raw markdown for .txt downloads; convert to Slack mrkdwn only for the Slack-bound payload
-                set_thread_conclusion_content(channel_id, thread_ts, formatted_conclusion_text)
-                slack_conclusion_text = markdown_to_slack(formatted_conclusion_text)
-                conc_blocks = build_conclusion_note_blocks(slack_conclusion_text, channel_id, thread_ts)
-
-                # Post or update in-place Conclusion Note
-                conclusion_ts = get_thread_conclusion_note(channel_id, thread_ts)
-                if not conclusion_ts:
-                    post_conc_res = await post_thread_note(
-                        channel_id=channel_id,
-                        thread_ts=thread_ts,
-                        text=slack_conclusion_text,
-                        pin=True,
-                        username="Discussion Conclusion",
-                        icon_emoji=":scales:",
-                        blocks=conc_blocks,
+                if _is_usable_scribe_output(conc_content):
+                    conc_footer = f"\n\n_Completed: {timestamp_str} | Conclusion tokens: {conc_tokens['total_tokens']}_"
+                    formatted_conclusion_text = _sanitize_note_text(
+                        f"{conc_content.strip()}{conc_footer}", "Discussion Conclusion"
                     )
-                    conclusion_ts = post_conc_res.get("ts")
-                    if conclusion_ts:
-                        set_thread_conclusion_note(channel_id, thread_ts, conclusion_ts)
+                    # Persist raw markdown for .txt downloads; convert to Slack mrkdwn only for the Slack-bound payload
+                    set_thread_conclusion_content(channel_id, thread_ts, formatted_conclusion_text)
+                    slack_conclusion_text = markdown_to_slack(formatted_conclusion_text)
+                    conc_blocks = build_conclusion_note_blocks(slack_conclusion_text, channel_id, thread_ts)
+
+                    # Post or update in-place Conclusion Note
+                    conclusion_ts = get_thread_conclusion_note(channel_id, thread_ts)
+                    if not conclusion_ts:
+                        post_conc_res = await post_thread_note(
+                            channel_id=channel_id,
+                            thread_ts=thread_ts,
+                            text=slack_conclusion_text,
+                            pin=True,
+                            username="Discussion Conclusion",
+                            icon_emoji=":scales:",
+                            blocks=conc_blocks,
+                        )
+                        conclusion_ts = post_conc_res.get("ts")
+                        if conclusion_ts:
+                            set_thread_conclusion_note(channel_id, thread_ts, conclusion_ts)
+                            logger.info(
+                                f"[THREAD NOTES] Created and pinned conclusion note {conclusion_ts} for thread {thread_ts}"
+                            )
+                    else:
+                        await update_thread_note(
+                            channel_id=channel_id,
+                            message_ts=conclusion_ts,
+                            text=slack_conclusion_text,
+                            blocks=conc_blocks,
+                        )
                         logger.info(
-                            f"[THREAD NOTES] Created and pinned conclusion note {conclusion_ts} for thread {thread_ts}"
+                            f"[THREAD NOTES] Updated conclusion note {conclusion_ts} in thread {thread_ts}"
                         )
                 else:
-                    await update_thread_note(
-                        channel_id=channel_id,
-                        message_ts=conclusion_ts,
-                        text=slack_conclusion_text,
-                        blocks=conc_blocks,
-                    )
-                    logger.info(
-                        f"[THREAD NOTES] Updated conclusion note {conclusion_ts} in thread {thread_ts}"
+                    conclusion_ts = get_thread_conclusion_note(channel_id, thread_ts)
+                    logger.warning(
+                        f"[THREAD NOTES] Conclusion generation returned empty/unavailable output for thread {thread_ts}; "
+                        "skipping conclusion note post."
                     )
 
-                # 5. Persist both notes to agents_resources/thread_notes/
-                try:
-                    save_thread_notes_to_disk(
-                        channel_id=channel_id,
-                        thread_ts=thread_ts,
-                        initial_prompt=initial_prompt,
-                        live_notes_text=formatted_text,
-                        conclusion_text=formatted_conclusion_text,
-                    )
-                except Exception as disk_err:  # noqa: BLE001
-                    logger.warning(
-                        f"[THREAD NOTES] Failed saving thread notes to disk: {disk_err}"
-                    )
+                # 5. Persist usable notes to agents_resources/thread_notes/
+                if formatted_text or formatted_conclusion_text:
+                    try:
+                        save_thread_notes_to_disk(
+                            channel_id=channel_id,
+                            thread_ts=thread_ts,
+                            initial_prompt=initial_prompt,
+                            live_notes_text=formatted_text,
+                            conclusion_text=formatted_conclusion_text,
+                        )
+                    except Exception as disk_err:  # noqa: BLE001
+                        logger.warning(
+                            f"[THREAD NOTES] Failed saving thread notes to disk: {disk_err}"
+                        )
 
             duration = time.time() - start_time
-            thread_notes_model = get_orchestrator_reasoning_model()
+            if conc_model and conc_model != live_model:
+                thread_notes_model = f"{live_model}, {conc_model}"
+            else:
+                thread_notes_model = live_model
 
             # Mandatory Log: Tokens spent and latency
             logger.info(
@@ -655,13 +681,29 @@ async def update_notes_for_thread(
 
             # Record Scribe agent tokens into thread usage tracker and trigger usage update
             try:
-                record_thread_tokens(
-                    channel_id=channel_id,
-                    thread_ts=thread_ts,
-                    model_name=thread_notes_model,
-                    prompt_tokens=token_stats["prompt_tokens"],
-                    completion_tokens=token_stats["completion_tokens"],
-                )
+                if conc_model and conc_model != live_model:
+                    record_thread_tokens(
+                        channel_id=channel_id,
+                        thread_ts=thread_ts,
+                        model_name=live_model,
+                        prompt_tokens=live_prompt_tokens,
+                        completion_tokens=live_completion_tokens,
+                    )
+                    record_thread_tokens(
+                        channel_id=channel_id,
+                        thread_ts=thread_ts,
+                        model_name=conc_model,
+                        prompt_tokens=conc_prompt_tokens,
+                        completion_tokens=conc_completion_tokens,
+                    )
+                else:
+                    record_thread_tokens(
+                        channel_id=channel_id,
+                        thread_ts=thread_ts,
+                        model_name=live_model,
+                        prompt_tokens=token_stats["prompt_tokens"],
+                        completion_tokens=token_stats["completion_tokens"],
+                    )
                 trigger_usage_update(
                     channel_id=channel_id,
                     thread_ts=thread_ts,

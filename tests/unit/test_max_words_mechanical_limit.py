@@ -191,7 +191,7 @@ async def test_discussion_scribe_mechanical_word_limit():
     mock_resp.choices = [mock_choice]
     mock_resp.usage = MagicMock(prompt_tokens=100, completion_tokens=150)
 
-    with patch("pipeline.discussion_scribe.scribe.litellm.acompletion", return_value=mock_resp):
+    with patch("pipeline.discussion_scribe.scribe.litellm.acompletion", return_value=mock_resp) as mock_litellm:
         # scribe_max_words = 40 -> cutoff is 40 + 50 = 90 words
         brief, tokens = await discussion_scribe.generate_brief(
             history=history,
@@ -199,7 +199,45 @@ async def test_discussion_scribe_mechanical_word_limit():
             scribe_max_words=40,
         )
 
+        assert "max_tokens" not in mock_litellm.call_args.kwargs
         assert brief is not None
         brief_words = brief.raw_markdown.split()
         assert len(brief_words) == 90
         assert brief_words[-1] == "briefword90"
+
+
+@pytest.mark.anyio
+async def test_discussion_scribe_default_word_ceilings_and_preserves_markdown_newlines():
+    """Verify automatic default ceilings apply without max_tokens caps and preserve markdown line breaks."""
+    history = [
+        {"role": "user", "content": "Analyze rollout trade-offs"},
+        {"role": "assistant", "content": "[Architect]: Evaluate canary vs blue-green."},
+    ]
+
+    body_bullets = "\n".join(f"• point{i} detail{i}" for i in range(1, 210))  # ~630 words with newlines
+    overlong_markdown = f"*Core Objective*\nAssess rollout safety.\n\n*Key Perspectives*\n{body_bullets}"
+
+    mock_resp = MagicMock()
+    mock_choice = MagicMock()
+    mock_choice.message.content = overlong_markdown
+    mock_resp.choices = [mock_choice]
+    mock_resp.usage = MagicMock(prompt_tokens=120, completion_tokens=200)
+
+    with patch("pipeline.discussion_scribe.scribe.litellm.acompletion", return_value=mock_resp) as mock_litellm:
+        brief, _ = await discussion_scribe.generate_brief(
+            history=history,
+            is_completed=True,
+            scribe_max_words=None,
+        )
+        assert "max_tokens" not in mock_litellm.call_args.kwargs
+        assert len(brief.raw_markdown.split()) == 350
+        assert "\n" in brief.raw_markdown
+
+        conclusion, _ = await discussion_scribe.generate_conclusion(
+            history=history,
+            scribe_max_words=None,
+        )
+        assert "max_tokens" not in mock_litellm.call_args.kwargs
+        assert len(conclusion.raw_markdown.split()) == 370
+        assert "\n" in conclusion.raw_markdown
+
