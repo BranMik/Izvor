@@ -38,6 +38,14 @@
         "knowledge_base_rag",
         "control_plane"
       ]
+    },
+    "DiscussionScribe": {
+      "username": "DiscussionScribe",
+      "model": "mistral/mistral-small-latest",
+      "displayname": "Discussion Scribe",
+      "icon_url": "avatars/image_99.png",
+      "is_short_output": true,
+      "skills": []
     }
   },
   "orchestrator": {

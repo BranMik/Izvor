@@ -4,17 +4,20 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from agents.thread_notes_agent import (
+    generate_conclusion_notes,
     generate_thread_notes,
     get_thread_conclusion_content,
     get_thread_note,
     get_thread_note_content,
     reset_thread_notes,
+    set_live_note_pinned,
     set_thread_conclusion_note,
     set_thread_note,
+    set_thread_note_content,
     trigger_thread_notes_update,
     update_notes_for_thread,
 )
-from core.config import get_orchestrator_reasoning_model
+from core.config import get_orchestrator_fast_model, get_system_agent_model
 from services.slack import post_thread_note, update_thread_note
 
 
@@ -56,12 +59,15 @@ async def test_generate_thread_notes_calls_mistral_model():
 
         assert mock_litellm.called
         call_kwargs = mock_litellm.call_args.kwargs
-        assert call_kwargs["model"] == get_orchestrator_reasoning_model()
+        expected_scribe_model = get_system_agent_model("DiscussionScribe", fallback="mistral/mistral-small-latest")
+        assert call_kwargs["model"] == expected_scribe_model
+        assert "max_tokens" not in call_kwargs
         assert "Strategic Synthesis" in content
         assert "Core Objective" in content
         assert token_stats["prompt_tokens"] == 150
         assert token_stats["completion_tokens"] == 80
         assert token_stats["total_tokens"] == 230
+        assert token_stats["model"] == expected_scribe_model
 
 
 @pytest.mark.anyio
@@ -535,6 +541,158 @@ def test_thread_notes_sqlite_persistence_and_cache_reload():
     assert get_thread_note_content(channel_id, thread_ts) == "Live synthesis content"
     assert get_thread_conclusion_note(channel_id, thread_ts) == "conc_ts_888"
     assert get_thread_conclusion_content(channel_id, thread_ts) == "Conclusion content"
+
+
+@pytest.mark.anyio
+async def test_generate_thread_notes_reasoning_exhaustion_fallback():
+    """Verify Scribe retries on orchestrator fast model when primary returns empty content due to reasoning/length."""
+    empty_choice = MagicMock()
+    empty_choice.finish_reason = "length"
+    empty_choice.message = MagicMock(
+        content="",
+        reasoning_content="Extensive internal chain of thought that exhausted output budget...",
+    )
+    first_resp = MagicMock(choices=[empty_choice], usage=MagicMock(prompt_tokens=200, completion_tokens=150))
+
+    recovered_choice = MagicMock()
+    recovered_choice.finish_reason = "stop"
+    recovered_choice.message = MagicMock(content="*Core Objective*\nRecovered synthesis note.", reasoning_content=None)
+    second_resp = MagicMock(choices=[recovered_choice], usage=MagicMock(prompt_tokens=210, completion_tokens=40))
+
+    history = [
+        {"role": "user", "content": "Evaluate failover architecture"},
+        {"role": "assistant", "content": "[Architect]: Recommend active-passive failover."},
+    ]
+
+    expected_primary = get_system_agent_model("DiscussionScribe", fallback="mistral/mistral-small-latest")
+    expected_fallback = get_orchestrator_fast_model(fallback=expected_primary) or expected_primary
+
+    with patch(
+        "pipeline.discussion_scribe.scribe.litellm.acompletion",
+        side_effect=[first_resp, second_resp],
+    ) as mock_litellm:
+        content, token_stats = await generate_thread_notes(history, is_completed=True)
+
+    assert mock_litellm.call_count == 2
+    first_kwargs = mock_litellm.call_args_list[0].kwargs
+    second_kwargs = mock_litellm.call_args_list[1].kwargs
+    assert first_kwargs["model"] == expected_primary
+    assert "max_tokens" not in first_kwargs
+    assert second_kwargs["model"] == expected_fallback
+    assert "max_tokens" not in second_kwargs
+    assert content == "*Core Objective*\nRecovered synthesis note."
+    assert token_stats["prompt_tokens"] == 410
+    assert token_stats["completion_tokens"] == 190
+    assert token_stats["total_tokens"] == 600
+    assert token_stats["model"] == expected_fallback
+
+
+@pytest.mark.anyio
+async def test_generate_conclusion_notes_double_empty_returns_unavailable_marker():
+    """Verify double empty LLM responses yield a non-empty diagnostic marker rather than silent empty text."""
+    empty_choice = MagicMock()
+    empty_choice.finish_reason = "length"
+    empty_choice.message = MagicMock(content="   ", reasoning_content=None)
+    empty_resp = MagicMock(choices=[empty_choice], usage=MagicMock(prompt_tokens=100, completion_tokens=50))
+
+    history = [
+        {"role": "user", "content": "Should we migrate?"},
+        {"role": "assistant", "content": "[Architect]: Yes, staged migration."},
+    ]
+
+    with patch(
+        "pipeline.discussion_scribe.scribe.litellm.acompletion",
+        side_effect=[empty_resp, empty_resp],
+    ) as mock_litellm:
+        content, token_stats = await generate_conclusion_notes(history)
+
+    assert mock_litellm.call_count == 2
+    assert "max_tokens" not in mock_litellm.call_args_list[0].kwargs
+    assert content.startswith("*(Conclusion unavailable:")
+    assert token_stats["total_tokens"] == 300
+
+
+@pytest.mark.anyio
+async def test_update_notes_for_thread_preserves_existing_live_note_and_skips_empty_conclusion():
+    """Verify unusable Scribe/Conclusion output preserves existing live notes and avoids empty Conclusion posts."""
+    channel_id = "C_PRESERVE"
+    thread_ts = "1700000000.888"
+    set_thread_note(channel_id, thread_ts, "live_ts_keep")
+    set_thread_note_content(channel_id, thread_ts, "Existing valid live synthesis")
+    set_live_note_pinned(channel_id, thread_ts, True)
+
+    history = [
+        {"role": "user", "content": "Design gateway"},
+        {"role": "assistant", "content": "[Architect]: Use reverse proxy."},
+    ]
+    expected_scribe_model = get_system_agent_model("DiscussionScribe", fallback="mistral/mistral-small-latest")
+
+    with patch("agents.thread_notes_agent.fetch_thread_history", new_callable=AsyncMock, return_value=history), \
+         patch(
+             "agents.thread_notes_agent.generate_thread_notes",
+             new_callable=AsyncMock,
+             return_value=("", {"prompt_tokens": 50, "completion_tokens": 100, "total_tokens": 150, "model": expected_scribe_model}),
+         ), \
+         patch(
+             "agents.thread_notes_agent.generate_conclusion_notes",
+             new_callable=AsyncMock,
+             return_value=(
+                 "*(Conclusion unavailable: model returned empty content)*",
+                 {"prompt_tokens": 80, "completion_tokens": 120, "total_tokens": 200, "model": expected_scribe_model},
+             ),
+         ), \
+         patch("agents.thread_notes_agent.unpin_thread_note", new_callable=AsyncMock) as mock_unpin, \
+         patch("agents.thread_notes_agent.post_thread_note", new_callable=AsyncMock) as mock_post, \
+         patch("agents.thread_notes_agent.update_thread_note", new_callable=AsyncMock) as mock_update, \
+         patch("agents.thread_notes_agent.save_thread_notes_to_disk") as mock_save_disk, \
+         patch("agents.thread_notes_agent.record_thread_tokens") as mock_record_tokens, \
+         patch("agents.thread_notes_agent.trigger_usage_update"):
+        res = await update_notes_for_thread(channel_id=channel_id, thread_ts=thread_ts, is_completed=True)
+
+    assert res["ok"] is True
+    assert res["conclusion_ts"] is None
+    mock_unpin.assert_awaited_once()
+    mock_update.assert_not_awaited()
+    mock_post.assert_not_awaited()
+    assert get_thread_note_content(channel_id, thread_ts) == "Existing valid live synthesis"
+    assert get_thread_conclusion_content(channel_id, thread_ts) is None
+
+    mock_save_disk.assert_called_once()
+    save_kwargs = mock_save_disk.call_args.kwargs
+    assert save_kwargs["live_notes_text"] == "Existing valid live synthesis"
+    assert save_kwargs["conclusion_text"] is None
+
+    mock_record_tokens.assert_called_once()
+    assert mock_record_tokens.call_args.kwargs["model_name"] == expected_scribe_model
+
+
+@pytest.mark.anyio
+async def test_update_notes_for_thread_skips_empty_initial_live_note_post():
+    """Verify empty live synthesis output does not create an empty Slack download-button message."""
+    channel_id = "C_SKIP_EMPTY"
+    thread_ts = "1700000000.999"
+    history = [
+        {"role": "user", "content": "Initial question"},
+        {"role": "assistant", "content": "[Architect]: Initial response."},
+    ]
+
+    with patch("agents.thread_notes_agent.fetch_thread_history", new_callable=AsyncMock, return_value=history), \
+         patch(
+             "agents.thread_notes_agent.generate_thread_notes",
+             new_callable=AsyncMock,
+             return_value=("   \n ", {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30}),
+         ), \
+         patch("agents.thread_notes_agent.post_thread_note", new_callable=AsyncMock) as mock_post, \
+         patch("agents.thread_notes_agent.record_thread_tokens"), \
+         patch("agents.thread_notes_agent.trigger_usage_update"):
+        res = await update_notes_for_thread(channel_id=channel_id, thread_ts=thread_ts, is_completed=False)
+
+    assert res["ok"] is True
+    assert res["note_ts"] is None
+    mock_post.assert_not_awaited()
+    assert get_thread_note(channel_id, thread_ts) is None
+    assert get_thread_note_content(channel_id, thread_ts) is None
+
 
 
 

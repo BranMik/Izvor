@@ -6,7 +6,7 @@ from typing import Any
 
 import litellm
 
-from core.config import get_orchestrator_reasoning_model
+from core.config import get_orchestrator_fast_model, get_system_agent_model
 from core.domain import DiscussionBrief, DiscussionConclusion, Turn
 
 from prompts.builder import load_system_prompt
@@ -76,6 +76,117 @@ def _clean_turn_content_for_scribe(content: str) -> str:
     # Strip trailing nomination tags e.g. /[AgentName], /[agent-10003], / [Agent]
     cleaned = re.sub(r"/\s*\[\s*[^\]]+\s*\]\s*$", "", cleaned.strip())
     return cleaned.strip()
+
+
+_DEFAULT_SCRIBE_MODEL = "mistral/mistral-small-latest"
+_DEFAULT_SCRIBE_GRACE_BUFFER = 50
+
+
+def _get_scribe_grace_buffer() -> int:
+    """Retrieves configurable word-limit grace buffer with a safe standalone default."""
+    try:
+        from orchestration.system_settings import get_word_limit_grace_buffer
+
+        return max(0, int(get_word_limit_grace_buffer()))
+    except Exception:  # noqa: BLE001
+        return _DEFAULT_SCRIBE_GRACE_BUFFER
+
+
+def _is_orchestrator_noise(speaker: str, raw_content: str) -> bool:
+    """Returns True for Orchestrator system status banners that must not enter Scribe attribution."""
+    if speaker.strip().lower() == "orchestrator":
+        return True
+    stripped = raw_content.strip()
+    return stripped.lower().startswith("[orchestrator]:")
+
+
+def _format_transcript(history: list[dict[str, Any]] | list[Turn]) -> tuple[str, str]:
+    """Formats conversation turns into a scribe transcript and comma-separated speaker attribution list."""
+    transcript_lines: list[str] = []
+    participating_speakers: list[str] = []
+    for item in history:
+        if isinstance(item, Turn):
+            role = item.role
+            speaker = item.speaker
+            raw_c = item.content or ""
+        elif isinstance(item, dict):
+            role = item.get("role", "user")
+            speaker = item.get("username") or role
+            raw_c = item.get("content") or item.get("text") or ""
+        else:
+            continue
+
+        speaker_str = str(speaker or "").strip()
+        if _is_orchestrator_noise(speaker_str, raw_c):
+            continue
+
+        cleaned_c = _clean_turn_content_for_scribe(raw_c)
+        if not cleaned_c or cleaned_c.lower().startswith("[orchestrator]:"):
+            continue
+        transcript_lines.append(f"[{speaker_str}]: {cleaned_c}")
+        if role == "assistant" and speaker_str and speaker_str not in participating_speakers:
+            participating_speakers.append(speaker_str)
+
+    transcript_text = "\n\n".join(transcript_lines)
+    speakers_str = ", ".join(participating_speakers) if participating_speakers else "None"
+    return transcript_text, speakers_str
+
+
+def _build_length_instruction(
+    scribe_max_words: int | None,
+    scribe_min_words: int | None,
+    noun: str,
+) -> str:
+    """Builds optional explicit word-count override directives for Scribe prompts."""
+    directives: list[str] = []
+    if scribe_max_words is not None:
+        directives.append(
+            f"CRITICAL LENGTH CONSTRAINT: The entire {noun} must strictly NOT exceed {scribe_max_words} words total. Be extremely concise."
+        )
+    if scribe_min_words is not None:
+        directives.append(
+            f"CRITICAL LENGTH CONSTRAINT: The entire {noun} must have a minimum length of {scribe_min_words} words. Elaborate sufficiently to meet this floor."
+        )
+    return f" {' '.join(directives)}" if directives else ""
+
+
+def _apply_word_limit(
+    text: str,
+    max_words: int | None,
+    default_max_words: int,
+    label: str,
+) -> str:
+    """Enforces mechanical word ceiling while preserving markdown line breaks and bullet formatting."""
+    if not text:
+        return text
+    try:
+        effective_max = int(max_words) if max_words is not None else default_max_words
+    except (ValueError, TypeError):
+        effective_max = default_max_words
+
+    cutoff = max(1, effective_max + _get_scribe_grace_buffer())
+    word_spans = list(re.finditer(r"\S+", text))
+    if len(word_spans) <= cutoff:
+        return text
+
+    logger.info(
+        f"[SCRIBE MECHANICAL CUTOFF] {label} exceeded {cutoff} words ({len(word_spans)} words). "
+        f"Mechanically truncated to {cutoff} words."
+    )
+    return text[: word_spans[cutoff - 1].end()].rstrip()
+
+
+def _extract_token_counts(resp: Any) -> tuple[int, int]:
+    """Extracts integer prompt and completion token counts from an LLM response."""
+    usage = getattr(resp, "usage", None)
+    if not usage:
+        return 0, 0
+    pt = getattr(usage, "prompt_tokens", 0) or 0
+    ct = getattr(usage, "completion_tokens", 0) or 0
+    return (
+        int(pt) if isinstance(pt, (int, float)) else 0,
+        int(ct) if isinstance(ct, (int, float)) else 0,
+    )
 
 
 def _extract_brief_fields(raw_text: str) -> dict[str, Any]:
@@ -228,27 +339,100 @@ class DiscussionScribe:
 
     @property
     def model(self) -> str:
-        return self._custom_model or get_orchestrator_reasoning_model()
+        return self._custom_model or get_system_agent_model("DiscussionScribe", fallback=_DEFAULT_SCRIBE_MODEL) or _DEFAULT_SCRIBE_MODEL
 
     @model.setter
     def model(self, val: str | None) -> None:
         self._custom_model = val
 
-    async def _invoke_llm(self, messages: list[dict[str, str]], max_tokens: int) -> Any:
+    async def _invoke_llm(
+        self,
+        messages: list[dict[str, str]],
+        model: str | None = None,
+        max_tokens: int | None = None,
+    ) -> Any:
         completion_fn = self._completion_fn or litellm.acompletion
         from core.llm_utils import execute_llm_with_retry
 
+        resolved_model = model or self.model
+        kwargs: dict[str, Any] = {
+            "model": resolved_model,
+            "messages": messages,
+            "num_retries": 1,
+        }
+        if max_tokens is not None:
+            kwargs["max_tokens"] = max_tokens
+
         return await execute_llm_with_retry(
             completion_fn,
-            kwargs={
-                "model": self.model,
-                "messages": messages,
-                "max_tokens": max_tokens,
-                "num_retries": 1,
-            },
+            kwargs=kwargs,
             agent_key="discussion_scribe",
             thread_key=("system", "discussion_scribe"),
             max_attempts=2,
+        )
+
+    async def _generate_text_with_fallback(
+        self,
+        messages: list[dict[str, str]],
+        label: str,
+        unavailable_noun: str,
+    ) -> tuple[str, dict[str, Any], bool]:
+        """Invokes LLM without artificial max_tokens caps and retries once on fallback model if empty."""
+        primary_model = self.model
+        resp = await self._invoke_llm(messages, model=primary_model)
+        choice = resp.choices[0]
+        msg = choice.message
+        raw_content = getattr(msg, "content", None)
+        text = raw_content.strip() if isinstance(raw_content, str) else ""
+        total_pt, total_ct = _extract_token_counts(resp)
+        used_model = primary_model
+
+        if not text:
+            finish_reason_raw = getattr(choice, "finish_reason", None)
+            finish_reason = finish_reason_raw if isinstance(finish_reason_raw, str) else "unknown"
+            reasoning_raw = getattr(msg, "reasoning_content", None)
+            reasoning_len = len(reasoning_raw) if isinstance(reasoning_raw, str) else 0
+            fallback_model = get_orchestrator_fast_model(fallback=primary_model) or primary_model
+            logger.warning(
+                f"[SCRIBE] Empty {label} output from model '{primary_model}' "
+                f"(finish_reason={finish_reason}, reasoning_chars={reasoning_len}, "
+                f"completion_tokens={total_ct}). Retrying with fallback model '{fallback_model}'."
+            )
+            try:
+                retry_resp = await self._invoke_llm(messages, model=fallback_model)
+            except Exception as retry_err:  # noqa: BLE001
+                logger.warning(f"[SCRIBE] Fallback model '{fallback_model}' failed for {label}: {retry_err}")
+                return (
+                    f"*({unavailable_noun} unavailable: model returned empty content)*",
+                    {"prompt_tokens": total_pt, "completion_tokens": total_ct, "model": primary_model},
+                    False,
+                )
+
+            retry_pt, retry_ct = _extract_token_counts(retry_resp)
+            total_pt += retry_pt
+            total_ct += retry_ct
+            retry_choice = retry_resp.choices[0]
+            retry_msg = retry_choice.message
+            retry_content = getattr(retry_msg, "content", None)
+            text = retry_content.strip() if isinstance(retry_content, str) else ""
+            used_model = fallback_model
+            if not text:
+                retry_fr_raw = getattr(retry_choice, "finish_reason", None)
+                retry_fr = retry_fr_raw if isinstance(retry_fr_raw, str) else "unknown"
+                logger.warning(
+                    f"[SCRIBE] Fallback model '{fallback_model}' also returned empty {label} output "
+                    f"(finish_reason={retry_fr})."
+                )
+                return (
+                    f"*({unavailable_noun} unavailable: model returned empty content)*",
+                    {"prompt_tokens": total_pt, "completion_tokens": total_ct, "model": used_model},
+                    False,
+                )
+
+        return (
+            text,
+            {"prompt_tokens": total_pt, "completion_tokens": total_ct, "model": used_model},
+            True,
         )
 
     async def generate_brief(
@@ -258,31 +442,28 @@ class DiscussionScribe:
         thread_language: str = "English",
         scribe_max_words: int | None = None,
         scribe_min_words: int | None = None,
-    ) -> tuple[DiscussionBrief, dict[str, int]]:
+    ) -> tuple[DiscussionBrief, dict[str, Any]]:
         """
         Generates or updates a structured DiscussionBrief from conversation history.
         Returns `(DiscussionBrief, token_usage_dict)`.
         """
         if not history:
-            return DiscussionBrief(is_completed=is_completed), {"prompt_tokens": 0, "completion_tokens": 0}
+            return DiscussionBrief(is_completed=is_completed, language=thread_language), {
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "model": self.model,
+            }
 
-        # Count agent turns
+        # Count agent turns (excluding Orchestrator system banners)
         assistant_turns = 0
         for item in history:
             role = item.role if isinstance(item, Turn) else item.get("role")
-            if role == "assistant":
+            speaker = item.speaker if isinstance(item, Turn) else (item.get("username") or role or "")
+            raw_c = item.content if isinstance(item, Turn) else (item.get("content") or item.get("text") or "")
+            if role == "assistant" and not _is_orchestrator_noise(str(speaker), str(raw_c or "")):
                 assistant_turns += 1
 
-        length_directives = []
-        if scribe_max_words is not None:
-            length_directives.append(
-                f"CRITICAL LENGTH CONSTRAINT: The entire synthesis note must strictly NOT exceed {scribe_max_words} words total. Be extremely concise."
-            )
-        if scribe_min_words is not None:
-            length_directives.append(
-                f"CRITICAL LENGTH CONSTRAINT: The entire synthesis note must have a minimum length of {scribe_min_words} words. Elaborate sufficiently to meet this floor."
-            )
-        extra_len_instruction = f" {' '.join(length_directives)}" if length_directives else ""
+        extra_len_instruction = _build_length_instruction(scribe_max_words, scribe_min_words, "synthesis note")
 
         if is_completed:
             if scribe_max_words is not None and scribe_max_words <= 60:
@@ -308,7 +489,6 @@ class DiscussionScribe:
                 "Use an appropriate natural status indicator translated into the thread language in the header (e.g. Completed ✅)."
                 f"{extra_len_instruction}"
             )
-            max_tokens = 1000
         elif assistant_turns <= 1:
             status_directive = (
                 "This is the initial turn of the discussion. Generate the initial concise strategic synthesis note (strictly under 50 words total). "
@@ -317,7 +497,6 @@ class DiscussionScribe:
                 "Use an appropriate natural status indicator translated into the thread language in the header (e.g. Updating live...)."
                 f"{extra_len_instruction}"
             )
-            max_tokens = 350
         else:
             ceiling_text = (
                 f"strictly under {scribe_max_words} words"
@@ -332,35 +511,14 @@ class DiscussionScribe:
                 "Use an appropriate natural status indicator translated into the thread language in the header (e.g. Updating live...)."
                 f"{extra_len_instruction}"
             )
-            max_tokens = 700
 
-        if scribe_min_words is not None:
-            max_tokens = max(max_tokens, int(scribe_min_words * 3))
-
-        # Build transcript text for the prompt
-        transcript_lines: list[str] = []
-        participating_speakers: list[str] = []
-        for item in history:
-            if isinstance(item, Turn):
-                role = item.role
-                speaker = item.speaker
-                raw_c = item.content or ""
-            elif isinstance(item, dict):
-                role = item.get("role", "user")
-                speaker = item.get("username") or role
-                raw_c = item.get("content") or item.get("text") or ""
-            else:
-                continue
-
-            cleaned_c = _clean_turn_content_for_scribe(raw_c)
-            if not cleaned_c:
-                continue
-            transcript_lines.append(f"[{speaker}]: {cleaned_c}")
-            if role == "assistant" and speaker and speaker not in participating_speakers:
-                participating_speakers.append(speaker)
-
-        transcript_text = "\n\n".join(transcript_lines)
-        speakers_str = ", ".join(participating_speakers) if participating_speakers else "None"
+        transcript_text, speakers_str = _format_transcript(history)
+        if not transcript_text:
+            return DiscussionBrief(is_completed=is_completed, language=thread_language), {
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "model": self.model,
+            }
 
         formatted_messages: list[dict[str, str]] = [
             {"role": "system", "content": f"{self.system_prompt}\n\n{status_directive}"},
@@ -377,27 +535,20 @@ class DiscussionScribe:
 
         start_time = time.time()
         try:
-            resp = await self._invoke_llm(formatted_messages, max_tokens)
-            raw_text = resp.choices[0].message.content or ""
-            if scribe_max_words is not None:
-                try:
-                    smw = int(scribe_max_words)
-                    cutoff = smw + 50
-                    words = raw_text.split()
-                    if len(words) > cutoff:
-                        logger.info(
-                            f"[SCRIBE MECHANICAL CUTOFF] Scribe brief exceeded {cutoff} words ({len(words)} words). "
-                            f"Mechanically truncated to {cutoff} words."
-                        )
-                        raw_text = " ".join(words[:cutoff])
-                except (ValueError, TypeError):
-                    pass
-            usage = getattr(resp, "usage", None)
-            tokens = {
-                "prompt_tokens": getattr(usage, "prompt_tokens", 0) if usage else 0,
-                "completion_tokens": getattr(usage, "completion_tokens", 0) if usage else 0,
-            }
+            raw_text, tokens, is_usable = await self._generate_text_with_fallback(
+                formatted_messages,
+                label="brief",
+                unavailable_noun="Synthesis",
+            )
+            if not is_usable:
+                return DiscussionBrief(
+                    raw_markdown=raw_text,
+                    is_completed=is_completed,
+                    language=thread_language,
+                ), tokens
 
+            default_max = 300 if is_completed else 220
+            raw_text = _apply_word_limit(raw_text, scribe_max_words, default_max_words=default_max, label="Scribe brief")
             extracted_fields = _extract_brief_fields(raw_text)
             brief = DiscussionBrief(
                 objective=extracted_fields.get("objective", ""),
@@ -415,23 +566,26 @@ class DiscussionScribe:
         except (TimeoutError, asyncio.TimeoutError) as e:
             logger.error(f"[SCRIBE] Timeout generating brief: {e}")
             fallback_text = "*(Synthesis unavailable: request timed out)*"
-            return DiscussionBrief(raw_markdown=fallback_text, is_completed=is_completed), {
+            return DiscussionBrief(raw_markdown=fallback_text, is_completed=is_completed, language=thread_language), {
                 "prompt_tokens": 0,
                 "completion_tokens": 0,
+                "model": self.model,
             }
         except (KeyError, IndexError, AttributeError) as e:
             logger.error(f"[SCRIBE] Response parsing error generating brief: {e}")
             fallback_text = f"*(Synthesis unavailable: {e})*"
-            return DiscussionBrief(raw_markdown=fallback_text, is_completed=is_completed), {
+            return DiscussionBrief(raw_markdown=fallback_text, is_completed=is_completed, language=thread_language), {
                 "prompt_tokens": 0,
                 "completion_tokens": 0,
+                "model": self.model,
             }
         except Exception as e:  # noqa: BLE001 - Scribe synthesis error boundary returns fallback brief
             logger.error(f"[SCRIBE] Error generating brief: {e}")
             fallback_text = f"*(Synthesis unavailable: {e})*"
-            return DiscussionBrief(raw_markdown=fallback_text, is_completed=is_completed), {
+            return DiscussionBrief(raw_markdown=fallback_text, is_completed=is_completed, language=thread_language), {
                 "prompt_tokens": 0,
                 "completion_tokens": 0,
+                "model": self.model,
             }
 
     async def generate_conclusion(
@@ -440,7 +594,7 @@ class DiscussionScribe:
         thread_language: str = "English",
         scribe_max_words: int | None = None,
         scribe_min_words: int | None = None,
-    ) -> tuple[DiscussionConclusion, dict[str, int]]:
+    ) -> tuple[DiscussionConclusion, dict[str, Any]]:
         """
         Generates a comprehensive Conclusion Note analyzing consensus, opposing viewpoints,
         arguments/counter-arguments, and supporting agent attribution.
@@ -450,18 +604,10 @@ class DiscussionScribe:
             return DiscussionConclusion(is_completed=True, language=thread_language), {
                 "prompt_tokens": 0,
                 "completion_tokens": 0,
+                "model": self.model,
             }
 
-        length_directives = []
-        if scribe_max_words is not None:
-            length_directives.append(
-                f"CRITICAL LENGTH CONSTRAINT: The entire conclusion note must strictly NOT exceed {scribe_max_words} words total. Be concise while preserving all divergent viewpoints."
-            )
-        if scribe_min_words is not None:
-            length_directives.append(
-                f"CRITICAL LENGTH CONSTRAINT: The entire conclusion note must have a minimum length of {scribe_min_words} words. Elaborate sufficiently to meet this floor."
-            )
-        extra_len_instruction = f" {' '.join(length_directives)}" if length_directives else ""
+        extra_len_instruction = _build_length_instruction(scribe_max_words, scribe_min_words, "conclusion note")
 
         ceiling_text = (
             f"strictly under {scribe_max_words} words"
@@ -476,33 +622,13 @@ class DiscussionScribe:
             f"{extra_len_instruction}"
         )
 
-        max_tokens = 1100
-        if scribe_min_words is not None:
-            max_tokens = max(max_tokens, int(scribe_min_words * 4))
-
-        transcript_lines: list[str] = []
-        participating_speakers: list[str] = []
-        for item in history:
-            if isinstance(item, Turn):
-                role = item.role
-                speaker = item.speaker
-                raw_c = item.content or ""
-            elif isinstance(item, dict):
-                role = item.get("role", "user")
-                speaker = item.get("username") or role
-                raw_c = item.get("content") or item.get("text") or ""
-            else:
-                continue
-
-            cleaned_c = _clean_turn_content_for_scribe(raw_c)
-            if not cleaned_c:
-                continue
-            transcript_lines.append(f"[{speaker}]: {cleaned_c}")
-            if role == "assistant" and speaker and speaker not in participating_speakers:
-                participating_speakers.append(speaker)
-
-        transcript_text = "\n\n".join(transcript_lines)
-        speakers_str = ", ".join(participating_speakers) if participating_speakers else "None"
+        transcript_text, speakers_str = _format_transcript(history)
+        if not transcript_text:
+            return DiscussionConclusion(is_completed=True, language=thread_language), {
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "model": self.model,
+            }
 
         formatted_messages: list[dict[str, str]] = [
             {"role": "system", "content": f"{SCRIBE_CONCLUSION_PROMPT}\n\n{status_directive}"},
@@ -519,28 +645,19 @@ class DiscussionScribe:
 
         start_time = time.time()
         try:
-            resp = await self._invoke_llm(formatted_messages, max_tokens)
-            raw_text = resp.choices[0].message.content or ""
-            if scribe_max_words is not None:
-                try:
-                    smw = int(scribe_max_words)
-                    cutoff = smw + 50
-                    words = raw_text.split()
-                    if len(words) > cutoff:
-                        logger.info(
-                            f"[SCRIBE MECHANICAL CUTOFF] Conclusion exceeded {cutoff} words ({len(words)} words). "
-                            f"Mechanically truncated to {cutoff} words."
-                        )
-                        raw_text = " ".join(words[:cutoff])
-                except (ValueError, TypeError):
-                    pass
+            raw_text, tokens, is_usable = await self._generate_text_with_fallback(
+                formatted_messages,
+                label="conclusion",
+                unavailable_noun="Conclusion",
+            )
+            if not is_usable:
+                return DiscussionConclusion(
+                    raw_markdown=raw_text,
+                    is_completed=True,
+                    language=thread_language,
+                ), tokens
 
-            usage = getattr(resp, "usage", None)
-            tokens = {
-                "prompt_tokens": getattr(usage, "prompt_tokens", 0) if usage else 0,
-                "completion_tokens": getattr(usage, "completion_tokens", 0) if usage else 0,
-            }
-
+            raw_text = _apply_word_limit(raw_text, scribe_max_words, default_max_words=320, label="Conclusion")
             extracted_fields = _extract_conclusion_fields(raw_text)
             conclusion = DiscussionConclusion(
                 problem_statement=extracted_fields.get("problem_statement", ""),
@@ -560,6 +677,7 @@ class DiscussionScribe:
             return DiscussionConclusion(raw_markdown=fallback_text, is_completed=True, language=thread_language), {
                 "prompt_tokens": 0,
                 "completion_tokens": 0,
+                "model": self.model,
             }
         except (KeyError, IndexError, AttributeError) as e:
             logger.error(f"[SCRIBE] Response parsing error generating conclusion: {e}")
@@ -567,6 +685,7 @@ class DiscussionScribe:
             return DiscussionConclusion(raw_markdown=fallback_text, is_completed=True, language=thread_language), {
                 "prompt_tokens": 0,
                 "completion_tokens": 0,
+                "model": self.model,
             }
         except Exception as e:  # noqa: BLE001
             logger.error(f"[SCRIBE] Error generating conclusion: {e}")
@@ -574,6 +693,7 @@ class DiscussionScribe:
             return DiscussionConclusion(raw_markdown=fallback_text, is_completed=True, language=thread_language), {
                 "prompt_tokens": 0,
                 "completion_tokens": 0,
+                "model": self.model,
             }
 
 

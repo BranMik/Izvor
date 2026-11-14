@@ -100,3 +100,36 @@ async def test_scribe_conclusion_strips_nominations_and_injects_speaker_roster()
     assert "/[agent-10006]" not in user_msg
     assert "[Visionary]: Yes, container deployment offers fast scale." in user_msg
     assert "[SecurityArchitect]: We must verify permissions first." in user_msg
+
+
+@pytest.mark.anyio
+async def test_scribe_filters_orchestrator_status_noise_from_transcript():
+    """Verify Orchestrator banners and system status lines are excluded from transcript and attribution."""
+    mock_resp = MagicMock()
+    mock_resp.choices = [
+        MagicMock(message=MagicMock(content="*Core Objective*\nAssess rollout."))
+    ]
+    mock_resp.usage = MagicMock(prompt_tokens=100, completion_tokens=40)
+    mock_completion_fn = AsyncMock(return_value=mock_resp)
+
+    scribe = DiscussionScribe(completion_fn=mock_completion_fn)
+
+    history = [
+        {"role": "user", "username": "Alice", "content": "Should we roll out v2?"},
+        {"role": "assistant", "username": "Orchestrator", "content": "Thread language locked to English."},
+        {"role": "assistant", "username": "user", "content": "[Orchestrator]: Round 1 started with 2 agents."},
+        Turn(role="assistant", speaker="Orchestrator", content="Deliberation concluded."),
+        Turn(role="assistant", speaker="Visionary", content="Proceed with canary deployment."),
+        {"role": "assistant", "username": "SecurityArchitect", "content": "Require strict RBAC audit first."},
+    ]
+
+    await scribe.generate_brief(history, is_completed=True)
+
+    assert mock_completion_fn.called
+    user_msg = mock_completion_fn.call_args.kwargs["messages"][1]["content"]
+    assert "PARTICIPATING AGENTS WHO ACTUALLY SPOKE IN THIS TRANSCRIPT: [Visionary, SecurityArchitect]" in user_msg
+    assert "Orchestrator" not in user_msg
+    assert "Thread language locked" not in user_msg
+    assert "Round 1 started" not in user_msg
+    assert "Deliberation concluded" not in user_msg
+

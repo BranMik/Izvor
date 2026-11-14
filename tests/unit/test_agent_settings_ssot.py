@@ -554,7 +554,7 @@ def test_all_ssot_icon_urls_resolve_to_served_avatar_files():
             )
             assert resolve_avatar_url(icon_url) == f"{get_base_avatar_url()}{icon_url}"
             checked += 1
-    assert checked >= 20  # 16 panel agents + 5 system/orchestrator entries
+    assert checked >= 21  # 16 panel agents + 5 system agents + orchestrator entries
 
 
 def test_base_avatar_url_env_override_and_resolve():
@@ -583,3 +583,15 @@ def test_base_avatar_url_env_override_and_resolve():
         resolve_avatar_url("avatars/image_43.png", env=empty_env)
         == f"{DEFAULT_BASE_AVATAR_URL}avatars/image_43.png"
     )
+
+
+def test_discussion_scribe_system_agent_ssot_loaded():
+    """Verify DiscussionScribe is registered in system agent SSOT with mistral-small-latest."""
+    from core.config import SYSTEM_AGENTS_CONFIG, get_system_agent_model
+    from orchestration.agent_settings import settings_manager
+
+    assert "DiscussionScribe" in settings_manager.system_agents_config
+    assert "DiscussionScribe" in SYSTEM_AGENTS_CONFIG
+    assert settings_manager.system_agents_config["DiscussionScribe"]["model"] == "mistral/mistral-small-latest"
+    assert get_system_agent_model("DiscussionScribe") == "mistral/mistral-small-latest"
+
