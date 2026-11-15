@@ -500,20 +500,7 @@ class TurnPipeline:
             )
 
             # --- Phase 2: CASCADING HALLUCINATION PREVENTION (TKT-820) ---
-            try:
-                from core.config import is_internal_revisor_enabled
-
-                if is_internal_revisor_enabled():
-                    from orchestration.revisor_service import run_internal_revisor
-
-                    warning = await asyncio.wait_for(run_internal_revisor(ctx), timeout=6.0)
-                    if warning and isinstance(slack_res, dict):
-                        slack_res["revisor_warning"] = warning
-                        ctx.output.revisor_warning = warning
-            except asyncio.TimeoutError:
-                logger.warning(f"[REVISOR] InternalRevisor barrier timed out after 6.0s on {ctx.thread_key}")
-            except Exception as e:  # noqa: BLE001
-                logger.error(f"[REVISOR] Failed to execute internal revisor: {e}")
+            await self._execute_revisor_barrier(ctx, slack_res)
 
             return slack_res
 
@@ -726,20 +713,31 @@ class TurnPipeline:
 
         slack_res = await self.post_record_stage.stage_post_and_record(ctx)
 
-        try:
-            from core.config import is_internal_revisor_enabled
-
-            if is_internal_revisor_enabled():
-                from orchestration.revisor_service import run_internal_revisor
-
-                warning = await asyncio.wait_for(run_internal_revisor(ctx), timeout=6.0)
-                if warning and isinstance(slack_res, dict):
-                    slack_res["revisor_warning"] = warning
-                    ctx.output.revisor_warning = warning
-        except asyncio.TimeoutError:
-            logger.warning(f"[REVISOR] InternalRevisor barrier timed out after 6.0s on {ctx.thread_key}")
-        except Exception as e:  # noqa: BLE001
-            logger.error(f"[REVISOR] Failed to execute internal revisor: {e}")
+        await self._execute_revisor_barrier(ctx, slack_res)
 
         turn_checkpoint_store.mark_resumed(chk.checkpoint_id)
         return slack_res
+
+    async def _execute_revisor_barrier(self, ctx: TurnContext, slack_res: Any) -> None:
+        """Executes InternalRevisor within the configured system-agent timeout barrier."""
+        timeout_secs = 20.0
+        try:
+            from core.config import is_internal_revisor_enabled
+
+            if not is_internal_revisor_enabled():
+                return
+
+            from orchestration.revisor_service import run_internal_revisor
+            from orchestration.system_settings import get_system_agent_inference_timeout_seconds
+
+            timeout_secs = float(get_system_agent_inference_timeout_seconds())
+            warning = await asyncio.wait_for(run_internal_revisor(ctx), timeout=timeout_secs)
+            if warning and isinstance(slack_res, dict):
+                slack_res["revisor_warning"] = warning
+                ctx.output.revisor_warning = warning
+        except asyncio.TimeoutError:
+            logger.warning(
+                f"[REVISOR] InternalRevisor barrier timed out after {timeout_secs:.1f}s on {ctx.thread_key}"
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"[REVISOR] Failed to execute internal revisor: {e}")

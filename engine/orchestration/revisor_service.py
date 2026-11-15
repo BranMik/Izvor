@@ -1,10 +1,22 @@
+import asyncio
 import json
 import logging
+import os
 import re
+from typing import Any
+
 import litellm
 
-from core.config import SYSTEM_AGENTS_CONFIG, get_system_agent_model
+from core.config import (
+    SYSTEM_AGENTS_CONFIG,
+    get_orchestrator_fast_model,
+    get_orchestrator_reasoning_model,
+    get_system_agent_model,
+)
 from core.llm_utils import execute_llm_with_retry
+from core.security_utils import wrap_untrusted_content
+from orchestration.state.evidence_store import READ_ONLY_CACHEABLE_TOOLS
+from orchestration.system_settings import get_shared_evidence_max_chars
 from orchestration.thread_state import thread_state_manager
 from orchestration.turn_pipeline import TurnContext
 from prompts.builder import build_agent_prompt
@@ -19,6 +31,61 @@ CONTROL_PLANE_TOOLS: frozenset[str] = frozenset({
     "signal_consensus_convergence",
 })
 
+_UNTRUSTED_TAG_RE = re.compile(
+    r"<\s*/?\s*untrusted_file_content(?:\s+[^>\"']*(?:\"[^\"]*\"|'[^']*')*)*\s*/?>|"
+    r"<\s*/?\s*untrusted_file_content[^>]*>",
+    re.IGNORECASE,
+)
+
+_VERIFIER_BOUNDARY_TAG_RE = re.compile(
+    r"<\s*/?\s*(?:authoritative_ground_truth|initial_user_prompt|retrieved_evidence|"
+    r"evidence_verification_directive|target_message_to_verify|stage1_preliminary_flag|"
+    r"confirmation_instructions)(?:\s+[^>]*)?>",
+    re.IGNORECASE,
+)
+
+
+def _strip_verifier_boundary_tags(text: str) -> str:
+    """Strips XML boundary tags used by the revisor prompt to prevent delimiter injection."""
+    if not text:
+        return ""
+    return _VERIFIER_BOUNDARY_TAG_RE.sub("", str(text))
+
+
+def _clean_candidate_message(raw_text: str) -> str:
+    """Strips duplicate speaker headers, nomination tags, skill footers, and token footers."""
+    if not raw_text:
+        return ""
+    cleaned = str(raw_text).strip()
+    # Remove one or more leading [Speaker]: prefixes
+    while True:
+        updated = re.sub(r"^\[[^\]]+\]:\s*", "", cleaned).strip()
+        if updated == cleaned:
+            break
+        cleaned = updated
+
+    # Iteratively strip trailing orchestration footers (token footer, Skills used, nomination tags)
+    while True:
+        prev = cleaned
+        cleaned = re.sub(r"\s*\{(?:[^{}]+:\s*)?\d+/\d+\}\s*$", "", cleaned).strip()
+        cleaned = re.sub(
+            r"\s*Skills used:\s*(?:\[[^\]]+\](?:,\s*)?)+\s*$",
+            "",
+            cleaned,
+            flags=re.IGNORECASE,
+        ).strip()
+        cleaned = re.sub(
+            r"\s*/\[[^\]]+\](?:\s+next)?\s*$",
+            "",
+            cleaned,
+            flags=re.IGNORECASE,
+        ).strip()
+        if cleaned == prev:
+            break
+
+    return _strip_verifier_boundary_tags(cleaned).strip()
+
+
 def _is_pure_missing_skill_notice(ctx: TurnContext) -> bool:
     """Checks if the turn was a compressed missing-skill refusal with no tool execution."""
     missing = getattr(ctx, "missing_required_skills", None)
@@ -26,29 +93,334 @@ def _is_pure_missing_skill_notice(ctx: TurnContext) -> bool:
         return False
     if getattr(ctx.output, "skills_used", None):
         return False
-    final_text = getattr(ctx.output, "final_text", "") or ""
-    import re
-    cleaned = re.sub(r"\{[^{}]+:\s*\d+/\d+\}", "", final_text)
-    cleaned = re.sub(r"/\[[^\]]+\](?:\s+next)?", "", cleaned).strip()
-    words = cleaned.split()
+    final_text = _clean_candidate_message(getattr(ctx.output, "final_text", "") or "")
+    words = final_text.split()
     return len(words) <= 55
+
+
+def _format_bounded_evidence(label: str, raw_body: str, max_chars: int) -> str:
+    """Unwraps nested untrusted tags, enforces max_chars ceiling, and wraps content safely."""
+    body = _UNTRUSTED_TAG_RE.sub("", str(raw_body or "")).strip()
+    body = _strip_verifier_boundary_tags(body)
+    if len(body) > max_chars:
+        body = body[: max(0, max_chars - 15)] + "... [truncated]"
+    wrapped = wrap_untrusted_content(body)
+    return f"{label}\n{wrapped}"
+
+
+def _collect_ground_truth_evidence(ctx: TurnContext) -> tuple[str, bool]:
+    """Collects, truncates, and wraps verified file/tool/round evidence for the thread."""
+    retrieved_parts: list[str] = []
+    max_chars = get_shared_evidence_max_chars()
+
+    file_ctx = ctx.file_context or thread_state_manager.get_file_context(
+        ctx.input.channel_id, ctx.input.thread_ts
+    )
+    if file_ctx:
+        if isinstance(file_ctx, dict):
+            f_name = (
+                file_ctx.get("file_name")
+                or file_ctx.get("filename")
+                or file_ctx.get("name")
+                or "Document"
+            )
+            f_body = (
+                file_ctx.get("content")
+                or file_ctx.get("text")
+                or json.dumps(file_ctx, indent=2)
+            )
+            if str(f_body).strip():
+                retrieved_parts.append(
+                    _format_bounded_evidence(
+                        f"DOCUMENT/RAG CONTEXT ({f_name}):", str(f_body), max_chars
+                    )
+                )
+        elif str(file_ctx).strip():
+            retrieved_parts.append(
+                _format_bounded_evidence(
+                    "DOCUMENT/RAG CONTEXT:", str(file_ctx), max_chars
+                )
+            )
+
+    for msg in (getattr(ctx, "messages", None) or []):
+        if isinstance(msg, dict) and msg.get("role") == "tool":
+            tool_name = msg.get("name") or "tool"
+            if tool_name in CONTROL_PLANE_TOOLS:
+                continue
+            tool_content = msg.get("content", "")
+            if tool_content and str(tool_content).strip():
+                retrieved_parts.append(
+                    _format_bounded_evidence(
+                        f"TOOL OUTPUT [{tool_name}]:", str(tool_content), max_chars
+                    )
+                )
+
+    evidence_items = thread_state_manager.get_round_evidence(
+        ctx.input.channel_id, ctx.input.thread_ts
+    )
+    seen_evidence: set[tuple[str, str, str]] = set()
+    for ev in evidence_items:
+        if ev.scope_key in ("*", ctx.agent_key) and ev.tool_name in READ_ONLY_CACHEABLE_TOOLS:
+            ev_key = (ev.tool_name, ev.scope_key, getattr(ev, "args_hash", ""))
+            if ev_key in seen_evidence:
+                continue
+            seen_evidence.add(ev_key)
+            ev_res = str(ev.result).strip()
+            if not ev_res:
+                continue
+            ev_body = ev_res
+            if ev_res.startswith("{") and ev_res.endswith("}"):
+                try:
+                    parsed = json.loads(ev_res)
+                    if isinstance(parsed, dict) and "content" in parsed and parsed["content"]:
+                        doc_name = parsed.get("document") or parsed.get("file") or ev.tool_name
+                        ev_body = f"DOCUMENT ({doc_name}):\n{parsed['content']}"
+                except (json.JSONDecodeError, ValueError, TypeError):
+                    pass
+            retrieved_parts.append(
+                _format_bounded_evidence(
+                    f"VERIFIED EVIDENCE [{ev.tool_name} by {ev.agent_key}]:",
+                    ev_body,
+                    max_chars,
+                )
+            )
+
+    if retrieved_parts:
+        joined = "\n\n".join(retrieved_parts)
+        return f"<retrieved_evidence>\n{joined}\n</retrieved_evidence>", True
+
+    return (
+        "<retrieved_evidence>\n"
+        "[None — No external document or tool output was retrieved. "
+        "Verify claims strictly against <initial_user_prompt>; do NOT guess external file contents.]\n"
+        "</retrieved_evidence>",
+        False,
+    )
+
+
+def _build_verification_user_content(
+    initial_prompt: str,
+    evidence_block: str,
+    has_verified_evidence: bool,
+    speaker: str,
+    cleaned_message: str,
+) -> str:
+    """Builds XML-isolated verification prompt for a single candidate message."""
+    clean_initial = _strip_verifier_boundary_tags(initial_prompt or "")
+    directive_block = ""
+    if has_verified_evidence:
+        directive_block = (
+            "\n<evidence_verification_directive>\n"
+            "Verified skill or document evidence is present in <retrieved_evidence>. "
+            "Verify EVERY factual claim in <target_message_to_verify> strictly against "
+            "<initial_user_prompt> and <retrieved_evidence>. Never treat another agent's "
+            "message or chosen topic as ground truth, and scan the ENTIRE <retrieved_evidence> "
+            "(all pages, rows, and sections) before claiming any item is absent.\n"
+            "</evidence_verification_directive>"
+        )
+
+    return (
+        "<authoritative_ground_truth>\n"
+        f"<initial_user_prompt>\n{clean_initial}\n</initial_user_prompt>\n"
+        f"{evidence_block}"
+        f"{directive_block}\n"
+        "</authoritative_ground_truth>\n\n"
+        f'<target_message_to_verify speaker="{speaker}">\n'
+        f"{cleaned_message}\n"
+        "</target_message_to_verify>"
+    )
+
+
+def _resolve_confirmation_model() -> str:
+    """Resolves the stronger Stage 2 confirmation model in a provider-agnostic manner."""
+    env_confirm = os.getenv("INTERNAL_REVISOR_CONFIRM_MODEL", "").strip()
+    if env_confirm:
+        return env_confirm
+    sys_cfg = SYSTEM_AGENTS_CONFIG.get("InternalRevisor", {})
+    if isinstance(sys_cfg, dict) and sys_cfg.get("confirm_model"):
+        cfg_model = str(sys_cfg["confirm_model"]).strip()
+        if cfg_model:
+            return cfg_model
+    return get_orchestrator_reasoning_model()
+
+
+def _extract_attention_warning(raw_output: str | None) -> str | None:
+    """Extracts a valid ATTENTION warning or returns None for NO_HALLUCINATION/empty output."""
+    if not raw_output:
+        return None
+    text = str(raw_output).strip()
+    if not text or text.upper().startswith("NO_HALLUCINATION"):
+        return None
+    if "ATTENTION:" in text:
+        return text
+    return None
+
+
+def _record_revisor_usage(ctx: TurnContext, model: str, res: Any) -> None:
+    """Records token usage for an InternalRevisor LLM call."""
+    if not (res and hasattr(res, "usage") and res.usage):
+        return
+    prompt_tokens = int(getattr(res.usage, "prompt_tokens", 0) or 0)
+    completion_tokens = int(getattr(res.usage, "completion_tokens", 0) or 0)
+    if prompt_tokens <= 0 and completion_tokens <= 0:
+        return
+    try:
+        from agents.usage_agent import record_thread_tokens, trigger_usage_update
+
+        record_thread_tokens(
+            channel_id=ctx.input.channel_id,
+            thread_ts=ctx.input.thread_ts,
+            model_name=model,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+        )
+        trigger_usage_update(channel_id=ctx.input.channel_id, thread_ts=ctx.input.thread_ts)
+    except Exception as ex:  # noqa: BLE001
+        logger.debug(f"[REVISOR] Could not record token usage for InternalRevisor: {ex}")
+
+
+async def _confirm_hallucination(
+    ctx: TurnContext,
+    sys_prompt: str,
+    ground_truth_and_target: str,
+    speaker: str,
+    stage1_warning: str,
+) -> str | None:
+    """Stage 2 confirmation using a stronger reasoning model to filter out Stage 1 false positives."""
+    confirm_model = _resolve_confirmation_model()
+    logger.info(
+        f"[REVISOR] Stage 1 flagged potential hallucination for [{speaker}]. "
+        f"Running Stage 2 confirmation with '{confirm_model}'."
+    )
+
+    confirm_user_content = (
+        f"{ground_truth_and_target}\n\n"
+        f"<stage1_preliminary_flag>\n{_strip_verifier_boundary_tags(stage1_warning)}\n</stage1_preliminary_flag>\n\n"
+        "<confirmation_instructions>\n"
+        "Perform independent Stage 2 confirmation on <stage1_preliminary_flag> against "
+        "<authoritative_ground_truth>. Scan the ENTIRE <retrieved_evidence> (including all pages, "
+        "table rows, and sections) to verify whether the flagged claim actually contradicts or is "
+        "absent from <authoritative_ground_truth>. If <stage1_preliminary_flag> is a false positive "
+        "(for example, the claimed item/zone/fact is present in <retrieved_evidence> or Stage 1 "
+        "assumed the document covered only another agent's topic), output ONLY:\n"
+        "NO_HALLUCINATION\n"
+        "Only if the hallucination is unambiguously confirmed against <authoritative_ground_truth>, "
+        "output the exact directive:\n"
+        'ATTENTION: Agent [AgentName] hallucinated the following fact: "[hallucinated claim]". '
+        "The correct information based on the original context is: [correct claim].\n"
+        "</confirmation_instructions>"
+    )
+
+    confirm_kwargs = {
+        "model": confirm_model,
+        "messages": [
+            {"role": "system", "content": sys_prompt},
+            {"role": "user", "content": confirm_user_content},
+        ],
+        "temperature": 0.0,
+    }
+
+    confirm_res = await execute_llm_with_retry(
+        func=litellm.acompletion,
+        kwargs=confirm_kwargs,
+        agent_key="InternalRevisorConfirm",
+        thread_key=ctx.thread_key,
+        allow_503_immediate_retry=False,
+    )
+    _record_revisor_usage(ctx, confirm_model, confirm_res)
+
+    if confirm_res and hasattr(confirm_res, "choices") and confirm_res.choices:
+        confirmed_raw = confirm_res.choices[0].message.content
+        confirmed = _extract_attention_warning(confirmed_raw)
+        if confirmed is None:
+            logger.info(
+                f"[REVISOR] Stage 2 ({confirm_model}) overturned Stage 1 flag for [{speaker}] as false positive."
+            )
+        return confirmed
+
+    logger.warning(
+        f"[REVISOR] Stage 2 ({confirm_model}) returned empty response for [{speaker}]; suppressing unconfirmed Stage 1 flag."
+    )
+    return None
+
+
+async def _verify_single_candidate(
+    ctx: TurnContext,
+    sys_prompt: str,
+    stage1_model: str,
+    initial_prompt: str,
+    evidence_block: str,
+    has_verified_evidence: bool,
+    speaker: str,
+    cleaned_message: str,
+) -> str | None:
+    """Verifies a single candidate message independently (Stage 1 + Stage 2 confirmation on flag)."""
+    if not cleaned_message:
+        return None
+
+    user_content = _build_verification_user_content(
+        initial_prompt=initial_prompt,
+        evidence_block=evidence_block,
+        has_verified_evidence=has_verified_evidence,
+        speaker=speaker,
+        cleaned_message=cleaned_message,
+    )
+
+    kwargs = {
+        "model": stage1_model,
+        "messages": [
+            {"role": "system", "content": sys_prompt},
+            {"role": "user", "content": user_content},
+        ],
+        "temperature": 0.0,
+    }
+
+    res = await execute_llm_with_retry(
+        func=litellm.acompletion,
+        kwargs=kwargs,
+        agent_key="InternalRevisor",
+        thread_key=ctx.thread_key,
+        allow_503_immediate_retry=False,
+    )
+    _record_revisor_usage(ctx, stage1_model, res)
+
+    if not (res and hasattr(res, "choices") and res.choices):
+        return None
+
+    stage1_warning = _extract_attention_warning(res.choices[0].message.content)
+    if not stage1_warning:
+        return None
+
+    return await _confirm_hallucination(
+        ctx=ctx,
+        sys_prompt=sys_prompt,
+        ground_truth_and_target=user_content,
+        speaker=speaker,
+        stage1_warning=stage1_warning,
+    )
 
 
 async def run_internal_revisor(ctx: TurnContext):
     """
     Background task to run the InternalRevisor.
-    Checks the last 2 agent messages against the initial user prompt and verified round evidence.
+    Verifies recent agent turn(s) independently against the initial user prompt and verified evidence,
+    with two-stage reasoning-model confirmation before posting warnings.
     """
     try:
         # 1. Count assistant messages to determine if we are on a 2nd turn or terminating turn
         assistant_msgs = [m for m in ctx.full_history if m.get("role") == "assistant"]
         turn_count = len(assistant_msgs) + 1  # include the current turn
 
-        rag_used = any(s in getattr(ctx.output, "skills_used", []) for s in ["knowledge_base_rag", "document_reader"])
+        rag_used = any(
+            s in getattr(ctx.output, "skills_used", [])
+            for s in ["knowledge_base_rag", "document_reader"]
+        )
         is_terminating = (
             getattr(ctx, "force_termination", False)
             or getattr(ctx.output, "is_completed", False)
-            or not thread_state_manager.get_remaining_agents(ctx.input.channel_id, ctx.input.thread_ts)
+            or not thread_state_manager.get_remaining_agents(
+                ctx.input.channel_id, ctx.input.thread_ts
+            )
         )
 
         if turn_count % 2 != 0 and not (is_terminating and (turn_count > 1 or rag_used)):
@@ -63,144 +435,77 @@ async def run_internal_revisor(ctx: TurnContext):
         logger.info(f"[REVISOR] Triggering InternalRevisor on turn {turn_count}")
 
         # 2. Get the initial user prompt
-        initial_prompt = thread_state_manager.get_initial_prompt(ctx.input.channel_id, ctx.input.thread_ts)
+        initial_prompt = thread_state_manager.get_initial_prompt(
+            ctx.input.channel_id, ctx.input.thread_ts
+        )
         if not initial_prompt:
             initial_prompt = ctx.input.raw_text
 
-        # 3. Get the last two agent messages with speaker attribution
-        prev_msg = assistant_msgs[-1].get("content", "") if len(assistant_msgs) >= 1 else "(No prior agent message; single-turn response)"
-        prev_speaker = "Previous Agent"
-        if assistant_msgs:
-            raw_prev = assistant_msgs[-1].get("content", "")
-            match = re.match(r"^\[([^\]]+)\]:", str(raw_prev).strip())
+        # 3. Collect and clean isolated candidate turns to verify
+        candidates: list[tuple[str, str]] = []
+        if turn_count % 2 == 0 and assistant_msgs:
+            raw_prev = str(assistant_msgs[-1].get("content", ""))
+            prev_speaker = "Previous Agent"
+            match = re.match(r"^\[([^\]]+)\]:", raw_prev.strip())
             if match:
                 prev_speaker = match.group(1).strip()
+            prev_cleaned = _clean_candidate_message(raw_prev)
+            if prev_cleaned:
+                candidates.append((prev_speaker, prev_cleaned))
 
         curr_speaker = ctx.agent_cfg.get("username", ctx.agent_key)
-        current_msg = f"[{curr_speaker}]: {ctx.output.final_text}"
+        curr_cleaned = _clean_candidate_message(ctx.output.final_text)
+        if curr_cleaned:
+            candidates.append((curr_speaker, curr_cleaned))
 
-        # 4. Collect context: current turn files/tools + thread-level verified evidence
-        retrieved_parts = []
+        if not candidates:
+            logger.info("[REVISOR] No non-empty candidate messages to verify.")
+            return None
 
-        file_ctx = ctx.file_context or thread_state_manager.get_file_context(ctx.input.channel_id, ctx.input.thread_ts)
-        if file_ctx:
-            if isinstance(file_ctx, dict):
-                f_name = file_ctx.get("file_name") or file_ctx.get("filename") or file_ctx.get("name") or "Document"
-                f_body = file_ctx.get("content") or file_ctx.get("text") or json.dumps(file_ctx, indent=2)
-                retrieved_parts.append(f"DOCUMENT/RAG CONTEXT ({f_name}):\n{f_body}")
-            else:
-                retrieved_parts.append(f"DOCUMENT/RAG CONTEXT:\n{file_ctx}")
-
-        for msg in (getattr(ctx, "messages", None) or []):
-            if isinstance(msg, dict) and msg.get("role") == "tool":
-                tool_name = msg.get("name") or "tool"
-                if tool_name in CONTROL_PLANE_TOOLS:
-                    continue
-                tool_content = msg.get("content", "")
-                if tool_content:
-                    retrieved_parts.append(f"TOOL OUTPUT [{tool_name}]:\n{tool_content}")
-
-        # Hydrate from thread-level evidence store (previous agents in the round/thread)
-        from orchestration.state.evidence_store import READ_ONLY_CACHEABLE_TOOLS
-        evidence_items = thread_state_manager.get_round_evidence(ctx.input.channel_id, ctx.input.thread_ts)
-        seen_evidence = set()
-        for ev in evidence_items:
-            if ev.scope_key == "*" and ev.tool_name in READ_ONLY_CACHEABLE_TOOLS:
-                ev_key = (ev.tool_name, getattr(ev, "args_hash", ""))
-                if ev_key in seen_evidence:
-                    continue
-                seen_evidence.add(ev_key)
-                ev_res = str(ev.result).strip()
-                ev_body = ev_res
-                if ev_res.startswith("{") and ev_res.endswith("}"):
-                    try:
-                        parsed = json.loads(ev_res)
-                        if isinstance(parsed, dict) and "content" in parsed and parsed["content"]:
-                            doc_name = parsed.get("document") or parsed.get("file") or ev.tool_name
-                            ev_body = f"DOCUMENT ({doc_name}):\n{parsed['content']}"
-                    except (json.JSONDecodeError, ValueError, TypeError):
-                        pass
-                retrieved_parts.append(f"VERIFIED EVIDENCE [{ev.tool_name} by {ev.agent_key}]:\n{ev_body}")
-
-        if retrieved_parts:
-            context_block = "\n\nRETRIEVED CONTEXT FROM SKILLS / TOOLS:\n" + "\n\n".join(retrieved_parts)
-        else:
-            context_block = (
-                "\n\nRETRIEVED CONTEXT FROM SKILLS / TOOLS: "
-                "[None — No external document or tool output was retrieved. "
-                "Verify claims strictly against INITIAL USER PROMPT; do NOT guess external file contents.]"
-            )
-
+        # 4. Collect bounded & wrapped ground-truth evidence
+        evidence_block, has_verified_evidence = _collect_ground_truth_evidence(ctx)
         sys_prompt = build_agent_prompt("InternalRevisor")
-
-        user_content = (
-            f"INITIAL USER PROMPT:\n{initial_prompt}{context_block}\n\n"
-            f"CANDIDATE MESSAGE FROM [{prev_speaker}]:\n{prev_msg}\n\n"
-            f"CANDIDATE MESSAGE FROM [{curr_speaker}] (Latest):\n{current_msg}\n"
+        stage1_model = get_system_agent_model(
+            "InternalRevisor", fallback=get_orchestrator_fast_model()
         )
 
-        messages = [
-            {"role": "system", "content": sys_prompt},
-            {"role": "user", "content": user_content}
+        # 5. Execute isolated per-candidate verification (concurrently if multiple candidates)
+        tasks = [
+            _verify_single_candidate(
+                ctx=ctx,
+                sys_prompt=sys_prompt,
+                stage1_model=stage1_model,
+                initial_prompt=initial_prompt,
+                evidence_block=evidence_block,
+                has_verified_evidence=has_verified_evidence,
+                speaker=speaker,
+                cleaned_message=cleaned_msg,
+            )
+            for speaker, cleaned_msg in candidates
         ]
+        if len(tasks) == 1:
+            results = [await tasks[0]]
+        else:
+            results = list(await asyncio.gather(*tasks))
 
-        model = get_system_agent_model("InternalRevisor", fallback="mistral/mistral-small-latest")
+        confirmed_warnings = [w for w in results if w]
+        if confirmed_warnings:
+            combined_warning = "\n\n".join(confirmed_warnings)
+            logger.warning("[REVISOR] Hallucination confirmed! Posting to Slack.")
+            sys_cfg = SYSTEM_AGENTS_CONFIG.get("InternalRevisor", {})
+            display_name = sys_cfg.get("displayname") or "Internal Revisor"
+            icon_url = sys_cfg.get("icon_url") or "static/image_99.png"
+            await post_agent_response(
+                channel_id=ctx.input.channel_id,
+                thread_ts=ctx.input.thread_ts,
+                text=combined_warning,
+                username=display_name,
+                icon_url=icon_url,
+            )
+            return combined_warning
 
-        kwargs = {
-            "model": model,
-            "messages": messages,
-            "temperature": 0.0
-        }
-
-        # 4. Execute LLM
-        res = await execute_llm_with_retry(
-            func=litellm.acompletion,
-            kwargs=kwargs,
-            agent_key="InternalRevisor",
-            thread_key=ctx.thread_key,
-            allow_503_immediate_retry=False
-        )
-
-        # Record spend & token metrics for InternalRevisor
-        if res and hasattr(res, "usage") and res.usage:
-            prompt_tokens = int(getattr(res.usage, "prompt_tokens", 0) or 0)
-            completion_tokens = int(getattr(res.usage, "completion_tokens", 0) or 0)
-            if prompt_tokens > 0 or completion_tokens > 0:
-                try:
-                    from agents.usage_agent import record_thread_tokens, trigger_usage_update
-
-                    record_thread_tokens(
-                        channel_id=ctx.input.channel_id,
-                        thread_ts=ctx.input.thread_ts,
-                        model_name=model,
-                        prompt_tokens=prompt_tokens,
-                        completion_tokens=completion_tokens,
-                    )
-                    trigger_usage_update(channel_id=ctx.input.channel_id, thread_ts=ctx.input.thread_ts)
-                except Exception as ex:  # noqa: BLE001
-                    logger.debug(f"[REVISOR] Could not record token usage for InternalRevisor: {ex}")
-
-        # 5. Check response and post if hallucination detected
-        if res and hasattr(res, "choices") and res.choices:
-            output = res.choices[0].message.content.strip()
-
-            # The prompt says: "If NO hallucinations are found, simply output "NO_HALLUCINATION"."
-            if output != "NO_HALLUCINATION" and "ATTENTION:" in output:
-                logger.warning("[REVISOR] Hallucination detected! Posting to Slack.")
-                sys_cfg = SYSTEM_AGENTS_CONFIG.get("InternalRevisor", {})
-                display_name = sys_cfg.get("displayname") or "Internal Revisor"
-                icon_url = sys_cfg.get("icon_url") or "static/image_99.png"
-                await post_agent_response(
-                    channel_id=ctx.input.channel_id,
-                    thread_ts=ctx.input.thread_ts,
-                    text=output,
-                    username=display_name,
-                    icon_url=icon_url
-                )
-                return output
-            else:
-                logger.info("[REVISOR] No hallucinations detected.")
-                return None
+        logger.info("[REVISOR] No hallucinations detected.")
+        return None
 
     except Exception as e:
         logger.exception(f"[REVISOR] Error executing InternalRevisor: {e}")
