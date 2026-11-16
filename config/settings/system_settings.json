@@ -28,8 +28,8 @@
   "tool_call_num_retries": 2,
   "word_limit_grace_buffer": 50,
   "output_constraints": {
-    "default_max_words": 200,
-    "short_max_words": 100
+    "default_max_words": 150,
+    "short_max_words": 70
   },
   "system_agent_inference_timeout_seconds": 20.0,
   "system_agent_inference_retry_timeout_multiplier": 1.5,
