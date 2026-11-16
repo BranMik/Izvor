@@ -211,6 +211,10 @@ def test_build_llm_messages_file_context_missing_skill_notice():
     assert "document_reader" in user_turn
     assert "at most 50 words" in user_turn
     assert "/grant_skill" in user_turn
+    assert "Recommended agent for 'document_reader':" in user_turn
+    assert "recommend ONLY this 1 agent by name, never by agent ID" in user_turn
+    assert "agent-10006" not in user_turn
+    assert "agent-10008" not in user_turn
     assert "Do NOT report that the file was not found." in user_turn
     assert "Do NOT reflect on platform skills architecture." in user_turn
 
@@ -245,7 +249,52 @@ def test_build_llm_messages_required_skills_missing_notice():
     assert "document_authoring" in user_turn
     assert "at most 50 words" in user_turn
     assert "/grant_skill" in user_turn
+    assert "Recommended agent for 'document_authoring':" in user_turn
+    assert "recommend ONLY this 1 agent by name, never by agent ID" in user_turn
+    assert "agent-10002" not in user_turn
+    assert "agent-10006" not in user_turn
     assert "Do NOT report that the file or resource was not found." in user_turn
+
+
+def test_file_acl_restricted_recommends_single_agent_username_without_ids():
+    from nlp.message_builder import build_deterministic_missing_skill_notice
+
+    file_context = {
+        "file_name": "secret.pdf",
+        "content": "confidential",
+        "size": 12,
+        "authorized_agents": {"agent-10006", "agent-10008"},
+        "required_skill": "document_reader",
+    }
+    msgs = build_llm_messages(
+        system_prompt="You are Visionary.",
+        effective_history=[],
+        prompt="Summarize secret.pdf",
+        is_bot_trigger=False,
+        agent_key="agent-10001",
+        agent_cfg={"username": "Visionary", "skills": ["document_reader"]},
+        file_context=file_context,
+    )
+    user_turn = msgs[-1]["content"]
+    assert "--- [FILE ACCESS RESTRICTED: NOT AUTHORIZED] ---" in user_turn
+    assert "Recommended agent:" in user_turn
+    assert "recommend ONLY this 1 agent by name, never by agent ID" in user_turn
+    assert "agent-10006" not in user_turn
+    assert "agent-10008" not in user_turn
+    # Only 1 of ROIStrategist / SecurityArchitect should be recommended
+    recommended_count = sum(1 for name in ("ROIStrategist", "SecurityArchitect") if name in user_turn)
+    assert recommended_count == 1
+
+    det_notice = build_deterministic_missing_skill_notice(
+        missing_skills=[],
+        file_name="secret.pdf",
+        authorized_agents={"agent-10006", "agent-10008"},
+        agent_key="agent-10001",
+    )
+    assert "Recommended agent:" in det_notice
+    assert "agent-10006" not in det_notice
+    assert "agent-10008" not in det_notice
+    assert sum(1 for name in ("ROIStrategist", "SecurityArchitect") if name in det_notice) == 1
 
 
 def test_build_llm_messages_bot_trigger_anti_echo_and_partial_prompt_rules():

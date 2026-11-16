@@ -192,7 +192,7 @@ def _build_output_constraints(
             "Compact Override: Omit all multi-section headings, bullet lists, and conversational preamble; "
             "deliver a single concise response strictly within the word limit.\n"
             "Skill-Lack Notice Compression: Keep any missing-skill or file-permission notice strictly <= 50 words "
-            "(including a 1-line hint naming an authorized agent or /grant_skill) with zero reflection on skills architecture.\n"
+            "(including a 1-line hint recommending just 1 authorized agent by name—never by agent ID—or /grant_skill) with zero reflection on skills architecture.\n"
             "</output_and_length_constraints>"
         )
         return compact_block, True

@@ -274,6 +274,7 @@ class ExecutionStage:
                         authorized_agents=auth_agents if unauthorized_file else None,
                         channel_id=ctx.input.channel_id,
                         thread_ts=ctx.input.thread_ts,
+                        agent_key=ctx.agent_key,
                     )
                     ctx.output.is_deterministic_missing_skill = True
                     return None
