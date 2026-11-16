@@ -26,6 +26,7 @@ import httpx
 from slack_sdk.errors import SlackApiError
 
 import services.slack as _sc
+from services.slack.client_core import _raw_slack_async_client
 from core.config import SLACK_BOT_TOKEN, SLACK_SIGNING_SECRET, resolve_avatar_url
 from main import app
 
@@ -153,8 +154,7 @@ class MockSlackAsyncClient:
             and SLACK_BOT_TOKEN
             and SLACK_BOT_TOKEN != "xoxb-your-bot-user-oauth-token"
         ):
-            raw_client = getattr(_sc, "_raw_slack_async_client", None)
-            fn = getattr(raw_client, method_name, None) if raw_client is not None else None
+            fn = getattr(_raw_slack_async_client, method_name, None)
             if fn is not None:
                 return await fn(**kwargs)
         return None
@@ -511,7 +511,7 @@ class SlackProtocolClient:
             )
 
         try:
-            res = await _sc._raw_slack_async_client.chat_postMessage(
+            res = await _raw_slack_async_client.chat_postMessage(
                 channel=self.live_channel_id,
                 text=text,
                 username="E2E Test Runner",
@@ -544,7 +544,7 @@ class SlackProtocolClient:
             f"> *Summary:* {result.details}"
         )
         try:
-            await _sc._raw_slack_async_client.chat_postMessage(
+            await _raw_slack_async_client.chat_postMessage(
                 channel=self.live_channel_id,
                 thread_ts=self.current_thread_ts,
                 text=text,
@@ -1085,7 +1085,7 @@ class SlackProtocolClient:
                 # Follow-up turn in an existing thread (e.g. TC-10 revocation)
                 target_thread = self.current_thread_ts
                 try:
-                    await _sc._raw_slack_async_client.chat_postMessage(
+                    await _raw_slack_async_client.chat_postMessage(
                         channel=target_channel,
                         thread_ts=target_thread,
                         text=f"👤 *Follow-up Prompt:*\n> {text}",

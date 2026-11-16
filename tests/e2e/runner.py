@@ -416,11 +416,13 @@ class E2ETestRunner:
             configure_post_system_message(self.client.mock_post_system_message)
             configure_fetch_thread_history(self.client.mock_fetch_thread_history)
             configure_fetch_thread_files(self.client.mock_fetch_thread_files)
-            configure_slack_async_client(self.client.slack_client_double)
 
             if not self.live_slack:
+                configure_slack_async_client(self.client.slack_client_double)
                 configure_token("xoxb-e2e-simulated-token")
                 configure_router_sleep_fn(_noop_sleep)
+            else:
+                reset_slack_async_client()
 
             if self.mock or self.mocked_llm or not self.allow_all_live_llm:
                 configure_llm_completion_fn(self.interceptor.intercept_acompletion)
