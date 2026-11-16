@@ -63,6 +63,24 @@ litellm.drop_params = True
 
 _router_sleep_fn_override: Any = None
 _guardrail_checker_override: Any = None
+_router_deps_override: PipelineDeps | None = None
+
+
+def configure_router_deps(deps: PipelineDeps | None) -> None:
+    """Configures an in-memory PipelineDeps override for agent_router."""
+    global _router_deps_override
+    _router_deps_override = deps
+
+
+def get_router_deps() -> PipelineDeps | None:
+    """Returns the currently configured PipelineDeps override, if any."""
+    return _router_deps_override
+
+
+def reset_router_deps() -> None:
+    """Resets the in-memory PipelineDeps override."""
+    global _router_deps_override
+    _router_deps_override = None
 
 
 def configure_guardrail_checker(checker: Any = None) -> None:
@@ -257,7 +275,7 @@ async def process_and_respond(
     calls LiteLLM with agent parameters & tools, and posts response back to Slack thread.
     If run_internal_loop is True, executes the entire multi-agent discussion loop internally.
     """
-    target_deps = deps
+    target_deps = deps if deps is not None else _router_deps_override
     active_deps = resolve_pipeline_deps(
         target_deps,
         llm_executor=(target_deps.llm_executor if target_deps and target_deps.llm_executor is not None else execute_llm_with_retry),
@@ -336,8 +354,8 @@ async def process_and_respond(
             "icon_url": icon_url,
             "user_id": user_id,
         }
-        if deps is not None:
-            kwargs_to_pass["deps"] = deps
+        if target_deps is not None:
+            kwargs_to_pass["deps"] = target_deps
         return await orchestrate_discussion(**kwargs_to_pass)
 
     ctx = TurnContext(

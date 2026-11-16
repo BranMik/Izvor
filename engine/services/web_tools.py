@@ -1,11 +1,13 @@
 import asyncio
 import contextvars
+import inspect
 import ipaddress
 import json
 import logging
 import re
 import socket
 import urllib.parse
+from typing import Any
 
 from httpcore._backends.auto import AutoBackend
 import httpx
@@ -241,7 +243,40 @@ async def _web_search_inner(query: str, max_results: int = 5) -> str:
     )
 
 
+_web_search_override: Any = None
+_web_fetch_override: Any = None
+
+
+def configure_web_search_fn(fn: Any) -> None:
+    """Configures an in-memory web_search override for tests and dependency injection."""
+    global _web_search_override
+    _web_search_override = fn
+
+
+def reset_web_search_fn() -> None:
+    """Resets the in-memory web_search override."""
+    global _web_search_override
+    _web_search_override = None
+
+
+def configure_web_fetch_fn(fn: Any) -> None:
+    """Configures an in-memory fetch_web_page override for tests and dependency injection."""
+    global _web_fetch_override
+    _web_fetch_override = fn
+
+
+def reset_web_fetch_fn() -> None:
+    """Resets the in-memory fetch_web_page override."""
+    global _web_fetch_override
+    _web_fetch_override = None
+
+
 async def web_search(query: str, max_results: int = 5) -> str:
+    if _web_search_override is not None:
+        res = _web_search_override(query, max_results=max_results)
+        if inspect.isawaitable(res):
+            return await res
+        return res
     return await _web_search_inner(query, max_results)
 
 
@@ -692,6 +727,11 @@ async def _fetch_web_page_inner(url: str, max_chars: int = 4000) -> str:
 
 
 async def fetch_web_page(url: str, max_chars: int = 4000) -> str:
+    if _web_fetch_override is not None:
+        res = _web_fetch_override(url, max_chars=max_chars)
+        if inspect.isawaitable(res):
+            return await res
+        return res
     return await _fetch_web_page_inner(url, max_chars)
 
 

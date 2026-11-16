@@ -23,12 +23,16 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
+from slack_sdk.errors import SlackApiError
 
 import services.slack as _sc
 from core.config import SLACK_BOT_TOKEN, SLACK_SIGNING_SECRET, resolve_avatar_url
 from main import app
 
 logger = logging.getLogger("tests.e2e.protocol_client")
+
+TEST_ADMIN_USER_ID = "U_ADMIN_TESTER"
+TEST_USER_ID = "U_USER_TESTER"
 
 # Preserve references to real Slack API dispatch methods prior to any mock patching
 _REAL_SLACK_POST_AGENT = _sc.post_agent_response
@@ -54,6 +58,9 @@ class OutboundEventBus:
     published_views: list[dict[str, Any]] = field(default_factory=list)
     usage_messages: list[dict[str, Any]] = field(default_factory=list)
     thread_notes: list[dict[str, Any]] = field(default_factory=list)
+    opened_dms: list[dict[str, Any]] = field(default_factory=list)
+    unpinned_notes: list[dict[str, Any]] = field(default_factory=list)
+    hitl_cards: list[dict[str, Any]] = field(default_factory=list)
     attached_thread_files: dict[tuple[str, str], list[dict[str, Any]]] = field(
         default_factory=dict
     )
@@ -70,6 +77,9 @@ class OutboundEventBus:
         self.published_views.clear()
         self.usage_messages.clear()
         self.thread_notes.clear()
+        self.opened_dms.clear()
+        self.unpinned_notes.clear()
+        self.hitl_cards.clear()
         self.attached_thread_files.clear()
         self.thread_history_store.clear()
 
@@ -89,7 +99,17 @@ class OutboundEventBus:
             and (not thread_ts or m.get("thread_ts") == thread_ts)
             and m.get("role") != "user"
             and not m.get("is_scribe_note")
-            and m.get("username") != "Live Discussion Scribe"
+            and not m.get("is_usage_card")
+            and not m.get("is_hitl_card")
+            and m.get("username")
+            not in (
+                "Live Discussion Scribe",
+                "Discussion Conclusion",
+                "Izvor Usage Analyst",
+                "E2E Test Runner",
+                "Panel System",
+                "Orchestrator",
+            )
         ]
 
     def get_all_texts_for_thread(self, channel_id: str, thread_ts: str) -> list[str]:
@@ -100,7 +120,176 @@ class OutboundEventBus:
         for s in self.system_messages:
             if s.get("channel_id") == channel_id and s.get("thread_ts") == thread_ts:
                 texts.append(s["text"])
+        for h in self.hitl_cards:
+            if h.get("channel_id") == channel_id and h.get("thread_ts") == thread_ts:
+                texts.append(h["text"])
         return texts
+
+
+class MockSlackResponse(dict):
+    """Dict subclass providing `.data` attribute compatibility with slack_sdk AsyncSlackResponse."""
+
+    @property
+    def data(self) -> dict[str, Any]:
+        return self
+
+
+class MockSlackAsyncClient:
+    """In-memory Slack AsyncWebClient double recording outbound Slack API calls onto OutboundEventBus."""
+
+    def __init__(self, protocol_client: "SlackProtocolClient") -> None:
+        self._client = protocol_client
+        self.fail_dm_open: str | None = None
+        self.fail_file_upload: str | None = None
+
+    def reset_faults(self) -> None:
+        self.fail_dm_open = None
+        self.fail_file_upload = None
+
+    async def chat_postMessage(self, **kwargs: Any) -> MockSlackResponse:
+        channel_id = str(kwargs.get("channel", ""))
+        thread_ts = str(kwargs.get("thread_ts") or self._client.current_thread_ts or "")
+        text = str(kwargs.get("text", ""))
+        username = kwargs.get("username")
+        blocks = kwargs.get("blocks")
+        ts = self._client.next_ts()
+
+        blocks_str = json.dumps(blocks or [])
+        is_usage = username == "Izvor Usage Analyst" or channel_id.startswith("mock_izvor") or channel_id == "C_MOCK_USAGE"
+        is_hitl = "hitl_approve_tool" in blocks_str or "hitl_deny_tool" in blocks_str
+        is_scribe = (
+            username in ("Live Discussion Scribe", "Discussion Conclusion")
+            or "download_scribe_notes_txt" in blocks_str
+            or "download_conclusion_notes_txt" in blocks_str
+        )
+
+        entry = {
+            "ok": True,
+            "ts": ts,
+            "channel_id": channel_id,
+            "thread_ts": thread_ts,
+            "text": text,
+            "username": username or "Bot",
+            "icon_url": kwargs.get("icon_url"),
+            "blocks": blocks,
+            "is_scribe_note": is_scribe,
+            "is_usage_card": is_usage,
+            "is_hitl_card": is_hitl,
+        }
+        if is_usage:
+            self._client.bus.usage_messages.append(entry)
+        elif is_scribe:
+            self._client.bus.thread_notes.append(entry)
+            self._client.bus.posted_messages.append(entry)
+        elif is_hitl:
+            self._client.bus.hitl_cards.append(entry)
+            self._client.bus.posted_messages.append(entry)
+        else:
+            self._client.bus.posted_messages.append(entry)
+
+        return MockSlackResponse({"ok": True, "ts": ts, "channel": channel_id})
+
+    async def chat_update(self, **kwargs: Any) -> MockSlackResponse:
+        channel_id = str(kwargs.get("channel", ""))
+        ts = str(kwargs.get("ts", ""))
+        text = str(kwargs.get("text", ""))
+        blocks = kwargs.get("blocks")
+        entry = {
+            "ok": True,
+            "channel_id": channel_id,
+            "ts": ts,
+            "text": text,
+            "blocks": blocks,
+        }
+        self._client.bus.updated_messages.append(entry)
+        for coll in (
+            self._client.bus.posted_messages,
+            self._client.bus.thread_notes,
+            self._client.bus.usage_messages,
+            self._client.bus.hitl_cards,
+        ):
+            for msg in coll:
+                if msg.get("ts") == ts:
+                    msg["text"] = text
+                    if blocks is not None:
+                        msg["blocks"] = blocks
+        return MockSlackResponse({"ok": True, "ts": ts, "channel": channel_id})
+
+    async def conversations_open(self, **kwargs: Any) -> MockSlackResponse:
+        users = str(kwargs.get("users", ""))
+        if self.fail_dm_open:
+            raise SlackApiError(
+                f"Slack API error: {self.fail_dm_open}",
+                response={"ok": False, "error": self.fail_dm_open},
+            )
+        dm_channel_id = f"D_TEST_DM_{users}" if users else "D_TEST_DM"
+        self._client.bus.opened_dms.append({"users": users, "channel_id": dm_channel_id})
+        return MockSlackResponse({"ok": True, "channel": {"id": dm_channel_id}})
+
+    async def files_upload_v2(self, **kwargs: Any) -> MockSlackResponse:
+        if self.fail_file_upload:
+            raise SlackApiError(
+                f"Slack API error: {self.fail_file_upload}",
+                response={"ok": False, "error": self.fail_file_upload},
+            )
+        channel_id = str(kwargs.get("channel", ""))
+        filename = str(kwargs.get("filename", "upload.txt"))
+        content = str(kwargs.get("content", ""))
+        file_id = f"F_TEST_{self._client.next_ts()}"
+        entry = {
+            "ok": True,
+            "id": file_id,
+            "channel_id": channel_id,
+            "content": content,
+            "filename": filename,
+            "title": kwargs.get("title"),
+            "initial_comment": kwargs.get("initial_comment"),
+            "thread_ts": kwargs.get("thread_ts"),
+        }
+        self._client.bus.uploaded_files.append(entry)
+        return MockSlackResponse({"ok": True, "file": {"id": file_id, "name": filename}})
+
+    async def chat_postEphemeral(self, **kwargs: Any) -> MockSlackResponse:
+        entry = {
+            "ok": True,
+            "channel_id": kwargs.get("channel", ""),
+            "user_id": kwargs.get("user", ""),
+            "text": kwargs.get("text", ""),
+            "thread_ts": kwargs.get("thread_ts"),
+        }
+        self._client.bus.ephemeral_messages.append(entry)
+        return MockSlackResponse({"ok": True})
+
+    async def pins_add(self, **kwargs: Any) -> MockSlackResponse:
+        return MockSlackResponse({"ok": True})
+
+    async def pins_remove(self, **kwargs: Any) -> MockSlackResponse:
+        self._client.bus.unpinned_notes.append(
+            {"channel_id": kwargs.get("channel", ""), "timestamp": kwargs.get("timestamp", "")}
+        )
+        return MockSlackResponse({"ok": True})
+
+    async def views_publish(self, **kwargs: Any) -> MockSlackResponse:
+        entry = {
+            "ok": True,
+            "user_id": kwargs.get("user_id", ""),
+            "view": kwargs.get("view", {}),
+        }
+        self._client.bus.published_views.append(entry)
+        return MockSlackResponse({"ok": True})
+
+    async def conversations_info(self, **kwargs: Any) -> MockSlackResponse:
+        ch = str(kwargs.get("channel", "C_TEST"))
+        return MockSlackResponse({"ok": True, "channel": {"id": ch, "name": ch.lower()}})
+
+    async def conversations_list(self, **kwargs: Any) -> MockSlackResponse:
+        return MockSlackResponse(
+            {
+                "ok": True,
+                "channels": [{"id": "C_MOCK_USAGE", "name": "izvor-usage", "is_member": True}],
+                "response_metadata": {"next_cursor": ""},
+            }
+        )
 
 
 class SlackProtocolClient:
@@ -113,11 +302,10 @@ class SlackProtocolClient:
         live_mode: bool = False,
         live_channel_id: str | None = None,
     ) -> None:
-        self.signing_secret = (
-            signing_secret
-            or SLACK_SIGNING_SECRET
-            or "test-signing-secret-key-32-chars-long"
-        )
+        raw_secret = signing_secret or SLACK_SIGNING_SECRET
+        if not raw_secret or raw_secret == "your-slack-signing-secret":
+            raw_secret = "test-signing-secret-key-32-chars-long"
+        self.signing_secret = raw_secret
         self.bot_user_id = bot_user_id
         self.live_mode = live_mode
         self.live_channel_id = live_channel_id
@@ -125,12 +313,39 @@ class SlackProtocolClient:
         self.current_scenario_tag: str | None = None
         self.current_scenario_name: str | None = None
         self.bus = OutboundEventBus()
+        self.slack_client_double = MockSlackAsyncClient(self)
         self.async_client = httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app),
             base_url="http://test",
         )
         self.client = self.async_client
         self._msg_ts_counter = time.time() + 1000.0
+
+    async def aclose(self) -> None:
+        await self.async_client.aclose()
+
+    async def await_active_task(
+        self, channel_id: str, thread_ts: str, timeout: float = 30.0
+    ) -> None:
+        """Waits for any active background discussion task for (channel_id, thread_ts) to complete."""
+        from orchestration.thread_state import thread_state_manager
+
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            task = thread_state_manager.get_active_task(channel_id, thread_ts)
+            if not task or task.done():
+                return
+            try:
+                await asyncio.wait_for(
+                    asyncio.shield(task), timeout=max(0.1, deadline - time.time())
+                )
+                return
+            except asyncio.CancelledError:
+                await asyncio.sleep(0.05)
+            except TimeoutError:
+                return
+            except Exception:  # noqa: BLE001
+                return
 
     def set_active_scenario(self, scenario_tag: str, scenario_name: str) -> None:
         """Prepares metadata for the upcoming test scenario."""
@@ -258,6 +473,7 @@ class SlackProtocolClient:
             and SLACK_BOT_TOKEN != "xoxb-your-bot-user-oauth-token"
         ):
             try:
+                _sc.reset_post_agent_response()
                 real_result = await _REAL_SLACK_POST_AGENT(
                     channel_id=channel_id,
                     thread_ts=thread_ts,
@@ -269,6 +485,8 @@ class SlackProtocolClient:
                 )
             except Exception as e:  # noqa: BLE001 - Live Slack dispatch error boundary
                 logger.error(f"[LIVE SLACK] Failed to post agent response: {e}")
+            finally:
+                _sc.configure_post_agent_response(self.mock_post_agent_response)
 
         ts = (
             str(real_result.get("ts"))
@@ -335,6 +553,7 @@ class SlackProtocolClient:
             and SLACK_BOT_TOKEN != "xoxb-your-bot-user-oauth-token"
         ):
             try:
+                _sc.reset_post_system_message()
                 real_result = await _REAL_SLACK_POST_SYSTEM(
                     channel_id=channel_id,
                     thread_ts=thread_ts,
@@ -344,6 +563,8 @@ class SlackProtocolClient:
                 )
             except Exception as e:  # noqa: BLE001 - Live Slack system message post boundary
                 logger.error(f"[LIVE SLACK] Failed to post system message: {e}")
+            finally:
+                _sc.configure_post_system_message(self.mock_post_system_message)
 
         ts = (
             str(real_result.get("ts"))
@@ -563,6 +784,8 @@ class SlackProtocolClient:
         channel_id: str,
         thread_ts: str,
         bot_user_id: str | None = None,
+        max_messages: int = 500,
+        **kwargs: Any,
     ) -> list[dict[str, Any]]:
         # 1. Thread history store override (e.g. TC-08)
         if (channel_id, thread_ts) in self.bus.thread_history_store:
@@ -574,11 +797,15 @@ class SlackProtocolClient:
             and SLACK_BOT_TOKEN
             and SLACK_BOT_TOKEN != "xoxb-your-bot-user-oauth-token"
         ):
-            return await _REAL_SLACK_FETCH_HISTORY(
-                channel_id=channel_id,
-                thread_ts=thread_ts,
-                bot_user_id=bot_user_id,
-            )
+            _sc.reset_fetch_thread_history()
+            try:
+                return await _REAL_SLACK_FETCH_HISTORY(
+                    channel_id=channel_id,
+                    thread_ts=thread_ts,
+                    bot_user_id=bot_user_id,
+                )
+            finally:
+                _sc.configure_fetch_thread_history(self.mock_fetch_thread_history)
 
         # 3. Offline simulation mode only: reconstruct history from in-memory bus messages
         history: list[dict[str, str]] = []
@@ -590,11 +817,20 @@ class SlackProtocolClient:
             ):
                 if (
                     msg.get("is_scribe_note")
+                    or msg.get("is_usage_card")
+                    or msg.get("is_hitl_card")
                     or msg.get("username")
-                    in ("Live Discussion Scribe", "Panel System", "E2E Test Runner")
+                    in (
+                        "Live Discussion Scribe",
+                        "Discussion Conclusion",
+                        "Izvor Usage Analyst",
+                        "Panel System",
+                        "Orchestrator",
+                        "E2E Test Runner",
+                    )
                     or str(msg.get("text", ""))
                     .strip()
-                    .startswith(("⚠️", "⚙️", "🔒", "🗑️", "🧪"))
+                    .startswith(("⚠️", "⚙️", "🔒", "🗑️", "🧪", "⛔"))
                 ):
                     continue
                 role = msg.get("role", "assistant")
@@ -655,6 +891,7 @@ class SlackProtocolClient:
         self,
         channel_id: str,
         thread_ts: str,
+        **kwargs: Any,
     ) -> list[dict[str, Any]]:
         return self.bus.attached_thread_files.get((channel_id, thread_ts), [])
 
@@ -805,8 +1042,10 @@ class SlackProtocolClient:
         selected_option_value: str | None = None,
         channel_id: str = "C_TEST_CHANNEL",
         thread_ts: str = "1700000000.0001",
-        user_id: str = "U_USER_TESTER",
+        user_id: str = TEST_USER_ID,
         view_state: dict[str, Any] | None = None,
+        message_ts: str | None = None,
+        wait_for_task: bool = False,
     ) -> Any:
         """Simulates an interactive Block Kit button click or toggle via POST /slack/actions."""
         target_channel = self.get_channel(channel_id)
@@ -836,6 +1075,7 @@ class SlackProtocolClient:
             "user": {"id": user_id, "username": "test_user"},
             "channel": {"id": target_channel},
             "container": {"thread_ts": target_thread},
+            "message": {"ts": message_ts or self.next_ts(), "thread_ts": target_thread},
             "actions": [action_dict],
             "view": {
                 "user": {"id": user_id},
@@ -849,6 +1089,10 @@ class SlackProtocolClient:
             "Content-Type": "application/x-www-form-urlencoded",
             **self.sign_body(form_body),
         }
-        return await self.async_client.post(
+        res = await self.async_client.post(
             "/slack/actions", content=form_body, headers=headers
         )
+        if wait_for_task and target_thread:
+            await asyncio.sleep(0.05)
+            await self.await_active_task(target_channel, target_thread)
+        return res

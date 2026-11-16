@@ -72,13 +72,14 @@ class ResolutionStage:
         settings_manager.sync_output_constraints_if_changed()
         agents_map = settings_manager.agents_config or AGENTS_CONFIG
 
-        if ctx.agent_key not in agents_map:
-            if ctx.agent_key and ctx.agent_key in settings_manager.system_agents_config:
-                ctx.agent_cfg = settings_manager.system_agents_config[ctx.agent_key]
-            else:
-                logger.error(
-                    f"[ROUTER] Agent '{ctx.agent_key}' not found in configuration."
-                )
+        if ctx.agent_key in agents_map:
+            ctx.agent_cfg = agents_map[ctx.agent_key]
+        elif ctx.agent_key and ctx.agent_key in settings_manager.system_agents_config:
+            ctx.agent_cfg = settings_manager.system_agents_config[ctx.agent_key]
+        else:
+            logger.error(
+                f"[ROUTER] Agent '{ctx.agent_key}' not found in configuration."
+            )
             next_candidate = None
             while True:
                 candidate = thread_state_manager.pop_remaining_agent(
@@ -139,8 +140,6 @@ class ResolutionStage:
                     "halted": True,
                     "reason": "agent_not_configured",
                 }
-        else:
-            ctx.agent_cfg = agents_map[ctx.agent_key]
 
         # Ensure agent's configured avatar icon is propagated to turn context
         if not ctx.icon_url and ctx.agent_cfg.get("icon_url"):
