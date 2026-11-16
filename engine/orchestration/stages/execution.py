@@ -231,6 +231,53 @@ class ExecutionStage:
                 agent_skills = filtered
         ctx.authorized_skills = list(agent_skills or [])
 
+        # Deterministic short-circuit for pure-skill turns when agent lacks required skills/authorization
+        # and cannot fit/perform downstream debate (no prior verified output or tight max_words < 60).
+        if getattr(ctx, "is_pure_skill_task", False):
+            from core.models import resolve_active_max_words
+            from nlp.message_builder import (
+                build_deterministic_missing_skill_notice,
+                has_prior_verified_skill_output,
+            )
+
+            file_ctx = getattr(ctx, "file_context", None)
+            file_name = file_ctx.get("file_name") if isinstance(file_ctx, dict) else None
+            auth_agents = file_ctx.get("authorized_agents") if isinstance(file_ctx, dict) else None
+            unauthorized_file = bool(auth_agents is not None and ctx.agent_key not in auth_agents)
+
+            missing_skills = [
+                s for s in (getattr(ctx, "missing_required_skills", None) or []) if s not in ctx.authorized_skills
+            ]
+            file_req_skill = file_ctx.get("required_skill") if isinstance(file_ctx, dict) else None
+            if file_req_skill and file_req_skill not in ctx.authorized_skills and file_req_skill not in missing_skills:
+                missing_skills.append(file_req_skill)
+
+            if missing_skills or unauthorized_file:
+                prior_verified = has_prior_verified_skill_output(
+                    getattr(ctx, "shared_round_evidence", None),
+                    getattr(ctx, "effective_history", None),
+                )
+                active_max_words = resolve_active_max_words(
+                    getattr(ctx, "modifiers", None),
+                    thread_state_manager.get_max_words(ctx.input.channel_id, ctx.input.thread_ts),
+                )
+
+                if not prior_verified or (active_max_words is not None and active_max_words < 60):
+                    logger.info(
+                        f"[LLM] Short-circuiting pure-skill missing-skill turn for {ctx.agent_key} "
+                        f"(missing={missing_skills}, unauthorized_file={unauthorized_file}, "
+                        f"max_words={active_max_words}, prior_verified={prior_verified})."
+                    )
+                    ctx.output.final_text = build_deterministic_missing_skill_notice(
+                        missing_skills=missing_skills,
+                        file_name=file_name,
+                        authorized_agents=auth_agents if unauthorized_file else None,
+                        channel_id=ctx.input.channel_id,
+                        thread_ts=ctx.input.thread_ts,
+                    )
+                    ctx.output.is_deterministic_missing_skill = True
+                    return None
+
         expired_thread_skills = list(
             dict.fromkeys(
                 thread_skills_manager.get_expired_skills(ctx.input.channel_id, ctx.input.thread_ts)

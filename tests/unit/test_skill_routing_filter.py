@@ -399,3 +399,131 @@ async def test_human_turn_no_agents_available_posts_slack_notice():
     assert len(posted_sys_messages) == 1
     assert "No Agent Available" in posted_sys_messages[0]
 
+
+@pytest.mark.anyio
+async def test_round2_updates_active_prompt_and_hydrates_pure_skill_for_bot_turns():
+    """Verifies Round 2 updates active_prompt (preserving initial_prompt) and hydrates is_pure_skill_task on bot turns."""
+    channel_id = "C_ACTIVE_PROMPT_1"
+    thread_ts = "100000.0020"
+    thread_state_manager.clear_state(channel_id, thread_ts)
+
+    # Round 1 recorded initial_prompt
+    thread_state_manager.set_initial_prompt(channel_id, thread_ts, "From 01_Maturity.pdf /grant-for-all document_reader")
+    thread_state_manager.set_active_prompt(channel_id, thread_ts, "From 01_Maturity.pdf")
+    thread_state_manager.set_round_sequence(channel_id, thread_ts, ["agent-10002", "agent-10001"])
+
+    pipeline = TurnPipeline(
+        post_system_message_fn=AsyncMock(return_value={"ok": True}),
+        files_fetcher=AsyncMock(return_value=[]),
+    )
+
+    # Round 2 human prompt arrives
+    ctx_r2_t1 = TurnContext(
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        raw_text="<@U_BOT> From 02_Foundation.pdf pick one Foundation",
+        is_bot_trigger=False,
+    )
+    directives_r2 = ParsedDirectives(
+        cleaned_prompt="<@U_BOT> From 02_Foundation.pdf pick one Foundation",
+        actions=[ActionDirective(name="document_reader", params={"target_file": "02_Foundation.pdf"})],
+        detected_language="English",
+        is_pure_skill_task=True,
+    )
+    with (
+        patch("orchestration.stages.validation.directive_parser.parse", AsyncMock(return_value=directives_r2)),
+        patch("orchestration.stages.validation.resolve_target_file", return_value=None),
+    ):
+        halt1 = await pipeline.validation_stage.stage_validate_and_parse(ctx_r2_t1)
+
+    assert halt1 is None
+    assert thread_state_manager.get_initial_prompt(channel_id, thread_ts) == "From 01_Maturity.pdf /grant-for-all document_reader"
+    assert thread_state_manager.get_active_prompt(channel_id, thread_ts) == "<@U_BOT> From 02_Foundation.pdf pick one Foundation"
+    assert thread_state_manager.get_is_pure_skill_task(channel_id, thread_ts) is True
+
+    # Chained bot-triggered Turn 2 in Round 2 hydrates is_pure_skill_task and uses active_prompt (not Round 1 initial_prompt)
+    ctx_r2_t2 = TurnContext(
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        raw_text="Foundation 2 summary /[agent-10001]",
+        is_bot_trigger=True,
+    )
+    halt2 = await pipeline.validation_stage.stage_validate_and_parse(ctx_r2_t2)
+    assert halt2 is None
+    assert ctx_r2_t2.is_pure_skill_task is True
+
+    await pipeline.resolution_stage.stage_resolve_agent_and_governance(ctx_r2_t2)
+
+    # Verify ContextPrepStage re-anchored to Round 2's active_prompt when building LLM messages
+    ctx_prep_check = TurnContext(
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        raw_text="Foundation 2 summary",
+        is_bot_trigger=True,
+        agent_key="agent-10001",
+        agent_cfg={"username": "Visionary", "skills": [], "model": "gemini/gemini-3.8-flash"},
+        in_memory_history=[{"role": "assistant", "content": "[Innovator]: Foundation 2"}],
+    )
+    with patch("orchestration.stages.context_prep.build_agent_prompt", return_value="System prompt"):
+        await pipeline.context_prep_stage.stage_prepare_context(ctx_prep_check)
+    last_msg = ctx_prep_check.messages[-1]["content"]
+    assert "02_Foundation.pdf" in last_msg
+    assert "01_Maturity.pdf" not in last_msg
+
+    # Clearing round execution state clears is_pure_skill_task
+    thread_state_manager.clear_round_execution_state(channel_id, thread_ts)
+    assert thread_state_manager.get_is_pure_skill_task(channel_id, thread_ts) is False
+
+
+@pytest.mark.anyio
+async def test_execution_short_circuits_missing_skill_pure_task_with_zero_llm_calls():
+    """Verifies pure-skill turns lacking required skill short-circuit deterministically (0 LLM tokens) and preserve hint."""
+    channel_id = "C_SHORT_CIRCUIT_1"
+    thread_ts = "100000.0021"
+    thread_state_manager.clear_state(channel_id, thread_ts)
+    thread_state_manager.set_max_words(channel_id, thread_ts, 10)
+
+    mock_llm = AsyncMock()
+    mock_slack = AsyncMock(return_value={"ok": True, "ts": "100000.0022"})
+    pipeline = TurnPipeline(
+        llm_executor=mock_llm,
+        slack_poster=mock_slack,
+        sleep_fn=AsyncMock(),
+    )
+
+    ctx = TurnContext(
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        raw_text="Read 02_Foundation_Blueprint.pdf",
+        is_bot_trigger=True,
+        agent_key="agent-10001",
+        agent_cfg={"username": "Visionary", "displayname": "Visionary", "skills": [], "model": "gemini/gemini-3.8-flash"},
+        is_pure_skill_task=True,
+        missing_required_skills=["document_reader"],
+        file_context={"file_name": "02_Foundation_Blueprint.pdf", "required_skill": "document_reader", "authorized_agents": None},
+        effective_history=[{"role": "assistant", "content": "[Innovator]: Foundation 2\n\nSkills used: [document_reader]"}],
+        remaining=["agent-10003"],
+        eligible_remaining_agents=["agent-10003"],
+        next_designated_agent="agent-10003",
+    )
+
+    halt = await pipeline.execution_stage.stage_execute_llm(ctx)
+    assert halt is None
+    mock_llm.assert_not_called()
+    assert ctx.output.is_deterministic_missing_skill is True
+    assert ctx.output.total_prompt_tokens == 0
+    assert ctx.output.total_completion_tokens == 0
+    assert "document_reader" in ctx.output.final_text
+    assert "/grant_skill" in ctx.output.final_text
+
+    # Stage 5 preserves the deterministic notice + /grant_skill hint without truncating at max_words=10
+    with patch("orchestration.stages.post_record.trigger_thread_notes_update"), \
+         patch("orchestration.stages.post_record.trigger_usage_update"), \
+         patch("orchestration.stages.post_record.async_record_flat_history", AsyncMock()):
+        res = await pipeline.post_record_stage.stage_post_and_record(ctx)
+
+    assert "/grant_skill" in ctx.output.final_text
+    assert "/[agent-10003]" in ctx.output.final_text
+    assert res["agent_key"] == "agent-10001"
+
+

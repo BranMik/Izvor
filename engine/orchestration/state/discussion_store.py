@@ -21,7 +21,8 @@ class DiscussionStateStore:
                 cursor = conn.cursor()
                 cursor.execute(
                     "SELECT status, remaining_agents, custom_flow, stop_requested, rounds, round_sequence, initial_prompt, "
-                    "workflow_snapshot, open_debate, consensus_reached, convergence_speakers, created_at, last_activity "
+                    "active_prompt, is_pure_skill_task, workflow_snapshot, open_debate, consensus_reached, convergence_speakers, "
+                    "created_at, last_activity "
                     "FROM thread_sessions WHERE channel_id = ? AND thread_ts = ?",
                     (channel_id, thread_ts),
                 )
@@ -38,7 +39,8 @@ class DiscussionStateStore:
                 cursor = conn.cursor()
                 cursor.execute(
                     "SELECT status, remaining_agents, custom_flow, stop_requested, rounds, round_sequence, "
-                    "initial_prompt, workflow_snapshot, open_debate, consensus_reached, convergence_speakers, created_at "
+                    "initial_prompt, active_prompt, is_pure_skill_task, workflow_snapshot, open_debate, "
+                    "consensus_reached, convergence_speakers, created_at "
                     "FROM thread_sessions WHERE channel_id = ? AND thread_ts = ?",
                     (channel_id, thread_ts),
                 )
@@ -51,6 +53,8 @@ class DiscussionStateStore:
                     "rounds": 0,
                     "round_sequence": "[]",
                     "initial_prompt": None,
+                    "active_prompt": None,
+                    "is_pure_skill_task": 0,
                     "workflow_snapshot": None,
                     "open_debate": 0,
                     "consensus_reached": 0,
@@ -70,6 +74,8 @@ class DiscussionStateStore:
                     or data["rounds"] > 0
                     or data["round_sequence"] not in (None, "[]", "")
                     or data["initial_prompt"] is not None
+                    or data["active_prompt"] is not None
+                    or data["is_pure_skill_task"] == 1
                     or data["workflow_snapshot"] is not None
                     or data["open_debate"] == 1
                     or data["consensus_reached"] == 1
@@ -90,9 +96,9 @@ class DiscussionStateStore:
                         INSERT INTO thread_sessions (
                             channel_id, thread_ts, status, remaining_agents, custom_flow,
                             stop_requested, rounds, round_sequence, initial_prompt,
-                            workflow_snapshot, open_debate, consensus_reached, convergence_speakers,
-                            created_at, last_activity
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            active_prompt, is_pure_skill_task, workflow_snapshot, open_debate,
+                            consensus_reached, convergence_speakers, created_at, last_activity
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         ON CONFLICT(channel_id, thread_ts) DO UPDATE SET
                             status = excluded.status,
                             remaining_agents = excluded.remaining_agents,
@@ -101,6 +107,8 @@ class DiscussionStateStore:
                             rounds = excluded.rounds,
                             round_sequence = excluded.round_sequence,
                             initial_prompt = COALESCE(excluded.initial_prompt, thread_sessions.initial_prompt),
+                            active_prompt = excluded.active_prompt,
+                            is_pure_skill_task = excluded.is_pure_skill_task,
                             workflow_snapshot = excluded.workflow_snapshot,
                             open_debate = excluded.open_debate,
                             consensus_reached = excluded.consensus_reached,
@@ -117,6 +125,8 @@ class DiscussionStateStore:
                             data["rounds"],
                             data["round_sequence"],
                             data["initial_prompt"],
+                            data["active_prompt"],
+                            data["is_pure_skill_task"],
                             data["workflow_snapshot"],
                             data["open_debate"],
                             data["consensus_reached"],
@@ -369,6 +379,35 @@ class DiscussionStateStore:
     def clear_initial_prompt(self, channel_id: str, thread_ts: str) -> None:
         """Clears the stored initial user prompt for this thread."""
         self._update_fields(channel_id, thread_ts, initial_prompt=None)
+
+    def get_active_prompt(self, channel_id: str, thread_ts: str) -> str | None:
+        """Returns the active human user prompt for the current round in this thread."""
+        row = self._get_row(channel_id, thread_ts)
+        return str(row["active_prompt"]) if row and row.get("active_prompt") else None
+
+    def set_active_prompt(self, channel_id: str, thread_ts: str, prompt: str) -> None:
+        """Updates the active human user prompt for the current round in this thread."""
+        if not prompt or not str(prompt).strip():
+            return
+        self._update_fields(channel_id, thread_ts, active_prompt=str(prompt).strip())
+        logger.info(f"[DISCUSSION STORE] Set active prompt for {(channel_id, thread_ts)} (length: {len(str(prompt).strip())})")
+
+    def clear_active_prompt(self, channel_id: str, thread_ts: str) -> None:
+        """Clears the active human user prompt for this thread."""
+        self._update_fields(channel_id, thread_ts, active_prompt=None)
+
+    def get_is_pure_skill_task(self, channel_id: str, thread_ts: str) -> bool:
+        """Returns whether the current round in this thread is a pure skill task."""
+        row = self._get_row(channel_id, thread_ts)
+        return bool(row and row.get("is_pure_skill_task"))
+
+    def set_is_pure_skill_task(self, channel_id: str, thread_ts: str, is_pure: bool) -> None:
+        """Persists whether the current round in this thread is a pure skill task."""
+        self._update_fields(channel_id, thread_ts, is_pure_skill_task=1 if is_pure else 0)
+
+    def clear_is_pure_skill_task(self, channel_id: str, thread_ts: str) -> None:
+        """Resets the pure-skill task flag for this thread."""
+        self._update_fields(channel_id, thread_ts, is_pure_skill_task=0)
 
     def is_active(self, channel_id: str, thread_ts: str) -> bool:
         """Checks if there is an active running task or pending remaining agents."""

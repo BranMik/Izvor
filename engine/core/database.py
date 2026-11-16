@@ -272,12 +272,19 @@ SESSION_NULLABLE_REMAINING_STATEMENTS = [
     "CREATE INDEX IF NOT EXISTS idx_thread_sessions_activity ON thread_sessions(last_activity);",
 ]
 
+SESSION_ACTIVE_PROMPT_STATEMENTS = [
+    # 15. Active human prompt per round and pure-skill flag durability across bot-triggered turns
+    "ALTER TABLE thread_sessions ADD COLUMN active_prompt TEXT DEFAULT NULL;",
+    "ALTER TABLE thread_sessions ADD COLUMN is_pure_skill_task INTEGER NOT NULL DEFAULT 0;",
+]
+
 MIGRATIONS: list[tuple[int, str, list[str]]] = [
     (1, "baseline_schema", BASELINE_SCHEMA_STATEMENTS),
     (2, "audit_anchors_and_indices", AUDIT_ANCHORS_STATEMENTS),
     (3, "thread_session_durability", SESSION_DURABILITY_STATEMENTS),
     (4, "thread_session_convergence_speakers", SESSION_CONVERGENCE_STATEMENTS),
     (5, "thread_sessions_nullable_remaining_agents", SESSION_NULLABLE_REMAINING_STATEMENTS),
+    (6, "thread_sessions_active_prompt_and_pure_skill", SESSION_ACTIVE_PROMPT_STATEMENTS),
 ]
 
 

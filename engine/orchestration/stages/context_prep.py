@@ -353,7 +353,9 @@ class ContextPrepStage:
 
         active_prompt = ctx.prompt
         if ctx.input.is_bot_trigger:
-            stored_prompt = thread_state_manager.get_initial_prompt(ctx.input.channel_id, ctx.input.thread_ts)
+            stored_prompt = thread_state_manager.get_active_prompt(
+                ctx.input.channel_id, ctx.input.thread_ts
+            ) or thread_state_manager.get_initial_prompt(ctx.input.channel_id, ctx.input.thread_ts)
             if stored_prompt and stored_prompt.strip():
                 active_prompt = stored_prompt
             elif ctx.effective_history:
@@ -379,5 +381,6 @@ class ContextPrepStage:
             shared_round_evidence=ctx.shared_round_evidence,
             channel_id=ctx.input.channel_id,
             thread_ts=ctx.input.thread_ts,
+            max_words=active_max_words,
         )
         return None
