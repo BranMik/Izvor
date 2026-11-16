@@ -6,6 +6,7 @@ from typing import Any
 from core.models import INT_MODIFIER_BOUNDS, ActionDirective, ExtractedIntent, MediaAttachment, coerce_int_modifier
 
 from .slash_parser import (
+    has_substantive_prompt,
     parse_agent_list,
     parse_file_target,
     parse_grant_skill,
@@ -15,6 +16,8 @@ from .slash_parser import (
     parse_terminal_flag,
     parse_token,
 )
+
+_STANDALONE_EXCLUSIVE_ACTIONS = frozenset({"list_skills", "revoke_constraint"})
 
 logger = logging.getLogger(__name__)
 
@@ -402,17 +405,22 @@ class DirectiveParser:
         except (AttributeError, KeyError, re.error, TypeError, ValueError, IndexError) as e:
             logger.debug(f"[DIRECTIVE PARSER] Skill registry slash check error: {e}")
 
-        # If an exclusive control/grant/revoke/list command is present, skip micro-LLM intent extraction entirely
+        # Skip micro-LLM intent extraction for strictly standalone commands (e.g. list_skills, revoke_constraint)
+        # or admin commands when no substantive prompt text remains to evaluate.
         def _is_exclusive_action(a_name: str) -> bool:
+            if a_name in _STANDALONE_EXCLUSIVE_ACTIONS:
+                return True
             try:
                 sk = (
                     skill_registry.resolve_skill(a_name)
                     if hasattr(skill_registry, "resolve_skill")
                     else skill_registry.get(a_name)
                 )
-                return bool(sk and (getattr(sk, "requires_admin", False) or sk.name == "list_skills"))
+                if sk and getattr(sk, "requires_admin", False):
+                    return not has_substantive_prompt(text_cleaned)
             except Exception:
                 return False
+            return False
 
         has_exclusive_cmd = any(_is_exclusive_action(a.name) for a in actions)
 

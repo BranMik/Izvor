@@ -1,4 +1,5 @@
 import logging
+import re
 from functools import cache
 from pathlib import Path
 from typing import Any
@@ -138,6 +139,15 @@ def is_system_agent(agent_key: str) -> bool:
     return False
 
 
+COMPACT_WORD_THRESHOLD = 60
+_OUTPUT_CONTRACT_RE = re.compile(r"\s*<output_contract>[\s\S]*?</output_contract>\s*", re.IGNORECASE)
+
+
+def _strip_output_contract(persona_content: str) -> str:
+    """Removes the <output_contract> section when a tight word limit overrides multi-section formatting."""
+    return _OUTPUT_CONTRACT_RE.sub("\n", persona_content).strip()
+
+
 def _format_word_constraints(
     max_words: int | None = None, min_words: int | None = None
 ) -> str:
@@ -151,6 +161,50 @@ def _format_word_constraints(
             f"Hard Limit: Your entire response must strictly NOT exceed {max_words} words."
         )
     return "\n".join(constraints)
+
+
+def _build_output_constraints(
+    agent_key: str,
+    max_words: int | None = None,
+    min_words: int | None = None,
+    is_short_output: bool | None = None,
+) -> tuple[str, bool]:
+    """
+    Constructs the <output_and_length_constraints> block and returns (block, is_compact_mode).
+    When max_words < COMPACT_WORD_THRESHOLD, switches to compact mode (omits 3-part bullets and
+    signals that persona <output_contract> formatting is overridden).
+    When max_words >= COMPACT_WORD_THRESHOLD or only min_words is set, preserves shared structural
+    rules (Rules 2-4) while replacing Rule 1's hardcoded ceiling with active bounds.
+    """
+    word_constraints = _format_word_constraints(max_words=max_words, min_words=min_words)
+    use_short = is_short_output if is_short_output is not None else is_short_output_agent(agent_key)
+    base_filename = "output_constraints_100w.md" if use_short else "output_constraints.md"
+    base_constraints = _read_prompt_file(SHARED_DIR / base_filename)
+
+    if not word_constraints:
+        return base_constraints, False
+
+    if max_words is not None and max_words < COMPACT_WORD_THRESHOLD:
+        compact_block = (
+            "<output_and_length_constraints>\n"
+            "OUTPUT & LENGTH CONSTRAINTS:\n\n"
+            f"{word_constraints}\n"
+            "Compact Override: Omit all multi-section headings, bullet lists, and conversational preamble; "
+            "deliver a single concise response strictly within the word limit.\n"
+            "Skill-Lack Notice Compression: Keep any missing-skill or file-permission notice strictly <= 50 words "
+            "(including a 1-line hint naming an authorized agent or /grant_skill) with zero reflection on skills architecture.\n"
+            "</output_and_length_constraints>"
+        )
+        return compact_block, True
+
+    updated_constraints = re.sub(
+        r"^1\.\s*Hard Limit:.*$",
+        f"1. {word_constraints}",
+        base_constraints,
+        count=1,
+        flags=re.MULTILINE,
+    )
+    return updated_constraints, False
 
 
 def build_agent_prompt(
@@ -193,25 +247,17 @@ def build_agent_prompt(
         if effective_min is None and modifiers.get("min_words") is not None:
             effective_min = modifiers["min_words"]
 
-    word_constraints = _format_word_constraints(
-        max_words=effective_max, min_words=effective_min
+    output_constraints, is_compact_mode = _build_output_constraints(
+        agent_key,
+        max_words=effective_max,
+        min_words=effective_min,
+        is_short_output=is_short_output,
     )
+    if is_compact_mode:
+        persona_content = _strip_output_contract(persona_content)
 
     nomination_rules = _read_prompt_file(SHARED_DIR / "nomination_rules.md")
     fixed_constraints = _read_prompt_file(SHARED_DIR / "fixed_constraints.md")
-
-    # All debate agents share fixed constraints, output constraints (100w or 200w), and nomination rules
-    if word_constraints:
-        output_constraints = (
-            f"<output_and_length_constraints>\n"
-            f"OUTPUT & LENGTH CONSTRAINTS:\n\n"
-            f"{word_constraints}\n"
-            f"</output_and_length_constraints>"
-        )
-    elif is_short_output if is_short_output is not None else is_short_output_agent(agent_key):
-        output_constraints = _read_prompt_file(SHARED_DIR / "output_constraints_100w.md")
-    else:
-        output_constraints = _read_prompt_file(SHARED_DIR / "output_constraints.md")
 
     # Render any custom prompt modifiers from skills
     custom_directives = []

@@ -230,10 +230,11 @@ def test_pricing_agent_prompt_structure():
 
 
 def test_build_agent_prompt_with_max_words():
-    # Intermediate agent: verify standard output constraints are skipped, only max_words is added
+    # Compact mode (max_words < 60): skips 3-part bullets and strips persona <output_contract>
     prompt = build_agent_prompt("agent-10011", max_words=50)
     assert "Hard Limit: Your entire response must strictly NOT exceed 50 words." in prompt
-    # Verify standard output_constraints sections are NOT in the prompt
+    assert "Compact Override:" in prompt
+    assert "<output_contract>" not in prompt
     assert "1 sentence stating your core verdict/concern." not in prompt
     assert "2-3 concise bullet points" not in prompt
     assert "1 concluding sentence with a concrete recommendation." not in prompt
@@ -241,36 +242,54 @@ def test_build_agent_prompt_with_max_words():
     assert "nominate the next agent" in prompt
     assert "Aim to answer in the same language as user prompt is made." in prompt
 
-    # Short output agent: verify standard 100w output constraints are skipped but language is kept
+    # Short output agent with tight limit: skips 100w limit and 3-part bullets, strips <output_contract>
     prompt_short = build_agent_prompt("agent-10010", max_words=30)
     assert "Hard Limit: Your entire response must strictly NOT exceed 30 words." in prompt_short
     assert "Hard Limit: Your entire response must strictly NOT exceed 100 words." not in prompt_short
+    assert "<output_contract>" not in prompt_short
     assert "1 sentence stating your core verdict/concern." not in prompt_short
     assert "Aim to answer in the same language as user prompt is made." in prompt_short
 
-    # SecurityArchitect: verify override
+    # Standard/large custom limit (max_words >= 60): keeps <output_contract> and Rules 2-4 with 120w ceiling
     prompt_arch = build_agent_prompt("agent-10008", max_words=120)
-    assert "strictly NOT exceed 120 words" in prompt_arch
+    assert "Hard Limit: Your entire response must strictly NOT exceed 120 words." in prompt_arch
     assert "strictly NOT exceed 200 words" not in prompt_arch
+    assert "<output_contract>" in prompt_arch
+    assert "1 sentence stating your core verdict/concern." in prompt_arch
+    assert "2-3 concise bullet points" in prompt_arch
 
-    # Visionary: verify override
+    # Visionary with tight limit (max_words=10 / 45 < 60): strips <output_contract> so section headers aren't forced
+    prompt_vis_10 = build_agent_prompt("agent-10001", max_words=10)
+    assert "Hard Limit: Your entire response must strictly NOT exceed 10 words." in prompt_vis_10
+    assert "<output_contract>" not in prompt_vis_10
+    assert "Core Strategic Verdict" not in prompt_vis_10
+
     prompt_vis = build_agent_prompt("agent-10001", max_words=45)
     assert "strictly NOT exceed 45 words" in prompt_vis
     assert "strictly NOT exceed 200 words" not in prompt_vis
+    assert "<output_contract>" not in prompt_vis
+
+    # Dialectical system agent (Challenger) with tight limit also strips <output_contract>
+    prompt_challenger_tight = build_agent_prompt("Challenger", max_words=15)
+    assert "Hard Limit: Your entire response must strictly NOT exceed 15 words." in prompt_challenger_tight
+    assert "<output_contract>" not in prompt_challenger_tight
 
 
 def test_build_agent_prompt_with_min_words():
-    # Intermediate agent: verify standard output constraints are skipped, only min_words is added
+    # min_words without max_words: keeps Rules 2-4 and <output_contract>, replaces hardcoded ceiling with min_words
     prompt = build_agent_prompt("agent-10011", min_words=60)
     assert "Minimum Length: Your entire response must have a minimum length of 60 words." in prompt
-    assert "1 sentence stating your core verdict/concern." not in prompt
-    assert "2-3 concise bullet points" not in prompt
+    assert "Hard Limit: Your entire response must strictly NOT exceed 200 words." not in prompt
+    assert "1 sentence stating your core verdict/concern." in prompt
+    assert "2-3 concise bullet points" in prompt
+    assert "<output_contract>" in prompt
     assert "nominate the next agent" in prompt
 
-    # Short output agent: verify standard 100w output constraints are skipped
+    # Short output agent with min_words only: replaces 100w ceiling with min_words
     prompt_short = build_agent_prompt("agent-10010", min_words=40)
     assert "Minimum Length: Your entire response must have a minimum length of 40 words." in prompt_short
     assert "Hard Limit: Your entire response must strictly NOT exceed 100 words." not in prompt_short
+    assert "1 sentence stating your core verdict/concern." in prompt_short
 
     # SecurityArchitect: verify min_words addition
     prompt_arch = build_agent_prompt("agent-10008", min_words=150)
@@ -282,15 +301,24 @@ def test_build_agent_prompt_with_min_words():
 
 
 def test_build_agent_prompt_with_min_and_max_words():
-    # Both limits present
+    # Both limits present with max_words >= 60: keeps Rules 2-4 and <output_contract>
     prompt = build_agent_prompt("agent-10011", min_words=50, max_words=150)
     assert "Minimum Length: Your entire response must have a minimum length of 50 words." in prompt
     assert "Hard Limit: Your entire response must strictly NOT exceed 150 words." in prompt
-    assert "1 sentence stating your core verdict/concern." not in prompt
+    assert "1 sentence stating your core verdict/concern." in prompt
+    assert "<output_contract>" in prompt
 
     prompt_arch = build_agent_prompt("agent-10008", min_words=80, max_words=300)
     assert "Minimum Length: Your entire response must have a minimum length of 80 words." in prompt_arch
     assert "strictly NOT exceed 300 words" in prompt_arch
+    assert "1 sentence stating your core verdict/concern." in prompt_arch
+
+    # Both limits present with max_words < 60: compact mode strips <output_contract> and 3-part bullets
+    prompt_tight = build_agent_prompt("agent-10011", min_words=10, max_words=40)
+    assert "Minimum Length: Your entire response must have a minimum length of 10 words." in prompt_tight
+    assert "Hard Limit: Your entire response must strictly NOT exceed 40 words." in prompt_tight
+    assert "<output_contract>" not in prompt_tight
+    assert "1 sentence stating your core verdict/concern." not in prompt_tight
 
 
 def test_system_agent_detection_and_prompts():

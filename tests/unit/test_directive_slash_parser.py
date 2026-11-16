@@ -351,4 +351,54 @@ async def test_first_and_open_debate_directive_parsing():
     assert res.cleaned_prompt == "Let's begin"
 
 
+@pytest.mark.anyio
+async def test_inline_admin_grant_with_prompt_runs_intent_extractor():
+    """Inline-capable admin commands with substantive prompt text must still run intent extraction."""
+    from core.models import ExtractedIntent
+    from nlp.intent_extractor import configure_intent_extractor, reset_intent_extractor
+
+    calls = []
+
+    def fake_extractor(text, **kwargs):
+        calls.append(text)
+        return ExtractedIntent(modifiers={"max_words": 10}, detected_language="English")
+
+    configure_intent_extractor(fake_extractor)
+    try:
+        parser = DirectiveParser()
+        raw = "<@U0BR4EH6XMY> From file 01.pdf pick one zone. /grant-for-all document_reader , max 10 words"
+        res = await parser.parse(raw)
+
+        assert len(calls) == 1
+        assert res.max_words == 10
+        assert any(a.name == "grant_skill_for_all" for a in res.actions)
+    finally:
+        reset_intent_extractor()
+
+
+@pytest.mark.anyio
+async def test_standalone_admin_or_exclusive_commands_skip_intent_extractor():
+    """Standalone admin commands and strictly halting commands must skip intent extraction."""
+    from core.models import ExtractedIntent
+    from nlp.intent_extractor import configure_intent_extractor, reset_intent_extractor
+
+    calls = []
+
+    def fake_extractor(text, **kwargs):
+        calls.append(text)
+        return ExtractedIntent(modifiers={"max_words": 10})
+
+    configure_intent_extractor(fake_extractor)
+    try:
+        parser = DirectiveParser()
+        await parser.parse("/grant-for-all document_reader")
+        await parser.parse("<@U0BR4EH6XMY> /grant-for-all document_reader")
+        await parser.parse("/list_skills please explain")
+        await parser.parse("/revoke_constraint max_words ignore rest")
+
+        assert calls == []
+    finally:
+        reset_intent_extractor()
+
+
 
