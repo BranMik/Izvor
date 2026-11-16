@@ -36,6 +36,8 @@ class GuardrailService:
         connect_fn=None,
         table=None,
     ):
+        self.default_db_dir = db_dir
+        self.default_table = table
         self.db_dir = db_dir
         self.threshold = threshold
         self.table_name = "guardrail_signatures"
@@ -43,6 +45,25 @@ class GuardrailService:
         self._connect_fn = connect_fn or lancedb.connect
         self._table_missing = False
         self._missing_checks = 0
+
+    def configure_paths(self, db_dir=None, table=None) -> None:
+        """Configures isolated LanceDB path or in-memory table override for tests."""
+        if db_dir is not None:
+            self.db_dir = db_dir
+        if table is not None:
+            self._table = table
+        else:
+            self._table = None
+        self._table_missing = False
+        self._missing_checks = 0
+
+    def reset_paths(self) -> None:
+        """Restores default LanceDB path and clears table cache/overrides."""
+        self.db_dir = self.default_db_dir
+        self._table = self.default_table
+        self._table_missing = False
+        self._missing_checks = 0
+        _EMBEDDING_LRU_CACHE.clear()
 
     @staticmethod
     def _list_table_names(db) -> list[str]:

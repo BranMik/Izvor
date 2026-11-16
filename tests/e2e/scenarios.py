@@ -385,7 +385,7 @@ async def tc_11_multi_round(client: SlackProtocolClient) -> ScenarioResult:
 async def tc_12_web_research(client: SlackProtocolClient) -> ScenarioResult:
     channel = client.get_channel("C_TEST_12")
     thread_ts = client.get_thread_ts()
-    prompt = "/[MarketAndCompetitionResearchExpert] Search the web for current pricing of Anthropic Claude."
+    prompt = "/[MarketAndCompetitionResearchExpert] Search the web for current vector database pricing."
     await client.send_mention(prompt, channel_id=channel, thread_ts=thread_ts)
 
     actual_thread = _resolve_thread_ts(client, thread_ts)
@@ -396,7 +396,9 @@ async def tc_12_web_research(client: SlackProtocolClient) -> ScenarioResult:
         )
 
     text = msgs[0].get("text", "")
-    has_pricing = "claude" in text.lower() or "anthropic" in text.lower() or "pricing" in text.lower()
+    has_pricing = any(
+        k in text.lower() for k in ("pinecone", "qdrant", "milvus", "vector", "pricing")
+    )
     has_skill_footer = "web_research" in text
     passed = has_pricing and has_skill_footer
     return ScenarioResult(
@@ -596,7 +598,7 @@ async def tc_17_grant_skill(client: SlackProtocolClient) -> ScenarioResult:
 
     # Follow-up turn verifying SecurityArchitect can now execute web_research
     await client.send_mention(
-        "/[Security Architect] Search the web for current pricing of Anthropic Claude.",
+        "/[Security Architect] Search the web for current vector database pricing.",
         channel_id=channel,
         thread_ts=actual_thread,
         user_id=TEST_USER_ID,
@@ -858,6 +860,7 @@ async def tc_25_stop_concurrency(client: SlackProtocolClient) -> ScenarioResult:
     passed = (
         (not is_active) or has_stop_confirmation or not rem_agents
     ) and len(speakers) < total_panel
+    await client.drain_background_tasks()
     return ScenarioResult(
         "TC-25",
         "Stop Directive Concurrency",
@@ -888,10 +891,11 @@ async def tc_26_superseding_language_and_tag_validation(
     gen = thread_state_manager.get_generation(ch_a, actual_th_a)
     msgs_a = client.bus.get_messages_for_thread(ch_a, actual_th_a)
     superseded_ok = gen >= 1 and bool(msgs_a) and msgs_a[-1].get("username") == "Visionary"
+    await client.drain_background_tasks()
 
     # Part B: Croatian language lock
     ch_b = client.get_channel("C_TEST_26B") if not client.live_mode else ch_a
-    th_b = None if not client.live_mode else None
+    th_b = None
     client.current_thread_ts = None
     await client.send_mention(
         "/[Security Architect] /max_words 25 Koji su ključni rizici ako migriramo sustav na mikroservise?",
@@ -901,6 +905,7 @@ async def tc_26_superseding_language_and_tag_validation(
     actual_th_b = _resolve_thread_ts(client, th_b)
     locked_lang = thread_state_manager.get_language(ch_b, actual_th_b)
     lang_ok = locked_lang == "Croatian"
+    await client.drain_background_tasks()
 
     # Part C: Unrecognized tag halts cleanly without invoking agents
     ch_c = client.get_channel("C_TEST_26C") if not client.live_mode else ch_a
@@ -916,6 +921,7 @@ async def tc_26_superseding_language_and_tag_validation(
     ]
     msgs_c = client.bus.get_messages_for_thread(ch_c, actual_th_c)
     tag_halt_ok = any("Unrecognized Agent Tag" in t for t in sys_c) and len(msgs_c) == 0
+    await client.drain_background_tasks()
 
     passed = superseded_ok and lang_ok and tag_halt_ok
     return ScenarioResult(
@@ -1048,7 +1054,7 @@ async def tc_30_skill_routing_filter_and_short_circuit(
         settings_manager.set_fixed_config(["agent-10001", "agent-10003"], save=False)
 
         await client.send_mention(
-            "Search the web for current pricing of Anthropic Claude.",
+            "Search the web for current vector database pricing.",
             channel_id=channel,
             thread_ts=thread_ts,
         )
@@ -1076,7 +1082,7 @@ async def tc_30_skill_routing_filter_and_short_circuit(
         ch2 = client.get_channel("C_TEST_30B") if not client.live_mode else channel
         settings_manager.set_fixed_config(["agent-10001", "agent-10009"], save=False)
         await client.send_mention(
-            "Search the web for current pricing of Anthropic Claude.",
+            "Search the web for current vector database pricing.",
             channel_id=ch2,
             thread_ts=None,
         )
@@ -1155,7 +1161,9 @@ async def tc_32_internal_revisor_ground_truth_and_confirmation(
         )
 
     orig_revisor = system_settings_manager.get_internal_revisor_enabled()
+    orig_sys_timeout = system_settings_manager.get_system_agent_inference_timeout_seconds()
     system_settings_manager.set_internal_revisor_enabled(True, save=False)
+    system_settings_manager.set_system_agent_inference_timeout_seconds(45.0, save=False)
     try:
         # Turn 1: Grounded read of sys_spec.txt (5000 rps) -> populates evidence_store
         await client.send_mention(
@@ -1189,6 +1197,7 @@ async def tc_32_internal_revisor_ground_truth_and_confirmation(
         )
     finally:
         system_settings_manager.set_internal_revisor_enabled(orig_revisor, save=False)
+        system_settings_manager.set_system_agent_inference_timeout_seconds(orig_sys_timeout, save=False)
 
 
 async def tc_33_challenger_and_arbitrator_stress_test(

@@ -418,7 +418,15 @@ class PostRecordStage:
                 | set(settings_manager.get_enabled_agents())
                 | set(settings_manager.system_agents_config.keys())
             )
-            has_nominated_next = any(tag in known_agents for tag in ctx.output.generated_tags)
+            retries_set = set(
+                thread_state_manager.get_retry_queue(
+                    ctx.input.channel_id, ctx.input.thread_ts
+                )
+            )
+            has_nominated_next = any(
+                tag in known_agents and (tag != ctx.agent_key or tag in retries_set)
+                for tag in ctx.output.generated_tags
+            )
             ctx.output.is_completed = bool(
                 ctx.force_termination
                 or (

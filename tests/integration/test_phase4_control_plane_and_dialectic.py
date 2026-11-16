@@ -159,3 +159,73 @@ def test_telemetry_span_recording_and_retrieval():
     assert t["agent_key"] == "agent-10001"
     assert t["duration_ms"] == 124.5
     assert t["tools_called"] == ["nominate_next_speaker"]
+
+
+@pytest.mark.anyio
+async def test_control_plane_rejects_self_nomination_and_enforces_strip():
+    """Plan 193: control_plane and enforce_valid_nomination block self-nomination and strip extra inline tags."""
+    skill = skill_registry.get("control_plane")
+    assert skill is not None
+
+    self_res = await skill_registry.execute_tool_async(
+        "nominate_next_speaker",
+        {"agent_name": "SecurityArchitect", "rationale": "Loop check"},
+        agent_name="agent-10008",
+    )
+    assert "rejected" in self_res.lower()
+    assert "error" in self_res.lower()
+
+    # Inline stale self-tag must not survive alongside valid peer nomination or empty remaining
+    enforced_peer = enforce_valid_nomination(
+        text="Pass to /[agent-10008] and then /[agent-10002]",
+        current_agent_key="agent-10008",
+        remaining=["agent-10002", "agent-10008"],
+        force_termination=False,
+        control_plane_nomination="agent-10008",
+    )
+    assert "/[agent-10008]" not in enforced_peer
+    assert enforced_peer.endswith("/[agent-10002]")
+
+    enforced_self_only = enforce_valid_nomination(
+        text="Assessment complete. /[agent-10008]",
+        current_agent_key="agent-10008",
+        remaining=["agent-10008"],
+        force_termination=False,
+    )
+    assert "/[agent-10008]" not in enforced_self_only
+
+
+def test_reset_enabled_agents_preserves_default_review_flow():
+    """Plan 193: AgentSettingsManager.reset() restores default_review_flow instead of 16-agent fallback."""
+    from orchestration.agent_settings import reset_enabled_agents, settings_manager
+    from orchestration.nomination import get_initial_agents
+
+    reset_enabled_agents()
+    assert settings_manager.get_active_workflow_id() == "default_review_flow"
+    assert settings_manager.get_orchestration_mode() == "fixed"
+    assert get_initial_agents() == ["agent-10001", "agent-10002", "agent-10003", "agent-10014", "agent-10012"]
+
+
+def test_scatter_gather_selects_start_chain_deterministically():
+    """Plan 193: scatter_gather pops the ordered start_chain head instead of random selection."""
+    from orchestration.agent_settings import (
+        reset_enabled_agents,
+        set_orchestration_mode,
+        set_sandwich_config,
+    )
+    from orchestration.nomination import parse_agent_and_prompt
+    from orchestration.thread_state import thread_state_manager
+
+    reset_enabled_agents()
+    set_orchestration_mode("scatter_gather", save=False)
+    set_sandwich_config(["agent-10001"], ["agent-10008"], save=False)
+    thread_state_manager.reset_all()
+
+    for idx in range(5):
+        agent_key, _, explicit = parse_agent_and_prompt(
+            "Evaluate architecture trade-offs.",
+            "C_SG",
+            f"1700000000.{idx}",
+        )
+        assert agent_key == "agent-10001"
+        assert explicit is False

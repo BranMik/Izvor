@@ -58,6 +58,88 @@ def _unmask_argument_values(val: Any, mapping: dict[str, str]) -> Any:
     return val
 
 
+def _build_completion_kwargs(
+    *,
+    model: str,
+    messages: list[dict[str, Any]],
+    num_retries: int,
+    tools: list[dict[str, Any]] | None = None,
+    tool_choice: str | None = None,
+) -> dict[str, Any]:
+    """Builds model-agnostic LiteLLM completion kwargs with optional tools and Meta overrides."""
+    kwargs: dict[str, Any] = {
+        "model": model,
+        "messages": messages,
+        "num_retries": num_retries,
+    }
+    if tools is not None:
+        kwargs["tools"] = tools
+    if tool_choice is not None:
+        kwargs["tool_choice"] = tool_choice
+    if _is_explicit_meta_provider(model):
+        if os.getenv("META_API_KEY"):
+            kwargs["api_key"] = os.getenv("META_API_KEY")
+        if os.getenv("META_API_BASE"):
+            kwargs["api_base"] = os.getenv("META_API_BASE")
+    return kwargs
+
+
+def _unlock_skill_tools(
+    *,
+    skill_def: Any,
+    ctx: "TurnContext",
+    active_tools: list[dict[str, Any]],
+) -> None:
+    """Appends schemas unlocked by load_skill, scoping control_plane nominations to non-self peers."""
+    if skill_def.name == "control_plane":
+        from skills.builtin.control_plane.tools import build_control_plane_tool_schemas
+
+        eligible_peers: list[str] = []
+        seen_keys: set[str] = set()
+        raw_candidates = (
+            []
+            if getattr(ctx, "force_termination", False)
+            else list(getattr(ctx, "eligible_remaining_agents", None) or [])
+        )
+        for peer_key in raw_candidates:
+            if not isinstance(peer_key, str) or peer_key == ctx.agent_key or peer_key in seen_keys:
+                continue
+            seen_keys.add(peer_key)
+            agent_cfg = settings_manager.get_agent(peer_key)
+            label = agent_cfg.get("username", peer_key) if isinstance(agent_cfg, dict) else peer_key
+            eligible_peers.append(label)
+
+        candidate_schemas = build_control_plane_tool_schemas(
+            eligible_agents=eligible_peers or None,
+        )
+        if not eligible_peers:
+            candidate_schemas = [
+                s for s in candidate_schemas
+                if s.get("function", {}).get("name") != "nominate_next_speaker"
+            ]
+    else:
+        candidate_schemas = skill_def.get_tool_schemas()
+
+    existing_names = {
+        s.get("function", {}).get("name")
+        for s in active_tools
+        if isinstance(s, dict) and "function" in s
+    }
+    for s_schema in candidate_schemas:
+        s_name = s_schema.get("function", {}).get("name")
+        if s_name == "signal_consensus_convergence":
+            from orchestration.app_settings import is_convergence_fast_forward_enabled
+
+            if not is_convergence_fast_forward_enabled():
+                continue
+        if s_name:
+            if s_name not in existing_names:
+                active_tools.append(s_schema)
+                existing_names.add(s_name)
+        elif s_schema not in active_tools:
+            active_tools.append(s_schema)
+
+
 def _is_tool_error(result: Any) -> bool:
     if isinstance(result, Exception):
         return True
@@ -287,24 +369,18 @@ class ExecutionStage:
         )
         thread_ttl_hours = app_settings_manager.get_thread_skill_expiration_time()
 
-        completion_kwargs: dict[str, Any] = {
-            "model": ctx.agent_cfg["model"],
-            "messages": ctx.messages,
-            "num_retries": 2,
-        }
-
         # If agent has no authorized skills (pure debate agent), omit tools entirely
         # For skilled agents, start strictly with LOAD_SKILL_SCHEMA (progressive disclosure)
         active_tools: list[dict[str, Any]] = []
         if agent_skills:
             active_tools = [LOAD_SKILL_SCHEMA]
-            completion_kwargs["tools"] = active_tools
-            completion_kwargs["tool_choice"] = "auto"
-        if _is_explicit_meta_provider(ctx.agent_cfg.get("model")):
-            if os.getenv("META_API_KEY"):
-                completion_kwargs["api_key"] = os.getenv("META_API_KEY")
-            if os.getenv("META_API_BASE"):
-                completion_kwargs["api_base"] = os.getenv("META_API_BASE")
+        completion_kwargs = _build_completion_kwargs(
+            model=ctx.agent_cfg["model"],
+            messages=ctx.messages,
+            num_retries=2,
+            tools=active_tools if agent_skills else None,
+            tool_choice="auto" if agent_skills else None,
+        )
 
         exec_retry_fn = getattr(self.deps, "llm_executor", None) or execute_llm_with_retry
 
@@ -401,6 +477,10 @@ class ExecutionStage:
                             continue
                         fn_args = _unmask_argument_values(raw_args, getattr(ctx, "turn_token_mapping", {}))
                         cached_evidence = None
+
+                        from core.domain import ToolPrincipal
+
+                        principal = ToolPrincipal(kind="agent", id=ctx.agent_key)
                         if fn_name == "load_skill":
                             tool_result = await skill_registry.execute_tool_async(
                                 fn_name,
@@ -408,6 +488,7 @@ class ExecutionStage:
                                 authorized_skills=agent_skills,
                                 expired_skills=expired_thread_skills,
                                 ttl_hours=thread_ttl_hours,
+                                agent_name=principal,
                             )
                             # Dynamically unlock tools declared by this skill only if authorized
                             skill_name = fn_args.get("skill_name", "").strip()
@@ -422,30 +503,15 @@ class ExecutionStage:
                                     except Exception as e:
                                         logger.warning(f"[EXECUTION] Failed on-demand MCP discovery for '{skill_def.mcp_server}': {e}")
 
-                                existing_names = {
-                                    s.get("function", {}).get("name")
-                                    for s in active_tools
-                                    if isinstance(s, dict) and "function" in s
-                                }
-                                for s_schema in skill_def.get_tool_schemas():
-                                    s_name = s_schema.get("function", {}).get("name")
-                                    if s_name == "signal_consensus_convergence":
-                                        from orchestration.app_settings import is_convergence_fast_forward_enabled
-
-                                        if not is_convergence_fast_forward_enabled():
-                                            continue
-                                    if s_name:
-                                        if s_name not in existing_names:
-                                            active_tools.append(s_schema)
-                                            existing_names.add(s_name)
-                                    elif s_schema not in active_tools:
-                                        active_tools.append(s_schema)
+                                _unlock_skill_tools(
+                                    skill_def=skill_def,
+                                    ctx=ctx,
+                                    active_tools=active_tools,
+                                )
                         else:
                             # 1. First verify tool authorization before cache or execution
-                            from core.domain import ToolPrincipal
                             from services.local_tools import is_agent_authorized_for_tool
 
-                            principal = ToolPrincipal(kind="agent", id=ctx.agent_key)
                             if not is_agent_authorized_for_tool(
                                 principal, fn_name, authorized_skills=agent_skills, skill_registry=skill_registry
                             ):
@@ -585,10 +651,14 @@ class ExecutionStage:
                                 ctx.output.skills_used.append(s_name)
 
                         # Handle explicit control plane tools
-                        if fn_name == "nominate_next_speaker":
+                        if fn_name == "nominate_next_speaker" and not _is_tool_error(tool_result):
+                            from pipeline.entity_resolver import entity_resolver
+
                             nom_agent = fn_args.get("agent_name")
-                            if nom_agent:
-                                ctx.control.nomination = str(nom_agent).strip()
+                            nom_str = str(nom_agent).strip() if nom_agent else ""
+                            resolved_nom = entity_resolver.resolve_agent_name(nom_str) or nom_str
+                            if nom_str and resolved_nom != ctx.agent_key:
+                                ctx.control.nomination = nom_str
                                 ctx.control.nomination_rationale = str(fn_args.get("rationale", "")).strip()
                         elif fn_name == "request_user_clarification":
                             ctx.control.clarification_requested = True
@@ -633,18 +703,15 @@ class ExecutionStage:
                         )
 
                     is_paused = bool(getattr(ctx.output, "waiting_hitl", False) or getattr(ctx.output, "halted", False))
-                    follow_up_kwargs: dict[str, Any] = {
-                        "model": ctx.agent_cfg["model"],
-                        "messages": ctx.messages,
-                        "tools": None if is_paused else active_tools,
-                        "tool_choice": "none" if is_paused else "auto",
-                        "num_retries": system_settings_manager.get_tool_call_num_retries(),
-                    }
-                    if _is_explicit_meta_provider(ctx.agent_cfg.get("model")):
-                        if os.getenv("META_API_KEY"):
-                            follow_up_kwargs["api_key"] = os.getenv("META_API_KEY")
-                        if os.getenv("META_API_BASE"):
-                            follow_up_kwargs["api_base"] = os.getenv("META_API_BASE")
+                    follow_up_kwargs = _build_completion_kwargs(
+                        model=ctx.agent_cfg["model"],
+                        messages=ctx.messages,
+                        num_retries=system_settings_manager.get_tool_call_num_retries(),
+                        tools=None if is_paused else active_tools,
+                        tool_choice="none" if is_paused else "auto",
+                    )
+                    if is_paused:
+                        follow_up_kwargs["tools"] = None
 
                     follow_up = await exec_retry_fn(
                         litellm.acompletion,
@@ -683,6 +750,49 @@ class ExecutionStage:
                         )
                         tool_calls = None
                         break
+
+                # If max_tool_iterations was reached while the model was still requesting tools
+                # and returned no text content, perform one final tool-free synthesis turn.
+                if (
+                    tool_calls
+                    and not (response_message.content and str(response_message.content).strip())
+                    and not getattr(ctx.output, "waiting_hitl", False)
+                    and not getattr(ctx.output, "halted", False)
+                    and not ctx.is_superseded()
+                ):
+                    logger.info(
+                        f"[ROUTER] Tool loop hit max_tool_iterations ({max_tool_iterations}) for {ctx.agent_key} with empty text. Running final tool-free synthesis call."
+                    )
+                    ctx.messages.append(
+                        {
+                            "role": "user",
+                            "content": (
+                                "Maximum tool call iterations reached. Do NOT request any further tools. "
+                                "Provide your complete final response now using only the gathered context and tool outputs above."
+                            ),
+                        }
+                    )
+                    synthesis_kwargs = _build_completion_kwargs(
+                        model=ctx.agent_cfg["model"],
+                        messages=ctx.messages,
+                        num_retries=system_settings_manager.get_tool_call_num_retries(),
+                    )
+                    synthesis_res = await exec_retry_fn(
+                        litellm.acompletion,
+                        synthesis_kwargs,
+                        agent_key=f"{ctx.agent_key} synthesis",
+                        thread_key=ctx.thread_key,
+                        is_superseded_fn=ctx.is_superseded,
+                        allow_503_immediate_retry=allow_503_immediate,
+                        turn_token_mapping=ctx.turn_token_mapping,
+                    )
+                    if synthesis_res is None and ctx.is_superseded():
+                        raise asyncio.CancelledError(
+                            f"Thread {ctx.thread_key} turn was superseded during synthesis."
+                        )
+                    if synthesis_res is not None:
+                        ctx.add_usage(synthesis_res)
+                        response_message = synthesis_res.choices[0].message
 
                 return None
 

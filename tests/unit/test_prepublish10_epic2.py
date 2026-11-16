@@ -248,3 +248,66 @@ async def test_tool_loop_pause_disables_tool_choice():
     follow_up_call = captured_kwargs[1]
     assert follow_up_call["tool_choice"] == "none"
     assert follow_up_call["tools"] is None
+
+
+@pytest.mark.anyio
+async def test_tool_loop_exhaustion_runs_final_synthesis_call():
+    """Plan 193: Exhausting max_tool_iterations with empty text triggers a tool-free synthesis turn."""
+    from orchestration.turn_pipeline import TurnPipeline
+
+    mock_reg = MagicMock()
+    mock_reg.get.return_value = None
+    mock_reg.get_global_skills.return_value = []
+    mock_reg.execute_tool_async = AsyncMock(return_value='{"status": "loaded"}')
+
+    ctx = TurnContext(
+        channel_id="C_SYNTH",
+        thread_ts="1700000000.222",
+        raw_text="analyze security",
+        agent_cfg={"model": "mistral/mistral-large-latest", "skills": ["rag_knowledge"]},
+    )
+    ctx.agent_key = "agent-10008"
+
+    tool_call_1 = MagicMock()
+    tool_call_1.id = "call_1"
+    tool_call_1.function.name = "load_skill"
+    tool_call_1.function.arguments = json.dumps({"skill_name": "rag_knowledge"})
+
+    tool_resp = MagicMock()
+    tool_resp.choices = [MagicMock(message=MagicMock(content="", tool_calls=[tool_call_1]))]
+    tool_resp.usage = MagicMock(prompt_tokens=10, completion_tokens=5)
+
+    synth_resp = MagicMock()
+    synth_resp.choices = [
+        MagicMock(
+            message=MagicMock(
+                content="Core Threat Verdict: Synthesized threat assessment after tool budget.",
+                tool_calls=None,
+            )
+        )
+    ]
+    synth_resp.usage = MagicMock(prompt_tokens=20, completion_tokens=15)
+
+    captured_kwargs = []
+
+    async def mock_exec_fn(func, kwargs, **rest):
+        captured_kwargs.append(dict(kwargs))
+        if len(captured_kwargs) <= 2:
+            return tool_resp
+        return synth_resp
+
+    pipeline = TurnPipeline(
+        llm_executor=mock_exec_fn,
+        skill_registry=mock_reg,
+        max_tool_iterations=1,
+    )
+    await pipeline.execution_stage.stage_execute_llm(ctx)
+
+    # Call 1 (initial tool request) + Call 2 (follow-up still requesting tool) + Call 3 (tool-free synthesis)
+    assert len(captured_kwargs) == 3
+    assert "tools" not in captured_kwargs[2]
+    assert "Core Threat Verdict:" in ctx.output.final_text
+    # Verify load_skill received ToolPrincipal with ctx.agent_key (not unknown_agent)
+    assert mock_reg.execute_tool_async.await_count == 1
+    principal_arg = mock_reg.execute_tool_async.await_args.kwargs["agent_name"]
+    assert getattr(principal_arg, "id", None) == "agent-10008"

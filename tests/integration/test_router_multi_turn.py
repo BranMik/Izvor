@@ -182,11 +182,11 @@ async def test_scenario_3_no_agent_tagged_default_flow():
     assert "/[agent-10007]" in posted_messages[1]
     assert "agent-10007" in thread_state_manager.discussion.get_remaining_agents(thread_key[0], thread_key[1])
 
-    # Step 3: Intermediate agent speaks and nominates next remaining agent
-    thread_state_manager.discussion.set_remaining_agents(thread_key[0], thread_key[1], ["agent-10008", "agent-10008"])
+    # Step 3: Intermediate agent (UserAdvocate) speaks and nominates next remaining agent (SecurityArchitect)
+    thread_state_manager.discussion.set_remaining_agents(thread_key[0], thread_key[1], ["agent-10007", "agent-10008"])
 
     mock_choice_3 = MagicMock()
-    mock_choice_3.message.content = "Security review finished."
+    mock_choice_3.message.content = "User experience review finished."
     mock_choice_3.message.tool_calls = None
     mock_response_3 = MagicMock(choices=[mock_choice_3], usage=None)
 
@@ -195,7 +195,7 @@ async def test_scenario_3_no_agent_tagged_default_flow():
     await process_and_respond(
         channel_id="C123",
         thread_ts="12345.0003",
-        raw_text="/[agent-10008] next",
+        raw_text="/[agent-10007] next",
         is_bot_trigger=True,
     )
 
@@ -333,17 +333,17 @@ def test_locked_agents_cannot_be_disabled():
 
 def test_toggleable_agent_enable_and_disable():
     reset_enabled_agents()
-    assert "agent-10011" in settings_manager.enabled_agents
+    assert "agent-10002" in settings_manager.enabled_agents
 
-    # Disable LegalAdvisor
-    assert set_agent_enabled("agent-10011", False) is True
-    assert "agent-10011" not in settings_manager.enabled_agents
-    assert "agent-10011" not in get_initial_agents()
+    # Disable Innovator (agent-10002 is part of default_review_flow)
+    assert set_agent_enabled("agent-10002", False) is True
+    assert "agent-10002" not in settings_manager.enabled_agents
+    assert "agent-10002" not in get_initial_agents()
 
     # Re-enable via toggle_agent
-    assert toggle_agent("agent-10011") is True
-    assert "agent-10011" in settings_manager.enabled_agents
-    assert "agent-10011" in get_initial_agents()
+    assert toggle_agent("agent-10002") is True
+    assert "agent-10002" in settings_manager.enabled_agents
+    assert "agent-10002" in get_initial_agents()
 
 
 def test_disabled_agent_can_still_be_explicitly_tagged():

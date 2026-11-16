@@ -181,7 +181,14 @@ def parse_agent_and_prompt(
 
         wf_snap = thread_state_manager.get_workflow_snapshot(channel_id, thread_ts)
         mode = wf_snap.get("mode") if wf_snap else settings_manager.get_orchestration_mode()
-        if mode in (OrchestrationMode.FIXED, OrchestrationMode.SANDWICH, OrchestrationMode.FIXED.value, OrchestrationMode.SANDWICH.value):
+        if mode in (
+            OrchestrationMode.FIXED,
+            OrchestrationMode.SANDWICH,
+            OrchestrationMode.SCATTER_GATHER,
+            OrchestrationMode.FIXED.value,
+            OrchestrationMode.SANDWICH.value,
+            OrchestrationMode.SCATTER_GATHER.value,
+        ):
             first_agent = thread_state_manager.pop_remaining_agent(channel_id, thread_ts)
             return first_agent, cleaned_text, False
 
@@ -281,6 +288,17 @@ def strip_all_nominations(text: str) -> str:
     return clean.strip()
 
 
+def _strip_all_nominations_except_last_canonical(
+    text: str,
+    target_agent_key: str,
+) -> str:
+    """Strips inline/lead-in nomination tags and ensures only one canonical trailing tag remains."""
+    cleaned = strip_all_nominations(text)
+    if not cleaned:
+        return format_nomination(target_agent_key)
+    return f"{cleaned}\n\n{format_nomination(target_agent_key)}"
+
+
 def enforce_valid_nomination(
     text: str,
     current_agent_key: str,
@@ -294,16 +312,33 @@ def enforce_valid_nomination(
     if force_termination:
         return strip_all_nominations(text)
 
-    # Precedence: Explicit control plane nomination tool call
+    retries_list = list(pending_retries or [])
+    allow_self_retry = current_agent_key in retries_list
+
+    def _is_disallowed_self(candidate: str | None) -> bool:
+        return bool(candidate and candidate == current_agent_key and not allow_self_retry)
+
+    # Precedence: Explicit control plane nomination tool call (never allow unintended self-nomination)
     if control_plane_nomination:
         resolved_cp = entity_resolver.resolve_agent_name(control_plane_nomination) or control_plane_nomination
-        target = designated_next_agent if designated_next_agent else (resolved_cp if resolved_cp in remaining else (remaining[0] if remaining else None))
-        if target:
-            stripped = strip_all_nominations(text)
-            logger.info(
-                f"[CONTROL PLANE] Enforcing explicit tool nomination for '{target}' from agent {current_agent_key}"
+        if _is_disallowed_self(resolved_cp):
+            logger.warning(
+                f"[CONTROL PLANE] Rejected self-nomination '{resolved_cp}' from agent {current_agent_key}."
             )
-            return f"{stripped.strip()}\n\n{format_nomination(target)}"
+            resolved_cp = None
+        if resolved_cp:
+            target = (
+                designated_next_agent
+                if designated_next_agent
+                else (resolved_cp if resolved_cp in remaining else (remaining[0] if remaining else None))
+            )
+            if _is_disallowed_self(target):
+                target = next((k for k in remaining if k != current_agent_key), None)
+            if target:
+                logger.info(
+                    f"[CONTROL PLANE] Enforcing explicit tool nomination for '{target}' from agent {current_agent_key}"
+                )
+                return _strip_all_nominations_except_last_canonical(text, target)
 
     agent_tag_matches = []
     for match in NOMINATION_TAG_REGEX.finditer(text):
@@ -312,20 +347,20 @@ def enforce_valid_nomination(
         if resolved_key:
             agent_tag_matches.append((match, resolved_key))
 
-    if designated_next_agent:
+    if designated_next_agent and not _is_disallowed_self(designated_next_agent):
         if agent_tag_matches:
             last_match, last_key = agent_tag_matches[-1]
-            if last_key == designated_next_agent:
+            if last_key == designated_next_agent and len(agent_tag_matches) == 1:
                 return text
-            start, end = last_match.span()
-            return text[:start] + format_nomination(designated_next_agent) + text[end:]
-        else:
-            return f"{text.strip()}\n\n{format_nomination(designated_next_agent)}"
+        return _strip_all_nominations_except_last_canonical(text, designated_next_agent)
 
     if remaining:
+        non_self_remaining = [k for k in remaining if k != current_agent_key]
+        candidate_pool = non_self_remaining or ([] if not allow_self_retry else list(remaining))
+
         valid_nomination = None
-        for match, key in reversed(agent_tag_matches):
-            if key in remaining:
+        for _, key in reversed(agent_tag_matches):
+            if key in candidate_pool:
                 valid_nomination = key
                 break
 
@@ -333,49 +368,50 @@ def enforce_valid_nomination(
             logger.info(
                 f"[ORCHESTRATOR] Agent {current_agent_key} chose valid remaining agent [{valid_nomination}]."
             )
-            return text
+            if len(agent_tag_matches) == 1 and agent_tag_matches[-1][1] == valid_nomination:
+                return text
+            return _strip_all_nominations_except_last_canonical(text, valid_nomination)
 
-        fallback_agent = remaining[0]
+        if not candidate_pool:
+            return strip_all_nominations(text)
+
+        fallback_agent = candidate_pool[0]
         if agent_tag_matches:
-            last_match, last_key = agent_tag_matches[-1]
+            _, last_key = agent_tag_matches[-1]
             logger.warning(
-                f"[ORCHESTRATOR] Agent {current_agent_key} nominated '{last_key}', but {len(remaining)} agent(s) remain: {remaining}. "
+                f"[ORCHESTRATOR] Agent {current_agent_key} nominated '{last_key}', but {len(candidate_pool)} eligible agent(s) remain: {candidate_pool}. "
                 f"Correcting nomination tag to [{fallback_agent}]."
             )
-            start, end = last_match.span()
-            return text[:start] + format_nomination(fallback_agent) + text[end:]
         else:
             logger.warning(
-                f"[ORCHESTRATOR] Agent {current_agent_key} omitted nomination tag while {len(remaining)} agent(s) remain: {remaining}. "
+                f"[ORCHESTRATOR] Agent {current_agent_key} omitted nomination tag while {len(candidate_pool)} eligible agent(s) remain: {candidate_pool}. "
                 f"Appending [{fallback_agent}]."
             )
-            return f"{text.strip()}\n\n{format_nomination(fallback_agent)}"
-    else:
-        retries_list = pending_retries or []
-        if retries_list:
-            valid_retry = None
-            for match, key in agent_tag_matches:
-                if key in retries_list:
-                    valid_retry = key
-                    break
-            if valid_retry:
-                logger.info(
-                    f"[ORCHESTRATOR] Agent {current_agent_key} nominated valid rate-limit retry agent [{valid_retry}]."
-                )
-                return text
+        return _strip_all_nominations_except_last_canonical(text, fallback_agent)
 
-            fallback_retry = retries_list[0]
-            if agent_tag_matches:
-                last_match, last_key = agent_tag_matches[-1]
-                logger.info(
-                    f"[ORCHESTRATOR] Correcting nomination to pending rate-limit retry agent [{fallback_retry}]."
-                )
-                start, end = last_match.span()
-                return text[:start] + format_nomination(fallback_retry) + text[end:]
-            else:
-                logger.info(
-                    f"[ORCHESTRATOR] Appending pending rate-limit retry agent [{fallback_retry}]."
-                )
-                return f"{text.strip()}\n\n{format_nomination(fallback_retry)}"
+    if retries_list:
+        valid_retry = None
+        for _, key in agent_tag_matches:
+            if key in retries_list:
+                valid_retry = key
+                break
+        if valid_retry:
+            logger.info(
+                f"[ORCHESTRATOR] Agent {current_agent_key} nominated valid rate-limit retry agent [{valid_retry}]."
+            )
+            if len(agent_tag_matches) == 1 and agent_tag_matches[-1][1] == valid_retry:
+                return text
+            return _strip_all_nominations_except_last_canonical(text, valid_retry)
+
+        fallback_retry = retries_list[0]
+        if agent_tag_matches:
+            logger.info(
+                f"[ORCHESTRATOR] Correcting nomination to pending rate-limit retry agent [{fallback_retry}]."
+            )
         else:
-            return strip_all_nominations(text)
+            logger.info(
+                f"[ORCHESTRATOR] Appending pending rate-limit retry agent [{fallback_retry}]."
+            )
+        return _strip_all_nominations_except_last_canonical(text, fallback_retry)
+
+    return strip_all_nominations(text)

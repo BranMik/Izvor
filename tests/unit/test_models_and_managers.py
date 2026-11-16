@@ -299,10 +299,10 @@ def test_thread_state_manager_eviction():
 
 
 def test_nomination_and_entity_resolver():
-    # Initial agents with default settings (all enabled)
+    # Initial agents with default workflow preset (default_review_flow: 5-agent fixed flow)
     initial = get_initial_agents()
     assert isinstance(initial, list)
-    assert len(initial) == 16
+    assert initial == ["agent-10001", "agent-10002", "agent-10003", "agent-10014", "agent-10012"]
 
     # Tag extraction with exact and partial tags
     tags = entity_resolver.extract_tagged_agents("Hello /[agent-10002] and /[agent-10011]")
@@ -342,9 +342,13 @@ def test_nomination_and_entity_resolver():
     assert prompt == "what do you think"
     assert explicit is True
 
-    # Parse multi-agent tags prompt
+    # Parse multi-agent tags prompt (configure full sandwich pool on a fresh thread)
+    from orchestration.agent_settings import set_orchestration_mode, set_sandwich_config
+
+    set_orchestration_mode("sandwich", save=False)
+    set_sandwich_config([], [], save=False)
     multi_agent, multi_prompt, multi_explicit = parse_agent_and_prompt(
-        "/[agent-10008] /[agent-10003] /[agent-10002] Pa sad ostatak prompta.", "C1", "T1"
+        "/[agent-10008] /[agent-10003] /[agent-10002] Pa sad ostatak prompta.", "C1", "T2"
     )
     assert multi_agent == "agent-10008"
     assert multi_prompt == "Pa sad ostatak prompta."

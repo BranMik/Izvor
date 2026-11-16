@@ -35,9 +35,9 @@ MOCK_WEB_SEARCH_FIXTURES: dict[str, list[dict[str, str]]] = {
     ],
     "vector": [
         {
-            "title": "Top Vector Databases in 2025: Pinecone, Qdrant, Milvus Comparison",
+            "title": "Top Vector Databases & Pricing 2025: Pinecone, Qdrant, Milvus",
             "url": "https://db-engines.com/vector-databases",
-            "snippet": "Pinecone offers managed cloud vector search. Qdrant provides open-source Rust-based vector search with payload filtering. Milvus excels at massive billion-scale vector indexing.",
+            "snippet": "Pinecone managed serverless starts around $0.08/GB-month. Qdrant Cloud and Milvus offer flexible open-source and usage-based pricing for vector indexing.",
         },
     ],
 }
@@ -706,9 +706,9 @@ class HybridInterceptor:
                     )
                 if "web_search" in tool_names and "web_search" not in executed_tools:
                     q = (
-                        "vector databases"
+                        "vector database pricing"
                         if "vector" in prompt_lower
-                        else "Anthropic Claude pricing 2025"
+                        else "cloud compute pricing comparison 2025"
                     )
                     return MockModelResponse(
                         content=None,

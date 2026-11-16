@@ -1044,21 +1044,18 @@ class AgentSettingsManager:
         }
 
     def reset(self, save: bool = True) -> None:
-        """Resets all registered agents to enabled state and resets orchestration mode to sandwich default."""
+        """Resets all registered agents to enabled state and restores the default workflow preset."""
         self.enabled_agents.clear()
         self.enabled_agents.update(self.agents_config.keys())
-        self.orchestration_mode = OrchestrationMode.SANDWICH.value
-        sw_start, sw_end = self._get_dynamic_fallback_chains()
-        self.sandwich_start_chain = sw_start
-        self.sandwich_end_chain = sw_end
-        self.fixed_chain = []
-        self.workflow_config = DEFAULT_WORKFLOW_ID
-        self.active_workflow_id = DEFAULT_WORKFLOW_ID
         self._custom_challenger_agent = None
         self._custom_arbitrator_agent = None
+        self._load_workflow_details(DEFAULT_WORKFLOW_ID)
         if save:
             self.save()
-        logger.info(f"[SETTINGS] Reset all {len(self.enabled_agents)} agents to ENABLED and mode to default review sandwich.")
+        logger.info(
+            f"[SETTINGS] Reset all {len(self.enabled_agents)} agents to ENABLED "
+            f"and workflow to '{self.active_workflow_id}' ({self.orchestration_mode})."
+        )
 
     def get_enabled_agents(self) -> set[str]:
         return set(self.enabled_agents)
