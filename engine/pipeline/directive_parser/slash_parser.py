@@ -10,6 +10,17 @@ from typing import Any
 from pipeline.entity_resolver import entity_resolver
 
 
+def has_substantive_prompt(text: str | None) -> bool:
+    """
+    Returns True if text contains substantive prompt characters beyond Slack user/bot
+    mentions (<@U...>), whitespace, or mention wrappers.
+    """
+    if not text:
+        return False
+    cleaned = re.sub(r"<@[A-Za-z0-9_]+>", " ", text).strip()
+    return bool(cleaned)
+
+
 def remove_command_span(text: str, start: int, end: int) -> str:
     """
     Removes a command span [start, end] from text while strictly preserving

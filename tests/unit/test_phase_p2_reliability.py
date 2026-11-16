@@ -152,6 +152,22 @@ def test_mechanical_word_limit_with_unicode_tag():
     assert len(words) <= 105
 
 
+def test_mechanical_word_limit_zero_grace_buffer_under_20():
+    """Verify max_words < 20 defaults to grace_buffer=0 while preserving trailing nomination tags."""
+    body = " ".join(f"w{i}" for i in range(15))
+    text = f"{body}\n\n/[agent-10002]"
+
+    truncated = apply_mechanical_word_limit(text, max_words=10)
+    assert truncated.endswith("\n\n/[agent-10002]")
+    body_part = truncated.rsplit("\n\n", 1)[0]
+    assert len(body_part.split()) == 10
+
+    # Explicit grace_buffer parameter still overrides the default when provided
+    overridden = apply_mechanical_word_limit(text, max_words=10, grace_buffer=5)
+    overridden_body = overridden.rsplit("\n\n", 1)[0]
+    assert len(overridden_body.split()) == 15
+
+
 def test_deterministic_slash_parser_preserves_indentation_and_code():
     """N11: Verify slash parsing preserves indentation, code blocks, and doesn't split names like Andrea."""
     raw_prompt = (

@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any
 from core.models import INT_MODIFIER_BOUNDS, coerce_int_modifier
 from orchestration.agent_settings import get_agents_config
 from orchestration.thread_state import thread_state_manager
+from pipeline.directive_parser.slash_parser import has_substantive_prompt
 
 if TYPE_CHECKING:
     from orchestration.turn_pipeline import TurnContext
@@ -92,17 +93,6 @@ async def require_directive_admin(
         logger.error(f"[VALIDATION] Failed to emit admin directive audit event: {ae}")
 
     return None
-
-
-def has_substantive_prompt(text: str | None) -> bool:
-    """
-    Returns True if text contains substantive prompt characters beyond Slack user/bot
-    mentions (<@U...>), whitespace, or mention wrappers.
-    """
-    if not text:
-        return False
-    cleaned = re.sub(r"<@[A-Za-z0-9_]+>", " ", text).strip()
-    return bool(cleaned)
 
 
 async def handle_slash_directives(

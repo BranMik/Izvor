@@ -61,11 +61,17 @@ def _extract_resolved_nomination_keys(text: str) -> list[str]:
 def apply_mechanical_word_limit(text: str, max_words: int, grace_buffer: int | None = None) -> str:
     """
     Mechanically truncates response text to (max_words + grace_buffer) words if it exceeds that threshold.
+    When grace_buffer is None and max_words < 20, uses a 0-word grace buffer so strict short limits hold.
     Preserves trailing nomination tags (e.g. [agent-10007]) so the debate chain is not disrupted.
     """
     if not text:
         return text
-    buffer_val = grace_buffer if grace_buffer is not None else get_word_limit_grace_buffer()
+    if grace_buffer is not None:
+        buffer_val = grace_buffer
+    elif max_words < 20:
+        buffer_val = 0
+    else:
+        buffer_val = get_word_limit_grace_buffer()
     cutoff = max_words + buffer_val
     # Match any trailing nomination tag at the end: e.g. "... /[agent-10007]" or "... /[agent-10007] next"
     trailing_tag_pattern = re.compile(

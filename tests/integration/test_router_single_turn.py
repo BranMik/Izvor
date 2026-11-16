@@ -657,7 +657,8 @@ async def test_process_and_respond_with_max_words():
         "Hard Limit: Your entire response must strictly NOT exceed 40 words."
         in system_msg
     )
-    # Skipped standard output_constraints
+    # Compact mode (40 < 60): skips 3-part output_constraints and strips <output_contract>
+    assert "<output_contract>" not in system_msg
     assert "1 sentence stating your core verdict/concern." not in system_msg
     assert "2-3 concise bullet points" not in system_msg
 
@@ -715,16 +716,16 @@ async def test_process_and_respond_with_min_words():
     # Thread level setting persisted for remaining agents in flow
     assert thread_state_manager.get_min_words(channel_id, thread_ts) == 80
 
-    # System prompt in LLM call has min_words instruction and skips standard output constraints
+    # System prompt in LLM call has min_words instruction, removes 200w ceiling, and preserves 3-part Rules 2-4
     assert len(captured_messages) == 1
     system_msg = captured_messages[0][0]["content"]
     assert (
         "Minimum Length: Your entire response must have a minimum length of 80 words."
         in system_msg
     )
-    # Skipped standard output_constraints
-    assert "1 sentence stating your core verdict/concern." not in system_msg
-    assert "2-3 concise bullet points" not in system_msg
+    assert "Hard Limit: Your entire response must strictly NOT exceed 200 words." not in system_msg
+    assert "1 sentence stating your core verdict/concern." in system_msg
+    assert "2-3 concise bullet points" in system_msg
 
     # User message had the /min_words command stripped cleanly
     user_msg = captured_messages[0][-1]["content"]

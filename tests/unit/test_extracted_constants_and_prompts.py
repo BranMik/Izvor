@@ -98,19 +98,23 @@ def test_system_settings_extracted_constants_defaults():
 
 
 def test_apply_mechanical_word_limit_with_grace_buffer():
-    """Verifies that apply_mechanical_word_limit respects word_limit_grace_buffer."""
+    """Verifies apply_mechanical_word_limit uses grace_buffer for >=20 words and 0 buffer for <20 words."""
     from orchestration.stages.post_record import apply_mechanical_word_limit
 
-    # 10 words target, default 50 grace buffer -> cutoff is 60 words
-    text_under_60 = " ".join(["word"] * 55)
-    truncated = apply_mechanical_word_limit(text_under_60, max_words=10)
-    assert truncated == text_under_60
+    # >= 20 words target uses default 50 grace buffer -> cutoff is 75 words
+    text_70 = " ".join(["word"] * 70)
+    assert apply_mechanical_word_limit(text_70, max_words=25) == text_70
 
-    text_over_60 = " ".join(["word"] * 70)
-    truncated_over = apply_mechanical_word_limit(text_over_60, max_words=10)
-    assert len(truncated_over.split()) == 60
+    text_90 = " ".join(["word"] * 90)
+    truncated_over = apply_mechanical_word_limit(text_90, max_words=25)
+    assert len(truncated_over.split()) == 75
 
-    # Explicit custom grace buffer
-    truncated_custom = apply_mechanical_word_limit(text_under_60, max_words=10, grace_buffer=5)
+    # < 20 words target defaults to 0 grace buffer -> cutoff is exact max_words
+    text_15 = " ".join(["word"] * 15)
+    truncated_strict = apply_mechanical_word_limit(text_15, max_words=10)
+    assert len(truncated_strict.split()) == 10
+
+    # Explicit custom grace buffer override
+    truncated_custom = apply_mechanical_word_limit(text_70, max_words=10, grace_buffer=5)
     assert len(truncated_custom.split()) == 15
 
