@@ -17,6 +17,7 @@ from orchestration.nomination import (
 )
 from orchestration.thread_state import thread_state_manager
 from pipeline.directive_parser import directive_parser
+from pipeline.directive_parser.slash_parser import has_substantive_prompt
 from pipeline.entity_resolver import entity_resolver
 from services.slack import (
     download_slack_file,
@@ -70,10 +71,6 @@ class ValidationStage:
             ctx.target_filename = directives.target_filename
             ctx.is_pure_skill_task = bool(getattr(directives, "is_pure_skill_task", False))
 
-            # Record initial prompt for flat history if not already recorded for this thread
-            if not thread_state_manager.get_initial_prompt(ctx.input.channel_id, ctx.input.thread_ts):
-                thread_state_manager.set_initial_prompt(ctx.input.channel_id, ctx.input.thread_ts, ctx.input.raw_text)
-
             # Snapshot active workflow at Turn 1 for mid-thread concurrency isolation
             if not thread_state_manager.get_workflow_snapshot(ctx.input.channel_id, ctx.input.thread_ts):
                 from orchestration.agent_settings import get_workflow_snapshot
@@ -84,6 +81,12 @@ class ValidationStage:
             directive_res = await handle_slash_directives(ctx, directives, post_sys_msg)
             if directive_res is not None:
                 return directive_res
+
+            # Record initial prompt for flat history / revisor ground truth only when substantive prompt text exists
+            if has_substantive_prompt(ctx.raw_text_cleaned) and not thread_state_manager.get_initial_prompt(
+                ctx.input.channel_id, ctx.input.thread_ts
+            ):
+                thread_state_manager.set_initial_prompt(ctx.input.channel_id, ctx.input.thread_ts, ctx.input.raw_text)
 
             # Lock language for this thread on first human prompt or preserve existing
             current_lang = thread_state_manager.get_language(ctx.input.channel_id, ctx.input.thread_ts)
@@ -170,6 +173,15 @@ class ValidationStage:
                     "reason": "unrecognized_agent",
                     "unrecognized_tags": unrecognized_tags,
                 }
+
+            # Clear stale exhausted queue ([]) on new human turns so parse_agent_and_prompt re-initializes cleanly
+            if thread_state_manager.has_remaining_agents_key(
+                ctx.input.channel_id, ctx.input.thread_ts
+            ) and not thread_state_manager.get_remaining_agents(ctx.input.channel_id, ctx.input.thread_ts):
+                logger.info(
+                    f"[ROUTER] Clearing exhausted remaining_agents queue for new human prompt in thread {ctx.thread_key}."
+                )
+                thread_state_manager.clear_remaining_agents(ctx.input.channel_id, ctx.input.thread_ts)
 
             if getattr(ctx, "target_agent_override", None):
                 agent_key = ctx.target_agent_override
@@ -414,7 +426,7 @@ class ValidationStage:
                                 thread_ts=ctx.input.thread_ts,
                                 text=notice_msg,
                             )
-                            thread_state_manager.set_remaining_agents(ctx.input.channel_id, ctx.input.thread_ts, [])
+                            thread_state_manager.clear_remaining_agents(ctx.input.channel_id, ctx.input.thread_ts)
                             return {
                                 "ok": True,
                                 "halted": True,
@@ -634,6 +646,12 @@ class ValidationStage:
                     channel_id=ctx.input.channel_id,
                     thread_ts=ctx.input.thread_ts,
                     text="⚠️ *No Agents Enabled*: There are currently no enabled agents in the panel to respond.",
+                )
+            elif not ctx.input.is_bot_trigger:
+                await post_sys_msg(
+                    channel_id=ctx.input.channel_id,
+                    thread_ts=ctx.input.thread_ts,
+                    text="⚠️ *No Agent Available*: No eligible agent is currently available to respond in this thread.",
                 )
             return {
                 "ok": True,

@@ -120,6 +120,7 @@ async def test_zero_authorized_agents_halts_cleanly_with_notice_and_hint():
     assert halt.get("halted") is True
     assert halt.get("reason") == "no_skill_authorized_agents_in_chain"
     assert thread_state_manager.get_remaining_agents(channel_id, thread_ts) == []
+    assert thread_state_manager.has_remaining_agents_key(channel_id, thread_ts) is False
     assert len(posted_sys_messages) == 1
     assert "No agents in the active workflow are authorized for this skill" in posted_sys_messages[0]
     assert "/grant_skill" in posted_sys_messages[0]
@@ -235,3 +236,166 @@ async def test_slack_app_home_governance_block_and_action_handler():
         assert kwargs_on["action"] == "toggle_skill_filter"
         assert kwargs_on["details"] == {"enabled": True}
         assert kwargs_on["severity"] == "INFO"
+
+
+@pytest.mark.anyio
+async def test_human_prompt_reinitializes_exhausted_empty_remaining_agents_queue():
+    """Verifies that a new human prompt clears stale remaining_agents=[] and re-initializes from round_sequence."""
+    channel_id = "C_EMPTY_REINIT_1"
+    thread_ts = "100000.0010"
+    thread_state_manager.clear_state(channel_id, thread_ts)
+
+    # Simulate completed/halted prior state where remaining_agents was left as [] while round_sequence persists
+    thread_state_manager.set_round_sequence(channel_id, thread_ts, ["agent-10001", "agent-10002", "agent-10003"])
+    thread_state_manager.set_remaining_agents(channel_id, thread_ts, [])
+
+    set_filter_unauthorized_skill_agents_enabled(False)
+    posted_sys_messages = []
+
+    async def mock_post_sys_msg(channel_id, thread_ts, text):
+        posted_sys_messages.append(text)
+        return {"ok": True}
+
+    pipeline = TurnPipeline(
+        post_system_message_fn=mock_post_sys_msg,
+        files_fetcher=AsyncMock(return_value=[{"id": "F1", "name": "spec.pdf"}]),
+    )
+
+    ctx = TurnContext(
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        raw_text="From file spec.pdf summarize one point",
+        is_bot_trigger=False,
+    )
+    directives = ParsedDirectives(
+        cleaned_prompt="From file spec.pdf summarize one point",
+        actions=[ActionDirective(name="document_reader", params={"target_file": "spec.pdf"})],
+        detected_language="English",
+        is_pure_skill_task=True,
+    )
+
+    with (
+        patch("orchestration.stages.validation.directive_parser.parse", AsyncMock(return_value=directives)),
+        patch("orchestration.stages.validation.download_slack_file", AsyncMock(return_value={"ok": True, "content": "PDF data", "size": 100})),
+    ):
+        halt = await pipeline.validation_stage.stage_validate_and_parse(ctx)
+
+    assert halt is None
+    # Toggle OFF prioritizes authorized agent-10002 first, keeping unauthorized agents for downstream discussion
+    assert ctx.agent_key == "agent-10002"
+    assert thread_state_manager.get_remaining_agents(channel_id, thread_ts) == ["agent-10001", "agent-10003"]
+    assert posted_sys_messages == []
+
+
+@pytest.mark.anyio
+async def test_bot_trigger_with_empty_remaining_agents_still_halts_cleanly():
+    """Verifies that internal bot-triggered turns still treat remaining_agents=[] as an exhausted round."""
+    channel_id = "C_EMPTY_BOT_1"
+    thread_ts = "100000.0011"
+    thread_state_manager.clear_state(channel_id, thread_ts)
+    thread_state_manager.set_round_sequence(channel_id, thread_ts, ["agent-10001", "agent-10002"])
+    thread_state_manager.set_remaining_agents(channel_id, thread_ts, [])
+
+    posted_sys_messages = []
+
+    async def mock_post_sys_msg(channel_id, thread_ts, text):
+        posted_sys_messages.append(text)
+        return {"ok": True}
+
+    pipeline = TurnPipeline(post_system_message_fn=mock_post_sys_msg)
+    ctx = TurnContext(
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        raw_text="Final summary",
+        is_bot_trigger=True,
+    )
+
+    halt = await pipeline.validation_stage.stage_validate_and_parse(ctx)
+
+    assert halt is not None
+    assert halt["halted"] is True
+    assert halt["reason"] == "no_agents_available"
+    assert posted_sys_messages == []
+
+
+@pytest.mark.anyio
+async def test_standalone_revoke_directive_does_not_become_initial_prompt():
+    """Verifies standalone slash commands (like /revoke-skill-for-all) are not recorded as initial_prompt."""
+    channel_id = "C_REVOKE_INIT_1"
+    thread_ts = "100000.0012"
+    thread_state_manager.clear_state(channel_id, thread_ts)
+
+    posted_sys_messages = []
+
+    async def mock_post_sys_msg(channel_id, thread_ts, text):
+        posted_sys_messages.append(text)
+        return {"ok": True}
+
+    pipeline = TurnPipeline(
+        post_system_message_fn=mock_post_sys_msg,
+        files_fetcher=AsyncMock(return_value=[]),
+    )
+    ctx = TurnContext(
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        raw_text="<@U_BOT> /revoke-skill-for-all document_reader",
+        user_id="U_ADMIN",
+        is_bot_trigger=False,
+    )
+    directives = ParsedDirectives(
+        cleaned_prompt="<@U_BOT>",
+        actions=[ActionDirective(name="revoke_skill_for_all", params={"skills": ["document_reader"]}, origin="slash")],
+    )
+
+    with (
+        patch("orchestration.stages.validation.directive_parser.parse", AsyncMock(return_value=directives)),
+        patch("core.config.is_slack_admin", return_value=True),
+    ):
+        halt = await pipeline.validation_stage.stage_validate_and_parse(ctx)
+
+    assert halt is not None
+    assert halt["halted"] is True
+    assert halt["action"] == "revoke_skill_for_all"
+    assert thread_state_manager.get_initial_prompt(channel_id, thread_ts) is None
+    assert len(posted_sys_messages) == 1
+
+
+@pytest.mark.anyio
+async def test_human_turn_no_agents_available_posts_slack_notice():
+    """Verifies human prompts with no eligible agents (e.g., all excluded) emit a Slack notice instead of silent halt."""
+    channel_id = "C_NO_AGENT_NOTICE_1"
+    thread_ts = "100000.0013"
+    thread_state_manager.clear_state(channel_id, thread_ts)
+    thread_state_manager.add_excluded_agent(channel_id, thread_ts, "agent-10001")
+
+    posted_sys_messages = []
+
+    async def mock_post_sys_msg(channel_id, thread_ts, text):
+        posted_sys_messages.append(text)
+        return {"ok": True}
+
+    pipeline = TurnPipeline(
+        post_system_message_fn=mock_post_sys_msg,
+        files_fetcher=AsyncMock(return_value=[]),
+    )
+    ctx = TurnContext(
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        raw_text="Hello team",
+        is_bot_trigger=False,
+    )
+    directives = ParsedDirectives(cleaned_prompt="Hello team", detected_language="English")
+
+    with (
+        patch("orchestration.stages.validation.directive_parser.parse", AsyncMock(return_value=directives)),
+        patch("orchestration.stages.validation.get_initial_agents", return_value=["agent-10001"]),
+        patch("orchestration.stages.validation.parse_agent_and_prompt", return_value=(None, "Hello team", False)),
+    ):
+        halt = await pipeline.validation_stage.stage_validate_and_parse(ctx)
+
+    assert halt is not None
+    assert halt["halted"] is True
+    assert halt["reason"] == "no_agents_available"
+    assert len(posted_sys_messages) == 1
+    assert "No Agent Available" in posted_sys_messages[0]
+
