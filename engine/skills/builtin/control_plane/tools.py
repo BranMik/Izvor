@@ -101,12 +101,45 @@ TOOL_SCHEMAS: list[dict[str, Any]] = build_control_plane_tool_schemas()
 
 
 
-def handle_nominate_next_speaker(args: dict[str, Any], **kwargs: Any) -> str:
-    agent_name = str(args.get("agent_name", "")).strip()
+def _resolve_canonical_agent_key(raw_name: str) -> str:
+    """Resolves a username, display name, or key to its canonical agent key when available."""
+    cleaned = str(raw_name or "").strip()
+    if not cleaned:
+        return ""
+    try:
+        from pipeline.entity_resolver import entity_resolver
+
+        resolved = entity_resolver.resolve_agent_name(cleaned)
+        if resolved:
+            return resolved
+    except Exception:  # noqa: BLE001
+        pass
+    return cleaned
+
+
+def handle_nominate_next_speaker(
+    args: dict[str, Any],
+    agent_name: str = "",
+    **kwargs: Any,
+) -> str:
+    nominated_raw = str(args.get("agent_name", "")).strip()
     rationale = str(args.get("rationale", "")).strip()
+
+    caller_key = _resolve_canonical_agent_key(agent_name)
+    target_key = _resolve_canonical_agent_key(nominated_raw)
+    if caller_key and target_key and caller_key == target_key:
+        return json.dumps({
+            "error": (
+                f"Self-nomination is not permitted: '{caller_key}' cannot nominate itself "
+                f"as the next speaker. Nominate a peer specialist from the remaining panel."
+            ),
+            "status": "rejected",
+            "agent_name": nominated_raw,
+        })
+
     return json.dumps({
         "status": "nominated",
-        "agent_name": agent_name,
+        "agent_name": nominated_raw,
         "rationale": rationale,
     })
 

@@ -247,18 +247,33 @@ def isolate_mcp_client_for_tests():
 
 @pytest.fixture(autouse=True)
 def mock_embedding_service_for_tests():
+    from services.rag.config import EMBEDDING_DIM
     from services.rag.embeddings import EmbeddingService
 
     async def dummy_get_embeddings(texts):
         if not texts:
             return []
-        return [[0.0] * 768 for _ in texts]
+        return [[0.0] * EMBEDDING_DIM for _ in texts]
 
     EmbeddingService.configure_embeddings_fn(dummy_get_embeddings)
     try:
         yield
     finally:
         EmbeddingService.reset_embeddings_fn()
+
+
+@pytest.fixture(autouse=True)
+def isolate_guardrail_for_tests(tmp_path):
+    """Isolates guardrail LanceDB path per test so tests never touch production RAG cache."""
+    from services.security.guardrail import guardrail_service
+
+    iso_dir = tmp_path / "_conftest_iso" / "lancedb"
+    iso_dir.mkdir(parents=True, exist_ok=True)
+    guardrail_service.configure_paths(db_dir=iso_dir)
+    try:
+        yield
+    finally:
+        guardrail_service.reset_paths()
 
 
 @pytest.fixture(autouse=True)

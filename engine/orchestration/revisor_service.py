@@ -319,7 +319,6 @@ async def _confirm_hallucination(
             {"role": "system", "content": sys_prompt},
             {"role": "user", "content": confirm_user_content},
         ],
-        "temperature": 0.0,
     }
 
     confirm_res = await execute_llm_with_retry(
@@ -374,7 +373,6 @@ async def _verify_single_candidate(
             {"role": "system", "content": sys_prompt},
             {"role": "user", "content": user_content},
         ],
-        "temperature": 0.0,
     }
 
     res = await execute_llm_with_retry(

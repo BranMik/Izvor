@@ -146,13 +146,34 @@ class MockSlackAsyncClient:
         self.fail_dm_open = None
         self.fail_file_upload = None
 
+    async def _forward_live(self, method_name: str, **kwargs: Any) -> Any:
+        """Forwards Slack Web API calls to the real AsyncWebClient when live_mode is enabled."""
+        if (
+            self._client.live_mode
+            and SLACK_BOT_TOKEN
+            and SLACK_BOT_TOKEN != "xoxb-your-bot-user-oauth-token"
+        ):
+            raw_client = getattr(_sc, "_raw_slack_async_client", None)
+            fn = getattr(raw_client, method_name, None) if raw_client is not None else None
+            if fn is not None:
+                return await fn(**kwargs)
+        return None
+
     async def chat_postMessage(self, **kwargs: Any) -> MockSlackResponse:
         channel_id = str(kwargs.get("channel", ""))
         thread_ts = str(kwargs.get("thread_ts") or self._client.current_thread_ts or "")
         text = str(kwargs.get("text", ""))
         username = kwargs.get("username")
         blocks = kwargs.get("blocks")
-        ts = self._client.next_ts()
+        live_ts = None
+        try:
+            live_res = await self._forward_live("chat_postMessage", **kwargs)
+            if live_res and live_res.get("ok") and live_res.get("ts"):
+                live_ts = str(live_res.get("ts"))
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[LIVE SLACK SPY] chat_postMessage failed: {e}")
+
+        ts = live_ts or self._client.next_ts()
 
         blocks_str = json.dumps(blocks or [])
         is_usage = username == "Izvor Usage Analyst" or channel_id.startswith("mock_izvor") or channel_id == "C_MOCK_USAGE"
@@ -194,6 +215,10 @@ class MockSlackAsyncClient:
         ts = str(kwargs.get("ts", ""))
         text = str(kwargs.get("text", ""))
         blocks = kwargs.get("blocks")
+        try:
+            await self._forward_live("chat_update", **kwargs)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[LIVE SLACK SPY] chat_update failed: {e}")
         entry = {
             "ok": True,
             "channel_id": channel_id,
@@ -222,7 +247,14 @@ class MockSlackAsyncClient:
                 f"Slack API error: {self.fail_dm_open}",
                 response={"ok": False, "error": self.fail_dm_open},
             )
-        dm_channel_id = f"D_TEST_DM_{users}" if users else "D_TEST_DM"
+        live_dm_id = None
+        try:
+            live_res = await self._forward_live("conversations_open", **kwargs)
+            if live_res and live_res.get("ok"):
+                live_dm_id = live_res.get("channel", {}).get("id")
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[LIVE SLACK SPY] conversations_open failed: {e}")
+        dm_channel_id = live_dm_id or (f"D_TEST_DM_{users}" if users else "D_TEST_DM")
         self._client.bus.opened_dms.append({"users": users, "channel_id": dm_channel_id})
         return MockSlackResponse({"ok": True, "channel": {"id": dm_channel_id}})
 
@@ -232,10 +264,17 @@ class MockSlackAsyncClient:
                 f"Slack API error: {self.fail_file_upload}",
                 response={"ok": False, "error": self.fail_file_upload},
             )
+        live_file_id = None
+        try:
+            live_res = await self._forward_live("files_upload_v2", **kwargs)
+            if live_res and live_res.get("ok"):
+                live_file_id = live_res.get("file", {}).get("id")
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[LIVE SLACK SPY] files_upload_v2 failed: {e}")
         channel_id = str(kwargs.get("channel", ""))
         filename = str(kwargs.get("filename", "upload.txt"))
         content = str(kwargs.get("content", ""))
-        file_id = f"F_TEST_{self._client.next_ts()}"
+        file_id = live_file_id or f"F_TEST_{self._client.next_ts()}"
         entry = {
             "ok": True,
             "id": file_id,
@@ -250,6 +289,10 @@ class MockSlackAsyncClient:
         return MockSlackResponse({"ok": True, "file": {"id": file_id, "name": filename}})
 
     async def chat_postEphemeral(self, **kwargs: Any) -> MockSlackResponse:
+        try:
+            await self._forward_live("chat_postEphemeral", **kwargs)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[LIVE SLACK SPY] chat_postEphemeral failed: {e}")
         entry = {
             "ok": True,
             "channel_id": kwargs.get("channel", ""),
@@ -261,15 +304,27 @@ class MockSlackAsyncClient:
         return MockSlackResponse({"ok": True})
 
     async def pins_add(self, **kwargs: Any) -> MockSlackResponse:
+        try:
+            await self._forward_live("pins_add", **kwargs)
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"[LIVE SLACK SPY] pins_add failed: {e}")
         return MockSlackResponse({"ok": True})
 
     async def pins_remove(self, **kwargs: Any) -> MockSlackResponse:
+        try:
+            await self._forward_live("pins_remove", **kwargs)
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"[LIVE SLACK SPY] pins_remove failed: {e}")
         self._client.bus.unpinned_notes.append(
             {"channel_id": kwargs.get("channel", ""), "timestamp": kwargs.get("timestamp", "")}
         )
         return MockSlackResponse({"ok": True})
 
     async def views_publish(self, **kwargs: Any) -> MockSlackResponse:
+        try:
+            await self._forward_live("views_publish", **kwargs)
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"[LIVE SLACK SPY] views_publish failed: {e}")
         entry = {
             "ok": True,
             "user_id": kwargs.get("user_id", ""),
@@ -279,10 +334,22 @@ class MockSlackAsyncClient:
         return MockSlackResponse({"ok": True})
 
     async def conversations_info(self, **kwargs: Any) -> MockSlackResponse:
+        try:
+            live_res = await self._forward_live("conversations_info", **kwargs)
+            if live_res and live_res.get("ok"):
+                return live_res
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"[LIVE SLACK SPY] conversations_info failed: {e}")
         ch = str(kwargs.get("channel", "C_TEST"))
         return MockSlackResponse({"ok": True, "channel": {"id": ch, "name": ch.lower()}})
 
     async def conversations_list(self, **kwargs: Any) -> MockSlackResponse:
+        try:
+            live_res = await self._forward_live("conversations_list", **kwargs)
+            if live_res and live_res.get("ok"):
+                return live_res
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"[LIVE SLACK SPY] conversations_list failed: {e}")
         return MockSlackResponse(
             {
                 "ok": True,
@@ -320,9 +387,44 @@ class SlackProtocolClient:
         )
         self.client = self.async_client
         self._msg_ts_counter = time.time() + 1000.0
+        self._dispatched_threads: set[tuple[str, str]] = set()
 
     async def aclose(self) -> None:
+        await self.drain_background_tasks()
         await self.async_client.aclose()
+
+    async def drain_background_tasks(self, timeout: float = 5.0) -> None:
+        """Awaits or cancels any active dispatch, scribe, or usage tasks spawned during a scenario."""
+        from agents.thread_notes_agent import _RUNNING_TASKS
+        from agents.usage_agent import usage_tracker
+        from orchestration.thread_state import thread_state_manager
+
+        active_tasks: list[asyncio.Task[Any]] = []
+        for ch, th in list(self._dispatched_threads):
+            t = thread_state_manager.get_active_task(ch, th)
+            if t and not t.done():
+                active_tasks.append(t)
+        self._dispatched_threads.clear()
+
+        for t in list(_RUNNING_TASKS.values()):
+            if t and not t.done():
+                active_tasks.append(t)
+        for t in list(usage_tracker.running_usage_tasks.values()):
+            if t and not t.done():
+                active_tasks.append(t)
+
+        if active_tasks:
+            done, pending = await asyncio.wait(active_tasks, timeout=timeout)
+            for p in pending:
+                p.cancel()
+            if pending:
+                await asyncio.gather(*pending, return_exceptions=True)
+            for d in done:
+                if not d.cancelled():
+                    d.exception()
+
+        _RUNNING_TASKS.clear()
+        usage_tracker.running_usage_tasks.clear()
 
     async def await_active_task(
         self, channel_id: str, thread_ts: str, timeout: float = 30.0
@@ -352,6 +454,7 @@ class SlackProtocolClient:
         self.current_scenario_tag = scenario_tag
         self.current_scenario_name = scenario_name
         self.current_thread_ts = None
+        self._dispatched_threads.clear()
 
     def get_channel(self, default: str = "C_TEST_DEFAULT") -> str:
         if self.live_mode and self.live_channel_id:
@@ -408,7 +511,7 @@ class SlackProtocolClient:
             )
 
         try:
-            res = await _sc.slack_async_client.chat_postMessage(
+            res = await _sc._raw_slack_async_client.chat_postMessage(
                 channel=self.live_channel_id,
                 text=text,
                 username="E2E Test Runner",
@@ -441,7 +544,7 @@ class SlackProtocolClient:
             f"> *Summary:* {result.details}"
         )
         try:
-            await _sc.slack_async_client.chat_postMessage(
+            await _sc._raw_slack_async_client.chat_postMessage(
                 channel=self.live_channel_id,
                 thread_ts=self.current_thread_ts,
                 text=text,
@@ -982,7 +1085,7 @@ class SlackProtocolClient:
                 # Follow-up turn in an existing thread (e.g. TC-10 revocation)
                 target_thread = self.current_thread_ts
                 try:
-                    await _sc.slack_async_client.chat_postMessage(
+                    await _sc._raw_slack_async_client.chat_postMessage(
                         channel=target_channel,
                         thread_ts=target_thread,
                         text=f"👤 *Follow-up Prompt:*\n> {text}",
@@ -1018,6 +1121,8 @@ class SlackProtocolClient:
             thread_ts=target_thread,
             user_id=user_id,
         )
+        if target_thread:
+            self._dispatched_threads.add((target_channel, target_thread))
         if wait_for_task:
             from orchestration.thread_state import thread_state_manager
 
@@ -1092,6 +1197,8 @@ class SlackProtocolClient:
         res = await self.async_client.post(
             "/slack/actions", content=form_body, headers=headers
         )
+        if target_thread:
+            self._dispatched_threads.add((target_channel, target_thread))
         if wait_for_task and target_thread:
             await asyncio.sleep(0.05)
             await self.await_active_task(target_channel, target_thread)

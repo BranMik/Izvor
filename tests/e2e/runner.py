@@ -192,7 +192,9 @@ def _standalone_cli_isolation() -> Iterator[None]:
         PRICING_CACHE_FILE as REAL_PRICING_CACHE_FILE,
         pricing_service,
     )
+    from services.rag.config import EMBEDDING_DIM
     from services.rag.embeddings import EmbeddingService
+    from services.security.guardrail import guardrail_service
     from services.security.pii_masker import pii_masker
     from services.thread_notes_writer import (
         configure_paths as configure_note_paths,
@@ -260,7 +262,10 @@ def _standalone_cli_isolation() -> Iterator[None]:
             shutil.copy2(PRESIDIO_SKILL_EXCLUSIONS_FILE, temp_excl)
 
         async def _dummy_embeddings(texts: list[str]) -> list[list[float]]:
-            return [[0.0] * 768 for _ in texts] if texts else []
+            return [[0.0] * EMBEDDING_DIM for _ in texts] if texts else []
+
+        temp_lancedb = iso / "lancedb"
+        temp_lancedb.mkdir(parents=True, exist_ok=True)
 
         audit_logger.configure_paths(audit_dir=audit_dir)
         pricing_service.configure_paths(cache_file=temp_pricing)
@@ -278,11 +283,13 @@ def _standalone_cli_isolation() -> Iterator[None]:
         configure_flat_paths(temp_flat)
         configure_note_paths(temp_notes)
         configure_local_tools_paths(workspace_dir=PROJECT_ROOT, agents_resources_dir=temp_res)
+        guardrail_service.configure_paths(db_dir=temp_lancedb)
         EmbeddingService.configure_embeddings_fn(_dummy_embeddings)
         try:
             yield
         finally:
             EmbeddingService.reset_embeddings_fn()
+            guardrail_service.reset_paths()
             reset_local_tools_paths()
             reset_note_paths()
             reset_flat_paths()
@@ -404,15 +411,15 @@ class E2ETestRunner:
             system_settings_manager.set_slack_post_pause_seconds(self.pacing, save=False)
             set_admin_slack_user_ids_override({TEST_ADMIN_USER_ID})
 
-            # Pure DI outbound Slack & history/files hooks
+            # Pure DI outbound Slack & history/files hooks (always install bus spy; forwards live when live_slack=True)
             configure_post_agent_response(self.client.mock_post_agent_response)
             configure_post_system_message(self.client.mock_post_system_message)
             configure_fetch_thread_history(self.client.mock_fetch_thread_history)
             configure_fetch_thread_files(self.client.mock_fetch_thread_files)
+            configure_slack_async_client(self.client.slack_client_double)
 
             if not self.live_slack:
                 configure_token("xoxb-e2e-simulated-token")
-                configure_slack_async_client(self.client.slack_client_double)
                 configure_router_sleep_fn(_noop_sleep)
 
             if self.mock or self.mocked_llm or not self.allow_all_live_llm:
@@ -451,6 +458,7 @@ class E2ETestRunner:
 
             return res
         finally:
+            await self.client.drain_background_tasks()
             if orig_signing_secret is None:
                 os.environ.pop("SLACK_SIGNING_SECRET", None)
             else:
@@ -601,10 +609,10 @@ def main() -> None:
         elif args.live_slack is not None:
             live_slack = args.live_slack
         else:
-            live_slack = bool(
-                channel_id
-                and SLACK_BOT_TOKEN
-                and SLACK_BOT_TOKEN != "xoxb-your-bot-user-oauth-token"
+            live_slack = os.getenv("E2E_LIVE_SLACK", "0").strip().lower() in (
+                "1",
+                "true",
+                "yes",
             )
 
         use_mocked_llm = args.hybrid_mocked_llm
