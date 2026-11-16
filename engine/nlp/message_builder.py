@@ -66,6 +66,47 @@ def build_skill_resolution_hint(
     return f"Grant access via '/grant_skill {s_str} <agent>' or '/grant_skill_for_all {s_str}'."
 
 
+def has_prior_verified_skill_output(
+    shared_round_evidence: str | None,
+    effective_history: list[dict[str, Any]] | None,
+) -> bool:
+    """Returns True if an authorized speaker already produced verified skill output in this round."""
+    return bool(
+        (shared_round_evidence and shared_round_evidence.strip())
+        or any(
+            isinstance(m, dict)
+            and m.get("role") == "assistant"
+            and "Skills used:" in str(m.get("content", ""))
+            for m in (effective_history or [])
+        )
+    )
+
+
+def build_deterministic_missing_skill_notice(
+    *,
+    missing_skills: list[str],
+    file_name: str | None = None,
+    authorized_agents: set[str] | list[str] | None = None,
+    channel_id: str | None = None,
+    thread_ts: str | None = None,
+) -> str:
+    """Builds a concise deterministic missing-skill / file-access notice with a 1-line resolution hint."""
+    if authorized_agents is not None and not missing_skills:
+        auth_str = ", ".join(sorted(authorized_agents)) if authorized_agents else "none"
+        target_label = f"'{file_name}'" if file_name else "this file"
+        return (
+            f"I do not have authorization to access {target_label} (Authorized: {auth_str}). "
+            f"Grant access via '/grant_skill' or tag an authorized agent."
+        )
+
+    skills_list = [str(s) for s in missing_skills if s]
+    skills_fmt = ", ".join(f"'{s}'" for s in skills_list) if skills_list else "the required skill"
+    hint = build_skill_resolution_hint(skills_list, channel_id=channel_id, thread_ts=thread_ts)
+    if file_name:
+        return f"I lack the required {skills_fmt} skill to read '{file_name}'. {hint}"
+    return f"I lack the required {skills_fmt} skill to perform this task. {hint}"
+
+
 def build_llm_messages(
     system_prompt: str,
     effective_history: list[dict[str, Any]],
@@ -83,6 +124,7 @@ def build_llm_messages(
     shared_round_evidence: str | None = None,
     channel_id: str | None = None,
     thread_ts: str | None = None,
+    max_words: int | None = None,
 ) -> list[dict[str, Any]]:
     """
     Constructs a normalized, provider-safe message sequence for LiteLLM.
@@ -125,25 +167,18 @@ def build_llm_messages(
             required_skill = None
 
     agent_display = agent_cfg.get("username", agent_key)
+    notice_word_cap = min(50, max_words) if (max_words is not None and max_words > 0) else 50
 
-    has_prior_verified_skill_output = bool(
-        (shared_round_evidence and shared_round_evidence.strip())
-        or any(
-            isinstance(m, dict)
-            and m.get("role") == "assistant"
-            and "Skills used:" in str(m.get("content", ""))
-            for m in (effective_history or [])
-        )
-    )
+    prior_verified = has_prior_verified_skill_output(shared_round_evidence, effective_history)
     downstream_file_clause = (
-        "If an authorized agent earlier in the discussion above has already accessed the resource and presented findings (indicated by 'Skills used:' or '<shared_round_evidence>'), output your <= 50-word missing-skill notice + 1-line hint first, and then proceed to dialectically evaluate, stress-test, and debate those findings and arguments in accordance with your role; if no authorized agent has spoken yet and the prompt only asks about the file, output ONLY the <= 50-word notice and stop."
-        if has_prior_verified_skill_output
-        else "if the prompt only asks about the file, output ONLY the <= 50-word notice and stop."
+        f"If an authorized agent earlier in the discussion above has already accessed the resource and presented findings (indicated by 'Skills used:' or '<shared_round_evidence>'), output your <= {notice_word_cap}-word missing-skill notice + 1-line hint first, and then proceed to dialectically evaluate, stress-test, and debate those findings and arguments in accordance with your role; if no authorized agent has spoken yet and the prompt only asks about the file, output ONLY the <= {notice_word_cap}-word notice and stop."
+        if prior_verified
+        else f"if the prompt only asks about the file, output ONLY the <= {notice_word_cap}-word notice and stop."
     )
     downstream_skill_clause = (
-        "If an authorized agent earlier in the discussion above has already executed the skill action and presented findings (indicated by 'Skills used:' or '<shared_round_evidence>'), output your <= 50-word missing-skill notice + 1-line hint first, and then proceed to dialectically evaluate, stress-test, and debate those findings and arguments in accordance with your role; if no authorized agent has spoken yet and the prompt only asks for this skill-based action, output ONLY the <= 50-word notice and stop."
-        if has_prior_verified_skill_output
-        else "if the prompt only asks for this skill-based action, output ONLY the <= 50-word notice and stop."
+        f"If an authorized agent earlier in the discussion above has already executed the skill action and presented findings (indicated by 'Skills used:' or '<shared_round_evidence>'), output your <= {notice_word_cap}-word missing-skill notice + 1-line hint first, and then proceed to dialectically evaluate, stress-test, and debate those findings and arguments in accordance with your role; if no authorized agent has spoken yet and the prompt only asks for this skill-based action, output ONLY the <= {notice_word_cap}-word notice and stop."
+        if prior_verified
+        else f"if the prompt only asks for this skill-based action, output ONLY the <= {notice_word_cap}-word notice and stop."
     )
 
     if file_context:
@@ -161,10 +196,10 @@ def build_llm_messages(
             file_block = (
                 f"\n\n--- [FILE ACCESS RESTRICTED: NOT AUTHORIZED] ---\n"
                 f"The file '{file_name}' was provided in this thread, but you ({agent_display}) are not in the authorized agents list to access it (Authorized: {auth_str}).\n"
-                f"INSTRUCTION: State in at most 50 words that you do not have permission / authorization to access or read this file. "
+                f"INSTRUCTION: State in at most {notice_word_cap} words that you do not have permission / authorization to access or read this file. "
                 f"Include a 1-line hint naming an authorized agent or '/grant_skill'. "
                 f"Do NOT report that the file was not found. Do NOT reflect on platform skills architecture. "
-                f"If the prompt contains other questions or tasks not requiring this file, proceed normally to evaluate and answer those after the <= 50-word notice; "
+                f"If the prompt contains other questions or tasks not requiring this file, proceed normally to evaluate and answer those after the <= {notice_word_cap}-word notice; "
                 f"{downstream_file_clause}\n"
                 f"--- [END OF NOTICE] ---"
             )
@@ -173,10 +208,10 @@ def build_llm_messages(
             file_block = (
                 f"\n\n--- [FILE ACCESS RESTRICTED: MISSING SKILL] ---\n"
                 f"The file '{file_name}' is available, but you ({agent_display}) do not have the required '{required_skill}' skill assigned to access or read files.\n"
-                f"INSTRUCTION: State in at most 50 words that you do not have permission / the required '{required_skill}' skill to access or read this file. "
+                f"INSTRUCTION: State in at most {notice_word_cap} words that you do not have permission / the required '{required_skill}' skill to access or read this file. "
                 f"Include this 1-line resolution hint: {hint}\n"
                 f"Do NOT report that the file was not found. Do NOT reflect on platform skills architecture. "
-                f"If the prompt contains other questions or tasks not requiring this file, proceed normally to evaluate and answer those after the <= 50-word notice; "
+                f"If the prompt contains other questions or tasks not requiring this file, proceed normally to evaluate and answer those after the <= {notice_word_cap}-word notice; "
                 f"{downstream_file_clause}\n"
                 f"--- [END OF NOTICE] ---"
             )
@@ -204,10 +239,10 @@ def build_llm_messages(
                 f"\n\n--- [PERMISSION RESTRICTED: MISSING REQUIRED SKILL(S)] ---\n"
                 f"The requested task requires or infers the following skill(s): {missing_str}, "
                 f"but you ({agent_display}) do not have permission or this skill assigned.\n"
-                f"INSTRUCTION: State in at most 50 words that you do not have permission / the required skill(s) ({missing_str}) to perform this action. "
+                f"INSTRUCTION: State in at most {notice_word_cap} words that you do not have permission / the required skill(s) ({missing_str}) to perform this action. "
                 f"Include this 1-line resolution hint: {hint}\n"
                 f"Do NOT report that the file or resource was not found. Do NOT reflect on platform skills architecture. "
-                f"If the prompt contains other questions or tasks not requiring these skills, proceed normally to evaluate and answer those after the <= 50-word notice; "
+                f"If the prompt contains other questions or tasks not requiring these skills, proceed normally to evaluate and answer those after the <= {notice_word_cap}-word notice; "
                 f"{downstream_skill_clause}\n"
                 f"--- [END OF NOTICE] ---"
             )
@@ -246,9 +281,9 @@ def build_llm_messages(
     anti_echo_directive = ""
     if has_permission_restriction:
         anti_echo_directive = (
-            "\n\nANTI-ECHO RULE: Do NOT debate, critique, or expand on previous agents' missing-skill notices or skills architecture. "
-            "Keep your own missing-skill notice + 1-line hint strictly <= 50 words, then either evaluate any remaining non-skill parts "
-            "of the user prompt normally, or—if the prompt has no other assessable parts—stop immediately and nominate the next agent."
+            f"\n\nANTI-ECHO RULE: Do NOT debate, critique, or expand on previous agents' missing-skill notices or skills architecture. "
+            f"Keep your own missing-skill notice + 1-line hint strictly <= {notice_word_cap} words, then either evaluate any remaining non-skill parts "
+            f"of the user prompt normally, or—if the prompt has no other assessable parts—stop immediately and nominate the next agent."
         )
     elif has_skill_context:
         anti_echo_directive = (

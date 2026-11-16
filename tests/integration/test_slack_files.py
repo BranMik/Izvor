@@ -271,6 +271,30 @@ def test_build_llm_messages_bot_trigger_anti_echo_and_partial_prompt_rules():
     assert "<= 50 words" in user_turn
 
 
+def test_build_llm_messages_missing_skill_respects_tight_max_words():
+    file_context = {
+        "file_name": "data.csv",
+        "content": "id,name\n1,Alice",
+        "size": 15,
+        "authorized_agents": None,
+        "required_skill": "document_reader",
+    }
+    msgs = build_llm_messages(
+        system_prompt="You are Visionary.",
+        effective_history=[{"role": "user", "content": "Analyze data.csv"}],
+        prompt="Analyze data.csv",
+        is_bot_trigger=True,
+        agent_key="agent-10001",
+        agent_cfg={"username": "Visionary", "skills": []},
+        file_context=file_context,
+        max_words=10,
+    )
+    user_turn = msgs[-1]["content"]
+    assert "in at most 10 words" in user_turn
+    assert "<= 10 words" in user_turn
+    assert "50 words" not in user_turn
+
+
 @pytest.mark.anyio
 async def test_download_slack_file_mock_mode():
     file_info = {

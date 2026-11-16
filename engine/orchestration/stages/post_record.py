@@ -273,20 +273,14 @@ class PostRecordStage:
                     ctx.force_termination = True
             logger.warning(f"[ROUTER] final_text was empty for {ctx.agent_key}!")
         else:
-            # Mechanical word limit (max_words + 50 words)
-            active_max_words = None
-            raw_max = ctx.modifiers.get("max_words") if isinstance(ctx.modifiers, dict) else None
-            if raw_max is None:
-                raw_max = thread_state_manager.get_max_words(ctx.input.channel_id, ctx.input.thread_ts)
-            if raw_max is not None and str(raw_max).strip().lower() != "off":
-                try:
-                    p_max = int(raw_max)
-                    if p_max > 0:
-                        active_max_words = p_max
-                except (ValueError, TypeError):
-                    active_max_words = None
+            from core.models import resolve_active_max_words
 
-            if active_max_words is not None:
+            active_max_words = resolve_active_max_words(
+                getattr(ctx, "modifiers", None),
+                thread_state_manager.get_max_words(ctx.input.channel_id, ctx.input.thread_ts),
+            )
+
+            if active_max_words is not None and not getattr(ctx.output, "is_deterministic_missing_skill", False):
                 ctx.output.final_text = apply_mechanical_word_limit(ctx.output.final_text, active_max_words)
 
             formatted = self.workspace_adapter.format_outbound_text(ctx.output.final_text)

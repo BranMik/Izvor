@@ -111,7 +111,7 @@ def test_migration_v4_legacy_not_null_remaining_agents_to_v5(tmp_path: Path):
         with db_manager.get_connection() as migrated_conn:
             ver = migrated_conn.execute("PRAGMA user_version;").fetchone()[0]
             assert ver == MIGRATIONS[-1][0]
-            assert ver >= 5
+            assert ver >= 6
 
             cols = {
                 row["name"]: row
@@ -119,6 +119,8 @@ def test_migration_v4_legacy_not_null_remaining_agents_to_v5(tmp_path: Path):
             }
             assert cols["remaining_agents"]["notnull"] == 0
             assert "current_turn" not in cols
+            assert "active_prompt" in cols
+            assert "is_pure_skill_task" in cols
 
             row = migrated_conn.execute(
                 "SELECT status, remaining_agents, round_sequence, initial_prompt, workflow_snapshot "
@@ -143,6 +145,15 @@ def test_migration_v4_legacy_not_null_remaining_agents_to_v5(tmp_path: Path):
         assert store.has_remaining_agents_key("C_NEW", "1794999999.0001") is True
         store.clear_remaining_agents("C_NEW", "1794999999.0001")
         assert store.has_remaining_agents_key("C_NEW", "1794999999.0001") is False
+
+        store.set_active_prompt("C_NEW", "1794999999.0001", "Round 2 prompt")
+        assert store.get_active_prompt("C_NEW", "1794999999.0001") == "Round 2 prompt"
+        assert store.get_initial_prompt("C_NEW", "1794999999.0001") == "Fresh prompt"
+
+        store.set_is_pure_skill_task("C_NEW", "1794999999.0001", True)
+        assert store.get_is_pure_skill_task("C_NEW", "1794999999.0001") is True
+        store.clear_is_pure_skill_task("C_NEW", "1794999999.0001")
+        assert store.get_is_pure_skill_task("C_NEW", "1794999999.0001") is False
     finally:
         db_manager.configure_paths(orig_db_path)
 

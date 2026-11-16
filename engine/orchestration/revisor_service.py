@@ -88,6 +88,8 @@ def _clean_candidate_message(raw_text: str) -> str:
 
 def _is_pure_missing_skill_notice(ctx: TurnContext) -> bool:
     """Checks if the turn was a compressed missing-skill refusal with no tool execution."""
+    if getattr(ctx.output, "is_deterministic_missing_skill", False):
+        return True
     missing = getattr(ctx, "missing_required_skills", None)
     if not missing:
         return False
@@ -434,9 +436,10 @@ async def run_internal_revisor(ctx: TurnContext):
 
         logger.info(f"[REVISOR] Triggering InternalRevisor on turn {turn_count}")
 
-        # 2. Get the initial user prompt
-        initial_prompt = thread_state_manager.get_initial_prompt(
-            ctx.input.channel_id, ctx.input.thread_ts
+        # 2. Get the active round user prompt (falling back to initial_prompt / current raw_text)
+        initial_prompt = (
+            thread_state_manager.get_active_prompt(ctx.input.channel_id, ctx.input.thread_ts)
+            or thread_state_manager.get_initial_prompt(ctx.input.channel_id, ctx.input.thread_ts)
         )
         if not initial_prompt:
             initial_prompt = ctx.input.raw_text

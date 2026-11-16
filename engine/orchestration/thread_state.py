@@ -422,6 +422,26 @@ class ThreadStateManager:
     def clear_initial_prompt(self, channel_id: str, thread_ts: str) -> None:
         self.discussion.clear_initial_prompt(channel_id, thread_ts)
 
+    def get_active_prompt(self, channel_id: str, thread_ts: str) -> str | None:
+        return self.discussion.get_active_prompt(channel_id, thread_ts)
+
+    def set_active_prompt(self, channel_id: str, thread_ts: str, prompt: str) -> None:
+        self._touch(channel_id, thread_ts)
+        self.discussion.set_active_prompt(channel_id, thread_ts, prompt)
+
+    def clear_active_prompt(self, channel_id: str, thread_ts: str) -> None:
+        self.discussion.clear_active_prompt(channel_id, thread_ts)
+
+    def get_is_pure_skill_task(self, channel_id: str, thread_ts: str) -> bool:
+        return self.discussion.get_is_pure_skill_task(channel_id, thread_ts)
+
+    def set_is_pure_skill_task(self, channel_id: str, thread_ts: str, is_pure: bool) -> None:
+        self._touch(channel_id, thread_ts)
+        self.discussion.set_is_pure_skill_task(channel_id, thread_ts, is_pure)
+
+    def clear_is_pure_skill_task(self, channel_id: str, thread_ts: str) -> None:
+        self.discussion.clear_is_pure_skill_task(channel_id, thread_ts)
+
     def get_workflow_snapshot(self, channel_id: str, thread_ts: str) -> dict[str, Any] | None:
         return self.discussion.get_workflow_snapshot(channel_id, thread_ts)
 
@@ -457,6 +477,7 @@ class ThreadStateManager:
         self.discussion.clear_stop(channel_id, thread_ts)
         self.discussion.clear_rounds(channel_id, thread_ts)
         self.discussion.clear_workflow_snapshot(channel_id, thread_ts)
+        self.discussion.clear_is_pure_skill_task(channel_id, thread_ts)
 
     def request_stop(self, channel_id: str, thread_ts: str) -> None:
         self._touch(channel_id, thread_ts)
@@ -471,6 +492,7 @@ class ThreadStateManager:
         self.discussion.clear_custom_flow(channel_id, thread_ts)
         self.discussion.clear_rounds(channel_id, thread_ts)
         self.discussion.clear_workflow_snapshot(channel_id, thread_ts)
+        self.discussion.clear_is_pure_skill_task(channel_id, thread_ts)
         logger.info(f"[THREAD STATE] Stop requested for thread {thread_key}. Queues and limits cleared.")
         try:
             from agents import trigger_thread_notes_update, trigger_usage_update
@@ -498,6 +520,7 @@ class ThreadStateManager:
         self.discussion.clear_stop(channel_id, thread_ts)
         self.discussion.clear_rounds(channel_id, thread_ts)
         self.discussion.clear_workflow_snapshot(channel_id, thread_ts)
+        self.discussion.clear_is_pure_skill_task(channel_id, thread_ts)
         self.retry.clear_retry_queue(channel_id, thread_ts)
         self.retry.clear_already_retried(channel_id, thread_ts)
         self.retry.clear_503_errored_agents(channel_id, thread_ts)

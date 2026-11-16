@@ -82,11 +82,18 @@ class ValidationStage:
             if directive_res is not None:
                 return directive_res
 
-            # Record initial prompt for flat history / revisor ground truth only when substantive prompt text exists
-            if has_substantive_prompt(ctx.raw_text_cleaned) and not thread_state_manager.get_initial_prompt(
-                ctx.input.channel_id, ctx.input.thread_ts
-            ):
-                thread_state_manager.set_initial_prompt(ctx.input.channel_id, ctx.input.thread_ts, ctx.input.raw_text)
+            # Record initial prompt once for thread flat history/notes naming, and always update active prompt/pure-skill flag for the current round
+            if has_substantive_prompt(ctx.raw_text_cleaned):
+                if not thread_state_manager.get_initial_prompt(ctx.input.channel_id, ctx.input.thread_ts):
+                    thread_state_manager.set_initial_prompt(ctx.input.channel_id, ctx.input.thread_ts, ctx.input.raw_text)
+                thread_state_manager.set_active_prompt(
+                    ctx.input.channel_id,
+                    ctx.input.thread_ts,
+                    (ctx.raw_text_cleaned or "").strip() or ctx.input.raw_text,
+                )
+                thread_state_manager.set_is_pure_skill_task(
+                    ctx.input.channel_id, ctx.input.thread_ts, ctx.is_pure_skill_task
+                )
 
             # Lock language for this thread on first human prompt or preserve existing
             current_lang = thread_state_manager.get_language(ctx.input.channel_id, ctx.input.thread_ts)
@@ -637,6 +644,9 @@ class ValidationStage:
 
             ctx.thread_language = thread_state_manager.get_language(ctx.input.channel_id, ctx.input.thread_ts) or "English"
             ctx.is_open_debate = thread_state_manager.is_open_debate(ctx.input.channel_id, ctx.input.thread_ts)
+            ctx.is_pure_skill_task = thread_state_manager.get_is_pure_skill_task(
+                ctx.input.channel_id, ctx.input.thread_ts
+            )
 
         if not ctx.agent_key:
             logger.info(f"[ROUTER] No agent available to speak in thread {ctx.thread_key}. Halting turn.")

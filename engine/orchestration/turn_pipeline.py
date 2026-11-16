@@ -93,6 +93,7 @@ class TurnOutput:
     waiting_hitl: bool = False
     checkpoint_id: str | None = None
     revisor_warning: str | None = None
+    is_deterministic_missing_skill: bool = False
 
 
 class TurnContext:

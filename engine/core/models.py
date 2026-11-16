@@ -175,6 +175,18 @@ def coerce_int_modifier(value: Any, min_val: int, max_val: int) -> int | None:
     return max(min_val, min(max_val, result))
 
 
+def resolve_active_max_words(modifiers: Any, thread_max_words: int | None = None) -> int | None:
+    """Resolves the active positive max_words limit from per-turn modifiers or persisted thread state."""
+    raw_max = modifiers.get("max_words") if isinstance(modifiers, dict) else None
+    if raw_max is None:
+        raw_max = thread_max_words
+    if raw_max is None or str(raw_max).strip().lower() == "off":
+        return None
+    min_b, max_b = INT_MODIFIER_BOUNDS["max_words"]
+    coerced = coerce_int_modifier(raw_max, min_b, max_b)
+    return coerced if (coerced is not None and coerced > 0) else None
+
+
 @dataclass
 class ExtractedIntent:
     """Represents structured user directives and actions extracted by slash commands or LLM."""
