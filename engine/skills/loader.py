@@ -119,6 +119,104 @@ class SkillDefinition:
         return matched
 
 
+def _load_agent_selection_context(
+    channel_id: str | None = None,
+    thread_ts: str | None = None,
+) -> tuple[dict[str, Any], set[str], set[str], dict[str, list[str]]]:
+    """Loads configured agents, enabled keys, active workflow keys, and thread agent grants."""
+    from core.config import AGENTS_CONFIG
+
+    agents_cfg: dict[str, Any] = AGENTS_CONFIG
+    enabled_agents: set[str] = set()
+    try:
+        from orchestration.agent_settings import settings_manager
+
+        agents_cfg = settings_manager.agents_config or AGENTS_CONFIG
+        enabled_agents = settings_manager.get_enabled_agents()
+    except (ImportError, AttributeError, TypeError):
+        agents_cfg = AGENTS_CONFIG
+        enabled_agents = set()
+
+    workflow_agents: set[str] = set()
+    try:
+        from orchestration.nomination import get_initial_agents
+
+        workflow_agents = set(get_initial_agents(channel_id=channel_id, thread_ts=thread_ts) or [])
+    except (ImportError, AttributeError, KeyError, TypeError, RuntimeError):
+        workflow_agents = set()
+
+    thread_agent_skills: dict[str, list[str]] = {}
+    if channel_id and thread_ts:
+        try:
+            from orchestration.thread_skills_manager import thread_skills_manager
+
+            thread_agent_skills = thread_skills_manager.get_all_active_agent_skills(channel_id, thread_ts)
+        except (ImportError, AttributeError, KeyError, TypeError):
+            thread_agent_skills = {}
+
+    return agents_cfg, enabled_agents, workflow_agents, thread_agent_skills
+
+
+def select_recommended_agent_from_keys(
+    candidate_keys: list[str] | set[str] | tuple[str, ...],
+    *,
+    channel_id: str | None = None,
+    thread_ts: str | None = None,
+    exclude_agent_key: str | None = None,
+    coverage_counts: dict[str, int] | None = None,
+    agents_cfg: dict[str, Any] | None = None,
+    enabled_agents: set[str] | None = None,
+    workflow_agents: set[str] | None = None,
+) -> str | None:
+    """
+    Selects a single recommended agent username from candidate agent keys.
+    Priority: enabled > in active workflow > skill coverage > alphabetical username > agent key.
+    """
+    if not candidate_keys:
+        return None
+
+    if agents_cfg is None or enabled_agents is None or workflow_agents is None:
+        loaded_cfg, loaded_enabled, loaded_wf, _ = _load_agent_selection_context(
+            channel_id=channel_id,
+            thread_ts=thread_ts,
+        )
+        if agents_cfg is None:
+            agents_cfg = loaded_cfg
+        if enabled_agents is None:
+            enabled_agents = loaded_enabled
+        if workflow_agents is None:
+            workflow_agents = loaded_wf
+
+    ranked: list[tuple[int, int, int, str, str, str]] = []
+    for raw_key in candidate_keys:
+        agent_key = str(raw_key).strip()
+        if not agent_key or (exclude_agent_key and agent_key == exclude_agent_key):
+            continue
+        cfg = agents_cfg.get(agent_key)
+        if isinstance(cfg, dict):
+            username = str(cfg.get("username") or agent_key).strip()
+        else:
+            username = agent_key
+        is_enabled = agent_key in enabled_agents
+        is_in_workflow = agent_key in workflow_agents
+        coverage = coverage_counts.get(agent_key, 1) if coverage_counts is not None else 1
+        ranked.append(
+            (
+                0 if is_enabled else 1,
+                0 if is_in_workflow else 1,
+                -coverage,
+                username.casefold(),
+                agent_key,
+                username,
+            )
+        )
+
+    if not ranked:
+        return None
+    ranked.sort()
+    return ranked[0][5]
+
+
 class SkillRegistry:
     """
     Registry that dynamically scans and loads all SKILL.md files from both
@@ -664,43 +762,106 @@ class SkillRegistry:
         )
         return "\n".join(lines)
 
+    def recommend_agent_from_keys(
+        self,
+        candidate_keys: list[str] | set[str] | tuple[str, ...],
+        *,
+        channel_id: str | None = None,
+        thread_ts: str | None = None,
+        exclude_agent_key: str | None = None,
+    ) -> str | None:
+        """Selects 1 recommended agent username from a set of authorized agent keys."""
+        return select_recommended_agent_from_keys(
+            candidate_keys,
+            channel_id=channel_id,
+            thread_ts=thread_ts,
+            exclude_agent_key=exclude_agent_key,
+        )
+
+    def recommend_agent_for_skills(
+        self,
+        skill_names: list[str] | str,
+        *,
+        channel_id: str | None = None,
+        thread_ts: str | None = None,
+        exclude_agent_key: str | None = None,
+    ) -> str | None:
+        """Selects 1 recommended agent username authorized for the requested skill(s)."""
+        if isinstance(skill_names, str):
+            skill_list = [skill_names.strip()] if skill_names.strip() else []
+        else:
+            skill_list = [str(s).strip() for s in skill_names if str(s).strip()]
+
+        if not skill_list:
+            return None
+
+        agents_cfg, enabled_agents, workflow_agents, thread_agent_skills = _load_agent_selection_context(
+            channel_id=channel_id,
+            thread_ts=thread_ts,
+        )
+
+        coverage_counts: dict[str, int] = {}
+        for agent_key, cfg in agents_cfg.items():
+            if not isinstance(cfg, dict):
+                continue
+            if exclude_agent_key and agent_key == exclude_agent_key:
+                continue
+            agent_skill_set = set(cfg.get("skills", []) or []) | set(thread_agent_skills.get(agent_key, []) or [])
+            coverage = sum(1 for s in skill_list if s in agent_skill_set)
+            if coverage > 0:
+                coverage_counts[agent_key] = coverage
+
+        if not coverage_counts:
+            return None
+
+        return select_recommended_agent_from_keys(
+            coverage_counts.keys(),
+            channel_id=channel_id,
+            thread_ts=thread_ts,
+            exclude_agent_key=exclude_agent_key,
+            coverage_counts=coverage_counts,
+            agents_cfg=agents_cfg,
+            enabled_agents=enabled_agents,
+            workflow_agents=workflow_agents,
+        )
+
     def get_skill_resolution_hint(
         self,
         skill_names: list[str] | str,
         channel_id: str | None = None,
         thread_ts: str | None = None,
+        exclude_agent_key: str | None = None,
     ) -> str:
         """
-        Generates a concise 1-line resolution hint naming authorized agents (if any)
-        and how to grant the skill via /grant_skill or /grant_skill_for_all.
+        Generates a concise 1-line resolution hint recommending 1 authorized agent by username
+        (if any) and how to grant the skill via /grant_skill or /grant_skill_for_all.
         """
         if isinstance(skill_names, str):
-            skill_list = [skill_names.strip()]
+            raw_list = [skill_names.strip()]
         else:
-            skill_list = [str(s).strip() for s in skill_names if str(s).strip()]
+            raw_list = [str(s).strip() for s in skill_names if str(s).strip()]
 
+        skill_list = list(dict.fromkeys(s for s in raw_list if s))
         if not skill_list:
             return "Grant access via '/grant_skill <skill> <agent>' or '/grant_skill_for_all <skill>'."
 
-        mapping = self.get_skill_agent_mapping(channel_id=channel_id, thread_ts=thread_ts)
-        hints = []
-        for s_name in skill_list:
-            info = mapping.get(s_name)
-            raw_auth = info.get("authorized_agents", []) if info else []
-            auth_agents = [
-                a for a in raw_auth
-                if not a.startswith("All Agents") and not a.startswith("System") and not a.startswith("No agents")
-            ]
-            if auth_agents:
-                agents_str = ", ".join(auth_agents)
-                hints.append(
-                    f"Authorized for '{s_name}': {agents_str} — or grant via '/grant_skill {s_name} <agent>' or '/grant_skill_for_all {s_name}'."
-                )
-            else:
-                hints.append(
-                    f"Grant '{s_name}' via '/grant_skill {s_name} <agent>' or '/grant_skill_for_all {s_name}'."
-                )
-        return " ".join(hints)
+        rec_username = self.recommend_agent_for_skills(
+            skill_list,
+            channel_id=channel_id,
+            thread_ts=thread_ts,
+            exclude_agent_key=exclude_agent_key,
+        )
+
+        skills_fmt = ", ".join(f"'{s}'" for s in skill_list)
+        if len(skill_list) == 1:
+            s_name = skill_list[0]
+            grant_clause = f"'/grant_skill {s_name} <agent>' or '/grant_skill_for_all {s_name}'"
+        else:
+            grant_clause = "'/grant_skill <skill> <agent>' or '/grant_skill_for_all <skill>'"
+
+        if rec_username:
+            return f"Recommended agent for {skills_fmt}: {rec_username} — or grant via {grant_clause}."
+        return f"Grant {skills_fmt} via {grant_clause}."
 
     def get_skills_directory_prompt(
         self, channel_id: str | None = None, thread_ts: str | None = None
@@ -726,7 +887,7 @@ class SkillRegistry:
                 "- Reference this directory to answer user inquiries regarding platform capabilities and agent skill assignments.",
                 "- Agents are strictly limited in tool usage: load and execute tools ONLY for skills explicitly authorized for your agent role, granted thread-actively, or listed under '### AVAILABLE SKILLS'.",
                 "- Any skill marked with '(Authorized: All Agents (Thread-Global Active))', '(Thread Active)', or listed under '### AVAILABLE SKILLS' IS authorized for you to use in this thread.",
-                "- When a user requests an action requiring an unauthorized skill that is not authorized for you in this thread, explicitly report lack of permission in at most 50 words (including a 1-line hint naming an authorized agent or /grant_skill) without reflecting on skills architecture, and proceed normally with any other parts of the prompt that do not require the missing skill.",
+                "- When a user requests an action requiring an unauthorized skill that is not authorized for you in this thread, explicitly report lack of permission in at most 50 words (including a 1-line hint recommending just 1 authorized agent by name—never by agent ID—or /grant_skill) without reflecting on skills architecture, and proceed normally with any other parts of the prompt that do not require the missing skill.",
                 "- Never attempt to circumvent permission boundaries.",
             ]
         )
@@ -791,7 +952,7 @@ class SkillRegistry:
                         effective_authorized_skills,
                     )
                 allowed_str = ", ".join(f"'{s}'" for s in effective_authorized_skills) or "none"
-                hint_str = self.get_skill_resolution_hint(skill_name)
+                hint_str = self.get_skill_resolution_hint(skill_name, exclude_agent_key=actor_id)
                 log_audit_event(
                     event_type="SECURITY_POLICY_VIOLATION",
                     actor={"type": actor_kind, "id": actor_id},
@@ -812,7 +973,7 @@ class SkillRegistry:
                                 f"Permission denied: Agent is not authorized to load skill '{skill_name}'. "
                                 f"Permitted skills: {allowed_str}. "
                                 f"CRITICAL INSTRUCTION: State in at most 50 words that permission / the required skill '{skill_name}' is lacking, "
-                                f"including this 1-line hint: {hint_str} "
+                                f"including this 1-line hint (recommend ONLY this 1 agent by name, never by agent ID): {hint_str} "
                                 f"Do NOT report that the file or resource was not found. Do NOT reflect on skills architecture. "
                                 f"If the prompt contains other assessable parts not requiring '{skill_name}', proceed normally with those; otherwise stop."
                             )
@@ -880,7 +1041,7 @@ class SkillRegistry:
             if tool_name not in permitted_tools:
                 allowed_tools_str = ", ".join(f"'{t}'" for t in sorted(permitted_tools)) or "none"
                 s_name = self.find_skill_for_tool(tool_name) or tool_name
-                hint_str = self.get_skill_resolution_hint(s_name)
+                hint_str = self.get_skill_resolution_hint(s_name, exclude_agent_key=actor_id)
                 from services.audit_logger import log_audit_event
 
                 log_audit_event(
@@ -903,7 +1064,7 @@ class SkillRegistry:
                                 f"Permission denied: Agent is not authorized to execute tool '{tool_name}'. "
                                 f"Permitted tools: {allowed_tools_str}. "
                                 f"CRITICAL INSTRUCTION: State in at most 50 words that permission to execute tool '{tool_name}' is lacking, "
-                                f"including this 1-line hint: {hint_str} "
+                                f"including this 1-line hint (recommend ONLY this 1 agent by name, never by agent ID): {hint_str} "
                                 f"Do NOT report that the file or resource was not found. Do NOT reflect on skills architecture. "
                                 f"If the prompt contains other assessable parts not requiring '{tool_name}', proceed normally with those; otherwise stop."
                             )

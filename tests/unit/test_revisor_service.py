@@ -94,7 +94,7 @@ async def test_revisor_skips_on_pure_missing_skill_notice():
     ctx.output.skills_used = []
     ctx.output.final_text = (
         "I do not have the 'document_reader' skill required to read database.sql. "
-        "Authorized for 'document_reader': ROIStrategist, SecurityArchitect. "
+        "Recommended agent for 'document_reader': ROIStrategist. "
         "/[agent-10008] next {test-model : 15/25}"
     )
 

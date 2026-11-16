@@ -239,11 +239,64 @@ async def test_runtime_permission_enforcement():
 
 
 def test_get_skill_resolution_hint():
-    """Verify that get_skill_resolution_hint lists authorized agents and /grant_skill."""
+    """Verify that get_skill_resolution_hint recommends 1 authorized agent by username (no agent IDs) and /grant_skill."""
+    import re
+    from skills.loader import select_recommended_agent_from_keys
+
     hint = skill_registry.get_skill_resolution_hint("document_reader")
-    assert "Authorized for 'document_reader':" in hint
-    assert "agent-10006" in hint or "agent-10008" in hint
+    assert "Recommended agent for 'document_reader':" in hint
     assert "/grant_skill" in hint
+    assert not re.search(r"\bagent-\d+\b", hint), f"Agent ID leaked in hint: {hint}"
+
+    # Verify single-agent priority: enabled > active workflow > coverage > alphabetical username
+    sample_cfg = {
+        "agent-10002": {"username": "Innovator", "skills": ["document_reader"]},
+        "agent-10006": {"username": "ROIStrategist", "skills": ["document_reader", "web_research"]},
+        "agent-10008": {"username": "SecurityArchitect", "skills": ["document_reader"]},
+        "agent-10016": {"username": "CreativeAdvisor", "skills": ["document_reader", "web_research"]},
+    }
+    # Enabled + in workflow wins over alphabetical enabled outside workflow
+    picked = select_recommended_agent_from_keys(
+        ["agent-10002", "agent-10006", "agent-10008"],
+        agents_cfg=sample_cfg,
+        enabled_agents={"agent-10002", "agent-10006", "agent-10008"},
+        workflow_agents={"agent-10006"},
+    )
+    assert picked == "ROIStrategist"
+
+    # Disabled agent in workflow loses to enabled agent outside workflow
+    picked_enabled = select_recommended_agent_from_keys(
+        ["agent-10006", "agent-10008"],
+        agents_cfg=sample_cfg,
+        enabled_agents={"agent-10008"},
+        workflow_agents={"agent-10006"},
+    )
+    assert picked_enabled == "SecurityArchitect"
+
+    # Coverage breaks ties within same enabled/workflow tier, then alphabetical username
+    picked_cov = select_recommended_agent_from_keys(
+        ["agent-10002", "agent-10006", "agent-10016"],
+        agents_cfg=sample_cfg,
+        enabled_agents={"agent-10002", "agent-10006", "agent-10016"},
+        workflow_agents=set(),
+        coverage_counts={"agent-10002": 1, "agent-10006": 2, "agent-10016": 2},
+    )
+    assert picked_cov == "CreativeAdvisor"
+
+    # Self-exclusion skips exclude_agent_key
+    picked_excl = select_recommended_agent_from_keys(
+        ["agent-10006", "agent-10016"],
+        exclude_agent_key="agent-10016",
+        agents_cfg=sample_cfg,
+        enabled_agents={"agent-10006", "agent-10016"},
+        workflow_agents=set(),
+    )
+    assert picked_excl == "ROIStrategist"
+
+    # Multi-skill hint still recommends only 1 agent by username
+    multi_hint = skill_registry.get_skill_resolution_hint(["document_reader", "web_research"])
+    assert "Recommended agent for 'document_reader', 'web_research':" in multi_hint
+    assert not re.search(r"\bagent-\d+\b", multi_hint)
 
 
 def test_skills_directory_prompt_thread_global_active():

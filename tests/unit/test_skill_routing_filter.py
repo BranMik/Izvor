@@ -515,6 +515,11 @@ async def test_execution_short_circuits_missing_skill_pure_task_with_zero_llm_ca
     assert ctx.output.total_completion_tokens == 0
     assert "document_reader" in ctx.output.final_text
     assert "/grant_skill" in ctx.output.final_text
+    assert "Recommended agent for 'document_reader':" in ctx.output.final_text
+    assert "agent-10002" not in ctx.output.final_text
+    assert "agent-10006" not in ctx.output.final_text
+    assert "agent-10008" not in ctx.output.final_text
+    assert "agent-10016" not in ctx.output.final_text
 
     # Stage 5 preserves the deterministic notice + /grant_skill hint without truncating at max_words=10
     with patch("orchestration.stages.post_record.trigger_thread_notes_update"), \
@@ -523,6 +528,7 @@ async def test_execution_short_circuits_missing_skill_pure_task_with_zero_llm_ca
         res = await pipeline.post_record_stage.stage_post_and_record(ctx)
 
     assert "/grant_skill" in ctx.output.final_text
+    assert "Recommended agent for 'document_reader':" in ctx.output.final_text
     assert "/[agent-10003]" in ctx.output.final_text
     assert res["agent_key"] == "agent-10001"
 

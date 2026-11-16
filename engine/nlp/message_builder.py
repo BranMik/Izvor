@@ -46,12 +46,49 @@ def markdown_to_slack(text: str) -> str:
     return text
 
 
+def _select_single_authorized_username(
+    authorized_agents: set[str] | list[str] | None,
+    *,
+    channel_id: str | None = None,
+    thread_ts: str | None = None,
+    exclude_agent_key: str | None = None,
+) -> str | None:
+    """Selects 1 recommended authorized agent's username from candidate agent keys."""
+    if not authorized_agents:
+        return None
+    try:
+        from core.registry import get_skill_registry
+
+        reg = get_skill_registry()
+        if hasattr(reg, "recommend_agent_from_keys"):
+            return reg.recommend_agent_from_keys(
+                authorized_agents,
+                channel_id=channel_id,
+                thread_ts=thread_ts,
+                exclude_agent_key=exclude_agent_key,
+            )
+    except Exception:
+        pass
+    try:
+        from skills.loader import select_recommended_agent_from_keys
+
+        return select_recommended_agent_from_keys(
+            authorized_agents,
+            channel_id=channel_id,
+            thread_ts=thread_ts,
+            exclude_agent_key=exclude_agent_key,
+        )
+    except Exception:
+        return None
+
+
 def build_skill_resolution_hint(
     skill_names: list[str] | str | None,
     channel_id: str | None = None,
     thread_ts: str | None = None,
+    exclude_agent_key: str | None = None,
 ) -> str:
-    """Helper to query SkillRegistry for a 1-line resolution hint naming authorized agents and /grant_skill."""
+    """Helper to query SkillRegistry for a 1-line resolution hint recommending 1 agent by username and /grant_skill."""
     if not skill_names:
         return "Grant access via '/grant_skill <skill> <agent>' or '/grant_skill_for_all <skill>'."
     try:
@@ -59,7 +96,12 @@ def build_skill_resolution_hint(
 
         reg = get_skill_registry()
         if hasattr(reg, "get_skill_resolution_hint"):
-            return reg.get_skill_resolution_hint(skill_names, channel_id=channel_id, thread_ts=thread_ts)
+            return reg.get_skill_resolution_hint(
+                skill_names,
+                channel_id=channel_id,
+                thread_ts=thread_ts,
+                exclude_agent_key=exclude_agent_key,
+            )
     except Exception:
         pass
     s_str = skill_names if isinstance(skill_names, str) else ", ".join(str(s) for s in skill_names)
@@ -89,19 +131,35 @@ def build_deterministic_missing_skill_notice(
     authorized_agents: set[str] | list[str] | None = None,
     channel_id: str | None = None,
     thread_ts: str | None = None,
+    agent_key: str | None = None,
 ) -> str:
     """Builds a concise deterministic missing-skill / file-access notice with a 1-line resolution hint."""
     if authorized_agents is not None and not missing_skills:
-        auth_str = ", ".join(sorted(authorized_agents)) if authorized_agents else "none"
         target_label = f"'{file_name}'" if file_name else "this file"
+        rec_username = _select_single_authorized_username(
+            authorized_agents,
+            channel_id=channel_id,
+            thread_ts=thread_ts,
+            exclude_agent_key=agent_key,
+        )
+        if rec_username:
+            return (
+                f"I do not have authorization to access {target_label}. "
+                f"Recommended agent: {rec_username} — or grant access via '/grant_skill'."
+            )
         return (
-            f"I do not have authorization to access {target_label} (Authorized: {auth_str}). "
+            f"I do not have authorization to access {target_label}. "
             f"Grant access via '/grant_skill' or tag an authorized agent."
         )
 
     skills_list = [str(s) for s in missing_skills if s]
     skills_fmt = ", ".join(f"'{s}'" for s in skills_list) if skills_list else "the required skill"
-    hint = build_skill_resolution_hint(skills_list, channel_id=channel_id, thread_ts=thread_ts)
+    hint = build_skill_resolution_hint(
+        skills_list,
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        exclude_agent_key=agent_key,
+    )
     if file_name:
         return f"I lack the required {skills_fmt} skill to read '{file_name}'. {hint}"
     return f"I lack the required {skills_fmt} skill to perform this task. {hint}"
@@ -192,24 +250,39 @@ def build_llm_messages(
         has_skill = (required_skill in agent_skills) if required_skill else True
 
         if not is_agent_authorized:
-            auth_str = ", ".join(sorted(authorized_agents)) if authorized_agents else "none"
+            rec_username = _select_single_authorized_username(
+                authorized_agents,
+                channel_id=channel_id,
+                thread_ts=thread_ts,
+                exclude_agent_key=agent_key,
+            )
+            hint = (
+                f"Recommended agent: {rec_username} — or grant access via '/grant_skill'."
+                if rec_username
+                else "Grant access via '/grant_skill'."
+            )
             file_block = (
                 f"\n\n--- [FILE ACCESS RESTRICTED: NOT AUTHORIZED] ---\n"
-                f"The file '{file_name}' was provided in this thread, but you ({agent_display}) are not in the authorized agents list to access it (Authorized: {auth_str}).\n"
+                f"The file '{file_name}' was provided in this thread, but you ({agent_display}) are not authorized to access it.\n"
                 f"INSTRUCTION: State in at most {notice_word_cap} words that you do not have permission / authorization to access or read this file. "
-                f"Include a 1-line hint naming an authorized agent or '/grant_skill'. "
+                f"Include this 1-line resolution hint (recommend ONLY this 1 agent by name, never by agent ID): {hint}\n"
                 f"Do NOT report that the file was not found. Do NOT reflect on platform skills architecture. "
                 f"If the prompt contains other questions or tasks not requiring this file, proceed normally to evaluate and answer those after the <= {notice_word_cap}-word notice; "
                 f"{downstream_file_clause}\n"
                 f"--- [END OF NOTICE] ---"
             )
         elif not has_skill:
-            hint = build_skill_resolution_hint(required_skill, channel_id=channel_id, thread_ts=thread_ts)
+            hint = build_skill_resolution_hint(
+                required_skill,
+                channel_id=channel_id,
+                thread_ts=thread_ts,
+                exclude_agent_key=agent_key,
+            )
             file_block = (
                 f"\n\n--- [FILE ACCESS RESTRICTED: MISSING SKILL] ---\n"
                 f"The file '{file_name}' is available, but you ({agent_display}) do not have the required '{required_skill}' skill assigned to access or read files.\n"
                 f"INSTRUCTION: State in at most {notice_word_cap} words that you do not have permission / the required '{required_skill}' skill to access or read this file. "
-                f"Include this 1-line resolution hint: {hint}\n"
+                f"Include this 1-line resolution hint (recommend ONLY this 1 agent by name, never by agent ID): {hint}\n"
                 f"Do NOT report that the file was not found. Do NOT reflect on platform skills architecture. "
                 f"If the prompt contains other questions or tasks not requiring this file, proceed normally to evaluate and answer those after the <= {notice_word_cap}-word notice; "
                 f"{downstream_file_clause}\n"
@@ -234,13 +307,18 @@ def build_llm_messages(
             missing = [s for s in missing if s != required_skill]
         if missing:
             missing_str = ", ".join(f"'{s}'" for s in missing)
-            hint = build_skill_resolution_hint(missing, channel_id=channel_id, thread_ts=thread_ts)
+            hint = build_skill_resolution_hint(
+                missing,
+                channel_id=channel_id,
+                thread_ts=thread_ts,
+                exclude_agent_key=agent_key,
+            )
             skill_notice_block = (
                 f"\n\n--- [PERMISSION RESTRICTED: MISSING REQUIRED SKILL(S)] ---\n"
                 f"The requested task requires or infers the following skill(s): {missing_str}, "
                 f"but you ({agent_display}) do not have permission or this skill assigned.\n"
                 f"INSTRUCTION: State in at most {notice_word_cap} words that you do not have permission / the required skill(s) ({missing_str}) to perform this action. "
-                f"Include this 1-line resolution hint: {hint}\n"
+                f"Include this 1-line resolution hint (recommend ONLY this 1 agent by name, never by agent ID): {hint}\n"
                 f"Do NOT report that the file or resource was not found. Do NOT reflect on platform skills architecture. "
                 f"If the prompt contains other questions or tasks not requiring these skills, proceed normally to evaluate and answer those after the <= {notice_word_cap}-word notice; "
                 f"{downstream_skill_clause}\n"
