@@ -219,11 +219,65 @@ SESSION_CONVERGENCE_STATEMENTS = [
     "ALTER TABLE thread_sessions ADD COLUMN convergence_speakers TEXT NOT NULL DEFAULT '[]';",
 ]
 
+SESSION_NULLABLE_REMAINING_STATEMENTS = [
+    # 14. Rebuild legacy thread_sessions tables where remaining_agents had NOT NULL DEFAULT '[]'
+    "DROP TABLE IF EXISTS thread_sessions_new;",
+    """
+    CREATE TABLE thread_sessions_new (
+        channel_id TEXT NOT NULL,
+        thread_ts TEXT NOT NULL,
+        status TEXT NOT NULL CHECK(status IN ('active', 'paused', 'completed')),
+        remaining_agents TEXT DEFAULT NULL,
+        custom_flow INTEGER NOT NULL DEFAULT 0,
+        stop_requested INTEGER NOT NULL DEFAULT 0,
+        rounds INTEGER NOT NULL DEFAULT 0,
+        round_sequence TEXT NOT NULL DEFAULT '[]',
+        initial_prompt TEXT,
+        created_at REAL NOT NULL,
+        last_activity REAL NOT NULL,
+        workflow_snapshot TEXT DEFAULT NULL,
+        open_debate BOOLEAN NOT NULL DEFAULT 0,
+        consensus_reached BOOLEAN NOT NULL DEFAULT 0,
+        convergence_speakers TEXT NOT NULL DEFAULT '[]',
+        PRIMARY KEY (channel_id, thread_ts)
+    );
+    """,
+    """
+    INSERT INTO thread_sessions_new (
+        channel_id, thread_ts, status, remaining_agents, custom_flow,
+        stop_requested, rounds, round_sequence, initial_prompt,
+        created_at, last_activity, workflow_snapshot, open_debate,
+        consensus_reached, convergence_speakers
+    )
+    SELECT
+        channel_id,
+        thread_ts,
+        status,
+        CASE WHEN status = 'completed' AND remaining_agents = '[]' THEN NULL ELSE remaining_agents END,
+        custom_flow,
+        stop_requested,
+        rounds,
+        round_sequence,
+        initial_prompt,
+        created_at,
+        last_activity,
+        workflow_snapshot,
+        open_debate,
+        consensus_reached,
+        convergence_speakers
+    FROM thread_sessions;
+    """,
+    "DROP TABLE thread_sessions;",
+    "ALTER TABLE thread_sessions_new RENAME TO thread_sessions;",
+    "CREATE INDEX IF NOT EXISTS idx_thread_sessions_activity ON thread_sessions(last_activity);",
+]
+
 MIGRATIONS: list[tuple[int, str, list[str]]] = [
     (1, "baseline_schema", BASELINE_SCHEMA_STATEMENTS),
     (2, "audit_anchors_and_indices", AUDIT_ANCHORS_STATEMENTS),
     (3, "thread_session_durability", SESSION_DURABILITY_STATEMENTS),
     (4, "thread_session_convergence_speakers", SESSION_CONVERGENCE_STATEMENTS),
+    (5, "thread_sessions_nullable_remaining_agents", SESSION_NULLABLE_REMAINING_STATEMENTS),
 ]
 
 
