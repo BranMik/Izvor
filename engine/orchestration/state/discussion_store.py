@@ -126,7 +126,10 @@ class DiscussionStateStore:
                         ),
                     )
         except Exception as e:  # noqa: BLE001
-            logger.debug(f"[DISCUSSION STORE] Failed to update session in DB for ({channel_id}, {thread_ts}): {e}")
+            logger.error(
+                f"[DISCUSSION STORE] Failed to update session in DB for ({channel_id}, {thread_ts}): {e}",
+                exc_info=True,
+            )
 
     def get_remaining_agents(
         self, channel_id: str, thread_ts: str, default: list[str] | None = None
