@@ -136,6 +136,7 @@ System operational parameters, security guardrails, and timeouts are managed by 
 | `max_tool_iterations` | `3` | Maximum tool execution iterations per single agent turn. |
 | `tool_call_num_retries` | `2` | Number of retries permitted for transient tool invocation failures. |
 | `word_limit_grace_buffer` | `50` | Word count buffer above `max_words` before mechanical truncation is applied. |
+| `output_constraints` | `{"default_max_words": 200, "short_max_words": 100}` | Configurable prompt word ceilings (clamped `1..2000`) for `output_constraints.md` (`default_max_words`) and `output_constraints_short.md` (`short_max_words`); limits `< 60` switch prompts to compact mode. |
 | `thread_cleanup_interval_seconds` | `600.0` | Frequency in seconds for pruning idle in-memory thread states (10 minutes). |
 | `audit_integrity_check_interval_seconds` | `43200.0` | Frequency in seconds for verifying the cryptographic hash chain of audit logs (12 hours). |
 | `skill_exclusions_sync_interval_seconds` | `86400.0` | Frequency in seconds for periodic synchronization of Presidio skill keyword exclusions (24 hours). |

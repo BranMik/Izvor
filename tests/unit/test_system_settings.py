@@ -290,4 +290,41 @@ def test_shared_evidence_max_chars_persistence_and_env(tmp_path):
             os.environ["IZVOR_SHARED_EVIDENCE_MAX_CHARS"] = old_env
 
 
+def test_output_constraints_defaults_clamping_and_persistence(tmp_path):
+    from orchestration.system_settings import (
+        get_output_constraints,
+        get_output_max_words,
+        set_output_constraints,
+    )
+
+    settings_file = tmp_path / "system_settings.json"
+    mgr = SystemSettingsManager(settings_file=settings_file, auto_load=True)
+
+    assert mgr.get_output_constraints() == {"default_max_words": 200, "short_max_words": 100}
+    assert mgr.get_output_max_words(is_short=False) == 200
+    assert mgr.get_output_max_words(is_short=True) == 100
+
+    # Clamping to INT_MODIFIER_BOUNDS["max_words"] (1..2000)
+    mgr.set_output_constraints(default_max_words=5000, short_max_words=0)
+    assert mgr.get_output_constraints() == {"default_max_words": 2000, "short_max_words": 1}
+
+    # Reload from disk
+    mgr2 = SystemSettingsManager(settings_file=settings_file, auto_load=True)
+    assert mgr2.get_output_constraints() == {"default_max_words": 2000, "short_max_words": 1}
+
+    # Invalid/bool values on disk fall back to defaults (200 / 100), negative values clamp to 1
+    settings_file.write_text(
+        json.dumps({"output_constraints": {"default_max_words": True, "short_max_words": -15}}),
+        encoding="utf-8",
+    )
+    mgr2.load(force=True)
+    assert mgr2.get_output_constraints() == {"default_max_words": 200, "short_max_words": 1}
+
+    # Module-level helpers
+    set_output_constraints(default_max_words=280, short_max_words=85)
+    assert get_output_constraints() == {"default_max_words": 280, "short_max_words": 85}
+    assert get_output_max_words(is_short=False) == 280
+    assert get_output_max_words(is_short=True) == 85
+
+
 

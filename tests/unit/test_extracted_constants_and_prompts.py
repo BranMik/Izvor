@@ -5,6 +5,7 @@ from orchestration.system_settings import (
     get_max_tool_iterations,
     get_tool_call_num_retries,
     get_word_limit_grace_buffer,
+    get_output_constraints,
     get_guardrail_embedding_cache_size,
     get_thread_cleanup_interval_seconds,
     get_audit_integrity_check_interval_seconds,
@@ -68,6 +69,7 @@ def test_system_settings_extracted_constants_defaults():
     assert get_max_tool_iterations() == 3
     assert get_tool_call_num_retries() == 2
     assert get_word_limit_grace_buffer() == 50
+    assert get_output_constraints() == {"default_max_words": 200, "short_max_words": 100}
     assert get_guardrail_embedding_cache_size() == 500
     assert get_thread_cleanup_interval_seconds() == 600.0
     assert get_audit_integrity_check_interval_seconds() == 43200.0
@@ -117,4 +119,33 @@ def test_apply_mechanical_word_limit_with_grace_buffer():
     # Explicit custom grace buffer override
     truncated_custom = apply_mechanical_word_limit(text_70, max_words=10, grace_buffer=5)
     assert len(truncated_custom.split()) == 15
+
+
+def test_sync_output_constraints_refreshes_cached_agent_prompts():
+    import json
+    import os
+    from orchestration.agent_settings import settings_manager
+
+    # Ensure initial sync matches defaults (200 / 100)
+    settings_manager.sync_output_constraints_if_changed()
+    assert "strictly NOT exceed 200 words" in settings_manager.agents_config["agent-10008"]["system_prompt"]
+    assert "strictly NOT exceed 100 words" in settings_manager.agents_config["agent-10010"]["system_prompt"]
+    assert settings_manager.sync_output_constraints_if_changed() is False
+
+    # Simulate external runtime edit to system_settings.json on disk
+    sys_file = system_settings_manager.active_settings_file
+    data = json.loads(sys_file.read_text(encoding="utf-8"))
+    data["output_constraints"] = {"default_max_words": 260, "short_max_words": 50}
+    sys_file.write_text(json.dumps(data), encoding="utf-8")
+    # Bump mtime cleanly to guarantee detection even on coarse filesystem timestamp granularity
+    stat = sys_file.stat()
+    os.utime(sys_file, (stat.st_atime + 2.0, stat.st_mtime + 2.0))
+
+    assert settings_manager.sync_output_constraints_if_changed() is True
+    assert "strictly NOT exceed 260 words" in settings_manager.agents_config["agent-10008"]["system_prompt"]
+    assert "strictly NOT exceed 50 words" in settings_manager.agents_config["agent-10010"]["system_prompt"]
+    assert "Compact Override:" in settings_manager.agents_config["agent-10010"]["system_prompt"]
+    assert "<output_contract>" not in settings_manager.agents_config["agent-10010"]["system_prompt"]
+    assert "strictly NOT exceed 260 words" in settings_manager.system_agents_config["Challenger"]["system_prompt"]
+    assert settings_manager.sync_output_constraints_if_changed() is False
 

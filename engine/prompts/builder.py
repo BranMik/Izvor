@@ -163,28 +163,63 @@ def _format_word_constraints(
     return "\n".join(constraints)
 
 
+def _resolve_configured_max_words(
+    use_short: bool,
+    default_max_words: int | None = None,
+    short_max_words: int | None = None,
+) -> int:
+    """Resolves the configured default or short output word limit clamped to INT_MODIFIER_BOUNDS['max_words']."""
+    from core.models import INT_MODIFIER_BOUNDS
+
+    min_b, max_b = INT_MODIFIER_BOUNDS["max_words"]
+    override = short_max_words if use_short else default_max_words
+    if override is not None:
+        return max(min_b, min(max_b, int(override)))
+    try:
+        from orchestration.system_settings import get_output_max_words
+
+        return max(min_b, min(max_b, int(get_output_max_words(is_short=use_short))))
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"[PROMPT BUILDER] Falling back to default output_constraints limit: {e}")
+        return 100 if use_short else 200
+
+
 def _build_output_constraints(
     agent_key: str,
     max_words: int | None = None,
     min_words: int | None = None,
     is_short_output: bool | None = None,
+    default_max_words: int | None = None,
+    short_max_words: int | None = None,
 ) -> tuple[str, bool]:
     """
     Constructs the <output_and_length_constraints> block and returns (block, is_compact_mode).
-    When max_words < COMPACT_WORD_THRESHOLD, switches to compact mode (omits 3-part bullets and
-    signals that persona <output_contract> formatting is overridden).
+    Uses system_settings output_constraints limits when max_words/min_words are not explicitly set.
+    When the active max_words (explicit or configured) < COMPACT_WORD_THRESHOLD, switches to compact
+    mode (omits 3-part bullets and signals that persona <output_contract> formatting is overridden).
     When max_words >= COMPACT_WORD_THRESHOLD or only min_words is set, preserves shared structural
-    rules (Rules 2-4) while replacing Rule 1's hardcoded ceiling with active bounds.
+    rules (Rules 2-4) while replacing Rule 1 with the active bounds.
     """
-    word_constraints = _format_word_constraints(max_words=max_words, min_words=min_words)
     use_short = is_short_output if is_short_output is not None else is_short_output_agent(agent_key)
-    base_filename = "output_constraints_100w.md" if use_short else "output_constraints.md"
+    base_filename = "output_constraints_short.md" if use_short else "output_constraints.md"
     base_constraints = _read_prompt_file(SHARED_DIR / base_filename)
 
+    if max_words is not None:
+        effective_max: int | None = max_words
+    elif min_words is not None:
+        effective_max = None
+    else:
+        effective_max = _resolve_configured_max_words(
+            use_short=use_short,
+            default_max_words=default_max_words,
+            short_max_words=short_max_words,
+        )
+
+    word_constraints = _format_word_constraints(max_words=effective_max, min_words=min_words)
     if not word_constraints:
         return base_constraints, False
 
-    if max_words is not None and max_words < COMPACT_WORD_THRESHOLD:
+    if effective_max is not None and effective_max < COMPACT_WORD_THRESHOLD:
         compact_block = (
             "<output_and_length_constraints>\n"
             "OUTPUT & LENGTH CONSTRAINTS:\n\n"
@@ -216,6 +251,8 @@ def build_agent_prompt(
     is_short_output: bool | None = None,
     channel_id: str | None = None,
     thread_ts: str | None = None,
+    default_max_words: int | None = None,
+    short_max_words: int | None = None,
 ) -> str:
     """
     Builds the complete system prompt for a given agent by combining
@@ -223,8 +260,8 @@ def build_agent_prompt(
     and equipped skills guidelines where appropriate.
 
     If max_words or min_words is specified:
-    - Completely skips adding output_constraints.md / output_constraints_100w.md text.
-    - Adds only the simple constraint for max_words and/or min_words.
+    - Uses output_constraints.md / output_constraints_short.md Rules 2-4 with updated Rule 1 bounds
+      (or switches to compact mode and strips persona <output_contract> when max_words < COMPACT_WORD_THRESHOLD).
     """
     persona_file_sys = SYSTEM_AGENTS_DIR / f"{agent_key}.md"
     if persona_file_sys.exists():
@@ -252,6 +289,8 @@ def build_agent_prompt(
         max_words=effective_max,
         min_words=effective_min,
         is_short_output=is_short_output,
+        default_max_words=default_max_words,
+        short_max_words=short_max_words,
     )
     if is_compact_mode:
         persona_content = _strip_output_contract(persona_content)

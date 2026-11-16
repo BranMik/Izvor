@@ -69,6 +69,7 @@ class ResolutionStage:
         """Stage 2: Agent config lookup, fallback rotation, and circuit breaker verification."""
         post_sys_msg = getattr(self.deps, "post_system_message_fn", None) or post_system_message
 
+        settings_manager.sync_output_constraints_if_changed()
         agents_map = settings_manager.agents_config or AGENTS_CONFIG
 
         if ctx.agent_key not in agents_map:

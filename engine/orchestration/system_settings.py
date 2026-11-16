@@ -59,6 +59,20 @@ def _expand_env_vars_in_dict(d: dict[str, Any], env: Mapping[str, str] | None = 
     return res
 
 
+def _clamp_output_max_words(val: Any, default: int) -> int:
+    """Clamps a configured output_constraints word limit to INT_MODIFIER_BOUNDS['max_words']."""
+    from core.models import INT_MODIFIER_BOUNDS
+
+    min_b, max_b = INT_MODIFIER_BOUNDS["max_words"]
+    if isinstance(val, bool) or val is None:
+        return default
+    try:
+        parsed = int(val)
+    except (TypeError, ValueError):
+        return default
+    return max(min_b, min(max_b, parsed))
+
+
 class McpServerConfig(BaseModel):
     enabled: bool = True
     transport: Literal["stdio", "sse", "streamable_http"] = "stdio"
@@ -105,6 +119,12 @@ class SystemSettingsModel(BaseModel):
     max_tool_iterations: int = 3
     tool_call_num_retries: int = 2
     word_limit_grace_buffer: int = 50
+    output_constraints: dict[str, Any] = Field(
+        default_factory=lambda: {
+            "default_max_words": 200,
+            "short_max_words": 100,
+        }
+    )
     system_agent_inference_timeout_seconds: float = 20.0
     system_agent_inference_retry_timeout_multiplier: float = 1.5
     guardrail_embedding_cache_size: int = 500
@@ -203,6 +223,10 @@ class SystemSettingsManager:
         self.max_tool_iterations: int = 3
         self.tool_call_num_retries: int = 2
         self.word_limit_grace_buffer: int = 50
+        self.output_constraints: dict[str, int] = {
+            "default_max_words": 200,
+            "short_max_words": 100,
+        }
         self.system_agent_inference_timeout_seconds: float = 20.0
         self.system_agent_inference_retry_timeout_multiplier: float = 1.5
         self.guardrail_embedding_cache_size: int = 500
@@ -333,6 +357,18 @@ class SystemSettingsManager:
                 "guardrail_threshold": float(_get("guardrail_threshold", 0.85)),
             }
 
+    def _parse_output_constraints(self, raw_oc: Any) -> None:
+        if isinstance(raw_oc, dict):
+            self.output_constraints = {
+                "default_max_words": _clamp_output_max_words(raw_oc.get("default_max_words"), 200),
+                "short_max_words": _clamp_output_max_words(raw_oc.get("short_max_words"), 100),
+            }
+        else:
+            self.output_constraints = {
+                "default_max_words": 200,
+                "short_max_words": 100,
+            }
+
     def _apply_model_to_fields(self, model: SystemSettingsModel) -> None:
         self.default_fast_model = (
             str(model.default_fast_model).strip() or "gemini/gemini-3.8-flash"
@@ -361,6 +397,7 @@ class SystemSettingsManager:
         self.max_tool_iterations = int(model.max_tool_iterations)
         self.tool_call_num_retries = int(model.tool_call_num_retries)
         self.word_limit_grace_buffer = int(model.word_limit_grace_buffer)
+        self._parse_output_constraints(getattr(model, "output_constraints", None))
         self.system_agent_inference_timeout_seconds = float(model.system_agent_inference_timeout_seconds)
         self.system_agent_inference_retry_timeout_multiplier = float(model.system_agent_inference_retry_timeout_multiplier)
         self.guardrail_embedding_cache_size = int(model.guardrail_embedding_cache_size)
@@ -462,6 +499,7 @@ class SystemSettingsManager:
             "max_tool_iterations": self.max_tool_iterations,
             "tool_call_num_retries": self.tool_call_num_retries,
             "word_limit_grace_buffer": self.word_limit_grace_buffer,
+            "output_constraints": dict(self.output_constraints),
             "system_agent_inference_timeout_seconds": self.system_agent_inference_timeout_seconds,
             "system_agent_inference_retry_timeout_multiplier": self.system_agent_inference_retry_timeout_multiplier,
             "guardrail_embedding_cache_size": self.guardrail_embedding_cache_size,
@@ -841,6 +879,33 @@ class SystemSettingsManager:
         self.load()
         return int(self.word_limit_grace_buffer)
 
+    def get_output_constraints(self) -> dict[str, int]:
+        self.load()
+        return dict(self.output_constraints)
+
+    def get_output_max_words(self, is_short: bool = False) -> int:
+        self.load()
+        key = "short_max_words" if is_short else "default_max_words"
+        default = 100 if is_short else 200
+        return _clamp_output_max_words(self.output_constraints.get(key), default)
+
+    def set_output_constraints(
+        self,
+        default_max_words: int | None = None,
+        short_max_words: int | None = None,
+        save: bool = True,
+    ) -> None:
+        self.load()
+        updated = dict(self.output_constraints)
+        if default_max_words is not None:
+            updated["default_max_words"] = _clamp_output_max_words(default_max_words, 200)
+        if short_max_words is not None:
+            updated["short_max_words"] = _clamp_output_max_words(short_max_words, 100)
+        self.output_constraints = updated
+        if save:
+            self.save()
+        logger.info(f"[SYSTEM_SETTINGS] Set output_constraints to {self.output_constraints}.")
+
     def get_system_agent_inference_timeout_seconds(self, env: Mapping[str, str] | None = None) -> float:
         self.load()
         active_env = env if env is not None else os.environ
@@ -1150,6 +1215,26 @@ def get_tool_call_num_retries() -> int:
 
 def get_word_limit_grace_buffer() -> int:
     return system_settings_manager.get_word_limit_grace_buffer()
+
+
+def get_output_constraints() -> dict[str, int]:
+    return system_settings_manager.get_output_constraints()
+
+
+def get_output_max_words(is_short: bool = False) -> int:
+    return system_settings_manager.get_output_max_words(is_short=is_short)
+
+
+def set_output_constraints(
+    default_max_words: int | None = None,
+    short_max_words: int | None = None,
+    save: bool = True,
+) -> None:
+    system_settings_manager.set_output_constraints(
+        default_max_words=default_max_words,
+        short_max_words=short_max_words,
+        save=save,
+    )
 
 
 def get_system_agent_inference_timeout_seconds(env: Mapping[str, str] | None = None) -> float:

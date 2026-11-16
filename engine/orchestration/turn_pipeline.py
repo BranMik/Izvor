@@ -576,6 +576,7 @@ class TurnPipeline:
         ctx.is_open_debate = thread_state_manager.is_open_debate(ctx.input.channel_id, ctx.input.thread_ts)
         ctx.full_history = list(chk.accumulated_history or [])
 
+        settings_manager.sync_output_constraints_if_changed()
         agents_map = settings_manager.agents_config or AGENTS_CONFIG
         ctx.agent_cfg = dict(agents_map.get(ctx.agent_key, {}))
 

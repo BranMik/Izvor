@@ -1,7 +1,7 @@
 <output_and_length_constraints>
 OUTPUT & LENGTH CONSTRAINTS:
 
-1. Hard Limit: Your entire response must strictly NOT exceed 200 words.
+1. Hard Limit: Your entire response must strictly NOT exceed {max_words} words.
 2. Your answer must contain at least these 3 things (translate all section labels/headings into the designated thread language):
     - 1 sentence stating your core verdict/concern.
     - 2-3 concise bullet points explaining key risks or requirements.
