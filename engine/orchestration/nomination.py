@@ -64,8 +64,9 @@ def resolve_target_file(
     # Fallback to local default agents_resources/ directory if target filename is requested
     if target_filename:
         try:
-            from services.local_tools import AGENTS_RESOURCES_DIR, _resolve_resource_path
+            from services.local_tools import _resolve_resource_path, get_agents_resources_dir
 
+            resources_dir = get_agents_resources_dir()
             try:
                 target_path = _resolve_resource_path(target_filename)
                 if target_path.exists() and target_path.is_file():
@@ -74,22 +75,22 @@ def resolve_target_file(
                         "name": target_path.name,
                         "size": target_path.stat().st_size,
                         "is_resource_file": True,
-                        "rel_path": str(target_path.relative_to(AGENTS_RESOURCES_DIR)).replace("\\", "/"),
+                        "rel_path": str(target_path.relative_to(resources_dir)).replace("\\", "/"),
                     }
             except (ValueError, PermissionError):
                 pass
 
-            # Also check case-insensitive match in AGENTS_RESOURCES_DIR
-            if AGENTS_RESOURCES_DIR.exists():
+            # Also check case-insensitive match in active resources_dir
+            if resources_dir.exists():
                 target_lower = target_filename.lower()
-                for entry in AGENTS_RESOURCES_DIR.iterdir():
+                for entry in resources_dir.iterdir():
                     if entry.is_file() and entry.name.lower() == target_lower:
                         return {
                             "id": f"resource_{entry.name}",
                             "name": entry.name,
                             "size": entry.stat().st_size,
                             "is_resource_file": True,
-                            "rel_path": str(entry.relative_to(AGENTS_RESOURCES_DIR)).replace("\\", "/"),
+                            "rel_path": str(entry.relative_to(resources_dir)).replace("\\", "/"),
                         }
         except (OSError, ValueError, AttributeError) as e:
             logger.debug(f"[NOMINATION] Error resolving target file from agents_resources: {e}")

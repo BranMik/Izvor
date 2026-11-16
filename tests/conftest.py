@@ -451,11 +451,17 @@ async def async_noop_sleep(*args, **kwargs):
 def reset_router_and_llm_di_for_tests():
     """Guarantees that all in-memory DI overrides for router, LLM, slack messages, and usage tracking are cleanly reset."""
     from core.llm_utils import reset_llm_completion_fn, reset_llm_sleep_fn
-    from core.config import reset_token, set_internal_revisor_enabled_override
+    from core.config import (
+        reset_token,
+        set_admin_slack_user_ids_override,
+        set_internal_revisor_enabled_override,
+    )
     from orchestration.agent_router import (
         reset_guardrail_checker,
+        reset_router_deps,
         reset_router_sleep_fn,
     )
+    from services.web_tools import reset_web_fetch_fn, reset_web_search_fn
     from orchestration.thread_state import thread_state_manager
     from services.slack import (
         reset_fetch_thread_files,
@@ -476,12 +482,16 @@ def reset_router_and_llm_di_for_tests():
     yield
 
     set_internal_revisor_enabled_override(None)
+    set_admin_slack_user_ids_override(None)
     reset_token()
     reset_slack_async_client()
     reset_llm_completion_fn()
     reset_llm_sleep_fn()
     reset_router_sleep_fn()
+    reset_router_deps()
     reset_guardrail_checker()
+    reset_web_search_fn()
+    reset_web_fetch_fn()
     thread_state_manager.reset_capacity()
     thread_state_manager.reset_task_dispatcher()
     reset_post_agent_response()
