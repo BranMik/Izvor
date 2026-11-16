@@ -26,6 +26,10 @@
   "max_tool_iterations": 3,
   "tool_call_num_retries": 2,
   "word_limit_grace_buffer": 50,
+  "output_constraints": {
+    "default_max_words": 200,
+    "short_max_words": 100
+  },
   "system_agent_inference_timeout_seconds": 20.0,
   "system_agent_inference_retry_timeout_multiplier": 1.5,
   "guardrail_embedding_cache_size": 500,

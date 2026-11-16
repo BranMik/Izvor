@@ -115,6 +115,7 @@ class AgentSettingsManager:
         self._raw_data: dict[str, Any] = {}
         self._custom_challenger_agent: str | None = None
         self._custom_arbitrator_agent: str | None = None
+        self._rendered_output_constraints: tuple[int, int] | None = None
 
         if auto_load:
             self.load()
@@ -217,6 +218,7 @@ class AgentSettingsManager:
         self.default_system_agent_backup_file = SYSTEM_AGENT_BACKUP_FILE
         self._custom_challenger_agent = None
         self._custom_arbitrator_agent = None
+        self._rendered_output_constraints = None
         self.workflow_manager.reset_paths()
 
     @property
@@ -426,6 +428,11 @@ class AgentSettingsManager:
             return False
 
 
+        oc = self.system_settings.get_output_constraints()
+        default_max_w = oc["default_max_words"]
+        short_max_w = oc["short_max_words"]
+        self._rendered_output_constraints = (default_max_w, short_max_w)
+
         valid_agents: dict[str, dict[str, Any]] = {}
         for key, cfg in raw_agents.items():
             if self._validate_agent_entry(key, cfg):
@@ -442,7 +449,13 @@ class AgentSettingsManager:
                     "icon_url": cfg["icon_url"].strip(),
                     "is_short_output": is_short,
                     "skills": skills,
-                    "system_prompt": build_agent_prompt(key, skills=skills, is_short_output=is_short),
+                    "system_prompt": build_agent_prompt(
+                        key,
+                        skills=skills,
+                        is_short_output=is_short,
+                        default_max_words=default_max_w,
+                        short_max_words=short_max_w,
+                    ),
                 }
                 valid_agents[key] = agent_entry
 
@@ -603,7 +616,13 @@ class AgentSettingsManager:
                         else:
                             sys_entry["skills"] = []
                         if is_dialectical_system_agent(sys_k):
-                            sys_entry["system_prompt"] = build_agent_prompt(sys_k, skills=sys_entry["skills"])
+                            oc = self.system_settings.get_output_constraints()
+                            sys_entry["system_prompt"] = build_agent_prompt(
+                                sys_k,
+                                skills=sys_entry["skills"],
+                                default_max_words=oc["default_max_words"],
+                                short_max_words=oc["short_max_words"],
+                            )
                         if sys_entry:
                             self.system_agents_config[sys_k] = sys_entry
 
@@ -1094,10 +1113,14 @@ class AgentSettingsManager:
             s.strip() for s in skills if isinstance(s, str) and s.strip()
         ]
         self.agents_config[agent_key]["skills"] = sanitized_skills
+        oc = self.system_settings.get_output_constraints()
+        self._rendered_output_constraints = (oc["default_max_words"], oc["short_max_words"])
         self.agents_config[agent_key]["system_prompt"] = build_agent_prompt(
             agent_key,
             skills=sanitized_skills,
             is_short_output=bool(self.agents_config[agent_key].get("is_short_output", False)),
+            default_max_words=oc["default_max_words"],
+            short_max_words=oc["short_max_words"],
         )
         if save:
             self.save()
@@ -1106,19 +1129,36 @@ class AgentSettingsManager:
 
     def refresh_agent_prompts(self) -> None:
         """Refreshes all in-memory agent system prompts."""
+        oc = self.system_settings.get_output_constraints()
+        default_max_w = oc["default_max_words"]
+        short_max_w = oc["short_max_words"]
         for agent_key, cfg in self.agents_config.items():
             cfg["system_prompt"] = build_agent_prompt(
                 agent_key,
                 skills=cfg.get("skills"),
                 is_short_output=bool(cfg.get("is_short_output", False)),
+                default_max_words=default_max_w,
+                short_max_words=short_max_w,
             )
         for sys_key, sys_cfg in self.system_agents_config.items():
             if is_dialectical_system_agent(sys_key):
                 sys_cfg["system_prompt"] = build_agent_prompt(
                     sys_key,
                     skills=sys_cfg.get("skills"),
+                    default_max_words=default_max_w,
+                    short_max_words=short_max_w,
                 )
+        self._rendered_output_constraints = (default_max_w, short_max_w)
         logger.info(f"[SETTINGS] Refreshed system prompts for {len(self.agents_config)} agents and dialectical system agents.")
+
+    def sync_output_constraints_if_changed(self) -> bool:
+        """Refreshes cached agent prompts if output_constraints changed in system_settings."""
+        oc = self.system_settings.get_output_constraints()
+        current = (oc["default_max_words"], oc["short_max_words"])
+        if self._rendered_output_constraints != current:
+            self.refresh_agent_prompts()
+            return True
+        return False
 
     def set_agent_model(self, agent_key: str, model: str, save: bool = True) -> bool:
         """Sets the LLM model for a panel agent and persists to settings JSON."""

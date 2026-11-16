@@ -166,10 +166,11 @@ def test_all_shared_prompts_enforce_2026_xml_and_zero_you_are():
     shared_files = {
         "fixed_constraints.md": "<shared_platform_constraints>",
         "output_constraints.md": "<output_and_length_constraints>",
-        "output_constraints_100w.md": "<output_and_length_constraints>",
+        "output_constraints_short.md": "<output_and_length_constraints>",
         "nomination_rules.md": "<speaker_nomination_protocol>",
     }
     shared_dir = PROMPTS_DIR / "shared"
+    assert not (shared_dir / "output_constraints_100w.md").exists()
     for filename, expected_xml_tag in shared_files.items():
         file_path = shared_dir / filename
         assert file_path.exists(), f"Missing shared prompt file: {file_path}"
@@ -178,6 +179,8 @@ def test_all_shared_prompts_enforce_2026_xml_and_zero_you_are():
         assert expected_xml_tag.replace("<", "</") in content, f"Missing closing tag for {expected_xml_tag} in {filename}"
         assert "You are" not in content, f"Found 'You are' in {filename}"
         assert "you are" not in content.lower(), f"Found 'you are' in {filename}"
+        if filename.startswith("output_constraints"):
+            assert "{max_words}" in content, f"Missing {{max_words}} placeholder in {filename}"
 
 
 def test_system_agents_critical_runtime_contracts():
@@ -242,7 +245,7 @@ def test_build_agent_prompt_with_max_words():
     assert "nominate the next agent" in prompt
     assert "Aim to answer in the same language as user prompt is made." in prompt
 
-    # Short output agent with tight limit: skips 100w limit and 3-part bullets, strips <output_contract>
+    # Short output agent with tight limit: skips short default limit and 3-part bullets, strips <output_contract>
     prompt_short = build_agent_prompt("agent-10010", max_words=30)
     assert "Hard Limit: Your entire response must strictly NOT exceed 30 words." in prompt_short
     assert "Hard Limit: Your entire response must strictly NOT exceed 100 words." not in prompt_short
@@ -285,7 +288,7 @@ def test_build_agent_prompt_with_min_words():
     assert "<output_contract>" in prompt
     assert "nominate the next agent" in prompt
 
-    # Short output agent with min_words only: replaces 100w ceiling with min_words
+    # Short output agent with min_words only: replaces short default ceiling with min_words
     prompt_short = build_agent_prompt("agent-10010", min_words=40)
     assert "Minimum Length: Your entire response must have a minimum length of 40 words." in prompt_short
     assert "Hard Limit: Your entire response must strictly NOT exceed 100 words." not in prompt_short
@@ -345,3 +348,49 @@ def test_system_agent_detection_and_prompts():
     assert '<system_agent_specification id="Arbitrator" role="Arbitrator"' in prompt_arbitrator
     assert "Hard Limit: Your entire response must strictly NOT exceed 200 words." in prompt_arbitrator
     assert "nominate the next agent" in prompt_arbitrator
+
+
+def test_configurable_output_constraints_from_system_settings():
+    from orchestration.system_settings import set_output_constraints
+
+    set_output_constraints(default_max_words=350, short_max_words=75)
+
+    prompt_standard = build_agent_prompt("agent-10008")
+    assert "Hard Limit: Your entire response must strictly NOT exceed 350 words." in prompt_standard
+    assert "{max_words}" not in prompt_standard
+    assert "<output_contract>" in prompt_standard
+    assert "1 sentence stating your core verdict/concern." in prompt_standard
+
+    prompt_short = build_agent_prompt("agent-10010")
+    assert "Hard Limit: Your entire response must strictly NOT exceed 75 words." in prompt_short
+    assert "{max_words}" not in prompt_short
+    assert "<output_contract>" in prompt_short
+    assert "1 sentence stating your core verdict/concern." in prompt_short
+
+    prompt_challenger = build_agent_prompt("Challenger")
+    assert "Hard Limit: Your entire response must strictly NOT exceed 350 words." in prompt_challenger
+
+    # Configured limit < 60 triggers compact mode and strips <output_contract>
+    set_output_constraints(default_max_words=45, short_max_words=35)
+
+    compact_standard = build_agent_prompt("agent-10008")
+    assert "Hard Limit: Your entire response must strictly NOT exceed 45 words." in compact_standard
+    assert "Compact Override:" in compact_standard
+    assert "<output_contract>" not in compact_standard
+    assert "1 sentence stating your core verdict/concern." not in compact_standard
+
+    compact_short = build_agent_prompt("agent-10010")
+    assert "Hard Limit: Your entire response must strictly NOT exceed 35 words." in compact_short
+    assert "Compact Override:" in compact_short
+    assert "<output_contract>" not in compact_short
+
+    # Explicit max_words / min_words override configured limits
+    explicit_override = build_agent_prompt("agent-10010", max_words=150)
+    assert "Hard Limit: Your entire response must strictly NOT exceed 150 words." in explicit_override
+    assert "Compact Override:" not in explicit_override
+    assert "<output_contract>" in explicit_override
+
+    min_only_override = build_agent_prompt("agent-10008", min_words=80)
+    assert "Minimum Length: Your entire response must have a minimum length of 80 words." in min_only_override
+    assert "Hard Limit:" not in min_only_override
+    assert "<output_contract>" in min_only_override
