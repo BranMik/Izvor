@@ -38,7 +38,7 @@ def atomic_write_json(
         prefix=f"{file_path.name}.tmp_",
     )
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
             json.dump(data, f, indent=2)
             f.flush()
             os.fsync(f.fileno())
