@@ -131,7 +131,7 @@ If setting up scopes manually under **OAuth & Permissions**:
   ```
   https://<your-domain>/slack/interactivity
   ```
-- This URL handles App Home configuration modal submissions, persona toggles, and dropdown interactions ([`adapters/slack/interactivity.py`](file:///engine/adapters/slack/interactivity.py)).
+- This URL handles App Home configuration modal submissions, persona toggles, dropdown interactions, in-thread Human-in-the-Loop (HITL) tool approval buttons (`Approve` / `Deny`), and Spend Governance Circuit Breaker resume buttons (`Continue Sequence`) ([`adapters/slack/interactivity.py`](file:///engine/adapters/slack/interactivity.py)).
 - Click **Save Changes**.
 
 ---
@@ -153,5 +153,7 @@ If setting up scopes manually under **OAuth & Permissions**:
 2. Click **Install to Workspace** and authorize the requested permissions.
 3. Copy the **Bot User OAuth Token** (starts with `xoxb-...`). Set this as `SLACK_BOT_TOKEN` in your `.env`.
 4. Go to **Basic Information**, scroll to **App Credentials**, and copy the **Signing Secret**. Set this as `SLACK_SIGNING_SECRET` in your `.env`.
+5. Add your Slack Member ID(s) to `SLACK_ADMIN_USER_IDS` in `.env` so you can access administrative controls in the App Home tab and execute admin-gated slash directives.
+6. Set `BASE_AVATAR_URL` in `.env` to your public HTTPS URL (e.g., `https://<your-domain>/`) so Slack can load custom persona avatars.
 
 Restart the Izvor application. You can now invite `@Izvor` to any Slack channel or send a direct message to start deliberating!

@@ -55,7 +55,7 @@ data/flat-histories/<prompt_prefix_10>_<thread_ts_10>.md
 
 ### 3. File Format Structure
 ```markdown
-# Conversation History: 1790455185.000100
+# Thread Conversation History
 
 - **Thread TS:** `1790455185.000100`
 - **Channel ID:** `C0123456789`
