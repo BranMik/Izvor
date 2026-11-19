@@ -157,6 +157,7 @@ Copy your public HTTPS tunnel hostname (e.g., `https://izvor.yourdomain.com` or 
    GEMINI_API_KEY=your-gemini-api-key
    MISTRAL_API_KEY=your-mistral-api-key
    ```
+   A key for at least one model is required for application to work, but preferably several. Default (built-in) agents use Mistral, Gemini, Anthropic and OpenAI models. If some of those is not present they will fall-back to whichever is available.
 2. Start the FastAPI server (so it can answer Slack's webhook `url_verification` challenge in Step 4):
    ```bash
    uvicorn main:app --host 0.0.0.0 --port 8000 --reload
@@ -169,13 +170,13 @@ Follow the complete [Slack App Setup Guide](docs/getting-started/slack-app-setup
 2. Paste the ready-made JSON manifest from [docs/getting-started/slack-app-setup.md](docs/getting-started/slack-app-setup.md#app-manifest-configuration-recommended), replacing `https://<your-domain>` with your Cloudflare Tunnel hostname:
    - **Event Subscriptions Request URL**: `https://<your-tunnel-hostname>/slack/events`
    - **Interactivity Request URL**: `https://<your-tunnel-hostname>/slack/interactivity`
-3. Install the app to your workspace, then copy your **Bot User OAuth Token** (`xoxb-...`), **Signing Secret**, and your Slack Member ID into `.env`:
+1. Install the app to your workspace, then copy your **Bot User OAuth Token** (`xoxb-...`), **Signing Secret** (after clicking "App Settings"), and your Slack Member ID (from user profile in the Slack UI) into `.env`:
    ```ini
    SLACK_BOT_TOKEN=xoxb-your-bot-user-oauth-token
    SLACK_SIGNING_SECRET=your-slack-signing-secret
    SLACK_ADMIN_USER_IDS=U0123456789
    ```
-4. Restart `uvicorn main:app --host 0.0.0.0 --port 8000 --reload`, verify `curl http://localhost:8000/health`, and invite `@Izvor` to any Slack channel (`/invite @Izvor`)!
+2. Restart `uvicorn main:app --host 0.0.0.0 --port 8000 --reload`, verify `curl http://localhost:8000/health`, and invite `@Izvor` to any Slack channel (`/invite @Izvor`)!
 
 ---
 
