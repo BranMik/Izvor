@@ -21,7 +21,7 @@ Izvor replaces isolated prompt-response pairs with structured **dialectical pane
 
 ## 2. Physical & Layered Architecture
 
-Izvor combines a **3-Pillar Physical Separation** on disk ([engine/core/paths.py](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/core/paths.py)) with a **4-Layer Hexagonal (Ports & Adapters) Dependency Architecture** enforced via AST static analysis ([tests/unit/test_architecture_layers.py](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/tests/unit/test_architecture_layers.py)).
+Izvor combines a **3-Pillar Physical Separation** on disk ([engine/core/paths.py](../../engine/core/paths.py)) with a **4-Layer Hexagonal (Ports & Adapters) Dependency Architecture** enforced via AST static analysis ([tests/unit/test_architecture_layers.py](../../tests/unit/test_architecture_layers.py)).
 
 ### Diagram 1: 3-Pillar Physical Layout & 4-Layer Dependency Hierarchy
 
@@ -50,26 +50,26 @@ flowchart TD
     end
 ```
 
-### 2.1 The 3 Physical Pillars ([engine/core/paths.py](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/core/paths.py))
+### 2.1 The 3 Physical Pillars ([engine/core/paths.py](../../engine/core/paths.py))
 
-All filesystem paths are centrally anchored in [engine/core/paths.py](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/core/paths.py) (which imports only Python's standard-library `os` and `pathlib.Path` to guarantee zero circular imports) and support `IZVOR_*` environment variable overrides for hermetic testing:
+All filesystem paths are centrally anchored in [engine/core/paths.py](../../engine/core/paths.py) (which imports only Python's standard-library `os` and `pathlib.Path` to guarantee zero circular imports) and support `IZVOR_*` environment variable overrides for hermetic testing:
 
 | Pillar | Canonical Path Constant | Contents & Responsibility |
 | :--- | :--- | :--- |
-| **`config/`** *(Implementer Tier)* | `CONFIG_DIR` | Declarative domain customization: [agent_settings.json](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/config/settings/agent_settings.json), [system_settings.json](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/config/settings/system_settings.json), 16 persona prompts in [config/personas/](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/config/personas), 4 configurable agent skills in [config/skills/](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/config/skills), custom workflow presets in [config/workflows/](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/config/workflows), RAG documents in [config/rag_knowledge/](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/config/rag_knowledge), and custom avatars in [config/avatars/](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/config/avatars). |
-| **`engine/`** *(Core Engine Tier)* | `ENGINE_DIR` | Immutable application logic (**134 Python modules** across 10 packages), built-in system agent definitions in [engine/settings/system_agent_settings.json](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/settings/system_agent_settings.json), 3 protected seed workflows in [engine/workflows/](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/workflows), 17 built-in directive/control-plane skills in [engine/skills/builtin/](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/skills/builtin), system agent prompts in [engine/prompts/system_agents/](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/prompts/system_agents), and fallback avatars in [engine/avatars/](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/avatars). |
-| **`data/`** *(Runtime & UI Tier)* | `DATA_DIR` | Mutable operational state: SQLite WAL database (`data/izvor.db`), Slack App Home settings ([data/state/app_settings.json](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/data/state/app_settings.json)), Presidio skill vocabulary exclusions ([data/state/presidio_skill_exclusions.json](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/data/state/presidio_skill_exclusions.json)), monthly HMAC audit logs (`data/audit/`), rolling backups (`data/backups/`), pricing cache (`data/pricing/`), exported Markdown transcripts (`data/flat-histories/`), and LanceDB vector indices (`data/.rag_cache/lancedb/`). |
+| **`config/`** *(Implementer Tier)* | `CONFIG_DIR` | Declarative domain customization: [agent_settings.json](../../config/settings/agent_settings.json), [system_settings.json](../../config/settings/system_settings.json), 16 persona prompts in [config/personas/](../../config/personas), 4 configurable agent skills in [config/skills/](../../config/skills), custom workflow presets in [config/workflows/](../../config/workflows), RAG documents in [config/rag_knowledge/](../../config/rag_knowledge), and custom avatars in [config/avatars/](../../config/avatars). |
+| **`engine/`** *(Core Engine Tier)* | `ENGINE_DIR` | Immutable application logic (**134 Python modules** across 10 packages), built-in system agent definitions in [engine/settings/system_agent_settings.json](../../engine/settings/system_agent_settings.json), 3 protected seed workflows in [engine/workflows/](../../engine/workflows), 17 built-in directive/control-plane skills in [engine/skills/builtin/](../../engine/skills/builtin), system agent prompts in [engine/prompts/system_agents/](../../engine/prompts/system_agents), and fallback avatars in [engine/avatars/](../../engine/avatars). |
+| **`data/`** *(Runtime & UI Tier)* | `DATA_DIR` | Mutable operational state: SQLite WAL database (`data/izvor.db`), Slack App Home settings ([data/state/app_settings.json](../../data/state/app_settings.json)), Presidio skill vocabulary exclusions ([data/state/presidio_skill_exclusions.json](../../data/state/presidio_skill_exclusions.json)), monthly HMAC audit logs (`data/audit/`), rolling backups (`data/backups/`), pricing cache (`data/pricing/`), exported Markdown transcripts (`data/flat-histories/`), and LanceDB vector indices (`data/.rag_cache/lancedb/`). |
 | **`agents_resources/`** *(Sandbox)* | `AGENTS_RESOURCES_DIR` | Strictly sandboxed read/write workspace for agent document tools (`read_document`, `write_document`, `list_documents`) and Scribe note exports (`agents_resources/thread_notes/`). |
 
 ### 2.2 Strict Layer Isolation & Inversion-of-Control (IoC) Wiring
-As verified by [test_architecture_layers.py](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/tests/unit/test_architecture_layers.py):
+As verified by [test_architecture_layers.py](../../tests/unit/test_architecture_layers.py):
 - **Zero Upward Imports in `engine/core/`**: Modules in `engine/core/` never import from `adapters`, `orchestration`, `services`, `pipeline`, `skills`, or `prompts` (neither top-level nor deferred).
-- **Startup IoC Hook Registration**: Higher-layer services inject callbacks into `engine/core/` during startup in [main.py](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/main.py#L46-L50):
+- **Startup IoC Hook Registration**: Higher-layer services inject callbacks into `engine/core/` during startup in [main.py](../../main.py#L46-L50):
   - `set_audit_logger_hook(log_audit_event)`
   - `set_secret_scanner_hook(scan_output_for_secrets)`
   - `set_pii_masker_instance(pii_masker)`
-  - `set_skill_registry_provider(...)` (wired in [engine/skills/loader.py](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/skills/loader.py))
-  - `set_db_busy_timeout_provider(...)` (wired in [engine/orchestration/system_settings.py](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/orchestration/system_settings.py))
+  - `set_skill_registry_provider(...)` (wired in [engine/skills/loader.py](../../engine/skills/loader.py))
+  - `set_db_busy_timeout_provider(...)` (wired in [engine/orchestration/system_settings.py](../../engine/orchestration/system_settings.py))
 - **Sanitized Slack Egress Boundary**: Direct calls to `chat_postMessage`, `chat_update`, or `chat_postEphemeral` outside `engine/services/slack/` are prohibited by AST test `test_slack_client_chat_not_called_outside_allowed_modules`, ensuring every outbound message passes through mention sanitization (`<!here>`, `<!channel>`, `<!everyone>` neutralization) and secret scanning.
 - **No `await` Inside Synchronous DB Transactions**: Enforced by AST test `test_no_await_inside_sync_db_transactions` across the entire repository to prevent SQLite connection lock deadlocks.
 
@@ -77,7 +77,7 @@ As verified by [test_architecture_layers.py](file:///c:/Users/Hp/Documents/agy2-
 
 ## 3. Ingress Lifecycle, FastAPI Lifespan & Background Services
 
-Izvor runs as a single-worker (`WEB_CONCURRENCY=1`) asynchronous ASGI service in [main.py](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/main.py) to coordinate in-memory `asyncio.Task` cancellation and generation-based turn superseding per Slack thread.
+Izvor runs as a single-worker (`WEB_CONCURRENCY=1`) asynchronous ASGI service in [main.py](../../main.py) to coordinate in-memory `asyncio.Task` cancellation and generation-based turn superseding per Slack thread.
 
 ### Diagram 2: Webhook Ingress, FastAPI Lifespan & Background Daemons
 
@@ -116,24 +116,24 @@ sequenceDiagram
     end
 ```
 
-### 3.1 Startup Initialization & Lifespan Daemons ([main.py](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/main.py#L160-L295))
+### 3.1 Startup Initialization & Lifespan Daemons ([main.py](../../main.py#L160-L295))
 During FastAPI `lifespan` startup, Izvor executes fail-fast checks and concurrent warm-ups before accepting traffic:
-1. **SQLite Schema & Migrations (`init_db()`)**: Initializes `data/izvor.db` in `WAL` mode and runs 6 numbered `PRAGMA user_version` migrations across 11 tables ([engine/core/database.py](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/core/database.py#L281-L288)).
-2. **Audit Configuration & Startup Integrity Verification**: Calls `validate_audit_configuration()` and `AppIntegrityValidator.check_audit_log_integrity()` ([integrity_checks.py](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/orchestration/integrity_checks.py)). If hash chain corruption or an `AUDIT_HMAC_SECRET` mismatch is detected, dispatches an immediate high-priority DM alert to `SLACK_ADMIN_USER_IDS`.
+1. **SQLite Schema & Migrations (`init_db()`)**: Initializes `data/izvor.db` in `WAL` mode and runs 6 numbered `PRAGMA user_version` migrations across 11 tables ([engine/core/database.py](../../engine/core/database.py#L281-L288)).
+2. **Audit Configuration & Startup Integrity Verification**: Calls `validate_audit_configuration()` and `AppIntegrityValidator.check_audit_log_integrity()` ([integrity_checks.py](../../engine/orchestration/integrity_checks.py)). If hash chain corruption or an `AUDIT_HMAC_SECRET` mismatch is detected, dispatches an immediate high-priority DM alert to `SLACK_ADMIN_USER_IDS`.
 3. **Concurrent Warm-Up Gather**: Concurrently executes `pricing_service.warm_up_cache()`, `rag_sync_engine.reconcile()`, `prune_expired_records()`, `pii_masker.warm_up()`, and `mcp_client_manager.discover_all_enabled_servers()`.
 4. **Five Continuous Background Daemons**:
    - `keep_loop_alive()` (Windows `win32` only): Wakes `ProactorEventLoop` every `0.5s` so idle sockets never freeze.
    - `periodic_thread_state_cleanup()`: Runs every `600s` (`thread_cleanup_interval_seconds`) to evict expired in-memory thread states (`ttl_seconds=3600s`, `max_tracked_threads=500`) and purge old Slack file downloads.
    - `periodic_audit_integrity_guard()`: Runs every `43,200s` (12 hours, `audit_integrity_check_interval_seconds`) to verify cryptographic hash continuity and SQLite `audit_anchors` head hashes.
-   - `periodic_retention_prune()`: Runs every `86,400s` (24 hours) via [retention_service.py](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/services/retention_service.py) to redact sensitive payloads from resolved checkpoints and purge expired rows (`turn_checkpoints`: 7d, `turn_traces`: 30d, `event_dedup`: 1d).
+   - `periodic_retention_prune()`: Runs every `86,400s` (24 hours) via [retention_service.py](../../engine/services/retention_service.py) to redact sensitive payloads from resolved checkpoints and purge expired rows (`turn_checkpoints`: 7d, `turn_traces`: 30d, `event_dedup`: 1d).
    - `periodic_skill_exclusions_sync()`: Runs every 24 hours to reload `SkillRegistry` and synchronize skill/tool names into `data/state/presidio_skill_exclusions.json` so Presidio NER never masks legitimate skill or persona identifiers.
 
 ---
 
 ## 4. Agent Roster: Debate Personas & System Agents
 
-### 4.1 The 16 Debate Panel Personas ([config/settings/agent_settings.json](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/config/settings/agent_settings.json))
-Each persona is defined by a Markdown system prompt in [config/personas/](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/config/personas) (`agent-10001.md` through `agent-10016.md`) and configured in `config/settings/agent_settings.json`:
+### 4.1 The 16 Debate Panel Personas ([config/settings/agent_settings.json](../../config/settings/agent_settings.json))
+Each persona is defined by a Markdown system prompt in [config/personas/](../../config/personas) (`agent-10001.md` through `agent-10016.md`) and configured in `config/settings/agent_settings.json`:
 
 | Agent ID | Username | Display Name | Default Model | Short Output (`70w`) | Default Assigned Skills |
 | :--- | :--- | :--- | :--- | :---: | :--- |
@@ -154,20 +154,20 @@ Each persona is defined by a Markdown system prompt in [config/personas/](file:/
 | `agent-10015` | `Revisor` | Revisor | `gemini/gemini-3.8-flash` | No | `web_research`, `knowledge_base_rag` |
 | `agent-10016` | `CreativeAdvisor` | Creative Advisor | `gemini/gemini-3.8-flash` | No | `document_authoring`, `document_reader`, `knowledge_base_rag`, `web_research` |
 
-### 4.2 The 5 System Agents & Orchestrator ([engine/settings/system_agent_settings.json](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/settings/system_agent_settings.json))
-System agents handle dialectical governance, verification, and synthesis, with prompt templates stored in [engine/prompts/system_agents/](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/prompts/system_agents):
+### 4.2 The 5 System Agents & Orchestrator ([engine/settings/system_agent_settings.json](../../engine/settings/system_agent_settings.json))
+System agents handle dialectical governance, verification, and synthesis, with prompt templates stored in [engine/prompts/system_agents/](../../engine/prompts/system_agents):
 1. **`Challenger` (*Dialectical Challenger*, `mistral/mistral-large-latest`)**: Turn-taking dialectical system agent equipped with `document_reader`, `knowledge_base_rag`, and `control_plane`. Injected automatically when premature consensus is reached to attack unexamined assumptions.
 2. **`Arbitrator` (*Arbitrator*, `mistral/mistral-large-latest`)**: Turn-taking dialectical judge equipped with `document_reader`, `knowledge_base_rag`, and `control_plane`. Evaluates the *Challenger*'s critique and renders **Verdict A** (consensus upheld → fast-forward to `end_chain`) or **Verdict B** (consensus failed → return to open debate).
 3. **`InternalRevisor` (*Internal Revisor*, `mistral/mistral-small-latest`)**: Post-turn fact-checker that screens every completed turn against `<authoritative_ground_truth>` and escalates flagged hallucinations to the reasoning confirmation model (`orchestrator.reasoning_model`).
 4. **`DiscussionScribe` (*Discussion Scribe*, `mistral/mistral-small-latest`)**: Generates live pinned thread briefs (`Discussion_Scribe_Live.md`) and final structured conclusion notes (`Discussion_Scribe_Conclusion.md`), persisted to SQLite `thread_notes_state` and `agents_resources/thread_notes/`.
 5. **`list_skills` (*Skills Directory Presenter*, `gemini/gemini-3.8-flash`)**: Invoked by `/list_skills` to present the thread-aware catalog of skills and authorized personas.
-6. **Auxiliary NLP & Pricing Prompts**: `Intent_Extractor.md` ([intent_extractor.py](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/nlp/intent_extractor.py)), `Language_Detector.md` ([language_detector.py](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/nlp/language_detector.py)), and `Pricing_Agent.md` ([pricing_service.py](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/services/pricing_service.py)), driven by `orchestrator.fast_model` (`gemini/gemini-3.8-flash`) and `orchestrator.reasoning_model` (`mistral/mistral-large-latest`).
+6. **Auxiliary NLP & Pricing Prompts**: `Intent_Extractor.md` ([intent_extractor.py](../../engine/nlp/intent_extractor.py)), `Language_Detector.md` ([language_detector.py](../../engine/nlp/language_detector.py)), and `Pricing_Agent.md` ([pricing_service.py](../../engine/services/pricing_service.py)), driven by `orchestrator.fast_model` (`gemini/gemini-3.8-flash`) and `orchestrator.reasoning_model` (`mistral/mistral-large-latest`).
 
 ---
 
 ## 5. Orchestration Engine: `DiscussionLoop` & 5-Stage `TurnPipeline`
 
-### 5.1 `DiscussionLoop` ([engine/orchestration/discussion_loop.py](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/orchestration/discussion_loop.py))
+### 5.1 `DiscussionLoop` ([engine/orchestration/discussion_loop.py](../../engine/orchestration/discussion_loop.py))
 `DiscussionLoop` executes multi-turn deliberations in-memory without relying on Slack webhook bounce-backs:
 - **Workflow Snapshotting**: Snapshots the active workflow configuration at Turn 1 (`thread_state_manager.set_workflow_snapshot`) so mid-debate admin edits in Slack App Home never corrupt an in-flight thread.
 - **Generation-Based Superseding**: When a human posts a new message in an active thread, `thread_state_manager.increment_generation` increments the thread's generation counter and cancels the prior `asyncio.Task`. In-flight stages check `ctx.is_superseded()` before LLM calls, tool loops, and Slack posts, aborting cleanly if superseded.
@@ -247,32 +247,32 @@ flowchart TD
 
 ### 5.2 Key Stage Innovations Verified in Live Code
 - **User-Only Stage 1 Parsing**: Expensive operations—vector prompt injection check (`guardrail_service.is_prompt_injection`), hybrid regex + LLM directive extraction (`directive_parser.parse`), language locking, and Slack attachment downloads—execute **only** when `not ctx.input.is_bot_trigger`. Subsequent agent turns bypass these steps at zero token cost.
-- **Deterministic Missing-Skill Short-Circuit**: When a user prompt is a pure skill task (`is_pure_skill_task == True`, e.g., reading a document or searching the web) and the current agent lacks the required skill or file ACL (with no prior verified skill output in the round), `ExecutionStage` short-circuits the LLM call and emits a deterministic notice recommending a single best-fit authorized agent by `username` ([select_recommended_agent_from_keys](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/skills/loader.py#L160-L218)).
+- **Deterministic Missing-Skill Short-Circuit**: When a user prompt is a pure skill task (`is_pure_skill_task == True`, e.g., reading a document or searching the web) and the current agent lacks the required skill or file ACL (with no prior verified skill output in the round), `ExecutionStage` short-circuits the LLM call and emits a deterministic notice recommending a single best-fit authorized agent by `username` ([select_recommended_agent_from_keys](../../engine/skills/loader.py#L160-L218)).
 - **Dual-Layer Word Limit Enforcement**:
-  1. *Prompt Layer ([builder.py](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/prompts/builder.py#L187-L243))*: Injects `default_max_words` (`150`) or `short_max_words` (`70` for `is_short_output: true` agents), or switches to **Compact Override Mode** when `max_words < 60` (stripping multi-section `<output_contract>` blocks).
-  2. *Mechanical Fail-Safe Layer ([post_record.py](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/orchestration/stages/post_record.py#L61-L99))*: `apply_mechanical_word_limit` truncates responses exceeding `max_words + word_limit_grace_buffer` (`50` words, or `0` buffer when `max_words < 20`) while extracting and preserving trailing `/[Agent]` nomination tags so turn handoffs never break.
+  1. *Prompt Layer ([builder.py](../../engine/prompts/builder.py#L187-L243))*: Injects `default_max_words` (`150`) or `short_max_words` (`70` for `is_short_output: true` agents), or switches to **Compact Override Mode** when `max_words < 60` (stripping multi-section `<output_contract>` blocks).
+  2. *Mechanical Fail-Safe Layer ([post_record.py](../../engine/orchestration/stages/post_record.py#L61-L99))*: `apply_mechanical_word_limit` truncates responses exceeding `max_words + word_limit_grace_buffer` (`50` words, or `0` buffer when `max_words < 20`) while extracting and preserving trailing `/[Agent]` nomination tags so turn handoffs never break.
 - **503 High-Demand Specialist Rotation & 429 Retry Queue**: If an LLM provider returns HTTP 503 during a *Sandwich* middle-pool turn, `PostRecordStage.handle_error` defers the faulted agent right before the `end_chain` and hands off to the next specialist so the discussion continues uninterrupted.
 
 ---
 
 ## 6. Deliberation Topologies, Workflows & Dialectical Convergence
 
-### 6.1 Two-Tier Workflow Preset Management ([engine/orchestration/workflow_manager.py](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/orchestration/workflow_manager.py))
+### 6.1 Two-Tier Workflow Preset Management ([engine/orchestration/workflow_manager.py](../../engine/orchestration/workflow_manager.py))
 `WorkflowManager` merges two directories of workflow presets while protecting reserved system default IDs (`REQUIRED_DEFAULT_WORKFLOW_IDS`):
-1. **Immutable Engine Seed Workflows ([engine/workflows/](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/workflows))**:
-   - [default_review_flow.json](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/workflows/default_review_flow.json) (`mode: "fixed"`): `Visionary` → `Innovator` → `Sceptic` → `Tactician` → `ProductStrategist`.
-   - [default_sandwich.json](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/workflows/default_sandwich.json) (`mode: "sandwich"`):
+1. **Immutable Engine Seed Workflows ([engine/workflows/](../../engine/workflows))**:
+   - [default_review_flow.json](../../engine/workflows/default_review_flow.json) (`mode: "fixed"`): `Visionary` → `Innovator` → `Sceptic` → `Tactician` → `ProductStrategist`.
+   - [default_sandwich.json](../../engine/workflows/default_sandwich.json) (`mode: "sandwich"`):
      - `start_chain`: `ScopeOptimizer` (`agent-10005`), `Visionary` (`agent-10001`), `UserAdvocate` (`agent-10007`)
      - `middle_pool`: All remaining enabled debate personas (dynamic peer nomination)
      - `end_chain`: `SecurityArchitect` (`agent-10008`), `Sceptic` (`agent-10003`), `Revisor` (`agent-10015`)
-   - [parallel_dialectic_flow.json](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/workflows/parallel_dialectic_flow.json) (`mode: "scatter_gather"`):
+   - [parallel_dialectic_flow.json](../../engine/workflows/parallel_dialectic_flow.json) (`mode: "scatter_gather"`):
      - `start_chain`: `Visionary` (`agent-10001`)
      - `scatter_agents`: All remaining non-end-chain specialists executing concurrently in isolated `asyncio.TaskGroup` branches
      - `end_chain`: `ROIStrategist` (`agent-10006`)
-2. **Implementer Custom Workflows ([config/workflows/](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/config/workflows))**:
-   - [idea_architecture_feasibility_review.json](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/config/workflows/idea_architecture_feasibility_review.json) (`mode: "fixed"`, 9-turn chain)
-   - [idea_conceptual_feasibility_review.json](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/config/workflows/idea_conceptual_feasibility_review.json) (`mode: "fixed"`, 9-turn chain)
-   - [quick_tech_triage.json](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/config/workflows/quick_tech_triage.json) (`mode: "fixed"`, `LegalAdvisor` → `SecurityArchitect`)
+2. **Implementer Custom Workflows ([config/workflows/](../../config/workflows))**:
+   - [idea_architecture_feasibility_review.json](../../config/workflows/idea_architecture_feasibility_review.json) (`mode: "fixed"`, 9-turn chain)
+   - [idea_conceptual_feasibility_review.json](../../config/workflows/idea_conceptual_feasibility_review.json) (`mode: "fixed"`, 9-turn chain)
+   - [quick_tech_triage.json](../../config/workflows/quick_tech_triage.json) (`mode: "fixed"`, `LegalAdvisor` → `SecurityArchitect`)
 
 ### Diagram 4: Topologies & Challenger → Arbitrator Convergence State Machine
 
@@ -336,12 +336,12 @@ stateDiagram-v2
 
 ## 7. Hybrid State Persistence & 3-Tier Context Memory
 
-### 7.1 `ThreadStateManager` Facade ([engine/orchestration/thread_state.py](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/orchestration/thread_state.py))
-`ThreadStateManager` coordinates four specialized domain stores in [engine/orchestration/state/](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/orchestration/state/__init__.py) backed by SQLite WAL transactions:
-1. **`DiscussionStateStore` ([discussion_store.py](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/orchestration/state/discussion_store.py))**: Tracks active `asyncio.Task` handles, `remaining_agents` (nullable to distinguish uninitialized vs. exhausted queues), `custom_flow`, `open_debate`, `stop_requested`, `rounds`, `round_sequence`, `workflow_snapshot`, `consensus_reached`, `convergence_speakers`, `initial_prompt`, `active_prompt`, and `is_pure_skill_task`.
-2. **`TurnRetryStateStore` ([retry_store.py](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/orchestration/state/retry_store.py))**: Manages per-thread generation counters (`get_generation`, `increment_generation`), 429 rate-limit retry queues, and 503 high-demand error tracking.
-3. **`ThreadContextStore` ([context_store.py](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/orchestration/state/context_store.py))**: Persists `/history` window cutoffs (`HistoryLimitConfig`), `max_words`, `min_words`, `scribe_max_words`, `scribe_min_words`, locked thread `language`, `excluded_agents`, `included_agents`, `format_modifiers`, and attached `file_context` (`FileContext`).
-4. **`RoundEvidenceStore` ([evidence_store.py](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/orchestration/state/evidence_store.py))**: Caches read-only tool outputs (`web_search`, `fetch_web_page`, `read_document`, `list_documents`, `search_knowledge_rag`) per round so downstream agents and `InternalRevisor` share verified evidence without redundant tool calls.
+### 7.1 `ThreadStateManager` Facade ([engine/orchestration/thread_state.py](../../engine/orchestration/thread_state.py))
+`ThreadStateManager` coordinates four specialized domain stores in [engine/orchestration/state/](../../engine/orchestration/state/__init__.py) backed by SQLite WAL transactions:
+1. **`DiscussionStateStore` ([discussion_store.py](../../engine/orchestration/state/discussion_store.py))**: Tracks active `asyncio.Task` handles, `remaining_agents` (nullable to distinguish uninitialized vs. exhausted queues), `custom_flow`, `open_debate`, `stop_requested`, `rounds`, `round_sequence`, `workflow_snapshot`, `consensus_reached`, `convergence_speakers`, `initial_prompt`, `active_prompt`, and `is_pure_skill_task`.
+2. **`TurnRetryStateStore` ([retry_store.py](../../engine/orchestration/state/retry_store.py))**: Manages per-thread generation counters (`get_generation`, `increment_generation`), 429 rate-limit retry queues, and 503 high-demand error tracking.
+3. **`ThreadContextStore` ([context_store.py](../../engine/orchestration/state/context_store.py))**: Persists `/history` window cutoffs (`HistoryLimitConfig`), `max_words`, `min_words`, `scribe_max_words`, `scribe_min_words`, locked thread `language`, `excluded_agents`, `included_agents`, `format_modifiers`, and attached `file_context` (`FileContext`).
+4. **`RoundEvidenceStore` ([evidence_store.py](../../engine/orchestration/state/evidence_store.py))**: Caches read-only tool outputs (`web_search`, `fetch_web_page`, `read_document`, `list_documents`, `search_knowledge_rag`) per round so downstream agents and `InternalRevisor` share verified evidence without redundant tool calls.
 
 ### Diagram 5: 3-Tier Memory Architecture & 11-Table SQLite Schema (`data/izvor.db`)
 
@@ -377,46 +377,46 @@ flowchart LR
 
 ## 8. Declarative Skills Engine, Hybrid RAG & External MCP Integration
 
-### 8.1 Declarative `SKILL.md` Architecture ([engine/skills/loader.py](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/skills/loader.py))
+### 8.1 Declarative `SKILL.md` Architecture ([engine/skills/loader.py](../../engine/skills/loader.py))
 Every skill in Izvor is defined by a `SKILL.md` file with mandatory YAML frontmatter (`name`, `display_name`, `description`, `scope`, `requires_human_ITL`, `requires_admin`, `triggers`) and optional `action.py` (orchestrator/directive handler) or `tools.py` (custom tool schemas and handlers).
 
-#### A. Extensible Implementer-Configurable Agent Tool Skills (4 OOB in [config/skills/](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/config/skills))
+#### A. Extensible Implementer-Configurable Agent Tool Skills (4 OOB in [config/skills/](../../config/skills))
 | Skill Name | Scope | Slash Triggers | Requires Admin | Requires HITL | Bound Tools & Capabilities |
 | :--- | :--- | :--- | :---: | :---: | :--- |
-| [`document_reader`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/config/skills/document_reader/SKILL.md) | `agent` | `/read_file`, `/read-file`, `/file`, `/attachment`, `/document_reader` | No | No | `list_documents`, `read_document` (sandboxed to `agents_resources/`, supports TXT/MD/PDF via `pypdf`, enforces per-file `authorized_agents` ACLs, `handles_files: true`). |
-| [`document_authoring`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/config/skills/document_authoring/SKILL.md) | `agent` | `/document_authoring`, `/authoring`, `/write_doc` | No | **Yes** | `write_document` (sandboxed to `agents_resources/`, blocks protected paths & >1MB writes, requires Slack HITL approval). |
-| [`knowledge_base_rag`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/config/skills/knowledge_base_rag/SKILL.md) | `agent` | `/rag`, `/search_docs`, `/knowledge` | No | No | `search_knowledge_rag` ([tools.py](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/config/skills/knowledge_base_rag/tools.py)) — queries `RAGService` across `scope="all"` (shared + agent knowledge) or `scope="self"`. |
-| [`web_research`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/config/skills/web_research/SKILL.md) | `agent` | `/web_research`, `/webresearch` | No | No | `web_search` (DuckDuckGo HTML endpoint) and `fetch_web_page` (DNS-pinned, SSRF-guarded HTTPX scraper, max 10 fetches/turn). |
+| [`document_reader`](../../config/skills/document_reader/SKILL.md) | `agent` | `/read_file`, `/read-file`, `/file`, `/attachment`, `/document_reader` | No | No | `list_documents`, `read_document` (sandboxed to `agents_resources/`, supports TXT/MD/PDF via `pypdf`, enforces per-file `authorized_agents` ACLs, `handles_files: true`). |
+| [`document_authoring`](../../config/skills/document_authoring/SKILL.md) | `agent` | `/document_authoring`, `/authoring`, `/write_doc` | No | **Yes** | `write_document` (sandboxed to `agents_resources/`, blocks protected paths & >1MB writes, requires Slack HITL approval). |
+| [`knowledge_base_rag`](../../config/skills/knowledge_base_rag/SKILL.md) | `agent` | `/rag`, `/search_docs`, `/knowledge` | No | No | `search_knowledge_rag` ([tools.py](../../config/skills/knowledge_base_rag/tools.py)) — queries `RAGService` across `scope="all"` (shared + agent knowledge) or `scope="self"`. |
+| [`web_research`](../../config/skills/web_research/SKILL.md) | `agent` | `/web_research`, `/webresearch` | No | No | `web_search` (DuckDuckGo HTML endpoint) and `fetch_web_page` (DNS-pinned, SSRF-guarded HTTPX scraper, max 10 fetches/turn). |
 
-#### B. 17 Built-in Control-Plane & Directive Skills ([engine/skills/builtin/](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/skills/builtin))
+#### B. 17 Built-in Control-Plane & Directive Skills ([engine/skills/builtin/](../../engine/skills/builtin))
 | Skill Name | Scope | Registered Slash Triggers (`SKILL.md`) | Requires Admin | Purpose & Behavior |
 | :--- | :--- | :--- | :---: | :--- |
-| [`control_plane`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/skills/builtin/control_plane/SKILL.md) | `orchestrator` (`global: true`) | *(None — Agent Tool)* | No | Provides `nominate_next_speaker` (with dynamic non-self peer enum), `request_user_clarification`, and `signal_consensus_convergence`. |
-| [`first`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/skills/builtin/first/SKILL.md) | `orchestrator` | `/first` | No | Designates the first speaker for the debate while preserving the remaining panel (`auto_detect: false`). |
-| [`open_debate`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/skills/builtin/open_debate/SKILL.md) | `orchestrator` | `/open_debate`, `/open-debate`, `/opendebate` | No | Starts an open debate with a designated speaker without fixed start/end chains (`auto_detect: false`). |
-| [`rounds`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/skills/builtin/rounds/SKILL.md) | `orchestrator` | `/rounds`, `/round`, `/next_round`, `/next-round`, `/nextround` | No | Sets or advances deliberation rounds (`1..5`) for the thread (`auto_detect: false`, slash-origin gated). |
-| [`stop_discussion`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/skills/builtin/stop_discussion/SKILL.md) | `orchestrator` | `/stop` | No | Terminal command (`terminal: true`, `auto_detect: false`) that immediately halts active tasks in the thread. |
-| [`exclude_agents`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/skills/builtin/exclude_agents/SKILL.md) | `orchestrator` | `/exclude` | No (`off`=Admin) | Excludes specified personas from participating in the thread (`auto_detect: true`). |
-| [`include_agents`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/skills/builtin/include_agents/SKILL.md) | `orchestrator` | `/include` | No (`off`=Admin) | Explicitly adds personas to the thread's active deliberation pool (`auto_detect: true`). |
-| [`grant_skill`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/skills/builtin/grant_skill/SKILL.md) | `orchestrator` | `/grant_skill`, `/grant-skill` | **Yes** | Grants an ephemeral thread-scoped skill to specific agent(s) (`auto_detect: false`). |
-| [`grant_skill_for_all`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/skills/builtin/grant_skill_for_all/SKILL.md) | `orchestrator` | `/grant_skill_for_all`, `/grant-skill-for-all`, `/grant_for_all`, `/grant-for-all` | **Yes** | Grants skill(s) to all agents in the thread for `thread_skill_expiration_time` hours (`auto_detect: false`). |
-| [`revoke_skill_for_all`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/skills/builtin/revoke_skill_for_all/SKILL.md) | `orchestrator` | `/revoke_skill_for_all`, `/revoke-skill-for-all`, `/revoke_for_all` | **Yes** | Revokes thread-scoped skill grants (`auto_detect: false`). |
-| [`list_skills`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/skills/builtin/list_skills/SKILL.md) | `orchestrator` | `/list_skills`, `/list-skills`, `/skills` | No | Invokes the `list_skills` system agent to display all skills and agent permissions (`auto_detect: false`). |
-| [`max_words`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/skills/builtin/max_words/SKILL.md) | `prompt_modifier` | `/max_words`, `/max-words`, `/maxwords`, `/max` | No (`off`=Admin) | Sets maximum word limit per turn (`1..2000` or `off`, `auto_detect: true`). |
-| [`min_words`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/skills/builtin/min_words/SKILL.md) | `prompt_modifier` | `/min_words`, `/min-words`, `/minwords`, `/min` | No (`off`=Admin) | Sets minimum word length per turn (`1..1000` or `off`, `auto_detect: true`). |
-| [`scribe_max_words`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/skills/builtin/scribe_max_words/SKILL.md) | `orchestrator` | `/scribe_max_words`, `/scribe-max-words`, `/scribemaxwords` | No (`off`=Admin) | Sets word ceiling (`1..2000` or `off`) for Discussion Scribe notes (`auto_detect: true`). |
-| [`scribe_min_words`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/skills/builtin/scribe_min_words/SKILL.md) | `orchestrator` | `/scribe_min_words`, `/scribe-min-words`, `/scribeminwords` | No (`off`=Admin) | Sets minimum word count (`1..2000` or `off`) for Discussion Scribe notes (`auto_detect: true`). |
-| [`thread_history`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/skills/builtin/thread_history/SKILL.md) | `orchestrator` | `/history` | No | Truncates prior thread history window to the last `N` messages (`0..50`, `auto_detect: true`). |
-| [`revoke_constraint`](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/skills/builtin/revoke_constraint/SKILL.md) | `orchestrator` | `/revoke_constraint`, `/revoke-constraint`, `/revoke` | **Yes** | Clears thread word limits, language lock, inclusions, exclusions, modifiers, or `all` (`auto_detect: false`). |
+| [`control_plane`](../../engine/skills/builtin/control_plane/SKILL.md) | `orchestrator` (`global: true`) | *(None — Agent Tool)* | No | Provides `nominate_next_speaker` (with dynamic non-self peer enum), `request_user_clarification`, and `signal_consensus_convergence`. |
+| [`first`](../../engine/skills/builtin/first/SKILL.md) | `orchestrator` | `/first` | No | Designates the first speaker for the debate while preserving the remaining panel (`auto_detect: false`). |
+| [`open_debate`](../../engine/skills/builtin/open_debate/SKILL.md) | `orchestrator` | `/open_debate`, `/open-debate`, `/opendebate` | No | Starts an open debate with a designated speaker without fixed start/end chains (`auto_detect: false`). |
+| [`rounds`](../../engine/skills/builtin/rounds/SKILL.md) | `orchestrator` | `/rounds`, `/round`, `/next_round`, `/next-round`, `/nextround` | No | Sets or advances deliberation rounds (`1..5`) for the thread (`auto_detect: false`, slash-origin gated). |
+| [`stop_discussion`](../../engine/skills/builtin/stop_discussion/SKILL.md) | `orchestrator` | `/stop` | No | Terminal command (`terminal: true`, `auto_detect: false`) that immediately halts active tasks in the thread. |
+| [`exclude_agents`](../../engine/skills/builtin/exclude_agents/SKILL.md) | `orchestrator` | `/exclude` | No (`off`=Admin) | Excludes specified personas from participating in the thread (`auto_detect: true`). |
+| [`include_agents`](../../engine/skills/builtin/include_agents/SKILL.md) | `orchestrator` | `/include` | No (`off`=Admin) | Explicitly adds personas to the thread's active deliberation pool (`auto_detect: true`). |
+| [`grant_skill`](../../engine/skills/builtin/grant_skill/SKILL.md) | `orchestrator` | `/grant_skill`, `/grant-skill` | **Yes** | Grants an ephemeral thread-scoped skill to specific agent(s) (`auto_detect: false`). |
+| [`grant_skill_for_all`](../../engine/skills/builtin/grant_skill_for_all/SKILL.md) | `orchestrator` | `/grant_skill_for_all`, `/grant-skill-for-all`, `/grant_for_all`, `/grant-for-all` | **Yes** | Grants skill(s) to all agents in the thread for `thread_skill_expiration_time` hours (`auto_detect: false`). |
+| [`revoke_skill_for_all`](../../engine/skills/builtin/revoke_skill_for_all/SKILL.md) | `orchestrator` | `/revoke_skill_for_all`, `/revoke-skill-for-all`, `/revoke_for_all` | **Yes** | Revokes thread-scoped skill grants (`auto_detect: false`). |
+| [`list_skills`](../../engine/skills/builtin/list_skills/SKILL.md) | `orchestrator` | `/list_skills`, `/list-skills`, `/skills` | No | Invokes the `list_skills` system agent to display all skills and agent permissions (`auto_detect: false`). |
+| [`max_words`](../../engine/skills/builtin/max_words/SKILL.md) | `prompt_modifier` | `/max_words`, `/max-words`, `/maxwords`, `/max` | No (`off`=Admin) | Sets maximum word limit per turn (`1..2000` or `off`, `auto_detect: true`). |
+| [`min_words`](../../engine/skills/builtin/min_words/SKILL.md) | `prompt_modifier` | `/min_words`, `/min-words`, `/minwords`, `/min` | No (`off`=Admin) | Sets minimum word length per turn (`1..1000` or `off`, `auto_detect: true`). |
+| [`scribe_max_words`](../../engine/skills/builtin/scribe_max_words/SKILL.md) | `orchestrator` | `/scribe_max_words`, `/scribe-max-words`, `/scribemaxwords` | No (`off`=Admin) | Sets word ceiling (`1..2000` or `off`) for Discussion Scribe notes (`auto_detect: true`). |
+| [`scribe_min_words`](../../engine/skills/builtin/scribe_min_words/SKILL.md) | `orchestrator` | `/scribe_min_words`, `/scribe-min-words`, `/scribeminwords` | No (`off`=Admin) | Sets minimum word count (`1..2000` or `off`) for Discussion Scribe notes (`auto_detect: true`). |
+| [`thread_history`](../../engine/skills/builtin/thread_history/SKILL.md) | `orchestrator` | `/history` | No | Truncates prior thread history window to the last `N` messages (`0..50`, `auto_detect: true`). |
+| [`revoke_constraint`](../../engine/skills/builtin/revoke_constraint/SKILL.md) | `orchestrator` | `/revoke_constraint`, `/revoke-constraint`, `/revoke` | **Yes** | Clears thread word limits, language lock, inclusions, exclusions, modifiers, or `all` (`auto_detect: false`). |
 
-### 8.2 Hybrid Local RAG Engine ([engine/services/rag/](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/services/rag/service.py))
-- **Incremental Sync ([sync_engine.py](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/services/rag/sync_engine.py))**: Scans `config/rag_knowledge/shared/` and per-agent subdirectories (`config/rag_knowledge/agent-10008/`), tracks SHA-256 hashes in `data/.rag_cache/file_manifest.json`, chunks documents (`max_chunk_chars=1500`, `chunk_overlap_chars=300`), and generates 3072-dim embeddings via LiteLLM (`gemini/gemini-embedding-001` in [embeddings.py](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/services/rag/embeddings.py)).
-- **Hybrid Search ([vector_store.py](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/services/rag/vector_store.py))**: Combines dense cosine similarity search in LanceDB (`data/.rag_cache/lancedb/`) with Tantivy BM25 full-text search using Reciprocal Rank Fusion (RRF), falling back gracefully to BM25 if embedding generation fails.
-- **Retrieval-Time PII Masking**: Respects `rag.pii_masking` (`"AT_RETRIEVAL"`, `"AT_INDEXING"`, or `"NONE"`) and appends citation fidelity rules ([citation_instructions.md](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/services/rag/citation_instructions.md)).
+### 8.2 Hybrid Local RAG Engine ([engine/services/rag/](../../engine/services/rag/service.py))
+- **Incremental Sync ([sync_engine.py](../../engine/services/rag/sync_engine.py))**: Scans `config/rag_knowledge/shared/` and per-agent subdirectories (`config/rag_knowledge/agent-10008/`), tracks SHA-256 hashes in `data/.rag_cache/file_manifest.json`, chunks documents (`max_chunk_chars=1500`, `chunk_overlap_chars=300`), and generates 3072-dim embeddings via LiteLLM (`gemini/gemini-embedding-001` in [embeddings.py](../../engine/services/rag/embeddings.py)).
+- **Hybrid Search ([vector_store.py](../../engine/services/rag/vector_store.py))**: Combines dense cosine similarity search in LanceDB (`data/.rag_cache/lancedb/`) with Tantivy BM25 full-text search using Reciprocal Rank Fusion (RRF), falling back gracefully to BM25 if embedding generation fails.
+- **Retrieval-Time PII Masking**: Respects `rag.pii_masking` (`"AT_RETRIEVAL"`, `"AT_INDEXING"`, or `"NONE"`) and appends citation fidelity rules ([citation_instructions.md](../../engine/services/rag/citation_instructions.md)).
 
-### 8.3 External Model Context Protocol (MCP) Client Integration ([engine/services/mcp/](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/services/mcp/client_manager.py))
+### 8.3 External Model Context Protocol (MCP) Client Integration ([engine/services/mcp/](../../engine/services/mcp/client_manager.py))
 - **Transports**: Supports `stdio` subprocess servers and `sse` / `streamable_http` remote servers configured in `system_settings.json` (`mcp_servers`).
-- **Process & Environment Hardening ([windows_process.py](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/services/mcp/windows_process.py), [security_bridge.py](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/services/mcp/security_bridge.py))**: Strips sensitive host environment variables (`SLACK_*`, `*_API_KEY`, `AUDIT_HMAC_SECRET`) before spawning `stdio` MCP servers, assigns child processes to a Windows Job Object (`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`) to prevent orphan processes, namespaces tools as `mcp__{server}__{tool}`, and enforces HITL approval on mutating/destructive MCP tools.
+- **Process & Environment Hardening ([windows_process.py](../../engine/services/mcp/windows_process.py), [security_bridge.py](../../engine/services/mcp/security_bridge.py))**: Strips sensitive host environment variables (`SLACK_*`, `*_API_KEY`, `AUDIT_HMAC_SECRET`) before spawning `stdio` MCP servers, assigns child processes to a Windows Job Object (`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`) to prevent orphan processes, namespaces tools as `mcp__{server}__{tool}`, and enforces HITL approval on mutating/destructive MCP tools.
 
 ---
 
@@ -460,18 +460,18 @@ sequenceDiagram
 
 ### 9.1 Six-Layer Defense-in-Depth Security Model
 1. **Ingress Authentication & Burst Rate Limiting**:
-   - Slack requests require HMAC-SHA256 verification (`verify_slack_signature` in [slack_security.py](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/core/slack_security.py)).
-   - Admin REST API endpoints (`/api/*` in [main.py](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/main.py#L341-L423)) require HTTP Basic Auth (`secrets.compare_digest`) protected by a sliding-window IP brute-force limiter ([rate_limiter.py](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/services/rate_limiter.py), max 5 failures per 60s).
-2. **Vector Prompt Injection Guardrail ([guardrail.py](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/services/security/guardrail.py))**:
+   - Slack requests require HMAC-SHA256 verification (`verify_slack_signature` in [slack_security.py](../../engine/core/slack_security.py)).
+   - Admin REST API endpoints (`/api/*` in [main.py](../../main.py#L341-L423)) require HTTP Basic Auth (`secrets.compare_digest`) protected by a sliding-window IP brute-force limiter ([rate_limiter.py](../../engine/services/rate_limiter.py), max 5 failures per 60s).
+2. **Vector Prompt Injection Guardrail ([guardrail.py](../../engine/services/security/guardrail.py))**:
    - Embeds user prompts (with a 500-entry LRU cache) and queries the LanceDB `guardrail_signatures` table using cosine distance (`threshold = 0.85`). Supports configurable `guardrail_fail_mode` (`"open"` or `"closed"`).
-3. **Two-Way PII & Secret Masking ([pii_masker.py](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/services/security/pii_masker.py))**:
+3. **Two-Way PII & Secret Masking ([pii_masker.py](../../engine/services/security/pii_masker.py))**:
    - When `strict_privacy_mode_enabled` is active, outbound LLM prompts are scrubbed via deterministic regexes (API keys, JWTs, PEM keys, Slack tokens, emails, SSNs, credit cards, phone numbers, IPv4) and Microsoft Presidio NER (`PERSON`, `LOCATION`, `NRP`), replacing values with reversible placeholders (`<PERSON_1>`, `<EMAIL_1>`). Tool arguments and final Slack responses are unmasked via `turn_token_mapping`, while outbound responses are scanned by `scan_output_for_secrets` to block raw credential leaks.
-4. **Prompt Injection Delimiter Containment ([security_utils.py](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/core/security_utils.py))**:
+4. **Prompt Injection Delimiter Containment ([security_utils.py](../../engine/core/security_utils.py))**:
    - All external file contents, web pages, RAG excerpts, and tool results are sanitized (neutralizing any embedded closing tags) and wrapped in `<untrusted_file_content>...</untrusted_file_content>` tags.
-5. **Fail-Closed `ToolPrincipal` ACLs & SSRF-Safe Web Tools ([local_tools.py](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/services/local_tools.py), [web_tools.py](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/services/web_tools.py))**:
+5. **Fail-Closed `ToolPrincipal` ACLs & SSRF-Safe Web Tools ([local_tools.py](../../engine/services/local_tools.py), [web_tools.py](../../engine/services/web_tools.py))**:
    - Every tool invocation requires an explicit `ToolPrincipal(kind, id)` verified against `authorized_skills` and per-file `authorized_agents`.
    - `fetch_web_page` resolves DNS once, blocks private/loopback/link-local/cloud-metadata IP ranges (`169.254.169.254`, RFC1918, IPv6 unique-local), pins the validated IP at the transport layer to prevent DNS-rebinding TOCTOU attacks, restricts ports to `[80, 443]`, and caps response bodies at 2MB.
-6. **Non-Repudiable Cryptographic Audit Logging ([audit_logger.py](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/services/audit_logger.py), [integrity_checks.py](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/orchestration/integrity_checks.py))**:
+6. **Non-Repudiable Cryptographic Audit Logging ([audit_logger.py](../../engine/services/audit_logger.py), [integrity_checks.py](../../engine/orchestration/integrity_checks.py))**:
    - Security and administrative events are written to monthly `data/audit/audit_YYYY_MM.jsonl` files protected by a cross-process file lock (`.audit.lock`).
    - Each entry contains a monotonic sequence number `seq`, `prev_hash`, and an `HMAC-SHA256` `entry_hash` keyed by `AUDIT_HMAC_SECRET`.
    - Head hashes are anchored in the SQLite `audit_anchors` table to detect log truncation or trailing-line deletion, and `CRITICAL` security events dispatch real-time Slack DM alerts to workspace admins.
@@ -480,18 +480,18 @@ sequenceDiagram
 
 ## 10. Spend Governance, Slack App Home & Admin REST API
 
-### 10.1 Spend Governance & Autonomous Pricing ([pricing_service.py](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/services/pricing_service.py), [circuit_breaker.py](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/pipeline/spend_governance/circuit_breaker.py))
+### 10.1 Spend Governance & Autonomous Pricing ([pricing_service.py](../../engine/services/pricing_service.py), [circuit_breaker.py](../../engine/pipeline/spend_governance/circuit_breaker.py))
 - **Token & USD Accounting**: Every LLM completion and embedding batch records prompt/completion tokens and USD cost into the SQLite `spend_ledger` table.
 - **3-Tier Pricing Resolution**: Resolves per-token rates from (1) `data/pricing/model_pricing_cache.json` (7-day TTL refreshed asynchronously by `Pricing_Agent`), (2) `litellm.model_cost`, and (3) `data/pricing/baseline_prices.json`.
 - **Two-Tiered Circuit Breaker**: Enforces both per-thread limits (`circuit_breaker_threshold_usd`, default `$1.50`) and global workspace daily caps (`daily_budget_usd`, default `$10.00`), including mid-turn tool-loop budget checks (`_is_mid_turn_budget_exceeded`) and atomic `$0.05` branch reservations during Scatter-Gather execution.
 
-### 10.2 Slack App Home Control Plane ([engine/services/slack_home/](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/services/slack_home/__init__.py))
+### 10.2 Slack App Home Control Plane ([engine/services/slack_home/](../../engine/services/slack_home/__init__.py))
 Workspace administrators (`SLACK_ADMIN_USER_IDS`) manage the platform live inside the Slack App Home UI across three modular tabs:
-1. **Agents Tab ([agents_tab.py](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/services/slack_home/agents_tab.py))**: Enable/disable debate personas, assign LLM models from `model_provider_catalog.json`, toggle short output mode (`is_short_output`), assign skills, and configure system agents (`Challenger`, `Arbitrator`, `InternalRevisor`, `DiscussionScribe`, `Orchestrator`).
-2. **Workflows Tab ([workflows_tab.py](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/services/slack_home/workflows_tab.py))**: Select the active workflow preset, or create/edit/delete custom `sandwich`, `fixed`, and `scatter_gather` workflows.
-3. **Governance & System Settings Tab ([governance_tab.py](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/services/slack_home/governance_tab.py))**: Configure circuit breakers, daily USD budgets, Scribe toggles, convergence fast-forward, strict privacy mode, output word limits, and one-click backup restores (`data/backups/`).
+1. **Agents Tab ([agents_tab.py](../../engine/services/slack_home/agents_tab.py))**: Enable/disable debate personas, assign LLM models from `model_provider_catalog.json`, toggle short output mode (`is_short_output`), assign skills, and configure system agents (`Challenger`, `Arbitrator`, `InternalRevisor`, `DiscussionScribe`, `Orchestrator`).
+2. **Workflows Tab ([workflows_tab.py](../../engine/services/slack_home/workflows_tab.py))**: Select the active workflow preset, or create/edit/delete custom `sandwich`, `fixed`, and `scatter_gather` workflows.
+3. **Governance & System Settings Tab ([governance_tab.py](../../engine/services/slack_home/governance_tab.py))**: Configure circuit breakers, daily USD budgets, Scribe toggles, convergence fast-forward, strict privacy mode, output word limits, and one-click backup restores (`data/backups/`).
 
-### 10.3 HTTP & Admin REST API Endpoints ([main.py](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/main.py), [router.py](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/engine/adapters/slack/router.py))
+### 10.3 HTTP & Admin REST API Endpoints ([main.py](../../main.py), [router.py](../../engine/adapters/slack/router.py))
 
 | Endpoint | Method | Auth | Handler | Description |
 | :--- | :---: | :--- | :--- | :--- |
@@ -509,8 +509,8 @@ Workspace administrators (`SLACK_ADMIN_USER_IDS`) manage the platform live insid
 
 ## 11. Test Suite Architecture & Verification Harness
 
-Izvor maintains a 3-tier automated test hierarchy in [tests/](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/tests) (**104 test modules** total):
-1. **Unit Tests (`tests/unit/` — 59 modules)**: Fast, isolated tests verifying parsers, domain models, prompt construction, AST layer invariants ([test_architecture_layers.py](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/tests/unit/test_architecture_layers.py)), PII masking, nominate repair, and word-limit truncation.
+Izvor maintains a 3-tier automated test hierarchy in [tests/](../../tests) (**104 test modules** total):
+1. **Unit Tests (`tests/unit/` — 59 modules)**: Fast, isolated tests verifying parsers, domain models, prompt construction, AST layer invariants ([test_architecture_layers.py](../../tests/unit/test_architecture_layers.py)), PII masking, nominate repair, and word-limit truncation.
 2. **Integration Tests (`tests/integration/` — 37 modules)**: Multi-component tests validating the 5-stage `TurnPipeline`, `DiscussionLoop`, SQLite WAL migrations, HITL checkpoint resumption, RAG indexing/search, MCP client sessions, and FastAPI endpoints using dependency injection (`PipelineDeps`, `configure_paths()`, and `IZVOR_*` environment overrides).
-3. **End-to-End Behavioral Harness (`tests/e2e/` — 8 modules)**: Synthetic Slack webhook and multi-turn deliberation simulation harness ([docs/development-and-testing/e2e-testing-harness.md](file:///c:/Users/Hp/Documents/agy2-projects/Izvor/docs/development-and-testing/e2e-testing-harness.md)) capable of exercising both mocked and live multi-provider LLM topologies.
+3. **End-to-End Behavioral Harness (`tests/e2e/` — 8 modules)**: Synthetic Slack webhook and multi-turn deliberation simulation harness ([docs/development-and-testing/e2e-testing-harness.md](../../docs/development-and-testing/e2e-testing-harness.md)) capable of exercising both mocked and live multi-provider LLM topologies.
 
