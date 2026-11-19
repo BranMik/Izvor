@@ -499,3 +499,12 @@ def test_thread_usage_tracker_class():
 
     total_usd = tracker.get_thread_total_cost_usd(channel_id, thread_ts)
     assert total_usd == costs["grand_total_cost_usd"]
+
+
+def test_orchestration_mode_from_value():
+    assert OrchestrationMode.from_value(OrchestrationMode.FIXED) is OrchestrationMode.FIXED
+    assert OrchestrationMode.from_value("  SCATTER_GATHER ") is OrchestrationMode.SCATTER_GATHER
+    assert OrchestrationMode.from_value("fixed") is OrchestrationMode.FIXED
+    assert OrchestrationMode.from_value("invalid_mode") is OrchestrationMode.SANDWICH
+    assert OrchestrationMode.from_value("") is OrchestrationMode.SANDWICH
+

@@ -516,3 +516,67 @@ def test_no_patch_on_module_paths_or_managers():
     )
 
 
+def _has_future_annotations(tree: ast.Module) -> bool:
+    return any(
+        isinstance(node, ast.ImportFrom)
+        and node.module == "__future__"
+        and any(alias.name == "annotations" for alias in node.names)
+        for node in tree.body
+    )
+
+
+def _collect_annotation_nodes(tree: ast.Module) -> list[ast.AST]:
+    annotations: list[ast.AST] = []
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            args = node.args.posonlyargs + node.args.args + node.args.kwonlyargs
+            for arg in args:
+                if arg.annotation is not None:
+                    annotations.append(arg.annotation)
+            if node.args.vararg and node.args.vararg.annotation is not None:
+                annotations.append(node.args.vararg.annotation)
+            if node.args.kwarg and node.args.kwarg.annotation is not None:
+                annotations.append(node.args.kwarg.annotation)
+            if node.returns is not None:
+                annotations.append(node.returns)
+        elif isinstance(node, ast.AnnAssign) and node.annotation is not None:
+            annotations.append(node.annotation)
+    return annotations
+
+
+def test_no_eager_string_union_annotations_without_future():
+    """
+    Ensures Python 3.11-3.13 compatibility when developing on Python 3.14+ (PEP 649):
+    forbids `X | "Y"` / `"X" | Y` union annotations unless `from __future__ import annotations`
+    is present at module level.
+    """
+    root_dir = Path(__file__).resolve().parents[2]
+    targets = ["engine", "tests", "config/skills", "main.py"]
+    violations: list[str] = []
+
+    for target_name in targets:
+        target_path = root_dir / target_name
+        if not target_path.exists():
+            continue
+        files = [target_path] if target_path.is_file() else list(target_path.rglob("*.py"))
+        for py_file in files:
+            tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
+            if _has_future_annotations(tree):
+                continue
+            for ann in _collect_annotation_nodes(tree):
+                for sub in ast.walk(ann):
+                    if isinstance(sub, ast.BinOp) and isinstance(sub.op, ast.BitOr):
+                        if any(isinstance(side, ast.Constant) and isinstance(side.value, str) for side in (sub.left, sub.right)):
+                            violations.append(
+                                f"{py_file.relative_to(root_dir)}:{ann.lineno} -> {ast.unparse(ann)}"
+                            )
+                            break
+
+    assert not violations, (
+        "Found union annotations mixing `|` with string literals without "
+        "`from __future__ import annotations` (raises TypeError on Python 3.11-3.13):\n"
+        + "\n".join(violations)
+    )
+
+
+
