@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from enum import Enum, StrEnum
 from typing import Any
@@ -11,7 +13,7 @@ class OrchestrationMode(StrEnum):
     SCATTER_GATHER = "scatter_gather"
 
     @classmethod
-    def from_value(cls, val: str | "OrchestrationMode") -> "OrchestrationMode":
+    def from_value(cls, val: str | OrchestrationMode) -> OrchestrationMode:
         if isinstance(val, cls):
             return val
         val_str = str(val or "").strip().lower()
@@ -48,7 +50,7 @@ class FileContext:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "FileContext":
+    def from_dict(cls, data: dict[str, Any]) -> FileContext:
         raw_auth = data.get("authorized_agents")
         auth_set = set(raw_auth) if raw_auth is not None else None
         return cls(
@@ -97,7 +99,7 @@ class MediaAttachment:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "MediaAttachment":
+    def from_dict(cls, data: dict[str, Any]) -> MediaAttachment:
         raw_type = data.get("attachment_type", AttachmentType.TEXT)
         try:
             att_type = AttachmentType(raw_type)
@@ -135,7 +137,7 @@ class ActionDirective:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "ActionDirective":
+    def from_dict(cls, data: dict[str, Any]) -> ActionDirective:
         return cls(
             name=data.get("name", ""),
             params=dict(data.get("params") or {}),
@@ -219,7 +221,7 @@ class ExtractedIntent:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "ExtractedIntent":
+    def from_dict(cls, data: dict[str, Any]) -> ExtractedIntent:
         raw_actions = data.get("actions") or []
         actions = [ActionDirective.from_dict(a) if isinstance(a, dict) else a for a in raw_actions]
 
@@ -293,7 +295,7 @@ class WorkflowPreset:
         return data
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "WorkflowPreset":
+    def from_dict(cls, data: dict[str, Any]) -> WorkflowPreset:
         raw_mode = str(data.get("mode", OrchestrationMode.SANDWICH.value)).strip().lower()
         valid_modes = (
             OrchestrationMode.SANDWICH.value,
