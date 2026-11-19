@@ -196,10 +196,6 @@ def resolve_avatar_url(icon_url: str | None, env: Mapping[str, str] | None = Non
     return f"{get_base_avatar_url(env=env)}{icon_str.lstrip('/')}"
 
 
-# Default system agent persona for warnings and moderation
-SYSTEM_AGENT_USERNAME = os.getenv("SYSTEM_AGENT_USERNAME", "Panel System")
-SYSTEM_AGENT_AVATAR = os.getenv("SYSTEM_AGENT_AVATAR", "static/image_99.png")
-
 # Usage channel configuration
 USAGE_CHANNEL_NAME = os.getenv("USAGE_CHANNEL_NAME", "izvor-usage")
 USAGE_CHANNEL_ID = os.getenv("USAGE_CHANNEL_ID", "")
@@ -488,8 +484,6 @@ __all__ = [
     "set_production_override",
     "DEFAULT_BASE_AVATAR_URL",
     "get_base_avatar_url",
-    "SYSTEM_AGENT_USERNAME",
-    "SYSTEM_AGENT_AVATAR",
     "USAGE_CHANNEL_NAME",
     "USAGE_CHANNEL_ID",
     "AGENTS_CONFIG",

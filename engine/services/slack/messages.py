@@ -196,10 +196,8 @@ async def post_system_message(
             return await res
         return res
 
-    from core.config import SYSTEM_AGENT_AVATAR, SYSTEM_AGENT_USERNAME
-
-    default_username = SYSTEM_AGENT_USERNAME
-    default_icon = SYSTEM_AGENT_AVATAR
+    default_username = "Panel System"
+    default_icon = "avatars/image_99.png"
 
     try:
         from orchestration.agent_settings import settings_manager
