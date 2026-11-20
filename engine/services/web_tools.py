@@ -137,7 +137,8 @@ async def _web_search_inner(query: str, max_results: int = 5) -> str:
         }
         data = {"q": cleaned_query}
         transport = PinnedIPTransport(resolved_ip)
-        async with httpx.AsyncClient(transport=transport, timeout=get_web_search_timeout(), follow_redirects=False) as client:
+        html_timeout = min(float(get_web_search_timeout()), 5.0)
+        async with httpx.AsyncClient(transport=transport, timeout=html_timeout, follow_redirects=False) as client:
             response = await client.post(cleaned_endpoint, data=data, headers=headers)
 
         if response.status_code == 200:
@@ -191,34 +192,82 @@ async def _web_search_inner(query: str, max_results: int = 5) -> str:
                     },
                     indent=2,
                 )
+        else:
+            logger.warning(
+                f"[WEB_SEARCH] DuckDuckGo HTML endpoint returned HTTP {response.status_code}. Attempting DDGS fallback..."
+            )
 
     except (httpx.TimeoutException, httpx.RequestError, httpx.HTTPStatusError) as e:
         logger.warning(f"[WEB_SEARCH] DuckDuckGo HTML endpoint failed: {e}. Attempting fallback...")
     except Exception as e:  # noqa: BLE001 - HTML search endpoint fallback to DDGS
         logger.warning(f"[WEB_SEARCH] DuckDuckGo HTML endpoint failed: {e}. Attempting fallback...")
 
-    # Strategy 2: ddgs library fallback
+    # Strategy 2: ddgs library fallback (dual-layout Yahoo first, then auto)
     try:
-        def _run_ddgs():
+        def _configure_ddgs_yahoo_engine() -> None:
+            """Extends ddgs Yahoo scraper xpath to match both classic div.relsrch and modern section.algo-sr cards."""
+            try:
+                from ddgs.engines import ENGINES
+
+                yahoo_cls = ENGINES.get("text", {}).get("yahoo")
+                if yahoo_cls is not None and not getattr(yahoo_cls, "_izvor_dual_xpath", False):
+                    yahoo_cls.items_xpath = (
+                        "//*[(self::div or self::section) "
+                        "and (contains(@class, 'algo-sr') or contains(@class, 'relsrch')) "
+                        "and not(contains(@class, 'ads'))]"
+                    )
+                    yahoo_cls.elements_xpath = {
+                        "title": ".//div[contains(@class, 'Title')]//h3//text() | .//h3//text()",
+                        "href": ".//div[contains(@class, 'Title')]//a/@href | .//a/@href",
+                        "body": ".//div[contains(@class, 'Text') or contains(@class, 'grp-tsrc')]//text()",
+                    }
+                    yahoo_cls._izvor_dual_xpath = True
+            except Exception as cfg_err:  # noqa: BLE001
+                logger.debug(f"[WEB_SEARCH] Could not tune ddgs Yahoo xpath: {cfg_err}")
+
+        def _collect_ddgs_results(ddgs_client: Any, backend: str) -> list[dict[str, str]]:
+            collected: list[dict[str, str]] = []
+            seen_urls: set[str] = set()
+            fetch_limit = max(max_results * 2, 6)
+            for r in ddgs_client.text(cleaned_query, max_results=fetch_limit, backend=backend):
+                candidate_url = r.get("href", "") or r.get("link", "") or r.get("url", "")
+                if not candidate_url:
+                    continue
+                if candidate_url.startswith("https://www.bing.com/aclick?"):
+                    continue
+                is_safe, _, _, _ = validate_url_security(candidate_url)
+                if not is_safe or candidate_url in seen_urls:
+                    continue
+                seen_urls.add(candidate_url)
+                collected.append(
+                    {
+                        "title": r.get("title", ""),
+                        "url": candidate_url,
+                        "snippet": r.get("body", "") or r.get("snippet", ""),
+                    }
+                )
+                if len(collected) >= max_results:
+                    break
+            return collected
+
+        def _run_ddgs() -> list[dict[str, str]]:
             from ddgs import DDGS
 
-            timeout_sec = int(get_web_search_timeout())
-            ddgs_results = []
-            with DDGS(timeout=timeout_sec) as ddgs:
-                for r in ddgs.text(cleaned_query, max_results=max_results):
-                    candidate_url = r.get("href", "") or r.get("link", "") or r.get("url", "")
-                    if candidate_url:
-                        is_safe, _, _, _ = validate_url_security(candidate_url)
-                        if not is_safe:
-                            continue
-                    ddgs_results.append(
-                        {
-                            "title": r.get("title", ""),
-                            "url": candidate_url,
-                            "snippet": r.get("body", "") or r.get("snippet", ""),
-                        }
-                    )
-            return ddgs_results
+            _configure_ddgs_yahoo_engine()
+            timeout_sec = max(1, int(min(float(get_web_search_timeout()), 8.0)))
+            last_exc: Exception | None = None
+            for backend in ("yahoo", "yahoo", "auto"):
+                try:
+                    with DDGS(timeout=timeout_sec) as ddgs:
+                        found = _collect_ddgs_results(ddgs, backend)
+                        if found:
+                            return found
+                except Exception as b_err:  # noqa: BLE001 - Try next free scraping attempt/backend
+                    last_exc = b_err
+                    logger.warning(f"[WEB_SEARCH] DDGS backend '{backend}' failed: {b_err}")
+            if last_exc is not None:
+                raise last_exc
+            return []
 
         ddgs_results = await asyncio.to_thread(_run_ddgs)
         if ddgs_results:
@@ -237,7 +286,11 @@ async def _web_search_inner(query: str, max_results: int = 5) -> str:
 
     return json.dumps(
         {
-            "error": f"Unable to fetch web search results for query: '{cleaned_query}'.",
+            "error": (
+                f"Unable to fetch web search results for query: '{cleaned_query}'. "
+                "Do NOT retry web_search for this query in this turn; proceed using available context."
+            ),
+            "retryable": False,
             "results": [],
         }
     )

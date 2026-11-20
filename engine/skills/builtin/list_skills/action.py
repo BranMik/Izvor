@@ -9,14 +9,14 @@ system message, and halts further agent invocation.
 import logging
 from typing import Any
 
-from core.config import get_orchestrator_fast_model, get_system_agent_model
-from core.llm_utils import execute_llm_with_retry
-from services.slack.messages import post_system_message
-
 logger = logging.getLogger(__name__)
 
 
 async def run(ctx: Any, params: dict[str, Any] | None = None) -> dict[str, Any] | None:
+    from core.config import get_orchestrator_fast_model, get_system_agent_model
+    from core.llm_utils import execute_llm_with_retry
+    from services.slack.messages import post_system_message
+
     # /list_skills is strictly exclusive: presents platform skills directory and halts discussion
     inp = getattr(ctx, "input", ctx)
     channel_id = getattr(inp, "channel_id", "")

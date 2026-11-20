@@ -12,6 +12,7 @@ Supports dual-mode execution:
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import hashlib
 import hmac
 import json
@@ -34,6 +35,19 @@ logger = logging.getLogger("tests.e2e.protocol_client")
 
 TEST_ADMIN_USER_ID = "U_ADMIN_TESTER"
 TEST_USER_ID = "U_USER_TESTER"
+
+_SUPPRESS_SPY_POST_RECORD: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "_SUPPRESS_SPY_POST_RECORD", default=False
+)
+
+
+def _is_synthetic_e2e_id(value: str) -> bool:
+    """Returns True for fake E2E user/DM identifiers that do not exist in a real Slack workspace."""
+    cleaned = str(value or "").strip()
+    return cleaned.startswith(("U_TESTER", "D_TEST_DM")) or cleaned in {
+        TEST_USER_ID,
+        TEST_ADMIN_USER_ID,
+    }
 
 # Preserve references to real Slack API dispatch methods prior to any mock patching
 _REAL_SLACK_POST_AGENT = _sc.post_agent_response
@@ -149,12 +163,13 @@ class MockSlackAsyncClient:
 
     async def _forward_live(self, method_name: str, **kwargs: Any) -> Any:
         """Forwards Slack Web API calls to the real AsyncWebClient when live_mode is enabled."""
+        bot_token = self._client.bot_token
         if (
             self._client.live_mode
-            and SLACK_BOT_TOKEN
-            and SLACK_BOT_TOKEN != "xoxb-your-bot-user-oauth-token"
+            and bot_token
+            and bot_token != "xoxb-your-bot-user-oauth-token"
         ):
-            fn = getattr(_raw_slack_async_client, method_name, None)
+            fn = getattr(self._client.raw_slack_client, method_name, None)
             if fn is not None:
                 return await fn(**kwargs)
         return None
@@ -197,16 +212,17 @@ class MockSlackAsyncClient:
             "is_usage_card": is_usage,
             "is_hitl_card": is_hitl,
         }
-        if is_usage:
-            self._client.bus.usage_messages.append(entry)
-        elif is_scribe:
-            self._client.bus.thread_notes.append(entry)
-            self._client.bus.posted_messages.append(entry)
-        elif is_hitl:
-            self._client.bus.hitl_cards.append(entry)
-            self._client.bus.posted_messages.append(entry)
-        else:
-            self._client.bus.posted_messages.append(entry)
+        if not _SUPPRESS_SPY_POST_RECORD.get():
+            if is_usage:
+                self._client.bus.usage_messages.append(entry)
+            elif is_scribe:
+                self._client.bus.thread_notes.append(entry)
+                self._client.bus.posted_messages.append(entry)
+            elif is_hitl:
+                self._client.bus.hitl_cards.append(entry)
+                self._client.bus.posted_messages.append(entry)
+            else:
+                self._client.bus.posted_messages.append(entry)
 
         return MockSlackResponse({"ok": True, "ts": ts, "channel": channel_id})
 
@@ -248,12 +264,13 @@ class MockSlackAsyncClient:
                 response={"ok": False, "error": self.fail_dm_open},
             )
         live_dm_id = None
-        try:
-            live_res = await self._forward_live("conversations_open", **kwargs)
-            if live_res and live_res.get("ok"):
-                live_dm_id = live_res.get("channel", {}).get("id")
-        except Exception as e:  # noqa: BLE001
-            logger.warning(f"[LIVE SLACK SPY] conversations_open failed: {e}")
+        if not _is_synthetic_e2e_id(users):
+            try:
+                live_res = await self._forward_live("conversations_open", **kwargs)
+                if live_res and live_res.get("ok"):
+                    live_dm_id = live_res.get("channel", {}).get("id")
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"[LIVE SLACK SPY] conversations_open failed: {e}")
         dm_channel_id = live_dm_id or (f"D_TEST_DM_{users}" if users else "D_TEST_DM")
         self._client.bus.opened_dms.append({"users": users, "channel_id": dm_channel_id})
         return MockSlackResponse({"ok": True, "channel": {"id": dm_channel_id}})
@@ -264,14 +281,15 @@ class MockSlackAsyncClient:
                 f"Slack API error: {self.fail_file_upload}",
                 response={"ok": False, "error": self.fail_file_upload},
             )
-        live_file_id = None
-        try:
-            live_res = await self._forward_live("files_upload_v2", **kwargs)
-            if live_res and live_res.get("ok"):
-                live_file_id = live_res.get("file", {}).get("id")
-        except Exception as e:  # noqa: BLE001
-            logger.warning(f"[LIVE SLACK SPY] files_upload_v2 failed: {e}")
         channel_id = str(kwargs.get("channel", ""))
+        live_file_id = None
+        if not _is_synthetic_e2e_id(channel_id):
+            try:
+                live_res = await self._forward_live("files_upload_v2", **kwargs)
+                if live_res and live_res.get("ok"):
+                    live_file_id = live_res.get("file", {}).get("id")
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"[LIVE SLACK SPY] files_upload_v2 failed: {e}")
         filename = str(kwargs.get("filename", "upload.txt"))
         content = str(kwargs.get("content", ""))
         file_id = live_file_id or f"F_TEST_{self._client.next_ts()}"
@@ -289,14 +307,16 @@ class MockSlackAsyncClient:
         return MockSlackResponse({"ok": True, "file": {"id": file_id, "name": filename}})
 
     async def chat_postEphemeral(self, **kwargs: Any) -> MockSlackResponse:
-        try:
-            await self._forward_live("chat_postEphemeral", **kwargs)
-        except Exception as e:  # noqa: BLE001
-            logger.warning(f"[LIVE SLACK SPY] chat_postEphemeral failed: {e}")
+        user_id = str(kwargs.get("user", ""))
+        if not _is_synthetic_e2e_id(user_id):
+            try:
+                await self._forward_live("chat_postEphemeral", **kwargs)
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"[LIVE SLACK SPY] chat_postEphemeral failed: {e}")
         entry = {
             "ok": True,
             "channel_id": kwargs.get("channel", ""),
-            "user_id": kwargs.get("user", ""),
+            "user_id": user_id,
             "text": kwargs.get("text", ""),
             "thread_ts": kwargs.get("thread_ts"),
         }
@@ -358,6 +378,31 @@ class MockSlackAsyncClient:
             }
         )
 
+    async def conversations_replies(self, **kwargs: Any) -> MockSlackResponse:
+        try:
+            live_res = await self._forward_live("conversations_replies", **kwargs)
+            if live_res is not None:
+                return live_res
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"[LIVE SLACK SPY] conversations_replies failed: {e}")
+        return MockSlackResponse({"ok": True, "messages": [], "has_more": False})
+
+    def __getattr__(self, name: str) -> Any:
+        raw_attr = getattr(self._client.raw_slack_client, name, None)
+        if callable(raw_attr):
+            async def _delegate(*args: Any, **kwargs: Any) -> Any:
+                bot_token = self._client.bot_token
+                if (
+                    self._client.live_mode
+                    and bot_token
+                    and bot_token != "xoxb-your-bot-user-oauth-token"
+                ):
+                    return await raw_attr(*args, **kwargs)
+                return MockSlackResponse({"ok": True})
+
+            return _delegate
+        raise AttributeError(name)
+
 
 class SlackProtocolClient:
     """High-fidelity client to simulate human actions in Slack against the FastAPI app."""
@@ -368,6 +413,8 @@ class SlackProtocolClient:
         bot_user_id: str = "U012345678",
         live_mode: bool = False,
         live_channel_id: str | None = None,
+        raw_slack_client: Any = None,
+        bot_token: str | None = None,
     ) -> None:
         raw_secret = signing_secret or SLACK_SIGNING_SECRET
         if not raw_secret or raw_secret == "your-slack-signing-secret":
@@ -376,6 +423,8 @@ class SlackProtocolClient:
         self.bot_user_id = bot_user_id
         self.live_mode = live_mode
         self.live_channel_id = live_channel_id
+        self.raw_slack_client = raw_slack_client if raw_slack_client is not None else _raw_slack_async_client
+        self.bot_token = bot_token if bot_token is not None else SLACK_BOT_TOKEN
         self.current_thread_ts: str | None = None
         self.current_scenario_tag: str | None = None
         self.current_scenario_name: str | None = None
@@ -388,6 +437,7 @@ class SlackProtocolClient:
         self.client = self.async_client
         self._msg_ts_counter = time.time() + 1000.0
         self._dispatched_threads: set[tuple[str, str]] = set()
+        self._scenario_live_threads: list[str] = []
 
     async def aclose(self) -> None:
         await self.drain_background_tasks()
@@ -455,6 +505,7 @@ class SlackProtocolClient:
         self.current_scenario_name = scenario_name
         self.current_thread_ts = None
         self._dispatched_threads.clear()
+        self._scenario_live_threads.clear()
 
     def get_channel(self, default: str = "C_TEST_DEFAULT") -> str:
         if self.live_mode and self.live_channel_id:
@@ -511,7 +562,7 @@ class SlackProtocolClient:
             )
 
         try:
-            res = await _raw_slack_async_client.chat_postMessage(
+            res = await self.raw_slack_client.chat_postMessage(
                 channel=self.live_channel_id,
                 text=text,
                 username="E2E Test Runner",
@@ -519,6 +570,8 @@ class SlackProtocolClient:
             )
             if res and res.get("ok"):
                 self.current_thread_ts = str(res.get("ts"))
+                if self.current_thread_ts and self.current_thread_ts not in self._scenario_live_threads:
+                    self._scenario_live_threads.append(self.current_thread_ts)
                 logger.info(
                     f"[LIVE SLACK] Created root conversation thread for {scenario_tag}: ts={self.current_thread_ts}"
                 )
@@ -532,8 +585,15 @@ class SlackProtocolClient:
         return None
 
     async def finish_live_scenario(self, result: Any) -> None:
-        """Posts final test execution verdict card into the live Slack thread."""
-        if not self.live_mode or not self.live_channel_id or not self.current_thread_ts:
+        """Posts final test execution verdict card into all live Slack threads opened during the scenario."""
+        target_threads = list(
+            dict.fromkeys(
+                [t for t in self._scenario_live_threads if t]
+                + ([self.current_thread_ts] if self.current_thread_ts else [])
+            )
+        )
+        if not self.live_mode or not self.live_channel_id or not target_threads:
+            self._scenario_live_threads.clear()
             return
 
         icon = "✅" if result.passed else "❌"
@@ -544,16 +604,19 @@ class SlackProtocolClient:
             f"> *Summary:* {result.details}"
         )
         try:
-            await _raw_slack_async_client.chat_postMessage(
-                channel=self.live_channel_id,
-                thread_ts=self.current_thread_ts,
-                text=text,
-                username="E2E Test Runner",
-                icon_url=resolve_avatar_url("static/image_99.png"),
-            )
-        except Exception as e:  # noqa: BLE001 - Live Slack scenario completion card boundary
-            logger.error(f"[LIVE SLACK] Error posting scenario completion: {e}")
+            for target_thread in target_threads:
+                try:
+                    await self.raw_slack_client.chat_postMessage(
+                        channel=self.live_channel_id,
+                        thread_ts=target_thread,
+                        text=text,
+                        username="E2E Test Runner",
+                        icon_url=resolve_avatar_url("static/image_99.png"),
+                    )
+                except Exception as e:  # noqa: BLE001 - Live Slack scenario completion card boundary
+                    logger.error(f"[LIVE SLACK] Error posting scenario completion to {target_thread}: {e}")
         finally:
+            self._scenario_live_threads.clear()
             self.current_thread_ts = None
             self.current_scenario_tag = None
             self.current_scenario_name = None
@@ -569,12 +632,27 @@ class SlackProtocolClient:
         blocks: list[dict[str, Any]] | None = None,
         **kwargs: Any,
     ) -> dict[str, Any]:
+        has_live_token = bool(self.bot_token and self.bot_token != "xoxb-your-bot-user-oauth-token")
+        if _SUPPRESS_SPY_POST_RECORD.get():
+            if self.live_mode and has_live_token:
+                _sc.reset_post_agent_response()
+                try:
+                    return await _REAL_SLACK_POST_AGENT(
+                        channel_id=channel_id,
+                        thread_ts=thread_ts,
+                        text=text,
+                        username=username or "Agent",
+                        icon_url=icon_url,
+                        blocks=blocks,
+                        **kwargs,
+                    )
+                finally:
+                    _sc.configure_post_agent_response(self.mock_post_agent_response)
+            return {"ok": True, "ts": self.next_ts()}
+
         real_result = None
-        if (
-            self.live_mode
-            and SLACK_BOT_TOKEN
-            and SLACK_BOT_TOKEN != "xoxb-your-bot-user-oauth-token"
-        ):
+        if self.live_mode and has_live_token:
+            tok = _SUPPRESS_SPY_POST_RECORD.set(True)
             try:
                 _sc.reset_post_agent_response()
                 real_result = await _REAL_SLACK_POST_AGENT(
@@ -590,6 +668,7 @@ class SlackProtocolClient:
                 logger.error(f"[LIVE SLACK] Failed to post agent response: {e}")
             finally:
                 _sc.configure_post_agent_response(self.mock_post_agent_response)
+                _SUPPRESS_SPY_POST_RECORD.reset(tok)
 
         ts = (
             str(real_result.get("ts"))
@@ -618,8 +697,8 @@ class SlackProtocolClient:
         real_result = None
         if (
             self.live_mode
-            and SLACK_BOT_TOKEN
-            and SLACK_BOT_TOKEN != "xoxb-your-bot-user-oauth-token"
+            and self.bot_token
+            and self.bot_token != "xoxb-your-bot-user-oauth-token"
         ):
             try:
                 real_result = await _REAL_SLACK_UPDATE(
@@ -652,9 +731,10 @@ class SlackProtocolClient:
         real_result = None
         if (
             self.live_mode
-            and SLACK_BOT_TOKEN
-            and SLACK_BOT_TOKEN != "xoxb-your-bot-user-oauth-token"
+            and self.bot_token
+            and self.bot_token != "xoxb-your-bot-user-oauth-token"
         ):
+            tok = _SUPPRESS_SPY_POST_RECORD.set(True)
             try:
                 _sc.reset_post_system_message()
                 real_result = await _REAL_SLACK_POST_SYSTEM(
@@ -668,6 +748,7 @@ class SlackProtocolClient:
                 logger.error(f"[LIVE SLACK] Failed to post system message: {e}")
             finally:
                 _sc.configure_post_system_message(self.mock_post_system_message)
+                _SUPPRESS_SPY_POST_RECORD.reset(tok)
 
         ts = (
             str(real_result.get("ts"))

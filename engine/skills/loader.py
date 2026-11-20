@@ -1299,13 +1299,15 @@ def get_skill_registry() -> SkillRegistry:
     """Returns the canonical global SkillRegistry singleton instance."""
     global _skill_registry_instance
     if _skill_registry_instance is None:
-        _skill_registry_instance = SkillRegistry()
+        instance = SkillRegistry.__new__(SkillRegistry)
+        _skill_registry_instance = instance
         try:
             from core.registry import set_skill_registry_provider
 
             set_skill_registry_provider(get_skill_registry)
         except Exception:  # noqa: BLE001
             pass
+        instance.__init__()
     return _skill_registry_instance
 
 
