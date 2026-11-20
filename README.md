@@ -412,6 +412,11 @@ Slack fetches avatar URLs server-side using `BASE_AVATAR_URL` + `avatars/...` ([
 
 - [`AppIntegrityValidator`](engine/orchestration/integrity_checks.py) verifies the cryptographic hash chain of `data/audit/audit_*.jsonl` on startup and periodically. Changing `AUDIT_HMAC_SECRET` in `.env` while retaining older audit logs causes HMAC continuity warnings; keep the secret consistent for a given `data/audit/` trail or archive prior logs before rotating.
 
+### 8. Startup `TypeError: unsupported operand type(s) for |: 'type' and 'str'` on Python 3.11–3.13
+
+- Because Python 3.14+ defers annotation evaluation by default (PEP 649), union annotations mixing `|` with forward-referenced string literals (e.g., `str | "MyClass"`) silently succeed on Python 3.14+ but crash eagerly on import/startup on Python **3.11, 3.12, and 3.13**.
+- Fix: pull the latest commit (fixed in [`engine/core/models.py`](engine/core/models.py) via `from __future__ import annotations`), or add `from __future__ import annotations` at the top of any new module using `|` with string annotations. Run `pytest tests/unit/test_code_hygiene.py` (`test_no_eager_string_union_annotations_without_future`) to catch regressions before deploying to Python 3.11–3.13. *(Note: `requires-python` targets `>=3.11`, with Python `3.14+` as the primary verified runtime.)*
+
 ---
 
 ## 9. Documentation Hub
