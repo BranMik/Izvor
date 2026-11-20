@@ -28,6 +28,7 @@ Use this skill when you need real-time external data, current pricing benchmarks
 
 ## Operational Guidelines
 1. **Formulate concise, targeted queries**: Focus on concrete search terms (e.g. `"Anthropic Claude pricing 2025"`, `"FastAPI vs Litestar benchmarks"`).
-2. **Deep-dive on high-value results**: When a snippet indicates high relevance, invoke `fetch_web_page` on that URL to extract full facts.
-3. **Always cite sources**: When presenting findings from web search, cite the source name and URL.
-4. **Synthesize**: Condense raw web text into concise, actionable takeaways for the discussion.
+2. **Respect the 5-request per-turn web budget (`max_fetches_per_turn = 5`)**: Issue at most **1–2 high-signal `web_search` queries per turn** rather than multiple redundant keyword variations. Reserve remaining turn budget for `fetch_web_page` and synthesize immediately once relevant snippets are gathered.
+3. **Deep-dive on high-value results**: When a snippet indicates high relevance, invoke `fetch_web_page` on that URL to extract full facts.
+4. **Always cite sources**: When presenting findings from web search, cite the source name and URL.
+5. **Synthesize**: Condense raw web text into concise, actionable takeaways for the discussion.

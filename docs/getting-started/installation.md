@@ -154,7 +154,7 @@ System operational parameters, security guardrails, and timeouts are managed by 
 | `skill_exclusions_sync_interval_seconds` | `86400.0` | Frequency in seconds for periodic synchronization of Presidio skill keyword exclusions (24 hours, default in [`SystemSettingsModel`](file:///engine/orchestration/system_settings.py)). |
 | `pricing_cache_ttl_days` | `7` | Cache lifespan in days for LLM token pricing benchmarks. |
 | `slack_file_download_timeout_seconds` | `30.0` | Timeout in seconds for downloading attached files from Slack. |
-| `web_search_timeout_seconds` | `10.0` | Timeout in seconds for outbound DuckDuckGo web searches. |
+| `web_search_timeout_seconds` | `10.0` | Timeout in seconds for outbound `ddgs` web searches. |
 | `web_fetch_timeout_seconds` | `12.0` | Timeout in seconds for fetching web pages via DNS-pinned HTTPX scraper. |
 | `db_busy_timeout_seconds` | `5.0` | SQLite lock wait timeout in seconds (5,000ms) before raising database busy error. |
 | `llm_max_retries` | `3` | Max automatic retries for transient LiteLLM provider errors. |
@@ -162,9 +162,8 @@ System operational parameters, security guardrails, and timeouts are managed by 
 | `slack_rate_limit_per_second` | `10.0` | Outbound Slack API token bucket refill rate per second. |
 | `slack_rate_limit_burst` | `15.0` | Maximum burst capacity for Slack API token bucket. |
 | `pricing_benchmark_url` | `"https://artificialanalysis.ai/models"` | Endpoint for remote LLM token pricing benchmarks. |
-| `web_search_endpoint` | `"https://html.duckduckgo.com/html/"` | Target endpoint for outbound web searches. |
 | `web_fetch_user_agent` | Chrome/Mozilla UA string | HTTP `User-Agent` header for outbound web fetching. |
-| `web_security` | `{...}` | Outbound web safety rules (`max_url_length: 2048`, `max_query_length: 1024`, `max_redirects: 5`, `max_body_bytes: 2097152`, `allowed_ports: [80, 443]`, `allowed_domains: []`, `strip_query_on_untrusted_domains: false`, `max_fetches_per_turn: 10`). |
+| `web_security` | `{...}` | Outbound web safety rules (`max_url_length: 2048`, `max_query_length: 1024`, `max_redirects: 5`, `max_body_bytes: 2097152`, `allowed_ports: [80, 443]`, `allowed_domains: []`, `strip_query_on_untrusted_domains: false`, `max_fetches_per_turn: 5`). |
 | `security_burst_limits` | `{...}` | Sliding-window rate limiters for failed authentication (`auth_failure_window_seconds: 60.0`, `auth_failure_burst_limit: 5`, `global_auth_failure_burst_limit: 25`, `max_tracker_entries: 1000`). |
 | `dialectical_stress_test` | `{"enabled": true, "consecutive_threshold": 3}` | Dialectical stress-test parameters governing when consecutive `signal_consensus_convergence` turns trigger the `Challenger` → `Arbitrator` gate. |
 | `retention_checkpoints_days` | `7` | Retention window in days before expired `turn_checkpoints` rows are deleted. |

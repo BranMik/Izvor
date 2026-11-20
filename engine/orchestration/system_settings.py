@@ -141,7 +141,6 @@ class SystemSettingsModel(BaseModel):
     slack_rate_limit_per_second: float = 10.0
     slack_rate_limit_burst: float = 15.0
     pricing_benchmark_url: str = "https://artificialanalysis.ai/models"
-    web_search_endpoint: str = "https://html.duckduckgo.com/html/"
     web_fetch_user_agent: str = (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
         "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
@@ -156,7 +155,7 @@ class SystemSettingsModel(BaseModel):
             "allowed_ports": [80, 443],
             "allowed_domains": [],
             "strip_query_on_untrusted_domains": False,
-            "max_fetches_per_turn": 10,
+            "max_fetches_per_turn": 5,
         }
     )
     security_burst_limits: dict[str, Any] = Field(
@@ -243,7 +242,6 @@ class SystemSettingsManager:
         self.slack_rate_limit_per_second: float = 10.0
         self.slack_rate_limit_burst: float = 15.0
         self.pricing_benchmark_url: str = "https://artificialanalysis.ai/models"
-        self.web_search_endpoint: str = "https://html.duckduckgo.com/html/"
         self.web_fetch_user_agent: str = (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
             "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
@@ -257,7 +255,7 @@ class SystemSettingsManager:
             "allowed_ports": [80, 443],
             "allowed_domains": [],
             "strip_query_on_untrusted_domains": False,
-            "max_fetches_per_turn": 10,
+            "max_fetches_per_turn": 5,
         }
         self.security_burst_limits: dict[str, Any] = {
             "auth_failure_window_seconds": 60.0,
@@ -413,7 +411,6 @@ class SystemSettingsManager:
         self.slack_rate_limit_per_second = float(model.slack_rate_limit_per_second)
         self.slack_rate_limit_burst = float(model.slack_rate_limit_burst)
         self.pricing_benchmark_url = str(model.pricing_benchmark_url).strip() or "https://artificialanalysis.ai/models"
-        self.web_search_endpoint = str(model.web_search_endpoint).strip() or "https://html.duckduckgo.com/html/"
         self.web_fetch_user_agent = str(model.web_fetch_user_agent).strip()
         self.max_write_bytes = int(model.max_write_bytes)
         raw_ws = model.web_security
@@ -426,7 +423,7 @@ class SystemSettingsManager:
                 "allowed_ports": list(raw_ws.get("allowed_ports", [80, 443])),
                 "allowed_domains": [str(d).lower().lstrip(".") for d in raw_ws.get("allowed_domains", []) if str(d).strip()],
                 "strip_query_on_untrusted_domains": bool(raw_ws.get("strip_query_on_untrusted_domains", False)),
-                "max_fetches_per_turn": int(raw_ws.get("max_fetches_per_turn", 10)),
+                "max_fetches_per_turn": int(raw_ws.get("max_fetches_per_turn", 5)),
             }
         raw_sbl = model.security_burst_limits
         if isinstance(raw_sbl, dict):
@@ -515,7 +512,6 @@ class SystemSettingsManager:
             "slack_rate_limit_per_second": self.slack_rate_limit_per_second,
             "slack_rate_limit_burst": self.slack_rate_limit_burst,
             "pricing_benchmark_url": self.pricing_benchmark_url,
-            "web_search_endpoint": self.web_search_endpoint,
             "web_fetch_user_agent": self.web_fetch_user_agent,
             "max_write_bytes": self.max_write_bytes,
             "web_security": self.web_security,
@@ -1005,10 +1001,6 @@ class SystemSettingsManager:
         self.load()
         return str(self.pricing_benchmark_url)
 
-    def get_web_search_endpoint(self) -> str:
-        self.load()
-        return str(self.web_search_endpoint)
-
     def get_web_fetch_user_agent(self) -> str:
         self.load()
         return str(self.web_fetch_user_agent)
@@ -1295,10 +1287,6 @@ def get_slack_rate_limit_burst() -> float:
 
 def get_pricing_benchmark_url() -> str:
     return system_settings_manager.get_pricing_benchmark_url()
-
-
-def get_web_search_endpoint() -> str:
-    return system_settings_manager.get_web_search_endpoint()
 
 
 def get_web_fetch_user_agent() -> str:

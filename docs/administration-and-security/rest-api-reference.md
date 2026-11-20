@@ -97,7 +97,7 @@ This document provides complete technical specifications for the HTTP endpoints 
           "type": "function",
           "function": {
             "name": "web_search",
-            "description": "Search DuckDuckGo for up-to-date information",
+            "description": "Search the live web via multi-engine DDGS search for up-to-date information",
             "parameters": {
               "type": "object",
               "properties": {
