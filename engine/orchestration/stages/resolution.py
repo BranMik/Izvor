@@ -141,6 +141,11 @@ class ResolutionStage:
                     "reason": "agent_not_configured",
                 }
 
+        # Resolve missing API keys in-memory before logging/executing turn
+        from orchestration.turn_pipeline import apply_agent_model_fallback
+
+        apply_agent_model_fallback(ctx)
+
         # Ensure agent's configured avatar icon is propagated to turn context
         if not ctx.icon_url and ctx.agent_cfg.get("icon_url"):
             ctx.icon_url = ctx.agent_cfg.get("icon_url")

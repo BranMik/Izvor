@@ -98,6 +98,22 @@ def set_pii_masker_instance(masker: Any) -> None:
     _pii_masker_instance = masker
 
 
+def _is_api_key_error_text(error_str: str, error_type: str) -> bool:
+    """Checks whether exception text or type indicates a missing or invalid API key."""
+    return (
+        "auth" in error_type
+        or "api_key" in error_str
+        or "apikey" in error_str
+        or "api key" in error_str
+        or "missing credentials" in error_str
+        or "authentication" in error_str
+        or "unauthorized" in error_str
+        or "401" in error_str
+        or "forbidden" in error_str
+        or "403" in error_str
+    )
+
+
 def classify_agent_error(e: Exception) -> str:
     """
     Classifies an agent execution exception into one of:
@@ -107,20 +123,15 @@ def classify_agent_error(e: Exception) -> str:
     - 'model_not_found': Model does not exist or unknown model identifier.
     - 'general_error': Any other unexpected runtime exception.
     """
-    # 1. Type inspection against litellm.exceptions
+    error_str = str(e).lower()
+    error_type = type(e).__name__.lower()
+
+    # 1. Type inspection against litellm.exceptions (auth/rate-limit/not-found first;
+    #    check API-key wording before treating InternalServerError/APIConnectionError as 503
+    #    because LiteLLM wraps missing OpenAI/Meta/Perplexity/Gemini keys in those classes).
     try:
         if isinstance(e, litellm.exceptions.RateLimitError):
             return "rate_limit"
-        if isinstance(
-            e,
-            (
-                litellm.exceptions.ServiceUnavailableError,
-                litellm.exceptions.Timeout,
-                litellm.exceptions.InternalServerError,
-                litellm.exceptions.APIConnectionError,
-            ),
-        ):
-            return "service_unavailable"
         if isinstance(
             e,
             (
@@ -143,17 +154,33 @@ def classify_agent_error(e: Exception) -> str:
     if isinstance(status_code, int):
         if status_code == 429:
             return "rate_limit"
-        if status_code in (500, 502, 503, 504, 529):
-            return "service_unavailable"
         if status_code in (401, 403):
             return "api_key_not_found"
         if status_code == 404:
             return "model_not_found"
 
-    error_str = str(e).lower()
-    error_type = type(e).__name__.lower()
+    # 3. API key / credential errors before 5xx / APIConnectionError checks
+    if _is_api_key_error_text(error_str, error_type):
+        return "api_key_not_found"
 
-    # 3. Fallback string matching for wrapped exceptions
+    try:
+        if isinstance(
+            e,
+            (
+                litellm.exceptions.ServiceUnavailableError,
+                litellm.exceptions.Timeout,
+                litellm.exceptions.InternalServerError,
+                litellm.exceptions.APIConnectionError,
+            ),
+        ):
+            return "service_unavailable"
+    except (AttributeError, TypeError):
+        pass
+
+    if isinstance(status_code, int) and status_code in (500, 502, 503, 504, 529):
+        return "service_unavailable"
+
+    # 4. Fallback string matching for wrapped exceptions
     if (
         "rate_limit" in error_str
         or "ratelimit" in error_str
@@ -183,19 +210,6 @@ def classify_agent_error(e: Exception) -> str:
         or "temporarily unavailable" in error_str
     ):
         return "service_unavailable"
-
-    if (
-        "auth" in error_type
-        or "api_key" in error_str
-        or "apikey" in error_str
-        or "api key" in error_str
-        or "authentication" in error_str
-        or "unauthorized" in error_str
-        or "401" in error_str
-        or "forbidden" in error_str
-        or "403" in error_str
-    ):
-        return "api_key_not_found"
 
     if (
         "notfound" in error_type
@@ -348,6 +362,11 @@ async def execute_llm_with_retry(
             logger.warning(
                 f"[LLM] Attempt {attempt}/{max_attempts} failed for {agent_key}: {exc}"
             )
+            if classify_agent_error(exc) == "api_key_not_found":
+                logger.info(
+                    f"[LLM] Missing or invalid API key detected for {agent_key}. Skipping retries."
+                )
+                raise
             if not allow_503_immediate_retry and is_high_demand_503_error(exc):
                 logger.info(
                     f"[LLM] 503 / High demand spike detected on first encounter for {agent_key}. Skipping immediate retry."

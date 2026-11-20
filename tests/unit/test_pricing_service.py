@@ -1,7 +1,7 @@
 import json
 import time
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -415,5 +415,29 @@ async def test_warm_up_cache_includes_discussion_scribe_model(tmp_path):
 
     expected_scribe_model = get_system_agent_model("DiscussionScribe", fallback="mistral/mistral-small-latest")
     assert expected_scribe_model in svc.checked_models
+
+
+@pytest.mark.anyio
+async def test_fetch_pricing_with_agent_falls_back_when_fast_model_key_missing():
+    """Verify PricingService resolves fast_model fallback when its API key is missing."""
+    from core.model_catalog import configure_env_provider
+
+    configure_env_provider(lambda: {"MISTRAL_API_KEY": "valid-mistral-key"})
+    resp = MagicMock()
+    resp.choices = [
+        MagicMock(
+            message=MagicMock(
+                content='{"model_name": "test-model", "input_price_per_1m": 1.0, "output_price_per_1m": 2.0, "currency": "USD", "source": "Web", "source_url": "https://test.com"}',
+                tool_calls=None,
+            )
+        )
+    ]
+    resp.usage = MagicMock(prompt_tokens=20, completion_tokens=10)
+
+    with patch("litellm.acompletion", new_callable=AsyncMock, return_value=resp) as mock_comp:
+        await pricing_service.fetch_pricing_with_agent("test-model")
+
+    assert mock_comp.call_args.kwargs["model"] == "mistral/mistral-large-latest"
+
 
 

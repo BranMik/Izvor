@@ -236,3 +236,71 @@ def test_load_provider_catalog_custom_file(tmp_path):
     assert option_groups[0]["label"]["text"] == "CustomProvider"
     assert option_groups[0]["options"][0]["value"] == "custom/model-1"
 
+
+def test_required_env_keys_and_has_api_key_for_model():
+    """Verify catalog, prefix, bare model, and unknown/local provider key mappings."""
+    from core.model_catalog import get_required_env_keys_for_model, has_api_key_for_model
+
+    assert get_required_env_keys_for_model("anthropic/claude-opus-5") == [
+        "ANTHROPIC_API_KEY",
+        "ANTHROPIC_AUTH_TOKEN",
+    ]
+    assert get_required_env_keys_for_model("openai/gpt-5.9-unlisted") == ["OPENAI_API_KEY"]
+    assert get_required_env_keys_for_model("claude-3-7-sonnet") == [
+        "ANTHROPIC_API_KEY",
+        "ANTHROPIC_AUTH_TOKEN",
+    ]
+    assert get_required_env_keys_for_model("ollama/llama3.3") is None
+
+    env = {"GEMINI_API_KEY": "AIzaSyValidKey123", "OPENAI_API_KEY": "your-openai-api-key"}
+    assert has_api_key_for_model("gemini/gemini-3.8-flash", env_dict=env) is True
+    assert has_api_key_for_model("openai/gpt-5.6-sol", env_dict=env) is False
+    assert has_api_key_for_model("ollama/llama3.3", env_dict=env) is True
+
+
+def test_resolve_model_with_fallback_priority():
+    """Verify missing-key fallback prefers default_reasoning_model, then first catalog model, else preserves configured."""
+    from core.model_catalog import resolve_model_with_fallback
+
+    # 1. Configured key present -> keeps configured model
+    res_ok = resolve_model_with_fallback(
+        "anthropic/claude-opus-5",
+        preferred_fallback_model="mistral/mistral-large-latest",
+        env_dict={"ANTHROPIC_API_KEY": "sk-ant-valid", "MISTRAL_API_KEY": "mistral-valid"},
+    )
+    assert res_ok.model == "anthropic/claude-opus-5"
+    assert res_ok.fallback_used is False
+
+    # 2. Configured key missing -> prefers default_reasoning_model when its key is present
+    res_pref = resolve_model_with_fallback(
+        "anthropic/claude-opus-5",
+        preferred_fallback_model="mistral/mistral-large-latest",
+        env_dict={"GEMINI_API_KEY": "AIzaSyValid", "MISTRAL_API_KEY": "mistral-valid"},
+    )
+    assert res_pref.model == "mistral/mistral-large-latest"
+    assert res_pref.configured_model == "anthropic/claude-opus-5"
+    assert res_pref.fallback_used is True
+    assert res_pref.reason == "default_reasoning_model"
+
+    # 3. Configured key AND default_reasoning_model key missing -> picks first available catalog model
+    res_cat = resolve_model_with_fallback(
+        "anthropic/claude-opus-5",
+        preferred_fallback_model="mistral/mistral-large-latest",
+        env_dict={"OPENAI_API_KEY": "sk-valid-openai", "GROQ_API_KEY": "gsk-valid"},
+    )
+    assert res_cat.model == "openai/gpt-5.6-sol"
+    assert res_cat.configured_model == "anthropic/claude-opus-5"
+    assert res_cat.fallback_used is True
+    assert res_cat.reason == "first_available:OpenAI"
+
+    # 4. No keys anywhere -> preserves configured model so downstream fails fast as api_key_not_found
+    res_none = resolve_model_with_fallback(
+        "anthropic/claude-opus-5",
+        preferred_fallback_model="mistral/mistral-large-latest",
+        env_dict={},
+    )
+    assert res_none.model == "anthropic/claude-opus-5"
+    assert res_none.fallback_used is False
+    assert res_none.reason == "no_available_fallback"
+
+

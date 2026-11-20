@@ -157,7 +157,7 @@ Copy your public HTTPS tunnel hostname (e.g., `https://izvor.yourdomain.com` or 
    GEMINI_API_KEY=your-gemini-api-key
    MISTRAL_API_KEY=your-mistral-api-key
    ```
-   A key for at least one model is required for application to work, but preferably several. Default (built-in) agents use Mistral, Gemini, Anthropic and OpenAI models. If some of those is not present they will fall-back to whichever is available.
+   Your `.env` should contain at least the API keys for the models configured for system agents and platform defaults in [`config/settings/system_settings.json`](config/settings/system_settings.json) (`default_fast_model`, `default_reasoning_model`, and `rag.embedding_model`, which default to `GEMINI_API_KEY` and `MISTRAL_API_KEY` — also used by built-in system agents such as *DiscussionScribe*, *InternalRevisor*, *Challenger*, *Arbitrator*, and *ListSkills*). Default panel agents use Mistral, Gemini, Anthropic, and OpenAI models; if an agent's configured key is missing from `.env`, it automatically falls back to `default_reasoning_model` (if its key is present) or the first available model in `.env`, adding a brief fallback footer on the Slack message.
 2. Start the FastAPI server (so it can answer Slack's webhook `url_verification` challenge in Step 4):
    ```bash
    uvicorn main:app --host 0.0.0.0 --port 8000 --reload

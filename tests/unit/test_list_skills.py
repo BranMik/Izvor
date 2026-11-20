@@ -355,3 +355,30 @@ def test_build_agent_prompt_with_thread_context():
     assert "AVAILABLE SKILLS (ON DEMAND VIA `load_skill`)" in prompt
     assert "`document_reader`" in prompt
 
+
+@pytest.mark.anyio
+async def test_list_skills_action_falls_back_with_footer_when_key_missing():
+    """Verify /list_skills resolves missing key to fallback model and appends fallback footer."""
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, MagicMock, patch
+    from core.model_catalog import configure_env_provider
+    from skills.builtin.list_skills.action import run as list_skills_run
+
+    configure_env_provider(lambda: {"MISTRAL_API_KEY": "valid-mistral-key"})
+    mock_resp = MagicMock()
+    mock_resp.choices = [MagicMock(message=MagicMock(content="• *document_reader*"))]
+    mock_resp.usage = MagicMock(prompt_tokens=15, completion_tokens=10)
+
+    ctx = SimpleNamespace(input=SimpleNamespace(channel_id="C_LIST", thread_ts="111.222"))
+    with (
+        patch("litellm.acompletion", AsyncMock(return_value=mock_resp)) as mock_comp,
+        patch("skills.builtin.list_skills.action.post_system_message", AsyncMock()) as mock_post,
+    ):
+        res = await list_skills_run(ctx)
+
+    assert res["ok"] is True
+    assert mock_comp.call_args.kwargs["model"] == "mistral/mistral-large-latest"
+    posted_text = mock_post.call_args.kwargs["text"]
+    assert "Fallback model used: `mistral/mistral-large-latest`" in posted_text
+
+

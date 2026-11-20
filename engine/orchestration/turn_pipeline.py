@@ -30,6 +30,7 @@ __all__ = [
     "TurnInput",
     "TurnOutput",
     "TurnPipeline",
+    "apply_agent_model_fallback",
 ]
 from core.models import ActionDirective, MediaAttachment
 from orchestration.protocols import (
@@ -94,6 +95,32 @@ class TurnOutput:
     checkpoint_id: str | None = None
     revisor_warning: str | None = None
     is_deterministic_missing_skill: bool = False
+    fallback_from_model: str | None = None
+
+
+def apply_agent_model_fallback(ctx: TurnContext) -> None:
+    """
+    Resolves the agent's configured model against active .env API keys.
+    If the required key is missing, overrides ctx.agent_cfg['model'] in-memory
+    without mutating shared agent settings and records fallback_from_model on ctx.output.
+    """
+    from core.model_catalog import resolve_model_with_fallback
+
+    if not isinstance(ctx.agent_cfg, dict):
+        return
+    configured = str(ctx.agent_cfg.get("model") or "").strip()
+    if not configured:
+        return
+
+    resolution = resolve_model_with_fallback(configured)
+    if resolution.fallback_used:
+        logger.warning(
+            f"[ROUTER] API key missing for '{configured}' (keys={list(resolution.missing_env_keys)}) "
+            f"on agent '{ctx.agent_key}'. Falling back to '{resolution.model}' ({resolution.reason})."
+        )
+        ctx.agent_cfg = dict(ctx.agent_cfg)
+        ctx.agent_cfg["model"] = resolution.model
+        ctx.output.fallback_from_model = resolution.configured_model
 
 
 class TurnContext:
@@ -216,6 +243,7 @@ class TurnContext:
             waiting_hitl=kwargs.get("waiting_hitl", False),
             checkpoint_id=kwargs.get("checkpoint_id"),
             revisor_warning=kwargs.get("revisor_warning"),
+            fallback_from_model=kwargs.get("fallback_from_model"),
         )
 
         # Lifecycle state
@@ -579,6 +607,7 @@ class TurnPipeline:
         settings_manager.sync_output_constraints_if_changed()
         agents_map = settings_manager.agents_config or AGENTS_CONFIG
         ctx.agent_cfg = dict(agents_map.get(ctx.agent_key, {}))
+        apply_agent_model_fallback(ctx)
 
         from orchestration.thread_skills_manager import thread_skills_manager
         from skills.loader import skill_registry

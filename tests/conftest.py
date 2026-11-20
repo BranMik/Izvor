@@ -466,6 +466,11 @@ async def async_noop_sleep(*args, **kwargs):
 def reset_router_and_llm_di_for_tests():
     """Guarantees that all in-memory DI overrides for router, LLM, slack messages, and usage tracking are cleanly reset."""
     from core.llm_utils import reset_llm_completion_fn, reset_llm_sleep_fn
+    from core.model_catalog import configure_env_provider, reset_env_provider
+
+    # Isolate model catalog key checks from developer .env during unit/integration tests;
+    # tests verifying missing-key fallback explicitly inject their own env via configure_env_provider().
+    configure_env_provider(lambda: {})
     from core.config import (
         reset_token,
         set_admin_slack_user_ids_override,
@@ -502,6 +507,7 @@ def reset_router_and_llm_di_for_tests():
     reset_slack_async_client()
     reset_llm_completion_fn()
     reset_llm_sleep_fn()
+    reset_env_provider()
     reset_router_sleep_fn()
     reset_router_deps()
     reset_guardrail_checker()

@@ -272,7 +272,11 @@ async def detect_language_llm(
         timeout_seconds = get_system_agent_inference_timeout_seconds()
     retry_multiplier = get_system_agent_inference_retry_timeout_multiplier()
 
-    selected_model = model or get_orchestrator_fast_model()
+    from core.model_catalog import resolve_model_with_fallback
+
+    selected_model = resolve_model_with_fallback(
+        model or get_orchestrator_fast_model(), log_context="LANGUAGE DETECTOR"
+    ).model
     logger.info(
         f"[LANGUAGE DETECTOR] Starting LLM language detection ({len(clean_text)} chars, model={selected_model})"
     )

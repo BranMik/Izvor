@@ -423,6 +423,12 @@ class PricingService:
         logger.info(f"[PRICING] Researching current live pricing for '{model_name}' via agent...")
         baseline = get_baseline_for_model(model_name)
 
+        from core.model_catalog import resolve_model_with_fallback
+
+        active_model = resolve_model_with_fallback(
+            get_orchestrator_fast_model(), log_context="PRICING"
+        ).model
+
         messages = [
             {"role": "system", "content": get_pricing_agent_prompt()},
             {
@@ -434,7 +440,7 @@ class PricingService:
         resp = await execute_llm_with_retry(
             func=litellm.acompletion,
             kwargs={
-                "model": get_orchestrator_fast_model(),
+                "model": active_model,
                 "messages": messages,
                 "tools": PRICING_TOOL_SCHEMAS,
                 "tool_choice": "auto",
@@ -457,7 +463,7 @@ class PricingService:
             if usage:
                 spend_governance.record_usage(
                     session_id=f"system:pricing:{model_name}",
-                    model_name=get_orchestrator_fast_model(),
+                    model_name=active_model,
                     prompt_tokens=getattr(usage, "prompt_tokens", 0) or 0,
                     completion_tokens=getattr(usage, "completion_tokens", 0) or 0,
                 )
@@ -505,7 +511,7 @@ class PricingService:
             final_resp = await execute_llm_with_retry(
                 func=litellm.acompletion,
                 kwargs={
-                    "model": get_orchestrator_fast_model(),
+                    "model": active_model,
                     "messages": messages,
                     "response_format": {"type": "json_object"},
                 },
@@ -527,7 +533,7 @@ class PricingService:
                 if usage_final:
                     spend_governance.record_usage(
                         session_id=f"system:pricing:{model_name}",
-                        model_name=get_orchestrator_fast_model(),
+                        model_name=active_model,
                         prompt_tokens=getattr(usage_final, "prompt_tokens", 0) or 0,
                         completion_tokens=getattr(usage_final, "completion_tokens", 0) or 0,
                     )
