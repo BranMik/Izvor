@@ -4,6 +4,29 @@
 	<img src="izvor_logo.png" alt="Logo" width="200">
 </p>
 
+## Table of Contents
+
+1. [System Definition](#1-system-definition)
+2. [Core Features](#2-core-features)
+   - [2.1 Multi-Persona Deliberation Topologies](#21-multi-persona-deliberation-topologies)
+   - [2.2 Context Engineering, Epistemic Integrity & Skills](#22-context-engineering-epistemic-integrity--skills)
+   - [2.3 Security, Privacy & Spend Governance](#23-security-privacy--spend-governance)
+3. [Architecture Overview](#3-architecture-overview)
+4. [Main System Flows](#4-main-system-flows)
+5. [Quick-Start Guide](#5-quick-start-guide)
+6. [Usage Guide](#6-usage-guide)
+   - [6.1 Triggering the Application](#61-triggering-the-application)
+   - [6.2 Invoking & Steering Agents](#62-invoking--steering-agents)
+   - [6.3 Calling Slash Directives](#63-calling-slash-directives)
+   - [6.4 Inferred Skills (`auto_detect: true`)](#64-inferred-skills-auto_detect-true)
+7. [Skills](#7-skills)
+   - [7.1 Configurable Agent Tool Skills (`config/skills/`)](#71-configurable-agent-tool-skills-configskills)
+   - [7.2 Built-in Orchestrator & Prompt-Modifier Skills (`engine/skills/builtin/`)](#72-built-in-orchestrator--prompt-modifier-skills-engineskillsbuiltin)
+8. [Documentation Hub](#8-documentation-hub)
+9. [License](#9-license)
+
+---
+
 ## 1. System Definition
 
 **Izvor** (`v0.9.0`, Python `>=3.11`) is an asynchronous **Multi-Agent Dialectical Deliberation and Orchestration Platform for Slack** built on FastAPI, LiteLLM, SQLite (WAL mode), LanceDB + Tantivy hybrid RAG, Microsoft Presidio privacy filters, and the Model Context Protocol (MCP).
