@@ -1,6 +1,7 @@
 from pathlib import Path
 from core.paths import PROMPTS_DIR, SYSTEM_AGENTS_DIR, PERSONAS_DIR
 from orchestration.agent_settings import get_agents_config
+from orchestration.system_settings import get_output_max_words
 from prompts.builder import (
     build_agent_prompt,
     get_short_output_agents,
@@ -80,7 +81,8 @@ def test_sales_advisor_prompt_structure():
     assert "Sales Advisor" in prompt
     assert "sales" in prompt.lower()
     assert "You are" not in prompt
-    assert "Hard Limit: Your entire response must strictly NOT exceed 100 words." in prompt
+    short_max = get_output_max_words(is_short=True)
+    assert f"Hard Limit: Your entire response must strictly NOT exceed {short_max} words." in prompt
 
 
 def test_cluster3_economics_market_scope_sales_xml_structure():
@@ -208,14 +210,16 @@ def test_system_agents_critical_runtime_contracts():
 def test_all_agents_contain_shared_skills():
     assert len(AGENTS_CONFIG) == 16
     assert len(get_short_output_agents()) == 4
+    default_max = get_output_max_words(is_short=False)
+    short_max = get_output_max_words(is_short=True)
 
     for key in AGENTS_CONFIG:
         prompt = AGENTS_CONFIG[key]["system_prompt"]
         # Output format skill checks
         if is_short_output_agent(key):
-            assert "Hard Limit: Your entire response must strictly NOT exceed 100 words." in prompt
+            assert f"Hard Limit: Your entire response must strictly NOT exceed {short_max} words." in prompt
         else:
-            assert "Hard Limit: Your entire response must strictly NOT exceed 200 words." in prompt
+            assert f"Hard Limit: Your entire response must strictly NOT exceed {default_max} words." in prompt
 
         assert "Aim to answer in the same language as user prompt is made." in prompt
         assert "IDENTIFYING MESSAGE AUTHORS IN DISCUSSION HISTORY:" in prompt
@@ -233,6 +237,9 @@ def test_pricing_agent_prompt_structure():
 
 
 def test_build_agent_prompt_with_max_words():
+    default_max = get_output_max_words(is_short=False)
+    short_max = get_output_max_words(is_short=True)
+
     # Compact mode (max_words < 60): skips 3-part bullets and strips persona <output_contract>
     prompt = build_agent_prompt("agent-10011", max_words=50)
     assert "Hard Limit: Your entire response must strictly NOT exceed 50 words." in prompt
@@ -248,7 +255,7 @@ def test_build_agent_prompt_with_max_words():
     # Short output agent with tight limit: skips short default limit and 3-part bullets, strips <output_contract>
     prompt_short = build_agent_prompt("agent-10010", max_words=30)
     assert "Hard Limit: Your entire response must strictly NOT exceed 30 words." in prompt_short
-    assert "Hard Limit: Your entire response must strictly NOT exceed 100 words." not in prompt_short
+    assert f"Hard Limit: Your entire response must strictly NOT exceed {short_max} words." not in prompt_short
     assert "<output_contract>" not in prompt_short
     assert "1 sentence stating your core verdict/concern." not in prompt_short
     assert "Aim to answer in the same language as user prompt is made." in prompt_short
@@ -256,7 +263,7 @@ def test_build_agent_prompt_with_max_words():
     # Standard/large custom limit (max_words >= 60): keeps <output_contract> and Rules 2-4 with 120w ceiling
     prompt_arch = build_agent_prompt("agent-10008", max_words=120)
     assert "Hard Limit: Your entire response must strictly NOT exceed 120 words." in prompt_arch
-    assert "strictly NOT exceed 200 words" not in prompt_arch
+    assert f"strictly NOT exceed {default_max} words" not in prompt_arch
     assert "<output_contract>" in prompt_arch
     assert "1 sentence stating your core verdict/concern." in prompt_arch
     assert "2-3 concise bullet points" in prompt_arch
@@ -269,7 +276,7 @@ def test_build_agent_prompt_with_max_words():
 
     prompt_vis = build_agent_prompt("agent-10001", max_words=45)
     assert "strictly NOT exceed 45 words" in prompt_vis
-    assert "strictly NOT exceed 200 words" not in prompt_vis
+    assert f"strictly NOT exceed {default_max} words" not in prompt_vis
     assert "<output_contract>" not in prompt_vis
 
     # Dialectical system agent (Challenger) with tight limit also strips <output_contract>
@@ -279,10 +286,13 @@ def test_build_agent_prompt_with_max_words():
 
 
 def test_build_agent_prompt_with_min_words():
+    default_max = get_output_max_words(is_short=False)
+    short_max = get_output_max_words(is_short=True)
+
     # min_words without max_words: keeps Rules 2-4 and <output_contract>, replaces hardcoded ceiling with min_words
     prompt = build_agent_prompt("agent-10011", min_words=60)
     assert "Minimum Length: Your entire response must have a minimum length of 60 words." in prompt
-    assert "Hard Limit: Your entire response must strictly NOT exceed 200 words." not in prompt
+    assert f"Hard Limit: Your entire response must strictly NOT exceed {default_max} words." not in prompt
     assert "1 sentence stating your core verdict/concern." in prompt
     assert "2-3 concise bullet points" in prompt
     assert "<output_contract>" in prompt
@@ -291,7 +301,7 @@ def test_build_agent_prompt_with_min_words():
     # Short output agent with min_words only: replaces short default ceiling with min_words
     prompt_short = build_agent_prompt("agent-10010", min_words=40)
     assert "Minimum Length: Your entire response must have a minimum length of 40 words." in prompt_short
-    assert "Hard Limit: Your entire response must strictly NOT exceed 100 words." not in prompt_short
+    assert f"Hard Limit: Your entire response must strictly NOT exceed {short_max} words." not in prompt_short
     assert "1 sentence stating your core verdict/concern." in prompt_short
 
     # SecurityArchitect: verify min_words addition
@@ -339,14 +349,15 @@ def test_system_agent_detection_and_prompts():
     assert "nominate the next agent" not in prompt
 
     # Dialectical system agents (Challenger and Arbitrator) must have shared debate constraints and nomination rules
+    default_max = get_output_max_words(is_short=False)
     prompt_challenger = build_agent_prompt("Challenger")
     assert '<system_agent_specification id="Challenger" role="Dialectical Stress-Test Challenger"' in prompt_challenger
-    assert "Hard Limit: Your entire response must strictly NOT exceed 200 words." in prompt_challenger
+    assert f"Hard Limit: Your entire response must strictly NOT exceed {default_max} words." in prompt_challenger
     assert "nominate the next agent" in prompt_challenger
 
     prompt_arbitrator = build_agent_prompt("Arbitrator")
     assert '<system_agent_specification id="Arbitrator" role="Arbitrator"' in prompt_arbitrator
-    assert "Hard Limit: Your entire response must strictly NOT exceed 200 words." in prompt_arbitrator
+    assert f"Hard Limit: Your entire response must strictly NOT exceed {default_max} words." in prompt_arbitrator
     assert "nominate the next agent" in prompt_arbitrator
 
 
