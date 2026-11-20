@@ -186,20 +186,14 @@ Once the server is running and `@Izvor` is invited to a channel (`/invite @Izvor
 
 ### 6.1 Triggering the Application
 
-Defined in [`engine/adapters/slack/events.py`](engine/adapters/slack/events.py), Izvor processes a Slack message when **any** of the following conditions is met (plain channel chatter without a trigger is ignored, and unprefixed mentions of the lowercase word `"izvor"` do not cause false triggers):
+Defined in [`engine/adapters/slack/events.py`](engine/adapters/slack/events.py), Izvor is triggered in Slack channels by mentioning `@Izvor` (or `<@BOT_ID>`) — or directly in a Slack DM (`D*` channel). Plain channel chatter without a mention is ignored, and unprefixed mentions of the lowercase word `"izvor"` do not cause false triggers.
 
-1. **Bot Mention or Direct Message (`app_mention` / DM)**: Mention `@Izvor` (or `<@BOT_ID>`) in a channel, or message the bot in a Slack DM (`D*` channel).
-   ```text
-   @Izvor Should we migrate our session store from Redis to Postgres JSONB?
-   ```
-2. **Bracketed Agent Tag (`/[Agent]` or `/{Agent}`)**: Address one or more personas directly without needing `@Izvor`:
-   ```text
-   /[SecurityArchitect] What encryption controls are required for storing PII under GDPR?
-   ```
-3. **Any Recognized Slash Directive**: Messages containing a registered skill slash trigger (e.g., `/max_words`, `/rag`, `/list_skills`, `/stop`) are automatically routed to Izvor:
-   ```text
-   /rag "rollback runbook" What are our production rollback steps?
-   ```
+> [!NOTE]
+> **Always prefix channel prompts, `/[Agent]` tags, and `/directives` with `@Izvor`**:
+> Slack intercepts messages starting with `/` as native Slack slash commands (`"... is not a valid command"`), and channel events without an `app_mention` may not trigger in Slack unless `@Izvor` is mentioned. Prefixing with `@Izvor` ensures reliable delivery in channels and threads:
+> - **Panel Debate**: `@Izvor Should we migrate our session store from Redis to Postgres JSONB?`
+> - **Targeted Agent**: `@Izvor /[SecurityArchitect] What encryption controls are required for storing PII under GDPR?`
+> - **Slash Directive**: `@Izvor /rag "rollback runbook" What are our production rollback steps?`
 
 > [!TIP]
 > **Interactive Steering, HITL & Pause Resumption**:
@@ -256,10 +250,10 @@ Slash directives are parsed deterministically by [`DirectiveParser`](engine/pipe
   @Izvor /rounds 2 Debate build vs. buy for our internal feature store.
   ```
   ```text
-  /stop
+  @Izvor /stop
   ```
   - `/rounds N` is clamped `1–5` (global thread cap `20` turns) and requires explicit slash syntax.
-  - `/stop` immediately halts automated agent turns in the thread.
+  - `@Izvor /stop` immediately halts automated agent turns in the thread.
 - **Invoking Agent Tool Skills Explicitly**:
   ```text
   @Izvor /web_research "Anthropic vs Gemini pricing" Compare current API token pricing.
@@ -270,13 +264,13 @@ Slash directives are parsed deterministically by [`DirectiveParser`](engine/pipe
   *(Uploading a Slack attachment or referencing its filename in the prompt also triggers `document_reader` automatically.)*
 - **Directory Inspection & Slack Admin Directives** *(Admin commands require `SLACK_ADMIN_USER_IDS` membership **and** explicit slash syntax)*:
   ```text
-  /list_skills
-  /grant_skill web_research /[Visionary]
-  /grant_skill_for_all web_research knowledge_base_rag
-  /revoke_skill_for_all web_research
-  /revoke_constraint max_words
+  @Izvor /list_skills
+  @Izvor /grant_skill web_research /[Visionary]
+  @Izvor /grant_skill_for_all web_research knowledge_base_rag
+  @Izvor /revoke_skill_for_all web_research
+  @Izvor /revoke_constraint max_words
   ```
-  - Disabling active constraints via `off` (e.g., `/max_words off`, `/exclude off`, `/include off`) also requires Slack Admin privileges.
+  - Disabling active constraints via `off` (e.g., `@Izvor /max_words off`, `@Izvor /exclude off`, `@Izvor /include off`) also requires Slack Admin privileges.
 
 ---
 
@@ -288,12 +282,12 @@ Instead of memorizing slash commands, users can express constraints and tool req
 3. Modifiers and actions **strictly allowlisted** to skills configured with `auto_detect: true` (tagged `origin: "inferred"`).
 
 **Examples of Natural-Language Skill Inference:**
-- *"Please keep answers under 80 words and at least 30 words."* → infers `max_words = 80`, `min_words = 30`.
-- *"Only look at the last 5 messages in this thread."* → infers `thread_history` (`history = 5`).
-- *"Bring in Legal Advisor and leave out Sceptic."* → infers `include_agents: ["LegalAdvisor"]` and `exclude_agents: ["Sceptic"]`.
-- *"Look up current Stripe vs. Adyen pricing online."* → infers `web_research` (`query`).
-- *"Check our internal runbooks for the database failover procedure."* → infers `knowledge_base_rag`.
-- *"Summarize the attached report.pdf and save an executive brief to summary.md."* → infers `document_reader` and `document_authoring` (`target_file`).
+- `@Izvor Please keep answers under 80 words and at least 30 words.` → infers `max_words = 80`, `min_words = 30`.
+- `@Izvor Only look at the last 5 messages in this thread.` → infers `thread_history` (`history = 5`).
+- `@Izvor Bring in Legal Advisor and leave out Sceptic.` → infers `include_agents: ["LegalAdvisor"]` and `exclude_agents: ["Sceptic"]`.
+- `@Izvor Look up current Stripe vs. Adyen pricing online.` → infers `web_research` (`query`).
+- `@Izvor Check our internal runbooks for the database failover procedure.` → infers `knowledge_base_rag`.
+- `@Izvor Summarize the attached report.pdf and save an executive brief to summary.md.` → infers `document_reader` and `document_authoring` (`target_file`).
 
 > [!IMPORTANT]
 > **Smart Merge & Security Boundary (`auto_detect: false`)**:
