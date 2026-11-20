@@ -1,6 +1,7 @@
 
 from core import paths
 from orchestration.system_settings import (
+    SystemSettingsModel,
     system_settings_manager,
     get_max_tool_iterations,
     get_tool_call_num_retries,
@@ -68,7 +69,8 @@ def test_system_settings_extracted_constants_defaults():
     assert get_max_tool_iterations() == 3
     assert get_tool_call_num_retries() == 2
     assert get_word_limit_grace_buffer() == 50
-    assert get_output_constraints() == {"default_max_words": 200, "short_max_words": 100}
+    assert SystemSettingsModel().output_constraints == {"default_max_words": 200, "short_max_words": 100}
+    assert get_output_constraints() == {"default_max_words": 150, "short_max_words": 70}
     assert get_guardrail_embedding_cache_size() == 500
     assert get_thread_cleanup_interval_seconds() == 600.0
     assert get_audit_integrity_check_interval_seconds() == 43200.0
@@ -125,10 +127,11 @@ def test_sync_output_constraints_refreshes_cached_agent_prompts():
     import os
     from orchestration.agent_settings import settings_manager
 
-    # Ensure initial sync matches defaults (200 / 100)
+    # Ensure initial sync matches active configured output_constraints
+    constraints = get_output_constraints()
     settings_manager.sync_output_constraints_if_changed()
-    assert "strictly NOT exceed 200 words" in settings_manager.agents_config["agent-10008"]["system_prompt"]
-    assert "strictly NOT exceed 100 words" in settings_manager.agents_config["agent-10010"]["system_prompt"]
+    assert f"strictly NOT exceed {constraints['default_max_words']} words" in settings_manager.agents_config["agent-10008"]["system_prompt"]
+    assert f"strictly NOT exceed {constraints['short_max_words']} words" in settings_manager.agents_config["agent-10010"]["system_prompt"]
     assert settings_manager.sync_output_constraints_if_changed() is False
 
     # Simulate external runtime edit to system_settings.json on disk
