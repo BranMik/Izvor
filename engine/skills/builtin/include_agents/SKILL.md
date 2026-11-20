@@ -9,7 +9,7 @@ triggers:
     - /include
   arg_type: agent_list
   param_name: agents
-extraction_rule: "If user asks to forcefully include, bring in, or add specific agents to the discussion, include action '{name}' with param 'agents'."
+extraction_rule: "If the user explicitly asks in natural language to forcefully include, bring in, or add extra agents to the discussion, include action '{name}' with param 'agents'. NEVER emit '{name}' merely because an agent is addressed via a '/[AgentName]' speaker tag."
 requires_human_ITL: false
 requires_admin: false
 ---

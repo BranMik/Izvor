@@ -405,6 +405,16 @@ async def handle_slash_directives(
         if coerced is not None:
             thread_state_manager.set_scribe_min_words(ctx.input.channel_id, ctx.input.thread_ts, coerced)
 
+    def _normalize_agent_refs(raw_agents: list[str]) -> list[str]:
+        from pipeline.entity_resolver import entity_resolver
+
+        normalized: list[str] = []
+        for ag in raw_agents:
+            canon = entity_resolver.resolve_agent_name(str(ag))
+            if canon and canon not in normalized:
+                normalized.append(canon)
+        return normalized
+
     exclude_off = any(a.name == "exclude_agents" and a.params.get("off") for a in ctx.actions)
     if exclude_off:
         if is_admin:
@@ -412,7 +422,7 @@ async def handle_slash_directives(
         else:
             logger.warning(f"[VALIDATION] Non-admin '{ctx.input.user_id}' attempted to turn off agent exclusions")
     elif ctx.excluded_agents:
-        for ag in ctx.excluded_agents:
+        for ag in _normalize_agent_refs(ctx.excluded_agents):
             thread_state_manager.add_excluded_agent(ctx.input.channel_id, ctx.input.thread_ts, ag)
 
     include_off = any(a.name == "include_agents" and a.params.get("off") for a in ctx.actions)
@@ -422,7 +432,7 @@ async def handle_slash_directives(
         else:
             logger.warning(f"[VALIDATION] Non-admin '{ctx.input.user_id}' attempted to turn off agent inclusions")
     elif ctx.included_agents:
-        for ag in ctx.included_agents:
+        for ag in _normalize_agent_refs(ctx.included_agents):
             thread_state_manager.add_included_agent(ctx.input.channel_id, ctx.input.thread_ts, ag)
 
     # Persist custom format modifiers into thread state

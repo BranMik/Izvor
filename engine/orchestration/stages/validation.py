@@ -202,8 +202,16 @@ class ValidationStage:
             ctx.prompt = prompt
             ctx.was_explicit_target = was_explicit_target
 
-            effective_excluded = set(thread_state_manager.get_excluded_agents(ctx.input.channel_id, ctx.input.thread_ts))
-            effective_included = list(thread_state_manager.get_included_agents(ctx.input.channel_id, ctx.input.thread_ts))
+            effective_excluded = {
+                entity_resolver.resolve_agent_name(str(a)) or str(a)
+                for a in thread_state_manager.get_excluded_agents(ctx.input.channel_id, ctx.input.thread_ts)
+            }
+            effective_included = list(
+                dict.fromkeys(
+                    entity_resolver.resolve_agent_name(str(a)) or str(a)
+                    for a in thread_state_manager.get_included_agents(ctx.input.channel_id, ctx.input.thread_ts)
+                )
+            )
 
             first_act = next((a for a in ctx.actions if a.name == "first"), None)
             open_debate_act = next((a for a in ctx.actions if a.name == "open_debate"), None)
@@ -626,10 +634,12 @@ class ValidationStage:
             excluded = thread_state_manager.get_excluded_agents(ctx.input.channel_id, ctx.input.thread_ts)
 
             if target_override and target_override not in excluded:
-                ctx.agent_key = target_override
+                ctx.agent_key = entity_resolver.resolve_agent_name(target_override) or target_override
                 ctx.prompt = ctx.input.raw_text
                 ctx.was_explicit_target = True
-                thread_state_manager.remove_remaining_agent(ctx.input.channel_id, ctx.input.thread_ts, ctx.agent_key)
+                for rem_item in list(thread_state_manager.get_remaining_agents(ctx.input.channel_id, ctx.input.thread_ts)):
+                    if rem_item == ctx.agent_key or (entity_resolver.resolve_agent_name(rem_item) or rem_item) == ctx.agent_key:
+                        thread_state_manager.remove_remaining_agent(ctx.input.channel_id, ctx.input.thread_ts, rem_item)
             else:
                 agent_key, prompt, was_explicit_target = parse_agent_and_prompt(
                     ctx.raw_text_cleaned, ctx.input.channel_id, ctx.input.thread_ts

@@ -467,21 +467,47 @@ class DirectiveParser:
             from pipeline.entity_resolver import entity_resolver
 
             tagged_in_prompt = set(entity_resolver.extract_tagged_agents(raw_text))
-            exc_actions = [a for a in intent.actions if a.name == "exclude_agents"]
-            llm_excluded = (
-                exc_actions[0].params.get("agents", []) if exc_actions else intent.modifiers.get("excluded_agents", [])
-            )
-            for exc in llm_excluded:
-                if exc not in excluded and exc not in tagged_in_prompt:
-                    excluded.append(exc)
 
-            if excluded and not any(a.name == "exclude_agents" for a in actions):
-                actions.append(ActionDirective(name="exclude_agents", params={"agents": list(excluded)}))
+            def _resolve_non_tagged_agents(raw_agents: Any) -> list[str]:
+                resolved: list[str] = []
+                for ag in raw_agents or []:
+                    canon = entity_resolver.resolve_agent_name(str(ag))
+                    if canon and canon not in tagged_in_prompt and canon not in resolved:
+                        resolved.append(canon)
+                return resolved
+
+            for action_name, modifier_key, slash_list in (
+                ("exclude_agents", "excluded_agents", excluded),
+                ("include_agents", "included_agents", None),
+            ):
+                inferred_acts = [a for a in intent.actions if a.name == action_name]
+                raw_inferred = (
+                    inferred_acts[0].params.get("agents", [])
+                    if inferred_acts
+                    else intent.modifiers.get(modifier_key, [])
+                )
+                merged_agents = list(slash_list) if slash_list is not None else []
+                for canon_ag in _resolve_non_tagged_agents(raw_inferred):
+                    if canon_ag not in merged_agents:
+                        merged_agents.append(canon_ag)
+
+                existing_act = next((a for a in actions if a.name == action_name), None)
+                if existing_act is not None:
+                    if not existing_act.params.get("off") and merged_agents:
+                        existing_agents = list(existing_act.params.get("agents") or [])
+                        for canon_ag in merged_agents:
+                            if canon_ag not in existing_agents:
+                                existing_agents.append(canon_ag)
+                        existing_act.params["agents"] = existing_agents
+                elif merged_agents:
+                    actions.append(
+                        ActionDirective(name=action_name, params={"agents": merged_agents}, origin="inferred")
+                    )
 
             # Merge any other modifiers or actions from intent
             llm_modifiers = intent.modifiers or {}
             for mk, mv in llm_modifiers.items():
-                if mk not in modifiers:
+                if mk not in modifiers and mk not in ("excluded_agents", "included_agents"):
                     modifiers[mk] = mv
 
             llm_actions = intent.actions or []
@@ -491,7 +517,11 @@ class DirectiveParser:
                 act_origin = (
                     act.get("origin", "inferred") if isinstance(act, dict) else getattr(act, "origin", "inferred")
                 )
-                if act_name and act_name != "stop_discussion" and not any(a.name == act_name for a in actions):
+                if (
+                    act_name
+                    and act_name not in ("stop_discussion", "exclude_agents", "include_agents")
+                    and not any(a.name == act_name for a in actions)
+                ):
                     actions.append(ActionDirective(name=act_name, params=act_params, origin=act_origin))
 
         is_pure_skill = False
