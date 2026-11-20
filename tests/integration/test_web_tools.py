@@ -392,3 +392,93 @@ def test_wrap_untrusted_content_breakout_prevention():
         # Inside the tags, no nested untrusted_file_content tag of any variant should exist
         inner = wrapped[len("<untrusted_file_content>\n"):-len("\n</untrusted_file_content>")]
         assert "untrusted_file_content" not in inner.lower()
+
+
+@pytest.mark.anyio
+async def test_web_search_ddg_202_falls_back_to_yahoo_and_filters_ads():
+    """HTTP 202 challenge from DDG HTML falls back to DDGS Yahoo, tuning xpath and filtering bing ad clicks."""
+    challenge_resp = MagicMock()
+    challenge_resp.status_code = 202
+    challenge_resp.text = "<html><body>anomaly challenge</body></html>"
+
+    from ddgs.engines import ENGINES
+
+    yahoo_cls = ENGINES["text"]["yahoo"]
+    orig_xpath = yahoo_cls.items_xpath
+    orig_elements = dict(yahoo_cls.elements_xpath)
+    orig_patched = getattr(yahoo_cls, "_izvor_dual_xpath", False)
+    observed_backends: list[str] = []
+
+    class FakeDDGS:
+        def __init__(self, timeout: int = 10):
+            self.timeout = timeout
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def text(self, query: str, max_results: int = 5, backend: str = "auto"):
+            observed_backends.append(backend)
+            assert "algo-sr" in yahoo_cls.items_xpath and "relsrch" in yahoo_cls.items_xpath
+            return [
+                {
+                    "title": "Sponsored Ad",
+                    "href": "https://www.bing.com/aclick?ld=xyz",
+                    "body": "Ad snippet",
+                },
+                {
+                    "title": "Pinecone Vector DB",
+                    "href": "https://pinecone.io/pricing",
+                    "body": "Managed cloud vector database pricing.",
+                },
+            ]
+
+    try:
+        with (
+            patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=challenge_resp),
+            patch("ddgs.DDGS", FakeDDGS),
+            patch("services.web_tools.validate_url_security", return_value=(True, "https://pinecone.io/pricing", None, "93.184.216.34")),
+        ):
+            res = await web_search("vector database pricing", max_results=3)
+            data = _test_loads(res)
+            assert observed_backends == ["yahoo"]
+            assert data["results_count"] == 1
+            assert data["results"][0]["url"] == "https://pinecone.io/pricing"
+    finally:
+        yahoo_cls.items_xpath = orig_xpath
+        yahoo_cls.elements_xpath = orig_elements
+        yahoo_cls._izvor_dual_xpath = orig_patched
+
+
+@pytest.mark.anyio
+async def test_web_search_terminal_failure_is_non_retryable():
+    """When both DDG HTML and all DDGS backends yield nothing, return retryable=False cleanly."""
+    challenge_resp = MagicMock()
+    challenge_resp.status_code = 202
+    challenge_resp.text = ""
+
+    class EmptyDDGS:
+        def __init__(self, timeout: int = 10):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def text(self, query: str, max_results: int = 5, backend: str = "auto"):
+            return []
+
+    with (
+        patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=challenge_resp),
+        patch("ddgs.DDGS", EmptyDDGS),
+        patch("services.web_tools.validate_url_security", return_value=(True, "https://html.duckduckgo.com/html/", None, "1.2.3.4")),
+    ):
+        res = await web_search("vector database pricing", max_results=3)
+        data = _test_loads(res)
+        assert data["retryable"] is False
+        assert data["results"] == []
+        assert "Do NOT retry" in data["error"]

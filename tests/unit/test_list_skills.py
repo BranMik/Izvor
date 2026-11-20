@@ -126,16 +126,26 @@ async def test_action_run_no_agent_no_text_halts():
         ]
     }
 
-    with patch("skills.builtin.list_skills.action.execute_llm_with_retry", new_callable=AsyncMock, return_value=mock_llm_response) as mock_llm, \
-         patch("skills.builtin.list_skills.action.post_system_message", new_callable=AsyncMock) as mock_post:
-        res = await list_skills_action_run(ctx)
-        assert res == {"ok": True, "halted": True, "action": "list_skills"}
-        mock_llm.assert_awaited_once()
-        mock_post.assert_awaited_once()
-        call_kwargs = mock_post.await_args.kwargs
-        assert call_kwargs["channel_id"] == "C12345"
-        assert call_kwargs["thread_ts"] == "1234567.89"
-        assert "document_reader" in call_kwargs["text"]
+    from services.slack.messages import configure_post_system_message, reset_post_system_message
+
+    mock_post = AsyncMock()
+    configure_post_system_message(mock_post)
+    try:
+        with patch("core.llm_utils.execute_llm_with_retry", new_callable=AsyncMock, return_value=mock_llm_response) as mock_llm:
+            res = await list_skills_action_run(ctx)
+            assert res == {"ok": True, "halted": True, "action": "list_skills"}
+            mock_llm.assert_awaited_once()
+            mock_post.assert_awaited_once()
+            args = mock_post.await_args.args
+            kwargs = mock_post.await_args.kwargs
+            ch = kwargs.get("channel_id", args[0] if len(args) > 0 else None)
+            th = kwargs.get("thread_ts", args[1] if len(args) > 1 else None)
+            txt = kwargs.get("text", args[2] if len(args) > 2 else "")
+            assert ch == "C12345"
+            assert th == "1234567.89"
+            assert "document_reader" in txt
+    finally:
+        reset_post_system_message()
 
 
 @pytest.mark.anyio
@@ -144,15 +154,20 @@ async def test_action_run_with_named_agent_halts_exclusively():
     If /list_skills is invoked with a named agent, it is strictly exclusive
     and halts immediately after presenting skills.
     """
+    from services.slack.messages import configure_post_system_message, reset_post_system_message
+
     ctx = TurnContext(
         channel_id="C12345",
         thread_ts="1234567.89",
         raw_text="/list_skills [agent-10008]",
     )
-    with patch("skills.builtin.list_skills.action.execute_llm_with_retry", new_callable=AsyncMock), \
-         patch("skills.builtin.list_skills.action.post_system_message", new_callable=AsyncMock):
-        res = await list_skills_action_run(ctx)
-        assert res == {"ok": True, "halted": True, "action": "list_skills"}
+    configure_post_system_message(AsyncMock())
+    try:
+        with patch("core.llm_utils.execute_llm_with_retry", new_callable=AsyncMock):
+            res = await list_skills_action_run(ctx)
+            assert res == {"ok": True, "halted": True, "action": "list_skills"}
+    finally:
+        reset_post_system_message()
 
 
 @pytest.mark.anyio
@@ -161,15 +176,20 @@ async def test_action_run_with_additional_text_halts_exclusively():
     If /list_skills is invoked with additional prompt text, it is strictly exclusive
     and halts immediately after presenting skills.
     """
+    from services.slack.messages import configure_post_system_message, reset_post_system_message
+
     ctx = TurnContext(
         channel_id="C12345",
         thread_ts="1234567.89",
         raw_text="/list_skills which agent should I use for code reviews?",
     )
-    with patch("skills.builtin.list_skills.action.execute_llm_with_retry", new_callable=AsyncMock), \
-         patch("skills.builtin.list_skills.action.post_system_message", new_callable=AsyncMock):
-        res = await list_skills_action_run(ctx)
-        assert res == {"ok": True, "halted": True, "action": "list_skills"}
+    configure_post_system_message(AsyncMock())
+    try:
+        with patch("core.llm_utils.execute_llm_with_retry", new_callable=AsyncMock):
+            res = await list_skills_action_run(ctx)
+            assert res == {"ok": True, "halted": True, "action": "list_skills"}
+    finally:
+        reset_post_system_message()
 
 
 def test_all_agents_see_skills_in_prompt():
@@ -369,16 +389,38 @@ async def test_list_skills_action_falls_back_with_footer_when_key_missing():
     mock_resp.choices = [MagicMock(message=MagicMock(content="• *document_reader*"))]
     mock_resp.usage = MagicMock(prompt_tokens=15, completion_tokens=10)
 
+    from services.slack.messages import configure_post_system_message, reset_post_system_message
+
+    mock_post = AsyncMock()
+    configure_post_system_message(mock_post)
     ctx = SimpleNamespace(input=SimpleNamespace(channel_id="C_LIST", thread_ts="111.222"))
-    with (
-        patch("litellm.acompletion", AsyncMock(return_value=mock_resp)) as mock_comp,
-        patch("skills.builtin.list_skills.action.post_system_message", AsyncMock()) as mock_post,
-    ):
-        res = await list_skills_run(ctx)
+    try:
+        with patch("litellm.acompletion", AsyncMock(return_value=mock_resp)) as mock_comp:
+            res = await list_skills_run(ctx)
+    finally:
+        reset_post_system_message()
 
     assert res["ok"] is True
     assert mock_comp.call_args.kwargs["model"] == "mistral/mistral-large-latest"
-    posted_text = mock_post.call_args.kwargs["text"]
+    post_args = mock_post.call_args.args
+    post_kwargs = mock_post.call_args.kwargs
+    posted_text = post_kwargs.get("text", post_args[2] if len(post_args) > 2 else "")
     assert "Fallback model used: `mistral/mistral-large-latest`" in posted_text
+
+
+def test_list_skills_action_survives_slack_messages_first_import():
+    """Importing services.slack.messages before skills.loader must still register list_skills.action_handler."""
+    import subprocess
+    import sys
+
+    code = (
+        "import sys; sys.path.insert(0, 'engine'); "
+        "import services.slack.messages; "
+        "from core.registry import get_skill_registry; "
+        "sk = get_skill_registry().get('list_skills'); "
+        "assert sk is not None and sk.action_handler is not None"
+    )
+    proc = subprocess.run([sys.executable, "-u", "-c", code], capture_output=True, text=True, check=False)
+    assert proc.returncode == 0, f"Circular import broke list_skills handler:\n{proc.stdout}\n{proc.stderr}"
 
 

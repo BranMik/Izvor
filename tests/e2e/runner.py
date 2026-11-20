@@ -201,7 +201,7 @@ def _standalone_cli_isolation() -> Iterator[None]:
         reset_paths as reset_note_paths,
     )
 
-    with tempfile.TemporaryDirectory(prefix="izvor_e2e_cli_") as tmp_str:
+    with tempfile.TemporaryDirectory(prefix="izvor_e2e_cli_", ignore_cleanup_errors=True) as tmp_str:
         iso = Path(tmp_str)
         audit_dir = iso / "audit"
         audit_dir.mkdir(parents=True, exist_ok=True)
@@ -300,6 +300,7 @@ def _standalone_cli_isolation() -> Iterator[None]:
             settings_manager.reset_paths()
             pricing_service.reset_paths()
             audit_logger.reset_paths()
+            db_manager.close_all_connections()
 
 
 class E2ETestRunner:
@@ -411,18 +412,16 @@ class E2ETestRunner:
             system_settings_manager.set_slack_post_pause_seconds(self.pacing, save=False)
             set_admin_slack_user_ids_override({TEST_ADMIN_USER_ID})
 
-            # Pure DI outbound Slack & history/files hooks (always install bus spy; forwards live when live_slack=True)
+            # Pure DI outbound Slack & history/files hooks (always install dual-mode bus spy; forwards live when live_slack=True)
             configure_post_agent_response(self.client.mock_post_agent_response)
             configure_post_system_message(self.client.mock_post_system_message)
             configure_fetch_thread_history(self.client.mock_fetch_thread_history)
             configure_fetch_thread_files(self.client.mock_fetch_thread_files)
+            configure_slack_async_client(self.client.slack_client_double)
 
             if not self.live_slack:
-                configure_slack_async_client(self.client.slack_client_double)
                 configure_token("xoxb-e2e-simulated-token")
                 configure_router_sleep_fn(_noop_sleep)
-            else:
-                reset_slack_async_client()
 
             if self.mock or self.mocked_llm or not self.allow_all_live_llm:
                 configure_llm_completion_fn(self.interceptor.intercept_acompletion)
@@ -446,8 +445,13 @@ class E2ETestRunner:
                 try:
                     from agents.thread_notes_agent import _RUNNING_TASKS
 
-                    target_thread = self.client.current_thread_ts
-                    if target_thread:
+                    live_threads = list(
+                        dict.fromkeys(
+                            [t for t in self.client._scenario_live_threads if t]
+                            + ([self.client.current_thread_ts] if self.client.current_thread_ts else [])
+                        )
+                    )
+                    for target_thread in live_threads:
                         target_key = (self.client.get_channel(), target_thread)
                         bg_task = _RUNNING_TASKS.get(target_key)
                         if bg_task and not bg_task.done():

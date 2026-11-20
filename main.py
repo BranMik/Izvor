@@ -17,6 +17,9 @@ from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
 
+from core.paths import AVATARS_DIR, ENGINE_AVATARS_DIR, PROJECT_ROOT
+import skills.loader
+from core.logging_filters import setup_credential_redaction_filters
 from adapters.slack import (
     PROCESSED_EVENTS,
     slack_router,
@@ -34,9 +37,6 @@ from services.pricing_service import pricing_service
 from services.rag.sync_engine import rag_sync_engine
 
 from orchestration.system_settings import system_settings_manager
-from core.logging_filters import setup_credential_redaction_filters
-from core.paths import AVATARS_DIR, ENGINE_AVATARS_DIR, PROJECT_ROOT
-import skills.loader
 from core.llm_utils import set_pii_masker_instance
 from core.slack_security import set_audit_logger_hook, set_secret_scanner_hook
 from services.audit_logger import log_audit_event

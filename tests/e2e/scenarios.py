@@ -757,9 +757,26 @@ async def tc_22_scribe_download_dm(client: SlackProtocolClient) -> ScenarioResul
         for m in client.bus.posted_messages
     )
 
+    download_value = f"{channel}:{actual_thread}"
+    has_dl_button = False
+    for note in reversed(client.bus.thread_notes or client.bus.posted_messages):
+        if note.get("channel_id") != channel:
+            continue
+        for block in note.get("blocks") or []:
+            for elem in block.get("elements") or []:
+                if elem.get("action_id") == "download_scribe_notes_txt":
+                    has_dl_button = True
+                    if elem.get("value"):
+                        download_value = str(elem["value"])
+                    break
+            if has_dl_button:
+                break
+        if has_dl_button:
+            break
+
     await client.send_block_action(
         action_id="download_scribe_notes_txt",
-        value=f"{channel}:{actual_thread}",
+        value=download_value,
         channel_id=channel,
         thread_ts=actual_thread,
         user_id="U_TESTER_22",
@@ -771,12 +788,12 @@ async def tc_22_scribe_download_dm(client: SlackProtocolClient) -> ScenarioResul
         for e in client.bus.ephemeral_messages
     )
     has_file = any("txt" in f.get("filename", "") for f in client.bus.uploaded_files)
-    passed = has_scribe_note and has_ephemeral and has_file
+    passed = has_scribe_note and has_dl_button and has_ephemeral and has_file
     return ScenarioResult(
         "TC-22",
         "Scribe Download Button (.txt in DM)",
         passed,
-        f"note={has_scribe_note}, ephemeral={has_ephemeral}, txt_uploaded={has_file}",
+        f"note={has_scribe_note}, button={has_dl_button}, ephemeral={has_ephemeral}, txt_uploaded={has_file}",
     )
 
 
