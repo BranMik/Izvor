@@ -23,6 +23,9 @@ def isolate_local_tools_for_tests(tmp_path):
         workspace_dir=PROJECT_ROOT,
         agents_resources_dir=temp_resources,
     )
+    from core.model_catalog import reset_env_provider
+
+    reset_env_provider()
     try:
         yield temp_resources
     finally:

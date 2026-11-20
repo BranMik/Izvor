@@ -694,5 +694,38 @@ async def test_update_notes_for_thread_skips_empty_initial_live_note_post():
     assert get_thread_note_content(channel_id, thread_ts) is None
 
 
+@pytest.mark.anyio
+async def test_generate_thread_notes_falls_back_when_scribe_key_missing():
+    """Verify DiscussionScribe falls back to first available model when its configured provider key is missing."""
+    from core.model_catalog import configure_env_provider
+
+    configure_env_provider(lambda: {"GEMINI_API_KEY": "AIzaSyValidKey"})
+    mock_resp = MagicMock()
+    mock_resp.choices = [
+        MagicMock(
+            message=MagicMock(
+                content=(
+                    "📋 *Strategic Synthesis & Action Plan*\n"
+                    "🎯 *Core Objective & Problem Statement*\nFallback scribe synthesis."
+                )
+            )
+        )
+    ]
+    mock_resp.usage = MagicMock(prompt_tokens=60, completion_tokens=30, total_tokens=90)
+
+    history = [
+        {"role": "user", "content": "How should we design the database?"},
+        {"role": "assistant", "content": "[agent-10001]: Use PostgreSQL."},
+    ]
+
+    with patch("pipeline.discussion_scribe.scribe.litellm.acompletion", return_value=mock_resp) as mock_litellm:
+        content, token_stats = await generate_thread_notes(history, is_completed=False)
+
+    assert "Fallback scribe synthesis" in content
+    assert mock_litellm.call_args.kwargs["model"] == "gemini/gemini-3.8-flash"
+    assert token_stats["model"] == "gemini/gemini-3.8-flash"
+
+
+
 
 

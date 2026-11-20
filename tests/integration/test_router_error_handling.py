@@ -467,3 +467,119 @@ async def test_execute_llm_with_retry_503_selective_bypass():
             allow_503_immediate_retry=False,
         )
     assert call_count == 3
+
+
+def test_classify_agent_error_litellm_missing_key_wrappers():
+    """Verify LiteLLM InternalServerError/APIConnectionError missing-key errors classify as api_key_not_found, not 503."""
+    import litellm
+
+    openai_err = litellm.exceptions.InternalServerError(
+        message="OpenAIException - Missing credentials. Please pass an `api_key`, or set OPENAI_API_KEY.",
+        llm_provider="openai",
+        model="openai/gpt-5.6-sol",
+    )
+    meta_err = litellm.exceptions.InternalServerError(
+        message="MetaException - Missing credentials. Please pass an `api_key`.",
+        llm_provider="meta",
+        model="meta/llama-4-scout",
+    )
+    gemini_err = litellm.exceptions.APIConnectionError(
+        message="Missing Gemini API key. Set the GEMINI_API_KEY or GOOGLE_API_KEY environment variable.",
+        llm_provider="gemini",
+        model="gemini/gemini-3.8-flash",
+    )
+    real_500 = litellm.exceptions.InternalServerError(
+        message="500 Internal Server Error",
+        llm_provider="openai",
+        model="openai/gpt-5.6-sol",
+    )
+    real_conn = litellm.exceptions.APIConnectionError(
+        message="Connection reset by peer",
+        llm_provider="gemini",
+        model="gemini/gemini-3.8-flash",
+    )
+
+    assert classify_agent_error(openai_err) == "api_key_not_found"
+    assert classify_agent_error(meta_err) == "api_key_not_found"
+    assert classify_agent_error(gemini_err) == "api_key_not_found"
+    assert classify_agent_error(real_500) == "service_unavailable"
+    assert classify_agent_error(real_conn) == "service_unavailable"
+
+
+@pytest.mark.anyio
+async def test_execute_llm_with_retry_skips_retries_on_api_key_not_found():
+    """Verify api_key_not_found raises immediately on attempt 1 without wasting retry attempts."""
+    import litellm
+
+    call_count = 0
+
+    def mock_missing_key(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        raise litellm.exceptions.APIConnectionError(
+            message="Missing Gemini API key. Set the GEMINI_API_KEY or GOOGLE_API_KEY environment variable.",
+            llm_provider="gemini",
+            model="gemini/gemini-3.8-flash",
+        )
+
+    with pytest.raises(litellm.exceptions.APIConnectionError):
+        await execute_llm_with_retry(
+            mock_missing_key,
+            {},
+            agent_key="TestAgent",
+            thread_key=("C", "T"),
+            max_attempts=3,
+        )
+    assert call_count == 1
+
+
+@pytest.mark.anyio
+async def test_process_and_respond_missing_key_falls_back_with_slack_footer():
+    """Verify missing agent API key falls back in-memory to default_reasoning_model (or catalog) with Slack footer."""
+    from core.model_catalog import configure_env_provider
+    from orchestration.agent_settings import settings_manager
+
+    thread_state_manager.reset_all()
+    original_configured = settings_manager.agents_config["agent-10002"]["model"]
+    assert original_configured == "anthropic/claude-opus-5"
+
+    configure_env_provider(lambda: {"MISTRAL_API_KEY": "valid-mistral-key", "GEMINI_API_KEY": "AIzaSyValid"})
+
+    called_models = []
+    posted = []
+
+    async def mock_completion(*args, **kwargs):
+        called_models.append(kwargs.get("model"))
+        choice = MagicMock()
+        choice.message.content = "Fallback response complete."
+        choice.message.tool_calls = None
+        resp = MagicMock()
+        resp.choices = [choice]
+        resp.usage = MagicMock(prompt_tokens=100, completion_tokens=40)
+        return resp
+
+    async def mock_post(channel_id, thread_ts, text, username, icon_url=None):
+        posted.append({"text": text, "username": username})
+        return {"ok": True, "ts": "99999.0001"}
+
+    configure_llm_completion_fn(mock_completion)
+    configure_post_agent_response(mock_post)
+    configure_fetch_thread_history(AsyncMock(return_value=[]))
+
+    await process_and_respond(
+        channel_id="C_FALLBACK",
+        thread_ts="99999.0001",
+        raw_text="/[agent-10002] Evaluate microservices",
+        is_bot_trigger=True,
+    )
+
+    assert called_models == ["mistral/mistral-large-latest"]
+    assert len(posted) == 1
+    assert (
+        "⚠️ _Fallback model used: `mistral/mistral-large-latest` "
+        "(missing API key for `anthropic/claude-opus-5`)_"
+    ) in posted[0]["text"]
+    assert "{mistral/mistral-large-latest : 100/40}" in posted[0]["text"]
+    # Shared agent_settings must NOT be mutated in place
+    assert settings_manager.agents_config["agent-10002"]["model"] == original_configured
+

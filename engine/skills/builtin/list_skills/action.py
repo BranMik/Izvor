@@ -27,7 +27,13 @@ async def run(ctx: Any, params: dict[str, Any] | None = None) -> dict[str, Any] 
 
     skills_directory_text = skill_registry.format_skills_directory_markdown(channel_id=channel_id, thread_ts=thread_ts)
 
-    system_model = get_system_agent_model("list_skills", fallback=get_orchestrator_fast_model())
+    from core.model_catalog import format_model_fallback_footer, resolve_model_with_fallback
+
+    model_res = resolve_model_with_fallback(
+        get_system_agent_model("list_skills", fallback=get_orchestrator_fast_model()),
+        log_context="LIST SKILLS",
+    )
+    system_model = model_res.model
     formatted_msg = skills_directory_text
 
     try:
@@ -75,6 +81,11 @@ async def run(ctx: Any, params: dict[str, Any] | None = None) -> dict[str, Any] 
         )
         if content:
             formatted_msg = content
+            if model_res.fallback_used:
+                formatted_msg = (
+                    f"{formatted_msg}\n\n"
+                    f"{format_model_fallback_footer(model_res.configured_model, system_model)}"
+                )
 
         if llm_resp and getattr(llm_resp, "usage", None) and channel_id and thread_ts:
             try:

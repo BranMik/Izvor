@@ -331,19 +331,27 @@ class PostRecordStage:
                     )
                     break
 
+        footer_parts: list[str] = []
+        if ctx.output.skills_used:
+            skills_str = ", ".join(f"[{s}]" for s in ctx.output.skills_used)
+            footer_parts.append(f"Skills used: {skills_str}")
+
         agent_model = ctx.agent_cfg.get("model", "")
+        fallback_from = getattr(ctx.output, "fallback_from_model", None)
+        if fallback_from and agent_model:
+            from core.model_catalog import format_model_fallback_footer
+
+            footer_parts.append(format_model_fallback_footer(fallback_from, agent_model))
+
         if agent_model:
             token_footer = f"{{{agent_model} : {ctx.output.total_prompt_tokens}/{ctx.output.total_completion_tokens}}}"
         else:
             token_footer = (
                 f"{{{ctx.output.total_prompt_tokens}/{ctx.output.total_completion_tokens}}}"
             )
+        footer_parts.append(token_footer)
 
-        if ctx.output.skills_used:
-            skills_str = ", ".join(f"[{s}]" for s in ctx.output.skills_used)
-            ctx.output.final_text = f"{ctx.output.final_text}\n\nSkills used: {skills_str}\n\n{token_footer}"
-        else:
-            ctx.output.final_text = f"{ctx.output.final_text}\n\n{token_footer}"
+        ctx.output.final_text = f"{ctx.output.final_text}\n\n" + "\n\n".join(footer_parts)
         ctx.output.generated_tags = resolved_tags
         logger.info(
             f"[ROUTER] Agent {ctx.agent_key} generated tag(s): {ctx.output.generated_tags}. Full text length: {len(ctx.output.final_text)}"

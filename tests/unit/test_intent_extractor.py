@@ -463,3 +463,23 @@ def test_system_agent_inference_timeout_settings_env_override():
     empty_env: dict[str, str] = {}
     assert get_system_agent_inference_timeout_seconds(env=empty_env) >= 1.0
     assert get_system_agent_inference_retry_timeout_multiplier(env=empty_env) >= 1.0
+
+
+@pytest.mark.anyio
+async def test_extract_intent_falls_back_when_configured_key_missing():
+    """When IntentExtractor's configured model key is missing, it falls back to default_reasoning_model / catalog."""
+    from core.model_catalog import configure_env_provider
+
+    configure_env_provider(lambda: {"MISTRAL_API_KEY": "valid-mistral-key"})
+    mock_resp = MagicMock()
+    mock_resp.choices = [
+        MagicMock(message=MagicMock(content=json.dumps({"modifiers": {}, "actions": [], "detected_language": "English"})))
+    ]
+    mock_resp.usage = None
+
+    with patch("nlp.intent_extractor.execute_llm_with_retry", AsyncMock(return_value=mock_resp)) as mock_exec:
+        await intent_extractor.extract_intent("Evaluate this architecture", timeout_seconds=1.0)
+
+    assert mock_exec.called
+    assert mock_exec.call_args.kwargs["kwargs"]["model"] == "mistral/mistral-large-latest"
+

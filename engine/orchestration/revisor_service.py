@@ -64,10 +64,15 @@ def _clean_candidate_message(raw_text: str) -> str:
             break
         cleaned = updated
 
-    # Iteratively strip trailing orchestration footers (token footer, Skills used, nomination tags)
+    # Iteratively strip trailing orchestration footers (token footer, fallback footer, Skills used, nomination tags)
     while True:
         prev = cleaned
         cleaned = re.sub(r"\s*\{(?:[^{}]+:\s*)?\d+/\d+\}\s*$", "", cleaned).strip()
+        cleaned = re.sub(
+            r"\s*⚠️\s*_Fallback model used:\s*`[^`]+`\s*\(missing API key for\s*`[^`]+`\)_\s*$",
+            "",
+            cleaned,
+        ).strip()
         cleaned = re.sub(
             r"\s*Skills used:\s*(?:\[[^\]]+\](?:,\s*)?)+\s*$",
             "",
@@ -287,9 +292,17 @@ async def _confirm_hallucination(
     ground_truth_and_target: str,
     speaker: str,
     stage1_warning: str,
+    fallback_footers: list[str] | None = None,
 ) -> str | None:
     """Stage 2 confirmation using a stronger reasoning model to filter out Stage 1 false positives."""
-    confirm_model = _resolve_confirmation_model()
+    from core.model_catalog import format_model_fallback_footer, resolve_model_with_fallback
+
+    confirm_res_meta = resolve_model_with_fallback(_resolve_confirmation_model(), log_context="REVISOR")
+    confirm_model = confirm_res_meta.model
+    if confirm_res_meta.fallback_used and fallback_footers is not None:
+        fallback_footers.append(
+            format_model_fallback_footer(confirm_res_meta.configured_model, confirm_model)
+        )
     logger.info(
         f"[REVISOR] Stage 1 flagged potential hallucination for [{speaker}]. "
         f"Running Stage 2 confirmation with '{confirm_model}'."
@@ -354,10 +367,20 @@ async def _verify_single_candidate(
     has_verified_evidence: bool,
     speaker: str,
     cleaned_message: str,
+    fallback_footers: list[str] | None = None,
 ) -> str | None:
     """Verifies a single candidate message independently (Stage 1 + Stage 2 confirmation on flag)."""
     if not cleaned_message:
         return None
+
+    from core.model_catalog import format_model_fallback_footer, resolve_model_with_fallback
+
+    stage1_res_meta = resolve_model_with_fallback(stage1_model, log_context="REVISOR")
+    active_stage1_model = stage1_res_meta.model
+    if stage1_res_meta.fallback_used and fallback_footers is not None:
+        fallback_footers.append(
+            format_model_fallback_footer(stage1_res_meta.configured_model, active_stage1_model)
+        )
 
     user_content = _build_verification_user_content(
         initial_prompt=initial_prompt,
@@ -368,7 +391,7 @@ async def _verify_single_candidate(
     )
 
     kwargs = {
-        "model": stage1_model,
+        "model": active_stage1_model,
         "messages": [
             {"role": "system", "content": sys_prompt},
             {"role": "user", "content": user_content},
@@ -382,7 +405,7 @@ async def _verify_single_candidate(
         thread_key=ctx.thread_key,
         allow_503_immediate_retry=False,
     )
-    _record_revisor_usage(ctx, stage1_model, res)
+    _record_revisor_usage(ctx, active_stage1_model, res)
 
     if not (res and hasattr(res, "choices") and res.choices):
         return None
@@ -397,6 +420,7 @@ async def _verify_single_candidate(
         ground_truth_and_target=user_content,
         speaker=speaker,
         stage1_warning=stage1_warning,
+        fallback_footers=fallback_footers,
     )
 
 
@@ -471,6 +495,7 @@ async def run_internal_revisor(ctx: TurnContext):
         )
 
         # 5. Execute isolated per-candidate verification (concurrently if multiple candidates)
+        fallback_footers: list[str] = []
         tasks = [
             _verify_single_candidate(
                 ctx=ctx,
@@ -481,6 +506,7 @@ async def run_internal_revisor(ctx: TurnContext):
                 has_verified_evidence=has_verified_evidence,
                 speaker=speaker,
                 cleaned_message=cleaned_msg,
+                fallback_footers=fallback_footers,
             )
             for speaker, cleaned_msg in candidates
         ]
@@ -492,6 +518,10 @@ async def run_internal_revisor(ctx: TurnContext):
         confirmed_warnings = [w for w in results if w]
         if confirmed_warnings:
             combined_warning = "\n\n".join(confirmed_warnings)
+            slack_text = combined_warning
+            unique_footers = list(dict.fromkeys(fallback_footers))
+            if unique_footers:
+                slack_text = f"{combined_warning}\n\n" + "\n".join(unique_footers)
             logger.warning("[REVISOR] Hallucination confirmed! Posting to Slack.")
             sys_cfg = SYSTEM_AGENTS_CONFIG.get("InternalRevisor", {})
             display_name = sys_cfg.get("displayname") or "Internal Revisor"
@@ -499,7 +529,7 @@ async def run_internal_revisor(ctx: TurnContext):
             await post_agent_response(
                 channel_id=ctx.input.channel_id,
                 thread_ts=ctx.input.thread_ts,
-                text=combined_warning,
+                text=slack_text,
                 username=display_name,
                 icon_url=icon_url,
             )

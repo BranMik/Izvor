@@ -148,6 +148,12 @@ class IntentExtractor:
             {"role": "user", "content": user_content},
         ]
 
+        from core.model_catalog import resolve_model_with_fallback
+
+        active_model = resolve_model_with_fallback(
+            self.model, log_context="INTENT EXTRACTOR"
+        ).model
+
         try:
             escalated_timeout = timeout_seconds * retry_multiplier
             for attempt_timeout in (timeout_seconds, escalated_timeout):
@@ -156,7 +162,7 @@ class IntentExtractor:
                         execute_llm_with_retry(
                             func=litellm.acompletion,
                             kwargs={
-                                "model": self.model,
+                                "model": active_model,
                                 "messages": messages,
                                 "response_format": {"type": "json_object"},
                                 "num_retries": 1,
@@ -191,7 +197,7 @@ class IntentExtractor:
                         record_thread_tokens(
                             channel_id=thread_key[0],
                             thread_ts=thread_key[1],
-                            model_name=self.model,
+                            model_name=active_model,
                             prompt_tokens=p_tok,
                             completion_tokens=c_tok,
                         )

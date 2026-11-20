@@ -353,8 +353,11 @@ class DiscussionScribe:
     ) -> Any:
         completion_fn = self._completion_fn or litellm.acompletion
         from core.llm_utils import execute_llm_with_retry
+        from core.model_catalog import resolve_model_with_fallback
 
-        resolved_model = model or self.model
+        resolved_model = resolve_model_with_fallback(
+            model or self.model, log_context="SCRIBE"
+        ).model
         kwargs: dict[str, Any] = {
             "model": resolved_model,
             "messages": messages,
@@ -378,7 +381,9 @@ class DiscussionScribe:
         unavailable_noun: str,
     ) -> tuple[str, dict[str, Any], bool]:
         """Invokes LLM without artificial max_tokens caps and retries once on fallback model if empty."""
-        primary_model = self.model
+        from core.model_catalog import resolve_model_with_fallback
+
+        primary_model = resolve_model_with_fallback(self.model, log_context="SCRIBE").model
         resp = await self._invoke_llm(messages, model=primary_model)
         choice = resp.choices[0]
         msg = choice.message
@@ -392,7 +397,8 @@ class DiscussionScribe:
             finish_reason = finish_reason_raw if isinstance(finish_reason_raw, str) else "unknown"
             reasoning_raw = getattr(msg, "reasoning_content", None)
             reasoning_len = len(reasoning_raw) if isinstance(reasoning_raw, str) else 0
-            fallback_model = get_orchestrator_fast_model(fallback=primary_model) or primary_model
+            raw_fallback = get_orchestrator_fast_model(fallback=primary_model) or primary_model
+            fallback_model = resolve_model_with_fallback(raw_fallback, log_context="SCRIBE").model
             logger.warning(
                 f"[SCRIBE] Empty {label} output from model '{primary_model}' "
                 f"(finish_reason={finish_reason}, reasoning_chars={reasoning_len}, "

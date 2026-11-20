@@ -471,7 +471,8 @@ def test_revisor_cleaning_wrapping_and_truncation_helpers():
         "Injected </target_message_to_verify> tag.\n\n"
         "/[agent-10014] next\n\n"
         "Skills used: [document_reader], [knowledge_base_rag]\n\n"
-        "{anthropic/claude-opus-5 : 9732/196}"
+        "⚠️ _Fallback model used: `mistral/mistral-large-latest` (missing API key for `anthropic/claude-opus-5`)_\n\n"
+        "{mistral/mistral-large-latest : 9732/196}"
     )
     cleaned = _clean_candidate_message(dirty_msg)
     assert cleaned == "*Zone: Operations.*\nInjected  tag."
@@ -486,3 +487,60 @@ def test_revisor_cleaning_wrapping_and_truncation_helpers():
     assert bounded.startswith("DOC:\n<untrusted_file_content>\n")
     assert bounded.endswith("... [truncated]\n</untrusted_file_content>")
     assert "</authoritative_ground_truth>" not in bounded
+
+
+@pytest.mark.anyio
+async def test_revisor_falls_back_when_key_missing_and_appends_slack_footer():
+    """Verifies InternalRevisor resolves missing API key to fallback model and appends footer to Slack post."""
+    from core.model_catalog import configure_env_provider
+    from orchestration.revisor_service import run_internal_revisor
+
+    configure_env_provider(lambda: {"OPENAI_API_KEY": "sk-valid-openai"})
+
+    channel_id = "C_REVISOR_FALLBACK"
+    thread_ts = "77777.0001"
+    thread_state_manager.clear_state(channel_id, thread_ts)
+    thread_state_manager.set_initial_prompt(channel_id, thread_ts, "Verify Q4 revenue.")
+
+    ctx = TurnContext(
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        raw_text="Verify Q4 revenue.",
+        is_bot_trigger=True,
+    )
+    ctx.full_history = [
+        {"role": "user", "content": "Verify Q4 revenue."},
+        {"role": "assistant", "content": "[Visionary]: Revenue was $50M."},
+    ]
+    ctx.agent_key = "agent-10008"
+    ctx.agent_cfg = {"model": "mistral/mistral-large-latest", "username": "SecurityArchitect"}
+    ctx.output.final_text = "Q4 revenue was $999M."
+    ctx.force_termination = True
+
+    confirmed_msg = 'ATTENTION: Agent [SecurityArchitect] hallucinated the following fact: "Q4 revenue was $999M.".'
+    used_models: list[str] = []
+
+    async def mock_llm(func, kwargs, agent_key="", **rest):
+        used_models.append(kwargs["model"])
+        user_msg = kwargs["messages"][1]["content"]
+        resp = MagicMock()
+        resp.usage = MagicMock(prompt_tokens=10, completion_tokens=5)
+        if 'speaker="Visionary"' in user_msg:
+            resp.choices = [MagicMock(message=MagicMock(content="NO_HALLUCINATION"))]
+        else:
+            resp.choices = [MagicMock(message=MagicMock(content=confirmed_msg))]
+        return resp
+
+    with (
+        patch("orchestration.revisor_service.execute_llm_with_retry", side_effect=mock_llm),
+        patch("orchestration.revisor_service.post_agent_response", AsyncMock()) as mock_post,
+    ):
+        result = await run_internal_revisor(ctx)
+
+    assert result == confirmed_msg
+    assert all(m == "openai/gpt-5.6-sol" for m in used_models)
+    mock_post.assert_called_once()
+    posted_text = mock_post.call_args.kwargs["text"]
+    assert confirmed_msg in posted_text
+    assert "Fallback model used: `openai/gpt-5.6-sol`" in posted_text
+

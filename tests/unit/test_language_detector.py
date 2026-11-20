@@ -204,3 +204,20 @@ async def test_detect_language_llm_timeout_falls_back_to_heuristic():
 
     assert res == "Croatian"  # via _heuristic_detect (distinctive č), despite LLM being down
     assert mock_exec.call_count == 2
+
+
+@pytest.mark.anyio
+async def test_detect_language_llm_falls_back_when_key_missing():
+    """When LanguageDetector's fast model key is missing, it falls back to default_reasoning_model / catalog."""
+    from core.model_catalog import configure_env_provider
+
+    configure_env_provider(lambda: {"OPENAI_API_KEY": "sk-valid-openai"})
+    with patch(
+        "nlp.language_detector.litellm.acompletion",
+        AsyncMock(return_value=_make_mock_response("Croatian")),
+    ) as mock_comp:
+        res = await detect_language_llm("kratki test", model="gemini/gemini-3.8-flash")
+
+    assert res == "Croatian"
+    assert mock_comp.call_args.kwargs["model"] == "openai/gpt-5.6-sol"
+
