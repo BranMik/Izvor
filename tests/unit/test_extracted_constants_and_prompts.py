@@ -19,7 +19,6 @@ from orchestration.system_settings import (
     get_slack_rate_limit_per_second,
     get_slack_rate_limit_burst,
     get_pricing_benchmark_url,
-    get_web_search_endpoint,
     get_web_fetch_user_agent,
     get_web_security,
     get_security_burst_limits,
@@ -83,7 +82,6 @@ def test_system_settings_extracted_constants_defaults():
     assert get_slack_rate_limit_per_second() == 10.0
     assert get_slack_rate_limit_burst() == 15.0
     assert "artificialanalysis.ai" in get_pricing_benchmark_url()
-    assert "duckduckgo.com" in get_web_search_endpoint()
     assert "Mozilla/5.0" in get_web_fetch_user_agent()
 
     sec = get_web_security()
@@ -91,6 +89,7 @@ def test_system_settings_extracted_constants_defaults():
     assert sec["max_query_length"] == 1024
     assert sec["max_redirects"] == 5
     assert sec["max_body_bytes"] == 2097152
+    assert sec["max_fetches_per_turn"] == 5
 
     sbl = get_security_burst_limits()
     assert sbl["auth_failure_window_seconds"] == 60.0

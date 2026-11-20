@@ -157,6 +157,36 @@ def _is_tool_error(result: Any) -> bool:
     return False
 
 
+def _ensure_all_tool_calls_responded(ctx: "TurnContext") -> None:
+    """Appends synthetic aborted responses for any unresponded assistant tool_calls in ctx.messages."""
+    responded_ids = {
+        m.get("tool_call_id") for m in ctx.messages if isinstance(m, dict) and m.get("role") == "tool"
+    }
+    for msg in list(ctx.messages):
+        if not isinstance(msg, dict) or msg.get("role") != "assistant":
+            continue
+        for tc in msg.get("tool_calls") or []:
+            tc_id = tc.get("id") if isinstance(tc, dict) else getattr(tc, "id", None)
+            if not tc_id or tc_id in responded_ids:
+                continue
+            fn_obj = tc.get("function", {}) if isinstance(tc, dict) else getattr(tc, "function", None)
+            tc_fn = fn_obj.get("name", "tool") if isinstance(fn_obj, dict) else getattr(fn_obj, "name", "tool")
+            ctx.messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": tc_id,
+                    "name": tc_fn,
+                    "content": (
+                        "<untrusted_file_content>\n"
+                        f"TOOL EXECUTION ABORTED: Tool '{tc_fn}' was skipped because the tool loop timeout expired. "
+                        "Synthesize your final response using the evidence already gathered above.\n"
+                        "</untrusted_file_content>"
+                    ),
+                }
+            )
+            responded_ids.add(tc_id)
+
+
 class ExecutionStage:
     """Provides stage 4 LLM execution and tool calling loops for TurnPipeline."""
 
@@ -383,32 +413,101 @@ class ExecutionStage:
         )
 
         exec_retry_fn = getattr(self.deps, "llm_executor", None) or execute_llm_with_retry
+        intermediate_delay_secs = getattr(self.deps, "intermediate_delay_secs", None)
+        if intermediate_delay_secs is None:
+            intermediate_delay_secs = TOOL_INTERMEDIATE_UPDATE_DELAY_SECONDS
 
-        response = await exec_retry_fn(
-            litellm.acompletion,
-            completion_kwargs,
-            agent_key=ctx.agent_key,
-            thread_key=ctx.thread_key,
-            is_superseded_fn=ctx.is_superseded,
-            allow_503_immediate_retry=allow_503_immediate,
-            turn_token_mapping=ctx.turn_token_mapping,
-        )
+        username = ctx.agent_cfg.get("username", ctx.agent_key) if ctx.agent_cfg else ctx.agent_key
+        resolved_icon = ctx.icon_url or (ctx.agent_cfg.get("icon_url") if ctx.agent_cfg else None)
+        current_status_tool_calls: list[Any] | None = None
+        last_status_text: str | None = None
 
-        if response is None and ctx.is_superseded():
-            return {"ok": False, "cancelled": True, "reason": "superseded"}
+        async def _update_intermediate_status_if_active(tool_calls_for_status: list[Any] | None) -> None:
+            nonlocal last_status_text
+            if ctx.is_superseded() or not ctx.intermediate_msg_ts:
+                return
+            new_text = _build_tool_status_text(username, tool_calls_for_status or [])
+            if new_text == last_status_text:
+                return
+            last_status_text = new_text
+            try:
+                ws_adapter = getattr(self.deps, "workspace_adapter", None)
+                if ws_adapter is not None:
+                    await ws_adapter.update_agent_turn(
+                        channel_id=ctx.input.channel_id,
+                        message_ts=ctx.intermediate_msg_ts,
+                        text=new_text,
+                    )
+                else:
+                    update_fn = getattr(self.deps, "update_message_fn", None)
+                    if update_fn is not None:
+                        await update_fn(
+                            channel_id=ctx.input.channel_id,
+                            ts=ctx.intermediate_msg_ts,
+                            text=new_text,
+                        )
+            except Exception as e:  # noqa: BLE001
+                logger.debug(f"[ROUTER] Failed to update intermediate status in-place: {e}")
 
-        ctx.add_usage(response)
-        llm_duration = time.time() - llm_start
-        logger.info(f"[LLM] Received response for {ctx.agent_key} in {llm_duration:.2f} seconds.")
+        async def _delayed_intermediate_post() -> None:
+            nonlocal last_status_text
+            try:
+                await asyncio.sleep(intermediate_delay_secs)
+                if not ctx.is_superseded() and not ctx.intermediate_msg_ts:
+                    status_text = _build_tool_status_text(username, current_status_tool_calls or [])
+                    last_status_text = status_text
+                    post_resp_fn = getattr(self.deps, "slack_poster", None) or post_agent_response
+                    logger.info(
+                        f"[ROUTER] Turn delay reached ({intermediate_delay_secs}s). Posting intermediate status for {username}."
+                    )
+                    res = await post_resp_fn(
+                        channel_id=ctx.input.channel_id,
+                        thread_ts=ctx.input.thread_ts,
+                        text=status_text,
+                        username=username,
+                        icon_url=resolved_icon,
+                    )
+                    if isinstance(res, dict) and res.get("ts"):
+                        ctx.intermediate_msg_ts = res["ts"]
+            except asyncio.CancelledError:
+                pass
+            except Exception as e:  # noqa: BLE001 - Error boundary prevents background Slack status post failure from interrupting execution
+                logger.warning(f"[ROUTER] Failed to post intermediate tool status: {e}")
 
-        if ctx.is_superseded():
-            logger.info(f"[ROUTER] Thread {ctx.thread_key} turn was superseded after LLM call. Aborting.")
-            return {"ok": False, "cancelled": True, "reason": "superseded"}
+        delay_task = asyncio.create_task(_delayed_intermediate_post())
 
-        response_message = response.choices[0].message
-        tool_calls = getattr(response_message, "tool_calls", None)
+        try:
+            response = await exec_retry_fn(
+                litellm.acompletion,
+                completion_kwargs,
+                agent_key=ctx.agent_key,
+                thread_key=ctx.thread_key,
+                is_superseded_fn=ctx.is_superseded,
+                allow_503_immediate_retry=allow_503_immediate,
+                turn_token_mapping=ctx.turn_token_mapping,
+            )
 
-        if tool_calls:
+            if response is None and ctx.is_superseded():
+                return {"ok": False, "cancelled": True, "reason": "superseded"}
+
+            ctx.add_usage(response)
+            llm_duration = time.time() - llm_start
+            logger.info(f"[LLM] Received response for {ctx.agent_key} in {llm_duration:.2f} seconds.")
+
+            if ctx.is_superseded():
+                logger.info(f"[ROUTER] Thread {ctx.thread_key} turn was superseded after LLM call. Aborting.")
+                return {"ok": False, "cancelled": True, "reason": "superseded"}
+
+            response_message = response.choices[0].message
+            tool_calls = getattr(response_message, "tool_calls", None)
+
+            if not tool_calls:
+                ctx.output.final_text = response_message.content or ""
+                return None
+
+            current_status_tool_calls = list(tool_calls)
+            await _update_intermediate_status_if_active(current_status_tool_calls)
+
             custom_tool_executor = getattr(self.deps, "tool_executor", None)
             max_tool_iterations = getattr(self.deps, "max_tool_iterations", None)
             if max_tool_iterations is None:
@@ -417,42 +516,14 @@ class ExecutionStage:
             timeout_secs = getattr(self.deps, "timeout_secs", None)
             if timeout_secs is None:
                 timeout_secs = get_tool_call_loop_timeout_seconds()
-            intermediate_delay_secs = getattr(self.deps, "intermediate_delay_secs", None)
-            if intermediate_delay_secs is None:
-                intermediate_delay_secs = TOOL_INTERMEDIATE_UPDATE_DELAY_SECONDS
-
-            # Start delayed intermediate status post task
-            async def _delayed_intermediate_post():
-                try:
-                    await asyncio.sleep(intermediate_delay_secs)
-                    if not ctx.is_superseded() and not ctx.intermediate_msg_ts:
-                        username = ctx.agent_cfg.get("username", ctx.agent_key)
-                        resolved_icon = ctx.icon_url or ctx.agent_cfg.get("icon_url")
-                        status_text = _build_tool_status_text(username, tool_calls)
-                        post_resp_fn = getattr(self.deps, "slack_poster", None) or post_agent_response
-                        logger.info(
-                            f"[ROUTER] Tool delay reached ({intermediate_delay_secs}s). Posting intermediate status for {username}."
-                        )
-                        res = await post_resp_fn(
-                            channel_id=ctx.input.channel_id,
-                            thread_ts=ctx.input.thread_ts,
-                            text=status_text,
-                            username=username,
-                            icon_url=resolved_icon,
-                        )
-                        if isinstance(res, dict) and res.get("ts"):
-                            ctx.intermediate_msg_ts = res["ts"]
-                except asyncio.CancelledError:
-                    pass
-                except Exception as e:  # noqa: BLE001 - Error boundary prevents background Slack status post failure from interrupting tool execution
-                    logger.warning(f"[ROUTER] Failed to post intermediate tool status: {e}")
-
-            delay_task = asyncio.create_task(_delayed_intermediate_post())
+            substantive_tool_outputs_count = 0
 
             async def _run_tool_calling_loop():
-                nonlocal iteration, response_message, tool_calls
+                nonlocal iteration, response_message, tool_calls, current_status_tool_calls, substantive_tool_outputs_count
                 while tool_calls and iteration < max_tool_iterations:
                     iteration += 1
+                    current_status_tool_calls = list(tool_calls)
+                    await _update_intermediate_status_if_active(current_status_tool_calls)
                     ctx.messages.append(response_message.model_dump())
 
                     for tool_call in tool_calls:
@@ -693,6 +764,8 @@ class ExecutionStage:
                                 "content": tool_result_str,
                             }
                         )
+                        if fn_name != "load_skill" and not _is_tool_error(tool_result):
+                            substantive_tool_outputs_count += 1
 
                     if ctx.is_superseded():
                         logger.info(
@@ -751,51 +824,9 @@ class ExecutionStage:
                         tool_calls = None
                         break
 
-                # If max_tool_iterations was reached while the model was still requesting tools
-                # and returned no text content, perform one final tool-free synthesis turn.
-                if (
-                    tool_calls
-                    and not (response_message.content and str(response_message.content).strip())
-                    and not getattr(ctx.output, "waiting_hitl", False)
-                    and not getattr(ctx.output, "halted", False)
-                    and not ctx.is_superseded()
-                ):
-                    logger.info(
-                        f"[ROUTER] Tool loop hit max_tool_iterations ({max_tool_iterations}) for {ctx.agent_key} with empty text. Running final tool-free synthesis call."
-                    )
-                    ctx.messages.append(
-                        {
-                            "role": "user",
-                            "content": (
-                                "Maximum tool call iterations reached. Do NOT request any further tools. "
-                                "Provide your complete final response now using only the gathered context and tool outputs above."
-                            ),
-                        }
-                    )
-                    synthesis_kwargs = _build_completion_kwargs(
-                        model=ctx.agent_cfg["model"],
-                        messages=ctx.messages,
-                        num_retries=system_settings_manager.get_tool_call_num_retries(),
-                    )
-                    synthesis_res = await exec_retry_fn(
-                        litellm.acompletion,
-                        synthesis_kwargs,
-                        agent_key=f"{ctx.agent_key} synthesis",
-                        thread_key=ctx.thread_key,
-                        is_superseded_fn=ctx.is_superseded,
-                        allow_503_immediate_retry=allow_503_immediate,
-                        turn_token_mapping=ctx.turn_token_mapping,
-                    )
-                    if synthesis_res is None and ctx.is_superseded():
-                        raise asyncio.CancelledError(
-                            f"Thread {ctx.thread_key} turn was superseded during synthesis."
-                        )
-                    if synthesis_res is not None:
-                        ctx.add_usage(synthesis_res)
-                        response_message = synthesis_res.choices[0].message
-
                 return None
 
+            timed_out_with_evidence = False
             try:
                 loop_res = await asyncio.wait_for(_run_tool_calling_loop(), timeout=timeout_secs)
                 if loop_res is not None:
@@ -803,16 +834,68 @@ class ExecutionStage:
                 ctx.output.final_text = response_message.content or ctx.output.final_text or ""
             except asyncio.TimeoutError:
                 logger.warning(f"[ROUTER] Tool calling loop timed out after {timeout_secs}s for {ctx.agent_key}.")
-                if not ctx.output.final_text:
+                _ensure_all_tool_calls_responded(ctx)
+                if substantive_tool_outputs_count > 0 and not (
+                    ctx.output.final_text and str(ctx.output.final_text).strip()
+                ):
+                    timed_out_with_evidence = True
+                elif not ctx.output.final_text:
                     ctx.output.final_text = (
                         response_message.content
                         if (response_message and response_message.content)
                         else "⚠️ _Tool execution timed out. Continuing discussion._"
                     )
-            finally:
-                if not delay_task.done():
-                    delay_task.cancel()
-        else:
-            ctx.output.final_text = response_message.content or ""
+
+            # Execute final tool-free synthesis outside the tool-loop timeout so synthesis is never killed by timeout_secs.
+            needs_final_synthesis = (
+                (tool_calls and not (response_message.content and str(response_message.content).strip()))
+                or timed_out_with_evidence
+            ) and (
+                not getattr(ctx.output, "waiting_hitl", False)
+                and not getattr(ctx.output, "halted", False)
+                and not ctx.is_superseded()
+            )
+            if needs_final_synthesis:
+                _ensure_all_tool_calls_responded(ctx)
+                current_status_tool_calls = None
+                await _update_intermediate_status_if_active(None)
+                logger.info(
+                    f"[ROUTER] Running final tool-free synthesis call for {ctx.agent_key} "
+                    f"(iteration={iteration}/{max_tool_iterations}, timed_out_with_evidence={timed_out_with_evidence})."
+                )
+                ctx.messages.append(
+                    {
+                        "role": "user",
+                        "content": (
+                            "Maximum tool call iterations reached. Do NOT request any further tools. "
+                            "Provide your complete final response now using only the gathered context and tool outputs above."
+                        ),
+                    }
+                )
+                synthesis_kwargs = _build_completion_kwargs(
+                    model=ctx.agent_cfg["model"],
+                    messages=ctx.messages,
+                    num_retries=system_settings_manager.get_tool_call_num_retries(),
+                )
+                synthesis_res = await exec_retry_fn(
+                    litellm.acompletion,
+                    synthesis_kwargs,
+                    agent_key=f"{ctx.agent_key} synthesis",
+                    thread_key=ctx.thread_key,
+                    is_superseded_fn=ctx.is_superseded,
+                    allow_503_immediate_retry=allow_503_immediate,
+                    turn_token_mapping=ctx.turn_token_mapping,
+                )
+                if synthesis_res is None and ctx.is_superseded():
+                    return {"ok": False, "cancelled": True, "reason": "superseded"}
+                if synthesis_res is not None:
+                    ctx.add_usage(synthesis_res)
+                    response_message = synthesis_res.choices[0].message
+                    ctx.output.final_text = response_message.content or ctx.output.final_text or ""
+                if not ctx.output.final_text and timed_out_with_evidence:
+                    ctx.output.final_text = "⚠️ _Tool execution timed out. Continuing discussion._"
+        finally:
+            if not delay_task.done():
+                delay_task.cancel()
 
         return None

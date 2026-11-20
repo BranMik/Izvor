@@ -78,7 +78,7 @@ Each turn transitions through five distinct stages in [`orchestration/stages/`](
      - **Step 1 — Fail-Closed `ToolPrincipal` Authorization**: Constructs a [`ToolPrincipal`](file:///engine/core/domain.py) (`agent_key`, `user_id`, `thread_ts`, `allowed_skills`) and verifies the tool belongs to an authorized skill via [`SkillLoader`](file:///engine/skills/loader.py). Unauthorized calls fail closed immediately.
      - **Step 2 — Atomic HITL Approval Gate**: Checks if the skill requires Human-in-the-Loop approval (`requires_human_ITL: true`). If unapproved, saves a durable mid-turn snapshot in [`TurnCheckpointStore`](file:///engine/services/turn_checkpoint_store.py) (synthesizing `TOOL EXECUTION DEFERRED` responses for any sibling tool calls in a multi-tool batch) and pauses the turn until an admin clicks Approve or Deny (`TurnPipeline.resume_from_checkpoint()`).
      - **Step 3 — `RoundEvidenceStore` Cache Lookup**: Checks if an identical read-only tool call was already executed in the current round; if so, returns the cached output without re-invoking external APIs.
-     - **Step 4 — Tool Execution & Single-Pass PII Unmasking**: Reverses synthetic tokens (`pii_masker.unmask()`) in a single regex pass and executes the tool inside a per-turn web request budget (`max_fetches_per_turn: 10`).
+     - **Step 4 — Tool Execution & Single-Pass PII Unmasking**: Reverses synthetic tokens (`pii_masker.unmask()`) in a single regex pass and executes the tool inside a per-turn web request budget (`max_fetches_per_turn: 5`).
      - **Step 5 — Evidence Cache Recording**: Stores read-only tool results in `RoundEvidenceStore` (bounded LRU, with `search_knowledge_rag` scoped by `agent_key`).
 
 ### Stage 5: Post-Record, Metrics & Inline Revisor (`post_record.py`)

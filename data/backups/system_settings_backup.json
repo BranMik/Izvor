@@ -45,7 +45,6 @@
   "slack_rate_limit_per_second": 10.0,
   "slack_rate_limit_burst": 15.0,
   "pricing_benchmark_url": "https://artificialanalysis.ai/models",
-  "web_search_endpoint": "https://html.duckduckgo.com/html/",
   "web_fetch_user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
   "max_write_bytes": 1048576,
   "web_security": {
@@ -59,7 +58,7 @@
     ],
     "allowed_domains": [],
     "strip_query_on_untrusted_domains": false,
-    "max_fetches_per_turn": 10
+    "max_fetches_per_turn": 5
   },
   "security_burst_limits": {
     "auth_failure_window_seconds": 60.0,

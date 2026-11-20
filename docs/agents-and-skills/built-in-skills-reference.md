@@ -45,8 +45,8 @@ This document provides a complete reference guide for all **21 built-in skills a
 ### `web_research`
 - **Location**: [`skills/web_research/SKILL.md`](file:///config/skills/web_research/SKILL.md)
 - **Tools**:
-  - `web_search(query: str, max_results: int = 5)`: Searches the live web via DuckDuckGo (`max_results` clamped 1–10).
-  - `fetch_web_page(url: str, max_chars: int = 4000)`: Fetches and extracts clean text from an HTTP/HTTPS URL (`max_chars` clamped up to 15,000), protected by `PinnedIPTransport` DNS-rebinding defense and a per-turn budget of 10 requests (`max_fetches_per_turn`).
+  - `web_search(query: str, max_results: int = 5)`: Searches the live web via multi-engine `ddgs` search (`max_results` clamped 1–10).
+  - `fetch_web_page(url: str, max_chars: int = 4000)`: Fetches and extracts clean text from an HTTP/HTTPS URL (`max_chars` clamped up to 15,000), protected by `PinnedIPTransport` DNS-rebinding defense and a per-turn budget of 5 requests (`max_fetches_per_turn`).
 
 ### `knowledge_base_rag`
 - **Location**: [`skills/knowledge_base_rag/SKILL.md`](file:///config/skills/knowledge_base_rag/SKILL.md)

@@ -145,7 +145,7 @@ Configured in [`orchestration/system_settings.py`](file:///engine/orchestration/
 Implemented in [`services/web_tools.py`](file:///engine/services/web_tools.py) and configured via `web_security` in `system_settings.json`, outbound `web_search` and `fetch_web_page` calls enforce:
 1. **DNS-Rebinding Defense (`PinnedIPTransport`)**: Resolves hostnames once, validates all resolved IPv4 and IPv6 addresses against private/loopback/link-local/multicast/reserved ranges (including IPv4-mapped IPv6 and NAT64 `64:ff9b::/96`), and pins the TCP connection directly to the validated IP while preserving TLS SNI and `Host` headers.
 2. **Port & Domain Restrictions**: Restricts connections to `allowed_ports` (default `[80, 443]`), enforces `allowed_domains` when configured, and strips query strings on untrusted domains (`strip_query_on_untrusted_domains: true`) to prevent data exfiltration via URL parameters.
-3. **Per-Turn Web Request Budget (`max_fetches_per_turn: 10`)**: Tracks outbound web requests per turn via a `contextvars.ContextVar` counter, rejecting excessive requests within a single turn.
+3. **Per-Turn Web Request Budget (`max_fetches_per_turn: 5`)**: Tracks outbound web requests per turn via a `contextvars.ContextVar` counter, rejecting excessive requests within a single turn.
 
 ---
 

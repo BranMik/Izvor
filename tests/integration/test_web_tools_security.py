@@ -93,6 +93,13 @@ def test_sanitize_outbound_url_query_stripping():
 
 def test_per_turn_web_fetch_budget():
     reset_turn_web_budget()
+    # Default budget is 5 requests per turn
+    for _ in range(5):
+        check_and_increment_web_budget()
+    with pytest.raises(PermissionError, match="limit of 5 requests per turn reached"):
+        check_and_increment_web_budget()
+
+    reset_turn_web_budget()
     custom_limits = {"max_fetches_per_turn": 3}
 
     with patch("services.web_tools.get_web_security_limits", return_value=custom_limits):
@@ -113,9 +120,36 @@ def test_per_turn_web_fetch_budget():
 
 
 @pytest.mark.anyio
-async def test_web_search_ssrf_blocked_on_endpoint():
-    with patch("services.web_tools.get_web_search_endpoint", return_value="http://127.0.0.1:8000/search"):
+async def test_web_search_ssrf_filters_unsafe_result_urls():
+    """Verifies that loopback/private/SSRF candidate URLs returned by search engines are filtered out."""
+    reset_turn_web_budget()
+
+    class MixedResultsDDGS:
+        def __init__(self, timeout: int = 10):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def text(self, query: str, max_results: int = 5, backend: str = "auto"):
+            return [
+                {
+                    "title": "Internal Loopback Target",
+                    "href": "http://127.0.0.1:8000/admin",
+                    "body": "Internal metadata endpoint",
+                },
+                {
+                    "title": "Cloud Metadata Target",
+                    "href": "http://169.254.169.254/latest/meta-data",
+                    "body": "Cloud instance metadata",
+                },
+            ]
+
+    with patch("ddgs.DDGS", MixedResultsDDGS):
         res = await _web_search_inner("test query")
         data = json.loads(res)
-        assert "error" in data
-        assert "Security Block on search endpoint" in data["error"]
+        assert data["results"] == []
+        assert data["retryable"] is False

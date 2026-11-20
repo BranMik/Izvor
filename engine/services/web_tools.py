@@ -38,7 +38,7 @@ def check_and_increment_web_budget() -> None:
     Thread-safe across asyncio.to_thread and thread pools using a shared mutable container.
     """
     sec_limits = get_web_security_limits()
-    max_fetches = sec_limits.get("max_fetches_per_turn", 10)
+    max_fetches = sec_limits.get("max_fetches_per_turn", 5)
     holder = _turn_web_fetch_count.get()
     if not isinstance(holder, list):
         holder = [0]
@@ -64,11 +64,6 @@ def get_web_user_agent() -> str:
     return mgr.get_web_fetch_user_agent() if mgr else USER_AGENT
 
 
-def get_web_search_endpoint() -> str:
-    mgr = _get_web_settings()
-    return mgr.get_web_search_endpoint() if mgr else "https://html.duckduckgo.com/html/"
-
-
 def get_web_search_timeout() -> float:
     mgr = _get_web_settings()
     return mgr.get_web_search_timeout_seconds() if mgr else 10.0
@@ -86,6 +81,7 @@ def get_web_security_limits() -> dict[str, int]:
         "max_query_length": 1024,
         "max_redirects": 5,
         "max_body_bytes": 2097152,
+        "max_fetches_per_turn": 5,
     }
 
 
@@ -98,8 +94,8 @@ USER_AGENT = (
 
 async def _web_search_inner(query: str, max_results: int = 5) -> str:
     """
-    Performs a live web search for the given query and returns a list of results
-    with titles, URLs, and snippets in JSON format.
+    Performs a live web search for the given query via ddgs (dual-layout Yahoo first,
+    then non-blocked auto fallback) and returns JSON results.
     """
     if not query or not query.strip():
         return json.dumps({"error": "Search query cannot be empty."})
@@ -112,104 +108,18 @@ async def _web_search_inner(query: str, max_results: int = 5) -> str:
     except PermissionError as pe:
         return json.dumps({"error": str(pe), "results": []})
 
-    # Strategy 1: DuckDuckGo HTML Endpoint (Fast, reliable, zero-auth)
     try:
-        url = get_web_search_endpoint()
-        is_safe, cleaned_endpoint, err, resolved_ip = await asyncio.to_thread(validate_url_security, url)
-        if not is_safe or not resolved_ip:
-            from services.audit_logger import log_audit_event
-
-            log_audit_event(
-                event_type="SSRF_BLOCKED",
-                actor={"type": "service", "id": "web_search"},
-                action="web_search",
-                target=url,
-                details={"reason": f"Search endpoint security check failed: {err}"},
-                severity="CRITICAL",
-                status="BLOCKED",
-            )
-            return json.dumps({"error": f"Security Block on search endpoint: {err}", "results": []})
-
-        headers = {
-            "User-Agent": get_web_user_agent(),
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            "Accept-Language": "en-US,en;q=0.5",
-        }
-        data = {"q": cleaned_query}
-        transport = PinnedIPTransport(resolved_ip)
-        html_timeout = min(float(get_web_search_timeout()), 5.0)
-        async with httpx.AsyncClient(transport=transport, timeout=html_timeout, follow_redirects=False) as client:
-            response = await client.post(cleaned_endpoint, data=data, headers=headers)
-
-        if response.status_code == 200:
-            soup = BeautifulSoup(response.text, "html.parser")
-            results = []
-            result_divs = soup.select(".result")
-
-            for div in result_divs:
-                if len(results) >= max_results:
-                    break
-
-                title_elem = div.select_one(".result__title a") or div.select_one(".result__a")
-                snippet_elem = div.select_one(".result__snippet")
-                url_elem = div.select_one(".result__url")
-
-                if not title_elem:
-                    continue
-
-                raw_href = title_elem.get("href", "")
-                target_url = raw_href
-                if "uddg=" in raw_href:
-                    parsed = urllib.parse.urlparse(raw_href)
-                    qs = urllib.parse.parse_qs(parsed.query)
-                    if "uddg" in qs:
-                        target_url = qs["uddg"][0]
-                elif raw_href.startswith("//"):
-                    target_url = "https:" + raw_href
-                elif not raw_href.startswith("http") and url_elem:
-                    url_text = url_elem.get_text(strip=True)
-                    if url_text:
-                        target_url = f"https://{url_text}"
-
-                title = title_elem.get_text(strip=True)
-                snippet = snippet_elem.get_text(strip=True) if snippet_elem else ""
-
-                if title and target_url:
-                    results.append(
-                        {
-                            "title": title,
-                            "url": target_url,
-                            "snippet": snippet,
-                        }
-                    )
-
-            if results:
-                return json.dumps(
-                    {
-                        "query": cleaned_query,
-                        "results_count": len(results),
-                        "results": results,
-                    },
-                    indent=2,
-                )
-        else:
-            logger.warning(
-                f"[WEB_SEARCH] DuckDuckGo HTML endpoint returned HTTP {response.status_code}. Attempting DDGS fallback..."
-            )
-
-    except (httpx.TimeoutException, httpx.RequestError, httpx.HTTPStatusError) as e:
-        logger.warning(f"[WEB_SEARCH] DuckDuckGo HTML endpoint failed: {e}. Attempting fallback...")
-    except Exception as e:  # noqa: BLE001 - HTML search endpoint fallback to DDGS
-        logger.warning(f"[WEB_SEARCH] DuckDuckGo HTML endpoint failed: {e}. Attempting fallback...")
-
-    # Strategy 2: ddgs library fallback (dual-layout Yahoo first, then auto)
-    try:
-        def _configure_ddgs_yahoo_engine() -> None:
-            """Extends ddgs Yahoo scraper xpath to match both classic div.relsrch and modern section.algo-sr cards."""
+        def _configure_ddgs_engines() -> None:
+            """Tunes ddgs Yahoo xpath for dual card layouts and strips blocked engines from auto fallback."""
             try:
                 from ddgs.engines import ENGINES
 
-                yahoo_cls = ENGINES.get("text", {}).get("yahoo")
+                text_engines = ENGINES.get("text", {})
+                for key in list(text_engines.keys()):
+                    if "duck" in key.lower():
+                        text_engines.pop(key, None)
+
+                yahoo_cls = text_engines.get("yahoo")
                 if yahoo_cls is not None and not getattr(yahoo_cls, "_izvor_dual_xpath", False):
                     yahoo_cls.items_xpath = (
                         "//*[(self::div or self::section) "
@@ -223,7 +133,7 @@ async def _web_search_inner(query: str, max_results: int = 5) -> str:
                     }
                     yahoo_cls._izvor_dual_xpath = True
             except Exception as cfg_err:  # noqa: BLE001
-                logger.debug(f"[WEB_SEARCH] Could not tune ddgs Yahoo xpath: {cfg_err}")
+                logger.debug(f"[WEB_SEARCH] Could not tune ddgs engines: {cfg_err}")
 
         def _collect_ddgs_results(ddgs_client: Any, backend: str) -> list[dict[str, str]]:
             collected: list[dict[str, str]] = []
@@ -253,7 +163,7 @@ async def _web_search_inner(query: str, max_results: int = 5) -> str:
         def _run_ddgs() -> list[dict[str, str]]:
             from ddgs import DDGS
 
-            _configure_ddgs_yahoo_engine()
+            _configure_ddgs_engines()
             timeout_sec = max(1, int(min(float(get_web_search_timeout()), 8.0)))
             last_exc: Exception | None = None
             for backend in ("yahoo", "yahoo", "auto"):
@@ -281,8 +191,8 @@ async def _web_search_inner(query: str, max_results: int = 5) -> str:
             )
     except (ImportError, AttributeError) as e:
         logger.error(f"[WEB_SEARCH] DDGS import or call failed: {e}")
-    except Exception as e:  # noqa: BLE001 - DDGS search fallback boundary
-        logger.error(f"[WEB_SEARCH] DDGS fallback failed: {e}")
+    except Exception as e:  # noqa: BLE001 - DDGS search error boundary
+        logger.error(f"[WEB_SEARCH] DDGS search failed: {e}")
 
     return json.dumps(
         {
