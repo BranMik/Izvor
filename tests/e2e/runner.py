@@ -514,17 +514,26 @@ class E2ETestRunner:
         print(f"  Total Scenarios: {len(scenarios)}\n")
 
         initial_workflow = settings_manager.get_workflow_config()
+        run_start = time.time()
         try:
             for sc in scenarios:
                 scenario_tag = f"{self.run_prefix}-[{sc.id}]"
                 sys.stdout.write(f"  {scenario_tag:22s} {sc.name:44s} ... ")
                 sys.stdout.flush()
                 res = await self.run_scenario(sc)
+                res.capability = res.capability or sc.capability
                 results.append(res)
                 status_tag = "PASS" if res.passed else "FAIL"
                 print(f"[{status_tag}] ({res.duration_seconds:.2f}s)")
                 if not res.passed:
                     print(f"         --> [WARN] {res.details}")
+            await self.client.post_live_run_summary(
+                run_prefix=self.run_prefix,
+                mode_desc=mode_desc,
+                llm_mode=llm_mode,
+                results=results,
+                total_duration=time.time() - run_start,
+            )
         finally:
             await self.aclose()
             if initial_workflow:
@@ -536,6 +545,9 @@ class E2ETestRunner:
         print(
             f"Execution Summary: {passed_count} PASSED, {failed_count} FAILED out of {len(results)} total."
         )
+        for r in results:
+            status_tag = "PASS" if r.passed else "FAIL"
+            print(f"  [{status_tag}] {r.id:6s} | {r.capability}")
         print("-" * 80 + "\n")
         return results
 

@@ -76,6 +76,7 @@ class OutboundEventBus:
     opened_dms: list[dict[str, Any]] = field(default_factory=list)
     unpinned_notes: list[dict[str, Any]] = field(default_factory=list)
     hitl_cards: list[dict[str, Any]] = field(default_factory=list)
+    run_summaries: list[dict[str, Any]] = field(default_factory=list)
     attached_thread_files: dict[tuple[str, str], list[dict[str, Any]]] = field(
         default_factory=dict
     )
@@ -95,6 +96,7 @@ class OutboundEventBus:
         self.opened_dms.clear()
         self.unpinned_notes.clear()
         self.hitl_cards.clear()
+        self.run_summaries.clear()
         self.attached_thread_files.clear()
         self.thread_history_store.clear()
 
@@ -438,6 +440,7 @@ class SlackProtocolClient:
         self._msg_ts_counter = time.time() + 1000.0
         self._dispatched_threads: set[tuple[str, str]] = set()
         self._scenario_live_threads: list[str] = []
+        self._scenario_root_messages: dict[str, dict[str, str]] = {}
 
     async def aclose(self) -> None:
         await self.drain_background_tasks()
@@ -506,6 +509,7 @@ class SlackProtocolClient:
         self.current_thread_ts = None
         self._dispatched_threads.clear()
         self._scenario_live_threads.clear()
+        self._scenario_root_messages.clear()
 
     def get_channel(self, default: str = "C_TEST_DEFAULT") -> str:
         if self.live_mode and self.live_channel_id:
@@ -541,6 +545,27 @@ class SlackProtocolClient:
         }
 
     # Live Scenario Management Lifecycle
+    @staticmethod
+    def _chunk_summary_lines(lines: list[str], max_chars: int = 2800) -> list[str]:
+        """Splits summary lines into Slack-safe chunks on line boundaries."""
+        if not lines:
+            return []
+        chunks: list[str] = []
+        current_lines: list[str] = []
+        current_len = 0
+        for line in lines:
+            line_len = len(line) + (1 if current_lines else 0)
+            if current_lines and (current_len + line_len > max_chars):
+                chunks.append("\n".join(current_lines))
+                current_lines = [line]
+                current_len = len(line)
+            else:
+                current_lines.append(line)
+                current_len += line_len
+        if current_lines:
+            chunks.append("\n".join(current_lines))
+        return chunks
+
     async def start_live_scenario(self, prompt_text: str | None = None) -> str | None:
         """Creates the initial conversation root card in the live Slack channel containing scenario title and tester prompt."""
         if not self.live_mode or not self.live_channel_id:
@@ -550,16 +575,12 @@ class SlackProtocolClient:
         scenario_name = self.current_scenario_name or "Scenario"
         clean_prompt = (prompt_text or "").strip()
 
+        title_row = f"🧪 *{scenario_tag}: {scenario_name}*"
         if clean_prompt:
-            text = (
-                f"🧪 *{scenario_tag}: {scenario_name}*\n"
-                f"> | Automated behavioural test scenario: {clean_prompt}"
-            )
+            body_row = f"> | Automated behavioural test scenario: {clean_prompt}"
         else:
-            text = (
-                f"🧪 *{scenario_tag}: {scenario_name}*\n"
-                f"> | Automated behavioural test scenario started."
-            )
+            body_row = "> | Automated behavioural test scenario started."
+        text = f"{title_row}\n{body_row}"
 
         try:
             res = await self.raw_slack_client.chat_postMessage(
@@ -570,8 +591,13 @@ class SlackProtocolClient:
             )
             if res and res.get("ok"):
                 self.current_thread_ts = str(res.get("ts"))
-                if self.current_thread_ts and self.current_thread_ts not in self._scenario_live_threads:
-                    self._scenario_live_threads.append(self.current_thread_ts)
+                if self.current_thread_ts:
+                    self._scenario_root_messages[self.current_thread_ts] = {
+                        "title_row": title_row,
+                        "body_row": body_row,
+                    }
+                    if self.current_thread_ts not in self._scenario_live_threads:
+                        self._scenario_live_threads.append(self.current_thread_ts)
                 logger.info(
                     f"[LIVE SLACK] Created root conversation thread for {scenario_tag}: ts={self.current_thread_ts}"
                 )
@@ -585,7 +611,7 @@ class SlackProtocolClient:
         return None
 
     async def finish_live_scenario(self, result: Any) -> None:
-        """Posts final test execution verdict card into all live Slack threads opened during the scenario."""
+        """Updates initial root messages with first-row PASS/FAIL and posts final verdict cards into all opened Slack threads."""
         target_threads = list(
             dict.fromkeys(
                 [t for t in self._scenario_live_threads if t]
@@ -594,22 +620,46 @@ class SlackProtocolClient:
         )
         if not self.live_mode or not self.live_channel_id or not target_threads:
             self._scenario_live_threads.clear()
+            self._scenario_root_messages.clear()
             return
 
         icon = "✅" if result.passed else "❌"
-        verdict = "PASSED" if result.passed else "FAILED"
+        verdict_short = "PASS" if result.passed else "FAIL"
+        verdict_long = "PASSED" if result.passed else "FAILED"
         scenario_tag = self.current_scenario_tag or "TEST"
-        text = (
-            f"{icon} *{scenario_tag} {verdict}* ({result.duration_seconds:.2f}s)\n"
+        scenario_name = self.current_scenario_name or "Scenario"
+        default_title_row = f"🧪 *{scenario_tag}: {scenario_name}*"
+        reply_text = (
+            f"{icon} *{scenario_tag} {verdict_long}* ({result.duration_seconds:.2f}s)\n"
             f"> *Summary:* {result.details}"
         )
         try:
             for target_thread in target_threads:
+                root_meta = self._scenario_root_messages.get(target_thread, {})
+                title_row = root_meta.get("title_row") or default_title_row
+                body_row = root_meta.get("body_row", "")
+                updated_first_row = (
+                    f"{title_row} — {icon} *{verdict_short}* ({result.duration_seconds:.2f}s)"
+                )
+                updated_root_text = (
+                    f"{updated_first_row}\n{body_row}" if body_row else updated_first_row
+                )
+                try:
+                    await self.raw_slack_client.chat_update(
+                        channel=self.live_channel_id,
+                        ts=target_thread,
+                        text=updated_root_text,
+                    )
+                except Exception as e:  # noqa: BLE001 - Live Slack root message update boundary
+                    logger.error(
+                        f"[LIVE SLACK] Error updating root message {target_thread} with {verdict_short}: {e}"
+                    )
+
                 try:
                     await self.raw_slack_client.chat_postMessage(
                         channel=self.live_channel_id,
                         thread_ts=target_thread,
-                        text=text,
+                        text=reply_text,
                         username="E2E Test Runner",
                         icon_url=resolve_avatar_url("static/image_99.png"),
                     )
@@ -617,9 +667,83 @@ class SlackProtocolClient:
                     logger.error(f"[LIVE SLACK] Error posting scenario completion to {target_thread}: {e}")
         finally:
             self._scenario_live_threads.clear()
+            self._scenario_root_messages.clear()
             self.current_thread_ts = None
             self.current_scenario_tag = None
             self.current_scenario_name = None
+
+    async def post_live_run_summary(
+        self,
+        run_prefix: str,
+        mode_desc: str,
+        llm_mode: str,
+        results: list[Any],
+        total_duration: float,
+    ) -> str | None:
+        """Posts a final E2E test suite summary in a separate Slack thread and records it on the bus."""
+        total_count = len(results)
+        passed_count = sum(1 for r in results if r.passed)
+        failed_count = total_count - passed_count
+        overall_icon = "✅" if failed_count == 0 else "❌"
+
+        header_text = (
+            f"📊 *{run_prefix}: E2E Test Suite Summary* — {overall_icon} "
+            f"*{passed_count}/{total_count} PASSED* ({failed_count} FAILED, {total_duration:.2f}s)\n"
+            f"> Mode: {mode_desc} | LLM: {llm_mode} | Scenarios: {total_count}"
+        )
+
+        per_test_lines: list[str] = []
+        for r in results:
+            r_icon = "✅" if r.passed else "❌"
+            r_verdict = "PASS" if r.passed else "FAIL"
+            capability = (getattr(r, "capability", "") or "Behavioural E2E verification").strip()
+            line = (
+                f"{r_icon} *{r.id}* [{r_verdict}] ({r.duration_seconds:.2f}s) — {r.name}\n"
+                f"   • _Skill / Capability:_ {capability}"
+            )
+            if not r.passed and getattr(r, "details", ""):
+                line += f"\n   • _Details:_ {r.details}"
+            per_test_lines.append(line)
+
+        reply_chunks = self._chunk_summary_lines(per_test_lines, max_chars=2800)
+        summary_entry: dict[str, Any] = {
+            "run_prefix": run_prefix,
+            "header_text": header_text,
+            "thread_replies": reply_chunks,
+            "passed_count": passed_count,
+            "failed_count": failed_count,
+            "total_count": total_count,
+            "thread_ts": None,
+        }
+        self.bus.run_summaries.append(summary_entry)
+
+        if not self.live_mode or not self.live_channel_id:
+            return None
+
+        summary_ts: str | None = None
+        try:
+            res = await self.raw_slack_client.chat_postMessage(
+                channel=self.live_channel_id,
+                text=header_text,
+                username="E2E Test Runner",
+                icon_url=resolve_avatar_url("static/image_99.png"),
+            )
+            if res and res.get("ok") and res.get("ts"):
+                summary_ts = str(res.get("ts"))
+                summary_entry["thread_ts"] = summary_ts
+                for chunk in reply_chunks:
+                    await self.raw_slack_client.chat_postMessage(
+                        channel=self.live_channel_id,
+                        thread_ts=summary_ts,
+                        text=chunk,
+                        username="E2E Test Runner",
+                        icon_url=resolve_avatar_url("static/image_99.png"),
+                    )
+            else:
+                logger.warning(f"[LIVE SLACK] Could not post run summary root message: {res}")
+        except Exception as e:  # noqa: BLE001 - Live Slack run summary boundary
+            logger.error(f"[LIVE SLACK] Error posting final E2E run summary thread: {e}")
+        return summary_ts
 
     # Outbound Slack API Handlers (Dual-Mode: records locally and optionally dispatches live)
     async def mock_post_agent_response(
