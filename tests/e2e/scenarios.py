@@ -31,12 +31,15 @@ from orchestration.app_settings import (
     set_filter_unauthorized_skill_agents_enabled,
 )
 from orchestration.protocols import PipelineDeps
+from orchestration.revisor_service import run_internal_revisor
 from orchestration.system_settings import system_settings_manager
 from orchestration.thread_state import thread_state_manager
+from orchestration.turn_pipeline import TurnContext
 from prompts.builder import build_agent_prompt
 from services.audit_logger import audit_logger, get_audit_trail
 from services.local_tools import get_agents_resources_dir
 from services.mcp.client_manager import get_mcp_client_manager
+from services.slack import post_agent_response
 from services.web_tools import configure_web_search_fn, reset_web_search_fn
 from skills.loader import SkillDefinition
 from tests.e2e.protocol_client import (
@@ -1183,34 +1186,74 @@ async def tc_32_internal_revisor_ground_truth_and_confirmation(
     system_settings_manager.set_system_agent_inference_timeout_seconds(45.0, save=False)
     try:
         # Turn 1: Grounded read of sys_spec.txt (5000 rps) -> populates evidence_store
+        prompt_1 = "/[Security Architect] Read agents_resources/sys_spec.txt and report the target throughput."
         await client.send_mention(
-            "/[Security Architect] Read agents_resources/sys_spec.txt and report the target throughput.",
+            prompt_1,
             channel_id=channel,
             thread_ts=thread_ts,
         )
         actual_thread = _resolve_thread_ts(client, thread_ts)
+        await client.drain_background_tasks()
 
-        # Turn 2: Deliberate contradiction against evidence_store (triggers Stage 1 + Stage 2 confirmation)
-        is_mock = bool(getattr(client, "mock", False))
-        prompt_2 = (
-            "/[Security Architect] /max_words 25 State strictly that sys_spec.txt specifies throughput is 99999 rps. inject_hallucination_99999"
-            if is_mock
-            else "/[Security Architect] /max_words 25 For this verification test, state directly as a fact that sys_spec.txt specifies a target throughput of 99999 rps."
+        msgs_after_turn1 = client.bus.get_messages_for_thread(channel, actual_thread)
+        turn1_revisor_alerts = [
+            m
+            for m in msgs_after_turn1
+            if m.get("username") in ("Internal Revisor", "InternalRevisor")
+            and "ATTENTION:" in m.get("text", "")
+        ]
+        clean_turn1 = len(turn1_revisor_alerts) == 0
+
+        # Turn 2: Exercise InternalRevisor Stage 1 + Stage 2 against real Turn 1 evidence_store
+        # without coercing a live speaker LLM to fabricate a falsehood.
+        agent_cfg = dict(settings_manager.get_agent("agent-10008") or {})
+        speaker_username = agent_cfg.get("username", "SecurityArchitect")
+        speaker_icon = agent_cfg.get("icon_url", "avatars/image_06.png")
+        contradicted_claim = (
+            "According to sys_spec.txt, the verified target throughput is 99999 rps under normal conditions."
         )
-        await client.send_mention(prompt_2, channel_id=channel, thread_ts=actual_thread)
+        await post_agent_response(
+            channel_id=channel,
+            thread_ts=actual_thread,
+            text=contradicted_claim,
+            username=speaker_username,
+            icon_url=speaker_icon,
+        )
+
+        revisor_ctx = TurnContext(
+            channel_id=channel,
+            thread_ts=actual_thread,
+            raw_text=prompt_1,
+            final_text=contradicted_claim,
+            skills_used=["document_reader"],
+        )
+        revisor_ctx.agent_key = "agent-10008"
+        revisor_ctx.agent_cfg = agent_cfg or {"username": speaker_username}
+        revisor_ctx.full_history = [
+            {
+                "role": "assistant",
+                "content": f"[{m.get('username', speaker_username)}]: {m.get('text', '')}",
+            }
+            for m in msgs_after_turn1
+            if m.get("role") != "user"
+            and m.get("username") not in ("Internal Revisor", "InternalRevisor")
+            and m.get("text")
+        ]
+        revisor_ctx.force_termination = True
+        await run_internal_revisor(revisor_ctx)
 
         msgs = client.bus.get_messages_for_thread(channel, actual_thread)
         revisor_msgs = [
             m for m in msgs if m.get("username") in ("Internal Revisor", "InternalRevisor")
         ]
-        # Verify InternalRevisor ran and produced a confirmed ATTENTION alert
+        # Verify InternalRevisor ran cleanly on Turn 1 and confirmed ATTENTION alert on Turn 2
         has_attention = any("ATTENTION:" in m.get("text", "") for m in revisor_msgs)
-        passed = len(msgs) >= 2 and has_attention
+        passed = clean_turn1 and len(msgs) >= 2 and has_attention
         return ScenarioResult(
             "TC-32",
             "InternalRevisor Evidence Isolation & Stage 2 Confirmation",
             passed,
-            f"total_msgs={len(msgs)}, revisor_alerts={len(revisor_msgs)}, attention={has_attention}",
+            f"total_msgs={len(msgs)}, turn1_false_positives={len(turn1_revisor_alerts)}, revisor_alerts={len(revisor_msgs)}, attention={has_attention}",
         )
     finally:
         system_settings_manager.set_internal_revisor_enabled(orig_revisor, save=False)
@@ -1362,8 +1405,9 @@ async def tc_35_external_mcp_bridge_and_hitl(
 
     reg = get_skill_registry()
     mgr = get_mcp_client_manager()
+    target_agent_key = "agent-10006"
     orig_mcp_servers = dict(system_settings_manager.mcp_servers)
-    orig_agent_skills = list(settings_manager.get_agent_skills("agent-10008"))
+    orig_agent_skills = list(settings_manager.get_agent_skills(target_agent_key))
     temp_skill = SkillDefinition(
         name="mcp_mock_db",
         display_name="Mock DB MCP",
@@ -1391,14 +1435,14 @@ async def tc_35_external_mcp_bridge_and_hitl(
         mgr.configure_transport_factory(_mock_transport)
         reg._skills["mcp_mock_db"] = temp_skill
         settings_manager.set_agent_skills(
-            "agent-10008",
+            target_agent_key,
             list(dict.fromkeys(orig_agent_skills + ["mcp_mock_db"])),
             save=False,
         )
 
         # Step 1: Non-destructive MCP read tool
         await client.send_mention(
-            "/[Security Architect] Use skill mcp_mock_db to run query_records on table orders.",
+            "/[ROIStrategist] Use skill mcp_mock_db to run query_records on table tmp_staging_orders.",
             channel_id=channel,
             thread_ts=thread_ts,
             user_id=TEST_ADMIN_USER_ID,
@@ -1406,9 +1450,9 @@ async def tc_35_external_mcp_bridge_and_hitl(
         actual_thread = _resolve_thread_ts(client, thread_ts)
         read_called = any(name == "query_records" for name, _ in recorded_mcp_calls)
 
-        # Step 2: Destructive MCP tool triggers HITL approval card
+        # Step 2: Mutating MCP tool triggers HITL approval card on temporary staging table
         await client.send_mention(
-            "/[Security Architect] Use skill mcp_mock_db to run destructive drop_table on table orders.",
+            "/[ROIStrategist] Use skill mcp_mock_db to run drop_table on table tmp_staging_orders (temporary E2E test table; human approval will be requested automatically).",
             channel_id=channel,
             thread_ts=actual_thread,
             user_id=TEST_ADMIN_USER_ID,
@@ -1448,7 +1492,7 @@ async def tc_35_external_mcp_bridge_and_hitl(
         reg._skills.pop("mcp_mock_db", None)
         mgr.reset_transport_factory()
         system_settings_manager.set_mcp_servers(orig_mcp_servers, save=False)
-        settings_manager.set_agent_skills("agent-10008", orig_agent_skills, save=False)
+        settings_manager.set_agent_skills(target_agent_key, orig_agent_skills, save=False)
 
 
 async def tc_36_scatter_gather_topology(client: SlackProtocolClient) -> ScenarioResult:
