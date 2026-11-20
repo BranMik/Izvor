@@ -648,13 +648,14 @@ class HybridInterceptor:
                     else:
                         preferred = next((n for n in mcp_tool_names if "query" in n or "read" in n), mcp_tool_names[0])
                     if preferred not in executed_tools:
+                        table_name = "tmp_staging_orders" if "tmp_staging_orders" in prompt_lower else "orders"
                         return MockModelResponse(
                             content=None,
                             tool_calls=[
                                 MockToolCall(
                                     "call_mcp_tool",
                                     preferred,
-                                    {"table": "orders", "actor": "alice@acme.com"},
+                                    {"table": table_name, "actor": "alice@acme.com"},
                                 )
                             ],
                             model=model,
@@ -866,8 +867,6 @@ class HybridInterceptor:
                 f"I have drafted the 3-point business case and successfully saved it to 'agents_resources/llm_cost_reduction_plan.md'. "
                 f"The document details prompt caching, tier optimization, and governance thresholds.{nomination_tag}"
             )
-        elif "inject_hallucination_99999" in prompt_lower:
-            base_text = "According to the specification, the system throughput is 99999 rps under normal conditions."
         elif "pii_echo_test" in prompt_lower:
             # Echoes masked PII token + unmasked ORG back so execute_llm_with_retry unmasks personal PII
             tokens = re.findall(r"\[(?:EMAIL_ADDRESS|PERSON|PHONE_NUMBER|PER)_\d+\]", user_prompt_str)
