@@ -297,34 +297,11 @@ Instead of memorizing slash commands, users can express constraints and tool req
 
 ---
 
-## 7. Documentation Hub
-
-See the [Documentation Hub (`docs/README.md`)](docs/README.md) and the [Comprehensive System Specification](docs/architecture/Izvor_System_Architecture_Comprehensive.md) for deep-dive references:
-
-- **Getting Started**: [Platform Overview](docs/getting-started/overview.md) · [Installation & Cloudflare Tunnel Guide](docs/getting-started/installation.md) · [Slack App Setup Guide](docs/getting-started/slack-app-setup.md)
-- **User Guide**: [Interacting in Slack](docs/user-guide/interacting-in-slack.md) · [Directives & Slash Syntax](docs/user-guide/directives-and-slash-syntax.md) · [Thread Notes & Exports](docs/user-guide/thread-notes-and-exports.md)
-- **Architecture & Engine**: [Comprehensive System Specification](docs/architecture/Izvor_System_Architecture_Comprehensive.md) · [System Design](docs/architecture/system-design.md) · [Orchestration Pipeline](docs/architecture/orchestration-pipeline.md) · [Topologies & Routing](docs/architecture/topologies-and-routing.md) · [Thread State & Memory](docs/architecture/thread-state-memory.md) · [Spend Governance](docs/architecture/spend-governance.md)
-- **Agents, Skills & Tools**: [Personas Catalog](docs/agents-and-skills/personas-catalog.md) · [Skills Framework](docs/agents-and-skills/skills-framework.md) · [Built-in Skills Reference](docs/agents-and-skills/built-in-skills-reference.md) · [MCP & Tools](docs/agents-and-skills/mcp-and-tools.md)
-- **Administration & Security**: [Slack App Home](docs/administration-and-security/slack-app-home.md) · [Security & Auth](docs/administration-and-security/security-and-auth.md) · [Audit Logging Integrity](docs/administration-and-security/audit-logging-integrity.md) · [REST API Reference](docs/administration-and-security/rest-api-reference.md)
-- **Development & Testing**: [Test Suite Guide](docs/development-and-testing/test-suite.md) · [E2E Testing Harness](docs/development-and-testing/e2e-testing-harness.md) · [Contributing](docs/development-and-testing/contributing.md)
-
----
-
-## 8. License
-
-Izvor is source-available under the **Business Source License 1.1 (`BUSL-1.1`)** — see the [LICENSE](LICENSE) file for full terms.
-
-- **Free Use:** Non-production use is permitted free of charge (`Additional Use Grant: None`).
-- **Change Date & Change License:** Converts to the **MIT License** on `2029-11-18` (or four years after publication of each version, whichever comes first).
-- **Commercial / Production Licensing:** Production or commercial use requires a separate commercial license from the Licensor (Branko Mikusic).
-
----
-
-## 9. Skills
+## 7. Skills
 
 Izvor ships with **21 declarative skills** defined via `SKILL.md` manifests: **4 configurable agent tool skills** in [`config/skills/`](config/skills) and **17 built-in orchestrator/prompt-modifier skills** in [`engine/skills/builtin/`](engine/skills/builtin).
 
-### 9.1 Configurable Agent Tool Skills (`config/skills/`)
+### 7.1 Configurable Agent Tool Skills (`config/skills/`)
 
 | Skill | Description | Slash Trigger(s) | Auto-Detect | Notes |
 |---|---|---|---|---|
@@ -333,7 +310,7 @@ Izvor ships with **21 declarative skills** defined via `SKILL.md` manifests: **4
 | [`document_reader`](config/skills/document_reader/SKILL.md) | Lists (`list_documents`) and reads (`read_document`) files in `agents_resources/` or Slack attachments. | `/read_file`, `/read-file`, `/file`, `/attachment`, `/document_reader` | **Yes** (`true`) | `handles_files: true` |
 | [`document_authoring`](config/skills/document_authoring/SKILL.md) | Creates or updates non-code documents (`write_document`) inside `agents_resources/`. | `/document_authoring`, `/authoring`, `/write_doc` | **Yes** (`true`) | Requires Slack **HITL** approval (`requires_human_ITL: true`) |
 
-### 9.2 Built-in Orchestrator & Prompt-Modifier Skills (`engine/skills/builtin/`)
+### 7.2 Built-in Orchestrator & Prompt-Modifier Skills (`engine/skills/builtin/`)
 
 | Skill | Description | Slash Trigger(s) | Auto-Detect | Notes |
 |---|---|---|---|---|
@@ -354,5 +331,28 @@ Izvor ships with **21 declarative skills** defined via `SKILL.md` manifests: **4
 | [`grant_skill_for_all`](engine/skills/builtin/grant_skill_for_all/SKILL.md) | Grants one or more skills to all agents in the current thread for the thread TTL. | `/grant_skill_for_all`, `/grant-skill-for-all`, `/grant_for_all`, `/grant-for-all` | **No** (`false`) | **Slack Admin** + Slash-only |
 | [`revoke_skill_for_all`](engine/skills/builtin/revoke_skill_for_all/SKILL.md) | Revokes one or more thread-global skills (or `all`) from all agents in the thread. | `/revoke_skill_for_all`, `/revoke-skill-for-all`, `/revoke_for_all` | **No** (`false`) | **Slack Admin** + Slash-only |
 | [`revoke_constraint`](engine/skills/builtin/revoke_constraint/SKILL.md) | Revokes active thread constraints (`max_words`, `min_words`, `scribe_max_words`, `scribe_min_words`, `exclude`, `include`, `language`, `modifiers`, `all`). | `/revoke_constraint`, `/revoke-constraint`, `/revoke` | **No** (`false`) | **Slack Admin** + Slash-only |
+
+---
+
+## 8. Documentation Hub
+
+See the [Documentation Hub (`docs/README.md`)](docs/README.md) and the [Comprehensive System Specification](docs/architecture/Izvor_System_Architecture_Comprehensive.md) for deep-dive references:
+
+- **Getting Started**: [Platform Overview](docs/getting-started/overview.md) · [Installation & Cloudflare Tunnel Guide](docs/getting-started/installation.md) · [Slack App Setup Guide](docs/getting-started/slack-app-setup.md)
+- **User Guide**: [Interacting in Slack](docs/user-guide/interacting-in-slack.md) · [Directives & Slash Syntax](docs/user-guide/directives-and-slash-syntax.md) · [Thread Notes & Exports](docs/user-guide/thread-notes-and-exports.md)
+- **Architecture & Engine**: [Comprehensive System Specification](docs/architecture/Izvor_System_Architecture_Comprehensive.md) · [System Design](docs/architecture/system-design.md) · [Orchestration Pipeline](docs/architecture/orchestration-pipeline.md) · [Topologies & Routing](docs/architecture/topologies-and-routing.md) · [Thread State & Memory](docs/architecture/thread-state-memory.md) · [Spend Governance](docs/architecture/spend-governance.md)
+- **Agents, Skills & Tools**: [Personas Catalog](docs/agents-and-skills/personas-catalog.md) · [Skills Framework](docs/agents-and-skills/skills-framework.md) · [Built-in Skills Reference](docs/agents-and-skills/built-in-skills-reference.md) · [MCP & Tools](docs/agents-and-skills/mcp-and-tools.md)
+- **Administration & Security**: [Slack App Home](docs/administration-and-security/slack-app-home.md) · [Security & Auth](docs/administration-and-security/security-and-auth.md) · [Audit Logging Integrity](docs/administration-and-security/audit-logging-integrity.md) · [REST API Reference](docs/administration-and-security/rest-api-reference.md)
+- **Development & Testing**: [Test Suite Guide](docs/development-and-testing/test-suite.md) · [E2E Testing Harness](docs/development-and-testing/e2e-testing-harness.md) · [Contributing](docs/development-and-testing/contributing.md)
+
+---
+
+## 9. License
+
+Izvor is source-available under the **Business Source License 1.1 (`BUSL-1.1`)** — see the [LICENSE](LICENSE) file for full terms.
+
+- **Free Use:** Non-production use is permitted free of charge (`Additional Use Grant: None`).
+- **Change Date & Change License:** Converts to the **MIT License** on `2029-11-18` (or four years after publication of each version, whichever comes first).
+- **Commercial / Production Licensing:** Production or commercial use requires a separate commercial license from the Licensor (Branko Mikusic).
 
 
