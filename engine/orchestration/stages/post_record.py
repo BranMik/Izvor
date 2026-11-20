@@ -431,6 +431,22 @@ class PostRecordStage:
                     ctx.input.channel_id, ctx.input.thread_ts
                 )
             )
+            canon_current = entity_resolver.resolve_agent_name(ctx.agent_key) or ctx.agent_key
+            canon_retries = {entity_resolver.resolve_agent_name(r) or r for r in retries_set}
+            non_self_remaining = [
+                a
+                for a in (ctx.remaining or [])
+                if (entity_resolver.resolve_agent_name(a) or a) != canon_current
+                or canon_current in canon_retries
+            ]
+            if not ctx.input.isolated_branch and canon_current not in canon_retries:
+                for rem_item in list(
+                    thread_state_manager.get_remaining_agents(ctx.input.channel_id, ctx.input.thread_ts)
+                ):
+                    if rem_item != canon_current and (entity_resolver.resolve_agent_name(rem_item) or rem_item) == canon_current:
+                        thread_state_manager.remove_remaining_agent(
+                            ctx.input.channel_id, ctx.input.thread_ts, rem_item
+                        )
             has_nominated_next = any(
                 tag in known_agents and (tag != ctx.agent_key or tag in retries_set)
                 for tag in ctx.output.generated_tags
@@ -438,7 +454,7 @@ class PostRecordStage:
             ctx.output.is_completed = bool(
                 ctx.force_termination
                 or (
-                    not ctx.remaining
+                    not non_self_remaining
                     and not has_pending_retries
                     and not has_nominated_next
                 )

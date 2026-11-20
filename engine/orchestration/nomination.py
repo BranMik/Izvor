@@ -38,6 +38,21 @@ __all__ = [
 ]
 
 
+def _canonical_agent_key(agent_ref: str | None) -> str | None:
+    """Resolves an agent name or alias to its canonical agent key when configured."""
+    if not agent_ref:
+        return None
+    return entity_resolver.resolve_agent_name(agent_ref) or agent_ref
+
+
+def _remove_agent_and_aliases(channel_id: str, thread_ts: str, agent_key: str) -> None:
+    """Removes an agent key and any lingering alias resolving to it from remaining_agents."""
+    canon_target = _canonical_agent_key(agent_key)
+    for rem_item in list(thread_state_manager.get_remaining_agents(channel_id, thread_ts)):
+        if rem_item == agent_key or _canonical_agent_key(rem_item) == canon_target:
+            thread_state_manager.remove_remaining_agent(channel_id, thread_ts, rem_item)
+
+
 def resolve_target_file(
     available_files: list[dict[str, Any]],
     target_filename: str | None = None,
@@ -153,7 +168,7 @@ def parse_agent_and_prompt(
     if tag_matches:
         matched_item = None
         for match, key, raw_tag in tag_matches:
-            if key in remaining:
+            if any(_canonical_agent_key(r) == key for r in remaining):
                 matched_item = (match, key, raw_tag)
                 break
 
@@ -169,8 +184,7 @@ def parse_agent_and_prompt(
             prompt = re.sub(re.escape(m.group(0)), "", prompt)
         prompt = prompt.strip()
         prompt = re.sub(r"^\*+|\*+$", "", prompt).strip()
-        if matched_key in remaining:
-            thread_state_manager.remove_remaining_agent(channel_id, thread_ts, matched_key)
+        _remove_agent_and_aliases(channel_id, thread_ts, matched_key)
         return matched_key, prompt, True
 
     if remaining:
@@ -313,32 +327,36 @@ def enforce_valid_nomination(
         return strip_all_nominations(text)
 
     retries_list = list(pending_retries or [])
-    allow_self_retry = current_agent_key in retries_list
+    canon_current = _canonical_agent_key(current_agent_key)
+    canon_retries = {_canonical_agent_key(r) for r in retries_list}
+    allow_self_retry = current_agent_key in retries_list or canon_current in canon_retries
 
     def _is_disallowed_self(candidate: str | None) -> bool:
-        return bool(candidate and candidate == current_agent_key and not allow_self_retry)
+        canon_cand = _canonical_agent_key(candidate)
+        return bool(canon_cand and canon_cand == canon_current and not allow_self_retry)
 
     # Precedence: Explicit control plane nomination tool call (never allow unintended self-nomination)
     if control_plane_nomination:
-        resolved_cp = entity_resolver.resolve_agent_name(control_plane_nomination) or control_plane_nomination
+        resolved_cp = _canonical_agent_key(control_plane_nomination)
         if _is_disallowed_self(resolved_cp):
             logger.warning(
                 f"[CONTROL PLANE] Rejected self-nomination '{resolved_cp}' from agent {current_agent_key}."
             )
             resolved_cp = None
         if resolved_cp:
+            cp_in_remaining = next((r for r in remaining if _canonical_agent_key(r) == resolved_cp), None)
             target = (
                 designated_next_agent
                 if designated_next_agent
-                else (resolved_cp if resolved_cp in remaining else (remaining[0] if remaining else None))
+                else (cp_in_remaining if cp_in_remaining else (remaining[0] if remaining else None))
             )
             if _is_disallowed_self(target):
-                target = next((k for k in remaining if k != current_agent_key), None)
+                target = next((k for k in remaining if not _is_disallowed_self(k)), None)
             if target:
                 logger.info(
                     f"[CONTROL PLANE] Enforcing explicit tool nomination for '{target}' from agent {current_agent_key}"
                 )
-                return _strip_all_nominations_except_last_canonical(text, target)
+                return _strip_all_nominations_except_last_canonical(text, _canonical_agent_key(target) or target)
 
     agent_tag_matches = []
     for match in NOMINATION_TAG_REGEX.finditer(text):
@@ -348,20 +366,22 @@ def enforce_valid_nomination(
             agent_tag_matches.append((match, resolved_key))
 
     if designated_next_agent and not _is_disallowed_self(designated_next_agent):
+        canon_designated = _canonical_agent_key(designated_next_agent) or designated_next_agent
         if agent_tag_matches:
             last_match, last_key = agent_tag_matches[-1]
-            if last_key == designated_next_agent and len(agent_tag_matches) == 1:
+            if last_key == canon_designated and len(agent_tag_matches) == 1:
                 return text
-        return _strip_all_nominations_except_last_canonical(text, designated_next_agent)
+        return _strip_all_nominations_except_last_canonical(text, canon_designated)
 
     if remaining:
-        non_self_remaining = [k for k in remaining if k != current_agent_key]
+        non_self_remaining = [k for k in remaining if not _is_disallowed_self(k)]
         candidate_pool = non_self_remaining or ([] if not allow_self_retry else list(remaining))
+        canon_pool = {_canonical_agent_key(k) or k: _canonical_agent_key(k) or k for k in candidate_pool}
 
         valid_nomination = None
         for _, key in reversed(agent_tag_matches):
-            if key in candidate_pool:
-                valid_nomination = key
+            if key in canon_pool:
+                valid_nomination = canon_pool[key]
                 break
 
         if valid_nomination:
@@ -375,7 +395,7 @@ def enforce_valid_nomination(
         if not candidate_pool:
             return strip_all_nominations(text)
 
-        fallback_agent = candidate_pool[0]
+        fallback_agent = _canonical_agent_key(candidate_pool[0]) or candidate_pool[0]
         if agent_tag_matches:
             _, last_key = agent_tag_matches[-1]
             logger.warning(

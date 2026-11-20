@@ -60,6 +60,18 @@ def reset_intent_extractor() -> None:
     _extractor_override = None
 
 
+def _resolve_agent_names(raw_agents: Any) -> list[str]:
+    """Resolves raw agent names or aliases to deduplicated canonical agent keys."""
+    if not isinstance(raw_agents, list):
+        return []
+    resolved: list[str] = []
+    for ag in raw_agents:
+        res = entity_resolver.resolve_agent_name(str(ag))
+        if res and res not in resolved:
+            resolved.append(res)
+    return resolved
+
+
 class IntentExtractor:
     """Extracts structured intent parameters using LLM in a language-agnostic manner."""
 
@@ -224,6 +236,8 @@ class IntentExtractor:
                         coerced = coerce_int_modifier(v, bounds[0], bounds[1])
                         if coerced is not None:
                             modifiers[k] = coerced
+                    elif k in ("excluded_agents", "included_agents"):
+                        modifiers[k] = _resolve_agent_names(v)
                     else:
                         modifiers[k] = v
 
@@ -245,15 +259,8 @@ class IntentExtractor:
                             )
                             continue
                         act_params = dict(act.get("params") or {})
-                        if act_name == "exclude_agents":
-                            raw_agents = act_params.get("agents", [])
-                            if isinstance(raw_agents, list):
-                                resolved_agents = []
-                                for ag in raw_agents:
-                                    res = entity_resolver.resolve_agent_name(str(ag))
-                                    if res and res not in resolved_agents:
-                                        resolved_agents.append(res)
-                                act_params["agents"] = resolved_agents
+                        if act_name in ("exclude_agents", "include_agents"):
+                            act_params["agents"] = _resolve_agent_names(act_params.get("agents", []))
                         actions.append(ActionDirective(name=act_name, params=act_params, origin="inferred"))
 
             # 3. Dynamic file handler resolution

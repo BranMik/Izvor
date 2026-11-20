@@ -483,3 +483,103 @@ async def test_extract_intent_falls_back_when_configured_key_missing():
     assert mock_exec.called
     assert mock_exec.call_args.kwargs["kwargs"]["model"] == "mistral/mistral-large-latest"
 
+
+@pytest.mark.anyio
+async def test_intent_extractor_resolves_include_agents_aliases():
+    """Plan 201: IntentExtractor resolves include_agents aliases just like exclude_agents."""
+    mock_resp = MagicMock()
+    mock_resp.choices = [
+        MagicMock(
+            message=MagicMock(
+                content=json.dumps(
+                    {
+                        "language": "English",
+                        "modifiers": {},
+                        "actions": [
+                            {
+                                "name": "include_agents",
+                                "params": {"agents": ["security_architect", "LegalAdvisor", "unknown_ghost"]},
+                            }
+                        ],
+                    }
+                )
+            )
+        )
+    ]
+    mock_resp.usage = None
+
+    with patch("nlp.intent_extractor.execute_llm_with_retry", AsyncMock(return_value=mock_resp)):
+        intent = await intent_extractor.extract_intent(
+            "Bring in the security architect and legal advisor.",
+            timeout_seconds=1.0,
+        )
+
+    inc_action = next((a for a in intent.actions if a.name == "include_agents"), None)
+    assert inc_action is not None
+    assert inc_action.params.get("agents") == ["agent-10008", "agent-10011"]
+
+
+@pytest.mark.anyio
+async def test_directive_parser_drops_inferred_include_agents_for_tagged_speaker_tc07():
+    """Plan 201: Reproduces TC-07 where /[Security Architect] must not trigger inferred include_agents."""
+    from pipeline.directive_parser import directive_parser
+
+    mock_resp = MagicMock()
+    mock_resp.choices = [
+        MagicMock(
+            message=MagicMock(
+                content=json.dumps(
+                    {
+                        "language": "English",
+                        "modifiers": {},
+                        "actions": [
+                            {"name": "include_agents", "params": {"agents": ["security_architect"]}},
+                        ],
+                    }
+                )
+            )
+        )
+    ]
+    mock_resp.usage = None
+
+    with patch("nlp.intent_extractor.execute_llm_with_retry", AsyncMock(return_value=mock_resp)):
+        parsed = await directive_parser.parse(
+            "/scribe_min_words 30 /[Security Architect] Analyze event sourcing replay guarantees."
+        )
+
+    assert parsed.scribe_min_words == 30
+    assert parsed.included_agents == []
+    assert not any(a.name == "include_agents" for a in parsed.actions)
+
+
+@pytest.mark.anyio
+async def test_directive_parser_keeps_inferred_include_agents_for_untagged_peer():
+    """Plan 201: Natural-language inclusion of an untagged peer resolves to canonical agent key."""
+    from pipeline.directive_parser import directive_parser
+
+    mock_resp = MagicMock()
+    mock_resp.choices = [
+        MagicMock(
+            message=MagicMock(
+                content=json.dumps(
+                    {
+                        "language": "English",
+                        "modifiers": {},
+                        "actions": [
+                            {"name": "include_agents", "params": {"agents": ["security_architect"]}},
+                        ],
+                    }
+                )
+            )
+        )
+    ]
+    mock_resp.usage = None
+
+    with patch("nlp.intent_extractor.execute_llm_with_retry", AsyncMock(return_value=mock_resp)):
+        parsed = await directive_parser.parse(
+            "/[Visionary] Also bring in the security architect to review this."
+        )
+
+    assert parsed.included_agents == ["agent-10008"]
+
+
