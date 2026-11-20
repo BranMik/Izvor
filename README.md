@@ -180,7 +180,130 @@ Follow the complete [Slack App Setup Guide](docs/getting-started/slack-app-setup
 
 ---
 
-## 6. Documentation Hub
+## 6. Usage Guide
+
+Once the server is running and `@Izvor` is invited to a channel (`/invite @Izvor`), you interact with the platform directly inside Slack channels, threads, and direct messages.
+
+### 6.1 Triggering the Application
+
+Defined in [`engine/adapters/slack/events.py`](engine/adapters/slack/events.py), Izvor processes a Slack message when **any** of the following conditions is met (plain channel chatter without a trigger is ignored, and unprefixed mentions of the lowercase word `"izvor"` do not cause false triggers):
+
+1. **Bot Mention or Direct Message (`app_mention` / DM)**: Mention `@Izvor` (or `<@BOT_ID>`) in a channel, or message the bot in a Slack DM (`D*` channel).
+   ```text
+   @Izvor Should we migrate our session store from Redis to Postgres JSONB?
+   ```
+2. **Bracketed Agent Tag (`/[Agent]` or `/{Agent}`)**: Address one or more personas directly without needing `@Izvor`:
+   ```text
+   /[SecurityArchitect] What encryption controls are required for storing PII under GDPR?
+   ```
+3. **Any Recognized Slash Directive**: Messages containing a registered skill slash trigger (e.g., `/max_words`, `/rag`, `/list_skills`, `/stop`) are automatically routed to Izvor:
+   ```text
+   /rag "rollback runbook" What are our production rollback steps?
+   ```
+
+> [!TIP]
+> **Interactive Steering, HITL & Pause Resumption**:
+> - **Mid-Debate Interruption**: Replying in an active thread immediately increments the thread generation counter and gracefully cancels any in-flight turn so the next speaker follows your updated instruction.
+> - **Human-in-the-Loop (HITL)**: Mutating tools such as `write_document` pause execution via `TurnCheckpointStore` and post **Approve** / **Deny** Block Kit buttons in Slack.
+> - **Spend Circuit Breaker & Clarifications**: Reaching `circuit_breaker_threshold_usd` pauses the thread with a **Continue Sequence** button, and agents calling `request_user_clarification` pause until you reply.
+
+---
+
+### 6.2 Invoking & Steering Agents
+
+Izvor resolves persona keys, usernames, and display names flexibly (e.g., `SecurityArchitect`, `Security Architect`, or `agent-10008` from [`config/settings/agent_settings.json`](config/settings/agent_settings.json)):
+
+- **Default Multi-Agent Panel Debate** — runs the active workflow preset configured in Slack App Home / `agent_settings.json`:
+  ```text
+  @Izvor We need to choose between multi-region active-active Postgres and single-region + read replicas. Analyze tradeoffs.
+  ```
+- **Single-Agent Query (Single Turn)** — tagging **one** persona runs only that specialist's turn and clears the remaining queue:
+  ```text
+  @Izvor /[SecurityArchitect] Review this JWT rotation flow for replay risks.
+  ```
+- **Ad-Hoc Sequential Chain (`custom_flow`)** — tagging **multiple** personas runs a custom sequential flow across strictly those agents in order:
+  ```text
+  @Izvor /[Visionary] /[ROIStrategist] /[SecurityArchitect] /[LegalAdvisor] Evaluate launching an EU-hosted AI SaaS tier.
+  ```
+- **Custom Opening Speaker (`/first`)** — sets the opening speaker and continues in the active workflow order:
+  ```text
+  @Izvor /first Visionary How should we price our enterprise tier?
+  ```
+- **Open Dynamic Debate (`/open_debate`)** — sets the opening speaker and removes fixed start/end chains so agents dynamically nominate peers:
+  ```text
+  @Izvor /open_debate Innovator Propose new retention mechanics for our developer portal.
+  ```
+- **Include or Exclude Agents (`/include`, `/exclude`)** — dynamically modify the active panel for the thread:
+  ```text
+  @Izvor /include LegalAdvisor /exclude Sceptic Review our updated enterprise SLA draft.
+  ```
+
+---
+
+### 6.3 Calling Slash Directives
+
+Slash directives are parsed deterministically by [`DirectiveParser`](engine/pipeline/directive_parser/parser.py) with `origin: "slash"`, stripped cleanly from the prompt text, and can be combined in a single message. Explicit slash directives always take precedence over natural-language inferences.
+
+- **Output Length & Context Slicing**:
+  ```text
+  @Izvor /max_words 120 /min_words 50 /history 10 Compare Kafka vs. NATS JetStream.
+  ```
+  - `/max_words N` (`/max`, clamped `1–2000`; `< 60` activates Compact Override Mode) and `/min_words N` (`/min`, clamped `1–1000`).
+  - `/scribe_max_words N` and `/scribe_min_words N` (clamped `1–2000`) control the *Discussion Scribe*'s summary length.
+  - `/history N` (clamped `0–50`; `/history 0` ignores prior messages while preserving the Scribe's episodic summary).
+- **Debate Rounds & Immediate Stop**:
+  ```text
+  @Izvor /rounds 2 Debate build vs. buy for our internal feature store.
+  ```
+  ```text
+  /stop
+  ```
+  - `/rounds N` is clamped `1–5` (global thread cap `20` turns) and requires explicit slash syntax.
+  - `/stop` immediately halts automated agent turns in the thread.
+- **Invoking Agent Tool Skills Explicitly**:
+  ```text
+  @Izvor /web_research "Anthropic vs Gemini pricing" Compare current API token pricing.
+  @Izvor /rag "incident escalation" Summarize our on-call escalation policy.
+  @Izvor /read_file architecture.pdf Identify single points of failure in the attached spec.
+  @Izvor /document_authoring q4_summary.md Draft an executive summary from this thread.
+  ```
+  *(Uploading a Slack attachment or referencing its filename in the prompt also triggers `document_reader` automatically.)*
+- **Directory Inspection & Slack Admin Directives** *(Admin commands require `SLACK_ADMIN_USER_IDS` membership **and** explicit slash syntax)*:
+  ```text
+  /list_skills
+  /grant_skill web_research /[Visionary]
+  /grant_skill_for_all web_research knowledge_base_rag
+  /revoke_skill_for_all web_research
+  /revoke_constraint max_words
+  ```
+  - Disabling active constraints via `off` (e.g., `/max_words off`, `/exclude off`, `/include off`) also requires Slack Admin privileges.
+
+---
+
+### 6.4 Inferred Skills (`auto_detect: true`)
+
+Instead of memorizing slash commands, users can express constraints and tool requests in natural language (in any language). During pre-flight parsing, [`IntentExtractor`](engine/nlp/intent_extractor.py) performs a single LLM pass over the cleaned text to extract:
+1. `detected_language` (locks the thread's response language on the first turn),
+2. `is_pure_skill_task` (whether the request is a focused skill/file lookup rather than an open strategic debate), and
+3. Modifiers and actions **strictly allowlisted** to skills configured with `auto_detect: true` (tagged `origin: "inferred"`).
+
+**Examples of Natural-Language Skill Inference:**
+- *"Please keep answers under 80 words and at least 30 words."* → infers `max_words = 80`, `min_words = 30`.
+- *"Only look at the last 5 messages in this thread."* → infers `thread_history` (`history = 5`).
+- *"Bring in Legal Advisor and leave out Sceptic."* → infers `include_agents: ["LegalAdvisor"]` and `exclude_agents: ["Sceptic"]`.
+- *"Look up current Stripe vs. Adyen pricing online."* → infers `web_research` (`query`).
+- *"Check our internal runbooks for the database failover procedure."* → infers `knowledge_base_rag`.
+- *"Summarize the attached report.pdf and save an executive brief to summary.md."* → infers `document_reader` and `document_authoring` (`target_file`).
+
+> [!IMPORTANT]
+> **Smart Merge & Security Boundary (`auto_detect: false`)**:
+> - **Slash Priority**: If you combine slash commands with prose (e.g., `/max_words 200` alongside *"keep it brief"*), the explicit slash value always wins.
+> - **Skill Routing Filter**: For `is_pure_skill_task` prompts, Izvor filters out unequipped personas from the active chain and routes to agents authorized for the inferred skill.
+> - **Fail-Closed Privilege Gate**: Loop-control and admin skills (`/rounds`, `/first`, `/open_debate`, `/stop`, `/list_skills`, `/grant_skill`, `/grant_skill_for_all`, `/revoke_skill_for_all`, `/revoke_constraint`) have `auto_detect: false` and **cannot** be triggered via natural language, protecting against prompt-injection escalation.
+
+---
+
+## 7. Documentation Hub
 
 See the [Documentation Hub (`docs/README.md`)](docs/README.md) and the [Comprehensive System Specification](docs/architecture/Izvor_System_Architecture_Comprehensive.md) for deep-dive references:
 
@@ -193,12 +316,49 @@ See the [Documentation Hub (`docs/README.md`)](docs/README.md) and the [Comprehe
 
 ---
 
-## 7. License
+## 8. License
 
 Izvor is source-available under the **Business Source License 1.1 (`BUSL-1.1`)** — see the [LICENSE](LICENSE) file for full terms.
 
 - **Free Use:** Non-production use is permitted free of charge (`Additional Use Grant: None`).
 - **Change Date & Change License:** Converts to the **MIT License** on `2029-11-18` (or four years after publication of each version, whichever comes first).
 - **Commercial / Production Licensing:** Production or commercial use requires a separate commercial license from the Licensor (Branko Mikusic).
+
+---
+
+## 9. Skills
+
+Izvor ships with **21 declarative skills** defined via `SKILL.md` manifests: **4 configurable agent tool skills** in [`config/skills/`](config/skills) and **17 built-in orchestrator/prompt-modifier skills** in [`engine/skills/builtin/`](engine/skills/builtin).
+
+### 9.1 Configurable Agent Tool Skills (`config/skills/`)
+
+| Skill | Description | Slash Trigger(s) | Auto-Detect | Notes |
+|---|---|---|---|---|
+| [`web_research`](config/skills/web_research/SKILL.md) | Searches the live web (`web_search`) and extracts clean text from URLs (`fetch_web_page`). | `/web_research`, `/webresearch` | **Yes** (`true`) | SSRF & DNS-rebinding protected |
+| [`knowledge_base_rag`](config/skills/knowledge_base_rag/SKILL.md) | Hybrid LanceDB vector + BM25 search (`search_knowledge_rag`) over `config/rag_knowledge/`. | `/rag`, `/search_docs`, `/knowledge` | **Yes** (`true`) | Supports `all` and `self` scopes |
+| [`document_reader`](config/skills/document_reader/SKILL.md) | Lists (`list_documents`) and reads (`read_document`) files in `agents_resources/` or Slack attachments. | `/read_file`, `/read-file`, `/file`, `/attachment`, `/document_reader` | **Yes** (`true`) | `handles_files: true` |
+| [`document_authoring`](config/skills/document_authoring/SKILL.md) | Creates or updates non-code documents (`write_document`) inside `agents_resources/`. | `/document_authoring`, `/authoring`, `/write_doc` | **Yes** (`true`) | Requires Slack **HITL** approval (`requires_human_ITL: true`) |
+
+### 9.2 Built-in Orchestrator & Prompt-Modifier Skills (`engine/skills/builtin/`)
+
+| Skill | Description | Slash Trigger(s) | Auto-Detect | Notes |
+|---|---|---|---|---|
+| [`control_plane`](engine/skills/builtin/control_plane/SKILL.md) | Global structured tools (`nominate_next_speaker`, `request_user_clarification`, `signal_consensus_convergence`). | — *(Global built-in)* | **No** (`false`) | `global: true` for all agents |
+| [`max_words`](engine/skills/builtin/max_words/SKILL.md) | Enforces a maximum word count ceiling per agent response (clamped `1–2000`). | `/max_words`, `/max-words`, `/maxwords`, `/max` | **Yes** (`true`) | `off` requires **Slack Admin** |
+| [`min_words`](engine/skills/builtin/min_words/SKILL.md) | Enforces a minimum word count floor per agent response (clamped `1–1000`). | `/min_words`, `/min-words`, `/minwords`, `/min` | **Yes** (`true`) | `off` requires **Slack Admin** |
+| [`scribe_max_words`](engine/skills/builtin/scribe_max_words/SKILL.md) | Restricts the maximum word ceiling of the *Discussion Scribe*'s synthesis notes (`1–2000`). | `/scribe_max_words`, `/scribe-max-words`, `/scribemaxwords` | **Yes** (`true`) | `off` requires **Slack Admin** |
+| [`scribe_min_words`](engine/skills/builtin/scribe_min_words/SKILL.md) | Requires a minimum word count floor for the *Discussion Scribe*'s synthesis notes (`1–2000`). | `/scribe_min_words`, `/scribe-min-words`, `/scribeminwords` | **Yes** (`true`) | `off` requires **Slack Admin** |
+| [`thread_history`](engine/skills/builtin/thread_history/SKILL.md) | Limits how many recent thread messages are included in turn context (`0–50`). | `/history` | **Yes** (`true`) | Preserves Scribe summary |
+| [`include_agents`](engine/skills/builtin/include_agents/SKILL.md) | Adds specific agents into the thread debate pool, overriding prior exclusions. | `/include` | **Yes** (`true`) | `off` requires **Slack Admin** |
+| [`exclude_agents`](engine/skills/builtin/exclude_agents/SKILL.md) | Excludes specific agents from participating in the thread discussion. | `/exclude` | **Yes** (`true`) | `off` requires **Slack Admin** |
+| [`rounds`](engine/skills/builtin/rounds/SKILL.md) | Sets or continues multi-agent debate rounds (`1–5`, global cap `20` turns). | `/rounds`, `/round`, `/next_round`, `/next-round`, `/nextround` | **No** (`false`) | Slash-only |
+| [`first`](engine/skills/builtin/first/SKILL.md) | Designates the opening speaker and continues in normal workflow order. | `/first` | **No** (`false`) | Slash-only |
+| [`open_debate`](engine/skills/builtin/open_debate/SKILL.md) | Designates the opening speaker and runs an open debate with dynamic peer nominations. | `/open_debate`, `/open-debate`, `/opendebate` | **No** (`false`) | Slash-only |
+| [`stop_discussion`](engine/skills/builtin/stop_discussion/SKILL.md) | Immediately halts the active thread debate and chained panel responses. | `/stop` | **No** (`false`) | `terminal: true` |
+| [`list_skills`](engine/skills/builtin/list_skills/SKILL.md) | Lists all available platform skills and the agents authorized for each skill. | `/list_skills`, `/list-skills`, `/skills` | **No** (`false`) | Slash-only |
+| [`grant_skill`](engine/skills/builtin/grant_skill/SKILL.md) | Grants a specific skill to one or more designated agents for the thread TTL. | `/grant_skill`, `/grant-skill` | **No** (`false`) | **Slack Admin** + Slash-only |
+| [`grant_skill_for_all`](engine/skills/builtin/grant_skill_for_all/SKILL.md) | Grants one or more skills to all agents in the current thread for the thread TTL. | `/grant_skill_for_all`, `/grant-skill-for-all`, `/grant_for_all`, `/grant-for-all` | **No** (`false`) | **Slack Admin** + Slash-only |
+| [`revoke_skill_for_all`](engine/skills/builtin/revoke_skill_for_all/SKILL.md) | Revokes one or more thread-global skills (or `all`) from all agents in the thread. | `/revoke_skill_for_all`, `/revoke-skill-for-all`, `/revoke_for_all` | **No** (`false`) | **Slack Admin** + Slash-only |
+| [`revoke_constraint`](engine/skills/builtin/revoke_constraint/SKILL.md) | Revokes active thread constraints (`max_words`, `min_words`, `scribe_max_words`, `scribe_min_words`, `exclude`, `include`, `language`, `modifiers`, `all`). | `/revoke_constraint`, `/revoke-constraint`, `/revoke` | **No** (`false`) | **Slack Admin** + Slash-only |
 
 
