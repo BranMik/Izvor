@@ -22,8 +22,9 @@
 7. [Skills](#7-skills)
    - [7.1 Configurable Agent Tool Skills (`config/skills/`)](#71-configurable-agent-tool-skills-configskills)
    - [7.2 Built-in Orchestrator & Prompt-Modifier Skills (`engine/skills/builtin/`)](#72-built-in-orchestrator--prompt-modifier-skills-engineskillsbuiltin)
-8. [Documentation Hub](#8-documentation-hub)
-9. [License](#9-license)
+8. [Debugging & Troubleshooting](#8-debugging--troubleshooting)
+9. [Documentation Hub](#9-documentation-hub)
+10. [License](#10-license)
 
 ---
 
@@ -357,7 +358,63 @@ Izvor ships with **21 declarative skills** defined via `SKILL.md` manifests: **4
 
 ---
 
-## 8. Documentation Hub
+## 8. Debugging & Troubleshooting
+
+### 1. App starts (`Application Startup Complete`), you trigger it in Slack, and nothing happens in the terminal
+
+If Slack messages produce **zero** `[WEBHOOK]` or `POST /slack/events` log lines in Uvicorn:
+
+1. **Check if Slack disabled Event Subscriptions (`Enable Events` turned Off):**
+   Slack automatically turns **Enable Events → Off** if the Request URL repeatedly fails to return `200 OK` (for example, when messages are posted in channels the bot belongs to while `uvicorn` or your tunnel is stopped).
+   - Open your app in the [Slack API App Console](https://api.slack.com/apps) → **Event Subscriptions**.
+   - Confirm **Enable Events** is **On**, the Request URL (`https://<your-domain>/slack/events`) shows **Verified**, and `app_mention` + `message.channels` (+ `groups`/`im`/`mpim` if used) are subscribed, then click **Save Changes**.
+2. **Verify the tunnel reaches FastAPI:**
+   - Check locally (`curl http://localhost:8000/health`) and publicly (`curl https://<your-domain>/health`) — both should return `{"status":"healthy","service":"Izvor Multi-Agent Hub"}`.
+   - If using `cloudflared`, you can inspect local tunnel metrics at `http://127.0.0.1:20241/metrics` (`cloudflared_tunnel_total_requests`, `cloudflared_tunnel_request_errors`).
+   - Remember that ephemeral `trycloudflare.com` or free `ngrok` URLs change on every restart and must be updated in Slack (**Event Subscriptions**, **Interactivity & Shortcuts**) and `.env` (`BASE_AVATAR_URL`).
+3. **Check Cloudflare WAF / Bot Fight Mode:**
+   If `/health` works from your browser but Slack events never reach `cloudflared`, check **Cloudflare Dashboard → Security → Events** for challenged or blocked `POST` requests to `/slack/events` from Slack's egress IPs.
+4. **Verify bot membership, token identity, and trigger format:**
+   - Confirm the bot is a member of the channel (`/invite @Izvor`) and that `SLACK_BOT_TOKEN` in `.env` matches the Slack App you are mentioning.
+   - In channels, prefix prompts with `@Izvor` (see [Section 6.1](#61-triggering-the-application)). Messages starting with `/` at character 0 are intercepted locally by Slack as slash commands (`"... is not a valid command"`).
+5. **Running Izvor on multiple computers:**
+   Two separate Slack Apps with the same display name (`Izvor`) are isolated by `app_id` and do not disable each other. Never share the same `SLACK_BOT_TOKEN` / `app_id` or `cloudflared` tunnel token across machines, and avoid adding two same-named bots to the same Slack channel (which makes `@Izvor` autocomplete ambiguous and causes messages in that channel to fail delivery for whichever machine is offline).
+
+### 2. `/slack/events` returns `401 Unauthorized` (`Rejected unauthorized request`)
+
+Look in logs for `Slack signature verification failed!`, `SLACK_SIGNING_SECRET is not configured`, or `Slack request timestamp is out of date (> 5 mins)` ([`slack_security.py`](engine/core/slack_security.py)):
+- Verify `SLACK_SIGNING_SECRET` in `.env` matches **Basic Information → App Credentials → Signing Secret** for that app.
+- Verify your machine's system clock is accurate (Slack rejects signatures older than 5 minutes).
+
+### 3. App Home tabs, HITL `Approve`/`Deny`, or `Continue Sequence` buttons fail
+
+Interactive components post to `/slack/interactivity` ([`interactivity.py`](engine/adapters/slack/interactivity.py)), not `/slack/events`:
+- Confirm **Interactivity & Shortcuts** is **On** and its Request URL is `https://<your-domain>/slack/interactivity`.
+- If admin controls reject your click, verify your Slack Member ID is listed in `SLACK_ADMIN_USER_IDS` in `.env`.
+
+### 4. Turns stall, fall back unexpectedly, or duplicate across workers
+
+- **Spend Circuit Breaker / HITL pause:** Check the thread for **Approve / Deny** or **Continue Sequence** prompts, or inspect budget limits in Slack App Home.
+- **Missing or invalid LLM API keys:** Check `.env` for the configured agent models in [`config/settings/agent_settings.json`](config/settings/agent_settings.json) and [`config/settings/system_settings.json`](config/settings/system_settings.json); missing keys trigger fallback to `default_reasoning_model` (or the first available key) with a Slack footer.
+- **Multiple Uvicorn workers (`WEB_CONCURRENCY > 1`):** Izvor requires a single worker process (`WEB_CONCURRENCY=1` or default) because active thread tasks and interruption state are coordinated in memory ([`main.py`](main.py)).
+
+### 5. Custom persona avatars do not appear in Slack
+
+Slack fetches avatar URLs server-side using `BASE_AVATAR_URL` + `avatars/...` ([`main.py`](main.py)):
+- Ensure `BASE_AVATAR_URL` in `.env` is your **public HTTPS tunnel URL** with a trailing slash (e.g., `https://<your-domain>/`), not `http://localhost:8000/`.
+- Verify `curl -I https://<your-domain>/avatars/image_43.png` returns `200 OK`.
+
+### 6. Admin `/api/*` endpoints return `500` or `401`
+
+- If logs show `[SECURITY] ADMIN_PASSWORD is not configured in environment/.env`, set `ADMIN_USERNAME` and `ADMIN_PASSWORD` in `.env` and pass HTTP Basic Auth (`curl -u admin:<password> http://localhost:8000/api/health`).
+
+### 7. Startup or periodic `AUDIT_HMAC_SECRET` / audit integrity warnings
+
+- [`AppIntegrityValidator`](engine/orchestration/integrity_checks.py) verifies the cryptographic hash chain of `data/audit/audit_*.jsonl` on startup and periodically. Changing `AUDIT_HMAC_SECRET` in `.env` while retaining older audit logs causes HMAC continuity warnings; keep the secret consistent for a given `data/audit/` trail or archive prior logs before rotating.
+
+---
+
+## 9. Documentation Hub
 
 See the [Documentation Hub (`docs/README.md`)](docs/README.md) and the [Comprehensive System Specification](docs/architecture/Izvor_System_Architecture_Comprehensive.md) for deep-dive references:
 
@@ -370,7 +427,7 @@ See the [Documentation Hub (`docs/README.md`)](docs/README.md) and the [Comprehe
 
 ---
 
-## 9. License
+## 10. License
 
 Izvor is source-available under the **Business Source License 1.1 (`BUSL-1.1`)** — see the [LICENSE](LICENSE) file for full terms.
 
