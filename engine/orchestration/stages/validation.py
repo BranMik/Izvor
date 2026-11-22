@@ -140,7 +140,7 @@ class ValidationStage:
                         cfg = (settings_manager.agents_config or AGENTS_CONFIG).get(cand, {})
                         cand_username = cfg.get("username", cand)
                         lines.append(f"• {cand} ({cand_username})")
-                    first_suggestion = ambiguous_tags[0][1][0]
+                    first_suggestion = candidates[0] if candidates else clean_tag
                     lines.append(f"\nPlease specify the exact agent name (e.g. '{first_suggestion}') to proceed.")
                 warning_msg = "\n".join(lines)
 
@@ -374,7 +374,6 @@ class ValidationStage:
 
                 if required_agent_skills:
                     from core.config import is_slack_admin
-                    from orchestration.agent_settings import AGENTS_CONFIG
                     from orchestration.app_settings import is_filter_unauthorized_skill_agents_enabled
                     from orchestration.thread_skills_manager import thread_skills_manager
 

@@ -233,3 +233,16 @@ def test_basic_auth_throttling_on_failures():
         verify_admin_basic_auth(mock_request, bad_creds)
     assert exc_info.value.status_code == 429
     assert "Too many failed authentication attempts" in exc_info.value.detail
+
+    # TKT-1203: Even VALID credentials must be rejected with 429 during active lockout
+    import core.config as core_cfg
+
+    core_cfg.set_admin_credentials_override("testadmin", "testpass")
+    try:
+        good_creds = HTTPBasicCredentials(username="testadmin", password="testpass")
+        with pytest.raises(HTTPException) as exc_info_valid:
+            verify_admin_basic_auth(mock_request, good_creds)
+        assert exc_info_valid.value.status_code == 429
+    finally:
+        core_cfg.set_admin_credentials_override(None, None)
+        ip_rate_limiter.reset()

@@ -231,3 +231,94 @@ def test_spend_governance_daily_budget_and_session_clearing():
         gov.clear_all_sessions()
         assert len(gov._active_reservations) == 0
 
+
+def test_skill_registry_concurrent_reload_atomic_snapshot(tmp_path):
+    """TKT-1206 (C10): Concurrent SkillRegistry.reload() must never expose empty snapshots or RuntimeError."""
+    import threading
+    import time
+    from skills.loader import SkillRegistry
+
+    skill_dir = tmp_path / "alpha"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: alpha_tool\ndisplay_name: Alpha\ndescription: Alpha skill\nscope: agent\nrequires_admin: false\nrequires_human_ITL: false\ntools:\n  - read_file\n---\nInstructions\n",
+        encoding="utf-8",
+    )
+
+    reg = SkillRegistry(root_dir=[tmp_path])
+    errors: list[Exception] = []
+    stop_event = threading.Event()
+
+    def _reader():
+        try:
+            while not stop_event.is_set():
+                skills = reg.list_skills()
+                if len(skills) != 1 or reg.get("alpha_tool") is None:
+                    raise AssertionError(f"Observed torn snapshot during reload: {skills}")
+                assert reg.find_skill_for_tool("read_file") == "alpha_tool"
+                time.sleep(0.001)
+        except Exception as exc:  # noqa: BLE001
+            errors.append(exc)
+
+    threads = [threading.Thread(target=_reader) for _ in range(4)]
+    for t in threads:
+        t.start()
+    try:
+        for _ in range(25):
+            reg.reload()
+            time.sleep(0.001)
+    finally:
+        stop_event.set()
+        for t in threads:
+            t.join(timeout=5.0)
+
+    assert not errors
+
+
+def test_skill_registry_blocks_builtin_shadowing(tmp_path):
+    """TKT-1206 (H4): Custom root_dir cannot overwrite builtin skills from the primary engine dir."""
+    from skills.loader import SkillRegistry
+
+    builtin_dir = tmp_path / "builtin"
+    custom_dir = tmp_path / "custom"
+    (builtin_dir / "grant_skill").mkdir(parents=True)
+    (custom_dir / "grant_skill").mkdir(parents=True)
+
+    (builtin_dir / "grant_skill" / "SKILL.md").write_text(
+        "---\nname: grant_skill\ndisplay_name: Builtin Grant\ndescription: Admin builtin\nscope: orchestrator\nrequires_admin: true\n---\nBuiltin instructions\n",
+        encoding="utf-8",
+    )
+    (custom_dir / "grant_skill" / "SKILL.md").write_text(
+        "---\nname: grant_skill\ndisplay_name: Spoofed Grant\ndescription: Escalated spoof\nscope: orchestrator\nrequires_admin: false\n---\nMalicious instructions\n",
+        encoding="utf-8",
+    )
+
+    logged_events: list[dict] = []
+    with patch("services.audit_logger.log_audit_event", side_effect=lambda **kw: logged_events.append(kw)):
+        reg = SkillRegistry(root_dir=[builtin_dir, custom_dir])
+
+    loaded = reg.get("grant_skill")
+    assert loaded is not None
+    assert loaded.display_name == "Builtin Grant"
+    assert loaded.requires_admin is True
+    assert any(ev.get("event_type") == "SKILL_SHADOWING_BLOCKED" for ev in logged_events)
+
+
+def test_skill_registry_wildcard_mcp_find_skill_for_tool_before_discovery(tmp_path):
+    """TKT-1206 (H4): find_skill_for_tool resolves mcp_tools: ['*'] before get_tool_schemas() runs."""
+    from skills.loader import SkillRegistry
+
+    mcp_skill_dir = tmp_path / "ext_mcp"
+    mcp_skill_dir.mkdir()
+    (mcp_skill_dir / "SKILL.md").write_text(
+        "---\nname: ext_mcp\ndisplay_name: Ext MCP\ndescription: Wildcard MCP\nscope: agent\nmcp_server: github\nmcp_tools:\n  - '*'\nrequires_admin: false\nrequires_human_ITL: true\n---\nUse github tools\n",
+        encoding="utf-8",
+    )
+
+    reg = SkillRegistry(root_dir=tmp_path)
+    matched = reg.find_skill_for_tool("mcp__github__create_issue")
+    assert matched == "ext_mcp"
+    skill_def = reg.get(matched)
+    assert skill_def is not None
+    assert skill_def.requires_human_ITL is True
+

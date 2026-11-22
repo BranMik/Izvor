@@ -279,10 +279,12 @@ def build_agent_prompt(
     effective_max = max_words
     effective_min = min_words
     if modifiers:
-        if effective_max is None and modifiers.get("max_words") is not None:
-            effective_max = modifiers["max_words"]
-        if effective_min is None and modifiers.get("min_words") is not None:
-            effective_min = modifiers["min_words"]
+        mod_max = modifiers.get("max_words")
+        if effective_max is None and isinstance(mod_max, int) and not isinstance(mod_max, bool):
+            effective_max = mod_max
+        mod_min = modifiers.get("min_words")
+        if effective_min is None and isinstance(mod_min, int) and not isinstance(mod_min, bool):
+            effective_min = mod_min
 
     output_constraints, is_compact_mode = _build_output_constraints(
         agent_key,

@@ -583,3 +583,42 @@ async def test_process_and_respond_missing_key_falls_back_with_slack_footer():
     # Shared agent_settings must NOT be mutated in place
     assert settings_manager.agents_config["agent-10002"]["model"] == original_configured
 
+
+@pytest.mark.anyio
+async def test_handle_error_503_with_agent_already_in_remaining_no_unbound_local():
+    """TKT-1211 (H11): a 503 error where ctx.agent_key is already inside ctx.remaining must not
+    raise UnboundLocalError: mode in PostRecordStage.handle_error."""
+    from orchestration.stages.post_record import PostRecordStage
+    from orchestration.turn_pipeline import TurnContext, TurnPipeline
+
+    thread_state_manager.reset_all()
+    channel_id = "C_503_UB"
+    thread_ts = "777.0001"
+    thread_state_manager.discussion.set_remaining_agents(
+        channel_id, thread_ts, ["agent-10011", "agent-10002"]
+    )
+
+    mock_post = AsyncMock(return_value={"ok": True, "ts": thread_ts})
+    pipeline = TurnPipeline(
+        slack_poster=mock_post,
+        usage_updater=MagicMock(),
+        notes_updater=MagicMock(),
+        sleep_fn=AsyncMock(return_value=None),
+        debate_turn_pacing_seconds=0,
+        slack_post_pause_seconds=0,
+    )
+    stage = PostRecordStage(pipeline.deps)
+
+    ctx = TurnContext(channel_id=channel_id, thread_ts=thread_ts, raw_text="test", user_id="U_ADMIN")
+    ctx.thread_key = (channel_id, thread_ts)
+    ctx.agent_key = "agent-10011"
+    ctx.agent_cfg = {"username": "LegalAdvisor", "model": "test-model"}
+    ctx.remaining = ["agent-10011", "agent-10002"]
+
+    res = await stage.handle_error(ctx, RuntimeError("503 Service Unavailable"))
+
+    assert res["ok"] is False
+    assert res["classified_error"] == "service_unavailable"
+    assert "HIGH DEMAND" in res["final_text"]
+    thread_state_manager.cleanup_thread(channel_id, thread_ts)
+

@@ -1,6 +1,9 @@
 import asyncio
 from collections import OrderedDict
+import hashlib
 import logging
+from typing import Any
+
 import lancedb
 from services.rag.config import LANCEDB_DIR, GUARDRAIL_THRESHOLD
 from services.rag.embeddings import embedding_service
@@ -8,6 +11,39 @@ from services.rag.embeddings import embedding_service
 logger = logging.getLogger(__name__)
 
 _EMBEDDING_LRU_CACHE: OrderedDict[str, list[float]] = OrderedDict()
+
+
+def _text_audit_metadata(text: str) -> dict[str, Any]:
+    """Returns non-sensitive length and truncated SHA-256 digest instead of raw prompt text."""
+    return {
+        "text_length": len(text),
+        "text_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest()[:16],
+    }
+
+
+def _emit_guardrail_audit(
+    *,
+    event_type: str,
+    action: str,
+    severity: str,
+    status: str,
+    details: dict[str, Any],
+) -> None:
+    """Best-effort audit emission for guardrail security and degradation events."""
+    try:
+        from services.audit_logger import log_audit_event
+
+        log_audit_event(
+            event_type=event_type,
+            actor={"type": "system", "id": "guardrail_service"},
+            action=action,
+            target="guardrail_table",
+            severity=severity,
+            status=status,
+            details=details,
+        )
+    except Exception as ae:  # noqa: BLE001
+        logger.error(f"[GUARDRAIL] Failed to emit {event_type} audit event: {ae}")
 
 
 def _get_max_embedding_cache_size() -> int:
@@ -127,51 +163,33 @@ class GuardrailService:
 
     def _handle_failure(self, reason: str, text: str) -> bool:
         from orchestration.system_settings import get_guardrail_fail_mode
-        from services.audit_logger import log_audit_event
 
         fail_mode = get_guardrail_fail_mode()
+        meta = _text_audit_metadata(text)
         if fail_mode == "closed":
             logger.critical(
                 f"[GUARDRAIL] Fail-closed mode active: blocking prompt due to guardrail error ({reason})"
             )
-            try:
-                log_audit_event(
-                    event_type="GUARDRAIL_FAIL_CLOSED_BLOCKED",
-                    actor={"type": "system", "id": "guardrail_service"},
-                    action="evaluate_prompt_injection",
-                    target="guardrail_table",
-                    severity="CRITICAL",
-                    status="BLOCKED",
-                    details={
-                        "reason": reason,
-                        "text_snippet": text[:100],
-                        "fail_mode": "closed",
-                    },
-                )
-            except Exception as ae:  # noqa: BLE001
-                logger.error(f"[GUARDRAIL] Failed to emit fail-closed audit event: {ae}")
-            return True
-        else:
-            logger.warning(
-                f"[GUARDRAIL] Fail-open mode active: allowing prompt despite guardrail error ({reason})"
+            _emit_guardrail_audit(
+                event_type="GUARDRAIL_FAIL_CLOSED_BLOCKED",
+                action="evaluate_prompt_injection",
+                severity="CRITICAL",
+                status="BLOCKED",
+                details={"reason": reason, "fail_mode": "closed", **meta},
             )
-            try:
-                log_audit_event(
-                    event_type="GUARDRAIL_DEGRADED_OPEN",
-                    actor={"type": "system", "id": "guardrail_service"},
-                    action="evaluate_prompt_injection",
-                    target="guardrail_table",
-                    severity="WARNING",
-                    status="DEGRADED",
-                    details={
-                        "reason": reason,
-                        "text_snippet": text[:100],
-                        "fail_mode": "open",
-                    },
-                )
-            except Exception as ae:  # noqa: BLE001
-                logger.error(f"[GUARDRAIL] Failed to emit fail-open audit event: {ae}")
-            return False
+            return True
+
+        logger.warning(
+            f"[GUARDRAIL] Fail-open mode active: allowing prompt despite guardrail error ({reason})"
+        )
+        _emit_guardrail_audit(
+            event_type="GUARDRAIL_DEGRADED_OPEN",
+            action="evaluate_prompt_injection",
+            severity="WARNING",
+            status="DEGRADED",
+            details={"reason": reason, "fail_mode": "open", **meta},
+        )
+        return False
 
     async def is_prompt_injection(self, text: str) -> bool:
         """
@@ -202,6 +220,17 @@ class GuardrailService:
                     matched_text = results.iloc[0]["text"]
                     logger.warning(
                         f"Guardrail triggered! Similarity: {similarity:.3f} | Matched: '{matched_text[:50]}...'"
+                    )
+                    _emit_guardrail_audit(
+                        event_type="PROMPT_INJECTION_BLOCKED",
+                        action="block_prompt_injection",
+                        severity="CRITICAL",
+                        status="BLOCKED",
+                        details={
+                            "similarity": round(float(similarity), 4),
+                            "threshold": self.threshold,
+                            **_text_audit_metadata(text),
+                        },
                     )
                     return True
 

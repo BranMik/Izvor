@@ -298,6 +298,7 @@ class AuditLogger:
         self._write_lock = threading.RLock()
         self._cached_last_state: tuple[int, str] | None = None
         self._cached_file_size: int = 0
+        self._cached_file_path: Path | None = None
         self.audit_dir = audit_dir or DEFAULT_AUDIT_DIR
         self._initialized = True
 
@@ -306,6 +307,7 @@ class AuditLogger:
         with self._write_lock:
             self._cached_last_state = None
             self._cached_file_size = 0
+            self._cached_file_path = None
 
     def _ensure_dirs(self) -> None:
         if hasattr(self, "_audit_dir"):
@@ -375,6 +377,7 @@ class AuditLogger:
             sorted_files = self._get_sorted_audit_files()
             if not sorted_files:
                 self._cached_file_size = 0
+                self._cached_file_path = None
                 self._cached_last_state = (0, GENESIS_HASH)
                 return self._cached_last_state
 
@@ -385,6 +388,7 @@ class AuditLogger:
                 try:
                     record = json.loads(last_line)
                     self._cached_file_size = newest_file.stat().st_size
+                    self._cached_file_path = newest_file
                     self._cached_last_state = (int(record["seq"]), str(record["entry_hash"]))
                     return self._cached_last_state
                 except (json.JSONDecodeError, ValueError, KeyError) as e:
@@ -403,6 +407,7 @@ class AuditLogger:
                     if last_line:
                         record = json.loads(last_line)
                         self._cached_file_size = newest_file.stat().st_size
+                        self._cached_file_path = newest_file
                         self._cached_last_state = (int(record["seq"]), str(record["entry_hash"]))
                         return self._cached_last_state
                 except (json.JSONDecodeError, ValueError, KeyError) as e:
@@ -410,6 +415,7 @@ class AuditLogger:
                     continue
 
             self._cached_file_size = 0
+            self._cached_file_path = newest_file
             self._cached_last_state = (0, GENESIS_HASH)
             return self._cached_last_state
 
@@ -436,11 +442,16 @@ class AuditLogger:
         clean_details = details or {}
 
         with self._write_lock, _cross_process_file_lock(self.audit_dir / ".audit.lock"):
-            if target_file.exists():
+            if not target_file.exists():
+                self._cached_last_state = None
+                self._cached_file_size = 0
+                self._cached_file_path = None
+            else:
                 curr_size = target_file.stat().st_size
-                if curr_size != self._cached_file_size:
+                if target_file != self._cached_file_path or curr_size != self._cached_file_size:
                     self._cached_last_state = None
                     self._cached_file_size = curr_size
+                    self._cached_file_path = target_file
 
             last_seq, last_hash = self.get_last_state()
             current_seq = last_seq + 1
@@ -470,6 +481,7 @@ class AuditLogger:
                 os.fsync(f.fileno())
 
             self._cached_file_size = target_file.stat().st_size
+            self._cached_file_path = target_file
             self._cached_last_state = (record.seq, record.entry_hash)
 
             if record.severity in ("CRITICAL", "WARNING") or record.seq % 10 == 0:
@@ -500,14 +512,14 @@ class AuditLogger:
         snapshot_name = f"{current_file.stem}_{timestamp_str}.jsonl.snapshot"
         snapshot_path = self.backup_dir / snapshot_name
 
-        with self._write_lock:
+        with self._write_lock, _cross_process_file_lock(self.audit_dir / ".audit.lock"):
             content = current_file.read_bytes()
             snapshot_path.write_bytes(content)
             checksum = hashlib.sha256(content).hexdigest()
 
-            # Append to manifest atomically with file lock and fsync
+            # Append to manifest atomically using a dedicated sidecar lockfile so Windows locks never corrupt manifest
             manifest_line = f"{checksum}  {snapshot_name}\n"
-            with _cross_process_file_lock(self.manifest_file):
+            with _cross_process_file_lock(self.audit_dir / ".manifest.lock"):
                 with open(self.manifest_file, "a", encoding="utf-8") as mf:
                     mf.write(manifest_line)
                     mf.flush()
@@ -672,7 +684,7 @@ def check_hmac_secret_continuity(
     computed_with_active = compute_entry_hash(prev_hash, canonical, secret_key=active_key)
     computed_plain = compute_entry_hash(prev_hash, canonical, secret_key=b"")
 
-    if computed_with_active == recorded_entry_hash:
+    if hmac.compare_digest(computed_with_active, recorded_entry_hash):
         return {
             "has_records": True,
             "matches": True,
@@ -686,7 +698,7 @@ def check_hmac_secret_continuity(
 
     # Discrepancy detected
     has_active_secret = bool(active_key)
-    recorded_is_plain = recorded_entry_hash == computed_plain
+    recorded_is_plain = hmac.compare_digest(recorded_entry_hash, computed_plain)
 
     if has_active_secret and recorded_is_plain:
         status = "SECRET_ADDED"
@@ -807,6 +819,14 @@ def verify_audit_log_integrity(
                         )
             except Exception as e:  # noqa: BLE001
                 logger.warning(f"[AUDIT] Could not verify audit anchors from database: {e}")
+                return AuditVerificationResult(
+                    valid=False,
+                    total_records=0,
+                    scanned_files=[],
+                    errors=[f"Audit anchor verification failed (database unavailable): {e}"],
+                    last_verified_seq=0,
+                    last_verified_hash=GENESIS_HASH,
+                )
 
         return AuditVerificationResult(
             valid=True,
@@ -899,7 +919,7 @@ def verify_audit_log_integrity(
                     canonical = canonical_serialize(record_obj.to_canonical_dict())
                     computed_hash = compute_entry_hash(prev_hash, canonical)
 
-                    if computed_hash != recorded_entry_hash:
+                    if not hmac.compare_digest(computed_hash, recorded_entry_hash):
                         errors.append(
                             f"File '{file_path.name}', line {line_num}: Content tampered. "
                             f"Recorded entry_hash '{recorded_entry_hash}' does not match "
@@ -937,7 +957,7 @@ def verify_audit_log_integrity(
                             f"but verified JSONL log only reaches seq {last_verified_seq}."
                         )
                     elif anchor_seq in verified_hashes:
-                        if verified_hashes[anchor_seq] != anchor_hash:
+                        if not hmac.compare_digest(verified_hashes[anchor_seq], anchor_hash):
                             errors.append(
                                 f"Anchor hash mismatch at seq {anchor_seq}: SQLite anchor has hash '{anchor_hash}', "
                                 f"but verified JSONL record has hash '{verified_hashes[anchor_seq]}'."
@@ -949,6 +969,7 @@ def verify_audit_log_integrity(
                         )
         except Exception as e:  # noqa: BLE001
             logger.warning(f"[AUDIT] Could not verify audit anchors from database: {e}")
+            errors.append(f"Audit anchor verification failed (database unavailable): {e}")
 
     is_valid = len(errors) == 0
     return AuditVerificationResult(

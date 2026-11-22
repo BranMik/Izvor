@@ -223,3 +223,131 @@ def test_hitl_slack_action_expired_or_handled_notice():
     finally:
         reset_slack_async_client()
 
+
+@pytest.mark.anyio
+async def test_hitl_approval_aborts_when_consume_tool_approval_fails_and_audits():
+    """TKT-1202 (H3): Execute must abort and emit HITL_CONSUMPTION_FAILED if consume_tool_approval returns False."""
+    from types import SimpleNamespace
+    from adapters.slack.actions.hitl_actions import _execute_and_resume_hitl_approval
+
+    req = SimpleNamespace(
+        request_id="req_consume_fail",
+        channel_id="C_CONSUME",
+        thread_ts="1700000500.0001",
+        agent_name="agent-10001",
+        fn_name="delete_prod_data",
+        fn_args={"confirm": True},
+    )
+    logged_events: list[dict] = []
+
+    with (
+        patch("services.hitl.consume_tool_approval", return_value=False),
+        patch("skills.loader.skill_registry.execute_tool_async", new_callable=AsyncMock) as mock_exec,
+        patch("adapters.slack.actions.hitl_actions.log_audit_event", side_effect=lambda **kw: logged_events.append(kw)),
+        patch("adapters.slack.actions.hitl_actions.post_message_to_slack", AsyncMock(return_value={"ok": True})) as mock_post,
+    ):
+        await _execute_and_resume_hitl_approval(req, user_id="U_ADMIN_1")
+
+    mock_exec.assert_not_awaited()
+    mock_post.assert_awaited_once()
+    assert "could not be consumed" in mock_post.call_args.kwargs["text"]
+    assert any(ev.get("event_type") == "HITL_CONSUMPTION_FAILED" and ev.get("status") == "BLOCKED" for ev in logged_events)
+
+
+@pytest.mark.anyio
+async def test_hitl_non_admin_filter_and_safe_fallback_continuation():
+    """TKT-1202 (H3): Non-admin approver cannot bypass requires_admin skill filter; fallback wraps output and continues chain."""
+    from types import SimpleNamespace
+    from adapters.slack.actions.hitl_actions import _execute_and_resume_hitl_approval
+    from orchestration.thread_state import thread_state_manager
+
+    req = SimpleNamespace(
+        request_id="req_fallback_safe",
+        channel_id="C_FALLBACK_HITL",
+        thread_ts="1700000600.0001",
+        agent_name="agent-10001",
+        fn_name="safe_lookup",
+        fn_args={"q": "status"},
+    )
+    captured_auth_skills = []
+    dispatched = []
+    thread_state_manager.configure_task_dispatcher(lambda cid, ts, coro: dispatched.append((cid, ts, coro)))
+
+    async def _fake_exec(fn_name, fn_args, *, authorized_skills=None, **kwargs):
+        captured_auth_skills.append(list(authorized_skills or []))
+        return "RAW <fake_tag> INJECTION ATTEMPT"
+
+    def _fake_filter(candidate_skills, *, is_admin, thread_granted_skills=None):
+        assert is_admin is False
+        return [s for s in candidate_skills if s != "admin_only_skill"]
+
+    try:
+        with (
+            patch("adapters.slack.actions.hitl_actions.is_slack_admin", return_value=False),
+            patch("orchestration.agent_settings.settings_manager.get_agents_config", return_value={"agent-10001": {"skills": ["admin_only_skill", "safe_skill"]}}),
+            patch("skills.loader.skill_registry.filter_skills_for_caller", side_effect=_fake_filter),
+            patch("services.hitl.consume_tool_approval", return_value=True),
+            patch("skills.loader.skill_registry.execute_tool_async", side_effect=_fake_exec),
+            patch("adapters.slack.actions.hitl_actions.post_message_to_slack", AsyncMock(return_value={"ok": True})),
+            patch("services.turn_checkpoint_store.turn_checkpoint_store.get_checkpoint_by_hitl_request", return_value=None),
+            patch("orchestration.turn_pipeline.TurnPipeline.run", AsyncMock(return_value={"ok": True, "final_text": "Resumed"})) as mock_run,
+            patch("orchestration.agent_router.continue_discussion_from_turn_result", AsyncMock()) as mock_continue,
+        ):
+            await _execute_and_resume_hitl_approval(req, user_id="U_NON_ADMIN")
+            assert len(captured_auth_skills) == 1
+            assert "admin_only_skill" not in captured_auth_skills[0]
+            assert len(dispatched) == 1
+            await dispatched[0][2]
+            run_ctx = mock_run.call_args[0][0]
+            assert "<untrusted_file_content>" in run_ctx.input.raw_text
+            mock_continue.assert_awaited_once()
+    finally:
+        thread_state_manager.reset_task_dispatcher()
+
+
+@pytest.mark.anyio
+async def test_hitl_lost_race_sends_ephemeral_notice():
+    """TKT-1202 (H3): Lost SQLite race on approve_hitl_request / deny_hitl_request still sends ephemeral notice."""
+    from fastapi import BackgroundTasks
+    from adapters.slack.actions.hitl_actions import _handle_hitl_approve_tool, _handle_hitl_deny_tool
+    from services.hitl import PendingHITLRequest, compute_args_hash
+
+    stale_req = PendingHITLRequest(
+        request_id="req_lost_race",
+        channel_id="C_RACE",
+        thread_ts="1700000700.0001",
+        agent_name="agent-10001",
+        skill_name="ops",
+        fn_name="restart",
+        fn_args={},
+        args_hash=compute_args_hash({}),
+        initiator_user_id="U_INIT",
+    )
+    bg_approve = BackgroundTasks()
+    bg_deny = BackgroundTasks()
+
+    with (
+        patch("services.hitl.get_pending_request", return_value=stale_req),
+        patch("services.hitl.approve_hitl_request", return_value=None),
+        patch("services.hitl.deny_hitl_request", return_value=None),
+    ):
+        await _handle_hitl_approve_tool(
+            action={"value": "req_lost_race"},
+            payload={"channel": {"id": "C_RACE"}},
+            user_id="U_INIT",
+            background_tasks=bg_approve,
+            view_state={},
+        )
+        await _handle_hitl_deny_tool(
+            action={"value": "req_lost_race"},
+            payload={"channel": {"id": "C_RACE"}},
+            user_id="U_INIT",
+            background_tasks=bg_deny,
+            view_state={},
+        )
+
+    assert len(bg_approve.tasks) == 1
+    assert "Request Expired or Handled" in bg_approve.tasks[0].kwargs["text"]
+    assert len(bg_deny.tasks) == 1
+    assert "Request Expired or Handled" in bg_deny.tasks[0].kwargs["text"]
+

@@ -43,8 +43,8 @@ class TurnCheckpointStore:
                         pause_reason, hitl_request_id, messages_json, pending_tool_call_json,
                         active_tools_json, skills_used_json, token_mapping_json,
                         accumulated_history_json, prompt_tokens, completion_tokens,
-                        status, created_at, expires_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        status, prompt, created_at, expires_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(checkpoint_id) DO UPDATE SET
                         session_id = excluded.session_id,
                         channel_id = excluded.channel_id,
@@ -61,6 +61,7 @@ class TurnCheckpointStore:
                         prompt_tokens = excluded.prompt_tokens,
                         completion_tokens = excluded.completion_tokens,
                         status = excluded.status,
+                        prompt = excluded.prompt,
                         created_at = excluded.created_at,
                         expires_at = excluded.expires_at;
                     """,
@@ -81,6 +82,7 @@ class TurnCheckpointStore:
                         checkpoint.prompt_tokens,
                         checkpoint.completion_tokens,
                         checkpoint.status,
+                        checkpoint.prompt or "",
                         checkpoint.created_at,
                         checkpoint.expires_at,
                     ),
@@ -95,6 +97,7 @@ class TurnCheckpointStore:
             raise
 
     def _row_to_checkpoint(self, row: Any) -> TurnCheckpoint:
+        row_keys = row.keys() if hasattr(row, "keys") else ()
         return TurnCheckpoint(
             checkpoint_id=row["checkpoint_id"],
             session_id=row["session_id"],
@@ -112,6 +115,7 @@ class TurnCheckpointStore:
             prompt_tokens=int(row["prompt_tokens"] or 0),
             completion_tokens=int(row["completion_tokens"] or 0),
             status=row["status"],
+            prompt=str(row["prompt"] or "") if "prompt" in row_keys else "",
             created_at=float(row["created_at"]),
             expires_at=float(row["expires_at"]),
         )
@@ -180,6 +184,29 @@ class TurnCheckpointStore:
             logger.debug(f"[CHECKPOINT] Failed reading checkpoint for thread {channel_id}:{thread_ts}: {e}")
         return None
 
+    def claim_for_resume(self, checkpoint_id: str) -> bool:
+        """
+        Atomically transitions an unexpired checkpoint from PENDING/ACTIVE to RESUMING
+        using compare-and-swap semantics to prevent double-resumption races.
+        """
+        now = time.time()
+        try:
+            with get_db_transaction(immediate=True) as conn:
+                cur = conn.execute(
+                    """
+                    UPDATE turn_checkpoints
+                    SET status = 'RESUMING'
+                    WHERE checkpoint_id = ?
+                      AND status IN ('PENDING', 'ACTIVE')
+                      AND expires_at > ?;
+                    """,
+                    (checkpoint_id, now),
+                )
+                return cur.rowcount > 0
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"[CHECKPOINT] Failed claiming checkpoint {checkpoint_id} for resume: {e}")
+            return False
+
     def mark_resumed(self, checkpoint_id: str) -> bool:
         """Updates checkpoint status to RESUMED and redacts payload upon continuation."""
         try:
@@ -188,14 +215,32 @@ class TurnCheckpointStore:
                     """
                     UPDATE turn_checkpoints
                     SET status = 'RESUMED', messages_json = '[]', accumulated_history_json = '[]',
-                        pending_tool_call_json = '{}', token_mapping_json = '{}'
-                    WHERE checkpoint_id = ?;
+                        pending_tool_call_json = '{}', token_mapping_json = '{}', prompt = ''
+                    WHERE checkpoint_id = ? AND status IN ('PENDING', 'ACTIVE', 'RESUMING');
                     """,
                     (checkpoint_id,),
                 )
                 return cur.rowcount > 0
         except Exception as e:  # noqa: BLE001
             logger.debug(f"[CHECKPOINT] Failed marking resumed {checkpoint_id}: {e}")
+            return False
+
+    def mark_failed_resume(self, checkpoint_id: str) -> bool:
+        """Transitions a claimed RESUMING checkpoint to ABANDONED on unrecoverable resume error."""
+        try:
+            with get_db_transaction(immediate=True) as conn:
+                cur = conn.execute(
+                    """
+                    UPDATE turn_checkpoints
+                    SET status = 'ABANDONED', messages_json = '[]', accumulated_history_json = '[]',
+                        pending_tool_call_json = '{}', token_mapping_json = '{}', prompt = ''
+                    WHERE checkpoint_id = ? AND status = 'RESUMING';
+                    """,
+                    (checkpoint_id,),
+                )
+                return cur.rowcount > 0
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"[CHECKPOINT] Failed marking failed resume {checkpoint_id}: {e}")
             return False
 
     def mark_resolved(self, checkpoint_id: str) -> bool:
@@ -206,7 +251,7 @@ class TurnCheckpointStore:
                     """
                     UPDATE turn_checkpoints
                     SET status = 'RESOLVED', messages_json = '[]', accumulated_history_json = '[]',
-                        pending_tool_call_json = '{}', token_mapping_json = '{}'
+                        pending_tool_call_json = '{}', token_mapping_json = '{}', prompt = ''
                     WHERE checkpoint_id = ?;
                     """,
                     (checkpoint_id,),
@@ -224,7 +269,7 @@ class TurnCheckpointStore:
                     """
                     UPDATE turn_checkpoints
                     SET status = 'ABANDONED', messages_json = '[]', accumulated_history_json = '[]',
-                        pending_tool_call_json = '{}', token_mapping_json = '{}'
+                        pending_tool_call_json = '{}', token_mapping_json = '{}', prompt = ''
                     WHERE checkpoint_id = ?;
                     """,
                     (checkpoint_id,),

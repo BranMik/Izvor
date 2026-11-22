@@ -121,7 +121,7 @@ FLAT_HISTORIES_DIR = _resolve_env_path("IZVOR_HISTORIES_DIR", DATA_DIR / "flat-h
 
 # Sandboxed Resources & System Artifacts
 AGENTS_RESOURCES_DIR = _resolve_env_path("IZVOR_AGENTS_RESOURCES_DIR", PROJECT_ROOT / "agents_resources")
-THREAD_NOTES_DIR = _resolve_env_path("IZVOR_THREAD_NOTES_DIR", AGENTS_RESOURCES_DIR / "thread_notes")
+THREAD_NOTES_DIR = _resolve_env_path("IZVOR_THREAD_NOTES_DIR", DATA_DIR / "thread_notes")
 SYSTEM_RESOURCES_DIR = _resolve_env_path("IZVOR_SYSTEM_RESOURCES_DIR", PROJECT_ROOT / "system_resources")
 
 

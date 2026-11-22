@@ -177,35 +177,35 @@ class VectorStore:
             where_filter = "agent_id = 'shared'"
 
         def _execute_query(q: Any) -> list[dict[str, Any]]:
-            try:
-                if hasattr(q, "to_list"):
-                    return q.to_list()
-                elif hasattr(q, "to_arrow"):
-                    return q.to_arrow().to_pylist()
-                elif hasattr(q, "to_pandas"):
-                    return q.to_pandas().to_dict(orient="records")
-            except Exception as e:  # noqa: BLE001
-                logger.debug(f"[RAG VectorStore] Query execution error: {e}")
+            if hasattr(q, "to_list"):
+                return q.to_list()
+            if hasattr(q, "to_arrow"):
+                return q.to_arrow().to_pylist()
+            if hasattr(q, "to_pandas"):
+                return q.to_pandas().to_dict(orient="records")
             return []
 
         raw_results: list[dict[str, Any]] = []
 
-        # Attempt hybrid search if vector is available
+        # Attempt hybrid search (dense vector + Tantivy BM25) if vector is available
         if query_vector is not None:
             try:
-                # Try modern LanceDB hybrid API
                 search_query = (
-                    table.search(query_vector, vector_column_name="vector")
+                    table.search(query_type="hybrid", vector_column_name="vector", fts_columns="text")
+                    .vector(query_vector)
                     .text(query_text)
                     .where(where_filter)
                     .limit(top_k)
                 )
                 raw_results = _execute_query(search_query)
             except Exception as e:  # noqa: BLE001
-                logger.debug(f"[RAG VectorStore] Hybrid search vector+text failed: {e}. Falling back to vector search.")
+                logger.warning(
+                    f"[RAG VectorStore] Hybrid search vector+text failed: {e}. Falling back to vector cosine search."
+                )
                 try:
                     search_query = (
                         table.search(query_vector, vector_column_name="vector")
+                        .metric("cosine")
                         .where(where_filter)
                         .limit(top_k)
                     )
@@ -237,7 +237,7 @@ class VectorStore:
                 "filename": str(row.get("filename", "")),
                 "section_header": str(row.get("section_header", "")),
                 "text": str(row.get("text", "")),
-                "score": float(row.get("_distance", row.get("_score", 0.0))),
+                "score": float(row.get("_relevance_score", row.get("_score", row.get("_distance", 0.0)))),
             })
 
         return records

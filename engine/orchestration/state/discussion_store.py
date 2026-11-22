@@ -106,7 +106,7 @@ class DiscussionStateStore:
                             stop_requested = excluded.stop_requested,
                             rounds = excluded.rounds,
                             round_sequence = excluded.round_sequence,
-                            initial_prompt = COALESCE(excluded.initial_prompt, thread_sessions.initial_prompt),
+                            initial_prompt = excluded.initial_prompt,
                             active_prompt = excluded.active_prompt,
                             is_pure_skill_task = excluded.is_pure_skill_task,
                             workflow_snapshot = excluded.workflow_snapshot,

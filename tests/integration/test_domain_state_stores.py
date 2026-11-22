@@ -411,5 +411,38 @@ async def test_outbound_messages_dlp_unified():
         reset_token()
 
 
+def test_remove_included_agent_and_clear_initial_prompt_persist():
+    """TKT-1211 (H11): thread_state_manager.remove_included_agent() removes the agent cleanly,
+    and clear_initial_prompt() actually persists NULL in SQLite (no COALESCE no-op)."""
+    from core.database import get_db_transaction
+
+    mgr = ThreadStateManager()
+    channel_id = "C_TKT1211_STORES"
+    thread_ts = "1700000011.1111"
+    try:
+        mgr.set_included_agents(channel_id, thread_ts, ["agent-10001", "agent-10002"])
+        assert mgr.get_included_agents(channel_id, thread_ts) == ["agent-10001", "agent-10002"]
+        mgr.remove_included_agent(channel_id, thread_ts, "agent-10001")
+        assert mgr.get_included_agents(channel_id, thread_ts) == ["agent-10002"]
+        mgr.remove_included_agent(channel_id, thread_ts, "agent-99999")  # no-op, must not crash
+        assert mgr.get_included_agents(channel_id, thread_ts) == ["agent-10002"]
+
+        # Keep the session row alive so clearing initial_prompt is observable in SQLite
+        mgr.discussion.set_remaining_agents(channel_id, thread_ts, ["agent-10001"])
+        mgr.set_initial_prompt(channel_id, thread_ts, "Original prompt")
+        assert mgr.get_initial_prompt(channel_id, thread_ts) == "Original prompt"
+        mgr.clear_initial_prompt(channel_id, thread_ts)
+        assert mgr.get_initial_prompt(channel_id, thread_ts) is None
+        with get_db_transaction() as conn:
+            row = conn.execute(
+                "SELECT initial_prompt FROM thread_sessions WHERE channel_id = ? AND thread_ts = ?",
+                (channel_id, thread_ts),
+            ).fetchone()
+        assert row is not None
+        assert row["initial_prompt"] is None
+    finally:
+        mgr.cleanup_thread(channel_id, thread_ts)
+
+
 
 

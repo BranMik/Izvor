@@ -273,3 +273,23 @@ def test_forget_thread():
     # Verify in-memory thread state purged
     assert thread_state_manager.get_remaining_agents(cid, tts) == []
     assert (cid, tts) not in thread_state_manager.thread_last_activity
+
+
+def test_forget_thread_purges_thread_notes_via_configured_dir(tmp_path):
+    """TKT-1209 (H2): retention_service.forget_thread uses get_thread_notes_dir()."""
+    from services.retention_service import forget_thread
+    from services.thread_notes_writer import configure_paths, reset_paths
+
+    notes_dir = tmp_path / "notes"
+    notes_dir.mkdir(parents=True, exist_ok=True)
+    target_ts = "1799888777.00123"
+    note_file = notes_dir / "topic_00123_live_notes.md"
+    note_file.write_text(f"- **Thread Timestamp**: `{target_ts}`\n", encoding="utf-8")
+
+    configure_paths(thread_notes_dir=notes_dir)
+    try:
+        counts = forget_thread("C_NOTES_RET", target_ts)
+        assert counts["thread_notes"] == 1
+        assert not note_file.exists()
+    finally:
+        reset_paths()

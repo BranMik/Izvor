@@ -254,21 +254,53 @@ async def _handle_resume_sequence(
                 details={"channel_id": channel_id, "thread_ts": thread_ts, "resumed_by": user_id},
                 severity="INFO",
             )
-            from orchestration.agent_router import orchestrate_discussion
+            from orchestration.agent_router import continue_discussion_from_turn_result, orchestrate_discussion
             from orchestration.thread_state import thread_state_manager
+            from orchestration.turn_pipeline import TurnPipeline
             from services.turn_checkpoint_store import turn_checkpoint_store
 
             chk = turn_checkpoint_store.get_latest_checkpoint_for_thread(channel_id, thread_ts)
-            target_agent = None
-            resume_prompt = ""
             if chk and chk.pause_reason == "circuit_breaker":
+                resume_prompt = (
+                    chk.prompt
+                    or thread_state_manager.get_active_prompt(channel_id, thread_ts)
+                    or thread_state_manager.get_initial_prompt(channel_id, thread_ts)
+                    or ""
+                )
+                if chk.messages:
+                    async def _run_stage4_cb_resume() -> None:
+                        pipeline = TurnPipeline()
+                        turn_res = await pipeline.resume_from_checkpoint(
+                            checkpoint=chk,
+                            tool_result=None,
+                            user_id=user_id,
+                        )
+                        if not isinstance(turn_res, dict) or turn_res.get("reason") == "checkpoint_already_claimed":
+                            return
+                        await continue_discussion_from_turn_result(
+                            channel_id=channel_id,
+                            thread_ts=thread_ts,
+                            turn_res=turn_res,
+                            user_id=user_id,
+                            accumulated_history=chk.accumulated_history,
+                        )
+
+                    thread_state_manager.dispatch_discussion_task(channel_id, thread_ts, _run_stage4_cb_resume())
+                    return None
+
+                if not turn_checkpoint_store.claim_for_resume(chk.checkpoint_id):
+                    return None
                 turn_checkpoint_store.mark_resumed(chk.checkpoint_id)
                 target_agent = chk.agent_key
-                resume_prompt = chk.prompt or ""
                 remaining = thread_state_manager.get_remaining_agents(channel_id, thread_ts)
                 if target_agent and target_agent not in remaining:
                     thread_state_manager.set_remaining_agents(channel_id, thread_ts, [target_agent] + remaining)
             else:
+                resume_prompt = (
+                    thread_state_manager.get_active_prompt(channel_id, thread_ts)
+                    or thread_state_manager.get_initial_prompt(channel_id, thread_ts)
+                    or ""
+                )
                 remaining = thread_state_manager.get_remaining_agents(channel_id, thread_ts)
                 target_agent = remaining[0] if remaining else None
 

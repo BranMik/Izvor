@@ -14,6 +14,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 import importlib.util
 from pathlib import Path
+import threading
 from typing import Any
 
 import yaml
@@ -111,8 +112,6 @@ class SkillDefinition:
                     if fn_name and fn_name not in seen_names:
                         matched.append(schema)
                         seen_names.add(fn_name)
-                        if fn_name not in self.tools:
-                            self.tools.append(fn_name)
             except Exception as e:
                 logger.warning(f"[SKILLS] Failed to retrieve MCP schemas for server '{self.mcp_server}': {e}")
 
@@ -233,15 +232,27 @@ class SkillRegistry:
         else:
             self.root_dirs = [Path(root_dir)]
             self.root_dir = Path(root_dir)
+        self._lock = threading.RLock()
         self._skills: dict[str, SkillDefinition] = {}
         self.reload()
 
     def reload(self) -> None:
-        """Scans root_dirs for all subdirectories containing SKILL.md."""
-        self._skills.clear()
-        for r_dir in self.root_dirs:
+        """Scans root_dirs for all subdirectories containing SKILL.md and atomically swaps the registry."""
+        new_skills: dict[str, SkillDefinition] = {}
+        builtin_names: set[str] = set()
+        try:
+            resolved_builtin = ENGINE_SKILLS_DIR.resolve()
+        except OSError:
+            resolved_builtin = ENGINE_SKILLS_DIR
+
+        for idx, r_dir in enumerate(self.root_dirs):
             if not r_dir.exists():
                 continue
+            try:
+                is_builtin_dir = (r_dir.resolve() == resolved_builtin) or (idx == 0 and len(self.root_dirs) > 1)
+            except OSError:
+                is_builtin_dir = idx == 0 and len(self.root_dirs) > 1
+
             for skill_dir in sorted(r_dir.iterdir()):
                 if not skill_dir.is_dir():
                     continue
@@ -252,7 +263,29 @@ class SkillRegistry:
                 try:
                     skill_def = self._parse_skill_file(skill_file)
                     if skill_def:
-                        self._skills[skill_def.name] = skill_def
+                        if not is_builtin_dir and skill_def.name in builtin_names:
+                            logger.critical(
+                                f"[SECURITY] Blocked attempt by '{skill_file}' to shadow builtin skill '{skill_def.name}'!"
+                            )
+                            try:
+                                from services.audit_logger import log_audit_event
+
+                                log_audit_event(
+                                    event_type="SKILL_SHADOWING_BLOCKED",
+                                    actor={"type": "system", "id": "skill_registry"},
+                                    action="reload_skills",
+                                    target=f"skill:{skill_def.name}",
+                                    details={"shadow_path": str(skill_file)},
+                                    severity="CRITICAL",
+                                    status="BLOCKED",
+                                )
+                            except Exception as audit_err:  # noqa: BLE001
+                                logger.debug(f"[SKILLS] Failed to emit SKILL_SHADOWING_BLOCKED audit event: {audit_err}")
+                            continue
+
+                        new_skills[skill_def.name] = skill_def
+                        if is_builtin_dir:
+                            builtin_names.add(skill_def.name)
                         logger.debug(
                             f"[SKILLS] Loaded declarative skill '{skill_def.name}' ({skill_def.scope}) from {skill_file}"
                         )
@@ -260,6 +293,9 @@ class SkillRegistry:
                     raise
                 except (OSError, yaml.YAMLError, ValueError, TypeError, KeyError, AttributeError) as e:
                     logger.error(f"[SKILLS] Failed to parse {skill_file}: {e}")
+
+        with self._lock:
+            self._skills = new_skills
 
     def _parse_skill_file(self, file_path: Path) -> SkillDefinition | None:
         raw_text = file_path.read_text(encoding="utf-8")
@@ -398,9 +434,10 @@ class SkillRegistry:
         """Resolves a skill by its canonical name or slash command alias (e.g. 'grant_for_all' or '/grant_for_all')."""
         if not name_or_alias:
             return None
+        skills_snapshot = self._skills
         target = str(name_or_alias).strip().lower()
-        if target in self._skills:
-            return self._skills[target]
+        if target in skills_snapshot:
+            return skills_snapshot[target]
         cmd = target if target.startswith("/") else f"/{target}"
         slash_triggers = self.get_slash_triggers()
         if cmd in slash_triggers:
@@ -413,7 +450,8 @@ class SkillRegistry:
 
     def get_admin_skills(self) -> list[SkillDefinition]:
         """Returns all registered skills that require admin privileges."""
-        return [s for s in self._skills.values() if getattr(s, "requires_admin", False)]
+        skills_snapshot = self._skills
+        return [s for s in skills_snapshot.values() if getattr(s, "requires_admin", False)]
 
     def filter_skills_for_caller(
         self,
@@ -440,23 +478,31 @@ class SkillRegistry:
 
     def list_skills(self) -> list[SkillDefinition]:
         """Returns all registered skills."""
-        return list(self._skills.values())
+        skills_snapshot = self._skills
+        return list(skills_snapshot.values())
 
     def get_global_skills(self) -> list[str]:
         """Returns a list of names for skills marked global in SKILL.md."""
-        return [s.name for s in self._skills.values() if s.is_global]
+        skills_snapshot = self._skills
+        return [s.name for s in skills_snapshot.values() if s.is_global]
 
     def get_agent_skills(self, allowed_skills: list[str] | None = None) -> list[SkillDefinition]:
-        """Returns skills with scope == 'agent', optionally filtered by allowed_skills and including global skills."""
-        res = [s for s in self._skills.values() if s.scope == "agent"]
+        """Returns skills with scope == 'agent', optionally filtered by allowed_skills and including non-admin global skills."""
+        skills_snapshot = self._skills
+        res = [s for s in skills_snapshot.values() if s.scope == "agent"]
         if allowed_skills is not None:
-            res = [s for s in res if s.name in allowed_skills or s.is_global]
+            res = [
+                s
+                for s in res
+                if s.name in allowed_skills or (s.is_global and not getattr(s, "requires_admin", False))
+            ]
         return res
 
     def get_slash_triggers(self) -> dict[str, tuple[SkillDefinition, dict[str, Any]]]:
         """Maps each registered slash alias (lowercase) to its (SkillDefinition, trigger_dict)."""
+        skills_snapshot = self._skills
         mapping: dict[str, tuple[SkillDefinition, dict[str, Any]]] = {}
-        for skill in self._skills.values():
+        for skill in skills_snapshot.values():
             slash_list = skill.triggers.get("slash") or []
             if isinstance(slash_list, str):
                 slash_list = [slash_list]
@@ -470,8 +516,9 @@ class SkillRegistry:
 
     def get_terminal_slash_triggers(self) -> list[str]:
         """Returns all slash triggers for skills configured with terminal: true."""
+        skills_snapshot = self._skills
         terminals: list[str] = []
-        for skill in self._skills.values():
+        for skill in skills_snapshot.values():
             if skill.is_terminal:
                 slash_list = skill.triggers.get("slash") or []
                 if isinstance(slash_list, str):
@@ -500,17 +547,19 @@ class SkillRegistry:
 
     def get_file_handler_skill(self) -> SkillDefinition | None:
         """Returns the skill configured to handle file attachments, or None."""
-        for skill in self._skills.values():
+        skills_snapshot = self._skills
+        for skill in skills_snapshot.values():
             if skill.handles_files:
                 return skill
-        for skill in self._skills.values():
+        for skill in skills_snapshot.values():
             if "read_document" in skill.tools or "write_document" in skill.tools:
                 return skill
         return None
 
     def get_auto_detect_skills(self) -> list[SkillDefinition]:
         """Returns all skills where auto_detect is True (defaults to False if omitted)."""
-        return [s for s in self._skills.values() if s.triggers.get("auto_detect", False) is True]
+        skills_snapshot = self._skills
+        return [s for s in skills_snapshot.values() if s.triggers.get("auto_detect", False) is True]
 
     def build_extractor_catalog_prompt(self) -> str:
         """
@@ -595,11 +644,12 @@ class SkillRegistry:
         if not skill_names:
             return []
 
+        skills_snapshot = self._skills
         tools: list[dict[str, Any]] = []
         seen: set[str] = set()
 
         for s_name in skill_names:
-            skill = self._skills.get(s_name)
+            skill = skills_snapshot.get(s_name)
             if not skill:
                 continue
             for schema in skill.get_tool_schemas():
@@ -611,13 +661,26 @@ class SkillRegistry:
         return tools
 
     def find_skill_for_tool(self, tool_name: str) -> str | None:
-        """Finds the skill name that defines or provides the given tool_name."""
-        for s_name, s_def in self._skills.items():
+        """Finds the skill name that defines or provides the given tool_name (including wildcard MCP skills)."""
+        skills_snapshot = self._skills
+        for s_name, s_def in skills_snapshot.items():
             if tool_name in s_def.tools:
                 return s_name
             for schema in s_def.custom_tool_schemas:
                 if schema.get("function", {}).get("name") == tool_name:
                     return s_name
+
+        if tool_name.startswith("mcp__"):
+            from services.mcp.schema_translator import parse_mcp_tool_name
+
+            parsed = parse_mcp_tool_name(tool_name)
+            if parsed is not None:
+                server_name, raw_tool_name = parsed
+                for s_name, s_def in skills_snapshot.items():
+                    if s_def.mcp_server == server_name:
+                        mcp_tools = getattr(s_def, "mcp_tools", []) or []
+                        if "*" in mcp_tools or raw_tool_name in mcp_tools:
+                            return s_name
         return None
 
     def get_skills_catalog_prompt(self, allowed_skills: list[str] | None = None) -> str:
@@ -626,13 +689,18 @@ class SkillRegistry:
         If allowed_skills is provided, only lists skills the agent is authorized to load.
         Returns empty string if agent is authorized for 0 skills.
         """
-        if not self._skills:
+        skills_snapshot = self._skills
+        if not skills_snapshot:
             return ""
 
         # Strictly only show agent-scoped skills to LLM agents
-        skills_to_show = [s for s in self._skills.values() if s.scope == "agent"]
+        skills_to_show = [s for s in skills_snapshot.values() if s.scope == "agent"]
         if allowed_skills is not None:
-            skills_to_show = [s for s in skills_to_show if s.name in allowed_skills or s.is_global]
+            skills_to_show = [
+                s
+                for s in skills_to_show
+                if s.name in allowed_skills or (s.is_global and not getattr(s, "requires_admin", False))
+            ]
             if not skills_to_show:
                 return ""
 
@@ -915,15 +983,18 @@ class SkillRegistry:
         actor_id = agent_name.id if hasattr(agent_name, "id") else str(agent_name or "unknown_agent")
         actor_kind = getattr(agent_name, "kind", "agent")
 
+        skills_snapshot = self._skills
         normalized_auth = normalize_skills_list(authorized_skills)
         effective_authorized_skills: list[str] = (
-            [s.name for s in self._skills.values()] if is_internal else normalized_auth
+            [s.name for s in skills_snapshot.values()] if is_internal else normalized_auth
         )
 
         if tool_name == "load_skill":
             skill_name = arguments.get("skill_name", "").strip()
-            target_skill = self.get(skill_name)
-            is_globally_allowed = bool(target_skill and target_skill.is_global)
+            target_skill = skills_snapshot.get(skill_name)
+            is_globally_allowed = bool(
+                target_skill and target_skill.is_global and not getattr(target_skill, "requires_admin", False)
+            )
 
             if not is_internal and not is_globally_allowed and skill_name not in effective_authorized_skills:
                 from services.audit_logger import log_audit_event
@@ -1115,7 +1186,8 @@ class SkillRegistry:
             )
 
         # Check if any skill registered a custom tool handler
-        for s_def in self._skills.values():
+        skills_snapshot = self._skills
+        for s_def in skills_snapshot.values():
             if tool_name in s_def.tool_handlers:
                 handler = s_def.tool_handlers[tool_name]
                 try:
@@ -1199,7 +1271,16 @@ def get_permitted_tools_for_principal(
         try:
             from orchestration.agent_settings import get_agent_skills
 
-            static_skills = get_agent_skills(actor_id) or []
+            raw_static = get_agent_skills(actor_id) or []
+            static_skills = [
+                s
+                for s in raw_static
+                if not getattr(
+                    skill_registry.get(s) if hasattr(skill_registry, "get") else None,
+                    "requires_admin",
+                    False,
+                )
+            ]
         except Exception:
             pass
 

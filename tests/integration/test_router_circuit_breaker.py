@@ -225,3 +225,108 @@ async def test_circuit_breaker_allows_normal_response_when_disabled():
         assert "Normal response despite high cost" in posted_messages[0]["text"]
     finally:
         set_circuit_breaker_enabled(True)
+
+
+@pytest.mark.anyio
+async def test_circuit_breaker_resume_sequence_stage2_and_stage4_checkpoints(tmp_path):
+    """TKT-1210 (C7): Resume Sequence action handles both Stage-2 (empty messages) and Stage-4 (mid-turn) CB checkpoints."""
+    from unittest.mock import patch
+
+    from fastapi.testclient import TestClient
+
+    from core.config import set_admin_slack_user_ids_override
+    from core.domain import TurnCheckpoint
+    from main import app
+    from services.turn_checkpoint_store import turn_checkpoint_store
+
+    client = TestClient(app)
+    set_admin_slack_user_ids_override("U_CB_ADMIN")
+    dispatched_coros = []
+    thread_state_manager.configure_task_dispatcher(lambda ch, ts, coro: dispatched_coros.append((ch, ts, coro)))
+
+    try:
+        # Case B: Stage-2 pre-turn checkpoint (empty messages, populated prompt)
+        ch2 = "C_CB_STG2"
+        ts2 = "1700000100.0001"
+        chk2 = TurnCheckpoint(
+            checkpoint_id="chk_cb_stage2",
+            session_id=f"{ch2}:{ts2}",
+            channel_id=ch2,
+            thread_ts=ts2,
+            agent_key="agent-10001",
+            pause_reason="circuit_breaker",
+            prompt="Analyze system reliability",
+            messages=[],
+        )
+        turn_checkpoint_store.save_checkpoint(chk2)
+
+        observed_prompts = []
+
+        async def _fake_orchestrate(**kwargs):
+            observed_prompts.append(kwargs)
+
+        with (
+            patch("adapters.slack.interactivity.verify_slack_signature", return_value=True),
+            patch("orchestration.agent_router.orchestrate_discussion", side_effect=_fake_orchestrate),
+        ):
+            payload2 = {
+                "type": "block_actions",
+                "user": {"id": "U_CB_ADMIN"},
+                "actions": [{"action_id": "resume_sequence_action"}],
+                "channel": {"id": ch2},
+                "container": {"thread_ts": ts2},
+                "message": {"ts": "1700000100.0002"},
+            }
+            resp2 = client.post("/slack/actions", json=payload2)
+            assert resp2.status_code == 200
+            assert len(dispatched_coros) == 1
+            await dispatched_coros[0][2]
+            assert observed_prompts[0]["raw_text"] == "Analyze system reliability"
+            assert observed_prompts[0]["target_agent_override"] == "agent-10001"
+            updated2 = turn_checkpoint_store.get_checkpoint("chk_cb_stage2")
+            assert updated2 is not None and updated2.status == "RESUMED"
+
+        # Case A: Stage-4 mid-turn checkpoint (non-empty messages) -> calls resume_from_checkpoint
+        dispatched_coros.clear()
+        ch4 = "C_CB_STG4"
+        ts4 = "1700000200.0001"
+        chk4 = TurnCheckpoint(
+            checkpoint_id="chk_cb_stage4",
+            session_id=f"{ch4}:{ts4}",
+            channel_id=ch4,
+            thread_ts=ts4,
+            agent_key="agent-10002",
+            pause_reason="circuit_breaker",
+            prompt="Mid-turn tool resumption",
+            messages=[{"role": "user", "content": "Continue reading file"}],
+        )
+        turn_checkpoint_store.save_checkpoint(chk4)
+
+        mock_followup = MagicMock()
+        mock_followup.choices = [MagicMock(message=MagicMock(content="Finished post-breaker analysis.", tool_calls=None))]
+        mock_followup.usage = MagicMock(prompt_tokens=10, completion_tokens=10)
+        configure_llm_completion_fn(make_mock_acompletion(lambda *a, **k: mock_followup))
+        configure_post_agent_response(AsyncMock(return_value={"ok": True, "ts": "99.99"}))
+
+        with (
+            patch("adapters.slack.interactivity.verify_slack_signature", return_value=True),
+            patch("orchestration.agent_router.continue_discussion_from_turn_result", new_callable=AsyncMock) as mock_cont,
+        ):
+            payload4 = {
+                "type": "block_actions",
+                "user": {"id": "U_CB_ADMIN"},
+                "actions": [{"action_id": "resume_sequence_action"}],
+                "channel": {"id": ch4},
+                "container": {"thread_ts": ts4},
+                "message": {"ts": "1700000200.0002"},
+            }
+            resp4 = client.post("/slack/actions", json=payload4)
+            assert resp4.status_code == 200
+            assert len(dispatched_coros) == 1
+            await dispatched_coros[0][2]
+            mock_cont.assert_awaited_once()
+            updated4 = turn_checkpoint_store.get_checkpoint("chk_cb_stage4")
+            assert updated4 is not None and updated4.status == "RESUMED"
+    finally:
+        thread_state_manager.reset_task_dispatcher()
+        set_admin_slack_user_ids_override(None)

@@ -810,3 +810,41 @@ async def test_layer2_caller_delegated_agent_skill_rbac():
         skill_registry._skills.pop("admin_crawler", None)
 
 
+def test_global_requires_admin_skill_blocked_for_non_admin_caller(tmp_path):
+    """TKT-1206 (H4): global: true + requires_admin: true skills must NOT bypass admin ACLs."""
+    from core.domain import ToolPrincipal
+    from skills.loader import SkillRegistry
+
+    skill_dir = tmp_path / "global_admin_ops"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: global_admin_ops\ndisplay_name: Global Admin Ops\ndescription: Restricted\nscope: agent\nglobal: true\nrequires_admin: true\ntools:\n  - write_file\n---\nSecret instructions\n",
+        encoding="utf-8",
+    )
+
+    reg = SkillRegistry(root_dir=tmp_path)
+    # Non-admin agent with empty authorized_skills must not see global admin skill in catalog or agent skills
+    assert reg.get_agent_skills(allowed_skills=[]) == []
+    assert reg.get_skills_catalog_prompt(allowed_skills=[]) == ""
+
+    is_ok, resp_json, _ = reg._verify_tool_authorization(
+        tool_name="load_skill",
+        arguments={"skill_name": "global_admin_ops"},
+        authorized_skills=[],
+        agent_name=ToolPrincipal(kind="agent", id="agent-10008"),
+    )
+    assert is_ok is False
+    assert resp_json is not None and "Permission denied" in resp_json
+
+    # Explicit grant in allowed_skills DOES permit loading
+    is_ok_granted, _, _ = reg._verify_tool_authorization(
+        tool_name="load_skill",
+        arguments={"skill_name": "global_admin_ops"},
+        authorized_skills=["global_admin_ops"],
+        agent_name=ToolPrincipal(kind="agent", id="agent-10008"),
+    )
+    assert is_ok_granted is True
+    assert len(reg.get_agent_skills(allowed_skills=["global_admin_ops"])) == 1
+    assert "global_admin_ops" in reg.get_skills_catalog_prompt(allowed_skills=["global_admin_ops"])
+
+

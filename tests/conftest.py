@@ -498,6 +498,7 @@ def reset_router_and_llm_di_for_tests():
     )
     from nlp.intent_extractor import reset_intent_extractor
     from services.rag.embeddings import EmbeddingService
+    from services.rate_limiter import ip_rate_limiter
 
     yield
 
@@ -525,5 +526,6 @@ def reset_router_and_llm_di_for_tests():
     reset_trigger_thread_notes_update()
     reset_intent_extractor()
     EmbeddingService.reset_embeddings_fn()
+    ip_rate_limiter.reset()
 
 

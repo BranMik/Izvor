@@ -460,7 +460,7 @@ async def update_notes_for_thread(
     """
     Asynchronously creates or updates the live in-thread Strategic Synthesis note message,
     and upon discussion completion unpins the live note, generates a dialectical Conclusion note,
-    pins the conclusion note, and persists both notes to agents_resources/thread_notes/.
+    pins the conclusion note, and persists both notes to data/thread_notes/ (IZVOR_THREAD_NOTES_DIR).
     """
     lock = get_thread_lock(channel_id, thread_ts)
     thread_key = (channel_id, thread_ts)
@@ -645,7 +645,7 @@ async def update_notes_for_thread(
                         "skipping conclusion note post."
                     )
 
-                # 5. Persist usable notes to agents_resources/thread_notes/
+                # 5. Persist usable notes to data/thread_notes/ (IZVOR_THREAD_NOTES_DIR)
                 if formatted_text or formatted_conclusion_text:
                     try:
                         save_thread_notes_to_disk(

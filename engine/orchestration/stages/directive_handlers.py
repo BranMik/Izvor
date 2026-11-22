@@ -349,6 +349,8 @@ async def handle_slash_directives(
 
     max_words_val = (ctx.modifiers or {}).get("max_words")
     if max_words_val == "off":
+        if isinstance(ctx.modifiers, dict):
+            ctx.modifiers.pop("max_words", None)
         if is_admin:
             thread_state_manager.clear_max_words(ctx.input.channel_id, ctx.input.thread_ts)
         else:
@@ -361,6 +363,8 @@ async def handle_slash_directives(
 
     min_words_val = (ctx.modifiers or {}).get("min_words")
     if min_words_val == "off":
+        if isinstance(ctx.modifiers, dict):
+            ctx.modifiers.pop("min_words", None)
         if is_admin:
             thread_state_manager.clear_min_words(ctx.input.channel_id, ctx.input.thread_ts)
         else:
@@ -378,6 +382,8 @@ async def handle_slash_directives(
                 scribe_max_val = act.params.get("words")
                 break
     if scribe_max_val == "off":
+        if isinstance(ctx.modifiers, dict):
+            ctx.modifiers.pop("scribe_max_words", None)
         if is_admin:
             thread_state_manager.clear_scribe_max_words(ctx.input.channel_id, ctx.input.thread_ts)
         else:
@@ -395,6 +401,8 @@ async def handle_slash_directives(
                 scribe_min_val = act.params.get("words")
                 break
     if scribe_min_val == "off":
+        if isinstance(ctx.modifiers, dict):
+            ctx.modifiers.pop("scribe_min_words", None)
         if is_admin:
             thread_state_manager.clear_scribe_min_words(ctx.input.channel_id, ctx.input.thread_ts)
         else:

@@ -170,8 +170,9 @@ class TurnCheckpoint:
     accumulated_history: list[dict[str, Any]] = field(default_factory=list)
     prompt_tokens: int = 0
     completion_tokens: int = 0
-    status: str = "ACTIVE"  # "ACTIVE" | "PENDING" | "RESUMED" | "RESOLVED" | "ABANDONED" | "EXPIRED"
+    status: str = "ACTIVE"  # "ACTIVE" | "PENDING" | "RESUMING" | "RESUMED" | "RESOLVED" | "ABANDONED" | "EXPIRED"
     hitl_request_id: str | None = None
+    prompt: str = ""
     created_at: float = field(default_factory=time.time)
     expires_at: float = field(default_factory=lambda: time.time() + 86400.0)
 
@@ -184,6 +185,7 @@ class TurnCheckpoint:
             "agent_key": self.agent_key,
             "pause_reason": self.pause_reason,
             "hitl_request_id": self.hitl_request_id,
+            "prompt": self.prompt,
             "messages": self.messages,
             "pending_tool_call": self.pending_tool_call,
             "active_tools": self.active_tools,

@@ -153,3 +153,16 @@ async def test_web_search_ssrf_filters_unsafe_result_urls():
         data = json.loads(res)
         assert data["results"] == []
         assert data["retryable"] is False
+
+
+def test_sanitize_outbound_url_strips_query_when_allowed_domains_empty():
+    """TKT-1209 (H2): Query/fragment must still be stripped when allowed_domains is empty."""
+    from services.web_tools import sanitize_outbound_url
+
+    limits = {
+        "strip_query_on_untrusted_domains": True,
+        "allowed_domains": [],
+    }
+    with patch("services.web_tools.get_web_security_limits", return_value=limits):
+        sanitized = sanitize_outbound_url("https://external.example.com/search?secret=alice@corp.com#frag")
+    assert sanitized == "https://external.example.com/search"

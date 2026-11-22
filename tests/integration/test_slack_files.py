@@ -670,3 +670,141 @@ async def test_download_slack_file_saves_safely_inside_downloads():
         reset_token()
 
 
+class _RedirectMockStreamResponse:
+    def __init__(self, status_code: int, content: bytes = b"", headers: dict[str, str] | None = None):
+        self.status_code = status_code
+        self.content = content
+        self.headers = headers or {}
+
+    async def aiter_bytes(self, chunk_size=65536):
+        if self.content:
+            yield self.content
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args):
+        pass
+
+
+@pytest.mark.anyio
+async def test_download_slack_file_blocks_cleartext_http_url():
+    file_info = {
+        "name": "secret.txt",
+        "url_private_download": "http://files.slack.com/files-pri/T1/secret.txt",
+        "size": 12,
+    }
+    configure_token("xoxb-real-mock-token")
+    try:
+        with patch("httpx.AsyncClient.stream") as mock_stream:
+            res = await download_slack_file(file_info)
+            assert res["ok"] is False
+            assert "https://" in res["error"]
+            mock_stream.assert_not_called()
+    finally:
+        reset_token()
+
+
+@pytest.mark.anyio
+async def test_download_slack_file_strips_authorization_on_cross_origin_redirect():
+    file_info = {
+        "name": "report.txt",
+        "url_private_download": "https://files.slack.com/files-pri/T1/report.txt",
+        "size": 12,
+    }
+    recorded_hops: list[tuple[str, dict[str, str]]] = []
+
+    def _stream_side_effect(method, url, headers=None, **kwargs):
+        recorded_hops.append((url, dict(headers or {})))
+        if len(recorded_hops) == 1:
+            return _RedirectMockStreamResponse(
+                status_code=302,
+                headers={"location": "https://cdn.example.com/signed-file?sig=abc123"},
+            )
+        return _RedirectMockStreamResponse(status_code=200, content=b"clean report body")
+
+    configure_token("xoxb-real-mock-token")
+    try:
+        with (
+            patch("socket.getaddrinfo", return_value=[(2, 1, 6, "", ("93.184.216.34", 443))]),
+            patch("httpx.AsyncClient.stream", side_effect=_stream_side_effect),
+        ):
+            res = await download_slack_file(file_info)
+            assert res["ok"] is True
+            assert "clean report body" in res["content"]
+            assert len(recorded_hops) == 2
+            assert recorded_hops[0][0] == "https://files.slack.com/files-pri/T1/report.txt"
+            assert recorded_hops[0][1].get("Authorization") == "Bearer xoxb-real-mock-token"
+            assert recorded_hops[1][0] == "https://cdn.example.com/signed-file?sig=abc123"
+            assert "Authorization" not in recorded_hops[1][1]
+    finally:
+        reset_token()
+
+
+@pytest.mark.anyio
+async def test_download_slack_file_retains_authorization_on_trusted_slack_redirect():
+    file_info = {
+        "name": "report2.txt",
+        "url_private_download": "https://files.slack.com/files-pri/T1/report2.txt",
+        "size": 12,
+    }
+    recorded_hops: list[tuple[str, dict[str, str]]] = []
+
+    def _stream_side_effect(method, url, headers=None, **kwargs):
+        recorded_hops.append((url, dict(headers or {})))
+        if len(recorded_hops) == 1:
+            return _RedirectMockStreamResponse(
+                status_code=302,
+                headers={"location": "https://files-edge.slack.com/files-pri/T1/report2.txt"},
+            )
+        return _RedirectMockStreamResponse(status_code=200, content=b"slack edge body")
+
+    configure_token("xoxb-real-mock-token")
+    try:
+        with (
+            patch("socket.getaddrinfo", return_value=[(2, 1, 6, "", ("93.184.216.34", 443))]),
+            patch("httpx.AsyncClient.stream", side_effect=_stream_side_effect),
+        ):
+            res = await download_slack_file(file_info)
+            assert res["ok"] is True
+            assert "slack edge body" in res["content"]
+            assert len(recorded_hops) == 2
+            assert recorded_hops[1][1].get("Authorization") == "Bearer xoxb-real-mock-token"
+    finally:
+        reset_token()
+
+
+@pytest.mark.anyio
+async def test_download_slack_file_blocks_redirect_https_downgrade_and_ssrf_ip():
+    file_info = {
+        "name": "evil.txt",
+        "url_private_download": "https://files.slack.com/files-pri/T1/evil.txt",
+        "size": 10,
+    }
+    configure_token("xoxb-real-mock-token")
+    try:
+        # 1. Downgrade to http:// must be blocked
+        downgrade_resp = _RedirectMockStreamResponse(
+            status_code=302,
+            headers={"location": "http://cdn.example.com/signed-file"},
+        )
+        with patch("httpx.AsyncClient.stream", return_value=downgrade_resp) as mock_stream:
+            res = await download_slack_file(file_info)
+            assert res["ok"] is False
+            assert "Security violation on redirect" in res["error"]
+            assert mock_stream.call_count == 1
+
+        # 2. Redirect to link-local metadata IP must be blocked
+        ssrf_resp = _RedirectMockStreamResponse(
+            status_code=302,
+            headers={"location": "https://169.254.169.254/latest/meta-data"},
+        )
+        with patch("httpx.AsyncClient.stream", return_value=ssrf_resp) as mock_stream:
+            res = await download_slack_file(file_info)
+            assert res["ok"] is False
+            assert "restricted IP" in res["error"]
+            assert mock_stream.call_count == 1
+    finally:
+        reset_token()
+
+

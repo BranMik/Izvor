@@ -162,6 +162,7 @@ BASELINE_SCHEMA_STATEMENTS = [
         prompt_tokens INTEGER DEFAULT 0,
         completion_tokens INTEGER DEFAULT 0,
         status TEXT NOT NULL,
+        prompt TEXT NOT NULL DEFAULT '',
         created_at REAL NOT NULL,
         expires_at REAL NOT NULL
     );
@@ -278,6 +279,34 @@ SESSION_ACTIVE_PROMPT_STATEMENTS = [
     "ALTER TABLE thread_sessions ADD COLUMN is_pure_skill_task INTEGER NOT NULL DEFAULT 0;",
 ]
 
+TURN_CHECKPOINTS_PROMPT_STATEMENTS = [
+    # Ensure turn_checkpoints exists on partial legacy schemas (e.g. v4 upgrades without baseline step 9)
+    """
+    CREATE TABLE IF NOT EXISTS turn_checkpoints (
+        checkpoint_id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        channel_id TEXT NOT NULL,
+        thread_ts TEXT NOT NULL,
+        agent_key TEXT NOT NULL,
+        pause_reason TEXT NOT NULL,
+        hitl_request_id TEXT,
+        messages_json TEXT NOT NULL,
+        pending_tool_call_json TEXT,
+        active_tools_json TEXT,
+        skills_used_json TEXT,
+        token_mapping_json TEXT,
+        accumulated_history_json TEXT,
+        prompt_tokens INTEGER DEFAULT 0,
+        completion_tokens INTEGER DEFAULT 0,
+        status TEXT NOT NULL,
+        prompt TEXT NOT NULL DEFAULT '',
+        created_at REAL NOT NULL,
+        expires_at REAL NOT NULL
+    );
+    """,
+    "ALTER TABLE turn_checkpoints ADD COLUMN prompt TEXT NOT NULL DEFAULT '';",
+]
+
 MIGRATIONS: list[tuple[int, str, list[str]]] = [
     (1, "baseline_schema", BASELINE_SCHEMA_STATEMENTS),
     (2, "audit_anchors_and_indices", AUDIT_ANCHORS_STATEMENTS),
@@ -285,6 +314,7 @@ MIGRATIONS: list[tuple[int, str, list[str]]] = [
     (4, "thread_session_convergence_speakers", SESSION_CONVERGENCE_STATEMENTS),
     (5, "thread_sessions_nullable_remaining_agents", SESSION_NULLABLE_REMAINING_STATEMENTS),
     (6, "thread_sessions_active_prompt_and_pure_skill", SESSION_ACTIVE_PROMPT_STATEMENTS),
+    (7, "turn_checkpoints_prompt_column", TURN_CHECKPOINTS_PROMPT_STATEMENTS),
 ]
 
 

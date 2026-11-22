@@ -327,3 +327,149 @@ def test_pii_masker_excludes_organization_entities():
         # Email is strictly masked
         assert "secret@corp.com" not in masked
         assert any("secret@corp.com" in v for v in mapping.values())
+
+
+@pytest.mark.anyio
+async def test_execute_llm_with_retry_privacy_provider_exception_fails_closed():
+    """
+    Verifies that when _privacy_mode_provider() raises an exception, execute_llm_with_retry
+    fails CLOSED (strict=True) and still masks PII in both messages and embedding input.
+    """
+    from unittest.mock import MagicMock
+
+    from core.llm_utils import execute_llm_with_retry, set_privacy_mode_provider
+
+    def _broken_provider() -> bool:
+        raise RuntimeError("settings store corrupted")
+
+    set_privacy_mode_provider(_broken_provider)
+    try:
+        captured = {}
+
+        async def mock_provider(**call_kwargs):
+            captured.update(call_kwargs)
+            resp = MagicMock()
+            resp.choices = []
+            resp.data = [{"embedding": [0.1]}]
+            return resp
+
+        await execute_llm_with_retry(
+            func=mock_provider,
+            kwargs={
+                "messages": [{"role": "user", "content": "Send report to alice@corp.com"}],
+                "input": ["Embed bob@corp.com SSN 123-45-6789"],
+            },
+            agent_key="test_agent",
+            thread_key=("C1", "T1"),
+        )
+
+        msg_text = captured["messages"][0]["content"]
+        inp_text = captured["input"][0]
+        assert "alice@corp.com" not in msg_text
+        assert "<EMAIL_0>" in msg_text
+        assert "bob@corp.com" not in inp_text
+        assert "123-45-6789" not in inp_text
+        assert "<EMAIL_" in inp_text
+    finally:
+        set_privacy_mode_provider(None)
+
+
+def test_pii_masker_prescans_literal_placeholder_tokens_to_prevent_collision():
+    """TKT-1209 (C5): Forged literal <EMAIL_0>/<EMAIL_1> tags in input must not collide with masked PII."""
+    from services.security.pii_masker import PIIMasker
+
+    masker = PIIMasker()
+    text = "Injected <EMAIL_0> and <EMAIL_2> before real alice@corp.com"
+    masked, mapping = masker.mask(text)
+
+    assert "alice@corp.com" not in masked
+    assert "<EMAIL_0>" in masked
+    assert "<EMAIL_2>" in masked
+    assert "<EMAIL_3>" in masked
+    assert mapping.get("<EMAIL_3>") == "alice@corp.com"
+    assert "<EMAIL_0>" not in mapping
+    assert "<EMAIL_2>" not in mapping
+    assert masker.unmask(masked, mapping) == text
+
+
+@pytest.mark.anyio
+async def test_outbound_web_tool_args_stay_masked_at_execution_call_site():
+    """TKT-1209 (C5): ExecutionStage.execute_tool_loop must keep <EMAIL_N> masked when
+    invoking web_search/fetch_web_page while unmasking real PII for local tools."""
+    import json
+    from types import SimpleNamespace
+    from unittest.mock import patch
+
+    from orchestration.thread_state import thread_state_manager
+    from orchestration.turn_pipeline import TurnContext, TurnPipeline
+    from services.security.pii_masker import PIIMasker
+
+    masker = PIIMasker()
+    masked, mapping = masker.mask("search for alice@corp.com")
+    assert "alice@corp.com" not in masked
+    assert "<EMAIL_0>" in masked
+
+    recorded_calls: list[tuple[str, dict]] = []
+
+    async def fake_tool_executor(fn_name: str, fn_args: dict) -> str:
+        recorded_calls.append((fn_name, dict(fn_args)))
+        return "tool ok"
+
+    async def fake_llm_executor(func, completion_kwargs, **kwargs):
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="Done.", tool_calls=None))],
+            usage=None,
+        )
+
+    pipeline = TurnPipeline(llm_executor=fake_llm_executor, tool_executor=fake_tool_executor)
+    channel_id = "C_PII_LOOP"
+    thread_ts = "1700000100.0001"
+    ctx = TurnContext(channel_id=channel_id, thread_ts=thread_ts, raw_text="search", user_id="U_TEST")
+    ctx.thread_key = (channel_id, thread_ts)
+    ctx.agent_key = "agent-10001"
+    ctx.agent_cfg = {"model": "gpt-4o", "username": "Architect", "skills": []}
+    ctx.turn_token_mapping = dict(mapping)
+    ctx.messages = [{"role": "user", "content": masked}]
+
+    initial_response = SimpleNamespace(
+        content="",
+        tool_calls=[
+            SimpleNamespace(
+                id="call_web_search",
+                function=SimpleNamespace(name="web_search", arguments=json.dumps({"query": masked})),
+            ),
+            SimpleNamespace(
+                id="call_fetch_web",
+                function=SimpleNamespace(
+                    name="fetch_web_page",
+                    arguments=json.dumps({"url": f"https://example.com?q={masked}"}),
+                ),
+            ),
+            SimpleNamespace(
+                id="call_read_doc",
+                function=SimpleNamespace(name="read_document", arguments=json.dumps({"filename": masked})),
+            ),
+        ],
+    )
+
+    try:
+        with patch("services.local_tools.is_agent_authorized_for_tool", return_value=True):
+            halt = await pipeline.execution_stage.execute_tool_loop(
+                ctx,
+                active_tools=[],
+                agent_skills=[],
+                expired_thread_skills=[],
+                thread_ttl_hours=24.0,
+                initial_response_message=initial_response,
+            )
+
+        assert halt is None
+        assert len(recorded_calls) == 3
+        calls_by_name = dict(recorded_calls)
+        assert "alice@corp.com" not in calls_by_name["web_search"]["query"]
+        assert "<EMAIL_0>" in calls_by_name["web_search"]["query"]
+        assert "alice@corp.com" not in calls_by_name["fetch_web_page"]["url"]
+        assert "<EMAIL_0>" in calls_by_name["fetch_web_page"]["url"]
+        assert calls_by_name["read_document"]["filename"] == "search for alice@corp.com"
+    finally:
+        thread_state_manager.cleanup_thread(channel_id, thread_ts)

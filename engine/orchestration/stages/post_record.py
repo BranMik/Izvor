@@ -517,6 +517,7 @@ class PostRecordStage:
         )
 
         is_first_503_skip = False
+        mode = None
         if err_category == "api_key_not_found":
             error_sentence = "API KEY NOT FOUND"
         elif err_category == "model_not_found":
@@ -543,9 +544,9 @@ class PostRecordStage:
                 thread_state_manager.mark_agent_503_errored(
                     ctx.input.channel_id, ctx.input.thread_ts, ctx.agent_key
                 )
+                wf_snap = thread_state_manager.get_workflow_snapshot(ctx.input.channel_id, ctx.input.thread_ts)
+                mode = wf_snap.get("mode") if wf_snap else settings_manager.get_orchestration_mode()
                 if ctx.agent_key not in ctx.remaining:
-                    wf_snap = thread_state_manager.get_workflow_snapshot(ctx.input.channel_id, ctx.input.thread_ts)
-                    mode = wf_snap.get("mode") if wf_snap else settings_manager.get_orchestration_mode()
                     if mode == OrchestrationMode.SANDWICH:
                         sandwich_cfg = wf_snap.get("sandwich_config") if wf_snap else settings_manager.get_sandwich_config()
                         end_chain = sandwich_cfg.get("end_chain", [])

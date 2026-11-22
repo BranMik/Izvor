@@ -1,7 +1,9 @@
 import asyncio
+import ipaddress
 import logging
 from pathlib import Path
 import re
+import socket
 import time
 from typing import Any
 import urllib.parse
@@ -155,6 +157,111 @@ async def fetch_thread_files(channel_id: str, thread_ts: str, max_messages: int 
         return []
 
 
+_TRUSTED_SLACK_FILE_HOSTS = frozenset(
+    {
+        "files.slack.com",
+        "files-edu.slack.com",
+        "slack-files.com",
+    }
+)
+
+
+def _is_trusted_slack_file_url(url: str) -> tuple[bool, str]:
+    """
+    Requires HTTPS scheme and a trusted Slack file domain before ever
+    attaching the Slack Bearer token or allowing initial file download.
+    """
+    parsed_url = urllib.parse.urlsplit(url)
+    scheme = (parsed_url.scheme or "").lower()
+    hostname = (parsed_url.hostname or "").lower()
+    if scheme != "https":
+        return (
+            False,
+            f"Security violation: Slack file download URL must use https:// (got scheme '{scheme or 'none'}').",
+        )
+    is_slack_host = (
+        hostname in _TRUSTED_SLACK_FILE_HOSTS
+        or hostname.endswith(".slack.com")
+        or hostname.endswith(".slack-files.com")
+    )
+    if not is_slack_host:
+        return (
+            False,
+            f"Security violation: File download URL domain '{hostname}' is not a recognized Slack domain.",
+        )
+    return True, ""
+
+
+def _validate_slack_redirect_url(next_url: str) -> tuple[bool, str | None, str | None]:
+    """
+    Validates a Slack file download HTTP redirect target against HTTPS-only and SSRF
+    protections (blocked hostnames, internal suffixes, and non-global IPs), returning
+    the resolved global IP for PinnedIPTransport without blocking the asyncio loop.
+    """
+    from services.web_tools import BLOCKED_DOMAIN_SUFFIXES, BLOCKED_HOSTNAMES, is_ip_blocked
+
+    try:
+        parsed = urllib.parse.urlsplit(next_url)
+    except (ValueError, TypeError) as e:
+        return False, f"Malformed redirect URL: {e}", None
+
+    scheme = (parsed.scheme or "").lower()
+    if scheme != "https":
+        return False, f"Redirect scheme '{scheme or 'none'}' is not allowed; only HTTPS is permitted.", None
+
+    if not parsed.netloc:
+        return False, "Redirect URL is missing a valid host.", None
+
+    if parsed.username or parsed.password:
+        return False, "Embedded credentials (userinfo) in redirect URLs are not permitted.", None
+
+    try:
+        port = parsed.port
+    except ValueError:
+        return False, "Invalid port in redirect URL.", None
+    if port is not None and port != 443:
+        return False, f"Redirect port {port} is not allowed; only port 443 is permitted.", None
+
+    hostname = parsed.hostname
+    if not hostname:
+        return False, "Redirect hostname could not be determined.", None
+
+    hostname_lower = hostname.lower().strip(".")
+    if hostname_lower in BLOCKED_HOSTNAMES:
+        return False, f"Redirect to blocked host '{hostname}' is forbidden.", None
+
+    for suffix in BLOCKED_DOMAIN_SUFFIXES:
+        if hostname_lower == suffix[1:] or hostname_lower.endswith(suffix):
+            return False, f"Redirect to internal domain '{hostname}' is blocked.", None
+
+    try:
+        ip = ipaddress.ip_address(hostname_lower)
+        if is_ip_blocked(ip):
+            return False, f"Redirect to restricted IP address '{ip}' is blocked.", None
+        return True, None, str(ip)
+    except ValueError:
+        pass
+
+    primary_ip: str | None = None
+    try:
+        addr_info = socket.getaddrinfo(hostname_lower, None, proto=socket.IPPROTO_TCP)
+        if not addr_info:
+            return False, f"Could not resolve redirect host '{hostname_lower}'.", None
+        for entry in addr_info:
+            ip_str = entry[4][0]
+            ip = ipaddress.ip_address(ip_str)
+            if is_ip_blocked(ip):
+                return False, f"Redirect host '{hostname_lower}' resolved to restricted IP '{ip}'.", None
+            if primary_ip is None:
+                primary_ip = ip_str
+    except socket.gaierror as e:
+        return False, f"DNS resolution failed for redirect host '{hostname_lower}': {e}", None
+    except (OSError, ValueError) as e:
+        return False, f"Redirect host validation error for '{hostname_lower}': {e}", None
+
+    return True, None, primary_ip
+
+
 async def download_slack_file(file_info: dict[str, Any], max_chars: int = 50000) -> dict[str, Any]:
     """
     Downloads a private Slack file attachment using SLACK_BOT_TOKEN and extracts its text content.
@@ -192,26 +299,17 @@ async def download_slack_file(file_info: dict[str, Any], max_chars: int = 50000)
             "error": "No download URL available for this file.",
         }
 
-    # Verify origin hostname belongs to allowed Slack domains before attaching sensitive Bearer token
-    parsed_url = urllib.parse.urlsplit(url)
-    hostname = (parsed_url.hostname or "").lower()
-    allowed_hosts = {
-        "files.slack.com",
-        "files-edu.slack.com",
-        "slack-files.com",
-    }
-    is_slack_host = (
-        hostname in allowed_hosts or hostname.endswith(".slack.com") or hostname.endswith(".slack-files.com")
-    )
-    if not is_slack_host:
-        logger.warning(f"[SLACK FILE] Blocked file download attempt to non-Slack domain: {hostname}")
+    # Verify HTTPS scheme and origin hostname belongs to allowed Slack domains before attaching Bearer auth
+    is_trusted, trust_err = _is_trusted_slack_file_url(url)
+    if not is_trusted:
+        logger.warning(f"[SLACK FILE] Blocked unsafe/non-Slack file download URL '{url}': {trust_err}")
         return {
             "ok": False,
             "file_name": file_name,
             "content": "",
             "truncated": False,
             "size": file_size,
-            "error": f"Security violation: File download URL domain '{hostname}' is not a recognized Slack domain.",
+            "error": trust_err,
         }
 
     bot_token = get_slack_bot_token()
@@ -225,7 +323,6 @@ async def download_slack_file(file_info: dict[str, Any], max_chars: int = 50000)
             "error": None,
         }
 
-    headers = {"Authorization": f"Bearer {bot_token}"}
     try:
         from orchestration.system_settings import get_slack_file_download_timeout_seconds
 
@@ -234,14 +331,31 @@ async def download_slack_file(file_info: dict[str, Any], max_chars: int = 50000)
         download_timeout = 30.0
 
     try:
+        from services.web_tools import PinnedIPTransport
+
         current_dl_url = url
+        current_ip: str | None = None
         dl_redirect_count = 0
         max_dl_redirects = 5
         raw_bytes = b""
-        async with httpx.AsyncClient(timeout=download_timeout, follow_redirects=False) as client:
-            while True:
-                async with client.stream("GET", current_dl_url, headers=headers) as resp:
-                    if (300 <= resp.status_code < 400) and resp.headers.get("location"):
+
+        while True:
+            is_slack_target, _ = _is_trusted_slack_file_url(current_dl_url)
+            req_headers = {"Authorization": f"Bearer {bot_token}"} if is_slack_target else {}
+            client_kwargs: dict[str, Any] = {
+                "timeout": download_timeout,
+                "follow_redirects": False,
+            }
+            if current_ip:
+                client_kwargs["transport"] = PinnedIPTransport(current_ip)
+
+            next_dl_url: str | None = None
+            next_ip: str | None = None
+            async with httpx.AsyncClient(**client_kwargs) as client:
+                async with client.stream("GET", current_dl_url, headers=req_headers) as resp:
+                    resp_headers = getattr(resp, "headers", None) or {}
+                    loc = resp_headers.get("location") if (300 <= resp.status_code < 400) else None
+                    if loc:
                         dl_redirect_count += 1
                         if dl_redirect_count > max_dl_redirects:
                             return {
@@ -252,10 +366,10 @@ async def download_slack_file(file_info: dict[str, Any], max_chars: int = 50000)
                                 "size": file_size,
                                 "error": f"Security violation: Exceeded maximum allowed redirects ({max_dl_redirects}) on Slack file download.",
                             }
-                        loc = resp.headers.get("location", "")
-                        next_dl_url = urllib.parse.urljoin(current_dl_url, loc)
-                        from services.web_tools import validate_url_security
-                        is_safe_dl, _, dl_err, _ = validate_url_security(next_dl_url)
+                        next_dl_url = urllib.parse.urljoin(current_dl_url, str(loc))
+                        is_safe_dl, dl_err, resolved_next_ip = await asyncio.to_thread(
+                            _validate_slack_redirect_url, next_dl_url
+                        )
                         if not is_safe_dl:
                             logger.warning(
                                 f"[SLACK FILE] Blocked redirect to unsafe URL '{next_dl_url}': {dl_err}"
@@ -268,76 +382,78 @@ async def download_slack_file(file_info: dict[str, Any], max_chars: int = 50000)
                                 "size": file_size,
                                 "error": f"Security violation on redirect: {dl_err}",
                             }
-                        current_dl_url = next_dl_url
-                        continue
-
-                    if resp.status_code != 200:
-                        return {
-                            "ok": False,
-                            "file_name": file_name,
-                            "content": "",
-                            "truncated": False,
-                            "size": file_size,
-                            "error": f"Slack file download failed with HTTP status {resp.status_code}",
-                        }
-
-                    chunks = []
-                    total_bytes = 0
-                    async for chunk in resp.aiter_bytes(chunk_size=65536):
-                        total_bytes += len(chunk)
-                        if total_bytes > max_size_bytes:
+                        next_ip = resolved_next_ip
+                    else:
+                        if resp.status_code != 200:
                             return {
                                 "ok": False,
                                 "file_name": file_name,
                                 "content": "",
                                 "truncated": False,
-                                "size": total_bytes,
-                                "error": f"File '{file_name}' ({total_bytes} bytes) exceeds maximum allowed size of {max_size_mb:.1f} MB.",
+                                "size": file_size,
+                                "error": f"Slack file download failed with HTTP status {resp.status_code}",
                             }
-                        chunks.append(chunk)
 
-                    raw_bytes = b"".join(chunks)
-                    break
+                        chunks = []
+                        total_bytes = 0
+                        async for chunk in resp.aiter_bytes(chunk_size=65536):
+                            total_bytes += len(chunk)
+                            if total_bytes > max_size_bytes:
+                                return {
+                                    "ok": False,
+                                    "file_name": file_name,
+                                    "content": "",
+                                    "truncated": False,
+                                    "size": total_bytes,
+                                    "error": f"File '{file_name}' ({total_bytes} bytes) exceeds maximum allowed size of {max_size_mb:.1f} MB.",
+                                }
+                            chunks.append(chunk)
 
-            # Cache local copy to workspace safely
-            try:
-                downloads_dir = get_downloads_dir().resolve()
-                downloads_dir.mkdir(parents=True, exist_ok=True)
-                safe_name = sanitize_slack_download_filename(file_name, prefix_len=6)
-                file_path = (downloads_dir / safe_name).resolve()
-                if not file_path.is_relative_to(downloads_dir):
-                    raise PermissionError(
-                        f"Path traversal detected: '{file_name}' resolves outside downloads directory"
-                    )
-                await asyncio.to_thread(file_path.write_bytes, raw_bytes)
-                logger.info(f"[SLACK FILE] Cached Slack file safely to workspace: {file_path}")
-            except (OSError, PermissionError) as save_err:
-                logger.warning(f"[SLACK FILE] Could not save local copy to workspace: {save_err}")
+                        raw_bytes = b"".join(chunks)
+                        break
 
-            if file_name.lower().endswith(".pdf"):
-                try:
-                    text_content = await asyncio.to_thread(_extract_pdf_pages, raw_bytes)
-                except Exception as pdf_err:  # noqa: BLE001 - PDF parsing error boundary falls back cleanly
-                    logger.warning(f"[SLACK FILE] Could not parse PDF attachment {file_name}: {pdf_err}")
-                    text_content = f"[Failed to extract text from PDF: {pdf_err}]"
-            else:
-                text_content = raw_bytes.decode("utf-8", errors="replace")
+            current_dl_url = next_dl_url
+            current_ip = next_ip
 
-            truncated = False
-            if len(text_content) > max_chars:
-                text_content = (
-                    text_content[:max_chars] + f"\n\n... [TRUNCATED: File exceeds {max_chars} characters] ..."
+        # Cache local copy to workspace safely
+        try:
+            downloads_dir = get_downloads_dir().resolve()
+            downloads_dir.mkdir(parents=True, exist_ok=True)
+            safe_name = sanitize_slack_download_filename(file_name, prefix_len=6)
+            file_path = (downloads_dir / safe_name).resolve()
+            if not file_path.is_relative_to(downloads_dir):
+                raise PermissionError(
+                    f"Path traversal detected: '{file_name}' resolves outside downloads directory"
                 )
-                truncated = True
+            await asyncio.to_thread(file_path.write_bytes, raw_bytes)
+            logger.info(f"[SLACK FILE] Cached Slack file safely to workspace: {file_path}")
+        except (OSError, PermissionError) as save_err:
+            logger.warning(f"[SLACK FILE] Could not save local copy to workspace: {save_err}")
 
-            return {
-                "ok": True,
-                "file_name": file_name,
-                "content": text_content,
-                "truncated": truncated,
-                "size": len(raw_bytes),
-                "error": None,
-            }
+        if file_name.lower().endswith(".pdf"):
+            try:
+                text_content = await asyncio.to_thread(_extract_pdf_pages, raw_bytes)
+            except Exception as pdf_err:  # noqa: BLE001 - PDF parsing error boundary falls back cleanly
+                logger.warning(f"[SLACK FILE] Could not parse PDF attachment {file_name}: {pdf_err}")
+                text_content = f"[Failed to extract text from PDF: {pdf_err}]"
+        else:
+            text_content = raw_bytes.decode("utf-8", errors="replace")
+
+        truncated = False
+        if len(text_content) > max_chars:
+            text_content = (
+                text_content[:max_chars] + f"\n\n... [TRUNCATED: File exceeds {max_chars} characters] ..."
+            )
+            truncated = True
+
+        return {
+            "ok": True,
+            "file_name": file_name,
+            "content": text_content,
+            "truncated": truncated,
+            "size": len(raw_bytes),
+            "error": None,
+        }
     except (httpx.TimeoutException, httpx.RequestError) as e:
         logger.error(f"[SLACK FILE] Network error downloading Slack file {file_name}: {e}")
         return {

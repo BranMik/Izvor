@@ -1279,3 +1279,59 @@ async def test_process_and_respond_persists_string_valued_max_words_from_intent(
 
     assert res.get("ok") is True
     assert thread_state_manager.get_max_words(channel_id, thread_ts) == 25
+
+
+@pytest.mark.anyio
+async def test_ambiguous_tag_halt_with_empty_agents_config():
+    """TKT-1211 (H11): the ambiguous-tag halt path must not raise UnboundLocalError (F823)
+    even when settings_manager.agents_config is empty (falls back to AGENTS_CONFIG)."""
+    import copy
+    from orchestration.agent_settings import settings_manager
+
+    thread_state_manager.reset_all()
+    orig_agents_cfg = copy.deepcopy(settings_manager.agents_config)
+    settings_manager.agents_config.clear()
+    # With agents_config empty, the resolver sees only Challenger/Arbitrator, so '/[r]'
+    # is still ambiguous (substring match) while validation falls back to AGENTS_CONFIG.
+
+    channel_id = "C_AMBIG_EMPTY"
+    thread_ts = "99999.0003"
+
+    system_posts = []
+
+    async def mock_post_system(
+        channel_id, thread_ts, text, username=None, icon_url=None
+    ):
+        system_posts.append({"username": username, "text": text})
+        return {"ok": True, "ts": thread_ts}
+
+    llm_called = False
+
+    def handle_turn(*args, **kwargs):
+        nonlocal llm_called
+        llm_called = True
+        return MagicMock()
+
+    configure_post_system_message(mock_post_system)
+    configure_llm_completion_fn(make_mock_acompletion(handle_turn))
+    configure_fetch_thread_history(AsyncMock(return_value=[]))
+
+    try:
+        res = await process_and_respond(
+            channel_id=channel_id,
+            thread_ts=thread_ts,
+            raw_text="/[r] please review this design",
+            is_bot_trigger=False,
+        )
+
+        assert res.get("halted") is True
+        assert res.get("reason") == "ambiguous_agent"
+        assert llm_called is False
+        assert len(system_posts) == 1
+        assert "Ambiguous Agent Reference" in system_posts[0]["text"]
+        assert "Challenger" in system_posts[0]["text"]
+        assert "Arbitrator" in system_posts[0]["text"]
+    finally:
+        settings_manager.agents_config.clear()
+        settings_manager.agents_config.update(orig_agents_cfg)
+        thread_state_manager.cleanup_thread(channel_id, thread_ts)

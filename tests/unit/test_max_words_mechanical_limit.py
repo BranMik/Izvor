@@ -241,3 +241,49 @@ async def test_discussion_scribe_default_word_ceilings_and_preserves_markdown_ne
         assert len(conclusion.raw_markdown.split()) == 370
         assert "\n" in conclusion.raw_markdown
 
+
+@pytest.mark.anyio
+async def test_off_directives_clear_state_and_build_valid_prompt():
+    """TKT-1211 (C8): '/max_words off <prompt>' / '/min_words off <prompt>' must clear the
+    persistent thread limit and drop the 'off' marker from ctx.modifiers, so prompt building
+    never raises TypeError or emits 'minimum length of off words'."""
+    from types import SimpleNamespace
+
+    from core.config import set_admin_slack_user_ids_override
+    from orchestration.stages.directive_handlers import handle_slash_directives
+    from prompts.builder import build_agent_prompt
+
+    channel = "C_OFF_PROMPT"
+    thread_ts = "8888.0001"
+    set_admin_slack_user_ids_override("U_ADMIN")
+    thread_state_manager.set_max_words(channel, thread_ts, 50)
+    thread_state_manager.set_min_words(channel, thread_ts, 10)
+    try:
+        ctx = TurnContext(
+            channel_id=channel,
+            thread_ts=thread_ts,
+            raw_text="/max_words off What is your view on X?",
+            user_id="U_ADMIN",
+        )
+        ctx.thread_key = (channel, thread_ts)
+        ctx.actions = []
+        ctx.modifiers = {"max_words": "off", "min_words": "off"}
+
+        async def noop_post_sys_msg(channel_id, thread_ts, text, **kwargs):
+            return {"ok": True, "ts": thread_ts}
+
+        res = await handle_slash_directives(ctx, SimpleNamespace(is_stop=False), noop_post_sys_msg)
+        assert res is None
+        assert "max_words" not in (ctx.modifiers or {})
+        assert "min_words" not in (ctx.modifiers or {})
+        assert thread_state_manager.get_max_words(channel, thread_ts) is None
+        assert thread_state_manager.get_min_words(channel, thread_ts) is None
+
+        # Defense-in-depth: a leaked 'off' string in modifiers must not crash prompt building
+        prompt = build_agent_prompt("agent-10001", modifiers={"max_words": "off", "min_words": "off"})
+        assert "off words" not in prompt
+        assert "minimum length of off" not in prompt
+    finally:
+        set_admin_slack_user_ids_override(None)
+        thread_state_manager.cleanup_thread(channel, thread_ts)
+

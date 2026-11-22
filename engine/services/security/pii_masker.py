@@ -667,6 +667,12 @@ class PIIMasker:
         token_mapping: dict[str, str] = dict(existing_mapping or {})
         counts: dict[str, int] = {}
 
+        # Pre-reserve any literal <TOKEN_N> placeholders already present in user/input text
+        # so fresh masks never collide with forged placeholder tags (C5 / TKT-1209).
+        for lit_match in re.finditer(r"<([A-Z][A-Z0-9_]*)_(\d+)>", text):
+            lit_base, lit_idx = lit_match.group(1), lit_match.group(2)
+            counts[lit_base] = max(counts.get(lit_base, 0), int(lit_idx) + 1)
+
         if existing_mapping:
             for token_key in existing_mapping:
                 m = re.match(r"^<([A-Za-z0-9_]+)_(\d+)>$", token_key)

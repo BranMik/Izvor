@@ -133,3 +133,76 @@ def test_trigger_rag_reconciliation_audit_event(client):
     finally:
         config.set_admin_credentials_override(None, None)
 
+
+def test_openapi_and_docs_gated_in_production_only(client):
+    """TKT-1203: /docs, /redoc, and /openapi.json require Basic Auth in production, open in dev/test."""
+    test_user = "testadmin"
+    test_pass = "secret123"
+    good_creds = base64.b64encode(f"{test_user}:{test_pass}".encode()).decode("ascii")
+    auth_headers = {"Authorization": f"Basic {good_creds}"}
+
+    config.set_admin_credentials_override(test_user, test_pass)
+    try:
+        # 1. Production mode: unauthenticated rejected with 401, authenticated allowed with 200
+        config.set_production_override(True)
+        for path in ("/docs", "/redoc", "/openapi.json"):
+            unauth = client.get(path)
+            assert unauth.status_code == 401
+            assert unauth.headers.get("WWW-Authenticate") == "Basic"
+
+            authed = client.get(path, headers=auth_headers)
+            assert authed.status_code == 200
+
+        # 2. Dev/test mode: unauthenticated returns 200
+        config.set_production_override(False)
+        for path in ("/docs", "/redoc", "/openapi.json"):
+            dev_resp = client.get(path)
+            assert dev_resp.status_code == 200
+    finally:
+        config.set_production_override(None)
+        config.set_admin_credentials_override(None, None)
+
+
+def test_verify_admin_basic_auth_proxy_ip_extraction_prevents_tunnel_collapse(client):
+    """TKT-1203: Valid admin behind different Cloudflare/proxy IP is unaffected when another proxy IP locks out."""
+    from core.slack_security import set_trust_proxy_headers_override
+    from services.rate_limiter import ip_rate_limiter
+
+    test_user = "testadmin"
+    test_pass = "secret123"
+    bad_creds = base64.b64encode(b"bad:creds").decode("ascii")
+    good_creds = base64.b64encode(f"{test_user}:{test_pass}".encode()).decode("ascii")
+
+    ip_rate_limiter.reset()
+    config.set_admin_credentials_override(test_user, test_pass)
+    set_trust_proxy_headers_override(True)
+    try:
+        # Attacker IP behind Cloudflare fails 5 times -> locked out with 429 on 6th attempt
+        for _ in range(5):
+            r = client.get(
+                "/api/skills",
+                headers={"Authorization": f"Basic {bad_creds}", "CF-Connecting-IP": "198.51.100.10"},
+            )
+            assert r.status_code == 401
+
+        r_locked = client.get(
+            "/api/skills",
+            headers={"Authorization": f"Basic {good_creds}", "CF-Connecting-IP": "198.51.100.10"},
+        )
+        assert r_locked.status_code == 429
+
+        # Genuine admin arriving from different CF-Connecting-IP (even with spoofed XFF left hop) still succeeds
+        r_admin = client.get(
+            "/api/skills",
+            headers={
+                "Authorization": f"Basic {good_creds}",
+                "CF-Connecting-IP": "203.0.113.50",
+                "X-Forwarded-For": "198.51.100.10, 203.0.113.50",
+            },
+        )
+        assert r_admin.status_code == 200
+    finally:
+        set_trust_proxy_headers_override(None)
+        config.set_admin_credentials_override(None, None)
+        ip_rate_limiter.reset()
+

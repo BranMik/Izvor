@@ -73,26 +73,54 @@ _global_burst_window_start: float = 0.0
 _global_burst_count: int = 0
 
 
-def _extract_client_ip(headers: dict, env: Mapping[str, str] | None = None) -> str:
+_trust_proxy_headers_override: bool | None = None
+
+
+def set_trust_proxy_headers_override(enabled: bool | None) -> None:
+    """DI override for TRUST_PROXY_HEADERS used in unit/integration tests."""
+    global _trust_proxy_headers_override
+    _trust_proxy_headers_override = enabled
+
+
+def _extract_client_ip(
+    headers: Mapping[str, str],
+    env: Mapping[str, str] | None = None,
+    fallback_host: str = "direct_client",
+) -> str:
     """
     Extracts client IP from headers safely.
-    Only trusts proxy headers (X-Forwarded-For, X-Real-IP) if TRUST_PROXY_HEADERS is explicitly enabled.
+    Only trusts proxy headers (CF-Connecting-IP, X-Forwarded-For, X-Real-IP) if TRUST_PROXY_HEADERS is explicitly enabled.
+    Uses CF-Connecting-IP first, then the rightmost hop in X-Forwarded-For (set by the trusted local proxy), then X-Real-IP.
     """
-    active_env = env if env is not None else os.environ
-    trust_proxy = active_env.get("TRUST_PROXY_HEADERS", "false").lower() in ("1", "true", "yes")
+    if env is not None:
+        trust_proxy = env.get("TRUST_PROXY_HEADERS", "false").lower() in ("1", "true", "yes")
+    elif _trust_proxy_headers_override is not None:
+        trust_proxy = _trust_proxy_headers_override
+    else:
+        trust_proxy = os.environ.get("TRUST_PROXY_HEADERS", "false").lower() in ("1", "true", "yes")
     if not trust_proxy:
-        return "direct_client"
+        return fallback_host
 
-    client_ip = (
-        headers.get("x-forwarded-for")
-        or headers.get("X-Forwarded-For")
-        or headers.get("x-real-ip")
-        or headers.get("X-Real-IP")
-        or ""
-    )
-    if client_ip and "," in client_ip:
-        client_ip = client_ip.split(",")[0].strip()
-    return client_ip.strip() if client_ip else "direct_client"
+    lower_headers = {str(k).lower(): str(v) for k, v in headers.items()} if headers else {}
+
+    cf_ip = lower_headers.get("cf-connecting-ip", "").strip()
+    if cf_ip:
+        return cf_ip
+
+    xff = lower_headers.get("x-forwarded-for", "").strip()
+    if xff:
+        hops = [h.strip() for h in xff.split(",") if h.strip()]
+        if hops:
+            return hops[-1]
+
+    real_ip = lower_headers.get("x-real-ip", "").strip()
+    if real_ip:
+        return real_ip
+
+    return fallback_host
+
+
+extract_client_ip = _extract_client_ip
 
 
 def _record_auth_failure_audit(client_id: str) -> None:
@@ -125,6 +153,7 @@ def _record_auth_failure_audit(client_id: str) -> None:
 
         # Cap tracker capacity
         evicted_summaries: list[tuple[str, int]] = []
+        collapsed_overflow_count = 0
         while len(_auth_failure_tracker) >= max_entries and client_id not in _auth_failure_tracker:
             oldest_key = min(
                 _auth_failure_tracker.keys(),
@@ -132,7 +161,11 @@ def _record_auth_failure_audit(client_id: str) -> None:
             )
             old_val = _auth_failure_tracker.pop(oldest_key, None)
             if old_val and old_val.get("suppressed_count", 0) > 0:
-                evicted_summaries.append((oldest_key, old_val["suppressed_count"]))
+                if _global_burst_count < global_burst_limit:
+                    _global_burst_count += 1
+                    evicted_summaries.append((oldest_key, old_val["suppressed_count"]))
+                else:
+                    collapsed_overflow_count += int(old_val["suppressed_count"])
 
         state = _auth_failure_tracker.get(client_id)
         if not state or (now - state["window_start"]) >= window_secs:
@@ -157,20 +190,30 @@ def _record_auth_failure_audit(client_id: str) -> None:
             else:
                 state["suppressed_count"] += 1
 
+    if collapsed_overflow_count > 0:
+        logger.warning(
+            f"[SECURITY] Collapsed {collapsed_overflow_count} suppressed auth failure attempts "
+            "from evicted tracker entries due to global burst limit."
+        )
+
     log_fn = _audit_logger_hook
     if log_fn is not None:
         try:
             for ev_id, ev_count in evicted_summaries:
+                details_payload: dict[str, Any] = {
+                    "reason": "HMAC signature mismatch (cache eviction summary)",
+                    "suppressed_attempts_count": ev_count,
+                    "evicted_from_cache": True,
+                }
+                if collapsed_overflow_count > 0 and ev_id == evicted_summaries[-1][0]:
+                    details_payload["collapsed_overflow_suppressed_count"] = collapsed_overflow_count
+                    collapsed_overflow_count = 0
                 log_fn(
                     event_type="AUTH_FAILURE",
                     actor={"type": "slack_webhook", "id": ev_id},
                     action="verify_slack_signature",
                     target="/slack/*",
-                    details={
-                        "reason": "HMAC signature mismatch (cache eviction summary)",
-                        "suppressed_attempts_count": ev_count,
-                        "evicted_from_cache": True,
-                    },
+                    details=details_payload,
                     severity="WARNING",
                     status="FAILED",
                 )

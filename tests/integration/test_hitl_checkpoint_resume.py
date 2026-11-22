@@ -292,3 +292,165 @@ async def test_hitl_pause_synthesizes_deferred_sibling_responses():
     assert "TOOL EXECUTION DEFERRED" in sibling_msg.get("content", "")
 
 
+@pytest.mark.anyio
+@pytest.mark.parametrize("initial_outcome", ["approved", "denied"])
+async def test_resume_from_checkpoint_enforces_hitl_gate_on_subsequent_mutating_tool(initial_outcome):
+    """TKT-1201 (C1): Resumed turns use ExecutionStage.execute_tool_loop() and pause again for unapproved HITL tools."""
+    channel_id = f"C_NESTED_{initial_outcome}"
+    thread_ts = "99999.0010"
+    thread_state_manager.clear_state(channel_id, thread_ts)
+
+    chk = TurnCheckpoint(
+        checkpoint_id=f"chk_nested_{initial_outcome}",
+        session_id=f"{channel_id}:{thread_ts}",
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        agent_key="agent-10001",
+        pause_reason="hitl",
+        hitl_request_id=f"req_{initial_outcome}",
+        messages=[
+            {"role": "user", "content": "Run two gated actions."},
+            {"role": "assistant", "content": "", "tool_calls": [{"id": "call_1", "name": "write_file", "args": {}}]},
+            {"role": "tool", "tool_call_id": "call_1", "name": "write_file", "content": "PAUSED"},
+        ],
+        pending_tool_call={"id": "call_1", "name": "write_file", "args": {}},
+        active_tools=[
+            {
+                "type": "function",
+                "function": {"name": "execute_danger", "parameters": {"type": "object", "properties": {}}},
+            }
+        ],
+    )
+    turn_checkpoint_store.save_checkpoint(chk)
+
+    tc2 = MagicMock()
+    tc2.id = "call_nested_2"
+    tc2.function.name = "execute_danger"
+    tc2.function.arguments = json.dumps({"target": "prod"})
+
+    msg1 = MagicMock()
+    msg1.content = ""
+    msg1.tool_calls = [tc2]
+    msg1.model_dump.return_value = {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [{"id": "call_nested_2", "type": "function", "function": {"name": "execute_danger", "arguments": tc2.function.arguments}}],
+    }
+    resp1 = MagicMock(choices=[MagicMock(message=msg1)], usage=MagicMock(prompt_tokens=20, completion_tokens=10))
+    msg2 = MagicMock(content="Waiting on second human approval.", tool_calls=None)
+    resp2 = MagicMock(choices=[MagicMock(message=msg2)], usage=MagicMock(prompt_tokens=15, completion_tokens=10))
+
+    skill_def = MagicMock()
+    skill_def.name = "danger_skill"
+    skill_def.tools = ["execute_danger"]
+    skill_def.requires_human_ITL = True
+    skill_def.is_global = False
+    skill_def.requires_admin = False
+
+    mock_reg = MagicMock()
+    mock_reg.find_skill_for_tool.return_value = "danger_skill"
+    mock_reg.get.return_value = skill_def
+    mock_reg.get_global_skills.return_value = []
+    mock_reg.filter_skills_for_caller.return_value = ["danger_skill"]
+    mock_reg.execute_tool_async = AsyncMock(return_value="SHOULD_NOT_RUN")
+
+    pipeline = TurnPipeline(
+        llm_executor=AsyncMock(side_effect=[resp1, resp2]),
+        skill_registry=mock_reg,
+        slack_poster=AsyncMock(return_value={"ok": True, "ts": "77777"}),
+    )
+
+    with (
+        patch("services.local_tools.is_agent_authorized_for_tool", return_value=True),
+        patch("services.hitl.post_message_to_slack", AsyncMock(return_value={"ok": True, "ts": "88888"})),
+    ):
+        tool_payload = "OK" if initial_outcome == "approved" else '{"status": "denied", "error": "Denied"}'
+        turn_res = await pipeline.resume_from_checkpoint(checkpoint=chk, tool_result=tool_payload, user_id="U_ADMIN")
+
+    assert turn_res.get("waiting_hitl") is True
+    assert turn_res.get("halted") is True
+    # execute_danger MUST NOT have executed without approval
+    for call in mock_reg.execute_tool_async.call_args_list:
+        assert call.args[0] != "execute_danger"
+    orig_chk = turn_checkpoint_store.get_checkpoint(chk.checkpoint_id)
+    assert orig_chk is not None and orig_chk.status == "RESUMED"
+
+
+@pytest.mark.anyio
+async def test_resume_from_checkpoint_unlocks_skills_control_plane_and_claims_atomically():
+    """TKT-1201 (C1): Concurrent resume_from_checkpoint executes once; load_skill + control_plane work identically."""
+    from skills.loader import LOAD_SKILL_SCHEMA
+
+    channel_id = "C_RESUME_ATOM"
+    thread_ts = "99999.0011"
+    thread_state_manager.clear_state(channel_id, thread_ts)
+    thread_state_manager.set_remaining_agents(channel_id, thread_ts, ["agent-10002"])
+
+    chk = TurnCheckpoint(
+        checkpoint_id="chk_atomic_resume",
+        session_id=f"{channel_id}:{thread_ts}",
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        agent_key="agent-10001",
+        pause_reason="hitl",
+        messages=[
+            {"role": "user", "content": "Analyze and hand off"},
+            {"role": "assistant", "content": "", "tool_calls": [{"id": "c1", "name": "t1", "args": {}}]},
+            {"role": "tool", "tool_call_id": "c1", "name": "t1", "content": "PAUSED"},
+        ],
+        pending_tool_call={"id": "c1", "name": "t1", "args": {}},
+        active_tools=[LOAD_SKILL_SCHEMA],
+    )
+    turn_checkpoint_store.save_checkpoint(chk)
+
+    tc_load = MagicMock()
+    tc_load.id = "c_load_cp"
+    tc_load.function.name = "load_skill"
+    tc_load.function.arguments = json.dumps({"skill_name": "control_plane"})
+
+    msg1 = MagicMock(content="", tool_calls=[tc_load])
+    msg1.model_dump.return_value = {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [{"id": "c_load_cp", "type": "function", "function": {"name": "load_skill", "arguments": tc_load.function.arguments}}],
+    }
+
+    tc_nom = MagicMock()
+    tc_nom.id = "c_nom"
+    tc_nom.function.name = "nominate_next_speaker"
+    tc_nom.function.arguments = json.dumps({"agent_name": "agent-10002", "rationale": "Architecture handoff"})
+    msg2 = MagicMock(content="", tool_calls=[tc_nom])
+    msg2.model_dump.return_value = {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [{"id": "c_nom", "type": "function", "function": {"name": "nominate_next_speaker", "arguments": tc_nom.function.arguments}}],
+    }
+
+    msg3 = MagicMock(content="Handing off to Architect.", tool_calls=None)
+    llm_mock = AsyncMock(
+        side_effect=[
+            MagicMock(choices=[MagicMock(message=msg1)], usage=None),
+            MagicMock(choices=[MagicMock(message=msg2)], usage=None),
+            MagicMock(choices=[MagicMock(message=msg3)], usage=None),
+        ]
+    )
+
+    pipeline = TurnPipeline(
+        llm_executor=llm_mock,
+        slack_poster=AsyncMock(return_value={"ok": True, "ts": "99999"}),
+    )
+
+    import asyncio
+
+    res1, res2 = await asyncio.gather(
+        pipeline.resume_from_checkpoint(checkpoint="chk_atomic_resume", tool_result="OK", user_id="U_ADMIN"),
+        pipeline.resume_from_checkpoint(checkpoint="chk_atomic_resume", tool_result="OK", user_id="U_ADMIN"),
+    )
+    reasons = {r.get("reason") for r in (res1, res2)}
+    assert "checkpoint_already_claimed" in reasons
+    successes = [r for r in (res1, res2) if r.get("reason") != "checkpoint_already_claimed"]
+    assert len(successes) == 1
+    assert successes[0].get("ok") is True
+    assert "[agent-10002]" in successes[0].get("final_text", "")
+
+

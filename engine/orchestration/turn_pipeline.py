@@ -12,7 +12,6 @@ Coordinates turn processing across modular stages with an explicit TurnContext c
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import time
 from dataclasses import dataclass, field, replace
@@ -555,18 +554,19 @@ class TurnPipeline:
         user_id: str | None = None,
     ) -> dict[str, Any]:
         """
-        Resumes an in-flight agent turn from a durable TurnCheckpoint (TKT-810).
-        Restores TurnContext, injects tool response with exact tool_call_id, executes LLM follow-up
-        completion, runs Stage 5 post & record, and marks the checkpoint as RESUMED.
+        Resumes an in-flight agent turn from a durable TurnCheckpoint (TKT-810 / TKT-1201).
+        Atomically claims the checkpoint, resets per-turn web budget, restores TurnContext
+        (language, prompt, nomination state), injects the tool result, and delegates
+        execution to ExecutionStage.execute_tool_loop() before Stage 5 post & record.
         """
-        import os
-        import litellm
-        from core.config import AGENTS_CONFIG
-        from core.llm_utils import execute_llm_with_retry
-        from orchestration.stages.execution import _is_explicit_meta_provider
-        from orchestration.agent_settings import settings_manager
-        from orchestration.system_settings import system_settings_manager
+        from core.config import AGENTS_CONFIG, is_slack_admin
+        from orchestration.agent_settings import get_arbitrator_agent, get_challenger_agent, settings_manager
+        from orchestration.app_settings import app_settings_manager
+        from orchestration.nomination import get_initial_agents
+        from orchestration.thread_skills_manager import thread_skills_manager
+        from pipeline.orchestrator.sandwich import SandwichOrchestrator
         from services.turn_checkpoint_store import turn_checkpoint_store
+        from services.web_tools import reset_turn_web_budget
 
         if isinstance(checkpoint, str):
             chk = turn_checkpoint_store.get_checkpoint(checkpoint)
@@ -575,179 +575,177 @@ class TurnPipeline:
         else:
             chk = checkpoint
 
-        ctx = TurnContext(
-            channel_id=chk.channel_id,
-            thread_ts=chk.thread_ts,
-            raw_text="",
-            user_id=user_id,
-            is_bot_trigger=True,
-            in_memory_history=list(chk.accumulated_history or []),
-        )
-        ctx.my_generation = thread_state_manager.get_generation(ctx.input.channel_id, ctx.input.thread_ts)
-        ctx.current_task = asyncio.current_task()
-        ctx.session_id = chk.session_id
-        ctx.agent_key = chk.agent_key
-        ctx.messages = list(chk.messages or [])
-        ctx.turn_token_mapping = dict(chk.token_mapping or {})
-        ctx.output.skills_used = list(chk.skills_used or [])
-        ctx.output.total_prompt_tokens = chk.prompt_tokens
-        ctx.output.total_completion_tokens = chk.completion_tokens
-        ctx.output.checkpoint_id = chk.checkpoint_id
-        ctx.token_recorder = getattr(self.deps, "token_recorder", None) or record_thread_tokens
-
-        from orchestration.nomination import get_initial_agents
-        ctx.remaining = thread_state_manager.get_remaining_agents(
-            ctx.input.channel_id, ctx.input.thread_ts, default=get_initial_agents(ctx.input.channel_id, ctx.input.thread_ts)
-        )
-        ctx.eligible_remaining_agents = list(ctx.remaining)
-        ctx.is_custom_flow = thread_state_manager.is_custom_flow(ctx.input.channel_id, ctx.input.thread_ts)
-        ctx.is_open_debate = thread_state_manager.is_open_debate(ctx.input.channel_id, ctx.input.thread_ts)
-        ctx.full_history = list(chk.accumulated_history or [])
-
-        settings_manager.sync_output_constraints_if_changed()
-        agents_map = settings_manager.agents_config or AGENTS_CONFIG
-        ctx.agent_cfg = dict(agents_map.get(ctx.agent_key, {}))
-        apply_agent_model_fallback(ctx)
-
-        from orchestration.thread_skills_manager import thread_skills_manager
-        from skills.loader import skill_registry
-        from core.config import is_slack_admin
-
-        base_skills = list(ctx.agent_cfg.get("skills") or settings_manager.get_agent_skills(ctx.agent_key) or [])
-        global_skills = skill_registry.get_global_skills()
-        active_thread_skills = thread_skills_manager.get_active_skills(ctx.input.channel_id, ctx.input.thread_ts)
-        active_agent_skills = thread_skills_manager.get_active_agent_skills(
-            ctx.input.channel_id, ctx.input.thread_ts, ctx.agent_key
-        )
-        all_candidate_skills = list(
-            dict.fromkeys(base_skills + global_skills + active_thread_skills + active_agent_skills)
-        )
-        is_caller_admin = is_slack_admin(getattr(ctx.input, "user_id", None))
-        thread_granted = set(active_thread_skills) | set(active_agent_skills)
-        filtered = skill_registry.filter_skills_for_caller(
-            all_candidate_skills,
-            is_admin=is_caller_admin,
-            thread_granted_skills=thread_granted,
-        )
-        ctx.authorized_skills = filtered if isinstance(filtered, list) else all_candidate_skills
-
-        active_tools = list(chk.active_tools or [])
-        pending_tool = chk.pending_tool_call
-
-        if tool_result is not None and pending_tool:
-            tool_call_id = pending_tool.get("id") or "call_resumed"
-            fn_name = pending_tool.get("name") or "tool"
-            from core.security_utils import wrap_untrusted_content
-
-            tool_result_str = wrap_untrusted_content(str(tool_result))
-
-            replaced = False
-            for m in reversed(ctx.messages):
-                if isinstance(m, dict) and m.get("role") == "tool" and m.get("tool_call_id") == tool_call_id:
-                    m["content"] = tool_result_str
-                    replaced = True
-                    break
-            if not replaced:
-                ctx.messages.append(
-                    {
-                        "role": "tool",
-                        "tool_call_id": tool_call_id,
-                        "name": fn_name,
-                        "content": tool_result_str,
-                    }
-                )
-
-        exec_retry_fn = self.deps.llm_executor or execute_llm_with_retry
-        follow_up_kwargs: dict[str, Any] = {
-            "model": ctx.agent_cfg.get("model", ""),
-            "messages": ctx.messages,
-            "tools": active_tools if active_tools else None,
-            "tool_choice": "auto" if active_tools else None,
-            "num_retries": system_settings_manager.get_tool_call_num_retries(),
-        }
-        if _is_explicit_meta_provider(ctx.agent_cfg.get("model")):
-            if os.getenv("META_API_KEY"):
-                follow_up_kwargs["api_key"] = os.getenv("META_API_KEY")
-            if os.getenv("META_API_BASE"):
-                follow_up_kwargs["api_base"] = os.getenv("META_API_BASE")
-
-        from orchestration.stages.execution import _unmask_argument_values
-
-        max_tool_iterations = system_settings_manager.get_max_tool_iterations()
-        iteration = 0
-        while iteration < max_tool_iterations:
-            follow_up = await exec_retry_fn(
-                litellm.acompletion,
-                follow_up_kwargs,
-                agent_key=f"{ctx.agent_key} resumed",
-                thread_key=ctx.thread_key,
-                is_superseded_fn=ctx.is_superseded,
-                turn_token_mapping=ctx.turn_token_mapping,
+        if not turn_checkpoint_store.claim_for_resume(chk.checkpoint_id):
+            logger.warning(
+                f"[CHECKPOINT] Checkpoint '{chk.checkpoint_id}' already claimed or expired; skipping duplicate resume."
             )
-            if follow_up is None:
-                break
-            ctx.add_usage(follow_up)
-            if not (hasattr(follow_up, "choices") and follow_up.choices):
-                break
-            response_message = follow_up.choices[0].message
-            tool_calls = getattr(response_message, "tool_calls", None)
-            if not tool_calls or not isinstance(tool_calls, (list, tuple)):
-                ctx.output.final_text = response_message.content or ""
-                break
+            return {"ok": False, "halted": True, "reason": "checkpoint_already_claimed"}
 
-            # Follow-up tool calling loop
-            ctx.messages.append(response_message.model_dump())
-            for tool_call in tool_calls:
-                fn_name = tool_call.function.name
-                try:
-                    raw_args = (
-                        json.loads(tool_call.function.arguments)
-                        if isinstance(tool_call.function.arguments, str)
-                        else tool_call.function.arguments
-                    )
-                except (json.JSONDecodeError, TypeError) as decode_err:
+        reset_turn_web_budget()
+
+        ctx: Any = None
+        try:
+            ctx = TurnContext(
+                channel_id=chk.channel_id,
+                thread_ts=chk.thread_ts,
+                raw_text="",
+                user_id=user_id,
+                is_bot_trigger=True,
+                in_memory_history=list(chk.accumulated_history or []),
+            )
+            ctx.my_generation = thread_state_manager.get_generation(ctx.input.channel_id, ctx.input.thread_ts)
+            ctx.current_task = asyncio.current_task()
+            ctx.session_id = chk.session_id
+            ctx.agent_key = chk.agent_key
+            ctx.messages = list(chk.messages or [])
+            ctx.turn_token_mapping = dict(chk.token_mapping or {})
+            ctx.output.skills_used = list(chk.skills_used or [])
+            ctx.output.total_prompt_tokens = chk.prompt_tokens
+            ctx.output.total_completion_tokens = chk.completion_tokens
+            ctx.output.checkpoint_id = chk.checkpoint_id
+            ctx.token_recorder = getattr(self.deps, "token_recorder", None) or record_thread_tokens
+            ctx.thread_language = thread_state_manager.get_language(chk.channel_id, chk.thread_ts) or "English"
+            ctx.prompt = (
+                getattr(chk, "prompt", "")
+                or thread_state_manager.get_active_prompt(chk.channel_id, chk.thread_ts)
+                or thread_state_manager.get_initial_prompt(chk.channel_id, chk.thread_ts)
+                or ""
+            )
+
+            ctx.remaining = thread_state_manager.get_remaining_agents(
+                ctx.input.channel_id,
+                ctx.input.thread_ts,
+                default=get_initial_agents(ctx.input.channel_id, ctx.input.thread_ts),
+            )
+            ctx.is_custom_flow = thread_state_manager.is_custom_flow(ctx.input.channel_id, ctx.input.thread_ts)
+            ctx.is_open_debate = thread_state_manager.is_open_debate(ctx.input.channel_id, ctx.input.thread_ts)
+            ctx.full_history = list(chk.accumulated_history or [])
+
+            active_rounds = thread_state_manager.get_rounds(ctx.input.channel_id, ctx.input.thread_ts)
+            pending_retries = thread_state_manager.get_retry_queue(ctx.input.channel_id, ctx.input.thread_ts)
+            ctx.force_termination = bool(
+                (
+                    (ctx.is_custom_flow and not ctx.remaining)
+                    or (not ctx.remaining and not pending_retries)
+                )
+                and active_rounds <= 1
+                or thread_state_manager.is_stopped(ctx.input.channel_id, ctx.input.thread_ts)
+            )
+            wf_snap = thread_state_manager.get_workflow_snapshot(ctx.input.channel_id, ctx.input.thread_ts)
+            mode = wf_snap.get("mode") if wf_snap else settings_manager.get_orchestration_mode()
+            ctx.next_designated_agent = None
+            ctx.eligible_remaining_agents = list(ctx.remaining)
+            if not ctx.force_termination and ctx.remaining:
+                standby_set = {k for k in (get_challenger_agent(), get_arbitrator_agent()) if k}
+                sandwich_cfg = wf_snap.get("sandwich_config") if wf_snap else settings_manager.get_sandwich_config()
+                fixed_cfg = wf_snap.get("fixed_config") if wf_snap else settings_manager.get_fixed_config()
+                orchestrator = SandwichOrchestrator(
+                    mode=mode,
+                    start_chain=sandwich_cfg.get("start_chain", []),
+                    end_chain=sandwich_cfg.get("end_chain", []),
+                    fixed_chain=fixed_cfg.get("chain", []),
+                    agents_map=settings_manager.agents_config or AGENTS_CONFIG,
+                    standby_agents=standby_set,
+                )
+                ctx.next_designated_agent, ctx.eligible_remaining_agents = orchestrator.get_phase_info(
+                    ctx.remaining,
+                    is_custom_flow=ctx.is_custom_flow,
+                    is_open_debate=ctx.is_open_debate,
+                    current_speaker=ctx.agent_key,
+                )
+            elif not ctx.force_termination and not ctx.remaining and active_rounds > 1:
+                round_seq = thread_state_manager.get_round_sequence(
+                    ctx.input.channel_id, ctx.input.thread_ts
+                ) or get_initial_agents(ctx.input.channel_id, ctx.input.thread_ts)
+                if round_seq:
+                    ctx.next_designated_agent = round_seq[0]
+                    ctx.eligible_remaining_agents = [round_seq[0]]
+
+            settings_manager.sync_output_constraints_if_changed()
+            agents_map = settings_manager.agents_config or AGENTS_CONFIG
+            ctx.agent_cfg = dict(agents_map.get(ctx.agent_key, {}))
+            apply_agent_model_fallback(ctx)
+
+            skill_registry = self.execution_stage.skill_registry
+            base_skills = list(ctx.agent_cfg.get("skills") or settings_manager.get_agent_skills(ctx.agent_key) or [])
+            global_skills = list(skill_registry.get_global_skills() or [])
+            active_thread_skills = thread_skills_manager.get_active_skills(ctx.input.channel_id, ctx.input.thread_ts)
+            active_agent_skills = thread_skills_manager.get_active_agent_skills(
+                ctx.input.channel_id, ctx.input.thread_ts, ctx.agent_key
+            )
+            all_candidate_skills = list(
+                dict.fromkeys(base_skills + global_skills + active_thread_skills + active_agent_skills)
+            )
+            is_caller_admin = is_slack_admin(getattr(ctx.input, "user_id", None))
+            thread_granted = set(active_thread_skills) | set(active_agent_skills)
+            filtered = skill_registry.filter_skills_for_caller(
+                all_candidate_skills,
+                is_admin=is_caller_admin,
+                thread_granted_skills=thread_granted,
+            )
+            ctx.authorized_skills = filtered if isinstance(filtered, list) else all_candidate_skills
+
+            active_tools = list(chk.active_tools or [])
+
+            pending_tool = chk.pending_tool_call
+            if tool_result is not None and pending_tool:
+                tool_call_id = pending_tool.get("id") or "call_resumed"
+                fn_name = pending_tool.get("name") or "tool"
+                from core.security_utils import wrap_untrusted_content
+
+                tool_result_str = wrap_untrusted_content(str(tool_result))
+
+                replaced = False
+                for m in reversed(ctx.messages):
+                    if isinstance(m, dict) and m.get("role") == "tool" and m.get("tool_call_id") == tool_call_id:
+                        m["content"] = tool_result_str
+                        replaced = True
+                        break
+                if not replaced:
                     ctx.messages.append(
                         {
                             "role": "tool",
-                            "tool_call_id": tool_call.id,
+                            "tool_call_id": tool_call_id,
                             "name": fn_name,
-                            "content": f"<untrusted_file_content>\nInvalid JSON arguments: {decode_err}\n</untrusted_file_content>",
+                            "content": tool_result_str,
                         }
                     )
-                    continue
 
-                fn_args = _unmask_argument_values(raw_args, ctx.turn_token_mapping)
-                from core.domain import ToolPrincipal
-
-                principal = ToolPrincipal(kind="agent", id=ctx.agent_key)
-                try:
-                    tool_res = await skill_registry.execute_tool_async(
-                        fn_name,
-                        fn_args,
-                        authorized_skills=ctx.authorized_skills,
-                        agent_name=principal,
+            expired_thread_skills = list(
+                dict.fromkeys(
+                    thread_skills_manager.get_expired_skills(ctx.input.channel_id, ctx.input.thread_ts)
+                    + thread_skills_manager.get_expired_agent_skills(
+                        ctx.input.channel_id, ctx.input.thread_ts, ctx.agent_key
                     )
-                except Exception as tool_err:  # noqa: BLE001
-                    tool_res = f"Tool execution failed: {tool_err}"
-
-                from core.security_utils import wrap_untrusted_content
-
-                ctx.messages.append(
-                    {
-                        "role": "tool",
-                        "tool_call_id": tool_call.id,
-                        "name": fn_name,
-                        "content": wrap_untrusted_content(str(tool_res)),
-                    }
                 )
-            iteration += 1
+            )
+            thread_ttl_hours = app_settings_manager.get_thread_skill_expiration_time()
 
-        slack_res = await self.post_record_stage.stage_post_and_record(ctx)
+            halt = await self.execution_stage.execute_tool_loop(
+                ctx,
+                active_tools=active_tools,
+                agent_skills=list(ctx.authorized_skills),
+                expired_thread_skills=expired_thread_skills,
+                thread_ttl_hours=thread_ttl_hours,
+                initial_response_message=None,
+                allow_503_immediate=False,
+            )
+            if halt is not None:
+                turn_checkpoint_store.mark_abandoned(chk.checkpoint_id)
+                return halt
 
-        await self._execute_revisor_barrier(ctx, slack_res)
-
-        turn_checkpoint_store.mark_resumed(chk.checkpoint_id)
-        return slack_res
+            slack_res = await self.post_record_stage.stage_post_and_record(ctx)
+            await self._execute_revisor_barrier(ctx, slack_res)
+            turn_checkpoint_store.mark_resumed(chk.checkpoint_id)
+            return slack_res
+        except asyncio.CancelledError:
+            turn_checkpoint_store.mark_abandoned(chk.checkpoint_id)
+            raise
+        except Exception as exc:  # noqa: BLE001
+            turn_checkpoint_store.mark_failed_resume(chk.checkpoint_id)
+            if ctx is not None:
+                return await self.post_record_stage.handle_error(ctx, exc)
+            raise
 
     async def _execute_revisor_barrier(self, ctx: TurnContext, slack_res: Any) -> None:
         """Executes InternalRevisor within the configured system-agent timeout barrier."""

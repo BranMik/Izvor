@@ -152,3 +152,52 @@ async def test_execute_llm_with_retry_skips_system_prompt_masking_and_preserves_
         assert turn_mapping["<EMAIL_0>"] == "alice@example.com"
     finally:
         set_privacy_mode_provider(None)
+
+
+@pytest.mark.anyio
+async def test_execute_llm_with_retry_masks_embedding_input_str_and_list():
+    from services.rag.embeddings import EmbeddingService
+
+    set_privacy_mode_provider(lambda: True)
+    try:
+        captured_calls = []
+
+        async def mock_embed(**call_kwargs):
+            captured_calls.append(call_kwargs)
+            inp = call_kwargs.get("input", [])
+            items = inp if isinstance(inp, list) else [inp]
+            resp = MagicMock()
+            resp.data = [{"embedding": [float(i), 0.5]} for i, _ in enumerate(items)]
+            resp.usage = None
+            return resp
+
+        # 1. Integration via EmbeddingService.get_embeddings (list input)
+        raw_texts = ["Contact alice@corp.com SSN 123-45-6789", "Follow up with bob@example.org"]
+        raw_snapshot = list(raw_texts)
+        svc = EmbeddingService(model="test-embed-model", embed_func=mock_embed)
+        vectors = await svc.get_embeddings(raw_texts)
+
+        assert raw_texts == raw_snapshot, "Caller list must never be mutated in place"
+        assert len(vectors) == 2
+        sent_list = captured_calls[0]["input"]
+        assert isinstance(sent_list, list) and len(sent_list) == 2
+        assert "alice@corp.com" not in sent_list[0]
+        assert "123-45-6789" not in sent_list[0]
+        assert "<EMAIL_0>" in sent_list[0]
+        assert "bob@example.org" not in sent_list[1]
+        assert "<EMAIL_1>" in sent_list[1]
+
+        # 2. Direct string input payload via execute_llm_with_retry
+        res = await execute_llm_with_retry(
+            func=mock_embed,
+            kwargs={"model": "test-embed-model", "input": "Email carol@test.io today"},
+            agent_key="rag_embeddings",
+            thread_key=("system", "embeddings"),
+        )
+        assert len(res.data) == 1
+        sent_str = captured_calls[1]["input"]
+        assert isinstance(sent_str, str)
+        assert "carol@test.io" not in sent_str
+        assert "<EMAIL_" in sent_str
+    finally:
+        set_privacy_mode_provider(None)

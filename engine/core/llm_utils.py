@@ -260,9 +260,10 @@ async def execute_llm_with_retry(
 
     if _privacy_mode_provider is not None:
         try:
-            is_strict = _privacy_mode_provider()
-        except Exception:
-            is_strict = False
+            is_strict = bool(_privacy_mode_provider())
+        except Exception as e:  # noqa: BLE001 - Fail closed to strict=True if privacy mode provider raises
+            logger.warning(f"[LLM] Failed to read privacy mode provider, failing closed (strict=True): {e}")
+            is_strict = True
     else:
         try:
             if SYSTEM_SETTINGS_FILE.exists():
@@ -278,8 +279,8 @@ async def execute_llm_with_retry(
     active_mapping: dict[str, str] = turn_token_mapping if turn_token_mapping is not None else {}
 
     # 1. Masking Phase
-    if is_strict and masker and "messages" in kwargs:
-        # Create a deep copy to avoid mutating the original message array referenced elsewhere
+    if is_strict and masker and ("messages" in kwargs or "input" in kwargs):
+        # Create a deep copy to avoid mutating the original message/input arrays referenced elsewhere
         kwargs = copy.deepcopy(kwargs)
         for msg in kwargs.get("messages", []):
             if isinstance(msg, dict) and msg.get("role") == "system":
@@ -307,7 +308,29 @@ async def execute_llm_with_retry(
                                 fn.arguments = masked_args
                             active_mapping.update(mapping)
 
-    logger.debug(f"[LLM] Prepared prompt for {agent_key}: {kwargs.get('messages', [])}")
+        if "input" in kwargs:
+            raw_input = kwargs["input"]
+            if isinstance(raw_input, str):
+                masked_input, mapping = await masker.async_mask(raw_input, existing_mapping=active_mapping)
+                kwargs["input"] = masked_input
+                active_mapping.update(mapping)
+            elif isinstance(raw_input, list):
+                masked_items = []
+                for item in raw_input:
+                    if isinstance(item, str):
+                        masked_item, mapping = await masker.async_mask(item, existing_mapping=active_mapping)
+                        masked_items.append(masked_item)
+                        active_mapping.update(mapping)
+                    else:
+                        masked_items.append(item)
+                kwargs["input"] = masked_items
+
+    if "messages" in kwargs:
+        logger.debug(f"[LLM] Prepared prompt for {agent_key}: {kwargs.get('messages', [])}")
+    elif "input" in kwargs:
+        input_val = kwargs["input"]
+        count = len(input_val) if isinstance(input_val, list) else 1
+        logger.debug(f"[LLM] Prepared embedding input ({count} item(s)) for {agent_key}")
 
     # Enforce single retry layer: prevent underlying LiteLLM from retrying internally
     kwargs.setdefault("num_retries", 0)

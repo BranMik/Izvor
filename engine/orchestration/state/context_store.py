@@ -285,6 +285,13 @@ class ThreadContextStore:
         else:
             self.remove_excluded_agent(channel_id, thread_ts, agent)
 
+    def remove_included_agent(self, channel_id: str, thread_ts: str, agent: str) -> None:
+        """Removes an agent from the persistent included list for this thread."""
+        curr = self.get_included_agents(channel_id, thread_ts)
+        if agent in curr:
+            curr = [a for a in curr if a != agent]
+            self._update_fields(channel_id, thread_ts, included_agents=json.dumps(curr))
+
     def clear_included_agents(self, channel_id: str, thread_ts: str) -> None:
         """Clears all explicitly included agents for this thread."""
         self._update_fields(channel_id, thread_ts, included_agents="[]")

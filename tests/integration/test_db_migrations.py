@@ -157,3 +157,66 @@ def test_migration_v4_legacy_not_null_remaining_agents_to_v5(tmp_path: Path):
     finally:
         db_manager.configure_paths(orig_db_path)
 
+
+def test_migration_v6_to_v7_adds_turn_checkpoints_prompt(tmp_path):
+    """TKT-1210 (C7): Migration 7 adds prompt TEXT NOT NULL DEFAULT '' to pre-existing v6 turn_checkpoints tables."""
+    import sqlite3
+    from core.database import db_manager
+
+    db_file = tmp_path / "v6_checkpoints.db"
+    conn = sqlite3.connect(db_file)
+    conn.execute("PRAGMA user_version = 6;")
+    conn.execute(
+        """
+        CREATE TABLE turn_checkpoints (
+            checkpoint_id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL,
+            channel_id TEXT NOT NULL,
+            thread_ts TEXT NOT NULL,
+            agent_key TEXT NOT NULL,
+            pause_reason TEXT NOT NULL,
+            hitl_request_id TEXT,
+            messages_json TEXT NOT NULL,
+            pending_tool_call_json TEXT,
+            active_tools_json TEXT,
+            skills_used_json TEXT,
+            token_mapping_json TEXT,
+            accumulated_history_json TEXT,
+            prompt_tokens INTEGER DEFAULT 0,
+            completion_tokens INTEGER DEFAULT 0,
+            status TEXT NOT NULL,
+            created_at REAL NOT NULL,
+            expires_at REAL NOT NULL
+        );
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO turn_checkpoints (
+            checkpoint_id, session_id, channel_id, thread_ts, agent_key,
+            pause_reason, messages_json, status, created_at, expires_at
+        ) VALUES ('chk_v6', 'C1:T1', 'C1', 'T1', 'agent-10001', 'circuit_breaker', '[]', 'ACTIVE', 100.0, 9999999999.0);
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    orig_db_path = db_manager.db_path
+    try:
+        db_manager.configure_paths(db_file)
+        with db_manager.get_connection() as migrated_conn:
+            ver = migrated_conn.execute("PRAGMA user_version;").fetchone()[0]
+            assert ver == MIGRATIONS[-1][0]
+            cols = {
+                row["name"]: row
+                for row in migrated_conn.execute("PRAGMA table_info(turn_checkpoints)").fetchall()
+            }
+            assert "prompt" in cols
+            assert cols["prompt"]["dflt_value"] == "''"
+            row = migrated_conn.execute(
+                "SELECT prompt FROM turn_checkpoints WHERE checkpoint_id = 'chk_v6'"
+            ).fetchone()
+            assert row["prompt"] == ""
+    finally:
+        db_manager.configure_paths(orig_db_path)
+

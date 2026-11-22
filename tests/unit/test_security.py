@@ -118,3 +118,141 @@ def test_sliding_window_ip_rate_limiter_flood_suppression():
     assert len(limiter._entries) <= 5
 
 
+def test_scan_output_for_secrets_avoids_benign_hyphenated_false_positives(tmp_path):
+    from services.security import scan_output_for_secrets
+
+    empty_settings = tmp_path / "empty_settings.json"
+    empty_settings.write_text("{}", encoding="utf-8")
+
+    benign_samples = [
+        "Let us review the task-orchestration-pipeline and risk-assessment-framework.",
+        "Upgrade disk-management-controller-v2 across all clusters.",
+        "Mixed uppercase TASK-orchestration-pipeline-framework should also be safe.",
+        "This mentions authorization basics without credentials.",
+    ]
+    for sample in benign_samples:
+        assert scan_output_for_secrets(sample, settings_file=empty_settings) is None
+
+
+def test_scan_output_for_secrets_detects_tokens_pem_groq_bearer_and_basic(tmp_path):
+    from services.security import scan_output_for_secrets
+
+    empty_settings = tmp_path / "empty_settings.json"
+    empty_settings.write_text("{}", encoding="utf-8")
+
+    positives = [
+        ("openai_api_key", "key=sk-proj-AbCdEf1234567890GhIjKlMnOpQrStUvWx"),
+        ("openai_api_key", "sk-svcacct-AbCdEf1234567890GhIjKlMnOp"),
+        ("anthropic_api_key", "sk-ant-AbCdEf1234567890GhIjKlMnOpQr"),
+        ("groq_api_key", "gsk_AbCdEf1234567890GhIjKlMnOpQr"),
+        ("github_token", "ghp_" + ("A1b2C3d4E5f6" * 3)),
+        (
+            "private_key_block",
+            "-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEAtestkey\n-----END RSA PRIVATE KEY-----",
+        ),
+        ("bearer_token", "Header: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9"),
+        ("basic_auth_header", "Authorization: Basic YWRtaW46c3VwZXJzZWNyZXQ=="),
+    ]
+    for expected_rule, payload in positives:
+        assert scan_output_for_secrets(payload, settings_file=empty_settings) == expected_rule
+
+
+def test_scan_output_for_secrets_skips_invalid_custom_regex_and_caches_by_mtime(tmp_path):
+    import json
+    import os
+    from unittest.mock import patch
+
+    from services.security import configure_security_settings_file, scan_output_for_secrets
+
+    settings_file = tmp_path / "system_settings.json"
+    settings_file.write_text(
+        json.dumps(
+            {
+                "security_guardrail_patterns": {
+                    "broken_rule": r"[unclosed(regex",
+                    "custom_secret": r"\bCUSTOM_SECRET_[0-9]{6}\b",
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    configure_security_settings_file(settings_file)
+    try:
+        # Invalid custom regex is skipped gracefully while valid custom regex matches
+        assert scan_output_for_secrets("clean output here") is None
+        assert scan_output_for_secrets("leak CUSTOM_SECRET_123456 now") == "custom_secret"
+
+        # Repeated calls with unchanged mtime/size must hit the cache and never re-open the file
+        with patch("builtins.open", wraps=open) as spy_open:
+            assert scan_output_for_secrets("second clean check") is None
+            assert scan_output_for_secrets("leak CUSTOM_SECRET_999999") == "custom_secret"
+            for call_args in spy_open.call_args_list:
+                assert str(settings_file) not in str(call_args[0][0])
+
+        # Updating file with a new mtime/content refreshes compiled custom patterns
+        settings_file.write_text(
+            json.dumps({"security_guardrail_patterns": {"new_rule": r"\bNEW_TOKEN_[A-Z]{6}\b"}}),
+            encoding="utf-8",
+        )
+        future_ns = settings_file.stat().st_mtime_ns + 2_000_000_000
+        os.utime(settings_file, ns=(future_ns, future_ns))
+
+        assert scan_output_for_secrets("old CUSTOM_SECRET_123456") is None
+        assert scan_output_for_secrets("fresh NEW_TOKEN_ABCDEF") == "new_rule"
+    finally:
+        configure_security_settings_file(None)
+
+
+def test_verify_slack_signature_eviction_storm_bounded_by_global_burst_limit():
+    """TKT-1207 (H15): Spoofed-IP cache churn evictions must remain bounded by global_auth_failure_burst_limit."""
+    import core.slack_security as ss
+    from orchestration.system_settings import system_settings_manager
+    from services.audit_logger import log_audit_event
+
+    max_entries = 10
+    global_burst_limit = 5
+    emitted_events: list[dict] = []
+
+    def _capture_audit(**kwargs):
+        emitted_events.append(kwargs)
+        return kwargs
+
+    ss.set_burst_limits_provider(
+        lambda: {
+            "auth_failure_window_seconds": 60.0,
+            "auth_failure_burst_limit": 2,
+            "global_auth_failure_burst_limit": global_burst_limit,
+            "max_tracker_entries": max_entries,
+        }
+    )
+    ss.set_audit_logger_hook(_capture_audit)
+    try:
+        with ss._auth_failure_lock:
+            ss._auth_failure_tracker.clear()
+            ss._global_burst_window_start = 0.0
+            ss._global_burst_count = 0
+
+        # Pre-seed tracker at max capacity with suppressed counts so incoming unique IPs evict them
+        with ss._auth_failure_lock:
+            for i in range(max_entries):
+                ss._auth_failure_tracker[f"spoof_old_{i}"] = {
+                    "window_start": 100.0 + i,
+                    "logged_count": 2,
+                    "suppressed_count": 3,
+                }
+
+        for i in range(max_entries + 50):
+            ss._record_auth_failure_audit(f"attacker_ip_{i}")
+
+        assert len(emitted_events) <= global_burst_limit
+        assert all(ev["event_type"] == "AUTH_FAILURE" for ev in emitted_events)
+    finally:
+        with ss._auth_failure_lock:
+            ss._auth_failure_tracker.clear()
+            ss._global_burst_window_start = 0.0
+            ss._global_burst_count = 0
+        ss.set_audit_logger_hook(log_audit_event)
+        ss.set_burst_limits_provider(lambda: system_settings_manager.get_security_burst_limits())
+
+

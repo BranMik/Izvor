@@ -91,7 +91,7 @@ def test_default_paths_exist_or_resolve_to_repo_layout():
 
     # Resources & Notes
     assert paths.AGENTS_RESOURCES_DIR == root / "agents_resources"
-    assert paths.THREAD_NOTES_DIR == root / "agents_resources" / "thread_notes"
+    assert paths.THREAD_NOTES_DIR == root / "data" / "thread_notes"
     assert paths.SYSTEM_RESOURCES_DIR == root / "system_resources"
 
 

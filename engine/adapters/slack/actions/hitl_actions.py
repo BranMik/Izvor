@@ -5,6 +5,7 @@ from typing import Any
 from fastapi import BackgroundTasks, Response
 
 from core.config import is_slack_admin
+from core.security_utils import wrap_untrusted_content
 from services.audit_logger import log_audit_event
 from services.slack import (
     post_ephemeral_to_slack,
@@ -33,7 +34,7 @@ async def _execute_and_resume_hitl_approval(req: Any, user_id: str) -> None:
         f"[HITL] Auto-executing approved tool '{fn_name}' for agent '{agent_name}' in {(channel_id, thread_ts)}"
     )
 
-    # 1. Resolve agent skills + thread-granted skills + global skills
+    # 1. Resolve agent skills + thread-granted skills + global skills, enforced against caller admin rights
     agents_map = settings_manager.get_agents_config()
     agent_cfg = agents_map.get(agent_name, {})
     agent_skills = list(agent_cfg.get("skills", []))
@@ -42,15 +43,47 @@ async def _execute_and_resume_hitl_approval(req: Any, user_id: str) -> None:
     active_agent_skills = thread_skills_manager.get_active_agent_skills(channel_id, thread_ts, agent_name)
     expired_skills = thread_skills_manager.get_expired_skills(channel_id, thread_ts)
     ttl_hours = thread_skills_manager.get_ttl_seconds() / 3600.0
-    effective_skills = list(dict.fromkeys(agent_skills + global_skills + thread_skills + active_agent_skills))
+    candidate_skills = list(dict.fromkeys(agent_skills + global_skills + thread_skills + active_agent_skills))
+    effective_skills = skill_registry.filter_skills_for_caller(
+        candidate_skills,
+        is_admin=is_slack_admin(user_id),
+        thread_granted_skills=set(thread_skills) | set(active_agent_skills),
+    )
 
-    # 2. Mark approval consumed & execute tool deterministically
+    # 2. Mark approval consumed BEFORE execution (fail-closed) & execute tool deterministically
     try:
         from core.domain import ToolPrincipal
         from services.hitl import consume_tool_approval
 
         principal = ToolPrincipal(kind="agent", id=agent_name)
-        consume_tool_approval(channel_id, thread_ts, fn_name, fn_args, agent_name=agent_name)
+        consumed = consume_tool_approval(channel_id, thread_ts, fn_name, fn_args, agent_name=agent_name)
+        if not consumed:
+            logger.warning(
+                f"[HITL] Approval consumption failed or expired for '{fn_name}' in {(channel_id, thread_ts)} "
+                f"(request_id={getattr(req, 'request_id', None)})."
+            )
+            log_audit_event(
+                event_type="HITL_CONSUMPTION_FAILED",
+                actor={"type": "slack_user", "id": user_id or "unknown"},
+                action="execute_approved_tool",
+                target=f"{channel_id}:{thread_ts}:{fn_name}",
+                details={"request_id": getattr(req, "request_id", None), "agent": agent_name},
+                severity="CRITICAL",
+                status="BLOCKED",
+            )
+            try:
+                await post_message_to_slack(
+                    channel_id=channel_id,
+                    thread_ts=thread_ts,
+                    text=(
+                        f"⚠️ Approval for `{fn_name}` could not be consumed (it may have expired or already been used). "
+                        "Tool execution was aborted."
+                    ),
+                )
+            except Exception as post_err:  # noqa: BLE001
+                logger.error(f"[HITL] Failed posting consumption failure notice: {post_err}")
+            return
+
         tool_result = await skill_registry.execute_tool_async(
             fn_name,
             fn_args,
@@ -89,7 +122,7 @@ async def _execute_and_resume_hitl_approval(req: Any, user_id: str) -> None:
         )
 
     pipeline = TurnPipeline()
-    if chk and chk.status == "ACTIVE":
+    if chk and chk.status in ("ACTIVE", "PENDING"):
 
         async def _run_resumption():
             turn_res = await pipeline.resume_from_checkpoint(
@@ -107,9 +140,10 @@ async def _execute_and_resume_hitl_approval(req: Any, user_id: str) -> None:
 
         thread_state_manager.dispatch_discussion_task(channel_id, thread_ts, _run_resumption())
     else:
+        safe_tool_result = wrap_untrusted_content(str(tool_result))
         resume_prompt = (
             f"/[{agent_name}] Tool '{fn_name}' execution was approved by <@{user_id}>.\n"
-            f"Tool Result:\n{tool_result}\n\n"
+            f"Tool Result:\n{safe_tool_result}\n\n"
             f"Please analyze this result and provide your response to continue the discussion."
         )
         ctx = TurnContext(
@@ -120,7 +154,17 @@ async def _execute_and_resume_hitl_approval(req: Any, user_id: str) -> None:
             is_bot_trigger=True,
             was_explicit_target=True,
         )
-        thread_state_manager.dispatch_discussion_task(channel_id, thread_ts, pipeline.run(ctx))
+
+        async def _run_fallback():
+            turn_res = await pipeline.run(ctx)
+            await continue_discussion_from_turn_result(
+                channel_id=channel_id,
+                thread_ts=thread_ts,
+                turn_res=turn_res,
+                user_id=user_id,
+            )
+
+        thread_state_manager.dispatch_discussion_task(channel_id, thread_ts, _run_fallback())
 
 
 async def _resume_hitl_denial(req: Any, user_id: str) -> None:
@@ -149,7 +193,7 @@ async def _resume_hitl_denial(req: Any, user_id: str) -> None:
         }
     )
 
-    if chk and chk.status == "ACTIVE":
+    if chk and chk.status in ("ACTIVE", "PENDING"):
 
         async def _run_denial_resumption():
             turn_res = await pipeline.resume_from_checkpoint(
@@ -179,7 +223,17 @@ async def _resume_hitl_denial(req: Any, user_id: str) -> None:
             is_bot_trigger=True,
             was_explicit_target=True,
         )
-        thread_state_manager.dispatch_discussion_task(channel_id, thread_ts, pipeline.run(ctx))
+
+        async def _run_denial_fallback():
+            turn_res = await pipeline.run(ctx)
+            await continue_discussion_from_turn_result(
+                channel_id=channel_id,
+                thread_ts=thread_ts,
+                turn_res=turn_res,
+                user_id=user_id,
+            )
+
+        thread_state_manager.dispatch_discussion_task(channel_id, thread_ts, _run_denial_fallback())
 
 
 async def _handle_hitl_approve_tool(
@@ -242,6 +296,15 @@ async def _handle_hitl_approve_tool(
                 req=approved_req,
                 user_id=user_id,
             )
+        else:
+            channel_id = req.channel_id or payload.get("channel", {}).get("id") or ""
+            if channel_id and user_id:
+                background_tasks.add_task(
+                    post_ephemeral_to_slack,
+                    channel_id=channel_id,
+                    user_id=user_id,
+                    text="⚠️ *Request Expired or Handled:* This approval request is either invalid, already processed, or has expired.",
+                )
     else:
         channel_id = payload.get("channel", {}).get("id") or ""
         if channel_id and user_id:
@@ -310,6 +373,15 @@ async def _handle_hitl_deny_tool(
                 req=denied_req,
                 user_id=user_id,
             )
+        else:
+            channel_id = req.channel_id or payload.get("channel", {}).get("id") or ""
+            if channel_id and user_id:
+                background_tasks.add_task(
+                    post_ephemeral_to_slack,
+                    channel_id=channel_id,
+                    user_id=user_id,
+                    text="⚠️ *Request Expired or Handled:* This denial request is either invalid, already processed, or has expired.",
+                )
     else:
         channel_id = payload.get("channel", {}).get("id") or ""
         if channel_id and user_id:

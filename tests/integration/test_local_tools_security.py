@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import pytest
 
@@ -100,3 +101,78 @@ def test_tool_principal_authorization_fail_closed():
     assert "Principal identity is required" in list_documents()
     assert "Principal identity is required" in read_document("doc.txt")
     assert "Principal identity is required" in write_document("doc.txt", "content")
+
+
+def test_should_unmask_tool_args_enforces_outbound_pii_policy():
+    """TKT-1209 (C5): Outbound web tools and PII-masked MCP servers must never receive unmasked PII args."""
+    from unittest.mock import patch
+    from orchestration.stages.execution import _should_unmask_tool_args
+    from orchestration.system_settings import McpServerConfig
+
+    assert _should_unmask_tool_args("web_search") is False
+    assert _should_unmask_tool_args("fetch_web_page") is False
+    assert _should_unmask_tool_args("read_document") is True
+
+    with patch(
+        "orchestration.stages.execution.system_settings_manager.get_mcp_server_config",
+        return_value=McpServerConfig(outbound_pii_masking=True),
+    ):
+        assert _should_unmask_tool_args("mcp__ext__lookup") is False
+
+    with patch(
+        "orchestration.stages.execution.system_settings_manager.get_mcp_server_config",
+        return_value=McpServerConfig(outbound_pii_masking=False),
+    ):
+        assert _should_unmask_tool_args("mcp__ext__lookup") is True
+
+    with patch(
+        "orchestration.stages.execution.system_settings_manager.get_mcp_server_config",
+        return_value=None,
+    ):
+        assert _should_unmask_tool_args("mcp__unknown__lookup") is False
+
+
+def test_local_tools_cannot_access_thread_notes_dir(tmp_path):
+    """TKT-1209 (H2): Files saved in THREAD_NOTES_DIR are isolated from list_documents and read_document."""
+    from core import paths
+    from services.local_tools import (
+        configure_paths as configure_local_paths,
+        list_documents,
+        read_document,
+        reset_paths as reset_local_paths,
+    )
+    from services.thread_notes_writer import (
+        configure_paths as configure_notes_paths,
+        reset_paths as reset_notes_paths,
+        save_thread_notes_to_disk,
+    )
+
+    assert paths.THREAD_NOTES_DIR == paths.DATA_DIR / "thread_notes"
+
+    sandbox_resources = tmp_path / "agents_resources"
+    sandbox_resources.mkdir(parents=True, exist_ok=True)
+    isolated_notes_dir = tmp_path / "data" / "thread_notes"
+
+    configure_local_paths(workspace_dir=tmp_path, agents_resources_dir=sandbox_resources)
+    configure_notes_paths(thread_notes_dir=isolated_notes_dir)
+    try:
+        res = save_thread_notes_to_disk(
+            channel_id="C_TESTNOTES",
+            thread_ts="1799111222.00456",
+            initial_prompt="Secret Strategy",
+            live_notes_text="Confidential DM notes",
+        )
+        assert res.get("live_notes_path")
+        saved = Path(res["live_notes_path"])
+        assert saved.exists()
+        assert isolated_notes_dir in saved.parents
+
+        listed = list_documents(principal=SYSTEM_PRINCIPAL)
+        assert saved.name not in listed
+        read_res = read_document(saved.name, principal=SYSTEM_PRINCIPAL)
+        assert "Confidential DM notes" not in read_res
+        read_rel_res = read_document("../data/thread_notes/" + saved.name, principal=SYSTEM_PRINCIPAL)
+        assert "Confidential DM notes" not in read_rel_res
+    finally:
+        reset_notes_paths()
+        reset_local_paths()

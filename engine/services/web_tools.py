@@ -342,11 +342,9 @@ def sanitize_outbound_url(url: str) -> str:
         if not sec_limits.get("strip_query_on_untrusted_domains", False):
             return url
         allowed_domains = [str(d).lower().lstrip(".") for d in sec_limits.get("allowed_domains", []) if str(d).strip()]
-        if not allowed_domains:
-            return url
         parsed = urllib.parse.urlsplit(url)
         host = (parsed.hostname or "").lower().strip(".")
-        if not any(host == d or host.endswith("." + d) for d in allowed_domains):
+        if not allowed_domains or not any(host == d or host.endswith("." + d) for d in allowed_domains):
             return urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", ""))
         return url
     except Exception:  # noqa: BLE001

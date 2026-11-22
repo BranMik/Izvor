@@ -625,5 +625,117 @@ def test_audit_logger_dispatch_severity_filtering(temp_audit_dir):
         assert mock_anchor.call_count == 1
 
 
+def test_create_snapshot_writes_clean_manifest_without_nul_bytes(temp_audit_dir):
+    """TKT-1207 (C12): create_snapshot must use sidecar .manifest.lock and never corrupt manifest.sha256 with NUL bytes."""
+    test_dir, logger_inst = temp_audit_dir
+
+    logger_inst.log_event(
+        event_type="ADMIN_CONFIG_CHANGE",
+        actor={"type": "slack_admin", "id": "U001"},
+        action="snapshot_test",
+        target="config",
+    )
+    snap_path = logger_inst.create_snapshot()
+    assert snap_path is not None and snap_path.exists()
+
+    manifest_path = test_dir / "manifest.sha256"
+    assert manifest_path.exists()
+    raw_bytes = manifest_path.read_bytes()
+    assert b"\x00" not in raw_bytes, "Windows file lock must never write NUL bytes into manifest.sha256"
+    assert (test_dir / ".manifest.lock").exists()
+
+    lines = manifest_path.read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 1
+    parts = lines[0].split("  ")
+    assert len(parts) == 2
+    assert len(parts[0]) == 64
+    assert parts[1] == snap_path.name
+
+
+def test_cross_process_month_rollover_preserves_chain(temp_audit_dir):
+    """TKT-1207 (H15): Month rollover must invalidate cache when another process appended to the prior month."""
+    import datetime
+
+    test_dir, logger_inst = temp_audit_dir
+    dt_oct = datetime.datetime(2026, 10, 31, 23, 50, tzinfo=datetime.timezone.utc)
+    dt_nov = datetime.datetime(2026, 11, 1, 0, 5, tzinfo=datetime.timezone.utc)
+
+    rec1 = logger_inst.log_event(
+        event_type="SYSTEM_EVENT",
+        actor={"type": "system", "id": "proc_a"},
+        action="evt1",
+        target="sys",
+        timestamp=dt_oct,
+    )
+    assert rec1["seq"] == 1
+
+    # Simulate an independent second process writing seq 2 to October BEFORE November rollover
+    # Create an isolated non-singleton instance state without mutating logger_inst's cache
+    other_proc_logger = object.__new__(AuditLogger)
+    import threading
+
+    other_proc_logger._write_lock = threading.RLock()
+    other_proc_logger._cached_last_state = None
+    other_proc_logger._cached_file_size = 0
+    other_proc_logger._cached_file_path = None
+    other_proc_logger._audit_dir = test_dir
+    other_proc_logger.backup_dir = test_dir / "backups"
+    other_proc_logger.manifest_file = test_dir / "manifest.sha256"
+    other_proc_logger._initialized = True
+
+    rec2 = other_proc_logger.log_event(
+        event_type="SYSTEM_EVENT",
+        actor={"type": "system", "id": "proc_b"},
+        action="evt2",
+        target="sys",
+        timestamp=dt_oct,
+    )
+    assert rec2["seq"] == 2
+
+    # First process still holds stale Oct cache; rolling over to Nov must invalidate cache and continue from seq 2
+    rec3 = logger_inst.log_event(
+        event_type="SYSTEM_EVENT",
+        actor={"type": "system", "id": "proc_a"},
+        action="evt3",
+        target="sys",
+        timestamp=dt_nov,
+    )
+    assert rec3["seq"] == 3
+    assert rec3["prev_hash"] == rec2["entry_hash"]
+
+    res = verify_audit_log_integrity(audit_dir=test_dir, check_anchors=False)
+    assert res.valid is True
+    assert res.total_records == 3
+
+
+def test_verify_audit_log_integrity_anchor_db_error_fails_closed(tmp_path):
+    """TKT-1207 (H15): Anchor verification database unavailability must fail CLOSED (valid=False)."""
+    from core.database import db_manager
+
+    audit_dir = tmp_path / "audit_fail_closed"
+    audit_dir.mkdir()
+    isolated_db = tmp_path / "no_anchors.db"
+
+    db_manager.configure_paths(db_path=isolated_db)
+    try:
+        logger_inst = AuditLogger(audit_dir=audit_dir)
+        logger_inst.invalidate_cache()
+        logger_inst.log_event(
+            event_type="ADMIN_CONFIG_CHANGE",
+            actor={"type": "slack_admin", "id": "U001"},
+            action="test_fail_closed",
+            target="sys",
+        )
+        # Drop audit_anchors to force OperationalError during anchor check
+        with db_manager.get_connection() as conn:
+            conn.execute("DROP TABLE audit_anchors")
+
+        res = verify_audit_log_integrity(audit_dir=audit_dir, check_anchors=True)
+        assert res.valid is False
+        assert any("Audit anchor verification failed" in err for err in res.errors)
+    finally:
+        db_manager.reset_paths()
+
+
 
 

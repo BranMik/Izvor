@@ -215,13 +215,20 @@ def test_tkt_727_proxy_header_trust_and_auth_tracker():
         == "direct_client"
     )
 
-    # 2. When TRUST_PROXY_HEADERS is true, extracts first client IP
+    # 2. When TRUST_PROXY_HEADERS is true, extracts CF-Connecting-IP first, else rightmost X-Forwarded-For hop
     assert (
         _extract_client_ip(
             {"x-forwarded-for": "203.0.113.195, 70.41.3.18"},
             env={"TRUST_PROXY_HEADERS": "1"},
         )
-        == "203.0.113.195"
+        == "70.41.3.18"
+    )
+    assert (
+        _extract_client_ip(
+            {"CF-Connecting-IP": "198.51.100.77", "X-Forwarded-For": "203.0.113.195, 70.41.3.18"},
+            env={"TRUST_PROXY_HEADERS": "1"},
+        )
+        == "198.51.100.77"
     )
     assert _extract_client_ip({}, env={"TRUST_PROXY_HEADERS": "1"}) == "direct_client"
 

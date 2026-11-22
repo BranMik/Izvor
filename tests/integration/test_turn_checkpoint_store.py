@@ -95,3 +95,67 @@ def test_turn_checkpoint_expiration_pruning(checkpoint_store):
 
     assert checkpoint_store.get_checkpoint("chk_expired_01") is None
     assert checkpoint_store.get_checkpoint("chk_active_01") is not None
+
+
+def test_turn_checkpoint_claim_for_resume_atomic_and_prompt_redaction(checkpoint_store):
+    """TKT-1201 & TKT-1210: Verify prompt persistence/redaction, CAS claim_for_resume, expiry rejection, and mark_failed_resume."""
+    chk = TurnCheckpoint(
+        checkpoint_id="chk_claim_01",
+        session_id="C_CLAIM:1700000009.0001",
+        channel_id="C_CLAIM",
+        thread_ts="1700000009.0001",
+        agent_key="agent-10001",
+        pause_reason="circuit_breaker",
+        prompt="Analyze architectural bottlenecks",
+        messages=[{"role": "user", "content": "Analyze"}],
+        status="ACTIVE",
+        expires_at=time.time() + 1000.0,
+    )
+    checkpoint_store.save_checkpoint(chk)
+
+    loaded = checkpoint_store.get_checkpoint("chk_claim_01")
+    assert loaded is not None
+    assert loaded.prompt == "Analyze architectural bottlenecks"
+
+    # First CAS claim succeeds -> status becomes RESUMING; second claim returns False
+    assert checkpoint_store.claim_for_resume("chk_claim_01") is True
+    assert checkpoint_store.claim_for_resume("chk_claim_01") is False
+    mid = checkpoint_store.get_checkpoint("chk_claim_01")
+    assert mid is not None and mid.status == "RESUMING"
+
+    # mark_resumed succeeds from RESUMING and redacts prompt + payloads
+    assert checkpoint_store.mark_resumed("chk_claim_01") is True
+    assert checkpoint_store.mark_resumed("chk_claim_01") is False
+    done = checkpoint_store.get_checkpoint("chk_claim_01")
+    assert done is not None and done.status == "RESUMED" and done.prompt == ""
+
+    # Expired checkpoint cannot be claimed
+    expired = TurnCheckpoint(
+        checkpoint_id="chk_claim_exp",
+        session_id="C_CLAIM:1700000009.0002",
+        channel_id="C_CLAIM",
+        thread_ts="1700000009.0002",
+        agent_key="agent-10001",
+        pause_reason="hitl",
+        prompt="Expired",
+        expires_at=time.time() - 5.0,
+    )
+    checkpoint_store.save_checkpoint(expired)
+    assert checkpoint_store.claim_for_resume("chk_claim_exp") is False
+
+    # Failed resume moves RESUMING -> ABANDONED and redacts prompt
+    failed = TurnCheckpoint(
+        checkpoint_id="chk_claim_fail",
+        session_id="C_CLAIM:1700000009.0003",
+        channel_id="C_CLAIM",
+        thread_ts="1700000009.0003",
+        agent_key="agent-10001",
+        pause_reason="hitl",
+        prompt="Confidential secret prompt",
+        expires_at=time.time() + 500.0,
+    )
+    checkpoint_store.save_checkpoint(failed)
+    assert checkpoint_store.claim_for_resume("chk_claim_fail") is True
+    assert checkpoint_store.mark_failed_resume("chk_claim_fail") is True
+    abandoned = checkpoint_store.get_checkpoint("chk_claim_fail")
+    assert abandoned is not None and abandoned.status == "ABANDONED" and abandoned.prompt == ""

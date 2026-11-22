@@ -14,6 +14,8 @@ from typing import Any
 
 import secrets
 from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
+from fastapi.responses import JSONResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
 
@@ -25,11 +27,10 @@ from adapters.slack import (
     slack_router,
 )
 from core.config import (
-    ADMIN_PASSWORD,
-    ADMIN_USERNAME,
     AGENTS_CONFIG,
     get_admin_password,
     get_admin_username,
+    is_production,
 )
 from orchestration.agent_settings import load_enabled_agents
 from orchestration.thread_state import thread_state_manager
@@ -38,7 +39,7 @@ from services.rag.sync_engine import rag_sync_engine
 
 from orchestration.system_settings import system_settings_manager
 from core.llm_utils import set_pii_masker_instance
-from core.slack_security import set_audit_logger_hook, set_secret_scanner_hook
+from core.slack_security import extract_client_ip, set_audit_logger_hook, set_secret_scanner_hook
 from services.audit_logger import log_audit_event
 from services.security.pii_masker import pii_masker
 from services.security import scan_output_for_secrets
@@ -183,7 +184,7 @@ async def lifespan(app: FastAPI):
             "conditions, duplicated agent turns, and split thread states. A single worker is required."
         )
 
-    if not ADMIN_PASSWORD:
+    if not get_admin_password():
         logger.warning(
             "[SECURITY] ADMIN_PASSWORD is not configured in environment/.env. "
             "Protected admin endpoints (/api/*) will reject all requests."
@@ -298,7 +299,11 @@ app = FastAPI(
     description="Multi-agent orchestration platform integrating Slack Events API, LiteLLM, and external MCP client tools.",
     version="1.0.0",
     lifespan=lifespan,
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
 )
+
 
 class MultiDirStaticFiles(StaticFiles):
     """StaticFiles subclass that searches across multiple root directories in order."""
@@ -337,6 +342,8 @@ async def health_check():
 
 # HTTP Basic Authentication security scheme for admin endpoints
 admin_security = HTTPBasic()
+docs_security = HTTPBasic(auto_error=False)
+
 
 def verify_admin_basic_auth(
     request: Request,
@@ -344,15 +351,19 @@ def verify_admin_basic_auth(
 ) -> str:
     """
     Verifies HTTP Basic Auth credentials against ADMIN_USERNAME and ADMIN_PASSWORD.
+    Enforces rate-limit lockout BEFORE credential verification so brute-forced IPs
+    cannot succeed even with valid credentials during an active lockout window.
     Uses secrets.compare_digest to defend against timing attacks.
-    Applies sliding-window IP rate limiting on brute-force failure attempts.
     """
     from services.audit_logger import log_audit_event
     from services.rate_limiter import ip_rate_limiter
 
-    client_ip = (
-        request.client.host if request.client and request.client.host else "unknown_ip"
-    )
+    fallback_ip = request.client.host if request.client and request.client.host else "unknown_ip"
+    client_ip = extract_client_ip(request.headers, fallback_host=fallback_ip)
+
+    burst_limits = system_settings_manager.get_security_burst_limits()
+    max_failures = int(burst_limits.get("auth_failure_burst_limit", 5))
+    window_secs = float(burst_limits.get("auth_failure_window_seconds", 60.0))
 
     admin_pass = get_admin_password()
     admin_user = get_admin_username()
@@ -373,14 +384,39 @@ def verify_admin_basic_auth(
             detail="Admin authentication is not configured on the server",
         )
 
+    is_blocked, attempts = ip_rate_limiter.is_blocked(
+        client_ip=client_ip,
+        max_requests=max_failures,
+        window_seconds=window_secs,
+    )
+    if is_blocked:
+        if ip_rate_limiter.mark_block_logged(client_ip):
+            log_audit_event(
+                event_type="AUTH_RATE_LIMITED",
+                actor={"type": "api_client", "id": credentials.username},
+                action="admin_basic_auth",
+                target="/api/*",
+                details={
+                    "reason": "Excessive failed basic auth attempts (throttled)",
+                    "attempts": attempts,
+                    "client_ip": client_ip,
+                },
+                severity="CRITICAL",
+                status="BLOCKED",
+            )
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many failed authentication attempts. Please wait before retrying.",
+        )
+
     is_correct_username = secrets.compare_digest(credentials.username.encode("utf8"), admin_user.encode("utf8"))
     is_correct_password = secrets.compare_digest(credentials.password.encode("utf8"), admin_pass.encode("utf8"))
 
     if not (is_correct_username and is_correct_password):
         is_allowed, attempts, should_log = ip_rate_limiter.check_and_record(
             client_ip=client_ip,
-            max_requests=5,
-            window_seconds=60.0,
+            max_requests=max_failures,
+            window_seconds=window_secs,
         )
 
         if not is_allowed:
@@ -420,6 +456,37 @@ def verify_admin_basic_auth(
 
     ip_rate_limiter.reset(client_ip)
     return credentials.username
+
+
+def _verify_docs_auth_in_production(
+    request: Request,
+    credentials: HTTPBasicCredentials | None = Depends(docs_security),
+) -> None:
+    """Enforces Admin Basic Auth on OpenAPI/Swagger routes in production; open in dev/test."""
+    if not is_production():
+        return
+    if credentials is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+    verify_admin_basic_auth(request, credentials)
+
+
+@app.get("/openapi.json", include_in_schema=False)
+async def get_openapi_schema(_: None = Depends(_verify_docs_auth_in_production)):
+    return JSONResponse(app.openapi())
+
+
+@app.get("/docs", include_in_schema=False)
+async def get_swagger_ui(_: None = Depends(_verify_docs_auth_in_production)):
+    return get_swagger_ui_html(openapi_url="/openapi.json", title=f"{app.title} - Swagger UI")
+
+
+@app.get("/redoc", include_in_schema=False)
+async def get_redoc_ui(_: None = Depends(_verify_docs_auth_in_production)):
+    return get_redoc_html(openapi_url="/openapi.json", title=f"{app.title} - ReDoc")
 
 
 @app.get("/api/health", dependencies=[Depends(verify_admin_basic_auth)])

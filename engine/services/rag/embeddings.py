@@ -26,14 +26,15 @@ class EmbeddingService:
     def reset_embeddings_fn(cls) -> None:
         cls._get_embeddings_override = None
 
-    def __init__(self, model: str = EMBEDDING_MODEL) -> None:
+    def __init__(self, model: str = EMBEDDING_MODEL, embed_func: Any = None) -> None:
         self.model = model
+        self._embed_func = embed_func
 
     async def get_embeddings(self, texts: list[str]) -> list[list[float]]:
         """
         Embeds a list of texts in batches and returns list of embedding float vectors.
         """
-        if EmbeddingService._get_embeddings_override is not None:
+        if self._embed_func is None and EmbeddingService._get_embeddings_override is not None:
             res = EmbeddingService._get_embeddings_override(texts)
             if inspect.isawaitable(res):
                 return await res
@@ -58,7 +59,7 @@ class EmbeddingService:
 
         try:
             response: Any = await execute_llm_with_retry(
-                func=litellm.aembedding,
+                func=self._embed_func or litellm.aembedding,
                 kwargs={
                     "model": self.model,
                     "input": batch,

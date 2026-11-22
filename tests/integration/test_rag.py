@@ -318,3 +318,48 @@ async def test_rag_service_async_search_offload():
         assert mock_to_thread.call_args[0][0] == mock_store.search
 
 
+def test_vector_store_real_lancedb_hybrid_bm25_tiebreaker(tmp_path, caplog):
+    """TKT-1212: Verify real LanceDB 0.39.0 hybrid query fuses BM25 + vector without silent degradation."""
+    import logging
+
+    from services.rag.config import EMBEDDING_DIM
+    from services.rag.document_parser import DocumentChunk
+
+    store = VectorStore(db_dir=tmp_path / "lancedb")
+    identical_vec = [0.01] * EMBEDDING_DIM
+
+    chunks = [
+        DocumentChunk(
+            chunk_id="chunk_a",
+            agent_id="agent-1",
+            doc_id="doc_a",
+            filename="alpha.md",
+            section_header="Alpha",
+            text="Standard architecture overview without any matching keyword.",
+        ),
+        DocumentChunk(
+            chunk_id="chunk_b",
+            agent_id="agent-1",
+            doc_id="doc_b",
+            filename="beta.md",
+            section_header="Beta",
+            text="Runbook procedure referencing zxqrunbookmarker99 in production.",
+        ),
+    ]
+    store.insert_chunks(chunks, [identical_vec, identical_vec], rebuild_index=True)
+
+    with caplog.at_level(logging.WARNING):
+        results = store.search(
+            query_text="zxqrunbookmarker99",
+            query_vector=identical_vec,
+            agent_name="agent-1",
+            scope="all",
+            top_k=2,
+        )
+
+    assert len(results) >= 1
+    assert results[0]["doc_id"] == "doc_b"
+    assert results[0]["score"] > 0.0
+    assert "Hybrid search vector+text failed" not in caplog.text
+
+

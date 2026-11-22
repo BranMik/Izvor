@@ -229,3 +229,72 @@ def test_scatter_gather_selects_start_chain_deterministically():
         )
         assert agent_key == "agent-10001"
         assert explicit is False
+
+
+@pytest.mark.anyio
+async def test_control_plane_errored_or_denied_tools_do_not_mutate_state():
+    """TKT-1201 (C6): Failed or denied request_user_clarification and signal_consensus_convergence must not mutate ctx or SQLite."""
+    import json
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from orchestration.stages.execution import ExecutionStage
+    from orchestration.thread_state import thread_state_manager
+    from orchestration.turn_pipeline import TurnContext, TurnPipeline
+
+    ch = "C_C6_GUARD"
+    ts = "1700000900.0001"
+    thread_state_manager.clear_state(ch, ts)
+
+    ctx = TurnContext(channel_id=ch, thread_ts=ts, raw_text="Check state", is_bot_trigger=False)
+    ctx.agent_key = "agent-10001"
+    ctx.agent_cfg = {"model": "test-model", "username": "Visionary", "skills": ["control_plane"]}
+    ctx.messages = [{"role": "user", "content": "Check state"}]
+
+    tc_clarify = MagicMock()
+    tc_clarify.id = "tc_clarify"
+    tc_clarify.function.name = "request_user_clarification"
+    tc_clarify.function.arguments = json.dumps({"question": "Clarify scope?"})
+
+    tc_conv = MagicMock()
+    tc_conv.id = "tc_conv"
+    tc_conv.function.name = "signal_consensus_convergence"
+    tc_conv.function.arguments = json.dumps({"summary_of_agreement": "Consensus reached"})
+
+    msg1 = MagicMock(content="", tool_calls=[tc_clarify, tc_conv])
+    msg1.model_dump.return_value = {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [
+            {"id": "tc_clarify", "type": "function", "function": {"name": "request_user_clarification", "arguments": tc_clarify.function.arguments}},
+            {"id": "tc_conv", "type": "function", "function": {"name": "signal_consensus_convergence", "arguments": tc_conv.function.arguments}},
+        ],
+    }
+    resp1 = MagicMock(choices=[MagicMock(message=msg1)], usage=None)
+    msg2 = MagicMock(content="Proceeding without control state changes.", tool_calls=None)
+    resp2 = MagicMock(choices=[MagicMock(message=msg2)], usage=None)
+
+    cp_skill = MagicMock(name="control_plane", tools=["request_user_clarification", "signal_consensus_convergence"], requires_human_ITL=False, is_global=True, requires_admin=False)
+    mock_reg = MagicMock()
+    mock_reg.get_global_skills.return_value = ["control_plane"]
+    mock_reg.filter_skills_for_caller.return_value = ["control_plane"]
+    mock_reg.find_skill_for_tool.return_value = "control_plane"
+    mock_reg.get.return_value = cp_skill
+    # Simulate denied / errored execution of BOTH control plane tools
+    mock_reg.execute_tool_async = AsyncMock(
+        side_effect=[
+            "Permission denied: Agent not authorized",
+            '{"error": "Tool execution failed"}',
+        ]
+    )
+
+    pipeline = TurnPipeline(llm_executor=AsyncMock(side_effect=[resp1, resp2]), skill_registry=mock_reg)
+    stage = ExecutionStage(pipeline.deps)
+
+    with patch("services.local_tools.is_agent_authorized_for_tool", return_value=True):
+        await stage.stage_execute_llm(ctx)
+
+    assert ctx.output.halted is False
+    assert ctx.control.clarification_requested is False
+    assert ctx.control.clarification_question is None
+    assert ctx.control.consensus_signaled is False
+    assert thread_state_manager.is_consensus_reached(ch, ts) is False

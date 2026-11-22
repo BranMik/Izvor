@@ -166,12 +166,12 @@ def forget_thread(channel_id: str, thread_ts: str) -> dict[str, int]:
     # Remove thread notes file(s)
     thread_notes_deleted = 0
     try:
-        from core.paths import THREAD_NOTES_DIR
-        from services.thread_notes_writer import extract_ts5_suffix
+        from services.thread_notes_writer import extract_ts5_suffix, get_thread_notes_dir
 
-        if THREAD_NOTES_DIR.exists():
+        notes_dir = get_thread_notes_dir()
+        if notes_dir.exists():
             ts5 = extract_ts5_suffix(tts)
-            for p in list(THREAD_NOTES_DIR.glob("*.md")):
+            for p in list(notes_dir.glob("*.md")):
                 try:
                     content = p.read_text(encoding="utf-8", errors="ignore")
                     if f"**Thread Timestamp**: `{tts}`" in content or (ts5 and f"_{ts5}_" in p.stem):
