@@ -583,3 +583,23 @@ async def test_directive_parser_keeps_inferred_include_agents_for_untagged_peer(
     assert parsed.included_agents == ["agent-10008"]
 
 
+@pytest.mark.anyio
+async def test_intent_extractor_strips_markdown_code_fences():
+    """TKT-1219: extract_intent parses JSON wrapped inside ```json markdown fences."""
+    mock_resp = MagicMock()
+    mock_resp.choices = [
+        MagicMock(
+            message=MagicMock(
+                content='```json\n{"actions": [{"name": "document_reader", "target": "spec.md"}], "modifiers": {"max_words": 80}}\n```'
+            )
+        )
+    ]
+    mock_resp.usage = None
+
+    with patch("nlp.intent_extractor.execute_llm_with_retry", AsyncMock(return_value=mock_resp)):
+        intent = await intent_extractor.extract_intent("Read spec.md briefly")
+
+    assert intent.modifiers["max_words"] == 80
+    assert any(a.name == "document_reader" for a in intent.actions)
+
+

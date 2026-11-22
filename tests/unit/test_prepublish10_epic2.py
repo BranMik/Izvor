@@ -188,7 +188,7 @@ async def test_hitl_denial_synthetic_tool_result():
 
 @pytest.mark.anyio
 async def test_tool_loop_pause_disables_tool_choice():
-    """TKT-1005: Execution stage sets tool_choice='none' and disables tools when turn is paused."""
+    """TKT-1217: Execution stage omits tools and tool_choice when turn is paused."""
     from orchestration.turn_pipeline import TurnPipeline
 
     mock_skill = MagicMock()
@@ -243,11 +243,11 @@ async def test_tool_loop_pause_disables_tool_choice():
          patch("services.local_tools.is_agent_authorized_for_tool", return_value=True):
         await stage.stage_execute_llm(ctx)
 
-    # The follow-up call must have tool_choice='none'
+    # Follow-up call when paused must omit tools and tool_choice (never tool_choice='none' without tools)
     assert len(captured_kwargs) >= 2
     follow_up_call = captured_kwargs[1]
-    assert follow_up_call["tool_choice"] == "none"
-    assert follow_up_call["tools"] is None
+    assert follow_up_call.get("tool_choice") is None
+    assert follow_up_call.get("tools") is None
 
 
 @pytest.mark.anyio

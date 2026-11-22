@@ -75,6 +75,51 @@ def sanitize_inbound_mcp_result(raw_result: str) -> str:
     return masked
 
 
+async def async_sanitize_outbound_mcp_arguments(
+    arguments: dict[str, Any],
+    mask_enabled: bool = True,
+) -> dict[str, Any]:
+    """Asynchronously masks PII/secrets in outbound MCP arguments off the event loop."""
+    if not mask_enabled or not arguments:
+        return copy.deepcopy(arguments) if arguments else {}
+
+    from services.security.pii_masker import pii_masker
+
+    async def _sanitize(val: Any) -> Any:
+        if isinstance(val, str):
+            masked, _ = await pii_masker.async_mask(val)
+            return masked
+        if isinstance(val, dict):
+            return {k: await _sanitize(v) for k, v in val.items()}
+        if isinstance(val, list):
+            return [await _sanitize(item) for item in val]
+        return val
+
+    return {k: await _sanitize(v) for k, v in arguments.items()}
+
+
+async def async_sanitize_inbound_mcp_result(raw_result: str) -> str:
+    """Asynchronously scans inbound MCP output for secrets and masks PII off the event loop."""
+    if not raw_result:
+        return raw_result
+
+    from services.security import scan_output_for_secrets
+    from services.security.pii_masker import pii_masker
+
+    matched_rule = scan_output_for_secrets(raw_result, user_id="mcp_server")
+    if matched_rule:
+        logger.critical(
+            f"[MCP_SECURITY] Blocked inbound MCP tool response containing leaked secret matching rule: {matched_rule}"
+        )
+        return json.dumps({
+            "isError": True,
+            "error": f"Output blocked by security policy: secret detected ({matched_rule})",
+        })
+
+    masked, _ = await pii_masker.async_mask(raw_result)
+    return masked
+
+
 async def execute_external_mcp_tool(
     namespaced_tool_name: str,
     arguments: dict[str, Any] | None = None,
@@ -93,7 +138,7 @@ async def execute_external_mcp_tool(
             "error": f"Invalid MCP tool name '{namespaced_tool_name}'; expected 'mcp__<server>__<tool>' format.",
         })
 
-    from services.audit_logger import log_audit_event
+    from services.audit_logger import log_audit_event_async
 
     server_name, raw_tool_name = parsed
     raw_args = arguments or {}
@@ -119,7 +164,7 @@ async def execute_external_mcp_tool(
         logger.warning(
             f"[MCP_SECURITY] Access denied: Principal '{actor_id}' is not authorized to execute MCP tool '{namespaced_tool_name}'."
         )
-        log_audit_event(
+        await log_audit_event_async(
             event_type="SECURITY_POLICY_VIOLATION",
             actor={"type": actor_kind, "id": actor_id},
             action="execute_external_mcp_tool",
@@ -142,13 +187,37 @@ async def execute_external_mcp_tool(
         return json.dumps({"error": f"MCP server '{server_name}' is disabled."})
 
     # 3. Outbound PII / Secret masking
-    sanitized_args = sanitize_outbound_mcp_arguments(
+    sanitized_args = await async_sanitize_outbound_mcp_arguments(
         raw_args,
         mask_enabled=server_cfg.outbound_pii_masking,
     )
 
-    # 4. Non-repudiable audit logging
-    log_audit_event(
+    # 4. Dispatch invocation to McpClientManager
+    mgr = client_manager or get_mcp_client_manager()
+    raw_res = await mgr.call_mcp_tool(server_name, raw_tool_name, sanitized_args)
+
+    # 5. Inbound response sanitization
+    final_res = await async_sanitize_inbound_mcp_result(raw_res)
+
+    # 6. Post-execution non-repudiable audit logging with true status
+    audit_status = "SUCCESS"
+    audit_severity = "INFO"
+    parsed_res = None
+    if isinstance(final_res, str) and final_res.lstrip().startswith("{"):
+        try:
+            parsed_res = json.loads(final_res)
+        except (ValueError, TypeError):
+            parsed_res = None
+    if isinstance(parsed_res, dict) and (parsed_res.get("isError") is True or "error" in parsed_res):
+        err_text = str(parsed_res.get("error") or "").lower()
+        if "security policy" in err_text or "blocked" in err_text:
+            audit_status = "BLOCKED"
+            audit_severity = "CRITICAL"
+        else:
+            audit_status = "FAILURE"
+            audit_severity = "WARNING"
+
+    await log_audit_event_async(
         event_type="TOOL_EXECUTE_MCP",
         actor={"type": actor_kind, "id": actor_id},
         action=namespaced_tool_name,
@@ -159,13 +228,8 @@ async def execute_external_mcp_tool(
             "args_keys": list(raw_args.keys()),
             "args_sha256": args_hash,
         },
-        severity="INFO",
-        status="SUCCESS",
+        severity=audit_severity,
+        status=audit_status,
     )
 
-    # 5. Dispatch invocation to McpClientManager
-    mgr = client_manager or get_mcp_client_manager()
-    raw_res = await mgr.call_mcp_tool(server_name, raw_tool_name, sanitized_args)
-
-    # 6. Inbound response sanitization
-    return sanitize_inbound_mcp_result(raw_res)
+    return final_res

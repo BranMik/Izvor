@@ -304,3 +304,29 @@ def test_resolve_model_with_fallback_priority():
     assert res_none.reason == "no_available_fallback"
 
 
+def test_load_merged_env_prefers_valid_os_environ_over_dotenv(tmp_path):
+    """TKT-1219: os.environ overrides stale .env entries while ignoring placeholder values."""
+    from core.model_catalog import _load_merged_env
+
+    dotenv_path = tmp_path / ".env"
+    dotenv_path.write_text(
+        "OPENAI_API_KEY=your-openai-api-key\n"
+        "MISTRAL_API_KEY=sk-old-dotenv-mistral\n"
+        "ANTHROPIC_API_KEY=sk-valid-dotenv-anthropic\n",
+        encoding="utf-8",
+    )
+
+    merged = _load_merged_env(
+        env_path=dotenv_path,
+        environ={
+            "OPENAI_API_KEY": "sk-real-container-key",
+            "MISTRAL_API_KEY": "sk-new-env-mistral",
+            "ANTHROPIC_API_KEY": "your-anthropic-api-key",
+        },
+    )
+
+    assert merged["OPENAI_API_KEY"] == "sk-real-container-key"
+    assert merged["MISTRAL_API_KEY"] == "sk-new-env-mistral"
+    assert merged["ANTHROPIC_API_KEY"] == "sk-valid-dotenv-anthropic"
+
+

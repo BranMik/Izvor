@@ -622,3 +622,133 @@ async def test_handle_error_503_with_agent_already_in_remaining_no_unbound_local
     assert "HIGH DEMAND" in res["final_text"]
     thread_state_manager.cleanup_thread(channel_id, thread_ts)
 
+
+def test_classify_agent_error_bad_request_and_word_bounded_codes():
+    """TKT-1213: 500 errors with 401-containing request IDs stay service_unavailable; 400 classifies as bad_request."""
+    import litellm
+
+    err_with_id = litellm.exceptions.InternalServerError(
+        message="500 Internal Server Error (request_id: req_40199)",
+        llm_provider="openai",
+        model="openai/gpt-5.6-sol",
+    )
+    assert classify_agent_error(err_with_id) == "service_unavailable"
+    assert classify_agent_error(Exception("HTTP 500 Internal Server Error req_40199")) == "service_unavailable"
+
+    bad_req = litellm.exceptions.BadRequestError(
+        message="400 invalid parameter value",
+        llm_provider="openai",
+        model="openai/gpt-5.6-sol",
+    )
+    assert classify_agent_error(bad_req) == "bad_request"
+    assert classify_agent_error(Exception("HTTP 400 Bad Request: malformed schema")) == "bad_request"
+
+    # Gemini/Google may wrap missing/invalid API keys in 400 BadRequestError
+    bad_req_key = litellm.exceptions.BadRequestError(
+        message="API key not valid. Please pass a valid API key.",
+        llm_provider="gemini",
+        model="gemini/gemini-3.8-flash",
+    )
+    assert classify_agent_error(bad_req_key) == "api_key_not_found"
+
+
+@pytest.mark.anyio
+async def test_execute_llm_with_retry_single_layer_backoff_dynamic_and_dict_unmask():
+    """TKT-1213: forces num_retries=0 on copied kwargs, fails fast on 404/400, backs off exponentially, and unmasks dict tool_calls."""
+    from types import SimpleNamespace
+    from core import llm_utils
+    from orchestration.system_settings import system_settings_manager
+    from services.security.pii_masker import PIIMasker
+
+    # 1. Non-mutating kwargs copy & num_retries=0 enforcement + fail-fast on 404 / 400
+    seen_kwargs: list[dict] = []
+    call_count_404 = 0
+    caller_payload = {
+        "model": "test-model",
+        "messages": [{"role": "user", "content": "hello"}],
+        "num_retries": 2,
+    }
+
+    async def fail_404(**kw):
+        nonlocal call_count_404
+        call_count_404 += 1
+        seen_kwargs.append(dict(kw))
+        raise Exception("Model xyz not found (404)")
+
+    with pytest.raises(Exception, match="404"):
+        await execute_llm_with_retry(fail_404, caller_payload, agent_key="A1", thread_key=("C", "T"), max_attempts=3)
+    assert call_count_404 == 1
+    assert caller_payload["num_retries"] == 2
+    assert seen_kwargs[0]["num_retries"] == 0
+    assert seen_kwargs[0]["timeout"] == 120.0
+
+    call_count_400 = 0
+
+    async def fail_400(**kw):
+        nonlocal call_count_400
+        call_count_400 += 1
+        raise Exception("400 Bad Request: invalid parameter")
+
+    with pytest.raises(Exception, match="400"):
+        await execute_llm_with_retry(fail_400, {"model": "m", "messages": []}, agent_key="A1", thread_key=("C", "T"), max_attempts=3)
+    assert call_count_400 == 1
+
+    # 2. Dynamic max_attempts & exponential backoff with deterministic injected sleep
+    sleep_delays: list[float] = []
+    timeout_calls = 0
+
+    async def fake_sleep(delay: float):
+        sleep_delays.append(delay)
+
+    async def always_timeout(**kw):
+        nonlocal timeout_calls
+        timeout_calls += 1
+        raise TimeoutError("timed out")
+
+    configure_llm_sleep_fn(fake_sleep)
+    llm_utils.set_llm_retry_config_provider(lambda: (4, 0.5))
+    try:
+        with pytest.raises(TimeoutError):
+            await execute_llm_with_retry(
+                always_timeout,
+                {"model": "m", "messages": []},
+                agent_key="A1",
+                thread_key=("C", "T"),
+            )
+    finally:
+        configure_llm_sleep_fn(None)
+        system_settings_manager._register_core_providers()
+
+    assert timeout_calls == 4
+    assert sleep_delays == [0.5, 1.0, 2.0]
+
+    # 3. Dict-style tool_calls unmasking under strict privacy mode
+    masker = PIIMasker()
+    llm_utils.set_privacy_mode_provider(lambda: True)
+    llm_utils.set_pii_masker_instance(masker)
+    try:
+        async def return_dict_tool_call(**kw):
+            masked_user = kw["messages"][0]["content"]
+            token = masked_user.split("Email ")[1]
+            return SimpleNamespace(
+                choices=[
+                    SimpleNamespace(
+                        message=SimpleNamespace(
+                            content=f"Sending to {token}",
+                            tool_calls=[{"id": "tc1", "type": "function", "function": {"name": "send", "arguments": f'{{"to": "{token}"}}'}}],
+                        )
+                    )
+                ]
+            )
+
+        res = await execute_llm_with_retry(
+            return_dict_tool_call,
+            {"model": "m", "messages": [{"role": "user", "content": "Email alice@example.com"}]},
+            agent_key="A1",
+            thread_key=("C", "T"),
+        )
+        assert res.choices[0].message.content == "Sending to alice@example.com"
+        assert res.choices[0].message.tool_calls[0]["function"]["arguments"] == '{"to": "alice@example.com"}'
+    finally:
+        system_settings_manager._register_core_providers()
+

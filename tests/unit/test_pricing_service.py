@@ -440,4 +440,61 @@ async def test_fetch_pricing_with_agent_falls_back_when_fast_model_key_missing()
     assert mock_comp.call_args.kwargs["model"] == "mistral/mistral-large-latest"
 
 
+def test_get_baseline_for_model_lowercase_together_and_longest_prefix():
+    """TKT-1219: mixed-case Together AI keys resolve accurately and exact registry beats shorter baseline prefix."""
+    from services.pricing_service import get_baseline_for_model
+
+    res = get_baseline_for_model("together_ai/deepseek-ai/DeepSeek-V4-Pro")
+    assert res["input_price_per_1m"] == 0.55
+    assert res["output_price_per_1m"] == 2.19
+
+    res_mini = get_baseline_for_model(
+        "openai/gpt-5.6-mini",
+        model_cost_registry={
+            "openai/gpt-5.6-mini": {
+                "input_cost_per_token": 0.0000001,
+                "output_cost_per_token": 0.0000004,
+            }
+        },
+    )
+    assert res_mini["input_price_per_1m"] == 0.1
+    assert res_mini["output_price_per_1m"] == 0.4
+    assert res_mini["source"] == "LiteLLM Community Registry"
+
+
+@pytest.mark.anyio
+async def test_warm_up_cache_resets_web_budget_and_skips_fallback_cache_write(tmp_path):
+    """TKT-1219: warm_up_cache resets web budget per model and failed lookups do not poison cache JSON."""
+    from services.pricing_service import PricingService
+    from services.web_tools import check_and_increment_web_budget, get_turn_web_fetch_count
+
+    cache_path = tmp_path / "pricing_cache.json"
+    svc = PricingService(cache_file=cache_path)
+
+    seen_counts: list[int] = []
+    empty_resp = MagicMock()
+    empty_resp.choices = []
+
+    async def fake_web_search(**kwargs):
+        seen_counts.append(get_turn_web_fetch_count())
+        check_and_increment_web_budget()
+        return ""
+
+    # Pre-exhaust turn web budget before warm_up_cache runs
+    for _ in range(5):
+        try:
+            check_and_increment_web_budget()
+        except PermissionError:
+            break
+
+    with (
+        patch("litellm.acompletion", new_callable=AsyncMock, return_value=empty_resp),
+        patch("services.pricing_service.web_search", side_effect=fake_web_search),
+    ):
+        await svc.warm_up_cache(models=["unknown/probe-one", "unknown/probe-two"])
+
+    assert seen_counts == [0, 0]
+    assert not cache_path.exists()
+
+
 

@@ -295,7 +295,7 @@ async def detect_language_llm(
                 resp = await asyncio.wait_for(
                     execute_llm_with_retry(
                         litellm.acompletion,
-                        kwargs={"model": selected_model, "messages": messages, "num_retries": 1},
+                        kwargs={"model": selected_model, "messages": messages},
                         agent_key="language_detector",
                         thread_key=thread_key or ("system", "language_detector"),
                         max_attempts=2,

@@ -58,13 +58,13 @@ async def test_revisor_warning_injected_into_accumulated_history_before_next_spe
             accumulated_history=history,
         )
 
-        system_msgs = [
+        warning_msgs = [
             m
             for m in history
-            if m.get("role") == "system" and "[Internal Revisor Warning]:" in m.get("content", "")
+            if m.get("role") == "user" and "Internal Revisor Warning" in m.get("content", "")
         ]
-        assert len(system_msgs) == 1
-        assert revisor_warning in system_msgs[0]["content"]
+        assert len(warning_msgs) == 1
+        assert revisor_warning in warning_msgs[0]["content"]
     finally:
         set_internal_revisor_enabled_override(None)
 

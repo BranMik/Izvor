@@ -202,4 +202,5 @@ async def test_process_and_respond_with_run_internal_loop():
         bot_user_id=None,
         icon_url=None,
         user_id=None,
+        guardrail_checked=True,
     )

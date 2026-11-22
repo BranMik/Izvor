@@ -11,7 +11,6 @@ import json
 import logging
 import os
 from pathlib import Path
-import re
 from typing import Any
 
 from dotenv import dotenv_values
@@ -115,23 +114,29 @@ def _is_valid_key(value: Any) -> bool:
     return not (lower.startswith(("your-", "xoxb-your")) or "your-" in lower)
 
 
-def _load_merged_env(env_dict: Mapping[str, str | None] | None = None) -> dict[str, Any]:
+def _load_merged_env(
+    env_dict: Mapping[str, str | None] | None = None,
+    *,
+    env_path: Path | None = None,
+    environ: Mapping[str, str] | None = None,
+) -> dict[str, Any]:
     """Loads environment variables from explicit dict, injected provider, or .env + os.environ."""
     if env_dict is not None:
         return dict(env_dict)
-    if _env_provider is not None:
+    if _env_provider is not None and env_path is None and environ is None:
         return dict(_env_provider())
 
     merged_env: dict[str, Any] = {}
-    env_file = _get_project_env_path()
+    env_file = env_path if env_path is not None else _get_project_env_path()
     if env_file.exists():
         try:
             raw_values = dotenv_values(env_file)
             merged_env.update(raw_values)
         except (OSError, UnicodeDecodeError, ValueError) as e:
             logger.warning(f"[MODEL_CATALOG] Failed to read .env file at {env_file}: {e}")
-    for k, v in os.environ.items():
-        if k not in merged_env or not merged_env[k]:
+    active_environ = environ if environ is not None else os.environ
+    for k, v in active_environ.items():
+        if v and v.strip() and (_is_valid_key(v) or not _is_valid_key(merged_env.get(k))):
             merged_env[k] = v
     return merged_env
 

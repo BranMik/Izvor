@@ -28,9 +28,7 @@ WORKSPACE_DIR = (
 
 # Agents resources directory (no import-time mkdir side effects)
 AGENTS_RESOURCES_DIR = (
-    (WORKSPACE_DIR / "agents_resources").resolve()
-    if WORKSPACE_DIR != PROJECT_ROOT
-    else CANONICAL_AGENTS_RESOURCES_DIR
+    (WORKSPACE_DIR / "agents_resources").resolve() if WORKSPACE_DIR != PROJECT_ROOT else CANONICAL_AGENTS_RESOURCES_DIR
 )
 
 _custom_workspace_dir: Path | None = None
@@ -80,12 +78,14 @@ def validate_resource_filename(rel_path: str) -> None:
 
     norm = clean.replace("\\", "/")
     if norm.lower().startswith("agents_resources/"):
-        norm = norm[len("agents_resources/"):].lstrip("/")
+        norm = norm[len("agents_resources/") :].lstrip("/")
     elif norm.lower() == "agents_resources":
         norm = "."
 
     segments = re.split(r"[/\\]+", norm)
-    reserved_devices = {"CON", "PRN", "AUX", "NUL"} | {f"COM{i}" for i in range(1, 10)} | {f"LPT{i}" for i in range(1, 10)}
+    reserved_devices = (
+        {"CON", "PRN", "AUX", "NUL"} | {f"COM{i}" for i in range(1, 10)} | {f"LPT{i}" for i in range(1, 10)}
+    )
     segment_pattern = re.compile(r"^[A-Za-z0-9._ -]{1,128}$")
 
     for segment in segments:
@@ -111,7 +111,7 @@ def _resolve_resource_path(rel_path: str) -> Path:
     """
     clean_raw = str(rel_path or "").strip().replace("\\", "/")
     if clean_raw.lower().startswith("agents_resources/"):
-        stripped = clean_raw[len("agents_resources/"):].lstrip("/")
+        stripped = clean_raw[len("agents_resources/") :].lstrip("/")
     elif clean_raw.lower() == "agents_resources":
         stripped = "."
     else:
@@ -130,7 +130,6 @@ def _resolve_resource_path(rel_path: str) -> Path:
     return target
 
 
-
 def list_documents(
     rel_path: str = ".",
     principal: ToolPrincipal | str | None = None,
@@ -141,14 +140,10 @@ def list_documents(
     Enforces principal authorization (fails closed if principal is missing).
     """
     if principal is None:
-        return json.dumps({
-            "error": "Permission denied: Principal identity is required to list documents."
-        })
+        return json.dumps({"error": "Permission denied: Principal identity is required to list documents."})
     if not is_agent_authorized_for_tool(principal, "list_documents", authorized_skills=authorized_skills):
         actor_id = principal.id if hasattr(principal, "id") else str(principal)
-        return json.dumps({
-            "error": f"Permission denied: Principal '{actor_id}' is not authorized to list documents."
-        })
+        return json.dumps({"error": f"Permission denied: Principal '{actor_id}' is not authorized to list documents."})
 
     try:
         path = _resolve_resource_path(rel_path)
@@ -159,11 +154,13 @@ def list_documents(
 
         contents = []
         for item in sorted(path.iterdir()):
-            contents.append({
-                "name": item.name,
-                "is_dir": item.is_dir(),
-                "size_bytes": item.stat().st_size if item.is_file() else None,
-            })
+            contents.append(
+                {
+                    "name": item.name,
+                    "is_dir": item.is_dir(),
+                    "size_bytes": item.stat().st_size if item.is_file() else None,
+                }
+            )
         return json.dumps({"directory": rel_path, "contents": contents})
     except PermissionError as e:
         return json.dumps({"error": str(e)})
@@ -189,22 +186,18 @@ def read_document(
     Enforces principal authorization and per-file ACL checks (fails closed if principal is missing).
     """
     if principal is None:
-        return json.dumps({
-            "error": "Permission denied: Principal identity is required to read documents."
-        })
+        return json.dumps({"error": "Permission denied: Principal identity is required to read documents."})
     if not is_agent_authorized_for_tool(principal, "read_document", authorized_skills=authorized_skills):
         actor_id = principal.id if hasattr(principal, "id") else str(principal)
-        return json.dumps({
-            "error": f"Permission denied: Principal '{actor_id}' is not authorized to read documents."
-        })
+        return json.dumps({"error": f"Permission denied: Principal '{actor_id}' is not authorized to read documents."})
 
     if authorized_agents is not None:
         actor_id = principal.id if hasattr(principal, "id") else str(principal)
         actor_kind = getattr(principal, "kind", "agent")
         if actor_kind != "system" and actor_id != "system" and actor_id not in authorized_agents:
-            return json.dumps({
-                "error": f"Permission denied: Agent '{actor_id}' is not authorized to access document '{rel_path}'."
-            })
+            return json.dumps(
+                {"error": f"Permission denied: Agent '{actor_id}' is not authorized to access document '{rel_path}'."}
+            )
 
     from orchestration.system_settings import (
         get_max_file_size_bytes,
@@ -223,9 +216,11 @@ def read_document(
 
         file_size = path.stat().st_size
         if file_size > max_size_bytes:
-            return json.dumps({
-                "error": f"File '{rel_path}' ({file_size} bytes) exceeds maximum allowed size of {max_size_mb:.1f} MB."
-            })
+            return json.dumps(
+                {
+                    "error": f"File '{rel_path}' ({file_size} bytes) exceeds maximum allowed size of {max_size_mb:.1f} MB."
+                }
+            )
 
         if path.suffix.lower() == ".pdf":
             try:
@@ -240,15 +235,15 @@ def read_document(
                     else:
                         pages_text.append(f"--- Page {idx + 1} ---\n[No extractable text]")
                 content = "\n\n".join(pages_text) if pages_text else "[Empty PDF document]"
-                return json.dumps({
-                    "document": rel_path,
-                    "content": content,
-                    "pages": len(reader.pages),
-                })
+                return json.dumps(
+                    {
+                        "document": rel_path,
+                        "content": content,
+                        "pages": len(reader.pages),
+                    }
+                )
             except ImportError:
-                return json.dumps({
-                    "error": "The 'pypdf' package is required to read PDF files. Please install pypdf."
-                })
+                return json.dumps({"error": "The 'pypdf' package is required to read PDF files. Please install pypdf."})
             except Exception as e:  # noqa: BLE001 - PDF parser error boundary returns failure JSON
                 return json.dumps({"error": f"Failed to parse PDF '{rel_path}': {e}"})
 
@@ -279,14 +274,10 @@ def write_document(
     Enforces principal authorization and write boundaries (fails closed if principal is missing).
     """
     if principal is None:
-        return json.dumps({
-            "error": "Permission denied: Principal identity is required to write documents."
-        })
+        return json.dumps({"error": "Permission denied: Principal identity is required to write documents."})
     if not is_agent_authorized_for_tool(principal, "write_document", authorized_skills=authorized_skills):
         actor_id = principal.id if hasattr(principal, "id") else str(principal)
-        return json.dumps({
-            "error": f"Permission denied: Principal '{actor_id}' is not authorized to write documents."
-        })
+        return json.dumps({"error": f"Permission denied: Principal '{actor_id}' is not authorized to write documents."})
 
     actor_id = principal.id if hasattr(principal, "id") else str(principal)
     actor_kind = getattr(principal, "kind", "agent")
@@ -307,13 +298,17 @@ def write_document(
                 actor={"type": actor_kind, "id": actor_id},
                 action="write_document",
                 target=rel_path,
-                details={"reason": f"Content size ({content_bytes} bytes) exceeds maximum permitted limit ({max_bytes} bytes)"},
+                details={
+                    "reason": f"Content size ({content_bytes} bytes) exceeds maximum permitted limit ({max_bytes} bytes)"
+                },
                 severity="CRITICAL",
                 status="BLOCKED",
             )
-            return json.dumps({
-                "error": f"File content size ({content_bytes} bytes) exceeds maximum permitted write limit of {max_bytes} bytes."
-            })
+            return json.dumps(
+                {
+                    "error": f"File content size ({content_bytes} bytes) exceeds maximum permitted write limit of {max_bytes} bytes."
+                }
+            )
 
         path = _resolve_resource_path(rel_path)
         resources_dir = get_agents_resources_dir()
@@ -323,7 +318,9 @@ def write_document(
                 f"Access denied: Write path '{rel_path}' resolves outside agents_resources directory '{resources_dir}'."
             )
 
-        if is_path_write_blocked(path, base_dir=workspace_dir) or is_path_write_blocked(rel_path, base_dir=workspace_dir):
+        if is_path_write_blocked(path, base_dir=workspace_dir) or is_path_write_blocked(
+            rel_path, base_dir=workspace_dir
+        ):
             from services.audit_logger import log_audit_event
 
             log_audit_event(
@@ -331,13 +328,16 @@ def write_document(
                 actor={"type": actor_kind, "id": actor_id},
                 action="write_document",
                 target=rel_path,
-                details={"resolved_path": str(path.relative_to(workspace_dir).as_posix()), "reason": "Path is protected in system settings"},
+                details={
+                    "resolved_path": str(path.relative_to(workspace_dir).as_posix()),
+                    "reason": "Path is protected in system settings",
+                },
                 severity="CRITICAL",
                 status="BLOCKED",
             )
-            return json.dumps({
-                "error": f"Permission denied: Writing to protected path '{rel_path}' is strictly prohibited."
-            })
+            return json.dumps(
+                {"error": f"Permission denied: Writing to protected path '{rel_path}' is strictly prohibited."}
+            )
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
         bytes_written = len(content.encode("utf-8"))
@@ -360,7 +360,6 @@ def write_document(
             }
         )
 
-
     except PermissionError as e:
         return json.dumps({"error": str(e)})
     except IsADirectoryError:
@@ -375,7 +374,6 @@ def write_document(
 
 # LiteLLM compatible tool schemas (OpenAI / Function calling standard)
 LOCAL_TOOLS_SCHEMAS = [
-
     {
         "type": "function",
         "function": {
@@ -552,16 +550,18 @@ async def execute_local_tool(
     args_hash = hashlib.sha256(json.dumps(raw_args, sort_keys=True, default=str).encode("utf-8")).hexdigest()
     actor_id = agent_name.id if hasattr(agent_name, "id") else str(agent_name or "unknown")
     actor_kind = getattr(agent_name, "kind", "agent")
-    logger.info(f"[Tool Call] Executing '{tool_name}' keys={list(raw_args.keys())} args_sha256={args_hash} (agent: {actor_id})")
+    logger.info(
+        f"[Tool Call] Executing '{tool_name}' keys={list(raw_args.keys())} args_sha256={args_hash} (agent: {actor_id})"
+    )
     logger.debug(f"[Tool Call Details] '{tool_name}' masked args: {_mask_tool_args(raw_args)}")
 
     if not is_agent_authorized_for_tool(agent_name, tool_name, authorized_skills=authorized_skills):
         logger.warning(
             f"[LOCAL_TOOLS] Access denied: Agent/Principal '{actor_id}' is not authorized to execute tool '{tool_name}'."
         )
-        from services.audit_logger import log_audit_event
+        from services.audit_logger import log_audit_event_async
 
-        log_audit_event(
+        await log_audit_event_async(
             event_type="SECURITY_POLICY_VIOLATION",
             actor={"type": actor_kind, "id": actor_id},
             action="execute_local_tool",
@@ -570,26 +570,16 @@ async def execute_local_tool(
             severity="CRITICAL",
             status="BLOCKED",
         )
-        return json.dumps({
-            "error": f"Permission denied: Agent '{actor_id}' is not authorized to execute tool '{tool_name}'."
-        })
-
-    if tool_name in ("web_search", "fetch_web_page"):
-        from services.audit_logger import log_audit_event
-
-        log_audit_event(
-            event_type="TOOL_EXECUTE_NETWORK",
-            actor={"type": actor_kind, "id": actor_id},
-            action=tool_name,
-            target=str(raw_args.get("url") or raw_args.get("query") or "network"),
-            details={"args_keys": list(raw_args.keys()), "args_sha256": args_hash},
-            severity="INFO",
-            status="SUCCESS",
+        return json.dumps(
+            {"error": f"Permission denied: Agent '{actor_id}' is not authorized to execute tool '{tool_name}'."}
         )
 
+    is_network_tool = tool_name in ("web_search", "fetch_web_page")
     handler = TOOL_DISPATCHER.get(tool_name)
 
     if handler:
+        result_str: str
+        exec_error: Exception | None = None
         try:
             sig = inspect.signature(handler)
             kwargs = {}
@@ -603,16 +593,58 @@ async def execute_local_tool(
                 kwargs["authorized_skills"] = authorized_skills
 
             if inspect.iscoroutinefunction(handler):
-                return await handler(raw_args, **kwargs)
+                result_str = await handler(raw_args, **kwargs)
             elif tool_name in ("list_documents", "read_document", "write_document"):
-                return await asyncio.to_thread(handler, raw_args, **kwargs)
+                result_str = await asyncio.to_thread(handler, raw_args, **kwargs)
             else:
                 res = handler(raw_args, **kwargs)
                 if inspect.isawaitable(res):
-                    return await res
-                return res
+                    result_str = await res
+                else:
+                    result_str = res
         except Exception as e:  # noqa: BLE001
+            exec_error = e
             logger.error(f"[LOCAL_TOOLS] Error executing tool {tool_name}: {e}")
-            return json.dumps({"error": f"Tool execution error: {e}"})
-    return json.dumps({"error": f"Unknown tool: {tool_name}"})
+            result_str = json.dumps({"error": f"Tool execution error: {e}"})
 
+        if is_network_tool:
+            net_status = "SUCCESS"
+            net_severity = "INFO"
+            if exec_error is not None:
+                net_status = "FAILURE"
+                net_severity = "WARNING"
+            elif isinstance(result_str, str):
+                lower_res = result_str.lower()
+                if (
+                    "blocked" in lower_res
+                    or "ssrf" in lower_res
+                    or "security policy" in lower_res
+                    or "permission denied" in lower_res
+                ):
+                    net_status = "BLOCKED"
+                    net_severity = "CRITICAL"
+                elif result_str.lstrip().startswith("{"):
+                    try:
+                        parsed_net = json.loads(result_str)
+                        if isinstance(parsed_net, dict) and (
+                            parsed_net.get("isError") is True or "error" in parsed_net
+                        ):
+                            net_status = "FAILURE"
+                            net_severity = "WARNING"
+                    except (ValueError, TypeError):
+                        pass
+
+            from services.audit_logger import log_audit_event_async
+
+            await log_audit_event_async(
+                event_type="TOOL_EXECUTE_NETWORK",
+                actor={"type": actor_kind, "id": actor_id},
+                action=tool_name,
+                target=str(raw_args.get("url") or raw_args.get("query") or "network"),
+                details={"args_keys": list(raw_args.keys()), "args_sha256": args_hash},
+                severity=net_severity,
+                status=net_status,
+            )
+
+        return result_str
+    return json.dumps({"error": f"Unknown tool: {tool_name}"})

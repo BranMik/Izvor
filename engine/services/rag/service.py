@@ -98,7 +98,7 @@ class RAGService:
             section = item.get("section_header", "Overview")
             text = item.get("text", "").strip()
             if pii_masker.should_mask_at_retrieval():
-                text, _ = pii_masker.mask(text)
+                text, _ = await pii_masker.async_mask(text)
 
             output_blocks.append(f"**[{idx}] `{doc_id}` — {section}**\n> {text.replace(chr(10), chr(10) + '> ')}\n")
 

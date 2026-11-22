@@ -68,14 +68,60 @@ SCRIBE_CONCLUSION_PROMPT = load_system_prompt(
 
 
 def _clean_turn_content_for_scribe(content: str) -> str:
-    """Strips trailing agent nomination tags (/[AgentName]) and token footers ({model : tokens}) for clean scribe processing."""
+    """Iteratively strips token/fallback/skills footers and trailing nomination tags for clean scribe processing."""
     if not content:
         return ""
-    # Strip token stats footer e.g. {gemini-3.8-flash : 210} or {model: tokens}
-    cleaned = re.sub(r"\{\s*[^}]+:\s*\d+\s*\}\s*$", "", content.strip())
-    # Strip trailing nomination tags e.g. /[AgentName], /[agent-10003], / [Agent]
-    cleaned = re.sub(r"/\s*\[\s*[^\]]+\s*\]\s*$", "", cleaned.strip())
-    return cleaned.strip()
+    cleaned = content.strip()
+    trailing_patterns = (
+        re.compile(r"\s*\{(?:[^{}]*:\s*)?\d+(?:/\d+)?\}\s*$"),
+        re.compile(r"\s*⚠️\s*_?Fallback model used:\s*`[^`]+`\s*\(missing API key for\s*`[^`]+`\)_?\s*$"),
+        re.compile(r"\s*Skills used:\s*(?:\[[^\]]+\](?:,\s*)?)+\s*$", re.IGNORECASE),
+        re.compile(r"\s*/\s*\[\s*[^\]]+\s*\](?:\s+next)?[.!?]?\s*$", re.IGNORECASE),
+    )
+    while True:
+        prev = cleaned
+        for pattern in trailing_patterns:
+            cleaned = pattern.sub("", cleaned).strip()
+        if cleaned == prev:
+            break
+    return cleaned
+
+
+_LEADING_SPEAKER_RE = re.compile(r"^\s*\[([^\[\]\r\n]+)\]:\s*")
+
+
+def _extract_speaker_and_body(item: dict[str, Any] | Turn) -> tuple[str, str, str]:
+    """Extracts (role, speaker_name, body_without_duplicate_prefix) from a Turn or history dict."""
+    if isinstance(item, Turn):
+        role = item.role
+        raw_speaker = item.speaker
+        raw_body = item.content or ""
+    elif isinstance(item, dict):
+        role = item.get("role", "user")
+        raw_speaker = item.get("username") or ""
+        raw_body = item.get("content") or item.get("text") or ""
+    else:
+        return "user", "", ""
+
+    speaker_str = str(raw_speaker or "").strip()
+    body = str(raw_body or "")
+    extracted_name = ""
+
+    while True:
+        match = _LEADING_SPEAKER_RE.match(body)
+        if not match:
+            break
+        prefix_name = match.group(1).strip()
+        if not extracted_name:
+            extracted_name = prefix_name
+        body = body[match.end() :]
+
+    if extracted_name and (not speaker_str or speaker_str.lower() in ("assistant", "bot")):
+        speaker_str = extracted_name
+    elif not speaker_str:
+        speaker_str = role
+
+    return role, speaker_str, body
 
 
 _DEFAULT_SCRIBE_MODEL = "mistral/mistral-small-latest"
@@ -105,22 +151,14 @@ def _format_transcript(history: list[dict[str, Any]] | list[Turn]) -> tuple[str,
     transcript_lines: list[str] = []
     participating_speakers: list[str] = []
     for item in history:
-        if isinstance(item, Turn):
-            role = item.role
-            speaker = item.speaker
-            raw_c = item.content or ""
-        elif isinstance(item, dict):
-            role = item.get("role", "user")
-            speaker = item.get("username") or role
-            raw_c = item.get("content") or item.get("text") or ""
-        else:
+        if not isinstance(item, (Turn, dict)):
+            continue
+        raw_c = item.content if isinstance(item, Turn) else (item.get("content") or item.get("text") or "")
+        role, speaker_str, body = _extract_speaker_and_body(item)
+        if _is_orchestrator_noise(speaker_str, str(raw_c or "")):
             continue
 
-        speaker_str = str(speaker or "").strip()
-        if _is_orchestrator_noise(speaker_str, raw_c):
-            continue
-
-        cleaned_c = _clean_turn_content_for_scribe(raw_c)
+        cleaned_c = _clean_turn_content_for_scribe(body)
         if not cleaned_c or cleaned_c.lower().startswith("[orchestrator]:"):
             continue
         transcript_lines.append(f"[{speaker_str}]: {cleaned_c}")
@@ -361,7 +399,6 @@ class DiscussionScribe:
         kwargs: dict[str, Any] = {
             "model": resolved_model,
             "messages": messages,
-            "num_retries": 1,
         }
         if max_tokens is not None:
             kwargs["max_tokens"] = max_tokens
@@ -385,17 +422,18 @@ class DiscussionScribe:
 
         primary_model = resolve_model_with_fallback(self.model, log_context="SCRIBE").model
         resp = await self._invoke_llm(messages, model=primary_model)
-        choice = resp.choices[0]
-        msg = choice.message
-        raw_content = getattr(msg, "content", None)
+        total_pt, total_ct = _extract_token_counts(resp) if resp else (0, 0)
+        choices = getattr(resp, "choices", None) if resp else None
+        choice = choices[0] if choices else None
+        msg = getattr(choice, "message", None) if choice is not None else None
+        raw_content = getattr(msg, "content", None) if msg is not None else None
         text = raw_content.strip() if isinstance(raw_content, str) else ""
-        total_pt, total_ct = _extract_token_counts(resp)
         used_model = primary_model
 
         if not text:
-            finish_reason_raw = getattr(choice, "finish_reason", None)
+            finish_reason_raw = getattr(choice, "finish_reason", None) if choice is not None else None
             finish_reason = finish_reason_raw if isinstance(finish_reason_raw, str) else "unknown"
-            reasoning_raw = getattr(msg, "reasoning_content", None)
+            reasoning_raw = getattr(msg, "reasoning_content", None) if msg is not None else None
             reasoning_len = len(reasoning_raw) if isinstance(reasoning_raw, str) else 0
             raw_fallback = get_orchestrator_fast_model(fallback=primary_model) or primary_model
             fallback_model = resolve_model_with_fallback(raw_fallback, log_context="SCRIBE").model
@@ -414,16 +452,17 @@ class DiscussionScribe:
                     False,
                 )
 
-            retry_pt, retry_ct = _extract_token_counts(retry_resp)
+            retry_pt, retry_ct = _extract_token_counts(retry_resp) if retry_resp else (0, 0)
             total_pt += retry_pt
             total_ct += retry_ct
-            retry_choice = retry_resp.choices[0]
-            retry_msg = retry_choice.message
-            retry_content = getattr(retry_msg, "content", None)
+            retry_choices = getattr(retry_resp, "choices", None) if retry_resp else None
+            retry_choice = retry_choices[0] if retry_choices else None
+            retry_msg = getattr(retry_choice, "message", None) if retry_choice is not None else None
+            retry_content = getattr(retry_msg, "content", None) if retry_msg is not None else None
             text = retry_content.strip() if isinstance(retry_content, str) else ""
             used_model = fallback_model
             if not text:
-                retry_fr_raw = getattr(retry_choice, "finish_reason", None)
+                retry_fr_raw = getattr(retry_choice, "finish_reason", None) if retry_choice is not None else None
                 retry_fr = retry_fr_raw if isinstance(retry_fr_raw, str) else "unknown"
                 logger.warning(
                     f"[SCRIBE] Fallback model '{fallback_model}' also returned empty {label} output "
@@ -463,10 +502,11 @@ class DiscussionScribe:
         # Count agent turns (excluding Orchestrator system banners)
         assistant_turns = 0
         for item in history:
-            role = item.role if isinstance(item, Turn) else item.get("role")
-            speaker = item.speaker if isinstance(item, Turn) else (item.get("username") or role or "")
+            if not isinstance(item, (Turn, dict)):
+                continue
             raw_c = item.content if isinstance(item, Turn) else (item.get("content") or item.get("text") or "")
-            if role == "assistant" and not _is_orchestrator_noise(str(speaker), str(raw_c or "")):
+            role, speaker, _ = _extract_speaker_and_body(item)
+            if role == "assistant" and not _is_orchestrator_noise(speaker, str(raw_c or "")):
                 assistant_turns += 1
 
         extra_len_instruction = _build_length_instruction(scribe_max_words, scribe_min_words, "synthesis note")

@@ -33,6 +33,10 @@ SAFE_INHERITED_VARS: set[str] = {
     "TEMP",
     "TMP",
     "USERPROFILE",
+    "HOMEDRIVE",
+    "HOMEPATH",
+    "PROCESSOR_ARCHITECTURE",
+    "USERNAME",
     "COMSPEC",
     "PATHEXT",
     "WINDIR",
@@ -59,15 +63,18 @@ def build_safe_stdio_env(
 
     Preserves safe system variables (e.g. PATH, SYSTEMROOT, TEMP), sets UTF-8
     encoding variables, merges explicitly allowed extra_env, and unconditionally
-    strips Izvor internal secrets.
+    strips Izvor internal secrets (case-insensitively).
     """
     clean_env: dict[str, str] = {}
     active_base = base_env if base_env is not None else os.environ
+    safe_upper = {v.upper() for v in SAFE_INHERITED_VARS}
+    blocked_upper = {v.upper() for v in BLOCKED_ENV_VARS}
 
-    # 1. Inherit safe system variables from current environment
-    for var in SAFE_INHERITED_VARS:
-        if var in active_base:
-            clean_env[var] = active_base[var]
+    # 1. Inherit safe system variables from current environment (case-insensitive)
+    for k, v in active_base.items():
+        key_upper = str(k).upper()
+        if key_upper in safe_upper and key_upper not in blocked_upper:
+            clean_env[str(k)] = str(v)
 
     # 2. Set default UTF-8 encoding for Python / CLI children
     clean_env["PYTHONIOENCODING"] = "utf-8"
@@ -76,12 +83,14 @@ def build_safe_stdio_env(
     # 3. Merge explicitly configured extra_env (e.g. API keys for the specific MCP server)
     if extra_env:
         for k, v in extra_env.items():
-            if str(k).strip():
-                clean_env[str(k).strip()] = str(v)
+            key_str = str(k).strip()
+            if key_str:
+                clean_env[key_str] = str(v)
 
-    # 4. Strip forbidden sensitive variables unconditionally
-    for blocked in BLOCKED_ENV_VARS:
-        clean_env.pop(blocked, None)
+    # 4. Strip forbidden sensitive variables unconditionally (case-insensitive)
+    for k in list(clean_env.keys()):
+        if k.upper() in blocked_upper:
+            del clean_env[k]
 
     return clean_env
 
@@ -141,6 +150,21 @@ def assign_process_to_windows_job_object(pid: int) -> Any:
             ]
 
         kernel32 = ctypes.windll.kernel32
+        kernel32.CreateJobObjectW.argtypes = [wintypes.LPVOID, wintypes.LPCWSTR]
+        kernel32.CreateJobObjectW.restype = wintypes.HANDLE
+        kernel32.SetInformationJobObject.argtypes = [
+            wintypes.HANDLE,
+            ctypes.c_int,
+            wintypes.LPVOID,
+            wintypes.DWORD,
+        ]
+        kernel32.SetInformationJobObject.restype = wintypes.BOOL
+        kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        kernel32.OpenProcess.restype = wintypes.HANDLE
+        kernel32.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
+        kernel32.AssignProcessToJobObject.restype = wintypes.BOOL
+        kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+        kernel32.CloseHandle.restype = wintypes.BOOL
 
         # Create Job Object
         hJob = kernel32.CreateJobObjectW(None, None)
@@ -185,4 +209,36 @@ def assign_process_to_windows_job_object(pid: int) -> Any:
     except Exception as e:  # noqa: BLE001
         logger.warning(f"[MCP_PROCESS] Error configuring Windows Job Object for PID {pid}: {e}")
         return None
+
+
+def close_windows_job_handle(h_job: Any) -> bool:
+    """Closes a Windows Job Object handle (terminating child processes when KILL_ON_JOB_CLOSE is set)."""
+    if sys.platform != "win32" or not h_job:
+        return False
+    try:
+        if h_job in _ACTIVE_JOB_HANDLES:
+            _ACTIVE_JOB_HANDLES.remove(h_job)
+    except ValueError:
+        pass
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        kernel32 = ctypes.windll.kernel32
+        kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+        kernel32.CloseHandle.restype = wintypes.BOOL
+        return bool(kernel32.CloseHandle(h_job))
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"[MCP_PROCESS] Error closing Windows Job Object handle: {e}")
+        return False
+
+
+def close_all_windows_job_handles() -> int:
+    """Closes all tracked Windows Job Object handles and returns the count closed."""
+    closed = 0
+    for handle in list(_ACTIVE_JOB_HANDLES):
+        if close_windows_job_handle(handle):
+            closed += 1
+    _ACTIVE_JOB_HANDLES.clear()
+    return closed
 

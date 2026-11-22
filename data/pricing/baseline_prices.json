@@ -174,28 +174,28 @@
     "source": "Groq Pricing",
     "source_url": "https://groq.com/pricing"
   },
-  "together_ai/deepseek-ai/DeepSeek-V4-Pro": {
+  "together_ai/deepseek-ai/deepseek-v4-pro": {
     "input_price_per_1m": 0.55,
     "output_price_per_1m": 2.19,
     "currency": "USD",
     "source": "Together AI Pricing",
     "source_url": "https://www.together.ai/pricing"
   },
-  "together_ai/deepseek-ai/DeepSeek-V4-Flash": {
+  "together_ai/deepseek-ai/deepseek-v4-flash": {
     "input_price_per_1m": 0.14,
     "output_price_per_1m": 0.28,
     "currency": "USD",
     "source": "Together AI Pricing",
     "source_url": "https://www.together.ai/pricing"
   },
-  "together_ai/meta-llama/Llama-4-Scout": {
+  "together_ai/meta-llama/llama-4-scout": {
     "input_price_per_1m": 0.50,
     "output_price_per_1m": 1.50,
     "currency": "USD",
     "source": "Together AI Pricing",
     "source_url": "https://www.together.ai/pricing"
   },
-  "together_ai/meta-llama/Llama-3.3-70B-Instruct-Turbo": {
+  "together_ai/meta-llama/llama-3.3-70b-instruct-turbo": {
     "input_price_per_1m": 0.88,
     "output_price_per_1m": 0.88,
     "currency": "USD",

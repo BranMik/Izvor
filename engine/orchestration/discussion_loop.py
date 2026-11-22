@@ -77,6 +77,7 @@ class DiscussionLoop:
         accumulated_history: list[dict[str, Any]] | None = None,
         target_agent_override: str | None = None,
         is_bot_trigger: bool = False,
+        guardrail_checked: bool = False,
     ) -> dict[str, Any]:
         """
         Runs or continues a multi-agent discussion.
@@ -103,9 +104,12 @@ class DiscussionLoop:
 
             if initial_turn_res is None:
                 # --- FRESH START ---
-                # 1. Fetch initial thread history from Slack once
-                history_list = await fetch_thread_history(channel_id, thread_ts, bot_user_id=bot_user_id)
-                accumulated_history = list(history_list)
+                # 1. Fetch initial thread history from Slack once (preserve accumulated_history on multi-round recursion)
+                if accumulated_history is None:
+                    history_list = await fetch_thread_history(channel_id, thread_ts, bot_user_id=bot_user_id)
+                    accumulated_history = list(history_list)
+                else:
+                    accumulated_history = list(accumulated_history)
 
                 # Ensure user prompt is in accumulated_history so subsequent agents see it
                 if (
@@ -126,18 +130,29 @@ class DiscussionLoop:
                     thread_state_manager.set_workflow_snapshot(channel_id, thread_ts, get_workflow_snapshot())
 
                 # 2. Run first turn with user prompt
-                turn_res = await self.turn_executor(
-                    channel_id=channel_id,
-                    thread_ts=thread_ts,
-                    raw_text=initial_raw_text,
-                    bot_user_id=bot_user_id,
-                    icon_url=icon_url,
-                    is_bot_trigger=is_bot_trigger,
-                    run_internal_loop=False,
-                    in_memory_history=accumulated_history,
-                    user_id=user_id,
-                    target_agent_override=target_agent_override,
-                )
+                turn_kwargs: dict[str, Any] = {
+                    "channel_id": channel_id,
+                    "thread_ts": thread_ts,
+                    "raw_text": initial_raw_text,
+                    "bot_user_id": bot_user_id,
+                    "icon_url": icon_url,
+                    "is_bot_trigger": is_bot_trigger,
+                    "run_internal_loop": False,
+                    "in_memory_history": accumulated_history,
+                    "user_id": user_id,
+                    "target_agent_override": target_agent_override,
+                }
+                if guardrail_checked:
+                    try:
+                        sig = inspect.signature(self.turn_executor)
+                        if "guardrail_checked" in sig.parameters or any(
+                            p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
+                        ):
+                            turn_kwargs["guardrail_checked"] = True
+                    except (TypeError, ValueError):
+                        pass
+
+                turn_res = await self.turn_executor(**turn_kwargs)
 
                 last_res = turn_res
                 if "agent_key" in turn_res and turn_res["agent_key"]:
@@ -154,16 +169,16 @@ class DiscussionLoop:
                 if turn_res.get("revisor_warning"):
                     accumulated_history.append(
                         {
-                            "role": "system",
-                            "content": f"[Internal Revisor Warning]: {turn_res['revisor_warning']}",
+                            "role": "user",
+                            "content": f"[System Notification — Internal Revisor Warning]: {turn_res['revisor_warning']}",
                         }
                     )
 
                 try:
-                    from services.flat_history_recorder import record_flat_history
+                    from services.flat_history_recorder import async_record_flat_history
 
                     init_p = thread_state_manager.get_initial_prompt(channel_id, thread_ts) or initial_raw_text
-                    record_flat_history(
+                    await async_record_flat_history(
                         channel_id=channel_id,
                         thread_ts=thread_ts,
                         initial_prompt=init_p,
@@ -203,12 +218,36 @@ class DiscussionLoop:
                         )
 
                         async def _run_scatter_branch(agent_k: str) -> ScatterBranchResult:
+                            from orchestration.app_settings import (
+                                get_circuit_breaker_threshold,
+                                get_daily_budget_usd,
+                                is_circuit_breaker_enabled,
+                            )
+
                             reservation_key = f"{channel_id}:{thread_ts}:{agent_k}"
-                            spend_governance.reserve_budget(
+                            reserved = spend_governance.reserve_budget(
                                 session_id=f"{channel_id}:{thread_ts}",
                                 reservation_id=reservation_key,
                                 estimated_usd=0.05,
+                                threshold_usd=get_circuit_breaker_threshold(),
+                                daily_budget_usd=get_daily_budget_usd(),
+                                enabled=is_circuit_breaker_enabled(),
                             )
+                            if not reserved:
+                                logger.warning(
+                                    f"[ORCHESTRATOR] Budget reservation denied for scatter branch {agent_k} in {thread_key}."
+                                )
+                                return ScatterBranchResult(
+                                    agent_key=agent_k,
+                                    response={
+                                        "ok": True,
+                                        "circuit_breaker_triggered": True,
+                                        "halted": True,
+                                        "is_completed": True,
+                                        "agent_key": agent_k,
+                                    },
+                                    error=None,
+                                )
                             try:
                                 branch_history = copy.deepcopy(accumulated_history)
                                 branch_kwargs = {
@@ -328,10 +367,10 @@ class DiscussionLoop:
                                     spoken_agents.add(gather_agent)
 
                         try:
-                            from services.flat_history_recorder import record_flat_history
+                            from services.flat_history_recorder import async_record_flat_history
 
                             init_p = thread_state_manager.get_initial_prompt(channel_id, thread_ts) or initial_raw_text
-                            record_flat_history(
+                            await async_record_flat_history(
                                 channel_id=channel_id,
                                 thread_ts=thread_ts,
                                 initial_prompt=init_p,
@@ -349,6 +388,9 @@ class DiscussionLoop:
                                 if not round_seq:
                                     round_seq = list(scatter_agents) + list(end_chain)
                                 thread_state_manager.set_remaining_agents(channel_id, thread_ts, round_seq)
+                                thread_state_manager.set_consensus_reached(channel_id, thread_ts, False)
+                                thread_state_manager.clear_convergence_speakers(channel_id, thread_ts)
+                                thread_state_manager.evidence.clear_thread_evidence(channel_id, thread_ts)
                                 next_prompt = (
                                     last_res.get("final_text", "")
                                     if isinstance(last_res, dict)
@@ -390,8 +432,8 @@ class DiscussionLoop:
                 if turn_res.get("revisor_warning"):
                     accumulated_history.append(
                         {
-                            "role": "system",
-                            "content": f"[Internal Revisor Warning]: {turn_res['revisor_warning']}",
+                            "role": "user",
+                            "content": f"[System Notification — Internal Revisor Warning]: {turn_res['revisor_warning']}",
                         }
                     )
 
@@ -402,10 +444,10 @@ class DiscussionLoop:
 
                 if turn_res.get("halted") or turn_res.get("cancelled") or turn_res.get("is_completed"):
                     try:
-                        from services.flat_history_recorder import record_flat_history
+                        from services.flat_history_recorder import async_record_flat_history
 
                         init_p = thread_state_manager.get_initial_prompt(channel_id, thread_ts) or initial_raw_text
-                        record_flat_history(
+                        await async_record_flat_history(
                             channel_id=channel_id,
                             thread_ts=thread_ts,
                             initial_prompt=init_p,
@@ -493,8 +535,8 @@ class DiscussionLoop:
                 if turn_res.get("revisor_warning"):
                     accumulated_history.append(
                         {
-                            "role": "system",
-                            "content": f"[Internal Revisor Warning]: {turn_res['revisor_warning']}",
+                            "role": "user",
+                            "content": f"[System Notification — Internal Revisor Warning]: {turn_res['revisor_warning']}",
                         }
                     )
 
@@ -531,10 +573,10 @@ class DiscussionLoop:
                 turn_num += 1
 
             try:
-                from services.flat_history_recorder import record_flat_history
+                from services.flat_history_recorder import async_record_flat_history
 
                 init_p = thread_state_manager.get_initial_prompt(channel_id, thread_ts) or initial_raw_text
-                record_flat_history(
+                await async_record_flat_history(
                     channel_id=channel_id,
                     thread_ts=thread_ts,
                     initial_prompt=init_p,

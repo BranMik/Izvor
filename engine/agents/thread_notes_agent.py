@@ -463,7 +463,6 @@ async def update_notes_for_thread(
     pins the conclusion note, and persists both notes to data/thread_notes/ (IZVOR_THREAD_NOTES_DIR).
     """
     lock = get_thread_lock(channel_id, thread_ts)
-    thread_key = (channel_id, thread_ts)
 
     from orchestration.app_settings import is_scribe_enabled
     if not is_scribe_enabled():
@@ -648,7 +647,8 @@ async def update_notes_for_thread(
                 # 5. Persist usable notes to data/thread_notes/ (IZVOR_THREAD_NOTES_DIR)
                 if formatted_text or formatted_conclusion_text:
                     try:
-                        save_thread_notes_to_disk(
+                        await asyncio.to_thread(
+                            save_thread_notes_to_disk,
                             channel_id=channel_id,
                             thread_ts=thread_ts,
                             initial_prompt=initial_prompt,
@@ -751,19 +751,19 @@ async def _notes_worker(
     picks up any pending updates queued while the worker was busy.
     """
     thread_key = (channel_id, thread_ts)
-    current_completed = is_completed
+    pending_initial_completed = is_completed
     try:
         while True:
             _PENDING_UPDATES[thread_key] = False
-            current_completed = current_completed or _PENDING_COMPLETED.get(
+            iter_completed = pending_initial_completed or _PENDING_COMPLETED.pop(
                 thread_key, False
             )
-            _PENDING_COMPLETED[thread_key] = False
+            pending_initial_completed = False
 
             await update_notes_for_thread(
                 channel_id=channel_id,
                 thread_ts=thread_ts,
-                is_completed=current_completed,
+                is_completed=iter_completed,
                 bot_user_id=bot_user_id,
             )
             if not _PENDING_UPDATES.get(thread_key, False):

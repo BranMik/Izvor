@@ -67,10 +67,54 @@ async def test_fetch_thread_history_filters_and_formats():
     assert history[1] == {"role": "user", "content": "What about SQLite for storage?"}
 
     # Message 3: assistant persona
-    assert history[2] == {"role": "assistant", "content": "[agent-10008]: SQLite is suitable for low-write embedded environments."}
+    assert history[2] == {
+        "role": "assistant",
+        "username": "agent-10008",
+        "content": "[agent-10008]: SQLite is suitable for low-write embedded environments.",
+    }
 
     # Message 4: matched by bot_user_id
-    assert history[3] == {"role": "assistant", "content": "[Assistant]: I agree with SecurityArchitect."}
+    assert history[3] == {
+        "role": "assistant",
+        "username": "Assistant",
+        "content": "[Assistant]: I agree with SecurityArchitect.",
+    }
+
+
+@pytest.mark.anyio
+async def test_fetch_thread_history_preserves_human_warning_emoji_and_filters_orchestrator():
+    """TKT-1215: human messages beginning with warning emoji are kept; Orchestrator bot banners are filtered."""
+    raw_messages = [
+        {"user": "U_HUMAN_1", "text": "⚠️ Why did our server alert fire?", "subtype": None},
+        {
+            "user": "U_BOT",
+            "text": "⚠️ *Ambiguous Agent Reference*: Please specify.",
+            "username": "Orchestrator",
+            "subtype": "bot_message",
+        },
+        {
+            "user": "U_BOT",
+            "text": "Checking telemetry now.\n\nSkills used: [web_search]\n\n{gemini/gemini-3.8-flash : 412/98}",
+            "username": "The Pragmatist",
+            "subtype": "bot_message",
+        },
+    ]
+
+    mock_client = AsyncMock()
+    mock_client.conversations_replies.return_value = {"ok": True, "messages": raw_messages}
+    configure_slack_async_client(mock_client)
+    try:
+        history = await slack_client.fetch_thread_history(
+            channel_id="C_TEST",
+            thread_ts="1700000000.0001",
+            bot_user_id="U_BOT",
+        )
+    finally:
+        reset_slack_async_client()
+
+    assert len(history) == 2
+    assert history[0] == {"role": "user", "content": "⚠️ Why did our server alert fire?"}
+    assert history[1]["username"] == "The Pragmatist"
 
 
 @pytest.mark.anyio

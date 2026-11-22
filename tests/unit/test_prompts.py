@@ -405,3 +405,19 @@ def test_configurable_output_constraints_from_system_settings():
     assert "Minimum Length: Your entire response must have a minimum length of 80 words." in min_only_override
     assert "Hard Limit:" not in min_only_override
     assert "<output_contract>" in min_only_override
+
+
+def test_build_agent_prompt_excludes_scribe_word_limits_and_included_agents():
+    """TKT-1219: Scribe-only word limits and included_agents modifiers do not leak into agent prompts."""
+    base_prompt = build_agent_prompt("agent-10008")
+    prompt = build_agent_prompt(
+        "agent-10008",
+        modifiers={
+            "scribe_max_words": 40,
+            "scribe_min_words": 20,
+            "included_agents": ["agent-10001"],
+        },
+    )
+    assert prompt == base_prompt
+    assert "40 words" not in prompt
+    assert "20 words" not in prompt

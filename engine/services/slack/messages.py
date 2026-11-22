@@ -277,11 +277,22 @@ async def fetch_thread_history(
         formatted_history: list[dict[str, str]] = []
         short_history_logging: list[dict[str, str]] = []
 
+        orch_username = "Orchestrator"
+        try:
+            from orchestration.agent_settings import settings_manager
+
+            orch_cfg = settings_manager.get_orchestrator_config()
+            if isinstance(orch_cfg, dict) and orch_cfg.get("username"):
+                orch_username = str(orch_cfg["username"])
+        except Exception:  # noqa: BLE001
+            pass
+
         for msg in messages:
             msg_text = msg.get("text", "")
             username = msg.get("username", "")
             subtype = msg.get("subtype")
             user_id = msg.get("user")
+            is_bot_msg = bool(subtype == "bot_message" or username or (bot_user_id and user_id == bot_user_id))
 
             # Ignore ephemeral status messages from thread conversation history
             if msg_text.strip().startswith(("_🔍", "_🌐", "_⚡", "_⏳")):
@@ -289,10 +300,18 @@ async def fetch_thread_history(
 
             # Ignore internal system warnings, test runner cards, and scribe summaries from LLM history
             if (
-                username in ("Panel System", "E2E Test Runner", "Live Discussion Scribe", "Discussion Conclusion")
+                username
+                in (
+                    "Panel System",
+                    "Orchestrator",
+                    orch_username,
+                    "E2E Test Runner",
+                    "Live Discussion Scribe",
+                    "Discussion Conclusion",
+                )
                 or msg.get("is_scribe_note")
                 or msg.get("is_conclusion_note")
-                or msg_text.strip().startswith(("⚠️", "⚙️", "🔒", "🗑️", "🧪"))
+                or (is_bot_msg and msg_text.strip().startswith(("⚠️", "⚙️", "🔒", "🗑️", "🧪")))
             ):
                 continue
 
@@ -300,10 +319,10 @@ async def fetch_thread_history(
             clean_text = re.sub(r"^👤\s*\*?Follow-up Prompt:\*?\s*\n?>?\s*", "", msg_text)
 
             # Determine role
-            if subtype == "bot_message" or username or user_id == bot_user_id:
+            if is_bot_msg:
                 persona_name = username if username else "Assistant"
                 formatted_history.append(
-                    {"role": "assistant", "content": f"[{persona_name}]: {clean_text}"}
+                    {"role": "assistant", "username": persona_name, "content": f"[{persona_name}]: {clean_text}"}
                 )
                 short_history_logging.append(
                     {

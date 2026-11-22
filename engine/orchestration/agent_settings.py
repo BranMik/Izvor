@@ -1,7 +1,6 @@
 import copy
 import json
 import logging
-import os
 import threading
 import time
 from pathlib import Path
@@ -214,7 +213,7 @@ class AgentSettingsManager:
         self._custom_system_agent_backup_file = False
         self.default_settings_file = SETTINGS_FILE
         self.default_backup_file = BACKUP_FILE
-        self.default_system_agent_settings_file = DEFAULT_SYSTEM_AGENT_SETTINGS_FILE
+        self.default_system_agent_settings_file = SYSTEM_AGENT_SETTINGS_FILE
         self.default_system_agent_backup_file = SYSTEM_AGENT_BACKUP_FILE
         self._custom_challenger_agent = None
         self._custom_arbitrator_agent = None
@@ -463,9 +462,11 @@ class AgentSettingsManager:
             logger.error(f"[SETTINGS] Zero valid agents found in {source_name}. Validation failed.")
             return False
 
-        # Update agents_config in-place so all imported references stay synced
-        self.agents_config.clear()
-        self.agents_config.update(valid_agents)
+        # Upsert then prune removed keys so readers never observe an empty agents_config dict
+        self._agents_config.update(valid_agents)
+        for stale_key in list(self._agents_config.keys()):
+            if stale_key not in valid_agents:
+                self._agents_config.pop(stale_key, None)
 
         # Parse orchestrator config if explicitly present in payload
         if "orchestrator" in data and isinstance(data["orchestrator"], dict):
@@ -525,8 +526,7 @@ class AgentSettingsManager:
             # If enabled_agents is omitted, default to all valid agents
             valid_enabled = set(self.agents_config.keys())
 
-        self.enabled_agents.clear()
-        self.enabled_agents.update(valid_enabled)
+        self.enabled_agents = set(valid_enabled)
 
         logger.info(
             f"[SETTINGS] Successfully validated payload from {source_name}: "
@@ -709,6 +709,10 @@ class AgentSettingsManager:
         - Loads from emergency backup into memory without modifying the broken active file.
         - Sets is_running_from_backup = True.
         """
+        with self._save_lock:
+            return self._load_unlocked()
+
+    def _load_unlocked(self) -> set[str]:
         # Load system agent settings
         self._load_and_validate_system_agent_settings()
 

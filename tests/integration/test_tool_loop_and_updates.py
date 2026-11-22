@@ -1,6 +1,6 @@
 import asyncio
 import json
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -120,6 +120,10 @@ async def test_delayed_intermediate_status_and_inplace_update():
         tool_executor=delayed_tool,
         slack_poster=mock_post_agent,
         update_message_fn=mock_update_msg,
+        notes_updater=MagicMock(),
+        usage_updater=MagicMock(),
+        flat_history_recorder=AsyncMock(),
+        token_recorder=MagicMock(),
         debate_turn_pacing_seconds=0.0,
         slack_post_pause_seconds=0.0,
     )
@@ -143,16 +147,13 @@ async def test_delayed_intermediate_status_and_inplace_update():
     assert "is searching the web" in mock_post_agent.call_args[1]["text"]
 
     # Now run stage_post_and_record to verify in-place update
-    with patch("orchestration.turn_pipeline.record_thread_tokens"), \
-         patch("orchestration.turn_pipeline.trigger_thread_notes_update"), \
-         patch("orchestration.turn_pipeline.trigger_usage_update"):
-        post_res = await pipeline.post_record_stage.stage_post_and_record(ctx)
-        assert post_res.get("ok") is True
-        mock_update_msg.assert_called_once()
-        call_kwargs = mock_update_msg.call_args[1]
-        assert call_kwargs["channel_id"] == "C_TEST"
-        assert call_kwargs["ts"] == "11111.0001"
-        assert "Here is the final answer about AI 2026." in call_kwargs["text"]
+    post_res = await pipeline.post_record_stage.stage_post_and_record(ctx)
+    assert post_res.get("ok") is True
+    mock_update_msg.assert_called_once()
+    call_kwargs = mock_update_msg.call_args[1]
+    assert call_kwargs["channel_id"] == "C_TEST"
+    assert call_kwargs["ts"] == "11111.0001"
+    assert "Here is the final answer about AI 2026." in call_kwargs["text"]
 
 
 @pytest.mark.anyio
@@ -178,6 +179,10 @@ async def test_delayed_status_on_long_initial_thinking_without_tools():
         llm_executor=slow_thinking_llm,
         slack_poster=mock_post_agent,
         update_message_fn=mock_update_msg,
+        notes_updater=MagicMock(),
+        usage_updater=MagicMock(),
+        flat_history_recorder=AsyncMock(),
+        token_recorder=MagicMock(),
         debate_turn_pacing_seconds=0.0,
         slack_post_pause_seconds=0.0,
     )
@@ -199,13 +204,10 @@ async def test_delayed_status_on_long_initial_thinking_without_tools():
     mock_post_agent.assert_called_once()
     assert "SecurityArchitect* is analyzing data" in mock_post_agent.call_args[1]["text"]
 
-    with patch("orchestration.turn_pipeline.record_thread_tokens"), \
-         patch("orchestration.turn_pipeline.trigger_thread_notes_update"), \
-         patch("orchestration.turn_pipeline.trigger_usage_update"):
-        post_res = await pipeline.post_record_stage.stage_post_and_record(ctx)
-        assert post_res.get("ok") is True
-        mock_update_msg.assert_called_once()
-        assert "Deep reasoning conclusion without tools." in mock_update_msg.call_args[1]["text"]
+    post_res = await pipeline.post_record_stage.stage_post_and_record(ctx)
+    assert post_res.get("ok") is True
+    mock_update_msg.assert_called_once()
+    assert "Deep reasoning conclusion without tools." in mock_update_msg.call_args[1]["text"]
 
 
 @pytest.mark.anyio

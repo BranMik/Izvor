@@ -13,7 +13,6 @@ import time
 from typing import TYPE_CHECKING, Any
 
 from agents import (
-    record_thread_tokens,
     trigger_thread_notes_update,
     trigger_usage_update,
 )
@@ -236,6 +235,15 @@ class PostRecordStage:
                     ctx.eligible_remaining_agents = [next_speaker]
                     thread_state_manager.set_remaining_agents(
                         ctx.input.channel_id, ctx.input.thread_ts, list(round_seq)
+                    )
+                    thread_state_manager.set_consensus_reached(
+                        ctx.input.channel_id, ctx.input.thread_ts, False
+                    )
+                    thread_state_manager.clear_convergence_speakers(
+                        ctx.input.channel_id, ctx.input.thread_ts
+                    )
+                    thread_state_manager.evidence.clear_thread_evidence(
+                        ctx.input.channel_id, ctx.input.thread_ts
                     )
                     ctx.force_termination = False
                     logger.info(

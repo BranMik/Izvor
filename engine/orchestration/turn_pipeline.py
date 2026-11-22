@@ -14,14 +14,10 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from typing import Any
 
-from agents import (
-    record_thread_tokens,
-    trigger_thread_notes_update,
-    trigger_usage_update,
-)
+from agents import record_thread_tokens
 
 __all__ = [
     "TurnContext",
@@ -85,6 +81,8 @@ class TurnOutput:
     final_text: str = ""
     total_prompt_tokens: int = 0
     total_completion_tokens: int = 0
+    persisted_prompt_tokens: int = 0
+    persisted_completion_tokens: int = 0
     skills_used: list[str] = field(default_factory=list)
     generated_tags: list[str] = field(default_factory=list)
     slack_res: dict[str, Any] | None = None
@@ -341,6 +339,8 @@ class TurnContext:
                         prompt_tokens=prompt_tokens,
                         completion_tokens=completion_tokens,
                     )
+                    self.output.persisted_prompt_tokens += prompt_tokens
+                    self.output.persisted_completion_tokens += completion_tokens
                 except Exception as ex:  # noqa: BLE001
                     logger.debug(f"[TURN CONTEXT] Failed to record usage delta: {ex}")
 
@@ -749,6 +749,8 @@ class TurnPipeline:
 
     async def _execute_revisor_barrier(self, ctx: TurnContext, slack_res: Any) -> None:
         """Executes InternalRevisor within the configured system-agent timeout barrier."""
+        if getattr(ctx.input, "isolated_branch", False):
+            return
         timeout_secs = 20.0
         try:
             from core.config import is_internal_revisor_enabled

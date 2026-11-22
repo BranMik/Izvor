@@ -220,7 +220,7 @@ def parse_token(slash_cmd: str, text: str) -> tuple[bool, str | None, str]:
         return False, None, ""
 
     pattern = re.compile(
-        rf"(?:^|[\r\n\s]){re.escape(slash_cmd)}(?![-_])\s*[:=]?\s*(?:/?\[?([a-zA-Z0-9_-]+)\]?|(all)\b)?",
+        rf"(?:^|[\r\n\s]){re.escape(slash_cmd)}(?![a-zA-Z0-9_-])\s*[:=]?\s*(?:/?\[?([a-zA-Z0-9_-]+)\]?|(all)\b)?",
         re.IGNORECASE,
     )
     match = pattern.search(text)

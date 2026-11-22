@@ -243,7 +243,7 @@ async def test_hitl_approval_aborts_when_consume_tool_approval_fails_and_audits(
     with (
         patch("services.hitl.consume_tool_approval", return_value=False),
         patch("skills.loader.skill_registry.execute_tool_async", new_callable=AsyncMock) as mock_exec,
-        patch("adapters.slack.actions.hitl_actions.log_audit_event", side_effect=lambda **kw: logged_events.append(kw)),
+        patch("services.audit_logger.log_audit_event", side_effect=lambda **kw: logged_events.append(kw)),
         patch("adapters.slack.actions.hitl_actions.post_message_to_slack", AsyncMock(return_value={"ok": True})) as mock_post,
     ):
         await _execute_and_resume_hitl_approval(req, user_id="U_ADMIN_1")

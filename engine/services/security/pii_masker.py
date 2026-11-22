@@ -811,7 +811,8 @@ class PIIMasker:
         """
         import asyncio
 
-        self._init_presidio_if_available()
+        if not self._presidio_initialized:
+            await asyncio.to_thread(self._init_presidio_if_available)
         if self._presidio_analyzer is not None:
             return await asyncio.to_thread(self.mask, text, existing_mapping)
         return self.mask(text, existing_mapping)

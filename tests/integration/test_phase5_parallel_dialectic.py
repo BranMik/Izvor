@@ -164,3 +164,121 @@ def test_orchestrate_discussion_parallel_scatter_gather():
     gather_call = [c for c in calls if c["agent"] == "agent-10006"][0]
     assert gather_call["history_snapshot_len"] == 4
     assert "Synthesize" in gather_call["raw_text"]
+
+
+def test_scatter_gather_context_prep_preserves_initial_prompt_and_synthesis_instruction():
+    """TKT-1218: Gather turn keeps user's initial prompt alongside explicit synthesis directive."""
+    from orchestration.stages.context_prep import ContextPrepStage
+    from orchestration.thread_state import thread_state_manager
+    from orchestration.turn_pipeline import TurnContext, TurnPipeline
+
+    ch = "C_TKT1218_GATHER"
+    ts = "1700005001.0001"
+    orig_mode = get_orchestration_mode()
+    orig_sandwich = get_sandwich_config()
+    thread_state_manager.cleanup_thread(ch, ts)
+
+    async def _run():
+        set_orchestration_mode("scatter_gather", save=False)
+        set_sandwich_config(["agent-10001"], ["agent-10006"], save=False)
+        thread_state_manager.set_initial_prompt(ch, ts, "Compare Redis vs Memcached")
+
+        pipeline = TurnPipeline(history_fetcher=lambda *a, **k: [])
+        stage = ContextPrepStage(pipeline.deps)
+        ctx = TurnContext(
+            channel_id=ch,
+            thread_ts=ts,
+            raw_text="Synthesize the parallel specialist perspectives into a reconciled conclusion.",
+            is_bot_trigger=True,
+            target_agent_override="agent-10006",
+            in_memory_history=[{"role": "user", "content": "Compare Redis vs Memcached"}],
+        )
+        ctx.agent_key = "agent-10006"
+        ctx.agent_cfg = {"model": "test-model", "username": "Arbitrator", "system_prompt": "You are Arbitrator."}
+        ctx.prompt = "Synthesize the parallel specialist perspectives into a reconciled conclusion."
+        await stage.stage_prepare_context(ctx)
+        user_msg = ctx.messages[-1]["content"]
+        assert "Compare Redis vs Memcached" in user_msg
+        assert "[Synthesis Instruction]: Synthesize the parallel specialist perspectives" in user_msg
+
+    try:
+        asyncio.run(_run())
+    finally:
+        set_orchestration_mode(orig_mode, save=False)
+        if orig_sandwich:
+            set_sandwich_config(orig_sandwich.get("start_chain", []), orig_sandwich.get("end_chain", []), save=False)
+        thread_state_manager.cleanup_thread(ch, ts)
+
+
+def test_isolated_branch_skips_revisor_and_preserves_queue_and_multiround_history():
+    """TKT-1218: isolated_branch skips InternalRevisor and SQLite removal, and 2-round scatter-gather preserves Round 1 history."""
+    from unittest.mock import AsyncMock
+    from orchestration.discussion_loop import DiscussionLoop
+    from orchestration.stages.validation import ValidationStage
+    from orchestration.thread_state import thread_state_manager
+    from orchestration.turn_pipeline import TurnContext, TurnPipeline
+
+    ch = "C_TKT1218_ISOLATED"
+    ts = "1700005002.0001"
+    orig_mode = get_orchestration_mode()
+    orig_sandwich = get_sandwich_config()
+    thread_state_manager.cleanup_thread(ch, ts)
+
+    async def _run():
+        # 1. ValidationStage with isolated_branch=True preserves remaining_agents in SQLite
+        thread_state_manager.set_remaining_agents(ch, ts, ["agent-10002", "agent-10003", "agent-10006"])
+        val_stage = ValidationStage(TurnPipeline().deps)
+        vctx = TurnContext(
+            channel_id=ch,
+            thread_ts=ts,
+            raw_text="Analyze caching",
+            is_bot_trigger=True,
+            target_agent_override="agent-10002",
+            isolated_branch=True,
+        )
+        await val_stage.stage_validate_and_parse(vctx)
+        assert vctx.agent_key == "agent-10002"
+        assert thread_state_manager.get_remaining_agents(ch, ts) == ["agent-10002", "agent-10003", "agent-10006"]
+
+        # 2. _execute_revisor_barrier returns early without invoking run_internal_revisor when isolated_branch=True
+        pipeline = TurnPipeline()
+        with patch("orchestration.revisor_service.run_internal_revisor", new_callable=AsyncMock) as mock_rev:
+            await pipeline._execute_revisor_barrier(vctx, {"final_text": "branch"})
+            mock_rev.assert_not_awaited()
+
+        # 3. 2-round scatter-gather preserves Round 1 history into Round 2 without re-fetching Slack history
+        set_orchestration_mode("scatter_gather", save=False)
+        set_sandwich_config(["agent-10001"], ["agent-10006"], save=False)
+        thread_state_manager.set_rounds(ch, ts, 2)
+        thread_state_manager.set_round_sequence(ch, ts, ["agent-10002", "agent-10003", "agent-10006"])
+        thread_state_manager.set_remaining_agents(ch, ts, ["agent-10002", "agent-10003", "agent-10006"])
+
+        round2_seen_histories: list[list[dict]] = []
+
+        async def fake_exec(**kwargs):
+            agent_t = kwargs.get("target_agent_override") or "agent-10001"
+            hist = list(kwargs.get("in_memory_history") or [])
+            if thread_state_manager.get_rounds(ch, ts) == 1 and agent_t == "agent-10002":
+                round2_seen_histories.append(hist)
+            return {
+                "ok": True,
+                "agent_key": agent_t,
+                "username": agent_t,
+                "displayname": agent_t,
+                "final_text": f"ROUND1_TURN1 from {agent_t}" if thread_state_manager.get_rounds(ch, ts) == 2 else f"ROUND2 from {agent_t}",
+            }
+
+        loop = DiscussionLoop(turn_executor=fake_exec)
+        with patch("orchestration.discussion_loop.fetch_thread_history", AsyncMock(return_value=[])) as mock_fetch:
+            await loop.run(channel_id=ch, thread_ts=ts, initial_raw_text="Topic")
+            mock_fetch.assert_awaited_once()
+        assert len(round2_seen_histories) == 1
+        assert any("ROUND1_TURN1 from agent-10006" in str(m.get("content", "")) for m in round2_seen_histories[0])
+
+    try:
+        asyncio.run(_run())
+    finally:
+        set_orchestration_mode(orig_mode, save=False)
+        if orig_sandwich:
+            set_sandwich_config(orig_sandwich.get("start_chain", []), orig_sandwich.get("end_chain", []), save=False)
+        thread_state_manager.cleanup_thread(ch, ts)

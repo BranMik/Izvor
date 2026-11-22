@@ -71,7 +71,7 @@ async def test_three_round_five_word_croatian_test():
     configure_post_agent_response(mock_post_agent_response)
 
     # Mock language detection to return 'Croatian' for this initial text
-    async def mock_detect_language_llm(text):
+    async def mock_detect_language_llm(text, **_kwargs):
         if "test" in text.lower() or "rijeci" in text.lower() or "ovo" in text.lower():
             return "Croatian"
         return "English"

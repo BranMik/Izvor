@@ -1,8 +1,11 @@
 import asyncio
 from collections.abc import Callable
+import copy
 import inspect
 import json
 import logging
+import random
+import re
 from typing import Any
 
 import litellm
@@ -98,19 +101,30 @@ def set_pii_masker_instance(masker: Any) -> None:
     _pii_masker_instance = masker
 
 
+def _has_status_code(error_str: str, *codes: int) -> bool:
+    """Checks for HTTP status code tokens using word boundaries to avoid substring matches on IDs."""
+    pattern = r"\b(?:" + "|".join(str(code) for code in codes) + r")\b"
+    return re.search(pattern, error_str) is not None
+
+
 def _is_api_key_error_text(error_str: str, error_type: str) -> bool:
     """Checks whether exception text or type indicates a missing or invalid API key."""
+    is_auth_type = (
+        error_type in ("authenticationerror", "autherror", "permissiondeniederror", "unauthenticatederror")
+        or error_type.startswith("auth")
+        or error_type.endswith("autherror")
+        or "authentication" in error_type
+    )
     return (
-        "auth" in error_type
+        is_auth_type
         or "api_key" in error_str
         or "apikey" in error_str
         or "api key" in error_str
         or "missing credentials" in error_str
         or "authentication" in error_str
         or "unauthorized" in error_str
-        or "401" in error_str
+        or _has_status_code(error_str, 401, 403)
         or "forbidden" in error_str
-        or "403" in error_str
     )
 
 
@@ -118,9 +132,10 @@ def classify_agent_error(e: Exception) -> str:
     """
     Classifies an agent execution exception into one of:
     - 'rate_limit': 429 Too Many Requests, quota exceeded, or rate limit crossed.
-    - 'service_unavailable': 503 / 529 / overloaded / server temporarily unavailable / high demand spike.
+    - 'service_unavailable': 500 / 502 / 503 / 504 / 529 / overloaded / server temporarily unavailable / high demand spike.
     - 'api_key_not_found': Missing or invalid API key / authentication error.
     - 'model_not_found': Model does not exist or unknown model identifier.
+    - 'bad_request': Non-retryable 400 / 413 / 422 invalid request, context window, or content policy error.
     - 'general_error': Any other unexpected runtime exception.
     """
     error_str = str(e).lower()
@@ -128,7 +143,7 @@ def classify_agent_error(e: Exception) -> str:
 
     # 1. Type inspection against litellm.exceptions (auth/rate-limit/not-found first;
     #    check API-key wording before treating InternalServerError/APIConnectionError as 503
-    #    because LiteLLM wraps missing OpenAI/Meta/Perplexity/Gemini keys in those classes).
+    #    or BadRequestError as non-auth bad_request, because LiteLLM wraps missing keys there).
     try:
         if isinstance(e, litellm.exceptions.RateLimitError):
             return "rate_limit"
@@ -142,6 +157,19 @@ def classify_agent_error(e: Exception) -> str:
             return "api_key_not_found"
         if isinstance(e, litellm.exceptions.NotFoundError):
             return "model_not_found"
+        bad_request_types = tuple(
+            cls
+            for cls in (
+                getattr(litellm.exceptions, "BadRequestError", None),
+                getattr(litellm.exceptions, "ContextWindowExceededError", None),
+                getattr(litellm.exceptions, "ContentPolicyViolationError", None),
+            )
+            if cls is not None
+        )
+        if bad_request_types and isinstance(e, bad_request_types):
+            if _is_api_key_error_text(error_str, error_type):
+                return "api_key_not_found"
+            return "bad_request"
     except (AttributeError, TypeError):
         pass
 
@@ -158,6 +186,10 @@ def classify_agent_error(e: Exception) -> str:
             return "api_key_not_found"
         if status_code == 404:
             return "model_not_found"
+        if status_code in (400, 413, 422):
+            if _is_api_key_error_text(error_str, error_type):
+                return "api_key_not_found"
+            return "bad_request"
 
     # 3. API key / credential errors before 5xx / APIConnectionError checks
     if _is_api_key_error_text(error_str, error_type):
@@ -185,7 +217,7 @@ def classify_agent_error(e: Exception) -> str:
         "rate_limit" in error_str
         or "ratelimit" in error_str
         or "rate limit" in error_str
-        or "429" in error_str
+        or _has_status_code(error_str, 429)
         or "too many requests" in error_str
         or "resourceexhausted" in error_str
         or "resource_exhausted" in error_str
@@ -201,8 +233,9 @@ def classify_agent_error(e: Exception) -> str:
         or "capacityerror" in error_type
         or "service_unavailable" in error_str
         or "service unavailable" in error_str
-        or "503" in error_str
-        or "529" in error_str
+        or re.search(r"\b(?:http|status|code|error)[:\s=]*500\b|\b500\s+(?:internal|error|server)\b", error_str)
+        is not None
+        or _has_status_code(error_str, 502, 503, 504, 529)
         or "high demand" in error_str
         or "high_demand" in error_str
         or "overloaded" in error_str
@@ -219,11 +252,43 @@ def classify_agent_error(e: Exception) -> str:
         or "is not found" in error_str
         or "invalid model" in error_str
         or "unknown model" in error_str
-        or "404" in error_str
+        or _has_status_code(error_str, 404)
     ):
         return "model_not_found"
 
+    if (
+        "badrequest" in error_type
+        or "contextwindowexceeded" in error_type
+        or "contentpolicyviolation" in error_type
+        or "bad_request" in error_str
+        or "bad request" in error_str
+        or "context_length_exceeded" in error_str
+        or "context window" in error_str
+        or _has_status_code(error_str, 400, 413, 422)
+    ):
+        return "bad_request"
+
     return "general_error"
+
+
+def _calculate_backoff_delay(attempt: int) -> float:
+    """Computes exponential backoff delay (with bounded jitter outside deterministic test sleep injection)."""
+    base = float(get_llm_retry_backoff_base())
+    delay = base * (2 ** max(0, attempt - 1))
+    if _llm_sleep_fn is None:
+        delay += random.uniform(0.0, 0.25 * base)
+    return delay
+
+
+def _unmask_value(value: Any, masker: Any, mapping: dict[str, str]) -> Any:
+    """Recursively unmasks string values inside structured dict/list tool-call payloads."""
+    if isinstance(value, str):
+        return masker.unmask(value, mapping)
+    if isinstance(value, dict):
+        return {k: _unmask_value(v, masker, mapping) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_unmask_value(v, masker, mapping) for v in value]
+    return value
 
 
 def is_high_demand_503_error(e: Exception) -> bool:
@@ -246,17 +311,17 @@ async def execute_llm_with_retry(
     agent_key: str,
     thread_key: tuple[str, str],
     is_superseded_fn=None,
-    max_attempts: int = LLM_MAX_RETRIES,
+    max_attempts: int | None = None,
     allow_503_immediate_retry: bool = True,
     turn_token_mapping: dict[str, str] | None = None,
 ) -> Any:
     """
-    Executes an LLM call natively or via runner with automatic retries and exponential backoff.
-    Attempts up to `max_attempts` times before raising the last exception.
+    Executes an LLM call natively or via runner with single-layer exponential backoff retries.
+    Attempts up to `max_attempts` times (or dynamic `get_llm_max_retries()`) before raising.
     If `allow_503_immediate_retry` is False and a 503/high-demand error occurs on attempt 1,
     the exception is raised immediately to allow postponement and multi-agent rotation.
     """
-    import copy
+    effective_max_attempts = max(1, int(max_attempts if max_attempts is not None else get_llm_max_retries()))
 
     if _privacy_mode_provider is not None:
         try:
@@ -278,11 +343,10 @@ async def execute_llm_with_retry(
     masker = _pii_masker_instance
     active_mapping: dict[str, str] = turn_token_mapping if turn_token_mapping is not None else {}
 
-    # 1. Masking Phase
+    # 1. Masking Phase (never mutate caller's kwargs dict)
     if is_strict and masker and ("messages" in kwargs or "input" in kwargs):
-        # Create a deep copy to avoid mutating the original message/input arrays referenced elsewhere
-        kwargs = copy.deepcopy(kwargs)
-        for msg in kwargs.get("messages", []):
+        call_kwargs = copy.deepcopy(kwargs)
+        for msg in call_kwargs.get("messages", []):
             if isinstance(msg, dict) and msg.get("role") == "system":
                 continue
             if "content" in msg and isinstance(msg["content"], str):
@@ -308,11 +372,11 @@ async def execute_llm_with_retry(
                                 fn.arguments = masked_args
                             active_mapping.update(mapping)
 
-        if "input" in kwargs:
-            raw_input = kwargs["input"]
+        if "input" in call_kwargs:
+            raw_input = call_kwargs["input"]
             if isinstance(raw_input, str):
                 masked_input, mapping = await masker.async_mask(raw_input, existing_mapping=active_mapping)
-                kwargs["input"] = masked_input
+                call_kwargs["input"] = masked_input
                 active_mapping.update(mapping)
             elif isinstance(raw_input, list):
                 masked_items = []
@@ -323,20 +387,23 @@ async def execute_llm_with_retry(
                         active_mapping.update(mapping)
                     else:
                         masked_items.append(item)
-                kwargs["input"] = masked_items
+                call_kwargs["input"] = masked_items
+    else:
+        call_kwargs = dict(kwargs)
 
-    if "messages" in kwargs:
-        logger.debug(f"[LLM] Prepared prompt for {agent_key}: {kwargs.get('messages', [])}")
-    elif "input" in kwargs:
-        input_val = kwargs["input"]
+    if "messages" in call_kwargs:
+        logger.debug(f"[LLM] Prepared prompt for {agent_key}: {call_kwargs.get('messages', [])}")
+    elif "input" in call_kwargs:
+        input_val = call_kwargs["input"]
         count = len(input_val) if isinstance(input_val, list) else 1
         logger.debug(f"[LLM] Prepared embedding input ({count} item(s)) for {agent_key}")
 
-    # Enforce single retry layer: prevent underlying LiteLLM from retrying internally
-    kwargs.setdefault("num_retries", 0)
+    # Enforce single retry layer and bounded per-call timeout
+    call_kwargs["num_retries"] = 0
+    call_kwargs.setdefault("timeout", 120.0)
 
     last_error: Exception | None = None
-    for attempt in range(1, max_attempts + 1):
+    for attempt in range(1, effective_max_attempts + 1):
         if is_superseded_fn and is_superseded_fn():
             logger.info(
                 f"[LLM] Thread {thread_key} turn was superseded before LLM attempt {attempt}. Aborting."
@@ -346,10 +413,10 @@ async def execute_llm_with_retry(
         try:
             if attempt > 1:
                 logger.info(
-                    f"[LLM] Retrying LLM completion for {agent_key} (attempt {attempt}/{max_attempts})..."
+                    f"[LLM] Retrying LLM completion for {agent_key} (attempt {attempt}/{effective_max_attempts})..."
                 )
             active_func = _llm_completion_fn or func or litellm.acompletion
-            res = await _invoke_llm(active_func, kwargs)
+            res = await _invoke_llm(active_func, call_kwargs)
 
             # 2. Unmasking Phase
             if is_strict and active_mapping and hasattr(res, "choices") and res.choices and masker:
@@ -360,8 +427,16 @@ async def execute_llm_with_retry(
                         first_choice.message.content = unmasked_content
                     if hasattr(first_choice.message, "tool_calls") and first_choice.message.tool_calls:
                         for tc in first_choice.message.tool_calls:
-                            if hasattr(tc, "function") and hasattr(tc.function, "arguments") and isinstance(tc.function.arguments, str):
-                                tc.function.arguments = masker.unmask(tc.function.arguments, active_mapping)
+                            fn = tc.get("function") if isinstance(tc, dict) else getattr(tc, "function", None)
+                            if fn is None:
+                                continue
+                            args = fn.get("arguments") if isinstance(fn, dict) else getattr(fn, "arguments", None)
+                            if isinstance(args, (str, dict)):
+                                unmasked_args = _unmask_value(args, masker, active_mapping)
+                                if isinstance(fn, dict):
+                                    fn["arguments"] = unmasked_args
+                                else:
+                                    fn.arguments = unmasked_args
 
             if turn_token_mapping is not None:
                 turn_token_mapping.update(active_mapping)
@@ -373,32 +448,33 @@ async def execute_llm_with_retry(
         except (TimeoutError, asyncio.TimeoutError) as exc:
             last_error = exc
             logger.warning(
-                f"[LLM] Attempt {attempt}/{max_attempts} timed out for {agent_key}: {exc}"
+                f"[LLM] Attempt {attempt}/{effective_max_attempts} timed out for {agent_key}: {exc}"
             )
             sleep_call = _llm_sleep_fn or asyncio.sleep
-            if attempt < max_attempts:
-                await sleep_call(get_llm_retry_backoff_base() * attempt)
+            if attempt < effective_max_attempts:
+                await sleep_call(_calculate_backoff_delay(attempt))
             else:
                 raise last_error
         except Exception as exc:
             last_error = exc
             logger.warning(
-                f"[LLM] Attempt {attempt}/{max_attempts} failed for {agent_key}: {exc}"
+                f"[LLM] Attempt {attempt}/{effective_max_attempts} failed for {agent_key}: {exc}"
             )
-            if classify_agent_error(exc) == "api_key_not_found":
+            err_class = classify_agent_error(exc)
+            if err_class in ("api_key_not_found", "model_not_found", "bad_request"):
                 logger.info(
-                    f"[LLM] Missing or invalid API key detected for {agent_key}. Skipping retries."
+                    f"[LLM] Non-retryable error ({err_class}) detected for {agent_key}. Skipping retries."
                 )
                 raise
-            if not allow_503_immediate_retry and is_high_demand_503_error(exc):
+            if not allow_503_immediate_retry and err_class == "service_unavailable":
                 logger.info(
                     f"[LLM] 503 / High demand spike detected on first encounter for {agent_key}. Skipping immediate retry."
                 )
                 raise
 
             sleep_call = _llm_sleep_fn or asyncio.sleep
-            if attempt < max_attempts:
-                await sleep_call(get_llm_retry_backoff_base() * attempt)
+            if attempt < effective_max_attempts:
+                await sleep_call(_calculate_backoff_delay(attempt))
             else:
                 raise last_error
 

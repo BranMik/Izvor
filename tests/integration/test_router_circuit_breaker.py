@@ -330,3 +330,112 @@ async def test_circuit_breaker_resume_sequence_stage2_and_stage4_checkpoints(tmp
     finally:
         thread_state_manager.reset_task_dispatcher()
         set_admin_slack_user_ids_override(None)
+
+
+@pytest.mark.anyio
+async def test_mid_turn_budget_does_not_double_count_persisted_tokens():
+    """TKT-1214: _is_mid_turn_budget_exceeded subtracts already-persisted tokens and excludes own reservation."""
+    from orchestration.stages.execution import ExecutionStage
+    from orchestration.turn_pipeline import TurnContext, TurnPipeline
+    from pipeline.spend_governance.circuit_breaker import spend_governance
+    from services.pricing_service import pricing_service
+
+    channel_id = "C_CB_MIDTURN_NODUP"
+    thread_ts = "1700000300.0001"
+    session_id = f"{channel_id}:{thread_ts}"
+    model = "anthropic/claude-opus-5"
+    pricing = pricing_service.get_pricing(model)
+    in_rate = float(pricing["input_price_per_1m"])
+    out_rate = float(pricing["output_price_per_1m"])
+
+    # Choose token counts cleanly corresponding to ~$0.06 and ~$0.045 based on active model rates
+    prompt_toks_1 = int(round((0.06 / max(in_rate, 0.001)) * 1_000_000))
+    prompt_toks_2 = int(round((0.045 / max(in_rate, 0.001)) * 1_000_000))
+
+    set_circuit_breaker_enabled(True)
+    set_circuit_breaker_threshold(0.10)
+    spend_governance.clear_all_sessions()
+
+    pipeline = TurnPipeline()
+    stage = ExecutionStage(pipeline.deps)
+    ctx = TurnContext(
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        raw_text="Analyze budget",
+        agent_cfg={"model": model},
+    )
+    ctx.agent_key = "agent-10002"
+
+    # Simulate persisted spend from step 1 (~$0.06 < $0.10), plus an active own scatter reservation ($0.05)
+    spend_governance.reserve_budget(
+        session_id=session_id,
+        reservation_id=f"{session_id}:{ctx.agent_key}",
+        estimated_usd=0.05,
+        threshold_usd=0.50,
+        enabled=True,
+    )
+    try:
+        ctx.add_usage(MagicMock(model=model, usage={"prompt_tokens": prompt_toks_1, "completion_tokens": 0}))
+        assert ctx.output.persisted_prompt_tokens == prompt_toks_1
+        assert stage._is_mid_turn_budget_exceeded(ctx) is False
+
+        # Second tool iteration pushes real persisted spend to ~$0.105 >= $0.10
+        ctx.add_usage(MagicMock(model=model, usage={"prompt_tokens": prompt_toks_2, "completion_tokens": 0}))
+        assert stage._is_mid_turn_budget_exceeded(ctx) is True
+    finally:
+        spend_governance.clear_all_sessions()
+
+
+@pytest.mark.anyio
+async def test_scatter_gather_enforces_reserve_budget_with_tight_threshold():
+    """TKT-1214: scatter-gather branches check reserve_budget() against thread threshold and halt excess branches."""
+    import asyncio
+    from orchestration.discussion_loop import DiscussionLoop
+    from pipeline.spend_governance.circuit_breaker import spend_governance
+
+    channel_id = "C_SCATTER_BUDGET"
+    thread_ts = "1700000400.0001"
+    thread_state_manager.cleanup_thread(channel_id, thread_ts)
+    spend_governance.clear_all_sessions()
+    configure_fetch_thread_history(AsyncMock(return_value=[]))
+
+    set_circuit_breaker_enabled(True)
+    set_circuit_breaker_threshold(0.11)  # Allows 2 x $0.05 reservations, denies the 3rd
+    set_orchestration_mode("scatter_gather", save=False)
+    set_sandwich_config(["agent-10001"], ["agent-10006"])
+    thread_state_manager.set_remaining_agents(
+        channel_id,
+        thread_ts,
+        ["agent-10002", "agent-10003", "agent-10004", "agent-10006"],
+    )
+
+    executed_scatter: list[str] = []
+
+    async def fake_executor(**kwargs):
+        agent_target = kwargs.get("target_agent_override") or "agent-10001"
+        if agent_target in ("agent-10002", "agent-10003", "agent-10004"):
+            executed_scatter.append(agent_target)
+            await asyncio.sleep(0)
+        return {
+            "ok": True,
+            "agent_key": agent_target,
+            "final_text": f"Output from {agent_target}",
+            "username": agent_target,
+            "channel_id": channel_id,
+            "thread_ts": thread_ts,
+        }
+
+    loop = DiscussionLoop(turn_executor=fake_executor, sleep_fn=async_noop_sleep)
+    try:
+        res = await loop.run(
+            channel_id=channel_id,
+            thread_ts=thread_ts,
+            initial_raw_text="Topic",
+        )
+        assert isinstance(res, dict)
+        assert res.get("circuit_breaker_triggered") is True
+        assert res.get("halted") is True
+        assert len(executed_scatter) == 2
+    finally:
+        spend_governance.clear_all_sessions()
+        thread_state_manager.cleanup_thread(channel_id, thread_ts)

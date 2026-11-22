@@ -464,6 +464,58 @@ def build_llm_messages(
             }
         )
 
+    conversation = _normalize_conversation_messages(conversation)
     system_item = {"role": "system", "content": system_prompt}
     return [system_item] + conversation
+
+
+def _normalize_conversation_messages(conversation: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """
+    Normalizes conversation history for strict cross-provider compatibility:
+    - Converts any mid-conversation `system` role messages into `user` notifications.
+    - Strips non-protocol metadata (e.g. Slack `username`) while keeping tool-call fields.
+    - Coalesces consecutive same-role messages (`user`+`user` or `assistant`+`assistant` without `tool_calls`).
+    - Ensures leading and trailing conversation items are `user` messages.
+    """
+    normalized: list[dict[str, Any]] = []
+    for raw_msg in conversation:
+        if not isinstance(raw_msg, dict):
+            continue
+        role = str(raw_msg.get("role") or "user")
+        content = raw_msg.get("content")
+        if role == "system":
+            role = "user"
+            content = f"[System Notification]: {content or ''}"
+
+        item: dict[str, Any] = {"role": role, "content": content if content is not None else ""}
+        for optional_key in ("tool_calls", "tool_call_id", "name"):
+            if optional_key in raw_msg and raw_msg[optional_key] is not None:
+                item[optional_key] = raw_msg[optional_key]
+
+        if (
+            normalized
+            and normalized[-1]["role"] == role
+            and role in ("user", "assistant")
+            and not normalized[-1].get("tool_calls")
+            and not item.get("tool_calls")
+        ):
+            prev_text = str(normalized[-1].get("content") or "")
+            curr_text = str(item.get("content") or "")
+            if prev_text and curr_text:
+                normalized[-1]["content"] = f"{prev_text}\n\n{curr_text}"
+            elif curr_text:
+                normalized[-1]["content"] = curr_text
+        else:
+            normalized.append(item)
+
+    if normalized and normalized[0]["role"] != "user":
+        normalized.insert(0, {"role": "user", "content": "Context from previous discussion in thread:"})
+    if normalized and normalized[-1]["role"] != "user":
+        normalized.append(
+            {
+                "role": "user",
+                "content": "Please evaluate the discussion above and provide your response in accordance with your role and instructions.",
+            }
+        )
+    return normalized
 

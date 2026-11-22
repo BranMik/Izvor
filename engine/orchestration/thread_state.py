@@ -467,32 +467,52 @@ class ThreadStateManager:
         new_gen = self.retry.increment_generation(channel_id, thread_ts)
         logger.info(f"[THREAD STATE] Interrupting discussion for thread {(channel_id, thread_ts)}. New generation: {new_gen}")
         self.discussion.cancel_active_task(channel_id, thread_ts)
-        self.discussion.clear_remaining_agents(channel_id, thread_ts)
+        self.discussion._update_fields(
+            channel_id,
+            thread_ts,
+            remaining_agents=None,
+            custom_flow=0,
+            open_debate=0,
+            stop_requested=0,
+            rounds=0,
+            workflow_snapshot=None,
+            is_pure_skill_task=0,
+            consensus_reached=0,
+            convergence_speakers="[]",
+        )
+        self.context._update_fields(
+            channel_id,
+            thread_ts,
+            history_limit_config=None,
+            file_context=None,
+        )
         self.retry.clear_retry_queue(channel_id, thread_ts)
         self.retry.clear_already_retried(channel_id, thread_ts)
         self.retry.clear_503_errored_agents(channel_id, thread_ts)
-        self.context.clear_history_limit(channel_id, thread_ts)
-        self.context.clear_file_context(channel_id, thread_ts)
-        self.discussion.clear_custom_flow(channel_id, thread_ts)
-        self.discussion.clear_stop(channel_id, thread_ts)
-        self.discussion.clear_rounds(channel_id, thread_ts)
-        self.discussion.clear_workflow_snapshot(channel_id, thread_ts)
-        self.discussion.clear_is_pure_skill_task(channel_id, thread_ts)
+        self.evidence.clear_thread_evidence(channel_id, thread_ts)
 
     def request_stop(self, channel_id: str, thread_ts: str) -> None:
         self._touch(channel_id, thread_ts)
         thread_key = (channel_id, thread_ts)
-        self.discussion.request_stop(channel_id, thread_ts)
         self.discussion.cancel_active_task(channel_id, thread_ts)
-        self.discussion.clear_remaining_agents(channel_id, thread_ts)
+        self.discussion._update_fields(
+            channel_id,
+            thread_ts,
+            stop_requested=1,
+            remaining_agents=None,
+            custom_flow=0,
+            open_debate=0,
+            rounds=0,
+            workflow_snapshot=None,
+            is_pure_skill_task=0,
+            consensus_reached=0,
+            convergence_speakers="[]",
+        )
+        self.context._update_fields(channel_id, thread_ts, history_limit_config=None)
         self.retry.clear_retry_queue(channel_id, thread_ts)
         self.retry.clear_already_retried(channel_id, thread_ts)
         self.retry.clear_503_errored_agents(channel_id, thread_ts)
-        self.context.clear_history_limit(channel_id, thread_ts)
-        self.discussion.clear_custom_flow(channel_id, thread_ts)
-        self.discussion.clear_rounds(channel_id, thread_ts)
-        self.discussion.clear_workflow_snapshot(channel_id, thread_ts)
-        self.discussion.clear_is_pure_skill_task(channel_id, thread_ts)
+        self.evidence.clear_thread_evidence(channel_id, thread_ts)
         logger.info(f"[THREAD STATE] Stop requested for thread {thread_key}. Queues and limits cleared.")
         try:
             from agents import trigger_thread_notes_update, trigger_usage_update
@@ -515,16 +535,24 @@ class ThreadStateManager:
     def clear_round_execution_state(self, channel_id: str, thread_ts: str) -> None:
         """Clears ephemeral execution queue and tasks when a round or discussion concludes, preserving persistent context."""
         self._touch(channel_id, thread_ts)
-        self.discussion.clear_remaining_agents(channel_id, thread_ts)
-        self.discussion.clear_custom_flow(channel_id, thread_ts)
-        self.discussion.clear_stop(channel_id, thread_ts)
-        self.discussion.clear_rounds(channel_id, thread_ts)
-        self.discussion.clear_workflow_snapshot(channel_id, thread_ts)
-        self.discussion.clear_is_pure_skill_task(channel_id, thread_ts)
+        self.discussion._update_fields(
+            channel_id,
+            thread_ts,
+            remaining_agents=None,
+            custom_flow=0,
+            open_debate=0,
+            stop_requested=0,
+            rounds=0,
+            workflow_snapshot=None,
+            is_pure_skill_task=0,
+            consensus_reached=0,
+            convergence_speakers="[]",
+        )
         self.retry.clear_retry_queue(channel_id, thread_ts)
         self.retry.clear_already_retried(channel_id, thread_ts)
         self.retry.clear_503_errored_agents(channel_id, thread_ts)
-        self.context.clear_file_context(channel_id, thread_ts)
+        self.context._update_fields(channel_id, thread_ts, file_context=None)
+        self.evidence.clear_thread_evidence(channel_id, thread_ts)
         # Persistent context (language, max_words, min_words, scribe_max_words, scribe_min_words,
         # excluded_agents, included_agents, format_modifiers, round_sequences, initial_prompts)
         # remains intact for subsequent rounds.

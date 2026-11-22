@@ -174,3 +174,50 @@ def test_build_safe_stdio_env_strips_internal_secrets():
     for blocked in BLOCKED_ENV_VARS:
         assert blocked not in child_env
 
+
+def test_format_and_parse_long_and_delimited_mcp_tool_names():
+    """TKT-1223: Bidirectional registry preserves exact server/tool names even with '__', '.', and >64 chars."""
+    from services.mcp.schema_translator import clear_mcp_tool_name_registry
+
+    clear_mcp_tool_name_registry()
+    srv = "my__corp_server"
+    raw_tool = "namespace.read__user_profile_with_very_long_descriptive_identifier_v2"
+    namespaced = format_mcp_tool_name(srv, raw_tool)
+    assert len(namespaced) <= 64
+    assert is_mcp_namespaced_tool(namespaced) is True
+    assert parse_mcp_tool_name(namespaced) == (srv, raw_tool)
+
+    # Collision-safe truncation for two >64-char tools sharing an identical 60+ char prefix
+    tool_a = "very_long_tool_identifier_prefix_0123456789_0123456789_0123456_alpha"
+    tool_b = "very_long_tool_identifier_prefix_0123456789_0123456789_0123456_beta"
+    name_a = format_mcp_tool_name("long_server_name", tool_a)
+    name_b = format_mcp_tool_name("long_server_name", tool_b)
+    assert len(name_a) <= 64
+    assert len(name_b) <= 64
+    assert name_a != name_b
+    assert parse_mcp_tool_name(name_a) == ("long_server_name", tool_a)
+    assert parse_mcp_tool_name(name_b) == ("long_server_name", tool_b)
+
+
+def test_build_safe_stdio_env_case_insensitive_windows_filtering():
+    """TKT-1224: Windows env sanitization inherits Path/SystemRoot and strips secrets case-insensitively."""
+    base_env = {
+        "Path": "C:\\Windows\\System32",
+        "SystemRoot": "C:\\Windows",
+        "HomeDrive": "C:",
+        "slack_bot_token": "xoxb-lowercase-secret",
+        "Admin_Password": "mixed-case-password",
+    }
+    child_env = build_safe_stdio_env(
+        {"Slack_Signing_Secret": "extra-secret", "SAFE_TOOL_FLAG": "1"},
+        base_env=base_env,
+    )
+
+    assert child_env.get("Path") == "C:\\Windows\\System32"
+    assert child_env.get("SystemRoot") == "C:\\Windows"
+    assert child_env.get("HomeDrive") == "C:"
+    assert child_env.get("SAFE_TOOL_FLAG") == "1"
+    lower_keys = {k.lower() for k in child_env}
+    for blocked in BLOCKED_ENV_VARS:
+        assert blocked.lower() not in lower_keys
+

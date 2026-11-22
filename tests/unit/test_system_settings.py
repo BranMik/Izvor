@@ -327,4 +327,37 @@ def test_output_constraints_defaults_clamping_and_persistence(tmp_path):
     assert get_output_max_words(is_short=True) == 85
 
 
+def test_system_settings_init_registers_providers_and_persists_skill_sync(tmp_path):
+    """TKT-1220: __init__ registers core providers, persists skill_exclusions_sync_interval_seconds, and AgentSettingsManager.reset_paths restores SYSTEM_AGENT_SETTINGS_FILE."""
+    from core import database, llm_utils, slack_security
+    from core.paths import SYSTEM_AGENT_SETTINGS_FILE
+    from orchestration.agent_settings import AgentSettingsManager
+    from orchestration.system_settings import system_settings_manager
+
+    sys_file = tmp_path / "sys_settings.json"
+    sys_backup = tmp_path / "sys_backup.json"
+    try:
+        llm_utils.set_llm_retry_config_provider(None)
+        llm_utils.set_privacy_mode_provider(None)
+        database.set_db_busy_timeout_provider(None)
+        slack_security.set_burst_limits_provider(None)
+
+        mgr = SystemSettingsManager(settings_file=sys_file, backup_file=sys_backup, auto_load=True)
+        assert llm_utils._llm_retry_config_provider is not None
+        assert llm_utils._privacy_mode_provider is not None
+        assert database._db_busy_timeout_provider is not None
+        assert slack_security._burst_limits_provider is not None
+
+        mgr.set_skill_exclusions_sync_interval_seconds(1200.0, save=True)
+        mgr2 = SystemSettingsManager(settings_file=sys_file, backup_file=sys_backup, auto_load=True)
+        assert mgr2.get_skill_exclusions_sync_interval_seconds() == 1200.0
+    finally:
+        system_settings_manager._register_core_providers()
+
+    agent_mgr = AgentSettingsManager(auto_load=False)
+    agent_mgr.configure_paths(system_agent_settings_file=tmp_path / "custom_sys_agents.json")
+    agent_mgr.reset_paths()
+    assert agent_mgr.default_system_agent_settings_file == SYSTEM_AGENT_SETTINGS_FILE
+
+
 

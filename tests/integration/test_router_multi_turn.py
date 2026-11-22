@@ -681,20 +681,20 @@ async def test_process_and_respond_history_limit_subsequent_bot_rounds():
     # 0: system prompt
     # 1: context prefix (ensures start is user)
     # 2: Reply 2 (prior)
-    # 3: Message 3 (prior)
-    # 4: What now? (discussion prompt)
-    # 5: Visionary response... (discussion reply 1)
-    # 6: user turn prompting LegalAdvisor (ensures conversation ends with user)
-    assert len(captured_messages) == 7
+    # 3: Message 3 coalesced with What now? (prior consecutive user turns normalized)
+    # 4: Visionary response... (discussion reply 1)
+    # 5: user turn prompting LegalAdvisor (ensures conversation ends with user)
+    assert len(captured_messages) == 6
     assert captured_messages[0]["role"] == "system"
     assert captured_messages[1]["role"] == "user"
     assert captured_messages[2] == {"role": "assistant", "content": "Reply 2"}
-    assert captured_messages[3] == {"role": "user", "content": "Message 3"}
-    assert captured_messages[4] == {"role": "user", "content": "What now?"}
-    assert captured_messages[5]["role"] == "assistant"
-    assert "[Visionary]" in captured_messages[5]["content"]
-    assert captured_messages[6]["role"] == "user"
-    assert "You have been called to speak as" in captured_messages[6]["content"]
+    assert captured_messages[3]["role"] == "user"
+    assert "Message 3" in captured_messages[3]["content"]
+    assert "What now?" in captured_messages[3]["content"]
+    assert captured_messages[4]["role"] == "assistant"
+    assert "[Visionary]" in captured_messages[4]["content"]
+    assert captured_messages[5]["role"] == "user"
+    assert "You have been called to speak as" in captured_messages[5]["content"]
 
 
 @pytest.mark.anyio

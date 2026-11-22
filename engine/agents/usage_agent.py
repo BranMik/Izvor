@@ -1,10 +1,7 @@
 import asyncio
-import json
 import logging
-import os
 import time
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any
 
 from services.pricing_service import get_model_pricing
@@ -421,7 +418,6 @@ class ThreadUsageTracker:
         Asynchronously creates or updates the single dedicated usage report message
         inside the usage channel for the specified thread.
         """
-        thread_key = (channel_id, thread_ts)
         lock = self.get_lock(channel_id, thread_ts)
 
         async with lock:
@@ -495,19 +491,19 @@ class ThreadUsageTracker:
         picks up any pending updates queued while the worker was busy.
         """
         thread_key = (channel_id, thread_ts)
-        current_completed = is_completed
+        pending_initial_completed = is_completed
         try:
             while True:
                 self.pending_usage_updates[thread_key] = False
-                current_completed = current_completed or self.pending_usage_completed.get(
+                iter_completed = pending_initial_completed or self.pending_usage_completed.pop(
                     thread_key, False
                 )
-                self.pending_usage_completed[thread_key] = False
+                pending_initial_completed = False
 
                 await self.update_usage_for_thread(
                     channel_id=channel_id,
                     thread_ts=thread_ts,
-                    is_completed=current_completed,
+                    is_completed=iter_completed,
                 )
                 if not self.pending_usage_updates.get(thread_key, False):
                     break

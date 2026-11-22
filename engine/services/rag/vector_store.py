@@ -1,5 +1,6 @@
 import logging
 import re
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -54,6 +55,7 @@ class VectorStore:
         self.db_dir = db_dir
         self._db: Any = None
         self._table: Any = None
+        self._lock = threading.RLock()
 
     def _get_db(self) -> Any:
         if self._db is None:
@@ -65,17 +67,18 @@ class VectorStore:
 
     def get_or_create_table(self) -> Any:
         """Returns the LanceDB table, creating it if it doesn't already exist."""
-        if self._table is not None:
+        with self._lock:
+            if self._table is not None:
+                return self._table
+
+            db = self._get_db()
+            try:
+                self._table = db.open_table(TABLE_NAME)
+            except Exception:  # noqa: BLE001
+                self._table = db.create_table(TABLE_NAME, schema=RAG_SCHEMA)
+                self._ensure_fts_index(self._table)
+
             return self._table
-
-        db = self._get_db()
-        try:
-            self._table = db.open_table(TABLE_NAME)
-        except Exception:  # noqa: BLE001
-            self._table = db.create_table(TABLE_NAME, schema=RAG_SCHEMA)
-            self._ensure_fts_index(self._table)
-
-        return self._table
 
     def _ensure_fts_index(self, table: Any) -> None:
         """Creates or updates BM25 full-text index on the text column."""
@@ -88,8 +91,9 @@ class VectorStore:
 
     def rebuild_fts_index(self) -> None:
         """Explicitly recreates or updates the BM25 full-text index on the table."""
-        table = self.get_or_create_table()
-        self._ensure_fts_index(table)
+        with self._lock:
+            table = self.get_or_create_table()
+            self._ensure_fts_index(table)
 
     def insert_chunks(
         self,
@@ -101,54 +105,57 @@ class VectorStore:
         Inserts new chunks and their corresponding embedding vectors into LanceDB.
         If rebuild_index is False, index rebuilding is deferred to caller (e.g. batch ingestion).
         """
-        if not chunks or not vectors or len(chunks) != len(vectors):
-            return
+        with self._lock:
+            if not chunks or not vectors or len(chunks) != len(vectors):
+                return
 
-        table = self.get_or_create_table()
-        now = time.time()
+            table = self.get_or_create_table()
+            now = time.time()
 
-        rows = []
-        for chunk, vec in zip(chunks, vectors):
-            rows.append(
-                {
-                    "chunk_id": chunk.chunk_id,
-                    "agent_id": chunk.agent_id,
-                    "doc_id": chunk.doc_id,
-                    "filename": chunk.filename,
-                    "section_header": chunk.section_header,
-                    "text": chunk.text,
-                    "vector": vec,
-                    "updated_at": now,
-                }
-            )
+            rows = []
+            for chunk, vec in zip(chunks, vectors):
+                rows.append(
+                    {
+                        "chunk_id": chunk.chunk_id,
+                        "agent_id": chunk.agent_id,
+                        "doc_id": chunk.doc_id,
+                        "filename": chunk.filename,
+                        "section_header": chunk.section_header,
+                        "text": chunk.text,
+                        "vector": vec,
+                        "updated_at": now,
+                    }
+                )
 
-        table.add(rows)
-        # Update FTS index after additions if requested
-        if rebuild_index:
-            self._ensure_fts_index(table)
-        logger.info(f"[RAG VectorStore] Successfully inserted {len(rows)} chunk(s) into '{TABLE_NAME}'")
+            table.add(rows)
+            # Update FTS index after additions if requested
+            if rebuild_index:
+                self._ensure_fts_index(table)
+            logger.info(f"[RAG VectorStore] Successfully inserted {len(rows)} chunk(s) into '{TABLE_NAME}'")
 
     def delete_by_doc_id(self, doc_id: str) -> None:
         """Deletes all chunks associated with a specific doc_id."""
-        table = self.get_or_create_table()
-        try:
-            safe_doc_id = _sql_literal(doc_id)
-            table.delete(f"doc_id = {safe_doc_id}")
-            logger.info(f"[RAG VectorStore] Deleted chunks for doc_id='{doc_id}'")
-        except Exception as e:  # noqa: BLE001
-            logger.error(f"[RAG VectorStore] Failed to delete chunks for doc_id='{doc_id}': {e}")
+        with self._lock:
+            table = self.get_or_create_table()
+            try:
+                safe_doc_id = _sql_literal(doc_id)
+                table.delete(f"doc_id = {safe_doc_id}")
+                logger.info(f"[RAG VectorStore] Deleted chunks for doc_id='{doc_id}'")
+            except Exception as e:  # noqa: BLE001
+                logger.error(f"[RAG VectorStore] Failed to delete chunks for doc_id='{doc_id}': {e}")
 
     def delete_by_chunk_ids(self, chunk_ids: list[str]) -> None:
         """Deletes chunks by their unique chunk_id list."""
-        if not chunk_ids:
-            return
-        table = self.get_or_create_table()
-        try:
-            id_list_str = ", ".join(_sql_literal(cid) for cid in chunk_ids)
-            table.delete(f"chunk_id IN ({id_list_str})")
-            logger.info(f"[RAG VectorStore] Deleted {len(chunk_ids)} chunk(s) by ID")
-        except Exception as e:  # noqa: BLE001
-            logger.error(f"[RAG VectorStore] Failed to delete chunks by IDs: {e}")
+        with self._lock:
+            if not chunk_ids:
+                return
+            table = self.get_or_create_table()
+            try:
+                id_list_str = ", ".join(_sql_literal(cid) for cid in chunk_ids)
+                table.delete(f"chunk_id IN ({id_list_str})")
+                logger.info(f"[RAG VectorStore] Deleted {len(chunk_ids)} chunk(s) by ID")
+            except Exception as e:  # noqa: BLE001
+                logger.error(f"[RAG VectorStore] Failed to delete chunks by IDs: {e}")
 
     def search(
         self,
@@ -164,83 +171,84 @@ class VectorStore:
         - scope == "self": agent_id == agent_name
         - scope == "all": agent_id IN (agent_name, 'shared')
         """
-        table = self.get_or_create_table()
+        with self._lock:
+            table = self.get_or_create_table()
 
-        # Build agent scoping filter
-        if scope == "self" and agent_name:
-            safe_agent = _sql_literal(agent_name)
-            where_filter = f"agent_id = {safe_agent}"
-        elif agent_name:
-            safe_agent = _sql_literal(agent_name)
-            where_filter = f"agent_id IN ({safe_agent}, 'shared')"
-        else:
-            where_filter = "agent_id = 'shared'"
+            # Build agent scoping filter
+            if scope == "self" and agent_name:
+                safe_agent = _sql_literal(agent_name)
+                where_filter = f"agent_id = {safe_agent}"
+            elif agent_name:
+                safe_agent = _sql_literal(agent_name)
+                where_filter = f"agent_id IN ({safe_agent}, 'shared')"
+            else:
+                where_filter = "agent_id = 'shared'"
 
-        def _execute_query(q: Any) -> list[dict[str, Any]]:
-            if hasattr(q, "to_list"):
-                return q.to_list()
-            if hasattr(q, "to_arrow"):
-                return q.to_arrow().to_pylist()
-            if hasattr(q, "to_pandas"):
-                return q.to_pandas().to_dict(orient="records")
-            return []
+            def _execute_query(q: Any) -> list[dict[str, Any]]:
+                if hasattr(q, "to_list"):
+                    return q.to_list()
+                if hasattr(q, "to_arrow"):
+                    return q.to_arrow().to_pylist()
+                if hasattr(q, "to_pandas"):
+                    return q.to_pandas().to_dict(orient="records")
+                return []
 
-        raw_results: list[dict[str, Any]] = []
+            raw_results: list[dict[str, Any]] = []
 
-        # Attempt hybrid search (dense vector + Tantivy BM25) if vector is available
-        if query_vector is not None:
-            try:
-                search_query = (
-                    table.search(query_type="hybrid", vector_column_name="vector", fts_columns="text")
-                    .vector(query_vector)
-                    .text(query_text)
-                    .where(where_filter)
-                    .limit(top_k)
-                )
-                raw_results = _execute_query(search_query)
-            except Exception as e:  # noqa: BLE001
-                logger.warning(
-                    f"[RAG VectorStore] Hybrid search vector+text failed: {e}. Falling back to vector cosine search."
-                )
+            # Attempt hybrid search (dense vector + Tantivy BM25) if vector is available
+            if query_vector is not None:
                 try:
                     search_query = (
-                        table.search(query_vector, vector_column_name="vector")
-                        .metric("cosine")
+                        table.search(query_type="hybrid", vector_column_name="vector", fts_columns="text")
+                        .vector(query_vector)
+                        .text(query_text)
                         .where(where_filter)
                         .limit(top_k)
                     )
                     raw_results = _execute_query(search_query)
-                except Exception as e2:  # noqa: BLE001
-                    logger.warning(f"[RAG VectorStore] Vector search failed: {e2}")
+                except Exception as e:  # noqa: BLE001
+                    logger.warning(
+                        f"[RAG VectorStore] Hybrid search vector+text failed: {e}. Falling back to vector cosine search."
+                    )
+                    try:
+                        search_query = (
+                            table.search(query_vector, vector_column_name="vector")
+                            .metric("cosine")
+                            .where(where_filter)
+                            .limit(top_k)
+                        )
+                        raw_results = _execute_query(search_query)
+                    except Exception as e2:  # noqa: BLE001
+                        logger.warning(f"[RAG VectorStore] Vector search failed: {e2}")
 
-        # Fallback to full-text search if no results or no vector
-        if not raw_results:
-            try:
-                search_query = (
-                    table.search(query_text, query_type="fts")
-                    .where(where_filter)
-                    .limit(top_k)
-                )
-                raw_results = _execute_query(search_query)
-            except Exception as e:  # noqa: BLE001
-                logger.debug(f"[RAG VectorStore] FTS search fallback failed: {e}")
+            # Fallback to full-text search if no results or no vector
+            if not raw_results:
+                try:
+                    search_query = (
+                        table.search(query_text, query_type="fts")
+                        .where(where_filter)
+                        .limit(top_k)
+                    )
+                    raw_results = _execute_query(search_query)
+                except Exception as e:  # noqa: BLE001
+                    logger.debug(f"[RAG VectorStore] FTS search fallback failed: {e}")
 
-        if not raw_results:
-            return []
+            if not raw_results:
+                return []
 
-        records: list[dict[str, Any]] = []
-        for row in raw_results:
-            records.append({
-                "chunk_id": str(row.get("chunk_id", "")),
-                "agent_id": str(row.get("agent_id", "")),
-                "doc_id": str(row.get("doc_id", "")),
-                "filename": str(row.get("filename", "")),
-                "section_header": str(row.get("section_header", "")),
-                "text": str(row.get("text", "")),
-                "score": float(row.get("_relevance_score", row.get("_score", row.get("_distance", 0.0)))),
-            })
+            records: list[dict[str, Any]] = []
+            for row in raw_results:
+                records.append({
+                    "chunk_id": str(row.get("chunk_id", "")),
+                    "agent_id": str(row.get("agent_id", "")),
+                    "doc_id": str(row.get("doc_id", "")),
+                    "filename": str(row.get("filename", "")),
+                    "section_header": str(row.get("section_header", "")),
+                    "text": str(row.get("text", "")),
+                    "score": float(row.get("_relevance_score", row.get("_score", row.get("_distance", 0.0)))),
+                })
 
-        return records
+            return records
 
 
 # Singleton instance

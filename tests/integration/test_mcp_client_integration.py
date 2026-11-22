@@ -216,3 +216,72 @@ async def test_mcp_call_tool_timeout_and_error_isolation():
     data = json.loads(res)
     assert data["isError"] is True
     assert "timed out" in data["error"].lower()
+
+
+@pytest.mark.anyio
+async def test_mcp_persistent_session_reuse_auto_reconnect_and_shutdown():
+    """TKT-1224: Persistent sessions initialize once across calls, reconnect once on ConnectionError, and shutdown cleanly."""
+    set_mcp_servers({
+        "github": {
+            "enabled": True,
+            "transport": "stdio",
+            "command": "npx",
+            "timeout_seconds": 5.0,
+        }
+    }, save=False)
+
+    tools = [
+        DummyMcpTool(
+            name="search_repos",
+            description="Search repos",
+            input_schema={"type": "object", "properties": {"query": {"type": "string"}}},
+        )
+    ]
+
+    session1 = MagicMock()
+    session1.initialize = AsyncMock()
+    session1.list_tools = AsyncMock(return_value=MagicMock(tools=tools))
+    session1.call_tool = AsyncMock(
+        side_effect=[
+            DummyCallToolResult("result_1"),
+            DummyCallToolResult("result_2"),
+            ConnectionError("broken pipe"),
+        ]
+    )
+
+    session2 = MagicMock()
+    session2.initialize = AsyncMock()
+    session2.list_tools = AsyncMock(return_value=MagicMock(tools=tools))
+    session2.call_tool = AsyncMock(return_value=DummyCallToolResult("reconnected_result"))
+
+    created_sessions = []
+
+    @asynccontextmanager
+    async def pool_transport_factory(server_name, server_cfg):
+        idx = len(created_sessions)
+        sess = session1 if idx == 0 else session2
+        created_sessions.append(sess)
+        yield sess
+
+    mgr = McpClientManager()
+    mgr.configure_transport_factory(pool_transport_factory)
+
+    try:
+        discovered = await mgr.discover_server_tools("github", force_refresh=True)
+        assert len(discovered) == 1
+        res1 = await mgr.call_mcp_tool("github", "search_repos", {"query": "a"})
+        res2 = await mgr.call_mcp_tool("github", "search_repos", {"query": "b"})
+
+        assert res1 == "result_1"
+        assert res2 == "result_2"
+        session1.initialize.assert_awaited_once()
+        assert len(created_sessions) == 1
+
+        # Next call raises ConnectionError -> auto-reconnects once onto session2
+        res3 = await mgr.call_mcp_tool("github", "search_repos", {"query": "c"})
+        assert res3 == "reconnected_result"
+        assert len(created_sessions) == 2
+        session2.initialize.assert_awaited_once()
+    finally:
+        await mgr.shutdown()
+        assert len(mgr._sessions) == 0

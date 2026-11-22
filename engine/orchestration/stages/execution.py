@@ -5,6 +5,7 @@ Stage 4: LLM execution, 5-second intermediate status updates, and 60-second tool
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import inspect
 import json
 import logging
@@ -14,7 +15,6 @@ from typing import TYPE_CHECKING, Any
 
 import litellm
 
-from agents import record_thread_tokens
 from core.config import TOOL_INTERMEDIATE_UPDATE_DELAY_SECONDS
 from orchestration.system_settings import (
     get_tool_call_loop_timeout_seconds,
@@ -85,7 +85,6 @@ def _build_completion_kwargs(
     *,
     model: str,
     messages: list[dict[str, Any]],
-    num_retries: int,
     tools: list[dict[str, Any]] | None = None,
     tool_choice: str | None = None,
 ) -> dict[str, Any]:
@@ -93,7 +92,6 @@ def _build_completion_kwargs(
     kwargs: dict[str, Any] = {
         "model": model,
         "messages": messages,
-        "num_retries": num_retries,
     }
     if tools is not None:
         kwargs["tools"] = tools
@@ -251,17 +249,27 @@ class ExecutionStage:
             model = ctx.agent_cfg.get("model", "") if ctx.agent_cfg else ""
             prompt_tokens = getattr(ctx.output, "total_prompt_tokens", 0) or 0
             completion_tokens = getattr(ctx.output, "total_completion_tokens", 0) or 0
+            custom_calc_fn = getattr(self.deps, "calc_costs_fn", None)
+            if custom_calc_fn is not None and custom_calc_fn is not calculate_thread_costs:
+                unpersisted_prompt = prompt_tokens
+                unpersisted_completion = completion_tokens
+                calc_costs_fn = custom_calc_fn
+            else:
+                persisted_prompt = getattr(ctx.output, "persisted_prompt_tokens", 0) or 0
+                persisted_completion = getattr(ctx.output, "persisted_completion_tokens", 0) or 0
+                unpersisted_prompt = max(0, prompt_tokens - persisted_prompt)
+                unpersisted_completion = max(0, completion_tokens - persisted_completion)
+                calc_costs_fn = calculate_thread_costs
 
             incremental_cost = 0.0
-            if model and (prompt_tokens > 0 or completion_tokens > 0):
+            if model and (unpersisted_prompt > 0 or unpersisted_completion > 0):
                 pricing = pricing_service.get_pricing(model)
                 input_rate_1m = float(pricing.get("input_price_per_1m", 0.0) or 0.0)
                 output_rate_1m = float(pricing.get("output_price_per_1m", 0.0) or 0.0)
-                incremental_cost = ((prompt_tokens / 1_000_000.0) * input_rate_1m) + (
-                    (completion_tokens / 1_000_000.0) * output_rate_1m
+                incremental_cost = ((unpersisted_prompt / 1_000_000.0) * input_rate_1m) + (
+                    (unpersisted_completion / 1_000_000.0) * output_rate_1m
                 )
 
-            calc_costs_fn = getattr(self.deps, "calc_costs_fn", None) or calculate_thread_costs
             cost_info = calc_costs_fn(ctx.input.channel_id, ctx.input.thread_ts)
             current_cost = float(cost_info.get("grand_total_cost_usd", 0.0) or 0.0) + incremental_cost
             threshold = get_circuit_breaker_threshold()
@@ -274,6 +282,7 @@ class ExecutionStage:
                 enabled=is_circuit_breaker_enabled(),
                 current_cost_usd=current_cost,
                 daily_budget_usd=daily_budget,
+                exclude_reservation_id=f"{ctx.input.channel_id}:{ctx.input.thread_ts}:{ctx.agent_key}",
             )
             return bool(tripped)
         except Exception as e:  # noqa: BLE001
@@ -431,7 +440,6 @@ class ExecutionStage:
         completion_kwargs = _build_completion_kwargs(
             model=ctx.agent_cfg["model"],
             messages=ctx.messages,
-            num_retries=2,
             tools=active_tools if agent_skills else None,
             tool_choice="auto" if agent_skills else None,
         )
@@ -548,6 +556,8 @@ class ExecutionStage:
         finally:
             if not delay_task.done():
                 delay_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await delay_task
 
     async def execute_tool_loop(
         self,
@@ -581,7 +591,6 @@ class ExecutionStage:
             follow_up_kwargs = _build_completion_kwargs(
                 model=ctx.agent_cfg.get("model", ""),
                 messages=ctx.messages,
-                num_retries=system_settings_manager.get_tool_call_num_retries(),
                 tools=active_tools if active_tools else None,
                 tool_choice="auto" if active_tools else None,
             )
@@ -591,6 +600,7 @@ class ExecutionStage:
                 agent_key=f"{ctx.agent_key} resumed",
                 thread_key=ctx.thread_key,
                 is_superseded_fn=ctx.is_superseded,
+                max_attempts=max(1, int(system_settings_manager.get_tool_call_num_retries()) + 1),
                 allow_503_immediate_retry=allow_503_immediate,
                 turn_token_mapping=ctx.turn_token_mapping,
             )
@@ -886,12 +896,9 @@ class ExecutionStage:
                 follow_up_kwargs = _build_completion_kwargs(
                     model=ctx.agent_cfg.get("model", ""),
                     messages=ctx.messages,
-                    num_retries=system_settings_manager.get_tool_call_num_retries(),
                     tools=None if is_paused else (active_tools if active_tools else None),
-                    tool_choice="none" if is_paused else ("auto" if active_tools else None),
+                    tool_choice=None if is_paused else ("auto" if active_tools else None),
                 )
-                if is_paused:
-                    follow_up_kwargs["tools"] = None
 
                 follow_up = await exec_retry_fn(
                     litellm.acompletion,
@@ -899,6 +906,7 @@ class ExecutionStage:
                     agent_key=f"{ctx.agent_key} follow-up",
                     thread_key=ctx.thread_key,
                     is_superseded_fn=ctx.is_superseded,
+                    max_attempts=max(1, int(system_settings_manager.get_tool_call_num_retries()) + 1),
                     allow_503_immediate_retry=allow_503_immediate,
                     turn_token_mapping=ctx.turn_token_mapping,
                 )
@@ -990,7 +998,6 @@ class ExecutionStage:
             synthesis_kwargs = _build_completion_kwargs(
                 model=ctx.agent_cfg.get("model", ""),
                 messages=ctx.messages,
-                num_retries=system_settings_manager.get_tool_call_num_retries(),
             )
             synthesis_res = await exec_retry_fn(
                 litellm.acompletion,
@@ -998,6 +1005,7 @@ class ExecutionStage:
                 agent_key=f"{ctx.agent_key} synthesis",
                 thread_key=ctx.thread_key,
                 is_superseded_fn=ctx.is_superseded,
+                max_attempts=max(1, int(system_settings_manager.get_tool_call_num_retries()) + 1),
                 allow_503_immediate_retry=allow_503_immediate,
                 turn_token_mapping=ctx.turn_token_mapping,
             )

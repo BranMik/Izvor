@@ -357,7 +357,31 @@ class ContextPrepStage:
                 ctx.input.channel_id, ctx.input.thread_ts
             ) or thread_state_manager.get_initial_prompt(ctx.input.channel_id, ctx.input.thread_ts)
             if stored_prompt and stored_prompt.strip():
-                active_prompt = stored_prompt
+                raw_prompt = (ctx.prompt or "").strip()
+                stored_clean = stored_prompt.strip()
+                is_gather_directive = raw_prompt.startswith("Synthesize the parallel specialist perspectives")
+                if not is_gather_directive and raw_prompt and raw_prompt != stored_clean:
+                    from core.models import OrchestrationMode
+
+                    target_override = getattr(ctx.input, "target_agent_override", None) or getattr(
+                        ctx, "target_agent_override", None
+                    )
+                    if target_override:
+                        wf_snap = thread_state_manager.get_workflow_snapshot(
+                            ctx.input.channel_id, ctx.input.thread_ts
+                        )
+                        active_mode = wf_snap.get("mode") if wf_snap else get_orchestration_mode()
+                        sandwich_cfg = wf_snap.get("sandwich_config") if wf_snap else get_sandwich_config()
+                        end_chain = sandwich_cfg.get("end_chain", []) if isinstance(sandwich_cfg, dict) else []
+                        if active_mode in (OrchestrationMode.SCATTER_GATHER, "scatter_gather") and (
+                            ctx.agent_key in end_chain or target_override in end_chain
+                        ):
+                            is_gather_directive = True
+
+                if is_gather_directive and raw_prompt and raw_prompt != stored_clean:
+                    active_prompt = f"{stored_clean}\n\n[Synthesis Instruction]: {raw_prompt}"
+                else:
+                    active_prompt = stored_prompt
             elif ctx.effective_history:
                 for h_msg in reversed(ctx.effective_history):
                     if h_msg.get("role") == "user" and h_msg.get("content"):

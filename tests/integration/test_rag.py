@@ -315,7 +315,7 @@ async def test_rag_service_async_search_offload():
         res = await service.search(query="test", agent_name="agent-10001")
         assert "architectural guidelines" in res
         assert mock_to_thread.called
-        assert mock_to_thread.call_args[0][0] == mock_store.search
+        assert any(c.args and c.args[0] == mock_store.search for c in mock_to_thread.call_args_list)
 
 
 def test_vector_store_real_lancedb_hybrid_bm25_tiebreaker(tmp_path, caplog):
@@ -361,5 +361,101 @@ def test_vector_store_real_lancedb_hybrid_bm25_tiebreaker(tmp_path, caplog):
     assert results[0]["doc_id"] == "doc_b"
     assert results[0]["score"] > 0.0
     assert "Hybrid search vector+text failed" not in caplog.text
+
+
+@pytest.mark.anyio
+async def test_rag_sync_atomic_swap_preserves_old_chunks_on_embedding_failure(temp_rag_dir):
+    """TKT-1222: Embedding failure during modified-file sync must preserve previous chunks and manifest SHA."""
+    from services.rag.config import EMBEDDING_DIM
+
+    knowledge_dir = temp_rag_dir["knowledge_dir"]
+    manifest_mgr = ManifestManager(manifest_path=temp_rag_dir["manifest_path"])
+    store = VectorStore(db_dir=temp_rag_dir["db_dir"])
+    parser = DocumentParser()
+
+    class _FakeEmbedder:
+        def __init__(self) -> None:
+            self.fail = False
+
+        async def get_embeddings(self, texts: list[str]) -> list[list[float]]:
+            if self.fail:
+                raise RuntimeError("API outage")
+            return [[0.02] * EMBEDDING_DIM for _ in texts]
+
+    embedder = _FakeEmbedder()
+    engine = SyncReconciliationEngine(
+        knowledge_dir=knowledge_dir,
+        manifest_manager=manifest_mgr,
+        store=store,
+        parser=parser,
+        embedder=embedder,
+    )
+
+    stats1 = await engine.reconcile()
+    assert stats1["new"] >= 1
+    v1_sha = manifest_mgr._manifest["shared/overview.md"]["sha256"]
+
+    # Modify shared/overview.md and simulate an embedding outage
+    (knowledge_dir / "shared" / "overview.md").write_text(
+        "# Broken Replacement\n\nShould not wipe v1 index.", encoding="utf-8"
+    )
+    embedder.fail = True
+
+    stats2 = await engine.reconcile()
+    assert stats2["modified"] == 0
+    assert manifest_mgr._manifest["shared/overview.md"]["sha256"] == v1_sha
+
+    hits = store.search(
+        query_text="shared system documentation",
+        query_vector=[0.02] * EMBEDDING_DIM,
+        agent_name="",
+        scope="all",
+        top_k=5,
+    )
+    assert any(h["doc_id"] == "shared/overview.md" and "shared system documentation" in h["text"] for h in hits)
+    assert not any("Should not wipe v1 index" in h["text"] for h in hits)
+
+
+def test_rag_vector_store_concurrent_search_and_fts_rebuild_threadsafe(tmp_path):
+    """TKT-1222: VectorStore RLock serializes concurrent search and rebuild_fts_index calls safely."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    from services.rag.config import EMBEDDING_DIM
+    from services.rag.document_parser import DocumentChunk
+
+    store = VectorStore(db_dir=tmp_path / "lancedb_concurrent")
+    vec = [0.03] * EMBEDDING_DIM
+    chunks = [
+        DocumentChunk(
+            chunk_id="c_thread_1",
+            agent_id="shared",
+            doc_id="shared/concurrent.md",
+            filename="concurrent.md",
+            section_header="Overview",
+            text="Concurrent VectorStore locking prevents Tantivy index race conditions.",
+        )
+    ]
+    store.insert_chunks(chunks, [vec], rebuild_index=True)
+
+    def _run_search() -> list[dict]:
+        return store.search(
+            query_text="Tantivy index race",
+            query_vector=vec,
+            agent_name="",
+            scope="all",
+            top_k=3,
+        )
+
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        futures = []
+        for idx in range(12):
+            futures.append(pool.submit(_run_search))
+            if idx % 3 == 0:
+                futures.append(pool.submit(store.rebuild_fts_index))
+
+        for fut in futures:
+            res = fut.result(timeout=15)
+            if isinstance(res, list):
+                assert len(res) >= 1
 
 

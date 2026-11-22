@@ -54,33 +54,41 @@ class SyncReconciliationEngine:
             for rel_doc_id, old_chunk_ids in diff["deleted"]:
                 try:
                     if old_chunk_ids:
-                        self.vector_store.delete_by_chunk_ids(old_chunk_ids)
+                        await asyncio.to_thread(self.vector_store.delete_by_chunk_ids, old_chunk_ids)
                     else:
-                        self.vector_store.delete_by_doc_id(rel_doc_id)
+                        await asyncio.to_thread(self.vector_store.delete_by_doc_id, rel_doc_id)
                     self.manifest_manager.remove_document(rel_doc_id)
                     stats["deleted"] += 1
                     logger.info(f"[RAG Sync] Deleted {rel_doc_id} from vector store and manifest")
                 except Exception as e:  # noqa: BLE001
                     logger.error(f"[RAG Sync] Error deleting {rel_doc_id}: {e}")
 
-            # 2. Process modified files
+            # 2. Process modified files (atomic swap: parse & embed before purging old chunks)
             for rel_doc_id, path, agent_id, sha256, mtime, old_chunk_ids in diff["modified"]:
                 try:
-                    # Purge old chunks
-                    if old_chunk_ids:
-                        self.vector_store.delete_by_chunk_ids(old_chunk_ids)
-                    else:
-                        self.vector_store.delete_by_doc_id(rel_doc_id)
-
-                    # Parse new content
-                    chunks = self.parser.parse_file(path, rel_doc_id, agent_id)
+                    chunks = await asyncio.to_thread(self.parser.parse_file, path, rel_doc_id, agent_id)
                     if chunks:
                         texts = [c.text for c in chunks]
                         vectors = await self.embedder.get_embeddings(texts)
-                        self.vector_store.insert_chunks(chunks, vectors, rebuild_index=False)
+                        if not vectors or len(vectors) != len(chunks):
+                            raise RuntimeError(
+                                f"Embedding generation failed for '{rel_doc_id}': "
+                                f"expected {len(chunks)} vector(s), got {len(vectors) if vectors else 0}"
+                            )
                         chunk_ids = [c.chunk_id for c in chunks]
                     else:
+                        vectors = []
                         chunk_ids = []
+
+                    if old_chunk_ids:
+                        await asyncio.to_thread(self.vector_store.delete_by_chunk_ids, old_chunk_ids)
+                    else:
+                        await asyncio.to_thread(self.vector_store.delete_by_doc_id, rel_doc_id)
+
+                    if chunks:
+                        await asyncio.to_thread(
+                            self.vector_store.insert_chunks, chunks, vectors, rebuild_index=False
+                        )
 
                     self.manifest_manager.record_document(
                         rel_doc_id=rel_doc_id,
@@ -97,11 +105,18 @@ class SyncReconciliationEngine:
             # 3. Process new files
             for rel_doc_id, path, agent_id, sha256, mtime in diff["new"]:
                 try:
-                    chunks = self.parser.parse_file(path, rel_doc_id, agent_id)
+                    chunks = await asyncio.to_thread(self.parser.parse_file, path, rel_doc_id, agent_id)
                     if chunks:
                         texts = [c.text for c in chunks]
                         vectors = await self.embedder.get_embeddings(texts)
-                        self.vector_store.insert_chunks(chunks, vectors, rebuild_index=False)
+                        if not vectors or len(vectors) != len(chunks):
+                            raise RuntimeError(
+                                f"Embedding generation failed for '{rel_doc_id}': "
+                                f"expected {len(chunks)} vector(s), got {len(vectors) if vectors else 0}"
+                            )
+                        await asyncio.to_thread(
+                            self.vector_store.insert_chunks, chunks, vectors, rebuild_index=False
+                        )
                         chunk_ids = [c.chunk_id for c in chunks]
                     else:
                         chunk_ids = []

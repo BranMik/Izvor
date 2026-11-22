@@ -6,8 +6,10 @@ LiteLLM/OpenAI-compatible function calling schemas, ensuring strict namespacing:
 mcp__{server_name}__{tool_name}
 """
 
+import hashlib
 import logging
 import re
+import threading
 from typing import Any
 
 from orchestration.system_settings import McpServerConfig
@@ -15,27 +17,40 @@ from orchestration.system_settings import McpServerConfig
 logger = logging.getLogger(__name__)
 
 # Valid function name pattern for OpenAI/Anthropic/Gemini: ^[a-zA-Z0-9_-]{1,64}$
-_MCP_NAME_PATTERN = re.compile(r"^mcp__([a-zA-Z0-9_-]+)__([a-zA-Z0-9_-]+)$")
+_MCP_NAME_PATTERN = re.compile(r"^mcp__([a-zA-Z0-9_-]+?)__([a-zA-Z0-9_-]+)$")
 _SANITIZE_IDENTIFIER = re.compile(r"[^a-zA-Z0-9_-]")
+_REGISTRY_LOCK = threading.RLock()
+_NAMESPACED_TO_RAW: dict[str, tuple[str, str]] = {}
+
+
+def register_mcp_tool_name(namespaced_name: str, server_name: str, raw_tool_name: str) -> None:
+    """Records bidirectional mapping from canonical LLM tool name back to (server_name, raw_tool_name)."""
+    with _REGISTRY_LOCK:
+        _NAMESPACED_TO_RAW[namespaced_name] = (server_name, raw_tool_name)
+
+
+def clear_mcp_tool_name_registry() -> None:
+    """Clears the registered MCP tool name lookup table."""
+    with _REGISTRY_LOCK:
+        _NAMESPACED_TO_RAW.clear()
 
 
 def format_mcp_tool_name(server_name: str, raw_tool_name: str) -> str:
     """
     Constructs a canonical namespaced tool name: mcp__{server_name}__{raw_tool_name}.
 
-    Replaces invalid characters with underscores to conform to LLM function name limits.
+    Replaces invalid characters with underscores to conform to LLM function name limits,
+    appends a 6-char SHA-256 hash suffix when >64 chars, and registers exact reverse mapping.
     """
-    clean_server = _SANITIZE_IDENTIFIER.sub("_", server_name.strip())
-    clean_tool = _SANITIZE_IDENTIFIER.sub("_", raw_tool_name.strip())
+    raw_server = server_name.strip()
+    raw_tool = raw_tool_name.strip()
+    clean_server = _SANITIZE_IDENTIFIER.sub("_", raw_server)
+    clean_tool = _SANITIZE_IDENTIFIER.sub("_", raw_tool)
     full_name = f"mcp__{clean_server}__{clean_tool}"
     if len(full_name) > 64:
-        # Truncate while preserving prefix and suffix
-        max_tool_len = 64 - len(f"mcp__{clean_server}__")
-        if max_tool_len > 8:
-            clean_tool = clean_tool[:max_tool_len]
-            full_name = f"mcp__{clean_server}__{clean_tool}"
-        else:
-            full_name = full_name[:64]
+        digest = hashlib.sha256(f"{raw_server}:{raw_tool}".encode("utf-8")).hexdigest()[:6]
+        full_name = f"{full_name[:57]}_{digest}"
+    register_mcp_tool_name(full_name, raw_server, raw_tool)
     return full_name
 
 
@@ -46,6 +61,26 @@ def parse_mcp_tool_name(full_tool_name: str) -> tuple[str, str] | None:
     """
     if not isinstance(full_tool_name, str):
         return None
+    with _REGISTRY_LOCK:
+        registered = _NAMESPACED_TO_RAW.get(full_tool_name)
+        if registered is not None:
+            return registered
+
+    try:
+        from orchestration.system_settings import get_mcp_servers
+
+        configured_servers = list(get_mcp_servers().keys())
+    except Exception:  # noqa: BLE001
+        configured_servers = []
+
+    for srv in sorted(configured_servers, key=len, reverse=True):
+        clean_srv = _SANITIZE_IDENTIFIER.sub("_", str(srv).strip())
+        prefix = f"mcp__{clean_srv}__"
+        if full_tool_name.startswith(prefix):
+            raw_part = full_tool_name[len(prefix) :]
+            if raw_part and re.fullmatch(r"[a-zA-Z0-9_-]+", raw_part):
+                return str(srv).strip(), raw_part
+
     match = _MCP_NAME_PATTERN.match(full_tool_name)
     if not match:
         return None

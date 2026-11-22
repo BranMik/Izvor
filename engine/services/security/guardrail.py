@@ -198,7 +198,12 @@ class GuardrailService:
         if not text or not text.strip():
             return False
 
-        table = self.table
+        if self._table is False:
+            table = None
+        elif self._table is not None:
+            table = self._table
+        else:
+            table = await asyncio.to_thread(lambda: self.table)
         if table is None:
             return self._handle_failure("LanceDB table connection unavailable", text)
 

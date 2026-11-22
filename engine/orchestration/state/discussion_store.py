@@ -1,12 +1,15 @@
 import asyncio
+from collections.abc import Callable
 import json
 import logging
+import random
 import time
-from typing import Any
+from typing import Any, TypeVar
 
 from core.database import get_connection, get_db_transaction
 
 logger = logging.getLogger(__name__)
+_T = TypeVar("_T")
 
 
 class DiscussionStateStore:
@@ -32,7 +35,13 @@ class DiscussionStateStore:
             logger.debug(f"[DISCUSSION STORE] Failed to read session from DB for ({channel_id}, {thread_ts}): {e}")
             return None
 
-    def _update_fields(self, channel_id: str, thread_ts: str, **updates: Any) -> None:
+    def _mutate_fields(
+        self,
+        channel_id: str,
+        thread_ts: str,
+        mutator: Callable[[dict[str, Any]], tuple[dict[str, Any], _T]],
+        default_result: _T = None,
+    ) -> _T:
         now = time.time()
         try:
             with get_db_transaction(immediate=True) as conn:
@@ -45,6 +54,7 @@ class DiscussionStateStore:
                     (channel_id, thread_ts),
                 )
                 row = cursor.fetchone()
+                row_existed = row is not None
                 data: dict[str, Any] = dict(row) if row else {
                     "status": "active",
                     "remaining_agents": None,
@@ -61,9 +71,7 @@ class DiscussionStateStore:
                     "convergence_speakers": "[]",
                     "created_at": now,
                 }
-                for k, v in updates.items():
-                    if k in data:
-                        data[k] = v
+                data, result = mutator(data)
 
                 # Check if session has any active data
                 rem_agents_val = data["remaining_agents"]
@@ -83,10 +91,11 @@ class DiscussionStateStore:
                 )
 
                 if not has_data:
-                    conn.execute(
-                        "DELETE FROM thread_sessions WHERE channel_id = ? AND thread_ts = ?",
-                        (channel_id, thread_ts),
-                    )
+                    if row_existed:
+                        conn.execute(
+                            "DELETE FROM thread_sessions WHERE channel_id = ? AND thread_ts = ?",
+                            (channel_id, thread_ts),
+                        )
                 else:
                     rounds_count = data["rounds"]
                     is_active = (rounds_count > 0) or (rem_agents_val is not None and rem_agents_val != "[]")
@@ -135,11 +144,22 @@ class DiscussionStateStore:
                             now,
                         ),
                     )
+                return result
         except Exception as e:  # noqa: BLE001
             logger.error(
                 f"[DISCUSSION STORE] Failed to update session in DB for ({channel_id}, {thread_ts}): {e}",
                 exc_info=True,
             )
+            return default_result
+
+    def _update_fields(self, channel_id: str, thread_ts: str, **updates: Any) -> None:
+        def _apply(data: dict[str, Any]) -> tuple[dict[str, Any], None]:
+            for k, v in updates.items():
+                if k in data:
+                    data[k] = v
+            return data, None
+
+        self._mutate_fields(channel_id, thread_ts, _apply)
 
     def get_remaining_agents(
         self, channel_id: str, thread_ts: str, default: list[str] | None = None
@@ -168,62 +188,72 @@ class DiscussionStateStore:
     def pop_remaining_agent(
         self, channel_id: str, thread_ts: str, agent_key: str | None = None
     ) -> str | None:
-        """Pops a specific agent or the next agent from remaining agents list."""
-        row = self._get_row(channel_id, thread_ts)
-        if not row or row.get("remaining_agents") is None:
-            return None
-        try:
-            agents: list[str] = json.loads(row["remaining_agents"])
-        except (json.JSONDecodeError, TypeError):
-            return None
-        if not agents:
-            return None
-        if agent_key is None:
-            popped = agents.pop(0)
-            self._update_fields(channel_id, thread_ts, remaining_agents=json.dumps(agents))
-            return popped
-        if agent_key in agents:
-            agents.remove(agent_key)
-            self._update_fields(channel_id, thread_ts, remaining_agents=json.dumps(agents))
-            return agent_key
-        return None
+        """Pops a specific agent or the next agent from remaining agents list atomically."""
+
+        def _mutator(data: dict[str, Any]) -> tuple[dict[str, Any], str | None]:
+            raw = data.get("remaining_agents")
+            if raw is None:
+                return data, None
+            try:
+                agents: list[str] = json.loads(raw)
+            except (json.JSONDecodeError, TypeError):
+                return data, None
+            if not agents:
+                return data, None
+            if agent_key is None:
+                popped = agents.pop(0)
+                data["remaining_agents"] = json.dumps(agents)
+                return data, popped
+            if agent_key in agents:
+                agents.remove(agent_key)
+                data["remaining_agents"] = json.dumps(agents)
+                return data, agent_key
+            return data, None
+
+        return self._mutate_fields(channel_id, thread_ts, _mutator, default_result=None)
 
     def remove_remaining_agent(
         self, channel_id: str, thread_ts: str, agent_key: str
     ) -> bool:
-        """Removes a specific agent from the remaining agents list and syncs to DB."""
-        row = self._get_row(channel_id, thread_ts)
-        if not row or row.get("remaining_agents") is None:
-            return False
-        try:
-            agents: list[str] = json.loads(row["remaining_agents"])
-        except (json.JSONDecodeError, TypeError):
-            return False
-        if agent_key in agents:
-            agents.remove(agent_key)
-            self._update_fields(channel_id, thread_ts, remaining_agents=json.dumps(agents))
-            return True
-        return False
+        """Removes a specific agent from the remaining agents list atomically."""
+
+        def _mutator(data: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+            raw = data.get("remaining_agents")
+            if raw is None:
+                return data, False
+            try:
+                agents: list[str] = json.loads(raw)
+            except (json.JSONDecodeError, TypeError):
+                return data, False
+            if agent_key in agents:
+                agents.remove(agent_key)
+                data["remaining_agents"] = json.dumps(agents)
+                return data, True
+            return data, False
+
+        return bool(self._mutate_fields(channel_id, thread_ts, _mutator, default_result=False))
 
     def pop_random_remaining_agent(
         self, channel_id: str, thread_ts: str
     ) -> str | None:
-        """Pops a random agent from remaining agents list and syncs to DB."""
-        row = self._get_row(channel_id, thread_ts)
-        if not row or row.get("remaining_agents") is None:
-            return None
-        try:
-            agents: list[str] = json.loads(row["remaining_agents"])
-        except (json.JSONDecodeError, TypeError):
-            return None
-        if not agents:
-            return None
-        import random
+        """Pops a random agent from remaining agents list atomically."""
 
-        chosen = random.choice(agents)
-        agents.remove(chosen)
-        self._update_fields(channel_id, thread_ts, remaining_agents=json.dumps(agents))
-        return chosen
+        def _mutator(data: dict[str, Any]) -> tuple[dict[str, Any], str | None]:
+            raw = data.get("remaining_agents")
+            if raw is None:
+                return data, None
+            try:
+                agents: list[str] = json.loads(raw)
+            except (json.JSONDecodeError, TypeError):
+                return data, None
+            if not agents:
+                return data, None
+            chosen = random.choice(agents)
+            agents.remove(chosen)
+            data["remaining_agents"] = json.dumps(agents)
+            return data, chosen
+
+        return self._mutate_fields(channel_id, thread_ts, _mutator, default_result=None)
 
     def has_remaining_agents_key(self, channel_id: str, thread_ts: str) -> bool:
         """Checks if remaining_agents is explicitly set (even if empty) for this thread."""
@@ -331,10 +361,15 @@ class DiscussionStateStore:
         logger.info(f"[DISCUSSION STORE] Set rounds for {(channel_id, thread_ts)}: {r}")
 
     def decrement_rounds(self, channel_id: str, thread_ts: str) -> int:
-        """Decrements the remaining discussion rounds for this thread by 1."""
-        curr = self.get_rounds(channel_id, thread_ts)
-        new_val = max(0, curr - 1)
-        self._update_fields(channel_id, thread_ts, rounds=new_val)
+        """Decrements the remaining discussion rounds for this thread by 1 atomically."""
+
+        def _mutator(data: dict[str, Any]) -> tuple[dict[str, Any], int]:
+            curr = int(data["rounds"]) if data.get("rounds") is not None else 0
+            new_val = max(0, curr - 1)
+            data["rounds"] = new_val
+            return data, new_val
+
+        new_val = int(self._mutate_fields(channel_id, thread_ts, _mutator, default_result=0) or 0)
         logger.info(f"[DISCUSSION STORE] Decremented rounds for {(channel_id, thread_ts)}: {new_val}")
         return new_val
 
@@ -368,12 +403,18 @@ class DiscussionStateStore:
         return str(row["initial_prompt"]) if row and row.get("initial_prompt") else None
 
     def set_initial_prompt(self, channel_id: str, thread_ts: str, prompt: str) -> None:
-        """Sets the initial user prompt that started this thread if not already set."""
+        """Sets the initial user prompt that started this thread if not already set (atomic RMW)."""
         if not prompt:
             return
-        existing = self.get_initial_prompt(channel_id, thread_ts)
-        if not existing:
-            self._update_fields(channel_id, thread_ts, initial_prompt=prompt)
+
+        def _mutator(data: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+            if not data.get("initial_prompt"):
+                data["initial_prompt"] = prompt
+                return data, True
+            return data, False
+
+        stored = self._mutate_fields(channel_id, thread_ts, _mutator, default_result=False)
+        if stored:
             logger.info(f"[DISCUSSION STORE] Stored initial prompt for {(channel_id, thread_ts)} (length: {len(prompt)})")
 
     def clear_initial_prompt(self, channel_id: str, thread_ts: str) -> None:
@@ -447,11 +488,21 @@ class DiscussionStateStore:
         self._update_fields(channel_id, thread_ts, workflow_snapshot=None)
 
     def record_convergence_speaker(self, channel_id: str, thread_ts: str, agent_key: str) -> None:
-        """Records a unique agent key in the convergence speaker streak and persists to SQLite."""
-        speakers = self.get_convergence_speakers(channel_id, thread_ts)
-        if agent_key and agent_key not in speakers:
-            speakers.append(agent_key)
-            self._update_fields(channel_id, thread_ts, convergence_speakers=json.dumps(speakers))
+        """Records a unique agent key in the convergence speaker streak atomically and persists to SQLite."""
+        if not agent_key:
+            return
+
+        def _mutator(data: dict[str, Any]) -> tuple[dict[str, Any], None]:
+            try:
+                speakers = list(json.loads(data["convergence_speakers"])) if data.get("convergence_speakers") else []
+            except (json.JSONDecodeError, TypeError):
+                speakers = []
+            if agent_key not in speakers:
+                speakers.append(agent_key)
+                data["convergence_speakers"] = json.dumps(speakers)
+            return data, None
+
+        self._mutate_fields(channel_id, thread_ts, _mutator)
 
     def get_convergence_speakers(self, channel_id: str, thread_ts: str) -> list[str]:
         """Returns the list of speakers in the current convergence streak from SQLite."""

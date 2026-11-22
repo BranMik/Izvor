@@ -4,6 +4,7 @@ Stage 1: Input validation, directive parsing, tag checking, and candidate resolu
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import TYPE_CHECKING, Any
 
@@ -122,7 +123,7 @@ class ValidationStage:
                             logger.info(
                                 f"[ROUTER] Inferring language for thread {ctx.thread_key} from user prompt (len: {len(pure_user_text)})"
                             )
-                            current_lang = await detect_language_llm(pure_user_text)
+                            current_lang = await detect_language_llm(pure_user_text, thread_key=ctx.thread_key)
                             thread_state_manager.set_language(ctx.input.channel_id, ctx.input.thread_ts, current_lang)
                             logger.info(f"[ROUTER] Locked thread language for {ctx.thread_key}: {current_lang}")
             ctx.thread_language = current_lang or "English"
@@ -544,7 +545,8 @@ class ValidationStage:
                         from core.domain import SYSTEM_PRINCIPAL
                         from services.local_tools import read_document
 
-                        doc_res_json = read_document(
+                        doc_res_json = await asyncio.to_thread(
+                            read_document,
                             chosen_file.get("rel_path", chosen_file.get("name", "")),
                             principal=SYSTEM_PRINCIPAL,
                         )
@@ -636,9 +638,19 @@ class ValidationStage:
                 ctx.agent_key = entity_resolver.resolve_agent_name(target_override) or target_override
                 ctx.prompt = ctx.input.raw_text
                 ctx.was_explicit_target = True
-                for rem_item in list(thread_state_manager.get_remaining_agents(ctx.input.channel_id, ctx.input.thread_ts)):
-                    if rem_item == ctx.agent_key or (entity_resolver.resolve_agent_name(rem_item) or rem_item) == ctx.agent_key:
-                        thread_state_manager.remove_remaining_agent(ctx.input.channel_id, ctx.input.thread_ts, rem_item)
+                if not getattr(ctx.input, "isolated_branch", False):
+                    for rem_item in list(thread_state_manager.get_remaining_agents(ctx.input.channel_id, ctx.input.thread_ts)):
+                        if rem_item == ctx.agent_key or (entity_resolver.resolve_agent_name(rem_item) or rem_item) == ctx.agent_key:
+                            thread_state_manager.remove_remaining_agent(ctx.input.channel_id, ctx.input.thread_ts, rem_item)
+            elif getattr(ctx.input, "isolated_branch", False):
+                resolved_fallback = (
+                    entity_resolver.resolve_agent_name(target_override) or target_override
+                    if target_override
+                    else None
+                )
+                ctx.agent_key = resolved_fallback
+                ctx.prompt = ctx.input.raw_text
+                ctx.was_explicit_target = bool(resolved_fallback)
             else:
                 agent_key, prompt, was_explicit_target = parse_agent_and_prompt(
                     ctx.raw_text_cleaned, ctx.input.channel_id, ctx.input.thread_ts

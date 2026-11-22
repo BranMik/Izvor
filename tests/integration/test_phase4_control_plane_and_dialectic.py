@@ -298,3 +298,89 @@ async def test_control_plane_errored_or_denied_tools_do_not_mutate_state():
     assert ctx.control.clarification_question is None
     assert ctx.control.consensus_signaled is False
     assert thread_state_manager.is_consensus_reached(ch, ts) is False
+
+
+@pytest.mark.anyio
+async def test_arbitrator_verdict_b_revokes_consensus_and_resets_round_rollover():
+    """TKT-1216: Arbitrator Verdict B runs in fixed small pools, revokes consensus_reached, and round rollover clears evidence & convergence."""
+    from orchestration.agent_router import _apply_convergence_stress_test_or_fast_forward
+    from orchestration.agent_settings import (
+        get_orchestration_mode,
+        reset_enabled_agents,
+        set_fixed_config,
+        set_orchestration_mode,
+    )
+    from orchestration.stages.post_record import PostRecordStage
+    from orchestration.system_settings import system_settings_manager
+    from orchestration.thread_state import thread_state_manager
+    from orchestration.turn_pipeline import TurnContext, TurnPipeline
+
+    ch = "C_TKT1216_VERDICT"
+    ts = "1700000950.0001"
+    thread_state_manager.cleanup_thread(ch, ts)
+    reset_enabled_agents()
+    orig_mode = get_orchestration_mode()
+    system_settings_manager.load()
+    orig_dst_enabled = system_settings_manager.dialectical_stress_test.get("enabled", True)
+    set_orchestration_mode("fixed", save=False)
+    set_fixed_config(["agent-10001", "agent-10002", "agent-10008"], save=False)
+    system_settings_manager.dialectical_stress_test["enabled"] = True
+
+    try:
+        thread_state_manager.set_remaining_agents(ch, ts, ["agent-10008"])
+        thread_state_manager.set_consensus_reached(ch, ts, True)
+        thread_state_manager.record_convergence_speaker(ch, ts, "agent-10001")
+
+        # Even in fixed mode with len(remaining) == 1, Arbitrator Verdict B must execute and revoke consensus
+        new_queue, new_count = _apply_convergence_stress_test_or_fast_forward(
+            channel_id=ch,
+            thread_ts=ts,
+            spoken_agents={"agent-10001", "Challenger", "Arbitrator"},
+            consecutive_convergence_count=2,
+            last_speaker="Arbitrator",
+            last_turn_converged=False,
+        )
+        assert new_count == 0
+        assert new_queue == ["agent-10008"]
+        assert thread_state_manager.is_consensus_reached(ch, ts) is False
+        assert thread_state_manager.get_convergence_speakers(ch, ts) == []
+
+        # Round rollover in PostRecordStage (/rounds 2) clears convergence_speakers and RoundEvidenceStore
+        thread_state_manager.set_rounds(ch, ts, 2)
+        thread_state_manager.set_round_sequence(ch, ts, ["agent-10001", "agent-10008"])
+        thread_state_manager.set_remaining_agents(ch, ts, [])
+        thread_state_manager.set_consensus_reached(ch, ts, False)
+        thread_state_manager.record_convergence_speaker(ch, ts, "agent-10001")
+        thread_state_manager.evidence.add_evidence(
+            ch, ts, "web_search", {"q": "k8s"}, "Cluster sizing benchmark results", agent_key="agent-10001"
+        )
+
+        ctx = TurnContext(channel_id=ch, thread_ts=ts, raw_text="continue", is_bot_trigger=True)
+        ctx.agent_key = "agent-10008"
+        ctx.agent_cfg = {"model": "test-model", "username": "SecurityArchitect"}
+        ctx.output.final_text = "Round 1 summary."
+
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock
+
+        pipeline = TurnPipeline(
+            workspace_adapter=SimpleNamespace(
+                format_outbound_text=lambda t: t,
+                post_agent_turn=AsyncMock(return_value={"ok": True, "ts": "1700000950.0002"}),
+            ),
+            sleep_fn=AsyncMock(),
+            notes_updater=lambda **k: None,
+            usage_updater=lambda **k: None,
+            flat_history_recorder=lambda **k: None,
+        )
+        stage = PostRecordStage(pipeline.deps)
+        await stage.stage_post_and_record(ctx)
+
+        assert thread_state_manager.get_rounds(ch, ts) == 1
+        assert thread_state_manager.is_consensus_reached(ch, ts) is False
+        assert thread_state_manager.get_convergence_speakers(ch, ts) == []
+        assert thread_state_manager.format_round_evidence(ch, ts) is None
+    finally:
+        set_orchestration_mode(orig_mode, save=False)
+        system_settings_manager.dialectical_stress_test["enabled"] = orig_dst_enabled
+        thread_state_manager.cleanup_thread(ch, ts)

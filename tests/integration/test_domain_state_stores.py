@@ -444,5 +444,55 @@ def test_remove_included_agent_and_clear_initial_prompt_persist():
         mgr.cleanup_thread(channel_id, thread_ts)
 
 
+def test_atomic_rmw_stores_no_lost_updates_under_concurrency():
+    """TKT-1218: concurrent remove_remaining_agent and add_excluded_agent across worker threads lose zero updates."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    mgr = ThreadStateManager()
+    ch = "C_TKT1218_RACE"
+    ts = "1700008888.0001"
+    agents = [f"agent-{i}" for i in range(10)]
+    excluded_targets = [f"ex-{i}" for i in range(6)]
+    try:
+        mgr.set_remaining_agents(ch, ts, list(agents))
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            futs = [pool.submit(mgr.remove_remaining_agent, ch, ts, a) for a in agents]
+            futs.extend(pool.submit(mgr.add_excluded_agent, ch, ts, ex) for ex in excluded_targets)
+            for f in futs:
+                f.result()
+
+        assert mgr.get_remaining_agents(ch, ts) == []
+        assert set(mgr.get_excluded_agents(ch, ts)) == set(excluded_targets)
+    finally:
+        mgr.cleanup_thread(ch, ts)
+
+
+def test_boundary_resets_clear_consensus_convergence_open_debate_and_evidence():
+    """TKT-1216 & TKT-1221: clear_round_execution_state, interrupt_discussion, and request_stop clear convergence/evidence."""
+    mgr = ThreadStateManager()
+    ch = "C_TKT1216_RESET"
+    ts = "1700008889.0001"
+    try:
+        for action in (
+            mgr.clear_round_execution_state,
+            mgr.interrupt_discussion,
+            mgr.request_stop,
+        ):
+            mgr.set_remaining_agents(ch, ts, ["agent-10001"])
+            mgr.set_consensus_reached(ch, ts, True)
+            mgr.record_convergence_speaker(ch, ts, "agent-10001")
+            mgr.set_open_debate(ch, ts, True)
+            mgr.evidence.add_evidence(ch, ts, "web_search", {"q": "test"}, "cached result", agent_key="agent-10001")
+
+            action(ch, ts)
+
+            assert mgr.is_consensus_reached(ch, ts) is False
+            assert mgr.get_convergence_speakers(ch, ts) == []
+            assert mgr.is_open_debate(ch, ts) is False
+            assert mgr.evidence.get_round_evidence(ch, ts) == []
+    finally:
+        mgr.cleanup_thread(ch, ts)
+
+
 
 

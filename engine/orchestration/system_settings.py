@@ -4,7 +4,6 @@ import fnmatch
 import logging
 import os
 import re
-import sys
 import time
 from pathlib import Path
 from typing import Any, Literal
@@ -289,6 +288,7 @@ class SystemSettingsManager:
 
         if auto_load:
             self.load()
+        self._register_core_providers()
 
     @property
     def active_settings_file(self) -> Path:
@@ -401,6 +401,9 @@ class SystemSettingsManager:
         self.guardrail_embedding_cache_size = int(model.guardrail_embedding_cache_size)
         self.thread_cleanup_interval_seconds = float(model.thread_cleanup_interval_seconds)
         self.audit_integrity_check_interval_seconds = float(model.audit_integrity_check_interval_seconds)
+        self.skill_exclusions_sync_interval_seconds = float(
+            getattr(model, "skill_exclusions_sync_interval_seconds", 86400.0)
+        )
         self.pricing_cache_ttl_days = int(model.pricing_cache_ttl_days)
         self.slack_file_download_timeout_seconds = float(model.slack_file_download_timeout_seconds)
         self.web_search_timeout_seconds = float(model.web_search_timeout_seconds)
@@ -502,6 +505,7 @@ class SystemSettingsManager:
             "guardrail_embedding_cache_size": self.guardrail_embedding_cache_size,
             "thread_cleanup_interval_seconds": self.thread_cleanup_interval_seconds,
             "audit_integrity_check_interval_seconds": self.audit_integrity_check_interval_seconds,
+            "skill_exclusions_sync_interval_seconds": self.skill_exclusions_sync_interval_seconds,
             "pricing_cache_ttl_days": self.pricing_cache_ttl_days,
             "slack_file_download_timeout_seconds": self.slack_file_download_timeout_seconds,
             "web_search_timeout_seconds": self.web_search_timeout_seconds,
@@ -1247,6 +1251,14 @@ def get_thread_cleanup_interval_seconds() -> float:
 
 def get_audit_integrity_check_interval_seconds() -> float:
     return system_settings_manager.get_audit_integrity_check_interval_seconds()
+
+
+def get_skill_exclusions_sync_interval_seconds() -> float:
+    return system_settings_manager.get_skill_exclusions_sync_interval_seconds()
+
+
+def set_skill_exclusions_sync_interval_seconds(seconds: float, save: bool = True) -> None:
+    system_settings_manager.set_skill_exclusions_sync_interval_seconds(seconds, save=save)
 
 
 def get_pricing_cache_ttl_days() -> int:

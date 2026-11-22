@@ -2,6 +2,7 @@ import asyncio
 import inspect
 import json
 import logging
+import re
 from typing import Any
 
 import litellm
@@ -177,7 +178,6 @@ class IntentExtractor:
                                 "model": active_model,
                                 "messages": messages,
                                 "response_format": {"type": "json_object"},
-                                "num_retries": 1,
                             },
                             agent_key="intent_extractor",
                             thread_key=thread_key or ("system", "intent_extractor"),
@@ -220,7 +220,14 @@ class IntentExtractor:
             if not content:
                 return default_intent
 
-            parsed = json.loads(content)
+            cleaned_content = content.strip()
+            if cleaned_content.startswith("```"):
+                cleaned_content = re.sub(r"^```(?:[a-zA-Z0-9_-]+)?\s*", "", cleaned_content)
+                cleaned_content = re.sub(r"\s*```\s*$", "", cleaned_content).strip()
+            if not cleaned_content:
+                return default_intent
+
+            parsed = json.loads(cleaned_content)
 
             actions: list[ActionDirective] = []
             modifiers: dict[str, Any] = {}

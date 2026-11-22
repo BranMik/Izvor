@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import sys
 from typing import Any
 
 import litellm
@@ -143,7 +142,6 @@ def _apply_convergence_stress_test_or_fast_forward(
 
     raw_challenger = settings_manager.get_challenger_agent()
     challenger_key = raw_challenger if raw_challenger and raw_challenger not in excluded else None
-    challenger_name = (settings_manager.get_agent(challenger_key) or {}).get("displayname") or "Challenger"
 
     raw_arbitrator = settings_manager.get_arbitrator_agent()
     arbitrator_key = raw_arbitrator if raw_arbitrator and raw_arbitrator not in excluded else None
@@ -157,6 +155,41 @@ def _apply_convergence_stress_test_or_fast_forward(
     mode = wf_snap.get("mode") if wf_snap else settings_manager.get_orchestration_mode()
     mode_val = mode.value if isinstance(mode, OrchestrationMode) else str(mode)
     is_sandwich = mode_val.lower() == OrchestrationMode.SANDWICH.value
+
+    # Step 1 (Highest priority): Evaluate active Arbitrator verdict & Challenger->Arbitrator handoff
+    # BEFORE checking small remaining pools so in-progress dialectical stress tests in Fixed / Open Debate modes are never abandoned.
+    if is_dialectical_stress_test_enabled():
+        if arbitrator_key and last_speaker == arbitrator_key:
+            if last_turn_converged:
+                # Verdict A — Consensus Defended/Patched: truncate remaining_agents to end_chain and prune middle remaining
+                new_queue = [e for e in end_chain if e in remaining or e not in spoken_agents]
+                if not new_queue and end_chain:
+                    new_queue = list(end_chain)
+                thread_state_manager.set_remaining_agents(channel_id, thread_ts, new_queue)
+                thread_state_manager.clear_convergence_speakers(channel_id, thread_ts)
+                logger.info(
+                    f"[CONVERGENCE_FF] Verdict A reached by {arbitrator_name} ({arbitrator_key}). Fast-forwarding to end chain: {new_queue}"
+                )
+                return new_queue, consecutive_convergence_count
+            else:
+                # Verdict B — Arbitrator Agrees That Consensus Failed:
+                # Revoke converged flags and reset count = 0 so normal dialectic / multi-round flow continues.
+                thread_state_manager.set_consensus_reached(channel_id, thread_ts, False)
+                thread_state_manager.clear_convergence_speakers(channel_id, thread_ts)
+                logger.info(
+                    f"[CONVERGENCE_FF] Verdict B reached by {arbitrator_name} ({arbitrator_key}). Fast-forward cancelled, normal dialectic continues."
+                )
+                return remaining, 0
+
+        # If last speaker was the Challenger, ensure arbitrator_key is queued next if not already spoken
+        if challenger_key and last_speaker == challenger_key:
+            if arbitrator_key and arbitrator_key not in spoken_agents:
+                if not remaining or remaining[0] != arbitrator_key:
+                    preserved_tail = [a for a in remaining if a != arbitrator_key]
+                    new_queue = [arbitrator_key] + preserved_tail
+                    thread_state_manager.set_remaining_agents(channel_id, thread_ts, new_queue)
+                    return new_queue, consecutive_convergence_count
+            return remaining, consecutive_convergence_count
 
     # Fixed-Chain & Small Remaining Pool Guard (Suggestion 2):
     # Only trigger fast-forward or stress testing in SANDWICH mode or when more than 2 remaining agents exist.
@@ -176,37 +209,6 @@ def _apply_convergence_stress_test_or_fast_forward(
                 f"[CONVERGENCE_FF] Consecutive threshold ({threshold}) met (stress testing disabled). Fast-forwarding directly to end chain: {new_queue}"
             )
             return new_queue, consecutive_convergence_count
-        return remaining, consecutive_convergence_count
-
-    # Step 1: When last_speaker == arbitrator_key — Evaluating Arbitrator Verdict
-    if arbitrator_key and last_speaker == arbitrator_key:
-        if last_turn_converged:
-            # Verdict A — Consensus Defended/Patched: truncate remaining_agents to end_chain and prune middle remaining
-            new_queue = [e for e in end_chain if e in remaining or e not in spoken_agents]
-            if not new_queue and end_chain:
-                new_queue = list(end_chain)
-            thread_state_manager.set_remaining_agents(channel_id, thread_ts, new_queue)
-            thread_state_manager.clear_convergence_speakers(channel_id, thread_ts)
-            logger.info(
-                f"[CONVERGENCE_FF] Verdict A reached by {arbitrator_name} ({arbitrator_key}). Fast-forwarding to end chain: {new_queue}"
-            )
-            return new_queue, consecutive_convergence_count
-        else:
-            # Verdict B — Arbitrator Agrees That Consensus Failed:
-            # Do NOT truncate remaining_agents! Reset count = 0 and normal dialectic continues.
-            logger.info(
-                f"[CONVERGENCE_FF] Verdict B reached by {arbitrator_name} ({arbitrator_key}). Fast-forward cancelled, normal dialectic continues."
-            )
-            return remaining, 0
-
-    # If last speaker was the Challenger, ensure arbitrator_key is queued next if not already spoken
-    if challenger_key and last_speaker == challenger_key:
-        if arbitrator_key and arbitrator_key not in spoken_agents:
-            if not remaining or remaining[0] != arbitrator_key:
-                preserved_tail = [a for a in remaining if a != arbitrator_key]
-                new_queue = [arbitrator_key] + preserved_tail
-                thread_state_manager.set_remaining_agents(channel_id, thread_ts, new_queue)
-                return new_queue, consecutive_convergence_count
         return remaining, consecutive_convergence_count
 
     # Step 2: When consecutive_convergence_count >= threshold
@@ -269,6 +271,7 @@ async def process_and_respond(
     target_agent_override: str | None = None,
     isolated_branch: bool = False,
     deps: PipelineDeps | None = None,
+    guardrail_checked: bool = False,
 ) -> dict[str, Any]:
     """
     Main background handler: parses prompt, builds conversation history,
@@ -291,7 +294,7 @@ async def process_and_respond(
     )
 
     # Guardrail Check for user inputs
-    if not is_bot_trigger:
+    if not is_bot_trigger and not guardrail_checked:
         try:
             if _guardrail_checker_override is not None:
                 is_injection = await _guardrail_checker_override(raw_text)
@@ -317,8 +320,8 @@ async def process_and_respond(
                     f"[GUARDRAIL] Check threw exception in fail-closed mode, halting turn: {e}"
                 )
                 try:
-                    from services.audit_logger import log_audit_event
-                    log_audit_event(
+                    from services.audit_logger import log_audit_event_async
+                    await log_audit_event_async(
                         event_type="GUARDRAIL_FAIL_CLOSED_BLOCKED",
                         actor={"type": "user", "id": user_id or "unknown"},
                         action="evaluate_prompt_injection",
@@ -353,6 +356,7 @@ async def process_and_respond(
             "bot_user_id": bot_user_id,
             "icon_url": icon_url,
             "user_id": user_id,
+            "guardrail_checked": (not is_bot_trigger) or guardrail_checked,
         }
         if target_deps is not None:
             kwargs_to_pass["deps"] = target_deps
@@ -408,6 +412,7 @@ async def orchestrate_discussion(
     target_agent_override: str | None = None,
     is_bot_trigger: bool = False,
     deps: PipelineDeps | None = None,
+    guardrail_checked: bool = False,
 ) -> dict[str, Any]:
     """
     Internal multi-agent discussion loop:
@@ -424,6 +429,7 @@ async def orchestrate_discussion(
         user_id=user_id,
         target_agent_override=target_agent_override,
         is_bot_trigger=is_bot_trigger,
+        guardrail_checked=guardrail_checked,
     )
 
 

@@ -54,12 +54,10 @@ def get_short_output_agents() -> set[str]:
     """Dynamically returns agent keys configured with is_short_output: true from settings_manager."""
     try:
         from orchestration.agent_settings import settings_manager
+
         cfg = settings_manager.get_agents_config()
         if cfg:
-            return {
-                k for k, v in cfg.items()
-                if isinstance(v, dict) and v.get("is_short_output") is True
-            }
+            return {k for k, v in cfg.items() if isinstance(v, dict) and v.get("is_short_output") is True}
     except Exception as e:  # noqa: BLE001
         logger.debug(f"[PROMPT BUILDER] Error retrieving short output agents: {e}")
     return set()
@@ -77,6 +75,7 @@ def is_short_output_agent(agent_key: str) -> bool:
     """Checks whether an agent is configured with is_short_output: true dynamically from SSOT."""
     try:
         from orchestration.agent_settings import settings_manager
+
         agent_cfg = settings_manager.get_agent(agent_key)
         if agent_cfg and agent_cfg.get("is_short_output") is True:
             return True
@@ -93,6 +92,7 @@ def get_system_agents() -> set[str]:
     system_keys: set[str] = {"orchestrator", "Orchestrator"}
     try:
         from orchestration.agent_settings import settings_manager
+
         for k, v in settings_manager.system_agents_config.items():
             system_keys.add(k)
             if isinstance(v, dict) and v.get("agent_key"):
@@ -111,6 +111,7 @@ def is_system_agent(agent_key: str) -> bool:
         return True
     try:
         from orchestration.agent_settings import settings_manager
+
         if settings_manager.is_system_agent(agent_key):
             return True
         agent_cfg = settings_manager.get_agent(agent_key)
@@ -125,6 +126,7 @@ def is_system_agent(agent_key: str) -> bool:
     # Runtime fallback lookup against core.config.SYSTEM_AGENTS_CONFIG
     try:
         from core.config import SYSTEM_AGENTS_CONFIG
+
         if agent_key in SYSTEM_AGENTS_CONFIG:
             return True
         for k, entry in SYSTEM_AGENTS_CONFIG.items():
@@ -148,18 +150,12 @@ def _strip_output_contract(persona_content: str) -> str:
     return _OUTPUT_CONTRACT_RE.sub("\n", persona_content).strip()
 
 
-def _format_word_constraints(
-    max_words: int | None = None, min_words: int | None = None
-) -> str:
+def _format_word_constraints(max_words: int | None = None, min_words: int | None = None) -> str:
     constraints = []
     if min_words is not None:
-        constraints.append(
-            f"Minimum Length: Your entire response must have a minimum length of {min_words} words."
-        )
+        constraints.append(f"Minimum Length: Your entire response must have a minimum length of {min_words} words.")
     if max_words is not None:
-        constraints.append(
-            f"Hard Limit: Your entire response must strictly NOT exceed {max_words} words."
-        )
+        constraints.append(f"Hard Limit: Your entire response must strictly NOT exceed {max_words} words.")
     return "\n".join(constraints)
 
 
@@ -305,10 +301,21 @@ def build_agent_prompt(
     if modifiers:
         try:
             from core.registry import get_skill_registry
+
             skill_registry = get_skill_registry()
 
             for mod_k, mod_v in modifiers.items():
-                if mod_k in ("max_words", "min_words", "history", "file_use", "target_file", "excluded_agents"):
+                if mod_k in (
+                    "max_words",
+                    "min_words",
+                    "scribe_max_words",
+                    "scribe_min_words",
+                    "history",
+                    "file_use",
+                    "target_file",
+                    "excluded_agents",
+                    "included_agents",
+                ):
                     continue
                 sk = skill_registry.get(mod_k)
                 if sk and sk.instructions:
@@ -334,6 +341,7 @@ def build_agent_prompt(
     # Append workspace baseline context if configured
     try:
         from orchestration.app_settings import get_workspace_context
+
         ws_ctx = get_workspace_context()
         if ws_ctx:
             prompt += f"\n### WORKSPACE BASELINE CONTEXT\n{ws_ctx}\n\n"
@@ -343,17 +351,17 @@ def build_agent_prompt(
     # Append Skills Directory and on-demand progressive disclosure (strictly filtered to authorized skills)
     try:
         from core.registry import get_skill_registry
+
         try:
             skill_registry = get_skill_registry()
         except RuntimeError:
             import importlib
+
             importlib.import_module("skills.loader")
             skill_registry = get_skill_registry()
 
         # Inject comprehensive skills directory so any agent asked can accurately list all skills and authorized agents
-        skills_dir_prompt = skill_registry.get_skills_directory_prompt(
-            channel_id=channel_id, thread_ts=thread_ts
-        )
+        skills_dir_prompt = skill_registry.get_skills_directory_prompt(channel_id=channel_id, thread_ts=thread_ts)
         if skills_dir_prompt:
             prompt += f"\n{skills_dir_prompt}\n"
 

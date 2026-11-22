@@ -1,4 +1,3 @@
-import asyncio
 import logging
 from typing import Any
 
@@ -6,7 +5,7 @@ from fastapi import BackgroundTasks, Response
 
 from core.config import is_slack_admin
 from core.security_utils import wrap_untrusted_content
-from services.audit_logger import log_audit_event
+from services.audit_logger import log_audit_event_async
 from services.slack import (
     post_ephemeral_to_slack,
     post_message_to_slack,
@@ -62,7 +61,7 @@ async def _execute_and_resume_hitl_approval(req: Any, user_id: str) -> None:
                 f"[HITL] Approval consumption failed or expired for '{fn_name}' in {(channel_id, thread_ts)} "
                 f"(request_id={getattr(req, 'request_id', None)})."
             )
-            log_audit_event(
+            await log_audit_event_async(
                 event_type="HITL_CONSUMPTION_FAILED",
                 actor={"type": "slack_user", "id": user_id or "unknown"},
                 action="execute_approved_tool",
@@ -250,7 +249,7 @@ async def _handle_hitl_approve_tool(
     if req:
         if not user_id or (user_id != req.initiator_user_id and not is_slack_admin(user_id)):
             logger.warning(f"[HITL] User {user_id} unauthorized to approve request {val}.")
-            log_audit_event(
+            await log_audit_event_async(
                 event_type="HITL_UNAUTHORIZED_ATTEMPT",
                 actor={"type": "slack_user", "id": user_id or "unknown"},
                 action="hitl_approve_tool",
@@ -270,7 +269,7 @@ async def _handle_hitl_approve_tool(
 
         approved_req = approve_hitl_request(val)
         if approved_req:
-            log_audit_event(
+            await log_audit_event_async(
                 event_type="HITL_APPROVED",
                 actor={"type": "slack_user", "id": user_id or "unknown"},
                 action="hitl_approve_tool",
@@ -331,7 +330,7 @@ async def _handle_hitl_deny_tool(
     if req:
         if not user_id or (user_id != req.initiator_user_id and not is_slack_admin(user_id)):
             logger.warning(f"[HITL] User {user_id} unauthorized to deny request {val}.")
-            log_audit_event(
+            await log_audit_event_async(
                 event_type="HITL_UNAUTHORIZED_ATTEMPT",
                 actor={"type": "slack_user", "id": user_id or "unknown"},
                 action="hitl_deny_tool",
@@ -351,7 +350,7 @@ async def _handle_hitl_deny_tool(
 
         denied_req = deny_hitl_request(val)
         if denied_req:
-            log_audit_event(
+            await log_audit_event_async(
                 event_type="HITL_DENIED",
                 actor={"type": "slack_user", "id": user_id or "unknown"},
                 action="hitl_deny_tool",

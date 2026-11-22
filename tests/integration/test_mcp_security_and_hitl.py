@@ -207,3 +207,96 @@ def test_r04_mutating_mcp_tool_requires_hitl():
 
     # select_query is read-only -> HITL not required
     assert mgr.is_tool_mutating("mcp__internal_db__select_query") is False
+
+
+@pytest.mark.anyio
+async def test_r04_mcp_post_execution_audit_statuses():
+    """TKT-1223: TOOL_EXECUTE_MCP is emitted after execution with SUCCESS, FAILURE, or BLOCKED status."""
+    from services.audit_logger import get_audit_trail
+
+    set_mcp_servers({
+        "audit_srv": {
+            "enabled": True,
+            "transport": "stdio",
+            "command": "python",
+            "timeout_seconds": 5.0,
+            "outbound_pii_masking": True,
+        }
+    }, save=False)
+
+    mock_session = MagicMock()
+    mock_session.initialize = AsyncMock()
+
+    async def _mock_call(name, args):
+        if name == "ok_tool":
+            return DummyCallToolResult("healthy response")
+        if name == "fail_tool":
+            return DummyCallToolResult("upstream crash", is_error=True)
+        if name == "leak_tool":
+            return DummyCallToolResult("leaked AKIAIOSFODNN7EXAMPLE")
+        return DummyCallToolResult("OK")
+
+    mock_session.call_tool = AsyncMock(side_effect=_mock_call)
+
+    @asynccontextmanager
+    async def transport_factory(server_name, server_cfg):
+        yield mock_session
+
+    mgr = McpClientManager()
+    mgr.configure_transport_factory(transport_factory)
+
+    principal = ToolPrincipal(kind="agent", id="audit_agent")
+    registry = SkillRegistry()
+    registry._skills["audit_skill"] = SkillDefinition(
+        name="audit_skill",
+        display_name="Audit",
+        description="desc",
+        tools=[
+            "mcp__audit_srv__ok_tool",
+            "mcp__audit_srv__fail_tool",
+            "mcp__audit_srv__leak_tool",
+        ],
+    )
+
+    try:
+        res_ok = await execute_external_mcp_tool(
+            namespaced_tool_name="mcp__audit_srv__ok_tool",
+            arguments={},
+            agent_name=principal,
+            authorized_skills=["audit_skill"],
+            skill_registry=registry,
+            client_manager=mgr,
+        )
+        assert res_ok == "healthy response"
+
+        res_fail = await execute_external_mcp_tool(
+            namespaced_tool_name="mcp__audit_srv__fail_tool",
+            arguments={},
+            agent_name=principal,
+            authorized_skills=["audit_skill"],
+            skill_registry=registry,
+            client_manager=mgr,
+        )
+        assert json.loads(res_fail)["isError"] is True
+
+        res_leak = await execute_external_mcp_tool(
+            namespaced_tool_name="mcp__audit_srv__leak_tool",
+            arguments={},
+            agent_name=principal,
+            authorized_skills=["audit_skill"],
+            skill_registry=registry,
+            client_manager=mgr,
+        )
+        assert "security policy" in json.loads(res_leak)["error"].lower()
+
+        events = [
+            e
+            for e in get_audit_trail(audit_dir=audit_logger.audit_dir)
+            if e.get("event_type") == "TOOL_EXECUTE_MCP"
+        ]
+        by_action = {e.get("action"): e.get("status") for e in events}
+        assert by_action.get("mcp__audit_srv__ok_tool") == "SUCCESS"
+        assert by_action.get("mcp__audit_srv__fail_tool") == "FAILURE"
+        assert by_action.get("mcp__audit_srv__leak_tool") == "BLOCKED"
+    finally:
+        await mgr.shutdown()

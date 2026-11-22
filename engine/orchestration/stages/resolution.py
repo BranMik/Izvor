@@ -182,9 +182,9 @@ class ResolutionStage:
             logger.warning(
                 f"[CIRCUIT BREAKER] Thread {ctx.thread_key} or daily budget reached/exceeded threshold (${threshold:.5f}). Interrupting response."
             )
-            from services.audit_logger import log_audit_event
+            from services.audit_logger import log_audit_event_async
 
-            log_audit_event(
+            await log_audit_event_async(
                 event_type="CIRCUIT_BREAKER_TRIGGERED",
                 actor={"type": "system", "id": "spend_governance"},
                 action="trip_circuit_breaker",

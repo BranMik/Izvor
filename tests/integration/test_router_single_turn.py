@@ -382,15 +382,14 @@ async def test_process_and_respond_history_limit_initial_prompt():
     # 0: system prompt
     # 1: context prefix (ensures conversational sequence starts with user)
     # 2: Reply 2 (4th message in history)
-    # 3: Message 3 (5th message in history)
-    # 4: What now? (current user prompt)
-    assert len(captured_messages) == 5
+    # 3: Message 3 coalesced with What now? (strict cross-provider alternating roles)
+    assert len(captured_messages) == 4
     assert captured_messages[0]["role"] == "system"
     assert captured_messages[1]["role"] == "user"
     assert captured_messages[2] == {"role": "assistant", "content": "Reply 2"}
-    assert captured_messages[3] == {"role": "user", "content": "Message 3"}
-    assert captured_messages[4]["role"] == "user"
-    assert "What now?" in captured_messages[4]["content"]
+    assert captured_messages[3]["role"] == "user"
+    assert "Message 3" in captured_messages[3]["content"]
+    assert "What now?" in captured_messages[3]["content"]
 
     # Verify THREAD_HISTORY_LIMITS is preserved for subsequent bot turns
     limit_info = thread_state_manager.get_history_limit("C_HIST_TEST", "12345.2001")
@@ -503,7 +502,7 @@ def test_build_llm_messages_bot_trigger_strictly_ends_with_user_turn():
 
 
 def test_build_llm_messages_leading_assistant_gets_user_prefix():
-    """Test that trimmed history starting with assistant message gets a user prefix so API accepts it."""
+    """TKT-1217: trimmed history starting with consecutive assistant turns gets user prefix and coalesces adjacent assistant turns."""
     sys_prompt = "You are Legal Advisor."
     history = [
         {"role": "assistant", "content": "Assistant turn 1"},
@@ -520,15 +519,36 @@ def test_build_llm_messages_leading_assistant_gets_user_prefix():
     )
     # index 0: system
     # index 1: user prefix
-    # index 2: assistant 1
-    # index 3: assistant 2
-    # index 4: user closing directive
-    assert len(messages) == 5
+    # index 2: coalesced assistant turns
+    # index 3: user closing directive
+    assert len(messages) == 4
     assert messages[0]["role"] == "system"
     assert messages[1]["role"] == "user"
-    assert messages[2] == {"role": "assistant", "content": "Assistant turn 1"}
-    assert messages[3] == {"role": "assistant", "content": "Assistant turn 2"}
-    assert messages[4]["role"] == "user"
+    assert messages[2] == {"role": "assistant", "content": "Assistant turn 1\n\nAssistant turn 2"}
+    assert messages[3]["role"] == "user"
+
+
+def test_build_llm_messages_normalizes_mid_system_and_coalesces_consecutive_roles():
+    """TKT-1217: converts mid-history system roles into user notifications and alternates [system, user, assistant, user]."""
+    messages = build_llm_messages(
+        system_prompt="System prompt",
+        effective_history=[
+            {"role": "user", "content": "User turn 1"},
+            {"role": "assistant", "username": "Visionary", "content": "A1"},
+            {"role": "assistant", "username": "Sceptic", "content": "A2"},
+            {"role": "assistant", "username": "Critic", "content": "A3"},
+            {"role": "system", "content": "[Internal Revisor Warning]: Check evidence"},
+        ],
+        prompt="Next turn",
+        is_bot_trigger=True,
+        agent_key="agent-10006",
+        agent_cfg={"username": "Arbitrator"},
+    )
+    assert [m["role"] for m in messages] == ["system", "user", "assistant", "user"]
+    assert all("username" not in m for m in messages)
+    assert messages[2]["content"] == "A1\n\nA2\n\nA3"
+    assert "[System Notification]" in messages[3]["content"]
+    assert "Check evidence" in messages[3]["content"]
 
 
 @pytest.mark.anyio
@@ -1335,3 +1355,128 @@ async def test_ambiguous_tag_halt_with_empty_agents_config():
         settings_manager.agents_config.clear()
         settings_manager.agents_config.update(orig_agents_cfg)
         thread_state_manager.cleanup_thread(channel_id, thread_ts)
+
+
+@pytest.mark.anyio
+async def test_process_and_respond_internal_loop_runs_guardrail_once():
+    """TKT-1221 (H16): process_and_respond(..., run_internal_loop=True) must invoke guardrail exactly once per human prompt."""
+    from orchestration.agent_router import configure_guardrail_checker, reset_guardrail_checker
+
+    thread_state_manager.reset_all()
+    set_orchestration_mode("fixed")
+    set_fixed_config(["agent-10001"])
+
+    channel_id = "C_GUARD_ONCE"
+    thread_ts = "99999.0004"
+
+    mock_response = MagicMock()
+    mock_choice = MagicMock()
+    mock_choice.message = MagicMock(content="Reviewed cleanly.", tool_calls=None)
+    mock_response.choices = [mock_choice]
+    mock_response.usage = MagicMock(prompt_tokens=10, completion_tokens=15)
+
+    guardrail_mock = AsyncMock(return_value=False)
+    configure_guardrail_checker(guardrail_mock)
+    configure_post_agent_response(AsyncMock(return_value={"ok": True, "ts": thread_ts}))
+    configure_llm_completion_fn(make_mock_acompletion(lambda *a, **k: mock_response))
+    configure_fetch_thread_history(AsyncMock(return_value=[]))
+    configure_record_thread_tokens(MagicMock())
+    configure_intent_extractor(AsyncMock(return_value=ExtractedIntent()))
+
+    try:
+        res = await process_and_respond(
+            channel_id=channel_id,
+            thread_ts=thread_ts,
+            raw_text="Review caching strategy",
+            is_bot_trigger=False,
+            run_internal_loop=True,
+        )
+        assert res.get("ok") is True
+        assert guardrail_mock.await_count == 1
+    finally:
+        reset_guardrail_checker()
+        thread_state_manager.cleanup_thread(channel_id, thread_ts)
+
+
+def test_thread_state_batched_clear_and_interrupt_single_update_per_store():
+    """TKT-1221: interrupt_discussion() and clear_round_execution_state() batch resets into one update per store."""
+    from orchestration.state import DiscussionStateStore, ThreadContextStore
+    from orchestration.thread_state import ThreadStateManager
+
+    class _CountingDiscussionStore(DiscussionStateStore):
+        def __init__(self) -> None:
+            super().__init__()
+            self.update_calls: list[dict] = []
+
+        def _update_fields(self, channel_id: str, thread_ts: str, **fields) -> None:
+            self.update_calls.append(dict(fields))
+            super()._update_fields(channel_id, thread_ts, **fields)
+
+    class _CountingContextStore(ThreadContextStore):
+        def __init__(self) -> None:
+            super().__init__()
+            self.update_calls: list[dict] = []
+
+        def _update_fields(self, channel_id: str, thread_ts: str, **fields) -> None:
+            self.update_calls.append(dict(fields))
+            super()._update_fields(channel_id, thread_ts, **fields)
+
+    ch = "C_BATCH_CLEAR"
+    ts = "99999.0005"
+    mgr = ThreadStateManager()
+    mgr.discussion = _CountingDiscussionStore()
+    mgr.context = _CountingContextStore()
+    mgr.cleanup_thread(ch, ts)
+
+    def _populate():
+        mgr.set_remaining_agents(ch, ts, ["agent-10001", "agent-10002"])
+        mgr.set_rounds(ch, ts, 2)
+        mgr.set_open_debate(ch, ts, True)
+        mgr.set_consensus_reached(ch, ts, True)
+        mgr.record_convergence_speaker(ch, ts, "agent-10001")
+        mgr.set_is_pure_skill_task(ch, ts, True)
+        mgr.set_history_limit(ch, ts, limit=5, prior_cutoff_index=3)
+        mgr.set_file_context(ch, ts, {"file_name": "notes.md", "content": "abc"})
+        mgr.evidence.add_evidence(
+            ch, ts, "web_search", {"q": "cache"}, "Evidence body", agent_key="agent-10001"
+        )
+
+    try:
+        _populate()
+        mgr.discussion.update_calls.clear()
+        mgr.context.update_calls.clear()
+
+        mgr.interrupt_discussion(ch, ts)
+        assert len(mgr.discussion.update_calls) == 1
+        assert len(mgr.context.update_calls) == 1
+        assert mgr.is_stopped(ch, ts) is False
+        assert mgr.get_remaining_agents(ch, ts) == []
+        assert mgr.is_consensus_reached(ch, ts) is False
+        assert mgr.get_convergence_speakers(ch, ts) == []
+        assert mgr.get_rounds(ch, ts) == 0
+        assert mgr.is_open_debate(ch, ts) is False
+        assert mgr.get_history_limit(ch, ts) is None
+        assert mgr.get_file_context(ch, ts) is None
+        assert mgr.format_round_evidence(ch, ts) is None
+
+        _populate()
+        mgr.discussion.update_calls.clear()
+        mgr.context.update_calls.clear()
+        mgr.request_stop(ch, ts)
+        assert len(mgr.discussion.update_calls) == 1
+        assert len(mgr.context.update_calls) == 1
+        assert mgr.is_stopped(ch, ts) is True
+
+        mgr.discussion.update_calls.clear()
+        mgr.context.update_calls.clear()
+        mgr.clear_round_execution_state(ch, ts)
+        assert len(mgr.discussion.update_calls) == 1
+        assert len(mgr.context.update_calls) == 1
+        assert mgr.is_stopped(ch, ts) is False
+        assert mgr.get_remaining_agents(ch, ts) == []
+        assert mgr.is_consensus_reached(ch, ts) is False
+        assert mgr.get_convergence_speakers(ch, ts) == []
+        assert mgr.get_file_context(ch, ts) is None
+        assert mgr.format_round_evidence(ch, ts) is None
+    finally:
+        mgr.cleanup_thread(ch, ts)

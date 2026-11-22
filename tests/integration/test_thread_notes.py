@@ -726,6 +726,36 @@ async def test_generate_thread_notes_falls_back_when_scribe_key_missing():
     assert token_stats["model"] == "gemini/gemini-3.8-flash"
 
 
+@pytest.mark.anyio
+async def test_notes_worker_resets_sticky_is_completed_on_subsequent_live_turn():
+    """TKT-1216: if a live turn queues while an is_completed=True worker pass runs, iteration 2 runs with is_completed=False."""
+    import agents.thread_notes_agent as tna
+
+    ch = "C_WORKER_RESET"
+    ts = "1700007777.0001"
+    key = (ch, ts)
+    seen_flags: list[bool] = []
+    first_entered = asyncio.Event()
+    release_first = asyncio.Event()
+
+    async def fake_update(*, channel_id, thread_ts, is_completed=False, bot_user_id=None):
+        seen_flags.append(bool(is_completed))
+        if len(seen_flags) == 1:
+            first_entered.set()
+            await release_first.wait()
+        return {"ok": True}
+
+    with patch("agents.thread_notes_agent.update_notes_for_thread", side_effect=fake_update):
+        worker = asyncio.create_task(tna._notes_worker(ch, ts, is_completed=True))
+        await first_entered.wait()
+        # Simulate new live human turn arriving mid-flight with is_completed=False
+        tna._PENDING_UPDATES[key] = True
+        release_first.set()
+        await worker
+
+    assert seen_flags == [True, False]
+
+
 
 
 

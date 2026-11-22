@@ -133,3 +133,65 @@ async def test_scribe_filters_orchestrator_status_noise_from_transcript():
     assert "Round 1 started" not in user_msg
     assert "Deliberation concluded" not in user_msg
 
+
+@pytest.mark.anyio
+async def test_scribe_strips_multiline_footers_and_extracts_bracketed_persona():
+    """TKT-1215: parses [Persona]: prefixes without falling back to [assistant] and strips Skills/token/fallback footers + nominations."""
+    from pipeline.discussion_scribe.scribe import _format_transcript
+
+    history = [
+        {"role": "user", "content": "⚠️ Why did our server alert fire?"},
+        {
+            "role": "assistant",
+            "username": "assistant",
+            "content": (
+                "[The Pragmatist]: Disk IOPS saturated during backup. /[The Critic]\n\n"
+                "Skills used: [web_search], [db_inspect]\n\n"
+                "⚠️ _Fallback model used: `openai/gpt-5.6-luna` (missing API key for `anthropic/claude-opus-5`)_\n\n"
+                "{openai/gpt-5.6-luna : 412/98}"
+            ),
+        },
+        {
+            "role": "assistant",
+            "username": "The Visionary",
+            "content": "[The Visionary]: Consider async replication next. /[The Critic]",
+        },
+    ]
+
+    transcript, speakers_str = _format_transcript(history)
+
+    assert "assistant" not in speakers_str.lower()
+    assert "The Critic" not in speakers_str
+    assert "The Pragmatist" in speakers_str
+    assert "The Visionary" in speakers_str
+    assert "[The Pragmatist]: Disk IOPS saturated during backup." in transcript
+    assert "[The Pragmatist]: [The Pragmatist]:" not in transcript
+    assert "[The Visionary]: [The Visionary]:" not in transcript
+    assert "Skills used:" not in transcript
+    assert "{openai/gpt-5.6-luna : 412/98}" not in transcript
+    assert "Fallback model used" not in transcript
+    assert "/[The Critic]" not in transcript
+
+
+@pytest.mark.anyio
+async def test_scribe_handles_empty_choices_gracefully():
+    """TKT-1217: _generate_text_with_fallback handles None/empty .choices without IndexError or AttributeError."""
+    empty_resp = MagicMock()
+    empty_resp.choices = []
+    empty_resp.usage = None
+
+    retry_resp = MagicMock()
+    retry_resp.choices = None
+    retry_resp.usage = None
+
+    mock_completion_fn = AsyncMock(side_effect=[empty_resp, retry_resp])
+    scribe = DiscussionScribe(completion_fn=mock_completion_fn)
+
+    text, usage, ok = await scribe._generate_text_with_fallback(
+        messages=[{"role": "user", "content": "hello"}],
+        label="brief",
+        unavailable_noun="Brief",
+    )
+    assert ok is False
+    assert "Brief unavailable" in text
+

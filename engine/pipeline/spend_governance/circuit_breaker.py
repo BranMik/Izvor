@@ -201,12 +201,25 @@ class SpendGovernance:
                 if not self._active_reservations[session_id]:
                     del self._active_reservations[session_id]
 
-    def get_active_reservations_usd(self, session_id: str | None = None) -> float:
+    def get_active_reservations_usd(
+        self,
+        session_id: str | None = None,
+        exclude_reservation_id: str | None = None,
+    ) -> float:
         """Returns total active reservations in USD for a session or globally."""
         with self._lock:
             if session_id is not None:
-                return sum(self._active_reservations.get(session_id, {}).values())
-            return sum(sum(res.values()) for res in self._active_reservations.values())
+                return sum(
+                    val
+                    for res_id, val in self._active_reservations.get(session_id, {}).items()
+                    if exclude_reservation_id is None or res_id != exclude_reservation_id
+                )
+            return sum(
+                val
+                for res in self._active_reservations.values()
+                for res_id, val in res.items()
+                if exclude_reservation_id is None or res_id != exclude_reservation_id
+            )
 
     def is_budget_exceeded(
         self,
@@ -215,13 +228,16 @@ class SpendGovernance:
         enabled: bool = True,
         current_cost_usd: float | None = None,
         daily_budget_usd: float | None = None,
+        exclude_reservation_id: str | None = None,
     ) -> tuple[bool, float, float]:
         """
         Checks if session cost or daily aggregated spend has reached or exceeded the monetary budget threshold.
         Returns: `(is_exceeded, current_cost_usd, threshold_usd)`.
         """
         # 1. Check daily budget threshold (always enforced, independent of per-thread breaker)
-        daily_spend = self.get_daily_spend() + self.get_active_reservations_usd()
+        daily_spend = self.get_daily_spend() + self.get_active_reservations_usd(
+            exclude_reservation_id=exclude_reservation_id
+        )
         daily_limit = (
             daily_budget_usd
             if daily_budget_usd is not None
@@ -238,11 +254,15 @@ class SpendGovernance:
 
         # 2. Check per-session threshold
         limit = threshold_usd if threshold_usd is not None else self.default_threshold_usd
+        active_session_res = self.get_active_reservations_usd(
+            session_id,
+            exclude_reservation_id=exclude_reservation_id,
+        )
         if current_cost_usd is not None:
-            cost = current_cost_usd + self.get_active_reservations_usd(session_id)
+            cost = current_cost_usd + active_session_res
         else:
             metrics = self.calculate_spend(session_id)
-            cost = metrics.total_cost_usd + self.get_active_reservations_usd(session_id)
+            cost = metrics.total_cost_usd + active_session_res
         is_tripped = limit > 0 and cost >= limit
         return is_tripped, cost, limit
 

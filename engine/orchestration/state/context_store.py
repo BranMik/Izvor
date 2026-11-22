@@ -1,11 +1,13 @@
+from collections.abc import Callable
 import json
 import logging
-from typing import Any
+from typing import Any, TypeVar
 
 from core.database import get_connection, get_db_transaction
 from core.models import FileContext, HistoryLimitConfig
 
 logger = logging.getLogger(__name__)
+_T = TypeVar("_T")
 
 
 def _safe_json(obj: Any) -> str:
@@ -39,7 +41,13 @@ class ThreadContextStore:
             logger.debug(f"[CONTEXT STORE] Failed to read context from DB for ({channel_id}, {thread_ts}): {e}")
             return None
 
-    def _update_fields(self, channel_id: str, thread_ts: str, **updates: Any) -> None:
+    def _mutate_fields(
+        self,
+        channel_id: str,
+        thread_ts: str,
+        mutator: Callable[[dict[str, Any]], tuple[dict[str, Any], _T]],
+        default_result: _T = None,
+    ) -> _T:
         try:
             with get_db_transaction(immediate=True) as conn:
                 cursor = conn.cursor()
@@ -50,6 +58,7 @@ class ThreadContextStore:
                     (channel_id, thread_ts),
                 )
                 row = cursor.fetchone()
+                row_existed = row is not None
                 data: dict[str, Any] = dict(row) if row else {
                     "history_limit_config": None,
                     "max_words": None,
@@ -62,9 +71,7 @@ class ThreadContextStore:
                     "format_modifiers": "{}",
                     "file_context": None,
                 }
-                for k, v in updates.items():
-                    if k in data:
-                        data[k] = v
+                data, result = mutator(data)
 
                 # Check if completely empty
                 has_data = any([
@@ -81,10 +88,11 @@ class ThreadContextStore:
                 ])
 
                 if not has_data:
-                    conn.execute(
-                        "DELETE FROM thread_context WHERE channel_id = ? AND thread_ts = ?",
-                        (channel_id, thread_ts),
-                    )
+                    if row_existed:
+                        conn.execute(
+                            "DELETE FROM thread_context WHERE channel_id = ? AND thread_ts = ?",
+                            (channel_id, thread_ts),
+                        )
                 else:
                     conn.execute(
                         """
@@ -120,8 +128,19 @@ class ThreadContextStore:
                             data["file_context"],
                         ),
                     )
+                return result
         except Exception as e:  # noqa: BLE001
             logger.debug(f"[CONTEXT STORE] Failed to update context in DB for ({channel_id}, {thread_ts}): {e}")
+            return default_result
+
+    def _update_fields(self, channel_id: str, thread_ts: str, **updates: Any) -> None:
+        def _apply(data: dict[str, Any]) -> tuple[dict[str, Any], None]:
+            for k, v in updates.items():
+                if k in data:
+                    data[k] = v
+            return data, None
+
+        self._mutate_fields(channel_id, thread_ts, _apply)
 
     def get_history_limit(self, channel_id: str, thread_ts: str) -> dict[str, int] | None:
         """Returns active history limit dictionary for this thread."""
@@ -235,18 +254,33 @@ class ThreadContextStore:
         logger.info(f"[CONTEXT STORE] Set excluded agents for thread {(channel_id, thread_ts)}: {agents}")
 
     def add_excluded_agent(self, channel_id: str, thread_ts: str, agent: str) -> None:
-        """Appends an agent to the persistent excluded list for this thread."""
-        curr = self.get_excluded_agents(channel_id, thread_ts)
-        if agent not in curr:
-            curr.append(agent)
-            self.set_excluded_agents(channel_id, thread_ts, curr)
+        """Appends an agent to the persistent excluded list atomically."""
+
+        def _mutator(data: dict[str, Any]) -> tuple[dict[str, Any], None]:
+            try:
+                curr = list(json.loads(data["excluded_agents"])) if data.get("excluded_agents") else []
+            except (json.JSONDecodeError, TypeError):
+                curr = []
+            if agent not in curr:
+                curr.append(agent)
+                data["excluded_agents"] = json.dumps(list(dict.fromkeys(curr)))
+            return data, None
+
+        self._mutate_fields(channel_id, thread_ts, _mutator)
 
     def remove_excluded_agent(self, channel_id: str, thread_ts: str, agent: str) -> None:
-        """Removes an agent from the persistent excluded list for this thread."""
-        curr = self.get_excluded_agents(channel_id, thread_ts)
-        if agent in curr:
-            curr = [a for a in curr if a != agent]
-            self._update_fields(channel_id, thread_ts, excluded_agents=json.dumps(curr))
+        """Removes an agent from the persistent excluded list atomically."""
+
+        def _mutator(data: dict[str, Any]) -> tuple[dict[str, Any], None]:
+            try:
+                curr = list(json.loads(data["excluded_agents"])) if data.get("excluded_agents") else []
+            except (json.JSONDecodeError, TypeError):
+                curr = []
+            if agent in curr:
+                data["excluded_agents"] = json.dumps([a for a in curr if a != agent])
+            return data, None
+
+        self._mutate_fields(channel_id, thread_ts, _mutator)
 
     def clear_excluded_agents(self, channel_id: str, thread_ts: str) -> None:
         """Clears all excluded agents for this thread."""
@@ -263,34 +297,56 @@ class ThreadContextStore:
         return []
 
     def set_included_agents(self, channel_id: str, thread_ts: str, agents: list[str]) -> None:
-        """Sets explicitly included agents for this thread."""
+        """Sets explicitly included agents for this thread and prunes from excluded list atomically."""
         cleaned = list(dict.fromkeys(agents))
-        # Ensure included agents are removed from excluded list
-        curr_excluded = self.get_excluded_agents(channel_id, thread_ts)
-        remaining_excluded = [a for a in curr_excluded if a not in agents]
-        self._update_fields(
-            channel_id,
-            thread_ts,
-            included_agents=json.dumps(cleaned),
-            excluded_agents=json.dumps(remaining_excluded),
-        )
+
+        def _mutator(data: dict[str, Any]) -> tuple[dict[str, Any], None]:
+            try:
+                curr_excluded = list(json.loads(data["excluded_agents"])) if data.get("excluded_agents") else []
+            except (json.JSONDecodeError, TypeError):
+                curr_excluded = []
+            remaining_excluded = [a for a in curr_excluded if a not in agents]
+            data["included_agents"] = json.dumps(cleaned)
+            data["excluded_agents"] = json.dumps(remaining_excluded)
+            return data, None
+
+        self._mutate_fields(channel_id, thread_ts, _mutator)
         logger.info(f"[CONTEXT STORE] Set included agents for thread {(channel_id, thread_ts)}: {agents}")
 
     def add_included_agent(self, channel_id: str, thread_ts: str, agent: str) -> None:
-        """Appends an agent to the persistent included list for this thread."""
-        curr = self.get_included_agents(channel_id, thread_ts)
-        if agent not in curr:
-            curr.append(agent)
-            self.set_included_agents(channel_id, thread_ts, curr)
-        else:
-            self.remove_excluded_agent(channel_id, thread_ts, agent)
+        """Appends an agent to the persistent included list and unexcludes atomically."""
+
+        def _mutator(data: dict[str, Any]) -> tuple[dict[str, Any], None]:
+            try:
+                curr_included = list(json.loads(data["included_agents"])) if data.get("included_agents") else []
+            except (json.JSONDecodeError, TypeError):
+                curr_included = []
+            try:
+                curr_excluded = list(json.loads(data["excluded_agents"])) if data.get("excluded_agents") else []
+            except (json.JSONDecodeError, TypeError):
+                curr_excluded = []
+            if agent not in curr_included:
+                curr_included.append(agent)
+                data["included_agents"] = json.dumps(list(dict.fromkeys(curr_included)))
+            if agent in curr_excluded:
+                data["excluded_agents"] = json.dumps([a for a in curr_excluded if a != agent])
+            return data, None
+
+        self._mutate_fields(channel_id, thread_ts, _mutator)
 
     def remove_included_agent(self, channel_id: str, thread_ts: str, agent: str) -> None:
-        """Removes an agent from the persistent included list for this thread."""
-        curr = self.get_included_agents(channel_id, thread_ts)
-        if agent in curr:
-            curr = [a for a in curr if a != agent]
-            self._update_fields(channel_id, thread_ts, included_agents=json.dumps(curr))
+        """Removes an agent from the persistent included list atomically."""
+
+        def _mutator(data: dict[str, Any]) -> tuple[dict[str, Any], None]:
+            try:
+                curr = list(json.loads(data["included_agents"])) if data.get("included_agents") else []
+            except (json.JSONDecodeError, TypeError):
+                curr = []
+            if agent in curr:
+                data["included_agents"] = json.dumps([a for a in curr if a != agent])
+            return data, None
+
+        self._mutate_fields(channel_id, thread_ts, _mutator)
 
     def clear_included_agents(self, channel_id: str, thread_ts: str) -> None:
         """Clears all explicitly included agents for this thread."""

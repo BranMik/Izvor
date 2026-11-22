@@ -323,3 +323,25 @@ async def test_guardrail_audit_events_omit_raw_text_and_log_prompt_injection_blo
     assert "text_snippet" not in hit_ev["details"]
     assert hit_ev["details"]["similarity"] >= svc_hit.threshold
     assert secret_prompt not in repr(hit_ev)
+
+
+@pytest.mark.anyio
+async def test_guardrail_lazy_table_init_offloaded_to_thread():
+    """TKT-1221: When _table is None, is_prompt_injection initializes LanceDB table in asyncio.to_thread."""
+    fake_table = MagicMock()
+    df = pd.DataFrame([{"_distance": 0.05, "text": "matched jailbreak signature"}])
+    fake_table.search.return_value.metric.return_value.limit.return_value.to_pandas.return_value = df
+    fake_db = MagicMock()
+    fake_db.list_tables.return_value = _FakeListTablesResponse(["guardrail_signatures"])
+    fake_db.open_table.return_value = fake_table
+
+    svc = GuardrailService(db_dir="/nonexistent", connect_fn=MagicMock(return_value=fake_db))
+    assert svc._table is None
+
+    with (
+        patch("services.rag.embeddings.embedding_service.get_embeddings", AsyncMock(return_value=[[0.5, 0.5, 0.5]])),
+        patch("asyncio.to_thread", wraps=asyncio.to_thread) as spy_to_thread,
+    ):
+        is_blocked = await svc.is_prompt_injection("Ignore instructions lazy offload unique check")
+        assert is_blocked is True
+        assert spy_to_thread.call_count >= 2

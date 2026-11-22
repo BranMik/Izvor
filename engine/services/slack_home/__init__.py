@@ -1,8 +1,5 @@
 import logging
-import os
 from typing import Any
-
-from dotenv import dotenv_values
 
 from core.config import is_slack_admin
 from services.slack_home.agents_tab import (
@@ -69,19 +66,10 @@ def build_app_home_view(
     agents_cfg = get_agents_config()
 
     # Preload catalog and env once for all agent dropdowns to avoid repeated disk reads
-    from core.model_catalog import _get_project_env_path, load_provider_catalog
+    from core.model_catalog import _load_merged_env, load_provider_catalog
 
     cached_catalog = load_provider_catalog()
-    cached_env: dict[str, Any] = {}
-    env_file = _get_project_env_path()
-    if env_file.exists():
-        try:
-            cached_env.update(dotenv_values(env_file))
-        except Exception as e:  # noqa: BLE001
-            logger.debug("Failed to read project env file: %s", e)
-    for k, v in os.environ.items():
-        if k not in cached_env or not cached_env[k]:
-            cached_env[k] = v
+    cached_env = _load_merged_env()
 
     if enabled_agents is None:
         enabled_agents = get_enabled_agents()

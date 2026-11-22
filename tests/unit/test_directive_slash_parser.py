@@ -401,4 +401,15 @@ async def test_standalone_admin_or_exclusive_commands_skip_intent_extractor():
         reset_intent_extractor()
 
 
+@pytest.mark.anyio
+async def test_slash_revoke_word_boundary_ignores_revoked():
+    """TKT-1219: /revoked must not match /revoke due to full identifier boundary."""
+    parser = DirectiveParser()
+    res_ignored = await parser.parse("/revoked access yesterday")
+    assert res_ignored.revoke_target is None
+
+    res_matched = await parser.parse("/revoke max_words continue")
+    assert res_matched.revoke_target == "max_words"
+
+
 
