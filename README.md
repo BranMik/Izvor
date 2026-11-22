@@ -22,9 +22,16 @@
 7. [Skills](#7-skills)
    - [7.1 Configurable Agent Tool Skills (`config/skills/`)](#71-configurable-agent-tool-skills-configskills)
    - [7.2 Built-in Orchestrator & Prompt-Modifier Skills (`engine/skills/builtin/`)](#72-built-in-orchestrator--prompt-modifier-skills-engineskillsbuiltin)
-8. [Debugging & Troubleshooting](#8-debugging--troubleshooting)
-9. [Documentation Hub](#9-documentation-hub)
-10. [License](#10-license)
+8. [Configuration & Customization Quick Guide](#8-configuration--customization-quick-guide)
+   - [8.1 Adding & Modifying Debate Agents (`config/settings/agent_settings.json` & `config/personas/`)](#81-adding--modifying-debate-agents-configsettingsagent_settingsjson--configpersonas)
+   - [8.2 Adding & Modifying Skills (`config/skills/`)](#82-adding--modifying-skills-configskills)
+   - [8.3 Connecting External MCP Servers (`mcp_servers` + `SKILL.md`)](#83-connecting-external-mcp-servers-mcp_servers--skillmd)
+   - [8.4 Adding & Modifying Workflows (`config/workflows/`)](#84-adding--modifying-workflows-configworkflows)
+   - [8.5 Adding & Updating RAG Knowledge Documents (`config/rag_knowledge/`)](#85-adding--updating-rag-knowledge-documents-configrag_knowledge)
+   - [8.6 Managing Agent Workspace Resources (`agents_resources/`)](#86-managing-agent-workspace-resources-agents_resources)
+9. [Debugging & Troubleshooting](#9-debugging--troubleshooting)
+10. [Documentation Hub](#10-documentation-hub)
+11. [License](#11-license)
 
 ---
 
@@ -358,7 +365,46 @@ Izvor ships with **21 declarative skills** defined via `SKILL.md` manifests: **4
 
 ---
 
-## 8. Debugging & Troubleshooting
+## 8. Configuration & Customization Quick Guide
+
+All implementer customization lives in **`config/`** and **`agents_resources/`** (leave `engine/` untouched as the immutable core engine). Many settings can also be adjusted live in **Slack App Home**.
+
+> [!TIP]
+> For exhaustive field tables, validation rules, reload behavior, and full copy-paste examples, see the **[Configuration & Customization Guide (`docs/getting-started/configuration-guide.md`)](docs/getting-started/configuration-guide.md)**.
+
+### 8.1 Adding & Modifying Debate Agents (`config/settings/agent_settings.json` & `config/personas/`)
+- **Persona Prompt (Required):** Create or edit `config/personas/<agent_id>.md` (e.g., [`config/personas/agent-10001.md`](config/personas/agent-10001.md)). Keys must follow `agent-<digits>` (e.g., `agent-10017`).
+- **Agent Definition:** Add or update the entry in [`config/settings/agent_settings.json`](config/settings/agent_settings.json) under `"agents"` (`username`, `displayname`, `model`, `icon_url`, `is_short_output`, `skills`) and include its ID in `"enabled_agents"` to join default panel debates.
+- **Avatars & Live Edits:** Drop custom PNGs into [`config/avatars/`](config/avatars) (referenced as `"avatars/<file>.png"`), or toggle agents, models, prompts, and skills live via **Slack App Home → Agents Tab**.
+
+### 8.2 Adding & Modifying Skills (`config/skills/`)
+- **Create a Skill Directory:** Add `config/skills/<skill_name>/SKILL.md` with YAML frontmatter (`name`, `display_name`, `description`, `scope: agent`, `requires_admin: false|true`, `requires_human_ITL: false|true`, `tools`, and `triggers`) plus Markdown instructions. *(Never reuse built-in skill names from `engine/skills/builtin/`.)*
+- **Custom Python Tools:** Add `config/skills/<skill_name>/tools.py` exporting `TOOL_SCHEMAS` (LiteLLM function schemas) and `TOOL_HANDLERS` (`{tool_name: async_or_sync_fn}`).
+- **Authorize:** Add `<skill_name>` to an agent's `"skills"` array in [`agent_settings.json`](config/settings/agent_settings.json) or grant per-thread in Slack with `@Izvor /grant_skill <skill_name> /[Agent]`.
+
+### 8.3 Connecting External MCP Servers (`mcp_servers` + `SKILL.md`)
+1. **Configure the Server:** Under `"mcp_servers"` in [`config/settings/system_settings.json`](config/settings/system_settings.json), define a `stdio` command (`command`, `args`, `env` with `${ENV_VAR}` expansion from `.env`) or a remote `sse` / `streamable_http` endpoint (`url`, `headers`), plus `mutating_tools` (for Slack HITL approval) and `outbound_pii_masking`.
+2. **Bind to a Skill:** Create `config/skills/<skill_name>/SKILL.md` with `mcp_server: <server_key>` and `mcp_tools: ["tool_a", ...]` (or `["*"]`). Tools are auto-namespaced as `mcp__<server>__<tool>`.
+3. **Assign & Restart:** Assign the skill to agents in `agent_settings.json` and restart Izvor so startup discovers tools from enabled MCP servers.
+
+### 8.4 Adding & Modifying Workflows (`config/workflows/`)
+- **Create or Edit a Preset JSON:** Add `config/workflows/<workflow_id>.json` using `"mode": "fixed"` (`fixed_config.chain`), `"mode": "sandwich"` (`sandwich_config.start_chain` / `end_chain`), or `"mode": "scatter_gather"` (Turn 1 framing + parallel branches + `end_chain`). *(Avoid reserved default IDs: `default_review_flow`, `default_sandwich`, `parallel_dialectic_flow`.)*
+- **Activate:** Set `"workflow_config": "<workflow_id>"` in [`agent_settings.json`](config/settings/agent_settings.json), or load/create/modify presets live via **Slack App Home → Workflows Tab**.
+
+### 8.5 Adding & Updating RAG Knowledge Documents (`config/rag_knowledge/`)
+- **Folder Scoping:** Put organization-wide docs in [`config/rag_knowledge/shared/`](config/rag_knowledge/shared) (`scope="all"`), and persona-specific docs in `config/rag_knowledge/<agent_id>/` (e.g., [`config/rag_knowledge/agent-10008/`](config/rag_knowledge/agent-10008)) for `scope="self"` and `scope="all"`. Supported formats: `.md`, `.markdown`, `.txt`, `.pdf`.
+- **Re-Index Without Restarting:** Files reconcile automatically on startup, or trigger incremental SHA-256 indexing live via:
+  ```bash
+  curl -X POST -u admin:YourAdminPassword http://localhost:8000/api/rag/reconcile
+  ```
+
+### 8.6 Managing Agent Workspace Resources (`agents_resources/`)
+- **Direct File Sandbox:** Place `.txt`, `.md`, `.csv`, `.json`, `.pdf`, etc. in [`agents_resources/`](agents_resources) for direct reading (`document_reader`: `list_documents`, `read_document`) and agent-authored deliverables (`document_authoring`: `write_document`, protected by Slack **HITL Approve/Deny**).
+- **Visibility:** Files in `agents_resources/` are available immediately with no indexing step (unlike `config/rag_knowledge/`, which is chunked for semantic + BM25 search). Limits (`max_file_size_mb: 50.0`, `max_write_bytes: 1048576`, `workspace_write_blacklist_additional`) are tuned in [`config/settings/system_settings.json`](config/settings/system_settings.json).
+
+---
+
+## 9. Debugging & Troubleshooting
 
 ### 1. App starts (`Application Startup Complete`), you trigger it in Slack, and nothing happens in the terminal
 
@@ -419,11 +465,11 @@ Slack fetches avatar URLs server-side using `BASE_AVATAR_URL` + `avatars/...` ([
 
 ---
 
-## 9. Documentation Hub
+## 10. Documentation Hub
 
 See the [Documentation Hub (`docs/README.md`)](docs/README.md) and the [Comprehensive System Specification](docs/architecture/Izvor_System_Architecture_Comprehensive.md) for deep-dive references:
 
-- **Getting Started**: [Platform Overview](docs/getting-started/overview.md) · [Installation & Cloudflare Tunnel Guide](docs/getting-started/installation.md) · [Slack App Setup Guide](docs/getting-started/slack-app-setup.md)
+- **Getting Started**: [Platform Overview](docs/getting-started/overview.md) · [Installation & Cloudflare Tunnel Guide](docs/getting-started/installation.md) · [Configuration & Customization Guide](docs/getting-started/configuration-guide.md) · [Slack App Setup Guide](docs/getting-started/slack-app-setup.md)
 - **User Guide**: [Interacting in Slack](docs/user-guide/interacting-in-slack.md) · [Directives & Slash Syntax](docs/user-guide/directives-and-slash-syntax.md) · [Thread Notes & Exports](docs/user-guide/thread-notes-and-exports.md)
 - **Architecture & Engine**: [Comprehensive System Specification](docs/architecture/Izvor_System_Architecture_Comprehensive.md) · [System Design](docs/architecture/system-design.md) · [Orchestration Pipeline](docs/architecture/orchestration-pipeline.md) · [Topologies & Routing](docs/architecture/topologies-and-routing.md) · [Thread State & Memory](docs/architecture/thread-state-memory.md) · [Spend Governance](docs/architecture/spend-governance.md)
 - **Agents, Skills & Tools**: [Personas Catalog](docs/agents-and-skills/personas-catalog.md) · [Skills Framework](docs/agents-and-skills/skills-framework.md) · [Built-in Skills Reference](docs/agents-and-skills/built-in-skills-reference.md) · [MCP & Tools](docs/agents-and-skills/mcp-and-tools.md)
@@ -432,7 +478,7 @@ See the [Documentation Hub (`docs/README.md`)](docs/README.md) and the [Comprehe
 
 ---
 
-## 10. License
+## 11. License
 
 Izvor is source-available under the **Business Source License 1.1 (`BUSL-1.1`)** — see the [LICENSE](LICENSE) file for full terms.
 

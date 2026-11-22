@@ -14,6 +14,7 @@ docs/
 ├── getting-started/                       # Getting Started Guides
 │   ├── overview.md                        # Platform Vision, Concepts & Core Features
 │   ├── installation.md                    # Prerequisites, Virtual Environment & Configuration
+│   ├── configuration-guide.md             # Adding/Modifying Agents, Skills, MCP, Workflows, RAG & Resources
 │   └── slack-app-setup.md                 # Slack API Manifest, Scopes & Webhook Setup
 ├── architecture/                          # Architecture & Core Engine
 │   ├── system-design.md                   # Event Lifecycle, FastAPI Lifespan & Heartbeats
@@ -45,7 +46,7 @@ docs/
 
 ## 🚀 Quick Links
 
-- **New to Izvor?** Check the [Platform Overview](getting-started/overview.md) and [Installation Guide](getting-started/installation.md).
+- **New to Izvor?** Check the [Platform Overview](getting-started/overview.md), [Installation Guide](getting-started/installation.md), and [Configuration & Customization Guide](getting-started/configuration-guide.md).
 - **Connecting Slack?** Follow the [Slack App Setup Guide](getting-started/slack-app-setup.md).
 - **Exploring Personas?** Browse the [Personas Catalog](agents-and-skills/personas-catalog.md) and [Built-in Skills Reference](agents-and-skills/built-in-skills-reference.md).
 - **Understanding Orchestration?** Read [System Design](architecture/system-design.md) and [Topologies & Routing](architecture/topologies-and-routing.md).
