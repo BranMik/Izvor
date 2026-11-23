@@ -8,7 +8,7 @@ from orchestration.agent_router import (
     configure_router_sleep_fn,
     process_and_respond,
 )
-from orchestration.agent_settings import (
+from config_store.agent_settings import (
     get_enabled_agents,
     load_enabled_agents,
     reset_enabled_agents,
@@ -19,7 +19,7 @@ from orchestration.agent_settings import (
     settings_manager,
     toggle_agent,
 )
-from orchestration.app_settings import (
+from config_store.app_settings import (
     get_circuit_breaker_threshold,
     is_circuit_breaker_enabled,
     set_circuit_breaker_enabled,

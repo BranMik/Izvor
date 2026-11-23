@@ -7,7 +7,7 @@ import json
 import tempfile
 from pathlib import Path
 
-from orchestration.app_settings import (
+from config_store.app_settings import (
     AppSettingsManager,
     get_thread_skill_expiration_time,
     is_circuit_breaker_enabled,
@@ -96,7 +96,7 @@ def test_app_settings_backup_resilience():
 def test_app_settings_module_convenience(tmp_path):
     settings_file = tmp_path / "app_settings.json"
     backup_file = tmp_path / "app_settings_backup.json"
-    from orchestration.app_settings import app_settings_manager
+    from config_store.app_settings import app_settings_manager
 
     app_settings_manager.configure_paths(settings_file=settings_file, backup_file=backup_file)
 
@@ -117,5 +117,25 @@ def test_app_settings_module_convenience(tmp_path):
 
     set_scribe_enabled(False)
     assert is_scribe_enabled() is False
+
+
+def test_app_settings_snapshot_returns_deep_copy(tmp_path):
+    from config_store.app_settings import AppSettingsManager, get_app_settings_snapshot
+
+    mgr = AppSettingsManager(
+        settings_file=tmp_path / "app_settings.json",
+        backup_file=tmp_path / "app_backup.json",
+        auto_load=True,
+    )
+    mgr.set_workspace_context("Initial project context")
+    snap = mgr.get_snapshot()
+    assert snap.workspace_context == "Initial project context"
+    snap.workspace_context = "Mutated external copy"
+    assert mgr.get_snapshot().workspace_context == "Initial project context"
+
+    global_snap = get_app_settings_snapshot()
+    original_ctx = global_snap.workspace_context
+    global_snap.workspace_context = "Mutated"
+    assert get_app_settings_snapshot().workspace_context == original_ctx
 
 

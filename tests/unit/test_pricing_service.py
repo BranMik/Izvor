@@ -6,7 +6,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from core.config import get_orchestrator_fast_model
-import services.pricing_service as pricing_module
 from services.pricing_service import (
     MAX_VALID_PRICE_PER_1M,
     MIN_VALID_PRICE_PER_1M,
@@ -278,7 +277,7 @@ async def test_refresh_pricing_when_weekly_update_disabled_and_price_already_set
     When weekly pricing update is OFF, if price is already set per model,
     it must NOT update from web even if cache is older than 7 days.
     """
-    from orchestration.app_settings import app_settings_manager
+    from config_store.app_settings import app_settings_manager
 
     app_settings_manager.set_weekly_pricing_update_enabled(False, save=False)
     model = "openai/gpt-5.6-terra"
@@ -309,7 +308,7 @@ async def test_refresh_pricing_when_weekly_update_disabled_but_no_price_set():
     When weekly pricing update is OFF, but there is NO price per token set
     for the model (missing from cache or null price), it MUST still update from web.
     """
-    from orchestration.app_settings import app_settings_manager
+    from config_store.app_settings import app_settings_manager
 
     app_settings_manager.set_weekly_pricing_update_enabled(False, save=False)
     model = "custom/new-unpriced-model"
@@ -363,7 +362,7 @@ async def test_refresh_pricing_force_overrides_disabled_weekly_update():
     """
     Even when weekly pricing update is OFF, calling with force=True must fetch fresh pricing.
     """
-    from orchestration.app_settings import app_settings_manager
+    from config_store.app_settings import app_settings_manager
 
     app_settings_manager.set_weekly_pricing_update_enabled(False, save=False)
     model = "anthropic/claude-opus-5"

@@ -7,9 +7,32 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .config import MANIFEST_PATH, RAG_CACHE_DIR, RAG_KNOWLEDGE_DIR, SUPPORTED_EXTENSIONS
+from .config import MANIFEST_PATH, RAG_KNOWLEDGE_DIR, SUPPORTED_EXTENSIONS
 
 logger = logging.getLogger(__name__)
+
+META_KEY = "__meta__"
+
+
+def compute_rag_config_hash(
+    embedding_model: str,
+    pii_masking: str,
+    max_chunk_chars: int,
+    chunk_overlap_chars: int,
+    min_chunk_chars: int,
+) -> str:
+    """Computes deterministic SHA-256 fingerprint of active RAG indexing configuration."""
+    payload = json.dumps(
+        {
+            "embedding_model": str(embedding_model),
+            "pii_masking": str(pii_masking).upper(),
+            "max_chunk_chars": int(max_chunk_chars),
+            "chunk_overlap_chars": int(chunk_overlap_chars),
+            "min_chunk_chars": int(min_chunk_chars),
+        },
+        sort_keys=True,
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def compute_sha256(file_path: Path) -> str:
@@ -52,7 +75,7 @@ class ManifestManager:
 
     def save(self) -> None:
         """Atomically saves the in-memory manifest to disk."""
-        RAG_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        self.manifest_path.parent.mkdir(parents=True, exist_ok=True)
         tmp_path = self.manifest_path.parent / f"{self.manifest_path.name}.{uuid.uuid4().hex}.tmp"
         try:
             with open(tmp_path, "w", encoding="utf-8") as f:
@@ -60,14 +83,31 @@ class ManifestManager:
                 f.flush()
                 os.fsync(f.fileno())
             os.replace(tmp_path, self.manifest_path)
-            logger.debug(f"[RAG Manifest] Saved {len(self._manifest)} document record(s) to {self.manifest_path}")
+            logger.debug(f"[RAG Manifest] Saved {len(self._manifest)} entry/entries to {self.manifest_path}")
         except (OSError, json.JSONDecodeError, ValueError) as e:
             logger.error(f"[RAG Manifest] Failed to persist manifest: {e}")
             if tmp_path.exists():
                 tmp_path.unlink(missing_ok=True)
 
+    def get_config_hash(self) -> str | None:
+        """Returns persisted RAG configuration hash stored under META_KEY, or None."""
+        meta = self._manifest.get(META_KEY)
+        if isinstance(meta, dict):
+            val = meta.get("config_hash")
+            return str(val) if val else None
+        return None
+
+    def set_config_hash(self, config_hash: str) -> None:
+        """Records the current RAG configuration hash under META_KEY."""
+        self._manifest[META_KEY] = {
+            "config_hash": str(config_hash),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+
     def get_record(self, rel_doc_id: str) -> dict[str, Any] | None:
         """Gets metadata record for a document relative path."""
+        if rel_doc_id == META_KEY:
+            return None
         return self._manifest.get(rel_doc_id)
 
     def record_document(
@@ -89,39 +129,46 @@ class ManifestManager:
 
     def remove_document(self, rel_doc_id: str) -> list[str]:
         """Removes an entry from the manifest and returns its chunk IDs for cleanup."""
+        if rel_doc_id == META_KEY:
+            return []
         record = self._manifest.pop(rel_doc_id, None)
         if record:
             return record.get("chunk_ids", [])
         return []
 
     def get_all_records(self) -> dict[str, dict[str, Any]]:
-        return dict(self._manifest)
+        return {k: v for k, v in self._manifest.items() if k != META_KEY}
 
     def diff_filesystem(
-        self, root_dir: Path = RAG_KNOWLEDGE_DIR, use_mtime_fastpath: bool = True
+        self,
+        root_dir: Path = RAG_KNOWLEDGE_DIR,
+        use_mtime_fastpath: bool = True,
+        current_config_hash: str | None = None,
     ) -> dict[str, Any]:
         """
         Scans root_dir and compares with current manifest.
-        If use_mtime_fastpath is True and recorded mtime matches current mtime,
-        marks document as unchanged without re-reading or computing SHA-256.
-        Returns:
-            {
-                "new": [(rel_doc_id, full_path, agent_id, sha256, mtime), ...],
-                "modified": [(rel_doc_id, full_path, agent_id, sha256, mtime, old_chunk_ids), ...],
-                "deleted": [(rel_doc_id, old_chunk_ids), ...],
-                "unchanged": [rel_doc_id, ...]
-            }
+        If current_config_hash differs from persisted config_hash on a non-empty manifest,
+        forces full re-indexing of all present documents as 'modified'.
         """
-        diff: dict[str, list[Any]] = {
+        has_doc_records = any(k != META_KEY for k in self._manifest)
+        config_drifted = bool(
+            current_config_hash is not None
+            and has_doc_records
+            and self.get_config_hash() != current_config_hash
+        )
+        diff: dict[str, Any] = {
             "new": [],
             "modified": [],
             "deleted": [],
             "unchanged": [],
+            "config_drifted": config_drifted,
         }
 
         if not root_dir.exists():
-            # If root_dir doesn't exist, all manifest entries are considered deleted
+            # If root_dir doesn't exist, all document manifest entries are considered deleted
             for rel_doc_id, rec in self._manifest.items():
+                if rel_doc_id == META_KEY:
+                    continue
                 diff["deleted"].append((rel_doc_id, rec.get("chunk_ids", [])))
             return diff
 
@@ -147,7 +194,7 @@ class ManifestManager:
                 continue
 
             existing_record = self._manifest.get(rel_doc_id)
-            if existing_record and use_mtime_fastpath:
+            if existing_record and use_mtime_fastpath and not config_drifted:
                 recorded_mtime = float(existing_record.get("mtime", 0.0))
                 if abs(recorded_mtime - mtime) < 1e-3:
                     diff["unchanged"].append(rel_doc_id)
@@ -159,10 +206,10 @@ class ManifestManager:
                 logger.error(f"[RAG Manifest] Could not read file {path}: {e}")
                 continue
 
-            if rel_doc_id not in self._manifest:
+            if rel_doc_id not in self._manifest or rel_doc_id == META_KEY:
                 diff["new"].append((rel_doc_id, path, agent_id, current_sha, mtime))
             else:
-                if existing_record.get("sha256") != current_sha:
+                if config_drifted or existing_record.get("sha256") != current_sha:
                     diff["modified"].append(
                         (
                             rel_doc_id,
@@ -176,8 +223,10 @@ class ManifestManager:
                 else:
                     diff["unchanged"].append(rel_doc_id)
 
-        # Detect deleted files
+        # Detect deleted files (skipping metadata key)
         for rel_doc_id, rec in self._manifest.items():
+            if rel_doc_id == META_KEY:
+                continue
             if rel_doc_id not in seen_doc_ids:
                 diff["deleted"].append((rel_doc_id, rec.get("chunk_ids", [])))
 

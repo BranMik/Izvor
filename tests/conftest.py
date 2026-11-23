@@ -5,26 +5,55 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from orchestration.agent_settings import (
+from adapters.slack.workspace_adapter import SlackWorkspaceAdapter
+from agents.thread_notes_agent import clear_thread_note
+from agents.usage_agent import cleanup_thread_usage, record_thread_tokens
+from config_store.agent_settings import (
     BACKUP_FILE as REAL_BACKUP_FILE,
     DEFAULT_SYSTEM_AGENT_SETTINGS_FILE,
     SETTINGS_FILE as REAL_SETTINGS_FILE,
     SYSTEM_AGENT_BACKUP_FILE as REAL_SYSTEM_AGENT_BACKUP_FILE,
     SYSTEM_AGENT_SETTINGS_FILE as REAL_SYSTEM_AGENT_SETTINGS_FILE,
+    register_on_agents_changed,
+    set_prompt_builder_hook,
     settings_manager,
 )
+from core.registry import (
+    register_token_recorder,
+    set_default_workspace_adapter_factory,
+    set_initial_agents_provider,
+    set_thread_state_provider,
+)
+from orchestration.nomination import get_initial_agents
+from orchestration.thread_state import thread_state_manager
+from prompts.builder import build_agent_prompt
 from services.pricing_service import PRICING_CACHE_FILE as REAL_PRICING_CACHE_FILE
 from services.audit_logger import audit_logger, log_audit_event
+from services.retention_service import register_thread_purge_hook
 from services.security.pii_masker import pii_masker
 from services.security import scan_output_for_secrets
-import skills.loader
+from skills.registry import skill_registry
 from core.llm_utils import set_pii_masker_instance
 from core.slack_security import set_audit_logger_hook, set_secret_scanner_hook
 
 # Wire default IoC hooks for test runs
-set_audit_logger_hook(log_audit_event)
-set_secret_scanner_hook(scan_output_for_secrets)
-set_pii_masker_instance(pii_masker)
+def _wire_default_ioc_hooks() -> None:
+    set_audit_logger_hook(log_audit_event)
+    set_secret_scanner_hook(scan_output_for_secrets)
+    set_pii_masker_instance(pii_masker)
+    set_prompt_builder_hook(build_agent_prompt)
+    register_on_agents_changed(pii_masker.refresh_allowlist)
+    set_default_workspace_adapter_factory(SlackWorkspaceAdapter)
+    register_token_recorder(record_thread_tokens)
+    set_initial_agents_provider(get_initial_agents)
+    set_thread_state_provider(lambda: thread_state_manager)
+    register_thread_purge_hook("usage_tracker", cleanup_thread_usage)
+    register_thread_purge_hook("thread_notes", clear_thread_note)
+    register_thread_purge_hook("thread_state", thread_state_manager.cleanup_thread)
+    skill_registry.ensure_loaded()
+
+
+_wire_default_ioc_hooks()
 
 
 @pytest.fixture(autouse=True)
@@ -149,7 +178,7 @@ def isolate_app_settings_for_tests(tmp_path):
     Prevents tests from modifying or overwriting production data/state/app_settings.json.
     Each test gets an isolated copy in tmp_path / "_conftest_iso".
     """
-    from orchestration.app_settings import (
+    from config_store.app_settings import (
         APP_BACKUP_FILE as REAL_APP_BACKUP_FILE,
         APP_SETTINGS_FILE as REAL_APP_SETTINGS_FILE,
         app_settings_manager,
@@ -216,7 +245,7 @@ def isolate_thread_state_files_for_tests():
     Ensures clean thread skills state and thread usage state in SQLite.
     """
     from agents.usage_agent import usage_tracker
-    from orchestration.thread_skills_manager import thread_skills_manager
+    from services.thread_skills_store import thread_skills_manager
 
     thread_skills_manager.clear_all()
     usage_tracker.clear_all()
@@ -234,7 +263,7 @@ def isolate_mcp_client_for_tests():
     cached tool discoveries, or custom MCP servers.
     """
     from services.mcp.client_manager import mcp_client_manager
-    from orchestration.system_settings import system_settings_manager
+    from config_store.system_settings import system_settings_manager
 
     old_mcp_servers = dict(system_settings_manager.mcp_servers)
     mcp_client_manager.reset_transport_factory()
@@ -282,7 +311,7 @@ def isolate_system_settings_for_tests(tmp_path):
     Prevents tests from modifying config/settings/system_settings.json
     and data/backups/system_settings_backup.json.
     """
-    from orchestration.system_settings import (
+    from config_store.system_settings import (
         SYSTEM_SETTINGS_FILE as REAL_SYS_SETTINGS_FILE,
         SYSTEM_BACKUP_FILE as REAL_SYS_BACKUP_FILE,
         system_settings_manager,
@@ -357,7 +386,7 @@ def isolate_flat_histories_and_notes_for_tests(tmp_path):
     Prevents tests from creating flat history and thread note files in real directories.
     Provides fast pacing for multi-turn execution without production test seams.
     """
-    from orchestration.system_settings import system_settings_manager
+    from config_store.system_settings import system_settings_manager
     from services.flat_history_recorder import configure_paths as configure_flat_paths, reset_paths as reset_flat_paths
     from services.thread_notes_writer import configure_paths as configure_note_paths, reset_paths as reset_note_paths
 
@@ -484,6 +513,7 @@ def reset_router_and_llm_di_for_tests():
     from services.web_tools import reset_web_fetch_fn, reset_web_search_fn
     from orchestration.thread_state import thread_state_manager
     from services.slack import (
+        reset_app_home_publish_cache,
         reset_fetch_thread_files,
         reset_fetch_thread_history,
         reset_post_agent_response,
@@ -520,6 +550,7 @@ def reset_router_and_llm_di_for_tests():
     reset_fetch_thread_history()
     reset_fetch_thread_files()
     reset_post_system_message()
+    reset_app_home_publish_cache()
     reset_record_thread_tokens()
     reset_calculate_thread_costs()
     reset_trigger_usage_update()
@@ -527,5 +558,10 @@ def reset_router_and_llm_di_for_tests():
     reset_intent_extractor()
     EmbeddingService.reset_embeddings_fn()
     ip_rate_limiter.reset()
+    from services.audit_logger import reset_audit_hmac_keyring_override, set_audit_hmac_secret_override
+
+    set_audit_hmac_secret_override(None)
+    reset_audit_hmac_keyring_override()
+    _wire_default_ioc_hooks()
 
 

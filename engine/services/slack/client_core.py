@@ -1,4 +1,5 @@
 import logging
+import threading
 import time
 from typing import Any
 
@@ -6,20 +7,18 @@ from slack_sdk.errors import SlackApiError
 from slack_sdk.web.async_client import AsyncWebClient
 
 from core.config import (
-    SLACK_BOT_TOKEN,
     USAGE_CHANNEL_ID,
     USAGE_CHANNEL_NAME,
-    configure_token,
     get_slack_bot_token,
-    reset_token,
 )
 from services.rate_limiter import slack_rate_limiter
 
 logger = logging.getLogger(__name__)
 
-# Initialize async web client
-_raw_slack_async_client = AsyncWebClient(token=SLACK_BOT_TOKEN)
-
+# Lazy, token-aware async web client state
+_client_lock = threading.RLock()
+_raw_slack_async_client: AsyncWebClient | None = None
+_raw_slack_async_client_token: str | None = None
 _slack_async_client_override: Any = None
 
 
@@ -30,15 +29,25 @@ def configure_slack_async_client(client: Any) -> None:
 
 
 def reset_slack_async_client() -> None:
-    """Resets the in-memory AsyncWebClient override."""
+    """Resets the in-memory AsyncWebClient override and cached token-bound client."""
+    global _raw_slack_async_client, _raw_slack_async_client_token
     configure_slack_async_client(None)
+    with _client_lock:
+        _raw_slack_async_client = None
+        _raw_slack_async_client_token = None
 
 
 def get_slack_async_client() -> AsyncWebClient:
-    """Returns the canonical AsyncWebClient instance or configured test override."""
+    """Returns configured test override or a lazily constructed, token-aware AsyncWebClient."""
     if _slack_async_client_override is not None:
         return _slack_async_client_override
-    return _raw_slack_async_client
+    active_token = get_slack_bot_token()
+    global _raw_slack_async_client, _raw_slack_async_client_token
+    with _client_lock:
+        if _raw_slack_async_client is None or _raw_slack_async_client_token != active_token:
+            _raw_slack_async_client = AsyncWebClient(token=active_token)
+            _raw_slack_async_client_token = active_token
+        return _raw_slack_async_client
 
 
 class _SlackAsyncClientProxy:
@@ -82,6 +91,7 @@ async def get_channel_name(channel_id: str) -> str:
         return name
 
     try:
+        await slack_rate_limiter.acquire()
         client = get_slack_async_client()
         res = await client.conversations_info(channel=channel_id)
         ch_info = res.get("channel", {})
@@ -132,6 +142,7 @@ async def get_or_create_usage_channel() -> str | None:
         client = get_slack_async_client()
         cursor = None
         while True:
+            await slack_rate_limiter.acquire()
             res = await client.conversations_list(
                 types="public_channel,private_channel",
                 limit=200,
@@ -147,6 +158,7 @@ async def get_or_create_usage_channel() -> str | None:
                     )
                     if not ch.get("is_member", True) and ch_id:
                         try:
+                            await slack_rate_limiter.acquire()
                             await client.conversations_join(channel=ch_id)
                             logger.info(
                                 f"[SLACK] Joined existing usage channel '{target_name}' ({ch_id})"
@@ -168,6 +180,7 @@ async def get_or_create_usage_channel() -> str | None:
         logger.info(
             f"[SLACK] Usage channel '{target_name}' not found. Creating channel..."
         )
+        await slack_rate_limiter.acquire()
         create_res = await client.conversations_create(
             name=target_name,
             is_private=False,
@@ -190,6 +203,7 @@ async def get_or_create_usage_channel() -> str | None:
             try:
                 cursor = None
                 while True:
+                    await slack_rate_limiter.acquire()
                     res = await client.conversations_list(
                         types="public_channel,private_channel", limit=200, cursor=cursor
                     )
@@ -222,6 +236,7 @@ async def open_dm_channel(user_id: str) -> str | None:
     if not bot_token or bot_token == "xoxb-your-bot-user-oauth-token":
         return f"D_MOCK_{user_id}"
     try:
+        await slack_rate_limiter.acquire()
         client = get_slack_async_client()
         res = await client.conversations_open(users=user_id)
         ch = res.get("channel", {})

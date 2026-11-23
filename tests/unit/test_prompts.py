@@ -1,7 +1,6 @@
-from pathlib import Path
-from core.paths import PROMPTS_DIR, SYSTEM_AGENTS_DIR, PERSONAS_DIR
-from orchestration.agent_settings import get_agents_config
-from orchestration.system_settings import get_output_max_words
+from core.paths import PROMPTS_DIR, PERSONAS_DIR
+from config_store.agent_settings import get_agents_config
+from config_store.system_settings import get_output_max_words
 from prompts.builder import (
     build_agent_prompt,
     get_short_output_agents,
@@ -168,10 +167,10 @@ def test_all_shared_prompts_enforce_2026_xml_and_zero_you_are():
     shared_files = {
         "fixed_constraints.md": "<shared_platform_constraints>",
         "output_constraints.md": "<output_and_length_constraints>",
-        "output_constraints_short.md": "<output_and_length_constraints>",
         "nomination_rules.md": "<speaker_nomination_protocol>",
     }
     shared_dir = PROMPTS_DIR / "shared"
+    assert not (shared_dir / "output_constraints_short.md").exists()
     assert not (shared_dir / "output_constraints_100w.md").exists()
     for filename, expected_xml_tag in shared_files.items():
         file_path = shared_dir / filename
@@ -362,7 +361,7 @@ def test_system_agent_detection_and_prompts():
 
 
 def test_configurable_output_constraints_from_system_settings():
-    from orchestration.system_settings import set_output_constraints
+    from config_store.system_settings import set_output_constraints
 
     set_output_constraints(default_max_words=350, short_max_words=75)
 

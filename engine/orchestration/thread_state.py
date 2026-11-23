@@ -691,6 +691,15 @@ class ThreadStateManager:
 # Default singleton instance
 thread_state_manager = ThreadStateManager()
 
+try:
+    from core.registry import set_thread_state_provider
+    from services.retention_service import register_thread_purge_hook
+
+    set_thread_state_provider(lambda: thread_state_manager)
+    register_thread_purge_hook("thread_state", thread_state_manager.cleanup_thread)
+except (ImportError, AttributeError, TypeError) as _re:
+    logger.debug(f"[THREAD STATE] Could not register core/retention hooks: {_re}")
+
 __all__ = [
     "DiscussionStateStore",
     "ThreadContextStore",

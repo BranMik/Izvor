@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 from core.config import AGENTS_CONFIG
 from nlp.message_builder import build_llm_messages
-from orchestration.agent_settings import (
+from config_store.agent_settings import (
     get_orchestration_mode,
     get_sandwich_config,
     settings_manager,
@@ -115,7 +115,7 @@ class ContextPrepStage:
                 ctx.effective_history = history
 
         # System prompt generation & Thread-Global & Agent Skills
-        from orchestration.thread_skills_manager import thread_skills_manager
+        from services.thread_skills_store import thread_skills_manager
         from core.registry import get_skill_registry
         from core.config import is_slack_admin
 
@@ -222,7 +222,7 @@ class ContextPrepStage:
         ctx.next_designated_agent = None
         ctx.eligible_remaining_agents = list(ctx.remaining)
         if not ctx.force_termination and ctx.remaining:
-            from orchestration.agent_settings import get_challenger_agent, get_arbitrator_agent
+            from config_store.agent_settings import get_challenger_agent, get_arbitrator_agent
 
             challenger_agent_key = get_challenger_agent()
             arbitrator_agent_key = get_arbitrator_agent()

@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 
 from core.models import OrchestrationMode, WorkflowPreset
 from main import app
-from orchestration.agent_settings import (
+from config_store.agent_settings import (
     AgentSettingsManager,
     apply_workflow,
     get_active_workflow_id,
@@ -16,7 +16,7 @@ from orchestration.agent_settings import (
     set_orchestration_mode,
     set_sandwich_config,
 )
-from orchestration.workflow_manager import (
+from config_store.workflow_manager import (
     WorkflowManager,
     get_workflow,
     slugify,
@@ -208,7 +208,7 @@ def test_agent_settings_workflow_integration(tmp_path: Path):
 
 def test_build_app_home_view_includes_workflow_ui():
     """Verify Slack App Home view renders the workflow presets section."""
-    from orchestration.agent_settings import settings_manager as mgr
+    from config_store.agent_settings import settings_manager as mgr
 
     custom_presets = [p for p in mgr.workflow_manager.list_workflows() if not p.id.startswith("default_")]
     if not custom_presets:
@@ -292,7 +292,7 @@ async def test_main_interactivity_workflow_actions():
             mode=OrchestrationMode.FIXED.value,
             fixed_config={"chain": ["agent-10011", "agent-10008"]}
         )
-        from orchestration.agent_settings import settings_manager
+        from config_store.agent_settings import settings_manager
         settings_manager.workflow_manager.save_preset(quick)
 
         # 2. Select different preset via dropdown
@@ -463,7 +463,7 @@ def test_chain_mutation_persists_to_workflow_file(tmp_path: Path):
 
 def test_default_review_flow_contains_5_adversarial_agents():
     """Verify default_review_flow is configured with 5 agents: Visionary, Innovator, Sceptic, Tactician, ProductStrategist."""
-    from orchestration.workflow_manager import get_workflow
+    from config_store.workflow_manager import get_workflow
     from core.models import build_dynamic_default_workflows
 
     # 1. Preset from disk
@@ -494,9 +494,8 @@ def test_default_review_flow_contains_5_adversarial_agents():
 @pytest.mark.anyio
 async def test_thread_workflow_snapshot_isolates_inflight_discussion():
     """Verify that switching global workflow preset mid-thread does not alter an in-flight thread's workflow."""
-    from orchestration.agent_settings import apply_workflow, get_workflow_snapshot
+    from config_store.agent_settings import apply_workflow, get_workflow_snapshot
     from orchestration.discussion_loop import DiscussionLoop
-    from orchestration.nomination import get_initial_agents
     from orchestration.thread_state import thread_state_manager
 
     channel_id = "C_THREAD_ISO"
@@ -540,9 +539,8 @@ async def test_thread_workflow_snapshot_isolates_inflight_discussion():
             )
 
         assert res.get("is_completed") is True
-        # Thread snapshot captured at Turn 1 was default_sandwich
-        thread_snap = thread_state_manager.get_workflow_snapshot(channel_id, thread_ts)
-        # Note: after discussion completes, round execution state may clear or preserve snapshot
+        # Thread snapshot captured at Turn 1 was default_sandwich; after completion it may be cleared or preserved
+        thread_state_manager.get_workflow_snapshot(channel_id, thread_ts)
         # But during execution, global active workflow was successfully isolated.
     finally:
         thread_state_manager.cleanup_thread(channel_id, thread_ts)

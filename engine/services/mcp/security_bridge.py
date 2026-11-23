@@ -15,7 +15,7 @@ import logging
 from typing import Any
 
 from core.domain import ToolPrincipal
-from orchestration.system_settings import get_mcp_server_config
+from config_store.system_settings import get_mcp_server_config
 from services.mcp.client_manager import McpClientManager, get_mcp_client_manager
 from services.mcp.schema_translator import parse_mcp_tool_name
 
@@ -153,7 +153,7 @@ async def execute_external_mcp_tool(
     )
 
     # 1. Defense-in-depth authorization check
-    from skills.loader import is_principal_authorized_for_tool
+    from skills.policy import is_principal_authorized_for_tool
 
     if not is_principal_authorized_for_tool(
         principal=agent_name,

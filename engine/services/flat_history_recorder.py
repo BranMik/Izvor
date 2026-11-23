@@ -47,11 +47,11 @@ def get_flat_histories_dir() -> Path:
     return FLAT_HISTORIES_DIR
 
 
-def generate_flat_history_filename(prompt: str, thread_ts: str) -> str:
+def generate_flat_history_filename(prompt: str, thread_ts: str, channel_id: str | None = None) -> str:
     """
-    Generates filename starting with first 10 characters of cleaned user prompt
-    and first 10 characters of thread_ts identifier.
-    Example: 'kako_napra_1712345678.md'
+    Generates filename starting with first 10 characters of cleaned user prompt,
+    optional sanitized channel_id, and first 10 characters of thread_ts identifier.
+    Example: 'kako_napra_C123_1712345678.md' or 'kako_napra_1712345678.md'
     """
     # 1. Remove Slack user/bot mentions (<@U12345> and @AppName)
     clean = re.sub(r"<@[A-Z0-9]+>", "", prompt)
@@ -66,7 +66,10 @@ def generate_flat_history_filename(prompt: str, thread_ts: str) -> str:
 
     prompt_prefix = slug[:10] if slug else "thread"
     clean_ts = re.sub(r"[^\w]", "", str(thread_ts))[:10] or "thread_ts"
+    clean_cid = re.sub(r"[^\w]", "", str(channel_id))[:12] if channel_id else ""
 
+    if clean_cid:
+        return f"{prompt_prefix}_{clean_cid}_{clean_ts}.md"
     return f"{prompt_prefix}_{clean_ts}.md"
 
 
@@ -75,29 +78,31 @@ def get_flat_history_filepath(
 ) -> Path:
     """
     Returns the target Path for a thread's flat history file.
-    If a file for this thread_ts already exists in flat-histories/, re-uses it (1 thread = 1 file).
+    Re-uses an existing file only when BOTH Channel ID and Thread TS match (1 channel+thread = 1 file).
     Disambiguates filename collisions between same-second threads using thread_ts suffix.
     """
     hist_dir = get_flat_histories_dir()
     hist_dir.mkdir(parents=True, exist_ok=True)
     all_digits = re.sub(r"[^\w]", "", str(thread_ts))
     clean_ts = all_digits[:10]
+    expected_ts_hdr = f"**Thread TS:** `{thread_ts}`"
+    expected_cid_hdr = f"**Channel ID:** `{channel_id}`"
     if clean_ts:
         existing = list(hist_dir.glob(f"*_{clean_ts}*.md"))
         for f in existing:
             try:
                 content = f.read_text(encoding="utf-8", errors="ignore")
-                if f"**Thread TS:** `{thread_ts}`" in content:
+                if expected_ts_hdr in content and expected_cid_hdr in content:
                     return f
             except OSError as e:
                 logger.debug(f"[FLAT HISTORY] Could not read file {f}: {e}")
 
-    filename = generate_flat_history_filename(prompt or "thread", thread_ts)
+    filename = generate_flat_history_filename(prompt or "thread", thread_ts, channel_id=channel_id)
     candidate_path = hist_dir / filename
     if candidate_path.exists():
         try:
             content = candidate_path.read_text(encoding="utf-8", errors="ignore")
-            if f"**Thread TS:** `{thread_ts}`" not in content:
+            if expected_ts_hdr not in content or expected_cid_hdr not in content:
                 suffix = all_digits[-5:] if len(all_digits) >= 5 else "alt"
                 filename = f"{candidate_path.stem}_{suffix}.md"
                 candidate_path = hist_dir / filename

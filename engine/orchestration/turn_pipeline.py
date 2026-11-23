@@ -371,6 +371,18 @@ class TurnPipeline:
         self.execution_stage = ExecutionStage(self.deps)
         self.post_record_stage = PostRecordStage(self.deps)
 
+    def _propagate_deps(self) -> None:
+        for stage_attr in (
+            "validation_stage",
+            "resolution_stage",
+            "context_prep_stage",
+            "execution_stage",
+            "post_record_stage",
+        ):
+            stage = getattr(self, stage_attr, None)
+            if stage is not None:
+                stage.deps = self.deps
+
     @property
     def post_system_message_fn(self) -> Any:
         return getattr(self.deps, "post_system_message_fn", None)
@@ -380,16 +392,7 @@ class TurnPipeline:
         import dataclasses
 
         self.deps = dataclasses.replace(self.deps, post_system_message_fn=value)
-        if hasattr(self, "validation_stage") and self.validation_stage:
-            self.validation_stage.deps = self.deps
-        if hasattr(self, "resolution_stage") and self.resolution_stage:
-            self.resolution_stage.deps = self.deps
-        if hasattr(self, "context_prep_stage") and self.context_prep_stage:
-            self.context_prep_stage.deps = self.deps
-        if hasattr(self, "execution_stage") and self.execution_stage:
-            self.execution_stage.deps = self.deps
-        if hasattr(self, "post_record_stage") and self.post_record_stage:
-            self.post_record_stage.deps = self.deps
+        self._propagate_deps()
 
     @property
     def slack_poster(self) -> Any:
@@ -398,16 +401,15 @@ class TurnPipeline:
     @slack_poster.setter
     def slack_poster(self, value: Any) -> None:
         import dataclasses
-        from adapters.slack.workspace_adapter import SlackWorkspaceAdapter
+        from orchestration.protocols import create_default_workspace_adapter
 
-        ws = SlackWorkspaceAdapter(
+        ws = create_default_workspace_adapter(
             post_agent_fn=value,
             update_msg_fn=getattr(self.deps, "update_message_fn", None),
             post_system_fn=getattr(self.deps, "post_system_message_fn", None),
         )
         self.deps = dataclasses.replace(self.deps, slack_poster=value, workspace_adapter=ws)
-        if hasattr(self, "post_record_stage") and self.post_record_stage:
-            self.post_record_stage.deps = self.deps
+        self._propagate_deps()
 
     @property
     def workspace_adapter(self) -> Any:
@@ -418,8 +420,7 @@ class TurnPipeline:
         import dataclasses
 
         self.deps = dataclasses.replace(self.deps, workspace_adapter=value)
-        if hasattr(self, "post_record_stage") and self.post_record_stage:
-            self.post_record_stage.deps = self.deps
+        self._propagate_deps()
 
     async def _sleep(self, seconds: float):
         """Asynchronous sleep respecting injected sleep_fn."""
@@ -560,10 +561,10 @@ class TurnPipeline:
         execution to ExecutionStage.execute_tool_loop() before Stage 5 post & record.
         """
         from core.config import AGENTS_CONFIG, is_slack_admin
-        from orchestration.agent_settings import get_arbitrator_agent, get_challenger_agent, settings_manager
-        from orchestration.app_settings import app_settings_manager
+        from config_store.agent_settings import get_arbitrator_agent, get_challenger_agent, settings_manager
+        from config_store.app_settings import app_settings_manager
         from orchestration.nomination import get_initial_agents
-        from orchestration.thread_skills_manager import thread_skills_manager
+        from services.thread_skills_store import thread_skills_manager
         from pipeline.orchestrator.sandwich import SandwichOrchestrator
         from services.turn_checkpoint_store import turn_checkpoint_store
         from services.web_tools import reset_turn_web_budget
@@ -759,7 +760,7 @@ class TurnPipeline:
                 return
 
             from orchestration.revisor_service import run_internal_revisor
-            from orchestration.system_settings import get_system_agent_inference_timeout_seconds
+            from config_store.system_settings import get_system_agent_inference_timeout_seconds
 
             timeout_secs = float(get_system_agent_inference_timeout_seconds())
             warning = await asyncio.wait_for(run_internal_revisor(ctx), timeout=timeout_secs)

@@ -200,14 +200,14 @@ async def post_system_message(
     default_icon = "avatars/image_99.png"
 
     try:
-        from orchestration.agent_settings import settings_manager
+        from config_store.agent_settings import settings_manager
 
         orch_cfg = settings_manager.get_orchestrator_config()
         if orch_cfg.get("username"):
             default_username = orch_cfg["username"]
         if orch_cfg.get("icon_url"):
             default_icon = orch_cfg["icon_url"]
-    except Exception as e:
+    except (ImportError, AttributeError, KeyError, OSError, RuntimeError, TypeError, ValueError) as e:
         logger.debug(f"[SLACK CLIENT] Fallback settings_manager persona lookup skipped: {e}")
 
     final_username = username or default_username
@@ -279,13 +279,13 @@ async def fetch_thread_history(
 
         orch_username = "Orchestrator"
         try:
-            from orchestration.agent_settings import settings_manager
+            from config_store.agent_settings import settings_manager
 
             orch_cfg = settings_manager.get_orchestrator_config()
             if isinstance(orch_cfg, dict) and orch_cfg.get("username"):
                 orch_username = str(orch_cfg["username"])
-        except Exception:  # noqa: BLE001
-            pass
+        except (ImportError, AttributeError, KeyError, OSError, RuntimeError, TypeError, ValueError) as exc:
+            logger.debug(f"[SLACK CLIENT] Orchestrator username lookup skipped: {exc}")
 
         for msg in messages:
             msg_text = msg.get("text", "")

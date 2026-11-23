@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import importlib
 import json
 import logging
 import os
@@ -32,10 +33,9 @@ if _root_dir not in sys.path:
 if _engine_dir not in sys.path:
     sys.path.insert(0, _engine_dir)
 
-import main  # noqa: F401,E402 - Ensures FastAPI app and IoC hooks initialize
+importlib.import_module("main")  # Ensures FastAPI app and IoC hooks initialize
 from agents.usage_agent import usage_tracker  # noqa: E402
 from core.config import (  # noqa: E402
-    SLACK_BOT_TOKEN,
     SLACK_TEST_CHANNEL_ID,
     configure_token,
     reset_token,
@@ -52,16 +52,16 @@ from orchestration.agent_router import (  # noqa: E402
     reset_router_deps,
     reset_router_sleep_fn,
 )
-from orchestration.agent_settings import (  # noqa: E402
+from config_store.agent_settings import (  # noqa: E402
     reset_enabled_agents,
     settings_manager,
 )
-from orchestration.app_settings import (  # noqa: E402
+from config_store.app_settings import (  # noqa: E402
     set_circuit_breaker_enabled,
     set_circuit_breaker_threshold,
 )
-from orchestration.system_settings import system_settings_manager  # noqa: E402
-from orchestration.thread_skills_manager import thread_skills_manager  # noqa: E402
+from config_store.system_settings import system_settings_manager  # noqa: E402
+from services.thread_skills_store import thread_skills_manager  # noqa: E402
 from orchestration.thread_state import thread_state_manager  # noqa: E402
 from services.mcp.client_manager import mcp_client_manager  # noqa: E402
 from services.slack import (  # noqa: E402
@@ -163,19 +163,19 @@ def _standalone_cli_isolation() -> Iterator[None]:
 
     from core.database import db_manager
     from core.paths import AGENTS_RESOURCES_DIR, PRESIDIO_SKILL_EXCLUSIONS_FILE, PROJECT_ROOT
-    from orchestration.agent_settings import (
+    from config_store.agent_settings import (
         BACKUP_FILE as REAL_BACKUP_FILE,
         DEFAULT_SYSTEM_AGENT_SETTINGS_FILE,
         SETTINGS_FILE as REAL_SETTINGS_FILE,
         SYSTEM_AGENT_BACKUP_FILE as REAL_SYS_AGENT_BACKUP_FILE,
         SYSTEM_AGENT_SETTINGS_FILE as REAL_SYS_AGENT_SETTINGS_FILE,
     )
-    from orchestration.app_settings import (
+    from config_store.app_settings import (
         APP_BACKUP_FILE as REAL_APP_BACKUP_FILE,
         APP_SETTINGS_FILE as REAL_APP_SETTINGS_FILE,
         app_settings_manager,
     )
-    from orchestration.system_settings import (
+    from config_store.system_settings import (
         SYSTEM_BACKUP_FILE as REAL_SYS_BACKUP_FILE,
         SYSTEM_SETTINGS_FILE as REAL_SYS_SETTINGS_FILE,
     )

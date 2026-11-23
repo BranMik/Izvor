@@ -181,6 +181,7 @@ def test_slack_interactivity_download_scribe_action():
     payload = {
         "type": "block_actions",
         "user": {"id": user_id},
+        "channel": {"id": channel_id},
         "actions": [
             {
                 "action_id": "download_scribe_notes_txt",
@@ -190,9 +191,9 @@ def test_slack_interactivity_download_scribe_action():
     }
 
     with patch("adapters.slack.interactivity.verify_slack_signature", return_value=True), \
-         patch("adapters.slack.actions.workflow_actions.post_ephemeral_to_slack", new_callable=AsyncMock) as mock_ephemeral, \
-         patch("adapters.slack.actions.workflow_actions.open_dm_channel", new_callable=AsyncMock, return_value="D_USER_DM") as mock_open_dm, \
-         patch("adapters.slack.actions.workflow_actions.upload_text_file_to_slack", new_callable=AsyncMock, return_value={"ok": True}) as mock_upload:
+         patch("adapters.slack.actions.scribe_actions.post_ephemeral_to_slack", new_callable=AsyncMock) as mock_ephemeral, \
+         patch("adapters.slack.actions.scribe_actions.open_dm_channel", new_callable=AsyncMock, return_value="D_USER_DM") as mock_open_dm, \
+         patch("adapters.slack.actions.scribe_actions.upload_text_file_to_slack", new_callable=AsyncMock, return_value={"ok": True}) as mock_upload:
 
         resp = client.post("/slack/interactivity", json=payload)
         assert resp.status_code == 200
@@ -242,9 +243,9 @@ def test_slack_interactivity_download_scribe_fallback_to_payload():
     }
 
     with patch("adapters.slack.interactivity.verify_slack_signature", return_value=True), \
-         patch("adapters.slack.actions.workflow_actions.post_ephemeral_to_slack", new_callable=AsyncMock) as mock_ephemeral, \
-         patch("adapters.slack.actions.workflow_actions.open_dm_channel", new_callable=AsyncMock, return_value="D_USER_88"), \
-         patch("adapters.slack.actions.workflow_actions.upload_text_file_to_slack", new_callable=AsyncMock, return_value={"ok": True}) as mock_upload:
+         patch("adapters.slack.actions.scribe_actions.post_ephemeral_to_slack", new_callable=AsyncMock) as mock_ephemeral, \
+         patch("adapters.slack.actions.scribe_actions.open_dm_channel", new_callable=AsyncMock, return_value="D_USER_88"), \
+         patch("adapters.slack.actions.scribe_actions.upload_text_file_to_slack", new_callable=AsyncMock, return_value={"ok": True}) as mock_upload:
 
         resp = client.post("/slack/interactivity", json=payload)
         assert resp.status_code == 200
@@ -286,6 +287,7 @@ def test_slack_interactivity_download_conclusion_action():
     payload = {
         "type": "block_actions",
         "user": {"id": user_id},
+        "channel": {"id": channel_id},
         "actions": [
             {
                 "action_id": "download_conclusion_notes_txt",
@@ -295,9 +297,9 @@ def test_slack_interactivity_download_conclusion_action():
     }
 
     with patch("adapters.slack.interactivity.verify_slack_signature", return_value=True), \
-         patch("adapters.slack.actions.workflow_actions.post_ephemeral_to_slack", new_callable=AsyncMock) as mock_ephemeral, \
-         patch("adapters.slack.actions.workflow_actions.open_dm_channel", new_callable=AsyncMock, return_value="D_USER_CONC_DM") as mock_open_dm, \
-         patch("adapters.slack.actions.workflow_actions.upload_text_file_to_slack", new_callable=AsyncMock, return_value={"ok": True}) as mock_upload:
+         patch("adapters.slack.actions.scribe_actions.post_ephemeral_to_slack", new_callable=AsyncMock) as mock_ephemeral, \
+         patch("adapters.slack.actions.scribe_actions.open_dm_channel", new_callable=AsyncMock, return_value="D_USER_CONC_DM") as mock_open_dm, \
+         patch("adapters.slack.actions.scribe_actions.upload_text_file_to_slack", new_callable=AsyncMock, return_value={"ok": True}) as mock_upload:
 
         resp = client.post("/slack/interactivity", json=payload)
         assert resp.status_code == 200
@@ -321,6 +323,7 @@ def test_slack_interactivity_download_scribe_dm_open_failure():
     payload = {
         "type": "block_actions",
         "user": {"id": user_id},
+        "channel": {"id": channel_id},
         "actions": [
             {
                 "action_id": "download_scribe_notes_txt",
@@ -330,9 +333,9 @@ def test_slack_interactivity_download_scribe_dm_open_failure():
     }
 
     with patch("adapters.slack.interactivity.verify_slack_signature", return_value=True), \
-         patch("adapters.slack.actions.workflow_actions.post_ephemeral_to_slack", new_callable=AsyncMock) as mock_ephemeral, \
-         patch("adapters.slack.actions.workflow_actions.open_dm_channel", new_callable=AsyncMock, return_value=None) as mock_open_dm, \
-         patch("adapters.slack.actions.workflow_actions.upload_text_file_to_slack", new_callable=AsyncMock) as mock_upload:
+         patch("adapters.slack.actions.scribe_actions.post_ephemeral_to_slack", new_callable=AsyncMock) as mock_ephemeral, \
+         patch("adapters.slack.actions.scribe_actions.open_dm_channel", new_callable=AsyncMock, return_value=None) as mock_open_dm, \
+         patch("adapters.slack.actions.scribe_actions.upload_text_file_to_slack", new_callable=AsyncMock) as mock_upload:
 
         resp = client.post("/slack/interactivity", json=payload)
         assert resp.status_code == 200
@@ -356,6 +359,7 @@ def test_slack_interactivity_download_scribe_upload_failure():
     payload = {
         "type": "block_actions",
         "user": {"id": user_id},
+        "channel": {"id": channel_id},
         "actions": [
             {
                 "action_id": "download_scribe_notes_txt",
@@ -365,9 +369,9 @@ def test_slack_interactivity_download_scribe_upload_failure():
     }
 
     with patch("adapters.slack.interactivity.verify_slack_signature", return_value=True), \
-         patch("adapters.slack.actions.workflow_actions.post_ephemeral_to_slack", new_callable=AsyncMock) as mock_ephemeral, \
-         patch("adapters.slack.actions.workflow_actions.open_dm_channel", new_callable=AsyncMock, return_value="D_VALID_DM") as mock_open_dm, \
-         patch("adapters.slack.actions.workflow_actions.upload_text_file_to_slack", new_callable=AsyncMock, return_value={"ok": False, "error": "file_upload_error"}) as mock_upload:
+         patch("adapters.slack.actions.scribe_actions.post_ephemeral_to_slack", new_callable=AsyncMock) as mock_ephemeral, \
+         patch("adapters.slack.actions.scribe_actions.open_dm_channel", new_callable=AsyncMock, return_value="D_VALID_DM") as mock_open_dm, \
+         patch("adapters.slack.actions.scribe_actions.upload_text_file_to_slack", new_callable=AsyncMock, return_value={"ok": False, "error": "file_upload_error"}) as mock_upload:
 
         resp = client.post("/slack/interactivity", json=payload)
         assert resp.status_code == 200
@@ -378,4 +382,71 @@ def test_slack_interactivity_download_scribe_upload_failure():
         ephemeral_text = mock_ephemeral.call_args.kwargs["text"]
         assert "Failed to deliver notes file to your direct message" in ephemeral_text
         assert "file_upload_error" in ephemeral_text
+
+
+def test_slack_interactivity_download_scribe_rejects_cross_channel_idor():
+    """TKT-1228: Cross-channel value vs event channel IDOR returns 403 and emits UNAUTHORIZED_SCRIBE_DOWNLOAD."""
+    client = TestClient(app)
+    victim_channel = "C_VICTIM_SECRET"
+    attacker_channel = "C_ATTACKER_PUBLIC"
+    thread_ts = "1710000000.000900"
+    user_id = "U_ATTACKER"
+    set_thread_note_content(victim_channel, thread_ts, "Confidential victim notes")
+
+    payload = {
+        "type": "block_actions",
+        "user": {"id": user_id},
+        "channel": {"id": attacker_channel},
+        "actions": [
+            {
+                "action_id": "download_scribe_notes_txt",
+                "value": f"{victim_channel}:{thread_ts}",
+            }
+        ],
+    }
+
+    audit_events = []
+
+    async def _capture_audit(**kwargs):
+        audit_events.append(kwargs)
+        return {}
+
+    with patch("adapters.slack.interactivity.verify_slack_signature", return_value=True), \
+         patch("adapters.slack.actions.scribe_actions.log_audit_event_async", side_effect=_capture_audit), \
+         patch("adapters.slack.actions.scribe_actions.open_dm_channel", new_callable=AsyncMock) as mock_open_dm, \
+         patch("adapters.slack.actions.scribe_actions.upload_text_file_to_slack", new_callable=AsyncMock) as mock_upload:
+        resp = client.post("/slack/interactivity", json=payload)
+        assert resp.status_code == 403
+        assert not mock_open_dm.called
+        assert not mock_upload.called
+        assert any(e.get("event_type") == "UNAUTHORIZED_SCRIBE_DOWNLOAD" for e in audit_events)
+
+
+def test_slack_interactivity_download_scribe_rejects_missing_channel_context():
+    """TKT-1228: Missing channel/container context on download button fails closed with 403."""
+    client = TestClient(app)
+    payload = {
+        "type": "block_actions",
+        "user": {"id": "U_ATTACKER"},
+        "actions": [
+            {
+                "action_id": "download_scribe_notes_txt",
+                "value": "C_TARGET:1710000000.000901",
+            }
+        ],
+    }
+
+    audit_events = []
+
+    async def _capture_audit(**kwargs):
+        audit_events.append(kwargs)
+        return {}
+
+    with patch("adapters.slack.interactivity.verify_slack_signature", return_value=True), \
+         patch("adapters.slack.actions.scribe_actions.log_audit_event_async", side_effect=_capture_audit), \
+         patch("adapters.slack.actions.scribe_actions.open_dm_channel", new_callable=AsyncMock) as mock_open_dm:
+        resp = client.post("/slack/interactivity", json=payload)
+        assert resp.status_code == 403
+        assert not mock_open_dm.called
+        assert any(e.get("event_type") == "UNAUTHORIZED_SCRIBE_DOWNLOAD" for e in audit_events)
 

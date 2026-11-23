@@ -17,7 +17,7 @@ from services.slack import cleanup_old_downloads
 from services.thread_notes_writer import _atomic_write_file
 from services.web_tools import PinnedIPTransport
 from config.skills.knowledge_base_rag.tools import TOOL_HANDLERS, async_execute_search_knowledge_rag
-from skills.loader import SkillDefinition, SkillRegistry
+from skills.registry import SkillDefinition, SkillRegistry
 
 
 
@@ -273,9 +273,9 @@ def test_tkt_728_flat_history_disambiguation(tmp_path: Path):
 
     configure_paths(tmp_path)
     try:
-        # Create existing file for thread 1712345678.000100
-        f1 = tmp_path / "thread_1712345678.md"
-        f1.write_text("# History\n- **Thread TS:** `1712345678.000100`\n", encoding="utf-8")
+        # Create existing file for thread 1712345678.000100 in channel C1
+        f1 = tmp_path / "thread_C1_1712345678.md"
+        f1.write_text("# History\n- **Channel ID:** `C1`\n- **Thread TS:** `1712345678.000100`\n", encoding="utf-8")
 
         # Query for the same thread should return existing file
         found1 = get_flat_history_filepath("C1", "1712345678.000100")

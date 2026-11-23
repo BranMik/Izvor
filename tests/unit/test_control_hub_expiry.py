@@ -2,7 +2,7 @@
 Tests for Control Hub Thread Skill Expiration Time section and Interactivity.
 """
 
-from orchestration.app_settings import (
+from config_store.app_settings import (
     get_thread_skill_expiration_time,
     set_thread_skill_expiration_time,
 )

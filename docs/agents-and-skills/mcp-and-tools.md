@@ -111,7 +111,7 @@ Every tool execution in **Stage 4 (`ExecutionStage`)** is bound to an immutable 
 - `thread_ts`: The active Slack thread identifier.
 - `allowed_skills`: The set of skills explicitly authorized for this agent in this thread (combining `agent_settings.json` baseline skills, `global: true` skills like `control_plane`, and active `ThreadSkillsManager` grants).
 
-[`SkillLoader`](file:///engine/skills/loader.py) verifies `ToolPrincipal` before any tool handler is invoked. If `ToolPrincipal` is missing or the tool does not belong to `allowed_skills`, execution fails closed immediately.
+[`SkillRegistry`](file:///engine/skills/registry.py) verifies `ToolPrincipal` before any tool handler is invoked. If `ToolPrincipal` is missing or the tool does not belong to `allowed_skills`, execution fails closed immediately.
 
 ---
 
@@ -131,7 +131,7 @@ Before accessing the filesystem, `validate_resource_filename()` validates every 
 - Enforces `max_write_bytes` (default: `1048576` bytes / **1 MB** in `system_settings.json`) on `write_document` payloads to prevent disk exhaustion.
 
 ### 3. Protected Write Paths (`DEFAULT_PROTECTED_WRITE_PATHS`)
-Configured in [`orchestration/system_settings.py`](file:///engine/orchestration/system_settings.py) (and extensible via `workspace_write_blacklist_additional`), the following critical locations cannot be modified by any tool execution:
+Configured in [`config_store/system_settings.py`](file:///engine/config_store/system_settings.py) (and extensible via `workspace_write_blacklist_additional`), the following critical locations cannot be modified by any tool execution:
 - `.env` (environment secrets and API tokens)
 - `.git/` (version control repository integrity)
 - `data/audit/` (tamper-evident audit logs and backups)

@@ -128,7 +128,7 @@ class IntentExtractor:
         On LLM timeout the call is re-run once with an escalated timeout
         (timeout_seconds * system_agent_inference_retry_timeout_multiplier) before falling back.
         """
-        from orchestration.system_settings import (
+        from config_store.system_settings import (
             get_system_agent_inference_retry_timeout_multiplier,
             get_system_agent_inference_timeout_seconds,
         )
@@ -201,12 +201,12 @@ class IntentExtractor:
 
             if resp and getattr(resp, "usage", None) and thread_key and thread_key != ("system", "intent_extractor"):
                 try:
-                    from agents.usage_agent import record_thread_tokens
+                    from core.registry import record_token_usage
 
                     p_tok = getattr(resp.usage, "prompt_tokens", 0) or 0
                     c_tok = getattr(resp.usage, "completion_tokens", 0) or 0
                     if p_tok or c_tok:
-                        record_thread_tokens(
+                        record_token_usage(
                             channel_id=thread_key[0],
                             thread_ts=thread_key[1],
                             model_name=active_model,

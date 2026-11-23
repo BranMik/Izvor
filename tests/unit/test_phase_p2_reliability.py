@@ -35,9 +35,9 @@ async def test_resolution_fallback_unconfigured_loop():
     """N9: Verify resolution stage skips unconfigured popped agents and avoids KeyError."""
     post_sys_msg_mock = AsyncMock()
     pipeline = TurnPipeline(post_system_message_fn=post_sys_msg_mock)
-    stage = ResolutionStage(pipeline.deps)
+    ResolutionStage(pipeline.deps)
 
-    ctx = TurnContext(
+    TurnContext(
         channel_id="C_P2_TEST",
         thread_ts="1700000001.000100",
         raw_text="Hello team",
@@ -48,8 +48,8 @@ async def test_resolution_fallback_unconfigured_loop():
 @pytest.mark.anyio
 async def test_resolution_fallback_to_next_valid_agent():
     """N9: Verify resolution stage falls back through remaining agents if primary is not configured."""
-    from orchestration.agent_settings import settings_manager
-    from orchestration.app_settings import set_circuit_breaker_enabled
+    from config_store.agent_settings import settings_manager
+    from config_store.app_settings import set_circuit_breaker_enabled
     from orchestration.thread_state import thread_state_manager
 
     post_sys_msg_mock = AsyncMock()
@@ -85,7 +85,7 @@ async def test_resolution_fallback_to_next_valid_agent():
 @pytest.mark.anyio
 async def test_resolution_fallback_all_missing_halts():
     """N9: Verify resolution stage cleanly halts when all candidates are unconfigured."""
-    from orchestration.agent_settings import settings_manager
+    from config_store.agent_settings import settings_manager
     from orchestration.thread_state import thread_state_manager
 
     post_sys_msg_mock = AsyncMock()
@@ -282,7 +282,7 @@ async def test_async_flat_history_recording():
 
 def test_settings_manager_save_synchronous(tmp_path):
     """B2: Verify AgentSettingsManager.save() writes synchronously without background race."""
-    from orchestration.agent_settings import AgentSettingsManager
+    from config_store.agent_settings import AgentSettingsManager
 
     settings_file = tmp_path / "test_settings.json"
     backup_file = tmp_path / "test_backup.json"
@@ -316,7 +316,7 @@ def test_settings_manager_save_synchronous(tmp_path):
 
 def test_rag_config_delegation_to_system_settings():
     """B4: Verify get_rag_setting delegates to SystemSettingsManager without config drift."""
-    from orchestration.system_settings import system_settings_manager
+    from config_store.system_settings import system_settings_manager
 
     # Override RAG setting in system_settings_manager in-memory
     system_settings_manager.rag_config["default_top_k"] = 5
@@ -391,7 +391,7 @@ def test_format_modifiers_pipeline_persistence():
 
 def test_thread_skills_sqlite_authoritative_and_cleanup(tmp_path):
     """TKT-716: Verify ThreadSkillsManager uses SQLite queries and cleans up old expired rows."""
-    from orchestration.thread_skills_manager import ThreadSkillsManager
+    from services.thread_skills_store import ThreadSkillsManager
     import time
 
     mgr = ThreadSkillsManager()
@@ -582,7 +582,7 @@ def test_context_prep_terminal_constraint_for_last_agent_in_fixed_chain():
     """Plan 05: internal (bot-triggered) turn with exhausted chain must set
     force_termination so the final agent gets the 'last agent' constraint and
     answers instead of refusing."""
-    from orchestration.agent_settings import reset_enabled_agents
+    from config_store.agent_settings import reset_enabled_agents
     from orchestration.thread_state import thread_state_manager
     from orchestration.stages.context_prep import ContextPrepStage
 
@@ -618,7 +618,7 @@ def test_context_prep_terminal_constraint_for_last_agent_in_fixed_chain():
 def test_context_prep_no_terminal_constraint_for_multi_round_restart():
     """Plan 05: with active_rounds > 1 and empty remaining, the next round must still
     start (force_termination stays False, next_designated_agent = first of round sequence)."""
-    from orchestration.agent_settings import reset_enabled_agents
+    from config_store.agent_settings import reset_enabled_agents
     from orchestration.thread_state import thread_state_manager
     from orchestration.stages.context_prep import ContextPrepStage
 
@@ -656,7 +656,7 @@ def test_context_prep_no_terminal_constraint_for_multi_round_restart():
 def test_context_prep_plain_non_bot_turn_not_terminal():
     """Plan 05: legacy behavior preserved - a plain non-bot-trigger turn with empty
     remaining and no explicit target is not force-terminated."""
-    from orchestration.agent_settings import reset_enabled_agents
+    from config_store.agent_settings import reset_enabled_agents
     from orchestration.thread_state import thread_state_manager
     from orchestration.stages.context_prep import ContextPrepStage
 
@@ -690,7 +690,7 @@ def test_context_prep_plain_non_bot_turn_not_terminal():
 def test_context_prep_bot_turn_with_pending_retry_not_terminal():
     """Plan 05: a bot-triggered turn with empty remaining but a pending rate-limit retry
     must NOT be force-terminated, so the retry nomination survives tag stripping."""
-    from orchestration.agent_settings import reset_enabled_agents
+    from config_store.agent_settings import reset_enabled_agents
     from orchestration.thread_state import thread_state_manager
     from orchestration.stages.context_prep import ContextPrepStage
 

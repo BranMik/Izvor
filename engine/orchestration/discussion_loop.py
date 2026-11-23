@@ -16,7 +16,7 @@ from typing import Any, Awaitable, Callable
 
 from core.config import get_max_discussion_turns
 from core.models import OrchestrationMode
-from orchestration import agent_settings
+from config_store import agent_settings
 from orchestration.thread_state import thread_state_manager
 from pipeline.spend_governance.circuit_breaker import spend_governance
 from services.slack import fetch_thread_history
@@ -125,7 +125,7 @@ class DiscussionLoop:
 
                 # Snapshot active workflow at Turn 1 for mid-thread concurrency isolation
                 if not thread_state_manager.get_workflow_snapshot(channel_id, thread_ts):
-                    from orchestration.agent_settings import get_workflow_snapshot
+                    from config_store.agent_settings import get_workflow_snapshot
 
                     thread_state_manager.set_workflow_snapshot(channel_id, thread_ts, get_workflow_snapshot())
 
@@ -218,7 +218,7 @@ class DiscussionLoop:
                         )
 
                         async def _run_scatter_branch(agent_k: str) -> ScatterBranchResult:
-                            from orchestration.app_settings import (
+                            from config_store.app_settings import (
                                 get_circuit_breaker_threshold,
                                 get_daily_budget_usd,
                                 is_circuit_breaker_enabled,

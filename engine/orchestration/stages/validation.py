@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any
 
 from core.config import AGENTS_CONFIG
 from nlp.language_detector import clean_system_and_tags, detect_language_llm, is_system_message
-from orchestration.agent_settings import settings_manager
+from config_store.agent_settings import settings_manager
 from orchestration.nomination import (
     get_initial_agents,
     parse_agent_and_prompt,
@@ -74,7 +74,7 @@ class ValidationStage:
 
             # Snapshot active workflow at Turn 1 for mid-thread concurrency isolation
             if not thread_state_manager.get_workflow_snapshot(ctx.input.channel_id, ctx.input.thread_ts):
-                from orchestration.agent_settings import get_workflow_snapshot
+                from config_store.agent_settings import get_workflow_snapshot
 
                 thread_state_manager.set_workflow_snapshot(ctx.input.channel_id, ctx.input.thread_ts, get_workflow_snapshot())
 
@@ -375,8 +375,8 @@ class ValidationStage:
 
                 if required_agent_skills:
                     from core.config import is_slack_admin
-                    from orchestration.app_settings import is_filter_unauthorized_skill_agents_enabled
-                    from orchestration.thread_skills_manager import thread_skills_manager
+                    from config_store.app_settings import is_filter_unauthorized_skill_agents_enabled
+                    from services.thread_skills_store import thread_skills_manager
 
                     is_caller_admin = is_slack_admin(getattr(ctx.input, "user_id", None))
                     agents_map = getattr(settings_manager, "agents_config", None) or AGENTS_CONFIG

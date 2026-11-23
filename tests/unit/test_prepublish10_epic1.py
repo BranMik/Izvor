@@ -1,16 +1,13 @@
 import asyncio
-import json
-import sqlite3
 import pytest
 from unittest.mock import MagicMock, patch
 
-from orchestration.app_settings import (
+from config_store.app_settings import (
     get_circuit_breaker_threshold,
     get_daily_budget_usd,
     is_circuit_breaker_enabled,
     set_circuit_breaker_enabled,
     set_circuit_breaker_threshold,
-    set_daily_budget_usd,
 )
 from orchestration.turn_pipeline import TurnContext
 from pipeline.spend_governance.circuit_breaker import SpendGovernance
@@ -132,7 +129,7 @@ def test_slack_app_home_daily_budget_rendering():
 @pytest.mark.anyio
 async def test_slack_app_home_daily_budget_actions():
     """TKT-1002: Slack actions update daily_budget_usd setting."""
-    from adapters.slack.actions.workflow_actions import (
+    from adapters.slack.actions.governance_actions import (
         _handle_save_daily_budget_button,
         _handle_set_daily_budget_input,
         _handle_set_daily_budget_preset,

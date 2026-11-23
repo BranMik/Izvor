@@ -1,7 +1,7 @@
 import ipaddress
 import json
 import socket
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from core.security_utils import wrap_untrusted_content

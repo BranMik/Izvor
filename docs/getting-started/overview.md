@@ -54,7 +54,7 @@ graph TD
 ## ✨ Key Architectural Pillars
 
 ### 1. Multi-Persona Discussion Topologies
-Managed by [`WorkflowManager`](file:///engine/orchestration/workflow_manager.py) and [`SandwichOrchestrator`](file:///engine/pipeline/orchestrator/sandwich.py), Izvor supports distinct workflow topologies:
+Managed by [`WorkflowManager`](file:///engine/config_store/workflow_manager.py) and [`SandwichOrchestrator`](file:///engine/pipeline/orchestrator/sandwich.py), Izvor supports distinct workflow topologies:
 - **🥪 Sandwich Mode (`sandwich`)**: Starts with designated initial thinkers (*Start Chain*), transitions through an open debate or peer-nominated pool (*Middle Pool*), and concludes with an authoritative synthesis by designated closers (*End Chain*).
 - **⚡ Parallel Dialectic / Scatter-Gather (`scatter_gather`)**: After Turn 1 framing, specialist agents explore concurrently in isolated `asyncio.TaskGroup` branches with zero sequential anchoring bias and atomic budget pre-reservations, followed by dialectical synthesis by the designated closing agent.
 - **🎯 Fixed Mode (`fixed`) & Custom Ad-Hoc Flows**: Executes an ordered, sequential chain of personas defined by a workflow preset or explicit user tags in Slack (e.g., `/[Visionary] /[SecurityArchitect]`).
@@ -69,7 +69,7 @@ Managed by [`WorkflowManager`](file:///engine/orchestration/workflow_manager.py)
 
 ### 3. Declarative Skills, Progressive Disclosure & Non-Blocking Slack UX
 - **Declarative `SKILL.md` Engine**: Dynamically loads a configurable, extensible agent tool skillset (4 OOB in [`config/skills/`](file:///config/skills): `web_research`, `document_reader`, `document_authoring`, `knowledge_base_rag`), **17 built-in directive/control-plane skills** ([`engine/skills/builtin/`](file:///engine/skills/builtin)), and external **MCP servers** ([`services/mcp/client_manager.py`](file:///engine/services/mcp/client_manager.py)).
-- **Progressive Disclosure & `ToolPrincipal` ACLs**: Agents start with `load_skill` ([`skills/loader.py`](file:///engine/skills/loader.py)) and unlock authorized tool schemas on demand within a bounded 60-second tool loop (`tool_call_loop_timeout_seconds` in [`config/settings/system_settings.json`](file:///config/settings/system_settings.json)), enforced by fail-closed `ToolPrincipal` permissions.
+- **Progressive Disclosure & `ToolPrincipal` ACLs**: Agents start with `load_skill` ([`skills/registry.py`](file:///engine/skills/registry.py)) and unlock authorized tool schemas on demand within a bounded 60-second tool loop (`tool_call_loop_timeout_seconds` in [`config/settings/system_settings.json`](file:///config/settings/system_settings.json)), enforced by fail-closed `ToolPrincipal` permissions.
 - **5-Second Delayed Status & In-Place Editing**: If a tool call takes longer than 5 seconds, Izvor posts an intermediate placeholder ([`tool_status.py`](file:///engine/orchestration/stages/tool_status.py)) and edits it in-place once the final response resolves.
 
 ### 4. Thread State, Durable Checkpointing & Spend Governance

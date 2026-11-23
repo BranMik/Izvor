@@ -8,7 +8,6 @@ import time
 import pytest
 from core.database import get_connection, get_db_transaction
 from core.domain import TurnCheckpoint
-from core.paths import FLAT_HISTORIES_DIR
 from orchestration.thread_state import thread_state_manager
 from services.retention_service import forget_thread, prune_expired_records
 from services.turn_checkpoint_store import TurnCheckpointStore
@@ -231,8 +230,11 @@ def test_forget_thread():
     assert len(thread_state_manager.get_remaining_agents(cid, tts)) == 1
 
     # Flat history file setup
-    FLAT_HISTORIES_DIR.mkdir(parents=True, exist_ok=True)
-    flat_file = FLAT_HISTORIES_DIR / f"test_forget_{tts}.md"
+    from services.flat_history_recorder import get_flat_histories_dir
+
+    flat_dir = get_flat_histories_dir()
+    flat_dir.mkdir(parents=True, exist_ok=True)
+    flat_file = flat_dir / f"test_forget_{tts}.md"
     flat_file.write_text(f"# History\n- **Thread TS:** `{tts}`\n- **Channel ID:** `{cid}`\n", encoding="utf-8")
     assert flat_file.exists()
 
@@ -283,8 +285,11 @@ def test_forget_thread_purges_thread_notes_via_configured_dir(tmp_path):
     notes_dir = tmp_path / "notes"
     notes_dir.mkdir(parents=True, exist_ok=True)
     target_ts = "1799888777.00123"
-    note_file = notes_dir / "topic_00123_live_notes.md"
-    note_file.write_text(f"- **Thread Timestamp**: `{target_ts}`\n", encoding="utf-8")
+    note_file = notes_dir / "topic_C_NOTES_RET_00123_live_notes.md"
+    note_file.write_text(
+        f"- **Channel ID**: `C_NOTES_RET`\n- **Thread Timestamp**: `{target_ts}`\n",
+        encoding="utf-8",
+    )
 
     configure_paths(thread_notes_dir=notes_dir)
     try:

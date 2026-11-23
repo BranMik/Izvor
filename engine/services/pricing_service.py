@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 def get_pricing_cache_ttl_seconds() -> int:
     try:
-        from orchestration.system_settings import get_pricing_cache_ttl_seconds
+        from config_store.system_settings import get_pricing_cache_ttl_seconds
         return get_pricing_cache_ttl_seconds()
     except Exception:  # noqa: BLE001
         return 7 * 24 * 3600
@@ -31,7 +31,7 @@ def get_pricing_cache_ttl_seconds() -> int:
 
 def get_pricing_benchmark_url() -> str:
     try:
-        from orchestration.system_settings import get_pricing_benchmark_url
+        from config_store.system_settings import get_pricing_benchmark_url
         return get_pricing_benchmark_url()
     except Exception:  # noqa: BLE001
         return "https://artificialanalysis.ai/models"
@@ -697,7 +697,7 @@ class PricingService:
             norm = _normalize_model_name(model_name)
             now = time.time()
 
-            from orchestration.app_settings import is_weekly_pricing_update_enabled
+            from config_store.app_settings import is_weekly_pricing_update_enabled
             weekly_update_enabled = is_weekly_pricing_update_enabled()
 
             cached_entry = cache.get(norm)
@@ -766,7 +766,7 @@ class PricingService:
                 get_orchestrator_reasoning_model,
                 get_system_agent_model,
             )
-            from orchestration.agent_settings import get_agents_config
+            from config_store.agent_settings import get_agents_config
 
             models_to_check = {cfg["model"] for cfg in get_agents_config().values() if "model" in cfg}
             models_to_check.update(

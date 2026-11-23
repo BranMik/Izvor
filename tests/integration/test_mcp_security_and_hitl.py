@@ -14,11 +14,11 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from core.domain import ToolPrincipal
-from orchestration.system_settings import set_mcp_servers
+from config_store.system_settings import set_mcp_servers
 from services.audit_logger import audit_logger
 from services.mcp.client_manager import McpClientManager
 from services.mcp.security_bridge import execute_external_mcp_tool
-from skills.loader import SkillDefinition, SkillRegistry
+from skills.registry import SkillDefinition, SkillRegistry
 
 
 class DummyContent:
@@ -138,7 +138,7 @@ async def test_r04_outbound_secret_masking(secure_mcp_environment):
         "raw_note": "Here is the key xoxb-123456789012-123456789012-abcdefghijklmnopqrstuvwx",
     }
 
-    res = await execute_external_mcp_tool(
+    await execute_external_mcp_tool(
         namespaced_tool_name="mcp__internal_db__insert_record",
         arguments=sensitive_args,
         agent_name=principal,

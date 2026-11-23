@@ -350,7 +350,7 @@ def test_no_duplicate_module_constants_in_models():
 
     duplicates = {name: lines for name, lines in top_level_targets.items() if len(lines) > 1}
     assert not duplicates, (
-        f"Found duplicate top-level constant assignment(s) in engine/core/models.py:\n"
+        "Found duplicate top-level constant assignment(s) in engine/core/models.py:\n"
         + "\n".join(f"- {name} at lines {lines}" for name, lines in duplicates.items())
     )
 

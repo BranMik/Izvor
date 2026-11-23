@@ -379,7 +379,7 @@ async def test_resume_from_checkpoint_enforces_hitl_gate_on_subsequent_mutating_
 @pytest.mark.anyio
 async def test_resume_from_checkpoint_unlocks_skills_control_plane_and_claims_atomically():
     """TKT-1201 (C1): Concurrent resume_from_checkpoint executes once; load_skill + control_plane work identically."""
-    from skills.loader import LOAD_SKILL_SCHEMA
+    from skills.registry import LOAD_SKILL_SCHEMA
 
     channel_id = "C_RESUME_ATOM"
     thread_ts = "99999.0011"

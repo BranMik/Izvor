@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+from collections.abc import Callable
 import copy
 import json
 import logging
@@ -7,18 +10,17 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
+from config_store.app_settings import AppSettingsManager, app_settings_manager
+from config_store.integrity import ConfigIntegrityValidator
+from config_store.settings_store import atomic_write_json
+from config_store.system_settings import SystemSettingsManager, system_settings_manager
+from config_store.workflow_manager import WorkflowManager, slugify, workflow_manager
 from core.config import (
     AGENTS_CONFIG,
     ORCHESTRATOR_CONFIG,
     SYSTEM_AGENTS_CONFIG,
 )
-from core.models import OrchestrationMode
-from orchestration.app_settings import AppSettingsManager, app_settings_manager
-from orchestration.system_settings import SystemSettingsManager, system_settings_manager
-from orchestration.integrity_checks import AppIntegrityValidator
-from orchestration.settings_store import atomic_write_json
-from prompts.builder import build_agent_prompt, is_dialectical_system_agent
-
+from core.models import OrchestrationMode, REQUIRED_DEFAULT_WORKFLOW_IDS, is_dialectical_system_agent
 from core.paths import (
     AGENT_BACKUP_FILE as BACKUP_FILE,
     AGENT_SETTINGS_FILE as SETTINGS_FILE,
@@ -33,13 +35,74 @@ logger = logging.getLogger(__name__)
 # 7-day interval in seconds (604,800 seconds)
 BACKUP_INTERVAL_SECONDS = 7 * 86400
 
-# Default untagged workflow configuration: Sandwich mode
+# Default untagged workflow configuration
 DEFAULT_WORKFLOW_ID = "default_review_flow"
+
+# IoC hooks keeping config_store (L1.5) strictly independent of L2 prompts/services
+_prompt_builder_hook: Callable[..., str] | None = None
+_on_agents_changed_callbacks: list[Callable[[], None]] = []
+
+
+def set_prompt_builder_hook(fn: Callable[..., str] | None) -> None:
+    """Registers the prompt builder callback (wired by engine/prompts/builder.py or main.py)."""
+    global _prompt_builder_hook
+    _prompt_builder_hook = fn
+    if fn is not None and "settings_manager" in globals():
+        try:
+            mgr = globals()["settings_manager"]
+            needs_refresh = any(not cfg.get("system_prompt") for cfg in mgr.agents_config.values()) or any(
+                is_dialectical_system_agent(sys_k) and not sys_cfg.get("system_prompt")
+                for sys_k, sys_cfg in mgr.system_agents_config.items()
+            )
+            if needs_refresh:
+                mgr.refresh_agent_prompts()
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"[SETTINGS] Could not refresh prompts after hook registration: {e}")
+
+
+def register_on_agents_changed(cb: Callable[[], None]) -> None:
+    """Registers a callback invoked whenever agent configuration loads or saves."""
+    if cb not in _on_agents_changed_callbacks:
+        _on_agents_changed_callbacks.append(cb)
+
+
+def unregister_on_agents_changed(cb: Callable[[], None]) -> None:
+    """Unregisters an agent-change callback."""
+    if cb in _on_agents_changed_callbacks:
+        _on_agents_changed_callbacks.remove(cb)
+
+
+def _notify_agents_changed() -> None:
+    for cb in list(_on_agents_changed_callbacks):
+        try:
+            cb()
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"[SETTINGS] on_agents_changed callback error: {e}")
+
+
+def _build_prompt_via_hook(
+    agent_key: str,
+    *,
+    skills: list[str] | None = None,
+    is_short_output: bool | None = None,
+    default_max_words: int | None = None,
+    short_max_words: int | None = None,
+) -> str:
+    if _prompt_builder_hook is None:
+        return ""
+    kwargs: dict[str, Any] = {
+        "skills": skills,
+        "default_max_words": default_max_words,
+        "short_max_words": short_max_words,
+    }
+    if is_short_output is not None:
+        kwargs["is_short_output"] = is_short_output
+    return _prompt_builder_hook(agent_key, **kwargs)
 
 
 class AgentSettingsManager:
     """
-    Manages persistent agent configurations, system agent models, and thread circuit breaker limits.
+    Manages persistent agent configurations, system agent models, and workflow selection.
     Serves as the Single Source of Truth (SSOT) loaded from config/settings/agent_settings.json
     and engine/settings/system_agent_settings.json.
     Includes atomic file writes, 7-day emergency backups, non-destructive failover, and manual restore.
@@ -68,7 +131,6 @@ class AgentSettingsManager:
         self.backup_interval_seconds = backup_interval_seconds
         self._save_lock = threading.RLock()
 
-        from orchestration.workflow_manager import WorkflowManager, workflow_manager
         if workflows_dir is not None:
             self.workflow_manager = WorkflowManager(workflows_dir=workflows_dir, auto_seed=True)
         else:
@@ -275,7 +337,6 @@ class AgentSettingsManager:
             logger.warning(f"[SETTINGS VALIDATION] Agent '{key}' is missing valid 'icon_url'. Skipping.")
             return False
 
-        # Validate persona prompt markdown file
         persona_file = PERSONAS_DIR / f"{key}.md"
         if not persona_file.exists():
             logger.warning(
@@ -290,8 +351,6 @@ class AgentSettingsManager:
         Loads orchestration mode and chains from the referenced workflow preset file.
         If the file is missing or invalid, falls back to default preset or dynamic fallback.
         """
-        from orchestration.workflow_manager import slugify
-
         preset = None
         clean_ref = slugify(wf_ref) if wf_ref else None
 
@@ -331,7 +390,6 @@ class AgentSettingsManager:
             self.active_workflow_id = preset.id
             self.workflow_config = preset.id
 
-            # Track workflow file mtime
             wf_file = self.workflow_manager.get_workflow_file_path(preset.id)
             if wf_file and wf_file.exists():
                 try:
@@ -339,7 +397,6 @@ class AgentSettingsManager:
                 except OSError as e:
                     logger.debug(f"[SETTINGS] Error checking workflow mtime: {e}")
         else:
-            # Fallback default when no preset is active
             self.active_workflow_id = DEFAULT_WORKFLOW_ID
             self.workflow_config = DEFAULT_WORKFLOW_ID
             self.orchestration_mode = OrchestrationMode.SANDWICH.value
@@ -367,9 +424,6 @@ class AgentSettingsManager:
 
     def persist_active_workflow(self) -> None:
         """Persists current mode and chains to the active workflow JSON file."""
-        from orchestration.workflow_manager import slugify
-        from core.models import REQUIRED_DEFAULT_WORKFLOW_IDS
-
         wf_id = self.workflow_config or self.active_workflow_id
         if not wf_id:
             return
@@ -419,13 +473,12 @@ class AgentSettingsManager:
             return False
 
         self._raw_data = copy.deepcopy(data)
-        data = AppIntegrityValidator.run_all_checks(data, personas_dir=PERSONAS_DIR)
+        data = ConfigIntegrityValidator.run_all_checks(data, personas_dir=PERSONAS_DIR)
 
         raw_agents = data.get("agents", {})
         if not isinstance(raw_agents, dict):
             logger.error(f"[SETTINGS] 'agents' key in {source_name} is not a dictionary after validation.")
             return False
-
 
         oc = self.system_settings.get_output_constraints()
         default_max_w = oc["default_max_words"]
@@ -448,7 +501,7 @@ class AgentSettingsManager:
                     "icon_url": cfg["icon_url"].strip(),
                     "is_short_output": is_short,
                     "skills": skills,
-                    "system_prompt": build_agent_prompt(
+                    "system_prompt": _build_prompt_via_hook(
                         key,
                         skills=skills,
                         is_short_output=is_short,
@@ -462,13 +515,11 @@ class AgentSettingsManager:
             logger.error(f"[SETTINGS] Zero valid agents found in {source_name}. Validation failed.")
             return False
 
-        # Upsert then prune removed keys so readers never observe an empty agents_config dict
         self._agents_config.update(valid_agents)
         for stale_key in list(self._agents_config.keys()):
             if stale_key not in valid_agents:
                 self._agents_config.pop(stale_key, None)
 
-        # Parse orchestrator config if explicitly present in payload
         if "orchestrator" in data and isinstance(data["orchestrator"], dict):
             raw_orch = data["orchestrator"]
             default_fast = self.system_settings.get_default_fast_model()
@@ -481,7 +532,6 @@ class AgentSettingsManager:
                 "icon_url": str(raw_orch.get("icon_url", "static/image_99.png")).strip(),
             })
 
-        # Parse system agents if explicitly present in payload
         if "system_agents" in data and isinstance(data["system_agents"], dict):
             for sys_k, sys_v in data["system_agents"].items():
                 if isinstance(sys_v, dict):
@@ -501,7 +551,6 @@ class AgentSettingsManager:
                     if sys_entry:
                         self.system_agents_config[sys_k] = sys_entry
 
-        # Parse active workflow reference ("workflow_config" primary, "active_workflow_id" fallback)
         raw_wf = data.get("workflow_config")
         if isinstance(raw_wf, str):
             clean_wf = raw_wf.strip()
@@ -512,10 +561,8 @@ class AgentSettingsManager:
             self.workflow_config = None
             self.active_workflow_id = None
 
-        # Load details (mode, sandwich chains, fixed chain) from the referenced workflow file
         self._load_workflow_details(self.workflow_config, fallback_data=data)
 
-        # Parse enabled agents
         raw_enabled = data.get("enabled_agents")
         if raw_enabled is not None:
             if isinstance(raw_enabled, list):
@@ -523,7 +570,6 @@ class AgentSettingsManager:
             else:
                 valid_enabled = set()
         else:
-            # If enabled_agents is omitted, default to all valid agents
             valid_enabled = set(self.agents_config.keys())
 
         self.enabled_agents = set(valid_enabled)
@@ -549,9 +595,9 @@ class AgentSettingsManager:
             try:
                 with open(target_file, "r", encoding="utf-8") as f:
                     raw_text = f.read()
-                AppIntegrityValidator.check_duplicate_ids_in_raw_json(raw_text)
+                ConfigIntegrityValidator.check_duplicate_ids_in_raw_json(raw_text)
                 data = json.loads(raw_text)
-            except Exception as e:
+            except (OSError, ValueError, TypeError, json.JSONDecodeError) as e:
                 logger.warning(f"[SETTINGS] Failed to read {target_file.name}: {e}. Trying backup.")
 
         if not isinstance(data, dict) and backup_file.exists():
@@ -559,7 +605,7 @@ class AgentSettingsManager:
                 with open(backup_file, "r", encoding="utf-8") as f:
                     data = json.load(f)
                 logger.warning(f"[SETTINGS] Loaded system agent settings from backup {backup_file.name}")
-            except Exception as e:
+            except (OSError, ValueError, TypeError, json.JSONDecodeError) as e:
                 logger.error(f"[SETTINGS] Failed reading system agent backup: {e}")
 
         if not isinstance(data, dict) and DEFAULT_SYSTEM_AGENT_SETTINGS_FILE.exists():
@@ -567,11 +613,10 @@ class AgentSettingsManager:
                 with open(DEFAULT_SYSTEM_AGENT_SETTINGS_FILE, "r", encoding="utf-8") as f:
                     data = json.load(f)
                 logger.info(f"[SETTINGS] Loaded baseline system agent settings from {DEFAULT_SYSTEM_AGENT_SETTINGS_FILE.name}")
-            except Exception as e:
+            except (OSError, ValueError, TypeError, json.JSONDecodeError) as e:
                 logger.error(f"[SETTINGS] Failed reading baseline system agent settings: {e}")
 
         if isinstance(data, dict):
-            # Parse orchestrator config
             raw_orch = data.get("orchestrator", {})
             default_fast = self.system_settings.get_default_fast_model()
             default_reasoning = self.system_settings.get_default_reasoning_model()
@@ -592,7 +637,6 @@ class AgentSettingsManager:
                     "icon_url": "static/image_99.png",
                 })
 
-            # Parse system agents
             self.system_agents_config.clear()
             raw_system_agents = data.get("system_agents", {})
             if isinstance(raw_system_agents, dict):
@@ -617,7 +661,7 @@ class AgentSettingsManager:
                             sys_entry["skills"] = []
                         if is_dialectical_system_agent(sys_k):
                             oc = self.system_settings.get_output_constraints()
-                            sys_entry["system_prompt"] = build_agent_prompt(
+                            sys_entry["system_prompt"] = _build_prompt_via_hook(
                                 sys_k,
                                 skills=sys_entry["skills"],
                                 default_max_words=oc["default_max_words"],
@@ -654,7 +698,7 @@ class AgentSettingsManager:
                 self._atomic_write_json(backup_file, data)
                 logger.info(f"[SETTINGS] Updated emergency system agent backup: {backup_file.name}")
                 return True
-            except Exception as e:
+            except (OSError, ValueError, TypeError, json.JSONDecodeError) as e:
                 logger.error(f"[SETTINGS] Failed to update system agent backup: {e}")
                 return False
 
@@ -713,7 +757,6 @@ class AgentSettingsManager:
             return self._load_unlocked()
 
     def _load_unlocked(self) -> set[str]:
-        # Load system agent settings
         self._load_and_validate_system_agent_settings()
 
         target_file = self.active_settings_file
@@ -723,7 +766,7 @@ class AgentSettingsManager:
             try:
                 with open(target_file, "r", encoding="utf-8") as f:
                     raw_text = f.read()
-                AppIntegrityValidator.check_duplicate_ids_in_raw_json(raw_text)
+                ConfigIntegrityValidator.check_duplicate_ids_in_raw_json(raw_text)
                 data = json.loads(raw_text)
                 if self._parse_and_validate_payload(data, target_file.name):
                     self.is_running_from_backup = False
@@ -733,11 +776,7 @@ class AgentSettingsManager:
                     except OSError as e:
                         logger.debug(f"[SETTINGS] Error checking settings file mtime: {e}")
                     self.check_and_update_backup()
-                    try:
-                        from services.security.pii_masker import pii_masker
-                        pii_masker.refresh_allowlist()
-                    except Exception:
-                        pass
+                    _notify_agents_changed()
                     return set(self.enabled_agents)
                 else:
                     err_reason = f"Schema validation failed in {target_file.name}"
@@ -746,7 +785,6 @@ class AgentSettingsManager:
         else:
             err_reason = f"Active settings file '{target_file.name}' not found."
 
-        # Failover to emergency backup
         backup_file = self.active_backup_file
         logger.warning(
             f"[SETTINGS] Primary settings failed ({err_reason}). Attempting failover to emergency backup: {backup_file.name}"
@@ -763,16 +801,11 @@ class AgentSettingsManager:
                         f"[SETTINGS] System is running in EMERGENCY BACKUP MODE using {backup_file.name}. "
                         f"Original file '{target_file.name}' was left untouched."
                     )
-                    try:
-                        from services.security.pii_masker import pii_masker
-                        pii_masker.refresh_allowlist()
-                    except Exception:
-                        pass
+                    _notify_agents_changed()
                     return set(self.enabled_agents)
             except (OSError, json.JSONDecodeError, TypeError, ValueError) as backup_err:
                 logger.critical(f"[SETTINGS] Failed reading emergency backup: {backup_err}")
 
-        # If both fail, raise RuntimeError
         msg = f"Failed to load agent settings from active file ({err_reason}) and emergency backup."
         logger.critical(f"[SETTINGS] {msg}")
         raise RuntimeError(msg)
@@ -816,14 +849,12 @@ class AgentSettingsManager:
         """
         wf_ref = self.workflow_config or self.active_workflow_id
         data = copy.deepcopy(self._raw_data) if hasattr(self, "_raw_data") and isinstance(self._raw_data, dict) else {}
-        # Ensure system agents and orchestrator are not saved to agent_settings.json
         data.pop("system_agents", None)
         data.pop("orchestrator", None)
 
         data["workflow_config"] = wf_ref
         data["enabled_agents"] = sorted(self.enabled_agents)
 
-        # Losslessly update agents
         if "agents" not in data or not isinstance(data["agents"], dict):
             data["agents"] = {}
         for k, v in self.agents_config.items():
@@ -861,11 +892,7 @@ class AgentSettingsManager:
                     f"workflow_config='{wf_ref}') to {target_file.name}"
                 )
                 self.check_and_update_backup()
-                try:
-                    from services.security.pii_masker import pii_masker
-                    pii_masker.refresh_allowlist()
-                except Exception:
-                    pass
+                _notify_agents_changed()
             except (OSError, TypeError, ValueError) as e:
                 logger.error(f"[SETTINGS] Error saving agent settings: {e}")
 
@@ -887,7 +914,7 @@ class AgentSettingsManager:
                 self._atomic_write_json(target_file, data)
                 self.check_and_update_system_agent_backup()
                 logger.info(f"[SETTINGS] Saved system agent settings to {target_file.name}")
-            except Exception as e:
+            except (OSError, ValueError, TypeError, json.JSONDecodeError) as e:
                 logger.error(f"[SETTINGS] Error saving system agent settings: {e}")
 
     def sync_if_modified(self) -> bool:
@@ -906,10 +933,8 @@ class AgentSettingsManager:
             except (OSError, RuntimeError) as e:
                 logger.debug(f"[SETTINGS] Error checking settings file mtime: {e}")
 
-        # Also check if the active workflow file changed on disk
         wf_id = self.workflow_config or self.active_workflow_id
         if wf_id:
-            from orchestration.workflow_manager import slugify
             wf_file = self.workflow_manager.get_workflow_file_path(slugify(wf_id))
             if wf_file and wf_file.exists():
                 try:
@@ -1116,7 +1141,7 @@ class AgentSettingsManager:
         self.agents_config[agent_key]["skills"] = sanitized_skills
         oc = self.system_settings.get_output_constraints()
         self._rendered_output_constraints = (oc["default_max_words"], oc["short_max_words"])
-        self.agents_config[agent_key]["system_prompt"] = build_agent_prompt(
+        self.agents_config[agent_key]["system_prompt"] = _build_prompt_via_hook(
             agent_key,
             skills=sanitized_skills,
             is_short_output=bool(self.agents_config[agent_key].get("is_short_output", False)),
@@ -1134,7 +1159,7 @@ class AgentSettingsManager:
         default_max_w = oc["default_max_words"]
         short_max_w = oc["short_max_words"]
         for agent_key, cfg in self.agents_config.items():
-            cfg["system_prompt"] = build_agent_prompt(
+            cfg["system_prompt"] = _build_prompt_via_hook(
                 agent_key,
                 skills=cfg.get("skills"),
                 is_short_output=bool(cfg.get("is_short_output", False)),
@@ -1143,7 +1168,7 @@ class AgentSettingsManager:
             )
         for sys_key, sys_cfg in self.system_agents_config.items():
             if is_dialectical_system_agent(sys_key):
-                sys_cfg["system_prompt"] = build_agent_prompt(
+                sys_cfg["system_prompt"] = _build_prompt_via_hook(
                     sys_key,
                     skills=sys_cfg.get("skills"),
                     default_max_words=default_max_w,
@@ -1238,9 +1263,7 @@ class AgentSettingsManager:
         return True
 
 
-# Default singleton instance initialized automatically
 settings_manager = AgentSettingsManager()
-
 
 
 def get_orchestration_mode() -> str:

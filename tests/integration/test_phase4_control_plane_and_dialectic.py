@@ -14,7 +14,7 @@ from pipeline.discussion_scribe.scribe import (
 )
 from pipeline.orchestrator.sandwich import SandwichOrchestrator
 from services.telemetry import get_turn_traces, record_turn_trace
-from skills.loader import skill_registry
+from skills.registry import skill_registry
 
 
 @pytest.mark.anyio
@@ -61,7 +61,7 @@ def test_enforce_valid_nomination_with_control_plane_override():
 
 
 def test_arbitrator_persona_and_standby_topology():
-    from orchestration.agent_settings import get_challenger_agent, get_arbitrator_agent
+    from config_store.agent_settings import get_challenger_agent, get_arbitrator_agent
 
     assert get_arbitrator_agent() == "Arbitrator"
     assert get_challenger_agent() == "Challenger"
@@ -197,7 +197,7 @@ async def test_control_plane_rejects_self_nomination_and_enforces_strip():
 
 def test_reset_enabled_agents_preserves_default_review_flow():
     """Plan 193: AgentSettingsManager.reset() restores default_review_flow instead of 16-agent fallback."""
-    from orchestration.agent_settings import reset_enabled_agents, settings_manager
+    from config_store.agent_settings import reset_enabled_agents, settings_manager
     from orchestration.nomination import get_initial_agents
 
     reset_enabled_agents()
@@ -208,7 +208,7 @@ def test_reset_enabled_agents_preserves_default_review_flow():
 
 def test_scatter_gather_selects_start_chain_deterministically():
     """Plan 193: scatter_gather pops the ordered start_chain head instead of random selection."""
-    from orchestration.agent_settings import (
+    from config_store.agent_settings import (
         reset_enabled_agents,
         set_orchestration_mode,
         set_sandwich_config,
@@ -304,14 +304,14 @@ async def test_control_plane_errored_or_denied_tools_do_not_mutate_state():
 async def test_arbitrator_verdict_b_revokes_consensus_and_resets_round_rollover():
     """TKT-1216: Arbitrator Verdict B runs in fixed small pools, revokes consensus_reached, and round rollover clears evidence & convergence."""
     from orchestration.agent_router import _apply_convergence_stress_test_or_fast_forward
-    from orchestration.agent_settings import (
+    from config_store.agent_settings import (
         get_orchestration_mode,
         reset_enabled_agents,
         set_fixed_config,
         set_orchestration_mode,
     )
     from orchestration.stages.post_record import PostRecordStage
-    from orchestration.system_settings import system_settings_manager
+    from config_store.system_settings import system_settings_manager
     from orchestration.thread_state import thread_state_manager
     from orchestration.turn_pipeline import TurnContext, TurnPipeline
 

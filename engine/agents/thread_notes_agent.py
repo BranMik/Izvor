@@ -407,6 +407,13 @@ try:
 except (ImportError, AttributeError, TypeError) as _e:
     logger.debug(f"[THREAD NOTES] Could not register thread_state hooks: {_e}")
 
+try:
+    from services.retention_service import register_thread_purge_hook
+
+    register_thread_purge_hook("thread_notes", clear_thread_note)
+except (ImportError, AttributeError, TypeError) as _re:
+    logger.debug(f"[THREAD NOTES] Could not register retention purge hook: {_re}")
+
 
 async def generate_thread_notes(
     history: list[dict[str, str]],
@@ -464,7 +471,7 @@ async def update_notes_for_thread(
     """
     lock = get_thread_lock(channel_id, thread_ts)
 
-    from orchestration.app_settings import is_scribe_enabled
+    from config_store.app_settings import is_scribe_enabled
     if not is_scribe_enabled():
         logger.info(
             f"[THREAD NOTES] Scribe is disabled in settings. Skipping update for thread {thread_ts} in channel {channel_id}."
@@ -809,7 +816,7 @@ def trigger_thread_notes_update(
             bot_user_id=bot_user_id,
         )
 
-    from orchestration.app_settings import is_scribe_enabled
+    from config_store.app_settings import is_scribe_enabled
     if not is_scribe_enabled():
         logger.info(
             f"[THREAD NOTES] Scribe is disabled in settings. Skipping update for thread {thread_ts}."

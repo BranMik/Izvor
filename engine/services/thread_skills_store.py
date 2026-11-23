@@ -1,6 +1,5 @@
 """
-Pure SQLite Repository for thread-scoped skill grants and expiration.
-Eliminates obsolete JSON file sync and dual-backend branching.
+Pure SQLite Repository for thread-scoped skill grants and expiration (L2).
 """
 
 from __future__ import annotations
@@ -9,8 +8,8 @@ import logging
 import time
 from typing import Any
 
+from config_store.app_settings import app_settings_manager
 from core.database import get_connection, get_db_transaction
-from orchestration.app_settings import app_settings_manager
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +71,7 @@ class ThreadSkillsManager:
 
         active = self.get_active_skills(channel_id, thread_ts)
         try:
-            from services.audit_logger import log_audit_event, AuditActor
+            from services.audit_logger import AuditActor, log_audit_event
 
             log_audit_event(
                 event_type="THREAD_SKILL_GRANTED",
@@ -120,7 +119,7 @@ class ThreadSkillsManager:
 
         active_map = self.get_all_active_agent_skills(channel_id, thread_ts)
         try:
-            from services.audit_logger import log_audit_event, AuditActor
+            from services.audit_logger import AuditActor, log_audit_event
 
             log_audit_event(
                 event_type="THREAD_SKILL_GRANTED",
@@ -285,7 +284,7 @@ class ThreadSkillsManager:
             logger.error(f"[THREAD_SKILLS] SQLite revoke_skills failed: {e}")
 
         try:
-            from services.audit_logger import log_audit_event, AuditActor
+            from services.audit_logger import AuditActor, log_audit_event
 
             log_audit_event(
                 event_type="THREAD_SKILL_REVOKED",
@@ -360,3 +359,4 @@ class ThreadSkillsManager:
 
 
 thread_skills_manager = ThreadSkillsManager()
+

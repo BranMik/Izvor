@@ -262,7 +262,7 @@ def test_local_tools_write_file_blocks_protected_default_files():
 
 
 def test_local_tools_write_file_blocks_custom_blacklist(tmp_path):
-    from orchestration.system_settings import system_settings_manager
+    from config_store.system_settings import system_settings_manager
     from services.local_tools import write_document
 
     orig_blacklist = system_settings_manager.get_workspace_write_blacklist_additional()
@@ -294,7 +294,7 @@ def test_local_tools_write_file_blocks_custom_blacklist(tmp_path):
 
 
 def test_local_tools_write_document_blocks_blacklisted_path():
-    from orchestration.system_settings import system_settings_manager
+    from config_store.system_settings import system_settings_manager
     from services.local_tools import write_document
 
     orig_blacklist = system_settings_manager.get_workspace_write_blacklist_additional()

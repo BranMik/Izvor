@@ -207,7 +207,7 @@ class RoundEvidenceStore:
             "The following retrieved tool evidence (untrusted external data) was gathered via tools in this discussion round:"
         ]
         from core.security_utils import wrap_untrusted_content
-        from orchestration.system_settings import get_shared_evidence_max_chars
+        from config_store.system_settings import get_shared_evidence_max_chars
 
         ceiling = max_chars if max_chars is not None else get_shared_evidence_max_chars()
 

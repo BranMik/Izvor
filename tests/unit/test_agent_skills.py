@@ -7,9 +7,9 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from orchestration.agent_settings import settings_manager
+from config_store.agent_settings import settings_manager
 from prompts import build_agent_prompt
-from skills.loader import (
+from skills.registry import (
     ALL_INTERNAL_SKILLS,
     LOAD_SKILL_SCHEMA,
     skill_registry,
@@ -147,7 +147,7 @@ async def test_execute_load_skill_invalid():
 
 @pytest.mark.anyio
 async def test_execute_delegated_local_tool():
-    with patch("skills.loader.execute_local_tool", new_callable=AsyncMock) as mock_exec:
+    with patch("skills.registry.execute_local_tool", new_callable=AsyncMock) as mock_exec:
         mock_exec.return_value = json.dumps({"contents": []})
         res = await skill_registry.execute_tool_async(
             "list_documents", {"rel_path": "."}, authorized_skills=ALL_INTERNAL_SKILLS
@@ -163,7 +163,7 @@ async def test_execute_delegated_local_tool():
 @pytest.mark.anyio
 async def test_execute_tool_authorization_enforcement():
     # Authorized: web_research allows web_search
-    with patch("skills.loader.execute_local_tool", new_callable=AsyncMock) as mock_exec:
+    with patch("skills.registry.execute_local_tool", new_callable=AsyncMock) as mock_exec:
         mock_exec.return_value = json.dumps({"results": ["ok"]})
         res = await skill_registry.execute_tool_async(
             "web_search", {"query": "AI"}, authorized_skills=["web_research"]

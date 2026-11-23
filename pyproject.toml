@@ -22,18 +22,16 @@ dependencies = [
     "httpcore>=1.0.5,<2.0.0",
     "beautifulsoup4>=4.12.0,<5.0.0",
     "ddgs>=9.0.0,<10.0.0",
-    "tenacity>=8.0.0,<10.0.0",
     "pypdf>=5.0.0,<7.0.0",
     "pyyaml>=6.0,<7.0",
     "lancedb>=0.17.0,<1.0.0",
     "pandas>=2.2.0,<3.0.0",
     "pyarrow>=15.0.0,<20.0.0",
     "tantivy>=0.22.0,<1.0.0",
-    "markdown-it-py>=3.0.0,<4.0.0",
     "presidio-analyzer>=2.2.0",
-    "presidio-anonymizer>=2.2.0",
     "spacy>=3.8.0",
     "mcp>=1.2.0,<3.0.0",
+    "python-multipart>=0.0.9,<1.0.0",
     "en-core-web-sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl#sha256=1932429db727d4bff3deed6b34cfc05df17794f4a52eeb26cf8928f7c1a0fb85",
 ]
 
@@ -42,6 +40,7 @@ dev = [
     "pytest>=8.3.0,<10.0.0",
     "anyio>=4.0.0,<5.0.0",
     "datasets>=3.0.0,<4.0.0",
+    "ruff>=0.8.0,<1.0.0",
 ]
 
 [tool.pytest.ini_options]
@@ -77,4 +76,5 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
+"main.py" = ["E402"]
 "tests/**" = ["BLE001", "S110"]

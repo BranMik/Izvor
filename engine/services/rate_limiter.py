@@ -6,7 +6,7 @@ from core.config import get_slack_bot_token
 
 def _get_rate_limiter_defaults() -> tuple[float, float]:
     try:
-        from orchestration.system_settings import system_settings_manager
+        from config_store.system_settings import system_settings_manager
         return (
             system_settings_manager.get_slack_rate_limit_per_second(),
             system_settings_manager.get_slack_rate_limit_burst(),

@@ -16,7 +16,7 @@ from core.models import (
     OrchestrationMode,
 )
 from nlp.intent_extractor import IntentExtractor
-from orchestration.agent_settings import AgentSettingsManager, settings_manager
+from config_store.agent_settings import AgentSettingsManager, settings_manager
 from orchestration.nomination import (
     enforce_valid_nomination,
     get_initial_agents,
@@ -343,7 +343,7 @@ def test_nomination_and_entity_resolver():
     assert explicit is True
 
     # Parse multi-agent tags prompt (configure full sandwich pool on a fresh thread)
-    from orchestration.agent_settings import set_orchestration_mode, set_sandwich_config
+    from config_store.agent_settings import set_orchestration_mode, set_sandwich_config
 
     set_orchestration_mode("sandwich", save=False)
     set_sandwich_config([], [], save=False)

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from collections.abc import Mapping
 import copy
 import fnmatch
@@ -6,12 +8,13 @@ import os
 import re
 import time
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
+from config_store.integrity import ConfigIntegrityValidator
+from config_store.settings_store import JsonSettingsStore
 from core.paths import PROJECT_ROOT, SYSTEM_BACKUP_FILE, SYSTEM_SETTINGS_FILE
-from orchestration.settings_store import JsonSettingsStore
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +77,7 @@ def _clamp_output_max_words(val: Any, default: int) -> int:
 
 class McpServerConfig(BaseModel):
     enabled: bool = True
-    transport: Literal["stdio", "sse", "streamable_http"] = "stdio"
+    transport: str = "stdio"
     command: str = ""
     args: list[str] = Field(default_factory=list)
     env: dict[str, str] = Field(default_factory=dict)
@@ -127,6 +130,12 @@ class SystemSettingsModel(BaseModel):
     system_agent_inference_timeout_seconds: float = 20.0
     system_agent_inference_retry_timeout_multiplier: float = 1.5
     guardrail_embedding_cache_size: int = 500
+    guardrail_chunk_chars: int = 800
+    guardrail_chunk_overlap_chars: int = 200
+    guardrail_max_chunks: int = 8
+    guardrail_indirect_embedding_enabled: bool = False
+    pii_ner_models: list[str] = Field(default_factory=lambda: ["en_core_web_sm"])
+    audit_hmac_key_id: str = "default"
     thread_cleanup_interval_seconds: float = 600.0
     audit_integrity_check_interval_seconds: float = 43200.0
     skill_exclusions_sync_interval_seconds: float = 86400.0
@@ -228,6 +237,12 @@ class SystemSettingsManager:
         self.system_agent_inference_timeout_seconds: float = 20.0
         self.system_agent_inference_retry_timeout_multiplier: float = 1.5
         self.guardrail_embedding_cache_size: int = 500
+        self.guardrail_chunk_chars: int = 800
+        self.guardrail_chunk_overlap_chars: int = 200
+        self.guardrail_max_chunks: int = 8
+        self.guardrail_indirect_embedding_enabled: bool = False
+        self.pii_ner_models: list[str] = ["en_core_web_sm"]
+        self.audit_hmac_key_id: str = "default"
         self.thread_cleanup_interval_seconds: float = 600.0
         self.audit_integrity_check_interval_seconds: float = 43200.0
         self.skill_exclusions_sync_interval_seconds: float = 86400.0
@@ -333,8 +348,14 @@ class SystemSettingsManager:
         if self.default_settings_file.exists():
             try:
                 self.load(force=True)
-            except Exception:
-                pass
+            except (OSError, ValueError, TypeError, ValidationError) as err:
+                logger.debug(
+                    "[SYSTEM_SETTINGS] Deferred initial load on %s: %s",
+                    self.default_settings_file,
+                    err,
+                )
+        else:
+            self._apply_model_to_fields(SystemSettingsModel())
         self._register_core_providers()
 
     def _parse_rag_section(self, rag_data: Any) -> None:
@@ -399,6 +420,18 @@ class SystemSettingsManager:
         self.system_agent_inference_timeout_seconds = float(model.system_agent_inference_timeout_seconds)
         self.system_agent_inference_retry_timeout_multiplier = float(model.system_agent_inference_retry_timeout_multiplier)
         self.guardrail_embedding_cache_size = int(model.guardrail_embedding_cache_size)
+        chunk_chars = max(100, int(getattr(model, "guardrail_chunk_chars", 800)))
+        self.guardrail_chunk_chars = chunk_chars
+        overlap = max(0, int(getattr(model, "guardrail_chunk_overlap_chars", 200)))
+        self.guardrail_chunk_overlap_chars = min(overlap, max(0, chunk_chars - 1))
+        self.guardrail_max_chunks = max(1, int(getattr(model, "guardrail_max_chunks", 8)))
+        self.guardrail_indirect_embedding_enabled = bool(
+            getattr(model, "guardrail_indirect_embedding_enabled", False)
+        )
+        raw_ner = getattr(model, "pii_ner_models", ["en_core_web_sm"])
+        cleaned_ner = [str(m).strip() for m in raw_ner if isinstance(m, str) and str(m).strip()] if isinstance(raw_ner, list) else []
+        self.pii_ner_models = cleaned_ner or ["en_core_web_sm"]
+        self.audit_hmac_key_id = str(getattr(model, "audit_hmac_key_id", "default") or "default").strip() or "default"
         self.thread_cleanup_interval_seconds = float(model.thread_cleanup_interval_seconds)
         self.audit_integrity_check_interval_seconds = float(model.audit_integrity_check_interval_seconds)
         self.skill_exclusions_sync_interval_seconds = float(
@@ -448,6 +481,64 @@ class SystemSettingsManager:
         raw_mcp = getattr(model, "mcp_servers", {})
         self.mcp_servers = copy.deepcopy(raw_mcp) if isinstance(raw_mcp, dict) else {}
 
+    def _to_model(self) -> SystemSettingsModel:
+        return SystemSettingsModel(
+            default_fast_model=self.default_fast_model,
+            default_reasoning_model=self.default_reasoning_model,
+            internal_revisor_enabled=self.internal_revisor_enabled,
+            shared_evidence_max_chars=self.shared_evidence_max_chars,
+            max_file_size_mb=self.max_file_size_mb,
+            rag=copy.deepcopy(self.rag_config),
+            workspace_write_blacklist_additional=list(self.workspace_write_blacklist_additional),
+            strict_privacy_mode_enabled=self.strict_privacy_mode_enabled,
+            log_level=self.log_level,
+            debate_turn_pacing_seconds=self.debate_turn_pacing_seconds,
+            slack_post_pause_seconds=self.slack_post_pause_seconds,
+            tool_call_loop_timeout_seconds=self.tool_call_loop_timeout_seconds,
+            guardrail_fail_mode=self.guardrail_fail_mode,
+            max_discussion_turns=self.max_discussion_turns,
+            max_tool_iterations=self.max_tool_iterations,
+            tool_call_num_retries=self.tool_call_num_retries,
+            word_limit_grace_buffer=self.word_limit_grace_buffer,
+            output_constraints=copy.deepcopy(self.output_constraints),
+            system_agent_inference_timeout_seconds=self.system_agent_inference_timeout_seconds,
+            system_agent_inference_retry_timeout_multiplier=self.system_agent_inference_retry_timeout_multiplier,
+            guardrail_embedding_cache_size=self.guardrail_embedding_cache_size,
+            guardrail_chunk_chars=self.guardrail_chunk_chars,
+            guardrail_chunk_overlap_chars=self.guardrail_chunk_overlap_chars,
+            guardrail_max_chunks=self.guardrail_max_chunks,
+            guardrail_indirect_embedding_enabled=self.guardrail_indirect_embedding_enabled,
+            pii_ner_models=list(self.pii_ner_models),
+            audit_hmac_key_id=self.audit_hmac_key_id,
+            thread_cleanup_interval_seconds=self.thread_cleanup_interval_seconds,
+            audit_integrity_check_interval_seconds=self.audit_integrity_check_interval_seconds,
+            skill_exclusions_sync_interval_seconds=self.skill_exclusions_sync_interval_seconds,
+            pricing_cache_ttl_days=self.pricing_cache_ttl_days,
+            slack_file_download_timeout_seconds=self.slack_file_download_timeout_seconds,
+            web_search_timeout_seconds=self.web_search_timeout_seconds,
+            web_fetch_timeout_seconds=self.web_fetch_timeout_seconds,
+            db_busy_timeout_seconds=self.db_busy_timeout_seconds,
+            llm_max_retries=self.llm_max_retries,
+            llm_retry_backoff_base=self.llm_retry_backoff_base,
+            slack_rate_limit_per_second=self.slack_rate_limit_per_second,
+            slack_rate_limit_burst=self.slack_rate_limit_burst,
+            pricing_benchmark_url=self.pricing_benchmark_url,
+            web_fetch_user_agent=self.web_fetch_user_agent,
+            max_write_bytes=self.max_write_bytes,
+            web_security=copy.deepcopy(self.web_security),
+            security_burst_limits=copy.deepcopy(self.security_burst_limits),
+            dialectical_stress_test=copy.deepcopy(self.dialectical_stress_test),
+            retention_checkpoints_days=self.retention_checkpoints_days,
+            retention_traces_days=self.retention_traces_days,
+            retention_event_dedup_days=self.retention_event_dedup_days,
+            mcp_servers=copy.deepcopy(self.mcp_servers),
+        )
+
+    def get_snapshot(self) -> SystemSettingsModel:
+        """Returns an isolated deep-copied Pydantic snapshot of system settings."""
+        self.load()
+        return self._to_model().model_copy(deep=True)
+
     def load(self, force: bool = False) -> None:
         target_file = self.active_settings_file
         if not target_file.exists():
@@ -461,8 +552,7 @@ class SystemSettingsManager:
             model = self._store.load(force=True)
             data = self._store.get_raw_data()
 
-            from orchestration.integrity_checks import AppIntegrityValidator
-            AppIntegrityValidator.check_system_settings_integrity(data)
+            ConfigIntegrityValidator.check_system_settings_integrity(data)
 
             self._raw_data = copy.deepcopy(data)
             self._apply_model_to_fields(model)
@@ -482,13 +572,13 @@ class SystemSettingsManager:
             "internal_revisor_enabled": self.internal_revisor_enabled,
             "shared_evidence_max_chars": self.shared_evidence_max_chars,
             "max_file_size_mb": self.max_file_size_mb,
-            "rag": self.rag_config,
+            "rag": copy.deepcopy(self.rag_config),
             "_comment_workspace_write_blacklist_additional": (
                 "Automatic hardcoded protection blocks writes to .env, .git, data/settings/agent_settings.json, "
                 "data/settings/app_settings.json, and data/settings/system_settings.json. Add any additional relative workspace "
                 "paths or file patterns here to prevent unauthorized modifications."
             ),
-            "workspace_write_blacklist_additional": self.workspace_write_blacklist_additional,
+            "workspace_write_blacklist_additional": list(self.workspace_write_blacklist_additional),
             "strict_privacy_mode_enabled": self.strict_privacy_mode_enabled,
             "log_level": self.log_level,
             "debate_turn_pacing_seconds": self.debate_turn_pacing_seconds,
@@ -503,6 +593,12 @@ class SystemSettingsManager:
             "system_agent_inference_timeout_seconds": self.system_agent_inference_timeout_seconds,
             "system_agent_inference_retry_timeout_multiplier": self.system_agent_inference_retry_timeout_multiplier,
             "guardrail_embedding_cache_size": self.guardrail_embedding_cache_size,
+            "guardrail_chunk_chars": self.guardrail_chunk_chars,
+            "guardrail_chunk_overlap_chars": self.guardrail_chunk_overlap_chars,
+            "guardrail_max_chunks": self.guardrail_max_chunks,
+            "guardrail_indirect_embedding_enabled": self.guardrail_indirect_embedding_enabled,
+            "pii_ner_models": list(self.pii_ner_models),
+            "audit_hmac_key_id": self.audit_hmac_key_id,
             "thread_cleanup_interval_seconds": self.thread_cleanup_interval_seconds,
             "audit_integrity_check_interval_seconds": self.audit_integrity_check_interval_seconds,
             "skill_exclusions_sync_interval_seconds": self.skill_exclusions_sync_interval_seconds,
@@ -518,13 +614,13 @@ class SystemSettingsManager:
             "pricing_benchmark_url": self.pricing_benchmark_url,
             "web_fetch_user_agent": self.web_fetch_user_agent,
             "max_write_bytes": self.max_write_bytes,
-            "web_security": self.web_security,
-            "security_burst_limits": self.security_burst_limits,
-            "dialectical_stress_test": self.dialectical_stress_test,
+            "web_security": copy.deepcopy(self.web_security),
+            "security_burst_limits": copy.deepcopy(self.security_burst_limits),
+            "dialectical_stress_test": copy.deepcopy(self.dialectical_stress_test),
             "retention_checkpoints_days": self.retention_checkpoints_days,
             "retention_traces_days": self.retention_traces_days,
             "retention_event_dedup_days": self.retention_event_dedup_days,
-            "mcp_servers": self.mcp_servers,
+            "mcp_servers": copy.deepcopy(self.mcp_servers),
         })
 
         try:
@@ -585,6 +681,7 @@ class SystemSettingsManager:
     def _register_core_providers(self) -> None:
         try:
             from core.config import set_default_model_providers, set_max_discussion_turns_provider
+
             set_default_model_providers(
                 fast_provider=lambda: self.get_default_fast_model(),
                 reasoning_provider=lambda: self.get_default_reasoning_model(),
@@ -595,6 +692,7 @@ class SystemSettingsManager:
 
         try:
             from core.llm_utils import set_llm_retry_config_provider, set_privacy_mode_provider
+
             set_llm_retry_config_provider(lambda: (self.get_llm_max_retries(), self.get_llm_retry_backoff_base()))
             set_privacy_mode_provider(lambda: self.is_strict_privacy_mode_enabled())
         except Exception as e:  # noqa: BLE001
@@ -602,12 +700,14 @@ class SystemSettingsManager:
 
         try:
             from core.database import set_db_busy_timeout_provider
+
             set_db_busy_timeout_provider(lambda: self.get_db_busy_timeout_seconds())
         except Exception as e:  # noqa: BLE001
             logger.debug(f"[SYSTEM_SETTINGS] Failed to register core DB provider: {e}")
 
         try:
             from core.slack_security import set_burst_limits_provider
+
             set_burst_limits_provider(lambda: self.get_security_burst_limits())
         except Exception as e:  # noqa: BLE001
             logger.debug(f"[SYSTEM_SETTINGS] Failed to register core burst limits provider: {e}")
@@ -643,15 +743,14 @@ class SystemSettingsManager:
         except (ValueError, TypeError) as e:
             logger.error(f"[SYSTEM_SETTINGS] Invalid max_write_bytes '{val}': {e}")
 
-
     # --- RAG Settings ---
     def get_rag_config(self) -> dict[str, Any]:
         self.load()
-        return dict(self.rag_config)
+        return copy.deepcopy(self.rag_config)
 
     def get_rag_setting(self, key: str, default: Any = None) -> Any:
         self.load()
-        return self.rag_config.get(key, default)
+        return copy.deepcopy(self.rag_config.get(key, default))
 
     def set_rag_setting(self, key: str, value: Any, save: bool = True) -> None:
         self.load()
@@ -802,24 +901,18 @@ class SystemSettingsManager:
 
         target_name = target.name.lower()
 
-        # 1. Hardcoded default protections:
-        # - .env or any .env.* file (e.g. .env, .env.local)
         if target_name == ".env" or target_name.startswith(".env."):
             return True
 
-        # - .git directory or files inside .git
         parts_lower = [part.lower() for part in target.parts]
         if ".git" in parts_lower:
             return True
 
-        # - agent_settings.json, app_settings.json, and system_settings.json
         if target_name in ("agent_settings.json", "app_settings.json", "system_settings.json", "system_agent_settings.json"):
             return True
 
-        # - Python source files (.py)
         if target.suffix.lower() == ".py":
             return True
-
 
         for d_path in DEFAULT_PROTECTED_WRITE_PATHS:
             try:
@@ -829,7 +922,6 @@ class SystemSettingsManager:
             except (ValueError, OSError):
                 pass
 
-        # 2. Configurable workspace_write_blacklist_additional
         blacklist = (
             custom_blacklist
             if custom_blacklist is not None
@@ -864,6 +956,65 @@ class SystemSettingsManager:
         if clean_mode not in ("open", "closed"):
             raise ValueError(f"Invalid guardrail fail mode '{mode}'. Must be 'open' or 'closed'.")
         self.guardrail_fail_mode = clean_mode
+        if save:
+            self.save()
+
+    def get_guardrail_chunk_chars(self) -> int:
+        self.load()
+        return int(self.guardrail_chunk_chars)
+
+    def set_guardrail_chunk_chars(self, val: int, save: bool = True) -> None:
+        self.guardrail_chunk_chars = max(100, int(val))
+        if self.guardrail_chunk_overlap_chars >= self.guardrail_chunk_chars:
+            self.guardrail_chunk_overlap_chars = max(0, self.guardrail_chunk_chars - 1)
+        if save:
+            self.save()
+
+    def get_guardrail_chunk_overlap_chars(self) -> int:
+        self.load()
+        return int(self.guardrail_chunk_overlap_chars)
+
+    def set_guardrail_chunk_overlap_chars(self, val: int, save: bool = True) -> None:
+        overlap = max(0, int(val))
+        self.guardrail_chunk_overlap_chars = min(overlap, max(0, self.guardrail_chunk_chars - 1))
+        if save:
+            self.save()
+
+    def get_guardrail_max_chunks(self) -> int:
+        self.load()
+        return int(self.guardrail_max_chunks)
+
+    def set_guardrail_max_chunks(self, val: int, save: bool = True) -> None:
+        self.guardrail_max_chunks = max(1, int(val))
+        if save:
+            self.save()
+
+    def get_guardrail_indirect_embedding_enabled(self) -> bool:
+        self.load()
+        return bool(self.guardrail_indirect_embedding_enabled)
+
+    def set_guardrail_indirect_embedding_enabled(self, enabled: bool, save: bool = True) -> None:
+        self.guardrail_indirect_embedding_enabled = bool(enabled)
+        if save:
+            self.save()
+
+    def get_pii_ner_models(self) -> list[str]:
+        self.load()
+        return list(self.pii_ner_models)
+
+    def set_pii_ner_models(self, models: list[str], save: bool = True) -> None:
+        cleaned = [str(m).strip() for m in models if isinstance(m, str) and str(m).strip()]
+        self.pii_ner_models = cleaned or ["en_core_web_sm"]
+        if save:
+            self.save()
+
+    def get_audit_hmac_key_id(self) -> str:
+        self.load()
+        return str(self.audit_hmac_key_id or "default")
+
+    def set_audit_hmac_key_id(self, key_id: str, save: bool = True) -> None:
+        clean = str(key_id or "").strip() or "default"
+        self.audit_hmac_key_id = clean
         if save:
             self.save()
 
@@ -1011,11 +1162,15 @@ class SystemSettingsManager:
 
     def get_web_security(self) -> dict[str, Any]:
         self.load()
-        return dict(self.web_security)
+        return copy.deepcopy(self.web_security)
 
     def get_security_burst_limits(self) -> dict[str, Any]:
         self.load()
-        return dict(self.security_burst_limits)
+        return copy.deepcopy(self.security_burst_limits)
+
+    def get_dialectical_stress_test(self) -> dict[str, Any]:
+        self.load()
+        return copy.deepcopy(self.dialectical_stress_test)
 
     def get_convergence_consecutive_threshold(self) -> int:
         self.load()
@@ -1073,7 +1228,7 @@ class SystemSettingsManager:
                 cfg_dict["args"] = [_expand_env_vars_in_str(a, env=env) if isinstance(a, str) else str(a) for a in cfg_dict["args"]]
             try:
                 result[name] = McpServerConfig(**cfg_dict)
-            except Exception as e:
+            except (ValidationError, ValueError, TypeError) as e:
                 logger.warning(f"[SYSTEM_SETTINGS] Invalid MCP server config for '{name}': {e}")
         return result
 
@@ -1098,7 +1253,10 @@ class SystemSettingsManager:
 system_settings_manager = SystemSettingsManager()
 
 
-# Module-level convenience functions
+def get_system_settings_snapshot() -> SystemSettingsModel:
+    return system_settings_manager.get_snapshot()
+
+
 def get_max_file_size_mb() -> float:
     return system_settings_manager.get_max_file_size_mb()
 
@@ -1187,6 +1345,42 @@ def get_guardrail_fail_mode() -> str:
 
 def set_guardrail_fail_mode(mode: str, save: bool = True) -> None:
     system_settings_manager.set_guardrail_fail_mode(mode, save=save)
+
+
+def get_guardrail_chunk_chars() -> int:
+    return system_settings_manager.get_guardrail_chunk_chars()
+
+
+def get_guardrail_chunk_overlap_chars() -> int:
+    return system_settings_manager.get_guardrail_chunk_overlap_chars()
+
+
+def get_guardrail_max_chunks() -> int:
+    return system_settings_manager.get_guardrail_max_chunks()
+
+
+def get_guardrail_indirect_embedding_enabled() -> bool:
+    return system_settings_manager.get_guardrail_indirect_embedding_enabled()
+
+
+def set_guardrail_indirect_embedding_enabled(enabled: bool, save: bool = True) -> None:
+    system_settings_manager.set_guardrail_indirect_embedding_enabled(enabled, save=save)
+
+
+def get_pii_ner_models() -> list[str]:
+    return system_settings_manager.get_pii_ner_models()
+
+
+def set_pii_ner_models(models: list[str], save: bool = True) -> None:
+    system_settings_manager.set_pii_ner_models(models, save=save)
+
+
+def get_audit_hmac_key_id() -> str:
+    return system_settings_manager.get_audit_hmac_key_id()
+
+
+def set_audit_hmac_key_id(key_id: str, save: bool = True) -> None:
+    system_settings_manager.set_audit_hmac_key_id(key_id, save=save)
 
 
 def get_max_discussion_turns() -> int:
@@ -1348,9 +1542,3 @@ def get_mcp_server_config(server_name: str, env: Mapping[str, str] | None = None
 
 def set_mcp_servers(servers: dict[str, Any], save: bool = True) -> None:
     system_settings_manager.set_mcp_servers(servers, save=save)
-
-
-
-
-
-

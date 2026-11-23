@@ -5,14 +5,13 @@ import pytest
 from conftest import make_mock_acompletion
 
 from core.llm_utils import configure_llm_completion_fn
-from orchestration import agent_router
 from orchestration.agent_router import (
     configure_fetch_thread_history,
     configure_post_agent_response,
     configure_router_sleep_fn,
     process_and_respond,
 )
-from orchestration.agent_settings import (
+from config_store.agent_settings import (
     reset_enabled_agents,
     set_fixed_config,
     set_orchestration_mode,

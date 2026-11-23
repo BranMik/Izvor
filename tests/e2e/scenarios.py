@@ -21,8 +21,8 @@ from orchestration.agent_router import (
     configure_router_deps,
     reset_router_deps,
 )
-from orchestration.agent_settings import settings_manager
-from orchestration.app_settings import (
+from config_store.agent_settings import settings_manager
+from config_store.app_settings import (
     is_convergence_fast_forward_enabled,
     is_filter_unauthorized_skill_agents_enabled,
     set_circuit_breaker_enabled,
@@ -32,7 +32,7 @@ from orchestration.app_settings import (
 )
 from orchestration.protocols import PipelineDeps
 from orchestration.revisor_service import run_internal_revisor
-from orchestration.system_settings import system_settings_manager
+from config_store.system_settings import system_settings_manager
 from orchestration.thread_state import thread_state_manager
 from orchestration.turn_pipeline import TurnContext
 from prompts.builder import build_agent_prompt
@@ -41,7 +41,7 @@ from services.local_tools import get_agents_resources_dir
 from services.mcp.client_manager import get_mcp_client_manager
 from services.slack import post_agent_response
 from services.web_tools import configure_web_search_fn, reset_web_search_fn
-from skills.loader import SkillDefinition
+from skills.registry import SkillDefinition
 from tests.e2e.protocol_client import (
     TEST_ADMIN_USER_ID,
     TEST_USER_ID,

@@ -10,13 +10,13 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from core.domain import ToolPrincipal
-from orchestration.system_settings import set_mcp_servers
+from config_store.system_settings import set_mcp_servers
 from services.mcp.client_manager import (
     McpClientManager,
     get_mcp_client_manager,
 )
 from services.mcp.security_bridge import execute_external_mcp_tool
-from skills.loader import SkillDefinition, SkillRegistry
+from skills.registry import SkillDefinition, SkillRegistry
 
 
 class DummyContent:

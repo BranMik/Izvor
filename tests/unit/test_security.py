@@ -207,7 +207,7 @@ def test_scan_output_for_secrets_skips_invalid_custom_regex_and_caches_by_mtime(
 def test_verify_slack_signature_eviction_storm_bounded_by_global_burst_limit():
     """TKT-1207 (H15): Spoofed-IP cache churn evictions must remain bounded by global_auth_failure_burst_limit."""
     import core.slack_security as ss
-    from orchestration.system_settings import system_settings_manager
+    from config_store.system_settings import system_settings_manager
     from services.audit_logger import log_audit_event
 
     max_entries = 10
@@ -254,5 +254,52 @@ def test_verify_slack_signature_eviction_storm_bounded_by_global_burst_limit():
             ss._global_burst_count = 0
         ss.set_audit_logger_hook(log_audit_event)
         ss.set_burst_limits_provider(lambda: system_settings_manager.get_security_burst_limits())
+
+
+def test_pii_masker_hardened_secrets_amex_phone_boundaries_and_missing_ner_warning(caplog):
+    """TKT-1232: Masks Stripe/GitHub/quoted JSON/Amex, avoids phone false-positives on numeric IDs, and warns on missing NER models."""
+    import json
+    import logging
+    from config_store.system_settings import get_pii_ner_models, set_pii_ner_models
+    from services.security.pii_masker import PIIMasker
+
+    masker = PIIMasker()
+
+    # 1. Stripe, GitHub, and Amex + quoted JSON secrets (preserving JSON validity)
+    stripe_dummy = "_".join(["sk", "live", "AbCdEf0123456789GhIjKlMn"])
+    github_dummy = "_".join(["github", "pat", "1234567890AbCdEfGhIjKlMnOpQrSt"])
+    raw = json.dumps(
+        {
+            "api_key": "super_secret_json_val_99",
+            "stripe": stripe_dummy,
+            "github": github_dummy,
+            "amex": "3782-822463-10005",
+            "phone": "+1-555-234-5678",
+            "thread_ts": "1710000100.1234",
+            "record_id": "98765432109876",
+        }
+    )
+    masked, mapping = masker.mask(raw)
+    assert "super_secret_json_val_99" not in masked
+    assert stripe_dummy not in masked
+    assert github_dummy not in masked
+    assert "3782-822463-10005" not in masked
+    assert "+1-555-234-5678" not in masked
+    # Non-phone bare numeric IDs and Slack timestamps must stay intact
+    assert "1710000100.1234" in masked
+    assert "98765432109876" in masked
+    assert masker.unmask(masked, mapping) == raw
+
+    # 2. Uninstalled configured NER model emits WARNING and falls back cleanly
+    orig_models = get_pii_ner_models()
+    set_pii_ner_models(["xx_nonexistent_spacy_model_xyz"], save=False)
+    try:
+        masker2 = PIIMasker()
+        with caplog.at_level(logging.WARNING, logger="services.security.pii_masker"):
+            masked2, _ = masker2.mask("Contact alice@example.com")
+        assert "<EMAIL_0>" in masked2
+        assert any("not installed" in r.message for r in caplog.records)
+    finally:
+        set_pii_ner_models(orig_models, save=False)
 
 

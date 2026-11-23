@@ -10,7 +10,7 @@ import os
 import tempfile
 from pathlib import Path
 
-from orchestration.system_settings import (
+from config_store.system_settings import (
     SystemSettingsManager,
     get_default_fast_model,
     get_default_reasoning_model,
@@ -18,14 +18,12 @@ from orchestration.system_settings import (
     get_max_file_size_mb,
     get_rag_config,
     get_rag_setting,
-    get_shared_evidence_max_chars,
     get_workspace_write_blacklist_additional,
     is_path_write_blocked,
     set_default_fast_model,
     set_default_reasoning_model,
     set_max_file_size_mb,
     set_rag_setting,
-    set_shared_evidence_max_chars,
     set_workspace_write_blacklist_additional,
 )
 
@@ -151,7 +149,7 @@ def test_system_settings_backup_resilience():
 def test_system_settings_module_convenience(tmp_path):
     settings_file = tmp_path / "system_settings.json"
     backup_file = tmp_path / "system_settings_backup.json"
-    from orchestration.system_settings import system_settings_manager
+    from config_store.system_settings import system_settings_manager
 
     system_settings_manager.configure_paths(settings_file=settings_file, backup_file=backup_file)
 
@@ -291,7 +289,7 @@ def test_shared_evidence_max_chars_persistence_and_env(tmp_path):
 
 
 def test_output_constraints_defaults_clamping_and_persistence(tmp_path):
-    from orchestration.system_settings import (
+    from config_store.system_settings import (
         get_output_constraints,
         get_output_max_words,
         set_output_constraints,
@@ -331,8 +329,8 @@ def test_system_settings_init_registers_providers_and_persists_skill_sync(tmp_pa
     """TKT-1220: __init__ registers core providers, persists skill_exclusions_sync_interval_seconds, and AgentSettingsManager.reset_paths restores SYSTEM_AGENT_SETTINGS_FILE."""
     from core import database, llm_utils, slack_security
     from core.paths import SYSTEM_AGENT_SETTINGS_FILE
-    from orchestration.agent_settings import AgentSettingsManager
-    from orchestration.system_settings import system_settings_manager
+    from config_store.agent_settings import AgentSettingsManager
+    from config_store.system_settings import system_settings_manager
 
     sys_file = tmp_path / "sys_settings.json"
     sys_backup = tmp_path / "sys_backup.json"
@@ -358,6 +356,46 @@ def test_system_settings_init_registers_providers_and_persists_skill_sync(tmp_pa
     agent_mgr.configure_paths(system_agent_settings_file=tmp_path / "custom_sys_agents.json")
     agent_mgr.reset_paths()
     assert agent_mgr.default_system_agent_settings_file == SYSTEM_AGENT_SETTINGS_FILE
+
+
+def test_system_settings_snapshot_and_p2_fields_persistence_and_clamping(tmp_path):
+    """TKT-1225 / TKT-1226 / TKT-1231 / TKT-1232: snapshot immutability and P2 settings schema."""
+    sys_file = tmp_path / "system_settings_p2.json"
+    sys_backup = tmp_path / "system_backup_p2.json"
+    mgr = SystemSettingsManager(settings_file=sys_file, backup_file=sys_backup, auto_load=True)
+
+    # Defaults
+    assert mgr.get_guardrail_chunk_chars() == 800
+    assert mgr.get_guardrail_chunk_overlap_chars() == 200
+    assert mgr.get_guardrail_max_chunks() == 8
+    assert mgr.get_guardrail_indirect_embedding_enabled() is False
+    assert mgr.get_pii_ner_models() == ["en_core_web_sm"]
+    assert mgr.get_audit_hmac_key_id() == "default"
+
+    # Mutate + persist
+    mgr.set_guardrail_chunk_chars(1000, save=False)
+    mgr.set_guardrail_chunk_overlap_chars(150, save=False)
+    mgr.set_guardrail_max_chunks(12, save=False)
+    mgr.set_guardrail_indirect_embedding_enabled(True, save=False)
+    mgr.set_pii_ner_models(["en_core_web_sm", "fr_core_news_sm"], save=False)
+    mgr.set_audit_hmac_key_id("key-2026-q4", save=True)
+
+    # Reload
+    mgr2 = SystemSettingsManager(settings_file=sys_file, backup_file=sys_backup, auto_load=True)
+    assert mgr2.get_guardrail_chunk_chars() == 1000
+    assert mgr2.get_guardrail_chunk_overlap_chars() == 150
+    assert mgr2.get_guardrail_max_chunks() == 12
+    assert mgr2.get_guardrail_indirect_embedding_enabled() is True
+    assert mgr2.get_pii_ner_models() == ["en_core_web_sm", "fr_core_news_sm"]
+    assert mgr2.get_audit_hmac_key_id() == "key-2026-q4"
+
+    # Snapshot isolation (deep copy)
+    snap = mgr2.get_snapshot()
+    snap.pii_ner_models.append("tampered_model")
+    snap.audit_hmac_key_id = "tampered-key"
+    fresh_snap = mgr2.get_snapshot()
+    assert fresh_snap.pii_ner_models == ["en_core_web_sm", "fr_core_news_sm"]
+    assert fresh_snap.audit_hmac_key_id == "key-2026-q4"
 
 
 

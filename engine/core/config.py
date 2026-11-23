@@ -9,7 +9,6 @@ functions that read from agent_settings.json SSOT without circular dependencies.
 from collections.abc import Callable, Mapping
 import logging
 import os
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -309,8 +308,8 @@ def get_default_fast_model() -> str:
     if _fast_model_provider is not None:
         try:
             return _fast_model_provider()
-        except Exception:
-            pass
+        except (AttributeError, ImportError, KeyError, OSError, RuntimeError, TypeError, ValueError) as exc:
+            logger.debug(f"[CONFIG] Fast model provider fallback: {exc}")
     fast, _ = _load_default_models_from_ssot()
     return fast
 
@@ -320,8 +319,8 @@ def get_default_reasoning_model() -> str:
     if _reasoning_model_provider is not None:
         try:
             return _reasoning_model_provider()
-        except Exception:
-            pass
+        except (AttributeError, ImportError, KeyError, OSError, RuntimeError, TypeError, ValueError) as exc:
+            logger.debug(f"[CONFIG] Reasoning model provider fallback: {exc}")
     _, reasoning = _load_default_models_from_ssot()
     return reasoning
 
@@ -421,8 +420,8 @@ def get_max_discussion_turns() -> int:
     if _max_discussion_turns_provider is not None:
         try:
             return _max_discussion_turns_provider()
-        except Exception:
-            pass
+        except (AttributeError, ImportError, KeyError, OSError, RuntimeError, TypeError, ValueError) as exc:
+            logger.debug(f"[CONFIG] Max discussion turns provider fallback: {exc}")
     try:
         import json
 
@@ -431,8 +430,8 @@ def get_max_discussion_turns() -> int:
             with open(settings_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
             return int(data.get("max_discussion_turns", 20))
-    except Exception:  # noqa: BLE001
-        pass
+    except (OSError, ValueError, TypeError) as exc:
+        logger.debug(f"[CONFIG] Failed reading max_discussion_turns from SSOT: {exc}")
     return 20
 
 

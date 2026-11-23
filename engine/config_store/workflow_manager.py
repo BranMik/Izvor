@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import json
 import logging
 import os
@@ -11,7 +13,7 @@ from core.models import (
     WorkflowPreset,
     build_dynamic_default_workflows,
 )
-from core.paths import ENGINE_WORKFLOWS_DIR, WORKFLOWS_BACKUP_DIR, WORKFLOWS_DIR
+from core.paths import ENGINE_WORKFLOWS_DIR, WORKFLOWS_DIR
 
 logger = logging.getLogger(__name__)
 

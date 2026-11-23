@@ -208,7 +208,7 @@ async def test_sandwich_exclusion_and_bot_turn_not_stopped():
         configure_post_agent_response,
         process_and_respond,
     )
-    from orchestration.agent_settings import (
+    from config_store.agent_settings import (
         set_agent_enabled,
         set_orchestration_mode,
         set_sandwich_config,
@@ -435,8 +435,8 @@ async def test_extract_intent_default_timeout_and_multiplier_come_from_settings(
     import logging
 
     with (
-        patch("orchestration.system_settings.get_system_agent_inference_timeout_seconds", return_value=3.0),
-        patch("orchestration.system_settings.get_system_agent_inference_retry_timeout_multiplier", return_value=2.0),
+        patch("config_store.system_settings.get_system_agent_inference_timeout_seconds", return_value=3.0),
+        patch("config_store.system_settings.get_system_agent_inference_retry_timeout_multiplier", return_value=2.0),
         patch("nlp.intent_extractor.execute_llm_with_retry", AsyncMock(side_effect=asyncio.TimeoutError())),
     ):
         with caplog.at_level(logging.WARNING, logger="nlp.intent_extractor"):
@@ -449,7 +449,7 @@ async def test_extract_intent_default_timeout_and_multiplier_come_from_settings(
 
 def test_system_agent_inference_timeout_settings_env_override():
     """IZVOR_* env vars override the inference timeout settings (DI rule: no monkeypatching managers)."""
-    from orchestration.system_settings import (
+    from config_store.system_settings import (
         get_system_agent_inference_retry_timeout_multiplier,
         get_system_agent_inference_timeout_seconds,
     )

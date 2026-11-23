@@ -47,7 +47,7 @@ Each turn transitions through five distinct stages in [`orchestration/stages/`](
 ### Stage 2: Resolution & Governance (`resolution.py`)
 - **File**: [`orchestration/stages/resolution.py`](file:///engine/orchestration/stages/resolution.py)
 - **Responsibilities**:
-  1. **Agent Configuration Lookup**: Resolves `ctx.agent_key` against active persona configurations via [`AgentSettingsManager`](file:///engine/orchestration/agent_settings.py).
+  1. **Agent Configuration Lookup**: Resolves `ctx.agent_key` against active persona configurations via [`AgentSettingsManager`](file:///engine/config_store/agent_settings.py).
   2. **Nomination Fallback Loop**: If the nominated agent key is unconfigured or invalid, iterates through the candidate queue in [`ThreadStateManager`](file:///engine/orchestration/thread_state.py) to select an eligible replacement, preventing runtime `KeyError` crashes.
   3. **Spend Governance & Circuit Breakers**:
      - Enforces the global `daily_budget_usd` ceiling **unconditionally** across all turns.
@@ -62,12 +62,12 @@ Each turn transitions through five distinct stages in [`orchestration/stages/`](
      - **Tier 1 (Sliding Turn Window)**: Slices chronological Slack thread history to `history_limit` (`/history N`).
      - **Tier 2 (Episodic Thread Summary)**: When earlier turns are truncated by the sliding window, injects the latest Scribe note into `<episodic_thread_summary>` so long-horizon context is never lost.
      - **Tier 3 (Shared Round Evidence)**: Injects cached read-only tool outputs from [`RoundEvidenceStore`](file:///engine/orchestration/state/evidence_store.py) into `<shared_round_evidence>` so consecutive personas do not repeat identical web searches or RAG queries.
-  2. **Dynamic Skill & Control Plane Injection**: Reads active thread skills from [`ThreadSkillsManager`](file:///engine/orchestration/thread_skills_manager.py) alongside the global `control_plane` skill (`nominate_next_speaker`, `request_user_clarification`, `signal_consensus_convergence`) and registers corresponding LiteLLM tool definitions.
+  2. **Dynamic Skill & Control Plane Injection**: Reads active thread skills from [`ThreadSkillsManager`](file:///engine/services/thread_skills_store.py) alongside the global `control_plane` skill (`nominate_next_speaker`, `request_user_clarification`, `signal_consensus_convergence`) and registers corresponding LiteLLM tool definitions.
   3. **Prompt Composition**: Employs [`prompts/builder.py`](file:///engine/prompts/builder.py) to assemble the persona system prompt, injecting debate rules, word count bounds (`min_words`, `max_words`), thread language context, and attached file context.
   4. **Non-Blocking PII Masking with Precomputed Allowlisting**: Pre-scans user input and context via `pii_masker.async_mask()` (offloading regex and Presidio NLP evaluation to a worker thread). Evaluates recognized entities against precomputed in-memory `_global_allowlist` and `_sentence_start_allowlist` frozensets (persisted in [`data/state/presidio_skill_exclusions.json`](file:///data/state/presidio_skill_exclusions.json)), exempting skill directives and system terms at sentence/clause start while redacting true personal identifiers into synthetic tokens prior to LLM submission.
 
 ### Stage 4: Execution, Tool Loop & Durable Checkpointing (`execution.py`)
-- **File**: [`orchestration/stages/execution.py`](file:///engine/orchestration/stages/execution.py)
+- **Files**: [`orchestration/stages/execution.py`](file:///engine/orchestration/stages/execution.py), [`control_plane_handler.py`](file:///engine/orchestration/stages/control_plane_handler.py), [`tool_loop_runner.py`](file:///engine/orchestration/stages/tool_loop_runner.py), [`turn_finalizer.py`](file:///engine/orchestration/stages/turn_finalizer.py)
 - **Responsibilities**:
   1. **LiteLLM Invocation with Resilient Retry**: Submits the prepared message sequence to the configured model endpoint via [`core/llm_utils.py`](file:///engine/core/llm_utils.py), with jittered exponential backoff (`llm_max_retries: 3`).
   2. **In-Place Status Updates (5-Second Rule)**:
@@ -75,7 +75,7 @@ Each turn transitions through five distinct stages in [`orchestration/stages/`](
      - If tool execution finishes within 5 seconds, no intermediate progress indicator is posted. If longer, an intermediate status message is posted and updated in-place via `chat.update`.
   3. **Strict Tool Loop Security Ordering**:
      For every tool call requested by the LLM (up to `max_tool_iterations: 3` and `tool_call_loop_timeout_seconds: 60.0`), `ExecutionStage` enforces:
-     - **Step 1 — Fail-Closed `ToolPrincipal` Authorization**: Constructs a [`ToolPrincipal`](file:///engine/core/domain.py) (`agent_key`, `user_id`, `thread_ts`, `allowed_skills`) and verifies the tool belongs to an authorized skill via [`SkillLoader`](file:///engine/skills/loader.py). Unauthorized calls fail closed immediately.
+     - **Step 1 — Fail-Closed `ToolPrincipal` Authorization**: Constructs a [`ToolPrincipal`](file:///engine/core/domain.py) (`agent_key`, `user_id`, `thread_ts`, `allowed_skills`) and verifies the tool belongs to an authorized skill via [`SkillRegistry`](file:///engine/skills/registry.py). Unauthorized calls fail closed immediately.
      - **Step 2 — Atomic HITL Approval Gate**: Checks if the skill requires Human-in-the-Loop approval (`requires_human_ITL: true`). If unapproved, saves a durable mid-turn snapshot in [`TurnCheckpointStore`](file:///engine/services/turn_checkpoint_store.py) (synthesizing `TOOL EXECUTION DEFERRED` responses for any sibling tool calls in a multi-tool batch) and pauses the turn until an admin clicks Approve or Deny (`TurnPipeline.resume_from_checkpoint()`).
      - **Step 3 — `RoundEvidenceStore` Cache Lookup**: Checks if an identical read-only tool call was already executed in the current round; if so, returns the cached output without re-invoking external APIs.
      - **Step 4 — Tool Execution & Single-Pass PII Unmasking**: Reverses synthetic tokens (`pii_masker.unmask()`) in a single regex pass and executes the tool inside a per-turn web request budget (`max_fetches_per_turn: 5`).

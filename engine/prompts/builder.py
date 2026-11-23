@@ -4,6 +4,14 @@ from functools import cache
 from pathlib import Path
 from typing import Any
 
+from config_store.agent_settings import (
+    get_agents_config,
+    set_prompt_builder_hook,
+    settings_manager,
+)
+from config_store.app_settings import get_workspace_context
+from config_store.system_settings import get_output_max_words
+from core.models import is_dialectical_system_agent
 from core.paths import (
     PERSONAS_DIR,
     PROMPTS_DIR,
@@ -53,8 +61,6 @@ def load_system_prompt(name: str, fallback: str = "") -> str:
 def get_short_output_agents() -> set[str]:
     """Dynamically returns agent keys configured with is_short_output: true from settings_manager."""
     try:
-        from orchestration.agent_settings import settings_manager
-
         cfg = settings_manager.get_agents_config()
         if cfg:
             return {k for k, v in cfg.items() if isinstance(v, dict) and v.get("is_short_output") is True}
@@ -63,19 +69,9 @@ def get_short_output_agents() -> set[str]:
     return set()
 
 
-DIALECTICAL_SYSTEM_AGENTS = {"Challenger", "Arbitrator"}
-
-
-def is_dialectical_system_agent(agent_key: str) -> bool:
-    """Checks whether an agent is a turn-taking dialectical system agent."""
-    return agent_key in DIALECTICAL_SYSTEM_AGENTS
-
-
 def is_short_output_agent(agent_key: str) -> bool:
     """Checks whether an agent is configured with is_short_output: true dynamically from SSOT."""
     try:
-        from orchestration.agent_settings import settings_manager
-
         agent_cfg = settings_manager.get_agent(agent_key)
         if agent_cfg and agent_cfg.get("is_short_output") is True:
             return True
@@ -91,8 +87,6 @@ def get_system_agents() -> set[str]:
     """Dynamically queries system agents from settings_manager / core.config."""
     system_keys: set[str] = {"orchestrator", "Orchestrator"}
     try:
-        from orchestration.agent_settings import settings_manager
-
         for k, v in settings_manager.system_agents_config.items():
             system_keys.add(k)
             if isinstance(v, dict) and v.get("agent_key"):
@@ -110,8 +104,6 @@ def is_system_agent(agent_key: str) -> bool:
     if agent_key in ("orchestrator", "Orchestrator"):
         return True
     try:
-        from orchestration.agent_settings import settings_manager
-
         if settings_manager.is_system_agent(agent_key):
             return True
         agent_cfg = settings_manager.get_agent(agent_key)
@@ -172,8 +164,6 @@ def _resolve_configured_max_words(
     if override is not None:
         return max(min_b, min(max_b, int(override)))
     try:
-        from orchestration.system_settings import get_output_max_words
-
         return max(min_b, min(max_b, int(get_output_max_words(is_short=use_short))))
     except Exception as e:  # noqa: BLE001
         logger.debug(f"[PROMPT BUILDER] Falling back to default output_constraints limit: {e}")
@@ -197,8 +187,7 @@ def _build_output_constraints(
     rules (Rules 2-4) while replacing Rule 1 with the active bounds.
     """
     use_short = is_short_output if is_short_output is not None else is_short_output_agent(agent_key)
-    base_filename = "output_constraints_short.md" if use_short else "output_constraints.md"
-    base_constraints = _read_prompt_file(SHARED_DIR / base_filename)
+    base_constraints = _read_prompt_file(SHARED_DIR / "output_constraints.md")
 
     if max_words is not None:
         effective_max: int | None = max_words
@@ -256,7 +245,7 @@ def build_agent_prompt(
     and equipped skills guidelines where appropriate.
 
     If max_words or min_words is specified:
-    - Uses output_constraints.md / output_constraints_short.md Rules 2-4 with updated Rule 1 bounds
+    - Uses output_constraints.md Rules 2-4 with updated Rule 1 bounds
       (or switches to compact mode and strips persona <output_contract> when max_words < COMPACT_WORD_THRESHOLD).
     """
     persona_file_sys = SYSTEM_AGENTS_DIR / f"{agent_key}.md"
@@ -340,8 +329,6 @@ def build_agent_prompt(
 
     # Append workspace baseline context if configured
     try:
-        from orchestration.app_settings import get_workspace_context
-
         ws_ctx = get_workspace_context()
         if ws_ctx:
             prompt += f"\n### WORKSPACE BASELINE CONTEXT\n{ws_ctx}\n\n"
@@ -357,7 +344,7 @@ def build_agent_prompt(
         except RuntimeError:
             import importlib
 
-            importlib.import_module("skills.loader")
+            importlib.import_module("skills.registry")
             skill_registry = get_skill_registry()
 
         # Inject comprehensive skills directory so any agent asked can accurately list all skills and authorized agents
@@ -368,8 +355,6 @@ def build_agent_prompt(
         effective_skills = skills
         if effective_skills is None:
             try:
-                from orchestration.agent_settings import get_agents_config
-
                 effective_skills = get_agents_config().get(agent_key, {}).get("skills", [])
             except (ImportError, AttributeError, KeyError, TypeError):
                 from core.config import AGENTS_CONFIG
@@ -384,3 +369,6 @@ def build_agent_prompt(
         logger.warning(f"[PROMPT BUILDER] Failed to load skills catalog/guidelines for {agent_key}: {e}")
 
     return prompt
+
+
+set_prompt_builder_hook(build_agent_prompt)

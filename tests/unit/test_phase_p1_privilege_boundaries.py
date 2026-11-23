@@ -23,10 +23,10 @@ import pytest
 from core.models import ActionDirective, REQUIRED_DEFAULT_WORKFLOW_IDS, build_dynamic_default_workflows
 from core.security_utils import wrap_untrusted_content
 from orchestration.turn_pipeline import TurnContext, TurnPipeline
-from orchestration.thread_skills_manager import thread_skills_manager
+from services.thread_skills_store import thread_skills_manager
 from orchestration.integrity_checks import AppIntegrityValidator
 from services.security.guardrail import GuardrailService
-from orchestration.system_settings import set_guardrail_fail_mode
+from config_store.system_settings import set_guardrail_fail_mode
 
 
 # ---------------------------------------------------------------------------
@@ -219,7 +219,7 @@ async def test_validation_stage_blocks_inferred_when_auto_detect_omitted():
 
 def test_skill_registry_auto_detect_defaults_to_false(tmp_path):
     """SkillRegistry.get_auto_detect_skills excludes skills where auto_detect is omitted."""
-    from skills.loader import SkillRegistry, SkillDefinition
+    from skills.registry import SkillRegistry, SkillDefinition
 
     registry = SkillRegistry(root_dir=tmp_path)
     skill_with_default = SkillDefinition(
@@ -464,7 +464,7 @@ def test_default_workflows_ssot_integrity():
 
 def test_integrity_checks_uses_ssot_defaults(tmp_path):
     """AppIntegrityValidator.check_default_workflows_integrity resolves default presets without copying them to user workflows."""
-    from orchestration.workflow_manager import WorkflowManager
+    from config_store.workflow_manager import WorkflowManager
 
     wf_dir = tmp_path / "workflows"
     wf_dir.mkdir(parents=True, exist_ok=True)
@@ -547,7 +547,7 @@ async def test_resolution_passes_daily_budget_to_spend_governance():
         agent_key="agent-10001",
     )
 
-    from orchestration.app_settings import (
+    from config_store.app_settings import (
         set_circuit_breaker_enabled,
         set_daily_budget_usd,
     )
@@ -678,10 +678,10 @@ async def test_resume_sequence_action_succeeds_for_admin():
         with (
             patch("adapters.slack.interactivity.verify_slack_signature", return_value=True),
             patch("adapters.slack.interactivity.is_slack_admin", return_value=True),
-            patch("orchestration.app_settings.is_circuit_breaker_enabled", return_value=False),
-            patch("orchestration.app_settings.get_circuit_breaker_threshold", return_value=0.0),
-            patch("orchestration.app_settings.get_daily_budget_usd", return_value=50.0),
-            patch("adapters.slack.actions.workflow_actions.log_audit_event", side_effect=mock_log),
+            patch("config_store.app_settings.is_circuit_breaker_enabled", return_value=False),
+            patch("config_store.app_settings.get_circuit_breaker_threshold", return_value=0.0),
+            patch("config_store.app_settings.get_daily_budget_usd", return_value=50.0),
+            patch("adapters.slack.actions.governance_actions.log_audit_event_async", AsyncMock(side_effect=mock_log)),
             patch("services.audit_logger.log_audit_event", side_effect=mock_log),
         ):
             payload = {
@@ -721,8 +721,8 @@ async def test_layer2_caller_delegated_agent_skill_rbac():
     - Preserved for admin callers.
     - Unlocked for non-admin callers if explicitly granted in thread.
     """
-    from skills.loader import SkillDefinition, skill_registry
-    from orchestration.thread_skills_manager import thread_skills_manager
+    from skills.registry import SkillDefinition, skill_registry
+    from services.thread_skills_store import thread_skills_manager
 
     mock_admin_agent_skill = SkillDefinition(
         name="admin_crawler",
@@ -813,7 +813,7 @@ async def test_layer2_caller_delegated_agent_skill_rbac():
 def test_global_requires_admin_skill_blocked_for_non_admin_caller(tmp_path):
     """TKT-1206 (H4): global: true + requires_admin: true skills must NOT bypass admin ACLs."""
     from core.domain import ToolPrincipal
-    from skills.loader import SkillRegistry
+    from skills.registry import SkillRegistry
 
     skill_dir = tmp_path / "global_admin_ops"
     skill_dir.mkdir()

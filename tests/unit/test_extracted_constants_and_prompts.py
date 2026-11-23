@@ -1,6 +1,6 @@
 
 from core import paths
-from orchestration.system_settings import (
+from config_store.system_settings import (
     SystemSettingsModel,
     system_settings_manager,
     get_max_tool_iterations,
@@ -125,7 +125,7 @@ def test_apply_mechanical_word_limit_with_grace_buffer():
 def test_sync_output_constraints_refreshes_cached_agent_prompts():
     import json
     import os
-    from orchestration.agent_settings import settings_manager
+    from config_store.agent_settings import settings_manager
 
     # Ensure initial sync matches active configured output_constraints
     constraints = get_output_constraints()

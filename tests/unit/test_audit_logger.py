@@ -5,12 +5,12 @@ Comprehensive test suite for the non-repudiable audit logging system in Izvor.
 import datetime
 import json
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from orchestration.integrity_checks import AppIntegrityValidator
-from orchestration.system_settings import is_path_write_blocked
+from config_store.system_settings import is_path_write_blocked
 from services.audit_logger import (
     GENESIS_HASH,
     AuditLogger,
@@ -246,8 +246,7 @@ def test_sandbox_audit_write_protection():
 def test_send_admin_audit_alert_mock():
     """Verifies send_admin_audit_alert handles mock and dispatch cleanly."""
     import asyncio
-    from core.config import set_admin_slack_user_ids_override
-    from services.slack.client_core import configure_token, reset_token
+    from core.config import configure_token, reset_token, set_admin_slack_user_ids_override
 
     set_admin_slack_user_ids_override("U_ADMIN_TEST")
     configure_token("xoxb-your-bot-user-oauth-token")
@@ -735,6 +734,53 @@ def test_verify_audit_log_integrity_anchor_db_error_fails_closed(tmp_path):
         assert any("Audit anchor verification failed" in err for err in res.errors)
     finally:
         db_manager.reset_paths()
+
+
+def test_audit_logger_keyring_rotation_verifies_historical_entries(temp_audit_dir):
+    """TKT-1232: Keyring rotation embeds key_id and verifies key_v1 records after active key rotates to key_v2."""
+    from services.audit_logger import (
+        reset_audit_hmac_keyring_override,
+        set_audit_hmac_keyring_override,
+    )
+
+    test_dir, logger_inst = temp_audit_dir
+    keyring_v1 = {"key_v1": b"secret-key-one-2026"}
+    set_audit_hmac_keyring_override(keyring_v1, active_key_id="key_v1")
+
+    try:
+        rec1 = logger_inst.log_event(
+            event_type="ADMIN_CONFIG_CHANGE",
+            actor={"type": "slack_admin", "id": "U_ADMIN"},
+            action="rotate_step_1",
+            target="sys",
+        )
+        assert rec1["key_id"] == "key_v1"
+
+        # Rotate active key to key_v2 while retaining key_v1 in keyring for historical verification
+        keyring_v2 = {"key_v1": b"secret-key-one-2026", "key_v2": b"secret-key-two-2026"}
+        set_audit_hmac_keyring_override(keyring_v2, active_key_id="key_v2")
+
+        rec2 = logger_inst.log_event(
+            event_type="ADMIN_CONFIG_CHANGE",
+            actor={"type": "slack_admin", "id": "U_ADMIN"},
+            action="rotate_step_2",
+            target="sys",
+        )
+        assert rec2["key_id"] == "key_v2"
+        assert rec2["prev_hash"] == rec1["entry_hash"]
+
+        verified = verify_audit_log_integrity(audit_dir=test_dir, check_anchors=False)
+        assert verified.valid is True
+        assert verified.total_records == 2
+        assert verified.errors == []
+
+        # Removing key_v1 from keyring must fail verification on rec1 (tamper / missing key protection)
+        set_audit_hmac_keyring_override({"key_v2": b"secret-key-two-2026"}, active_key_id="key_v2")
+        missing_key_res = verify_audit_log_integrity(audit_dir=test_dir, check_anchors=False)
+        assert missing_key_res.valid is False
+        assert any("Content tampered" in err for err in missing_key_res.errors)
+    finally:
+        reset_audit_hmac_keyring_override()
 
 
 

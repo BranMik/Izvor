@@ -14,13 +14,12 @@ from core.models import (
     WorkflowPreset,
     build_dynamic_default_workflows,
 )
-from orchestration.agent_settings import (
+from config_store.agent_settings import (
     get_orchestration_mode,
     get_sandwich_config,
     set_orchestration_mode,
     set_sandwich_config,
 )
-from pipeline.orchestrator.sandwich import SandwichOrchestrator
 from services.slack_home import build_app_home_view
 
 

@@ -27,7 +27,7 @@ class EntityResolver:
         if self._agents_config is not None:
             return self._agents_config
         try:
-            from orchestration.agent_settings import settings_manager
+            from config_store.agent_settings import settings_manager
             agents = dict(settings_manager.agents_config or {})
             for k in ("Challenger", "Arbitrator"):
                 if k in settings_manager.system_agents_config:
@@ -234,7 +234,7 @@ class EntityResolver:
         Completely removes nominations (lead-in phrases and agent names) when an agent
         is blocked from nominating.
         """
-        from orchestration.nomination import strip_all_nominations
+        from pipeline.entity_resolver.nomination_cleaner import strip_all_nominations
 
         return strip_all_nominations(text)
 

@@ -145,6 +145,8 @@ async def fetch_thread_files(channel_id: str, thread_ts: str, max_messages: int 
                         "url_private": f.get("url_private", ""),
                         "user": f.get("user") or msg.get("user"),
                         "ts": msg.get("ts"),
+                        "channel_id": channel_id,
+                        "thread_ts": thread_ts,
                     }
                 )
         logger.info(f"[SLACK FILES] Found {len(thread_files)} files in thread {thread_ts}")
@@ -262,7 +264,30 @@ def _validate_slack_redirect_url(next_url: str) -> tuple[bool, str | None, str |
     return True, None, primary_ip
 
 
-async def download_slack_file(file_info: dict[str, Any], max_chars: int = 50000) -> dict[str, Any]:
+def get_thread_downloads_subdir(
+    channel_id: str,
+    thread_ts: str,
+    downloads_dir: Path | None = None,
+) -> Path:
+    """Returns validated thread-scoped downloads subdirectory under base downloads directory."""
+    base = (downloads_dir or get_downloads_dir()).resolve()
+    safe_cid = re.sub(r"[^A-Za-z0-9_-]", "_", str(channel_id or "").strip()).strip("_") or "unknown"
+    safe_tts = re.sub(r"[^A-Za-z0-9_.-]", "_", str(thread_ts or "").strip()).strip("._") or "unknown"
+    subdir = (base / f"{safe_cid}_{safe_tts}").resolve()
+    if not subdir.is_relative_to(base):
+        raise PermissionError(
+            f"Path traversal detected: thread downloads directory resolves outside '{base}'."
+        )
+    return subdir
+
+
+async def download_slack_file(
+    file_info: dict[str, Any],
+    max_chars: int = 50000,
+    *,
+    channel_id: str | None = None,
+    thread_ts: str | None = None,
+) -> dict[str, Any]:
     """
     Downloads a private Slack file attachment using SLACK_BOT_TOKEN and extracts its text content.
     Returns dict: {"ok": bool, "file_name": str, "content": str, "truncated": bool, "size": int, "error": str | None}
@@ -271,7 +296,7 @@ async def download_slack_file(file_info: dict[str, Any], max_chars: int = 50000)
     url = file_info.get("url_private_download") or file_info.get("url_private")
     file_size = file_info.get("size", 0)
 
-    from orchestration.system_settings import (
+    from config_store.system_settings import (
         get_max_file_size_bytes,
         get_max_file_size_mb,
     )
@@ -324,7 +349,7 @@ async def download_slack_file(file_info: dict[str, Any], max_chars: int = 50000)
         }
 
     try:
-        from orchestration.system_settings import get_slack_file_download_timeout_seconds
+        from config_store.system_settings import get_slack_file_download_timeout_seconds
 
         download_timeout = get_slack_file_download_timeout_seconds()
     except Exception:  # noqa: BLE001
@@ -415,12 +440,18 @@ async def download_slack_file(file_info: dict[str, Any], max_chars: int = 50000)
             current_dl_url = next_dl_url
             current_ip = next_ip
 
-        # Cache local copy to workspace safely
+        # Cache local copy to workspace safely (thread-scoped subdir when channel_id+thread_ts available)
         try:
             downloads_dir = get_downloads_dir().resolve()
-            downloads_dir.mkdir(parents=True, exist_ok=True)
+            resolved_cid = channel_id or file_info.get("channel_id")
+            resolved_tts = thread_ts or file_info.get("thread_ts")
+            if resolved_cid and resolved_tts:
+                target_dir = get_thread_downloads_subdir(str(resolved_cid), str(resolved_tts), downloads_dir=downloads_dir)
+            else:
+                target_dir = downloads_dir
+            target_dir.mkdir(parents=True, exist_ok=True)
             safe_name = sanitize_slack_download_filename(file_name, prefix_len=6)
-            file_path = (downloads_dir / safe_name).resolve()
+            file_path = (target_dir / safe_name).resolve()
             if not file_path.is_relative_to(downloads_dir):
                 raise PermissionError(
                     f"Path traversal detected: '{file_name}' resolves outside downloads directory"
@@ -548,33 +579,35 @@ async def upload_text_file_to_slack(
 
 def cleanup_old_downloads(max_age_seconds: float = 86400.0, downloads_dir: Path | None = None) -> int:
     """
-    Cleans up cached downloaded Slack files older than max_age_seconds (default 24h).
-    Checks either explicit downloads_dir or dynamic get_downloads_dir().
+    Cleans up cached downloaded Slack files older than max_age_seconds (default 24h),
+    recursing into thread-scoped subdirectories and pruning empty subdirs.
     Returns the count of evicted files.
     """
     now = time.time()
     evicted_count = 0
-    target_dir = downloads_dir or get_downloads_dir()
-    candidate_dirs = [
-        target_dir.resolve(),
-    ]
-    seen_dirs: set[Path] = set()
-    for d in candidate_dirs:
-        if d in seen_dirs or not d.exists() or not d.is_dir():
-            continue
-        seen_dirs.add(d)
-        try:
-            for item in d.iterdir():
-                if item.is_file():
-                    try:
-                        mtime = item.stat().st_mtime
-                        if (now - mtime) > max_age_seconds:
-                            item.unlink(missing_ok=True)
-                            evicted_count += 1
-                    except Exception as e:  # noqa: BLE001
-                        logger.debug(f"[CLEANUP] Failed to prune downloaded file {item}: {e}")
-        except Exception as e:  # noqa: BLE001
-            logger.debug(f"[CLEANUP] Error inspecting downloads directory {d}: {e}")
+    target_dir = (downloads_dir or get_downloads_dir()).resolve()
+    if not target_dir.exists() or not target_dir.is_dir():
+        return 0
+
+    try:
+        for item in list(target_dir.rglob("*")):
+            if item.is_file():
+                try:
+                    mtime = item.stat().st_mtime
+                    if (now - mtime) > max_age_seconds:
+                        item.unlink(missing_ok=True)
+                        evicted_count += 1
+                except Exception as e:  # noqa: BLE001
+                    logger.debug(f"[CLEANUP] Failed to prune downloaded file {item}: {e}")
+        # Prune empty thread-scoped subdirectories bottom-up
+        for sub in sorted((p for p in target_dir.rglob("*") if p.is_dir()), reverse=True):
+            try:
+                if not any(sub.iterdir()):
+                    sub.rmdir()
+            except OSError:
+                pass
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"[CLEANUP] Error inspecting downloads directory {target_dir}: {e}")
 
     if evicted_count > 0:
         logger.info(f"[CLEANUP] Pruned {evicted_count} downloaded file(s) older than {max_age_seconds}s")

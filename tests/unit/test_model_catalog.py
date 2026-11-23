@@ -14,7 +14,7 @@ from core.model_catalog import (
     load_provider_catalog,
 )
 from main import app
-from orchestration.agent_settings import (
+from config_store.agent_settings import (
     AgentSettingsManager,
     reset_enabled_agents,
     set_agent_model,

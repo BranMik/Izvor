@@ -29,6 +29,9 @@ def test_generate_notes_filename():
     fn_conc = generate_notes_filename("Design DB Architecture", "1710000000.000999", "conclusion")
     assert fn_conc == "design_db_architectu_00999_conclusion.md"
 
+    fn_scoped = generate_notes_filename("Design DB Architecture", "1710000000.000999", "live_notes", channel_id="C123")
+    assert fn_scoped == "design_db_architectu_C123_00999_live_notes.md"
+
 
 def test_save_thread_notes_to_disk_creates_and_updates_files(tmp_path):
     writer_mod.configure_paths(thread_notes_dir=tmp_path)
@@ -57,8 +60,8 @@ def test_save_thread_notes_to_disk_creates_and_updates_files(tmp_path):
 
         assert live_path.exists()
         assert conc_path.exists()
-        assert live_path.name == "create_a_resilient_c_12345_live_notes.md"
-        assert conc_path.name == "create_a_resilient_c_12345_conclusion.md"
+        assert live_path.name == "create_a_resilient_c_C_TEST_WRITE_12345_live_notes.md"
+        assert conc_path.name == "create_a_resilient_c_C_TEST_WRITE_12345_conclusion.md"
 
         live_content = live_path.read_text(encoding="utf-8")
         conc_content = conc_path.read_text(encoding="utf-8")

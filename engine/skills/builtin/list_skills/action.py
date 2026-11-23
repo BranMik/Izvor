@@ -89,12 +89,12 @@ async def run(ctx: Any, params: dict[str, Any] | None = None) -> dict[str, Any] 
 
         if llm_resp and getattr(llm_resp, "usage", None) and channel_id and thread_ts:
             try:
-                from agents.usage_agent import record_thread_tokens
+                from core.registry import record_token_usage
 
                 p_tok = getattr(llm_resp.usage, "prompt_tokens", 0) or 0
                 c_tok = getattr(llm_resp.usage, "completion_tokens", 0) or 0
                 if p_tok or c_tok:
-                    record_thread_tokens(
+                    record_token_usage(
                         channel_id=channel_id,
                         thread_ts=thread_ts,
                         model_name=system_model,

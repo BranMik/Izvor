@@ -1,228 +1,54 @@
-"""
-Declarative SKILL.md Loader & Progressive Disclosure Registry.
-Discovers and parses SKILL.md files (YAML frontmatter + Markdown body)
-and binds low-level MCP execution backends.
-"""
+"""Declarative SkillRegistry with lazy thread-safe initialization (zero import-time disk scans)."""
+
+from __future__ import annotations
 
 import asyncio
-import hashlib
 import inspect
 import json
 import logging
-import re
-from collections.abc import Callable
-from dataclasses import dataclass, field
-import importlib.util
 from pathlib import Path
+import re
 import threading
 from typing import Any
 
 import yaml
 
-from core.paths import ENGINE_SKILLS_DIR, SKILLS_DIR
 from core.domain import ToolPrincipal
-from services.local_tools import LOCAL_TOOLS_SCHEMAS, execute_local_tool
+from core.paths import ENGINE_SKILLS_DIR, SKILLS_DIR
+from core.registry import set_skill_registry_provider
+from services.local_tools import execute_local_tool
+from skills.parser import (
+    LOAD_SKILL_SCHEMA,  # noqa: F401 - re-exported for callers
+    SkillDefinition,
+    SkillIntegrityError,
+    parse_skill_file,
+)
+from skills.policy import (
+    ALL_INTERNAL_SKILLS,
+    get_permitted_tools_for_principal,
+    normalize_skills_list,
+)
+from skills.recommender import (
+    get_skill_resolution_hint as _get_skill_resolution_hint,
+    recommend_agent_for_skills as _recommend_agent_for_skills,
+    select_recommended_agent_from_keys,
+)
 
 logger = logging.getLogger(__name__)
-
-# Sentinel constant to allow internal/system unrestricted tool execution
-ALL_INTERNAL_SKILLS = "__ALL_INTERNAL_SKILLS__"
-
-# Function schema for autonomous progressive disclosure
-LOAD_SKILL_SCHEMA = {
-    "type": "function",
-    "function": {
-        "name": "load_skill",
-        "description": (
-            "Load an available skill by name on demand. Returns the skill's operational "
-            "guidelines and unlocks its specialized tools for subsequent steps in this turn."
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "skill_name": {
-                    "type": "string",
-                    "description": (
-                        "Name of the skill to load (e.g. 'web_research', 'document_reader', 'knowledge_base_rag')."
-                    ),
-                }
-            },
-            "required": ["skill_name"],
-        },
-    },
-}
-
-
-class SkillIntegrityError(ValueError):
-    """Raised when a SKILL.md file violates mandatory schema requirements."""
-
-
-@dataclass
-class SkillDefinition:
-    """Represents a declarative Skill parsed from a SKILL.md file."""
-
-    name: str
-    display_name: str
-    description: str
-    tools: list[str] = field(default_factory=list)
-    instructions: str = ""
-    skill_dir: Path | None = None
-    scope: str = "agent"  # "agent" | "prompt_modifier" | "orchestrator"
-    triggers: dict[str, Any] = field(default_factory=dict)
-    action_handler: Callable[..., Any] | None = None
-    is_global: bool = False
-    is_terminal: bool = False
-    requires_human_ITL: bool = False
-    requires_admin: bool = False
-    extraction_rule: str = ""
-    handles_files: bool = False
-    custom_tool_schemas: list[dict[str, Any]] = field(default_factory=list)
-    tool_handlers: dict[str, Callable[..., Any]] = field(default_factory=dict)
-    mcp_server: str = ""
-    mcp_tools: list[str] = field(default_factory=list)
-    content_hash: str = ""
-
-    def get_tool_schemas(self) -> list[dict[str, Any]]:
-        """Returns the LiteLLM tool schemas for the tools declared by this skill."""
-        matched: list[dict[str, Any]] = []
-        seen_names: set[str] = set()
-        if self.custom_tool_schemas:
-            for schema in self.custom_tool_schemas:
-                fn_name = schema.get("function", {}).get("name")
-                if fn_name and fn_name not in seen_names:
-                    matched.append(schema)
-                    seen_names.add(fn_name)
-                elif not fn_name and schema not in matched:
-                    matched.append(schema)
-        for schema in LOCAL_TOOLS_SCHEMAS:
-            fn_name = schema.get("function", {}).get("name")
-            if fn_name in self.tools and fn_name not in seen_names:
-                matched.append(schema)
-                seen_names.add(fn_name)
-
-        if self.mcp_server:
-            try:
-                from services.mcp.client_manager import get_mcp_client_manager
-                mgr = get_mcp_client_manager()
-                allowed = self.mcp_tools if (self.mcp_tools and "*" not in self.mcp_tools) else None
-                cached_tools = mgr.get_cached_tools_for_server(self.mcp_server, allowed_raw_names=allowed)
-                for mcp_tool in cached_tools:
-                    schema = mcp_tool.litellm_schema
-                    fn_name = schema.get("function", {}).get("name")
-                    if fn_name and fn_name not in seen_names:
-                        matched.append(schema)
-                        seen_names.add(fn_name)
-            except Exception as e:
-                logger.warning(f"[SKILLS] Failed to retrieve MCP schemas for server '{self.mcp_server}': {e}")
-
-        return matched
-
-
-def _load_agent_selection_context(
-    channel_id: str | None = None,
-    thread_ts: str | None = None,
-) -> tuple[dict[str, Any], set[str], set[str], dict[str, list[str]]]:
-    """Loads configured agents, enabled keys, active workflow keys, and thread agent grants."""
-    from core.config import AGENTS_CONFIG
-
-    agents_cfg: dict[str, Any] = AGENTS_CONFIG
-    enabled_agents: set[str] = set()
-    try:
-        from orchestration.agent_settings import settings_manager
-
-        agents_cfg = settings_manager.agents_config or AGENTS_CONFIG
-        enabled_agents = settings_manager.get_enabled_agents()
-    except (ImportError, AttributeError, TypeError):
-        agents_cfg = AGENTS_CONFIG
-        enabled_agents = set()
-
-    workflow_agents: set[str] = set()
-    try:
-        from orchestration.nomination import get_initial_agents
-
-        workflow_agents = set(get_initial_agents(channel_id=channel_id, thread_ts=thread_ts) or [])
-    except (ImportError, AttributeError, KeyError, TypeError, RuntimeError):
-        workflow_agents = set()
-
-    thread_agent_skills: dict[str, list[str]] = {}
-    if channel_id and thread_ts:
-        try:
-            from orchestration.thread_skills_manager import thread_skills_manager
-
-            thread_agent_skills = thread_skills_manager.get_all_active_agent_skills(channel_id, thread_ts)
-        except (ImportError, AttributeError, KeyError, TypeError):
-            thread_agent_skills = {}
-
-    return agents_cfg, enabled_agents, workflow_agents, thread_agent_skills
-
-
-def select_recommended_agent_from_keys(
-    candidate_keys: list[str] | set[str] | tuple[str, ...],
-    *,
-    channel_id: str | None = None,
-    thread_ts: str | None = None,
-    exclude_agent_key: str | None = None,
-    coverage_counts: dict[str, int] | None = None,
-    agents_cfg: dict[str, Any] | None = None,
-    enabled_agents: set[str] | None = None,
-    workflow_agents: set[str] | None = None,
-) -> str | None:
-    """
-    Selects a single recommended agent username from candidate agent keys.
-    Priority: enabled > in active workflow > skill coverage > alphabetical username > agent key.
-    """
-    if not candidate_keys:
-        return None
-
-    if agents_cfg is None or enabled_agents is None or workflow_agents is None:
-        loaded_cfg, loaded_enabled, loaded_wf, _ = _load_agent_selection_context(
-            channel_id=channel_id,
-            thread_ts=thread_ts,
-        )
-        if agents_cfg is None:
-            agents_cfg = loaded_cfg
-        if enabled_agents is None:
-            enabled_agents = loaded_enabled
-        if workflow_agents is None:
-            workflow_agents = loaded_wf
-
-    ranked: list[tuple[int, int, int, str, str, str]] = []
-    for raw_key in candidate_keys:
-        agent_key = str(raw_key).strip()
-        if not agent_key or (exclude_agent_key and agent_key == exclude_agent_key):
-            continue
-        cfg = agents_cfg.get(agent_key)
-        if isinstance(cfg, dict):
-            username = str(cfg.get("username") or agent_key).strip()
-        else:
-            username = agent_key
-        is_enabled = agent_key in enabled_agents
-        is_in_workflow = agent_key in workflow_agents
-        coverage = coverage_counts.get(agent_key, 1) if coverage_counts is not None else 1
-        ranked.append(
-            (
-                0 if is_enabled else 1,
-                0 if is_in_workflow else 1,
-                -coverage,
-                username.casefold(),
-                agent_key,
-                username,
-            )
-        )
-
-    if not ranked:
-        return None
-    ranked.sort()
-    return ranked[0][5]
 
 
 class SkillRegistry:
     """
-    Registry that dynamically scans and loads all SKILL.md files from both
-    engine/skills/builtin/ (system directives) and config/skills/ (agent tools).
+    Registry that scans SKILL.md files from engine/skills/builtin/ and config/skills/.
+    Supports explicit reload() at server startup or lazy ensure_loaded() on first query.
     """
 
-    def __init__(self, root_dir: Path | list[Path] | None = None) -> None:
+    def __init__(
+        self,
+        root_dir: Path | list[Path] | None = None,
+        *,
+        auto_load: bool = True,
+    ) -> None:
         if root_dir is None:
             self.root_dirs: list[Path] = [ENGINE_SKILLS_DIR, SKILLS_DIR]
             self.root_dir = SKILLS_DIR
@@ -234,10 +60,20 @@ class SkillRegistry:
             self.root_dir = Path(root_dir)
         self._lock = threading.RLock()
         self._skills: dict[str, SkillDefinition] = {}
-        self.reload()
+        self._loaded = False
+        if auto_load:
+            self.reload()
+
+    def ensure_loaded(self) -> None:
+        """Lazily populates the registry once using double-checked locking."""
+        if self._loaded:
+            return
+        with self._lock:
+            if not self._loaded:
+                self.reload()
 
     def reload(self) -> None:
-        """Scans root_dirs for all subdirectories containing SKILL.md and atomically swaps the registry."""
+        """Scans root_dirs for subdirectories containing SKILL.md and atomically swaps the registry."""
         new_skills: dict[str, SkillDefinition] = {}
         builtin_names: set[str] = set()
         try:
@@ -279,7 +115,7 @@ class SkillRegistry:
                                     severity="CRITICAL",
                                     status="BLOCKED",
                                 )
-                            except Exception as audit_err:  # noqa: BLE001
+                            except (ImportError, OSError, RuntimeError, ValueError, TypeError) as audit_err:
                                 logger.debug(f"[SKILLS] Failed to emit SKILL_SHADOWING_BLOCKED audit event: {audit_err}")
                             continue
 
@@ -296,144 +132,21 @@ class SkillRegistry:
 
         with self._lock:
             self._skills = new_skills
+            self._loaded = True
 
     def _parse_skill_file(self, file_path: Path) -> SkillDefinition | None:
-        raw_text = file_path.read_text(encoding="utf-8")
-        if not raw_text.startswith("---"):
-            logger.warning(f"[SKILLS] Missing YAML frontmatter in {file_path}")
-            return None
-
-        parts = raw_text.split("---", 2)
-        if len(parts) < 3:
-            logger.warning(f"[SKILLS] Malformed frontmatter in {file_path}")
-            return None
-
-        frontmatter_str = parts[1]
-        body_markdown = parts[2].strip()
-        content_hash = hashlib.sha256(frontmatter_str.strip().encode("utf-8")).hexdigest()
-
-        meta = yaml.safe_load(frontmatter_str) or {}
-
-        # Validate required fields
-        required_fields = ["name", "display_name", "description", "scope", "requires_human_ITL"]
-        for field_name in required_fields:
-            if field_name not in meta:
-                logger.warning(f"[SKILLS] Validation warning in {file_path}: missing required field '{field_name}'")
-
-        triggers = meta.get("triggers") or {}
-        if isinstance(triggers, dict) and "auto_detect" not in triggers:
-            logger.warning(
-                f"[SKILLS] Validation warning in {file_path}: missing field 'auto_detect' in triggers (defaulting to False - privileged/slash-only)"
-            )
-
-        name = str(meta.get("name", file_path.parent.name)).strip()
-        display_name = str(meta.get("display_name", name.replace("_", " ").title())).strip()
-        description = str(meta.get("description", "")).strip()
-        scope = str(meta.get("scope", "agent")).strip().lower()
-        triggers = meta.get("triggers") or {}
-        if not isinstance(triggers, dict):
-            triggers = {}
-
-        raw_tools = meta.get("tools", [])
-        tools = [str(t).strip() for t in raw_tools if str(t).strip()]
-
-        mcp_server = str(meta.get("mcp_server", "")).strip()
-        raw_mcp_tools = meta.get("mcp_tools") or []
-        mcp_tools = [str(t).strip() for t in raw_mcp_tools if str(t).strip()] if isinstance(raw_mcp_tools, list) else []
-
-        if mcp_server and mcp_tools:
-            from services.mcp.schema_translator import format_mcp_tool_name
-
-            for raw_t in mcp_tools:
-                if raw_t != "*":
-                    ns_name = format_mcp_tool_name(mcp_server, raw_t)
-                    if ns_name not in tools:
-                        tools.append(ns_name)
-
-        is_global = bool(meta.get("global", False))
-        requires_human_ITL = bool(meta.get("requires_human_ITL", False))
-
-        # Validate mandatory requires_admin boolean (fail-closed)
-        if "requires_admin" not in meta:
-            raise SkillIntegrityError(
-                f"[SKILLS INTEGRITY ERROR] {file_path} is missing mandatory boolean 'requires_admin' in YAML frontmatter."
-            )
-        if not isinstance(meta.get("requires_admin"), bool):
-            raise SkillIntegrityError(
-                f"[SKILLS INTEGRITY ERROR] {file_path} field 'requires_admin' must be a boolean (true/false), got {type(meta.get('requires_admin')).__name__}."
-            )
-        requires_admin = bool(meta.get("requires_admin"))
-
-        # Check for action.py handler
-        action_handler = None
-        action_file = file_path.parent / "action.py"
-        if action_file.exists():
-            try:
-                mod_name = f"skills.{name}.action"
-                spec = importlib.util.spec_from_file_location(mod_name, action_file)
-                if spec and spec.loader:
-                    mod = importlib.util.module_from_spec(spec)
-                    spec.loader.exec_module(mod)
-                    if hasattr(mod, "run"):
-                        action_handler = mod.run
-            except Exception as e:  # noqa: BLE001 - Dynamic plugin module loading catches all module errors to isolate broken skills
-                logger.error(f"[SKILLS] Error loading action handler from {action_file}: {e}")
-
-        extraction_rule = str(meta.get("extraction_rule", "")).strip()
-        if "{name}" in extraction_rule:
-            extraction_rule = extraction_rule.replace("{name}", name)
-        handles_files = bool(triggers.get("handles_files", False))
-        is_terminal = bool(triggers.get("terminal", False))
-
-        # Check for tools.py handler and schemas
-        custom_tool_schemas: list[dict[str, Any]] = []
-        tool_handlers: dict[str, Callable[..., Any]] = {}
-        tools_file = file_path.parent / "tools.py"
-        if tools_file.exists():
-            try:
-                mod_name = f"skills.{name}.tools"
-                spec = importlib.util.spec_from_file_location(mod_name, tools_file)
-                if spec and spec.loader:
-                    mod = importlib.util.module_from_spec(spec)
-                    spec.loader.exec_module(mod)
-                    if hasattr(mod, "TOOL_SCHEMAS") and isinstance(mod.TOOL_SCHEMAS, list):
-                        custom_tool_schemas.extend(mod.TOOL_SCHEMAS)
-                    if hasattr(mod, "TOOL_HANDLERS") and isinstance(mod.TOOL_HANDLERS, dict):
-                        tool_handlers.update(mod.TOOL_HANDLERS)
-            except Exception as e:  # noqa: BLE001 - Isolate skill custom tool load errors
-                logger.error(f"[SKILLS] Error loading custom tools from {tools_file}: {e}")
-
-        return SkillDefinition(
-            name=name,
-            display_name=display_name,
-            description=description,
-            tools=tools,
-            instructions=body_markdown,
-            skill_dir=file_path.parent,
-            scope=scope,
-            triggers=triggers,
-            action_handler=action_handler,
-            is_global=is_global,
-            is_terminal=is_terminal,
-            requires_human_ITL=requires_human_ITL,
-            requires_admin=requires_admin,
-            extraction_rule=extraction_rule,
-            handles_files=handles_files,
-            custom_tool_schemas=custom_tool_schemas,
-            tool_handlers=tool_handlers,
-            mcp_server=mcp_server,
-            mcp_tools=mcp_tools,
-            content_hash=content_hash,
-        )
+        return parse_skill_file(file_path)
 
     def get(self, name: str) -> SkillDefinition | None:
         """Retrieve a skill by name."""
+        self.ensure_loaded()
         return self._skills.get(name)
 
     def resolve_skill(self, name_or_alias: str) -> SkillDefinition | None:
         """Resolves a skill by its canonical name or slash command alias (e.g. 'grant_for_all' or '/grant_for_all')."""
         if not name_or_alias:
             return None
+        self.ensure_loaded()
         skills_snapshot = self._skills
         target = str(name_or_alias).strip().lower()
         if target in skills_snapshot:
@@ -450,6 +163,7 @@ class SkillRegistry:
 
     def get_admin_skills(self) -> list[SkillDefinition]:
         """Returns all registered skills that require admin privileges."""
+        self.ensure_loaded()
         skills_snapshot = self._skills
         return [s for s in skills_snapshot.values() if getattr(s, "requires_admin", False)]
 
@@ -459,11 +173,8 @@ class SkillRegistry:
         is_admin: bool,
         thread_granted_skills: set[str] | list[str] | None = None,
     ) -> list[str]:
-        """
-        Filters a list of skill names based on whether the turn caller is a Slack Workspace Admin.
-        If caller is not an admin, skills with requires_admin=True are stripped unless explicitly
-        granted to the thread by an admin.
-        """
+        """Filters skills requiring admin privileges unless caller is admin or explicitly thread-granted."""
+        self.ensure_loaded()
         raw_list = list(skill_names or [])
         if is_admin:
             return raw_list
@@ -478,16 +189,19 @@ class SkillRegistry:
 
     def list_skills(self) -> list[SkillDefinition]:
         """Returns all registered skills."""
+        self.ensure_loaded()
         skills_snapshot = self._skills
         return list(skills_snapshot.values())
 
     def get_global_skills(self) -> list[str]:
         """Returns a list of names for skills marked global in SKILL.md."""
+        self.ensure_loaded()
         skills_snapshot = self._skills
         return [s.name for s in skills_snapshot.values() if s.is_global]
 
     def get_agent_skills(self, allowed_skills: list[str] | None = None) -> list[SkillDefinition]:
-        """Returns skills with scope == 'agent', optionally filtered by allowed_skills and including non-admin global skills."""
+        """Returns skills with scope == 'agent', optionally filtered by allowed_skills and non-admin globals."""
+        self.ensure_loaded()
         skills_snapshot = self._skills
         res = [s for s in skills_snapshot.values() if s.scope == "agent"]
         if allowed_skills is not None:
@@ -500,6 +214,7 @@ class SkillRegistry:
 
     def get_slash_triggers(self) -> dict[str, tuple[SkillDefinition, dict[str, Any]]]:
         """Maps each registered slash alias (lowercase) to its (SkillDefinition, trigger_dict)."""
+        self.ensure_loaded()
         skills_snapshot = self._skills
         mapping: dict[str, tuple[SkillDefinition, dict[str, Any]]] = {}
         for skill in skills_snapshot.values():
@@ -516,6 +231,7 @@ class SkillRegistry:
 
     def get_terminal_slash_triggers(self) -> list[str]:
         """Returns all slash triggers for skills configured with terminal: true."""
+        self.ensure_loaded()
         skills_snapshot = self._skills
         terminals: list[str] = []
         for skill in skills_snapshot.values():
@@ -547,6 +263,7 @@ class SkillRegistry:
 
     def get_file_handler_skill(self) -> SkillDefinition | None:
         """Returns the skill configured to handle file attachments, or None."""
+        self.ensure_loaded()
         skills_snapshot = self._skills
         for skill in skills_snapshot.values():
             if skill.handles_files:
@@ -558,24 +275,21 @@ class SkillRegistry:
 
     def get_auto_detect_skills(self) -> list[SkillDefinition]:
         """Returns all skills where auto_detect is True (defaults to False if omitted)."""
+        self.ensure_loaded()
         skills_snapshot = self._skills
         return [s for s in skills_snapshot.values() if s.triggers.get("auto_detect", False) is True]
 
     def build_extractor_catalog_prompt(self) -> str:
-        """
-        Dynamically generates the system prompt for the IntentExtractor LLM
-        based on all registered auto-detect skills and their extraction rules.
-        """
+        """Dynamically generates the IntentExtractor system prompt from registered auto-detect skills."""
         skills = self.get_auto_detect_skills()
         prompt_lines = [
             "You are a precise, language-agnostic intent, directive, and parameter extractor for an AI multi-agent Slack platform.",
             "Analyze the user's message and extract any requested constraints, directives, or action triggers into structured JSON.",
-            "Also detect the natural language of the user's message (e.g. \"Croatian\", \"English\", \"German\") and report it in the \"language\" field.",
+            'Also detect the natural language of the user\'s message (e.g. "Croatian", "English", "German") and report it in the "language" field.',
             "",
             "AVAILABLE SYSTEM SKILLS & DIRECTIVES:",
         ]
 
-        # 1. Prompt modifiers (e.g. max_words, min_words)
         modifiers_lines = []
         actions_lines = []
 
@@ -644,6 +358,7 @@ class SkillRegistry:
         if not skill_names:
             return []
 
+        self.ensure_loaded()
         skills_snapshot = self._skills
         tools: list[dict[str, Any]] = []
         seen: set[str] = set()
@@ -662,6 +377,7 @@ class SkillRegistry:
 
     def find_skill_for_tool(self, tool_name: str) -> str | None:
         """Finds the skill name that defines or provides the given tool_name (including wildcard MCP skills)."""
+        self.ensure_loaded()
         skills_snapshot = self._skills
         for s_name, s_def in skills_snapshot.items():
             if tool_name in s_def.tools:
@@ -684,16 +400,12 @@ class SkillRegistry:
         return None
 
     def get_skills_catalog_prompt(self, allowed_skills: list[str] | None = None) -> str:
-        """
-        Generates the compact skills catalog for injection into the system prompt.
-        If allowed_skills is provided, only lists skills the agent is authorized to load.
-        Returns empty string if agent is authorized for 0 skills.
-        """
+        """Generates the compact skills catalog for injection into an agent system prompt."""
+        self.ensure_loaded()
         skills_snapshot = self._skills
         if not skills_snapshot:
             return ""
 
-        # Strictly only show agent-scoped skills to LLM agents
         skills_to_show = [s for s in skills_snapshot.values() if s.scope == "agent"]
         if allowed_skills is not None:
             skills_to_show = [
@@ -727,13 +439,11 @@ class SkillRegistry:
     def get_skill_agent_mapping(
         self, channel_id: str | None = None, thread_ts: str | None = None
     ) -> dict[str, dict[str, Any]]:
-        """
-        Returns a dictionary mapping each registered skill name to its metadata and authorized agents.
-        """
+        """Returns a dictionary mapping each registered skill name to its metadata and authorized agents."""
         from core.config import AGENTS_CONFIG
 
         try:
-            from orchestration.agent_settings import settings_manager
+            from config_store.agent_settings import settings_manager
 
             agents_cfg = settings_manager.agents_config or AGENTS_CONFIG
         except (ImportError, AttributeError, TypeError):
@@ -743,7 +453,7 @@ class SkillRegistry:
         thread_agent_skills: dict[str, list[str]] = {}
         if channel_id and thread_ts:
             try:
-                from orchestration.thread_skills_manager import thread_skills_manager
+                from services.thread_skills_store import thread_skills_manager
 
                 thread_skills = thread_skills_manager.get_active_skills(channel_id, thread_ts)
                 thread_agent_skills = thread_skills_manager.get_all_active_agent_skills(channel_id, thread_ts)
@@ -787,10 +497,7 @@ class SkillRegistry:
         return mapping
 
     def format_skills_directory_markdown(self, channel_id: str | None = None, thread_ts: str | None = None) -> str:
-        """
-        Formats the full platform skills directory into clean markdown.
-        Beside each skill is listed all agents who can use it.
-        """
+        """Formats the full platform skills directory into clean Slack markdown."""
         mapping = self.get_skill_agent_mapping(channel_id=channel_id, thread_ts=thread_ts)
         lines = ["*Application Skills & Capabilities Directory*:\n"]
 
@@ -855,42 +562,11 @@ class SkillRegistry:
         exclude_agent_key: str | None = None,
     ) -> str | None:
         """Selects 1 recommended agent username authorized for the requested skill(s)."""
-        if isinstance(skill_names, str):
-            skill_list = [skill_names.strip()] if skill_names.strip() else []
-        else:
-            skill_list = [str(s).strip() for s in skill_names if str(s).strip()]
-
-        if not skill_list:
-            return None
-
-        agents_cfg, enabled_agents, workflow_agents, thread_agent_skills = _load_agent_selection_context(
-            channel_id=channel_id,
-            thread_ts=thread_ts,
-        )
-
-        coverage_counts: dict[str, int] = {}
-        for agent_key, cfg in agents_cfg.items():
-            if not isinstance(cfg, dict):
-                continue
-            if exclude_agent_key and agent_key == exclude_agent_key:
-                continue
-            agent_skill_set = set(cfg.get("skills", []) or []) | set(thread_agent_skills.get(agent_key, []) or [])
-            coverage = sum(1 for s in skill_list if s in agent_skill_set)
-            if coverage > 0:
-                coverage_counts[agent_key] = coverage
-
-        if not coverage_counts:
-            return None
-
-        return select_recommended_agent_from_keys(
-            coverage_counts.keys(),
+        return _recommend_agent_for_skills(
+            skill_names,
             channel_id=channel_id,
             thread_ts=thread_ts,
             exclude_agent_key=exclude_agent_key,
-            coverage_counts=coverage_counts,
-            agents_cfg=agents_cfg,
-            enabled_agents=enabled_agents,
-            workflow_agents=workflow_agents,
         )
 
     def get_skill_resolution_hint(
@@ -900,45 +576,18 @@ class SkillRegistry:
         thread_ts: str | None = None,
         exclude_agent_key: str | None = None,
     ) -> str:
-        """
-        Generates a concise 1-line resolution hint recommending 1 authorized agent by username
-        (if any) and how to grant the skill via /grant_skill or /grant_skill_for_all.
-        """
-        if isinstance(skill_names, str):
-            raw_list = [skill_names.strip()]
-        else:
-            raw_list = [str(s).strip() for s in skill_names if str(s).strip()]
-
-        skill_list = list(dict.fromkeys(s for s in raw_list if s))
-        if not skill_list:
-            return "Grant access via '/grant_skill <skill> <agent>' or '/grant_skill_for_all <skill>'."
-
-        rec_username = self.recommend_agent_for_skills(
-            skill_list,
+        """Generates a concise 1-line resolution hint recommending an agent or /grant_skill."""
+        return _get_skill_resolution_hint(
+            skill_names,
             channel_id=channel_id,
             thread_ts=thread_ts,
             exclude_agent_key=exclude_agent_key,
         )
 
-        skills_fmt = ", ".join(f"'{s}'" for s in skill_list)
-        if len(skill_list) == 1:
-            s_name = skill_list[0]
-            grant_clause = f"'/grant_skill {s_name} <agent>' or '/grant_skill_for_all {s_name}'"
-        else:
-            grant_clause = "'/grant_skill <skill> <agent>' or '/grant_skill_for_all <skill>'"
-
-        if rec_username:
-            return f"Recommended agent for {skills_fmt}: {rec_username} — or grant via {grant_clause}."
-        return f"Grant {skills_fmt} via {grant_clause}."
-
     def get_skills_directory_prompt(
         self, channel_id: str | None = None, thread_ts: str | None = None
     ) -> str:
-        """
-        Generates the comprehensive application skills directory for injection into agent system prompts.
-        Informs all agents of platform skills and which agents can use them, while enforcing boundary awareness.
-        Reflects active thread-level skill grants when channel_id and thread_ts are provided.
-        """
+        """Generates the comprehensive application skills directory for injection into agent system prompts."""
         mapping = self.get_skill_agent_mapping(channel_id=channel_id, thread_ts=thread_ts)
         lines = [
             "### APPLICATION SKILLS DIRECTORY",
@@ -970,10 +619,8 @@ class SkillRegistry:
         ttl_hours: float | None = None,
         agent_name: Any = "",
     ) -> tuple[bool, str | None, list[str]]:
-        """
-        Unified tool and skill authorization check with audit event logging (A-17).
-        Returns: (is_authorized, early_response_or_None, effective_authorized_skills).
-        """
+        """Unified tool and skill authorization check with audit event logging."""
+        self.ensure_loaded()
         is_system_principal = isinstance(agent_name, ToolPrincipal) and agent_name.kind == "system"
         is_internal = (
             is_system_principal
@@ -1045,7 +692,7 @@ class SkillRegistry:
                                 f"Permitted skills: {allowed_str}. "
                                 f"CRITICAL INSTRUCTION: State in at most 50 words that permission / the required skill '{skill_name}' is lacking, "
                                 f"including this 1-line hint (recommend ONLY this 1 agent by name, never by agent ID): {hint_str} "
-                                f"Do NOT report that the file or resource was not found. Do NOT reflect on skills architecture. "
+                                "Do NOT report that the file or resource was not found. Do NOT reflect on skills architecture. "
                                 f"If the prompt contains other assessable parts not requiring '{skill_name}', proceed normally with those; otherwise stop."
                             )
                         }
@@ -1065,13 +712,14 @@ class SkillRegistry:
             if skill.mcp_server:
                 try:
                     from services.mcp.client_manager import get_mcp_client_manager
+
                     mgr = get_mcp_client_manager()
                     allowed = skill.mcp_tools if (skill.mcp_tools and "*" not in skill.mcp_tools) else None
                     cached = mgr.get_cached_tools_for_server(skill.mcp_server, allowed_raw_names=allowed)
                     for t in cached:
                         if t.namespaced_name not in skill.tools:
                             skill.tools.append(t.namespaced_name)
-                except Exception as e:
+                except (ImportError, OSError, RuntimeError, ValueError, TypeError, AttributeError) as e:
                     logger.debug(f"[SKILLS] Error updating MCP tools for skill {skill.name}: {e}")
 
             from services.audit_logger import log_audit_event
@@ -1101,7 +749,6 @@ class SkillRegistry:
                 effective_authorized_skills,
             )
 
-        # For any other tool, verify authorization against authorized/global skills (fail-closed)
         if not is_internal:
             permitted_tools = get_permitted_tools_for_principal(
                 principal=agent_name,
@@ -1136,7 +783,7 @@ class SkillRegistry:
                                 f"Permitted tools: {allowed_tools_str}. "
                                 f"CRITICAL INSTRUCTION: State in at most 50 words that permission to execute tool '{tool_name}' is lacking, "
                                 f"including this 1-line hint (recommend ONLY this 1 agent by name, never by agent ID): {hint_str} "
-                                f"Do NOT report that the file or resource was not found. Do NOT reflect on skills architecture. "
+                                "Do NOT report that the file or resource was not found. Do NOT reflect on skills architecture. "
                                 f"If the prompt contains other assessable parts not requiring '{tool_name}', proceed normally with those; otherwise stop."
                             )
                         }
@@ -1155,11 +802,8 @@ class SkillRegistry:
         ttl_hours: float | None = None,
         agent_name: Any = "",
     ) -> str:
-        """
-        Asynchronously dispatches tool execution with fail-closed authorization.
-        Directly awaits coroutines, MCP tools, and native async local tools.
-        Offloads synchronous custom tool handlers to asyncio.to_thread.
-        """
+        """Asynchronously dispatches tool execution with fail-closed authorization."""
+        self.ensure_loaded()
         is_ok, early_resp, effective_authorized_skills = self._verify_tool_authorization(
             tool_name=tool_name,
             arguments=arguments,
@@ -1169,9 +813,8 @@ class SkillRegistry:
             agent_name=agent_name,
         )
         if not is_ok or early_resp is not None:
-            return early_resp
+            return early_resp or ""
 
-        # Check if MCP tool
         from services.mcp.schema_translator import is_mcp_namespaced_tool
 
         if is_mcp_namespaced_tool(tool_name):
@@ -1185,7 +828,6 @@ class SkillRegistry:
                 skill_registry=self,
             )
 
-        # Check if any skill registered a custom tool handler
         skills_snapshot = self._skills
         for s_def in skills_snapshot.values():
             if tool_name in s_def.tool_handlers:
@@ -1201,9 +843,8 @@ class SkillRegistry:
                     kwargs = {"agent_name": actor_id} if "agent_name" in sig.parameters else {}
                     if inspect.iscoroutinefunction(async_fn):
                         return await async_fn(arguments, **kwargs)
-                    else:
-                        return await asyncio.to_thread(handler, arguments, **kwargs)
-                except Exception as e:  # noqa: BLE001
+                    return await asyncio.to_thread(handler, arguments, **kwargs)
+                except Exception as e:  # noqa: BLE001 - Isolate arbitrary skill plugin errors
                     logger.error(f"[SKILLS] Custom tool handler error for '{tool_name}': {e}")
                     return json.dumps({"error": f"Tool execution failed: {e}"})
 
@@ -1215,182 +856,18 @@ class SkillRegistry:
         )
 
 
-def normalize_skills_list(skills: list[str] | set[str] | str | None) -> list[str]:
-    """Safely normalizes authorized skills, avoiding character slicing on strings."""
-    if skills is None:
-        return []
-    if isinstance(skills, str):
-        return [skills]
-    return list(skills)
-
-
-def get_permitted_tools_for_principal(
-    principal: Any,
-    authorized_skills: list[str] | set[str] | str | None = None,
-    skill_registry: Any = None,
-) -> set[str]:
-    """Returns the complete set of permitted tools for a given principal and skills."""
-    from core.domain import ToolPrincipal
-
-    if skill_registry is None:
-        skill_registry = get_skill_registry()
-
-    is_system_principal = isinstance(principal, ToolPrincipal) and principal.kind == "system"
-    is_internal = (
-        is_system_principal
-        or authorized_skills == ALL_INTERNAL_SKILLS
-        or (isinstance(authorized_skills, (list, tuple, set)) and ALL_INTERNAL_SKILLS in authorized_skills)
-    )
-
-    if is_internal:
-        all_tools: set[str] = set()
-        skills = (
-            skill_registry.list_skills()
-            if hasattr(skill_registry, "list_skills")
-            else list(skill_registry._skills.values())
-        )
-        for s in skills:
-            all_tools.update(getattr(s, "tools", []))
-            for schema in getattr(s, "custom_tool_schemas", []):
-                fn = schema.get("function", {}).get("name")
-                if fn:
-                    all_tools.add(fn)
-        return all_tools
-
-    if isinstance(principal, ToolPrincipal):
-        actor_id = (principal.id or "").strip()
-    elif isinstance(principal, str):
-        actor_id = principal.strip()
-    else:
-        actor_id = ""
-
-    skills_list = normalize_skills_list(authorized_skills)
-
-    static_skills: list[str] = []
-    if authorized_skills is None and actor_id and actor_id != "system":
-        try:
-            from orchestration.agent_settings import get_agent_skills
-
-            raw_static = get_agent_skills(actor_id) or []
-            static_skills = [
-                s
-                for s in raw_static
-                if not getattr(
-                    skill_registry.get(s) if hasattr(skill_registry, "get") else None,
-                    "requires_admin",
-                    False,
-                )
-            ]
-        except Exception:
-            pass
-
-    combined_skills = set(static_skills) | set(skills_list)
-    permitted: set[str] = set()
-
-    for s_name in combined_skills:
-        s_def = skill_registry.get(s_name) if hasattr(skill_registry, "get") else None
-        if s_def:
-            permitted.update(getattr(s_def, "tools", []))
-            for schema in getattr(s_def, "custom_tool_schemas", []):
-                fn = schema.get("function", {}).get("name")
-                if fn:
-                    permitted.add(fn)
-            if getattr(s_def, "mcp_server", ""):
-                try:
-                    from services.mcp.client_manager import get_mcp_client_manager
-                    mgr = get_mcp_client_manager()
-                    allowed = getattr(s_def, "mcp_tools", None)
-                    allowed_raw = allowed if (allowed and "*" not in allowed) else None
-                    cached = mgr.get_cached_tools_for_server(s_def.mcp_server, allowed_raw_names=allowed_raw)
-                    for t in cached:
-                        permitted.add(t.namespaced_name)
-                except Exception:
-                    pass
-
-    skills_iter = (
-        skill_registry.list_skills()
-        if hasattr(skill_registry, "list_skills")
-        else list(skill_registry._skills.values())
-    )
-    for s_def in skills_iter:
-        if getattr(s_def, "is_global", False):
-            if getattr(s_def, "requires_admin", False) and s_def.name not in combined_skills:
-                continue
-            permitted.update(getattr(s_def, "tools", []))
-            for schema in getattr(s_def, "custom_tool_schemas", []):
-                fn = schema.get("function", {}).get("name")
-                if fn:
-                    permitted.add(fn)
-            if getattr(s_def, "mcp_server", ""):
-                try:
-                    from services.mcp.client_manager import get_mcp_client_manager
-                    mgr = get_mcp_client_manager()
-                    allowed = getattr(s_def, "mcp_tools", None)
-                    allowed_raw = allowed if (allowed and "*" not in allowed) else None
-                    cached = mgr.get_cached_tools_for_server(s_def.mcp_server, allowed_raw_names=allowed_raw)
-                    for t in cached:
-                        permitted.add(t.namespaced_name)
-                except Exception:
-                    pass
-
-    return permitted
-
-
-def is_principal_authorized_for_tool(
-    principal: Any,
-    tool_name: str,
-    authorized_skills: list[str] | set[str] | str | None = None,
-    skill_registry: Any = None,
-) -> bool:
-    """Validates whether a principal has authorization to execute a tool (fail-closed)."""
-    from core.domain import ToolPrincipal
-
-    if isinstance(principal, ToolPrincipal) and principal.kind == "system":
-        return True
-
-    is_internal = authorized_skills == ALL_INTERNAL_SKILLS or (
-        isinstance(authorized_skills, (list, tuple, set)) and ALL_INTERNAL_SKILLS in authorized_skills
-    )
-    if is_internal:
-        return True
-
-    if isinstance(principal, ToolPrincipal):
-        actor_id = (principal.id or "").strip()
-    elif isinstance(principal, str):
-        actor_id = principal.strip()
-    else:
-        actor_id = ""
-
-    # Raw string "system" or empty string does NOT bypass authorization
-    if not actor_id or actor_id == "system":
-        return False
-
-    permitted = get_permitted_tools_for_principal(
-        principal=principal,
-        authorized_skills=authorized_skills,
-        skill_registry=skill_registry,
-    )
-    return tool_name in permitted
-
-
 _skill_registry_instance: SkillRegistry | None = None
 
 
 def get_skill_registry() -> SkillRegistry:
-    """Returns the canonical global SkillRegistry singleton instance."""
+    """Returns the canonical global SkillRegistry singleton instance (lazy, zero import-time I/O)."""
     global _skill_registry_instance
     if _skill_registry_instance is None:
-        instance = SkillRegistry.__new__(SkillRegistry)
-        _skill_registry_instance = instance
-        try:
-            from core.registry import set_skill_registry_provider
-
-            set_skill_registry_provider(get_skill_registry)
-        except Exception:  # noqa: BLE001
-            pass
-        instance.__init__()
+        _skill_registry_instance = SkillRegistry(auto_load=False)
+        set_skill_registry_provider(get_skill_registry)
     return _skill_registry_instance
 
 
-# Global singleton registry instance
+# Global singleton registry instance (explicitly loaded in lifespan or lazily via ensure_loaded)
 skill_registry: SkillRegistry = get_skill_registry()
+

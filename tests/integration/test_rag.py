@@ -13,7 +13,7 @@ from services.security.pii_masker import PIIMasker, pii_masker
 from services.rag.service import RAGService
 from services.rag.sync_engine import SyncReconciliationEngine
 from services.rag.vector_store import VectorStore
-from skills.loader import SkillRegistry
+from skills.registry import SkillRegistry
 
 
 @pytest.fixture
@@ -230,7 +230,7 @@ def test_pii_masker_patterns():
 
 
 def test_pii_masking_integration():
-    from orchestration.system_settings import set_rag_setting
+    from config_store.system_settings import set_rag_setting
 
     sample_raw = "Deploy keys: sk-proj-1234567890abcdef123456 and email dev@org.internal"
 

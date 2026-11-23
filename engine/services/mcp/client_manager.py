@@ -17,7 +17,7 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from mcp.client.sse import sse_client
 
-from orchestration.system_settings import McpServerConfig, get_mcp_server_config, get_mcp_servers
+from config_store.system_settings import McpServerConfig, get_mcp_server_config, get_mcp_servers
 from services.mcp.schema_translator import (
     clear_mcp_tool_name_registry,
     is_mcp_tool_destructive,

@@ -1,5 +1,9 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
 from typing import Any, Callable, Protocol, runtime_checkable
+
+from core.registry import get_default_workspace_adapter_factory, get_skill_registry
 
 
 
@@ -60,11 +64,11 @@ class TokenRecorder(Protocol):
         self,
         channel_id: str,
         thread_ts: str,
-        model: str,
+        model_name: str,
         prompt_tokens: int,
         completion_tokens: int,
-        agent_name: str | None = None,
-    ) -> None: ...
+        channel_name: str | None = None,
+    ) -> Any: ...
 
 
 @runtime_checkable
@@ -72,7 +76,11 @@ class NotesUpdater(Protocol):
     """Triggers background updates to thread notes summary."""
 
     def __call__(
-        self, channel_id: str, thread_ts: str, is_completed: bool = False
+        self,
+        channel_id: str,
+        thread_ts: str,
+        is_completed: bool = False,
+        bot_user_id: str | None = None,
     ) -> Any: ...
 
 
@@ -113,9 +121,8 @@ class SlackMessageUpdater(Protocol):
     async def __call__(
         self,
         channel_id: str,
-        message_ts: str,
+        ts: str,
         text: str,
-        *,
         blocks: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]: ...
 
@@ -185,8 +192,40 @@ class FlatHistoryRecorder(Protocol):
     """Records thread transcript to flat markdown file."""
 
     async def __call__(
-        self, channel_id: str, thread_ts: str, is_completed: bool = False
+        self,
+        channel_id: str,
+        thread_ts: str,
+        initial_prompt: str | None = None,
+        messages: list[dict[str, Any]] | None = None,
+        force: bool = False,
     ) -> Any: ...
+
+
+def create_default_workspace_adapter(
+    *,
+    post_agent_fn: Any = None,
+    update_msg_fn: Any = None,
+    post_system_fn: Any = None,
+) -> WorkspaceAdapter:
+    """Constructs the registered default WorkspaceAdapter without upward adapter imports."""
+    factory = get_default_workspace_adapter_factory()
+    if factory is None:
+        raise RuntimeError(
+            "Default WorkspaceAdapter factory is not configured. Call set_default_workspace_adapter_factory()."
+        )
+    return factory(
+        post_agent_fn=post_agent_fn,
+        update_msg_fn=update_msg_fn,
+        post_system_fn=post_system_fn,
+    )
+
+
+def _first_not_none(*values: Any) -> Any:
+    """Returns the first non-None value (preserving falsy 0 / 0.0 numeric overrides)."""
+    for v in values:
+        if v is not None:
+            return v
+    return None
 
 
 @dataclass(frozen=True)
@@ -293,33 +332,44 @@ def resolve_pipeline_deps(
     # Workspace Adapter Port (Hexagonal Architecture)
     ws_adapter = _get("workspace_adapter")
     if ws_adapter is None:
-        from adapters.slack.workspace_adapter import SlackWorkspaceAdapter
-
-        ws_adapter = SlackWorkspaceAdapter(
+        ws_adapter = create_default_workspace_adapter(
             post_agent_fn=slack_poster,
             update_msg_fn=update_message_fn,
             post_system_fn=post_system_message_fn,
         )
 
-    debate_turn_pacing = _get("debate_turn_pacing_seconds") or _get("DEBATE_TURN_PACING_SECONDS")
-    slack_post_pause = _get("slack_post_pause_seconds") or _get("SLACK_POST_PAUSE_SECONDS")
-    max_tool_iters = _get("max_tool_iterations") or _get("MAX_TOOL_ITERATIONS")
-    timeout_s = (
-        _get("timeout_secs")
-        or _get("TOOL_CALL_LOOP_TIMEOUT_SECONDS")
-        or _get("timeout_seconds")
+    debate_turn_pacing = _first_not_none(
+        _get("debate_turn_pacing_seconds"),
+        _get("DEBATE_TURN_PACING_SECONDS"),
     )
-    intermediate_delay_s = (
-        _get("intermediate_delay_secs")
-        or _get("TOOL_INTERMEDIATE_UPDATE_DELAY_SECONDS")
-        or _get("intermediate_delay_seconds")
+    slack_post_pause = _first_not_none(
+        _get("slack_post_pause_seconds"),
+        _get("SLACK_POST_PAUSE_SECONDS"),
+    )
+    max_tool_iters = _first_not_none(
+        _get("max_tool_iterations"),
+        _get("MAX_TOOL_ITERATIONS"),
+    )
+    timeout_s = _first_not_none(
+        _get("timeout_secs"),
+        _get("TOOL_CALL_LOOP_TIMEOUT_SECONDS"),
+        _get("timeout_seconds"),
+    )
+    intermediate_delay_s = _first_not_none(
+        _get("intermediate_delay_secs"),
+        _get("TOOL_INTERMEDIATE_UPDATE_DELAY_SECONDS"),
+        _get("intermediate_delay_seconds"),
     )
 
     skill_reg = _get("skill_registry")
     if skill_reg is None:
-        from skills.loader import get_skill_registry
+        try:
+            skill_reg = get_skill_registry()
+        except RuntimeError:
+            import importlib
 
-        skill_reg = get_skill_registry()
+            importlib.import_module("skills.registry")
+            skill_reg = get_skill_registry()
 
     spend_gov = _get("spend_governance")
     if spend_gov is None:
@@ -369,6 +419,7 @@ __all__ = [
     "ToolExecutor",
     "UsageUpdater",
     "WorkspaceAdapter",
+    "create_default_workspace_adapter",
     "resolve_pipeline_deps",
 ]
 

@@ -9,12 +9,11 @@ from core.llm_utils import configure_llm_completion_fn
 from core.models import ActionDirective, ExtractedIntent
 from nlp.intent_extractor import configure_intent_extractor
 from nlp.message_builder import build_llm_messages
-from orchestration import agent_router
 from orchestration.agent_router import (
     configure_router_sleep_fn,
     process_and_respond,
 )
-from orchestration.agent_settings import (
+from config_store.agent_settings import (
     get_enabled_agents,
     reset_enabled_agents,
     set_fixed_config,
@@ -1306,7 +1305,7 @@ async def test_ambiguous_tag_halt_with_empty_agents_config():
     """TKT-1211 (H11): the ambiguous-tag halt path must not raise UnboundLocalError (F823)
     even when settings_manager.agents_config is empty (falls back to AGENTS_CONFIG)."""
     import copy
-    from orchestration.agent_settings import settings_manager
+    from config_store.agent_settings import settings_manager
 
     thread_state_manager.reset_all()
     orig_agents_cfg = copy.deepcopy(settings_manager.agents_config)

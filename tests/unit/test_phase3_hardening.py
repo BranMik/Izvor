@@ -16,12 +16,12 @@ import pytest
 
 from core.logging_filters import CredentialRedactionFilter
 from core.slack_security import _record_auth_failure_audit
-from orchestration.agent_settings import AgentSettingsManager
-from orchestration.app_settings import AppSettingsManager
-from orchestration.stages.execution import _unmask_argument_values
-from orchestration.system_settings import SystemSettingsManager
+from config_store.agent_settings import AgentSettingsManager
+from config_store.app_settings import AppSettingsManager
+from orchestration.stages.tool_loop_runner import _unmask_argument_values
+from config_store.system_settings import SystemSettingsManager
 from services.audit_logger import GENESIS_HASH, AuditLogger
-from skills.loader import ALL_INTERNAL_SKILLS, skill_registry
+from skills.registry import ALL_INTERNAL_SKILLS, skill_registry
 
 
 # ---------------------------------------------------------------------------
@@ -141,7 +141,7 @@ async def test_fail_closed_tool_authorization():
     assert "Permission denied: Agent is not authorized to execute tool 'read_document'" in data_empty["error"]
 
     # Calling with internal sentinel allows execution
-    with patch("skills.loader.execute_local_tool", new_callable=AsyncMock, return_value=json.dumps({"contents": "unrestricted"})):
+    with patch("skills.registry.execute_local_tool", new_callable=AsyncMock, return_value=json.dumps({"contents": "unrestricted"})):
         res_internal = await skill_registry.execute_tool_async(
             "read_document", {"file_path": "doc.txt"}, authorized_skills=ALL_INTERNAL_SKILLS
         )
@@ -267,8 +267,10 @@ def test_credential_redaction_filter():
         exc_info=None,
     )
     redactor.filter(log_record_args)
-    assert "sk-proj-" not in log_record_args.args[0]
-    assert "[REDACTED_API_KEY]" in log_record_args.args[0]
+    assert log_record_args.args == ()
+    assert "sk-proj-" not in log_record_args.msg
+    assert "[REDACTED_API_KEY]" in log_record_args.msg
+    assert "https://api.openai.com" in log_record_args.msg
 
 
 def test_tool_argument_unmasking():

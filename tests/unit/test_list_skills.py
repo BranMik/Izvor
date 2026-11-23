@@ -261,7 +261,7 @@ async def test_runtime_permission_enforcement():
 def test_get_skill_resolution_hint():
     """Verify that get_skill_resolution_hint recommends 1 authorized agent by username (no agent IDs) and /grant_skill."""
     import re
-    from skills.loader import select_recommended_agent_from_keys
+    from skills.registry import select_recommended_agent_from_keys
 
     hint = skill_registry.get_skill_resolution_hint("document_reader")
     assert "Recommended agent for 'document_reader':" in hint
@@ -324,7 +324,7 @@ def test_skills_directory_prompt_thread_global_active():
     Verify that when a skill is granted thread-globally, get_skills_directory_prompt
     renders '(Authorized: All Agents (Thread-Global Active))' and updated permission text.
     """
-    from orchestration.thread_skills_manager import thread_skills_manager
+    from services.thread_skills_store import thread_skills_manager
 
     channel_id = "C_TEST_THREAD_DIR"
     thread_ts = "1794900001.0001"
@@ -341,7 +341,7 @@ def test_skills_directory_prompt_agent_thread_active():
     Verify that when a skill is granted to a specific agent in a thread,
     get_skills_directory_prompt renders that agent as '(Thread Active)'.
     """
-    from orchestration.thread_skills_manager import thread_skills_manager
+    from services.thread_skills_store import thread_skills_manager
 
     channel_id = "C_TEST_AGENT_DIR"
     thread_ts = "1794900002.0002"
@@ -357,7 +357,7 @@ def test_build_agent_prompt_with_thread_context():
     Verify that build_agent_prompt forwards thread context to get_skills_directory_prompt,
     producing an internally coherent system prompt for dynamic skills.
     """
-    from orchestration.thread_skills_manager import thread_skills_manager
+    from services.thread_skills_store import thread_skills_manager
 
     channel_id = "C_TEST_BUILD_DIR"
     thread_ts = "1794900003.0003"
@@ -409,13 +409,14 @@ async def test_list_skills_action_falls_back_with_footer_when_key_missing():
 
 
 def test_list_skills_action_survives_slack_messages_first_import():
-    """Importing services.slack.messages before skills.loader must still register list_skills.action_handler."""
+    """Importing services.slack.messages before skills.registry must still register list_skills.action_handler."""
     import subprocess
     import sys
 
     code = (
         "import sys; sys.path.insert(0, 'engine'); "
         "import services.slack.messages; "
+        "import skills.registry; "
         "from core.registry import get_skill_registry; "
         "sk = get_skill_registry().get('list_skills'); "
         "assert sk is not None and sk.action_handler is not None"

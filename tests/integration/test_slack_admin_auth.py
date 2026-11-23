@@ -88,7 +88,7 @@ def test_non_admin_blocked_from_system_actions():
 
 def test_admin_allowed_system_actions():
     """Test that configured admin users successfully perform settings actions."""
-    with patch("adapters.slack.interactivity.publish_app_home", AsyncMock(return_value={"ok": True})):
+    with patch("services.slack.views.publish_app_home", AsyncMock(return_value={"ok": True})):
         payload = {
             "type": "block_actions",
             "user": {"id": "U_REAL_ADMIN"},
@@ -251,11 +251,10 @@ def test_workflow_delete_non_admin_expired_trigger_id_fallback_dm():
 
 def test_workflow_dropdown_admin_rbac():
     """Test that workflow preset selection requires admin permissions (S-08)."""
-    from orchestration.agent_settings import get_active_workflow_id
+    from config_store.agent_settings import get_active_workflow_id
 
     mock_publish_home = AsyncMock(return_value={"ok": True})
-    with patch("services.slack.views.publish_app_home", mock_publish_home), \
-         patch("adapters.slack.interactivity.publish_app_home", mock_publish_home):
+    with patch("services.slack.views.publish_app_home", mock_publish_home):
 
         wf_payload_non_admin = {
             "type": "block_actions",

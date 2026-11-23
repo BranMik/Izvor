@@ -11,8 +11,10 @@ logger = logging.getLogger(__name__)
 
 
 async def run(ctx: Any, params: dict[str, Any] | None = None) -> dict[str, Any] | None:
-    from orchestration.thread_state import thread_state_manager
+    from core.registry import get_thread_state_manager
     from services.slack import post_system_message
+
+    thread_state_manager = getattr(ctx, "thread_state_manager", None) or get_thread_state_manager()
 
     params = params or {}
     inp = getattr(ctx, "input", ctx)

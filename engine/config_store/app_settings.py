@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import copy
 import json
 import logging
@@ -6,11 +8,11 @@ import time
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
+from config_store.settings_store import JsonSettingsStore
 from core.models import CircuitBreakerConfig
 from core.paths import APP_BACKUP_FILE, APP_SETTINGS_FILE
-from orchestration.settings_store import JsonSettingsStore
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +77,24 @@ class AppSettingsManager:
     def active_settings_file(self) -> Path:
         return self.default_settings_file
 
+    def _to_model(self) -> AppSettingsModel:
+        return AppSettingsModel(
+            thread_skill_expiration_time=float(self.thread_skill_expiration_time),
+            circuit_breaker_enabled=bool(self.circuit_breaker_enabled),
+            circuit_breaker_threshold_usd=float(self.circuit_breaker_threshold_usd),
+            daily_budget_usd=float(self.daily_budget_usd),
+            scribe_enabled=bool(self.scribe_enabled),
+            convergence_fast_forward_enabled=bool(self.convergence_fast_forward_enabled),
+            weekly_pricing_update_enabled=bool(self.weekly_pricing_update_enabled),
+            workspace_context=str(self.workspace_context),
+            filter_unauthorized_skill_agents_enabled=bool(self.filter_unauthorized_skill_agents_enabled),
+        )
+
+    def get_snapshot(self) -> AppSettingsModel:
+        """Returns an isolated deep-copied Pydantic snapshot of app settings."""
+        self.load()
+        return self._to_model().model_copy(deep=True)
+
     def configure_paths(
         self,
         settings_file: Path | str | None = None,
@@ -127,8 +147,12 @@ class AppSettingsManager:
         if self.default_settings_file.exists():
             try:
                 self.load(force=True)
-            except Exception:
-                pass
+            except (OSError, ValueError, TypeError, ValidationError) as err:
+                logger.debug(
+                    "[APP_SETTINGS] Deferred initial load on %s: %s",
+                    self.default_settings_file,
+                    err,
+                )
         else:
             self._apply_model_to_fields(AppSettingsModel())
 
@@ -219,8 +243,6 @@ class AppSettingsManager:
 
     def set_circuit_breaker_enabled(self, enabled: bool, save: bool = True) -> None:
         self.circuit_breaker_enabled = bool(enabled)
-
-        # Threshold is decoupled from enabled state and preserved
         if save:
             self.save()
         logger.info(f"[APP_SETTINGS] Set circuit_breaker_enabled to {self.circuit_breaker_enabled}.")
@@ -292,7 +314,6 @@ class AppSettingsManager:
             self.save()
         logger.info(f"[APP_SETTINGS] Set convergence_fast_forward_enabled to {self.convergence_fast_forward_enabled}.")
 
-
     # --- Skill-Authorized Agent Filtering ---
     def is_filter_unauthorized_skill_agents_enabled(self) -> bool:
         self.load()
@@ -303,7 +324,6 @@ class AppSettingsManager:
         if save:
             self.save()
         logger.info(f"[APP_SETTINGS] Set filter_unauthorized_skill_agents_enabled to {self.filter_unauthorized_skill_agents_enabled}.")
-
 
     # --- Workspace Baseline Context ---
     def get_workspace_context(self) -> str:
@@ -317,7 +337,8 @@ class AppSettingsManager:
             self.save()
         logger.info(f"[APP_SETTINGS] Set workspace_context ({len(clean)} chars).")
         try:
-            from orchestration.agent_settings import settings_manager
+            from config_store.agent_settings import settings_manager
+
             settings_manager.refresh_agent_prompts()
         except (ImportError, AttributeError) as e:
             logger.debug(f"[APP_SETTINGS] Note: could not trigger refresh_agent_prompts: {e}")
@@ -326,7 +347,10 @@ class AppSettingsManager:
 app_settings_manager = AppSettingsManager()
 
 
-# Module-level convenience functions
+def get_app_settings_snapshot() -> AppSettingsModel:
+    return app_settings_manager.get_snapshot()
+
+
 def get_workspace_context() -> str:
     return app_settings_manager.get_workspace_context()
 
@@ -401,5 +425,3 @@ def is_filter_unauthorized_skill_agents_enabled() -> bool:
 
 def set_filter_unauthorized_skill_agents_enabled(enabled: bool, save: bool = True) -> None:
     app_settings_manager.set_filter_unauthorized_skill_agents_enabled(enabled, save=save)
-
-

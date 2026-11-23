@@ -3,7 +3,7 @@ from typing import Any
 
 from fastapi import BackgroundTasks, Response
 
-from orchestration.agent_settings import (
+from config_store.agent_settings import (
     get_agents_config,
     reset_enabled_agents,
     restore_from_backup,
@@ -12,13 +12,14 @@ from orchestration.agent_settings import (
     settings_manager,
     toggle_agent,
 )
-from services.audit_logger import log_audit_event
+from services.audit_logger import log_audit_event, log_audit_event_async
 from services.slack import (
     open_dm_channel,
     post_ephemeral_to_slack,
     post_message_to_slack,
     slack_async_client,
 )
+from services.slack.views import safe_publish_home
 from slack_sdk.errors import SlackApiError
 
 logger = logging.getLogger("IzvorBackend.SlackInteractivity.Agents")
@@ -98,9 +99,6 @@ async def _deliver_admin_denial_feedback(
                 logger.warning(f"[INTERACTIVITY] Fallback DM delivery failed for user {user_id}: {e}")
 
 
-from services.slack.views import safe_publish_home
-
-
 def _deny_non_admin_action(
     payload: dict[str, Any],
     user_id: str | None,
@@ -150,7 +148,7 @@ async def _handle_select_agent_model(
     if agent_key and val:
         logger.info(f"[INTERACTIVITY] Changing model for agent '{agent_key}' to '{val}'")
         set_agent_model(agent_key, val)
-        log_audit_event(
+        await log_audit_event_async(
             event_type="ADMIN_CONFIG_CHANGE",
             actor={"type": "slack_admin", "id": user_id or "unknown"},
             action="set_agent_model",
@@ -173,7 +171,7 @@ async def _handle_toggle_agent_radio(
     if ":" in val:
         agent_key, state = val.split(":", 1)
         set_agent_enabled(agent_key, state == "on")
-        log_audit_event(
+        await log_audit_event_async(
             event_type="ADMIN_CONFIG_CHANGE",
             actor={"type": "slack_admin", "id": user_id or "unknown"},
             action="toggle_agent",
@@ -194,7 +192,7 @@ async def _handle_toggle_agent(
     agent_key = action.get("value")
     if agent_key:
         toggle_agent(agent_key)
-        log_audit_event(
+        await log_audit_event_async(
             event_type="ADMIN_CONFIG_CHANGE",
             actor={"type": "slack_admin", "id": user_id or "unknown"},
             action="toggle_agent",
@@ -213,7 +211,7 @@ async def _handle_bulk_enable_all(
     view_state: dict[str, Any],
 ) -> Response | None:
     reset_enabled_agents()
-    log_audit_event(
+    await log_audit_event_async(
         event_type="ADMIN_CONFIG_CHANGE",
         actor={"type": "slack_admin", "id": user_id or "unknown"},
         action="bulk_enable_all_agents",
@@ -235,7 +233,7 @@ async def _handle_bulk_disable(
     for key in get_agents_config():
         set_agent_enabled(key, False, save=False)
     settings_manager.save()
-    log_audit_event(
+    await log_audit_event_async(
         event_type="ADMIN_CONFIG_CHANGE",
         actor={"type": "slack_admin", "id": user_id or "unknown"},
         action="bulk_disable_agents",
@@ -257,7 +255,7 @@ async def _handle_restore_from_backup(
     logger.info(
         f"[INTERACTIVITY] restore_from_backup invoked by user {user_id}: success={success}"
     )
-    log_audit_event(
+    await log_audit_event_async(
         event_type="WORKFLOW_PRESET_MUTATION",
         actor={"type": "slack_admin", "id": user_id or "unknown"},
         action="restore_from_backup",

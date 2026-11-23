@@ -9,18 +9,17 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from orchestration.agent_router import _apply_convergence_stress_test_or_fast_forward
-from orchestration.app_settings import (
-    app_settings_manager,
+from config_store.app_settings import (
     is_convergence_fast_forward_enabled,
     set_convergence_fast_forward_enabled,
 )
-from orchestration.agent_settings import (
+from config_store.agent_settings import (
     get_challenger_agent,
     get_arbitrator_agent,
     set_challenger_agent,
     set_arbitrator_agent,
 )
-from orchestration.system_settings import (
+from config_store.system_settings import (
     get_convergence_consecutive_threshold,
     set_convergence_consecutive_threshold,
 )
@@ -65,7 +64,7 @@ def test_consecutive_convergence_triggers_challenger_arbitrator_stress_test():
     consecutive_count = 1  # 1 previous turn converged
 
     with patch(
-        "orchestration.agent_settings.get_sandwich_config",
+        "config_store.agent_settings.get_sandwich_config",
         return_value={"end_chain": ["agent-10006"]},
     ):
         # Turn 2 also converges -> threshold (2) reached
@@ -97,7 +96,7 @@ def test_arbitrator_verdict_a_fast_forwards_to_end_chain():
     spoken_agents = {"agent-10001", "Challenger", "Arbitrator"}
 
     with patch(
-        "orchestration.agent_settings.get_sandwich_config",
+        "config_store.agent_settings.get_sandwich_config",
         return_value={"end_chain": ["agent-10006"]},
     ):
         # Arbitrator signals convergence (Verdict A)
@@ -125,7 +124,7 @@ def test_arbitrator_verdict_b_cancels_fast_forward_and_resumes_middle_pool():
     spoken_agents = {"agent-10001", "Challenger", "Arbitrator"}
 
     with patch(
-        "orchestration.agent_settings.get_sandwich_config",
+        "config_store.agent_settings.get_sandwich_config",
         return_value={"end_chain": ["agent-10006"]},
     ):
         # Arbitrator rejects consensus (Verdict B: last_turn_converged=False)
@@ -269,7 +268,7 @@ def test_consecutive_threshold_three_and_sceptic_early_kickoff_speech():
     spoken_agents = {"agent-10003"}
 
     with patch(
-        "orchestration.agent_settings.get_sandwich_config",
+        "config_store.agent_settings.get_sandwich_config",
         return_value={"end_chain": ["agent-10006"]},
     ):
         # Turn 2: Agent 4 converges (count 1)
@@ -325,7 +324,7 @@ def test_case_b_direct_arbitrator_when_challenger_converged():
     )
 
     with patch(
-        "orchestration.agent_settings.get_sandwich_config",
+        "config_store.agent_settings.get_sandwich_config",
         return_value={"end_chain": ["agent-10006"]},
     ):
         # Turn 1: Challenger speaks and converges!

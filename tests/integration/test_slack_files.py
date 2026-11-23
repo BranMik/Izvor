@@ -454,7 +454,7 @@ async def test_download_slack_file_non_slack_domain_blocked():
 
 @pytest.mark.anyio
 async def test_download_slack_file_streaming_byte_cap():
-    from orchestration.system_settings import get_max_file_size_bytes
+    from config_store.system_settings import get_max_file_size_bytes
 
     max_bytes = get_max_file_size_bytes()
     # Provide chunks that in total exceed max_bytes

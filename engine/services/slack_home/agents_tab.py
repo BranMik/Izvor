@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 def _get_example_agent_id(agents_cfg: dict[str, Any] | None = None) -> str:
     """Returns an example agent ID from configured agents, or 'agent-id' as fallback."""
     if agents_cfg is None:
-        from orchestration.agent_settings import get_agents_config
+        from config_store.agent_settings import get_agents_config
         cfg = get_agents_config()
     else:
         cfg = agents_cfg
@@ -20,7 +20,7 @@ def _get_example_agent_id(agents_cfg: dict[str, Any] | None = None) -> str:
 def _get_example_agent_names(agents_cfg: dict[str, Any] | None = None, count: int = 2) -> str:
     """Returns comma-separated example agent displaynames from configured agents."""
     if agents_cfg is None:
-        from orchestration.agent_settings import get_agents_config
+        from config_store.agent_settings import get_agents_config
         cfg = get_agents_config()
     else:
         cfg = agents_cfg

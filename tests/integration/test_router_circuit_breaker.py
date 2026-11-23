@@ -13,13 +13,13 @@ from orchestration.agent_router import (
     configure_router_sleep_fn,
     process_and_respond,
 )
-from orchestration.agent_settings import (
+from config_store.agent_settings import (
     reset_enabled_agents,
     set_fixed_config,
     set_orchestration_mode,
     set_sandwich_config,
 )
-from orchestration.app_settings import (
+from config_store.app_settings import (
     get_circuit_breaker_config,
     get_circuit_breaker_threshold,
     is_circuit_breaker_enabled,
@@ -65,7 +65,6 @@ async def test_circuit_breaker_triggers_when_threshold_exceeded():
     thread_state_manager.discussion.reset()
     channel_id = "C_CB_TRIGGER"
     thread_ts = "123456789.9001"
-    thread_key = (channel_id, thread_ts)
     thread_state_manager.discussion.set_remaining_agents(channel_id, thread_ts, ["agent-10011", "agent-10008"])
 
     set_circuit_breaker_enabled(True)
@@ -346,7 +345,6 @@ async def test_mid_turn_budget_does_not_double_count_persisted_tokens():
     model = "anthropic/claude-opus-5"
     pricing = pricing_service.get_pricing(model)
     in_rate = float(pricing["input_price_per_1m"])
-    out_rate = float(pricing["output_price_per_1m"])
 
     # Choose token counts cleanly corresponding to ~$0.06 and ~$0.045 based on active model rates
     prompt_toks_1 = int(round((0.06 / max(in_rate, 0.001)) * 1_000_000))

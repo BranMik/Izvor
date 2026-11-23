@@ -1,11 +1,9 @@
-import tempfile
 import time
-from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from orchestration.thread_skills_manager import ThreadSkillsManager, thread_skills_manager
+from services.thread_skills_store import thread_skills_manager
 from orchestration.turn_pipeline import TurnContext, TurnPipeline
 from pipeline.directive_parser import directive_parser
 from core.registry import get_skill_registry
@@ -480,7 +478,7 @@ async def test_revoke_constraint_non_admin_denied():
 
 @pytest.mark.anyio
 async def test_custom_skill_requires_admin_blocked_for_non_admin():
-    from skills.loader import SkillDefinition
+    from skills.registry import SkillDefinition
     pipeline = TurnPipeline()
     post_mock = AsyncMock()
     pipeline.post_system_message_fn = post_mock

@@ -11,7 +11,7 @@ from core.paths import (
     RAG_KNOWLEDGE_DIR,
     SYSTEM_SETTINGS_FILE,
 )
-from orchestration.system_settings import system_settings_manager
+from config_store.system_settings import system_settings_manager
 
 logger = logging.getLogger(__name__)
 

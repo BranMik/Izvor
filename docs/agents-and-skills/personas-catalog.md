@@ -17,7 +17,7 @@ In Izvor, personas are not simply "chatbots" with different system instructions.
 
 ## 📋 The Complete 16-Persona Roster
 
-The debate panel roster is managed dynamically in [`config/settings/agent_settings.json`](file:///config/settings/agent_settings.json) and configured via [`orchestration/agent_settings.py`](file:///engine/orchestration/agent_settings.py):
+The debate panel roster is managed dynamically in [`config/settings/agent_settings.json`](file:///config/settings/agent_settings.json) and configured via [`config_store/agent_settings.py`](file:///engine/config_store/agent_settings.py):
 
 | Agent ID | Display Name | Username Tag | Default LLM Model | Default Assigned Skills | Output Style |
 |---|---|---|---|---|---|
@@ -87,4 +87,4 @@ Personas' effective system prompts are assembled dynamically during **Stage 3: C
 3. **3-Tier Memory Context**: Injects `<episodic_thread_summary>` (when history is sliced) and `<shared_round_evidence>` (cached read-only tool outputs from `RoundEvidenceStore`).
 4. **Word Constraints**: If `is_short_output: true` or if a directive (`[max_words: N]`, `[min_words: N]`) is active, instructions are clamped (`max_words ≤ 2000`) and injected into the prompt.
 5. **File Attachments**: Any thread-attached files are safely sanitized and wrapped with `<untrusted_file_content>` delimiters.
-6. **Active Tools & Control Plane Skills**: Schemas of granted tools (e.g. search, document reader) plus global `control_plane` tools (`nominate_next_speaker`, `request_user_clarification`, `signal_consensus_convergence`) are queried from [`ThreadSkillsManager`](file:///engine/orchestration/thread_skills_manager.py) and appended to the LiteLLM tool definition payload.
+6. **Active Tools & Control Plane Skills**: Schemas of granted tools (e.g. search, document reader) plus global `control_plane` tools (`nominate_next_speaker`, `request_user_clarification`, `signal_consensus_convergence`) are queried from [`ThreadSkillsManager`](file:///engine/services/thread_skills_store.py) and appended to the LiteLLM tool definition payload.

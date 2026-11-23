@@ -7,9 +7,9 @@ from __future__ import annotations
 
 import inspect
 import logging
-import time
 from typing import Any, Callable
 
+from core.registry import set_default_workspace_adapter_factory
 from nlp.message_builder import markdown_to_slack
 from services.slack import (
     post_agent_response,
@@ -137,4 +137,7 @@ class SlackWorkspaceAdapter:
         if inspect.isawaitable(res):
             return await res
         return res
+
+
+set_default_workspace_adapter_factory(SlackWorkspaceAdapter)
 

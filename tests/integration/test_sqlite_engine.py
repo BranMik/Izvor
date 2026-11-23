@@ -7,7 +7,7 @@ from core.database import DatabaseManager, get_connection
 from core.models import FileContext
 from orchestration.state.context_store import ThreadContextStore
 from orchestration.state.discussion_store import DiscussionStateStore
-from orchestration.thread_skills_manager import thread_skills_manager
+from services.thread_skills_store import thread_skills_manager
 from pipeline.spend_governance.circuit_breaker import SpendGovernance
 
 

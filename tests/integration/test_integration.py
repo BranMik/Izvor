@@ -7,12 +7,11 @@ from orchestration.agent_router import (
     configure_fetch_thread_history,
     configure_post_agent_response,
 )
-from orchestration.agent_settings import (
-    get_enabled_agents,
+from config_store.agent_settings import (
     reset_enabled_agents,
     settings_manager,
 )
-from orchestration.app_settings import (
+from config_store.app_settings import (
     get_circuit_breaker_threshold,
     is_circuit_breaker_enabled,
     set_circuit_breaker_enabled,
@@ -313,7 +312,7 @@ def test_slack_interactivity_radio_toggle_action():
 
         response_bulk_on = client.post("/slack/actions", json=payload_bulk_on)
         assert response_bulk_on.status_code == 200
-        from orchestration.agent_settings import get_agents_config
+        from config_store.agent_settings import get_agents_config
         assert len(settings_manager.enabled_agents) == len(get_agents_config())
 
 
@@ -637,7 +636,7 @@ def test_slack_interactivity_zero_threshold_turns_off_circuit_breaker():
 
 
 def test_slack_interactivity_scribe_toggle():
-    from orchestration.app_settings import is_scribe_enabled, set_scribe_enabled
+    from config_store.app_settings import is_scribe_enabled, set_scribe_enabled
 
     try:
         set_scribe_enabled(True)
@@ -675,7 +674,7 @@ def test_slack_interactivity_scribe_toggle():
 
 
 def test_slack_interactivity_weekly_pricing_toggle():
-    from orchestration.app_settings import (
+    from config_store.app_settings import (
         is_weekly_pricing_update_enabled,
         set_weekly_pricing_update_enabled,
     )

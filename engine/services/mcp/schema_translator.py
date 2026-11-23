@@ -12,7 +12,7 @@ import re
 import threading
 from typing import Any
 
-from orchestration.system_settings import McpServerConfig
+from config_store.system_settings import McpServerConfig
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +67,7 @@ def parse_mcp_tool_name(full_tool_name: str) -> tuple[str, str] | None:
             return registered
 
     try:
-        from orchestration.system_settings import get_mcp_servers
+        from config_store.system_settings import get_mcp_servers
 
         configured_servers = list(get_mcp_servers().keys())
     except Exception:  # noqa: BLE001

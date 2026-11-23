@@ -14,12 +14,10 @@ import pytest
 from starlette.background import BackgroundTasks
 from starlette.requests import Request
 
-from adapters.slack.interactivity import (
-    _validate_chain_agent_keys,
-    handle_slack_interactivity,
-)
+from adapters.slack.actions import _validate_chain_agent_keys
+from adapters.slack.interactivity import handle_slack_interactivity
 from core.config import set_admin_slack_user_ids_override
-from orchestration.agent_settings import (
+from config_store.agent_settings import (
     get_fixed_config,
 )
 
@@ -48,13 +46,15 @@ async def test_whole_payload_pre_authorization_blocks_mixed_actions():
 
     executed_scribe = []
     logged_events = []
-    record_event = lambda **kwargs: logged_events.append(kwargs)
+
+    def record_event(**kwargs):
+        logged_events.append(kwargs)
 
     with patch("adapters.slack.interactivity.verify_slack_signature", return_value=True), \
-         patch("adapters.slack.actions.workflow_actions._handle_scribe_download", lambda **kwargs: executed_scribe.append(kwargs)), \
+         patch("adapters.slack.actions.scribe_actions._handle_scribe_download", lambda **kwargs: executed_scribe.append(kwargs)), \
          patch("adapters.slack.actions.agent_actions.log_audit_event", side_effect=record_event), \
-         patch("adapters.slack.actions.workflow_actions.log_audit_event", side_effect=record_event), \
-         patch("adapters.slack.interactivity.log_audit_event", side_effect=record_event), \
+         patch("adapters.slack.actions.governance_actions.log_audit_event_async", AsyncMock(side_effect=record_event)), \
+         patch("adapters.slack.interactivity.log_audit_event_async", AsyncMock(side_effect=record_event)), \
          patch("services.audit_logger.log_audit_event", side_effect=record_event):
 
         # Payload has non-admin action first, then admin action
@@ -90,11 +90,13 @@ async def test_chain_mutation_rejects_unknown_agent_keys():
     set_admin_slack_user_ids_override("U_ADMIN")
 
     logged_events = []
-    record_event = lambda **kwargs: logged_events.append(kwargs)
+
+    def record_event(**kwargs):
+        logged_events.append(kwargs)
 
     with patch("adapters.slack.interactivity.verify_slack_signature", return_value=True), \
          patch("services.slack.views.publish_app_home", AsyncMock()), \
-         patch("adapters.slack.actions.workflow_actions.log_audit_event", side_effect=record_event), \
+         patch("adapters.slack.actions.workflow_presets.log_audit_event_async", AsyncMock(side_effect=record_event)), \
          patch("services.audit_logger.log_audit_event", side_effect=record_event):
 
         payload = {
@@ -146,11 +148,14 @@ async def test_newly_audited_actions_emit_audit_log():
     set_admin_slack_user_ids_override("U_ADMIN")
 
     logged_events = []
-    record_event = lambda **kwargs: logged_events.append(kwargs)
+
+    def record_event(**kwargs):
+        logged_events.append(kwargs)
 
     with patch("adapters.slack.interactivity.verify_slack_signature", return_value=True), \
          patch("services.slack.views.publish_app_home", AsyncMock()), \
-         patch("adapters.slack.actions.workflow_actions.log_audit_event", side_effect=record_event), \
+         patch("adapters.slack.actions.governance_actions.log_audit_event_async", AsyncMock(side_effect=record_event)), \
+         patch("adapters.slack.actions.workflow_presets.log_audit_event_async", AsyncMock(side_effect=record_event)), \
          patch("services.audit_logger.log_audit_event", side_effect=record_event):
 
         # 1. select_orchestration_mode

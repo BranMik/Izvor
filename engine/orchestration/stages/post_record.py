@@ -16,17 +16,17 @@ from agents import (
     trigger_thread_notes_update,
     trigger_usage_update,
 )
-from core.config import AGENTS_CONFIG
-from orchestration.system_settings import (
+from config_store.agent_settings import settings_manager
+from config_store.system_settings import (
     get_debate_turn_pacing_seconds,
     get_slack_post_pause_seconds,
     get_word_limit_grace_buffer,
 )
+from core.config import AGENTS_CONFIG
 from core.llm_utils import classify_agent_error
 from core.models import OrchestrationMode
-from orchestration.agent_settings import settings_manager
 from orchestration.nomination import enforce_valid_nomination, get_initial_agents
-from orchestration.protocols import PipelineDeps, WorkspaceAdapter
+from orchestration.protocols import PipelineDeps, WorkspaceAdapter, create_default_workspace_adapter
 from orchestration.thread_state import thread_state_manager
 from pipeline.entity_resolver import (
     entity_resolver,
@@ -107,9 +107,7 @@ class PostRecordStage:
     def workspace_adapter(self) -> WorkspaceAdapter:
         if hasattr(self.deps, "workspace_adapter") and self.deps.workspace_adapter is not None:
             return self.deps.workspace_adapter
-        from adapters.slack.workspace_adapter import SlackWorkspaceAdapter
-
-        return SlackWorkspaceAdapter()
+        return create_default_workspace_adapter()
 
     async def _sleep(self, seconds: float) -> None:
         sleep_fn = getattr(self.deps, "sleep_fn", None)
@@ -294,7 +292,7 @@ class PostRecordStage:
             formatted = self.workspace_adapter.format_outbound_text(ctx.output.final_text)
             if isinstance(formatted, str):
                 ctx.output.final_text = formatted
-            from orchestration.agent_settings import get_arbitrator_agent, get_sandwich_config
+            from config_store.agent_settings import get_arbitrator_agent, get_sandwich_config
 
             arbitrator_k = get_arbitrator_agent()
             if ctx.agent_key == arbitrator_k and (

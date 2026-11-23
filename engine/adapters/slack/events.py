@@ -1,11 +1,12 @@
+from collections import OrderedDict
 import json
 import logging
 import re
+import threading
 import time
 from typing import Any
 
 from fastapi import BackgroundTasks, HTTPException, Request, Response
-from slack_sdk.errors import SlackApiError
 from starlette.requests import ClientDisconnect
 
 from core.database import get_connection, get_db_transaction
@@ -14,7 +15,7 @@ from orchestration.agent_router import process_and_respond
 from orchestration.thread_state import thread_state_manager
 from pipeline.directive_parser import is_stop_command
 from pipeline.entity_resolver import entity_resolver
-from services.slack import publish_app_home
+from services.slack.views import safe_publish_home as _safe_publish_home
 
 logger = logging.getLogger("IzvorBackend.SlackEvents")
 
@@ -35,6 +36,16 @@ class EventDeduplicationCache:
         self.maxsize = maxsize
         self.db_evict_interval = db_evict_interval
         self._last_db_evict: float = 0.0
+        self._fallback_lock = threading.RLock()
+        self._fallback_cache: OrderedDict[str, float] = OrderedDict()
+
+    def _fallback_evict_locked(self, now: float) -> None:
+        cutoff = now - self.ttl_seconds
+        stale = [k for k, ts in self._fallback_cache.items() if ts < cutoff]
+        for k in stale:
+            self._fallback_cache.pop(k, None)
+        while len(self._fallback_cache) > self.maxsize:
+            self._fallback_cache.popitem(last=False)
 
     def _format_key(self, key: Any) -> str:
         if isinstance(key, (tuple, list)):
@@ -93,28 +104,40 @@ class EventDeduplicationCache:
                     return True
                 return False
         except Exception as e:  # noqa: BLE001
-            logger.debug("Event dedup atomic insert error: %s", e)
-            return True
+            logger.warning("Event dedup DB error, falling back to in-memory LRU dedup: %s", e)
+            with self._fallback_lock:
+                self._fallback_evict_locked(now)
+                if event_id in self._fallback_cache:
+                    self._fallback_cache.move_to_end(event_id)
+                    return False
+                self._fallback_cache[event_id] = float(now)
+                self._fallback_evict_locked(now)
+                return True
 
     def __contains__(self, key: Any) -> bool:
         self._evict_expired()
         event_id = self._format_key(key)
-        cutoff = time.time() - self.ttl_seconds
+        now = time.time()
+        cutoff = now - self.ttl_seconds
         try:
             with get_connection() as conn:
                 cursor = conn.execute(
                     "SELECT 1 FROM event_dedup WHERE event_id = ? AND received_at >= ?",
                     (event_id, cutoff),
                 )
-                return cursor.fetchone() is not None
+                if cursor.fetchone() is not None:
+                    return True
         except Exception as e:  # noqa: BLE001
             logger.debug("Event dedup lookup error: %s", e)
-            return False
+        with self._fallback_lock:
+            self._fallback_evict_locked(now)
+            return event_id in self._fallback_cache
 
     def __getitem__(self, key: Any) -> float:
         self._evict_expired()
         event_id = self._format_key(key)
-        cutoff = time.time() - self.ttl_seconds
+        now = time.time()
+        cutoff = now - self.ttl_seconds
         try:
             with get_connection() as conn:
                 cursor = conn.execute(
@@ -126,6 +149,10 @@ class EventDeduplicationCache:
                     return float(row["received_at"])
         except Exception as e:  # noqa: BLE001
             logger.debug("Event dedup getitem error: %s", e)
+        with self._fallback_lock:
+            self._fallback_evict_locked(now)
+            if event_id in self._fallback_cache:
+                return float(self._fallback_cache[event_id])
         raise KeyError(key)
 
     def get(self, key: Any, default: Any = None) -> Any:
@@ -168,9 +195,13 @@ class EventDeduplicationCache:
                 conn.execute("DELETE FROM event_dedup")
         except Exception as e:  # noqa: BLE001
             logger.debug("Event dedup clear error: %s", e)
+        with self._fallback_lock:
+            self._fallback_cache.clear()
 
     def pop(self, key: Any, default: Any = None) -> Any:
         event_id = self._format_key(key)
+        with self._fallback_lock:
+            fallback_val = self._fallback_cache.pop(event_id, None)
         try:
             with get_db_transaction(immediate=True) as conn:
                 cursor = conn.execute("SELECT received_at FROM event_dedup WHERE event_id = ?", (event_id,))
@@ -180,7 +211,10 @@ class EventDeduplicationCache:
                     return float(row["received_at"])
         except Exception as e:  # noqa: BLE001
             logger.debug("Event dedup pop error: %s", e)
-        return default
+        return fallback_val if fallback_val is not None else default
+
+
+_ALLOWED_MESSAGE_SUBTYPES: frozenset[str | None] = frozenset({None, "file_share", "thread_broadcast"})
 
 
 # Global cache for request deduplication
@@ -210,9 +244,6 @@ def _get_skills_slash_regex() -> re.Pattern | None:
     except (ImportError, AttributeError, KeyError, TypeError, re.error) as e:
         logger.debug(f"[WEBHOOK] Error checking skill_registry slash commands: {e}")
         return None
-
-
-from services.slack.views import safe_publish_home as _safe_publish_home
 
 
 def is_explicit_app_mention(raw_text: str, bot_user_id: str | None = None) -> bool:
@@ -295,11 +326,34 @@ async def handle_slack_events(request: Request, background_tasks: BackgroundTask
             channel_id = event.get("channel")
             ts = event.get("ts")
             thread_ts = event.get("thread_ts") or ts
-            raw_text = event.get("text", "")
+            raw_text = event.get("text") or ""
+            subtype = event.get("subtype")
+            files = event.get("files") or []
+            has_files = bool(isinstance(files, list) and files)
 
-            logger.info(f"[WEBHOOK] Received {event_type} - channel: {channel_id}, ts: {ts}, thread_ts: {thread_ts}")
+            logger.info(
+                f"[WEBHOOK] Received {event_type} (subtype={subtype}, has_files={has_files}) - channel: {channel_id}, ts: {ts}, thread_ts: {thread_ts}"
+            )
 
-            if channel_id and ts and raw_text:
+            # 6c-pre. Reject bot messages and non-user message subtypes before processing
+            is_bot = (
+                event.get("bot_id")
+                or subtype == "bot_message"
+                or (bot_user_id is not None and event.get("user") == bot_user_id)
+            )
+            if is_bot:
+                logger.info(
+                    f"[WEBHOOK] Skipping bot message in channel {channel_id} (ts: {ts}) - internal backend loop handles agent chaining"
+                )
+                return Response(status_code=200)
+
+            if subtype not in _ALLOWED_MESSAGE_SUBTYPES:
+                logger.info(
+                    f"[WEBHOOK] Skipping disallowed message subtype '{subtype}' in channel {channel_id} (ts: {ts})"
+                )
+                return Response(status_code=200)
+
+            if channel_id and ts and (raw_text or has_files):
                 # 6b. Deduplicate Slack duplicate events (fast check)
                 event_key = (channel_id, ts)
                 if event_key in PROCESSED_EVENTS:
@@ -307,13 +361,6 @@ async def handle_slack_events(request: Request, background_tasks: BackgroundTask
                         f"[WEBHOOK] Deduplicated event {event_type} for channel {channel_id}, ts {ts} (ALREADY PROCESSED)"
                     )
                     return Response(status_code=200)
-
-                # 6c. Identify if the message is from a bot
-                is_bot = (
-                    event.get("bot_id")
-                    or event.get("subtype") == "bot_message"
-                    or (bot_user_id is not None and event.get("user") == bot_user_id)
-                )
 
                 # 6d. Extract nominations and tags (/[Agent_Key] or /{Agent_Key})
                 has_tag = False
@@ -329,12 +376,6 @@ async def handle_slack_events(request: Request, background_tasks: BackgroundTask
                     (event_type == "app_mention") or (channel_id and channel_id.startswith("D")) or is_app_name_mention
                 )
                 should_process = False
-
-                if is_bot:
-                    logger.info(
-                        f"[WEBHOOK] Skipping bot message in channel {channel_id} (ts: {ts}) - internal backend loop handles agent chaining"
-                    )
-                    return Response(status_code=200)
 
                 # Check if the user message is a stop command directed at the bot
                 if is_stop_command(raw_text, is_mention_or_dm=is_mention_or_dm):

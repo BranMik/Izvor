@@ -348,7 +348,7 @@ async def test_fetch_thread_history_excludes_scribe_notes():
 
 @pytest.mark.anyio
 async def test_scribe_disabled_skips_trigger_and_update():
-    from orchestration.app_settings import set_scribe_enabled
+    from config_store.app_settings import set_scribe_enabled
 
     try:
         set_scribe_enabled(False)

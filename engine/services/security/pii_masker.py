@@ -6,8 +6,9 @@ import threading
 from datetime import datetime, timezone
 from typing import Any
 
+from config_store.agent_settings import register_on_agents_changed
+from config_store.settings_store import atomic_write_json
 from core.paths import PRESIDIO_SKILL_EXCLUSIONS_FILE
-from orchestration.settings_store import atomic_write_json
 from services.rag.config import get_pii_masking_mode
 
 logger = logging.getLogger(__name__)
@@ -31,6 +32,16 @@ _SECRET_PATTERNS: list[tuple[re.Pattern, str]] = [
     (
         re.compile(r"\bxox[baprs]-[0-9]{10,13}-[0-9]{10,13}-[a-zA-Z0-9]{24,34}\b"),
         "<SLACK_TOKEN>",
+    ),
+    # Stripe Live / Test / Restricted Keys
+    (
+        re.compile(r"\b[sr]k_(?:live|test)_[a-zA-Z0-9]{16,}\b"),
+        "<API_KEY>",
+    ),
+    # GitHub Personal Access / Fine-grained / OAuth Tokens
+    (
+        re.compile(r"\b(?:gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,})\b"),
+        "<API_KEY>",
     ),
     # OpenAI & generic sk- tokens
     (
@@ -62,16 +73,18 @@ _SECRET_PATTERNS: list[tuple[re.Pattern, str]] = [
         re.compile(r"\beyJ[a-zA-Z0-9_-]{10,}\.eyJ[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}\b"),
         "<JWT_TOKEN>",
     ),
-    # Broad key-value secret configurations (e.g. MISTRAL_API_KEY=..., GROQ_API_KEY=..., password: xyz, api_secret="abc")
+    # Key-value secret configs including quoted JSON keys/values (e.g. {"api_key": "xyz"} or MISTRAL_API_KEY=xyz)
     (
         re.compile(
-            r"(?i)\b([A-Za-z0-9_]*(?:password|passwd|secret|api_key|access_token|client_secret|auth_token))\s*([:=])\s*['\"]?([^\s'\"]{4,})['\"]?"
+            r'(?i)(["\']?\b[A-Za-z0-9_]*(?:password|passwd|secret|api_key|access_token|client_secret|auth_token)\b["\']?)(\s*[:=]\s*["\']?)([^\s\'",}]{4,})'
         ),
         r"\1\2 <REDACTED_SECRET>",
     ),
     # Hex hashes/tokens preceded by secret/token/hash context (avoiding bare commit SHAs or digests)
     (
-        re.compile(r"(?i)\b([A-Za-z0-9_]*(?:token|secret|hash|salt|seed))\s*([:=])\s*['\"]?([a-f0-9]{32,64})['\"]?"),
+        re.compile(
+            r'(?i)(["\']?\b[A-Za-z0-9_]*(?:token|secret|hash|salt|seed)\b["\']?)(\s*[:=]\s*["\']?)([a-f0-9]{32,64})'
+        ),
         r"\1\2 <TOKEN_HASH>",
     ),
     (
@@ -91,14 +104,21 @@ _PII_PATTERNS: list[tuple[re.Pattern, str]] = [
         re.compile(r"\b\d{3}-\d{2}-\d{4}\b"),
         "<SSN>",
     ),
-    # Credit Card Numbers (13-19 digits, optionally spaced or hyphenated)
+    # American Express (15 digits: 4-6-5)
+    (
+        re.compile(r"\b3[47]\d{2}[-\s]?\d{6}[-\s]?\d{5}\b"),
+        "<CREDIT_CARD>",
+    ),
+    # Credit Card Numbers (16 digits, optionally spaced or hyphenated)
     (
         re.compile(r"\b(?:\d{4}[-\s]?){3}\d{4}\b"),
         "<CREDIT_CARD>",
     ),
-    # Phone numbers (US and international formats)
+    # Phone numbers with strict word/symbol leading boundaries to avoid Slack timestamps & numeric IDs
     (
-        re.compile(r"(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b"),
+        re.compile(
+            r"(?:(?<!\w)\+\d{1,3}[-.\s](?:\(\d{3}\)[-.\s]?|\b\d{3}[-.\s])|\(\d{3}\)[-.\s]?|\b\d{3}[-.\s])\d{3}[-.\s]?\d{4}\b"
+        ),
         "<PHONE>",
     ),
     # IPv4 addresses
@@ -450,11 +470,11 @@ class PIIMasker:
                         global_terms.add(v["displayname"].lower())
                         for word in v["displayname"].lower().split():
                             global_terms.add(word)
-        except Exception:
-            pass
+        except (ImportError, AttributeError, KeyError, TypeError) as e:
+            logger.debug(f"[PII Masker] Skipping AGENTS_CONFIG allowlist load: {e}")
 
         try:
-            from orchestration.agent_settings import settings_manager
+            from config_store.agent_settings import settings_manager
 
             cfg = settings_manager.get_agents_config()
             if cfg:
@@ -467,8 +487,8 @@ class PIIMasker:
                             global_terms.add(v["displayname"].lower())
                             for word in v["displayname"].lower().split():
                                 global_terms.add(word)
-        except Exception:
-            pass
+        except (ImportError, AttributeError, KeyError, TypeError) as e:
+            logger.debug(f"[PII Masker] Skipping settings_manager allowlist load: {e}")
 
         # 2. Skill terms from exclusions registry
         ex_file = self.active_exclusions_file
@@ -476,7 +496,7 @@ class PIIMasker:
             try:
                 with open(ex_file, "r", encoding="utf-8") as f:
                     self._exclusions_data = json.load(f)
-            except Exception as e:
+            except (OSError, json.JSONDecodeError, ValueError, TypeError) as e:
                 logger.debug(f"[PII Masker] Could not read exclusions file {ex_file}: {e}")
 
         skills_dict = self._exclusions_data.get("skills", {})
@@ -508,7 +528,7 @@ class PIIMasker:
                     data = json.load(f)
                     if isinstance(data, dict):
                         existing = data
-            except Exception as e:
+            except (OSError, json.JSONDecodeError, ValueError, TypeError) as e:
                 logger.warning(f"[PII Masker] Failed to read {ex_file}: {e}")
 
         skills_data = existing.get("skills", {}) if isinstance(existing.get("skills"), dict) else {}
@@ -520,7 +540,7 @@ class PIIMasker:
 
             skill_registry = get_skill_registry()
             current_skills = skill_registry.list_skills()
-        except Exception as e:
+        except (ImportError, RuntimeError, AttributeError, TypeError) as e:
             logger.warning(f"[PII Masker] Could not get skill registry for exclusions sync: {e}")
             current_skills = []
 
@@ -575,7 +595,7 @@ class PIIMasker:
                     f"[PII Masker] Synced skill exclusions ({stats['new']} new, {stats['updated']} updated, "
                     f"{stats['deleted']} deleted, {len(skills_data)} total) to {ex_file.name}"
                 )
-            except Exception as e:
+            except (OSError, TypeError, ValueError) as e:
                 logger.error(f"[PII Masker] Failed to persist skill exclusions: {e}")
                 self._exclusions_data = payload
         else:
@@ -584,6 +604,13 @@ class PIIMasker:
         self.refresh_allowlist()
         stats["total"] = len(skills_data)
         return stats
+
+    def reset_presidio(self) -> None:
+        """Resets lazy Presidio initialization state so configured NER models are re-evaluated."""
+        with self._init_lock:
+            self._presidio_analyzer = None
+            self._presidio_initialized = False
+            self._supported_languages = ["en"]
 
     def _init_presidio_if_available(self) -> None:
         if self._presidio_initialized:
@@ -594,12 +621,41 @@ class PIIMasker:
             try:
                 from presidio_analyzer import AnalyzerEngine
                 from presidio_analyzer.nlp_engine import NlpEngineProvider
+                import spacy.util
 
-                # Explicitly load the lightweight en_core_web_sm model
+                from config_store.system_settings import get_pii_ner_models
+
+                configured_models = get_pii_ner_models() or ["en_core_web_sm"]
+                models_cfg: list[dict[str, str]] = []
+                supported_languages: list[str] = []
+                for model_name in configured_models:
+                    clean_model = str(model_name).strip()
+                    if not clean_model:
+                        continue
+                    if not spacy.util.is_package(clean_model):
+                        logger.warning(
+                            "[PII Masker] Configured spaCy NER model '%s' is not installed; skipping.",
+                            clean_model,
+                        )
+                        continue
+                    lang_code = clean_model.split("_", 1)[0].lower() or "en"
+                    if lang_code not in supported_languages:
+                        supported_languages.append(lang_code)
+                        models_cfg.append({"lang_code": lang_code, "model_name": clean_model})
+
+                if not models_cfg:
+                    logger.warning(
+                        "[PII Masker] No installed spaCy NER models from %s; falling back to regex-only masking.",
+                        configured_models,
+                    )
+                    self._presidio_analyzer = None
+                    self._supported_languages = []
+                    return
+
                 provider = NlpEngineProvider(
                     nlp_configuration={
                         "nlp_engine_name": "spacy",
-                        "models": [{"lang_code": "en", "model_name": "en_core_web_sm"}],
+                        "models": models_cfg,
                         "ner_model_configuration": {
                             "labels_to_ignore": [
                                 "CARDINAL",
@@ -623,12 +679,19 @@ class PIIMasker:
                     }
                 )
                 nlp_engine = provider.create_engine()
-                self._presidio_analyzer = AnalyzerEngine(nlp_engine=nlp_engine, supported_languages=["en"])
-                logger.info("[PII Masker] Microsoft Presidio (en_core_web_sm) successfully initialized.")
+                self._supported_languages = supported_languages
+                self._presidio_analyzer = AnalyzerEngine(
+                    nlp_engine=nlp_engine,
+                    supported_languages=supported_languages,
+                )
+                logger.info(
+                    "[PII Masker] Microsoft Presidio initialized with models=%s.",
+                    [m["model_name"] for m in models_cfg],
+                )
             except ImportError:
-                logger.debug("[PII Masker] Presidio not installed; using built-in high-performance regex engine.")
-            except Exception as e:  # noqa: BLE001
-                logger.debug(f"[PII Masker] Could not initialize Presidio: {e}")
+                logger.warning("[PII Masker] Presidio or spaCy not installed; falling back to regex-only masking.")
+            except Exception as e:  # noqa: BLE001 - Preserve regex fallback if NLP engine fails to load
+                logger.warning(f"[PII Masker] Presidio initialization failed, falling back to regex-only: {e}")
             finally:
                 self._presidio_initialized = True
 
@@ -687,8 +750,8 @@ class PIIMasker:
                 original = match.group(0)
 
                 if base_token in (r"\1\2 <REDACTED_SECRET>", r"\1\2 <TOKEN_HASH>") and len(match.groups()) == 3:
-                    prefix = match.group(1) + match.group(2) + " "
-                    secret_val = match.group(3)
+                    g1, g2, secret_val = match.group(1), match.group(2), match.group(3)
+                    prefix = f"{g1}{g2}" if g2.endswith((" ", "\t", '"', "'")) else f"{g1}{g2} "
                     token_name = "TOKEN_HASH" if "TOKEN_HASH" in base_token else "REDACTED_SECRET"
 
                     for t, v in token_mapping.items():
@@ -726,20 +789,25 @@ class PIIMasker:
         self._init_presidio_if_available()
         if self._presidio_analyzer:
             try:
-                results = self._presidio_analyzer.analyze(
-                    text=masked_text,
-                    entities=[
-                        "PERSON",
-                        "LOCATION",
-                        "PHONE_NUMBER",
-                        "EMAIL_ADDRESS",
-                        "IP_ADDRESS",
-                        "US_SSN",
-                        "CREDIT_CARD",
-                        "IBAN_CODE",
-                    ],
-                    language="en",
-                )
+                supported_langs = getattr(self, "_supported_languages", None) or ["en"]
+                results = []
+                for lang in supported_langs:
+                    results.extend(
+                        self._presidio_analyzer.analyze(
+                            text=masked_text,
+                            entities=[
+                                "PERSON",
+                                "LOCATION",
+                                "PHONE_NUMBER",
+                                "EMAIL_ADDRESS",
+                                "IP_ADDRESS",
+                                "US_SSN",
+                                "CREDIT_CARD",
+                                "IBAN_CODE",
+                            ],
+                            language=lang,
+                        )
+                    )
                 if results:
                     # Pre-compute protected spans to avoid false positives or re-slicing
                     protected_intervals: list[tuple[int, int]] = []
@@ -842,3 +910,4 @@ class PIIMasker:
 
 # Global singleton instance
 pii_masker = PIIMasker()
+register_on_agents_changed(pii_masker.refresh_allowlist)

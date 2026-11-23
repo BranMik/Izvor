@@ -68,8 +68,8 @@ As verified by [test_architecture_layers.py](../../tests/unit/test_architecture_
   - `set_audit_logger_hook(log_audit_event)`
   - `set_secret_scanner_hook(scan_output_for_secrets)`
   - `set_pii_masker_instance(pii_masker)`
-  - `set_skill_registry_provider(...)` (wired in [engine/skills/loader.py](../../engine/skills/loader.py))
-  - `set_db_busy_timeout_provider(...)` (wired in [engine/orchestration/system_settings.py](../../engine/orchestration/system_settings.py))
+  - `set_skill_registry_provider(...)` (wired in [engine/skills/registry.py](../../engine/skills/registry.py))
+  - `set_db_busy_timeout_provider(...)` (wired in [engine/config_store/system_settings.py](../../engine/config_store/system_settings.py))
 - **Sanitized Slack Egress Boundary**: Direct calls to `chat_postMessage`, `chat_update`, or `chat_postEphemeral` outside `engine/services/slack/` are prohibited by AST test `test_slack_client_chat_not_called_outside_allowed_modules`, ensuring every outbound message passes through mention sanitization (`<!here>`, `<!channel>`, `<!everyone>` neutralization) and secret scanning.
 - **No `await` Inside Synchronous DB Transactions**: Enforced by AST test `test_no_await_inside_sync_db_transactions` across the entire repository to prevent SQLite connection lock deadlocks.
 
@@ -247,7 +247,7 @@ flowchart TD
 
 ### 5.2 Key Stage Innovations Verified in Live Code
 - **User-Only Stage 1 Parsing**: Expensive operations—vector prompt injection check (`guardrail_service.is_prompt_injection`), hybrid regex + LLM directive extraction (`directive_parser.parse`), language locking, and Slack attachment downloads—execute **only** when `not ctx.input.is_bot_trigger`. Subsequent agent turns bypass these steps at zero token cost.
-- **Deterministic Missing-Skill Short-Circuit**: When a user prompt is a pure skill task (`is_pure_skill_task == True`, e.g., reading a document or searching the web) and the current agent lacks the required skill or file ACL (with no prior verified skill output in the round), `ExecutionStage` short-circuits the LLM call and emits a deterministic notice recommending a single best-fit authorized agent by `username` ([select_recommended_agent_from_keys](../../engine/skills/loader.py#L160-L218)).
+- **Deterministic Missing-Skill Short-Circuit**: When a user prompt is a pure skill task (`is_pure_skill_task == True`, e.g., reading a document or searching the web) and the current agent lacks the required skill or file ACL (with no prior verified skill output in the round), `ExecutionStage` short-circuits the LLM call and emits a deterministic notice recommending a single best-fit authorized agent by `username` ([select_recommended_agent_from_keys](../../engine/skills/recommender.py)).
 - **Dual-Layer Word Limit Enforcement**:
   1. *Prompt Layer ([builder.py](../../engine/prompts/builder.py#L187-L243))*: Injects `default_max_words` (`150`) or `short_max_words` (`70` for `is_short_output: true` agents), or switches to **Compact Override Mode** when `max_words < 60` (stripping multi-section `<output_contract>` blocks).
   2. *Mechanical Fail-Safe Layer ([post_record.py](../../engine/orchestration/stages/post_record.py#L61-L99))*: `apply_mechanical_word_limit` truncates responses exceeding `max_words + word_limit_grace_buffer` (`50` words, or `0` buffer when `max_words < 20`) while extracting and preserving trailing `/[Agent]` nomination tags so turn handoffs never break.
@@ -257,7 +257,7 @@ flowchart TD
 
 ## 6. Deliberation Topologies, Workflows & Dialectical Convergence
 
-### 6.1 Two-Tier Workflow Preset Management ([engine/orchestration/workflow_manager.py](../../engine/orchestration/workflow_manager.py))
+### 6.1 Two-Tier Workflow Preset Management ([engine/config_store/workflow_manager.py](../../engine/config_store/workflow_manager.py))
 `WorkflowManager` merges two directories of workflow presets while protecting reserved system default IDs (`REQUIRED_DEFAULT_WORKFLOW_IDS`):
 1. **Immutable Engine Seed Workflows ([engine/workflows/](../../engine/workflows))**:
    - [default_review_flow.json](../../engine/workflows/default_review_flow.json) (`mode: "fixed"`): `Visionary` → `Innovator` → `Sceptic` → `Tactician` → `ProductStrategist`.
@@ -377,7 +377,7 @@ flowchart LR
 
 ## 8. Declarative Skills Engine, Hybrid RAG & External MCP Integration
 
-### 8.1 Declarative `SKILL.md` Architecture ([engine/skills/loader.py](../../engine/skills/loader.py))
+### 8.1 Declarative `SKILL.md` Architecture ([engine/skills/registry.py](../../engine/skills/registry.py))
 Every skill in Izvor is defined by a `SKILL.md` file with mandatory YAML frontmatter (`name`, `display_name`, `description`, `scope`, `requires_human_ITL`, `requires_admin`, `triggers`) and optional `action.py` (orchestrator/directive handler) or `tools.py` (custom tool schemas and handlers).
 
 #### A. Extensible Implementer-Configurable Agent Tool Skills (4 OOB in [config/skills/](../../config/skills))

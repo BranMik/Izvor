@@ -112,8 +112,8 @@ def _resolve_canonical_agent_key(raw_name: str) -> str:
         resolved = entity_resolver.resolve_agent_name(cleaned)
         if resolved:
             return resolved
-    except Exception:  # noqa: BLE001
-        pass
+    except (ImportError, AttributeError, KeyError, TypeError, ValueError):
+        return cleaned
     return cleaned
 
 

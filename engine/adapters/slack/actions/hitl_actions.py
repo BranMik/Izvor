@@ -17,11 +17,11 @@ logger = logging.getLogger("IzvorBackend.SlackInteractivity.HITL")
 
 async def _execute_and_resume_hitl_approval(req: Any, user_id: str) -> None:
     """Executes the pre-approved HITL tool deterministically in background and resumes the calling agent."""
-    from orchestration.agent_settings import settings_manager
-    from orchestration.thread_skills_manager import thread_skills_manager
+    from config_store.agent_settings import settings_manager
+    from services.thread_skills_store import thread_skills_manager
     from orchestration.thread_state import thread_state_manager
     from orchestration.turn_pipeline import TurnContext, TurnPipeline
-    from skills.loader import skill_registry
+    from skills.registry import skill_registry
 
     channel_id = req.channel_id
     thread_ts = req.thread_ts

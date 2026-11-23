@@ -1,17 +1,15 @@
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from core.llm_utils import configure_llm_completion_fn
-from orchestration import agent_router
 from orchestration.agent_router import (
     configure_fetch_thread_history,
     configure_post_agent_response,
     configure_router_sleep_fn,
     process_and_respond,
 )
-from orchestration.agent_settings import reset_enabled_agents, set_orchestration_mode
+from config_store.agent_settings import reset_enabled_agents, set_orchestration_mode
 from orchestration.thread_state import thread_state_manager
 from services.flat_history_recorder import (
     configure_paths,
@@ -70,16 +68,24 @@ def test_generate_flat_history_filename_variations():
 
 
 def test_one_thread_one_file_reused(tmp_path):
-    """Verify that get_flat_history_filepath reuses existing file for the same thread."""
+    """Verify that get_flat_history_filepath reuses existing file for the same channel+thread."""
     tmp_path / "flat-histories"
     thread_ts = "1712345678.555"
     fpath1 = get_flat_history_filepath("C123", thread_ts, "Kako napraviti web")
-    fpath1.write_text(f"# Thread Conversation History\n- **Thread TS:** `{thread_ts}`\n", encoding="utf-8")
+    fpath1.write_text(
+        f"# Thread Conversation History\n- **Channel ID:** `C123`\n- **Thread TS:** `{thread_ts}`\n",
+        encoding="utf-8",
+    )
 
-    # Second call with different prompt in same thread must find and return existing file
+    # Second call with different prompt in same channel+thread must find and return existing file
     fpath2 = get_flat_history_filepath("C123", thread_ts, "Nastavi sa detaljima")
     assert fpath1 == fpath2
-    assert fpath2.name == "kako_napra_1712345678.md"
+    assert fpath2.name == "kako_napra_C123_1712345678.md"
+
+    # Same thread_ts in a DIFFERENT channel must produce a distinct file (channel-scoped isolation)
+    fpath_other = get_flat_history_filepath("C999", thread_ts, "Kako napraviti web")
+    assert fpath_other != fpath1
+    assert fpath_other.name == "kako_napra_C999_1712345678.md"
 
 
 def test_format_messages_to_markdown():

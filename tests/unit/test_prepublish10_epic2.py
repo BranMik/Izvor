@@ -1,17 +1,13 @@
-import asyncio
 import json
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from adapters.slack.events import EventDeduplicationCache
-from core.database import DatabaseManager
-from orchestration.thread_skills_manager import ThreadSkillsManager
 from orchestration.turn_pipeline import TurnContext, TurnPipeline
 from services.hitl import (
     _prune_expired,
     approve_hitl_request,
-    consume_tool_approval,
     deny_hitl_request,
     get_pending_request,
     register_hitl_request,
@@ -86,7 +82,7 @@ def test_hitl_prune_expired_preserves_audit_records():
 @pytest.mark.anyio
 async def test_hitl_resumption_effective_skills():
     """TKT-1006: resume_from_checkpoint must populate ctx.authorized_skills with dynamic grants."""
-    from orchestration.thread_skills_manager import thread_skills_manager
+    from services.thread_skills_store import thread_skills_manager
     channel_id = "C_SKILLS"
     thread_ts = "1700000000.999"
 

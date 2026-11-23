@@ -30,7 +30,18 @@ def test_zero_litellm_completion_in_production_code():
     AST analysis asserting zero calls to synchronous litellm.completion across all production modules.
     """
     root_dir = Path(__file__).resolve().parents[2]
-    production_dirs = ["nlp", "orchestration", "services", "adapters", "core", "pipeline"]
+    production_dirs = [
+        "config_store",
+        "nlp",
+        "orchestration",
+        "agents",
+        "services",
+        "skills",
+        "prompts",
+        "adapters",
+        "core",
+        "pipeline",
+    ]
     violations = []
 
     for pdir in production_dirs:

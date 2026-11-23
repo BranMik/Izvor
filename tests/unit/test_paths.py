@@ -10,7 +10,6 @@ Verifies:
 
 import ast
 import importlib
-from pathlib import Path
 
 import core.paths as paths
 
@@ -135,22 +134,26 @@ def test_environment_variable_overrides(tmp_path):
 
 def test_circular_import_resilience():
     """Verify clean import of all modules across layers without deadlock or failure."""
-    import core
-    import core.config
-    import core.database
-    import orchestration.integrity_checks
-    import core.model_catalog
-    import orchestration.agent_settings
-    import orchestration.app_settings
-    import orchestration.system_settings
-    import orchestration.thread_skills_manager
-    import orchestration.workflow_manager
-    import services.audit_logger
-    import services.flat_history_recorder
-    import services.pricing_service
-    import services.thread_notes_writer
-    import prompts.builder
+    module_names = (
+        "core",
+        "core.config",
+        "core.database",
+        "orchestration.integrity_checks",
+        "core.model_catalog",
+        "config_store.agent_settings",
+        "config_store.app_settings",
+        "config_store.system_settings",
+        "services.thread_skills_store",
+        "config_store.workflow_manager",
+        "services.audit_logger",
+        "services.flat_history_recorder",
+        "services.pricing_service",
+        "services.thread_notes_writer",
+        "prompts.builder",
+    )
+    imported = {name: importlib.import_module(name) for name in module_names}
+    core_paths = importlib.import_module("core.paths")
 
     # Project root consistency
-    assert core.paths.PROJECT_ROOT == core.config.PROJECT_ROOT
-    assert core.paths.DB_PATH.name == "izvor.db"
+    assert core_paths.PROJECT_ROOT == imported["core.config"].PROJECT_ROOT
+    assert core_paths.DB_PATH.name == "izvor.db"

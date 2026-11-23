@@ -107,11 +107,14 @@ class AuditRecord:
     status: str  # 'SUCCESS', 'FAILED', 'BLOCKED'
     prev_hash: str
     entry_hash: str = ""
+    key_id: str | None = None
 
     def to_canonical_dict(self) -> dict[str, Any]:
         """Returns the dictionary representation excluding entry_hash for canonical hashing."""
         data = asdict(self)
         data.pop("entry_hash", None)
+        if self.key_id is None:
+            data.pop("key_id", None)
         return data
 
 
@@ -121,6 +124,7 @@ def canonical_serialize(data: dict[str, Any]) -> str:
 
 
 _audit_hmac_secret_override: bytes | None = None
+_audit_hmac_keyring_override: tuple[dict[str, bytes], str] | None = None
 
 
 def set_audit_hmac_secret_override(secret: bytes | str | None) -> None:
@@ -134,19 +138,131 @@ def set_audit_hmac_secret_override(secret: bytes | str | None) -> None:
         _audit_hmac_secret_override = str(secret).encode("utf-8")
 
 
+def set_audit_hmac_keyring_override(
+    keys: dict[str, bytes | str] | None,
+    active_key_id: str | None = None,
+) -> None:
+    """Configures an in-memory HMAC keyring mapping {key_id: secret} for key rotation tests."""
+    global _audit_hmac_keyring_override
+    if keys is None:
+        _audit_hmac_keyring_override = None
+        return
+    normalized: dict[str, bytes] = {}
+    for k_id, raw_secret in keys.items():
+        clean_id = str(k_id).strip()
+        if not clean_id:
+            continue
+        sec_bytes = raw_secret if isinstance(raw_secret, bytes) else str(raw_secret).encode("utf-8")
+        normalized[clean_id] = sec_bytes
+    chosen_active = str(active_key_id).strip() if active_key_id else (next(iter(normalized), "default"))
+    _audit_hmac_keyring_override = (normalized, chosen_active)
+
+
+def reset_audit_hmac_keyring_override() -> None:
+    """Clears any programmatic HMAC keyring override."""
+    global _audit_hmac_keyring_override
+    _audit_hmac_keyring_override = None
+
+
+def _parse_keyring_env() -> tuple[dict[str, bytes], str] | None:
+    """Parses AUDIT_HMAC_KEYS_JSON and active key ID from environment or SystemSettings."""
+    raw_json = os.getenv("AUDIT_HMAC_KEYS_JSON", "").strip()
+    if not raw_json:
+        return None
+    try:
+        parsed = json.loads(raw_json)
+    except (json.JSONDecodeError, ValueError) as e:
+        logger.warning("[AUDIT] Invalid AUDIT_HMAC_KEYS_JSON format: %s", e)
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    normalized: dict[str, bytes] = {}
+    for k_id, val in parsed.items():
+        clean_id = str(k_id).strip()
+        if clean_id and val is not None:
+            normalized[clean_id] = val.encode("utf-8") if not isinstance(val, bytes) else val
+    if not normalized:
+        return None
+    active_id = os.getenv("AUDIT_HMAC_ACTIVE_KEY_ID", "").strip()
+    if not active_id:
+        try:
+            from config_store.system_settings import get_audit_hmac_key_id
+
+            active_id = get_audit_hmac_key_id()
+        except (ImportError, AttributeError, ValueError, TypeError):
+            active_id = ""
+    if not active_id or active_id not in normalized:
+        active_id = next(iter(normalized))
+    return normalized, active_id
+
+
 def get_audit_hmac_secret() -> bytes:
-    """Returns the current HMAC secret from override, module global, or environment."""
+    """Returns the active HMAC secret from keyring, override, module global, or environment."""
+    _, secret = get_active_audit_hmac_key()
+    return secret
+
+
+def get_active_audit_hmac_key() -> tuple[str, bytes]:
+    """Returns the active (key_id, secret_bytes) pair for signing new audit records."""
+    if _audit_hmac_keyring_override is not None:
+        keys_map, active_id = _audit_hmac_keyring_override
+        if active_id in keys_map:
+            return active_id, keys_map[active_id]
+        if keys_map:
+            first_id = next(iter(keys_map))
+            return first_id, keys_map[first_id]
+
     if _audit_hmac_secret_override is not None:
-        return _audit_hmac_secret_override
+        return "default", _audit_hmac_secret_override
+
+    env_keyring = _parse_keyring_env()
+    if env_keyring is not None:
+        keys_map, active_id = env_keyring
+        return active_id, keys_map[active_id]
+
+    configured_id = "default"
+    try:
+        from config_store.system_settings import get_audit_hmac_key_id
+
+        configured_id = get_audit_hmac_key_id() or "default"
+    except (ImportError, AttributeError, ValueError, TypeError):
+        configured_id = "default"
+
     val = globals().get("AUDIT_HMAC_SECRET")
     if val:
         secret = val if isinstance(val, bytes) else str(val).encode("utf-8")
         if secret.strip():
-            return secret
+            return configured_id, secret
     env_val = os.getenv("AUDIT_HMAC_SECRET", "").strip().encode("utf-8")
     if env_val:
-        return env_val
-    return b""
+        return configured_id, env_val
+    return configured_id, b""
+
+
+def get_hmac_key_for_id(key_id: str | None) -> bytes:
+    """Resolves verification HMAC secret for a recorded key_id across rotated keyrings."""
+    clean_id = str(key_id).strip() if key_id is not None else ""
+    if _audit_hmac_keyring_override is not None:
+        keys_map, _ = _audit_hmac_keyring_override
+        if clean_id and clean_id in keys_map:
+            return keys_map[clean_id]
+        if not clean_id:
+            return get_audit_hmac_secret()
+        return b""
+
+    env_keyring = _parse_keyring_env()
+    if env_keyring is not None:
+        keys_map, _ = env_keyring
+        if clean_id and clean_id in keys_map:
+            return keys_map[clean_id]
+        if not clean_id or clean_id == "default":
+            # Fall back to single static key if pre-rotation legacy entry lacked keyring entry
+            val = globals().get("AUDIT_HMAC_SECRET") or os.getenv("AUDIT_HMAC_SECRET", "").strip().encode("utf-8")
+            if val:
+                return val if isinstance(val, bytes) else str(val).encode("utf-8")
+        return b""
+
+    return get_audit_hmac_secret()
 
 
 _main_event_loop: Any = None
@@ -457,6 +573,7 @@ class AuditLogger:
             current_seq = last_seq + 1
             prev_hash = last_hash
 
+            active_key_id, active_secret = get_active_audit_hmac_key()
             record = AuditRecord(
                 seq=current_seq,
                 timestamp=iso_timestamp,
@@ -468,10 +585,11 @@ class AuditLogger:
                 details=clean_details,
                 status=status,
                 prev_hash=prev_hash,
+                key_id=active_key_id,
             )
 
             canonical = canonical_serialize(record.to_canonical_dict())
-            record.entry_hash = compute_entry_hash(prev_hash, canonical)
+            record.entry_hash = compute_entry_hash(prev_hash, canonical, secret_key=active_secret)
 
             # Append atomic line to monthly audit file
             line_str = json.dumps(asdict(record), ensure_ascii=False) + "\n"
@@ -664,6 +782,7 @@ def check_hmac_secret_continuity(
     seq = last_record_dict.get("seq", 0)
     prev_hash = last_record_dict.get("prev_hash", "")
     recorded_entry_hash = str(last_record_dict.get("entry_hash", ""))
+    recorded_key_id = last_record_dict.get("key_id")
 
     record_obj = AuditRecord(
         seq=seq,
@@ -676,11 +795,16 @@ def check_hmac_secret_continuity(
         details=last_record_dict.get("details", {}),
         status=last_record_dict.get("status", "SUCCESS"),
         prev_hash=prev_hash,
+        key_id=recorded_key_id,
     )
     canonical = canonical_serialize(record_obj.to_canonical_dict())
 
-    # Active key (or explicit parameter override)
-    active_key = secret_key if secret_key is not None else get_audit_hmac_secret()
+    # Active key (or explicit parameter override / recorded key_id lookup)
+    active_key = (
+        secret_key
+        if secret_key is not None
+        else (get_hmac_key_for_id(recorded_key_id) if recorded_key_id is not None else get_audit_hmac_secret())
+    )
     computed_with_active = compute_entry_hash(prev_hash, canonical, secret_key=active_key)
     computed_plain = compute_entry_hash(prev_hash, canonical, secret_key=b"")
 
@@ -896,14 +1020,15 @@ def verify_audit_log_integrity(
                             f"Expected seq {expected_seq}, but found {seq}."
                         )
 
-                    # 2. Previous hash link check
-                    if prev_hash != expected_prev_hash:
+                    # 2. Previous hash link check (constant-time comparison)
+                    if not hmac.compare_digest(str(prev_hash or ""), str(expected_prev_hash or "")):
                         errors.append(
                             f"File '{file_path.name}', line {line_num}: Chain broken. "
                             f"Expected prev_hash '{expected_prev_hash}', but record has '{prev_hash}'."
                         )
 
                     # 3. Content integrity check
+                    recorded_key_id = record_dict.get("key_id")
                     record_obj = AuditRecord(
                         seq=record_dict["seq"],
                         timestamp=record_dict["timestamp"],
@@ -915,9 +1040,11 @@ def verify_audit_log_integrity(
                         details=record_dict.get("details", {}),
                         status=record_dict.get("status", "SUCCESS"),
                         prev_hash=prev_hash,
+                        key_id=recorded_key_id,
                     )
                     canonical = canonical_serialize(record_obj.to_canonical_dict())
-                    computed_hash = compute_entry_hash(prev_hash, canonical)
+                    verify_key = get_hmac_key_for_id(recorded_key_id)
+                    computed_hash = compute_entry_hash(prev_hash, canonical, secret_key=verify_key)
 
                     if not hmac.compare_digest(computed_hash, recorded_entry_hash):
                         errors.append(

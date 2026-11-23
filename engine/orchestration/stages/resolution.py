@@ -13,15 +13,15 @@ from agents import (
     calculate_thread_costs,
     trigger_usage_update,
 )
-from core.config import AGENTS_CONFIG
-from orchestration.system_settings import get_slack_post_pause_seconds
-from core.models import OrchestrationMode
-from orchestration.agent_settings import settings_manager
-from orchestration.app_settings import (
+from config_store.agent_settings import settings_manager
+from config_store.app_settings import (
     get_circuit_breaker_threshold,
     is_circuit_breaker_enabled,
 )
-from orchestration.protocols import PipelineDeps, WorkspaceAdapter
+from config_store.system_settings import get_slack_post_pause_seconds
+from core.config import AGENTS_CONFIG
+from core.models import OrchestrationMode
+from orchestration.protocols import PipelineDeps, WorkspaceAdapter, create_default_workspace_adapter
 from orchestration.thread_state import thread_state_manager
 from services.slack import (
     post_system_message,
@@ -59,9 +59,7 @@ class ResolutionStage:
     def workspace_adapter(self) -> WorkspaceAdapter:
         if hasattr(self.deps, "workspace_adapter") and self.deps.workspace_adapter is not None:
             return self.deps.workspace_adapter
-        from adapters.slack.workspace_adapter import SlackWorkspaceAdapter
-
-        return SlackWorkspaceAdapter()
+        return create_default_workspace_adapter()
 
     async def stage_resolve_agent_and_governance(
         self, ctx: TurnContext
@@ -166,7 +164,7 @@ class ResolutionStage:
         current_cost = cost_info.get("grand_total_cost_usd", 0.0)
         threshold = get_circuit_breaker_threshold()
         session_id = f"{ctx.input.channel_id}:{ctx.input.thread_ts}"
-        from orchestration.app_settings import get_daily_budget_usd
+        from config_store.app_settings import get_daily_budget_usd
 
         daily_budget = get_daily_budget_usd()
         tripped, current_cost, threshold = (

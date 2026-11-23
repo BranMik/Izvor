@@ -251,7 +251,6 @@ def test_sanitize_slack_broadcast_mentions():
 @pytest.mark.anyio
 async def test_post_agent_response_unfurl_and_sanitize():
     """Verifies post_agent_response sanitizes broadcast mentions and disables unfurling."""
-    from unittest.mock import MagicMock
     captured_kwargs = {}
 
     async def mock_post(**kwargs):

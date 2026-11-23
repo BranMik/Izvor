@@ -1,7 +1,7 @@
 import pytest
 
 from orchestration.turn_pipeline import TurnContext, TurnPipeline
-from skills.loader import skill_registry
+from skills.registry import skill_registry
 
 
 def test_find_skill_for_tool():

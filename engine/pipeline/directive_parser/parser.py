@@ -17,7 +17,7 @@ from .slash_parser import (
     parse_token,
 )
 
-_STANDALONE_EXCLUSIVE_ACTIONS = frozenset({"list_skills", "revoke_constraint"})
+_STANDALONE_EXCLUSIVE_ACTIONS = frozenset({"list_skills", "revoke_constraint", "forget_thread"})
 
 logger = logging.getLogger(__name__)
 
@@ -418,7 +418,7 @@ class DirectiveParser:
                 )
                 if sk and getattr(sk, "requires_admin", False):
                     return not has_substantive_prompt(text_cleaned)
-            except Exception:
+            except (AttributeError, KeyError, TypeError, ValueError):
                 return False
             return False
 

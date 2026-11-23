@@ -4,7 +4,6 @@ import hmac
 import json
 import logging
 import os
-from pathlib import Path
 import re
 import threading
 import time
@@ -47,8 +46,8 @@ def _get_security_burst_limits() -> dict[str, Any]:
     if _burst_limits_provider is not None:
         try:
             return _burst_limits_provider()
-        except Exception:
-            pass
+        except (AttributeError, KeyError, RuntimeError, TypeError, ValueError) as exc:
+            logger.debug(f"[SECURITY] Burst limits provider fallback: {exc}")
     try:
         if SYSTEM_SETTINGS_FILE.exists():
             with open(SYSTEM_SETTINGS_FILE, "r", encoding="utf-8") as f:
@@ -56,8 +55,8 @@ def _get_security_burst_limits() -> dict[str, Any]:
             sec = data.get("security_burst_limits")
             if isinstance(sec, dict):
                 return sec
-    except Exception:  # noqa: BLE001
-        pass
+    except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
+        logger.debug(f"[SECURITY] Failed reading security_burst_limits: {exc}")
     return {
         "auth_failure_window_seconds": _AUTH_FAILURE_WINDOW_SECONDS,
         "auth_failure_burst_limit": _AUTH_FAILURE_BURST_LIMIT,

@@ -1,26 +1,24 @@
 import asyncio
+from contextlib import asynccontextmanager
 import logging
 import os
-import sys
 from pathlib import Path
-
-_engine_dir = Path(__file__).resolve().parent / "engine"
-if str(_engine_dir) not in sys.path:
-    sys.path.insert(0, str(_engine_dir))
-import threading
-import time
-from contextlib import asynccontextmanager
+import secrets
+import sys
 from typing import Any
 
-import secrets
 from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
 
-from core.paths import AVATARS_DIR, ENGINE_AVATARS_DIR, PROJECT_ROOT
-import skills.loader
+_engine_dir = Path(__file__).resolve().parent / "engine"
+if str(_engine_dir) not in sys.path:
+    sys.path.insert(0, str(_engine_dir))
+
+from core.paths import AVATARS_DIR, ENGINE_AVATARS_DIR
+from skills.registry import skill_registry
 from core.logging_filters import setup_credential_redaction_filters
 from adapters.slack import (
     PROCESSED_EVENTS,
@@ -32,22 +30,48 @@ from core.config import (
     get_admin_username,
     is_production,
 )
-from orchestration.agent_settings import load_enabled_agents
+from adapters.slack.workspace_adapter import SlackWorkspaceAdapter
+from agents.thread_notes_agent import clear_thread_note
+from agents.usage_agent import cleanup_thread_usage, record_thread_tokens
+from config_store.agent_settings import (
+    load_enabled_agents,
+    register_on_agents_changed,
+    set_prompt_builder_hook,
+)
+from config_store.system_settings import system_settings_manager
+from core.database import db_manager
+from core.llm_utils import set_pii_masker_instance
+from core.registry import (
+    register_token_recorder,
+    set_default_workspace_adapter_factory,
+    set_initial_agents_provider,
+    set_thread_state_provider,
+)
+from core.slack_security import extract_client_ip, set_audit_logger_hook, set_secret_scanner_hook
+from core.task_utils import _ACTIVE_TASKS
+from orchestration.nomination import get_initial_agents
 from orchestration.thread_state import thread_state_manager
+from prompts.builder import build_agent_prompt
+from services.audit_logger import log_audit_event
 from services.pricing_service import pricing_service
 from services.rag.sync_engine import rag_sync_engine
-
-from orchestration.system_settings import system_settings_manager
-from core.llm_utils import set_pii_masker_instance
-from core.slack_security import extract_client_ip, set_audit_logger_hook, set_secret_scanner_hook
-from services.audit_logger import log_audit_event
+from services.retention_service import register_thread_purge_hook
 from services.security.pii_masker import pii_masker
 from services.security import scan_output_for_secrets
 
-# Wire IoC hooks from core to services
+# Wire IoC hooks from core to services and orchestration
 set_audit_logger_hook(log_audit_event)
 set_secret_scanner_hook(scan_output_for_secrets)
 set_pii_masker_instance(pii_masker)
+set_prompt_builder_hook(build_agent_prompt)
+register_on_agents_changed(pii_masker.refresh_allowlist)
+set_default_workspace_adapter_factory(SlackWorkspaceAdapter)
+register_token_recorder(record_thread_tokens)
+set_initial_agents_provider(get_initial_agents)
+set_thread_state_provider(lambda: thread_state_manager)
+register_thread_purge_hook("usage_tracker", cleanup_thread_usage)
+register_thread_purge_hook("thread_notes", clear_thread_note)
+register_thread_purge_hook("thread_state", thread_state_manager.cleanup_thread)
 
 # Configure logging format
 dynamic_log_level = getattr(logging, system_settings_manager.get_log_level(), logging.INFO)
@@ -158,8 +182,44 @@ async def periodic_skill_exclusions_sync():
             logger.exception("[SKILL SYNC] Error during periodic skill exclusions sync")
 
 
+async def _drain_active_tasks_and_close_db(timeout: float = 5.0) -> None:
+    """Cancels remaining tracked tasks and closes all pooled SQLite connections."""
+    active_snapshot = [t for t in list(_ACTIVE_TASKS) if not t.done()]
+    for task in active_snapshot:
+        task.cancel()
+    if active_snapshot:
+        try:
+            await asyncio.wait_for(
+                asyncio.gather(*active_snapshot, return_exceptions=True),
+                timeout=timeout,
+            )
+        except TimeoutError:
+            logger.warning("[MAIN] Timed out draining %d active tasks during shutdown", len(active_snapshot))
+
+    try:
+        db_manager.close_all_connections()
+    except OSError as db_err:
+        logger.warning(f"[MAIN] Error closing database connections during shutdown: {db_err}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Fail fast before DB initialization when multi-worker execution is configured
+    concurrency_env = os.getenv("WEB_CONCURRENCY", "1")
+    try:
+        workers = int(concurrency_env)
+    except ValueError:
+        workers = 1
+    if workers > 1:
+        concurrency_msg = (
+            f"[CONCURRENCY] Worker concurrency is set to {workers} (via WEB_CONCURRENCY). "
+            "Izvor relies on in-memory asyncio.Task coordination, local thread state, "
+            "and single-worker background queues. Running multiple worker processes will cause race "
+            "conditions, duplicated agent turns, and split thread states. A single worker is required."
+        )
+        logger.critical(concurrency_msg)
+        raise RuntimeError(concurrency_msg)
+
     # Ensure SQLite schema and WAL mode are initialized before any queries execute
     from core.database import init_db
 
@@ -170,20 +230,6 @@ async def lifespan(app: FastAPI):
 
     validate_audit_configuration()
 
-    # Check worker concurrency
-    concurrency_env = os.getenv("WEB_CONCURRENCY", "1")
-    try:
-        workers = int(concurrency_env)
-    except ValueError:
-        workers = 1
-    if workers > 1:
-        logger.critical(
-            f"[CONCURRENCY] Worker concurrency is set to {workers} (via WEB_CONCURRENCY). "
-            "Izvor relies on in-memory asyncio.Task coordination, local thread state, "
-            "and single-worker background queues. Running multiple worker processes will cause race "
-            "conditions, duplicated agent turns, and split thread states. A single worker is required."
-        )
-
     if not get_admin_password():
         logger.warning(
             "[SECURITY] ADMIN_PASSWORD is not configured in environment/.env. "
@@ -191,6 +237,8 @@ async def lifespan(app: FastAPI):
         )
     enabled = load_enabled_agents()
     logger.info(f"[STARTUP] Loaded {len(enabled)} enabled debate agents from persistent storage.")
+    skill_registry.reload()
+    logger.info(f"[STARTUP] Loaded {len(skill_registry.list_skills())} declarative skills from disk.")
 
     # Run startup audit log integrity and HMAC key continuity check
     from orchestration.integrity_checks import AppIntegrityValidator
@@ -288,16 +336,19 @@ async def lifespan(app: FastAPI):
         for task in background_tasks:
             task.cancel()
         await asyncio.gather(*background_tasks, return_exceptions=True)
+
+        await _drain_active_tasks_and_close_db(timeout=5.0)
+
         try:
             await mcp_client_manager.shutdown()
-        except Exception as mcp_err:
+        except (OSError, RuntimeError, TimeoutError, ValueError) as mcp_err:
             logger.warning(f"[MAIN] Error shutting down MCP client manager: {mcp_err}")
 
 
 app = FastAPI(
     title="Izvor Multi-Agent Slack Hub",
     description="Multi-agent orchestration platform integrating Slack Events API, LiteLLM, and external MCP client tools.",
-    version="1.0.0",
+    version="0.9.0",
     lifespan=lifespan,
     docs_url=None,
     redoc_url=None,
@@ -580,6 +631,34 @@ async def get_audit_status():
     from orchestration.integrity_checks import AppIntegrityValidator
 
     return await asyncio.to_thread(AppIntegrityValidator.check_audit_log_integrity)
+
+
+@app.delete("/api/threads/{channel_id}/{thread_ts}")
+async def delete_thread_data(
+    channel_id: str,
+    thread_ts: str,
+    admin_user: str = Depends(verify_admin_basic_auth),
+):
+    """Permanently purges persisted state, flat histories, notes, downloads, and caches for a thread."""
+    from services.audit_logger import log_audit_event_async
+    from services.retention_service import forget_thread
+
+    deleted = await asyncio.to_thread(forget_thread, channel_id, thread_ts)
+    await log_audit_event_async(
+        event_type="GDPR_THREAD_FORGOTTEN",
+        actor={"type": "admin_user", "id": admin_user},
+        action="forget_thread",
+        target=f"{channel_id}:{thread_ts}",
+        details=deleted,
+        severity="WARNING",
+        status="SUCCESS",
+    )
+    return {
+        "status": "forgotten",
+        "channel_id": channel_id,
+        "thread_ts": thread_ts,
+        "deleted": deleted,
+    }
 
 
 __all__ = [

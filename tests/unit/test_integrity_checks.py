@@ -432,7 +432,7 @@ class TestDefaultWorkflowsIntegrity:
         assert not (wf_dir / "default_sandwich.json").exists()
 
         # WorkflowManager resolves defaults dynamically
-        from orchestration.workflow_manager import WorkflowManager
+        from config_store.workflow_manager import WorkflowManager
         wm = WorkflowManager(workflows_dir=wf_dir, engine_workflows_dir=engine_dir)
         preset = wm.get_workflow("default_sandwich")
         assert preset is not None
@@ -460,7 +460,7 @@ class TestDefaultWorkflowsIntegrity:
         assert not (wf_dir / "default_sandwich.json").exists()
 
         # Dynamic resolution succeeds in memory
-        from orchestration.workflow_manager import WorkflowManager
+        from config_store.workflow_manager import WorkflowManager
         wm = WorkflowManager(workflows_dir=wf_dir, engine_workflows_dir=engine_dir)
         assert wm.get_workflow("default_review_flow") is not None
         assert wm.get_workflow("parallel_dialectic_flow") is not None

@@ -131,7 +131,7 @@ _DEFAULT_SCRIBE_GRACE_BUFFER = 50
 def _get_scribe_grace_buffer() -> int:
     """Retrieves configurable word-limit grace buffer with a safe standalone default."""
     try:
-        from orchestration.system_settings import get_word_limit_grace_buffer
+        from config_store.system_settings import get_word_limit_grace_buffer
 
         return max(0, int(get_word_limit_grace_buffer()))
     except Exception:  # noqa: BLE001

@@ -9,7 +9,7 @@ from orchestration.agent_router import (
     orchestrate_discussion,
     process_and_respond,
 )
-from orchestration.agent_settings import reset_enabled_agents
+from config_store.agent_settings import reset_enabled_agents
 from orchestration.thread_state import thread_state_manager
 
 

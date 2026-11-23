@@ -10,7 +10,7 @@ from unittest.mock import patch
 import pytest
 
 from core.database import get_connection
-from orchestration.thread_skills_manager import ThreadSkillsManager
+from services.thread_skills_store import ThreadSkillsManager
 from pipeline.directive_parser import directive_parser
 from core.registry import get_skill_registry
 skill_registry = get_skill_registry()

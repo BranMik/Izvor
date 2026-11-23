@@ -15,7 +15,7 @@ Skills fall into three distinct categories:
 
 ```mermaid
 graph TD
-    Directory["engine/skills/builtin/ & config/skills/"] --> Loader["engine/skills/loader.py"]
+    Directory["engine/skills/builtin/ & config/skills/"] --> Loader["engine/skills/registry.py"]
     Loader --> Registry["SkillRegistry (core/registry.py)"]
     Registry --> SchemaGen["Tool Schema Generator (JSON Schema for LiteLLM)"]
     
@@ -118,7 +118,7 @@ The `triggers:` dictionary configures how the skill is detected from user input 
 
 ## 🔍 Discovery & Registration Lifecycle
 
-### 1. Skill Discovery ([`skills/loader.py`](file:///engine/skills/loader.py))
+### 1. Skill Discovery ([`skills/registry.py`](file:///engine/skills/registry.py))
 During application boot, the loader scans both [`engine/skills/builtin/`](file:///engine/skills/builtin) (built-in directives and modifiers) and [`config/skills/`](file:///config/skills) (implementer tool skills). Every subdirectory containing a valid `SKILL.md` file is evaluated.
 
 ### 2. Manifest & Schema Parsing
@@ -129,7 +129,7 @@ Valid skills are registered into the global `SkillRegistry`. They can be queried
 
 ### 4. Automated PII Keyword Exclusion & Content Hashing ([`services/security/pii_masker.py`](file:///engine/services/security/pii_masker.py))
 To prevent newly added skills from having their directive keywords accidentally masked by Microsoft Presidio as sensitive personal data (e.g., mistaking directive words like `"Max"`, `"Min"`, or `"Exclude"` for `PERSON`):
-- **Deterministic Content Hashing**: [`SkillLoader`](file:///engine/skills/loader.py) computes a deterministic SHA-256 `content_hash` over each skill's frontmatter manifest attributes (`name`, `display_name`, `description`, `scope`, `triggers`, `extraction_rule`, `tools`).
+- **Deterministic Content Hashing**: [`SkillRegistry`](file:///engine/skills/registry.py) computes a deterministic SHA-256 `content_hash` over each skill's frontmatter manifest attributes (`name`, `display_name`, `description`, `scope`, `triggers`, `extraction_rule`, `tools`).
 - **Automated Extraction**: When new skills are parsed or modified, [`extract_skill_exclusion_terms()`](file:///engine/services/security/pii_masker.py) extracts global identifiers (`skill.name`, multi-word display name, uppercase acronyms) and up to 5 natural language sentence-start keywords strictly for auto-detected skills (`auto_detect: true`) and agent skills. Privileged slash-only skills are omitted to eliminate PII false negatives.
 - **Persistent State Storage**: Persisted atomically to [`data/state/presidio_skill_exclusions.json`](file:///data/state/presidio_skill_exclusions.json). Custom administrative overrides (`manual_include` / `manual_exclude`) on existing skills are preserved across syncs.
 - **Scheduled Sync**: Re-evaluated on startup via [`pii_masker.warm_up()`](file:///engine/services/security/pii_masker.py) and every 24 hours via `periodic_skill_exclusions_sync()` in [`main.py`](file:///main.py), compiling zero-latency in-memory `frozenset` allowlists.
@@ -138,7 +138,7 @@ To prevent newly added skills from having their directive keywords accidentally 
 
 ## 🔄 Dynamic Grant, Revoke & Slack Admin Authorization
 
-Izvor provides fine-grained control over skill assignment through [`ThreadSkillsManager`](file:///engine/orchestration/thread_skills_manager.py) and [`orchestration/stages/directive_handlers.py`](file:///engine/orchestration/stages/directive_handlers.py):
+Izvor provides fine-grained control over skill assignment through [`ThreadSkillsManager`](file:///engine/services/thread_skills_store.py) and [`orchestration/stages/directive_handlers.py`](file:///engine/orchestration/stages/directive_handlers.py):
 
 ### 1. Static Configuration (Baseline)
 Personas can be assigned permanent baseline skills in [`config/settings/agent_settings.json`](file:///config/settings/agent_settings.json) (e.g., `SecurityArchitect` defaults with `knowledge_base_rag` and `document_reader`).
@@ -154,7 +154,7 @@ Workspace administrators (`is_slack_admin`) can grant skills on the fly within a
 
 ### 4. Declarative Two-Layer Privilege Boundary Enforcement
 Administrative authorization is governed by `requires_admin: true` in `SKILL.md` frontmatter as the single source of truth (SSOT):
-- **Fail-Closed Boot Validation**: During application startup, `SkillLoader` validates that every `SKILL.md` defines a boolean `requires_admin` attribute; missing or invalid values immediately abort boot with `SkillIntegrityError`.
+- **Fail-Closed Boot Validation**: During application startup, `SkillRegistry` validates that every `SKILL.md` defines a boolean `requires_admin` attribute; missing or invalid values immediately abort boot with `SkillIntegrityError`.
 - **Layer 1 (Orchestrator Directives)**: In [`directive_handlers.py`](file:///engine/orchestration/stages/directive_handlers.py), before executing any directive action, the centralized gate checks `skill_registry.resolve_skill(a.name).requires_admin`. If `true`, the action requires both explicit slash invocation (`origin == "slash"`) and verified admin membership (`is_slack_admin(user_id)`). Non-admin attempts are blocked, rejected with an in-thread warning, and emit an `UNAUTHORIZED_DIRECTIVE_ATTEMPT` security audit event; authorized executions emit `ADMIN_DIRECTIVE_EXECUTED`. Disabling constraints via `=off` enforces the same admin boundary.
 - **Layer 2 (Caller-Delegated Agent Tool RBAC)**: For agent-scoped skills, if `requires_admin: true`, the skill is withheld from non-admin user turns during progressive disclosure context preparation and tool execution unless explicitly thread-granted by an admin via `/grant_skill` or `/grant_skill_for_all`. This prevents non-admin callers from triggering costly agent tool operations.
 

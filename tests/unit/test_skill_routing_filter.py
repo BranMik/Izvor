@@ -1,14 +1,13 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from adapters.slack.actions.workflow_actions import _handle_toggle_skill_filter
-from core.models import ActionDirective, ExtractedIntent
+from adapters.slack.actions.governance_actions import _handle_toggle_skill_filter
+from core.models import ActionDirective
 from pipeline.directive_parser.parser import ParsedDirectives
-from orchestration.app_settings import (
+from config_store.app_settings import (
     is_filter_unauthorized_skill_agents_enabled,
     set_filter_unauthorized_skill_agents_enabled,
 )
-from orchestration.stages.validation import ValidationStage
 from orchestration.thread_state import thread_state_manager
 from orchestration.turn_pipeline import TurnContext, TurnPipeline
 from services.slack_home.governance_tab import build_governance_blocks
@@ -205,7 +204,7 @@ async def test_slack_app_home_governance_block_and_action_handler():
     # Test toggling OFF via handler (demoted to WARNING since guardrail is disabled)
     action_payload = {"selected_option": {"value": "skill_filter:off"}}
     bg_tasks = MagicMock()
-    with patch("adapters.slack.actions.workflow_actions.log_audit_event") as mock_audit:
+    with patch("adapters.slack.actions.governance_actions.log_audit_event_async", new_callable=AsyncMock) as mock_audit:
         await _handle_toggle_skill_filter(
             action=action_payload,
             payload={},
@@ -222,7 +221,7 @@ async def test_slack_app_home_governance_block_and_action_handler():
 
     # Test toggling ON via handler (demoted to INFO since guardrail is restored)
     action_payload_on = {"selected_option": {"value": "skill_filter:on"}}
-    with patch("adapters.slack.actions.workflow_actions.log_audit_event") as mock_audit_on:
+    with patch("adapters.slack.actions.governance_actions.log_audit_event_async", new_callable=AsyncMock) as mock_audit_on:
         await _handle_toggle_skill_filter(
             action=action_payload_on,
             payload={},

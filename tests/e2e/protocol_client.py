@@ -27,7 +27,7 @@ import httpx
 from slack_sdk.errors import SlackApiError
 
 import services.slack as _sc
-from services.slack.client_core import _raw_slack_async_client
+from services.slack.client_core import get_slack_async_client
 from core.config import SLACK_BOT_TOKEN, SLACK_SIGNING_SECRET, resolve_avatar_url
 from main import app
 
@@ -425,7 +425,7 @@ class SlackProtocolClient:
         self.bot_user_id = bot_user_id
         self.live_mode = live_mode
         self.live_channel_id = live_channel_id
-        self.raw_slack_client = raw_slack_client if raw_slack_client is not None else _raw_slack_async_client
+        self.raw_slack_client = raw_slack_client if raw_slack_client is not None else get_slack_async_client()
         self.bot_token = bot_token if bot_token is not None else SLACK_BOT_TOKEN
         self.current_thread_ts: str | None = None
         self.current_scenario_tag: str | None = None
@@ -1290,7 +1290,8 @@ class SlackProtocolClient:
                 # Follow-up turn in an existing thread (e.g. TC-10 revocation)
                 target_thread = self.current_thread_ts
                 try:
-                    await _raw_slack_async_client.chat_postMessage(
+                    live_client = self.raw_slack_client or get_slack_async_client()
+                    await live_client.chat_postMessage(
                         channel=target_channel,
                         thread_ts=target_thread,
                         text=f"👤 *Follow-up Prompt:*\n> {text}",

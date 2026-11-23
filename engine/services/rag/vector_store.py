@@ -24,7 +24,7 @@ RAG_SCHEMA = pa.schema([
     pa.field("updated_at", pa.float64()),
 ])
 
-_SAFE_ID_RE = re.compile(r"^[A-Za-z0-9._:/ '-]{1,256}$")
+_SAFE_ID_RE = re.compile(r"^[\w.:/ '-]{1,256}$", re.UNICODE)
 
 
 def _sql_literal(val: str) -> str:

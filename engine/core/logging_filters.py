@@ -51,10 +51,14 @@ _CREDENTIAL_PATTERNS: list[tuple[re.Pattern, str]] = [
         re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
         "[REDACTED_AWS_KEY]",
     ),
-    # Bearer HTTP tokens
+    # Bearer and Basic HTTP tokens
     (
         re.compile(r"Bearer\s+[a-zA-Z0-9_\-\.]{20,}", re.IGNORECASE),
         "Bearer [REDACTED_TOKEN]",
+    ),
+    (
+        re.compile(r"\bBasic\s+[A-Za-z0-9+/=]{8,}", re.IGNORECASE),
+        "Basic [REDACTED_TOKEN]",
     ),
     # Common secret assignments: password=..., api_key=..., client_secret=...
     (
@@ -122,15 +126,24 @@ class CredentialRedactionFilter(logging.Filter):
     """
 
     def filter(self, record: logging.LogRecord) -> bool:
-        if record.msg is not None:
-            if isinstance(record.msg, str):
+        if record.args and isinstance(record.msg, str):
+            try:
+                formatted = record.msg % record.args
+                record.msg = redact_text(formatted)
+                record.args = ()
+            except (TypeError, ValueError):
                 record.msg = redact_text(record.msg)
-            elif isinstance(record.msg, (dict, list, tuple)):
-                record.msg = _sanitize_obj(record.msg)
-            else:
-                record.msg = redact_text(str(record.msg))
-        if record.args:
-            record.args = _sanitize_obj(record.args)
+                record.args = _sanitize_obj(record.args)
+        else:
+            if record.msg is not None:
+                if isinstance(record.msg, str):
+                    record.msg = redact_text(record.msg)
+                elif isinstance(record.msg, (dict, list, tuple)):
+                    record.msg = _sanitize_obj(record.msg)
+                else:
+                    record.msg = redact_text(str(record.msg))
+            if record.args:
+                record.args = _sanitize_obj(record.args)
         if record.exc_info and not record.exc_text:
             try:
                 record.exc_text = redact_text(logging.Formatter().formatException(record.exc_info))
@@ -143,18 +156,20 @@ class CredentialRedactionFilter(logging.Filter):
         return True
 
 
-def setup_credential_redaction_filters() -> None:
-    """
-    Attaches CredentialRedactionFilter to the root logger and all existing handlers
-    to guarantee no raw credentials or API keys leak into console or log files.
-    """
-    redaction_filter = CredentialRedactionFilter()
-    root_logger = logging.getLogger()
-
-    # Avoid duplicate filters
-    if not any(isinstance(f, CredentialRedactionFilter) for f in root_logger.filters):
-        root_logger.addFilter(redaction_filter)
-
-    for handler in root_logger.handlers:
+def _attach_filter_to_logger(target_logger: logging.Logger, redaction_filter: CredentialRedactionFilter) -> None:
+    if not any(isinstance(f, CredentialRedactionFilter) for f in target_logger.filters):
+        target_logger.addFilter(redaction_filter)
+    for handler in target_logger.handlers:
         if not any(isinstance(f, CredentialRedactionFilter) for f in handler.filters):
             handler.addFilter(redaction_filter)
+
+
+def setup_credential_redaction_filters() -> None:
+    """
+    Attaches CredentialRedactionFilter to the root logger, third-party loggers with
+    propagate=False (uvicorn*, httpx), and all of their existing handlers.
+    """
+    redaction_filter = CredentialRedactionFilter()
+    _attach_filter_to_logger(logging.getLogger(), redaction_filter)
+    for logger_name in ("uvicorn", "uvicorn.error", "uvicorn.access", "httpx"):
+        _attach_filter_to_logger(logging.getLogger(logger_name), redaction_filter)

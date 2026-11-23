@@ -11,7 +11,7 @@ from orchestration.agent_router import (
     configure_router_sleep_fn,
     process_and_respond,
 )
-from orchestration.agent_settings import (
+from config_store.agent_settings import (
     reset_enabled_agents,
     set_agent_enabled,
     set_fixed_config,

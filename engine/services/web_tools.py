@@ -6,6 +6,8 @@ import json
 import logging
 import re
 import socket
+import threading
+import time
 import urllib.parse
 from typing import Any
 
@@ -14,6 +16,8 @@ import httpx
 from bs4 import BeautifulSoup
 
 logger = logging.getLogger(__name__)
+
+_DDGS_ENGINE_LOCK = threading.Lock()
 
 _turn_web_fetch_count: contextvars.ContextVar[list[int] | None] = contextvars.ContextVar(
     "_turn_web_fetch_count", default=None
@@ -53,7 +57,7 @@ def check_and_increment_web_budget() -> None:
 
 def _get_web_settings():
     try:
-        from orchestration.system_settings import system_settings_manager
+        from config_store.system_settings import system_settings_manager
         return system_settings_manager
     except Exception:  # noqa: BLE001
         return None
@@ -163,7 +167,8 @@ async def _web_search_inner(query: str, max_results: int = 5) -> str:
         def _run_ddgs() -> list[dict[str, str]]:
             from ddgs import DDGS
 
-            _configure_ddgs_engines()
+            with _DDGS_ENGINE_LOCK:
+                _configure_ddgs_engines()
             timeout_sec = max(1, int(min(float(get_web_search_timeout()), 8.0)))
             last_exc: Exception | None = None
             for backend in ("yahoo", "yahoo", "auto"):
@@ -389,14 +394,15 @@ def validate_url_security(url: str) -> tuple[bool, str, str | None, str | None]:
     if scheme not in ("http", "https"):
         return False, cleaned_url, f"Scheme '{scheme}' is not allowed. Only HTTP and HTTPS are permitted.", None
 
-    # Port allowlist enforcement
+    # Port allowlist enforcement (including implicit default ports 80/443)
     allowed_ports = sec_limits.get("allowed_ports", [80, 443])
     try:
         port = parsed.port
     except ValueError:
         return False, cleaned_url, "Invalid port in URL.", None
-    if port is not None and port not in allowed_ports:
-        return False, cleaned_url, f"Port {port} is not allowed. Permitted ports: {allowed_ports}.", None
+    effective_port = port if port is not None else (443 if scheme == "https" else 80)
+    if effective_port not in allowed_ports:
+        return False, cleaned_url, f"Port {effective_port} is not allowed. Permitted ports: {allowed_ports}.", None
 
     if not parsed.netloc:
         return False, cleaned_url, "URL is missing a valid host.", None
@@ -527,10 +533,15 @@ async def _fetch_web_page_inner(url: str, max_chars: int = 4000) -> str:
         current_url = cleaned_url
         current_ip = resolved_ip
         redirect_count = 0
+        deadline = time.monotonic() + float(fetch_timeout)
 
         while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return json.dumps({"error": f"Request to '{cleaned_url}' timed out.", "url": cleaned_url})
+            hop_timeout = httpx.Timeout(remaining, connect=min(remaining, 10.0), read=remaining)
             transport = PinnedIPTransport(current_ip) if current_ip else None
-            async with httpx.AsyncClient(transport=transport, timeout=fetch_timeout, follow_redirects=False) as client:
+            async with httpx.AsyncClient(transport=transport, timeout=hop_timeout, follow_redirects=False) as client:
                 async with client.stream("GET", current_url, headers=headers) as response:
                     # Check for redirect (3xx status code with Location header)
                     if (300 <= response.status_code < 400) and response.headers.get("location"):
@@ -568,34 +579,43 @@ async def _fetch_web_page_inner(url: str, max_chars: int = 4000) -> str:
                             }
                         )
 
-                    # Validate Content-Type
+                    # Fail closed on missing, empty, or disallowed Content-Type
                     content_type = response.headers.get("content-type", "").lower()
                     mime_type = content_type.split(";")[0].strip() if content_type else ""
-                    if mime_type:
-                        is_allowed_mime = (
-                            mime_type.startswith("text/")
-                            or mime_type in {
-                                "application/json",
-                                "application/xhtml+xml",
-                                "application/xml",
-                                "application/rss+xml",
-                                "application/atom+xml",
+                    is_allowed_mime = bool(mime_type) and (
+                        mime_type.startswith("text/")
+                        or mime_type in {
+                            "application/json",
+                            "application/xhtml+xml",
+                            "application/xml",
+                            "application/rss+xml",
+                            "application/atom+xml",
+                        }
+                        or mime_type.endswith("+xml")
+                        or mime_type.endswith("+json")
+                    )
+                    if not is_allowed_mime:
+                        return json.dumps(
+                            {
+                                "error": f"Unsupported or dangerous Content-Type '{mime_type or 'missing'}'. Only text, HTML, and JSON responses are allowed.",
+                                "url": current_url,
                             }
-                            or mime_type.endswith("+xml")
-                            or mime_type.endswith("+json")
                         )
-                        if not is_allowed_mime:
-                            return json.dumps(
-                                {
-                                    "error": f"Unsupported or dangerous Content-Type '{mime_type}'. Only text, HTML, and JSON responses are allowed.",
-                                    "url": current_url,
-                                }
-                            )
 
-                    # Read streamed content with byte limit
+                    # Read streamed content with byte limit and monotonic wall-clock deadline
                     content_chunks = []
                     total_bytes = 0
-                    async for chunk in response.aiter_bytes(chunk_size=65536):
+                    aiter = response.aiter_bytes(chunk_size=65536).__aiter__()
+                    while True:
+                        chunk_remaining = deadline - time.monotonic()
+                        if chunk_remaining <= 0:
+                            raise httpx.ReadTimeout("Total wall-clock fetch deadline exceeded.")
+                        try:
+                            chunk = await asyncio.wait_for(aiter.__anext__(), timeout=chunk_remaining)
+                        except StopAsyncIteration:
+                            break
+                        except TimeoutError as te:
+                            raise httpx.ReadTimeout("Total wall-clock fetch deadline exceeded.") from te
                         total_bytes += len(chunk)
                         if total_bytes > max_body_bytes:
                             return json.dumps(

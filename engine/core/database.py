@@ -331,12 +331,13 @@ def _get_db_busy_timeout() -> float:
     if _db_busy_timeout_provider is not None:
         try:
             return float(_db_busy_timeout_provider())
-        except Exception:
-            pass
+        except (AttributeError, ImportError, KeyError, OSError, RuntimeError, TypeError, ValueError) as exc:
+            logger.debug(f"[DATABASE] Busy timeout provider fallback: {exc}")
     try:
         import os
+
         return float(os.getenv("IZVOR_DB_BUSY_TIMEOUT", "5.0"))
-    except Exception:
+    except (TypeError, ValueError):
         return 5.0
 
 
@@ -417,8 +418,8 @@ class DatabaseManager:
                     except Exception:
                         try:
                             conn.execute("ROLLBACK;")
-                        except Exception:
-                            pass
+                        except (sqlite3.Error, RuntimeError, OSError) as rb_err:
+                            logger.debug(f"[DATABASE] Migration rollback ignored: {rb_err}")
                         raise
             self._initialized_paths.add(resolved)
             logger.info(f"[DATABASE] SQLite schema at {resolved} initialized up to version {MIGRATIONS[-1][0]} (WAL mode).")

@@ -242,7 +242,7 @@ async def test_hitl_approval_aborts_when_consume_tool_approval_fails_and_audits(
 
     with (
         patch("services.hitl.consume_tool_approval", return_value=False),
-        patch("skills.loader.skill_registry.execute_tool_async", new_callable=AsyncMock) as mock_exec,
+        patch("skills.registry.skill_registry.execute_tool_async", new_callable=AsyncMock) as mock_exec,
         patch("services.audit_logger.log_audit_event", side_effect=lambda **kw: logged_events.append(kw)),
         patch("adapters.slack.actions.hitl_actions.post_message_to_slack", AsyncMock(return_value={"ok": True})) as mock_post,
     ):
@@ -284,10 +284,10 @@ async def test_hitl_non_admin_filter_and_safe_fallback_continuation():
     try:
         with (
             patch("adapters.slack.actions.hitl_actions.is_slack_admin", return_value=False),
-            patch("orchestration.agent_settings.settings_manager.get_agents_config", return_value={"agent-10001": {"skills": ["admin_only_skill", "safe_skill"]}}),
-            patch("skills.loader.skill_registry.filter_skills_for_caller", side_effect=_fake_filter),
+            patch("config_store.agent_settings.settings_manager.get_agents_config", return_value={"agent-10001": {"skills": ["admin_only_skill", "safe_skill"]}}),
+            patch("skills.registry.skill_registry.filter_skills_for_caller", side_effect=_fake_filter),
             patch("services.hitl.consume_tool_approval", return_value=True),
-            patch("skills.loader.skill_registry.execute_tool_async", side_effect=_fake_exec),
+            patch("skills.registry.skill_registry.execute_tool_async", side_effect=_fake_exec),
             patch("adapters.slack.actions.hitl_actions.post_message_to_slack", AsyncMock(return_value={"ok": True})),
             patch("services.turn_checkpoint_store.turn_checkpoint_store.get_checkpoint_by_hitl_request", return_value=None),
             patch("orchestration.turn_pipeline.TurnPipeline.run", AsyncMock(return_value={"ok": True, "final_text": "Resumed"})) as mock_run,

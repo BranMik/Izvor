@@ -60,7 +60,7 @@ Internal support agents (`Orchestrator`, `Challenger`, `Arbitrator`, `Discussion
 
 ## 🛠️ Adding a New Dynamic Skill or Directive
 
- [`SkillRegistry`](file:///engine/skills/loader.py) discovers skills from two directories:
+ [`SkillRegistry`](file:///engine/skills/registry.py) discovers skills from two directories:
 - **Implementer Tool Skills (`config/skills/<skill_name>/`)**: Tool-backed capabilities (`scope: agent`) that debate personas invoke during deliberations (imported as `config.skills.<skill_name>.tools`).
 - **Engine Built-in Directives & Modifiers (`engine/skills/builtin/<skill_name>/`)**: Core orchestration actions (`scope: orchestrator`), prompt modifiers (`scope: prompt_modifier`), and `control_plane` tools (imported as `skills.builtin.<skill_name>.action` or `.tools`).
 

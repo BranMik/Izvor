@@ -61,7 +61,7 @@ The SQLite state engine is initialized on startup in write-ahead logging (`WAL`)
 | `thread_context` | Persists word limits (`min_words`, `max_words`), history limits, detected thread language, included/excluded agents, and attached file contexts. | [`ThreadContextStore`](file:///engine/orchestration/state/context_store.py) |
 | `spend_ledger` | Append-only financial ledger recording prompt tokens, completion tokens, and dollar cost per model invocation. | [`SpendGovernance`](file:///engine/pipeline/spend_governance/circuit_breaker.py) |
 | `hitl_approvals` | Stores pending, approved, denied, or consumed Human-In-The-Loop approval requests with cryptographic parameter hashing and atomic single-statement transitions. | [`services.hitl`](file:///engine/services/hitl.py) |
-| `thread_skills` | Thread-scoped dynamic skill grants (`skill_name`, `agent_id`, `expires_at`). | [`ThreadSkillsManager`](file:///engine/orchestration/thread_skills_manager.py) |
+| `thread_skills` | Thread-scoped dynamic skill grants (`skill_name`, `agent_id`, `expires_at`). | [`ThreadSkillsManager`](file:///engine/services/thread_skills_store.py) |
 | `event_dedup` | Persists event IDs and receipt timestamps for idempotent Slack webhook retries. | [`EventDeduplicationCache`](file:///engine/adapters/slack/events.py) |
 | `thread_usage_meta` | Stores per-thread cost summaries and Slack usage report message timestamps (replacing legacy JSON file writes). | [`ThreadUsageTracker`](file:///engine/agents/usage_agent.py) |
 | `thread_notes_state` | Persists live Scribe note timestamps, final conclusion note timestamps, synthesized content, and pin status per thread. | [`ThreadNotesAgent`](file:///engine/agents/thread_notes_agent.py) |

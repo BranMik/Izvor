@@ -154,7 +154,7 @@ async def test_global_skill_declarative_frontmatter():
     """Verifies that skills marked global: true are universally accessible to all agents."""
     import json
 
-    from skills.loader import SkillDefinition
+    from skills.registry import SkillDefinition
 
     mock_global_skill = SkillDefinition(
         name="universal_tool",
@@ -247,6 +247,7 @@ def test_declarative_requires_admin_all_skills():
     admin_skills = skill_registry.get_admin_skills()
     admin_names = {s.name for s in admin_skills}
     expected_admins = {
+        "forget_thread",
         "grant_skill",
         "grant_skill_for_all",
         "revoke_skill_for_all",
@@ -266,7 +267,7 @@ def test_declarative_requires_admin_all_skills():
 
 def test_missing_or_invalid_requires_admin_raises_integrity_error(tmp_path):
     """Verifies that missing or non-boolean requires_admin in SKILL.md raises SkillIntegrityError."""
-    from skills.loader import SkillIntegrityError, SkillRegistry
+    from skills.registry import SkillIntegrityError, SkillRegistry
 
     registry = SkillRegistry()
 
@@ -343,7 +344,7 @@ def test_resolve_skill_aliases():
 
 def test_filter_skills_for_caller():
     """Verifies filter_skills_for_caller correctly restricts admin skills unless caller is admin or thread-granted."""
-    from skills.loader import SkillDefinition
+    from skills.registry import SkillDefinition
 
     mock_admin_skill = SkillDefinition(
         name="admin_only_skill",

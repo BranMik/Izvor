@@ -2,7 +2,6 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from agents import usage_agent
 from agents.usage_agent import (
     calculate_thread_costs,
     format_usage_slack_message,

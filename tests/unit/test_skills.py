@@ -236,7 +236,7 @@ def test_skill_registry_concurrent_reload_atomic_snapshot(tmp_path):
     """TKT-1206 (C10): Concurrent SkillRegistry.reload() must never expose empty snapshots or RuntimeError."""
     import threading
     import time
-    from skills.loader import SkillRegistry
+    from skills.registry import SkillRegistry
 
     skill_dir = tmp_path / "alpha"
     skill_dir.mkdir()
@@ -277,7 +277,7 @@ def test_skill_registry_concurrent_reload_atomic_snapshot(tmp_path):
 
 def test_skill_registry_blocks_builtin_shadowing(tmp_path):
     """TKT-1206 (H4): Custom root_dir cannot overwrite builtin skills from the primary engine dir."""
-    from skills.loader import SkillRegistry
+    from skills.registry import SkillRegistry
 
     builtin_dir = tmp_path / "builtin"
     custom_dir = tmp_path / "custom"
@@ -306,7 +306,7 @@ def test_skill_registry_blocks_builtin_shadowing(tmp_path):
 
 def test_skill_registry_wildcard_mcp_find_skill_for_tool_before_discovery(tmp_path):
     """TKT-1206 (H4): find_skill_for_tool resolves mcp_tools: ['*'] before get_tool_schemas() runs."""
-    from skills.loader import SkillRegistry
+    from skills.registry import SkillRegistry
 
     mcp_skill_dir = tmp_path / "ext_mcp"
     mcp_skill_dir.mkdir()
@@ -321,4 +321,23 @@ def test_skill_registry_wildcard_mcp_find_skill_for_tool_before_discovery(tmp_pa
     skill_def = reg.get(matched)
     assert skill_def is not None
     assert skill_def.requires_human_ITL is True
+
+
+def test_skills_registry_zero_import_time_disk_scan():
+    """TKT-1230: Importing skills or skills.registry performs zero disk scanning until ensure_loaded()."""
+    import subprocess
+    import sys
+
+    code = (
+        "import sys; sys.path.insert(0, 'engine'); "
+        "import skills; "
+        "from skills.registry import skill_registry; "
+        "assert skill_registry._loaded is False, 'Registry loaded eagerly at import'; "
+        "assert len(skill_registry._skills) == 0, 'Skills populated before ensure_loaded()'; "
+        "skill_registry.ensure_loaded(); "
+        "assert skill_registry._loaded is True; "
+        "assert len(skill_registry._skills) > 0"
+    )
+    proc = subprocess.run([sys.executable, "-u", "-c", code], capture_output=True, text=True, check=False)
+    assert proc.returncode == 0, f"Zero import-time scan check failed:\n{proc.stdout}\n{proc.stderr}"
 

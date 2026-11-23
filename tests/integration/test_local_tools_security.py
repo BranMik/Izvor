@@ -59,7 +59,7 @@ def test_validate_resource_filename_security_boundaries():
 
 def test_write_document_size_cap_enforcement():
     # Set max_write_bytes to 500 bytes for test
-    from orchestration.system_settings import set_max_write_bytes
+    from config_store.system_settings import set_max_write_bytes
     set_max_write_bytes(500)
 
     try:
@@ -106,27 +106,27 @@ def test_tool_principal_authorization_fail_closed():
 def test_should_unmask_tool_args_enforces_outbound_pii_policy():
     """TKT-1209 (C5): Outbound web tools and PII-masked MCP servers must never receive unmasked PII args."""
     from unittest.mock import patch
-    from orchestration.stages.execution import _should_unmask_tool_args
-    from orchestration.system_settings import McpServerConfig
+    from orchestration.stages.tool_loop_runner import _should_unmask_tool_args
+    from config_store.system_settings import McpServerConfig
 
     assert _should_unmask_tool_args("web_search") is False
     assert _should_unmask_tool_args("fetch_web_page") is False
     assert _should_unmask_tool_args("read_document") is True
 
     with patch(
-        "orchestration.stages.execution.system_settings_manager.get_mcp_server_config",
+        "orchestration.stages.tool_loop_runner.system_settings_manager.get_mcp_server_config",
         return_value=McpServerConfig(outbound_pii_masking=True),
     ):
         assert _should_unmask_tool_args("mcp__ext__lookup") is False
 
     with patch(
-        "orchestration.stages.execution.system_settings_manager.get_mcp_server_config",
+        "orchestration.stages.tool_loop_runner.system_settings_manager.get_mcp_server_config",
         return_value=McpServerConfig(outbound_pii_masking=False),
     ):
         assert _should_unmask_tool_args("mcp__ext__lookup") is True
 
     with patch(
-        "orchestration.stages.execution.system_settings_manager.get_mcp_server_config",
+        "orchestration.stages.tool_loop_runner.system_settings_manager.get_mcp_server_config",
         return_value=None,
     ):
         assert _should_unmask_tool_args("mcp__unknown__lookup") is False

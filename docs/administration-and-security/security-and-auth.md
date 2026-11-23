@@ -76,7 +76,7 @@ Human-in-the-Loop approvals in [`services/hitl.py`](file:///engine/services/hitl
 
 ### 1. Declarative Admin Authorization SSOT & Dual Gate (`origin == "slash"` + `is_slack_admin`)
 Administrative privilege requirements are defined directly in `SKILL.md` frontmatter via `requires_admin: true` as the Single Source of Truth (SSOT), and enforced across two architectural layers:
-- **Fail-Closed Startup Abort**: `SkillLoader` mandates `requires_admin: boolean` on every skill; missing or non-boolean properties raise `SkillIntegrityError` and abort boot.
+- **Fail-Closed Startup Abort**: `SkillRegistry` mandates `requires_admin: boolean` on every skill; missing or non-boolean properties raise `SkillIntegrityError` and abort boot.
 - **Layer 1 (Directives)**: All directive actions in [`TurnContext`](file:///engine/orchestration/turn_pipeline.py) carry an explicit `origin` attribute (`"slash"` vs `"inferred"`). In [`orchestration/stages/directive_handlers.py`](file:///engine/orchestration/stages/directive_handlers.py), actions with `sk.requires_admin == True` (such as `/grant_skill`, `/grant_skill_for_all`, `/revoke_skill_for_all`, `/revoke_constraint`, and disabling constraints via `=off`) require **both**:
   1. Explicit slash invocation (`origin == "slash"`).
   2. Slack Workspace Admin authorization (`is_slack_admin(ctx.input.user_id)`).
@@ -95,7 +95,7 @@ When downloading files attached to Slack threads in [`services/slack/files.py`](
 To prevent over-redaction where genuine system commands, persona names, or skill triggers are accidentally masked as sensitive PII entities (e.g., Presidio mistaking capitalized words like `"Max"`, `"Min"`, or `"Exclude"` for `PERSON`, or technical terms for `ORGANIZATION`), Izvor implements an automated, observable keyword exclusion and allowlisting pipeline:
 
 #### A. Automated Skill Keyword Extraction & Hashing
-When skills are registered or parsed from [`engine/skills/builtin/`](file:///engine/skills/builtin/) or [`config/skills/`](file:///config/skills/), [`SkillLoader`](file:///engine/skills/loader.py) calculates a deterministic SHA-256 `content_hash` over skill metadata. Keyword extraction is strictly scoped to auto-detected skills (`auto_detect: true`) and agent skills (privileged slash-only skills are omitted to eliminate PII false negatives, since slash commands are already protected via `_PROTECTED_SPAN_PATTERNS`). During startup ([`pii_masker.warm_up()`](file:///engine/services/security/pii_masker.py)) and periodic background checks, [`extract_skill_exclusion_terms()`](file:///engine/services/security/pii_masker.py) extracts:
+When skills are registered or parsed from [`engine/skills/builtin/`](file:///engine/skills/builtin/) or [`config/skills/`](file:///config/skills/), [`SkillRegistry`](file:///engine/skills/registry.py) calculates a deterministic SHA-256 `content_hash` over skill metadata. Keyword extraction is strictly scoped to auto-detected skills (`auto_detect: true`) and agent skills (privileged slash-only skills are omitted to eliminate PII false negatives, since slash commands are already protected via `_PROTECTED_SPAN_PATTERNS`). During startup ([`pii_masker.warm_up()`](file:///engine/services/security/pii_masker.py)) and periodic background checks, [`extract_skill_exclusion_terms()`](file:///engine/services/security/pii_masker.py) extracts:
 1. **Global Terms (`global_terms`)**: Exact skill names (`skill.name.lower()`), multi-word display names (`skill.display_name.lower()`), and uppercase acronyms ($\ge 2$ characters, e.g., `"RAG"`, `"PDF"`, `"MCP"`).
 2. **Sentence-Start Keywords (`sentence_start_keywords`)**: Up to 5 lowercase tokens per skill (length $\ge 3$) extracted from bare slash command stems (e.g., `["max", "words"]` from `/max_words`), explicit `triggers.keywords`, and key terms from descriptions or extraction rules, filtered against stopwords and global allowlists.
 
@@ -103,7 +103,7 @@ When skills are registered or parsed from [`engine/skills/builtin/`](file:///eng
 - **Canonical Path**: Excluded terms are persisted to [`data/state/presidio_skill_exclusions.json`](file:///data/state/presidio_skill_exclusions.json), resolved canonically via `PRESIDIO_SKILL_EXCLUSIONS_FILE` in [`core/paths.py`](file:///engine/core/paths.py).
 - **Single Source of Truth**: `presidio_skill_exclusions.json` is the sole authority for skill keywords; `_STATIC_SENTENCE_START_ALLOWLIST_LOWER` contains only generic syntax tokens (`off`, `all`, `require`, `operations`).
 - **Environment Override**: The storage path can be redirected using the `IZVOR_PRESIDIO_SKILL_EXCLUSIONS_FILE` environment variable.
-- **Write-Protection**: Added to `DEFAULT_PROTECTED_WRITE_PATHS` in [`orchestration/system_settings.py`](file:///engine/orchestration/system_settings.py) to prevent unauthorized writes from tool agents.
+- **Write-Protection**: Added to `DEFAULT_PROTECTED_WRITE_PATHS` in [`config_store/system_settings.py`](file:///engine/config_store/system_settings.py) to prevent unauthorized writes from tool agents.
 - **Human Overrides**: Human administrators can define custom `manual_include` and `manual_exclude` lists per skill in `presidio_skill_exclusions.json`; these entries are preserved across automated re-syncs.
 
 #### C. Context-Aware Sentence-Start Boundary Rule
@@ -125,7 +125,7 @@ Outgoing Slack messages are posted via [`services/slack/messages.py`](file:///en
 
 ## 🗄️ Path Traversal, Web SSRF & Sandbox Isolation
 
-- **Fail-Closed `ToolPrincipal`**: [`SkillLoader`](file:///engine/skills/loader.py) verifies [`ToolPrincipal`](file:///engine/core/domain.py) before executing any tool.
+- **Fail-Closed `ToolPrincipal`**: [`SkillRegistry`](file:///engine/skills/registry.py) verifies [`ToolPrincipal`](file:///engine/core/domain.py) before executing any tool.
 - **Filesystem Confinement**: `validate_resource_filename` in [`services/local_tools.py`](file:///engine/services/local_tools.py) confines operations to `agents_resources/`, blocks Windows device names (`CON`, `PRN`, `AUX`, `NUL`, `COM1–9`, `LPT1–9`) and NTFS ADS (`:`), protects `DEFAULT_PROTECTED_WRITE_PATHS`, and caps writes at `max_write_bytes` (1 MB).
 - **Outbound Web SSRF & DNS-Rebinding Protection**: [`services/web_tools.py`](file:///engine/services/web_tools.py) uses `PinnedIPTransport` to pin resolved public IPs, blocks private IPv4/IPv6/NAT64 ranges, strips query strings on untrusted domains, and enforces a per-turn web fetch cap (`max_fetches_per_turn: 5`).
 

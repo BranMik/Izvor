@@ -1,7 +1,6 @@
-"""
-Slack interactivity action handlers package.
-Divided into HITL actions, agent panel actions, and workflow/governance actions.
-"""
+"""Slack interactivity action handlers grouped by domain."""
+
+from __future__ import annotations
 
 from adapters.slack.actions.agent_actions import (
     _deliver_admin_denial_feedback,
@@ -13,41 +12,45 @@ from adapters.slack.actions.agent_actions import (
     _handle_toggle_agent,
     _handle_toggle_agent_radio,
 )
-from adapters.slack.actions.hitl_actions import (
-    _execute_and_resume_hitl_approval,
-    _handle_hitl_approve_tool,
-    _handle_hitl_deny_tool,
-    _resume_hitl_denial,
-)
-from adapters.slack.actions.workflow_actions import (
-    _handle_clear_fixed_chain_button,
-    _handle_clear_sandwich_chains_button,
-    _handle_delete_workflow_preset_button,
-    _handle_download_scribe_notes,
-    _handle_load_workflow_preset_button,
-    _handle_open_edit_workspace_context_modal,
+from adapters.slack.actions.governance_actions import (
     _handle_resume_sequence,
     _handle_save_circuit_breaker_threshold_button,
     _handle_save_daily_budget_button,
-    _handle_save_fixed_chain_button,
-    _handle_save_sandwich_chains_button,
-    _handle_save_workflow_preset_button,
-    _handle_scribe_download,
-    _handle_select_orchestration_mode,
-    _handle_select_workflow_preset,
     _handle_set_circuit_breaker_preset,
     _handle_set_circuit_breaker_threshold_input,
     _handle_set_daily_budget_input,
     _handle_set_daily_budget_preset,
-    _handle_set_end_chain_input,
-    _handle_set_fixed_chain_input,
-    _handle_set_start_chain_input,
     _handle_set_thread_skill_expiry_preset,
     _handle_toggle_circuit_breaker,
     _handle_toggle_convergence_ff,
     _handle_toggle_scribe,
     _handle_toggle_skill_filter,
     _handle_toggle_weekly_pricing,
+)
+from adapters.slack.actions.hitl_actions import (
+    _execute_and_resume_hitl_approval,
+    _handle_hitl_approve_tool,
+    _handle_hitl_deny_tool,
+    _resume_hitl_denial,
+)
+from adapters.slack.actions.scribe_actions import (
+    _handle_download_scribe_notes,
+    _handle_scribe_download,
+)
+from adapters.slack.actions.workflow_presets import (
+    _handle_clear_fixed_chain_button,
+    _handle_clear_sandwich_chains_button,
+    _handle_delete_workflow_preset_button,
+    _handle_load_workflow_preset_button,
+    _handle_open_edit_workspace_context_modal,
+    _handle_save_fixed_chain_button,
+    _handle_save_sandwich_chains_button,
+    _handle_save_workflow_preset_button,
+    _handle_select_orchestration_mode,
+    _handle_select_workflow_preset,
+    _handle_set_end_chain_input,
+    _handle_set_fixed_chain_input,
+    _handle_set_start_chain_input,
     _validate_chain_agent_keys,
 )
 

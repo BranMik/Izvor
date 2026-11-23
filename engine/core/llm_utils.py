@@ -28,15 +28,15 @@ def get_llm_max_retries() -> int:
     if _llm_retry_config_provider is not None:
         try:
             return int(_llm_retry_config_provider()[0])
-        except Exception:
-            pass
+        except (AttributeError, IndexError, RuntimeError, TypeError, ValueError) as exc:
+            logger.debug(f"[LLM] Retry config provider fallback: {exc}")
     try:
         if SYSTEM_SETTINGS_FILE.exists():
             with open(SYSTEM_SETTINGS_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
             return int(data.get("llm_max_retries", 3))
-    except Exception:  # noqa: BLE001
-        pass
+    except (OSError, ValueError, TypeError) as exc:
+        logger.debug(f"[LLM] Failed reading llm_max_retries: {exc}")
     return 3
 
 
@@ -44,15 +44,15 @@ def get_llm_retry_backoff_base() -> float:
     if _llm_retry_config_provider is not None:
         try:
             return float(_llm_retry_config_provider()[1])
-        except Exception:
-            pass
+        except (AttributeError, IndexError, RuntimeError, TypeError, ValueError) as exc:
+            logger.debug(f"[LLM] Retry backoff provider fallback: {exc}")
     try:
         if SYSTEM_SETTINGS_FILE.exists():
             with open(SYSTEM_SETTINGS_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
             return float(data.get("llm_retry_backoff_base", 1.5))
-    except Exception:  # noqa: BLE001
-        pass
+    except (OSError, ValueError, TypeError) as exc:
+        logger.debug(f"[LLM] Failed reading llm_retry_backoff_base: {exc}")
     return 1.5
 
 
@@ -337,7 +337,8 @@ async def execute_llm_with_retry(
                 is_strict = bool(data.get("strict_privacy_mode_enabled", True))
             else:
                 is_strict = True
-        except Exception:
+        except (OSError, ValueError, TypeError) as exc:
+            logger.debug(f"[LLM] Failed reading strict_privacy_mode_enabled; failing closed: {exc}")
             is_strict = True
 
     masker = _pii_masker_instance

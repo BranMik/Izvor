@@ -79,7 +79,7 @@ class SandwichOrchestrator:
         challenger_key: str | None = None
         arbitrator_key: str | None = None
         try:
-            from orchestration.agent_settings import get_challenger_agent, get_arbitrator_agent
+            from config_store.agent_settings import get_challenger_agent, get_arbitrator_agent
 
             challenger_key = get_challenger_agent()
             arbitrator_key = get_arbitrator_agent()

@@ -125,7 +125,7 @@ The `data/` directory stores live databases, caches, audit logs, and Slack UI st
 
 ### ⚙️ System Settings (`config/settings/system_settings.json`)
 
-System operational parameters, security guardrails, and timeouts are managed by [`SystemSettingsManager`](file:///engine/orchestration/system_settings.py) (backed by [`JsonSettingsStore`](file:///engine/orchestration/settings_store.py)):
+System operational parameters, security guardrails, and timeouts are managed by [`SystemSettingsManager`](file:///engine/config_store/system_settings.py) (backed by [`JsonSettingsStore`](file:///engine/config_store/settings_store.py)):
 
 | Setting Key | Shipped Value (`system_settings.json`) | Description |
 |---|---|---|
@@ -146,12 +146,12 @@ System operational parameters, security guardrails, and timeouts are managed by 
 | `max_tool_iterations` | `3` | Maximum tool execution iterations per single agent turn. |
 | `tool_call_num_retries` | `2` | Number of retries permitted for transient tool invocation failures. |
 | `word_limit_grace_buffer` | `50` | Word count buffer above `max_words` before mechanical truncation is applied (`0` when `max_words < 20`). |
-| `output_constraints` | `{"default_max_words": 150, "short_max_words": 70}` | Configured prompt word ceilings (clamped `1..2000`; schema fallback `200`/`100`) for standard (`output_constraints.md`) and short-output (`output_constraints_short.md`) personas; limits `< 60` switch prompts to compact mode. |
+| `output_constraints` | `{"default_max_words": 150, "short_max_words": 70}` | Configured prompt word ceilings (clamped `1..2000`; schema fallback `200`/`100`) appended via `output_constraints.md` for standard and short-output personas; limits `< 60` switch prompts to compact mode. |
 | `system_agent_inference_timeout_seconds` | `20.0` | Wall-clock timeout in seconds for system agent inference (`InternalRevisor`, `DiscussionScribe`, `IntentExtractor`). |
 | `system_agent_inference_retry_timeout_multiplier` | `1.5` | Timeout multiplier applied on system agent retry attempts. |
 | `thread_cleanup_interval_seconds` | `600.0` | Frequency in seconds for pruning idle in-memory thread states (10 minutes). |
 | `audit_integrity_check_interval_seconds` | `43200.0` | Frequency in seconds for verifying the cryptographic hash chain of audit logs (12 hours). |
-| `skill_exclusions_sync_interval_seconds` | `86400.0` | Frequency in seconds for periodic synchronization of Presidio skill keyword exclusions (24 hours, default in [`SystemSettingsModel`](file:///engine/orchestration/system_settings.py)). |
+| `skill_exclusions_sync_interval_seconds` | `86400.0` | Frequency in seconds for periodic synchronization of Presidio skill keyword exclusions (24 hours, default in [`SystemSettingsModel`](file:///engine/config_store/system_settings.py)). |
 | `pricing_cache_ttl_days` | `7` | Cache lifespan in days for LLM token pricing benchmarks. |
 | `slack_file_download_timeout_seconds` | `30.0` | Timeout in seconds for downloading attached files from Slack. |
 | `web_search_timeout_seconds` | `10.0` | Timeout in seconds for outbound `ddgs` web searches. |

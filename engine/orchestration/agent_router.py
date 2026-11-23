@@ -117,16 +117,16 @@ def _apply_convergence_stress_test_or_fast_forward(
     """
     Evaluates post-turn convergence state and returns (updated_remaining_agents, updated_consecutive_count).
     """
-    from orchestration.app_settings import is_convergence_fast_forward_enabled
+    from config_store.app_settings import is_convergence_fast_forward_enabled
 
     if thread_state_manager.is_custom_flow(channel_id, thread_ts) or not is_convergence_fast_forward_enabled():
         return thread_state_manager.get_remaining_agents(channel_id, thread_ts), 0
 
-    from orchestration.agent_settings import (
+    from config_store.agent_settings import (
         get_sandwich_config,
         settings_manager,
     )
-    from orchestration.system_settings import (
+    from config_store.system_settings import (
         get_convergence_consecutive_threshold,
         is_dialectical_stress_test_enabled,
     )
@@ -313,7 +313,7 @@ async def process_and_respond(
                 thread_state_manager.request_stop(channel_id, thread_ts)
                 return {"status": "blocked_by_guardrail"}
         except Exception as e:  # noqa: BLE001
-            from orchestration.system_settings import get_guardrail_fail_mode
+            from config_store.system_settings import get_guardrail_fail_mode
             fail_mode = get_guardrail_fail_mode()
             if fail_mode == "closed":
                 logger.critical(

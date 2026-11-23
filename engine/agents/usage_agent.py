@@ -683,3 +683,12 @@ try:
 except (ImportError, AttributeError, TypeError) as _e:
     logger.debug(f"[USAGE AGENT] Could not register thread_state hooks: {_e}")
 
+try:
+    from core.registry import register_token_recorder
+    from services.retention_service import register_thread_purge_hook
+
+    register_token_recorder(record_thread_tokens)
+    register_thread_purge_hook("usage_tracker", cleanup_thread_usage)
+except (ImportError, AttributeError, TypeError) as _re:
+    logger.debug(f"[USAGE AGENT] Could not register core/retention hooks: {_re}")
+

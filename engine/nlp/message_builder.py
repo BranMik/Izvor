@@ -1,5 +1,8 @@
+import logging
 import re
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 def markdown_to_slack(text: str) -> str:
@@ -67,10 +70,10 @@ def _select_single_authorized_username(
                 thread_ts=thread_ts,
                 exclude_agent_key=exclude_agent_key,
             )
-    except Exception:
-        pass
+    except (ImportError, AttributeError, KeyError, RuntimeError, TypeError, ValueError) as exc:
+        logger.debug(f"[MESSAGE BUILDER] SkillRegistry recommendation fallback: {exc}")
     try:
-        from skills.loader import select_recommended_agent_from_keys
+        from skills.recommender import select_recommended_agent_from_keys
 
         return select_recommended_agent_from_keys(
             authorized_agents,
@@ -78,7 +81,8 @@ def _select_single_authorized_username(
             thread_ts=thread_ts,
             exclude_agent_key=exclude_agent_key,
         )
-    except Exception:
+    except (ImportError, AttributeError, KeyError, RuntimeError, TypeError, ValueError) as exc:
+        logger.debug(f"[MESSAGE BUILDER] Recommender fallback unavailable: {exc}")
         return None
 
 
@@ -102,8 +106,8 @@ def build_skill_resolution_hint(
                 thread_ts=thread_ts,
                 exclude_agent_key=exclude_agent_key,
             )
-    except Exception:
-        pass
+    except (ImportError, AttributeError, KeyError, RuntimeError, TypeError, ValueError) as exc:
+        logger.debug(f"[MESSAGE BUILDER] Skill resolution hint fallback: {exc}")
     s_str = skill_names if isinstance(skill_names, str) else ", ".join(str(s) for s in skill_names)
     return f"Grant access via '/grant_skill {s_str} <agent>' or '/grant_skill_for_all {s_str}'."
 

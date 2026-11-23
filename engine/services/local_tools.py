@@ -3,8 +3,10 @@ import hashlib
 import inspect
 import json
 import logging
+import os
 from pathlib import Path
 import re
+import tempfile
 from typing import Any
 
 from core.config import TOOLS_WORKSPACE_DIR
@@ -61,16 +63,21 @@ def get_agents_resources_dir() -> Path:
     return AGENTS_RESOURCES_DIR
 
 
+MAX_READ_DOCUMENT_CHARS = 50000
+
+
 def validate_resource_filename(rel_path: str) -> None:
     """
     Validates a resource relative path to prevent directory traversal, Windows device name abuse,
-    NTFS alternate data streams, and forbidden characters.
+    NTFS alternate data streams, control characters, and forbidden characters.
     """
     clean = str(rel_path or "").strip()
     if not clean:
         raise ValueError("Resource path cannot be empty.")
     if "\x00" in clean:
         raise ValueError("NUL byte is not permitted in resource paths.")
+    if any(ord(ch) < 32 or ord(ch) == 127 for ch in clean):
+        raise ValueError("Control characters are not permitted in resource paths.")
     if ":" in clean:
         raise ValueError("Colon character ':' is not permitted in resource paths.")
     if clean.startswith(("/", "\\")):
@@ -86,7 +93,7 @@ def validate_resource_filename(rel_path: str) -> None:
     reserved_devices = (
         {"CON", "PRN", "AUX", "NUL"} | {f"COM{i}" for i in range(1, 10)} | {f"LPT{i}" for i in range(1, 10)}
     )
-    segment_pattern = re.compile(r"^[A-Za-z0-9._ -]{1,128}$")
+    segment_pattern = re.compile(r"^[\w. -]{1,128}$", re.UNICODE)
 
     for segment in segments:
         if not segment or segment == ".":
@@ -121,7 +128,7 @@ def _resolve_resource_path(rel_path: str) -> Path:
         validate_resource_filename(stripped)
 
     clean_path = stripped or "."
-    resources_dir = get_agents_resources_dir()
+    resources_dir = get_agents_resources_dir().resolve()
     target = (resources_dir / clean_path).resolve()
     if not target.is_relative_to(resources_dir):
         raise PermissionError(
@@ -137,7 +144,7 @@ def list_documents(
 ) -> str:
     """
     Lists the contents of a directory inside the agents_resources/ directory.
-    Enforces principal authorization (fails closed if principal is missing).
+    Enforces principal authorization (fails closed if principal is missing) and skips symlinks escaping root.
     """
     if principal is None:
         return json.dumps({"error": "Permission denied: Principal identity is required to list documents."})
@@ -146,6 +153,7 @@ def list_documents(
         return json.dumps({"error": f"Permission denied: Principal '{actor_id}' is not authorized to list documents."})
 
     try:
+        resources_dir = get_agents_resources_dir().resolve()
         path = _resolve_resource_path(rel_path)
         if not path.exists():
             return json.dumps({"error": f"Resource directory '{rel_path}' does not exist."})
@@ -154,11 +162,18 @@ def list_documents(
 
         contents = []
         for item in sorted(path.iterdir()):
+            try:
+                resolved_item = item.resolve()
+            except OSError:
+                continue
+            if not resolved_item.is_relative_to(resources_dir):
+                logger.warning(f"[LOCAL_TOOLS] Skipping entry resolving outside sandbox root: {item}")
+                continue
             contents.append(
                 {
                     "name": item.name,
-                    "is_dir": item.is_dir(),
-                    "size_bytes": item.stat().st_size if item.is_file() else None,
+                    "is_dir": resolved_item.is_dir(),
+                    "size_bytes": resolved_item.stat().st_size if resolved_item.is_file() else None,
                 }
             )
         return json.dumps({"directory": rel_path, "contents": contents})
@@ -179,11 +194,12 @@ def read_document(
     principal: ToolPrincipal | str | None = None,
     authorized_agents: set[str] | None = None,
     authorized_skills: list[str] | set[str] | str | None = None,
+    max_chars: int = MAX_READ_DOCUMENT_CHARS,
 ) -> str:
     """
     Reads the content of a text or PDF document inside the agents_resources/ directory.
     agents_resources/ is the default working and search directory even if omitted in rel_path.
-    Enforces principal authorization and per-file ACL checks (fails closed if principal is missing).
+    Enforces principal authorization, per-file ACL checks, and bounded character output.
     """
     if principal is None:
         return json.dumps({"error": "Permission denied: Principal identity is required to read documents."})
@@ -199,13 +215,23 @@ def read_document(
                 {"error": f"Permission denied: Agent '{actor_id}' is not authorized to access document '{rel_path}'."}
             )
 
-    from orchestration.system_settings import (
+    from config_store.system_settings import (
         get_max_file_size_bytes,
         get_max_file_size_mb,
     )
 
     max_size_bytes = get_max_file_size_bytes()
     max_size_mb = get_max_file_size_mb()
+    effective_max_chars = max(500, min(int(max_chars), 200000))
+
+    def _truncate_doc(raw: str) -> tuple[str, bool]:
+        if len(raw) > effective_max_chars:
+            return (
+                raw[:effective_max_chars]
+                + f"\n\n... [TRUNCATED: Document exceeded {effective_max_chars} characters] ...",
+                True,
+            )
+        return raw, False
 
     try:
         path = _resolve_resource_path(rel_path)
@@ -234,11 +260,13 @@ def read_document(
                         pages_text.append(f"--- Page {idx + 1} ---\n{page_text}")
                     else:
                         pages_text.append(f"--- Page {idx + 1} ---\n[No extractable text]")
-                content = "\n\n".join(pages_text) if pages_text else "[Empty PDF document]"
+                raw_content = "\n\n".join(pages_text) if pages_text else "[Empty PDF document]"
+                content, truncated = _truncate_doc(raw_content)
                 return json.dumps(
                     {
                         "document": rel_path,
                         "content": content,
+                        "truncated": truncated,
                         "pages": len(reader.pages),
                     }
                 )
@@ -247,8 +275,9 @@ def read_document(
             except Exception as e:  # noqa: BLE001 - PDF parser error boundary returns failure JSON
                 return json.dumps({"error": f"Failed to parse PDF '{rel_path}': {e}"})
 
-        content = path.read_text(encoding="utf-8", errors="replace")
-        return json.dumps({"document": rel_path, "content": content})
+        raw_content = path.read_text(encoding="utf-8", errors="replace")
+        content, truncated = _truncate_doc(raw_content)
+        return json.dumps({"document": rel_path, "content": content, "truncated": truncated})
     except PermissionError as e:
         return json.dumps({"error": str(e)})
     except FileNotFoundError:
@@ -283,7 +312,7 @@ def write_document(
     actor_kind = getattr(principal, "kind", "agent")
 
     try:
-        from orchestration.system_settings import (
+        from config_store.system_settings import (
             get_max_write_bytes,
             is_path_write_blocked,
         )
@@ -311,8 +340,8 @@ def write_document(
             )
 
         path = _resolve_resource_path(rel_path)
-        resources_dir = get_agents_resources_dir()
-        workspace_dir = get_workspace_dir()
+        resources_dir = get_agents_resources_dir().resolve()
+        workspace_dir = get_workspace_dir().resolve()
         if not path.is_relative_to(resources_dir):
             raise PermissionError(
                 f"Access denied: Write path '{rel_path}' resolves outside agents_resources directory '{resources_dir}'."
@@ -323,13 +352,18 @@ def write_document(
         ):
             from services.audit_logger import log_audit_event
 
+            try:
+                resolved_rel = str(path.relative_to(workspace_dir).as_posix())
+            except ValueError:
+                resolved_rel = str(path)
+
             log_audit_event(
                 event_type="FILE_WRITE_BLOCKED",
                 actor={"type": actor_kind, "id": actor_id},
                 action="write_document",
                 target=rel_path,
                 details={
-                    "resolved_path": str(path.relative_to(workspace_dir).as_posix()),
+                    "resolved_path": resolved_rel,
                     "reason": "Path is protected in system settings",
                 },
                 severity="CRITICAL",
@@ -339,7 +373,17 @@ def write_document(
                 {"error": f"Permission denied: Writing to protected path '{rel_path}' is strictly prohibited."}
             )
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(content, encoding="utf-8")
+        tmp_fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent))
+        tmp_path = Path(tmp_name)
+        try:
+            with os.fdopen(tmp_fd, "w", encoding="utf-8") as tmp_f:
+                tmp_f.write(content)
+                tmp_f.flush()
+                os.fsync(tmp_f.fileno())
+            os.replace(tmp_path, path)
+        except Exception:
+            tmp_path.unlink(missing_ok=True)
+            raise
         bytes_written = len(content.encode("utf-8"))
         from services.audit_logger import log_audit_event
 
@@ -508,9 +552,9 @@ def is_agent_authorized_for_tool(
 ) -> bool:
     """
     Validates whether an agent or system principal has authorization to execute the requested tool.
-    Delegates directly to skills.loader.is_principal_authorized_for_tool as the single source of truth.
+    Delegates directly to skills.policy.is_principal_authorized_for_tool as the single source of truth.
     """
-    from skills.loader import is_principal_authorized_for_tool
+    from skills.policy import is_principal_authorized_for_tool
 
     return is_principal_authorized_for_tool(
         principal=agent_name,

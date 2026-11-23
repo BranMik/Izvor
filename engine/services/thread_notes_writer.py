@@ -68,13 +68,21 @@ def extract_ts5_suffix(thread_ts: str) -> str:
     return digits.zfill(5)
 
 
-def generate_notes_filename(prompt: str | None, thread_ts: str, note_type: str) -> str:
+def generate_notes_filename(
+    prompt: str | None,
+    thread_ts: str,
+    note_type: str,
+    channel_id: str | None = None,
+) -> str:
     """
-    Generates standard filename: <prompt_slug>_<ts5>_<note_type>.md
-    e.g. 'build_scalable_db_84521_live_notes.md' or 'build_scalable_db_84521_conclusion.md'
+    Generates standard filename: <prompt_slug>[_<channel_id>]_<ts5>_<note_type>.md
+    e.g. 'build_scalable_db_C123_84521_live_notes.md' or 'build_scalable_db_84521_live_notes.md'
     """
     slug = sanitize_prompt_slug(prompt)
     ts5 = extract_ts5_suffix(thread_ts)
+    clean_cid = re.sub(r"[^a-zA-Z0-9_-]", "", str(channel_id))[:16] if channel_id else ""
+    if clean_cid:
+        return f"{slug}_{clean_cid}_{ts5}_{note_type}.md"
     return f"{slug}_{ts5}_{note_type}.md"
 
 
@@ -127,7 +135,7 @@ def save_thread_notes_to_disk(
 
     # 1. Write live notes if present
     if live_notes_text and live_notes_text.strip():
-        filename = generate_notes_filename(initial_prompt, thread_ts, "live_notes")
+        filename = generate_notes_filename(initial_prompt, thread_ts, "live_notes", channel_id=channel_id)
         filepath = target_dir / filename
         content = format_note_document(
             title="📋 Live Discussion Scribe Notes",
@@ -141,7 +149,7 @@ def save_thread_notes_to_disk(
 
     # 2. Write conclusion if present
     if conclusion_text and conclusion_text.strip():
-        filename = generate_notes_filename(initial_prompt, thread_ts, "conclusion")
+        filename = generate_notes_filename(initial_prompt, thread_ts, "conclusion", channel_id=channel_id)
         filepath = target_dir / filename
         content = format_note_document(
             title="🎯 Discussion Conclusion & Dialectical Analysis",

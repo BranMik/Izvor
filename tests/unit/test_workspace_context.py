@@ -2,10 +2,9 @@ import json
 from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
-from orchestration.app_settings import (
+from config_store.app_settings import (
     get_workspace_context,
     set_workspace_context,
-    AppSettingsManager,
     app_settings_manager,
 )
 from prompts.builder import build_agent_prompt

@@ -6,7 +6,7 @@ and Background Worker Warning Mitigation.
 from fastapi.testclient import TestClient
 
 from main import app
-from orchestration.agent_settings import settings_manager
+from config_store.agent_settings import settings_manager
 from orchestration.nomination import parse_agent_and_prompt
 from orchestration.thread_state import thread_state_manager
 from prompts.builder import is_short_output_agent, is_system_agent

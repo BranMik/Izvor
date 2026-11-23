@@ -14,7 +14,7 @@ from orchestration.agent_router import (
     configure_router_sleep_fn,
     process_and_respond,
 )
-from orchestration.agent_settings import (
+from config_store.agent_settings import (
     get_agents_config,
     reset_enabled_agents,
     set_fixed_config,
@@ -537,7 +537,7 @@ async def test_execute_llm_with_retry_skips_retries_on_api_key_not_found():
 async def test_process_and_respond_missing_key_falls_back_with_slack_footer():
     """Verify missing agent API key falls back in-memory to default_reasoning_model (or catalog) with Slack footer."""
     from core.model_catalog import configure_env_provider
-    from orchestration.agent_settings import settings_manager
+    from config_store.agent_settings import settings_manager
 
     thread_state_manager.reset_all()
     original_configured = settings_manager.agents_config["agent-10002"]["model"]
@@ -657,7 +657,7 @@ async def test_execute_llm_with_retry_single_layer_backoff_dynamic_and_dict_unma
     """TKT-1213: forces num_retries=0 on copied kwargs, fails fast on 404/400, backs off exponentially, and unmasks dict tool_calls."""
     from types import SimpleNamespace
     from core import llm_utils
-    from orchestration.system_settings import system_settings_manager
+    from config_store.system_settings import system_settings_manager
     from services.security.pii_masker import PIIMasker
 
     # 1. Non-mutating kwargs copy & num_retries=0 enforcement + fail-fast on 404 / 400

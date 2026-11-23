@@ -271,7 +271,6 @@ def test_discussion_store_session_durability_rehydration():
 def test_telemetry_bounded_buffer_and_retry_requeue():
     """A-12: Verify telemetry queue bounds and retry re-queuing on DB error."""
     from unittest.mock import patch
-    import services.telemetry as tel
     from services.telemetry import (
         _TRACE_BUFFER,
         _TRACE_BUFFER_LOCK,
@@ -383,8 +382,8 @@ def test_convergence_speakers_sqlite_durability():
 @pytest.mark.anyio
 async def test_outbound_messages_dlp_unified():
     """Verify post_thread_note, update_thread_note, and post_message_to_slack sanitize via _prepare_outbound_payload."""
-    from services.slack.messages import post_thread_note, update_thread_note, post_message_to_slack
-    from services.slack.client_core import configure_token, reset_token
+    from core.config import configure_token, reset_token
+    from services.slack.messages import post_message_to_slack, post_thread_note, update_thread_note
 
     configure_token("")
     secret_text = "Here is sensitive token: sk_live_1234567890abcdef"

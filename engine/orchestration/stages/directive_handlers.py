@@ -6,11 +6,10 @@ Processes administrative slash directives (/grant_skill, /revoke_skill, /rounds,
 from __future__ import annotations
 
 import logging
-import re
 from typing import TYPE_CHECKING, Any
 
 from core.models import INT_MODIFIER_BOUNDS, coerce_int_modifier
-from orchestration.agent_settings import get_agents_config
+from config_store.agent_settings import get_agents_config
 from orchestration.thread_state import thread_state_manager
 from pipeline.directive_parser.slash_parser import has_substantive_prompt
 
@@ -141,11 +140,65 @@ async def handle_slash_directives(
         validated_actions.append(act)
     ctx.actions = validated_actions
 
+    # Process /forget_thread action (strictly slash-only + admin-only GDPR erasure)
+    raw_forget_acts = [
+        a
+        for a in (getattr(directives, "actions", None) or [])
+        if getattr(a, "name", "") in ("forget_thread", "forget-thread")
+    ]
+    if any(getattr(a, "origin", "slash") != "slash" for a in raw_forget_acts) and not any(
+        getattr(a, "origin", "slash") == "slash" for a in ctx.actions if a.name in ("forget_thread", "forget-thread")
+    ):
+        logger.warning(f"[VALIDATION] Blocked inferred /forget_thread directive in {ctx.input.channel_id}:{ctx.input.thread_ts}")
+
+    forget_act = next(
+        (
+            a
+            for a in ctx.actions
+            if a.name in ("forget_thread", "forget-thread") and getattr(a, "origin", "slash") == "slash"
+        ),
+        None,
+    )
+    if forget_act:
+        import asyncio
+
+        from services.audit_logger import log_audit_event_async
+        from services.retention_service import forget_thread
+
+        admin_check = await require_directive_admin(
+            ctx,
+            directive_name="forget_thread",
+            post_sys_msg=post_sys_msg,
+            details=forget_act.params or {},
+        )
+        if admin_check:
+            return admin_check
+
+        summary = await asyncio.to_thread(forget_thread, ctx.input.channel_id, ctx.input.thread_ts)
+        await log_audit_event_async(
+            event_type="GDPR_THREAD_FORGOTTEN",
+            actor={"type": "user", "id": getattr(ctx.input, "user_id", None) or "unknown"},
+            action="forget_thread",
+            target=f"{ctx.input.channel_id}:{ctx.input.thread_ts}",
+            details=summary,
+            severity="WARNING",
+            status="SUCCESS",
+        )
+        await post_sys_msg(
+            channel_id=ctx.input.channel_id,
+            thread_ts=ctx.input.thread_ts,
+            text=(
+                "🧹 *Thread Data Forgotten (GDPR Purge)*: All persisted histories, notes, "
+                "downloads, and memory caches for this channel thread have been permanently deleted."
+            ),
+        )
+        return {"ok": True, "halted": True, "action": "forget_thread", "deleted": summary}
+
     # Process /grant_skill_for_all action
     grant_act = next((a for a in ctx.actions if a.name in ("grant_skill_for_all", "grant_for_all")), None)
     if grant_act and getattr(grant_act, "origin", "slash") == "slash":
-        from orchestration.app_settings import app_settings_manager
-        from orchestration.thread_skills_manager import thread_skills_manager
+        from config_store.app_settings import app_settings_manager
+        from services.thread_skills_store import thread_skills_manager
         from core.registry import get_skill_registry
 
         skill_registry = get_skill_registry()
@@ -187,8 +240,8 @@ async def handle_slash_directives(
     # Process /grant_skill action
     grant_skill_act = next((a for a in ctx.actions if a.name == "grant_skill"), None)
     if grant_skill_act and getattr(grant_skill_act, "origin", "slash") == "slash":
-        from orchestration.app_settings import app_settings_manager
-        from orchestration.thread_skills_manager import thread_skills_manager
+        from config_store.app_settings import app_settings_manager
+        from services.thread_skills_store import thread_skills_manager
         from core.registry import get_skill_registry
         from pipeline.entity_resolver import entity_resolver
 
@@ -268,7 +321,7 @@ async def handle_slash_directives(
     # Process /revoke_skill_for_all action
     revoke_act = next((a for a in ctx.actions if a.name in ("revoke_skill_for_all", "revoke_for_all")), None)
     if revoke_act and getattr(revoke_act, "origin", "slash") == "slash":
-        from orchestration.thread_skills_manager import thread_skills_manager
+        from services.thread_skills_store import thread_skills_manager
 
         skills_to_revoke = revoke_act.params.get("skills", [])
         if not skills_to_revoke:
@@ -287,7 +340,7 @@ async def handle_slash_directives(
                 return {"ok": True, "halted": True, "action": "revoke_skill_for_all"}
 
     # Check if user prompt attempts to refer to an expired thread skill
-    from orchestration.thread_skills_manager import thread_skills_manager
+    from services.thread_skills_store import thread_skills_manager
 
     expired_skills = thread_skills_manager.get_expired_skills(ctx.input.channel_id, ctx.input.thread_ts)
     if expired_skills and ctx.raw_text_cleaned:

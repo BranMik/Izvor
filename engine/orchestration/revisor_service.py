@@ -16,7 +16,7 @@ from core.config import (
 from core.llm_utils import execute_llm_with_retry
 from core.security_utils import wrap_untrusted_content
 from orchestration.state.evidence_store import READ_ONLY_CACHEABLE_TOOLS
-from orchestration.system_settings import get_shared_evidence_max_chars
+from config_store.system_settings import get_shared_evidence_max_chars
 from orchestration.thread_state import thread_state_manager
 from orchestration.turn_pipeline import TurnContext
 from prompts.builder import build_agent_prompt

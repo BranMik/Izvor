@@ -170,3 +170,4 @@ class JsonSettingsStore(Generic[T]):
         with self._lock:
             self._cached_model = None
             self._raw_data = {}
+

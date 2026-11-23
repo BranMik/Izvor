@@ -1,10 +1,9 @@
 import logging
 
+from core.config import SLACK_BOT_TOKEN, configure_token, reset_token
 from services.slack.client_core import (
     CHANNEL_NAME_CACHE,
-    SLACK_BOT_TOKEN,
     configure_slack_async_client,
-    configure_token,
     get_channel_name,
     get_or_create_usage_channel,
     get_slack_async_client,
@@ -12,7 +11,6 @@ from services.slack.client_core import (
     open_dm_channel,
     post_ephemeral_to_slack,
     reset_slack_async_client,
-    reset_token,
     slack_async_client,
     slack_rate_limiter,
 )
@@ -45,7 +43,11 @@ from services.slack.messages import (
     update_thread_note,
     update_usage_message,
 )
-from services.slack.views import publish_app_home, safe_publish_home
+from services.slack.views import (
+    publish_app_home,
+    reset_app_home_publish_cache,
+    safe_publish_home,
+)
 
 logger = logging.getLogger("services.slack")
 
@@ -88,6 +90,7 @@ __all__ = [
     "sanitize_slack_download_filename",
     "download_slack_file",
     "fetch_thread_files",
+    "reset_app_home_publish_cache",
     "upload_text_file_to_slack",
     "cleanup_old_downloads",
     "publish_app_home",

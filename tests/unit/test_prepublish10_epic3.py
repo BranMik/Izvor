@@ -1,7 +1,5 @@
 import asyncio
 import json
-import os
-import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -20,7 +18,6 @@ from services.local_tools import (
     _mask_tool_args,
     list_documents,
     read_document,
-    write_document,
 )
 from services.slack.messages import post_message_to_slack
 

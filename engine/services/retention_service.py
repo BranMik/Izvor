@@ -5,18 +5,36 @@ Provides lifecycle pruning of expired records and GDPR-compliant thread data era
 
 from __future__ import annotations
 
+from collections.abc import Callable
 import hashlib
 import logging
+import shutil
+import threading
 import time
 
-from core.database import get_db_transaction
-from orchestration.system_settings import (
+from config_store.system_settings import (
     get_retention_checkpoints_days,
     get_retention_event_dedup_days,
     get_retention_traces_days,
 )
+from core.database import get_db_transaction
 
 logger = logging.getLogger(__name__)
+
+_purge_hooks_lock = threading.RLock()
+_thread_purge_hooks: dict[str, Callable[[str, str], None]] = {}
+
+
+def register_thread_purge_hook(name: str, hook: Callable[[str, str], None]) -> None:
+    """Registers an in-memory purge callback invoked by forget_thread(channel_id, thread_ts)."""
+    with _purge_hooks_lock:
+        _thread_purge_hooks[name] = hook
+
+
+def unregister_thread_purge_hook(name: str) -> None:
+    """Unregisters a previously registered thread purge hook."""
+    with _purge_hooks_lock:
+        _thread_purge_hooks.pop(name, None)
 
 
 def prune_expired_records(
@@ -139,22 +157,19 @@ def forget_thread(channel_id: str, thread_ts: str) -> dict[str, int]:
         logger.error(f"[RETENTION] Database error during forget_thread for {thread_identifier}: {e}")
         raise
 
-    # Remove flat history file(s)
+    # Remove flat history file(s) (strictly channel-scoped)
     flat_history_deleted = 0
     try:
-        from core.paths import FLAT_HISTORIES_DIR
+        from services.flat_history_recorder import get_flat_histories_dir
 
-        if FLAT_HISTORIES_DIR.exists():
-            clean_ts = "".join(ch for ch in tts if ch.isalnum())
-            clean_ts_short = clean_ts[:10] if clean_ts else ""
-            for p in list(FLAT_HISTORIES_DIR.glob("*.md")):
+        flat_dir = get_flat_histories_dir()
+        if flat_dir.exists():
+            expected_cid_hdr = f"**Channel ID:** `{cid}`"
+            expected_ts_hdr = f"**Thread TS:** `{tts}`"
+            for p in list(flat_dir.glob("*.md")):
                 try:
                     content = p.read_text(encoding="utf-8", errors="ignore")
-                    if (
-                        f"**Thread TS:** `{tts}`" in content
-                        or (clean_ts and f"_{clean_ts}" in p.stem)
-                        or (clean_ts_short and f"_{clean_ts_short}" in p.stem)
-                    ):
+                    if expected_cid_hdr in content and expected_ts_hdr in content:
                         p.unlink(missing_ok=True)
                         flat_history_deleted += 1
                 except OSError:
@@ -163,18 +178,19 @@ def forget_thread(channel_id: str, thread_ts: str) -> dict[str, int]:
         logger.debug(f"[RETENTION] Error removing flat history file for {thread_identifier}: {fe}")
     purged_counts["flat_histories"] = flat_history_deleted
 
-    # Remove thread notes file(s)
+    # Remove thread notes file(s) (strictly channel-scoped)
     thread_notes_deleted = 0
     try:
-        from services.thread_notes_writer import extract_ts5_suffix, get_thread_notes_dir
+        from services.thread_notes_writer import get_thread_notes_dir
 
         notes_dir = get_thread_notes_dir()
         if notes_dir.exists():
-            ts5 = extract_ts5_suffix(tts)
+            cid_hdrs = (f"**Channel ID**: `{cid}`", f"**Channel ID:** `{cid}`")
+            ts_hdrs = (f"**Thread Timestamp**: `{tts}`", f"**Thread Timestamp:** `{tts}`")
             for p in list(notes_dir.glob("*.md")):
                 try:
                     content = p.read_text(encoding="utf-8", errors="ignore")
-                    if f"**Thread Timestamp**: `{tts}`" in content or (ts5 and f"_{ts5}_" in p.stem):
+                    if any(h in content for h in cid_hdrs) and any(h in content for h in ts_hdrs):
                         p.unlink(missing_ok=True)
                         thread_notes_deleted += 1
                 except OSError:
@@ -183,20 +199,37 @@ def forget_thread(channel_id: str, thread_ts: str) -> dict[str, int]:
         logger.debug(f"[RETENTION] Error removing thread notes files for {thread_identifier}: {ne}")
     purged_counts["thread_notes"] = thread_notes_deleted
 
-    # Clear in-memory thread state and tracking
+    # Remove thread-scoped downloaded attachments subdirectory
+    downloads_deleted = 0
     try:
-        from orchestration.thread_state import thread_state_manager
+        from core.paths import get_downloads_dir
+        from services.slack.files import get_thread_downloads_subdir
 
-        thread_state_manager.cleanup_thread(cid, tts)
-    except Exception as se:  # noqa: BLE001
-        logger.debug(f"[RETENTION] Error clearing thread_state_manager for {thread_identifier}: {se}")
+        downloads_dir = get_downloads_dir().resolve()
+        subdir = get_thread_downloads_subdir(cid, tts, downloads_dir=downloads_dir)
+        if subdir.exists() and subdir.is_dir():
+            downloads_deleted = sum(1 for f in subdir.rglob("*") if f.is_file())
+            shutil.rmtree(subdir)
+    except (OSError, PermissionError, ValueError) as de:
+        logger.debug(f"[RETENTION] Error removing downloads subdir for {thread_identifier}: {de}")
+    purged_counts["downloads"] = downloads_deleted
 
+    # Clear guardrail LRU embedding cache
     try:
-        from agents.usage_agent import usage_tracker
+        from services.security.guardrail import guardrail_service
 
-        usage_tracker.cleanup_thread(cid, tts)
-    except Exception as ue:  # noqa: BLE001
-        logger.debug(f"[RETENTION] Error clearing usage_tracker for {thread_identifier}: {ue}")
+        guardrail_service.clear_cache()
+    except Exception as ge:  # noqa: BLE001
+        logger.debug(f"[RETENTION] Error clearing guardrail cache for {thread_identifier}: {ge}")
+
+    # Clear in-memory thread state and tracking via registered purge hooks (decouples L2 from L3)
+    with _purge_hooks_lock:
+        hooks_snapshot = list(_thread_purge_hooks.items())
+    for hook_name, hook_fn in hooks_snapshot:
+        try:
+            hook_fn(cid, tts)
+        except Exception as he:  # noqa: BLE001
+            logger.debug(f"[RETENTION] Error executing thread purge hook '{hook_name}' for {thread_identifier}: {he}")
 
     try:
         from pipeline.spend_governance import spend_governance

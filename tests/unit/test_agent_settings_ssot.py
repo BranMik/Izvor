@@ -11,7 +11,7 @@ from core.config import (
     get_base_avatar_url,
     resolve_avatar_url,
 )
-from orchestration.agent_settings import AgentSettingsManager, settings_manager
+from config_store.agent_settings import AgentSettingsManager, settings_manager
 from services.slack_home import build_app_home_view
 
 
@@ -279,8 +279,8 @@ def test_7_day_backup_refresh():
 
 def test_slack_app_home_emergency_alert():
     # Test alert presence when running in backup mode
-    with patch("orchestration.agent_settings.is_running_from_backup", return_value=True), \
-         patch("orchestration.agent_settings.get_backup_error_reason", return_value="Test file missing"):
+    with patch("config_store.agent_settings.is_running_from_backup", return_value=True), \
+         patch("config_store.agent_settings.get_backup_error_reason", return_value="Test file missing"):
         view = build_app_home_view(enabled_agents={"agent-10001"})
         blocks = view.get("blocks", [])
 
@@ -300,7 +300,7 @@ def test_slack_app_home_emergency_alert():
         assert has_restore_btn is True
 
     # Test no alert when normal
-    with patch("orchestration.agent_settings.is_running_from_backup", return_value=False):
+    with patch("config_store.agent_settings.is_running_from_backup", return_value=False):
         view = build_app_home_view(enabled_agents={"agent-10001"})
         blocks = view.get("blocks", [])
         has_alert = any(
@@ -341,8 +341,7 @@ def test_dynamic_config_getter_resolution():
 
 
 def test_configurable_pacing_defaults():
-    import core.config
-    from orchestration.system_settings import (
+    from config_store.system_settings import (
         get_debate_turn_pacing_seconds,
         get_max_discussion_turns,
         get_slack_post_pause_seconds,
@@ -402,7 +401,7 @@ async def test_turn_pipeline_propagates_agent_avatar_icon():
 
 
 def test_scribe_settings_toggle_and_app_home_view():
-    from orchestration.app_settings import is_scribe_enabled, set_scribe_enabled
+    from config_store.app_settings import is_scribe_enabled, set_scribe_enabled
     from services.slack_home import build_app_home_view
 
     # Test toggling scribe in settings manager
@@ -441,7 +440,7 @@ def test_scribe_settings_toggle_and_app_home_view():
 
 
 def test_weekly_pricing_settings_toggle_and_app_home_view():
-    from orchestration.app_settings import (
+    from config_store.app_settings import (
         is_weekly_pricing_update_enabled,
         set_weekly_pricing_update_enabled,
     )
@@ -479,7 +478,7 @@ def test_weekly_pricing_settings_toggle_and_app_home_view():
 
 
 def test_single_challenger_and_arbitrator_system_agent_ssot():
-    from orchestration.agent_settings import (
+    from config_store.agent_settings import (
         get_challenger_agent,
         get_arbitrator_agent,
         settings_manager,
@@ -588,7 +587,7 @@ def test_base_avatar_url_env_override_and_resolve():
 def test_discussion_scribe_system_agent_ssot_loaded():
     """Verify DiscussionScribe is registered in system agent SSOT with mistral-small-latest."""
     from core.config import SYSTEM_AGENTS_CONFIG, get_system_agent_model
-    from orchestration.agent_settings import settings_manager
+    from config_store.agent_settings import settings_manager
 
     assert "DiscussionScribe" in settings_manager.system_agents_config
     assert "DiscussionScribe" in SYSTEM_AGENTS_CONFIG

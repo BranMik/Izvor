@@ -29,6 +29,13 @@ REQUIRED_DEFAULT_WORKFLOW_IDS: tuple[str, ...] = (
     "parallel_dialectic_flow",
 )
 
+DIALECTICAL_SYSTEM_AGENTS: set[str] = {"Challenger", "Arbitrator"}
+
+
+def is_dialectical_system_agent(agent_key: str) -> bool:
+    """Checks whether an agent is a turn-taking dialectical system agent."""
+    return agent_key in DIALECTICAL_SYSTEM_AGENTS
+
 
 @dataclass
 class FileContext:
