@@ -45,6 +45,7 @@ class RAGService:
         agent_name: str = "",
         scope: str = "all",
         max_results: int = DEFAULT_TOP_K,
+        token_mapping: dict[str, str] | None = None,
     ) -> str:
         """
         Executes hybrid search and returns a structured markdown string
@@ -93,12 +94,15 @@ class RAGService:
         output_blocks = [f'### Knowledge Base Search Results for: *"{cleaned_query}"*\n']
         from services.security.pii_masker import pii_masker
 
+        active_mapping: dict[str, str] = token_mapping if token_mapping is not None else {}
         for idx, item in enumerate(results, start=1):
             doc_id = item.get("doc_id", "Unknown")
             section = item.get("section_header", "Overview")
             text = item.get("text", "").strip()
             if pii_masker.should_mask_at_retrieval():
-                text, _ = await pii_masker.async_mask(text)
+                text, new_map = await pii_masker.async_mask(text, existing_mapping=active_mapping)
+                if new_map:
+                    active_mapping.update(new_map)
 
             output_blocks.append(f"**[{idx}] `{doc_id}` — {section}**\n> {text.replace(chr(10), chr(10) + '> ')}\n")
 

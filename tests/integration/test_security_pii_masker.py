@@ -84,10 +84,11 @@ async def test_execute_llm_with_retry_masks_tool_calls_and_preserves_turn_mappin
         )
 
         assert res is not None
-        # Verify unmasking worked
-        assert "alice@example.com" in res.choices[0].message.content
-        assert "charlie@test.com" in res.choices[0].message.content
-        assert "alice@example.com" in res.choices[0].message.tool_calls[0].function.arguments
+        # Verify final non-tool-call content would unmask via TurnFinalizer while tool_calls stay masked
+        # in execute_llm_with_retry so ToolLoopRunner controls per-tool unmasking
+        assert "<EMAIL_0>" in res.choices[0].message.content
+        assert "<EMAIL_0>" in res.choices[0].message.tool_calls[0].function.arguments
+        assert "alice@example.com" not in res.choices[0].message.tool_calls[0].function.arguments
         # Verify turn_mapping retained tokens
         assert "<EMAIL_0>" in turn_mapping
         assert turn_mapping["<EMAIL_0>"] == "alice@example.com"

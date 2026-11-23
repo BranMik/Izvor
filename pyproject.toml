@@ -61,6 +61,7 @@ norecursedirs = [
 [tool.ruff]
 line-length = 120
 target-version = "py311"
+extend-exclude = ["system_resources/agy/auto"]
 
 [tool.ruff.lint]
 select = [

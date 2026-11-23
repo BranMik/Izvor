@@ -340,12 +340,26 @@ def test_system_settings_init_registers_providers_and_persists_skill_sync(tmp_pa
         database.set_db_busy_timeout_provider(None)
         slack_security.set_burst_limits_provider(None)
 
-        mgr = SystemSettingsManager(settings_file=sys_file, backup_file=sys_backup, auto_load=True)
+        mgr = SystemSettingsManager(
+            settings_file=sys_file,
+            backup_file=sys_backup,
+            auto_load=True,
+            register_core_providers=True,
+        )
         assert llm_utils._llm_retry_config_provider is not None
         assert llm_utils._privacy_mode_provider is not None
         assert database._db_busy_timeout_provider is not None
         assert slack_security._burst_limits_provider is not None
 
+        # TKT-1307: Standalone SystemSettingsManager without register_core_providers=True
+        # must NOT overwrite global providers registered by singleton or explicit owner
+        from core import config as core_config
+
+        core_config.set_internal_revisor_enabled_provider(lambda: True)
+        stray_file = tmp_path / "stray_system_settings.json"
+        stray_file.write_text(json.dumps({"internal_revisor_enabled": False}), encoding="utf-8")
+        _stray_mgr = SystemSettingsManager(settings_file=stray_file, auto_load=True)
+        assert core_config.is_internal_revisor_enabled() is True
         mgr.set_skill_exclusions_sync_interval_seconds(1200.0, save=True)
         mgr2 = SystemSettingsManager(settings_file=sys_file, backup_file=sys_backup, auto_load=True)
         assert mgr2.get_skill_exclusions_sync_interval_seconds() == 1200.0

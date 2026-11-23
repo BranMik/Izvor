@@ -260,6 +260,7 @@ async def fetch_thread_history(
             if cursor:
                 kwargs["cursor"] = cursor
 
+            await slack_rate_limiter.acquire()
             response = await client.conversations_replies(**kwargs)
             page_messages = response.get("messages", [])
             messages.extend(page_messages)
@@ -390,6 +391,7 @@ async def post_thread_note(
 
         if pin and msg_ts:
             try:
+                await slack_rate_limiter.acquire()
                 await client.pins_add(channel=channel_id, timestamp=msg_ts)
                 logger.info(
                     f"[SLACK NOTE] Pinned note message {msg_ts} to channel {channel_id}"

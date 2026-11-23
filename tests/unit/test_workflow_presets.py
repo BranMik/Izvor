@@ -243,6 +243,30 @@ def test_build_app_home_view_includes_workflow_ui():
     assert any(b.startswith("save_workflow_preset_block") for b in block_ids)
 
 
+def test_build_app_home_view_keeps_save_preset_visible_on_system_default():
+    """TKT-1306: Save Current Configuration as Preset remains visible when a system default workflow is active."""
+    prev_wf = get_active_workflow_id()
+    try:
+        apply_workflow("default_review_flow")
+        view = build_app_home_view()
+        action_ids: list[str] = []
+        for b in view["blocks"]:
+            if "accessory" in b and isinstance(b["accessory"], dict):
+                action_ids.append(b["accessory"].get("action_id", ""))
+            elif "elements" in b:
+                for el in b["elements"]:
+                    action_ids.append(el.get("action_id", ""))
+            elif "element" in b and isinstance(b["element"], dict):
+                action_ids.append(b["element"].get("action_id", ""))
+
+        assert "delete_workflow_preset_button" not in action_ids
+        assert "save_workflow_preset_name_input" in action_ids
+        assert "save_workflow_preset_button" in action_ids
+    finally:
+        if prev_wf:
+            apply_workflow(prev_wf)
+
+
 @pytest.mark.anyio
 async def test_main_interactivity_workflow_actions():
     """Test full Block Kit interactivity dispatch for workflow preset save, load, and delete."""

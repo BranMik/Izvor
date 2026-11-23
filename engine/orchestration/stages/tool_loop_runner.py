@@ -70,6 +70,24 @@ def _unmask_argument_values(val: Any, mapping: dict[str, str]) -> Any:
     return val
 
 
+def _remask_with_mapping(val: Any, mapping: dict[str, str]) -> Any:
+    """Recursively replaces raw PII values with their placeholder tokens before checkpoint persistence."""
+    if not mapping or val is None:
+        return val
+    if isinstance(val, str):
+        masked = val
+        # Replace longest raw values first to avoid partial substring corruption
+        for token, raw_val in sorted(mapping.items(), key=lambda kv: len(str(kv[1])), reverse=True):
+            if raw_val and raw_val in masked:
+                masked = masked.replace(raw_val, token)
+        return masked
+    if isinstance(val, dict):
+        return {k: _remask_with_mapping(v, mapping) for k, v in val.items()}
+    if isinstance(val, list):
+        return [_remask_with_mapping(item, mapping) for item in val]
+    return val
+
+
 def _is_tool_error(result: Any) -> bool:
     """Returns True when a tool result represents an error or denied execution."""
     if isinstance(result, Exception):
@@ -203,6 +221,11 @@ class ToolLoopRunner:
 
         chk_id = str(uuid.uuid4())
         try:
+            mapping = dict(ctx.turn_token_mapping or {})
+            raw_prompt = ctx.prompt or ctx.raw_text_cleaned or ctx.input.raw_text or ""
+            safe_prompt = _remask_with_mapping(raw_prompt, mapping) if mapping else raw_prompt
+            safe_messages = _remask_with_mapping(list(ctx.messages or []), mapping) if mapping else (ctx.messages or [])
+            safe_pending = _remask_with_mapping(pending_tool_call, mapping) if (mapping and pending_tool_call) else pending_tool_call
             chk = TurnCheckpoint(
                 checkpoint_id=chk_id,
                 session_id=getattr(ctx, "session_id", f"{ctx.input.channel_id}:{ctx.input.thread_ts}"),
@@ -211,12 +234,12 @@ class ToolLoopRunner:
                 agent_key=ctx.agent_key,
                 pause_reason=pause_reason,
                 hitl_request_id=hitl_request_id,
-                prompt=(ctx.prompt or ctx.raw_text_cleaned or ctx.input.raw_text or ""),
-                messages=ctx.messages or [],
-                pending_tool_call=pending_tool_call,
+                prompt=safe_prompt,
+                messages=safe_messages,
+                pending_tool_call=safe_pending,
                 active_tools=active_tools or [],
                 skills_used=ctx.output.skills_used or [],
-                token_mapping=ctx.turn_token_mapping or {},
+                token_mapping=mapping,
                 accumulated_history=ctx.input.in_memory_history or [],
                 prompt_tokens=ctx.output.total_prompt_tokens,
                 completion_tokens=ctx.output.total_completion_tokens,
@@ -491,6 +514,7 @@ class ToolLoopRunner:
                                         expired_skills=expired_thread_skills,
                                         ttl_hours=thread_ttl_hours,
                                         agent_name=principal,
+                                        token_mapping=getattr(ctx, "turn_token_mapping", None),
                                     )
 
                     if fn_name == "load_skill":
@@ -599,11 +623,31 @@ class ToolLoopRunner:
                     logger.warning(
                         f"[CIRCUIT BREAKER] Mid-turn tool calling budget exceeded for thread {ctx.thread_key} during iteration {iteration}. Halting tool loop."
                     )
+                    try:
+                        from services.audit_logger import log_audit_event_async
+
+                        await log_audit_event_async(
+                            event_type="CIRCUIT_BREAKER_TRIGGERED",
+                            actor={"type": "system", "id": "spend_governance"},
+                            action="trip_mid_turn_circuit_breaker",
+                            target=ctx.thread_key,
+                            details={
+                                "channel_id": ctx.input.channel_id,
+                                "thread_ts": ctx.input.thread_ts,
+                                "agent_key": ctx.agent_key,
+                                "iteration": iteration,
+                            },
+                            severity="CRITICAL",
+                            status="SUCCESS",
+                        )
+                    except (OSError, RuntimeError, ValueError, TypeError) as audit_err:
+                        logger.debug(f"[CIRCUIT BREAKER] Failed logging mid-turn CB audit event: {audit_err}")
                     self.save_execution_checkpoint(
                         ctx=ctx,
                         pause_reason="circuit_breaker",
                         active_tools=active_tools,
                     )
+                    ctx.output.circuit_breaker_triggered = True
                     ctx.output.halted = True
                     ctx.output.final_text = (
                         response_message.content

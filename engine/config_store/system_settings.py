@@ -201,7 +201,10 @@ class SystemSettingsManager:
         settings_file: Path | None = None,
         backup_file: Path | None = None,
         auto_load: bool = True,
+        *,
+        register_core_providers: bool = False,
     ):
+        self._owns_core_providers: bool = bool(register_core_providers)
         self._custom_settings_file: bool = settings_file is not None
         self.default_settings_file = settings_file or SYSTEM_SETTINGS_FILE
         self.default_backup_file = backup_file or SYSTEM_BACKUP_FILE
@@ -303,7 +306,8 @@ class SystemSettingsManager:
 
         if auto_load:
             self.load()
-        self._register_core_providers()
+        if self._owns_core_providers:
+            self._register_core_providers()
 
     @property
     def active_settings_file(self) -> Path:
@@ -331,7 +335,8 @@ class SystemSettingsManager:
             self.load(force=True)
         else:
             self._apply_model_to_fields(SystemSettingsModel())
-        self._register_core_providers()
+        if self._owns_core_providers:
+            self._register_core_providers()
 
     def reset_paths(self) -> None:
         """Resets configured paths back to canonical system defaults."""
@@ -356,7 +361,8 @@ class SystemSettingsManager:
                 )
         else:
             self._apply_model_to_fields(SystemSettingsModel())
-        self._register_core_providers()
+        if self._owns_core_providers:
+            self._register_core_providers()
 
     def _parse_rag_section(self, rag_data: Any) -> None:
         if isinstance(rag_data, dict):
@@ -680,13 +686,18 @@ class SystemSettingsManager:
 
     def _register_core_providers(self) -> None:
         try:
-            from core.config import set_default_model_providers, set_max_discussion_turns_provider
+            from core.config import (
+                set_default_model_providers,
+                set_internal_revisor_enabled_provider,
+                set_max_discussion_turns_provider,
+            )
 
             set_default_model_providers(
                 fast_provider=lambda: self.get_default_fast_model(),
                 reasoning_provider=lambda: self.get_default_reasoning_model(),
             )
             set_max_discussion_turns_provider(lambda: self.get_max_discussion_turns())
+            set_internal_revisor_enabled_provider(lambda: self.get_internal_revisor_enabled())
         except Exception as e:  # noqa: BLE001
             logger.debug(f"[SYSTEM_SETTINGS] Failed to register core model providers: {e}")
 
@@ -1250,7 +1261,7 @@ class SystemSettingsManager:
             self.save()
 
 
-system_settings_manager = SystemSettingsManager()
+system_settings_manager = SystemSettingsManager(register_core_providers=True)
 
 
 def get_system_settings_snapshot() -> SystemSettingsModel:

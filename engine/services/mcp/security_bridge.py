@@ -48,10 +48,14 @@ def sanitize_outbound_mcp_arguments(
     return {k: _sanitize(v) for k, v in arguments.items()}
 
 
-def sanitize_inbound_mcp_result(raw_result: str) -> str:
+def sanitize_inbound_mcp_result(
+    raw_result: str,
+    token_mapping: dict[str, str] | None = None,
+) -> str:
     """
     Scans raw output from an MCP server for leaked secrets and applies PII masking
     before the content is injected into LLM conversation turns or returned to caller.
+    When token_mapping is supplied, reuses and updates it in-place to prevent index collisions.
     """
     if not raw_result:
         return raw_result
@@ -71,7 +75,9 @@ def sanitize_inbound_mcp_result(raw_result: str) -> str:
         })
 
     # 2. PII masking
-    masked, _ = pii_masker.mask(raw_result)
+    masked, new_map = pii_masker.mask(raw_result, existing_mapping=token_mapping)
+    if token_mapping is not None and new_map:
+        token_mapping.update(new_map)
     return masked
 
 
@@ -98,7 +104,10 @@ async def async_sanitize_outbound_mcp_arguments(
     return {k: await _sanitize(v) for k, v in arguments.items()}
 
 
-async def async_sanitize_inbound_mcp_result(raw_result: str) -> str:
+async def async_sanitize_inbound_mcp_result(
+    raw_result: str,
+    token_mapping: dict[str, str] | None = None,
+) -> str:
     """Asynchronously scans inbound MCP output for secrets and masks PII off the event loop."""
     if not raw_result:
         return raw_result
@@ -116,7 +125,9 @@ async def async_sanitize_inbound_mcp_result(raw_result: str) -> str:
             "error": f"Output blocked by security policy: secret detected ({matched_rule})",
         })
 
-    masked, _ = await pii_masker.async_mask(raw_result)
+    masked, new_map = await pii_masker.async_mask(raw_result, existing_mapping=token_mapping)
+    if token_mapping is not None and new_map:
+        token_mapping.update(new_map)
     return masked
 
 
@@ -127,6 +138,7 @@ async def execute_external_mcp_tool(
     authorized_skills: list[str] | set[str] | str | None = None,
     skill_registry: Any = None,
     client_manager: McpClientManager | None = None,
+    token_mapping: dict[str, str] | None = None,
 ) -> str:
     """
     Executes an external MCP tool via McpClientManager, strictly enforcing
@@ -197,7 +209,7 @@ async def execute_external_mcp_tool(
     raw_res = await mgr.call_mcp_tool(server_name, raw_tool_name, sanitized_args)
 
     # 5. Inbound response sanitization
-    final_res = await async_sanitize_inbound_mcp_result(raw_res)
+    final_res = await async_sanitize_inbound_mcp_result(raw_res, token_mapping=token_mapping)
 
     # 6. Post-execution non-repudiable audit logging with true status
     audit_status = "SUCCESS"

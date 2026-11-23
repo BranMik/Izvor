@@ -334,6 +334,9 @@ async def _confirm_hallucination(
         ],
     }
 
+    if ctx.is_superseded():
+        return None
+
     confirm_res = await execute_llm_with_retry(
         func=litellm.acompletion,
         kwargs=confirm_kwargs,
@@ -397,6 +400,9 @@ async def _verify_single_candidate(
             {"role": "user", "content": user_content},
         ],
     }
+
+    if ctx.is_superseded():
+        return None
 
     res = await execute_llm_with_retry(
         func=litellm.acompletion,
@@ -513,7 +519,13 @@ async def run_internal_revisor(ctx: TurnContext):
         if len(tasks) == 1:
             results = [await tasks[0]]
         else:
-            results = list(await asyncio.gather(*tasks))
+            raw_results = await asyncio.gather(*tasks, return_exceptions=True)
+            results = []
+            for r in raw_results:
+                if isinstance(r, Exception):
+                    logger.warning(f"[REVISOR] Candidate verification raised exception: {r}")
+                else:
+                    results.append(r)
 
         confirmed_warnings = [w for w in results if w]
         if confirmed_warnings:

@@ -89,6 +89,7 @@ class TurnOutput:
     is_completed: bool = False
     halted: bool = False
     waiting_hitl: bool = False
+    circuit_breaker_triggered: bool = False
     checkpoint_id: str | None = None
     revisor_warning: str | None = None
     is_deterministic_missing_skill: bool = False
@@ -662,9 +663,13 @@ class TurnPipeline:
                     ctx.next_designated_agent = round_seq[0]
                     ctx.eligible_remaining_agents = [round_seq[0]]
 
+            from core.config import SYSTEM_AGENTS_CONFIG
+
             settings_manager.sync_output_constraints_if_changed()
             agents_map = settings_manager.agents_config or AGENTS_CONFIG
-            ctx.agent_cfg = dict(agents_map.get(ctx.agent_key, {}))
+            sys_agents_map = settings_manager.system_agents_config or SYSTEM_AGENTS_CONFIG
+            raw_agent_cfg = agents_map.get(ctx.agent_key) or sys_agents_map.get(ctx.agent_key) or {}
+            ctx.agent_cfg = dict(raw_agent_cfg)
             apply_agent_model_fallback(ctx)
 
             skill_registry = self.execution_stage.skill_registry
@@ -693,8 +698,22 @@ class TurnPipeline:
                 tool_call_id = pending_tool.get("id") or "call_resumed"
                 fn_name = pending_tool.get("name") or "tool"
                 from core.security_utils import wrap_untrusted_content
+                from services.security.guardrail import guardrail_service
 
-                tool_result_str = wrap_untrusted_content(str(tool_result))
+                raw_tool_str = str(tool_result)
+                meta_or_control_tools = (
+                    "load_skill",
+                    "nominate_next_speaker",
+                    "request_user_clarification",
+                    "signal_consensus_convergence",
+                )
+                if fn_name not in meta_or_control_tools and raw_tool_str.strip():
+                    screening = await guardrail_service.screen_untrusted_tool_output(fn_name, raw_tool_str)
+                    screened_str = screening.sanitized_content
+                else:
+                    screened_str = raw_tool_str
+
+                tool_result_str = wrap_untrusted_content(screened_str)
 
                 replaced = False
                 for m in reversed(ctx.messages):
@@ -750,7 +769,13 @@ class TurnPipeline:
 
     async def _execute_revisor_barrier(self, ctx: TurnContext, slack_res: Any) -> None:
         """Executes InternalRevisor within the configured system-agent timeout barrier."""
-        if getattr(ctx.input, "isolated_branch", False):
+        if (
+            getattr(ctx.input, "isolated_branch", False)
+            or getattr(ctx.output, "waiting_hitl", False)
+            or getattr(ctx.output, "halted", False)
+            or getattr(ctx.output, "circuit_breaker_triggered", False)
+            or getattr(ctx.control, "clarification_requested", False)
+        ):
             return
         timeout_secs = 20.0
         try:

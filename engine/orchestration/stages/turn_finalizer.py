@@ -87,9 +87,15 @@ class TurnFinalizer:
         self.deps = deps
 
     def finalize_message(self, ctx: TurnContext, response_message: Any | None) -> None:
-        """Extracts final assistant text into ctx.output.final_text without overwriting non-empty fallbacks."""
+        """Extracts final assistant text into ctx.output.final_text and unmasks any remaining turn PII tokens."""
         content = getattr(response_message, "content", None) if response_message is not None else None
-        ctx.output.final_text = content or ctx.output.final_text or ""
+        final_text = content or ctx.output.final_text or ""
+        mapping = getattr(ctx, "turn_token_mapping", None)
+        if final_text and mapping:
+            from services.security.pii_masker import pii_masker
+
+            final_text = pii_masker.unmask(final_text, mapping)
+        ctx.output.final_text = final_text
 
     async def synthesize_if_needed(
         self,

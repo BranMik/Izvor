@@ -300,3 +300,20 @@ async def test_r04_mcp_post_execution_audit_statuses():
         assert by_action.get("mcp__audit_srv__leak_tool") == "BLOCKED"
     finally:
         await mgr.shutdown()
+
+
+@pytest.mark.anyio
+async def test_mcp_inbound_sanitization_preserves_existing_turn_token_mapping(secure_mcp_environment):
+    """TKT-1302: Inbound MCP PII masking reuses and updates turn_token_mapping to prevent index collisions."""
+    from services.mcp.security_bridge import async_sanitize_inbound_mcp_result
+
+    turn_mapping = {"<EMAIL_0>": "existing.user@corp.com"}
+    res1 = await async_sanitize_inbound_mcp_result(
+        "Escalate to new.contact@vendor.com and existing.user@corp.com",
+        token_mapping=turn_mapping,
+    )
+    assert "<EMAIL_0>" in res1
+    assert "<EMAIL_1>" in res1
+    assert "new.contact@vendor.com" not in res1
+    assert turn_mapping["<EMAIL_0>"] == "existing.user@corp.com"
+    assert turn_mapping["<EMAIL_1>"] == "new.contact@vendor.com"

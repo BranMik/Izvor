@@ -118,6 +118,7 @@ async def fetch_thread_files(channel_id: str, thread_ts: str, max_messages: int 
             if cursor:
                 kwargs["cursor"] = cursor
 
+            await slack_rate_limiter.acquire()
             response = await client.conversations_replies(**kwargs)
             page_messages = response.get("messages", [])
             messages.extend(page_messages)

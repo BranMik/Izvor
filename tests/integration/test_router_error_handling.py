@@ -722,7 +722,7 @@ async def test_execute_llm_with_retry_single_layer_backoff_dynamic_and_dict_unma
     assert timeout_calls == 4
     assert sleep_delays == [0.5, 1.0, 2.0]
 
-    # 3. Dict-style tool_calls unmasking under strict privacy mode
+    # 3. Dict-style tool_calls stay masked through execute_llm_with_retry, while non-tool final replies unmask content
     masker = PIIMasker()
     llm_utils.set_privacy_mode_provider(lambda: True)
     llm_utils.set_pii_masker_instance(masker)
@@ -747,8 +747,27 @@ async def test_execute_llm_with_retry_single_layer_backoff_dynamic_and_dict_unma
             agent_key="A1",
             thread_key=("C", "T"),
         )
-        assert res.choices[0].message.content == "Sending to alice@example.com"
-        assert res.choices[0].message.tool_calls[0]["function"]["arguments"] == '{"to": "alice@example.com"}'
+        assert res.choices[0].message.tool_calls[0]["function"]["arguments"] == '{"to": "<EMAIL_0>"}'
+        assert "alice@example.com" not in res.choices[0].message.content
+
+        async def return_final_reply(**kw):
+            masked_user = kw["messages"][0]["content"]
+            token = masked_user.split("Email ")[1]
+            return SimpleNamespace(
+                choices=[
+                    SimpleNamespace(
+                        message=SimpleNamespace(content=f"Sent to {token}", tool_calls=None)
+                    )
+                ]
+            )
+
+        final_res = await execute_llm_with_retry(
+            return_final_reply,
+            {"model": "m", "messages": [{"role": "user", "content": "Email alice@example.com"}]},
+            agent_key="A1",
+            thread_key=("C", "T"),
+        )
+        assert final_res.choices[0].message.content == "Sent to alice@example.com"
     finally:
         system_settings_manager._register_core_providers()
 

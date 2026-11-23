@@ -327,12 +327,18 @@ class PricingService:
         self._mem_cache: dict[str, dict[str, Any]] | None = None
         self._mem_cache_key: tuple[str, float] | None = None
         self._refresh_lock: asyncio.Lock | None = None
+        self._refresh_lock_loop: asyncio.AbstractEventLoop | None = None
 
     @property
     def refresh_lock(self) -> asyncio.Lock:
-        """Lazily instantiates asyncio.Lock inside running event loop."""
-        if self._refresh_lock is None:
+        """Lazily instantiates event-loop-bound asyncio.Lock inside running event loop."""
+        try:
+            current_loop: asyncio.AbstractEventLoop | None = asyncio.get_running_loop()
+        except RuntimeError:
+            current_loop = None
+        if self._refresh_lock is None or (current_loop is not None and self._refresh_lock_loop is not current_loop):
             self._refresh_lock = asyncio.Lock()
+            self._refresh_lock_loop = current_loop
         return self._refresh_lock
 
     def configure_paths(self, cache_file: Path | str | None = None) -> None:

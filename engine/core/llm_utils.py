@@ -280,17 +280,6 @@ def _calculate_backoff_delay(attempt: int) -> float:
     return delay
 
 
-def _unmask_value(value: Any, masker: Any, mapping: dict[str, str]) -> Any:
-    """Recursively unmasks string values inside structured dict/list tool-call payloads."""
-    if isinstance(value, str):
-        return masker.unmask(value, mapping)
-    if isinstance(value, dict):
-        return {k: _unmask_value(v, masker, mapping) for k, v in value.items()}
-    if isinstance(value, list):
-        return [_unmask_value(v, masker, mapping) for v in value]
-    return value
-
-
 def is_high_demand_503_error(e: Exception) -> bool:
     """Checks whether an exception corresponds to a 503 / high demand / overloaded service error."""
     return classify_agent_error(e) == "service_unavailable"
@@ -419,25 +408,19 @@ async def execute_llm_with_retry(
             active_func = _llm_completion_fn or func or litellm.acompletion
             res = await _invoke_llm(active_func, call_kwargs)
 
-            # 2. Unmasking Phase
+            # 2. Unmasking Phase (keep tool_calls arguments and intermediate tool-calling messages
+            # masked so ToolLoopRunner enforces per-tool outbound PII policy and checkpoints stay safe)
             if is_strict and active_mapping and hasattr(res, "choices") and res.choices and masker:
                 first_choice = res.choices[0]
                 if hasattr(first_choice, "message"):
-                    if hasattr(first_choice.message, "content") and isinstance(first_choice.message.content, str):
+                    has_tool_calls = bool(getattr(first_choice.message, "tool_calls", None))
+                    if (
+                        not has_tool_calls
+                        and hasattr(first_choice.message, "content")
+                        and isinstance(first_choice.message.content, str)
+                    ):
                         unmasked_content = masker.unmask(first_choice.message.content, active_mapping)
                         first_choice.message.content = unmasked_content
-                    if hasattr(first_choice.message, "tool_calls") and first_choice.message.tool_calls:
-                        for tc in first_choice.message.tool_calls:
-                            fn = tc.get("function") if isinstance(tc, dict) else getattr(tc, "function", None)
-                            if fn is None:
-                                continue
-                            args = fn.get("arguments") if isinstance(fn, dict) else getattr(fn, "arguments", None)
-                            if isinstance(args, (str, dict)):
-                                unmasked_args = _unmask_value(args, masker, active_mapping)
-                                if isinstance(fn, dict):
-                                    fn["arguments"] = unmasked_args
-                                else:
-                                    fn.arguments = unmasked_args
 
             if turn_token_mapping is not None:
                 turn_token_mapping.update(active_mapping)

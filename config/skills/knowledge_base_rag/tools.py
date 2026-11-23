@@ -47,7 +47,11 @@ SEARCH_KNOWLEDGE_RAG_SCHEMA = {
 TOOL_SCHEMAS = [SEARCH_KNOWLEDGE_RAG_SCHEMA]
 
 
-async def async_execute_search_knowledge_rag(arguments: dict[str, Any], agent_name: str = "") -> str:
+async def async_execute_search_knowledge_rag(
+    arguments: dict[str, Any],
+    agent_name: str = "",
+    token_mapping: dict[str, str] | None = None,
+) -> str:
     """Asynchronously executes search_knowledge_rag directly on active event loop."""
     query = arguments.get("query", "")
     scope = arguments.get("scope", "all")
@@ -64,6 +68,7 @@ async def async_execute_search_knowledge_rag(arguments: dict[str, Any], agent_na
             agent_name=agent_name,
             scope=scope,
             max_results=max_results,
+            token_mapping=token_mapping,
         )
 
 

@@ -133,3 +133,45 @@ async def test_sync_engine_triggers_clean_reindex_when_rag_config_drifts(tmp_pat
     assert embedder.calls == 2
     assert manifest_mgr.get_config_hash() != initial_hash
 
+
+@pytest.mark.anyio
+async def test_rag_retrieval_masking_shares_mapping_and_dynamic_embedding_model():
+    """TKT-1302 & TKT-1310: RAG AT_RETRIEVAL shares turn_token_mapping across chunks and EmbeddingService resolves model dynamically."""
+    from unittest.mock import MagicMock
+
+    from services.rag.embeddings import EmbeddingService
+    from services.rag.service import RAGService
+
+    prev_mode = system_settings_manager.get_rag_setting("pii_masking", "AT_RETRIEVAL")
+    prev_model = system_settings_manager.get_rag_setting("embedding_model", "gemini/gemini-embedding-001")
+    system_settings_manager.set_rag_setting("pii_masking", "AT_RETRIEVAL", save=False)
+    try:
+        dyn_embedder = EmbeddingService()
+        system_settings_manager.set_rag_setting("embedding_model", "openai/text-embedding-3-large", save=False)
+        assert dyn_embedder.model == "openai/text-embedding-3-large"
+
+        fake_store = MagicMock()
+        fake_store.search.return_value = [
+            {"doc_id": "doc1.md", "section_header": "A", "text": "Primary is alice@alpha.org"},
+            {"doc_id": "doc2.md", "section_header": "B", "text": "Secondary is bob@beta.org and alice@alpha.org"},
+        ]
+
+        class _StaticEmbedder:
+            async def get_embeddings(self, texts: list[str]) -> list[list[float]]:
+                return [[0.1, 0.2] for _ in texts]
+
+        rag = RAGService(store=fake_store, embedder=_StaticEmbedder())
+        turn_mapping = {"<EMAIL_0>": "prompt@user.com"}
+        out = await rag.search("contacts", agent_name="agent-10001", token_mapping=turn_mapping)
+
+        assert "<EMAIL_1>" in out
+        assert "<EMAIL_2>" in out
+        assert "alice@alpha.org" not in out
+        assert "bob@beta.org" not in out
+        assert turn_mapping["<EMAIL_0>"] == "prompt@user.com"
+        assert turn_mapping["<EMAIL_1>"] == "alice@alpha.org"
+        assert turn_mapping["<EMAIL_2>"] == "bob@beta.org"
+    finally:
+        system_settings_manager.set_rag_setting("pii_masking", prev_mode, save=False)
+        system_settings_manager.set_rag_setting("embedding_model", prev_model, save=False)
+

@@ -473,3 +473,112 @@ async def test_outbound_web_tool_args_stay_masked_at_execution_call_site():
         assert calls_by_name["read_document"]["filename"] == "search for alice@corp.com"
     finally:
         thread_state_manager.cleanup_thread(channel_id, thread_ts)
+
+
+@pytest.mark.anyio
+async def test_execute_llm_with_retry_into_tool_loop_keeps_web_args_and_checkpoints_masked():
+    """TKT-1301: End-to-end execute_llm_with_retry -> ToolLoopRunner keeps web_search/fetch_web_page
+    and saved SQLite checkpoints masked while unmasking read_document."""
+    import json
+    from types import SimpleNamespace
+    from unittest.mock import patch
+
+    from core.llm_utils import (
+        configure_llm_completion_fn,
+        execute_llm_with_retry,
+        set_privacy_mode_provider,
+    )
+    from orchestration.thread_state import thread_state_manager
+    from orchestration.turn_pipeline import TurnContext, TurnPipeline
+    from services.turn_checkpoint_store import turn_checkpoint_store
+
+    set_privacy_mode_provider(lambda: True)
+    recorded_calls: list[tuple[str, dict]] = []
+
+    async def fake_tool_executor(fn_name: str, fn_args: dict) -> str:
+        recorded_calls.append((fn_name, dict(fn_args)))
+        return "tool ok"
+
+    step = {"n": 0}
+
+    async def fake_completion(**kw):
+        step["n"] += 1
+        if step["n"] == 1:
+            return SimpleNamespace(
+                choices=[
+                    SimpleNamespace(
+                        message=SimpleNamespace(
+                            content="Checking <EMAIL_0>",
+                            tool_calls=[
+                                SimpleNamespace(
+                                    id="c_web",
+                                    function=SimpleNamespace(
+                                        name="web_search",
+                                        arguments=json.dumps({"query": "profile <EMAIL_0>"}),
+                                    ),
+                                ),
+                                SimpleNamespace(
+                                    id="c_doc",
+                                    function=SimpleNamespace(
+                                        name="read_document",
+                                        arguments=json.dumps({"filename": "<EMAIL_0>"}),
+                                    ),
+                                ),
+                            ],
+                        )
+                    )
+                ],
+                usage=None,
+            )
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="Finished for <EMAIL_0>", tool_calls=None))],
+            usage=None,
+        )
+
+    configure_llm_completion_fn(fake_completion)
+    pipeline = TurnPipeline(tool_executor=fake_tool_executor)
+    channel_id = "C_E2E_PII_CHK"
+    thread_ts = "1700000199.0001"
+    ctx = TurnContext(channel_id=channel_id, thread_ts=thread_ts, raw_text="Investigate alice@corp.com", user_id="U1")
+    ctx.thread_key = (channel_id, thread_ts)
+    ctx.agent_key = "agent-10001"
+    ctx.agent_cfg = {"model": "gpt-4o", "username": "Architect", "skills": []}
+    ctx.prompt = "Investigate alice@corp.com"
+    ctx.turn_token_mapping = {}
+    ctx.messages = [{"role": "user", "content": "Investigate alice@corp.com"}]
+
+    try:
+        resp1 = await execute_llm_with_retry(
+            func=fake_completion,
+            kwargs={"model": "gpt-4o", "messages": ctx.messages},
+            agent_key=ctx.agent_key,
+            thread_key=ctx.thread_key,
+            turn_token_mapping=ctx.turn_token_mapping,
+        )
+        with patch("services.local_tools.is_agent_authorized_for_tool", return_value=True):
+            halt = await pipeline.execution_stage.execute_tool_loop(
+                ctx,
+                active_tools=[],
+                agent_skills=[],
+                expired_thread_skills=[],
+                thread_ttl_hours=24.0,
+                initial_response_message=resp1.choices[0].message,
+            )
+
+        assert halt is None
+        calls_by_name = dict(recorded_calls)
+        assert calls_by_name["web_search"]["query"] == "profile <EMAIL_0>"
+        assert calls_by_name["read_document"]["filename"] == "alice@corp.com"
+        assert ctx.output.final_text == "Finished for alice@corp.com"
+
+        chk_id = pipeline.execution_stage.tool_loop_runner.save_execution_checkpoint(
+            ctx=ctx, pause_reason="circuit_breaker", active_tools=[]
+        )
+        saved = turn_checkpoint_store.get_checkpoint(chk_id)
+        assert saved is not None
+        assert "alice@corp.com" not in saved.prompt
+        assert "alice@corp.com" not in json.dumps(saved.messages)
+    finally:
+        configure_llm_completion_fn(None)
+        set_privacy_mode_provider(None)
+        thread_state_manager.cleanup_thread(channel_id, thread_ts)

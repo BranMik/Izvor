@@ -31,11 +31,17 @@ class SyncReconciliationEngine:
         self.embedder = embedder or embedding_service
         self.parser = parser or DocumentParser()
         self._lock: asyncio.Lock | None = None
+        self._lock_loop: asyncio.AbstractEventLoop | None = None
 
     @property
     def lock(self) -> asyncio.Lock:
-        if self._lock is None:
+        try:
+            current_loop: asyncio.AbstractEventLoop | None = asyncio.get_running_loop()
+        except RuntimeError:
+            current_loop = None
+        if self._lock is None or (current_loop is not None and self._lock_loop is not current_loop):
             self._lock = asyncio.Lock()
+            self._lock_loop = current_loop
         return self._lock
 
     def _current_config_hash(self) -> str:

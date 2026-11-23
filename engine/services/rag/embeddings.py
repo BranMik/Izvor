@@ -4,7 +4,7 @@ from typing import Any
 
 import litellm
 
-from .config import EMBEDDING_BATCH_SIZE, EMBEDDING_MODEL
+from .config import EMBEDDING_BATCH_SIZE, EMBEDDING_MODEL, get_rag_setting
 
 logger = logging.getLogger(__name__)
 
@@ -25,9 +25,20 @@ class EmbeddingService:
     def reset_embeddings_fn(cls) -> None:
         cls._get_embeddings_override = None
 
-    def __init__(self, model: str = EMBEDDING_MODEL, embed_func: Any = None) -> None:
-        self.model = model
+    def __init__(self, model: str | None = None, embed_func: Any = None) -> None:
+        self._custom_model = model
         self._embed_func = embed_func
+
+    @property
+    def model(self) -> str:
+        """Resolves embedding model dynamically from SystemSettingsManager when not explicitly pinned."""
+        if self._custom_model:
+            return self._custom_model
+        return str(get_rag_setting("embedding_model", EMBEDDING_MODEL))
+
+    @model.setter
+    def model(self, value: str | None) -> None:
+        self._custom_model = value
 
     async def get_embeddings(self, texts: list[str]) -> list[list[float]]:
         """

@@ -35,7 +35,7 @@ async def _execute_and_resume_hitl_approval(req: Any, user_id: str) -> None:
 
     # 1. Resolve agent skills + thread-granted skills + global skills, enforced against caller admin rights
     agents_map = settings_manager.get_agents_config()
-    agent_cfg = agents_map.get(agent_name, {})
+    agent_cfg = agents_map.get(agent_name) or settings_manager.system_agents_config.get(agent_name, {})
     agent_skills = list(agent_cfg.get("skills", []))
     global_skills = skill_registry.get_global_skills()
     thread_skills = thread_skills_manager.get_active_skills(channel_id, thread_ts)
@@ -129,6 +129,8 @@ async def _execute_and_resume_hitl_approval(req: Any, user_id: str) -> None:
                 tool_result=tool_result,
                 user_id=user_id,
             )
+            if not isinstance(turn_res, dict) or turn_res.get("reason") == "checkpoint_already_claimed":
+                return
             await continue_discussion_from_turn_result(
                 channel_id=channel_id,
                 thread_ts=thread_ts,
@@ -139,7 +141,15 @@ async def _execute_and_resume_hitl_approval(req: Any, user_id: str) -> None:
 
         thread_state_manager.dispatch_discussion_task(channel_id, thread_ts, _run_resumption())
     else:
-        safe_tool_result = wrap_untrusted_content(str(tool_result))
+        from services.security.guardrail import guardrail_service
+
+        raw_tool_str = str(tool_result)
+        screened_str = (
+            (await guardrail_service.screen_untrusted_tool_output(fn_name, raw_tool_str)).sanitized_content
+            if raw_tool_str.strip()
+            else raw_tool_str
+        )
+        safe_tool_result = wrap_untrusted_content(screened_str)
         resume_prompt = (
             f"/[{agent_name}] Tool '{fn_name}' execution was approved by <@{user_id}>.\n"
             f"Tool Result:\n{safe_tool_result}\n\n"
@@ -200,6 +210,8 @@ async def _resume_hitl_denial(req: Any, user_id: str) -> None:
                 tool_result=denial_result,
                 user_id=user_id,
             )
+            if not isinstance(turn_res, dict) or turn_res.get("reason") == "checkpoint_already_claimed":
+                return
             await continue_discussion_from_turn_result(
                 channel_id=channel_id,
                 thread_ts=thread_ts,

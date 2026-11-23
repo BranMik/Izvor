@@ -437,3 +437,127 @@ async def test_scatter_gather_enforces_reserve_budget_with_tight_threshold():
     finally:
         spend_governance.clear_all_sessions()
         thread_state_manager.cleanup_thread(channel_id, thread_ts)
+
+
+@pytest.mark.anyio
+async def test_mid_turn_tool_loop_circuit_breaker_renders_blocks_suspends_and_skips_scribe_and_revisor():
+    """TKT-1303: Mid-turn CB trip posts Continue Sequence blocks, strips nominations, suspends thread, and skips Scribe & Revisor."""
+    from unittest.mock import patch
+
+    from config_store.agent_settings import reset_enabled_agents
+    from core.config import set_internal_revisor_enabled_override
+    from core.domain import TurnCheckpoint
+    from orchestration.turn_pipeline import TurnContext, TurnPipeline
+    from pipeline.spend_governance.circuit_breaker import spend_governance
+    from services.pricing_service import pricing_service
+    from services.turn_checkpoint_store import turn_checkpoint_store
+
+    reset_enabled_agents()
+    channel_id = "C_CB_MIDTURN_POST"
+    thread_ts = "1700000499.0001"
+    thread_state_manager.cleanup_thread(channel_id, thread_ts)
+    spend_governance.clear_all_sessions()
+
+    model = "anthropic/claude-opus-5"
+    pricing = pricing_service.get_pricing(model)
+    in_rate = float(pricing["input_price_per_1m"])
+    tokens_to_exceed = int(round((0.15 / max(in_rate, 0.001)) * 1_000_000))
+
+    set_circuit_breaker_enabled(True)
+    set_circuit_breaker_threshold(0.10)
+    set_internal_revisor_enabled_override(True)
+    thread_state_manager.set_remaining_agents(channel_id, thread_ts, ["agent-10002", "agent-10003"])
+    import asyncio
+    dummy_task = asyncio.create_task(asyncio.sleep(10))
+    thread_state_manager.set_active_task(channel_id, thread_ts, dummy_task)
+
+    posted: list[dict] = []
+    notes_called: list[bool] = []
+    usage_called: list[bool] = []
+    revisor_called: list[bool] = []
+
+    async def fake_post(channel_id, thread_ts, text, username, icon_url=None, **kwargs):
+        posted.append({"text": text, "username": username, **kwargs})
+        return {"ok": True, "ts": "1700000499.0002"}
+
+    async def fake_tool(fn_name, fn_args, **kwargs):
+        return "web search evidence"
+
+    tc = MagicMock()
+    tc.id = "call_1"
+    tc.function.name = "web_search"
+    tc.function.arguments = '{"query": "cost"}'
+    tc2 = MagicMock()
+    tc2.id = "call_2"
+    tc2.function.name = "web_search"
+    tc2.function.arguments = '{"query": "more"}'
+
+    follow_up_resp = MagicMock()
+    follow_up_resp.model = model
+    follow_up_resp.choices = [MagicMock(message=MagicMock(content="Partial findings before pause.", tool_calls=[tc2]))]
+    follow_up_resp.usage = MagicMock(prompt_tokens=tokens_to_exceed, completion_tokens=10)
+
+    pipeline = TurnPipeline(
+        llm_executor=make_mock_acompletion(lambda *a, **k: follow_up_resp),
+        tool_executor=fake_tool,
+        slack_poster=fake_post,
+        notes_updater=lambda **kw: notes_called.append(True),
+        usage_updater=lambda **kw: usage_called.append(bool(kw.get("is_completed"))),
+        sleep_fn=async_noop_sleep,
+        debate_turn_pacing_seconds=0.0,
+        slack_post_pause_seconds=0.0,
+    )
+
+    ctx = TurnContext(channel_id=channel_id, thread_ts=thread_ts, raw_text="Analyze", user_id="U1")
+    ctx.agent_key = "agent-10001"
+    ctx.agent_cfg = {"model": model, "username": "Visionary"}
+    ctx.remaining = ["agent-10002", "agent-10003"]
+    ctx.eligible_remaining_agents = ["agent-10002", "agent-10003"]
+    ctx.next_designated_agent = "agent-10002"
+    ctx.messages = [{"role": "user", "content": "Analyze"}]
+
+    init_msg = MagicMock(content="", tool_calls=[tc])
+    try:
+        with (
+            patch("services.local_tools.is_agent_authorized_for_tool", return_value=True),
+            patch("orchestration.revisor_service.run_internal_revisor", side_effect=lambda *a, **k: revisor_called.append(True)),
+        ):
+            halt = await pipeline.execution_stage.execute_tool_loop(
+                ctx,
+                active_tools=[],
+                agent_skills=[],
+                expired_thread_skills=[],
+                thread_ttl_hours=24.0,
+                initial_response_message=init_msg,
+            )
+            assert halt is None
+            res = await pipeline.post_record_stage.stage_post_and_record(ctx)
+            await pipeline._execute_revisor_barrier(ctx, res)
+
+        assert res["circuit_breaker_triggered"] is True
+        assert res["halted"] is True
+        assert res["is_completed"] is False
+        assert len(posted) == 1
+        assert "/[agent-10002]" not in posted[0]["text"]
+        assert "blocks" in posted[0]
+        btn_actions = [
+            el.get("action_id")
+            for b in posted[0]["blocks"]
+            for el in b.get("elements", [])
+        ]
+        assert "resume_sequence_action" in btn_actions
+        assert thread_state_manager.get_active_task(channel_id, thread_ts) is None
+        assert thread_state_manager.get_remaining_agents(channel_id, thread_ts) == ["agent-10002", "agent-10003"]
+        assert notes_called == []
+        assert usage_called == [True]
+        assert revisor_called == []
+        assert ctx.output.checkpoint_id
+        chk = turn_checkpoint_store.get_checkpoint(ctx.output.checkpoint_id)
+        assert isinstance(chk, TurnCheckpoint)
+        assert chk.pause_reason == "circuit_breaker"
+    finally:
+        if not dummy_task.done():
+            dummy_task.cancel()
+        set_internal_revisor_enabled_override(None)
+        spend_governance.clear_all_sessions()
+        thread_state_manager.cleanup_thread(channel_id, thread_ts)

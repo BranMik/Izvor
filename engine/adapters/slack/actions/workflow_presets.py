@@ -25,7 +25,13 @@ from config_store.workflow_manager import delete_workflow, save_workflow
 from core.config import is_slack_admin
 from core.models import REQUIRED_DEFAULT_WORKFLOW_IDS, OrchestrationMode
 from services.audit_logger import log_audit_event_async
-from services.slack import open_dm_channel, post_ephemeral_to_slack, slack_async_client
+from services.rate_limiter import slack_rate_limiter
+from services.slack import (
+    get_slack_async_client,
+    open_dm_channel,
+    post_message_to_slack,
+)
+from slack_sdk.errors import SlackApiError
 
 logger = logging.getLogger("IzvorBackend.SlackInteractivity.WorkflowPresets")
 
@@ -217,9 +223,8 @@ async def _handle_save_workflow_preset_button(
         if user_id:
             dm_id = await open_dm_channel(user_id)
             if dm_id:
-                await post_ephemeral_to_slack(
+                await post_message_to_slack(
                     channel_id=dm_id,
-                    user_id=user_id,
                     text=(
                         f"⚠️ *Cannot save preset '{preset_name}'*: {ve}. "
                         "System default presets are reserved and immutable."
@@ -426,6 +431,21 @@ async def _handle_set_fixed_chain_input(
     return None
 
 
+async def _open_workspace_context_modal_safe(trigger_id: str, modal_view: dict[str, Any]) -> None:
+    """Safely opens the workspace context modal in the background with rate limiting and error isolation."""
+    try:
+        await slack_rate_limiter.acquire()
+        await get_slack_async_client().views_open(
+            trigger_id=trigger_id,
+            view=modal_view,
+        )
+    except SlackApiError as e:
+        err_code = e.response.get("error", str(e)) if getattr(e, "response", None) else str(e)
+        logger.warning(f"[WORKFLOW] views.open failed for workspace context modal (error: {err_code})")
+    except Exception as e:  # noqa: BLE001 - Background modal boundary prevents unhandled task errors
+        logger.warning(f"[WORKFLOW] Unexpected error opening workspace context modal: {e}")
+
+
 async def _handle_open_edit_workspace_context_modal(
     action: dict[str, Any],
     payload: dict[str, Any],
@@ -439,9 +459,9 @@ async def _handle_open_edit_workspace_context_modal(
     if trigger_id:
         modal_view = build_edit_workspace_context_modal(current_context=get_workspace_context())
         background_tasks.add_task(
-            slack_async_client.views_open,
+            _open_workspace_context_modal_safe,
             trigger_id=trigger_id,
-            view=modal_view,
+            modal_view=modal_view,
         )
     return None
 

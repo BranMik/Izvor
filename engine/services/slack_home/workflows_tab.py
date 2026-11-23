@@ -458,43 +458,42 @@ def build_workflows_blocks(
                 ]
             )
 
-    if not is_default_wf:
-        blocks.extend(
-            [
-                {
-                    "type": "input",
-                    "block_id": f"save_workflow_preset_block_{active_wf_id or 'none'}",
-                    "dispatch_action": False,
-                    "element": {
-                        "type": "plain_text_input",
-                        "action_id": "save_workflow_preset_name_input",
-                        "placeholder": {
-                            "type": "plain_text",
-                            "text": "e.g. Full Security Audit",
-                        },
-                    },
-                    "label": {
+    blocks.extend(
+        [
+            {
+                "type": "input",
+                "block_id": f"save_workflow_preset_block_{active_wf_id or 'none'}",
+                "dispatch_action": False,
+                "element": {
+                    "type": "plain_text_input",
+                    "action_id": "save_workflow_preset_name_input",
+                    "placeholder": {
                         "type": "plain_text",
-                        "text": "💾 Save Current Configuration as Preset:",
-                        "emoji": True,
+                        "text": "e.g. Full Security Audit",
                     },
                 },
-                {
-                    "type": "actions",
-                    "block_id": f"save_workflow_preset_actions_{active_wf_id or 'none'}",
-                    "elements": [
-                        {
-                            "type": "button",
-                            "text": {
-                                "type": "plain_text",
-                                "text": "💾 Save Preset",
-                                "emoji": True,
-                            },
-                            "action_id": "save_workflow_preset_button",
-                        },
-                    ],
+                "label": {
+                    "type": "plain_text",
+                    "text": "💾 Save Current Configuration as Preset:",
+                    "emoji": True,
                 },
-            ]
-        )
+            },
+            {
+                "type": "actions",
+                "block_id": f"save_workflow_preset_actions_{active_wf_id or 'none'}",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {
+                            "type": "plain_text",
+                            "text": "💾 Save Preset",
+                            "emoji": True,
+                        },
+                        "action_id": "save_workflow_preset_button",
+                    },
+                ],
+            },
+        ]
+    )
 
     return blocks

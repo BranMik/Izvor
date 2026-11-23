@@ -239,8 +239,12 @@ async def open_dm_channel(user_id: str) -> str | None:
         await slack_rate_limiter.acquire()
         client = get_slack_async_client()
         res = await client.conversations_open(users=user_id)
-        ch = res.get("channel", {})
-        return ch.get("id")
+        data = res.data if isinstance(getattr(res, "data", None), dict) else res
+        if not isinstance(data, dict):
+            return None
+        ch = data.get("channel")
+        ch_id = ch.get("id") if isinstance(ch, dict) else None
+        return ch_id if isinstance(ch_id, str) and ch_id.strip() else None
     except SlackApiError as e:
         logger.error(f"Slack API error opening DM channel with {user_id}: {e}")
         return None

@@ -801,6 +801,7 @@ class SkillRegistry:
         expired_skills: list[str] | None = None,
         ttl_hours: float | None = None,
         agent_name: Any = "",
+        token_mapping: dict[str, str] | None = None,
     ) -> str:
         """Asynchronously dispatches tool execution with fail-closed authorization."""
         self.ensure_loaded()
@@ -826,6 +827,7 @@ class SkillRegistry:
                 agent_name=agent_name,
                 authorized_skills=effective_authorized_skills,
                 skill_registry=self,
+                token_mapping=token_mapping,
             )
 
         skills_snapshot = self._skills
@@ -840,7 +842,11 @@ class SkillRegistry:
                     )
                     async_fn = getattr(handler, "_async_fn", handler)
                     sig = inspect.signature(async_fn)
-                    kwargs = {"agent_name": actor_id} if "agent_name" in sig.parameters else {}
+                    kwargs: dict[str, Any] = {}
+                    if "agent_name" in sig.parameters:
+                        kwargs["agent_name"] = actor_id
+                    if "token_mapping" in sig.parameters:
+                        kwargs["token_mapping"] = token_mapping
                     if inspect.iscoroutinefunction(async_fn):
                         return await async_fn(arguments, **kwargs)
                     return await asyncio.to_thread(handler, arguments, **kwargs)

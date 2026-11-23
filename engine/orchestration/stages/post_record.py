@@ -123,15 +123,17 @@ class PostRecordStage:
         record_flat_history: bool = True,
     ) -> None:
         """Centralized helper for notes updating, usage updating, and flat history."""
-        # 1. Trigger notes update
-        trig_notes = getattr(self.deps, "notes_updater", None) or trigger_thread_notes_update
-        if trig_notes:
-            trig_notes(
-                channel_id=ctx.input.channel_id,
-                thread_ts=ctx.input.thread_ts,
-                is_completed=is_completed,
-                bot_user_id=ctx.input.bot_user_id,
-            )
+        # 1. Trigger notes update (suppressed when circuit breaker tripped to avoid extra LLM spend)
+        cb_tripped = bool(getattr(ctx.output, "circuit_breaker_triggered", False))
+        if not cb_tripped:
+            trig_notes = getattr(self.deps, "notes_updater", None) or trigger_thread_notes_update
+            if trig_notes:
+                trig_notes(
+                    channel_id=ctx.input.channel_id,
+                    thread_ts=ctx.input.thread_ts,
+                    is_completed=is_completed,
+                    bot_user_id=ctx.input.bot_user_id,
+                )
 
         # 3. Trigger usage update
         trig_usage = getattr(self.deps, "usage_updater", None) or trigger_usage_update
@@ -139,7 +141,7 @@ class PostRecordStage:
             trig_usage(
                 channel_id=ctx.input.channel_id,
                 thread_ts=ctx.input.thread_ts,
-                is_completed=is_completed,
+                is_completed=bool(is_completed or cb_tripped),
             )
 
         # 4. Record flat history
@@ -306,7 +308,14 @@ class PostRecordStage:
                     ctx.next_designated_agent = end_chain[0]
                     ctx.eligible_remaining_agents = list(end_chain)
 
-            if not getattr(ctx.output, "waiting_hitl", False) and not getattr(ctx.control, "clarification_requested", False):
+            cb_tripped = bool(getattr(ctx.output, "circuit_breaker_triggered", False))
+            is_halted_turn = bool(
+                getattr(ctx.output, "waiting_hitl", False)
+                or getattr(ctx.control, "clarification_requested", False)
+                or getattr(ctx.output, "halted", False)
+                or cb_tripped
+            )
+            if not is_halted_turn:
                 ctx.output.final_text = enforce_valid_nomination(
                     ctx.output.final_text,
                     ctx.agent_key,
@@ -318,7 +327,11 @@ class PostRecordStage:
                     designated_next_agent=ctx.next_designated_agent,
                     control_plane_nomination=getattr(ctx.control, "nomination", None),
                 )
-            elif getattr(ctx.control, "clarification_requested", False):
+            elif (
+                getattr(ctx.control, "clarification_requested", False)
+                or getattr(ctx.output, "halted", False)
+                or cb_tripped
+            ):
                 from orchestration.nomination import strip_all_nominations
                 ctx.output.final_text = strip_all_nominations(ctx.output.final_text)
 
@@ -376,26 +389,38 @@ class PostRecordStage:
 
         resolved_turn_icon = ctx.icon_url or ctx.agent_cfg.get("icon_url")
         resolved_username = ctx.agent_cfg.get("username", ctx.agent_key) if ctx.agent_cfg else ctx.agent_key
+        cb_tripped = bool(getattr(ctx.output, "circuit_breaker_triggered", False))
+        turn_blocks: list[dict[str, Any]] | None = None
+        if cb_tripped:
+            cb_session_id = getattr(ctx, "session_id", f"{ctx.input.channel_id}:{ctx.input.thread_ts}")
+            turn_blocks = self.workspace_adapter.build_budget_halt_blocks(ctx.output.final_text, cb_session_id)
+
         if ctx.intermediate_msg_ts:
             logger.info(
                 f"[WORKSPACE] Updating in-place intermediate message {ctx.intermediate_msg_ts} with final text for {resolved_username}"
             )
-            slack_res = await self.workspace_adapter.update_agent_turn(
-                channel_id=ctx.input.channel_id,
-                message_ts=ctx.intermediate_msg_ts,
-                text=ctx.output.final_text,
-            )
+            update_kwargs: dict[str, Any] = {
+                "channel_id": ctx.input.channel_id,
+                "message_ts": ctx.intermediate_msg_ts,
+                "text": ctx.output.final_text,
+            }
+            if turn_blocks is not None:
+                update_kwargs["blocks"] = turn_blocks
+            slack_res = await self.workspace_adapter.update_agent_turn(**update_kwargs)
             if isinstance(slack_res, dict) and not slack_res.get("ok"):
                 logger.warning(
                     f"[WORKSPACE] In-place update failed ({slack_res.get('error')}), falling back to post_agent_turn."
                 )
-                slack_res = await self.workspace_adapter.post_agent_turn(
-                    channel_id=ctx.input.channel_id,
-                    thread_ts=ctx.input.thread_ts,
-                    text=ctx.output.final_text,
-                    username=resolved_username,
-                    icon_url=resolved_turn_icon,
-                )
+                fallback_post_kwargs: dict[str, Any] = {
+                    "channel_id": ctx.input.channel_id,
+                    "thread_ts": ctx.input.thread_ts,
+                    "text": ctx.output.final_text,
+                    "username": resolved_username,
+                    "icon_url": resolved_turn_icon,
+                }
+                if turn_blocks is not None:
+                    fallback_post_kwargs["blocks"] = turn_blocks
+                slack_res = await self.workspace_adapter.post_agent_turn(**fallback_post_kwargs)
                 posted_ts = slack_res.get("ts") if isinstance(slack_res, dict) else None
             else:
                 posted_ts = ctx.intermediate_msg_ts
@@ -403,13 +428,16 @@ class PostRecordStage:
             logger.info(
                 f"[WORKSPACE] Posting agent response to channel {ctx.input.channel_id}, thread_ts {ctx.input.thread_ts} as {resolved_username} (icon: {resolved_turn_icon})"
             )
-            slack_res = await self.workspace_adapter.post_agent_turn(
-                channel_id=ctx.input.channel_id,
-                thread_ts=ctx.input.thread_ts,
-                text=ctx.output.final_text,
-                username=resolved_username,
-                icon_url=resolved_turn_icon,
-            )
+            post_kwargs: dict[str, Any] = {
+                "channel_id": ctx.input.channel_id,
+                "thread_ts": ctx.input.thread_ts,
+                "text": ctx.output.final_text,
+                "username": resolved_username,
+                "icon_url": resolved_turn_icon,
+            }
+            if turn_blocks is not None:
+                post_kwargs["blocks"] = turn_blocks
+            slack_res = await self.workspace_adapter.post_agent_turn(**post_kwargs)
             posted_ts = slack_res.get("ts") if isinstance(slack_res, dict) else None
         ctx.output.slack_res = slack_res
         logger.info(f"[WORKSPACE] Successfully posted message! Received ts: {posted_ts}")
@@ -422,10 +450,12 @@ class PostRecordStage:
         has_pending_retries = thread_state_manager.has_pending_retries(
             ctx.input.channel_id, ctx.input.thread_ts
         )
-        if getattr(ctx.output, "waiting_hitl", False):
+        if getattr(ctx.output, "waiting_hitl", False) or cb_tripped:
             has_nominated_next = False
             ctx.output.is_completed = False
             ctx.output.halted = True
+            if cb_tripped:
+                thread_state_manager.suspend_thread(ctx.input.channel_id, ctx.input.thread_ts)
         else:
             known_agents = (
                 set(AGENTS_CONFIG.keys())
@@ -481,6 +511,7 @@ class PostRecordStage:
             slack_res["is_completed"] = ctx.output.is_completed
             slack_res["halted"] = getattr(ctx.output, "halted", False)
             slack_res["waiting_hitl"] = getattr(ctx.output, "waiting_hitl", False)
+            slack_res["circuit_breaker_triggered"] = cb_tripped
             slack_res["final_text"] = ctx.output.final_text
             resolved_user = ctx.agent_cfg.get("username", ctx.agent_key) if ctx.agent_cfg else ctx.agent_key
             slack_res["username"] = resolved_user
