@@ -86,3 +86,4 @@ data/audit/*
 .commit_msg*
 commit_msg_*.txt
 Bitna pitanja za analizu.md
+AGENTS.md
