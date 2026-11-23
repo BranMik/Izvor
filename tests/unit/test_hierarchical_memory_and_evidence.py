@@ -281,3 +281,78 @@ def test_round_evidence_unwrapping_and_fallback():
     block3 = store.format_evidence_block(channel_id, thread_ts, max_chars=100)
     assert "... [truncated]" in block3
 
+
+def test_round_evidence_store_format_excludes_named_files():
+    """format_evidence_block(exclude_file_names=...) skips only the matching file items (by
+    'file', 'rel_path', or 'document_name' argument) while keeping all other evidence intact."""
+    store = RoundEvidenceStore()
+    channel_id = "C_EXCLUDE"
+    thread_ts = "400.0"
+
+    spec_payload = json.dumps({
+        "status": "success",
+        "document": "spec.txt",
+        "size": 100,
+        "content": "Target throughput: 5000 rps",
+    })
+    store.add_evidence(
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        tool_name="document_reader",
+        arguments={"file": "spec.txt"},
+        result=spec_payload,
+        agent_key="agent-1",
+    )
+    store.add_evidence(
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        tool_name="web_search",
+        arguments={"q": "k8s"},
+        result="Cluster sizing benchmark results",
+        agent_key="agent-2",
+    )
+    store.add_evidence(
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        tool_name="read_document",
+        arguments={"document_name": "policy.md"},
+        result=json.dumps({"status": "success", "document": "policy.md", "content": "Vacation policy: 25 days."}),
+        agent_key="agent-3",
+    )
+    store.add_evidence(
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        tool_name="fetch_web_page",
+        arguments={"rel_path": "spec.txt"},
+        result="mirror of spec.txt",
+        agent_key="agent-4",
+    )
+
+    # Without exclusions, everything is present
+    block_all = store.format_evidence_block(channel_id, thread_ts)
+    assert block_all is not None
+    assert "5000 rps" in block_all
+    assert "Cluster sizing benchmark results" in block_all
+    assert "Vacation policy: 25 days." in block_all
+
+    # Excluding spec.txt removes both the 'file' and 'rel_path' variants, keeps the rest
+    block = store.format_evidence_block(channel_id, thread_ts, exclude_file_names={"spec.txt"})
+    assert block is not None
+    assert "5000 rps" not in block
+    assert "mirror of spec.txt" not in block
+    assert "Cluster sizing benchmark results" in block
+    assert "Vacation policy: 25 days." in block
+
+    # Excluding by document_name works too
+    block2 = store.format_evidence_block(channel_id, thread_ts, exclude_file_names={"policy.md"})
+    assert block2 is not None
+    assert "Vacation policy: 25 days." not in block2
+    assert "5000 rps" in block2
+
+    # Excluding all file-backed items leaves only the non-file evidence (web_search has no file arg)
+    block3 = store.format_evidence_block(channel_id, thread_ts, exclude_file_names={"spec.txt", "policy.md"})
+    assert block3 is not None
+    assert "Cluster sizing benchmark results" in block3
+    assert "5000 rps" not in block3
+    assert "Vacation policy" not in block3
+

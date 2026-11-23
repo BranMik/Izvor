@@ -4,6 +4,7 @@ Stage 3: Context preparation, history slicing, word limit injection, and prompt 
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import TYPE_CHECKING, Any
 
@@ -305,6 +306,7 @@ class ContextPrepStage:
                 mapped_next_designated = ctx.next_designated_agent
 
         # Record passively injected file skill and verified evidence if agent is authorized and has the skill
+        exclude_evidence_files: set[str] | None = None
         if ctx.file_context:
             auth_agents = ctx.file_context.get("authorized_agents")
             is_agent_auth = auth_agents is None or ctx.agent_key in auth_agents
@@ -321,14 +323,27 @@ class ContextPrepStage:
                     ctx.output.skills_used.append(file_req_skill)
                 file_name = ctx.file_context.get("file_name", "unknown")
                 file_size = ctx.file_context.get("size", len(file_content))
+                # Persist the FULL document payload (not just a metadata stub) so the InternalRevisor
+                # and later turns/rounds retain ground truth after file_context is cleared.
+                evidence_payload = json.dumps(
+                    {
+                        "status": "success",
+                        "document": file_name,
+                        "size": file_size,
+                        "content": file_content,
+                    }
+                )
                 thread_state_manager.add_round_evidence(
                     channel_id=ctx.input.channel_id,
                     thread_ts=ctx.input.thread_ts,
                     tool_name=file_req_skill,
                     arguments={"file": file_name},
-                    result=f"Confirmed read and verified content of '{file_name}' ({file_size} bytes).",
+                    result=evidence_payload,
                     agent_key=ctx.agent_key,
                 )
+                # The same file is injected directly into file_block this turn; exclude it from the
+                # shared evidence block to avoid paying duplicate prompt tokens for identical content.
+                exclude_evidence_files = {file_name}
 
         # Check if history is truncated (episodic summary tier 2)
         episodic_summary = None
@@ -348,7 +363,9 @@ class ContextPrepStage:
 
         # Fetch round evidence block (round evidence scratchpad tier 3)
         ctx.shared_round_evidence = thread_state_manager.format_round_evidence(
-            ctx.input.channel_id, ctx.input.thread_ts
+            ctx.input.channel_id,
+            ctx.input.thread_ts,
+            exclude_file_names=exclude_evidence_files,
         )
 
         active_prompt = ctx.prompt

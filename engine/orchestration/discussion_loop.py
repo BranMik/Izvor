@@ -390,7 +390,8 @@ class DiscussionLoop:
                                 thread_state_manager.set_remaining_agents(channel_id, thread_ts, round_seq)
                                 thread_state_manager.set_consensus_reached(channel_id, thread_ts, False)
                                 thread_state_manager.clear_convergence_speakers(channel_id, thread_ts)
-                                thread_state_manager.evidence.clear_thread_evidence(channel_id, thread_ts)
+                                # Verified round evidence is preserved across scatter-gather rounds so
+                                # later rounds and the InternalRevisor retain earlier ground truth.
                                 next_prompt = (
                                     last_res.get("final_text", "")
                                     if isinstance(last_res, dict)

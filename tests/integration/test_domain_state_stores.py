@@ -467,13 +467,13 @@ def test_atomic_rmw_stores_no_lost_updates_under_concurrency():
 
 
 def test_boundary_resets_clear_consensus_convergence_open_debate_and_evidence():
-    """TKT-1216 & TKT-1221: clear_round_execution_state, interrupt_discussion, and request_stop clear convergence/evidence."""
+    """TKT-1216 & TKT-1221: interrupt_discussion/request_stop clear ephemeral state AND evidence;
+    clear_round_execution_state clears ephemeral execution state but PRESERVES verified evidence."""
     mgr = ThreadStateManager()
     ch = "C_TKT1216_RESET"
     ts = "1700008889.0001"
     try:
         for action in (
-            mgr.clear_round_execution_state,
             mgr.interrupt_discussion,
             mgr.request_stop,
         ):
@@ -488,7 +488,25 @@ def test_boundary_resets_clear_consensus_convergence_open_debate_and_evidence():
             assert mgr.is_consensus_reached(ch, ts) is False
             assert mgr.get_convergence_speakers(ch, ts) == []
             assert mgr.is_open_debate(ch, ts) is False
+            assert mgr.get_remaining_agents(ch, ts) == []
             assert mgr.evidence.get_round_evidence(ch, ts) == []
+
+        # clear_round_execution_state clears ephemeral execution state but keeps verified evidence
+        mgr.set_remaining_agents(ch, ts, ["agent-10001"])
+        mgr.set_consensus_reached(ch, ts, True)
+        mgr.record_convergence_speaker(ch, ts, "agent-10001")
+        mgr.set_open_debate(ch, ts, True)
+        mgr.set_file_context(ch, ts, {"file_name": "notes.md", "content": "abc"})
+        mgr.evidence.add_evidence(ch, ts, "web_search", {"q": "test"}, "cached result", agent_key="agent-10001")
+
+        mgr.clear_round_execution_state(ch, ts)
+
+        assert mgr.is_consensus_reached(ch, ts) is False
+        assert mgr.get_convergence_speakers(ch, ts) == []
+        assert mgr.is_open_debate(ch, ts) is False
+        assert mgr.get_remaining_agents(ch, ts) == []
+        assert mgr.get_file_context(ch, ts) is None
+        assert len(mgr.evidence.get_round_evidence(ch, ts)) == 1
     finally:
         mgr.cleanup_thread(ch, ts)
 

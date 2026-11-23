@@ -345,7 +345,7 @@ async def test_arbitrator_verdict_b_revokes_consensus_and_resets_round_rollover(
         assert thread_state_manager.is_consensus_reached(ch, ts) is False
         assert thread_state_manager.get_convergence_speakers(ch, ts) == []
 
-        # Round rollover in PostRecordStage (/rounds 2) clears convergence_speakers and RoundEvidenceStore
+        # Round rollover in PostRecordStage (/rounds 2) clears convergence_speakers but PRESERVES RoundEvidenceStore
         thread_state_manager.set_rounds(ch, ts, 2)
         thread_state_manager.set_round_sequence(ch, ts, ["agent-10001", "agent-10008"])
         thread_state_manager.set_remaining_agents(ch, ts, [])
@@ -379,7 +379,9 @@ async def test_arbitrator_verdict_b_revokes_consensus_and_resets_round_rollover(
         assert thread_state_manager.get_rounds(ch, ts) == 1
         assert thread_state_manager.is_consensus_reached(ch, ts) is False
         assert thread_state_manager.get_convergence_speakers(ch, ts) == []
-        assert thread_state_manager.format_round_evidence(ch, ts) is None
+        # Round 1 verified evidence must survive the round boundary for Round 2 agents and InternalRevisor
+        evidence = thread_state_manager.format_round_evidence(ch, ts)
+        assert evidence is not None and "Cluster sizing benchmark results" in evidence
     finally:
         set_orchestration_mode(orig_mode, save=False)
         system_settings_manager.dialectical_stress_test["enabled"] = orig_dst_enabled

@@ -178,11 +178,16 @@ async def test_context_prep_records_passively_injected_file_skill():
     # Verify skill was recorded into skills_used
     assert "document_reader" in ctx.output.skills_used
 
-    # Verify round evidence was registered
+    # Verify round evidence was registered with the FULL unwrapped document payload as ground truth
     evidence_block = thread_state_manager.format_round_evidence(channel_id, thread_ts)
     assert evidence_block is not None
     assert "document_reader" in evidence_block
     assert "05_Use_Case_Playbook.pdf" in evidence_block
+    assert "Sales use cases: 1. Pre-call research briefs" in evidence_block
+
+    # The active file_context document is injected directly into file_block this turn, so it must be
+    # excluded from the same-turn shared evidence block to avoid duplicate prompt tokens.
+    assert not ctx.shared_round_evidence or "Sales use cases" not in ctx.shared_round_evidence
 
     # Execute Stage 5 Post & Record to ensure rubric renders
     ctx.output.final_text = "Analysis from playbook.\n\n/[agent-10003]"

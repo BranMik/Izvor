@@ -335,6 +335,10 @@ async def _confirm_hallucination(
     }
 
     if ctx.is_superseded():
+        logger.info(
+            f"[REVISOR] Stage 2 confirmation aborted for [{speaker}] — turn superseded "
+            f"(ctx.my_generation={ctx.my_generation})."
+        )
         return None
 
     confirm_res = await execute_llm_with_retry(
@@ -402,6 +406,10 @@ async def _verify_single_candidate(
     }
 
     if ctx.is_superseded():
+        logger.info(
+            f"[REVISOR] Stage 1 verification aborted for [{speaker}] — turn superseded "
+            f"(ctx.my_generation={ctx.my_generation})."
+        )
         return None
 
     res = await execute_llm_with_retry(
@@ -459,6 +467,14 @@ async def run_internal_revisor(ctx: TurnContext):
         if _is_pure_missing_skill_notice(ctx):
             logger.info(
                 f"[REVISOR] Skipping InternalRevisor on turn {turn_count} (compressed missing-skill notice with no tool execution)."
+            )
+            return None
+
+        if ctx.is_superseded():
+            current_gen = thread_state_manager.get_generation(ctx.input.channel_id, ctx.input.thread_ts)
+            logger.info(
+                f"[REVISOR] Skipping InternalRevisor on turn {turn_count} — turn superseded "
+                f"(ctx.my_generation={ctx.my_generation}, current_generation={current_gen})."
             )
             return None
 
@@ -546,6 +562,10 @@ async def run_internal_revisor(ctx: TurnContext):
                 icon_url=icon_url,
             )
             return combined_warning
+
+        if ctx.is_superseded():
+            logger.info("[REVISOR] Verification aborted mid-flight — turn superseded.")
+            return None
 
         logger.info("[REVISOR] No hallucinations detected.")
         return None

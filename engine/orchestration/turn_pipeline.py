@@ -530,7 +530,12 @@ class TurnPipeline:
             )
 
             # --- Phase 2: CASCADING HALLUCINATION PREVENTION (TKT-820) ---
-            await self._execute_revisor_barrier(ctx, slack_res)
+            # Run the InternalRevisor barrier BEFORE clearing ephemeral round state so the
+            # revisor still sees file_context and the thread evidence store on terminating turns.
+            try:
+                await self._execute_revisor_barrier(ctx, slack_res)
+            finally:
+                self.post_record_stage.finalize_completed_round(ctx)
 
             return slack_res
 
@@ -755,7 +760,11 @@ class TurnPipeline:
                 return halt
 
             slack_res = await self.post_record_stage.stage_post_and_record(ctx)
-            await self._execute_revisor_barrier(ctx, slack_res)
+            # Revisor barrier first, ephemeral-state cleanup afterwards (same ordering as run()).
+            try:
+                await self._execute_revisor_barrier(ctx, slack_res)
+            finally:
+                self.post_record_stage.finalize_completed_round(ctx)
             turn_checkpoint_store.mark_resumed(chk.checkpoint_id)
             return slack_res
         except asyncio.CancelledError:

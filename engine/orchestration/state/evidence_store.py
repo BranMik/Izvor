@@ -194,12 +194,32 @@ class RoundEvidenceStore:
             return [x for x in valid_items if x.round_index == round_index]
         return list(valid_items)
 
+    @staticmethod
+    def _item_file_name(item: EvidenceItem) -> str | None:
+        """Extracts the file identifier from an evidence item's arguments, if any."""
+        args = item.arguments or {}
+        for key in ("file", "rel_path", "document_name"):
+            val = args.get(key)
+            if isinstance(val, str) and val:
+                return val
+        return None
+
     def format_evidence_block(
-        self, channel_id: str, thread_ts: str, max_items: int = 5, max_chars: int | None = None
+        self,
+        channel_id: str,
+        thread_ts: str,
+        max_items: int = 5,
+        max_chars: int | None = None,
+        exclude_file_names: set[str] | None = None,
     ) -> str | None:
         items = self.get_round_evidence(channel_id, thread_ts)
         # Only include non-agent-scoped items in shared round block
         shared_items = [x for x in items if x.scope_key == "*"]
+        if exclude_file_names:
+            # Skip items whose file is already injected directly into the prompt this turn
+            shared_items = [
+                x for x in shared_items if self._item_file_name(x) not in exclude_file_names
+            ]
         if not shared_items:
             return None
         selected = shared_items[-max_items:]

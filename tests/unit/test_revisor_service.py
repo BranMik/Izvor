@@ -1,4 +1,6 @@
 import json
+import logging
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -543,4 +545,246 @@ async def test_revisor_falls_back_when_key_missing_and_appends_slack_footer():
     posted_text = mock_post.call_args.kwargs["text"]
     assert confirmed_msg in posted_text
     assert "Fallback model used: `openai/gpt-5.6-sol`" in posted_text
+
+
+@pytest.mark.anyio
+async def test_pipeline_runs_revisor_barrier_before_finalize_completed_round():
+    """Terminating-turn lifecycle ordering: TurnPipeline.run() executes the InternalRevisor barrier
+    BEFORE finalize_completed_round() clears ephemeral state, so file_context and evidence_store are
+    both readable during the revisor; afterwards file_context is cleared while evidence persists."""
+    channel_id = "C_REVISOR_LIFECYCLE"
+    thread_ts = "99999.0101"
+    thread_state_manager.clear_state(channel_id, thread_ts)
+
+    file_ctx = {"file_name": "sys_spec.txt", "content": "Target throughput: 5000 rps", "size": 100}
+    thread_state_manager.set_file_context(channel_id, thread_ts, file_ctx)
+    thread_state_manager.add_round_evidence(
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        tool_name="document_reader",
+        arguments={"file": "sys_spec.txt"},
+        result=json.dumps(
+            {"status": "success", "document": "sys_spec.txt", "size": 100, "content": "Target throughput: 5000 rps"}
+        ),
+        agent_key="agent-10001",
+    )
+
+    ctx = TurnContext(
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        raw_text="Read sys_spec.txt and report throughput.",
+        is_bot_trigger=False,
+        is_completed=True,
+        force_termination=True,
+    )
+    ctx.agent_key = "agent-10001"
+    ctx.agent_cfg = {"model": "test-model", "username": "Visionary"}
+    ctx.file_context = file_ctx
+    ctx.output.final_text = "Throughput is 5000 rps."
+
+    pipeline = TurnPipeline()
+    pipeline.validation_stage.stage_validate_and_parse = AsyncMock(return_value=None)
+    pipeline.resolution_stage.stage_resolve_agent_and_governance = AsyncMock(return_value=None)
+    pipeline.context_prep_stage.stage_prepare_context = AsyncMock(return_value=None)
+    pipeline.execution_stage.stage_execute_llm = AsyncMock(return_value=None)
+    pipeline.post_record_stage.stage_post_and_record = AsyncMock(
+        return_value={"ok": True, "final_text": ctx.output.final_text}
+    )
+
+    observed: dict[str, Any] = {}
+
+    async def mock_revisor(c):
+        observed["file_context"] = thread_state_manager.get_file_context(channel_id, thread_ts)
+        observed["evidence"] = thread_state_manager.format_round_evidence(channel_id, thread_ts)
+        return None
+
+    set_internal_revisor_enabled_override(True)
+    try:
+        with patch("orchestration.revisor_service.run_internal_revisor", side_effect=mock_revisor):
+            await pipeline.run(ctx)
+    finally:
+        set_internal_revisor_enabled_override(None)
+        thread_state_manager.cleanup_thread(channel_id, thread_ts)
+
+    # During the revisor barrier, both file_context and evidence_store were intact
+    assert observed.get("file_context") is not None
+    assert observed.get("evidence") is not None and "5000 rps" in observed["evidence"]
+
+
+@pytest.mark.anyio
+async def test_pipeline_finalize_clears_file_context_but_preserves_evidence():
+    """After a terminating turn, file_context is cleared while verified evidence_store entries remain."""
+    channel_id = "C_REVISOR_FINALIZE"
+    thread_ts = "99999.0102"
+    thread_state_manager.clear_state(channel_id, thread_ts)
+
+    thread_state_manager.set_file_context(
+        channel_id, thread_ts, {"file_name": "sys_spec.txt", "content": "Target throughput: 5000 rps"}
+    )
+    thread_state_manager.add_round_evidence(
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        tool_name="document_reader",
+        arguments={"file": "sys_spec.txt"},
+        result=json.dumps(
+            {"status": "success", "document": "sys_spec.txt", "content": "Target throughput: 5000 rps"}
+        ),
+        agent_key="agent-10001",
+    )
+
+    ctx = TurnContext(
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        raw_text="Read sys_spec.txt.",
+        is_bot_trigger=False,
+        is_completed=True,
+        force_termination=True,
+    )
+    ctx.agent_key = "agent-10001"
+    ctx.agent_cfg = {"model": "test-model", "username": "Visionary"}
+    ctx.output.final_text = "Done."
+
+    pipeline = TurnPipeline()
+    pipeline.validation_stage.stage_validate_and_parse = AsyncMock(return_value=None)
+    pipeline.resolution_stage.stage_resolve_agent_and_governance = AsyncMock(return_value=None)
+    pipeline.context_prep_stage.stage_prepare_context = AsyncMock(return_value=None)
+    pipeline.execution_stage.stage_execute_llm = AsyncMock(return_value=None)
+    pipeline.post_record_stage.stage_post_and_record = AsyncMock(return_value={"ok": True})
+
+    revisor_saw_file_context = False
+
+    async def mock_revisor(c):
+        nonlocal revisor_saw_file_context
+        revisor_saw_file_context = thread_state_manager.get_file_context(channel_id, thread_ts) is not None
+        return None
+
+    set_internal_revisor_enabled_override(True)
+    try:
+        with patch("orchestration.revisor_service.run_internal_revisor", side_effect=mock_revisor):
+            await pipeline.run(ctx)
+
+        assert revisor_saw_file_context is True
+        assert thread_state_manager.get_file_context(channel_id, thread_ts) is None
+        evidence_after = thread_state_manager.format_round_evidence(channel_id, thread_ts)
+        assert evidence_after is not None and "5000 rps" in evidence_after
+    finally:
+        set_internal_revisor_enabled_override(None)
+        thread_state_manager.cleanup_thread(channel_id, thread_ts)
+
+
+@pytest.mark.anyio
+async def test_revisor_logs_and_skips_on_superseded_turn(caplog):
+    """When ctx.my_generation != current generation, run_internal_revisor logs the superseded skip,
+    does NOT log 'No hallucinations detected.', and makes zero LLM calls."""
+    from orchestration.revisor_service import run_internal_revisor
+
+    channel_id = "C_REVISOR_SUPERSEDED"
+    thread_ts = "99999.0103"
+    thread_state_manager.clear_state(channel_id, thread_ts)
+    # Bump generation so a ctx carrying my_generation=0 is superseded
+    thread_state_manager.increment_generation(channel_id, thread_ts)
+
+    ctx = TurnContext(
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        raw_text="Summarize the spec.",
+        is_bot_trigger=False,
+        my_generation=0,
+    )
+    ctx.full_history = [
+        {"role": "user", "content": "Summarize the spec."},
+        {"role": "assistant", "content": "[Visionary]: First answer."},
+    ]
+    ctx.agent_key = "agent-10001"
+    ctx.agent_cfg = {"model": "test-model", "username": "Visionary"}
+    ctx.output.skills_used = []
+    ctx.output.final_text = "Second turn claim."
+    ctx.force_termination = True
+
+    try:
+        with (
+            patch("orchestration.revisor_service.execute_llm_with_retry") as mock_exec,
+            caplog.at_level(logging.INFO, logger="orchestration.revisor_service"),
+        ):
+            result = await run_internal_revisor(ctx)
+
+        assert result is None
+        mock_exec.assert_not_called()
+        messages = [r.getMessage() for r in caplog.records]
+        assert any("turn superseded" in m and "ctx.my_generation=0" in m for m in messages)
+        assert not any("No hallucinations detected." in m for m in messages)
+    finally:
+        thread_state_manager.cleanup_thread(channel_id, thread_ts)
+
+
+@pytest.mark.anyio
+async def test_revisor_hydrates_passive_file_evidence_across_turns():
+    """Cross-turn passive file evidence: after a terminating Turn 1 that passively loaded
+    sys_spec.txt (file_context since cleared), a Turn 2 revisor call with file_context=None still
+    hydrates '5000 rps' from evidence_store into <retrieved_evidence>."""
+    from orchestration.revisor_service import run_internal_revisor
+
+    channel_id = "C_REVISOR_XTRURN"
+    thread_ts = "99999.0104"
+    thread_state_manager.clear_state(channel_id, thread_ts)
+
+    # Turn 1 passively loaded sys_spec.txt; its full payload was persisted to evidence_store
+    thread_state_manager.add_round_evidence(
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        tool_name="document_reader",
+        arguments={"file": "sys_spec.txt"},
+        result=json.dumps(
+            {
+                "status": "success",
+                "document": "sys_spec.txt",
+                "size": 100,
+                "content": "Target throughput: 5000 rps\nLatency budget p99: <50ms",
+            }
+        ),
+        agent_key="agent-10001",
+    )
+    # file_context was cleared after Turn 1 (clear_round_execution_state) — Turn 2 has none
+    assert thread_state_manager.get_file_context(channel_id, thread_ts) is None
+
+    ctx = TurnContext(
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        raw_text="Summarize the spec.",
+        is_bot_trigger=False,
+    )
+    ctx.full_history = [
+        {"role": "user", "content": "Summarize the spec."},
+        {"role": "assistant", "content": "[Visionary]: The target is 5000 rps."},
+    ]
+    ctx.agent_key = "agent-10002"
+    ctx.agent_cfg = {"model": "test-model", "username": "Tactician", "skills": []}
+    ctx.file_context = None
+    ctx.output.skills_used = []
+    ctx.output.final_text = "The verified throughput is 5000 rps."
+    ctx.force_termination = True
+
+    mock_resp = MagicMock()
+    mock_resp.choices = [MagicMock(message=MagicMock(content="NO_HALLUCINATION"))]
+    mock_resp.usage = MagicMock(prompt_tokens=10, completion_tokens=5)
+
+    try:
+        with patch(
+            "orchestration.revisor_service.execute_llm_with_retry",
+            AsyncMock(return_value=mock_resp),
+        ) as mock_exec:
+            result = await run_internal_revisor(ctx)
+
+        assert result is None
+        assert mock_exec.call_count == 2  # prev + current candidate, both Stage 1 only
+        user_prompts = [
+            next(m["content"] for m in call.kwargs["kwargs"]["messages"] if m["role"] == "user")
+            for call in mock_exec.call_args_list
+        ]
+        for prompt_text in user_prompts:
+            assert "<retrieved_evidence>" in prompt_text
+            assert "5000 rps" in prompt_text
+            assert "VERIFIED EVIDENCE [document_reader by agent-10001]:" in prompt_text
+    finally:
+        thread_state_manager.cleanup_thread(channel_id, thread_ts)
 

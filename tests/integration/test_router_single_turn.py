@@ -1466,6 +1466,7 @@ def test_thread_state_batched_clear_and_interrupt_single_update_per_store():
         assert len(mgr.context.update_calls) == 1
         assert mgr.is_stopped(ch, ts) is True
 
+        _populate()
         mgr.discussion.update_calls.clear()
         mgr.context.update_calls.clear()
         mgr.clear_round_execution_state(ch, ts)
@@ -1476,6 +1477,8 @@ def test_thread_state_batched_clear_and_interrupt_single_update_per_store():
         assert mgr.is_consensus_reached(ch, ts) is False
         assert mgr.get_convergence_speakers(ch, ts) == []
         assert mgr.get_file_context(ch, ts) is None
-        assert mgr.format_round_evidence(ch, ts) is None
+        # clear_round_execution_state clears ephemeral state but PRESERVES verified round evidence
+        evidence = mgr.format_round_evidence(ch, ts)
+        assert evidence is not None and "Evidence body" in evidence
     finally:
         mgr.cleanup_thread(ch, ts)

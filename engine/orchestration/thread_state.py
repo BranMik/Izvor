@@ -533,7 +533,15 @@ class ThreadStateManager:
             self._reset_hooks.append(hook)
 
     def clear_round_execution_state(self, channel_id: str, thread_ts: str) -> None:
-        """Clears ephemeral execution queue and tasks when a round or discussion concludes, preserving persistent context."""
+        """
+        Clears ephemeral execution queue and tasks when a round or discussion concludes, preserving persistent context.
+
+        Verified thread evidence (RoundEvidenceStore) is intentionally PRESERVED here so that
+        follow-up turns, later rounds, and the InternalRevisor keep access to ground truth gathered
+        earlier in the thread. Evidence remains bounded by TTL (3600s), per-thread cap (32 items),
+        and global LRU cap (256 entries), and is only wiped on interrupt_discussion(), request_stop(),
+        cleanup_thread(), and reset_all().
+        """
         self._touch(channel_id, thread_ts)
         self.discussion._update_fields(
             channel_id,
@@ -552,10 +560,9 @@ class ThreadStateManager:
         self.retry.clear_already_retried(channel_id, thread_ts)
         self.retry.clear_503_errored_agents(channel_id, thread_ts)
         self.context._update_fields(channel_id, thread_ts, file_context=None)
-        self.evidence.clear_thread_evidence(channel_id, thread_ts)
         # Persistent context (language, max_words, min_words, scribe_max_words, scribe_min_words,
         # excluded_agents, included_agents, format_modifiers, round_sequences, initial_prompts)
-        # remains intact for subsequent rounds.
+        # remains intact for subsequent rounds, as does verified round evidence.
 
     def cleanup_thread(self, channel_id: str, thread_ts: str) -> None:
         self.discussion.clear_thread(channel_id, thread_ts)
@@ -606,10 +613,21 @@ class ThreadStateManager:
         return self.evidence.get_round_evidence(channel_id, thread_ts)
 
     def format_round_evidence(
-        self, channel_id: str, thread_ts: str, max_items: int = 5, max_chars: int | None = None
+        self,
+        channel_id: str,
+        thread_ts: str,
+        max_items: int = 5,
+        max_chars: int | None = None,
+        exclude_file_names: set[str] | None = None,
     ) -> str | None:
         """Formats the latest verified round evidence into a structured string block."""
-        return self.evidence.format_evidence_block(channel_id, thread_ts, max_items=max_items, max_chars=max_chars)
+        return self.evidence.format_evidence_block(
+            channel_id,
+            thread_ts,
+            max_items=max_items,
+            max_chars=max_chars,
+            exclude_file_names=exclude_file_names,
+        )
 
     def add_round_evidence(
         self,

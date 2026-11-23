@@ -234,8 +234,20 @@ class HybridInterceptor:
         if is_internal_revisor:
             user_msg_text = str(messages[-1].get("content", "")) if messages else ""
             is_stage2 = "<stage1_preliminary_flag>" in user_msg_text
+            # Hardened mock: only flag "99999" when contradicting ground truth ("5000") is actually
+            # present inside <retrieved_evidence>, so missing-evidence regressions are not masked.
+            evidence_match = re.search(
+                r"<retrieved_evidence>(.*?)</retrieved_evidence>",
+                user_msg_text,
+                re.DOTALL | re.IGNORECASE,
+            )
+            has_ground_truth = bool(evidence_match and "5000" in evidence_match.group(1))
             if is_stage2:
-                if "99999" in user_msg_text and "FALSE_POSITIVE_TRIGGER" not in user_msg_text:
+                if (
+                    "99999" in user_msg_text
+                    and "FALSE_POSITIVE_TRIGGER" not in user_msg_text
+                    and has_ground_truth
+                ):
                     return MockModelResponse(
                         content=(
                             'ATTENTION: Agent [SecurityArchitect] hallucinated the following fact: '
@@ -253,7 +265,9 @@ class HybridInterceptor:
                     completion_tokens=4,
                 )
 
-            if "99999" in user_msg_text or "FALSE_POSITIVE_TRIGGER" in user_msg_text:
+            if "FALSE_POSITIVE_TRIGGER" in user_msg_text or (
+                "99999" in user_msg_text and has_ground_truth
+            ):
                 return MockModelResponse(
                     content=(
                         'ATTENTION: Agent [SecurityArchitect] hallucinated the following fact: '

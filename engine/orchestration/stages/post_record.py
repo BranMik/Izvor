@@ -182,8 +182,15 @@ class PostRecordStage:
             except Exception as e:  # noqa: BLE001
                 logger.warning(f"[WORKSPACE] Failed to record flat history for {ctx.thread_key}: {e}")
 
-
-
+    def finalize_completed_round(self, ctx: TurnContext) -> None:
+        """Clears ephemeral round execution state after post-record and the InternalRevisor barrier complete."""
+        if ctx.output.is_completed and not ctx.input.isolated_branch:
+            logger.info(
+                f"[ROUTER] Thread {ctx.thread_key} reached termination (forced or natural). Cleaning up state."
+            )
+            thread_state_manager.clear_round_execution_state(
+                ctx.input.channel_id, ctx.input.thread_ts
+            )
 
     async def stage_post_and_record(self, ctx: TurnContext) -> dict[str, Any]:
         """Stage 5: Nomination enforcement, token accounting, Slack posting, and notifications."""
@@ -242,9 +249,8 @@ class PostRecordStage:
                     thread_state_manager.clear_convergence_speakers(
                         ctx.input.channel_id, ctx.input.thread_ts
                     )
-                    thread_state_manager.evidence.clear_thread_evidence(
-                        ctx.input.channel_id, ctx.input.thread_ts
-                    )
+                    # Verified round evidence is intentionally preserved across rounds so
+                    # Round N+1 agents and the InternalRevisor retain Round 1..N ground truth.
                     ctx.force_termination = False
                     logger.info(
                         f"[ROUTER] Round completed for thread {ctx.thread_key}. "
@@ -501,11 +507,11 @@ class PostRecordStage:
             ctx, is_completed=ctx.output.is_completed, record_flat_history=True
         )
 
-        if ctx.output.is_completed and not ctx.input.isolated_branch:
-            logger.info(
-                f"[ROUTER] Thread {ctx.thread_key} reached termination (forced or natural). Cleaning up state."
-            )
-            thread_state_manager.clear_round_execution_state(ctx.input.channel_id, ctx.input.thread_ts)
+        # NOTE: completed-round cleanup (clear_round_execution_state) is deferred to
+        # finalize_completed_round(), which TurnPipeline invokes AFTER the InternalRevisor
+        # barrier, so the revisor still sees intact file_context and evidence_store on
+        # terminating turns. handle_error() keeps its own immediate cleanup because the
+        # revisor barrier is not invoked on the error path.
 
         if isinstance(slack_res, dict):
             slack_res["is_completed"] = ctx.output.is_completed

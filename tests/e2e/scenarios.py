@@ -1222,12 +1222,18 @@ async def tc_32_internal_revisor_ground_truth_and_confirmation(
             icon_url=speaker_icon,
         )
 
+        # Verify Turn 1's evidence_store genuinely retains the sys_spec.txt ground truth ("5000")
+        # before invoking the revisor, so a missing-evidence regression fails the scenario.
+        evidence_items = thread_state_manager.get_round_evidence(channel, actual_thread)
+        has_ground_truth_evidence = any("5000" in str(ev.result) for ev in evidence_items)
+
         revisor_ctx = TurnContext(
             channel_id=channel,
             thread_ts=actual_thread,
             raw_text=prompt_1,
             final_text=contradicted_claim,
             skills_used=["document_reader"],
+            my_generation=thread_state_manager.get_generation(channel, actual_thread),
         )
         revisor_ctx.agent_key = "agent-10008"
         revisor_ctx.agent_cfg = agent_cfg or {"username": speaker_username}
@@ -1250,12 +1256,12 @@ async def tc_32_internal_revisor_ground_truth_and_confirmation(
         ]
         # Verify InternalRevisor ran cleanly on Turn 1 and confirmed ATTENTION alert on Turn 2
         has_attention = any("ATTENTION:" in m.get("text", "") for m in revisor_msgs)
-        passed = clean_turn1 and len(msgs) >= 2 and has_attention
+        passed = clean_turn1 and len(msgs) >= 2 and has_attention and has_ground_truth_evidence
         return ScenarioResult(
             "TC-32",
             "InternalRevisor Evidence Isolation & Stage 2 Confirmation",
             passed,
-            f"total_msgs={len(msgs)}, turn1_false_positives={len(turn1_revisor_alerts)}, revisor_alerts={len(revisor_msgs)}, attention={has_attention}",
+            f"total_msgs={len(msgs)}, turn1_false_positives={len(turn1_revisor_alerts)}, revisor_alerts={len(revisor_msgs)}, attention={has_attention}, has_ground_truth_evidence={has_ground_truth_evidence}",
         )
     finally:
         system_settings_manager.set_internal_revisor_enabled(orig_revisor, save=False)
