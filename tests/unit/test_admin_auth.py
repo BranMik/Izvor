@@ -105,6 +105,7 @@ def test_trigger_rag_reconciliation_audit_event(client):
 
     config.set_admin_credentials_override(test_user, test_pass)
     try:
+        from api.dependencies import get_rag_sync_engine
         import main
 
         logged_events = []
@@ -114,7 +115,7 @@ def test_trigger_rag_reconciliation_audit_event(client):
 
         mock_engine = AsyncMock()
         mock_engine.reconcile = AsyncMock(return_value={"reconciled": 5})
-        main.app.dependency_overrides[main.get_rag_sync_engine] = lambda: mock_engine
+        main.app.dependency_overrides[get_rag_sync_engine] = lambda: mock_engine
         try:
             with patch("services.audit_logger.log_audit_event", side_effect=mock_log_event):
                 good_creds = base64.b64encode(f"{test_user}:{test_pass}".encode()).decode("ascii")
@@ -129,7 +130,7 @@ def test_trigger_rag_reconciliation_audit_event(client):
                 assert len(reconcile_events) >= 1
                 assert reconcile_events[0]["actor"]["id"] == test_user
         finally:
-            main.app.dependency_overrides.pop(main.get_rag_sync_engine, None)
+            main.app.dependency_overrides.pop(get_rag_sync_engine, None)
     finally:
         config.set_admin_credentials_override(None, None)
 

@@ -29,7 +29,7 @@ If a requested solution represents poor engineering practice, an architectural a
 
 ### 6. 3-Tier Separation of Concerns (`config/`, `engine/`, `data/`)
 - **Implementer Configuration (`config/`)**: Debate personas (`config/personas/`), debate panel settings (`config/settings/agent_settings.json`), system tuning (`config/settings/system_settings.json`), custom workflows (`config/workflows/`), agent tool skills (`config/skills/`), avatars (`config/avatars/`), and RAG documents (`config/rag_knowledge/`) belong in `config/`.
-- **Immutable Engine (`engine/`)**: Core Python packages (`engine/core`, `engine/config_store`, `engine/orchestration`, `engine/agents`, `engine/pipeline`, `engine/nlp`, `engine/adapters`, `engine/services`, `engine/prompts`, `engine/skills`), system agents (`engine/settings/system_agent_settings.json`), built-in modifier/control skills (`engine/skills/builtin/`), and seed workflows (`engine/workflows/`) belong in `engine/`.
+- **Immutable Engine (`engine/`)**: Core Python packages (`engine/core`, `engine/config_store`, `engine/orchestration`, `engine/agents`, `engine/pipeline`, `engine/nlp`, `engine/adapters`, `engine/api`, `engine/services`, `engine/prompts`, `engine/skills`), system agents (`engine/settings/system_agent_settings.json`), built-in modifier/control skills (`engine/skills/builtin/`), and seed workflows (`engine/workflows/`) belong in `engine/`.
 - **Runtime & UI State (`data/`)**: Dynamic Slack UI settings (`data/state/app_settings.json`), SQLite databases (`data/izvor.db`), audit logs (`data/audit/`), backups (`data/backups/`), Scribe thread notes (`data/thread_notes/`), downloaded Slack attachments (`data/downloads/`), and exported transcripts (`data/flat-histories/`) belong in `data/`.
 
 ---

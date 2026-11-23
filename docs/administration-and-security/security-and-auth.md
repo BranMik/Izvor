@@ -67,7 +67,7 @@ The raw request body is concatenated into `v0:{timestamp}:{raw_body}`, signed wi
 ## 🔑 Administrative API & Interactivity Pre-Authorization
 
 ### 1. HTTP Basic Auth on `/api/*`
-Administrative REST endpoints (`/api/*`) in [`main.py`](file:///main.py) require HTTP Basic Authentication validated via `secrets.compare_digest`. If `ADMIN_PASSWORD` is unset, all `/api/*` requests fail closed with HTTP 500/401.
+Administrative REST endpoints (`/api/*`) in [`engine/api/router.py`](file:///engine/api/router.py) and [`engine/api/dependencies.py`](file:///engine/api/dependencies.py) require HTTP Basic Authentication validated via `secrets.compare_digest`. If `ADMIN_PASSWORD` is unset, all `/api/*` requests fail closed with HTTP 500/401.
 
 ### 2. Whole-Payload `ActionSpec` Interactivity Gate
 In [`adapters/slack/interactivity.py`](file:///engine/adapters/slack/interactivity.py), every Slack interactive `action_id` and modal `callback_id` is registered in `ACTION_REGISTRY` with an `ActionSpec(handler, admin_required=True)`. The dispatcher pre-authorizes **all** actions in an incoming payload before executing any handler, preventing partial execution of mixed payloads.

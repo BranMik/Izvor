@@ -17,7 +17,7 @@ tests/
 ├── unit/                                      # Tier 1: Fast isolated unit tests & static checkers
 │   ├── test_admin_auth.py                     # HTTP Basic Auth & timing attack defense
 │   ├── test_agent_settings_ssot.py            # Settings manager, atomic writes & backups
-│   ├── test_architecture_layers.py            # AST 5-tier DAG boundary guard (core, config_store, nlp, pipeline, services, orchestration, adapters)
+│   ├── test_architecture_layers.py            # AST 5-tier DAG & lateral boundary guard (core, config_store, nlp, pipeline, services, orchestration, adapters, api)
 │   ├── test_async_llm_enforcement.py          # Enforces async acompletion/aembedding across runtime
 │   ├── test_audit_logger.py                   # Cryptographic hash chaining, HMAC keyring rotation, SQLite anchors & tail truncation
 │   ├── test_code_hygiene.py                   # Code hygiene, README/docs markdown link verification & brand guards

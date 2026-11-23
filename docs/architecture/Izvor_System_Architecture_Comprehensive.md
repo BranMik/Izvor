@@ -30,12 +30,12 @@ flowchart TD
     subgraph Pillars["3-Pillar Physical Filesystem Layout (engine/core/paths.py)"]
         direction LR
         P1["Pillar 1: config/\nImplementer Configuration\n• settings/ (agent & system JSON)\n• personas/ (16 Markdown prompts)\n• skills/ (4 tool skill bundles)\n• workflows/ (custom JSON presets)\n• rag_knowledge/ & avatars/"]
-        P2["Pillar 2: engine/\nImmutable Core Engine (146 .py files, 10 pkgs)\n• core/, config_store/, orchestration/, pipeline/\n• services/, skills/, nlp/, prompts/\n• adapters/, agents/\n• settings/system_agent_settings.json\n• workflows/ (3 golden seed presets)"]
+        P2["Pillar 2: engine/\nImmutable Core Engine (150 .py files, 11 pkgs)\n• core/, config_store/, orchestration/, pipeline/\n• services/, skills/, nlp/, prompts/\n• api/, adapters/, agents/\n• settings/system_agent_settings.json\n• workflows/ (3 golden seed presets)"]
         P3["Pillar 3: data/\nRuntime & Slack UI State\n• izvor.db (SQLite WAL - 11 tables)\n• state/ (app_settings.json, exclusions)\n• audit/ (HMAC-SHA256 JSONL logs)\n• .rag_cache/lancedb/\n• backups/, pricing/, flat-histories/, thread_notes/, downloads/"]
     end
 
     subgraph Layers["5-Tier Unidirectional DAG Dependency Hierarchy"]
-        L4["Tier 4: Entrypoints & Adapters (main.py, engine/adapters/slack/)\nFastAPI Lifespan, Admin REST API (/api/threads/* GDPR), Slack Webhook Router, Actions & SlackWorkspaceAdapter"]
+        L4["Tier 4: Entrypoints, API & Adapters (main.py, engine/api/, engine/adapters/slack/)\nFastAPI Lifespan, Admin REST API (/api/* incl. GDPR delete), Slack Webhook Router, Actions & SlackWorkspaceAdapter"]
         L3["Tier 3: Orchestration & Support Agents (engine/orchestration/, engine/agents/)\nAgentRouter, DiscussionLoop, 5-Stage TurnPipeline (+ ToolLoopRunner/ControlPlaneHandler/TurnFinalizer), ThreadStateManager, RevisorService, ThreadNotesAgent, UsageAgent"]
         L2["Tier 2: Pipeline, Services, Skills, NLP & Prompts (engine/pipeline/, engine/services/, engine/skills/, engine/nlp/, engine/prompts/)\nDirectiveParser, SandwichOrchestrator, SpendGovernance, DiscussionScribe, ThreadSkillsManager, RAGService, McpClientManager, GuardrailService, PIIMasker, AuditLogger, HITL, SkillRegistry, PromptBuilder"]
         L15["Tier 1.5: Config Store (engine/config_store/)\nAgentSettingsManager, AppSettingsManager, SystemSettingsManager, WorkflowManager, JsonSettingsStore, ConfigIntegrityValidator"]
@@ -56,15 +56,16 @@ All filesystem paths are centrally anchored in [engine/core/paths.py](../../engi
 | Pillar | Canonical Path Constant | Contents & Responsibility |
 | :--- | :--- | :--- |
 | **`config/`** *(Implementer Tier)* | `CONFIG_DIR` | Declarative domain customization: [agent_settings.json](../../config/settings/agent_settings.json), [system_settings.json](../../config/settings/system_settings.json), 16 persona prompts in [config/personas/](../../config/personas), 4 configurable agent skills in [config/skills/](../../config/skills), custom workflow presets in [config/workflows/](../../config/workflows), RAG documents in [config/rag_knowledge/](../../config/rag_knowledge), and custom avatars in [config/avatars/](../../config/avatars). |
-| **`engine/`** *(Core Engine Tier)* | `ENGINE_DIR` | Immutable application logic (**146 Python modules** across 10 packages), built-in system agent definitions in [engine/settings/system_agent_settings.json](../../engine/settings/system_agent_settings.json), 3 protected seed workflows in [engine/workflows/](../../engine/workflows), **18 built-in** directive/control-plane skills in [engine/skills/builtin/](../../engine/skills/builtin), system agent prompts in [engine/prompts/system_agents/](../../engine/prompts/system_agents), and fallback avatars in [engine/avatars/](../../engine/avatars). |
+| **`engine/`** *(Core Engine Tier)* | `ENGINE_DIR` | Immutable application logic (**150 Python modules** across 11 packages), built-in system agent definitions in [engine/settings/system_agent_settings.json](../../engine/settings/system_agent_settings.json), 3 protected seed workflows in [engine/workflows/](../../engine/workflows), **18 built-in** directive/control-plane skills in [engine/skills/builtin/](../../engine/skills/builtin), system agent prompts in [engine/prompts/system_agents/](../../engine/prompts/system_agents), and fallback avatars in [engine/avatars/](../../engine/avatars). |
 | **`data/`** *(Runtime & UI Tier)* | `DATA_DIR` | Mutable operational state: SQLite WAL database (`data/izvor.db`), Slack App Home settings ([data/state/app_settings.json](../../data/state/app_settings.json)), Presidio skill vocabulary exclusions ([data/state/presidio_skill_exclusions.json](../../data/state/presidio_skill_exclusions.json)), monthly HMAC audit logs (`data/audit/`), rolling backups (`data/backups/`), pricing cache (`data/pricing/`), exported Markdown transcripts (`data/flat-histories/`), Scribe thread notes (`data/thread_notes/`), thread-scoped attachment downloads (`data/downloads/`), and LanceDB vector indices (`data/.rag_cache/lancedb/`). |
 | **`agents_resources/`** *(Sandbox)* | `AGENTS_RESOURCES_DIR` | Strictly sandboxed read/write workspace for agent document tools (`read_document`, `write_document`, `list_documents`). |
 
 ### 2.2 Strict Layer Isolation & Inversion-of-Control (IoC) Wiring
 As verified by [test_architecture_layers.py](../../tests/unit/test_architecture_layers.py):
-- **5-Tier Unidirectional DAG (`test_strict_five_tier_dag_layer_boundaries`)**: No module may import from a higher tier (`core` 1.0 → `config_store` 1.5 → `services`/`skills`/`nlp`/`prompts`/`pipeline` 2.0 → `orchestration`/`agents` 3.0 → `adapters`/`main.py` 4.0).
-- **Zero Upward Imports in `engine/core/`**: Modules in `engine/core/` never import from `config_store`, `adapters`, `orchestration`, `agents`, `services`, `pipeline`, `skills`, or `prompts` (neither top-level nor deferred).
-- **Startup IoC Hook Registration**: Higher-layer services inject callbacks into `engine/core/` and `services/retention_service.py` during startup in [main.py](../../main.py#L63-L74):
+- **5-Tier Unidirectional DAG (`test_strict_five_tier_dag_layer_boundaries`)**: No module may import from a higher tier (`core` 1.0 → `config_store` 1.5 → `services`/`skills`/`nlp`/`prompts`/`pipeline` 2.0 → `orchestration`/`agents` 3.0 → `adapters`/`api`/`main.py` 4.0).
+- **Lateral Tier-4 Isolation (`test_api_and_adapters_do_not_cross_import`)**: First-party HTTP transport ([engine/api/](../../engine/api/__init__.py)) and external messaging platform adapters ([engine/adapters/](../../engine/adapters/__init__.py)) never cross-import each other.
+- **Zero Upward Imports in `engine/core/`**: Modules in `engine/core/` never import from `config_store`, `adapters`, `api`, `orchestration`, `agents`, `services`, `pipeline`, `skills`, or `prompts` (neither top-level nor deferred).
+- **Startup IoC Hook Registration**: Higher-layer services inject callbacks into `engine/core/` and `services/retention_service.py` during startup in [main.py](../../main.py):
   - `set_audit_logger_hook(log_audit_event)` & `set_secret_scanner_hook(scan_output_for_secrets)`
   - `set_pii_masker_instance(pii_masker)` & `set_prompt_builder_hook(build_agent_prompt)`
   - `set_default_workspace_adapter_factory(SlackWorkspaceAdapter)` & `register_token_recorder(record_thread_tokens)`
@@ -472,7 +473,7 @@ sequenceDiagram
 1. **Ingress Authentication, Burst Rate Limiting & Anti-IDOR**:
    - Slack requests require HMAC-SHA256 verification (`verify_slack_signature` in [slack_security.py](../../engine/core/slack_security.py)); admin-gated interactive actions enforce `SLACK_ADMIN_USER_IDS` and emit `ADMIN_ACTION_DENIED` on unauthorized attempts.
    - Scribe conclusion downloads ([scribe_actions.py](../../engine/adapters/slack/actions/scribe_actions.py)) verify workspace channel membership before file dispatch (`403` / `UNAUTHORIZED_SCRIBE_DOWNLOAD`).
-   - Admin REST API endpoints (`/api/*` in [main.py](../../main.py#L399-L661)) require HTTP Basic Auth (`secrets.compare_digest`) protected by a sliding-window IP brute-force limiter ([rate_limiter.py](../../engine/services/rate_limiter.py), max 5 failures per 60s).
+   - Admin REST API endpoints (`/api/*` in [engine/api/router.py](../../engine/api/router.py) & [engine/api/dependencies.py](../../engine/api/dependencies.py)) require HTTP Basic Auth (`secrets.compare_digest`) protected by a sliding-window IP brute-force limiter ([rate_limiter.py](../../engine/services/rate_limiter.py), max 5 failures per 60s).
 2. **Hybrid Prompt Injection & Indirect Tool-Output Guardrail ([guardrail.py](../../engine/services/security/guardrail.py))**:
    - Runs fast heuristic signature pre-checks (`PROMPT_INJECTION_BLOCKED`), embeds sliding prompt windows (`800`-char window, `200`-char stride, max `8` windows; 500-entry LRU cache), and queries the LanceDB `guardrail_signatures` table using cosine distance (`threshold = 0.85`) with configurable `guardrail_fail_mode` (`"open"` or `"closed"`).
    - Screens untrusted tool outputs (`screen_untrusted_tool_output`) inside the tool loop and HITL resume paths, replacing detected payloads with a sanitized warning and logging `INDIRECT_INJECTION_DETECTED`.
@@ -504,20 +505,20 @@ Workspace administrators (`SLACK_ADMIN_USER_IDS`) manage the platform live insid
 2. **Workflows Tab ([workflows_tab.py](../../engine/services/slack_home/workflows_tab.py))**: Select/load the active workflow preset (`select_workflow_preset`, `load_workflow_preset_button`), or create/edit/delete custom `sandwich`, `fixed`, and `scatter_gather` workflows (all actions enforce `admin_required=True` and log `ADMIN_ACTION_DENIED` on unauthorized attempts).
 3. **Governance & System Settings Tab ([governance_tab.py](../../engine/services/slack_home/governance_tab.py))**: Configure circuit breakers, daily USD budgets, Scribe toggles, convergence fast-forward, strict privacy mode, output word limits, and one-click backup restores (`data/backups/`).
 
-### 10.3 HTTP & Admin REST API Endpoints ([main.py](../../main.py), [router.py](../../engine/adapters/slack/router.py))
+### 10.3 HTTP & Admin REST API Endpoints ([api/router.py](../../engine/api/router.py), [adapters/slack/router.py](../../engine/adapters/slack/router.py))
 
 | Endpoint | Method | Auth | Handler | Description |
 | :--- | :---: | :--- | :--- | :--- |
-| `/`, `/health` | `GET` | Public | `main.health_check` | Lightweight liveness probe returning `{"status": "healthy", "service": "Izvor Multi-Agent Hub"}`. |
+| `/`, `/health` | `GET` | Public | `api.router.health_check` | Lightweight liveness probe returning `{"status": "healthy", "service": "Izvor Multi-Agent Hub"}`. |
 | `/static/*`, `/avatars/*` | `GET` | Public | `MultiDirStaticFiles` | Serves persona avatars from `config/avatars/` with fallback to `engine/avatars/`. |
 | `/slack/events` | `POST` | Slack HMAC | `events.handle_slack_events` | Receives Slack Events API webhooks (`app_mention`, `message`, `app_home_opened`). |
 | `/slack/interactivity`, `/slack/actions` | `POST` | Slack HMAC | `interactivity.handle_slack_interactivity` | Processes Block Kit button clicks, modal submissions, HITL approvals, and App Home actions. |
-| `/api/health` | `GET` | Basic Auth | `main.admin_health_check` | Returns service status and list of registered agent keys (`16` personas). |
-| `/api/skills` | `GET` | Basic Auth | `main.get_registered_skills` | Lists all `22` registered skills, descriptions, and LiteLLM tool schemas. |
-| `/api/rag/status` | `GET` | Basic Auth | `main.get_rag_status` | Returns RAG manifest status and indexed document records. |
-| `/api/rag/reconcile` | `POST` | Basic Auth | `main.trigger_rag_reconciliation` | Triggers on-demand `rag_sync_engine.reconcile()`, returning `new`/`modified`/`deleted`/`unchanged` counts and logging `RAG_RECONCILE_COMPLETED`. |
-| `/api/audit/status` | `GET` | Basic Auth | `main.get_audit_status` | Runs `AppIntegrityValidator.check_audit_log_integrity()` and returns verification report. |
-| `/api/threads/{channel_id}/{thread_ts}` | `DELETE` | Basic Auth | `main.forget_thread_endpoint` | Permanently purges persisted DB state, flat histories, Scribe notes, downloads, and caches via `forget_thread()` and logs `THREAD_FORGOTTEN`. |
+| `/api/health` | `GET` | Basic Auth | `api.router.admin_health_check` | Returns service status and list of registered agent keys (`16` personas). |
+| `/api/skills` | `GET` | Basic Auth | `api.router.get_registered_skills` | Lists all `22` registered skills, descriptions, and LiteLLM tool schemas. |
+| `/api/rag/status` | `GET` | Basic Auth | `api.router.get_rag_status` | Returns RAG manifest status and indexed document records. |
+| `/api/rag/reconcile` | `POST` | Basic Auth | `api.router.trigger_rag_reconciliation` | Triggers on-demand `rag_sync_engine.reconcile()`, returning `new`/`modified`/`deleted`/`unchanged` counts and logging `RAG_RECONCILE_COMPLETED`. |
+| `/api/audit/status` | `GET` | Basic Auth | `api.router.get_audit_status` | Runs `AppIntegrityValidator.check_audit_log_integrity()` and returns verification report. |
+| `/api/threads/{channel_id}/{thread_ts}` | `DELETE` | Basic Auth | `api.router.delete_thread_data` | Permanently purges persisted DB state, flat histories, Scribe notes, downloads, and caches via `forget_thread()` and logs `GDPR_THREAD_FORGOTTEN`. |
 
 ---
 

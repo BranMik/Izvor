@@ -213,7 +213,7 @@ def test_basic_auth_throttling_on_failures():
     from fastapi.security import HTTPBasicCredentials
     from starlette.requests import Request
     from services.rate_limiter import ip_rate_limiter
-    from main import verify_admin_basic_auth
+    from api.dependencies import verify_admin_basic_auth
 
     ip_rate_limiter.reset()
     bad_creds = HTTPBasicCredentials(username="malicious_actor", password="wrong_password")

@@ -1,6 +1,6 @@
 # REST API Reference
 
-This document provides complete technical specifications for the HTTP endpoints exposed by **Izvor** in [`main.py`](file:///main.py).
+This document provides complete technical specifications for the HTTP endpoints exposed by **Izvor** in [`engine/api/router.py`](file:///engine/api/router.py) (mounted by [`main.py`](file:///main.py)) and [`engine/adapters/slack/router.py`](file:///engine/adapters/slack/router.py).
 
 ---
 

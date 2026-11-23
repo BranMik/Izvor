@@ -54,6 +54,7 @@ def test_core_does_not_import_higher_layers():
     forbidden_layers = {
         "config_store",
         "adapters",
+        "api",
         "orchestration",
         "agents",
         "services",
@@ -207,7 +208,7 @@ def test_strict_five_tier_dag_layer_boundaries():
       L1.5 : config_store
       L2   : services, skills, nlp, prompts, pipeline
       L3   : orchestration, agents
-      L4   : adapters, main
+      L4   : adapters, api, main
     """
     layer_tiers: dict[str, float] = {
         "core": 1.0,
@@ -220,6 +221,7 @@ def test_strict_five_tier_dag_layer_boundaries():
         "orchestration": 3.0,
         "agents": 3.0,
         "adapters": 4.0,
+        "api": 4.0,
     }
     engine_dir = PROJECT_ROOT / "engine"
     violations: list[str] = []
@@ -256,6 +258,46 @@ def test_strict_five_tier_dag_layer_boundaries():
 
     assert not violations, (
         "Architecture violation: upward dependency edge(s) detected across 5-tier DAG:\n"
+        + "\n".join(violations)
+    )
+
+
+def test_api_and_adapters_do_not_cross_import():
+    """
+    Plan 210: Enforce lateral isolation between first-party HTTP transport (engine/api/)
+    and external messaging platform adapters (engine/adapters/).
+    """
+    engine_dir = PROJECT_ROOT / "engine"
+    boundary_pairs = (
+        ("api", "adapters"),
+        ("adapters", "api"),
+    )
+    violations: list[str] = []
+
+    for source_pkg, forbidden_pkg in boundary_pairs:
+        source_dir = engine_dir / source_pkg
+        if not source_dir.exists():
+            continue
+        for py_file in source_dir.rglob("*.py"):
+            rel_path = py_file.relative_to(PROJECT_ROOT)
+            tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
+            for node in ast.walk(tree):
+                imported_mods: list[str] = []
+                if isinstance(node, ast.Import):
+                    imported_mods = [alias.name for alias in node.names]
+                elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
+                    imported_mods = [node.module]
+
+                for mod_name in imported_mods:
+                    parts = mod_name.split(".")
+                    target_pkg = parts[1] if parts[0] == "engine" and len(parts) > 1 else parts[0]
+                    if target_pkg == forbidden_pkg:
+                        violations.append(
+                            f"{rel_path}:{node.lineno} ('{source_pkg}') cross-imports '{mod_name}' ('{forbidden_pkg}')"
+                        )
+
+    assert not violations, (
+        "Architecture violation: lateral cross-import between engine/api/ and engine/adapters/:\n"
         + "\n".join(violations)
     )
 

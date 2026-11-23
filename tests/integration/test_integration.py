@@ -2,7 +2,8 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-from main import PROCESSED_EVENTS, app
+from adapters.slack import PROCESSED_EVENTS
+from main import app
 from orchestration.agent_router import (
     configure_fetch_thread_history,
     configure_post_agent_response,

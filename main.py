@@ -3,33 +3,21 @@ from contextlib import asynccontextmanager
 import logging
 import os
 from pathlib import Path
-import secrets
 import sys
-from typing import Any
 
-from fastapi import Depends, FastAPI, HTTPException, Request, status
-from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
-from fastapi.responses import JSONResponse
-from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 _engine_dir = Path(__file__).resolve().parent / "engine"
 if str(_engine_dir) not in sys.path:
     sys.path.insert(0, str(_engine_dir))
 
+from adapters.slack import slack_router
+from api import api_router, public_router
 from core.paths import AVATARS_DIR, ENGINE_AVATARS_DIR
 from skills.registry import skill_registry
 from core.logging_filters import setup_credential_redaction_filters
-from adapters.slack import (
-    PROCESSED_EVENTS,
-    slack_router,
-)
-from core.config import (
-    AGENTS_CONFIG,
-    get_admin_password,
-    get_admin_username,
-    is_production,
-)
+from core.config import get_admin_password
 from adapters.slack.workspace_adapter import SlackWorkspaceAdapter
 from agents.thread_notes_agent import clear_thread_note
 from agents.usage_agent import cleanup_thread_usage, record_thread_tokens
@@ -47,7 +35,7 @@ from core.registry import (
     set_initial_agents_provider,
     set_thread_state_provider,
 )
-from core.slack_security import extract_client_ip, set_audit_logger_hook, set_secret_scanner_hook
+from core.slack_security import set_audit_logger_hook, set_secret_scanner_hook
 from core.task_utils import _ACTIVE_TASKS
 from orchestration.nomination import get_initial_agents
 from orchestration.thread_state import thread_state_manager
@@ -377,292 +365,13 @@ app.mount(
     name="avatars",
 )
 
-# Mount Slack Adapter routes (/slack/events, /slack/actions, /slack/interactivity)
+# Mount first-party HTTP/REST API routers and Slack Adapter routes
+app.include_router(public_router)
+app.include_router(api_router, prefix="/api")
 app.include_router(slack_router, prefix="/slack")
 
 
-@app.get("/")
-@app.get("/health")
-async def health_check():
-    """Basic public health check endpoint."""
-    return {
-        "status": "healthy",
-        "service": "Izvor Multi-Agent Hub",
-    }
-
-
-# HTTP Basic Authentication security scheme for admin endpoints
-admin_security = HTTPBasic()
-docs_security = HTTPBasic(auto_error=False)
-
-
-def verify_admin_basic_auth(
-    request: Request,
-    credentials: HTTPBasicCredentials = Depends(admin_security),
-) -> str:
-    """
-    Verifies HTTP Basic Auth credentials against ADMIN_USERNAME and ADMIN_PASSWORD.
-    Enforces rate-limit lockout BEFORE credential verification so brute-forced IPs
-    cannot succeed even with valid credentials during an active lockout window.
-    Uses secrets.compare_digest to defend against timing attacks.
-    """
-    from services.audit_logger import log_audit_event
-    from services.rate_limiter import ip_rate_limiter
-
-    fallback_ip = request.client.host if request.client and request.client.host else "unknown_ip"
-    client_ip = extract_client_ip(request.headers, fallback_host=fallback_ip)
-
-    burst_limits = system_settings_manager.get_security_burst_limits()
-    max_failures = int(burst_limits.get("auth_failure_burst_limit", 5))
-    window_secs = float(burst_limits.get("auth_failure_window_seconds", 60.0))
-
-    admin_pass = get_admin_password()
-    admin_user = get_admin_username()
-
-    if not admin_pass:
-        logger.error("ADMIN_PASSWORD is not configured in environment/.env")
-        log_audit_event(
-            event_type="AUTH_FAILURE",
-            actor={"type": "api_client", "id": credentials.username},
-            action="admin_basic_auth",
-            target="/api/*",
-            details={"reason": "ADMIN_PASSWORD not configured on server", "client_ip": client_ip},
-            severity="CRITICAL",
-            status="FAILED",
-        )
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Admin authentication is not configured on the server",
-        )
-
-    is_blocked, attempts = ip_rate_limiter.is_blocked(
-        client_ip=client_ip,
-        max_requests=max_failures,
-        window_seconds=window_secs,
-    )
-    if is_blocked:
-        if ip_rate_limiter.mark_block_logged(client_ip):
-            log_audit_event(
-                event_type="AUTH_RATE_LIMITED",
-                actor={"type": "api_client", "id": credentials.username},
-                action="admin_basic_auth",
-                target="/api/*",
-                details={
-                    "reason": "Excessive failed basic auth attempts (throttled)",
-                    "attempts": attempts,
-                    "client_ip": client_ip,
-                },
-                severity="CRITICAL",
-                status="BLOCKED",
-            )
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Too many failed authentication attempts. Please wait before retrying.",
-        )
-
-    is_correct_username = secrets.compare_digest(credentials.username.encode("utf8"), admin_user.encode("utf8"))
-    is_correct_password = secrets.compare_digest(credentials.password.encode("utf8"), admin_pass.encode("utf8"))
-
-    if not (is_correct_username and is_correct_password):
-        is_allowed, attempts, should_log = ip_rate_limiter.check_and_record(
-            client_ip=client_ip,
-            max_requests=max_failures,
-            window_seconds=window_secs,
-        )
-
-        if not is_allowed:
-            if should_log:
-                log_audit_event(
-                    event_type="AUTH_RATE_LIMITED",
-                    actor={"type": "api_client", "id": credentials.username},
-                    action="admin_basic_auth",
-                    target="/api/*",
-                    details={
-                        "reason": "Excessive failed basic auth attempts (throttled)",
-                        "attempts": attempts,
-                        "client_ip": client_ip,
-                    },
-                    severity="CRITICAL",
-                    status="BLOCKED",
-                )
-            raise HTTPException(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail="Too many failed authentication attempts. Please wait before retrying.",
-            )
-
-        log_audit_event(
-            event_type="AUTH_FAILURE",
-            actor={"type": "api_client", "id": credentials.username},
-            action="admin_basic_auth",
-            target="/api/*",
-            details={"reason": "Invalid credentials provided", "client_ip": client_ip},
-            severity="CRITICAL",
-            status="FAILED",
-        )
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username or password",
-            headers={"WWW-Authenticate": "Basic"},
-        )
-
-    ip_rate_limiter.reset(client_ip)
-    return credentials.username
-
-
-def _verify_docs_auth_in_production(
-    request: Request,
-    credentials: HTTPBasicCredentials | None = Depends(docs_security),
-) -> None:
-    """Enforces Admin Basic Auth on OpenAPI/Swagger routes in production; open in dev/test."""
-    if not is_production():
-        return
-    if credentials is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Not authenticated",
-            headers={"WWW-Authenticate": "Basic"},
-        )
-    verify_admin_basic_auth(request, credentials)
-
-
-@app.get("/openapi.json", include_in_schema=False)
-async def get_openapi_schema(_: None = Depends(_verify_docs_auth_in_production)):
-    return JSONResponse(app.openapi())
-
-
-@app.get("/docs", include_in_schema=False)
-async def get_swagger_ui(_: None = Depends(_verify_docs_auth_in_production)):
-    return get_swagger_ui_html(openapi_url="/openapi.json", title=f"{app.title} - Swagger UI")
-
-
-@app.get("/redoc", include_in_schema=False)
-async def get_redoc_ui(_: None = Depends(_verify_docs_auth_in_production)):
-    return get_redoc_html(openapi_url="/openapi.json", title=f"{app.title} - ReDoc")
-
-
-@app.get("/api/health", dependencies=[Depends(verify_admin_basic_auth)])
-async def admin_health_check():
-    """Admin health check endpoint exposing registered agent catalog."""
-    return {
-        "status": "healthy",
-        "service": "Izvor Multi-Agent Hub",
-        "agents": list(AGENTS_CONFIG.keys()),
-    }
-
-
-@app.get("/api/skills", dependencies=[Depends(verify_admin_basic_auth)])
-async def get_registered_skills():
-    """Returns all registered skills, descriptions, and their tool schemas."""
-    from core.registry import get_skill_registry
-
-    skill_registry = get_skill_registry()
-    skills_data = []
-    for s in skill_registry.list_skills():
-        skills_data.append(
-            {
-                "name": s.name,
-                "display_name": s.display_name,
-                "description": s.description,
-                "tools": [t.get("function", {}).get("name") for t in s.get_tool_schemas()],
-                "schemas": s.get_tool_schemas(),
-            }
-        )
-    return {"skills": skills_data}
-
-
-@app.get("/api/rag/status", dependencies=[Depends(verify_admin_basic_auth)])
-async def get_rag_status():
-    """Returns RAG manifest status and indexed documents overview."""
-
-    def _read_manifest():
-        from services.rag.manifest_manager import ManifestManager
-
-        manifest = ManifestManager()
-        records = manifest.get_all_records()
-        return {
-            "status": "ready",
-            "total_documents": len(records),
-            "documents": records,
-        }
-
-    return await asyncio.to_thread(_read_manifest)
-
-
-def get_rag_sync_engine():
-    return rag_sync_engine
-
-
-@app.post("/api/rag/reconcile")
-async def trigger_rag_reconciliation(
-    admin_user: str = Depends(verify_admin_basic_auth),
-    sync_engine: Any = Depends(get_rag_sync_engine),
-):
-    """Triggers an on-demand reconciliation scan of rag_knowledge/."""
-    from services.audit_logger import log_audit_event
-
-    try:
-        stats = await sync_engine.reconcile()
-        log_audit_event(
-            event_type="RAG_RECONCILE_COMPLETED",
-            actor={"type": "admin_user", "id": admin_user},
-            action="reconcile_rag_knowledge",
-            target="rag_knowledge/",
-            details={"source": "api_endpoint", "stats": stats},
-            severity="INFO",
-            status="SUCCESS",
-        )
-        return {"status": "reconciliation_complete", "stats": stats}
-    except Exception as e:
-        log_audit_event(
-            event_type="RAG_RECONCILE_FAILED",
-            actor={"type": "admin_user", "id": admin_user},
-            action="reconcile_rag_knowledge",
-            target="rag_knowledge/",
-            details={"source": "api_endpoint", "error": str(e)},
-            severity="CRITICAL",
-            status="FAILED",
-        )
-        raise
-
-
-@app.get("/api/audit/status", dependencies=[Depends(verify_admin_basic_auth)])
-async def get_audit_status():
-    """Returns non-repudiable audit log cryptographic integrity status and statistics."""
-    from orchestration.integrity_checks import AppIntegrityValidator
-
-    return await asyncio.to_thread(AppIntegrityValidator.check_audit_log_integrity)
-
-
-@app.delete("/api/threads/{channel_id}/{thread_ts}")
-async def delete_thread_data(
-    channel_id: str,
-    thread_ts: str,
-    admin_user: str = Depends(verify_admin_basic_auth),
-):
-    """Permanently purges persisted state, flat histories, notes, downloads, and caches for a thread."""
-    from services.audit_logger import log_audit_event_async
-    from services.retention_service import forget_thread
-
-    deleted = await asyncio.to_thread(forget_thread, channel_id, thread_ts)
-    await log_audit_event_async(
-        event_type="GDPR_THREAD_FORGOTTEN",
-        actor={"type": "admin_user", "id": admin_user},
-        action="forget_thread",
-        target=f"{channel_id}:{thread_ts}",
-        details=deleted,
-        severity="WARNING",
-        status="SUCCESS",
-    )
-    return {
-        "status": "forgotten",
-        "channel_id": channel_id,
-        "thread_ts": thread_ts,
-        "deleted": deleted,
-    }
-
-
 __all__ = [
-    "PROCESSED_EVENTS",
     "app",
-    "slack_router",
+    "lifespan",
 ]

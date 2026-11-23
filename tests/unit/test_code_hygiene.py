@@ -140,6 +140,7 @@ def test_no_unittest_mock_introspection_in_production_code():
         root_dir / "engine" / "nlp",
         root_dir / "engine" / "skills",
         root_dir / "engine" / "adapters",
+        root_dir / "engine" / "api",
         root_dir / "config" / "skills",
     ]
 

@@ -150,6 +150,10 @@ def test_circular_import_resilience():
         "services.pricing_service",
         "services.thread_notes_writer",
         "prompts.builder",
+        "api",
+        "api.dependencies",
+        "api.router",
+        "api.schemas",
     )
     imported = {name: importlib.import_module(name) for name in module_names}
     core_paths = importlib.import_module("core.paths")

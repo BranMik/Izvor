@@ -122,7 +122,8 @@ def test_cleanup_old_downloads_recurses_thread_subdirs_and_prunes_empty_dirs(tmp
 
 def test_http_delete_thread_requires_admin_auth_and_emits_audit(tmp_path: Path):
     """DELETE /api/threads/{channel_id}/{thread_ts} requires Basic Auth and emits GDPR_THREAD_FORGOTTEN."""
-    from main import app, verify_admin_basic_auth
+    from api.dependencies import verify_admin_basic_auth
+    from main import app
 
     flat_dir = tmp_path / "flat"
     flat_history_recorder.configure_paths(flat_dir)

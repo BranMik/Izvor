@@ -1,0 +1,193 @@
+from __future__ import annotations
+
+import asyncio
+from typing import Any
+
+from fastapi import APIRouter, Depends, Request
+from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
+from fastapi.responses import HTMLResponse, JSONResponse
+
+from api.dependencies import (
+    get_rag_sync_engine,
+    verify_admin_basic_auth,
+    verify_docs_auth_in_production,
+)
+from api.schemas import (
+    AdminHealthResponse,
+    PublicHealthResponse,
+    RagReconcileResponse,
+    RagStatusResponse,
+    SkillsListResponse,
+    ThreadDeleteResponse,
+)
+from core.config import AGENTS_CONFIG
+
+public_router = APIRouter(tags=["Public & Docs"])
+api_router = APIRouter(tags=["Admin API"])
+
+
+@public_router.get("/", response_model=PublicHealthResponse)
+@public_router.get("/health", response_model=PublicHealthResponse)
+async def health_check() -> PublicHealthResponse:
+    """Basic public health check endpoint."""
+    return PublicHealthResponse(
+        status="healthy",
+        service="Izvor Multi-Agent Hub",
+    )
+
+
+@public_router.get("/openapi.json", include_in_schema=False)
+async def get_openapi_schema(
+    request: Request,
+    _: None = Depends(verify_docs_auth_in_production),
+) -> JSONResponse:
+    """Returns OpenAPI schema JSON (Basic-Auth gated in production)."""
+    return JSONResponse(request.app.openapi())
+
+
+@public_router.get("/docs", include_in_schema=False)
+async def get_swagger_ui(
+    request: Request,
+    _: None = Depends(verify_docs_auth_in_production),
+) -> HTMLResponse:
+    """Serves Swagger UI (Basic-Auth gated in production)."""
+    return get_swagger_ui_html(openapi_url="/openapi.json", title=f"{request.app.title} - Swagger UI")
+
+
+@public_router.get("/redoc", include_in_schema=False)
+async def get_redoc_ui(
+    request: Request,
+    _: None = Depends(verify_docs_auth_in_production),
+) -> HTMLResponse:
+    """Serves ReDoc UI (Basic-Auth gated in production)."""
+    return get_redoc_html(openapi_url="/openapi.json", title=f"{request.app.title} - ReDoc")
+
+
+@api_router.get(
+    "/health",
+    dependencies=[Depends(verify_admin_basic_auth)],
+    response_model=AdminHealthResponse,
+)
+async def admin_health_check() -> AdminHealthResponse:
+    """Admin health check endpoint exposing registered agent catalog."""
+    return AdminHealthResponse(
+        status="healthy",
+        service="Izvor Multi-Agent Hub",
+        agents=list(AGENTS_CONFIG.keys()),
+    )
+
+
+@api_router.get(
+    "/skills",
+    dependencies=[Depends(verify_admin_basic_auth)],
+    response_model=SkillsListResponse,
+)
+async def get_registered_skills() -> SkillsListResponse:
+    """Returns all registered skills, descriptions, and their tool schemas."""
+    from core.registry import get_skill_registry
+
+    skill_registry = get_skill_registry()
+    skills_data = []
+    for s in skill_registry.list_skills():
+        skills_data.append(
+            {
+                "name": s.name,
+                "display_name": s.display_name,
+                "description": s.description,
+                "tools": [t.get("function", {}).get("name") for t in s.get_tool_schemas()],
+                "schemas": s.get_tool_schemas(),
+            }
+        )
+    return SkillsListResponse(skills=skills_data)
+
+
+@api_router.get(
+    "/rag/status",
+    dependencies=[Depends(verify_admin_basic_auth)],
+    response_model=RagStatusResponse,
+)
+async def get_rag_status() -> RagStatusResponse:
+    """Returns RAG manifest status and indexed documents overview."""
+
+    def _read_manifest() -> dict[str, Any]:
+        from services.rag.manifest_manager import ManifestManager
+
+        manifest = ManifestManager()
+        records = manifest.get_all_records()
+        return {
+            "status": "ready",
+            "total_documents": len(records),
+            "documents": records,
+        }
+
+    data = await asyncio.to_thread(_read_manifest)
+    return RagStatusResponse(**data)
+
+
+@api_router.post("/rag/reconcile", response_model=RagReconcileResponse)
+async def trigger_rag_reconciliation(
+    admin_user: str = Depends(verify_admin_basic_auth),
+    sync_engine: Any = Depends(get_rag_sync_engine),
+) -> RagReconcileResponse:
+    """Triggers an on-demand reconciliation scan of rag_knowledge/."""
+    from services.audit_logger import log_audit_event
+
+    try:
+        stats = await sync_engine.reconcile()
+        log_audit_event(
+            event_type="RAG_RECONCILE_COMPLETED",
+            actor={"type": "admin_user", "id": admin_user},
+            action="reconcile_rag_knowledge",
+            target="rag_knowledge/",
+            details={"source": "api_endpoint", "stats": stats},
+            severity="INFO",
+            status="SUCCESS",
+        )
+        return RagReconcileResponse(status="reconciliation_complete", stats=stats)
+    except Exception as e:
+        log_audit_event(
+            event_type="RAG_RECONCILE_FAILED",
+            actor={"type": "admin_user", "id": admin_user},
+            action="reconcile_rag_knowledge",
+            target="rag_knowledge/",
+            details={"source": "api_endpoint", "error": str(e)},
+            severity="CRITICAL",
+            status="FAILED",
+        )
+        raise
+
+
+@api_router.get("/audit/status", dependencies=[Depends(verify_admin_basic_auth)])
+async def get_audit_status() -> dict[str, Any]:
+    """Returns non-repudiable audit log cryptographic integrity status and statistics."""
+    from orchestration.integrity_checks import AppIntegrityValidator
+
+    return await asyncio.to_thread(AppIntegrityValidator.check_audit_log_integrity)
+
+
+@api_router.delete("/threads/{channel_id}/{thread_ts}", response_model=ThreadDeleteResponse)
+async def delete_thread_data(
+    channel_id: str,
+    thread_ts: str,
+    admin_user: str = Depends(verify_admin_basic_auth),
+) -> ThreadDeleteResponse:
+    """Permanently purges persisted state, flat histories, notes, downloads, and caches for a thread."""
+    from services.audit_logger import log_audit_event_async
+    from services.retention_service import forget_thread
+
+    deleted = await asyncio.to_thread(forget_thread, channel_id, thread_ts)
+    await log_audit_event_async(
+        event_type="GDPR_THREAD_FORGOTTEN",
+        actor={"type": "admin_user", "id": admin_user},
+        action="forget_thread",
+        target=f"{channel_id}:{thread_ts}",
+        details=deleted,
+        severity="WARNING",
+        status="SUCCESS",
+    )
+    return ThreadDeleteResponse(
+        status="forgotten",
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        deleted=deleted,
+    )

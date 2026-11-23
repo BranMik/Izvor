@@ -139,12 +139,12 @@ Izvor enforces a strict 3-tier architectural separation to isolate **implementer
      - `config/avatars/` — Custom persona avatar images served at `/static/*` and `/avatars/*`.
      - `config/rag_knowledge/` — Per-agent and shared knowledge base documents indexed by the RAG engine.
 2. **`engine/` (Immutable Core Engine & Built-ins Tier)**:
-   - Contains core application packages (**146 `.py` files** across **10 packages** enforced by a 5-tier unidirectional DAG) and built-in engine definitions:
+   - Contains core application packages (**150 `.py` files** across **11 packages** enforced by a 5-tier unidirectional DAG) and built-in engine definitions:
      - `engine/settings/system_agent_settings.json` — Engine-level configuration for the `orchestrator` and internal `system_agents` (`InternalRevisor`, `list_skills`, `Challenger`, `Arbitrator`, `DiscussionScribe`).
      - `engine/workflows/` — Immutable seed workflow templates (`default_review_flow.json`, `default_sandwich.json`, `parallel_dialectic_flow.json`) used for integrity validation and factory resets.
      - `engine/skills/builtin/` — **18 built-in** orchestration modifier, directive, and control-plane skills (`control_plane`, `first`, `forget_thread`, `rounds`, `max_words`, `min_words`, `open_debate`, `grant_skill`, `revoke_constraint`, `stop_discussion`, etc.).
      - `engine/avatars/` — Built-in fallback avatar assets (`image_99.png`).
-     - Core Python packages across 5 tiers: `core` (`L1`), `config_store` (`L1.5`), `services`, `skills`, `nlp`, `prompts`, `pipeline` (`L2`), `orchestration`, `agents` (`L3`), `adapters` (`L4`).
+     - Core Python packages across 5 tiers: `core` (`L1`), `config_store` (`L1.5`), `services`, `skills`, `nlp`, `prompts`, `pipeline` (`L2`), `orchestration`, `agents` (`L3`), `adapters`, `api` (`L4`).
 3. **`data/` (Runtime & Slack UI State Tier)**:
    - Contains dynamic runtime state, databases, caches, and Slack App Home UI state:
      - `data/state/app_settings.json` & `data/state/presidio_skill_exclusions.json` — Live Slack App Home toggles and automated Presidio keyword exclusions.
@@ -166,10 +166,11 @@ Izvor/
 │   ├── settings/                   # agent_settings.json & system_settings.json
 │   ├── skills/                     # Configurable agent tool skills (web_research, knowledge_base_rag, etc.)
 │   └── workflows/                  # Custom workflow topology presets
-├── engine/                         # PILLAR 2: Immutable Core Engine (146 .py files, 10 packages, 5 DAG Tiers)
+├── engine/                         # PILLAR 2: Immutable Core Engine (150 .py files, 11 packages, 5 DAG Tiers)
 │   ├── adapters/slack/             # Tier 4: Slack Webhook listeners, event routing, WorkspaceAdapter port
 │   │   └── actions/                # agent_actions, governance_actions, hitl_actions, scribe_actions, workflow_presets
 │   ├── agents/                     # Tier 3: System support agents (ThreadNotesAgent, UsageAgent)
+│   ├── api/                        # Tier 4: First-party HTTP/REST API, OpenAPI docs gating, Pydantic DTOs & Basic Auth
 │   ├── avatars/                    # Built-in fallback avatar assets
 │   ├── config_store/               # Tier 1.5: Agent/App/System settings SSOT, JsonSettingsStore, WorkflowManager, Integrity
 │   ├── core/                       # Tier 1: Paths SSOT, config, domain models, SQLite manager, security, logging_filters

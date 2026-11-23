@@ -51,14 +51,14 @@ A classic weakness of file-only hash chains is **tail truncation** (where an att
 To detect tampering, file truncation, or key discrepancies immediately, Izvor runs two validation layers:
 
 ### 1. Startup Verification
-During server boot in [`main.py`](file:///main.py#L228-L303), [`AppIntegrityValidator.check_audit_log_integrity()`](file:///engine/orchestration/integrity_checks.py) scans all historical and active audit files:
+During server boot in [`main.py`](file:///main.py), [`AppIntegrityValidator.check_audit_log_integrity()`](file:///engine/orchestration/integrity_checks.py) scans all historical and active audit files:
 - Verifies line-by-line hash continuity and sequence monotonicity.
 - Verifies `audit_anchors` head-hash consistency against SQLite.
 - Confirms HMAC keyring / secret continuity across all recorded `key_id` values via constant-time `hmac.compare_digest()`.
 - If corruption, truncation, or key mismatches are discovered, startup raises a critical alert and notifies all configured Slack administrators immediately.
 
 ### 2. Scheduled Background Guard (`periodic_audit_integrity_guard`)
-- Configured in [`main.py#L115-L141`](file:///main.py#L115-L141).
+- Configured in [`main.py`](file:///main.py).
 - Runs periodically (default: **12 hours** / `43200.0` seconds, dynamically loaded from `audit_integrity_check_interval_seconds` in `system_settings.json`).
 - Validates that logs written during runtime remain unaltered and match SQLite `audit_anchors`.
 
@@ -93,13 +93,13 @@ Use the following matrix to identify real production breach alerts and critical 
 
 | Alert Category | Title / Identifier | Payload Characteristics | Origin | Action Required |
 |:---|:---|:---|:---|:---|
-| **Production Breach** | `Periodic Audit Guard Integrity Breach` | Contains verified `Violations` and corrupted `Files` paths | [`main.py#L133`](file:///main.py#L133) (periodic integrity guard) | **CRITICAL**: Immediate forensic inspection and snapshot comparison. |
+| **Production Breach** | `Periodic Audit Guard Integrity Breach` | Contains verified `Violations` and corrupted `Files` paths | [`main.py`](file:///main.py) (`periodic_audit_integrity_guard`) | **CRITICAL**: Immediate forensic inspection and snapshot comparison. |
 | **Prompt / Tool Guardrail** | `PROMPT_INJECTION_BLOCKED` / `INDIRECT_INJECTION_DETECTED` / `GUARDRAIL_FAIL_CLOSED_BLOCKED` | Heuristic pre-filter match, sliding-window embedding match, indirect tool output neutralization, or fail-closed block | [`services/security/guardrail.py`](file:///engine/services/security/guardrail.py) | **HIGH**: Review blocked prompt, tool source, and threat actor profile. |
 | **Privilege & IDOR Alerts** | `UNAUTHORIZED_DIRECTIVE_ATTEMPT` / `ADMIN_ACTION_DENIED` / `UNAUTHORIZED_SCRIBE_DOWNLOAD` | Non-admin user attempted `/grant_skill`, `/revoke_constraint`, `/forget_thread`, `=off`, App Home admin control, or mismatched channel Scribe download | [`directive_handlers.py`](file:///engine/orchestration/stages/directive_handlers.py), [`interactivity.py`](file:///engine/adapters/slack/interactivity.py), [`scribe_actions.py`](file:///engine/adapters/slack/actions/scribe_actions.py) | **MEDIUM/HIGH**: Review user activity and channel payload integrity. |
-| **GDPR Thread Erasure** | `GDPR_THREAD_FORGOTTEN` / `THREAD_DATA_PURGED` | Thread state, flat histories, notes, and downloads purged via `/forget_thread` or `DELETE /api/threads/{channel_id}/{thread_ts}` | [`main.py#L647`](file:///main.py#L647), [`retention_service.py`](file:///engine/services/retention_service.py) | **INFO/WARNING**: Expected compliance erasure confirmation. |
-| **Production Breach** | `Startup Audit Integrity Alert: Secret Mismatch (...)` | Contains `Status`, `Warning`, `Last File`, `Last Seq`, and `Errors` | [`main.py#L261`](file:///main.py#L261) (startup boot check) | **CRITICAL**: Confirm `AUDIT_HMAC_KEYS_JSON` / `AUDIT_HMAC_SECRET` keyring configuration or restore audit logs. |
-| **Production Warning** | `AUDIT_HMAC_SECRET Discrepancy (...)` | Contains `Status`, `Warning`, `Last File`, and `Last Seq` | [`main.py#L278`](file:///main.py#L278) (startup boot check) | **HIGH**: Key mismatch detected between historic records (`key_id`) and active keyring/environment. |
-| **Production Breach** | `Startup Audit Log Integrity Violation` | Contains `Violations` list and `Files` | [`main.py#L296`](file:///main.py#L296) (startup boot check) | **CRITICAL**: Immediate disk inspection and chain repair. |
+| **GDPR Thread Erasure** | `GDPR_THREAD_FORGOTTEN` / `THREAD_DATA_PURGED` | Thread state, flat histories, notes, and downloads purged via `/forget_thread` or `DELETE /api/threads/{channel_id}/{thread_ts}` | [`engine/api/router.py`](file:///engine/api/router.py), [`retention_service.py`](file:///engine/services/retention_service.py) | **INFO/WARNING**: Expected compliance erasure confirmation. |
+| **Production Breach** | `Startup Audit Integrity Alert: Secret Mismatch (...)` | Contains `Status`, `Warning`, `Last File`, `Last Seq`, and `Errors` | [`main.py`](file:///main.py) (startup boot check) | **CRITICAL**: Confirm `AUDIT_HMAC_KEYS_JSON` / `AUDIT_HMAC_SECRET` keyring configuration or restore audit logs. |
+| **Production Warning** | `AUDIT_HMAC_SECRET Discrepancy (...)` | Contains `Status`, `Warning`, `Last File`, and `Last Seq` | [`main.py`](file:///main.py) (startup boot check) | **HIGH**: Key mismatch detected between historic records (`key_id`) and active keyring/environment. |
+| **Production Breach** | `Startup Audit Log Integrity Violation` | Contains `Violations` list and `Files` | [`main.py`](file:///main.py) (startup boot check) | **CRITICAL**: Immediate disk inspection and chain repair. |
 | **Synthetic Test** | `Test Security Breach` | Message: `This is an automated test alert in English.` Details: `line: 42`, `file: audit_2026_10.jsonl` | [`tests/unit/test_audit_logger.py`](file:///tests/unit/test_audit_logger.py) | None (test fixture isolated via `set_audit_hmac_keyring_override` / `configure_paths` / `IZVOR_*`). |
 | **E2E Scenario** | `E2E Test Runner` scenarios | Contains scenario markers like `E2E-101`, test persona names, and simulation tags | [`tests/e2e/test_e2e_suite.py`](file:///tests/e2e/test_e2e_suite.py) | None (automated E2E verification traffic in `#bot-testing`). |
 
