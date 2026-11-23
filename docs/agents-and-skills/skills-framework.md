@@ -1,6 +1,6 @@
 # Skills Framework & Dynamic Registration
 
-This document details the architecture of **Izvor**'s dynamic skills system across all **21 built-in skills**, explaining how capabilities are discovered, registered, granted, revoked, persisted in SQLite, and safely executed by personas.
+This document details the architecture of **Izvor**'s dynamic skills system across all **22 platform skills** (**4 configurable** in `config/skills/` and **18 built-in** in `engine/skills/builtin/`), explaining how capabilities are lazily discovered, registered, granted, revoked, persisted in SQLite, and safely executed by personas.
 
 ---
 
@@ -15,14 +15,15 @@ Skills fall into three distinct categories:
 
 ```mermaid
 graph TD
-    Directory["engine/skills/builtin/ & config/skills/"] --> Loader["engine/skills/registry.py"]
-    Loader --> Registry["SkillRegistry (core/registry.py)"]
-    Registry --> SchemaGen["Tool Schema Generator (JSON Schema for LiteLLM)"]
+    Directory["engine/skills/builtin/ & config/skills/"] --> Parser["skills/parser.py (YAML Frontmatter + SkillDefinition)"]
+    Parser --> Registry["SkillRegistry (skills/registry.py, auto_load=False + reload/ensure_loaded)"]
+    Registry --> Policy["skills/policy.py & recommender.py (ToolPrincipal ACL & Routing)"]
+    Policy --> SchemaGen["Tool Schema Generator (JSON Schema for LiteLLM)"]
     
     subgraph Execution & Persistence
         UserDirective["Admin Slash Command: /grant_skill or /grant_skill_for_all"] --> OriginGuard{"origin == 'slash' AND is_slack_admin?"}
         OriginGuard -->|No| BlockPriv["Block & Log UNAUTHORIZED_DIRECTIVE_ATTEMPT"]
-        OriginGuard -->|Yes| Manager["ThreadSkillsManager"]
+        OriginGuard -->|Yes| Manager["ThreadSkillsManager (services/thread_skills_store.py)"]
         Manager --> SQLiteTable[("SQLite: thread_skills")]
         Manager --> AuditLog["Log THREAD_SKILL_GRANTED & ADMIN_DIRECTIVE_EXECUTED"]
         SQLiteTable --> ContextPrep["Stage 3: ContextPrepStage"]
@@ -84,8 +85,8 @@ Every skill is defined by a `SKILL.md` file located in `config/skills/<skill_nam
 | `requires_admin` | `boolean` | **Mandatory** | **Declarative Access Control SSOT.** If `true`, requires caller to be a verified Slack admin. Evaluated at Layer 1 (orchestrator directives) and Layer 2 (caller-delegated agent tool RBAC). Missing or non-boolean value aborts boot with `SkillIntegrityError`. | Layer 1 Directive Gating & Layer 2 Tool Progressive Disclosure. | N/A |
 | `scope` | `string` | `"agent"` | Architectural domain of the skill (`agent`, `orchestrator`, or `prompt_modifier`). | Determines pipeline execution path. See Scope Matrix below. | Does not restrict tool parameter types. |
 | `tools` | `list[str]` | `[]` | List of tool names exposed by this skill (implemented in `tools.py`). | Agent function-calling loop and sandbox authorization. | Orchestrator actions (`action.py`). |
-| `requires_human_ITL` | `boolean` | `false` | Human-in-the-Loop gate. If `true`, tool execution saves a `TurnCheckpoint` and sends an Approve/Deny button to Slack. | Layer 2 tool execution in `execution.py`. | Orchestrator pipeline actions or Layer 1 parsing. |
-| `global` (or `all_agents`) | `boolean` | `false` | If `true`, automatically available to all agents across all threads without needing `/grant_skill` (e.g., `control_plane`). | Agent authorization checks in `loader.py`. | Does not bypass `requires_human_ITL`. |
+| `requires_human_ITL` | `boolean` | `false` | Human-in-the-Loop gate. If `true`, tool execution saves a `TurnCheckpoint` and sends an Approve/Deny button to Slack. | Layer 2 tool execution in [`tool_loop_runner.py`](file:///engine/orchestration/stages/tool_loop_runner.py). | Orchestrator pipeline actions or Layer 1 parsing. |
+| `global` (or `all_agents`) | `boolean` | `false` | If `true`, automatically available to all agents across all threads without needing `/grant_skill` (e.g., `control_plane`). | Agent authorization checks in [`skills/policy.py`](file:///engine/skills/policy.py) & [`skills/registry.py`](file:///engine/skills/registry.py). | Does not bypass `requires_human_ITL`. |
 | `handles_files` | `boolean` | `false` | Marks this skill as the designated file content processor for attached Slack files. | File attachment routing in `DirectiveParser` & `ContextPrepStage`. | Pure text prompts without attachments. |
 | `extraction_rule` | `string` | `""` | Natural language rule instructing the micro-LLM how to recognize and extract this skill. | Micro-LLM system prompt in `IntentExtractor`. | Deterministic slash command parsing. |
 
@@ -118,14 +119,16 @@ The `triggers:` dictionary configures how the skill is detected from user input 
 
 ## 🔍 Discovery & Registration Lifecycle
 
-### 1. Skill Discovery ([`skills/registry.py`](file:///engine/skills/registry.py))
-During application boot, the loader scans both [`engine/skills/builtin/`](file:///engine/skills/builtin) (built-in directives and modifiers) and [`config/skills/`](file:///config/skills) (implementer tool skills). Every subdirectory containing a valid `SKILL.md` file is evaluated.
+### 1. Modular Lazy Discovery ([`skills/registry.py`](file:///engine/skills/registry.py))
+The skills subsystem is split into focused modules: [`parser.py`](file:///engine/skills/parser.py) (`parse_skill_file`, `SkillDefinition`, `SkillIntegrityError`), [`policy.py`](file:///engine/skills/policy.py) (`get_permitted_tools_for_principal`, `filter_skills_for_caller`), [`recommender.py`](file:///engine/skills/recommender.py) (`select_recommended_agent_from_keys`), and [`registry.py`](file:///engine/skills/registry.py).
+- The singleton `skill_registry` initializes with `auto_load=False` so module imports incur **zero disk I/O**.
+- During FastAPI startup in [`main.py`](file:///main.py), `skill_registry.reload()` explicitly scans [`engine/skills/builtin/`](file:///engine/skills/builtin) and [`config/skills/`](file:///config/skills), rejecting any custom skill attempting to shadow a built-in name (`SKILL_SHADOWING_BLOCKED`). On first direct access before startup, `ensure_loaded()` populates the registry safely with double-checked locking.
 
-### 2. Manifest & Schema Parsing
-The loader extracts all top-level and trigger metadata, validates required fields, registers custom tools from `tools.py`, and checks for action handlers in `action.py`.
+### 2. Manifest & Schema Parsing ([`skills/parser.py`](file:///engine/skills/parser.py))
+`parse_skill_file()` validates YAML frontmatter (including mandatory `requires_admin: boolean`), calculates `content_hash`, registers custom tools from `tools.py`, and checks for action handlers in `action.py`.
 
-### 3. Registry Storage ([`core/registry.py`](file:///engine/core/registry.py))
-Valid skills are registered into the global `SkillRegistry`. They can be queried via the administrative REST endpoint (`GET /api/skills`) or listed inside Slack via `/list_skills` or `[list_skills]`.
+### 3. Core Provider Binding ([`core/registry.py`](file:///engine/core/registry.py))
+[`skills/registry.py`](file:///engine/skills/registry.py) binds the live `SkillRegistry` instance to [`core/registry.py`](file:///engine/core/registry.py) via `set_skill_registry_provider()` (preserving upward-import isolation). Registered skills can be queried via `GET /api/skills` or `/list_skills` in Slack.
 
 ### 4. Automated PII Keyword Exclusion & Content Hashing ([`services/security/pii_masker.py`](file:///engine/services/security/pii_masker.py))
 To prevent newly added skills from having their directive keywords accidentally masked by Microsoft Presidio as sensitive personal data (e.g., mistaking directive words like `"Max"`, `"Min"`, or `"Exclude"` for `PERSON`):

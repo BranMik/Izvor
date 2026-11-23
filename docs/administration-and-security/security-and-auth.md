@@ -11,32 +11,37 @@ Izvor enforces rigorous security controls across all ingress, orchestration, exe
 ```mermaid
 graph TD
     subgraph Ingress Security
-        SlackPOST["Slack Request (/slack/*)"] --> TimeCheck{Timestamp < 300s?}
+        SlackPOST["Slack Request (/slack/*)"] --> TimeCheck{"Timestamp < 300s?"}
         TimeCheck -->|No| ReplayRejection["HTTP 400: Replay Blocked"]
         TimeCheck -->|Yes| HMACCalc["HMAC-SHA256 Signature Verification"]
         HMACCalc -->|Mismatch| SigRejection["HTTP 401: Invalid Signature"]
         HMACCalc -->|Match| IngressOK["Pass to Event / Interactivity Handler"]
     end
 
-    subgraph Administration & Interactivity Security
+    subgraph Administration, Interactivity & GDPR Security
         AdminReq["API Request (/api/*)"] --> BasicAuth["HTTP Basic Auth Header"]
         BasicAuth --> ConstantTimeCompare{"secrets.compare_digest"}
         ConstantTimeCompare -->|Mismatch| AuthFailAudit["Log AUTH_FAILURE & HTTP 401"]
-        ConstantTimeCompare -->|Match| AuthSuccessAudit["Log AUTH_SUCCESS & HTTP 200"]
+        ConstantTimeCompare -->|Match| AuthSuccessAudit["Log AUTH_SUCCESS / Handle (/api/threads/* GDPR DELETE)"]
         Interactivity["Slack Interactivity Payload"] --> ActionSpec["ActionSpec Whole-Payload Pre-Auth"]
-        ActionSpec -->|Unauthorized| DenyAction["Fail Closed & Log AUTH_FAILURE"]
-        ActionSpec -->|Authorized| AllowMutation["Execute Action / Atomic HITL Transition"]
+        ActionSpec -->|Unauthorized| DenyAction["Fail Closed (403) & Log ADMIN_ACTION_DENIED"]
+        ActionSpec -->|Authorized| ChannelIDOR{"Scribe Download Channel Match?"}
+        ChannelIDOR -->|Mismatch| DenyIDOR["HTTP 403 & Log UNAUTHORIZED_SCRIBE_DOWNLOAD"]
+        ChannelIDOR -->|Match| AllowMutation["Execute Action / Atomic HITL Transition"]
     end
 
-    subgraph Execution & Tool Isolation
-        UserPrompt["User Prompt & Directives"] --> OriginTagger["Tag Directive Origin: 'slash' vs 'inferred'"]
-        OriginTagger --> PrivBoundary{"Privileged Directive?"}
+    subgraph Guardrails, Privileges & Tool Isolation
+        UserPrompt["Human Prompt & Directives"] --> GuardrailIn["Guardrail Pre-Filter + Sliding-Window LanceDB Check"]
+        GuardrailIn -->|Blocked| BlockInj["Block Turn & Log PROMPT_INJECTION_BLOCKED"]
+        GuardrailIn -->|Pass| OriginTagger["Tag Directive Origin: 'slash' vs 'inferred'"]
+        OriginTagger --> PrivBoundary{"Privileged Directive (/forget_thread, /grant_skill, etc.)?"}
         PrivBoundary -->|Yes| AdminCheck{"origin=='slash' AND is_slack_admin?"}
         AdminCheck -->|No| BlockPriv["Block & Log UNAUTHORIZED_DIRECTIVE_ATTEMPT"]
         AdminCheck -->|Yes| SafeExecute["Execute & Log ADMIN_DIRECTIVE_EXECUTED"]
         PrivBoundary -->|No| SafeExecute
-        AttachedFile["Slack Attached Files"] --> ExtSanitizer["Neutralize Unsafe Extensions (.txt) & Wrap <untrusted_file_content>"]
-        AgentOutput["Agent Output"] --> Sanitizer["Neutralize <!channel>, <!here>, <!everyone>"]
+        AttachedFile["Slack Attached Files"] --> ExtSanitizer["Neutralize Unsafe Extensions (.txt) & Wrap &lt;untrusted_file_content&gt;"]
+        ToolOut["Tool / MCP Output"] --> IndirectScreen["screen_untrusted_tool_output (Heuristic / Opt-In Embedding)"]
+        IndirectScreen --> AgentOutput["Agent Output"] --> Sanitizer["Neutralize Broadcast Mentions & Secret Scan"]
     end
 ```
 
@@ -77,22 +82,23 @@ Human-in-the-Loop approvals in [`services/hitl.py`](file:///engine/services/hitl
 ### 1. Declarative Admin Authorization SSOT & Dual Gate (`origin == "slash"` + `is_slack_admin`)
 Administrative privilege requirements are defined directly in `SKILL.md` frontmatter via `requires_admin: true` as the Single Source of Truth (SSOT), and enforced across two architectural layers:
 - **Fail-Closed Startup Abort**: `SkillRegistry` mandates `requires_admin: boolean` on every skill; missing or non-boolean properties raise `SkillIntegrityError` and abort boot.
-- **Layer 1 (Directives)**: All directive actions in [`TurnContext`](file:///engine/orchestration/turn_pipeline.py) carry an explicit `origin` attribute (`"slash"` vs `"inferred"`). In [`orchestration/stages/directive_handlers.py`](file:///engine/orchestration/stages/directive_handlers.py), actions with `sk.requires_admin == True` (such as `/grant_skill`, `/grant_skill_for_all`, `/revoke_skill_for_all`, `/revoke_constraint`, and disabling constraints via `=off`) require **both**:
+- **Layer 1 (Directives)**: All directive actions in [`TurnContext`](file:///engine/orchestration/turn_pipeline.py) carry an explicit `origin` attribute (`"slash"` vs `"inferred"`). In [`orchestration/stages/directive_handlers.py`](file:///engine/orchestration/stages/directive_handlers.py), actions with `sk.requires_admin == True` (such as `/grant_skill`, `/grant_skill_for_all`, `/revoke_skill_for_all`, `/revoke_constraint`, `/forget_thread`, and disabling constraints via `=off`) require **both**:
   1. Explicit slash invocation (`origin == "slash"`).
   2. Slack Workspace Admin authorization (`is_slack_admin(ctx.input.user_id)`).
   Unauthorized attempts are blocked immediately at Stage 1 and emit an `UNAUTHORIZED_DIRECTIVE_ATTEMPT` audit event.
 - **Layer 2 (Agent Tool RBAC)**: Agent-scoped skills with `requires_admin: true` are withheld from non-admin user turns during prompt building and tool execution unless explicitly granted for that thread by an admin, preventing unauthorized tool invocations and token spend.
+- **Anti-IDOR Scribe Download Verification**: [`adapters/slack/actions/scribe_actions.py`](file:///engine/adapters/slack/actions/scribe_actions.py) verifies that the button target channel ID matches the incoming payload's originating channel/container context, returning HTTP `403` and logging `UNAUTHORIZED_SCRIBE_DOWNLOAD` on mismatch.
 
 ### 2. Slack Upload Extension Neutralization (`SAFE_DOWNLOAD_EXTENSIONS`)
 When downloading files attached to Slack threads in [`services/slack/files.py`](file:///engine/services/slack/files.py):
-- Only whitelisted document extensions (`.txt`, `.md`, `.csv`, `.json`, `.pdf`, `.docx`, `.xlsx`, `.pptx`) are stored with their original extension.
-- Any executable or code file extension (e.g., `.py`, `.sh`, `.exe`, `.bat`, `.js`) is automatically neutralized by appending `.txt` (e.g., `exploit.py.txt`) and stored with restrictive `0o600` file permissions.
+- Only whitelisted document extensions (`.txt`, `.md`, `.pdf`, `.csv`, `.json`, `.yaml`, `.yml`, `.xml`, `.html`, `.log`) are stored with their original extension inside thread-scoped `data/downloads/<channel_id>_<thread_ts>/`.
+- Any executable or other extension (e.g., `.py`, `.sh`, `.exe`, `.bat`, `.js`) is automatically neutralized by appending `.txt` (e.g., `exploit.py.txt`) and stored with restrictive `0o600` file permissions.
 - Extracted file text is wrapped in `<untrusted_file_content>` tags before prompt injection.
 
-### 3. PII Masking, Dynamic Allowlisting & Automated Skill Exclusions
-[`services/security/pii_masker.py`](file:///engine/services/security/pii_masker.py) provides non-blocking, worker-thread-offloaded `async_mask()` and single-pass `unmask()` using a unified alternation regex. Single-pass unmasking prevents recursive token-expansion attacks where one synthetic token's original value contains another synthetic token string.
-
-To prevent over-redaction where genuine system commands, persona names, or skill triggers are accidentally masked as sensitive PII entities (e.g., Presidio mistaking capitalized words like `"Max"`, `"Min"`, or `"Exclude"` for `PERSON`, or technical terms for `ORGANIZATION`), Izvor implements an automated, observable keyword exclusion and allowlisting pipeline:
+### 3. PII Masking, Configurable NER Models & Automated Skill Exclusions
+[`services/security/pii_masker.py`](file:///engine/services/security/pii_masker.py) provides non-blocking, worker-thread-offloaded `async_mask()` and single-pass `unmask()` using a unified alternation regex. Single-pass unmasking prevents recursive token-expansion attacks where one synthetic token's original value contains another synthetic token string:
+- **Deterministic Regex Hardening**: Scrubs Stripe live/test/restricted keys (`sk_live_*`/`rk_*`), GitHub tokens (`ghp_*`, `github_pat_*`), quoted JSON secret values (`{"api_key": "..."}`), OpenAI/Anthropic/Groq/Google/AWS/JWT/Slack credentials, 15-digit Amex & 16-digit cards, SSNs, and boundary-guarded phone numbers (avoiding Slack timestamps/numeric IDs).
+- **Configurable Multilingual Presidio NER**: `SystemSettings.pii_ner_models` (default `["en_core_web_sm"]`) validates installed models via `spacy.util.is_package()` and logs warnings when unconfigured/uninstalled models fall back cleanly.
 
 #### A. Automated Skill Keyword Extraction & Hashing
 When skills are registered or parsed from [`engine/skills/builtin/`](file:///engine/skills/builtin/) or [`config/skills/`](file:///config/skills/), [`SkillRegistry`](file:///engine/skills/registry.py) calculates a deterministic SHA-256 `content_hash` over skill metadata. Keyword extraction is strictly scoped to auto-detected skills (`auto_detect: true`) and agent skills (privileged slash-only skills are omitted to eliminate PII false negatives, since slash commands are already protected via `_PROTECTED_SPAN_PATTERNS`). During startup ([`pii_masker.warm_up()`](file:///engine/services/security/pii_masker.py)) and periodic background checks, [`extract_skill_exclusion_terms()`](file:///engine/services/security/pii_masker.py) extracts:
@@ -116,34 +122,35 @@ Capitalized single-word skill keywords (e.g., `"Max"`, `"Min"`, `"Exclude"`, `"I
 - **Zero-Latency In-Memory Lookups**: Eliminating expensive dynamic registry traversals on the turn critical path, `PIIMasker` compiles precomputed `_global_allowlist: frozenset[str]` and `_sentence_start_allowlist: frozenset[str]`. Agent setting updates (e.g., adding/modifying agent display names or usernames) immediately invoke `pii_masker.refresh_allowlist()`.
 
 ### 4. LanceDB SQL Filter Validation (`_sql_literal`)
-In [`services/rag/vector_store.py`](file:///engine/services/rag/vector_store.py), all metadata filter values passed to LanceDB `where` clauses are validated against a strict `[A-Za-z0-9_.\-/]+` allowlist in `_sql_literal()` to prevent filter-expression injection.
+In [`services/rag/vector_store.py`](file:///engine/services/rag/vector_store.py), all metadata filter values passed to LanceDB `where` clauses reject NUL bytes / control characters and are validated against `_SAFE_ID_RE = ^[\w.:/ '-]{1,256}$` (Unicode-aware, doubling single quotes) in `_sql_literal()` to prevent filter-expression injection.
 
 ### 5. Slack Output Sanitization
-Outgoing Slack messages are posted via [`services/slack/messages.py`](file:///engine/services/slack/messages.py) with `unfurl_links=False` and `unfurl_media=False`, and broadcast mentions (`<!channel>`, `<!here>`, `<!everyone>`) are neutralized.
+Outgoing Slack messages are posted via [`services/slack/messages.py`](file:///engine/services/slack/messages.py) with `unfurl_links=False` and `unfurl_media=False`, and broadcast mentions (`<!channel>`, `<!here>`, `<!everyone>`) are neutralized. App Home Block Kit payloads pass through `sanitize_slack_blocks()` in [`services/slack/views.py`](file:///engine/services/slack/views.py).
 
 ---
 
 ## 🗄️ Path Traversal, Web SSRF & Sandbox Isolation
 
 - **Fail-Closed `ToolPrincipal`**: [`SkillRegistry`](file:///engine/skills/registry.py) verifies [`ToolPrincipal`](file:///engine/core/domain.py) before executing any tool.
-- **Filesystem Confinement**: `validate_resource_filename` in [`services/local_tools.py`](file:///engine/services/local_tools.py) confines operations to `agents_resources/`, blocks Windows device names (`CON`, `PRN`, `AUX`, `NUL`, `COM1–9`, `LPT1–9`) and NTFS ADS (`:`), protects `DEFAULT_PROTECTED_WRITE_PATHS`, and caps writes at `max_write_bytes` (1 MB).
-- **Outbound Web SSRF & DNS-Rebinding Protection**: [`services/web_tools.py`](file:///engine/services/web_tools.py) uses `PinnedIPTransport` to pin resolved public IPs, blocks private IPv4/IPv6/NAT64 ranges, strips query strings on untrusted domains, and enforces a per-turn web fetch cap (`max_fetches_per_turn: 5`).
+- **Filesystem Confinement**: `validate_resource_filename` in [`services/local_tools.py`](file:///engine/services/local_tools.py) confines operations to `agents_resources/`, supports safe Unicode filenames while rejecting control characters and trailing dots/spaces, filters symlink escapes in `list_documents`, truncates oversized reads at `MAX_READ_DOCUMENT_CHARS = 50000`, blocks Windows device names (`CON`, `PRN`, `AUX`, `NUL`, `COM1–9`, `LPT1–9`) and NTFS ADS (`:`), protects `DEFAULT_PROTECTED_WRITE_PATHS`, writes atomically via temp file + `os.replace()`, and caps writes at `max_write_bytes` (1 MB).
+- **Outbound Web SSRF & Slowloris Protection**: [`services/web_tools.py`](file:///engine/services/web_tools.py) uses `PinnedIPTransport` to pin resolved public IPs, enforces `allowed_ports` (`[80, 443]`, including implicit default ports on `http`/`https`), fails closed on missing/empty `Content-Type`, bounds streamed reads by a monotonic wall-clock deadline, blocks private IPv4/IPv6/NAT64 ranges, strips query strings on untrusted domains, protects `ddgs` initialization via `_DDGS_ENGINE_LOCK`, and enforces a per-turn web fetch cap (`max_fetches_per_turn: 5`).
 
 ---
 
 ## 🔍 Log Credential Sanitization & Data Protection
 
-[`core/logging_filters.py`](file:///engine/core/logging_filters.py) registers `CredentialRedactionFilter` on Python's root logger during startup, automatically redacting Slack tokens (`xoxb-*`, `xapp-*`, `xoxp-*`), OpenAI/Anthropic/Gemini/Mistral API keys, and private keys before log emission.
+[`core/logging_filters.py`](file:///engine/core/logging_filters.py) invokes `setup_credential_redaction_filters()` at startup to attach `CredentialRedactionFilter` to Python's root logger **plus** `uvicorn`, `uvicorn.error`, `uvicorn.access`, and `httpx` loggers/handlers (since several third-party loggers set `propagate=False`). Before emitting records, the filter formats `%s` `record.args` strings prior to redaction and scrubs `Authorization: Bearer` & `Authorization: Basic` headers, Slack tokens (`xox*-*`), OpenAI/Anthropic/Gemini/Mistral/Groq/AWS keys, and private keys.
 
 ---
 
-## 🛡️ Semantic Prompt Injection & Jailbreak Guardrail
+## 🛡️ Semantic Prompt Injection, Indirect Tool Screening & Jailbreak Guardrail
 
-[`services/security/guardrail.py`](file:///engine/services/security/guardrail.py) evaluates incoming prompts against known adversarial injection vectors (`guardrail_signatures`):
-1. **Bounded Embedding Cache**: Caches prompt embeddings in an LRU cache (`guardrail_embedding_cache_size: 500`).
-2. **Cosine Similarity Evaluation**: Flags prompts exceeding the similarity threshold (`0.85`) and emits a `SECURITY_ALERT` audit record.
-3. **Configurable Fail-Mode (`guardrail_fail_mode`)**:
-   - `"open"` (Default): Logs a warning and allows the turn if the vector store or embedding provider is unreachable.
+[`services/security/guardrail.py`](file:///engine/services/security/guardrail.py) protects both inbound user prompts and untrusted tool outputs:
+1. **Zero-Cost Heuristic Pre-Filter (`check_heuristic_injection`)**: Screens inbound prompts immediately against regex rules (`instruction_override`, `role_jailbreak`, `prompt_exfiltration`, `delimiter_tag_injection`), emitting `PROMPT_INJECTION_BLOCKED` at zero embedding API cost.
+2. **Capped Sliding-Window Embeddings & LRU Cache**: Splits long inputs into overlapping windows (`guardrail_chunk_chars: 800`, `guardrail_chunk_overlap_chars: 200`, capped at `guardrail_max_chunks: 8` with deterministic head/middle/tail sampling), evaluates single-batch embeddings cached in a 500-entry LRU cache (`guardrail_embedding_cache_size`), and searches LanceDB `guardrail_signatures` (threshold `0.85`).
+3. **Indirect Tool-Output Injection Screening (`screen_untrusted_tool_output`)**: Invoked in [`ToolLoopRunner`](file:///engine/orchestration/stages/tool_loop_runner.py) on tool outputs (`fetch_web_page`, `web_search`, `read_document`, MCP tool responses), running heuristic checks always and escalating to LanceDB embeddings when `guardrail_indirect_embedding_enabled: true`. Detected payloads are neutralized and logged as `INDIRECT_INJECTION_DETECTED`.
+4. **Configurable Fail-Mode (`guardrail_fail_mode`)**:
+   - `"open"` (Default): Logs a `GUARDRAIL_DEGRADED_OPEN` warning and allows the turn if the vector store or embedding provider is unreachable.
    - `"closed"`: Fails closed, blocks the turn, posts a user-visible notice to Slack, and logs a critical `GUARDRAIL_FAIL_CLOSED_BLOCKED` audit event.
 
 ---

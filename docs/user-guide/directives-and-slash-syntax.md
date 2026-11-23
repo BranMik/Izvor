@@ -68,9 +68,10 @@ Workspace administrators (`SLACK_ADMIN_USER_IDS`) can grant or revoke tool capab
 | `/grant_skill_for_all web_research` | `/grant-skill-for-all`, `/grant_for_all`, `/grant-for-all` | **Slack Admin + Slash Origin** (`requires_admin: true`) |
 | `/revoke_skill_for_all web_research` | `/revoke-skill-for-all`, `/revoke_for_all` | **Slack Admin + Slash Origin** (`requires_admin: true`) |
 | `/revoke_constraint max_words` | `/revoke-constraint`, `/revoke` (targets: `max_words`, `min_words`, `scribe_max_words`, `scribe_min_words`, `exclude`, `include`, `language`, `modifiers`, `all`) | **Slack Admin + Slash Origin** (`requires_admin: true`) |
+| `/forget_thread` | `/forget-thread` | **Slack Admin + Slash Origin** (`requires_admin: true`, permanently purges thread DB rows, flat histories, notes, downloads, and caches) |
 
 > [!CAUTION]
-> Governed declaratively by `requires_admin: true` in `SKILL.md` frontmatter and enforced centrally in [`orchestration/stages/directive_handlers.py`](file:///engine/orchestration/stages/directive_handlers.py), `/grant_skill`, `/grant_skill_for_all`, `/revoke_skill_for_all`, `/revoke_constraint`, and disabling constraints via `=off` require **Slack Workspace Admin** privileges (`is_slack_admin(user_id)`) AND explicit slash invocation (`origin: "slash"`). Unauthorized attempts are rejected and emit an `UNAUTHORIZED_DIRECTIVE_ATTEMPT` security audit log; authorized executions emit `ADMIN_DIRECTIVE_EXECUTED`.
+> Governed declaratively by `requires_admin: true` in `SKILL.md` frontmatter and enforced centrally in [`orchestration/stages/directive_handlers.py`](file:///engine/orchestration/stages/directive_handlers.py), `/grant_skill`, `/grant_skill_for_all`, `/revoke_skill_for_all`, `/revoke_constraint`, `/forget_thread`, and disabling constraints via `=off` require **Slack Workspace Admin** privileges (`is_slack_admin(user_id)`) AND explicit slash invocation (`origin: "slash"`). Unauthorized attempts are rejected and emit an `UNAUTHORIZED_DIRECTIVE_ATTEMPT` security audit log; authorized executions emit `ADMIN_DIRECTIVE_EXECUTED` (plus `GDPR_THREAD_FORGOTTEN` / `THREAD_DATA_PURGED` for `/forget_thread`).
 
 ---
 
@@ -95,4 +96,4 @@ Izvor's [`nlp/intent_extractor.py`](file:///engine/nlp/intent_extractor.py) extr
 - *"Have the security architect look at this"* ➔ Automatically includes `SecurityArchitect` (`include_agents`).
 - *"Search our internal docs for the rollback runbook"* ➔ Automatically infers action `knowledge_base_rag` and prioritizes RAG-equipped agents.
 
-**Privilege Boundary Safeguard**: Directives inferred from natural language are tagged with `origin: "inferred"`. Any skill configured with `requires_admin: true` or `auto_detect: false` (such as `/grant_skill`, `/rounds`, `/stop`, `/first`, `/open_debate`, `/revoke_constraint`) strictly requires `origin: "slash"` and fails closed if inferred from natural language.
+**Privilege Boundary Safeguard**: Directives inferred from natural language are tagged with `origin: "inferred"`. Any skill configured with `requires_admin: true` or `auto_detect: false` (such as `/grant_skill`, `/grant_skill_for_all`, `/revoke_skill_for_all`, `/revoke_constraint`, `/forget_thread`, `/rounds`, `/stop`, `/first`, `/open_debate`) strictly requires `origin: "slash"` and fails closed if inferred from natural language.

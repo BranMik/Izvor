@@ -69,7 +69,7 @@ def test_python_ast_compilation_and_hygiene():
 
 def test_all_docs_markdown_file_links_exist_on_disk():
     """
-    Scans all Markdown documentation files under docs/ and verifies that every
+    Scans all Markdown documentation files under docs/ and root README.md and verifies that every
     local file link (file:///... and relative file references) resolves
     to an existing file on disk.
     """
@@ -78,10 +78,13 @@ def test_all_docs_markdown_file_links_exist_on_disk():
     assert docs_dir.exists(), "docs/ directory does not exist!"
 
     md_files = list(docs_dir.rglob("*.md"))
+    readme_file = root_dir / "README.md"
+    if readme_file.exists():
+        md_files.append(readme_file)
     assert len(md_files) > 0, "No markdown files found under docs/!"
 
     link_pattern = re.compile(
-        r"\[.*?\]\((file:///[^#\s\)]+|[^:\s\)]+\.(?:md|py|json|sql|txt|sh|csv|yaml|yml))(?:#[^)]*)?\)"
+        r"\[.*?\]\((file:///[^#\s\)]+|[^:\s\)]+\.(?:md|py|json|sql|txt|sh|csv|yaml|yml|png|jpg|jpeg|svg))(?:#[^)]*)?\)"
     )
 
     broken_links = []
@@ -132,6 +135,7 @@ def test_no_unittest_mock_introspection_in_production_code():
         root_dir / "engine" / "pipeline",
         root_dir / "engine" / "services",
         root_dir / "engine" / "core",
+        root_dir / "engine" / "config_store",
         root_dir / "engine" / "agents",
         root_dir / "engine" / "nlp",
         root_dir / "engine" / "skills",

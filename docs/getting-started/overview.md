@@ -21,24 +21,24 @@ graph TD
 
     subgraph Ingress & Deduplication
         FastAPIApp --> Signature[Slack HMAC-SHA256 Verification]
-        Signature --> EventDedup[SQLite Event Deduplication & Generation Check]
+        Signature --> EventDedup["SQLite Event Deduplication (+ LRU Fallback & Generation Check)"]
     end
 
     subgraph 5-Stage Orchestration Pipeline
-        EventDedup --> Stage1[Stage 1: Validation, Guardrail & Directives]
-        Stage1 --> Stage2[Stage 2: Agent Resolution & Spend Governance]
-        Stage2 --> Stage3[Stage 3: 3-Tier Context Memory & Prompt Building]
-        Stage3 --> Stage4[Stage 4: Execution, PII Masking & Tool Loop]
-        Stage4 --> Stage5[Stage 5: Post-Record, Word Cutoff & Slack Dispatch]
-        Stage5 --> Revisor[Two-Stage InternalRevisor Verification Barrier]
+        EventDedup --> Stage1["Stage 1: Validation, Guardrail & Directives"]
+        Stage1 --> Stage2["Stage 2: Agent Resolution & Spend Governance"]
+        Stage2 --> Stage3["Stage 3: 3-Tier Context Memory & Prompt Building"]
+        Stage3 --> Stage4["Stage 4: Execution, PII Masking & Tool Loop"]
+        Stage4 --> Stage5["Stage 5: Post-Record, Word Cutoff & Slack Dispatch"]
+        Stage5 --> Revisor["Two-Stage InternalRevisor Verification Barrier"]
     end
 
     subgraph Hybrid Persistence, RAG & Governance
-        Stage2 --> SpendGov[Spend Governance: Thread & Daily Budget Caps]
-        Stage2 & Stage4 & Stage5 --> SQLiteDB[(SQLite WAL State Engine: data/izvor.db)]
-        Stage4 <--> ToolsRAG[Sandboxed Tools, Hybrid LanceDB/BM25 RAG & MCP]
-        Stage4 --> InPlaceStatus[5s Delayed Progress & In-Place Edit]
-        Stage5 --> AsyncFlatHistory[Async Scribe Notes, Usage & Flat History Archival]
+        Stage2 --> SpendGov["Spend Governance: Thread & Daily Budget Caps"]
+        Stage2 & Stage4 & Stage5 --> SQLiteDB[("SQLite WAL State Engine: data/izvor.db")]
+        Stage4 <--> ToolsRAG["Sandboxed Tools, Hybrid RAG, MCP & Indirect Screening"]
+        Stage4 --> InPlaceStatus["5s Delayed Progress & In-Place Edit"]
+        Stage5 --> AsyncFlatHistory["Async Scribe Notes, Usage & Flat History Archival"]
     end
 
     subgraph LLM Layer
@@ -68,8 +68,8 @@ Managed by [`WorkflowManager`](file:///engine/config_store/workflow_manager.py) 
 - **Hybrid Local RAG**: Combines dense vector embeddings in LanceDB with Tantivy BM25 full-text search using Reciprocal Rank Fusion ([`services/rag/service.py`](file:///engine/services/rag/service.py)), incrementally synchronized via SHA-256 manifest scanning over [`config/rag_knowledge/`](file:///config/rag_knowledge) ([`services/rag/sync_engine.py`](file:///engine/services/rag/sync_engine.py)) with retrieval-time PII masking and structured citations.
 
 ### 3. Declarative Skills, Progressive Disclosure & Non-Blocking Slack UX
-- **Declarative `SKILL.md` Engine**: Dynamically loads a configurable, extensible agent tool skillset (4 OOB in [`config/skills/`](file:///config/skills): `web_research`, `document_reader`, `document_authoring`, `knowledge_base_rag`), **17 built-in directive/control-plane skills** ([`engine/skills/builtin/`](file:///engine/skills/builtin)), and external **MCP servers** ([`services/mcp/client_manager.py`](file:///engine/services/mcp/client_manager.py)).
-- **Progressive Disclosure & `ToolPrincipal` ACLs**: Agents start with `load_skill` ([`skills/registry.py`](file:///engine/skills/registry.py)) and unlock authorized tool schemas on demand within a bounded 60-second tool loop (`tool_call_loop_timeout_seconds` in [`config/settings/system_settings.json`](file:///config/settings/system_settings.json)), enforced by fail-closed `ToolPrincipal` permissions.
+- **Declarative `SKILL.md` Engine**: Dynamically loads a configurable, extensible agent tool skillset (4 OOB in [`config/skills/`](file:///config/skills): `web_research`, `document_reader`, `document_authoring`, `knowledge_base_rag`), **18 built-in directive/control-plane skills** ([`engine/skills/builtin/`](file:///engine/skills/builtin)), and external **MCP servers** ([`services/mcp/client_manager.py`](file:///engine/services/mcp/client_manager.py)) for a total of **22 platform skills** managed by [`SkillRegistry`](file:///engine/skills/registry.py) (`auto_load=False` at import time, populated at server startup).
+- **Progressive Disclosure & `ToolPrincipal` ACLs**: Agents start with `load_skill` ([`skills/registry.py`](file:///engine/skills/registry.py)) and unlock authorized tool schemas on demand within a bounded 60-second tool loop (`tool_call_loop_timeout_seconds` in [`config/settings/system_settings.json`](file:///config/settings/system_settings.json)), enforced by fail-closed `ToolPrincipal` permissions and indirect tool-output injection screening.
 - **5-Second Delayed Status & In-Place Editing**: If a tool call takes longer than 5 seconds, Izvor posts an intermediate placeholder ([`tool_status.py`](file:///engine/orchestration/stages/tool_status.py)) and edits it in-place once the final response resolves.
 
 ### 4. Thread State, Durable Checkpointing & Spend Governance
@@ -79,9 +79,9 @@ Managed by [`WorkflowManager`](file:///engine/config_store/workflow_manager.py) 
 - **Spend Governance & Autonomous Pricing**: Prompt and completion tokens are recorded in SQLite `spend_ledger` via [`services/pricing_service.py`](file:///engine/services/pricing_service.py) (backed by a 7-day pricing cache in [`data/pricing/model_pricing_cache.json`](file:///data/pricing/model_pricing_cache.json)), enforcing per-thread (`circuit_breaker_threshold_usd`) and daily workspace (`daily_budget_usd`) caps ([`circuit_breaker.py`](file:///engine/pipeline/spend_governance/circuit_breaker.py)).
 
 ### 5. Defense-in-Depth Security, Slack App Home & Audit Integrity
-- **Privacy & Guardrails**: Protects prompts and outputs with LanceDB cosine-similarity prompt-injection guardrails ([`services/security/guardrail.py`](file:///engine/services/security/guardrail.py)), two-way Microsoft Presidio + regex PII masking ([`services/security/pii_masker.py`](file:///engine/services/security/pii_masker.py)), and DNS-pinned SSRF-safe web fetching ([`services/web_tools.py`](file:///engine/services/web_tools.py)).
-- **Interactive Slack App Home**: Workspace admins (`is_slack_admin(user_id)`) configure workflows, agent rosters, models, skills, and governance limits directly in the Slack App Home UI ([`services/slack_home/`](file:///engine/services/slack_home/__init__.py)), persisted atomically to [`config/settings/agent_settings.json`](file:///config/settings/agent_settings.json), `data/settings/system_agent_settings.json` (seeded from [`engine/settings/system_agent_settings.json`](file:///engine/settings/system_agent_settings.json)), and [`data/state/app_settings.json`](file:///data/state/app_settings.json) with rolling backups in `data/backups/`.
-- **Non-Repudiable Cryptographic Audit Logging**: Every administrative action, security event, and RAG sync is recorded in an HMAC-SHA256 hash-chained monthly JSONL audit log ([`services/audit_logger.py`](file:///engine/services/audit_logger.py)) anchored in SQLite `audit_anchors` and verified by [`AppIntegrityValidator`](file:///engine/orchestration/integrity_checks.py).
+- **Privacy & Guardrails**: Protects prompts and tool outputs with zero-cost heuristic pre-filters, capped sliding-window LanceDB cosine-similarity guardrails, and indirect tool-output screening ([`services/security/guardrail.py`](file:///engine/services/security/guardrail.py)), two-way configurable Microsoft Presidio NER + regex PII masking ([`services/security/pii_masker.py`](file:///engine/services/security/pii_masker.py)), and DNS-pinned SSRF-safe web fetching ([`services/web_tools.py`](file:///engine/services/web_tools.py)).
+- **Interactive Slack App Home**: Workspace admins (`is_slack_admin(user_id)`) configure workflows, agent rosters, models, skills, and governance limits directly in the Slack App Home UI ([`services/slack_home/`](file:///engine/services/slack_home/__init__.py)), persisted atomically via [`engine/config_store/`](file:///engine/config_store/__init__.py) to [`config/settings/agent_settings.json`](file:///config/settings/agent_settings.json), `data/settings/system_agent_settings.json` (seeded from [`engine/settings/system_agent_settings.json`](file:///engine/settings/system_agent_settings.json)), and [`data/state/app_settings.json`](file:///data/state/app_settings.json) with rolling backups in `data/backups/`.
+- **Non-Repudiable Cryptographic Audit Logging**: Every administrative action, security event, GDPR erasure (`/forget_thread` / `DELETE /api/threads/{channel_id}/{thread_ts}`), and RAG sync is recorded in an HMAC-SHA256 hash-chained monthly JSONL audit log with `key_id` keyring rotation support ([`services/audit_logger.py`](file:///engine/services/audit_logger.py)) anchored in SQLite `audit_anchors` and verified by [`AppIntegrityValidator`](file:///engine/orchestration/integrity_checks.py).
 
 ---
 

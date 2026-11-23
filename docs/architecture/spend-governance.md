@@ -108,5 +108,5 @@ When running `OrchestrationMode.SCATTER_GATHER` in [`DiscussionLoop`](file:///en
 ### 3. Administrative Override & Resume Action
 When a deliberation is paused by the circuit breaker, authorized workspace administrators (`is_slack_admin`) can click `"Continue Sequence"` (`resume_sequence_action`), handled via [`adapters/slack/actions/governance_actions.py`](file:///engine/adapters/slack/actions/governance_actions.py), to grant an incremental budget override and resume the paused checkpoint or remaining agent queue.
 
-### 4. Intra-Turn Tool-Loop Governance in Stage 4 (`ExecutionStage`)
-To prevent multi-step tool iterations from exceeding budgets mid-turn, [`orchestration/stages/execution.py`](file:///engine/orchestration/stages/execution.py) calculates incremental token spend after each tool invocation. If the circuit breaker threshold or daily budget is breached during execution, `ExecutionStage` saves a durable snapshot in `TurnCheckpointStore` and halts gracefully before the next LLM call.
+### 4. Intra-Turn Tool-Loop Governance in Stage 4 (`ToolLoopRunner`)
+To prevent multi-step tool iterations from exceeding budgets mid-turn, [`orchestration/stages/tool_loop_runner.py`](file:///engine/orchestration/stages/tool_loop_runner.py) (`_is_mid_turn_budget_exceeded()`) calculates incremental token spend after each tool iteration. If the circuit breaker threshold or daily budget is breached during execution, `ToolLoopRunner` saves a durable snapshot in `TurnCheckpointStore` and halts gracefully before the next LLM call.

@@ -574,8 +574,8 @@ class SystemSettingsManager:
             "max_file_size_mb": self.max_file_size_mb,
             "rag": copy.deepcopy(self.rag_config),
             "_comment_workspace_write_blacklist_additional": (
-                "Automatic hardcoded protection blocks writes to .env, .git, data/settings/agent_settings.json, "
-                "data/settings/app_settings.json, and data/settings/system_settings.json. Add any additional relative workspace "
+                "Automatic hardcoded protection blocks writes to .env, .git, config/settings/agent_settings.json, "
+                "data/state/app_settings.json, and config/settings/system_settings.json. Add any additional relative workspace "
                 "paths or file patterns here to prevent unauthorized modifications."
             ),
             "workspace_write_blacklist_additional": list(self.workspace_write_blacklist_additional),

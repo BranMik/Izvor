@@ -10,31 +10,34 @@ Enterprise governance requires an immutable record of system events, administrat
 
 ```mermaid
 graph LR
-    subgraph Audit Chaining & SQLite Anchoring
-        EntryN1["Audit Entry #N-1"] --> HashN1["Hash: sha256(prev_hash + entry_n-1)"]
-        HashN1 --> EntryN["Audit Entry #N (includes prev_hash)"]
-        EntryN --> HashN["Hash: sha256(HashN-1 + entry_n)"]
+    subgraph Audit Chaining, HMAC Keyring & SQLite Anchoring
+        EntryN1["Audit Entry #N-1"] --> HashN1["Hash: HMAC-SHA256(key[key_id], prev_hash + canonical_n-1)"]
+        HashN1 --> EntryN["Audit Entry #N (includes prev_hash, key_id)"]
+        Keyring["AUDIT_HMAC_KEYS_JSON / AUDIT_HMAC_ACTIVE_KEY_ID"] --> HashN["Hash: HMAC-SHA256(key[key_id], HashN-1 + canonical_n)"]
+        EntryN --> HashN
         HashN --> AnchorDB[("SQLite audit_anchors (month, seq, entry_hash)")]
     end
 ```
 
-Every audit file is organized monthly (e.g., `data/audit/audit_2026_10.jsonl`). Each line is a self-contained JSON object bound cryptographically to its predecessor, and the latest `(month, seq, entry_hash)` is anchored in the SQLite `audit_anchors` table.
+Every audit file is organized monthly (e.g., `data/audit/audit_2026_10.jsonl`). Each line is a self-contained JSON object bound cryptographically to its predecessor, optionally tagged with `key_id` for seamless key rotation, and the latest `(month, seq, entry_hash)` is anchored in the SQLite `audit_anchors` table.
 
 ---
 
-## ⛓️ Hash Chaining, HMAC Signatures & SQLite Anchors
+## ⛓️ Hash Chaining, HMAC Keyring Rotation & SQLite Anchors
 
 ### 1. Sequential Hash Binding
 Each record contains:
 - `seq`: Monotonically increasing 64-bit integer sequence number.
-- `prev_hash`: The cryptographic SHA-256 hash of the immediately preceding log line. For the first record of a log file, `prev_hash` is initialized with a known genesis seed.
-- `entry_hash`: Calculated as:
-  $$\text{entry\_hash} = \text{SHA-256}(\text{prev\_hash} + \text{canonical\_json\_payload})$$
+- `prev_hash`: The cryptographic hash of the immediately preceding log line. For the first record of a log file, `prev_hash` is initialized with a known genesis seed (`"0" * 64`).
+- `key_id`: Identifier of the active HMAC key used when signing the record (when a keyring or custom `SystemSettings.audit_hmac_key_id` is active).
+- `entry_hash`: Calculated via HMAC-SHA256 when an HMAC key is configured (or SHA-256 otherwise):
+  $$\text{entry\_hash} = \text{HMAC-SHA256}_{K_{\text{key\_id}}}(\text{prev\_hash} + \text{canonical\_json\_payload})$$
 
-### 2. HMAC Key Continuity
-When `AUDIT_HMAC_SECRET` is configured:
-- An HMAC signature is calculated for each record.
-- If the secret is rotated improperly or a third party modifies any historic line, the entire downstream hash chain becomes invalid.
+### 2. HMAC Key Continuity & Zero-Downtime Keyring Rotation
+Izvor supports both single-key (`AUDIT_HMAC_SECRET`) and multi-key rotation via `AUDIT_HMAC_KEYS_JSON` + `AUDIT_HMAC_ACTIVE_KEY_ID` (with fallback to `SystemSettings.audit_hmac_key_id`):
+- New audit records are signed with the active `(key_id, secret)` from `get_active_audit_hmac_key()` and record `key_id` in the canonical JSON payload.
+- During verification, `get_hmac_key_for_id(record.key_id)` resolves the historical key that signed that record and verifies signatures in constant time via `hmac.compare_digest()`.
+- Retaining older keys alongside the active key in `AUDIT_HMAC_KEYS_JSON` allows clean key rotation **without** invalidating historical audit logs.
 
 ### 3. SQLite Head-Hash Anchoring (`audit_anchors`)
 A classic weakness of file-only hash chains is **tail truncation** (where an attacker deletes the last $K$ lines of a JSONL file or deletes the entire file so the remaining prefix still looks internally valid).
@@ -48,14 +51,14 @@ A classic weakness of file-only hash chains is **tail truncation** (where an att
 To detect tampering, file truncation, or key discrepancies immediately, Izvor runs two validation layers:
 
 ### 1. Startup Verification
-During server boot in [`main.py`](file:///main.py#L164-L224), [`AppIntegrityValidator.check_audit_log_integrity()`](file:///engine/orchestration/integrity_checks.py) scans all historical and active audit files:
+During server boot in [`main.py`](file:///main.py#L228-L303), [`AppIntegrityValidator.check_audit_log_integrity()`](file:///engine/orchestration/integrity_checks.py) scans all historical and active audit files:
 - Verifies line-by-line hash continuity and sequence monotonicity.
 - Verifies `audit_anchors` head-hash consistency against SQLite.
-- Confirms HMAC secret continuity.
+- Confirms HMAC keyring / secret continuity across all recorded `key_id` values via constant-time `hmac.compare_digest()`.
 - If corruption, truncation, or key mismatches are discovered, startup raises a critical alert and notifies all configured Slack administrators immediately.
 
 ### 2. Scheduled Background Guard (`periodic_audit_integrity_guard`)
-- Configured in [`main.py:L79-L108`](file:///main.py#L79-L108).
+- Configured in [`main.py#L115-L141`](file:///main.py#L115-L141).
 - Runs periodically (default: **12 hours** / `43200.0` seconds, dynamically loaded from `audit_integrity_check_interval_seconds` in `system_settings.json`).
 - Validates that logs written during runtime remain unaltered and match SQLite `audit_anchors`.
 
@@ -86,17 +89,18 @@ Periodic scan identified corruption or tampering in the active audit trail.
 ```
 
 ### 3. Differentiating Production Alerts vs. Test Payloads
-Use the following matrix to identify real production breach alerts:
+Use the following matrix to identify real production breach alerts and critical security audit events:
 
 | Alert Category | Title / Identifier | Payload Characteristics | Origin | Action Required |
 |:---|:---|:---|:---|:---|
-| **Production Breach** | `Periodic Audit Guard Integrity Breach` | Contains verified `Violations` and corrupted `Files` paths | [`main.py:L100`](file:///main.py#L100) (periodic integrity guard) | **CRITICAL**: Immediate forensic inspection and snapshot comparison. |
-| **Security Alert** | `SECURITY_ALERT` / `GUARDRAIL_FAIL_CLOSED_BLOCKED` | Semantic prompt injection detection record or fail-closed block | [`services/security/guardrail.py`](file:///engine/services/security/guardrail.py) | **HIGH**: Review user prompt and threat actor profile. |
-| **Privilege Alert** | `UNAUTHORIZED_DIRECTIVE_ATTEMPT` | Non-admin user attempted `/grant_skill`, `/revoke_constraint`, or `=off` override | [`orchestration/stages/directive_handlers.py`](file:///engine/orchestration/stages/directive_handlers.py) | **MEDIUM**: Review user activity in thread. |
-| **Production Breach** | `Startup Audit Integrity Alert: Secret Mismatch (...)` | Contains `Status`, `Warning`, `Last File`, `Last Seq`, and `Errors` | [`main.py:L183`](file:///main.py#L183) (startup boot check) | **CRITICAL**: Confirm `AUDIT_HMAC_SECRET` rotation or restore audit logs. |
-| **Production Warning** | `AUDIT_HMAC_SECRET Discrepancy (...)` | Contains `Status`, `Warning`, `Last File`, and `Last Seq` | [`main.py:L200`](file:///main.py#L200) (startup boot check) | **HIGH**: Key mismatch detected between historic records and runtime environment. |
-| **Production Breach** | `Startup Audit Log Integrity Violation` | Contains `Violations` list and `Files` | [`main.py:L218`](file:///main.py#L218) (startup boot check) | **CRITICAL**: Immediate disk inspection and chain repair. |
-| **Synthetic Test** | `Test Security Breach` | Message: `This is an automated test alert in English.` Details: `line: 42`, `file: audit_2026_10.jsonl` | [`tests/unit/test_audit_logger.py`](file:///tests/unit/test_audit_logger.py) | None (mock test artifact; isolated by `monkeypatch`). |
+| **Production Breach** | `Periodic Audit Guard Integrity Breach` | Contains verified `Violations` and corrupted `Files` paths | [`main.py#L133`](file:///main.py#L133) (periodic integrity guard) | **CRITICAL**: Immediate forensic inspection and snapshot comparison. |
+| **Prompt / Tool Guardrail** | `PROMPT_INJECTION_BLOCKED` / `INDIRECT_INJECTION_DETECTED` / `GUARDRAIL_FAIL_CLOSED_BLOCKED` | Heuristic pre-filter match, sliding-window embedding match, indirect tool output neutralization, or fail-closed block | [`services/security/guardrail.py`](file:///engine/services/security/guardrail.py) | **HIGH**: Review blocked prompt, tool source, and threat actor profile. |
+| **Privilege & IDOR Alerts** | `UNAUTHORIZED_DIRECTIVE_ATTEMPT` / `ADMIN_ACTION_DENIED` / `UNAUTHORIZED_SCRIBE_DOWNLOAD` | Non-admin user attempted `/grant_skill`, `/revoke_constraint`, `/forget_thread`, `=off`, App Home admin control, or mismatched channel Scribe download | [`directive_handlers.py`](file:///engine/orchestration/stages/directive_handlers.py), [`interactivity.py`](file:///engine/adapters/slack/interactivity.py), [`scribe_actions.py`](file:///engine/adapters/slack/actions/scribe_actions.py) | **MEDIUM/HIGH**: Review user activity and channel payload integrity. |
+| **GDPR Thread Erasure** | `GDPR_THREAD_FORGOTTEN` / `THREAD_DATA_PURGED` | Thread state, flat histories, notes, and downloads purged via `/forget_thread` or `DELETE /api/threads/{channel_id}/{thread_ts}` | [`main.py#L647`](file:///main.py#L647), [`retention_service.py`](file:///engine/services/retention_service.py) | **INFO/WARNING**: Expected compliance erasure confirmation. |
+| **Production Breach** | `Startup Audit Integrity Alert: Secret Mismatch (...)` | Contains `Status`, `Warning`, `Last File`, `Last Seq`, and `Errors` | [`main.py#L261`](file:///main.py#L261) (startup boot check) | **CRITICAL**: Confirm `AUDIT_HMAC_KEYS_JSON` / `AUDIT_HMAC_SECRET` keyring configuration or restore audit logs. |
+| **Production Warning** | `AUDIT_HMAC_SECRET Discrepancy (...)` | Contains `Status`, `Warning`, `Last File`, and `Last Seq` | [`main.py#L278`](file:///main.py#L278) (startup boot check) | **HIGH**: Key mismatch detected between historic records (`key_id`) and active keyring/environment. |
+| **Production Breach** | `Startup Audit Log Integrity Violation` | Contains `Violations` list and `Files` | [`main.py#L296`](file:///main.py#L296) (startup boot check) | **CRITICAL**: Immediate disk inspection and chain repair. |
+| **Synthetic Test** | `Test Security Breach` | Message: `This is an automated test alert in English.` Details: `line: 42`, `file: audit_2026_10.jsonl` | [`tests/unit/test_audit_logger.py`](file:///tests/unit/test_audit_logger.py) | None (test fixture isolated via `set_audit_hmac_keyring_override` / `configure_paths` / `IZVOR_*`). |
 | **E2E Scenario** | `E2E Test Runner` scenarios | Contains scenario markers like `E2E-101`, test persona names, and simulation tags | [`tests/e2e/test_e2e_suite.py`](file:///tests/e2e/test_e2e_suite.py) | None (automated E2E verification traffic in `#bot-testing`). |
 
 ---
@@ -106,7 +110,7 @@ Use the following matrix to identify real production breach alerts:
 When an alert fires or during compliance auditing, administrators can run the built-in audit CLI directly:
 
 ### 1. Integrity Verification (`--verify`)
-Scans all monthly JSONL files in the audit directory, checking hash chaining, monotonically increasing sequence numbers, SQLite `audit_anchors`, and HMAC signatures:
+Scans all monthly JSONL files in the audit directory, checking hash chaining, monotonically increasing sequence numbers, SQLite `audit_anchors`, and HMAC keyring signatures (`key_id` lookup + constant-time `hmac.compare_digest`):
 
 ```bash
 python -m services.audit_logger --verify
@@ -119,7 +123,7 @@ Scanned Files:    audit_2026_10.jsonl
 Total Records:    1520
 Last Seq Number:  1520
 Last Entry Hash:  a8b79f2c140938...
-HMAC Key Status:  MATCH (AUDIT_HMAC_SECRET valid across all records)
+HMAC Key Status:  MATCH (keyring / AUDIT_HMAC_SECRET valid across all records)
 
 [VERIFIED] All cryptographic audit chains are fully intact. No tampering detected.
 ```

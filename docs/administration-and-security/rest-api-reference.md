@@ -21,14 +21,15 @@ This document provides complete technical specifications for the HTTP endpoints 
 |---|---|---|---|
 | `GET` | `/` | Public | Lightweight health check status. |
 | `GET` | `/health` | Public | Lightweight health check status. |
-| `POST` | `/slack/events` | Slack HMAC | Inbound Slack Events API webhook (app mentions, thread replies, URL verification challenge). |
+| `POST` | `/slack/events` | Slack HMAC | Inbound Slack Events API webhook (app mentions, thread replies, file-only DM uploads, URL verification challenge). |
 | `POST` | `/slack/actions` | Slack HMAC | Inbound Slack interactive shortcuts and action handlers. |
 | `POST` | `/slack/interactivity` | Slack HMAC | Inbound Slack Block Kit actions, App Home configuration modals, and HITL approvals. |
-| `GET` | `/api/health` | Admin | Authenticated health check exposing active registered persona keys (17 personas). |
-| `GET` | `/api/skills` | Admin | Returns all 21 registered dynamic skills, descriptions, and schemas. |
+| `GET` | `/api/health` | Admin | Authenticated health check exposing active registered persona keys (`16` OOB personas). |
+| `GET` | `/api/skills` | Admin | Returns all `22` registered dynamic skills (`4` configurable + `18` built-in), descriptions, and schemas. |
 | `GET` | `/api/rag/status` | Admin | Returns RAG manifest status and total indexed documents. |
 | `POST` | `/api/rag/reconcile` | Admin | Triggers an immediate on-demand reconciliation of `config/rag_knowledge/`. |
-| `GET` | `/api/audit/status` | Admin | Returns cryptographic integrity, SQLite anchor, and HMAC hash chain verification diagnostics. |
+| `GET` | `/api/audit/status` | Admin | Returns cryptographic integrity, SQLite anchor, and HMAC keyring verification diagnostics. |
+| `DELETE` | `/api/threads/{channel_id}/{thread_ts}` | Admin | Permanently purges persisted DB rows, flat histories, thread notes, downloads, and caches for a thread (GDPR erasure). |
 
 ---
 
@@ -55,7 +56,6 @@ This document provides complete technical specifications for the HTTP endpoints 
 {
   "status": "healthy",
   "service": "Izvor Multi-Agent Hub",
-  "agents_count": 17,
   "agents": [
     "agent-10001",
     "agent-10002",
@@ -72,8 +72,7 @@ This document provides complete technical specifications for the HTTP endpoints 
     "agent-10013",
     "agent-10014",
     "agent-10015",
-    "agent-10016",
-    "agent-10017"
+    "agent-10016"
   ]
 }
 ```
@@ -139,16 +138,16 @@ This document provides complete technical specifications for the HTTP endpoints 
 ### 5. Trigger RAG Reconciliation
 - **Endpoint**: `POST /api/rag/reconcile`
 - **Authentication**: Admin Basic Auth
-- **Audit Event**: Emits `RAG_RECONCILE_TRIGGERED` event with `WARNING` severity.
+- **Audit Event**: Emits `RAG_RECONCILE_COMPLETED` event with `INFO` severity (or `RAG_RECONCILE_FAILED` with `CRITICAL` severity on error).
 - **Response** (`200 OK`):
 ```json
 {
   "status": "reconciliation_complete",
   "stats": {
-    "scanned": 3,
-    "indexed": 0,
-    "unchanged": 3,
-    "removed": 0
+    "new": 0,
+    "modified": 0,
+    "deleted": 0,
+    "unchanged": 3
   }
 }
 ```
@@ -175,9 +174,39 @@ This document provides complete technical specifications for the HTTP endpoints 
 
 ---
 
-### 7. Slack Inbound Webhooks
+### 7. Forget Thread Data (GDPR Channel-Scoped Erasure)
+- **Endpoint**: `DELETE /api/threads/{channel_id}/{thread_ts}`
+- **Authentication**: Admin Basic Auth
+- **Audit Event**: Emits `THREAD_DATA_PURGED` (`retention_service`) and `GDPR_THREAD_FORGOTTEN` (`admin_user`, `WARNING` severity).
+- **Behavior**: Invokes `forget_thread(channel_id, thread_ts)` in a worker thread to permanently purge SQLite thread rows, channel-scoped flat histories (`data/flat-histories/`), Scribe thread notes (`data/thread_notes/`), thread-scoped attachment folders (`data/downloads/<cid>_<tts>/`), guardrail embedding LRU cache, spend session state, and registered in-memory thread purge hooks.
+- **Response** (`200 OK`):
+```json
+{
+  "status": "forgotten",
+  "channel_id": "C0123456789",
+  "thread_ts": "1790455185.000100",
+  "deleted": {
+    "turn_checkpoints": 0,
+    "turn_traces": 4,
+    "thread_notes_state": 1,
+    "thread_usage_meta": 1,
+    "thread_context": 1,
+    "thread_sessions": 1,
+    "thread_skills": 0,
+    "hitl_approvals": 0,
+    "spend_ledger": 4,
+    "flat_histories": 1,
+    "thread_notes": 2,
+    "downloads": 0
+  }
+}
+```
+
+---
+
+### 8. Slack Inbound Webhooks
 - **Endpoints**:
-  - `POST /slack/events`: Primary Events API endpoint. Handles Slack URL verification challenges (`url_verification`), app mentions, and conversational thread message events.
+  - `POST /slack/events`: Primary Events API endpoint. Handles Slack URL verification challenges (`url_verification`), app mentions, file-only DM uploads, and conversational thread message events.
   - `POST /slack/actions`: Handles Slack message shortcut actions and interactive component triggers.
   - `POST /slack/interactivity`: Handles Block Kit button clicks (HITL approvals, circuit breaker "Continue Sequence" actions) and App Home modal views (`view_submission`).
 - **Authentication**: Slack HMAC-SHA256 signature verification via headers `X-Slack-Request-Timestamp` and `X-Slack-Signature`.
@@ -208,4 +237,7 @@ curl -u admin:YourAdminPassword http://localhost:8000/api/audit/status
 
 # Trigger RAG reconciliation (authenticated)
 curl -X POST -u admin:YourAdminPassword http://localhost:8000/api/rag/reconcile
+
+# Permanently forget a thread (GDPR erasure, authenticated)
+curl -X DELETE -u admin:YourAdminPassword http://localhost:8000/api/threads/C0123456789/1790455185.000100
 ```

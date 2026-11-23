@@ -3,8 +3,8 @@ Flat History Recorder for Izvor.
 
 Records and maintains a single Markdown conversation history file per Slack thread in flat-histories/.
 Filename convention:
-  <prompt10>_<thread_ts10>.md
-  e.g., 'kako_napra_1712345678.md'
+  <prompt10>_<channel_id>_<thread_ts10>.md
+  e.g., 'kako_napra_C123_1712345678.md'
 """
 
 from __future__ import annotations

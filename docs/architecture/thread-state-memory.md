@@ -22,7 +22,7 @@ graph TD
         TableSpend["spend_ledger (Transactional Token & USD Ledger)"]
         TableHITL["hitl_approvals (Atomic Pending/Approved Tool Actions)"]
         TableSkills["thread_skills (Thread-Scoped Dynamic Grants)"]
-        TableDedup["event_dedup (Idempotent Slack Event Cache)"]
+        TableDedup["event_dedup (Idempotent Slack Event Cache + LRU Fallback)"]
         TableUsage["thread_usage_meta (Thread Cost & Message Metadata)"]
         TableNotes["thread_notes_state (Scribe Live & Conclusion Note State)"]
         TableCheckpoints["turn_checkpoints (Mid-Turn HITL & CB Snapshots)"]
@@ -134,5 +134,6 @@ Izvor enforces multi-layered memory and disk hygiene:
   - Deletes resolved `turn_checkpoints` older than `retention_checkpoints_days` (default: `7` days).
   - Deletes `turn_traces` spans older than `retention_traces_days` (default: `30` days).
   - Deletes `event_dedup` entries older than `retention_event_dedup_days` (default: `1` day).
-- **`forget_thread(thread_ts)` (Right-to-Forget)**:
-  - Atomically purges all records for a given `thread_ts` across all SQLite tables (`turn_checkpoints`, `turn_traces`, `thread_notes_state`, `thread_usage_meta`, `thread_context`, `thread_sessions`, `thread_skills`, `hitl_approvals`, `spend_ledger`), evicts `RoundEvidenceStore` cache entries, deletes matching markdown files in `data/flat-histories/`, and logs a non-repudiable `THREAD_DATA_PURGED` audit event.
+- **`forget_thread(channel_id, thread_ts)` (Channel-Scoped Right-to-Forget)**:
+  - Invoked via admin slash command `/forget_thread` or REST endpoint `DELETE /api/threads/{channel_id}/{thread_ts}`.
+  - Atomically purges all channel- and thread-scoped records for `(channel_id, thread_ts)` across all SQLite tables (`turn_checkpoints`, `turn_traces`, `thread_notes_state`, `thread_usage_meta`, `thread_context`, `thread_sessions`, `thread_skills`, `hitl_approvals`, `spend_ledger`), deletes channel-scoped flat histories (`data/flat-histories/`), deletes Scribe notes (`data/thread_notes/`), removes thread-scoped attachment folders (`data/downloads/<cid>_<tts>/`), clears `guardrail_service` LRU embeddings (`guardrail_service.clear_cache()`), clears `spend_governance` session budgets, invokes all registered thread purge hooks (`usage_tracker`, `thread_notes`, `thread_state`), and logs non-repudiable `THREAD_DATA_PURGED` / `GDPR_THREAD_FORGOTTEN` audit events.

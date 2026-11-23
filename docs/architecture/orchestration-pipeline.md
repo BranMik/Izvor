@@ -17,18 +17,18 @@ graph TD
     Revisor --> Output([Workspace Dispatch & Next Turn in DiscussionLoop])
 ```
 
-The pipeline operates on a structured state container: [`TurnContext`](file:///engine/orchestration/turn_pipeline.py), which organizes state into four typed sub-containers (while preserving top-level property accessors):
-- **`TurnInput` (`ctx.inp`)**: Immutable turn inputs (`channel_id`, `thread_ts`, `user_id`, `raw_text`, `agent_key`, `preflight_directives`, `detected_language`).
-- **`TurnControlPlane` (`ctx.control_plane`)**: Routing & control state (`custom_flow`, `remaining`, `turn_count`, `current_round`, `max_rounds`, `halted`, `paused_for_hitl`, `checkpoint_id`).
-- **`TurnOutput` (`ctx.out`)**: Execution outputs (`reply_text`, `nominated_agents`, `total_prompt_tokens`, `total_completion_tokens`, `revisor_warning`).
-- **`SessionContext` (`ctx.session`)**: Thread-level constraints, history slice, and attached files.
+The pipeline operates on a structured state container: [`TurnContext`](file:///engine/orchestration/turn_pipeline.py), which organizes state into dedicated typed sub-containers (alongside top-level routing, history, and observability fields):
+- **`TurnInput` (`ctx.input`)**: Immutable turn inputs (`channel_id`, `thread_ts`, `raw_text`, `user_id`, `bot_user_id`, `icon_url`, `is_bot_trigger`, `in_memory_history`, `target_agent_override`, `isolated_branch`, `my_generation`, `start_time`).
+- **`TurnControlPlane` (`ctx.control`)**: Control-plane consensus, nomination, and clarification state (`consensus_signaled`, `consensus_summary`, `nomination`, `nomination_rationale`, `clarification_requested`, `clarification_question`, `convergence_summary`).
+- **`TurnOutput` (`ctx.output`)**: Execution outputs, token accounting, and dispatch artifacts (`final_text`, `total_prompt_tokens`, `total_completion_tokens`, `persisted_prompt_tokens`, `persisted_completion_tokens`, `skills_used`, `generated_tags`, `slack_res`, `is_completed`, `halted`, `waiting_hitl`, `checkpoint_id`, `revisor_warning`, `is_deterministic_missing_skill`, `fallback_from_model`).
+- **Top-level session & thread state fields**: `session`, `session_id`, `actions`, `modifiers`, `attachments`, `effective_history`, `full_history`, `file_context`, `thread_language`, `shared_round_evidence`, `authorized_skills`.
 
 Each turn transitions through five distinct stages in [`orchestration/stages/`](file:///engine/orchestration/stages/), with stage latency and status spans recorded asynchronously via [`TurnTraceRecorder`](file:///engine/services/telemetry.py):
 
 1. **Stage 1: Validation & Directives** ([`orchestration/stages/validation.py`](file:///engine/orchestration/stages/validation.py) & [`orchestration/stages/directive_handlers.py`](file:///engine/orchestration/stages/directive_handlers.py))
 2. **Stage 2: Resolution & Governance** ([`orchestration/stages/resolution.py`](file:///engine/orchestration/stages/resolution.py))
 3. **Stage 3: Context Preparation** ([`orchestration/stages/context_prep.py`](file:///engine/orchestration/stages/context_prep.py))
-4. **Stage 4: Execution & Tool Calling Loop** ([`orchestration/stages/execution.py`](file:///engine/orchestration/stages/execution.py))
+4. **Stage 4: Execution & Tool Calling Loop** ([`orchestration/stages/execution.py`](file:///engine/orchestration/stages/execution.py), [`tool_loop_runner.py`](file:///engine/orchestration/stages/tool_loop_runner.py), [`control_plane_handler.py`](file:///engine/orchestration/stages/control_plane_handler.py), [`turn_finalizer.py`](file:///engine/orchestration/stages/turn_finalizer.py))
 5. **Stage 5: Post-Record & Metrics** ([`orchestration/stages/post_record.py`](file:///engine/orchestration/stages/post_record.py))
 
 ---
@@ -39,8 +39,8 @@ Each turn transitions through five distinct stages in [`orchestration/stages/`](
 - **Files**: [`orchestration/stages/validation.py`](file:///engine/orchestration/stages/validation.py), [`orchestration/stages/directive_handlers.py`](file:///engine/orchestration/stages/directive_handlers.py)
 - **Responsibilities**:
   1. **Thread Generation Guard**: Checks whether the turn is superseded (`ctx.is_superseded()`) by verifying if a newer user prompt incremented the generation count in [`ThreadStateManager`](file:///engine/orchestration/thread_state.py). Superseded turns abort immediately.
-  2. **Unified Pre-Flight Intent & Language Extraction**: [`IntentExtractor`](file:///engine/nlp/intent_extractor.py) extracts both natural-language directives and the user's `detected_language` in a single pre-flight LLM pass, eliminating redundant LLM calls inside `TurnPipeline`.
-  3. **Directive Parsing & Slack Admin Authorization**: Extracts bracketed directives (`[rounds: N]`, `[max_words: N]`, `[history: N]`, `[stop]`) or slash equivalents (`/rounds`, `/stop`), validating numeric clamps (`rounds ≤ 5`, `max_words ≤ 2000`, `history ≤ 50`). Privileged directives (`/grant_skill`, `/grant_skill_for_all`, `/revoke_skill_for_all`, `/revoke_constraint`, and disabling constraints via `=off`) are gated by `is_slack_admin(ctx.user_id)` in [`directive_handlers.py`](file:///engine/orchestration/stages/directive_handlers.py).
+  2. **Prompt Injection Guardrail & Unified Pre-Flight Intent/Language Extraction**: Human-triggered turns run `guardrail_service.is_prompt_injection()` (zero-cost heuristic pre-filter + capped sliding-window LanceDB embeddings) and [`IntentExtractor`](file:///engine/nlp/intent_extractor.py) in a single pre-flight LLM pass to extract both safe natural-language directives (`auto_detect: true`) and `detected_language`. Bot-triggered turns bypass these checks at zero token cost.
+  3. **Directive Parsing & Slack Admin Authorization**: Extracts bracketed/slash directives (`/rounds`, `/max_words`, `/history`, `/stop`, `/forget_thread`), validating numeric clamps (`rounds ≤ 5`, `max_words ≤ 2000`, `history ≤ 50`). Privileged directives (`/grant_skill`, `/grant_skill_for_all`, `/revoke_skill_for_all`, `/revoke_constraint`, `/forget_thread`, and disabling constraints via `=off`) are gated by `is_slack_admin(ctx.input.user_id)` and `origin == "slash"` in [`directive_handlers.py`](file:///engine/orchestration/stages/directive_handlers.py). `/forget_thread` immediately triggers channel-scoped `forget_thread(channel_id, thread_ts)` GDPR erasure and halts the turn.
   4. **File Inspection**: If files are attached in the Slack thread, queries the workspace adapter, enforces extension neutralization (`SAFE_DOWNLOAD_EXTENSIONS`), and prepares `ctx.thread_files`.
   5. **Dynamic Exclude/Include Lists**: Manages agent exclusion and inclusion filters specified in prompt directives.
 
@@ -66,20 +66,22 @@ Each turn transitions through five distinct stages in [`orchestration/stages/`](
   3. **Prompt Composition**: Employs [`prompts/builder.py`](file:///engine/prompts/builder.py) to assemble the persona system prompt, injecting debate rules, word count bounds (`min_words`, `max_words`), thread language context, and attached file context.
   4. **Non-Blocking PII Masking with Precomputed Allowlisting**: Pre-scans user input and context via `pii_masker.async_mask()` (offloading regex and Presidio NLP evaluation to a worker thread). Evaluates recognized entities against precomputed in-memory `_global_allowlist` and `_sentence_start_allowlist` frozensets (persisted in [`data/state/presidio_skill_exclusions.json`](file:///data/state/presidio_skill_exclusions.json)), exempting skill directives and system terms at sentence/clause start while redacting true personal identifiers into synthetic tokens prior to LLM submission.
 
-### Stage 4: Execution, Tool Loop & Durable Checkpointing (`execution.py`)
+### Stage 4: Execution, Tool Loop & Durable Checkpointing (`execution.py` + Helpers)
 - **Files**: [`orchestration/stages/execution.py`](file:///engine/orchestration/stages/execution.py), [`control_plane_handler.py`](file:///engine/orchestration/stages/control_plane_handler.py), [`tool_loop_runner.py`](file:///engine/orchestration/stages/tool_loop_runner.py), [`turn_finalizer.py`](file:///engine/orchestration/stages/turn_finalizer.py)
 - **Responsibilities**:
   1. **LiteLLM Invocation with Resilient Retry**: Submits the prepared message sequence to the configured model endpoint via [`core/llm_utils.py`](file:///engine/core/llm_utils.py), with jittered exponential backoff (`llm_max_retries: 3`).
   2. **In-Place Status Updates (5-Second Rule)**:
      - Implemented via [`orchestration/stages/tool_status.py`](file:///engine/orchestration/stages/tool_status.py).
      - If tool execution finishes within 5 seconds, no intermediate progress indicator is posted. If longer, an intermediate status message is posted and updated in-place via `chat.update`.
-  3. **Strict Tool Loop Security Ordering**:
-     For every tool call requested by the LLM (up to `max_tool_iterations: 3` and `tool_call_loop_timeout_seconds: 60.0`), `ExecutionStage` enforces:
+  3. **Strict Tool Loop Security Ordering (`ToolLoopRunner`)**:
+     For every tool call requested by the LLM (up to `max_tool_iterations: 3` and `tool_call_loop_timeout_seconds: 60.0`), [`ToolLoopRunner`](file:///engine/orchestration/stages/tool_loop_runner.py) enforces:
      - **Step 1 — Fail-Closed `ToolPrincipal` Authorization**: Constructs a [`ToolPrincipal`](file:///engine/core/domain.py) (`agent_key`, `user_id`, `thread_ts`, `allowed_skills`) and verifies the tool belongs to an authorized skill via [`SkillRegistry`](file:///engine/skills/registry.py). Unauthorized calls fail closed immediately.
      - **Step 2 — Atomic HITL Approval Gate**: Checks if the skill requires Human-in-the-Loop approval (`requires_human_ITL: true`). If unapproved, saves a durable mid-turn snapshot in [`TurnCheckpointStore`](file:///engine/services/turn_checkpoint_store.py) (synthesizing `TOOL EXECUTION DEFERRED` responses for any sibling tool calls in a multi-tool batch) and pauses the turn until an admin clicks Approve or Deny (`TurnPipeline.resume_from_checkpoint()`).
      - **Step 3 — `RoundEvidenceStore` Cache Lookup**: Checks if an identical read-only tool call was already executed in the current round; if so, returns the cached output without re-invoking external APIs.
      - **Step 4 — Tool Execution & Single-Pass PII Unmasking**: Reverses synthetic tokens (`pii_masker.unmask()`) in a single regex pass and executes the tool inside a per-turn web request budget (`max_fetches_per_turn: 5`).
-     - **Step 5 — Evidence Cache Recording**: Stores read-only tool results in `RoundEvidenceStore` (bounded LRU, with `search_knowledge_rag` scoped by `agent_key`).
+     - **Step 5 — Indirect Tool-Output Injection Screening**: Screens untrusted tool responses (web pages, local file reads, MCP tool outputs) via `guardrail_service.screen_untrusted_tool_output()` (heuristic pre-filter + optional opt-in embedding check via `guardrail_indirect_embedding_enabled`), neutralizing detected payloads and logging `INDIRECT_INJECTION_DETECTED` before returning content to the LLM context.
+     - **Step 6 — Evidence Cache Recording & Mid-Turn Budget Check**: Stores read-only tool results in `RoundEvidenceStore` (bounded LRU, with `search_knowledge_rag` scoped by `agent_key`) and checks `_is_mid_turn_budget_exceeded()` before continuing the loop.
+     - **Control-Plane & Finalization Delegation**: [`ControlPlaneHandler`](file:///engine/orchestration/stages/control_plane_handler.py) extracts `nominate_next_speaker` / `request_user_clarification` / `signal_consensus_convergence` calls, while [`TurnFinalizer`](file:///engine/orchestration/stages/turn_finalizer.py) normalizes outputs and finalizes `TurnOutput`.
 
 ### Stage 5: Post-Record, Metrics & Inline Revisor (`post_record.py`)
 - **File**: [`orchestration/stages/post_record.py`](file:///engine/orchestration/stages/post_record.py)

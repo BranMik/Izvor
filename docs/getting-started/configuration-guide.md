@@ -439,7 +439,7 @@ Custom deliberation workflows live as JSON files in [`config/workflows/`](file:/
 ### 5.3 Activating & Editing Workflows
 
 - **Via Config File:** Set `"workflow_config": "security_release_gate"` in [`config/settings/agent_settings.json`](file:///config/settings/agent_settings.json). Changes to the active workflow JSON file are detected automatically by `sync_settings_if_modified()`.
-- **Via Slack App Home:** Open **App Home → Workflows Tab** to select/load presets (available to all workspace users), or edit chains and save/delete custom presets (Slack Admin only). Note that each Slack thread freezes a workflow snapshot at Turn 1 so switching presets mid-flight never disrupts running threads.
+- **Via Slack App Home:** Open **App Home → Workflows Tab** to select/load presets, edit chains, and save/delete custom presets (**Slack Admin only** — `select_workflow_preset` and `load_workflow_preset_button` enforce `admin_required=True`). Note that each Slack thread freezes a workflow snapshot at Turn 1 so switching presets mid-flight never disrupts running threads.
 
 ---
 
@@ -454,8 +454,9 @@ Izvor's hybrid RAG engine indexes documents from [`config/rag_knowledge/`](file:
 | `config/rag_knowledge/shared/...` *(or files directly in `config/rag_knowledge/`)* | `"shared"` | Every agent authorized for `knowledge_base_rag` when calling `search_knowledge_rag(query, scope="all")` *(default)*. |
 | `config/rag_knowledge/<agent_id>/...` *(e.g. [`config/rag_knowledge/agent-10008/`](file:///config/rag_knowledge/agent-10008))* | `"<agent_id>"` | Only that specific persona (`agent-10008`) in both `scope="self"` and `scope="all"`. Ideal for role-specific playbooks, compliance checklists, or security runbooks. |
 
-- **Supported extensions:** `.md`, `.markdown`, `.txt`, and `.pdf` (parsed per page with `pypdf`; Markdown files preserve heading hierarchy as `section_header` citations).
-- **Incremental reconciliation:** `SyncReconciliationEngine` tracks `SHA-256` hashes, `mtime`, and chunk IDs in `data/.rag_cache/file_manifest.json`. Adding, editing, or deleting a file only re-embeds changed files and automatically removes deleted chunks.
+- **Supported extensions:** `.md`, `.markdown`, `.txt`, and `.pdf` (parsed per page with `pypdf`; code-fence-aware Markdown parser tracks ` ``` ` / `~~~` blocks so `#` comments inside fenced code never create fake section splits, while preserving heading hierarchy as `section_header` citations).
+- **Collision-free IDs & consistent ingestion PII masking:** Chunk IDs use SHA-256 `sanitize_id()`, and when `pii_masking: "AT_INGESTION"`, a single document-level `token_mapping` is shared across all chunks of a document so masked aliases stay consistent.
+- **Incremental reconciliation & config-drift re-indexing:** `SyncReconciliationEngine` tracks `SHA-256` hashes, `mtime`, chunk IDs, and `__meta__.config_hash` (computed over `embedding_model`, `pii_masking`, and chunk bounds) in `data/.rag_cache/file_manifest.json`, automatically re-indexing documents if chunk/PII/embedding configuration drifts.
 
 ### 6.2 Triggering Indexing (Live or on Startup)
 
@@ -470,7 +471,7 @@ Izvor's hybrid RAG engine indexes documents from [`config/rag_knowledge/`](file:
    ```
    *(Make sure the embedding provider key matching `rag.embedding_model` — `GEMINI_API_KEY` by default — is set in `.env`.)*
 
-### 6.3 Tuning RAG Settings (`config/settings/system_settings.json`)
+### 6.3 Tuning RAG & Security Parameters (`config/settings/system_settings.json`)
 
 Under `"rag"` in [`config/settings/system_settings.json`](file:///config/settings/system_settings.json):
 
@@ -480,11 +481,14 @@ Under `"rag"` in [`config/settings/system_settings.json`](file:///config/setting
 | `chunk_overlap_chars` | `300` | Sliding character overlap between adjacent chunks to preserve cross-boundary context. |
 | `min_chunk_chars` | `80` | Minimum chunk size threshold during recursive splitting. |
 | `default_top_k` | `3` | Default number of fused results returned per search (schema fallback `6`). |
-| `embedding_model` | `"gemini/gemini-embedding-001"` | LiteLLM embedding model identifier. If changed to a model with a different vector dimension, update `embedding_dim` and rebuild `data/.rag_cache/`. |
+| `embedding_model` | `"gemini/gemini-embedding-001"` | LiteLLM embedding model identifier. If changed (or vector dimension changes), `__meta__.config_hash` triggers automatic re-indexing. |
 | `embedding_dim` | `3072` | Vector dimensionality stored in LanceDB. |
 | `embedding_batch_size` | `32` | Number of chunks embedded per API batch call. |
-| `pii_masking` | `"AT_RETRIEVAL"` | `"AT_RETRIEVAL"` (masks PII when excerpts enter agent context), `"AT_INGESTION"` (masks before embedding), or `"NONE"`. |
+| `pii_masking` | `"AT_RETRIEVAL"` | `"AT_RETRIEVAL"` (masks PII when excerpts enter agent context), `"AT_INGESTION"` (masks before embedding with shared per-doc `token_mapping`), or `"NONE"`. |
 | `guardrail_threshold` | `0.85` | Cosine similarity threshold for prompt-injection guardrail checks. |
+
+Top-level P2 guardrail, PII NER, and audit keyring keys configurable in `system_settings.json` (with `SystemSettingsModel` defaults):
+- `guardrail_chunk_chars` (`800`), `guardrail_chunk_overlap_chars` (`200`), `guardrail_max_chunks` (`8`), `guardrail_indirect_embedding_enabled` (`false`), `pii_ner_models` (`["en_core_web_sm"]`), `audit_hmac_key_id` (`"default"`), `skill_exclusions_sync_interval_seconds` (`86400.0`).
 
 ---
 

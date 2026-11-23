@@ -28,10 +28,10 @@ When a deliberation is initiated, progresses, or reaches its configured round li
 - The conclusion note is formatted with high-contrast Slack Block Kit headers, supports multi-block splitting up to 3,800 characters to prevent truncation, and is pinned to the thread for executive review.
 
 ### 3. Thread Notes Disk Persistence ([`services/thread_notes_writer.py`](file:///engine/services/thread_notes_writer.py))
-In addition to posting inside Slack, thread notes are automatically saved to disk in `agents_resources/thread_notes/`:
-- **Live Notes**: `<prompt_slug>_<ts5>_live_notes.md`
-- **Conclusion Notes**: `<prompt_slug>_<ts5>_conclusion.md`
-*(where `<ts5>` represents the last 5 digits of the thread timestamp, preventing accidental filename collisions even if identical prompts are initiated)*.
+In addition to posting inside Slack, thread notes are automatically saved to disk in `data/thread_notes/` (configurable via `IZVOR_THREAD_NOTES_DIR` in [`core/paths.py`](file:///engine/core/paths.py)):
+- **Live Notes**: `<prompt_slug>_<channel_id>_<ts5>_live_notes.md`
+- **Conclusion Notes**: `<prompt_slug>_<channel_id>_<ts5>_conclusion.md`
+*(where `<channel_id>` isolates channels and `<ts5>` represents the last 5 digits of the thread timestamp, preventing accidental filename collisions even if identical prompts are initiated across channels)*.
 
 ---
 
@@ -47,11 +47,11 @@ await async_record_flat_history(channel_id, thread_ts, initial_prompt, messages)
 This ensures disk writes never introduce jitter or latency into the Slack event dispatcher.
 
 ### 2. Storage Location & Naming
-Transcripts are persisted in the `data/flat-histories/` directory using prompt slugs and thread timestamps:
+Transcripts are persisted in the `data/flat-histories/` directory using prompt slugs, channel IDs, and thread timestamps:
 ```
-data/flat-histories/<prompt_prefix_10>_<thread_ts_10>.md
+data/flat-histories/<prompt_prefix_10>_<channel_id>_<thread_ts_10>.md
 ```
-*Example*: `data/flat-histories/we_are_cons_1790455185.md` (or `data/flat-histories/we_are_cons_1790455185_54321.md` if disambiguating collisions).
+*Example*: `data/flat-histories/we_are_cons_C0123456789_1790455185.md` (or suffixed with the last 5 digits of `thread_ts` if disambiguating same-second collisions).
 
 ### 3. File Format Structure
 ```markdown
@@ -88,9 +88,12 @@ While attractive, session tokens stored in row JSONB require strict field-level 
 ## 📥 File Attachments & Untrusted Content Wrapping
 
 When users share files in Slack threads:
-1. Izvor's file listener downloads the attachment to `data/downloads/`.
-2. The [`document_reader`](file:///config/skills/document_reader) parses the document content (PDFs, Markdown, CSVs, code files).
+1. Izvor's file listener downloads the attachment to the thread-scoped directory `data/downloads/<channel_id>_<thread_ts>/` (`IZVOR_DOWNLOADS_DIR`), neutralizing non-safe extensions by appending `.txt`.
+2. The [`document_reader`](file:///config/skills/document_reader) parses the document content (PDFs via `pypdf`, Markdown, CSVs, code/text files).
 3. Extracted text is wrapped in `<untrusted_file_content>` security boundaries, enabling debate personas to critique the uploaded RFC or specification without risking prompt injection.
+
+> [!NOTE]
+> **GDPR Channel-Scoped Erasure**: Running `@Izvor /forget_thread` in Slack or calling `DELETE /api/threads/{channel_id}/{thread_ts}` permanently purges the thread's SQLite rows, channel-scoped flat history Markdown transcript in `data/flat-histories/`, Scribe notes in `data/thread_notes/`, thread download directory in `data/downloads/<channel_id>_<thread_ts>/`, and in-memory caches.
 
 ---
 

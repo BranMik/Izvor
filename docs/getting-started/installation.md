@@ -50,15 +50,15 @@ pip install -r requirements-dev.txt
 ```
 
 Izvor utilizes:
-- `fastapi` and `uvicorn` for the asynchronous ASGI server.
+- `fastapi`, `uvicorn`, and `python-multipart` for the asynchronous ASGI server and Slack form-encoded interactivity parsing.
 - `slack-sdk` for Slack WebClient operations and Block Kit rendering.
 - `litellm` for universal multi-provider LLM completions and embeddings.
 - `lancedb`, `tantivy`, `pyarrow`, and `pandas` for serverless hybrid vector + BM25 RAG retrieval and prompt-injection guardrails.
-- `presidio-analyzer`, `presidio-anonymizer`, and `spacy` (`en_core_web_sm`) for local NER + regex two-way PII masking.
+- `presidio-analyzer` and `spacy` (`en_core_web_sm` by default; configurable via `pii_ner_models`) for local NER + regex two-way PII masking.
 - `mcp` for external Model Context Protocol (`stdio` / `sse` / `streamable_http`) client integration.
 - `httpx`, `httpcore`, `ddgs`, `beautifulsoup4`, and `pypdf` for SSRF-guarded web research and document parsing.
 - `pydantic` and `pyyaml` for domain models, configuration validation, and `SKILL.md` frontmatter parsing.
-- Standard-library `sqlite3` (`WAL` mode) for zero-infrastructure ACID state persistence.
+- Standard-library `sqlite3` (`WAL` mode) for zero-infrastructure ACID state persistence, and `ruff` (optional dev group in `pyproject.toml`) for static linting.
 
 ---
 
@@ -81,7 +81,9 @@ Refer to [`core/config.py`](file:///engine/core/config.py) and [`core/paths.py`]
 | `OPENROUTER_API_KEY` | Optional | `None` | API key for OpenRouter (plus optional `GROQ_API_KEY`, `DEEPSEEK_API_KEY`, `COHERE_API_KEY`, `PERPLEXITY_API_KEY`, `TOGETHER_API_KEY`, `META_API_KEY`, `META_API_BASE`). |
 | `ADMIN_USERNAME` | No | `admin` | HTTP Basic Auth username for protected `/api/*` endpoints. |
 | `ADMIN_PASSWORD` | **Yes** (for API) | `""` | HTTP Basic Auth password for protected `/api/*` endpoints. |
-| `AUDIT_HMAC_SECRET` | **Yes** (in Prod) | `""` | Secret key (`>= 32` chars) for signing non-repudiable HMAC-chained audit logs (optional in dev; fail-fast required when `ENVIRONMENT=production`). |
+| `AUDIT_HMAC_SECRET` | **Yes** (in Prod unless keyring set) | `""` | Single secret key (`>= 32` chars) for signing non-repudiable HMAC-chained audit logs (fail-fast required when `ENVIRONMENT=production` unless `AUDIT_HMAC_KEYS_JSON` is provided). |
+| `AUDIT_HMAC_KEYS_JSON` | Optional | `""` | JSON keyring mapping `{key_id: secret}` for zero-downtime HMAC key rotation across historical audit files. |
+| `AUDIT_HMAC_ACTIVE_KEY_ID` | Optional | `""` | Active key identifier in `AUDIT_HMAC_KEYS_JSON` used for newly written audit records (falls back to `SystemSettings.audit_hmac_key_id`). |
 | `PORT` | No | `8000` | HTTP port on which FastAPI listens. |
 | `BASE_AVATAR_URL` | Recommended | `https://izvor.local/` | Public HTTPS URL of this deployment so Slack servers can fetch custom persona avatars at `/avatars/*`. |
 | `TOOLS_WORKSPACE_DIR` | No | `.` | Workspace root directory (`IZVOR_WORKSPACE_DIR` also supported); agent document tools remain sandboxed to `agents_resources/`. |
@@ -109,17 +111,17 @@ All domain-specific customization lives inside `config/`:
 - **Avatars & RAG Knowledge ([`config/avatars/`](file:///config/avatars), [`config/rag_knowledge/`](file:///config/rag_knowledge))**: Drop custom avatar PNGs into `config/avatars/` and domain markdown/text/PDF documents into `config/rag_knowledge/shared/` or `config/rag_knowledge/<agent_id>/`.
 
 ### 2. Core Engine & Built-ins (`engine/`) — *Do Not Modify During Configuration*
-The `engine/` directory contains the core Python runtime (134 modules across 10 packages) and immutable system definitions. Avoid modifying files in `engine/` unless performing a deliberate architectural refactoring:
+The `engine/` directory contains the core Python runtime (**146 modules** across **10 packages**, including `engine/config_store/`) and immutable system definitions. Avoid modifying files in `engine/` unless performing a deliberate architectural refactoring:
 - **System Agents & Orchestrator ([`engine/settings/system_agent_settings.json`](file:///engine/settings/system_agent_settings.json))**: Immutable baseline configuration for the `orchestrator` (`fast_model`, `reasoning_model`) and the **5 built-in `system_agents`** (`InternalRevisor`, `list_skills`, `Challenger`, `Arbitrator`, and `DiscussionScribe`). Runtime overrides modified via Slack App Home are written to `data/settings/system_agent_settings.json`.
 - **Built-in System Prompts ([`engine/prompts/system_agents/`](file:///engine/prompts/system_agents) & [`engine/prompts/shared/`](file:///engine/prompts/shared))**: Core prompt assembly rules, nomination syntax, and system prompt templates (`Arbitrator.md`, `Challenger.md`, `Discussion_Scribe_Live.md`, `Discussion_Scribe_Conclusion.md`, `InternalRevisor.md`, `Intent_Extractor.md`, `Language_Detector.md`, `Pricing_Agent.md`).
-- **Built-in Control & Modifier Skills ([`engine/skills/builtin/`](file:///engine/skills/builtin))**: 17 built-in orchestration and directive skills (`control_plane`, `first`, `rounds`, `max_words`, `min_words`, `scribe_max_words`, `scribe_min_words`, `open_debate`, `grant_skill`, `grant_skill_for_all`, `revoke_skill_for_all`, `revoke_constraint`, `exclude_agents`, `include_agents`, `list_skills`, `stop_discussion`, `thread_history`).
+- **Built-in Control & Modifier Skills ([`engine/skills/builtin/`](file:///engine/skills/builtin))**: **18 built-in** orchestration and directive skills (`control_plane`, `first`, `forget_thread`, `rounds`, `max_words`, `min_words`, `scribe_max_words`, `scribe_min_words`, `open_debate`, `grant_skill`, `grant_skill_for_all`, `revoke_skill_for_all`, `revoke_constraint`, `exclude_agents`, `include_agents`, `list_skills`, `stop_discussion`, `thread_history`).
 - **Seed Workflows ([`engine/workflows/`](file:///engine/workflows))**: Protected system default workflow presets (`default_review_flow.json`, `default_sandwich.json`, `parallel_dialectic_flow.json`).
 
 ### 3. Runtime & Slack UI State (`data/`) — *Managed Automatically at Runtime*
 The `data/` directory stores live databases, caches, audit logs, and Slack UI state:
 - **Slack App Home State ([`data/state/app_settings.json`](file:///data/state/app_settings.json))**: Stores runtime toggles (circuit breaker thresholds, daily USD budget, Scribe toggle, convergence fast-forward, workspace baseline context). **Modify these via the Slack App Home UI rather than editing the JSON file directly.**
 - **Presidio Skill Exclusions ([`data/state/presidio_skill_exclusions.json`](file:///data/state/presidio_skill_exclusions.json))**: Automatically synchronized keyword allowlists for registered skills so Presidio NER never masks valid skill or tool identifiers.
-- **SQLite State Engine (`data/izvor.db`)**, **Audit Logs (`data/audit/`)**, **LanceDB Indices (`data/.rag_cache/lancedb/`)**, **Pricing Cache (`data/pricing/`)**, **Backups (`data/backups/`)**, and **Transcripts (`data/flat-histories/`)**.
+- **SQLite State Engine (`data/izvor.db`)**, **Audit Logs (`data/audit/`)**, **LanceDB Indices (`data/.rag_cache/lancedb/`)**, **Pricing Cache (`data/pricing/`)**, **Backups (`data/backups/`)**, **Scribe Thread Notes (`data/thread_notes/`)**, **Thread Downloads (`data/downloads/`)**, and **Transcripts (`data/flat-histories/`)**.
 
 ---
 
@@ -133,6 +135,7 @@ System operational parameters, security guardrails, and timeouts are managed by 
 | `default_reasoning_model` | `"mistral/mistral-large-latest"` | System-level fallback model for deep deliberation and Stage 2 revisor confirmation. |
 | `log_level` | `"INFO"` | Application log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`). |
 | `strict_privacy_mode_enabled` | `true` | Enforces two-way Presidio + regex PII masking on outbound LLM prompts. |
+| `pii_ner_models` | `["en_core_web_sm"]` *(schema default)* | Configurable list of installed spaCy NER models validated via `spacy.util.is_package()` for multilingual Presidio detection. |
 | `internal_revisor_enabled` | `true` | Enables Two-Stage `InternalRevisor` post-turn hallucination/contradiction verification. |
 | `shared_evidence_max_chars` | `40000` | Maximum character budget for `<shared_round_evidence>` and `<retrieved_evidence>` blocks. |
 | `debate_turn_pacing_seconds` | `3.0` | Delay between consecutive agent turns to prevent flooding. |
@@ -142,6 +145,11 @@ System operational parameters, security guardrails, and timeouts are managed by 
 | `max_write_bytes` | `1048576` | Hard ceiling in bytes (1 MB) for individual `write_document` workspace writes. |
 | `guardrail_fail_mode` | `"open"` | Prompt-injection guardrail error fallback mode (`"open"` allows turn with warning, `"closed"` blocks execution and logs `GUARDRAIL_FAIL_CLOSED_BLOCKED`). |
 | `guardrail_embedding_cache_size` | `500` | LRU cache capacity for prompt embedding similarity calculations. |
+| `guardrail_chunk_chars` | `800` *(schema default)* | Maximum characters per sliding window during semantic prompt-injection checks. |
+| `guardrail_chunk_overlap_chars` | `200` *(schema default)* | Overlap between adjacent prompt-injection sliding windows. |
+| `guardrail_max_chunks` | `8` *(schema default)* | Maximum sampled sliding windows embedded per prompt (`head`/`middle`/`tail` sampling). |
+| `guardrail_indirect_embedding_enabled` | `false` *(schema default)* | Opt-in embedding similarity check on untrusted tool outputs (`screen_untrusted_tool_output` always runs zero-cost heuristics). |
+| `audit_hmac_key_id` | `"default"` *(schema default)* | Fallback active HMAC `key_id` when `AUDIT_HMAC_ACTIVE_KEY_ID` is unset. |
 | `max_discussion_turns` | `20` | Hard ceiling for total agent turns in a single thread deliberation. |
 | `max_tool_iterations` | `3` | Maximum tool execution iterations per single agent turn. |
 | `tool_call_num_retries` | `2` | Number of retries permitted for transient tool invocation failures. |
@@ -151,7 +159,7 @@ System operational parameters, security guardrails, and timeouts are managed by 
 | `system_agent_inference_retry_timeout_multiplier` | `1.5` | Timeout multiplier applied on system agent retry attempts. |
 | `thread_cleanup_interval_seconds` | `600.0` | Frequency in seconds for pruning idle in-memory thread states (10 minutes). |
 | `audit_integrity_check_interval_seconds` | `43200.0` | Frequency in seconds for verifying the cryptographic hash chain of audit logs (12 hours). |
-| `skill_exclusions_sync_interval_seconds` | `86400.0` | Frequency in seconds for periodic synchronization of Presidio skill keyword exclusions (24 hours, default in [`SystemSettingsModel`](file:///engine/config_store/system_settings.py)). |
+| `skill_exclusions_sync_interval_seconds` | `86400.0` *(schema default)* | Frequency in seconds for periodic synchronization of Presidio skill keyword exclusions (24 hours, default in [`SystemSettingsModel`](file:///engine/config_store/system_settings.py)). |
 | `pricing_cache_ttl_days` | `7` | Cache lifespan in days for LLM token pricing benchmarks. |
 | `slack_file_download_timeout_seconds` | `30.0` | Timeout in seconds for downloading attached files from Slack. |
 | `web_search_timeout_seconds` | `10.0` | Timeout in seconds for outbound `ddgs` web searches. |
@@ -187,7 +195,7 @@ uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 
 ### Windows Proactor Loop Notice
 
-On Windows platforms, Python's Proactor event loop can occasionally stall when no incoming HTTP sockets are active. Izvor automatically starts a background heartbeat coroutine [`keep_loop_alive`](file:///main.py#L61-L68) to keep the loop responsive without measurable CPU overhead.
+On Windows platforms, Python's Proactor event loop can occasionally stall when no incoming HTTP sockets are active. Izvor automatically starts a background heartbeat coroutine [`keep_loop_alive`](file:///main.py#L86-L92) to keep the loop responsive without measurable CPU overhead.
 
 ### Health Check Verification
 

@@ -21,16 +21,16 @@ Always create an implementation plan first before writing code or modifying exis
 ### 4. Architectural Antipattern & Security Guard
 If a requested solution represents poor engineering practice, an architectural antipattern, a security risk (e.g. path traversal, unverified webhooks), or a runaway token cost risk, **do not implement it blindly**. Warn about the downsides, explain why it is inadvisable, and propose 1–2 safer alternatives.
 
-### 5. Strict Layer Boundaries & Async LLM Enforcement
-- Lower architectural layers (`core`, `nlp`, `pipeline`, `services`) must never import from `orchestration` or `adapters` (enforced by [`tests/unit/test_architecture_layers.py`](file:///tests/unit/test_architecture_layers.py)).
+### 5. Strict 5-Tier DAG Boundaries & Async LLM Enforcement
+- Lower architectural tiers (`L1 core`, `L1.5 config_store`, `L2 services/skills/nlp/prompts/pipeline`, `L3 orchestration/agents`) must never import upward across the 5-tier DAG (enforced by `test_strict_five_tier_dag_layer_boundaries` in [`tests/unit/test_architecture_layers.py`](file:///tests/unit/test_architecture_layers.py)).
 - All runtime LLM and embedding invocations must use async `litellm.acompletion` and `litellm.aembedding` (enforced by [`tests/unit/test_async_llm_enforcement.py`](file:///tests/unit/test_async_llm_enforcement.py)).
 
 ---
 
 ### 6. 3-Tier Separation of Concerns (`config/`, `engine/`, `data/`)
 - **Implementer Configuration (`config/`)**: Debate personas (`config/personas/`), debate panel settings (`config/settings/agent_settings.json`), system tuning (`config/settings/system_settings.json`), custom workflows (`config/workflows/`), agent tool skills (`config/skills/`), avatars (`config/avatars/`), and RAG documents (`config/rag_knowledge/`) belong in `config/`.
-- **Immutable Engine (`engine/`)**: Core Python packages (`engine/core`, `engine/orchestration`, `engine/pipeline`, `engine/nlp`, `engine/adapters`, `engine/services`, `engine/prompts`, `engine/skills`), system agents (`engine/settings/system_agent_settings.json`), built-in modifier/control skills (`engine/skills/builtin/`), and seed workflows (`engine/workflows/`) belong in `engine/`.
-- **Runtime & UI State (`data/`)**: Dynamic Slack UI settings (`data/state/app_settings.json`), SQLite databases (`data/izvor.db`), audit logs (`data/audit/`), backups (`data/backups/`), and exported transcripts (`data/flat-histories/`) belong in `data/`.
+- **Immutable Engine (`engine/`)**: Core Python packages (`engine/core`, `engine/config_store`, `engine/orchestration`, `engine/agents`, `engine/pipeline`, `engine/nlp`, `engine/adapters`, `engine/services`, `engine/prompts`, `engine/skills`), system agents (`engine/settings/system_agent_settings.json`), built-in modifier/control skills (`engine/skills/builtin/`), and seed workflows (`engine/workflows/`) belong in `engine/`.
+- **Runtime & UI State (`data/`)**: Dynamic Slack UI settings (`data/state/app_settings.json`), SQLite databases (`data/izvor.db`), audit logs (`data/audit/`), backups (`data/backups/`), Scribe thread notes (`data/thread_notes/`), downloaded Slack attachments (`data/downloads/`), and exported transcripts (`data/flat-histories/`) belong in `data/`.
 
 ---
 
@@ -38,16 +38,15 @@ If a requested solution represents poor engineering practice, an architectural a
 
 ### A. Debate Panel Persona (`config/`)
 To introduce or customize a debate panel persona:
-1. **System Prompt**: Add a dedicated markdown prompt file in [`config/personas/`](file:///config/personas) (e.g., `config/personas/agent-10018.md`) defining the persona's core perspective, biases, and tone.
+1. **System Prompt**: Add a dedicated markdown prompt file in [`config/personas/`](file:///config/personas) (e.g., `config/personas/agent-10018.md`) matching the agent key.
 2. **Avatar Image**: Place the avatar PNG in [`config/avatars/`](file:///config/avatars).
 3. **Roster Registration**: Register the agent entry in [`config/settings/agent_settings.json`](file:///config/settings/agent_settings.json) under `"agents"` (and optionally add its ID to `"enabled_agents"`):
    - `username`: Canonical identifier (e.g. `DataScientist`).
    - `displayname`: Formatted title (e.g. `Data Scientist`).
-   - `model`: Default LLM router string.
-   - `instruction`: Relative prompt path (e.g. `config/personas/agent-10018.md`).
-   - `avatar`: Avatar filename (e.g. `image_18.png`).
+   - `model`: Default LLM router string (e.g. `gemini/gemini-3.8-flash`).
+   - `icon_url`: Relative avatar path (e.g. `avatars/image_18.png`).
+   - `is_short_output`: Boolean controlling concise output mode (`false` or `true`).
    - `skills`: Initial tool permissions (e.g. `["knowledge_base_rag", "web_research"]`).
-   - `special_role`: Dialectical role (`"NONE"`, `"CHALLENGER"`, or `"ARBITRATOR"`).
 4. **Entity Resolution**: Add aliases or nickname mappings to [`engine/pipeline/entity_resolver`](file:///engine/pipeline/entity_resolver).
 5. **Tests**: Add unit test verification to [`tests/unit/test_agent_settings_ssot.py`](file:///tests/unit/test_agent_settings_ssot.py).
 

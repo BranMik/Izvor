@@ -7,9 +7,9 @@ This document details the test suites, testing practices, and quality assurance 
 ## 🧪 Test Suite Overview
 
 Izvor organizes its tests into a clean, 3-tier hierarchy:
-1. **Unit Tests** ([`tests/unit/`](file:///tests/unit)): 55 fast, isolated component tests verifying models, parsers, policies, security sanitizers, pricing logic, and architectural rules.
-2. **Integration Tests** ([`tests/integration/`](file:///tests/integration)): 35 multi-component tests verifying SQLite engines, Turn Pipeline lifecycle, Slack interactivity endpoints, RAG Vector DB, HITL checkpoints, and multi-agent loops.
-3. **E2E Behavioral Simulation Harness** ([`tests/e2e/`](file:///tests/e2e)): 28 comprehensive Slack event, WebClient interception, and dialectical scenario simulations.
+1. **Unit Tests** ([`tests/unit/`](file:///tests/unit)): **66** fast, isolated component test files verifying models, parsers, policies, security sanitizers, pricing logic, and architectural rules.
+2. **Integration Tests** ([`tests/integration/`](file:///tests/integration)): **37** multi-component test files verifying SQLite engines, Turn Pipeline lifecycle, Slack interactivity endpoints, RAG Vector DB, HITL checkpoints, and multi-agent loops (combined default suite: **103 files, 1,025 passing tests**).
+3. **E2E Behavioral Simulation Harness** ([`tests/e2e/`](file:///tests/e2e)): 28 comprehensive Slack event, WebClient interception, and dialectical scenario simulations (**8** harness modules, executed explicitly via `test_e2e_suite.py` or `tests.e2e.runner`).
 
 ```
 tests/
@@ -17,16 +17,16 @@ tests/
 ├── unit/                                      # Tier 1: Fast isolated unit tests & static checkers
 │   ├── test_admin_auth.py                     # HTTP Basic Auth & timing attack defense
 │   ├── test_agent_settings_ssot.py            # Settings manager, atomic writes & backups
-│   ├── test_architecture_layers.py            # AST import boundary guard (core, nlp, pipeline, services)
+│   ├── test_architecture_layers.py            # AST 5-tier DAG boundary guard (core, config_store, nlp, pipeline, services, orchestration, adapters)
 │   ├── test_async_llm_enforcement.py          # Enforces async acompletion/aembedding across runtime
-│   ├── test_audit_logger.py                   # Cryptographic hash chaining, SQLite anchors & tail truncation
-│   ├── test_code_hygiene.py                   # Code hygiene, markdown link verification & brand guards
+│   ├── test_audit_logger.py                   # Cryptographic hash chaining, HMAC keyring rotation, SQLite anchors & tail truncation
+│   ├── test_code_hygiene.py                   # Code hygiene, README/docs markdown link verification & brand guards
 │   ├── test_directive_slash_parser.py         # Regex directive extraction & slash commands
-│   ├── test_document_parser.py                # PDF, DOCX, XLSX, PPTX, text & markdown reading
+│   ├── test_document_parser.py                # PDF, text & markdown parsing (code-fence-aware)
 │   ├── test_intent_extractor.py               # Unified pre-flight NLP directive & language detection
 │   ├── test_pricing_service.py                # Token cost lookup, price bounds & fail-expensive fallback
 │   ├── test_rate_limiter.py                   # Token bucket / rate limiter tests
-│   └── ...                                    # (55 unit test files total)
+│   └── ...                                    # (66 unit test files total)
 ├── integration/                               # Tier 2: Multi-component & lifecycle integration tests
 │   ├── test_db_migrations.py                  # SQLite PRAGMA user_version numbered MIGRATIONS tests
 │   ├── test_discussion_loop.py                # DiscussionLoop multi-turn routing & continuation tests
@@ -45,7 +45,7 @@ tests/
 │   ├── test_turn_pipeline_di.py               # 5-stage pipeline dependency injection isolation
 │   ├── test_turn_pipeline_hooks.py            # PipelineDeps hooks & telemetry trace recording
 │   ├── test_web_tools_security.py             # PinnedIPTransport DNS rebinding, IPv6/NAT64 & fetch cap
-│   └── ...                                    # (35 integration test files total)
+│   └── ...                                    # (37 integration test files total)
 └── e2e/                                       # Tier 3: Synthetic Slack event & behavioral harness
     ├── conftest.py                            # E2E CLI parser flags (--mock, --hybrid--mocked-llm)
     ├── hybrid_interceptor.py                  # Intercepts outbound WebClient calls & records assertions

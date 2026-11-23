@@ -22,7 +22,7 @@ The debate panel roster is managed dynamically in [`config/settings/agent_settin
 | Agent ID | Display Name | Username Tag | Default LLM Model | Default Assigned Skills | Output Style |
 |---|---|---|---|---|---|
 | `agent-10001` | **Visionary** | `Visionary` | `gemini/gemini-3.8-flash` | None | Full |
-| `agent-10002` | **Innovator** | `Innovator` | `anthropic/claude-opus-5` | None | Full |
+| `agent-10002` | **Innovator** | `Innovator` | `anthropic/claude-opus-5` | `document_authoring`, `document_reader`, `knowledge_base_rag` | Full |
 | `agent-10003` | **Sceptic** | `Sceptic` | `anthropic/claude-opus-5` | None | Full |
 | `agent-10004` | **Compliance, Privacy & Governance Officer** | `CompliancePrivacyAndGovernanceOfficer` | `mistral/mistral-large-latest` | None | Short / Concise |
 | `agent-10005` | **Scope Optimizer** | `ScopeOptimizer` | `mistral/mistral-large-latest` | None | Short / Concise |
@@ -72,9 +72,12 @@ In addition to the 16-persona debate roster in `config/settings/agent_settings.j
 - **Role**: Inline validation barrier running at the end of `TurnPipeline.run()` and `resume_from_checkpoint()` with a 3.5s timeout, evaluating responses against user constraints and injecting `[Internal Revisor Warning]` feedback into accumulated history for subsequent speakers.
 - **Service**: Implemented in [`orchestration/revisor_service.py`](file:///engine/orchestration/revisor_service.py).
 
-### 6. Thread Notes Agent (`Thread_Notes_Agent`)
-- **Role**: Asynchronous background synthesis agent generating and pinning live strategic synthesis notes and final dialectical conclusion notes to discussion threads, persisted in SQLite table `thread_notes_state` and injected as Tier 2 `<episodic_thread_summary>` memory.
+### 8. Thread Notes Agent (`Thread_Notes_Agent`)
+- **Role**: Asynchronous background synthesis agent generating and pinning live strategic synthesis notes and final dialectical conclusion notes to discussion threads, persisted in SQLite table `thread_notes_state` and injected as Tier 1 `<episodic_thread_summary>` memory when conversation history is sliced.
 - **Implementation**: Managed in [`agents/thread_notes_agent.py`](file:///engine/agents/thread_notes_agent.py).
+
+### 9. Skills Directory Presenter (`List_Skills`)
+- **Role**: System agent invoked via `/list_skills` to format and present the thread-aware catalog of available skills and authorized personas.
 
 ---
 
@@ -85,6 +88,6 @@ Personas' effective system prompts are assembled dynamically during **Stage 3: C
 1. **Base System Prompt**: Loaded from [`config/personas/`](file:///config/personas) (for debate personas) or [`engine/prompts/system_agents/`](file:///engine/prompts/system_agents) (for system agents).
 2. **Behavioral Guidelines**: Rules prohibiting self-repetition, requiring peer engagement, and enforcing civil intellectual tension.
 3. **3-Tier Memory Context**: Injects `<episodic_thread_summary>` (when history is sliced) and `<shared_round_evidence>` (cached read-only tool outputs from `RoundEvidenceStore`).
-4. **Word Constraints**: If `is_short_output: true` or if a directive (`[max_words: N]`, `[min_words: N]`) is active, instructions are clamped (`max_words ≤ 2000`) and injected into the prompt.
+4. **Word Constraints**: If `is_short_output: true` or if a directive (`/max_words N`, `/min_words N`) is active, instructions are clamped (`max_words ≤ 2000`) and injected into the prompt.
 5. **File Attachments**: Any thread-attached files are safely sanitized and wrapped with `<untrusted_file_content>` delimiters.
 6. **Active Tools & Control Plane Skills**: Schemas of granted tools (e.g. search, document reader) plus global `control_plane` tools (`nominate_next_speaker`, `request_user_clarification`, `signal_consensus_convergence`) are queried from [`ThreadSkillsManager`](file:///engine/services/thread_skills_store.py) and appended to the LiteLLM tool definition payload.

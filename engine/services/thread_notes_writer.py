@@ -3,9 +3,9 @@ Thread Notes Disk Persistence Service for Izvor.
 
 Saves finalized Live Scribe Notes and Conclusion Notes to data/thread_notes/ (IZVOR_THREAD_NOTES_DIR).
 Filename convention:
-  <prompt_slug>_<ts5>_live_notes.md
-  <prompt_slug>_<ts5>_conclusion.md
-where ts5 is the last 5 digits of thread_ts (guaranteeing non-overlap for future identical prompts).
+  <prompt_slug>_<channel_id>_<ts5>_live_notes.md
+  <prompt_slug>_<channel_id>_<ts5>_conclusion.md
+where ts5 is the last 5 digits of thread_ts (guaranteeing non-overlap for future identical prompts and channel isolation).
 """
 
 from __future__ import annotations

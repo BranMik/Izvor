@@ -16,7 +16,7 @@ Izvor provides two distinct, defense-in-depth tool execution layers:
 ```mermaid
 graph TD
     Persona[Persona Prompt & Context] --> LLM[LiteLLM Provider]
-    LLM -->|tool_call| Dispatcher["Stage 4: ExecutionStage Tool Loop"]
+    LLM -->|tool_call| Dispatcher["Stage 4: ToolLoopRunner (stages/tool_loop_runner.py)"]
     
     subgraph Security & Confinement Pipeline
         Dispatcher --> PrincipalCheck{"ToolPrincipal Fail-Closed AuthZ"}
@@ -36,13 +36,14 @@ graph TD
         SecBridge --> OutboundSanitize["Outbound Masking: PII / Secret Stripping"]
         OutboundSanitize --> MCPClientMgr["McpClientManager Dispatch: Stdio / SSE"]
         MCPClientMgr --> InboundSanitize["Inbound Sanitization: Secret Leak Scanning"]
+        LocalExec --> IndirectScreen["Indirect Injection Screening (screen_untrusted_tool_output)"]
+        InboundSanitize --> IndirectScreen
     end
     
     subgraph Slack User Experience
-        Dispatcher --> Timer[5-Second Delayed Status Rule]
-        Timer -->|Duration >= 5s| SlackStatus[Post Intermediate In-Place Placeholder]
-        LocalExec --> Finalize[chat.update Edits Placeholder In-Place]
-        InboundSanitize --> Finalize
+        Dispatcher --> Timer["5-Second Delayed Status Rule"]
+        Timer -->|Duration >= 5s| SlackStatus["Post Intermediate In-Place Placeholder"]
+        IndirectScreen --> Finalize["chat.update Edits Placeholder In-Place"]
     end
 ```
 
@@ -103,15 +104,15 @@ When `load_skill` is invoked by an authorized agent, Izvor discovers tools from 
 
 ---
 
-## 🔐 Fail-Closed `ToolPrincipal` Authorization
+## 🔐 Fail-Closed `ToolPrincipal` Authorization & Indirect Screening
 
-Every tool execution in **Stage 4 (`ExecutionStage`)** is bound to an immutable [`ToolPrincipal`](file:///engine/core/domain.py) identity object containing:
+Every tool execution in **Stage 4 ([`ToolLoopRunner`](file:///engine/orchestration/stages/tool_loop_runner.py))** is bound to an immutable [`ToolPrincipal`](file:///engine/core/domain.py) identity object containing:
 - `agent_key`: The persona requesting the tool call.
 - `user_id`: The human Slack user who initiated the turn.
 - `thread_ts`: The active Slack thread identifier.
 - `allowed_skills`: The set of skills explicitly authorized for this agent in this thread (combining `agent_settings.json` baseline skills, `global: true` skills like `control_plane`, and active `ThreadSkillsManager` grants).
 
-[`SkillRegistry`](file:///engine/skills/registry.py) verifies `ToolPrincipal` before any tool handler is invoked. If `ToolPrincipal` is missing or the tool does not belong to `allowed_skills`, execution fails closed immediately.
+[`SkillRegistry`](file:///engine/skills/registry.py) verifies `ToolPrincipal` before any tool handler is invoked. If `ToolPrincipal` is missing or the tool does not belong to `allowed_skills`, execution fails closed immediately. Before returning any external tool result (`fetch_web_page`, `web_search`, `read_document`, MCP outputs) to the LLM context, `ToolLoopRunner` runs [`guardrail_service.screen_untrusted_tool_output()`](file:///engine/services/security/guardrail.py) (heuristic detection, plus optional embedding check when `guardrail_indirect_embedding_enabled: true`), neutralizing injected payloads and logging `INDIRECT_INJECTION_DETECTED`.
 
 ---
 
@@ -123,12 +124,13 @@ Allowing language models to read or write files carries security risks if uncons
 All agent-accessible file operations (`list_documents`, `read_document`, `write_document`) are strictly confined to `agents_resources/`.
 - Attempts to read or write within `system_resources/` or root project directories are rejected with a security denial.
 
-### 2. Filename & Path Traversal Hardening (`validate_resource_filename`)
-Before accessing the filesystem, `validate_resource_filename()` validates every path component:
-- Rejects path traversal sequences (`..`), null bytes (`\x00`), and symbolic link escapes (`Path.resolve()`).
-- Blocks **Windows reserved device names** (`CON`, `PRN`, `AUX`, `NUL`, `COM1`–`COM9`, `LPT1`–`LPT9`, with or without extensions) to prevent OS handle hangs on Windows hosts.
-- Blocks **NTFS Alternate Data Streams (ADS)** by rejecting colons (`:`) in relative paths.
-- Enforces `max_write_bytes` (default: `1048576` bytes / **1 MB** in `system_settings.json`) on `write_document` payloads to prevent disk exhaustion.
+### 2. Filename, Symlink & Write Hardening (`validate_resource_filename`)
+Before accessing the filesystem, `validate_resource_filename()` and tool handlers enforce:
+- Supports safe Unicode filenames while rejecting path traversal sequences (`..`), null bytes (`\x00`), control characters (`ord < 32` / `127`), trailing dots/spaces, and symlink escapes outside `agents_resources/`.
+- `list_documents()` explicitly skips any symlink or child entry whose resolved target escapes `agents_resources/`.
+- Blocks **Windows reserved device names** (`CON`, `PRN`, `AUX`, `NUL`, `COM1`–`COM9`, `LPT1`–`LPT9`, with or without extensions) and **NTFS Alternate Data Streams (ADS)** (`:`).
+- `read_document()` truncates oversized payloads safely at `MAX_READ_DOCUMENT_CHARS = 50000` (with explicit truncation metadata).
+- `write_document()` caps payloads at `max_write_bytes` (default: `1048576` bytes / **1 MB**) and writes atomically via `tempfile.mkstemp` + `os.fsync` + `os.replace()`.
 
 ### 3. Protected Write Paths (`DEFAULT_PROTECTED_WRITE_PATHS`)
 Configured in [`config_store/system_settings.py`](file:///engine/config_store/system_settings.py) (and extensible via `workspace_write_blacklist_additional`), the following critical locations cannot be modified by any tool execution:
@@ -144,7 +146,7 @@ Configured in [`config_store/system_settings.py`](file:///engine/config_store/sy
 
 Implemented in [`services/web_tools.py`](file:///engine/services/web_tools.py) and configured via `web_security` in `system_settings.json`, outbound `web_search` and `fetch_web_page` calls enforce:
 1. **DNS-Rebinding Defense (`PinnedIPTransport`)**: Resolves hostnames once, validates all resolved IPv4 and IPv6 addresses against private/loopback/link-local/multicast/reserved ranges (including IPv4-mapped IPv6 and NAT64 `64:ff9b::/96`), and pins the TCP connection directly to the validated IP while preserving TLS SNI and `Host` headers.
-2. **Port & Domain Restrictions**: Restricts connections to `allowed_ports` (default `[80, 443]`), enforces `allowed_domains` when configured, and strips query strings on untrusted domains (`strip_query_on_untrusted_domains: true`) to prevent data exfiltration via URL parameters.
+2. **Port, Scheme, Redirect & Slowloris Hardening**: Enforces `allowed_ports` (`[80, 443]`, including implicit default ports on `http`/`https`), validates every redirect hop against SSRF rules, **fails closed** on missing/empty or non-text `Content-Type` headers, bounds streamed reads with a monotonic wall-clock deadline against Slowloris attacks, synchronizes `ddgs` engine configuration via `_DDGS_ENGINE_LOCK`, and supports `allowed_domains` + `strip_query_on_untrusted_domains`.
 3. **Per-Turn Web Request Budget (`max_fetches_per_turn: 5`)**: Tracks outbound web requests per turn via a `contextvars.ContextVar` counter, rejecting excessive requests within a single turn.
 
 ---

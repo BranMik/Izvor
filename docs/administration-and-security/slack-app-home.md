@@ -29,35 +29,20 @@ The App Home view builder in [`services/slack_home/`](file:///engine/services/sl
 
 
 ```mermaid
-
 graph TD
-
-    SlackUser([Slack User]) -->|Opens App Home / Interacts| SlackAPI[Slack Platform]
-
-    SlackAPI -->|POST /slack/interactivity| InteractivityHandler["adapters/slack/interactivity.py"]
-
+    SlackUser(["Slack User"]) -->|"Opens App Home / Interacts"| SlackAPI["Slack Platform"]
+    SlackAPI -->|"POST /slack/interactivity"| InteractivityHandler["adapters/slack/interactivity.py"]
     InteractivityHandler --> ActionSpecGate{"ActionSpec Whole-Payload Pre-Auth"}
-
-    ActionSpecGate -->|Non-Admin on Admin Action| RejectBlock["Reject & Log AUTH_FAILURE"]
-
-    ActionSpecGate -->|Authorized| ActionModules["adapters/slack/actions/*"]
-
-    ActionModules --> SettingsMgr["AgentSettingsManager & AppSettingsManager (SSOT)"]
-
-    
+    ActionSpecGate -->|"Non-Admin on Admin Action"| RejectBlock["Reject (403) & Log ADMIN_ACTION_DENIED"]
+    ActionSpecGate -->|"Authorized"| ActionModules["adapters/slack/actions/* (incl. self_audited handlers)"]
+    ActionModules --> SettingsMgr["config_store/ Managers (Agent/App/Workflow SSOT)"]
 
     subgraph Persistence & Durability
-
         SettingsMgr --> AtomicWrite["Atomic File Write via JsonSettingsStore"]
-
         AtomicWrite --> EmergencyBackup["Rolling Backups (data/backups/ & engine/workflows/)"]
-
     end
 
-    
-
-    SettingsMgr --> RePublish["Re-render & Publish Updated App Home View"]
-
+    SettingsMgr --> RePublish["Publish via services/slack/views.py\n(Per-User Lock, Block Sanitizer, SHA-256 View-Hash Dedup)"]
 ```
 
 
@@ -74,7 +59,9 @@ To prevent unauthorized workspace members from tampering with agent settings, mo
 
 - **`is_slack_admin(user_id)` Gate**: Defined in [`core/config.py`](file:///engine/core/config.py), resolving authorized admin IDs from `SLACK_ADMIN_USER_IDS` in `.env`.
 
-- **Whole-Payload `ActionSpec` Pre-Authorization**: [`adapters/slack/interactivity.py`](file:///engine/adapters/slack/interactivity.py) maps every interactive `action_id` and modal `callback_id` to a declarative `ActionSpec(handler, admin_required=True)`. Before executing **any** action in a multi-action Slack payload, the dispatcher verifies authorization across all actions in the batch.
+- **Whole-Payload `ActionSpec` Pre-Authorization**: [`adapters/slack/interactivity.py`](file:///engine/adapters/slack/interactivity.py) maps every interactive `action_id` and modal `callback_id` to a declarative `ActionSpec(handler, admin_required=..., self_audited=...)`. Before executing **any** action in a multi-action Slack payload, the dispatcher verifies authorization across all actions in the batch (logging `ADMIN_ACTION_DENIED` on failure). Handlers that emit custom structured audit records set `self_audited=True` to guarantee single-outcome async audit emission (`log_audit_event_async`) without double-logging.
+
+- **Anti-IDOR Scribe Download Verification & View Publishing**: [`scribe_actions.py`](file:///engine/adapters/slack/actions/scribe_actions.py) validates that payload channel ownership matches the requested button target (returning HTTP `403` and logging `UNAUTHORIZED_SCRIBE_DOWNLOAD` on mismatch). App Home updates go through [`services/slack/views.py`](file:///engine/services/slack/views.py) (`publish_app_home`), which enforces event-loop-scoped per-user `asyncio.Lock` serialization, Block Kit sanitization (`sanitize_slack_blocks`), and bounded SHA-256 view-hash deduplication, backed by a lazy token-aware `AsyncWebClient` and rate-limited metadata helpers in [`services/slack/client_core.py`](file:///engine/services/slack/client_core.py).
 
 - **Modular Action Handlers**: Validated requests are routed to specialized modules in [`adapters/slack/actions/`](file:///engine/adapters/slack/actions/):
 
@@ -120,9 +107,9 @@ The App Home dashboard organizes controls into structured blocks (strictly cappe
 
 - **Workflow Presets**:
 
-  - **Preset Selection & Loading (`select_workflow_preset`, `load_workflow_preset_button`)**: Open to **all workspace members** as standard functionality, safely protected against cost overruns by thread circuit breakers and daily budget limits.
+  - **Preset Selection & Loading (`select_workflow_preset`, `load_workflow_preset_button`)**: Restricted strictly to **workspace administrators** (`admin_required=True` in `ACTION_REGISTRY`), preventing non-admin workspace members from altering the workspace-wide active workflow preset.
 
-  - **Preset Creation & Deletion (`save_workflow_preset_button`, `delete_workflow_preset_button`)**: Restricted strictly to **workspace administrators**.
+  - **Preset Creation & Deletion (`save_workflow_preset_button`, `delete_workflow_preset_button`)**: Restricted strictly to **workspace administrators** (`admin_required=True`).
 
   - **Turn 1 Workflow Snapshotting**: At Turn 1, each thread freezes a local snapshot of the active workflow configuration (`workflow_id`, `mode`, `sandwich_config`, `fixed_config`). This guarantees that concurrent thread deliberations are isolated and unaffected if another user switches the workspace preset in App Home.
 

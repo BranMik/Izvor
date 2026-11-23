@@ -46,7 +46,7 @@ Instead of relying on a single generic chatbot that is prone to sycophancy or na
 ## 2. Core Features
 
 ### 2.1 Multi-Persona Deliberation Topologies
-Managed by [workflow_manager.py](engine/orchestration/workflow_manager.py) and [sandwich.py](engine/pipeline/orchestrator/sandwich.py), Izvor supports multiple discussion topologies:
+Managed by [workflow_manager.py](engine/config_store/workflow_manager.py) and [sandwich.py](engine/pipeline/orchestrator/sandwich.py), Izvor supports multiple discussion topologies:
 - **Sandwich Mode (`sandwich`)**: Opens with a sequential *Start Chain* for problem framing, transitions into an open *Middle Pool* with autonomous peer nominations (`/[@Agent]` or `nominate_next_speaker`), and concludes with a sequential *End Chain* for synthesis.
 - **Parallel Dialectic / Scatter-Gather (`scatter_gather`)**: Executes Turn 1 framing, fans out concurrent specialist branches via `asyncio.TaskGroup` using isolated conversation histories (eliminating sequential anchoring bias) with atomic budget pre-reservations, and gathers all perspectives for final *End Chain* synthesis.
 - **Fixed Chain (`fixed`) & Custom Ad-Hoc Flows**: Deterministic ordered sequences from preset workflows or explicit user tags in Slack (e.g., `/[Visionary] /[SecurityArchitect]`).
@@ -56,13 +56,13 @@ Managed by [workflow_manager.py](engine/orchestration/workflow_manager.py) and [
 ### 2.2 Context Engineering, Epistemic Integrity & Skills
 - **3-Tier Thread Memory**: Combines (1) *Episodic Summaries* maintained by the *Discussion Scribe* ([scribe.py](engine/pipeline/discussion_scribe/scribe.py)), (2) *Shared Round Evidence* deduplicating read-only tool outputs across turns ([evidence_store.py](engine/orchestration/state/evidence_store.py)), and (3) *Sliding-Window History* ([message_builder.py](engine/nlp/message_builder.py)).
 - **Two-Stage Internal Revisor**: After every turn, [revisor_service.py](engine/orchestration/revisor_service.py) screens the agent's claims against authoritative ground truth (`<initial_user_prompt>` and `<retrieved_evidence>`) with a fast model and confirms any flagged hallucination with a stronger reasoning model before posting a warning.
-- **Declarative Skills & Progressive Disclosure**: Loads a **configurable, extensible agent tool skillset** (4 out-of-the-box in [config/skills/](config/skills): `web_research`, `document_reader`, `document_authoring`, `knowledge_base_rag`), **17 built-in directive/control-plane skills** ([engine/skills/builtin/](engine/skills/builtin)), and external **MCP servers** ([client_manager.py](engine/services/mcp/client_manager.py)). Agents start with `load_skill` and unlock authorized tool schemas on demand, enforced by fail-closed `ToolPrincipal` ACLs.
-- **Hybrid Local RAG**: Combines dense vector embeddings in LanceDB with Tantivy BM25 full-text search using Reciprocal Rank Fusion ([service.py](engine/services/rag/service.py)), kept in sync via incremental SHA-256 manifest scanning over shared and agent-scoped documents in [config/rag_knowledge/](config/rag_knowledge) ([sync_engine.py](engine/services/rag/sync_engine.py)) with retrieval-time PII masking and structured citations.
+- **Declarative Skills & Progressive Disclosure**: Loads **22 declarative skills** — **4 configurable agent tool skills** ([config/skills/](config/skills): `web_research`, `document_reader`, `document_authoring`, `knowledge_base_rag`), **18 built-in directive/control-plane skills** ([engine/skills/builtin/](engine/skills/builtin), including admin GDPR erasure `/forget_thread`), and external **MCP servers** ([client_manager.py](engine/services/mcp/client_manager.py)). `SkillRegistry` uses lazy initialization (`auto_load=False` + explicit startup `reload()`); agents start with `load_skill` and unlock authorized tool schemas on demand, enforced by fail-closed `ToolPrincipal` ACLs.
+- **Hybrid Local RAG**: Combines dense vector embeddings in LanceDB with Tantivy BM25 full-text search using Reciprocal Rank Fusion ([service.py](engine/services/rag/service.py)), kept in sync via incremental SHA-256 manifest scanning, collision-free SHA-256 `sanitize_id`, code-fence-aware Markdown parsing, shared per-document PII `token_mapping`, and `__meta__.config_hash` auto-reindexing over shared and agent-scoped documents in [config/rag_knowledge/](config/rag_knowledge) ([sync_engine.py](engine/services/rag/sync_engine.py)).
 
 ### 2.3 Security, Privacy & Spend Governance
-- **Defense-in-Depth Security**: HMAC-SHA256 Slack webhook verification ([slack_security.py](engine/core/slack_security.py)), LanceDB cosine-similarity prompt injection guardrails ([guardrail.py](engine/services/security/guardrail.py)), two-way Presidio + regex PII masking ([pii_masker.py](engine/services/security/pii_masker.py)), DNS-pinned SSRF-safe web fetching ([web_tools.py](engine/services/web_tools.py)), and non-repudiable HMAC-chained monthly JSONL audit logs anchored in SQLite ([audit_logger.py](engine/services/audit_logger.py)).
+- **Defense-in-Depth Security**: HMAC-SHA256 Slack webhook verification ([slack_security.py](engine/core/slack_security.py)), hardened prompt-injection & indirect tool-output guardrails ([guardrail.py](engine/services/security/guardrail.py) with zero-cost heuristic pre-filter, capped sliding-window LanceDB embeddings, and `screen_untrusted_tool_output()`), two-way configurable Presidio NER + regex PII masking ([pii_masker.py](engine/services/security/pii_masker.py)), DNS-pinned SSRF/Slowloris-safe web fetching ([web_tools.py](engine/services/web_tools.py)), and non-repudiable HMAC-chained monthly JSONL audit logs with `key_id` keyring rotation (`AUDIT_HMAC_KEYS_JSON`) anchored in SQLite ([audit_logger.py](engine/services/audit_logger.py)), alongside REST GDPR erasure (`DELETE /api/threads/{channel_id}/{thread_ts}`).
 - **Spend Governance & Durable Checkpointing**: Tracks token and USD spend per turn ([pricing_service.py](engine/services/pricing_service.py)), enforces per-thread and daily USD circuit breakers ([circuit_breaker.py](engine/pipeline/spend_governance/circuit_breaker.py)), and serializes mid-turn `TurnCheckpoint` snapshots ([turn_checkpoint_store.py](engine/services/turn_checkpoint_store.py)) for Human-in-the-Loop (HITL) tool approvals and budget pauses.
-- **Slack App Home Control Plane**: Interactive UI ([slack_home/](engine/services/slack_home/__init__.py)) for Slack admins to configure workflows, agent models/skills, system settings, and budgets with rolling JSON backups.
+- **Slack App Home Control Plane**: Interactive UI ([slack_home/](engine/services/slack_home/__init__.py)) for Slack admins to configure workflows, agent models/skills, system settings, and budgets with rolling JSON backups, Block Kit sanitization, per-user publish locking, and SHA-256 view deduplication.
 
 <p align="center">
 	<img src="slack_app_home.png" alt="Slack App Home Control Plane" width="1000">
@@ -75,15 +75,16 @@ Managed by [workflow_manager.py](engine/orchestration/workflow_manager.py) and [
 
 ## 3. Architecture Overview
 
-Izvor is structured around a **3-Pillar Physical Layout** ([paths.py](engine/core/paths.py)) and a **4-Layer Hexagonal Architecture**:
+Izvor is structured around a **3-Pillar Physical Layout** ([paths.py](engine/core/paths.py)) and a strict **5-Tier Unidirectional DAG Architecture** (`146` Python files across `10` engine packages):
 
 1. **`config/` (Implementer Configuration Pillar)**: Customizable settings ([agent_settings.json](config/settings/agent_settings.json), [system_settings.json](config/settings/system_settings.json)), 16 persona Markdown prompts (`config/personas/`), agent tool skills (`config/skills/`, 4 OOB), custom workflows (`config/workflows/`), and RAG documents (`config/rag_knowledge/`).
-2. **`engine/` (Immutable Core Engine Pillar)**: 134 Python modules across 4 layers:
-   - **Layer 1 (`engine/core/`)**: Zero-upward-import foundation (`database.py`, `domain.py`, `models.py`, `paths.py`, `llm_utils.py`, `slack_security.py`), enforced by AST tests in [test_architecture_layers.py](tests/unit/test_architecture_layers.py).
-   - **Layer 2 (`engine/pipeline/`, `engine/services/`, `engine/skills/`, `engine/nlp/`, `engine/prompts/`)**: Directive parsing, Sandwich/Scatter-Gather routing, hybrid RAG (`LanceDB` + `Tantivy` BM25), MCP client manager, PII masking, HITL, pricing, and audit logging.
-   - **Layer 3 (`engine/orchestration/`, `engine/agents/`)**: `DiscussionLoop`, the 5-stage `TurnPipeline`, `ThreadStateManager`, `RevisorService`, `WorkflowManager`, and background support agents (`ThreadNotesAgent`, `UsageAgent`).
-   - **Layer 4 (`engine/adapters/slack/`, [main.py](main.py))**: FastAPI server lifespan, Admin REST API, Slack webhook ingress, and `SlackWorkspaceAdapter`.
-3. **`data/` (Runtime & UI State Pillar)**: Embedded SQLite WAL database (`data/izvor.db` with 11 tables), Slack App Home state (`data/state/app_settings.json`), hash-chained audit logs (`data/audit/`), LanceDB vector indices (`data/.rag_cache/`), pricing cache (`data/pricing/`), and rolling backups (`data/backups/`).
+2. **`engine/` (Immutable Core Engine Pillar)**: 146 Python modules across 5 DAG tiers enforced by AST checks in [test_architecture_layers.py](tests/unit/test_architecture_layers.py):
+   - **Tier 1 (`engine/core/`)**: Zero-upward-import foundation (`database.py`, `domain.py`, `models.py`, `paths.py`, `llm_utils.py`, `slack_security.py`, `logging_filters.py`).
+   - **Tier 1.5 (`engine/config_store/`)**: Single-Source-of-Truth config & preset persistence (`WorkflowManager`, `AgentSettingsManager`, `SystemSettingsManager`, `AppSettingsManager`, `JsonSettingsStore`, `ConfigIntegrityValidator`).
+   - **Tier 2 (`engine/services/`, `engine/skills/`, `engine/nlp/`, `engine/prompts/`, `engine/pipeline/`)**: Directive parsing, Sandwich/Scatter-Gather routing, hybrid RAG (`LanceDB` + `Tantivy` BM25), MCP client manager, PII masking, HITL, pricing, audit logging, and `ThreadSkillsManager`.
+   - **Tier 3 (`engine/orchestration/`, `engine/agents/`)**: `DiscussionLoop`, the 5-stage `TurnPipeline` (`ToolLoopRunner`, `ControlPlaneHandler`, `TurnFinalizer`), `ThreadStateManager`, `RevisorService`, and background support agents (`ThreadNotesAgent`, `UsageAgent`).
+   - **Tier 4 (`engine/adapters/slack/`, [main.py](main.py))**: FastAPI server lifespan (`WEB_CONCURRENCY > 1` fail-fast + graceful task drain), Admin REST API (`/api/*` incl. `DELETE /api/threads/{channel_id}/{thread_ts}`), Slack webhook ingress, and `SlackWorkspaceAdapter`.
+3. **`data/` (Runtime & UI State Pillar)**: Embedded SQLite WAL database (`data/izvor.db` with 11 tables), Slack App Home state (`data/state/app_settings.json`), Presidio exclusions (`data/state/presidio_skill_exclusions.json`), hash-chained audit logs (`data/audit/`), Scribe thread notes (`data/thread_notes/`), thread downloads (`data/downloads/`), exported flat histories (`data/flat-histories/`), LanceDB vector indices (`data/.rag_cache/`), pricing cache (`data/pricing/`), and rolling backups (`data/backups/`).
 
 ---
 
@@ -94,21 +95,21 @@ Izvor is structured around a **3-Pillar Physical Layout** ([paths.py](engine/cor
 ```mermaid
 flowchart TD
     User(["Slack User / Admin"]) -->|"Mentions, Slash Directives, Interactive Actions"| Slack["Slack Platform"]
-    Slack -->|"POST /slack/events or /slack/interactivity"| Ingress["FastAPI Ingress & HMAC Guard (main.py, slack_security.py)"]
-    Ingress -->|"SQLite Event Dedup & 200 OK"| Router["Agent Router & DiscussionLoop (agent_router.py, discussion_loop.py)"]
+    Slack -->|"POST /slack/events, /slack/actions or /slack/interactivity"| Ingress["FastAPI Ingress & HMAC Guard (main.py, slack_security.py)"]
+    Ingress -->|"SQLite Event Dedup (+ LRU Fallback) & 200 OK"| Router["Agent Router & DiscussionLoop (agent_router.py, discussion_loop.py)"]
 
     subgraph Pipeline["5-Stage TurnPipeline (turn_pipeline.py)"]
-        S1["Stage 1: ValidationStage\nGuardrail check, hybrid directive parsing,\nlanguage lock & candidate resolution"]
+        S1["Stage 1: ValidationStage\nHeuristic + Windowed Guardrail, Hybrid Directives,\n/forget_thread GDPR Purge & Candidate Resolution"]
         S2["Stage 2: ResolutionStage\nAgent config lookup, generation check &\nSpend Governance circuit breaker"]
         S3["Stage 3: ContextPrepStage\n3-Tier Memory assembly, XML prompt building,\nskill filtering & word constraints"]
-        S4["Stage 4: ExecutionStage\nPII masking, LiteLLM completion,\nprogressive load_skill & 60s tool loop"]
+        S4["Stage 4: ExecutionStage & ToolLoopRunner\nPII masking, LiteLLM completion, progressive\nload_skill & Indirect Tool-Output Screening"]
         S5["Stage 5: PostRecordStage\nMechanical word cutoff, mrkdwn formatting,\nnomination repair & Slack dispatch"]
         S1 --> S2 --> S3 --> S4 --> S5
     end
 
     Router --> S1
     S4 <-->|"acompletion / aembedding"| LiteLLM["LiteLLM Multi-Provider Gateway\n(Gemini, Claude, OpenAI, Mistral)"]
-    S4 <-->|"ToolPrincipal ACLs"| Tools["Sandboxed Tools, Hybrid RAG & MCP Servers"]
+    S4 <-->|"ToolPrincipal ACLs + Indirect Screening"| Tools["Sandboxed Tools, Hybrid RAG & MCP Servers"]
     S2 & S4 & S5 <-->|"ACID WAL Transactions"| SQLite[("SQLite State Engine\n(data/izvor.db - 11 Tables)")]
     S5 --> Revisor["Two-Stage InternalRevisor Barrier\n(Fast Screen -> Reasoning Confirm)"]
     Revisor -->|"Next Turn / Peer Handoff"| Router
@@ -300,6 +301,7 @@ Slash directives are parsed deterministically by [`DirectiveParser`](engine/pipe
   @Izvor /grant_skill_for_all web_research knowledge_base_rag
   @Izvor /revoke_skill_for_all web_research
   @Izvor /revoke_constraint max_words
+  @Izvor /forget_thread
   ```
   - Disabling active constraints via `off` (e.g., `@Izvor /max_words off`, `@Izvor /exclude off`, `@Izvor /include off`) also requires Slack Admin privileges.
 
@@ -324,19 +326,19 @@ Instead of memorizing slash commands, users can express constraints and tool req
 > **Smart Merge & Security Boundary (`auto_detect: false`)**:
 > - **Slash Priority**: If you combine slash commands with prose (e.g., `/max_words 200` alongside *"keep it brief"*), the explicit slash value always wins.
 > - **Skill Routing Filter**: For `is_pure_skill_task` prompts, Izvor filters out unequipped personas from the active chain and routes to agents authorized for the inferred skill.
-> - **Fail-Closed Privilege Gate**: Loop-control and admin skills (`/rounds`, `/first`, `/open_debate`, `/stop`, `/list_skills`, `/grant_skill`, `/grant_skill_for_all`, `/revoke_skill_for_all`, `/revoke_constraint`) have `auto_detect: false` and **cannot** be triggered via natural language, protecting against prompt-injection escalation.
+> - **Fail-Closed Privilege Gate**: Loop-control and admin skills (`/rounds`, `/first`, `/open_debate`, `/stop`, `/list_skills`, `/grant_skill`, `/grant_skill_for_all`, `/revoke_skill_for_all`, `/revoke_constraint`, `/forget_thread`) have `auto_detect: false` and **cannot** be triggered via natural language, protecting against prompt-injection escalation.
 
 ---
 
 ## 7. Skills
 
-Izvor ships with **21 declarative skills** defined via `SKILL.md` manifests: **4 configurable agent tool skills** in [`config/skills/`](config/skills) and **17 built-in orchestrator/prompt-modifier skills** in [`engine/skills/builtin/`](engine/skills/builtin).
+Izvor ships with **22 declarative skills** defined via `SKILL.md` manifests: **4 configurable agent tool skills** in [`config/skills/`](config/skills) and **18 built-in orchestrator/prompt-modifier skills** in [`engine/skills/builtin/`](engine/skills/builtin).
 
 ### 7.1 Configurable Agent Tool Skills (`config/skills/`)
 
 | Skill | Description | Slash Trigger(s) | Auto-Detect | Notes |
 |---|---|---|---|---|
-| [`web_research`](config/skills/web_research/SKILL.md) | Searches the live web (`web_search`) and extracts clean text from URLs (`fetch_web_page`). | `/web_research`, `/webresearch` | **Yes** (`true`) | SSRF & DNS-rebinding protected |
+| [`web_research`](config/skills/web_research/SKILL.md) | Searches the live web (`web_search`) and extracts clean text from URLs (`fetch_web_page`). | `/web_research`, `/webresearch` | **Yes** (`true`) | SSRF, DNS-rebinding & Slowloris protected |
 | [`knowledge_base_rag`](config/skills/knowledge_base_rag/SKILL.md) | Hybrid LanceDB vector + BM25 search (`search_knowledge_rag`) over `config/rag_knowledge/`. | `/rag`, `/search_docs`, `/knowledge` | **Yes** (`true`) | Supports `all` and `self` scopes |
 | [`document_reader`](config/skills/document_reader/SKILL.md) | Lists (`list_documents`) and reads (`read_document`) files in `agents_resources/` or Slack attachments. | `/read_file`, `/read-file`, `/file`, `/attachment`, `/document_reader` | **Yes** (`true`) | `handles_files: true` |
 | [`document_authoring`](config/skills/document_authoring/SKILL.md) | Creates or updates non-code documents (`write_document`) inside `agents_resources/`. | `/document_authoring`, `/authoring`, `/write_doc` | **Yes** (`true`) | Requires Slack **HITL** approval (`requires_human_ITL: true`) |
@@ -362,6 +364,7 @@ Izvor ships with **21 declarative skills** defined via `SKILL.md` manifests: **4
 | [`grant_skill_for_all`](engine/skills/builtin/grant_skill_for_all/SKILL.md) | Grants one or more skills to all agents in the current thread for the thread TTL. | `/grant_skill_for_all`, `/grant-skill-for-all`, `/grant_for_all`, `/grant-for-all` | **No** (`false`) | **Slack Admin** + Slash-only |
 | [`revoke_skill_for_all`](engine/skills/builtin/revoke_skill_for_all/SKILL.md) | Revokes one or more thread-global skills (or `all`) from all agents in the thread. | `/revoke_skill_for_all`, `/revoke-skill-for-all`, `/revoke_for_all` | **No** (`false`) | **Slack Admin** + Slash-only |
 | [`revoke_constraint`](engine/skills/builtin/revoke_constraint/SKILL.md) | Revokes active thread constraints (`max_words`, `min_words`, `scribe_max_words`, `scribe_min_words`, `exclude`, `include`, `language`, `modifiers`, `all`). | `/revoke_constraint`, `/revoke-constraint`, `/revoke` | **No** (`false`) | **Slack Admin** + Slash-only |
+| [`forget_thread`](engine/skills/builtin/forget_thread/SKILL.md) | Permanently purges SQLite rows, flat histories, Scribe notes, downloads, and caches for the thread (GDPR erasure). | `/forget_thread`, `/forget-thread` | **No** (`false`) | **Slack Admin** + Slash-only |
 
 ---
 
@@ -452,11 +455,11 @@ Slack fetches avatar URLs server-side using `BASE_AVATAR_URL` + `avatars/...` ([
 
 ### 6. Admin `/api/*` endpoints return `500` or `401`
 
-- If logs show `[SECURITY] ADMIN_PASSWORD is not configured in environment/.env`, set `ADMIN_USERNAME` and `ADMIN_PASSWORD` in `.env` and pass HTTP Basic Auth (`curl -u admin:<password> http://localhost:8000/api/health`).
+- If logs show `[SECURITY] ADMIN_PASSWORD is not configured in environment/.env`, set `ADMIN_USERNAME` and `ADMIN_PASSWORD` in `.env` and pass HTTP Basic Auth (`curl -u admin:<password> http://localhost:8000/api/health`, or GDPR erasure via `curl -X DELETE -u admin:<password> http://localhost:8000/api/threads/<channel_id>/<thread_ts>`).
 
 ### 7. Startup or periodic `AUDIT_HMAC_SECRET` / audit integrity warnings
 
-- [`AppIntegrityValidator`](engine/orchestration/integrity_checks.py) verifies the cryptographic hash chain of `data/audit/audit_*.jsonl` on startup and periodically. Changing `AUDIT_HMAC_SECRET` in `.env` while retaining older audit logs causes HMAC continuity warnings; keep the secret consistent for a given `data/audit/` trail or archive prior logs before rotating.
+- [`AppIntegrityValidator`](engine/orchestration/integrity_checks.py) verifies the cryptographic hash chain of `data/audit/audit_*.jsonl` on startup and periodically. For zero-downtime key rotation without breaking historical logs, configure a multi-key keyring via `AUDIT_HMAC_KEYS_JSON` and `AUDIT_HMAC_ACTIVE_KEY_ID` in `.env` (each record stores its signing `key_id`, verified in constant time via `hmac.compare_digest()`). If using a single static `AUDIT_HMAC_SECRET`, keep the secret consistent for a given `data/audit/` trail or archive prior logs before rotating.
 
 ### 8. Startup `TypeError: unsupported operand type(s) for |: 'type' and 'str'` on Python 3.11–3.13
 
