@@ -45,6 +45,8 @@ data/downloads/*
 !data/downloads/.gitkeep
 data/flat-histories/*
 !data/flat-histories/.gitkeep
+data/thread_notes/*
+!data/thread_notes/.gitkeep
 
 # Resources sandboxes
 system_resources/*
