@@ -224,11 +224,12 @@ async def test_post_live_run_summary_creates_separate_thread_and_records_bus():
         total_duration=19.0,
     )
 
+    total = len(ALL_SCENARIOS)
     assert summary_ts == "1900.001"
-    assert len(posted_calls) >= 3  # 1 root summary + multiple chunked thread replies for 38 scenarios
+    assert len(posted_calls) >= 3  # 1 root summary + multiple chunked thread replies for all scenarios
     assert "thread_ts" not in posted_calls[0]
     assert "TEST_RUN_99: E2E Test Suite Summary" in posted_calls[0]["text"]
-    assert "37/38 PASSED" in posted_calls[0]["text"]
+    assert f"{total - 1}/{total} PASSED" in posted_calls[0]["text"]
     assert "1 FAILED" in posted_calls[0]["text"]
 
     combined_thread_text = "\n".join(c["text"] for c in posted_calls[1:])

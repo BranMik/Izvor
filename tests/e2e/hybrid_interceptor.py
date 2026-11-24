@@ -242,7 +242,29 @@ class HybridInterceptor:
                 re.DOTALL | re.IGNORECASE,
             )
             has_ground_truth = bool(evidence_match and "5000" in evidence_match.group(1))
+            cited_match = re.search(
+                r"<cited_prior_statements[^>]*>(.*?)</cited_prior_statements>",
+                user_msg_text,
+                re.DOTALL | re.IGNORECASE,
+            )
+            has_cited_visionary = bool(cited_match and "visionary" in cited_match.group(1).lower())
+            has_peer_misattribution = (
+                "abandon multi-region failover" in user_msg_text.lower()
+                and has_cited_visionary
+            )
             if is_stage2:
+                if has_peer_misattribution:
+                    return MockModelResponse(
+                        content=(
+                            'ATTENTION: Agent [Tactician] hallucinated the following fact: '
+                            '"As Visionary stated, we must abandon multi-region failover completely and deploy everything on a single bare-metal server.". '
+                            "The correct information based on the original context is: "
+                            "Visionary recommended multi-region active-active failover, not abandoning it."
+                        ),
+                        model=model,
+                        prompt_tokens=120,
+                        completion_tokens=32,
+                    )
                 if (
                     "99999" in user_msg_text
                     and "FALSE_POSITIVE_TRIGGER" not in user_msg_text
@@ -263,6 +285,19 @@ class HybridInterceptor:
                     model=model,
                     prompt_tokens=120,
                     completion_tokens=4,
+                )
+
+            if has_peer_misattribution:
+                return MockModelResponse(
+                    content=(
+                        'ATTENTION: Agent [Tactician] hallucinated the following fact: '
+                        '"As Visionary stated, we must abandon multi-region failover completely and deploy everything on a single bare-metal server.". '
+                        "The correct information based on the original context is: "
+                        "Visionary recommended multi-region active-active failover, not abandoning it."
+                    ),
+                    model=model,
+                    prompt_tokens=120,
+                    completion_tokens=32,
                 )
 
             if "FALSE_POSITIVE_TRIGGER" in user_msg_text or (

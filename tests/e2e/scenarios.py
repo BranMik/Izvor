@@ -1,7 +1,7 @@
 """
 E2E Behavioural Test Scenarios.
 
-Defines 38 comprehensive test scenarios (`TC-01`..`TC-38`) matching
+Defines 39 comprehensive test scenarios (`TC-01`..`TC-39`) matching
 `tests/e2e/SLACK_BEHAVIOURAL_TEST_CASES.md`, supporting both live-LLM execution
 (default) and offline deterministic simulation (`--mock`).
 """
@@ -1528,18 +1528,30 @@ async def tc_36_scatter_gather_topology(client: SlackProtocolClient) -> Scenario
         )
         actual_thread = _resolve_thread_ts(client, thread_ts)
         msgs = client.bus.get_messages_for_thread(channel, actual_thread)
-        speakers = [m.get("username") for m in msgs]
+        panel_speakers = [
+            m.get("username")
+            for m in msgs
+            if m.get("username") not in ("Internal Revisor", "InternalRevisor")
+        ]
+        revisor_alerts = [
+            m
+            for m in msgs
+            if m.get("username") in ("Internal Revisor", "InternalRevisor")
+            and "ATTENTION:" in m.get("text", "")
+        ]
         passed = (
-            "Visionary" in speakers
-            and "Innovator" in speakers
-            and "Sceptic" in speakers
-            and speakers[-1] == "SecurityArchitect"
+            bool(panel_speakers)
+            and panel_speakers[0] == "Visionary"
+            and "Innovator" in panel_speakers
+            and "Sceptic" in panel_speakers
+            and panel_speakers[-1] == "SecurityArchitect"
+            and len(revisor_alerts) == 0
         )
         return ScenarioResult(
             "TC-36",
             "Scatter-Gather Parallel Topology",
             passed,
-            f"Speakers sequence: {speakers}",
+            f"Panel speakers: {panel_speakers}, spurious_revisor_alerts={len(revisor_alerts)}",
         )
     finally:
         settings_manager.enabled_agents.clear()
@@ -1687,6 +1699,145 @@ async def tc_38_scribe_ssot_empty_guard_and_dm_failure(
         passed,
         f"empty_guard={empty_guard_ok}, has_note={has_note}, dm_err_feedback={dm_failure_feedback}, no_file={no_file_uploaded}",
     )
+
+
+async def tc_39_internal_revisor_open_ended_and_peer_misattribution(
+    client: SlackProtocolClient,
+) -> ScenarioResult:
+    channel = client.get_channel("C_TEST_39")
+    thread_ts = client.get_thread_ts()
+
+    orig_revisor = system_settings_manager.get_internal_revisor_enabled()
+    orig_sys_timeout = system_settings_manager.get_system_agent_inference_timeout_seconds()
+    system_settings_manager.set_internal_revisor_enabled(True, save=False)
+    system_settings_manager.set_system_agent_inference_timeout_seconds(45.0, save=False)
+    try:
+        # Turn 1: Open-ended prompt (no files/tools -> has_verified_evidence=False)
+        prompt_1 = (
+            "/[Visionary] /max_words 25 Recommend multi-region active-active failover "
+            "architecture for global availability."
+        )
+        await client.send_mention(
+            prompt_1,
+            channel_id=channel,
+            thread_ts=thread_ts,
+        )
+        actual_thread = _resolve_thread_ts(client, thread_ts)
+        await client.drain_background_tasks()
+
+        msgs_after_turn1 = client.bus.get_messages_for_thread(channel, actual_thread)
+        turn1_alerts = [
+            m
+            for m in msgs_after_turn1
+            if m.get("username") in ("Internal Revisor", "InternalRevisor")
+            and "ATTENTION:" in m.get("text", "")
+        ]
+        clean_turn1 = len(turn1_alerts) == 0
+
+        # Sub-check 1: Open-ended domain expertise (no retrieved evidence, no peer citation) -> NO_HALLUCINATION
+        sec_cfg = dict(settings_manager.get_agent("agent-10008") or {})
+        sec_username = sec_cfg.get("username", "SecurityArchitect")
+        sec_icon = sec_cfg.get("icon_url", "avatars/image_06.png")
+        open_ended_claim = (
+            "Active-active widens attack surface: replication channels enable tampering, spoofing, "
+            "split-brain escalation—enforce mTLS, least-privilege region identities, fail-closed quorum."
+        )
+        await post_agent_response(
+            channel_id=channel,
+            thread_ts=actual_thread,
+            text=open_ended_claim,
+            username=sec_username,
+            icon_url=sec_icon,
+        )
+        open_ctx = TurnContext(
+            channel_id=channel,
+            thread_ts=actual_thread,
+            raw_text="Evaluate multi-region active-active failover architecture.",
+            final_text=open_ended_claim,
+            skills_used=[],
+            my_generation=thread_state_manager.get_generation(channel, actual_thread),
+        )
+        open_ctx.agent_key = "agent-10008"
+        open_ctx.agent_cfg = sec_cfg or {"username": sec_username}
+        open_ctx.full_history = [
+            {
+                "role": "assistant",
+                "content": f"[{m.get('username', 'Agent')}]: {m.get('text', '')}",
+            }
+            for m in msgs_after_turn1
+            if m.get("role") != "user"
+            and m.get("username") not in ("Internal Revisor", "InternalRevisor")
+            and m.get("text")
+        ]
+        open_ctx.force_termination = True
+        await run_internal_revisor(open_ctx)
+
+        msgs_after_sub1 = client.bus.get_messages_for_thread(channel, actual_thread)
+        sub1_alerts = [
+            m
+            for m in msgs_after_sub1
+            if m.get("username") in ("Internal Revisor", "InternalRevisor")
+            and "ATTENTION:" in m.get("text", "")
+        ]
+        open_ended_clean = len(sub1_alerts) == 0
+
+        # Sub-check 2: Cross-agent misattribution in open-ended thread -> ATTENTION alert
+        tac_cfg = dict(settings_manager.get_agent("agent-10014") or {})
+        tac_username = tac_cfg.get("username", "Tactician")
+        tac_icon = tac_cfg.get("icon_url", "avatars/image_10.png")
+        misattr_claim = (
+            "As Visionary stated, we must abandon multi-region failover completely "
+            "and deploy everything on a single bare-metal server."
+        )
+        await post_agent_response(
+            channel_id=channel,
+            thread_ts=actual_thread,
+            text=misattr_claim,
+            username=tac_username,
+            icon_url=tac_icon,
+        )
+        misattr_ctx = TurnContext(
+            channel_id=channel,
+            thread_ts=actual_thread,
+            raw_text="Evaluate multi-region active-active failover architecture.",
+            final_text=misattr_claim,
+            skills_used=[],
+            my_generation=thread_state_manager.get_generation(channel, actual_thread),
+        )
+        misattr_ctx.agent_key = "agent-10014"
+        misattr_ctx.agent_cfg = tac_cfg or {"username": tac_username}
+        misattr_ctx.full_history = [
+            {
+                "role": "assistant",
+                "content": f"[{m.get('username', 'Agent')}]: {m.get('text', '')}",
+            }
+            for m in msgs_after_sub1
+            if m.get("role") != "user"
+            and m.get("username") not in ("Internal Revisor", "InternalRevisor")
+            and m.get("text")
+        ]
+        misattr_ctx.force_termination = True
+        await run_internal_revisor(misattr_ctx)
+
+        msgs_after_sub2 = client.bus.get_messages_for_thread(channel, actual_thread)
+        sub2_alerts = [
+            m
+            for m in msgs_after_sub2
+            if m.get("username") in ("Internal Revisor", "InternalRevisor")
+            and "ATTENTION:" in m.get("text", "")
+        ]
+        misattribution_caught = len(sub2_alerts) > len(sub1_alerts)
+
+        passed = clean_turn1 and open_ended_clean and misattribution_caught
+        return ScenarioResult(
+            "TC-39",
+            "InternalRevisor Open-Ended Precision & Peer Misattribution",
+            passed,
+            f"turn1_clean={clean_turn1}, open_ended_clean={open_ended_clean} (alerts={len(sub1_alerts)}), misattribution_caught={misattribution_caught} (alerts={len(sub2_alerts)})",
+        )
+    finally:
+        system_settings_manager.set_internal_revisor_enabled(orig_revisor, save=False)
+        system_settings_manager.set_system_agent_inference_timeout_seconds(orig_sys_timeout, save=False)
 
 
 ALL_SCENARIOS: list[Scenario] = [
@@ -1955,5 +2106,12 @@ ALL_SCENARIOS: list[Scenario] = [
         "Scribe & Interactivity",
         tc_38_scribe_ssot_empty_guard_and_dm_failure,
         capability="Scribe empty-output SSOT guard and ephemeral DM-open failure error feedback",
+    ),
+    Scenario(
+        "TC-39",
+        "InternalRevisor Open-Ended Precision & Peer Misattribution",
+        "Verification",
+        tc_39_internal_revisor_open_ended_and_peer_misattribution,
+        capability="Open-ended no-evidence precision (no false positives on domain analysis) and citation-gated cross-agent misattribution detection",
     ),
 ]

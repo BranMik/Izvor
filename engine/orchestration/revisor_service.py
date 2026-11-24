@@ -39,10 +39,120 @@ _UNTRUSTED_TAG_RE = re.compile(
 
 _VERIFIER_BOUNDARY_TAG_RE = re.compile(
     r"<\s*/?\s*(?:authoritative_ground_truth|initial_user_prompt|retrieved_evidence|"
-    r"evidence_verification_directive|target_message_to_verify|stage1_preliminary_flag|"
+    r"evidence_verification_directive|verification_scope|cited_prior_statements|"
+    r"agent_statement|target_message_to_verify|stage1_preliminary_flag|"
     r"confirmation_instructions)(?:\s+[^>]*)?>",
     re.IGNORECASE,
 )
+
+_MAX_CITED_STATEMENT_CHARS = 1200
+_REVISOR_SPEAKER_NAMES: frozenset[str] = frozenset({"internal revisor", "internalrevisor"})
+
+
+def _speaker_aliases(speaker: str) -> list[str]:
+    """Builds deduplicated case-insensitive name aliases (length >= 3) for a speaker."""
+    raw = str(speaker or "").strip()
+    if not raw:
+        return []
+    spaced = re.sub(r"(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])", " ", raw).strip()
+    spaceless = re.sub(r"\s+", "", raw).strip()
+    candidates: list[str] = []
+    for base in (raw, spaced, spaceless):
+        if base:
+            candidates.append(base)
+            if base.lower().startswith("the ") and len(base) > 4:
+                candidates.append(base[4:].strip())
+    seen: set[str] = set()
+    aliases: list[str] = []
+    for alias in candidates:
+        low = alias.lower()
+        if len(alias) >= 3 and low not in seen:
+            seen.add(low)
+            aliases.append(alias)
+    return aliases
+
+
+def _extract_prior_speaker_statements(assistant_msgs: list[dict[str, Any]]) -> list[tuple[str, str]]:
+    """Extracts cleaned (speaker, body) pairs from prior assistant messages, skipping Internal Revisor."""
+    extracted: list[tuple[str, str]] = []
+    for msg in assistant_msgs or []:
+        if not isinstance(msg, dict):
+            continue
+        raw = str(msg.get("content", "")).strip()
+        match = re.match(r"^\[([^\]]+)\]:", raw)
+        if not match:
+            continue
+        speaker = match.group(1).strip()
+        if not speaker or speaker.lower() in _REVISOR_SPEAKER_NAMES:
+            continue
+        cleaned = _clean_candidate_message(raw)
+        if cleaned:
+            extracted.append((speaker, cleaned))
+    return extracted
+
+
+def _select_cited_prior_statements(
+    cleaned_message: str,
+    current_speaker: str,
+    prior_turns: list[tuple[str, str]],
+    max_chars_per_speaker: int = _MAX_CITED_STATEMENT_CHARS,
+) -> list[tuple[str, str]]:
+    """
+    Deterministically selects prior statements only for speakers explicitly referenced
+    by name/alias in `cleaned_message` (excluding `current_speaker`).
+    """
+    if not cleaned_message or not prior_turns:
+        return []
+
+    current_key = str(current_speaker or "").strip().lower()
+    grouped: dict[str, tuple[str, list[str]]] = {}
+    for speaker, text in prior_turns:
+        sp_key = speaker.strip().lower()
+        if not sp_key or sp_key == current_key:
+            continue
+        if sp_key not in grouped:
+            grouped[sp_key] = (speaker, [])
+        grouped[sp_key][1].append(text)
+
+    cited: list[tuple[str, str]] = []
+    for canonical_speaker, statements in grouped.values():
+        aliases = _speaker_aliases(canonical_speaker)
+        if not any(
+            re.search(rf"\b{re.escape(alias)}\b", cleaned_message, re.IGNORECASE)
+            for alias in aliases
+        ):
+            continue
+
+        # Prioritize most recent turns within budget when truncating
+        selected_chunks: list[str] = []
+        used_chars = 0
+        was_truncated = False
+        for stmt in reversed(statements):
+            clean_stmt = _strip_verifier_boundary_tags(stmt).strip()
+            if not clean_stmt:
+                continue
+            sep_len = 2 if selected_chunks else 0
+            if used_chars + sep_len + len(clean_stmt) <= max_chars_per_speaker:
+                selected_chunks.append(clean_stmt)
+                used_chars += sep_len + len(clean_stmt)
+            else:
+                remaining_budget = max_chars_per_speaker - used_chars - sep_len
+                if remaining_budget > 20:
+                    selected_chunks.append(
+                        clean_stmt[: max(0, remaining_budget - 15)].rstrip() + "... [truncated]"
+                    )
+                was_truncated = True
+                break
+
+        if not selected_chunks:
+            continue
+        selected_chunks.reverse()
+        combined = "\n\n".join(selected_chunks)
+        if was_truncated and len(combined) > max_chars_per_speaker:
+            combined = combined[: max(0, max_chars_per_speaker - 15)].rstrip() + "... [truncated]"
+        cited.append((canonical_speaker, combined))
+
+    return cited
 
 
 def _strip_verifier_boundary_tags(text: str) -> str:
@@ -198,8 +308,8 @@ def _collect_ground_truth_evidence(ctx: TurnContext) -> tuple[str, bool]:
 
     return (
         "<retrieved_evidence>\n"
-        "[None — No external document or tool output was retrieved. "
-        "Verify claims strictly against <initial_user_prompt>; do NOT guess external file contents.]\n"
+        "[None — No external document or tool output was retrieved for this turn. "
+        "General domain knowledge, architectural analysis, risks, and recommendations are valid and NOT hallucinations.]\n"
         "</retrieved_evidence>",
         False,
     )
@@ -211,29 +321,73 @@ def _build_verification_user_content(
     has_verified_evidence: bool,
     speaker: str,
     cleaned_message: str,
+    cited_prior_statements: list[tuple[str, str]] | None = None,
 ) -> str:
     """Builds XML-isolated verification prompt for a single candidate message."""
     clean_initial = _strip_verifier_boundary_tags(initial_prompt or "")
-    directive_block = ""
+    clean_candidate = _strip_verifier_boundary_tags(cleaned_message or "")
+    clean_speaker = _strip_verifier_boundary_tags(speaker or "Agent")
+
     if has_verified_evidence:
-        directive_block = (
-            "\n<evidence_verification_directive>\n"
+        scope_mode = "evidence_backed"
+        scope_parts = [
             "Verified skill or document evidence is present in <retrieved_evidence>. "
-            "Verify EVERY factual claim in <target_message_to_verify> strictly against "
-            "<initial_user_prompt> and <retrieved_evidence>. Never treat another agent's "
-            "message or chosen topic as ground truth, and scan the ENTIRE <retrieved_evidence> "
-            "(all pages, rows, and sections) before claiming any item is absent.\n"
-            "</evidence_verification_directive>"
+            "Verify factual claims about the source strictly against <initial_user_prompt> and "
+            "<retrieved_evidence>. Scan the ENTIRE <retrieved_evidence> (all pages, rows, and "
+            "sections) before claiming any item is absent. Never treat another agent's message or "
+            "chosen topic as factual ground truth, and do NOT flag general domain analysis or "
+            "recommendations that do not contradict <authoritative_ground_truth>."
+        ]
+    else:
+        scope_mode = "open_ended"
+        scope_parts = [
+            "No external document or tool output was retrieved (<retrieved_evidence> is None). "
+            "General domain knowledge, architectural analysis, risks, trade-offs, and "
+            "recommendations are VALID and are NOT hallucinations. Default to NO_HALLUCINATION. "
+            "Flag ONLY: (1) direct contradictions or fabrications of facts, numbers, or constraints "
+            "stated in <initial_user_prompt>, or (2) fabricated citations claiming an external file "
+            "or tool returned data when none was retrieved."
+        ]
+
+    if cited_prior_statements:
+        scope_parts.append(
+            "Additionally, <cited_prior_statements> contains prior statements from speakers "
+            "explicitly referenced by this agent. Treat <cited_prior_statements> strictly as "
+            "non-authoritative attribution reference (never as factual ground truth, and never "
+            "flag disagreement or different topics). Flag ONLY if <target_message_to_verify> "
+            "falsely quotes or materially misattributes a claim or position to a cited speaker "
+            "that contradicts or is absent from their statement in <cited_prior_statements>."
+        )
+
+    scope_block = (
+        f'<verification_scope mode="{scope_mode}">\n'
+        + " ".join(scope_parts)
+        + "\n</verification_scope>"
+    )
+
+    cited_block = ""
+    if cited_prior_statements:
+        stmt_blocks = [
+            f'<agent_statement speaker="{_strip_verifier_boundary_tags(prior_sp)}">\n'
+            f"{_strip_verifier_boundary_tags(prior_text)}\n"
+            "</agent_statement>"
+            for prior_sp, prior_text in cited_prior_statements
+        ]
+        cited_block = (
+            '\n\n<cited_prior_statements role="non_authoritative_attribution_reference">\n'
+            + "\n".join(stmt_blocks)
+            + "\n</cited_prior_statements>"
         )
 
     return (
         "<authoritative_ground_truth>\n"
         f"<initial_user_prompt>\n{clean_initial}\n</initial_user_prompt>\n"
-        f"{evidence_block}"
-        f"{directive_block}\n"
+        f"{evidence_block}\n"
         "</authoritative_ground_truth>\n\n"
-        f'<target_message_to_verify speaker="{speaker}">\n'
-        f"{cleaned_message}\n"
+        f"{scope_block}"
+        f"{cited_block}\n\n"
+        f'<target_message_to_verify speaker="{clean_speaker}">\n'
+        f"{clean_candidate}\n"
         "</target_message_to_verify>"
     )
 
@@ -293,6 +447,8 @@ async def _confirm_hallucination(
     speaker: str,
     stage1_warning: str,
     fallback_footers: list[str] | None = None,
+    has_verified_evidence: bool = True,
+    has_cited_prior_statements: bool = False,
 ) -> str | None:
     """Stage 2 confirmation using a stronger reasoning model to filter out Stage 1 false positives."""
     from core.model_catalog import format_model_fallback_footer, resolve_model_with_fallback
@@ -308,21 +464,53 @@ async def _confirm_hallucination(
         f"Running Stage 2 confirmation with '{confirm_model}'."
     )
 
+    if has_verified_evidence:
+        citation_clause = (
+            " or falsely misattributes a position to a cited speaker in <cited_prior_statements>"
+            if has_cited_prior_statements
+            else ""
+        )
+        confirm_body = (
+            "Perform independent Stage 2 confirmation on <stage1_preliminary_flag> as a strict "
+            "false-positive filter against <authoritative_ground_truth>. Scan the ENTIRE "
+            "<retrieved_evidence> (including all pages, table rows, and sections) to verify whether "
+            "the flagged claim actually contradicts or is absent from <authoritative_ground_truth>"
+            f"{citation_clause}. If <stage1_preliminary_flag> is a false positive (for example, "
+            "the claimed item/zone/fact is present in <retrieved_evidence>, Stage 1 assumed the "
+            "document covered only another agent's topic, or the flagged claim is valid domain "
+            "analysis or recommendation), output ONLY:\n"
+            "NO_HALLUCINATION\n"
+            "Only if the hallucination is unambiguously confirmed, output the exact directive:\n"
+            'ATTENTION: Agent [AgentName] hallucinated the following fact: "[hallucinated claim]". '
+            "The correct information based on the original context is: [correct claim].\n"
+        )
+    else:
+        citation_clause = (
+            ", or (3) falsely quotes or materially misattributes a position to a speaker in "
+            "<cited_prior_statements>"
+            if has_cited_prior_statements
+            else ""
+        )
+        confirm_body = (
+            "Perform independent Stage 2 confirmation on <stage1_preliminary_flag> as a strict "
+            "false-positive filter. Because <retrieved_evidence> is None, general domain expertise, "
+            "architectural analysis, risks, trade-offs, and recommendations are VALID — never "
+            "confirm a hallucination merely because an analysis or recommendation is absent from "
+            "<initial_user_prompt>. Output ONLY:\n"
+            "NO_HALLUCINATION\n"
+            "unless <target_message_to_verify> unambiguously (1) contradicts or fabricates a "
+            "fact, number, or constraint in <initial_user_prompt>, (2) fabricates a non-existent "
+            f"external document or tool output{citation_clause}. Only if unambiguously confirmed, "
+            "output the exact directive:\n"
+            'ATTENTION: Agent [AgentName] hallucinated the following fact: "[hallucinated claim]". '
+            "The correct information based on the original context is: [correct claim].\n"
+        )
+
     confirm_user_content = (
         f"{ground_truth_and_target}\n\n"
         f"<stage1_preliminary_flag>\n{_strip_verifier_boundary_tags(stage1_warning)}\n</stage1_preliminary_flag>\n\n"
         "<confirmation_instructions>\n"
-        "Perform independent Stage 2 confirmation on <stage1_preliminary_flag> against "
-        "<authoritative_ground_truth>. Scan the ENTIRE <retrieved_evidence> (including all pages, "
-        "table rows, and sections) to verify whether the flagged claim actually contradicts or is "
-        "absent from <authoritative_ground_truth>. If <stage1_preliminary_flag> is a false positive "
-        "(for example, the claimed item/zone/fact is present in <retrieved_evidence> or Stage 1 "
-        "assumed the document covered only another agent's topic), output ONLY:\n"
-        "NO_HALLUCINATION\n"
-        "Only if the hallucination is unambiguously confirmed against <authoritative_ground_truth>, "
-        "output the exact directive:\n"
-        'ATTENTION: Agent [AgentName] hallucinated the following fact: "[hallucinated claim]". '
-        "The correct information based on the original context is: [correct claim].\n"
+        f"{confirm_body}"
         "</confirmation_instructions>"
     )
 
@@ -375,6 +563,7 @@ async def _verify_single_candidate(
     speaker: str,
     cleaned_message: str,
     fallback_footers: list[str] | None = None,
+    cited_prior_statements: list[tuple[str, str]] | None = None,
 ) -> str | None:
     """Verifies a single candidate message independently (Stage 1 + Stage 2 confirmation on flag)."""
     if not cleaned_message:
@@ -395,6 +584,7 @@ async def _verify_single_candidate(
         has_verified_evidence=has_verified_evidence,
         speaker=speaker,
         cleaned_message=cleaned_message,
+        cited_prior_statements=cited_prior_statements,
     )
 
     kwargs = {
@@ -435,6 +625,8 @@ async def _verify_single_candidate(
         speaker=speaker,
         stage1_warning=stage1_warning,
         fallback_footers=fallback_footers,
+        has_verified_evidence=has_verified_evidence,
+        has_cited_prior_statements=bool(cited_prior_statements),
     )
 
 
@@ -488,8 +680,8 @@ async def run_internal_revisor(ctx: TurnContext):
         if not initial_prompt:
             initial_prompt = ctx.input.raw_text
 
-        # 3. Collect and clean isolated candidate turns to verify
-        candidates: list[tuple[str, str]] = []
+        # 3. Collect and clean isolated candidate turns to verify (plus citation-gated peer context)
+        candidates: list[tuple[str, str, list[tuple[str, str]]]] = []
         if turn_count % 2 == 0 and assistant_msgs:
             raw_prev = str(assistant_msgs[-1].get("content", ""))
             prev_speaker = "Previous Agent"
@@ -498,12 +690,20 @@ async def run_internal_revisor(ctx: TurnContext):
                 prev_speaker = match.group(1).strip()
             prev_cleaned = _clean_candidate_message(raw_prev)
             if prev_cleaned:
-                candidates.append((prev_speaker, prev_cleaned))
+                prior_for_prev = _extract_prior_speaker_statements(assistant_msgs[:-1])
+                prev_cited = _select_cited_prior_statements(
+                    prev_cleaned, prev_speaker, prior_for_prev
+                )
+                candidates.append((prev_speaker, prev_cleaned, prev_cited))
 
         curr_speaker = ctx.agent_cfg.get("username", ctx.agent_key)
         curr_cleaned = _clean_candidate_message(ctx.output.final_text)
         if curr_cleaned:
-            candidates.append((curr_speaker, curr_cleaned))
+            prior_for_curr = _extract_prior_speaker_statements(assistant_msgs)
+            curr_cited = _select_cited_prior_statements(
+                curr_cleaned, curr_speaker, prior_for_curr
+            )
+            candidates.append((curr_speaker, curr_cleaned, curr_cited))
 
         if not candidates:
             logger.info("[REVISOR] No non-empty candidate messages to verify.")
@@ -529,8 +729,9 @@ async def run_internal_revisor(ctx: TurnContext):
                 speaker=speaker,
                 cleaned_message=cleaned_msg,
                 fallback_footers=fallback_footers,
+                cited_prior_statements=cited_prior,
             )
-            for speaker, cleaned_msg in candidates
+            for speaker, cleaned_msg, cited_prior in candidates
         ]
         if len(tasks) == 1:
             results = [await tasks[0]]

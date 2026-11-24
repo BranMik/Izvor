@@ -1,6 +1,6 @@
 # Izvor Slack Hub — End-to-End Behavioural Test Suite
 
-A comprehensive testing guide with **38 behavioural test scenarios** (`TC-01`–`TC-38`) validating agent personas, skills, directives, RBAC governance, InternalRevisor verification, Challenger/Arbitrator convergence, MCP tool integration, HITL checkpoints, and interactive Slack workflows.
+A comprehensive testing guide with **39 behavioural test scenarios** (`TC-01`–`TC-39`) validating agent personas, skills, directives, RBAC governance, InternalRevisor verification, Challenger/Arbitrator convergence, MCP tool integration, HITL checkpoints, and interactive Slack workflows.
 **This entire test matrix runs automatically via `tests/e2e/`.**
 
 ---
@@ -66,6 +66,7 @@ cmd /c .venv\Scripts\python.exe -u -m tests.e2e.runner --live-slack --channel C0
 | **TC-36** | Topology | `ScatterGather` Parallel Topology | Concurrent scatter branches + `end_chain` gather |
 | **TC-37** | Directives & Privacy | Tight Word Limits, `output_constraints` & PII `ORG` | `max_words < 20` zero grace, configurable limits, `ORG` preserved |
 | **TC-38** | Scribe & Interactivity | Scribe SSOT Empty Guard & DM Failure Feedback | Blank output guard + DM open failure ephemeral error |
+| **TC-39** | Verification | `InternalRevisor` Open-Ended Precision & Peer Misattribution | No false positives on open-ended domain analysis + catch peer misattribution |
 
 ---
 
