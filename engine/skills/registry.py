@@ -16,6 +16,7 @@ import yaml
 from core.domain import ToolPrincipal
 from core.paths import ENGINE_SKILLS_DIR, SKILLS_DIR
 from core.registry import set_skill_registry_provider
+from prompts.builder import render_prompt_template
 from services.local_tools import execute_local_tool
 from skills.parser import (
     LOAD_SKILL_SCHEMA,  # noqa: F401 - re-exported for callers
@@ -282,13 +283,7 @@ class SkillRegistry:
     def build_extractor_catalog_prompt(self) -> str:
         """Dynamically generates the IntentExtractor system prompt from registered auto-detect skills."""
         skills = self.get_auto_detect_skills()
-        prompt_lines = [
-            "You are a precise, language-agnostic intent, directive, and parameter extractor for an AI multi-agent Slack platform.",
-            "Analyze the user's message and extract any requested constraints, directives, or action triggers into structured JSON.",
-            'Also detect the natural language of the user\'s message (e.g. "Croatian", "English", "German") and report it in the "language" field.',
-            "",
-            "AVAILABLE SYSTEM SKILLS & DIRECTIVES:",
-        ]
+        prompt_lines = [render_prompt_template("skills_and_extractor", "extractor_intro")]
 
         modifiers_lines = []
         actions_lines = []
@@ -316,7 +311,7 @@ class SkillRegistry:
             if skill.extraction_rule:
                 special_rules.append(f"- '{skill.name}': {skill.extraction_rule}")
         special_rules.append(
-            "- 'is_pure_skill_task': Set true if the user's prompt is purely an informational request, file lookup, or action to be executed via a skill without asking the panel to debate, critique, or brainstorm broader strategic alternatives. Set false if the user asks for a conceptual debate, critique, or brainstorming alongside or without the skill."
+            render_prompt_template("skills_and_extractor", "extractor_pure_skill_rule")
         )
 
         if special_rules:
@@ -331,24 +326,18 @@ class SkillRegistry:
                 schema_modifiers.append(f'    "{skill.name}": <{arg_type} or null>')
 
         schema_lines = [
-            "Respond ONLY with a valid JSON object matching this schema:",
-            "{",
-            '  "modifiers": {',
+            render_prompt_template("skills_and_extractor", "extractor_schema_header")
         ]
         if schema_modifiers:
             schema_lines.append(",\n".join(schema_modifiers))
         else:
-            schema_lines.append('    "<modifier_name>": <value>')
-        schema_lines.extend(
-            [
-                "  },",
-                '  "actions": [',
-                '    { "name": "<skill_name>", "params": { ... } }',
-                "  ],",
-                '  "language": "<detected_language_name_or_code>",',
-                '  "is_pure_skill_task": <true if the prompt asks ONLY to perform the skill/file action without a broader strategic debate topic, else false>',
-                "}",
-            ]
+            schema_lines.append(
+                render_prompt_template(
+                    "skills_and_extractor", "extractor_schema_default_modifier"
+                )
+            )
+        schema_lines.append(
+            render_prompt_template("skills_and_extractor", "extractor_schema_footer")
         )
         prompt_lines.extend(schema_lines)
         return "\n".join(prompt_lines)
@@ -687,13 +676,12 @@ class SkillRegistry:
                     False,
                     json.dumps(
                         {
-                            "error": (
-                                f"Permission denied: Agent is not authorized to load skill '{skill_name}'. "
-                                f"Permitted skills: {allowed_str}. "
-                                f"CRITICAL INSTRUCTION: State in at most 50 words that permission / the required skill '{skill_name}' is lacking, "
-                                f"including this 1-line hint (recommend ONLY this 1 agent by name, never by agent ID): {hint_str} "
-                                "Do NOT report that the file or resource was not found. Do NOT reflect on skills architecture. "
-                                f"If the prompt contains other assessable parts not requiring '{skill_name}', proceed normally with those; otherwise stop."
+                            "error": render_prompt_template(
+                                "skills_and_extractor",
+                                "load_skill_permission_denied",
+                                skill_name=skill_name,
+                                allowed_str=allowed_str,
+                                hint_str=hint_str,
                             )
                         }
                     ),
@@ -778,13 +766,12 @@ class SkillRegistry:
                     False,
                     json.dumps(
                         {
-                            "error": (
-                                f"Permission denied: Agent is not authorized to execute tool '{tool_name}'. "
-                                f"Permitted tools: {allowed_tools_str}. "
-                                f"CRITICAL INSTRUCTION: State in at most 50 words that permission to execute tool '{tool_name}' is lacking, "
-                                f"including this 1-line hint (recommend ONLY this 1 agent by name, never by agent ID): {hint_str} "
-                                "Do NOT report that the file or resource was not found. Do NOT reflect on skills architecture. "
-                                f"If the prompt contains other assessable parts not requiring '{tool_name}', proceed normally with those; otherwise stop."
+                            "error": render_prompt_template(
+                                "skills_and_extractor",
+                                "execute_tool_permission_denied",
+                                tool_name=tool_name,
+                                allowed_tools_str=allowed_tools_str,
+                                hint_str=hint_str,
                             )
                         }
                     ),

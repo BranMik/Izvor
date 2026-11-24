@@ -2,6 +2,8 @@ import logging
 import re
 from typing import Any
 
+from prompts.builder import render_prompt_template
+
 logger = logging.getLogger(__name__)
 
 
@@ -232,15 +234,15 @@ def build_llm_messages(
     notice_word_cap = min(50, max_words) if (max_words is not None and max_words > 0) else 50
 
     prior_verified = has_prior_verified_skill_output(shared_round_evidence, effective_history)
-    downstream_file_clause = (
-        f"If an authorized agent earlier in the discussion above has already accessed the resource and presented findings (indicated by 'Skills used:' or '<shared_round_evidence>'), output your <= {notice_word_cap}-word missing-skill notice + 1-line hint first, and then proceed to dialectically evaluate, stress-test, and debate those findings and arguments in accordance with your role; if no authorized agent has spoken yet and the prompt only asks about the file, output ONLY the <= {notice_word_cap}-word notice and stop."
-        if prior_verified
-        else f"if the prompt only asks about the file, output ONLY the <= {notice_word_cap}-word notice and stop."
+    downstream_file_clause = render_prompt_template(
+        "turn_directives",
+        "downstream_file_clause_with_prior" if prior_verified else "downstream_file_clause_no_prior",
+        notice_word_cap=notice_word_cap,
     )
-    downstream_skill_clause = (
-        f"If an authorized agent earlier in the discussion above has already executed the skill action and presented findings (indicated by 'Skills used:' or '<shared_round_evidence>'), output your <= {notice_word_cap}-word missing-skill notice + 1-line hint first, and then proceed to dialectically evaluate, stress-test, and debate those findings and arguments in accordance with your role; if no authorized agent has spoken yet and the prompt only asks for this skill-based action, output ONLY the <= {notice_word_cap}-word notice and stop."
-        if prior_verified
-        else f"if the prompt only asks for this skill-based action, output ONLY the <= {notice_word_cap}-word notice and stop."
+    downstream_skill_clause = render_prompt_template(
+        "turn_directives",
+        "downstream_skill_clause_with_prior" if prior_verified else "downstream_skill_clause_no_prior",
+        notice_word_cap=notice_word_cap,
     )
 
     if file_context:
@@ -265,15 +267,14 @@ def build_llm_messages(
                 if rec_username
                 else "Grant access via '/grant_skill'."
             )
-            file_block = (
-                f"\n\n--- [FILE ACCESS RESTRICTED: NOT AUTHORIZED] ---\n"
-                f"The file '{file_name}' was provided in this thread, but you ({agent_display}) are not authorized to access it.\n"
-                f"INSTRUCTION: State in at most {notice_word_cap} words that you do not have permission / authorization to access or read this file. "
-                f"Include this 1-line resolution hint (recommend ONLY this 1 agent by name, never by agent ID): {hint}\n"
-                f"Do NOT report that the file was not found. Do NOT reflect on platform skills architecture. "
-                f"If the prompt contains other questions or tasks not requiring this file, proceed normally to evaluate and answer those after the <= {notice_word_cap}-word notice; "
-                f"{downstream_file_clause}\n"
-                f"--- [END OF NOTICE] ---"
+            file_block = render_prompt_template(
+                "turn_directives",
+                "file_access_not_authorized_notice",
+                file_name=file_name,
+                agent_display=agent_display,
+                notice_word_cap=notice_word_cap,
+                hint=hint,
+                downstream_file_clause=downstream_file_clause,
             )
         elif not has_skill:
             hint = build_skill_resolution_hint(
@@ -282,15 +283,15 @@ def build_llm_messages(
                 thread_ts=thread_ts,
                 exclude_agent_key=agent_key,
             )
-            file_block = (
-                f"\n\n--- [FILE ACCESS RESTRICTED: MISSING SKILL] ---\n"
-                f"The file '{file_name}' is available, but you ({agent_display}) do not have the required '{required_skill}' skill assigned to access or read files.\n"
-                f"INSTRUCTION: State in at most {notice_word_cap} words that you do not have permission / the required '{required_skill}' skill to access or read this file. "
-                f"Include this 1-line resolution hint (recommend ONLY this 1 agent by name, never by agent ID): {hint}\n"
-                f"Do NOT report that the file was not found. Do NOT reflect on platform skills architecture. "
-                f"If the prompt contains other questions or tasks not requiring this file, proceed normally to evaluate and answer those after the <= {notice_word_cap}-word notice; "
-                f"{downstream_file_clause}\n"
-                f"--- [END OF NOTICE] ---"
+            file_block = render_prompt_template(
+                "turn_directives",
+                "file_access_missing_skill_notice",
+                file_name=file_name,
+                agent_display=agent_display,
+                required_skill=required_skill,
+                notice_word_cap=notice_word_cap,
+                hint=hint,
+                downstream_file_clause=downstream_file_clause,
             )
         else:
             from core.security_utils import wrap_untrusted_content
@@ -317,42 +318,42 @@ def build_llm_messages(
                 thread_ts=thread_ts,
                 exclude_agent_key=agent_key,
             )
-            skill_notice_block = (
-                f"\n\n--- [PERMISSION RESTRICTED: MISSING REQUIRED SKILL(S)] ---\n"
-                f"The requested task requires or infers the following skill(s): {missing_str}, "
-                f"but you ({agent_display}) do not have permission or this skill assigned.\n"
-                f"INSTRUCTION: State in at most {notice_word_cap} words that you do not have permission / the required skill(s) ({missing_str}) to perform this action. "
-                f"Include this 1-line resolution hint (recommend ONLY this 1 agent by name, never by agent ID): {hint}\n"
-                f"Do NOT report that the file or resource was not found. Do NOT reflect on platform skills architecture. "
-                f"If the prompt contains other questions or tasks not requiring these skills, proceed normally to evaluate and answer those after the <= {notice_word_cap}-word notice; "
-                f"{downstream_skill_clause}\n"
-                f"--- [END OF NOTICE] ---"
+            skill_notice_block = render_prompt_template(
+                "turn_directives",
+                "skill_missing_notice",
+                missing_str=missing_str,
+                agent_display=agent_display,
+                notice_word_cap=notice_word_cap,
+                hint=hint,
+                downstream_skill_clause=downstream_skill_clause,
             )
 
     # Dynamic orchestration directive
     orchestration_block = ""
     if force_termination:
-        orchestration_block = (
-            "\n\nCRITICAL CONSTRAINT: You are the last agent requested to speak in this turn. "
-            "Do NOT nominate any other agent to speak next. Do NOT include any bracketed agent tag (like /[Agent_Name]) "
-            "at the end of your response. Simply answer the question/summarize and finish your response."
+        orchestration_block = render_prompt_template(
+            "turn_directives", "orchestration_force_termination"
         )
     elif next_designated_agent:
-        orchestration_block = (
-            f"\n\nDESIGNATED NEXT AGENT: At the very end of your response, nominate /[{next_designated_agent}] as the next agent to speak."
+        orchestration_block = render_prompt_template(
+            "turn_directives",
+            "orchestration_designated_next",
+            next_designated_agent=next_designated_agent,
         )
     elif remaining_agents:
         formatted_agents = ", ".join(f"/[{a}]" for a in remaining_agents)
-        orchestration_block = (
-            f"\n\nAVAILABLE AGENTS WHO HAVE NOT SPOKEN YET (nominate the next agent at the very end in /[AGENT_KEY] format):\n"
-            f"{formatted_agents}"
+        orchestration_block = render_prompt_template(
+            "turn_directives",
+            "orchestration_available_agents",
+            formatted_agents=formatted_agents,
         )
 
     lang_directive = ""
     if thread_language:
-        lang_directive = (
-            f"CRITICAL: You MUST write your entire response strictly in {thread_language}, "
-            "including all section labels, headings, and bullet points."
+        lang_directive = render_prompt_template(
+            "turn_directives",
+            "language_lock_directive",
+            thread_language=thread_language,
         )
 
     has_permission_restriction = bool(
@@ -362,36 +363,56 @@ def build_llm_messages(
     has_skill_context = bool(file_block or required_skills)
     anti_echo_directive = ""
     if has_permission_restriction:
-        anti_echo_directive = (
-            f"\n\nANTI-ECHO RULE: Do NOT debate, critique, or expand on previous agents' missing-skill notices or skills architecture. "
-            f"Keep your own missing-skill notice + 1-line hint strictly <= {notice_word_cap} words, then either evaluate any remaining non-skill parts "
-            f"of the user prompt normally, or—if the prompt has no other assessable parts—stop immediately and nominate the next agent."
+        anti_echo_directive = render_prompt_template(
+            "turn_directives",
+            "anti_echo_restricted",
+            notice_word_cap=notice_word_cap,
         )
     elif has_skill_context:
-        anti_echo_directive = (
-            "\n\nANTI-ECHO RULE: If any previous agent in the discussion history reported lacking permission or a skill that you possess, "
-            "do NOT debate, invert, or comment on their refusal notice. Ignore their refusal completely and directly fulfill the user's primary "
-            "request using your authorized access and the provided document/tool data."
+        anti_echo_directive = render_prompt_template(
+            "turn_directives", "anti_echo_authorized"
         )
 
     clean_prompt = prompt.strip() if prompt else ""
     prompt_anchor = f"\n\nPRIMARY USER REQUEST TO ADDRESS:\n{clean_prompt}" if clean_prompt else ""
 
+    def _append_memory_prefix() -> None:
+        if memory_prefix:
+            conversation.append(
+                {
+                    "role": "user",
+                    "content": render_prompt_template(
+                        "turn_directives",
+                        "memory_context_user_prefix",
+                        memory_prefix=memory_prefix,
+                    ),
+                }
+            )
+            conversation.append(
+                {
+                    "role": "assistant",
+                    "content": render_prompt_template(
+                        "turn_directives", "memory_context_assistant_ack"
+                    ),
+                }
+            )
+
+    def _build_bot_trigger_instruction() -> str:
+        persona_name = agent_cfg.get("displayname", agent_cfg.get("username", agent_key))
+        lang_part = f" {lang_directive}" if lang_directive else ""
+        instruction = render_prompt_template(
+            "turn_directives",
+            "bot_trigger_instruction",
+            persona_name=persona_name,
+            lang_part=lang_part,
+        )
+        if file_block and "<untrusted_file_content>" in file_block:
+            return f"{file_block}\n\n{instruction}{prompt_anchor}{skill_notice_block}{anti_echo_directive}{orchestration_block}"
+        return f"{instruction}{prompt_anchor}{file_block}{skill_notice_block}{anti_echo_directive}{orchestration_block}"
+
     if not is_bot_trigger:
         if effective_history:
-            if memory_prefix:
-                conversation.append(
-                    {
-                        "role": "user",
-                        "content": f"Context from earlier in this discussion thread:\n\n{memory_prefix}",
-                    }
-                )
-                conversation.append(
-                    {
-                        "role": "assistant",
-                        "content": "Understood. I will take this earlier thread summary and verified evidence into account alongside the conversation history.",
-                    }
-                )
+            _append_memory_prefix()
             conversation.extend(effective_history)
         lang_part = f"\n\n{lang_directive}" if lang_directive else ""
         mem_part = f"{memory_prefix}\n\n" if memory_prefix and not effective_history else ""
@@ -400,37 +421,9 @@ def build_llm_messages(
         conversation.append({"role": "user", "content": user_prompt})
     else:
         if effective_history:
-            if memory_prefix:
-                conversation.append(
-                    {
-                        "role": "user",
-                        "content": f"Context from earlier in this discussion thread:\n\n{memory_prefix}",
-                    }
-                )
-                conversation.append(
-                    {
-                        "role": "assistant",
-                        "content": "Understood. I will take this earlier thread summary and verified evidence into account alongside the conversation history.",
-                    }
-                )
+            _append_memory_prefix()
             conversation.extend(effective_history)
-            persona_name = agent_cfg.get("displayname", agent_cfg.get("username", agent_key))
-            lang_part = f" {lang_directive}" if lang_directive else ""
-            instruction = (
-                f"You have been called to speak as {persona_name}. "
-                "Please evaluate the discussion above and provide your response in accordance with your role and instructions."
-                f"{lang_part}"
-            )
-            if file_block and "<untrusted_file_content>" in file_block:
-                instruction = f"{file_block}\n\n{instruction}{prompt_anchor}{skill_notice_block}{anti_echo_directive}{orchestration_block}"
-            else:
-                instruction = f"{instruction}{prompt_anchor}{file_block}{skill_notice_block}{anti_echo_directive}{orchestration_block}"
-            conversation.append(
-                {
-                    "role": "user",
-                    "content": instruction,
-                }
-            )
+            conversation.append({"role": "user", "content": _build_bot_trigger_instruction()})
         else:
             lang_part = f"\n\n{lang_directive}" if lang_directive else ""
             mem_part = f"{memory_prefix}\n\n" if memory_prefix else ""
@@ -438,35 +431,21 @@ def build_llm_messages(
             user_prompt = f"{mem_part}{prompt}{lang_part}{file_block}{long_file_anchor}{skill_notice_block}{anti_echo_directive}{orchestration_block}"
             conversation.append({"role": "user", "content": user_prompt})
 
-
     # Ensure the first conversational message has role 'user' (for strict APIs like Anthropic/Gemini)
     if conversation and conversation[0]["role"] != "user":
         conversation.insert(
             0,
             {
                 "role": "user",
-                "content": "Context from previous discussion in thread:",
+                "content": render_prompt_template(
+                    "turn_directives", "fallback_user_context_header"
+                ),
             },
         )
 
     # Ensure the last conversational message has role 'user'
     if conversation and conversation[-1]["role"] != "user":
-        persona_name = agent_cfg.get("displayname", agent_cfg.get("username", agent_key))
-        instruction = (
-            f"You have been called to speak as {persona_name}. "
-            "Please evaluate the discussion above and provide your response in accordance with your role and instructions. "
-            f"{lang_directive}"
-        )
-        if file_block and "<untrusted_file_content>" in file_block:
-            instruction = f"{file_block}\n\n{instruction}{prompt_anchor}{skill_notice_block}{anti_echo_directive}{orchestration_block}"
-        else:
-            instruction = f"{instruction}{prompt_anchor}{file_block}{skill_notice_block}{anti_echo_directive}{orchestration_block}"
-        conversation.append(
-            {
-                "role": "user",
-                "content": instruction,
-            }
-        )
+        conversation.append({"role": "user", "content": _build_bot_trigger_instruction()})
 
     conversation = _normalize_conversation_messages(conversation)
     system_item = {"role": "system", "content": system_prompt}
@@ -513,12 +492,22 @@ def _normalize_conversation_messages(conversation: list[dict[str, Any]]) -> list
             normalized.append(item)
 
     if normalized and normalized[0]["role"] != "user":
-        normalized.insert(0, {"role": "user", "content": "Context from previous discussion in thread:"})
+        normalized.insert(
+            0,
+            {
+                "role": "user",
+                "content": render_prompt_template(
+                    "turn_directives", "fallback_user_context_header"
+                ),
+            },
+        )
     if normalized and normalized[-1]["role"] != "user":
         normalized.append(
             {
                 "role": "user",
-                "content": "Please evaluate the discussion above and provide your response in accordance with your role and instructions.",
+                "content": render_prompt_template(
+                    "turn_directives", "fallback_user_tail_instruction"
+                ),
             }
         )
     return normalized

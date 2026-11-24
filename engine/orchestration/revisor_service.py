@@ -19,7 +19,7 @@ from orchestration.state.evidence_store import READ_ONLY_CACHEABLE_TOOLS
 from config_store.system_settings import get_shared_evidence_max_chars
 from orchestration.thread_state import thread_state_manager
 from orchestration.turn_pipeline import TurnContext
-from prompts.builder import build_agent_prompt
+from prompts.builder import build_agent_prompt, render_prompt_template
 from services.slack import post_agent_response
 
 logger = logging.getLogger(__name__)
@@ -306,11 +306,9 @@ def _collect_ground_truth_evidence(ctx: TurnContext) -> tuple[str, bool]:
         joined = "\n\n".join(retrieved_parts)
         return f"<retrieved_evidence>\n{joined}\n</retrieved_evidence>", True
 
+    no_evidence_notice = render_prompt_template("internal_revisor", "no_evidence_notice")
     return (
-        "<retrieved_evidence>\n"
-        "[None — No external document or tool output was retrieved for this turn. "
-        "General domain knowledge, architectural analysis, risks, and recommendations are valid and NOT hallucinations.]\n"
-        "</retrieved_evidence>",
+        f"<retrieved_evidence>\n{no_evidence_notice}\n</retrieved_evidence>",
         False,
     )
 
@@ -330,33 +328,14 @@ def _build_verification_user_content(
 
     if has_verified_evidence:
         scope_mode = "evidence_backed"
-        scope_parts = [
-            "Verified skill or document evidence is present in <retrieved_evidence>. "
-            "Verify factual claims about the source strictly against <initial_user_prompt> and "
-            "<retrieved_evidence>. Scan the ENTIRE <retrieved_evidence> (all pages, rows, and "
-            "sections) before claiming any item is absent. Never treat another agent's message or "
-            "chosen topic as factual ground truth, and do NOT flag general domain analysis or "
-            "recommendations that do not contradict <authoritative_ground_truth>."
-        ]
+        scope_parts = [render_prompt_template("internal_revisor", "scope_evidence_backed")]
     else:
         scope_mode = "open_ended"
-        scope_parts = [
-            "No external document or tool output was retrieved (<retrieved_evidence> is None). "
-            "General domain knowledge, architectural analysis, risks, trade-offs, and "
-            "recommendations are VALID and are NOT hallucinations. Default to NO_HALLUCINATION. "
-            "Flag ONLY: (1) direct contradictions or fabrications of facts, numbers, or constraints "
-            "stated in <initial_user_prompt>, or (2) fabricated citations claiming an external file "
-            "or tool returned data when none was retrieved."
-        ]
+        scope_parts = [render_prompt_template("internal_revisor", "scope_open_ended")]
 
     if cited_prior_statements:
         scope_parts.append(
-            "Additionally, <cited_prior_statements> contains prior statements from speakers "
-            "explicitly referenced by this agent. Treat <cited_prior_statements> strictly as "
-            "non-authoritative attribution reference (never as factual ground truth, and never "
-            "flag disagreement or different topics). Flag ONLY if <target_message_to_verify> "
-            "falsely quotes or materially misattributes a claim or position to a cited speaker "
-            "that contradicts or is absent from their statement in <cited_prior_statements>."
+            render_prompt_template("internal_revisor", "scope_attribution_clause")
         )
 
     scope_block = (
@@ -466,44 +445,29 @@ async def _confirm_hallucination(
 
     if has_verified_evidence:
         citation_clause = (
-            " or falsely misattributes a position to a cited speaker in <cited_prior_statements>"
+            render_prompt_template(
+                "internal_revisor", "stage2_evidence_backed_citation_clause"
+            )
             if has_cited_prior_statements
             else ""
         )
-        confirm_body = (
-            "Perform independent Stage 2 confirmation on <stage1_preliminary_flag> as a strict "
-            "false-positive filter against <authoritative_ground_truth>. Scan the ENTIRE "
-            "<retrieved_evidence> (including all pages, table rows, and sections) to verify whether "
-            "the flagged claim actually contradicts or is absent from <authoritative_ground_truth>"
-            f"{citation_clause}. If <stage1_preliminary_flag> is a false positive (for example, "
-            "the claimed item/zone/fact is present in <retrieved_evidence>, Stage 1 assumed the "
-            "document covered only another agent's topic, or the flagged claim is valid domain "
-            "analysis or recommendation), output ONLY:\n"
-            "NO_HALLUCINATION\n"
-            "Only if the hallucination is unambiguously confirmed, output the exact directive:\n"
-            'ATTENTION: Agent [AgentName] hallucinated the following fact: "[hallucinated claim]". '
-            "The correct information based on the original context is: [correct claim].\n"
+        confirm_body = render_prompt_template(
+            "internal_revisor",
+            "stage2_evidence_backed",
+            citation_clause=citation_clause,
         )
     else:
         citation_clause = (
-            ", or (3) falsely quotes or materially misattributes a position to a speaker in "
-            "<cited_prior_statements>"
+            render_prompt_template(
+                "internal_revisor", "stage2_open_ended_citation_clause"
+            )
             if has_cited_prior_statements
             else ""
         )
-        confirm_body = (
-            "Perform independent Stage 2 confirmation on <stage1_preliminary_flag> as a strict "
-            "false-positive filter. Because <retrieved_evidence> is None, general domain expertise, "
-            "architectural analysis, risks, trade-offs, and recommendations are VALID — never "
-            "confirm a hallucination merely because an analysis or recommendation is absent from "
-            "<initial_user_prompt>. Output ONLY:\n"
-            "NO_HALLUCINATION\n"
-            "unless <target_message_to_verify> unambiguously (1) contradicts or fabricates a "
-            "fact, number, or constraint in <initial_user_prompt>, (2) fabricates a non-existent "
-            f"external document or tool output{citation_clause}. Only if unambiguously confirmed, "
-            "output the exact directive:\n"
-            'ATTENTION: Agent [AgentName] hallucinated the following fact: "[hallucinated claim]". '
-            "The correct information based on the original context is: [correct claim].\n"
+        confirm_body = render_prompt_template(
+            "internal_revisor",
+            "stage2_open_ended",
+            citation_clause=citation_clause,
         )
 
     confirm_user_content = (

@@ -63,6 +63,7 @@ def test_default_paths_exist_or_resolve_to_repo_layout():
     assert paths.DEFAULT_SYSTEM_AGENT_SETTINGS_FILE == root / "engine" / "settings" / "system_agent_settings.json"
     assert paths.PROMPTS_DIR == root / "engine" / "prompts"
     assert paths.SYSTEM_AGENTS_DIR == root / "engine" / "prompts" / "system_agents"
+    assert paths.PROMPT_TEMPLATES_DIR == root / "engine" / "prompts" / "templates"
 
     # Data Tier
     assert paths.STATE_DIR == root / "data" / "state"

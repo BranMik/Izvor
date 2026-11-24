@@ -86,6 +86,7 @@ SYSTEM_AGENT_SETTINGS_FILE = _resolve_env_path(
 PROMPTS_DIR = _resolve_env_path("IZVOR_PROMPTS_DIR", ENGINE_DIR / "prompts")
 SYSTEM_AGENTS_DIR = PROMPTS_DIR / "system_agents"
 SHARED_PROMPTS_DIR = PROMPTS_DIR / "shared"
+PROMPT_TEMPLATES_DIR = PROMPTS_DIR / "templates"
 ENGINE_SKILLS_DIR = _resolve_env_path("IZVOR_ENGINE_SKILLS_DIR", ENGINE_DIR / "skills" / "builtin")
 ENGINE_WORKFLOWS_DIR = _resolve_env_path("IZVOR_ENGINE_WORKFLOWS_DIR", ENGINE_DIR / "workflows")
 ENGINE_AVATARS_DIR = ENGINE_DIR / "avatars"
@@ -175,6 +176,7 @@ __all__ = [
     "PRICING_CACHE_FILE",
     "PRICING_DIR",
     "PROJECT_ROOT",
+    "PROMPT_TEMPLATES_DIR",
     "PROMPTS_DIR",
     "RAG_CACHE_DIR",
     "RAG_KNOWLEDGE_DIR",

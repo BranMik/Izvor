@@ -12,6 +12,7 @@ import litellm
 from config_store.system_settings import system_settings_manager
 from core.llm_utils import execute_llm_with_retry
 from orchestration.protocols import PipelineDeps
+from prompts.builder import render_prompt_template
 
 if TYPE_CHECKING:
     from orchestration.turn_pipeline import TurnContext
@@ -132,9 +133,8 @@ class TurnFinalizer:
         ctx.messages.append(
             {
                 "role": "user",
-                "content": (
-                    "Maximum tool call iterations reached. Do NOT request any further tools. "
-                    "Provide your complete final response now using only the gathered context and tool outputs above."
+                "content": render_prompt_template(
+                    "turn_directives", "tool_loop_max_iterations_synthesis"
                 ),
             }
         )

@@ -1,4 +1,6 @@
 
+import pytest
+
 from core import paths
 from config_store.system_settings import (
     SystemSettingsModel,
@@ -24,7 +26,7 @@ from config_store.system_settings import (
     get_web_security,
     get_security_burst_limits,
 )
-from prompts.builder import load_system_prompt
+from prompts.builder import load_prompt_templates, load_system_prompt, render_prompt_template
 
 
 def test_core_paths_rag_anchors():
@@ -40,26 +42,70 @@ def test_core_paths_rag_anchors():
 
 
 def test_load_system_prompt_files():
-    """Verifies that extracted system prompts exist in prompts/system_agents/ and load correctly."""
+    """Verifies that all system prompts exist in prompts/system_agents/ and load without fallbacks."""
     prompt_files = [
         "Discussion_Scribe_Live",
         "Discussion_Scribe_Conclusion",
         "Intent_Extractor",
         "Language_Detector",
+        "InternalRevisor",
+        "Pricing_Agent",
+        "Challenger",
+        "Arbitrator",
+        "List_Skills",
     ]
     for prompt_name in prompt_files:
         file_path = paths.SYSTEM_AGENTS_DIR / f"{prompt_name}.md"
         assert file_path.exists(), f"Missing prompt file: {file_path}"
-        content = load_system_prompt(prompt_name, fallback="FALLBACK")
-        assert content != "FALLBACK", f"Failed to read prompt content for {prompt_name}"
+        content = load_system_prompt(prompt_name)
         assert len(content) > 20, f"Prompt content suspiciously short for {prompt_name}"
 
 
-def test_load_system_prompt_fallback(tmp_path):
-    """Verifies that load_system_prompt falls back gracefully when file does not exist."""
-    fallback_text = "Custom fallback instructions"
-    loaded = load_system_prompt("non_existent_prompt_xyz_123", fallback=fallback_text)
-    assert loaded == fallback_text
+def test_load_system_prompt_missing_raises_file_not_found():
+    """Verifies that load_system_prompt fails fast with FileNotFoundError when a prompt file is missing."""
+    with pytest.raises(FileNotFoundError):
+        load_system_prompt("non_existent_prompt_xyz_123")
+
+
+def test_prompt_templates_registry_and_fail_fast():
+    """Verifies PROMPT_TEMPLATES_DIR, all JSON template bundles, rendering, and fail-fast errors."""
+    assert paths.PROMPT_TEMPLATES_DIR == paths.PROMPTS_DIR / "templates"
+    template_bundles = [
+        "discussion_scribe",
+        "internal_revisor",
+        "output_constraints",
+        "skills_and_extractor",
+        "turn_directives",
+    ]
+    for bundle in template_bundles:
+        file_path = paths.PROMPT_TEMPLATES_DIR / f"{bundle}.json"
+        assert file_path.exists(), f"Missing template file: {file_path}"
+        loaded = load_prompt_templates(bundle)
+        assert loaded, f"Empty template map in {file_path}"
+        assert all(isinstance(k, str) and isinstance(v, str) and v for k, v in loaded.items())
+
+    rendered = render_prompt_template("output_constraints", "max_words_rule", max_words=40)
+    assert "40" in rendered
+
+    with pytest.raises(FileNotFoundError):
+        load_prompt_templates("non_existent_bundle_xyz")
+
+    with pytest.raises(KeyError):
+        render_prompt_template("output_constraints", "non_existent_key_xyz")
+
+
+def test_no_duplicate_hardcoded_prompt_fallbacks_in_engine():
+    """Verifies duplicate _DEFAULT_*_FALLBACK system prompt copies are removed from engine modules."""
+    from core.config import get_pricing_agent_prompt
+    from nlp import intent_extractor, language_detector
+    from pipeline.discussion_scribe import scribe
+
+    assert not hasattr(scribe, "_DEFAULT_SCRIBE_PROMPT_FALLBACK")
+    assert not hasattr(scribe, "_DEFAULT_CONCLUSION_PROMPT_FALLBACK")
+    assert not hasattr(intent_extractor, "_DEFAULT_EXTRACTOR_PROMPT_FALLBACK")
+    assert not hasattr(language_detector, "_DEFAULT_SYSTEM_PROMPT_FALLBACK")
+    pricing_prompt = get_pricing_agent_prompt()
+    assert pricing_prompt == (paths.SYSTEM_AGENTS_DIR / "Pricing_Agent.md").read_text(encoding="utf-8")
 
 
 def test_system_settings_extracted_constants_defaults():

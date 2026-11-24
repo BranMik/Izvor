@@ -1,0 +1,6 @@
+{
+  "min_words_rule": "Minimum Length: Your entire response must have a minimum length of {min_words} words.",
+  "max_words_rule": "Hard Limit: Your entire response must strictly NOT exceed {max_words} words.",
+  "compact_override_block": "<output_and_length_constraints>\nOUTPUT & LENGTH CONSTRAINTS:\n\n{word_constraints}\nCompact Override: Omit all multi-section headings, bullet lists, and conversational preamble; deliver a single concise response strictly within the word limit.\nSkill-Lack Notice Compression: Keep any missing-skill or file-permission notice strictly <= 50 words (including a 1-line hint recommending just 1 authorized agent by name—never by agent ID—or /grant_skill) with zero reflection on skills architecture.\n</output_and_length_constraints>"
+}
+

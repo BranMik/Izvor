@@ -9,62 +9,12 @@ import litellm
 from core.config import get_orchestrator_fast_model, get_system_agent_model
 from core.domain import DiscussionBrief, DiscussionConclusion, Turn
 
-from prompts.builder import load_system_prompt
+from prompts.builder import load_system_prompt, render_prompt_template
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_SCRIBE_PROMPT_FALLBACK = """<system_agent_specification id="Discussion_Scribe_Live" role="Live Strategic Synthesis Scribe">
-  <task_objective>
-    Analyze the ongoing multi-agent discussion transcript and synthesize a concise, high-density live strategic brief in Slack that always fits comfortably within Slack message limits.
-  </task_objective>
-
-  <processing_rules>
-    1. Language Invariant: Write ALL headers, section titles, status indicators, and bullet points strictly in the designated thread language. Never switch languages mid-note.
-    2. Section Structure & Strict Word Limits (translate section titles into the designated thread language):
-       - *Core Objective & Problem Statement* (max 35 words): 1–2 concise sentences stating the core problem and goal.
-       - *Key Perspectives* (max 190 words total; max 30 words per bullet): 1 compact bullet per speaking agent ("• **[AgentName]**: core proposal and key rationale").
-       - *Risks & Open Questions* (max 75 words): Concise bullets for critical risks or unresolved questions surfaced during the discussion.
-    3. Skip Empty Sections (CRITICAL): NEVER write a section title with empty content or placeholder text (such as "None", "N/A", or "Nothing identified yet"). If there is nothing substantive to write for a section, omit that section completely.
-    4. Live Note Boundary (CRITICAL): Do NOT include consensus decisions, final conclusions, or action items in this live note (those belong exclusively in the separate Conclusion Note).
-    5. Hard Total Ceiling: Keep the entire note strictly under 300 words (under 220 words while ongoing; under 50 words on the initial turn) unless overridden by an explicit user word-count directive.
-    6. Strict Speaker Attribution: Attribute viewpoints and perspectives ONLY to agents who have an explicit "[AgentName]:" turn header in the transcript.
-  </processing_rules>
-
-  <output_contract>
-    - Output ONLY the structured markdown live synthesis note containing the applicable non-empty translated sections above.
-    - Zero introductory or closing meta-commentary.
-  </output_contract>
-</system_agent_specification>"""
-
-_DEFAULT_CONCLUSION_PROMPT_FALLBACK = """<system_agent_specification id="Discussion_Scribe_Conclusion" role="Dialectical Conclusion Synthesizer">
-  <task_objective>
-    Analyze the completed multi-agent deliberation transcript and synthesize a compact, executive-level Conclusion Note capturing consensus decisions, divergent positions with trade-offs, and concrete next steps within Slack message limits.
-  </task_objective>
-
-  <processing_rules>
-    1. Language Invariant: Write ALL headers, section titles, and bullet points strictly in the designated thread language. Never switch languages.
-    2. Section Structure & Strict Word Limits (translate section titles into the designated thread language):
-       - *Problem Statement* (max 25 words): Exactly 1 concise sentence stating the core question or objective addressed.
-       - *Consensus Decisions* (max 85 words): Concise bullets stating decisions and propositions where participating agents reached broad agreement.
-       - *Divergent Positions & Trade-offs* (max 140 words): Represent each opposing, minority, or alternative position as a single compact bullet combining attribution, rationale, and trade-offs:
-         • **[Position / Recommendation]** ([Supporting Agents]): Core argument and evidence — *Trade-off / Counter:* key criticism or risk raised.
-       - *Action Items & Next Steps* (max 70 words): Concrete, prioritized follow-up actions resulting from the deliberation.
-    3. Skip Empty Sections (CRITICAL): NEVER write a section title with empty content or placeholder text (such as "None", "N/A", or "No opposing views"). If a section has nothing substantive to report (e.g., unanimous agreement with no divergent positions, or no action items), omit that section completely.
-    4. Hard Total Ceiling: Keep the entire Conclusion Note strictly under 320 words unless overridden by an explicit user word-count directive.
-    5. Dialectical Impartiality: Never suppress dissenting or minority viewpoints; represent minority arguments with the same analytical rigor as majority consensus.
-    6. Strict Speaker Attribution: Attribute arguments, positions, and supporting agents ONLY to agents who have an explicit "[AgentName]:" turn header in the transcript. NEVER attribute viewpoints to agents who were merely nominated or mentioned at the end of another speaker's message but did not actually speak.
-  </processing_rules>
-
-  <output_contract>
-    - Output ONLY the structured Conclusion Note in clean, scannable markdown containing the applicable non-empty translated sections.
-    - Zero conversational filler or meta-commentary.
-  </output_contract>
-</system_agent_specification>"""
-
-SCRIBE_DEFAULT_PROMPT = load_system_prompt("Discussion_Scribe_Live", fallback=_DEFAULT_SCRIBE_PROMPT_FALLBACK)
-SCRIBE_CONCLUSION_PROMPT = load_system_prompt(
-    "Discussion_Scribe_Conclusion", fallback=_DEFAULT_CONCLUSION_PROMPT_FALLBACK
-)
+SCRIBE_DEFAULT_PROMPT = load_system_prompt("Discussion_Scribe_Live")
+SCRIBE_CONCLUSION_PROMPT = load_system_prompt("Discussion_Scribe_Conclusion")
 
 
 def _clean_turn_content_for_scribe(content: str) -> str:
@@ -179,11 +129,21 @@ def _build_length_instruction(
     directives: list[str] = []
     if scribe_max_words is not None:
         directives.append(
-            f"CRITICAL LENGTH OVERRIDE: The entire {noun} (including any status badge, headings, and speaker tags) MUST NOT exceed {scribe_max_words} words total. Be extremely concise."
+            render_prompt_template(
+                "discussion_scribe",
+                "length_max_words_override",
+                noun=noun,
+                scribe_max_words=scribe_max_words,
+            )
         )
     if scribe_min_words is not None:
         directives.append(
-            f"CRITICAL LENGTH CONSTRAINT: The entire {noun} must have a minimum length of {scribe_min_words} words. Elaborate sufficiently to meet this floor."
+            render_prompt_template(
+                "discussion_scribe",
+                "length_min_words_constraint",
+                noun=noun,
+                scribe_min_words=scribe_min_words,
+            )
         )
     return f" {' '.join(directives)}" if directives else ""
 
@@ -564,46 +524,50 @@ class DiscussionScribe:
         extra_len_instruction = _build_length_instruction(scribe_max_words, scribe_min_words, "synthesis note")
 
         compact_brief_override = (
-            f"OVERRIDE: The explicit /scribe_max_words {scribe_max_words} directive SUPERSEDES all default "
-            "multi-section layouts and per-section word budgets above. Do NOT use multiple section headings, "
-            "and do NOT include consensus decisions, conclusions, or action items. Output a single ultra-concise "
-            f"synthesis (status indicator + core objective + key speaker takeaway) strictly under {scribe_max_words} words total."
+            render_prompt_template(
+                "discussion_scribe",
+                "brief_compact_override",
+                scribe_max_words=scribe_max_words,
+            )
+            if scribe_max_words is not None and scribe_max_words <= 60
+            else ""
         )
 
         if is_completed:
-            if scribe_max_words is not None and scribe_max_words <= 60:
-                structure_req = compact_brief_override
-            else:
-                structure_req = (
-                    "Include *Core Objective & Problem Statement* (<=35 words), *Key Perspectives* (<=190 words total, <=30 words per bullet), "
-                    "and *Risks & Open Questions* (<=75 words). Do NOT include consensus decisions, final conclusions, or action items (those belong in the dedicated Conclusion Note). "
-                    "CRITICAL: If there is nothing substantive for a section, omit that section completely (never output empty sections)."
+            structure_req = (
+                compact_brief_override
+                if compact_brief_override
+                else render_prompt_template(
+                    "discussion_scribe", "brief_completed_standard_structure"
                 )
+            )
             ceiling_text = (
                 f"strictly under {scribe_max_words} words"
                 if scribe_max_words is not None
                 else "strictly under 300 words maximum ceiling"
             )
-            status_directive = (
-                f"The discussion has finished. Generate the FINAL concise strategic synthesis live notes ({ceiling_text}). "
-                f"{structure_req} "
-                f"CRITICAL: Write ALL titles and content strictly in {thread_language}. "
-                "Use an appropriate natural status indicator translated into the thread language in the header (e.g. Completed ✅)."
-                f"{extra_len_instruction}"
+            status_directive = render_prompt_template(
+                "discussion_scribe",
+                "brief_completed_status_directive",
+                ceiling_text=ceiling_text,
+                structure_req=structure_req,
+                thread_language=thread_language,
+                extra_len_instruction=extra_len_instruction,
             )
         elif assistant_turns <= 1:
-            if scribe_max_words is not None and scribe_max_words <= 60:
-                init_structure_req = compact_brief_override
-            else:
-                init_structure_req = (
-                    "Generate the initial concise strategic synthesis note (strictly under 50 words total). "
-                    "State the initial core objective and initial key perspective. Omit any empty sections."
+            init_structure_req = (
+                compact_brief_override
+                if compact_brief_override
+                else render_prompt_template(
+                    "discussion_scribe", "brief_initial_standard_structure"
                 )
-            status_directive = (
-                f"This is the initial turn of the discussion. {init_structure_req} "
-                f"CRITICAL: Write ALL titles and content strictly in {thread_language}. "
-                "Use an appropriate natural status indicator translated into the thread language in the header (e.g. Updating live...)."
-                f"{extra_len_instruction}"
+            )
+            status_directive = render_prompt_template(
+                "discussion_scribe",
+                "brief_initial_status_directive",
+                structure_req=init_structure_req,
+                thread_language=thread_language,
+                extra_len_instruction=extra_len_instruction,
             )
         else:
             ceiling_text = (
@@ -611,19 +575,20 @@ class DiscussionScribe:
                 if scribe_max_words is not None
                 else "strictly under 220 words maximum ceiling"
             )
-            if scribe_max_words is not None and scribe_max_words <= 60:
-                ongoing_structure_req = compact_brief_override
-            else:
-                ongoing_structure_req = (
-                    "Include *Core Objective & Problem Statement* (<=35 words), *Key Perspectives* (<=140 words total), and *Risks & Open Questions* (<=45 words). "
-                    "CRITICAL: If there is nothing substantive for a section, omit that section completely (never output empty sections)."
+            ongoing_structure_req = (
+                compact_brief_override
+                if compact_brief_override
+                else render_prompt_template(
+                    "discussion_scribe", "brief_ongoing_standard_structure"
                 )
-            status_directive = (
-                f"The discussion is actively ongoing. Generate the updated, concise strategic synthesis notes ({ceiling_text}). "
-                f"{ongoing_structure_req} "
-                f"CRITICAL: Write ALL titles and content strictly in {thread_language}. "
-                "Use an appropriate natural status indicator translated into the thread language in the header (e.g. Updating live...)."
-                f"{extra_len_instruction}"
+            )
+            status_directive = render_prompt_template(
+                "discussion_scribe",
+                "brief_ongoing_status_directive",
+                ceiling_text=ceiling_text,
+                structure_req=ongoing_structure_req,
+                thread_language=thread_language,
+                extra_len_instruction=extra_len_instruction,
             )
 
         transcript_text, speakers_str = _format_transcript(history)
@@ -638,11 +603,11 @@ class DiscussionScribe:
             {"role": "system", "content": f"{self.system_prompt}\n\n{status_directive}"},
             {
                 "role": "user",
-                "content": (
-                    f"PARTICIPATING AGENTS WHO ACTUALLY SPOKE IN THIS TRANSCRIPT: [{speakers_str}]\n"
-                    f"STRICT ATTRIBUTION CONSTRAINT: Attribute viewpoints and perspectives ONLY to agents listed above who actually spoke in the transcript.\n\n"
-                    f"Here is the discussion transcript to synthesize:\n\n{transcript_text}\n\n"
-                    f"Please generate the strategic synthesis notes now."
+                "content": render_prompt_template(
+                    "discussion_scribe",
+                    "brief_user_prompt",
+                    speakers_str=speakers_str,
+                    transcript_text=transcript_text,
                 ),
             },
         ]
@@ -729,21 +694,22 @@ class DiscussionScribe:
             else "strictly under 320 words maximum ceiling"
         )
         if scribe_max_words is not None and scribe_max_words <= 60:
-            conclusion_structure_req = (
-                f"OVERRIDE: The explicit /scribe_max_words {scribe_max_words} directive SUPERSEDES the default "
-                "4-section layout and per-section word budgets above. Do NOT use multiple verbose section headings. "
-                f"Output a single ultra-concise conclusion capturing the core verdict and key takeaway strictly under {scribe_max_words} words total."
+            conclusion_structure_req = render_prompt_template(
+                "discussion_scribe",
+                "conclusion_compact_override",
+                scribe_max_words=scribe_max_words,
             )
         else:
-            conclusion_structure_req = (
-                "Structure into: *Problem Statement* (<=25 words), *Consensus Decisions* (<=85 words), *Divergent Positions & Trade-offs* (<=140 words, 1 compact bullet per position), and *Action Items & Next Steps* (<=70 words). "
-                "CRITICAL: If there is nothing substantive for a section (e.g. unanimous agreement with no divergent positions, or no action items), omit that section completely (never output empty sections)."
+            conclusion_structure_req = render_prompt_template(
+                "discussion_scribe", "conclusion_standard_structure"
             )
-        status_directive = (
-            f"The discussion has fully concluded. Analyze the complete debate and generate the compact Conclusion Note ({ceiling_text}). "
-            f"{conclusion_structure_req} "
-            f"CRITICAL: Write ALL headers, titles, and text strictly in {thread_language}. "
-            f"{extra_len_instruction}"
+        status_directive = render_prompt_template(
+            "discussion_scribe",
+            "conclusion_status_directive",
+            ceiling_text=ceiling_text,
+            structure_req=conclusion_structure_req,
+            thread_language=thread_language,
+            extra_len_instruction=extra_len_instruction,
         )
 
         transcript_text, speakers_str = _format_transcript(history)
@@ -758,11 +724,11 @@ class DiscussionScribe:
             {"role": "system", "content": f"{SCRIBE_CONCLUSION_PROMPT}\n\n{status_directive}"},
             {
                 "role": "user",
-                "content": (
-                    f"PARTICIPATING AGENTS WHO ACTUALLY SPOKE IN THIS DELIBERATION: [{speakers_str}]\n"
-                    f"STRICT ATTRIBUTION CONSTRAINT: Attribute opinions, consensus, and opposing arguments ONLY to agents listed in the participating list above who have an explicit turn header in the transcript. NEVER attribute positions or list as 'Supporting Agents' any agent who did not speak in the transcript.\n\n"
-                    f"Here is the complete discussion transcript to analyze and conclude:\n\n{transcript_text}\n\n"
-                    f"Please generate the comprehensive Conclusion Note now."
+                "content": render_prompt_template(
+                    "discussion_scribe",
+                    "conclusion_user_prompt",
+                    speakers_str=speakers_str,
+                    transcript_text=transcript_text,
                 ),
             },
         ]

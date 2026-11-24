@@ -399,10 +399,9 @@ _CACHED_PROMPTS: dict[str, str] = {}
 def get_pricing_agent_prompt() -> str:
     if "pricing_agent" not in _CACHED_PROMPTS:
         prompt_file = PROMPTS_DIR / "system_agents" / "Pricing_Agent.md"
-        if prompt_file.exists():
-            _CACHED_PROMPTS["pricing_agent"] = prompt_file.read_text(encoding="utf-8")
-        else:
-            _CACHED_PROMPTS["pricing_agent"] = "You are a pricing analyst."
+        if not prompt_file.exists():
+            raise FileNotFoundError(f"Missing required system prompt file: {prompt_file}")
+        _CACHED_PROMPTS["pricing_agent"] = prompt_file.read_text(encoding="utf-8")
     return _CACHED_PROMPTS["pricing_agent"]
 
 

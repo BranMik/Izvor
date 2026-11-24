@@ -1,3 +1,4 @@
+import json
 import logging
 import re
 from functools import cache
@@ -14,6 +15,7 @@ from config_store.system_settings import get_output_max_words
 from core.models import is_dialectical_system_agent
 from core.paths import (
     PERSONAS_DIR,
+    PROMPT_TEMPLATES_DIR,
     PROMPTS_DIR,
     SYSTEM_AGENTS_DIR,
 )
@@ -39,23 +41,47 @@ def _read_prompt_file(path: Path) -> str:
 
 
 @cache
-def _load_system_prompt_cached(path_str: str, mtime_ns: int, fallback: str) -> str:
-    file_path = Path(path_str)
-    if file_path.exists():
-        try:
-            return file_path.read_text(encoding="utf-8").strip()
-        except (OSError, UnicodeDecodeError) as e:
-            logger.warning(f"Error reading prompt file {file_path}: {e}")
-    return fallback.strip()
+def _load_system_prompt_cached(path_str: str, mtime_ns: int) -> str:
+    return Path(path_str).read_text(encoding="utf-8").strip()
 
 
-def load_system_prompt(name: str, fallback: str = "") -> str:
-    """Loads a system agent prompt markdown file from SYSTEM_AGENTS_DIR with caching and fallback."""
+def load_system_prompt(name: str) -> str:
+    """Loads a system agent prompt markdown file from SYSTEM_AGENTS_DIR with caching; fails fast if missing."""
     file_path = SYSTEM_AGENTS_DIR / f"{name}.md"
-    if file_path.exists():
-        mtime_ns = file_path.stat().st_mtime_ns
-        return _load_system_prompt_cached(str(file_path.resolve()), mtime_ns, fallback)
-    return fallback.strip()
+    if not file_path.exists():
+        raise FileNotFoundError(f"System prompt file not found: {file_path}")
+    mtime_ns = file_path.stat().st_mtime_ns
+    return _load_system_prompt_cached(str(file_path.resolve()), mtime_ns)
+
+
+@cache
+def _load_prompt_templates_cached(path_str: str, mtime_ns: int) -> tuple[tuple[str, str], ...]:
+    raw = json.loads(Path(path_str).read_text(encoding="utf-8"))
+    if not isinstance(raw, dict) or not all(
+        isinstance(k, str) and isinstance(v, str) for k, v in raw.items()
+    ):
+        raise ValueError(
+            f"Prompt template file must be a flat JSON object of string values: {path_str}"
+        )
+    return tuple(raw.items())
+
+
+def load_prompt_templates(name: str) -> dict[str, str]:
+    """Loads a keyed JSON prompt template map from PROMPT_TEMPLATES_DIR with mtime caching."""
+    file_path = PROMPT_TEMPLATES_DIR / f"{name}.json"
+    if not file_path.exists():
+        raise FileNotFoundError(f"Prompt template file not found: {file_path}")
+    mtime_ns = file_path.stat().st_mtime_ns
+    return dict(_load_prompt_templates_cached(str(file_path.resolve()), mtime_ns))
+
+
+def render_prompt_template(name: str, key: str, **kwargs: Any) -> str:
+    """Loads key from PROMPT_TEMPLATES_DIR/<name>.json and formats with kwargs when provided."""
+    templates = load_prompt_templates(name)
+    if key not in templates:
+        raise KeyError(f"Prompt template key '{key}' not found in '{name}.json'")
+    template = templates[key]
+    return template.format(**kwargs) if kwargs else template
 
 
 def get_short_output_agents() -> set[str]:
@@ -145,9 +171,9 @@ def _strip_output_contract(persona_content: str) -> str:
 def _format_word_constraints(max_words: int | None = None, min_words: int | None = None) -> str:
     constraints = []
     if min_words is not None:
-        constraints.append(f"Minimum Length: Your entire response must have a minimum length of {min_words} words.")
+        constraints.append(render_prompt_template("output_constraints", "min_words_rule", min_words=min_words))
     if max_words is not None:
-        constraints.append(f"Hard Limit: Your entire response must strictly NOT exceed {max_words} words.")
+        constraints.append(render_prompt_template("output_constraints", "max_words_rule", max_words=max_words))
     return "\n".join(constraints)
 
 
@@ -205,15 +231,10 @@ def _build_output_constraints(
         return base_constraints, False
 
     if effective_max is not None and effective_max < COMPACT_WORD_THRESHOLD:
-        compact_block = (
-            "<output_and_length_constraints>\n"
-            "OUTPUT & LENGTH CONSTRAINTS:\n\n"
-            f"{word_constraints}\n"
-            "Compact Override: Omit all multi-section headings, bullet lists, and conversational preamble; "
-            "deliver a single concise response strictly within the word limit.\n"
-            "Skill-Lack Notice Compression: Keep any missing-skill or file-permission notice strictly <= 50 words "
-            "(including a 1-line hint recommending just 1 authorized agent by name—never by agent ID—or /grant_skill) with zero reflection on skills architecture.\n"
-            "</output_and_length_constraints>"
+        compact_block = render_prompt_template(
+            "output_constraints",
+            "compact_override_block",
+            word_constraints=word_constraints,
         )
         return compact_block, True
 

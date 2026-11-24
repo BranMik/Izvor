@@ -19,6 +19,7 @@ from core.models import OrchestrationMode
 from config_store import agent_settings
 from orchestration.thread_state import thread_state_manager
 from pipeline.spend_governance.circuit_breaker import spend_governance
+from prompts.builder import render_prompt_template
 from services.slack import fetch_thread_history
 
 logger = logging.getLogger(__name__)
@@ -378,7 +379,9 @@ class DiscussionLoop:
                             gather_kwargs: dict[str, Any] = {
                                 "channel_id": channel_id,
                                 "thread_ts": thread_ts,
-                                "raw_text": "Synthesize the parallel specialist perspectives into a reconciled conclusion.",
+                                "raw_text": render_prompt_template(
+                                    "turn_directives", "scatter_gather_synthesis_prompt"
+                                ),
                                 "bot_user_id": bot_user_id,
                                 "icon_url": icon_url,
                                 "is_bot_trigger": True,
